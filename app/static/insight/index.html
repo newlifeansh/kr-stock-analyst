@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>인사이트</title>
+    <link rel="stylesheet" href="/assets/insight/styles.css?v=20260620d" />
+  </head>
+  <body>
+    <div class="app-shell" id="app-shell">
+      <aside class="sidebar">
+        <div class="brand-row">
+          <div class="brand-mark">I</div>
+          <div class="brand-copy">
+            <strong>인사이트</strong>
+            <span id="sidebar-status">데이터 연결 중</span>
+          </div>
+        </div>
+
+        <nav class="nav-groups">
+          <section class="nav-group">
+            <button class="nav-item active" data-section="company_brief">종목브리핑</button>
+          </section>
+
+          <section class="nav-group" hidden>
+            <button class="nav-item" data-section="portfolio">토스증권</button>
+            <div class="subnav" id="portfolio-subnav"></div>
+          </section>
+
+          <section class="nav-group">
+            <button class="nav-item" data-section="research">증권사리포트</button>
+          </section>
+
+          <section class="nav-group">
+            <button class="nav-item" data-section="disclosure">공시·IR</button>
+            <div class="subnav" id="disclosure-subnav"></div>
+          </section>
+
+          <section class="nav-group">
+            <button class="nav-item" data-section="news">뉴스</button>
+            <div class="subnav" id="news-subnav"></div>
+          </section>
+        </nav>
+
+        <div class="sidebar-footer">
+          <span class="count-badge" id="sidebar-view-mode">자동 화면 감지</span>
+        </div>
+      </aside>
+
+      <main class="content">
+        <header class="topbar">
+          <div class="title-block">
+            <h1 id="section-title">종목브리핑</h1>
+            <p id="section-meta">최근 적재 기준</p>
+          </div>
+
+          <div class="toolbar">
+            <span class="count-badge" id="view-mode-indicator">자동 화면 감지</span>
+            <button class="refresh-button" id="refresh-button" type="button">새로고침</button>
+          </div>
+        </header>
+
+        <section class="filters">
+          <div class="primary-section-tabs" id="primary-section-tabs" hidden></div>
+          <div class="secondary-section-tabs" id="secondary-section-tabs"></div>
+          <div class="filter-line">
+            <input id="keyword-input" class="filter-input keyword-input" type="text" placeholder="기업명 또는 제목" />
+            <input id="start-date" class="filter-input date-input" type="date" />
+            <span class="date-divider">-</span>
+            <input id="end-date" class="filter-input date-input" type="date" />
+            <select id="category-select" class="filter-input select-input"></select>
+            <select id="aux-select-one" class="filter-input select-input"></select>
+            <select id="aux-select-two" class="filter-input select-input"></select>
+            <button id="reset-filters" class="ghost-button" type="button">초기화</button>
+          </div>
+        </section>
+
+        <section class="board">
+          <div class="desktop-board" id="desktop-board"></div>
+          <div class="mobile-board" id="mobile-board"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/assets/insight/app.js?v=20260620d" defer></script>
+  </body>
+  </html>
