@@ -284,9 +284,6 @@ img { display: block; max-width: 100%; }
 
 .problem-copy p { margin: 0 0 24px; }
 .problem-thesis { color: #111111; font-weight: 900; }
-.build-loop { color: var(--muted); font-size: 13px; }
-.build-loop strong { margin-right: 8px; color: var(--blue); font-size: 11px; }
-
 .journey-map {
   max-width: none;
   padding-right: max(24px, calc((100vw - var(--max)) / 2));
@@ -529,10 +526,13 @@ img { display: block; max-width: 100%; }
 
 @media (max-width: 560px) {
   .hero { min-height: 900px; }
-  .hero-copy { padding-top: 54px; }
+  .hero-copy { width: 100%; max-width: 100%; padding-top: 54px; }
   .hero h1 { font-size: 62px; }
   .hero-lead { margin-top: 24px; font-size: 25px; line-height: 1.3; }
-  .hero-description { margin: 20px 0 26px; }
+  .hero-description { width: 100%; max-width: 100%; margin: 20px 0 26px; overflow-wrap: anywhere; word-break: normal; }
+  .hero-actions,
+  .hero-live-link,
+  .access-note { max-width: 100%; }
   .hero-products { top: 555px; height: 320px; }
   .hero-phone { width: 174px; }
   .hero-phone-back { right: 47%; }
