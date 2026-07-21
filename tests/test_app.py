@@ -127,6 +127,9 @@ def test_watch_point_expansion_survives_market_data_refresh():
         assert 'section.dataset.mode !== "regular"' not in source
         assert "state.watchPreopenExpanded.delete(itemCode)" not in source
 
+    dashboard_source = client.get("/assets/dashboard/app.js").text
+    assert "이벤트·뉴스·거시·수급·미국 섹터를 종합해 우선순위를 계산합니다." not in dashboard_source
+
 
 def test_meta_endpoints():
     client = TestClient(app)

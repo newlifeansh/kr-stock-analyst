@@ -3384,7 +3384,6 @@ a.flow-node.stock:hover {
 }
 
 .watchlist-report-title p,
-.watchlist-report-note,
 .watchlist-monitoring-head span {
   margin: 0;
   color: var(--report-muted);

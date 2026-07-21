@@ -3865,12 +3865,11 @@ function renderWatchlistStrategy(results = state.watchlistResults, usSectorMoves
     monitorList.appendChild(row);
   }
   monitorBlock.append(monitorHead, monitorList);
-  const footnote = el("p", "watchlist-report-note", "이벤트·뉴스·거시·수급·미국 섹터를 종합해 우선순위를 계산합니다.");
   const reportNodes = [header, actionBlock, signals];
   if (news) {
     reportNodes.push(news);
   }
-  reportNodes.push(monitorBlock, footnote);
+  reportNodes.push(monitorBlock);
   section.replaceChildren(...reportNodes);
   section.hidden = false;
 }
