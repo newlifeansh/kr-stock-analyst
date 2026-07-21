@@ -1291,8 +1291,7 @@ function renderStockResearchSummary(data) {
         const title = report.url ? el("a", "research-report-title", report.title || "리포트 원문") : el("strong", "research-report-title", report.title || "리포트");
         if (report.url) {
           title.href = report.url;
-          title.target = "_blank";
-          title.rel = "noopener noreferrer";
+          title.setAttribute("aria-label", `${report.title || "리포트"} 원문 보기`);
         }
         const details = [report.broker_name, formatDateLabel(report.published_at)].filter(Boolean).join(" · ");
         item.append(title, el("span", "research-report-meta", details || "발행 정보 확인 중"));
@@ -6857,17 +6856,16 @@ function setLoading(code) {
   setText(elements.stockPreMarket, "장전 -");
   resetAIAnalysis();
   resetStockPriceSummary();
-  setActiveStockTab("summary", { preserveScroll: true });
 }
 
-function render(data) {
-  const previousCode = state.currentStock?.code;
+function render(data, options = {}) {
+  const previousCode = options.previousCode || state.currentStock?.code;
   state.currentStock = { code: data.code, name: data.name, market: data.market };
   state.currentDashboard = data;
   state.stockAIAnalysis = null;
   state.stockAIRequestedCode = "";
   resetAIAnalysis();
-  setActiveStockTab("summary", { preserveScroll: true });
+  setActiveStockTab(state.stockActiveTab || "summary", { preserveScroll: true });
   elements.name.textContent = data.name;
   elements.meta.textContent = stockDetailMetaText(data);
   elements.input.value = data.name;
@@ -6984,6 +6982,7 @@ async function load(query) {
   if (!normalized) {
     return;
   }
+  const previousStock = state.currentStock;
   hideSuggestions();
   setLoading(normalized);
   const stock = await resolveStock(normalized);
@@ -6994,8 +6993,14 @@ async function load(query) {
     resetAIAnalysis();
     return;
   }
+  if (previousStock?.code && previousStock.code !== stock.code) {
+    setActiveStockTab("summary", { preserveScroll: true });
+  }
   try {
-    render(await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(stock.code)}/dashboard?refresh=1`), { force: true, ttlMs: 0 }));
+    render(
+      await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(stock.code)}/dashboard?refresh=1`), { force: true, ttlMs: 0 }),
+      { previousCode: previousStock?.code },
+    );
   } catch {
     elements.name.textContent = stock.name;
     elements.meta.textContent = `${stock.code} · 데이터 없음`;

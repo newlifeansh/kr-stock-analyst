@@ -773,7 +773,7 @@ def _research_revision(db: Session, code: str, naver: dict[str, object]) -> dict
                 "broker_name": report.broker_name,
                 "opinion": report.opinion,
                 "target_price": report.target_price,
-                "url": report.pdf_url or report.detail_url,
+                "url": report.detail_url or report.pdf_url,
                 "published_at": report.published_at,
             }
             for report in reversed(reports[-5:])

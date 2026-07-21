@@ -131,6 +131,16 @@ def test_watch_point_expansion_survives_market_data_refresh():
     assert "이벤트·뉴스·거시·수급·미국 섹터를 종합해 우선순위를 계산합니다." not in dashboard_source
 
 
+def test_stock_research_links_open_in_current_view_and_tab_survives_refresh():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+
+    assert 'title.target = "_blank"' not in source
+    assert 'title.setAttribute("aria-label", `${report.title || "리포트"} 원문 보기`);' in source
+    assert 'previousStock?.code && previousStock.code !== stock.code' in source
+    assert 'setActiveStockTab(state.stockActiveTab || "summary", { preserveScroll: true });' in source
+
+
 def test_meta_endpoints():
     client = TestClient(app)
 
