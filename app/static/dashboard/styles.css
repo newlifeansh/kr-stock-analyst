@@ -10015,3 +10015,283 @@ body .watch-table td::before {
   font-weight: 800 !important;
   line-height: 1.35 !important;
 }
+
+/* Stock detail v2: directional summary and action-first strategy. */
+#stock-summary-section .stock-stat-grid dd.positive,
+#stock-summary-section .summary-signal-card strong.positive {
+  color: #d92638 !important;
+}
+
+#stock-summary-section .stock-stat-grid dd.negative,
+#stock-summary-section .summary-signal-card strong.negative {
+  color: #3478f6 !important;
+}
+
+#stock-summary-section .stock-stat-grid dd.muted,
+#stock-summary-section .summary-signal-card strong.muted {
+  color: #505866 !important;
+}
+
+#stock-strategy-section .ai-analysis-panel {
+  order: 0;
+  padding: 0 !important;
+}
+
+#stock-strategy-section .stock-strategy-card {
+  order: 1;
+}
+
+#stock-strategy-section .ai-analysis-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 20px 14px;
+  border-top: 0;
+  border-bottom: 1px solid #eceff3;
+}
+
+#stock-strategy-section .ai-analysis-head .section-eyebrow {
+  color: #8a929d;
+  font-size: var(--type-caption) !important;
+  font-weight: 800;
+}
+
+#stock-strategy-section .ai-analysis-head h2 {
+  padding-top: 3px;
+  font-size: 21px !important;
+}
+
+#stock-strategy-section .ai-analysis-head p {
+  display: block !important;
+  margin-top: 5px;
+  color: #8a929d;
+  font-size: 12px !important;
+  font-weight: 700;
+}
+
+#stock-strategy-section #ai-analysis-stance {
+  display: inline-flex;
+  flex: 0 0 auto;
+  max-width: 112px;
+  padding: 7px 9px;
+  border-radius: 5px;
+  background: #f1f3f5;
+  color: #343d4c;
+  font-size: 12px !important;
+  font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
+}
+
+#stock-strategy-section #ai-analysis-stance.positive {
+  background: #fff0f1;
+  color: #d92638;
+}
+
+#stock-strategy-section #ai-analysis-stance.negative {
+  background: #eef5ff;
+  color: #3478f6;
+}
+
+#stock-strategy-section .strategy-decision-hero {
+  margin: 0;
+  padding: 22px 20px 20px;
+  border-bottom: 1px solid #eceff3;
+  background: #ffffff;
+}
+
+#stock-strategy-section .strategy-decision-hero > span {
+  display: block;
+  margin-bottom: 8px;
+  color: #8a929d;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+#stock-strategy-section .strategy-decision-hero > strong {
+  display: block;
+  color: #111318;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1.4;
+  word-break: keep-all;
+}
+
+#stock-strategy-section .strategy-decision-hero > p {
+  margin: 10px 0 0;
+  color: #5d6674;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.55;
+  word-break: keep-all;
+}
+
+#stock-strategy-section .strategy-key-levels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 0;
+  padding: 0 20px;
+  background: #ffffff;
+}
+
+#stock-strategy-section .strategy-key-levels > div {
+  min-width: 0;
+  padding: 16px 0;
+}
+
+#stock-strategy-section .strategy-key-levels > div + div {
+  margin-left: 16px;
+  padding-left: 16px;
+  border-left: 1px solid #eceff3;
+}
+
+#stock-strategy-section .strategy-key-levels dt {
+  margin-bottom: 7px;
+  color: #8a929d;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+#stock-strategy-section .strategy-key-levels dd {
+  margin: 0;
+  color: #111318;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.45;
+  word-break: keep-all;
+}
+
+#stock-strategy-section .strategy-steps {
+  margin-top: 10px;
+  padding: 20px;
+  background: #ffffff;
+}
+
+#stock-strategy-section .strategy-steps h3,
+#stock-strategy-section .strategy-detail-disclosure h3 {
+  margin: 0 0 12px;
+  color: #111318;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+#stock-strategy-section .strategy-steps .ai-list {
+  counter-reset: strategy-step;
+}
+
+#stock-strategy-section .strategy-steps .ai-list li {
+  counter-increment: strategy-step;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 13px 0;
+  border-top: 1px solid #eceff3;
+  font-size: 14px !important;
+  line-height: 1.55;
+}
+
+#stock-strategy-section .strategy-steps .ai-list li::before {
+  content: counter(strategy-step);
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: #111318;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+#stock-strategy-section .strategy-detail-disclosure {
+  margin-top: 10px;
+  padding: 0 20px;
+  background: #ffffff;
+}
+
+#stock-strategy-section .strategy-detail-disclosure summary {
+  cursor: pointer;
+  min-height: 54px;
+  padding: 17px 26px 17px 0;
+  color: #343d4c;
+  font-size: 14px;
+  font-weight: 900;
+  list-style: none;
+}
+
+#stock-strategy-section .strategy-detail-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+#stock-strategy-section .strategy-detail-disclosure summary::after {
+  content: "+";
+  float: right;
+  color: #8a929d;
+  font-size: 18px;
+}
+
+#stock-strategy-section .strategy-detail-disclosure[open] summary::after {
+  content: "−";
+}
+
+#stock-strategy-section .strategy-detail-disclosure .ai-summary {
+  display: block;
+  padding: 16px 0;
+  border-top: 1px solid #eceff3;
+  -webkit-line-clamp: unset;
+}
+
+#stock-strategy-section .strategy-detail-disclosure > section {
+  padding: 18px 0 12px;
+  border-top: 1px solid #eceff3;
+}
+
+#stock-research-section .research-report-list {
+  margin: 0;
+  padding: 4px 20px 14px;
+  list-style: none;
+}
+
+#stock-research-section .research-report-item,
+#stock-research-section .research-report-empty {
+  display: grid;
+  gap: 5px;
+  padding: 13px 0;
+  border-top: 1px solid #eceff3;
+}
+
+#stock-research-section .research-report-title {
+  color: #111318;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.45;
+  text-decoration: none;
+  word-break: keep-all;
+}
+
+#stock-research-section a.research-report-title::after {
+  content: " ↗";
+  color: #8a929d;
+}
+
+#stock-research-section .research-report-meta,
+#stock-research-section .research-report-empty {
+  color: #8a929d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 420px) {
+  #stock-strategy-section .strategy-key-levels {
+    grid-template-columns: 1fr;
+  }
+
+  #stock-strategy-section .strategy-key-levels > div + div {
+    margin-left: 0;
+    padding-left: 0;
+    border-top: 1px solid #eceff3;
+    border-left: 0;
+  }
+}

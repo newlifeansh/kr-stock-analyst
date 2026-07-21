@@ -201,6 +201,7 @@ class BriefingRuntimeStatusOut(BaseModel):
     running: bool
     poll_seconds: int
     research_poll_seconds: int
+    research_backfill_poll_seconds: int
     disclosure_poll_seconds: int
     news_poll_seconds: int
     price_poll_seconds: int
@@ -215,6 +216,7 @@ class BriefingRuntimeStatusOut(BaseModel):
     configured_sources: list[str]
     last_success_at: Optional[datetime] = None
     last_research_at: Optional[datetime] = None
+    last_research_backfill_at: Optional[datetime] = None
     last_disclosure_at: Optional[datetime] = None
     last_disclosure_source: Optional[str] = None
     last_disclosure_message: Optional[str] = None
@@ -358,6 +360,15 @@ class DashboardChartAnalysisOut(BaseModel):
     risks: list[str]
 
 
+class DashboardResearchReportOut(BaseModel):
+    title: str
+    broker_name: Optional[str] = None
+    opinion: Optional[str] = None
+    target_price: Optional[Decimal] = None
+    url: Optional[str] = None
+    published_at: Optional[datetime] = None
+
+
 class DashboardRevisionOut(BaseModel):
     report_count_90d: int
     target_up_count: int
@@ -370,6 +381,7 @@ class DashboardRevisionOut(BaseModel):
     estimated_operating_profit: Optional[Decimal] = None
     estimated_eps: Optional[Decimal] = None
     estimated_per: Optional[Decimal] = None
+    recent_reports: list[DashboardResearchReportOut] = Field(default_factory=list)
 
 
 class DashboardEventOut(BaseModel):

@@ -39,6 +39,8 @@ const elements = {
   aiDecisionConfidence: $("ai-decision-confidence"),
   aiDecisionEntry: $("ai-decision-entry"),
   aiDecisionCondition: $("ai-decision-condition"),
+  aiPrimaryAction: $("ai-primary-action"),
+  aiPrimaryReason: $("ai-primary-reason"),
   aiKeyPoints: $("ai-key-points"),
   aiStrategy: $("ai-strategy"),
   aiRisks: $("ai-risks"),
@@ -131,6 +133,7 @@ const elements = {
   stockTargetPrice: $("stock-target-price"),
   stockLatestOpinion: $("stock-latest-opinion"),
   stockLatestReportAt: $("stock-latest-report-at"),
+  stockResearchList: $("stock-research-list"),
   quotePrice: $("quote-price"),
   quoteChange: $("quote-change"),
   quoteValue: $("quote-value"),
@@ -828,6 +831,9 @@ function signalLabel(value, positive = "우호", neutral = "보통", negative = 
 
 function setSignalCard(textNode, barNode, label, score) {
   setText(textNode, label);
+  if (textNode) {
+    setTone(textNode, toNumber(score) === null ? 0 : Number(score) - 50);
+  }
   if (barNode) {
     barNode.style.width = `${clampNumber(score, 0, 100)}%`;
   }
@@ -1252,6 +1258,26 @@ function renderStockResearchSummary(data) {
   setText(elements.revisionRatio, formatPercent(revisions.target_up_ratio));
   setText(elements.revisionUp, formatNumber(revisions.target_up_count));
   setText(elements.revisionDown, formatNumber(revisions.target_down_count));
+  if (elements.stockResearchList) {
+    elements.stockResearchList.innerHTML = "";
+    const reports = revisions.recent_reports || [];
+    if (!reports.length) {
+      elements.stockResearchList.appendChild(el("li", "research-report-empty", "최근 180일 종목 리포트가 없습니다."));
+    } else {
+      for (const report of reports) {
+        const item = el("li", "research-report-item");
+        const title = report.url ? el("a", "research-report-title", report.title || "리포트 원문") : el("strong", "research-report-title", report.title || "리포트");
+        if (report.url) {
+          title.href = report.url;
+          title.target = "_blank";
+          title.rel = "noopener noreferrer";
+        }
+        const details = [report.broker_name, formatDateLabel(report.published_at)].filter(Boolean).join(" · ");
+        item.append(title, el("span", "research-report-meta", details || "발행 정보 확인 중"));
+        elements.stockResearchList.appendChild(item);
+      }
+    }
+  }
 }
 
 function renderStockDerivedIndicators(data) {
@@ -5152,6 +5178,8 @@ function resetAIAnalysis() {
   setText(elements.aiDecisionConfidence, "-");
   setText(elements.aiDecisionEntry, "-");
   setText(elements.aiDecisionCondition, "-");
+  setText(elements.aiPrimaryAction, "분석 결과를 불러오는 중입니다.");
+  setText(elements.aiPrimaryReason, "현재 흐름과 가격 기준을 확인하고 있습니다.");
   elements.aiKeyPoints.innerHTML = "";
   elements.aiStrategy.innerHTML = "";
   elements.aiRisks.innerHTML = "";
@@ -5179,8 +5207,13 @@ function renderAIAnalysis(payload) {
   const stance = payload.stance || "";
   setTone(elements.aiAnalysisStance, stance.includes("관망") ? -1 : stance.includes("중립") ? 0 : 1);
   renderAIDecisionSummary(payload);
+  const primaryAction = String(payload?.strategy?.[0] || payload?.stance || "관찰 우선")
+    .replace(/^신규 매수\s*:\s*/, "")
+    .trim();
+  setText(elements.aiPrimaryAction, primaryAction);
+  setText(elements.aiPrimaryReason, payload?.key_points?.[0] || payload?.summary || "현재가와 주요 가격 기준을 함께 확인합니다.");
   appendListItems(elements.aiKeyPoints, payload.key_points, "핵심 판단을 만들 데이터가 부족합니다.");
-  appendListItems(elements.aiStrategy, payload.strategy, "매매 시나리오를 만들 데이터가 부족합니다.");
+  appendListItems(elements.aiStrategy, (payload.strategy || []).slice(0, 3), "현재는 신규 행동보다 관찰이 우선입니다.");
   appendListItems(elements.aiRisks, payload.risks, "확인할 리스크가 제한적입니다.");
   renderStockStrategyVisual(payload);
 

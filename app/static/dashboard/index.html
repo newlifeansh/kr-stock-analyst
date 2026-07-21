@@ -19,7 +19,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260721kr08" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260721kr09" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -256,46 +256,53 @@
           </section>
 
           <section class="stock-tab-panel" id="stock-strategy-section" data-stock-panel="strategy" role="tabpanel" hidden>
-            <article class="panel stock-strategy-card">
-              <div class="strategy-head">
-                <div>
-                  <span class="section-eyebrow">가격 기준</span>
-                  <h2>매매 전략</h2>
-                </div>
-              </div>
-              <div class="price-ladder" id="stock-price-ladder"></div>
-            </article>
-
             <section class="ai-analysis-panel" id="ai-analysis-panel" hidden>
               <div class="ai-analysis-head" id="stock-ai-section">
                 <div>
-                  <h2>AI 매매 판단</h2>
+                  <span class="section-eyebrow">AI 전략</span>
+                  <h2>오늘의 대응</h2>
                   <p id="ai-analysis-meta">-</p>
                 </div>
                 <strong id="ai-analysis-stance">-</strong>
               </div>
-              <dl class="ai-decision-table" id="ai-decision-table">
-                <div><dt>판단</dt><dd id="ai-decision-stance">-</dd></div>
-                <div><dt>분석 데이터</dt><dd id="ai-decision-confidence">-</dd></div>
-                <div><dt>1차 구간</dt><dd id="ai-decision-entry">-</dd></div>
-                <div><dt>대응 기준</dt><dd id="ai-decision-condition">-</dd></div>
+              <article class="strategy-decision-hero">
+                <span>지금 할 일</span>
+                <strong id="ai-primary-action">분석 결과를 불러오는 중입니다.</strong>
+                <p id="ai-primary-reason">현재 흐름과 가격 기준을 확인하고 있습니다.</p>
+              </article>
+              <dl class="strategy-key-levels">
+                <div><dt>관찰 가격</dt><dd id="ai-decision-entry">-</dd></div>
+                <div><dt>전환·축소</dt><dd id="ai-decision-condition">-</dd></div>
               </dl>
-              <p class="ai-summary" id="ai-analysis-summary"></p>
-              <div class="ai-analysis-grid">
+              <section class="strategy-steps">
+                <h3>대응 순서</h3>
+                <ol id="ai-strategy" class="ai-list"></ol>
+              </section>
+              <details class="strategy-detail-disclosure">
+                <summary>판단 근거와 위험 보기</summary>
+                <p class="ai-summary" id="ai-analysis-summary"></p>
                 <section>
                   <h3>핵심 판단</h3>
                   <ul id="ai-key-points" class="ai-list"></ul>
                 </section>
                 <section>
-                  <h3>매매 시나리오</h3>
-                  <ul id="ai-strategy" class="ai-list"></ul>
-                </section>
-                <section>
                   <h3>주의 리스크</h3>
                   <ul id="ai-risks" class="ai-list"></ul>
                 </section>
-              </div>
+              </details>
+              <span id="ai-decision-stance" hidden>-</span>
+              <span id="ai-decision-confidence" hidden>-</span>
             </section>
+
+            <article class="panel stock-strategy-card">
+              <div class="strategy-head">
+                <div>
+                  <span class="section-eyebrow">가격 기준</span>
+                  <h2>가격별 대응</h2>
+                </div>
+              </div>
+              <div class="price-ladder" id="stock-price-ladder"></div>
+            </article>
           </section>
 
           <section class="stock-tab-panel stock-evidence-panel" id="stock-evidence-section" data-stock-panel="evidence" role="tabpanel" hidden>
@@ -336,6 +343,7 @@
                   <div><dt>목표가</dt><dd id="stock-target-price">-</dd></div>
                   <div><dt>투자의견</dt><dd id="stock-latest-opinion">-</dd></div>
                 </dl>
+                <ul class="research-report-list" id="stock-research-list"></ul>
               </article>
 
               <article class="panel stock-section-card" id="stock-finance-section">
@@ -571,6 +579,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260721kr08" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260721kr09" defer></script>
   </body>
 </html>

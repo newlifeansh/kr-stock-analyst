@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     research_max_pages: int = 2
     research_days_back: int = 3
     research_include_detail: bool = True
+    research_backfill_poll_seconds: int = 86400
+    research_backfill_max_pages: int = 20
+    research_backfill_days_back: int = 180
     disclosure_enabled: bool = True
     disclosure_poll_seconds: int = 300
     disclosure_days_back: int = 7

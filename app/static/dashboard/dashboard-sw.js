@@ -1,9 +1,9 @@
-const DASHBOARD_SW_VERSION = "20260721kr08";
+const DASHBOARD_SW_VERSION = "20260721kr09";
 const STATIC_CACHE = `secret-note-static-${DASHBOARD_SW_VERSION}`;
 const STATIC_ASSETS = [
   "/dashboard?view=trend",
-  "/assets/dashboard/styles.css?v=20260721kr08",
-  "/assets/dashboard/app.js?v=20260721kr08",
+  "/assets/dashboard/styles.css?v=20260721kr09",
+  "/assets/dashboard/app.js?v=20260721kr09",
   "/assets/dashboard/icons/icon-192.png?v=20260620bq",
   "/assets/dashboard/icons/icon-512.png?v=20260620bq",
   "/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq"

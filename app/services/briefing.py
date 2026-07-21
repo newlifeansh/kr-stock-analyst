@@ -42,6 +42,7 @@ class BriefingRuntime:
         self.last_success_at: Optional[datetime] = None
         self.last_error: Optional[str] = None
         self.last_research_at: Optional[datetime] = None
+        self.last_research_backfill_at: Optional[datetime] = None
         self.last_disclosure_at: Optional[datetime] = None
         self.last_disclosure_source: Optional[str] = None
         self.last_disclosure_message: Optional[str] = None
@@ -132,6 +133,20 @@ class BriefingRuntime:
         self.source_errors = {}
         with SessionLocal() as db:
             refreshed_any = False
+            if self.settings.research_enabled and self._research_backfill_due():
+                try:
+                    collect_research_reports(
+                        db,
+                        settings=self.settings,
+                        categories=["company"],
+                        max_pages=self.settings.research_backfill_max_pages,
+                        days_back=self.settings.research_backfill_days_back,
+                        include_detail=False,
+                    )
+                    self.last_research_backfill_at = datetime.utcnow()
+                    refreshed_any = True
+                except Exception as exc:
+                    self.source_errors["research_backfill"] = str(exc)
             if self.settings.research_enabled and self._research_due():
                 try:
                     collect_research_reports(db, settings=self.settings)
@@ -251,6 +266,12 @@ class BriefingRuntime:
             return True
         elapsed = (datetime.utcnow() - self.last_research_at).total_seconds()
         return elapsed >= self.settings.research_poll_seconds
+
+    def _research_backfill_due(self) -> bool:
+        if self.last_research_backfill_at is None:
+            return True
+        elapsed = (datetime.utcnow() - self.last_research_backfill_at).total_seconds()
+        return elapsed >= self.settings.research_backfill_poll_seconds
 
     def _disclosure_due(self) -> bool:
         if self.last_disclosure_at is None:
@@ -600,6 +621,7 @@ class BriefingRuntime:
             "running": self.running,
             "poll_seconds": self.settings.briefing_poll_seconds,
             "research_poll_seconds": self.settings.research_poll_seconds,
+            "research_backfill_poll_seconds": self.settings.research_backfill_poll_seconds,
             "disclosure_poll_seconds": self.settings.disclosure_poll_seconds,
             "news_poll_seconds": self.settings.news_poll_seconds,
             "price_poll_seconds": self.settings.price_poll_seconds,
@@ -614,6 +636,7 @@ class BriefingRuntime:
             "configured_sources": self.configured_sources(),
             "last_success_at": self.last_success_at,
             "last_research_at": self.last_research_at,
+            "last_research_backfill_at": self.last_research_backfill_at,
             "last_disclosure_at": self.last_disclosure_at,
             "last_disclosure_source": self.last_disclosure_source,
             "last_disclosure_message": self.last_disclosure_message,

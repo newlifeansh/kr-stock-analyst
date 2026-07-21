@@ -1,5 +1,19 @@
+from datetime import datetime, timedelta
+
 from app.config import Settings
 from app.services import briefing
+
+
+def test_research_backfill_runs_daily_not_every_poll():
+    runtime = briefing.BriefingRuntime(Settings(research_backfill_poll_seconds=86400))
+
+    assert runtime._research_backfill_due() is True
+
+    runtime.last_research_backfill_at = datetime.utcnow()
+    assert runtime._research_backfill_due() is False
+
+    runtime.last_research_backfill_at = datetime.utcnow() - timedelta(days=2)
+    assert runtime._research_backfill_due() is True
 
 
 def test_collect_prices_uses_krx_market_before_fallback(monkeypatch):

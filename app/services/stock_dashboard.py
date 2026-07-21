@@ -753,6 +753,17 @@ def _research_revision(db: Session, code: str, naver: dict[str, object]) -> dict
         "estimated_operating_profit": naver.get("estimated_operating_profit"),
         "estimated_eps": naver.get("estimated_eps"),
         "estimated_per": naver.get("estimated_per"),
+        "recent_reports": [
+            {
+                "title": report.title,
+                "broker_name": report.broker_name,
+                "opinion": report.opinion,
+                "target_price": report.target_price,
+                "url": report.pdf_url or report.detail_url,
+                "published_at": report.published_at,
+            }
+            for report in reversed(reports[-5:])
+        ],
     }
 
 
