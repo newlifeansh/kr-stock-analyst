@@ -297,6 +297,29 @@ const MARKET_IMPACT_FACTORS = [
   },
 ];
 
+const MARKET_IMPACT_LEARNING_GUIDES = {
+  rate: {
+    lesson: "금리 상승은 미래 이익의 할인율을 높여 성장주 밸류에이션에 부담을 줍니다.",
+    metrics: "미국 10년물 국채금리 · 미국 10년 실질금리",
+  },
+  dollar: {
+    lesson: "달러 강세는 원화와 외국인 수급에 부담이지만, 수출주는 환산 이익과 원가 구조를 함께 봐야 합니다.",
+    metrics: "원/달러 환율 · 광의 달러지수",
+  },
+  bond: {
+    lesson: "국채금리 상승은 채권의 상대 매력을 높여 주식 위험 프리미엄과 성장주 부담을 키울 수 있습니다.",
+    metrics: "미국 10년-2년 금리차 · 미국 10년물 · VIX",
+  },
+  commodity: {
+    lesson: "원자재 상승은 정유·소재에는 기회가 될 수 있지만 항공·화학·운송에는 비용 부담으로 전달됩니다.",
+    metrics: "WTI 원유 · 구리 가격 · EIA 원유재고",
+  },
+  risk: {
+    lesson: "위험자산 선호가 약해지면 미국 기술주와 국내 반도체·인터넷의 수급이 함께 위축될 수 있습니다.",
+    metrics: "나스닥 · VIX · 비트코인",
+  },
+};
+
 const MARKET_IMPACT_IMPORTANCE_WEIGHT = {
   "매우 중요": 22,
   중요: 16,
@@ -6316,8 +6339,22 @@ function appendMarketImpactNode(parent, factor, index) {
   parent.appendChild(node);
 }
 
+function isMarketImpactFactorFallback(factor) {
+  const evidence = Array.isArray(factor?.evidence) ? factor.evidence : [];
+  return evidence.some((item) => item?.source === "시스템") || Number(factor?.confidence || 0) <= 20;
+}
+
+function marketImpactLearningGuide(factor) {
+  return MARKET_IMPACT_LEARNING_GUIDES[factor?.key] || {
+    lesson: factor?.interpretation || factor?.summary || "외부 변수가 국내증시에 전달되는 경로를 확인합니다.",
+    metrics: "공식 지표 연결 대기 중",
+  };
+}
+
 function appendMarketImpactDetail(parent, factor) {
   const direction = factor.direction || factor.status || "악재";
+  const fallback = isMarketImpactFactorFallback(factor);
+  const guide = marketImpactLearningGuide(factor);
   const card = el("article", `market-impact-detail ${direction === "호재" ? "good" : "bad"}`);
   const head = el("div", "market-impact-detail-head");
   head.append(
@@ -6325,21 +6362,31 @@ function appendMarketImpactDetail(parent, factor) {
     el("strong", "", factor.label),
     el("em", direction === "호재" ? "good" : "bad", `${direction} ${factor.percent.toFixed(1)}%`),
   );
-  const summary = el("p", "", factor.interpretation || factor.summary || "현재 공식 지표 기준으로 영향 방향을 계산했습니다.");
+  const summary = el("p", "", fallback ? guide.lesson : (factor.interpretation || factor.summary || "현재 공식 지표 기준으로 영향 방향을 계산했습니다."));
   const evidenceGrid = el("div", "market-impact-metric-grid");
-  for (const item of factor.evidence || []) {
-    const metric = el("a", "market-impact-metric");
-    metric.href = item.url || "#";
-    if (item.url) {
-      metric.target = "_blank";
-      metric.rel = "noreferrer";
-    }
-    metric.append(
-      el("span", "", `${item.source || "출처"} · ${item.metric || "지표"}`),
-      el("strong", "", item.value_text || formatNumber(item.value)),
-      el("small", "", `1일 ${item.change_1d_text || formatNumber(item.change_1d)} · 5일 ${item.change_5d_text || formatNumber(item.change_5d)}`),
+  if (fallback) {
+    const learning = el("div", "market-impact-metric market-impact-learning-note");
+    learning.append(
+      el("span", "", "확인할 공식 지표"),
+      el("strong", "", guide.metrics),
+      el("small", "", "지표 연결 시 방향과 비중이 자동으로 갱신됩니다."),
     );
-    evidenceGrid.appendChild(metric);
+    evidenceGrid.appendChild(learning);
+  } else {
+    for (const item of factor.evidence || []) {
+      const metric = el("a", "market-impact-metric");
+      metric.href = item.url || "#";
+      if (item.url) {
+        metric.target = "_blank";
+        metric.rel = "noreferrer";
+      }
+      metric.append(
+        el("span", "", `${item.source || "출처"} · ${item.metric || "지표"}`),
+        el("strong", "", item.value_text || formatNumber(item.value)),
+        el("small", "", `1일 ${item.change_1d_text || formatNumber(item.change_1d)} · 5일 ${item.change_5d_text || formatNumber(item.change_5d)}`),
+      );
+      evidenceGrid.appendChild(metric);
+    }
   }
   if (!evidenceGrid.childElementCount) {
     evidenceGrid.appendChild(el("p", "muted", "공식 지표 수집 대기 중"));
@@ -6449,14 +6496,14 @@ function renderMarketImpactAnalysis(payload) {
   const orderedFactors = [...model.factors].sort((a, b) => slotOrder.indexOf(a.key) - slotOrder.indexOf(b.key));
   orderedFactors.forEach((factor, index) => appendMarketImpactNode(orbit, factor, index + 1));
   const heroCopy = el("div", "market-impact-copy");
-  const heroSummary = fallback ? "공식 지표 수집이 지연되어 기본 리스크 분포를 표시 중입니다." : model.summary;
-  const heroMeta = fallback ? "일부 지표 연결 후 자동으로 다시 계산됩니다." : `호재 축 ${model.goodWeight.toFixed(1)}% · 악재 축 ${model.badWeight.toFixed(1)}%`;
-  heroCopy.append(el("span", "section-eyebrow", fallback ? "임시 상태" : "마켓 밸런스"), el("h2", "", heroSummary), el("p", "", heroMeta));
+  const heroSummary = fallback ? "외부 변수가 국내 업종과 종목에 전달되는 원리를 확인합니다." : model.summary;
+  const heroMeta = fallback ? "공식 지표 연결 대기 중 · 연결 후 방향과 비중이 자동으로 갱신됩니다." : `호재 축 ${model.goodWeight.toFixed(1)}% · 악재 축 ${model.badWeight.toFixed(1)}%`;
+  heroCopy.append(el("span", "section-eyebrow", fallback ? "LEARNING MODE" : "마켓 밸런스"), el("h2", "", heroSummary), el("p", "", heroMeta));
   hero.append(orbit, heroCopy);
 
   const flow = el("section", "market-impact-flow");
   const flowTitle = el("div", "market-impact-flow-title");
-  flowTitle.append(el("strong", "", "현재 흐름"), el("span", "", "외부 변수 → 국내증시 → 영향 종목"));
+  flowTitle.append(el("strong", "", fallback ? "영향 원리" : "현재 흐름"), el("span", "", "외부 변수 → 국내증시 → 영향 종목"));
   const flowGrid = el("div", "market-impact-flow-grid");
   const leadingFactors = model.factors.slice(0, 3);
   for (const factor of leadingFactors) {
@@ -6464,7 +6511,7 @@ function renderMarketImpactAnalysis(payload) {
     const item = el("article", direction === "호재" ? "good" : "bad");
     item.append(
       el("span", "", `${factor.label} ${direction}`),
-      el("strong", "", factor.interpretation || factor.summary),
+      el("strong", "", fallback ? marketImpactLearningGuide(factor).lesson : (factor.interpretation || factor.summary)),
       el("small", "", (factor.leader_stocks || factor.stocks || []).slice(0, 3).join(" · ")),
     );
     flowGrid.appendChild(item);

@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="국내주식 투자자를 위한 AI 의사결정 지원 서비스 비밀노트 Product Case Study" />
     <title>비밀노트 | AI 투자 의사결정 서비스 Case Study</title>
-    <link rel="stylesheet" href="/assets/portfolio/styles.css?v=20260721p2" />
-    <script src="/assets/portfolio/app.js?v=20260721p2" defer></script>
+    <link rel="stylesheet" href="/assets/portfolio/styles.css?v=20260721p3" />
+    <script src="/assets/portfolio/app.js?v=20260721p3" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#portfolio-main">본문으로 이동</a>
@@ -31,12 +31,17 @@
         <div class="hero-copy">
           <p class="eyebrow">PERSONAL PROJECT · 2026</p>
           <h1 id="portfolio-title">비밀노트</h1>
-          <p class="hero-lead">국내주식 투자자를 위한<br />AI 의사결정 지원 서비스</p>
+          <p class="hero-lead">발견부터 매수·보유 대응과 학습까지<br />연결하는 AI 투자 의사결정 서비스</p>
           <p class="hero-description">
             실시간 시세, 수급, 뉴스, 공시, 증권사 리포트와 거시 이벤트를 하나의 판단 흐름으로 연결했습니다.
-            시장 변화의 의미부터 종목별 대응 기준과 원문 근거까지, 투자자가 스스로 검증하며 판단하도록 설계했습니다.
+            새로운 종목을 찾고, 매수 타이밍을 검토하고, 보유종목에 대응하고, 시장의 원인을 학습하도록 설계했습니다.
           </p>
-          <a class="primary-link" href="#features">핵심 기능 4가지 보기</a>
+          <div class="hero-actions">
+            <a class="primary-link" href="https://insight-mcp-production-945f.up.railway.app/dashboard?view=trend">서비스 바로보기</a>
+            <a class="secondary-link" href="#features">Case Study 보기</a>
+          </div>
+          <a class="hero-live-link" href="https://insight-mcp-production-945f.up.railway.app/dashboard?view=trend">insight-mcp-production-945f.up.railway.app</a>
+          <p class="access-note">본인을 식별할 수 있는 아이디를 입력해주세요. 별도 회원가입은 없습니다.</p>
         </div>
 
         <div class="hero-products" aria-label="비밀노트 모바일 화면 미리보기">
@@ -58,63 +63,65 @@
       <section class="problem-band" id="journey" aria-labelledby="problem-title">
         <div class="section-heading">
           <p class="eyebrow">THE PROBLEM</p>
-          <h2 id="problem-title">정보는 많지만,<br />지금 해야 할 행동은 보이지 않았다.</h2>
+          <h2 id="problem-title">투자의 단계마다<br />필요한 판단은 서로 달랐다.</h2>
         </div>
         <div class="problem-copy">
           <p>
-            개인 투자자는 시세 앱, 뉴스, 공시, 증권사 PDF와 미국 시장을 따로 확인합니다. 정보는 계속 늘어나지만
-            내 종목에 어떤 영향을 주는지, 지금 무엇을 모니터링해야 하는지는 스스로 다시 해석해야 합니다.
+            종목을 찾을 때는 새로운 촉매가 필요하고, 매수 전에는 가격과 근거가 필요하며, 보유 후에는 대응 기준이 필요합니다.
+            시장이 움직인 뒤에는 그 원인을 이해해야 다음 판단이 나아집니다. 기존 서비스는 이 과정을 서로 다른 화면과 정보원으로 분리했습니다.
           </p>
-          <p class="problem-thesis">비밀노트는 이 해석 비용을 줄이는 데서 출발했습니다.</p>
+          <p class="problem-thesis">비밀노트는 투자 전 과정을 하나의 학습 가능한 의사결정 흐름으로 연결했습니다.</p>
         </div>
       </section>
 
       <section class="journey-map" aria-labelledby="journey-title">
         <div class="section-heading compact">
           <p class="eyebrow">USER JOURNEY</p>
-          <h2 id="journey-title">시장 변화에서<br />검증 가능한 행동까지</h2>
+          <h2 id="journey-title">탐색에서 대응과<br />시장 학습까지</h2>
         </div>
         <ol class="journey-steps">
-          <li><span>01 · DISCOVER</span><strong>변화를 감지한다</strong><p>오늘 시장에서 달라진 신호와 주요 이벤트를 찾습니다.</p></li>
-          <li><span>02 · UNDERSTAND</span><strong>내 종목에 연결한다</strong><p>시장 변화가 관심종목에 미치는 방향과 강도를 해석합니다.</p></li>
-          <li><span>03 · ACT</span><strong>대응 기준을 세운다</strong><p>관찰 가격과 대응 순서를 확인해 감정적 결정을 줄입니다.</p></li>
-          <li><span>04 · VERIFY</span><strong>근거를 검증한다</strong><p>리포트, 공시와 뉴스 원문으로 판단의 최신성을 확인합니다.</p></li>
+          <li><span>01 · DISCOVER</span><strong>신규 종목을 탐색한다</strong><p>다가오는 이벤트와 실시간 트렌드에서 영향 업종과 종목 후보를 찾습니다.</p></li>
+          <li><span>02 · DECIDE</span><strong>매수 타이밍을 판단한다</strong><p>종목 상세의 요약·전략·근거를 따라 진입 조건과 판단 근거를 검토합니다.</p></li>
+          <li><span>03 · MANAGE</span><strong>보유종목에 대응한다</strong><p>관심종목을 보유종목으로 보고 장 상황에 맞는 모니터링 순서와 대응 기준을 확인합니다.</p></li>
+          <li><span>04 · LEARN</span><strong>시장 원리를 학습한다</strong><p>금리·달러·채권·원자재·위험자산이 국내 업종과 종목에 전달되는 경로를 이해합니다.</p></li>
         </ol>
       </section>
 
       <section class="feature-index" id="features" aria-labelledby="feature-index-title">
         <p class="eyebrow">CORE PRODUCT EXPERIENCE</p>
-        <h2 id="feature-index-title">제품 가설을 구현한<br />핵심 경험 4가지</h2>
+        <h2 id="feature-index-title">투자 여정을 연결한<br />핵심 경험 6가지</h2>
         <nav aria-label="핵심 기능 바로가기">
-          <a href="#feature-context"><span>01 · CONTEXT</span>Market Intelligence<small>AI 시황 브리핑</small></a>
-          <a href="#feature-summary"><span>02 · SYNTHESIS</span>Stock Diagnosis<small>멀티팩터 종목 진단</small></a>
-          <a href="#feature-action"><span>03 · ACTION</span>Action Strategy<small>조건 기반 대응 전략</small></a>
-          <a href="#feature-evidence"><span>04 · EVIDENCE</span>Evidence Layer<small>출처 기반 근거 검증</small></a>
+          <a href="#feature-discover"><span>01 · DISCOVER</span>Trend Discovery<small>신규 종목 탐색</small></a>
+          <a href="#feature-summary"><span>02 · DECIDE</span>Signal Summary<small>매수 판단 요약</small></a>
+          <a href="#feature-action"><span>03 · DECIDE</span>Entry Strategy<small>매수 타이밍 전략</small></a>
+          <a href="#feature-evidence"><span>04 · DECIDE</span>Evidence Review<small>판단 근거 검증</small></a>
+          <a href="#feature-manage"><span>05 · MANAGE</span>Holdings Response<small>보유종목 대응</small></a>
+          <a href="#feature-learn"><span>06 · LEARN</span>Market Learning<small>시장 영향 학습</small></a>
         </nav>
       </section>
 
-      <article class="feature-story" id="feature-context">
+      <article class="feature-story" id="feature-discover">
         <div class="feature-visual">
-          <button class="phone-shot" type="button" data-lightbox-src="/assets/portfolio/images/ai-market-report.jpg" data-lightbox-alt="관심종목 AI 시황 리포트 모바일 화면">
-            <img src="/assets/portfolio/images/ai-market-report.jpg" alt="원자재 악재와 주요 이벤트를 관심종목 우선순위에 연결한 AI 시황 리포트" />
+          <button class="phone-shot" type="button" data-lightbox-src="/assets/portfolio/images/trend-discovery-live.png" data-lightbox-alt="트렌드 분석 모바일 화면">
+            <img src="/assets/portfolio/images/trend-discovery-live.png" alt="주요 이벤트에서 영향 업종과 신규 종목 후보를 탐색하는 트렌드 분석 화면" />
             <span>화면 확대</span>
           </button>
-          <p class="screen-caption">관심종목 · AI 시황 리포트</p>
+          <p class="screen-caption">트렌드 분석 · 신규 종목 탐색</p>
         </div>
         <div class="feature-content">
-          <p class="feature-number">01 / CONTEXT</p>
-          <h2>Market Intelligence</h2>
-          <p class="feature-korean-title">AI 시황 브리핑</p>
-          <div class="usp-block"><span>USP</span><strong>시장 이벤트를 개인 관심종목의 모니터링 우선순위로 변환합니다.</strong></div>
+          <p class="feature-number">01 / DISCOVER</p>
+          <h2>Trend Discovery</h2>
+          <p class="feature-korean-title">신규 종목 탐색</p>
+          <div class="usp-block"><span>USP</span><strong>다가오는 이벤트를 업종과 종목의 새로운 탐색 기회로 변환합니다.</strong></div>
           <dl class="feature-details">
-            <div><dt>WHY</dt><dd>거시 지표와 해외 증시 뉴스가 내 종목에 실제로 중요한지 판단하려면 여러 서비스를 오가며 다시 해석해야 했습니다.</dd></div>
-            <div><dt>DATA USED</dt><dd>경제 이벤트 캘린더, 시장 뉴스와 감성, 미국 지수·섹터 흐름, 외국인·기관 수급, 사용자 관심종목을 함께 사용합니다.</dd></div>
-            <div><dt>USER JOURNEY</dt><dd>접속 즉시 오늘의 핵심 변수와 영향받을 관심종목을 확인하고, 우선순위가 높은 종목부터 점검합니다.</dd></div>
-            <div><dt>EXPERIENCE</dt><dd>한 줄 시황, ‘지금 확인’ 요약, 위험 신호 배지와 모니터링 순위로 복잡한 시장 정보를 압축해 보여줍니다.</dd></div>
-            <div><dt>EXPECTED IMPACT</dt><dd>시황 탐색 시간을 줄이고, 내 종목과 관련성이 낮은 이슈에 과도하게 반응하는 행동을 줄일 수 있습니다.</dd></div>
+            <div><dt>WHY</dt><dd>등락률 순위나 익숙한 종목만 보면 이미 움직인 가격을 뒤따르기 쉽고, 앞으로 시장을 움직일 촉매를 놓치게 됩니다.</dd></div>
+            <div><dt>DATA USED</dt><dd>경제 이벤트 캘린더, 원유·환율·금리 축, 실시간 시장 뉴스, 영향 변수·업종, 대표 종목과 이벤트 중요도를 사용합니다.</dd></div>
+            <div><dt>USER JOURNEY</dt><dd>주간 주요 이벤트를 확인하고 영향 흐름을 펼쳐 수혜·부담 업종과 종목 후보를 찾은 뒤 종목 상세로 이동합니다.</dd></div>
+            <div><dt>EXPERIENCE</dt><dd>발표 시각, 중요도, 예상 영향, 확인 지표와 인과 흐름을 카드와 영향 그래프로 연결해 보여줍니다.</dd></div>
+            <div><dt>EXPECTED IMPACT</dt><dd>인기 종목 중심의 탐색 편향을 줄이고, 이벤트가 가격에 반영되기 전 구조적으로 후보를 발견할 수 있습니다.</dd></div>
           </dl>
-          <ul class="ai-points" aria-label="AI 시황 리포트 핵심 기술">
-            <li>이벤트·뉴스 의미 분류</li><li>종목 영향도 매칭</li><li>모니터링 우선순위 생성</li>
+          <ul class="ai-points" aria-label="트렌드 분석 핵심 기술">
+            <li>이벤트 축 분류</li><li>업종·종목 영향 매칭</li><li>수혜·부담 시나리오</li>
           </ul>
         </div>
       </article>
@@ -128,16 +135,16 @@
           <p class="screen-caption">종목 상세 · AI 요약</p>
         </div>
         <div class="feature-content">
-          <p class="feature-number">02 / SYNTHESIS</p>
-          <h2>Stock Diagnosis</h2>
-          <p class="feature-korean-title">멀티팩터 종목 진단</p>
-          <div class="usp-block"><span>USP</span><strong>서로 충돌하는 7개 데이터 축을 하나의 판단 언어로 설명합니다.</strong></div>
+          <p class="feature-number">02 / DECIDE · SUMMARY</p>
+          <h2>Signal Summary</h2>
+          <p class="feature-korean-title">매수 판단 요약</p>
+          <div class="usp-block"><span>USP</span><strong>현재 흐름과 7개 데이터 축을 함께 보여줘 매수 검토의 출발점을 만듭니다.</strong></div>
           <dl class="feature-details">
-            <div><dt>WHY</dt><dd>당일 급등, 중기 약세, 수급 매도처럼 신호가 충돌할 때 단일 확률만 제시하면 현재 흐름과 판단 사이에 괴리가 생깁니다.</dd></div>
+            <div><dt>WHY</dt><dd>당일 급등만 보면 추격 매수하기 쉽고, 중기 약세나 수급 매도를 따로 보면 기회를 놓칠 수 있어 신호의 충돌을 함께 봐야 합니다.</dd></div>
             <div><dt>DATA USED</dt><dd>KIS 실시간 시세, 1·3개월 가격 이력, 거래대금, 외국인·기관 수급, 밸류·실적, 뉴스 감성을 정규화합니다.</dd></div>
-            <div><dt>USER JOURNEY</dt><dd>종목을 검색한 뒤 현재 흐름을 먼저 보고, 상승을 지지하는 신호와 경고하는 신호를 비교해 판단의 맥락을 이해합니다.</dd></div>
-            <div><dt>EXPERIENCE</dt><dd>현재가를 최상단에 두고 긍정은 빨강, 부정은 파랑으로 구분하며 핵심 신호와 분석 데이터 완성도를 함께 표시합니다.</dd></div>
-            <div><dt>EXPECTED IMPACT</dt><dd>한 가지 지표에 대한 과신과 추격 매수를 줄이고, 데이터가 부족한 판단은 보수적으로 받아들일 수 있습니다.</dd></div>
+            <div><dt>USER JOURNEY</dt><dd>후보 종목을 열어 현재가와 추세 지속력을 확인하고, 긍정·부정 신호와 분석 데이터 완성도를 비교합니다.</dd></div>
+            <div><dt>EXPERIENCE</dt><dd>현재가를 최상단에 두고 긍정은 빨강, 부정은 파랑으로 구분하며 종합 판단과 핵심 신호를 한 화면에 요약합니다.</dd></div>
+            <div><dt>EXPECTED IMPACT</dt><dd>한 가지 지표에 대한 과신과 무리한 추격 매수를 줄이고, 다음 전략 검토가 필요한 종목을 빠르게 구분할 수 있습니다.</dd></div>
           </dl>
           <ul class="ai-points" aria-label="AI 종목 판단 핵심 기술">
             <li>7개 데이터 축 정규화</li><li>장중 맥락 반영</li><li>신호 충돌 설명</li>
@@ -154,16 +161,16 @@
           <p class="screen-caption">종목 상세 · AI 전략</p>
         </div>
         <div class="feature-content">
-          <p class="feature-number">03 / ACTION</p>
-          <h2>Action Strategy</h2>
-          <p class="feature-korean-title">조건 기반 대응 전략</p>
-          <div class="usp-block"><span>USP</span><strong>분석 결과를 관찰 가능한 가격 조건과 대응 순서로 번역합니다.</strong></div>
+          <p class="feature-number">03 / DECIDE · STRATEGY</p>
+          <h2>Entry Strategy</h2>
+          <p class="feature-korean-title">매수 타이밍 전략</p>
+          <div class="usp-block"><span>USP</span><strong>종목 판단을 관찰 가격대와 진입 조건으로 변환해 매수 타이밍을 구체화합니다.</strong></div>
           <dl class="feature-details">
-            <div><dt>WHY</dt><dd>좋은 분석도 다음 행동이 명확하지 않으면 읽어야 할 정보만 늘어나고 실제 투자 순간에는 다시 감정적으로 결정하게 됩니다.</dd></div>
+            <div><dt>WHY</dt><dd>좋은 종목이라는 판단과 지금 사도 되는 가격이라는 판단은 다르므로, 가격 조건이 없으면 매수 순간에 다시 감정적으로 결정하게 됩니다.</dd></div>
             <div><dt>DATA USED</dt><dd>현재가·전일 종가, 변동성, 단기·중기 모멘텀, 거래대금 변화, 가격 분포와 분석 데이터 완성도를 사용합니다.</dd></div>
-            <div><dt>USER JOURNEY</dt><dd>오늘의 대응을 먼저 확인하고 관찰·전환·축소·이익 관리 가격을 순서대로 본 뒤 필요할 때만 상세 설명을 펼칩니다.</dd></div>
-            <div><dt>EXPERIENCE</dt><dd>‘오늘의 대응 → 핵심 가격 → 대응 순서’ 구조와 점진적 정보 공개로 긴 분석보다 실행 기준을 먼저 보여줍니다.</dd></div>
-            <div><dt>EXPECTED IMPACT</dt><dd>충동적인 추격 매수와 기준 없는 손절을 줄이고, 동일한 조건에는 일관된 방식으로 대응하도록 돕습니다.</dd></div>
+            <div><dt>USER JOURNEY</dt><dd>신규 매수 보류·관찰 여부를 먼저 확인하고 관찰 가격대, 돌파 조건과 무효화 가격을 순서대로 검토합니다.</dd></div>
+            <div><dt>EXPERIENCE</dt><dd>‘오늘의 판단 → 관찰 가격대 → 전환 조건 → 축소 기준’ 구조와 가격 기준선으로 긴 분석보다 실행 조건을 먼저 보여줍니다.</dd></div>
+            <div><dt>EXPECTED IMPACT</dt><dd>충동적인 추격 매수를 줄이고, 진입 전에 기대 수익과 손실 기준을 함께 세우는 습관을 만들 수 있습니다.</dd></div>
           </dl>
           <ul class="ai-points" aria-label="AI 행동 전략 핵심 기술">
             <li>행동 우선 정보 구조</li><li>동적 가격 시나리오</li><li>근거 점진 공개</li>
@@ -180,19 +187,71 @@
           <p class="screen-caption">종목 상세 · 근거 검증</p>
         </div>
         <div class="feature-content">
-          <p class="feature-number">04 / EVIDENCE</p>
-          <h2>Evidence Layer</h2>
-          <p class="feature-korean-title">출처 기반 근거 검증</p>
-          <div class="usp-block"><span>USP</span><strong>AI 판단에서 최신 리포트와 원문 출처까지 한 흐름으로 추적합니다.</strong></div>
+          <p class="feature-number">04 / DECIDE · EVIDENCE</p>
+          <h2>Evidence Review</h2>
+          <p class="feature-korean-title">판단 근거 검증</p>
+          <div class="usp-block"><span>USP</span><strong>매수 판단에서 최신 리포트와 원문 출처까지 한 흐름으로 추적합니다.</strong></div>
           <dl class="feature-details">
-            <div><dt>WHY</dt><dd>투자 판단에서 AI의 문장만으로는 최신성과 신뢰도를 확인하기 어렵기 때문에 결론이 어떤 근거에서 나왔는지 추적 가능해야 합니다.</dd></div>
+            <div><dt>WHY</dt><dd>매수 전에는 AI의 결론보다 근거의 최신성과 출처가 더 중요하므로, 판단이 어떤 데이터에서 나왔는지 추적 가능해야 합니다.</dd></div>
             <div><dt>DATA USED</dt><dd>증권사 리포트 목록·상세·PDF, 목표주가, 투자의견, 발행일, DART 공시와 뉴스 원문 링크를 종목코드에 연결합니다.</dd></div>
-            <div><dt>USER JOURNEY</dt><dd>AI 요약에서 근거 탭으로 이동해 최신 리서치 지표를 확인하고, 필요한 문서는 원문까지 열어 직접 검증합니다.</dd></div>
+            <div><dt>USER JOURNEY</dt><dd>요약과 전략을 검토한 뒤 근거 탭에서 최신 리서치 지표를 확인하고 필요한 문서는 원문까지 열어 직접 검증합니다.</dd></div>
             <div><dt>EXPERIENCE</dt><dd>최신 리포트 수, 목표가와 의견을 요약하고 발행사·날짜·제목·원문 링크를 스캔 가능한 목록으로 제공합니다.</dd></div>
-            <div><dt>EXPECTED IMPACT</dt><dd>설명 가능성과 신뢰를 높이고, 오래되었거나 출처가 불명확한 정보가 판단에 섞이는 위험을 줄일 수 있습니다.</dd></div>
+            <div><dt>EXPECTED IMPACT</dt><dd>매수 판단의 설명 가능성과 신뢰를 높이고, 오래되었거나 출처가 불명확한 정보가 결정에 섞이는 위험을 줄일 수 있습니다.</dd></div>
           </dl>
           <ul class="ai-points" aria-label="근거 검증 핵심 기술">
             <li>5분 증분 수집</li><li>일일 과거자료 보강</li><li>종목·리포트 자동 연결</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="feature-story" id="feature-manage">
+        <div class="feature-visual">
+          <button class="phone-shot" type="button" data-lightbox-src="/assets/portfolio/images/ai-market-report.jpg" data-lightbox-alt="보유종목 AI 시황 리포트 모바일 화면">
+            <img src="/assets/portfolio/images/ai-market-report.jpg" alt="시장 이벤트와 보유종목을 연결해 대응 우선순위를 보여주는 AI 시황 리포트" />
+            <span>화면 확대</span>
+          </button>
+          <p class="screen-caption">관심종목 · 보유종목 대응 브리핑</p>
+        </div>
+        <div class="feature-content">
+          <p class="feature-number">05 / MANAGE</p>
+          <h2>Holdings Response</h2>
+          <p class="feature-korean-title">보유종목 대응</p>
+          <div class="usp-block"><span>USP</span><strong>관심종목을 보유종목으로 보고 장 상황에 맞는 대응 우선순위를 생성합니다.</strong></div>
+          <dl class="feature-details">
+            <div><dt>WHY</dt><dd>매수 이후에는 새로운 종목 추천보다 내 종목에 영향을 주는 사건과 손실·기회 요인을 빠르게 확인하는 것이 더 중요합니다.</dd></div>
+            <div><dt>DATA USED</dt><dd>관심종목 구성, 실시간 시세, 외국인·기관 수급, 종목 뉴스, 주요 이벤트, 미국 지수·섹터 흐름과 종목별 민감도를 사용합니다.</dd></div>
+            <div><dt>USER JOURNEY</dt><dd>국내 장전·장중·장마감과 미국장 상태에 따라 AI 시황 리포트를 확인하고 모니터링 우선 종목부터 대응합니다.</dd></div>
+            <div><dt>EXPERIENCE</dt><dd>핵심 시황 한 줄, ‘지금 확인’, 위험 신호, 이벤트·뉴스 요약과 보유종목 우선순위를 짧은 리포트로 제공합니다.</dd></div>
+            <div><dt>EXPECTED IMPACT</dt><dd>보유종목과 무관한 시황 탐색을 줄이고, 중요한 변화가 생긴 종목부터 일관된 기준으로 대응할 수 있습니다.</dd></div>
+          </dl>
+          <ul class="ai-points" aria-label="보유종목 대응 핵심 기술">
+            <li>장 상태 인식</li><li>종목 영향도 매칭</li><li>모니터링 우선순위</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="feature-story feature-story-reverse" id="feature-learn">
+        <div class="feature-visual">
+          <button class="phone-shot phone-shot-impact" type="button" data-lightbox-src="/assets/portfolio/images/market-impact-learning-live.png" data-lightbox-alt="시장 영향도 분석 모바일 화면">
+            <img src="/assets/portfolio/images/market-impact-learning-live.png" alt="외부 변수와 국내 업종 및 종목의 인과관계를 설명하는 시장 영향도 분석 화면" />
+            <span>화면 확대</span>
+          </button>
+          <p class="screen-caption">시장 영향도 분석 · 금융 지식 학습</p>
+        </div>
+        <div class="feature-content">
+          <p class="feature-number">06 / LEARN</p>
+          <h2>Market Learning</h2>
+          <p class="feature-korean-title">시장 영향 학습</p>
+          <div class="usp-block"><span>USP</span><strong>외부 변수가 국내 업종과 종목으로 전달되는 인과관계를 시각적으로 설명합니다.</strong></div>
+          <dl class="feature-details">
+            <div><dt>WHY</dt><dd>시장 뉴스의 결과만 외우면 다음 사건에 적용하기 어렵기 때문에, 금리·환율·원자재 변화가 주가에 전달되는 원리를 이해해야 합니다.</dd></div>
+            <div><dt>DATA USED</dt><dd>미국 국채금리·실질금리, 원/달러·달러지수, 장단기 금리차, VIX, WTI·구리, 나스닥과 위험자산 지표를 사용합니다.</dd></div>
+            <div><dt>USER JOURNEY</dt><dd>다섯 외부 요인의 방향과 비중을 보고 인과 흐름, 영향 업종, 대표 종목과 공식 지표를 차례로 확인합니다.</dd></div>
+            <div><dt>EXPERIENCE</dt><dd>요인 맵, ‘외부 변수 → 국내증시 → 영향 종목’ 흐름과 학습 포인트를 결합하고 데이터 연결 상태도 투명하게 표시합니다.</dd></div>
+            <div><dt>EXPECTED IMPACT</dt><dd>시장 변화를 독립적으로 해석하는 금융 지식을 쌓고, 새로운 뉴스에도 같은 인과 구조를 적용할 수 있습니다.</dd></div>
+          </dl>
+          <ul class="ai-points" aria-label="시장 영향 학습 핵심 기술">
+            <li>5요인 영향도</li><li>인과관계 시각화</li><li>공식 지표 추적</li>
           </ul>
         </div>
       </article>
@@ -208,7 +267,7 @@
             <strong>KIS 실시간 시세</strong>
             <strong>DART 공시·IR</strong>
             <strong>증권사 리포트</strong>
-            <strong>뉴스·거시지표</strong>
+            <strong>뉴스·FRED·거시지표</strong>
           </div>
           <div class="system-arrow" aria-hidden="true">→</div>
           <div class="system-column system-column-dark">
@@ -216,14 +275,14 @@
             <strong>수집·정규화</strong>
             <strong>신호 점수화</strong>
             <strong>종목 영향도 매칭</strong>
-            <strong>행동·근거 설명</strong>
+            <strong>탐색·판단·대응·학습</strong>
           </div>
           <div class="system-arrow" aria-hidden="true">→</div>
           <div class="system-column">
             <span>EXPERIENCE</span>
             <strong>반응형 Web</strong>
             <strong>모바일 PWA</strong>
-            <strong>관심종목 브리핑</strong>
+            <strong>종목·보유 대응 브리핑</strong>
             <strong>Kakao PlayMCP</strong>
           </div>
         </div>
@@ -231,7 +290,7 @@
 
       <section class="closing-section" aria-labelledby="closing-title">
         <p class="eyebrow">PRODUCT PRINCIPLE</p>
-        <h2 id="closing-title">AI가 더 많이 말하는 서비스가 아니라,<br />사용자가 더 빨리 판단하는 서비스를 만들었습니다.</h2>
+        <h2 id="closing-title">AI가 결론을 대신하는 서비스가 아니라,<br />사용자가 발견하고 판단하고 학습하는 구조를 만들었습니다.</h2>
         <div class="usage-guide" aria-labelledby="usage-title">
           <p class="usage-label">TRY THE PRODUCT</p>
           <h3 id="usage-title">사용 방법</h3>
@@ -247,7 +306,7 @@
               <span>02</span>
               <div>
                 <strong>아이디를 입력합니다.</strong>
-                <p>본인을 식별할 수 있는 임의의 아이디라면 모두 가능합니다.</p>
+                <p>본인을 식별할 수 있는 아이디를 입력해주세요. 별도 회원가입은 없습니다.</p>
               </div>
             </li>
           </ol>
@@ -256,7 +315,10 @@
           <a class="primary-link light" href="/dashboard?view=trend">운영 서비스 열기</a>
           <a class="text-link" href="#top">처음으로</a>
         </div>
-        <p class="disclaimer">본 서비스의 분석은 정보 제공을 위한 참고 자료이며 투자 권유가 아닙니다.</p>
+        <div class="disclaimer">
+          <p>본인을 식별할 수 있는 아이디를 입력해주세요. 별도 회원가입은 없습니다.</p>
+          <p>본 서비스의 분석은 정보 제공을 위한 참고 자료이며 투자 권유가 아닙니다.</p>
+        </div>
       </section>
     </main>
 
