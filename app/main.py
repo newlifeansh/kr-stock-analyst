@@ -139,6 +139,7 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 INSIGHT_INDEX = STATIC_DIR / "insight" / "index.html"
 STOCK_DASHBOARD_INDEX = STATIC_DIR / "dashboard" / "index.html"
+PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -448,6 +449,13 @@ def stock_dashboard_shell():
     if not STOCK_DASHBOARD_INDEX.exists():
         raise HTTPException(status_code=404, detail="Stock dashboard UI not found")
     return HTMLResponse(STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8"))
+
+
+@app.get("/portfolio")
+def portfolio_shell():
+    if not PORTFOLIO_INDEX.exists():
+        raise HTTPException(status_code=404, detail="Portfolio UI not found")
+    return HTMLResponse(PORTFOLIO_INDEX.read_text(encoding="utf-8"))
 
 
 @app.get("/nasdaq")

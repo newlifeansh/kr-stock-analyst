@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="사용자의 투자 질문을 데이터 기반 행동으로 바꾸는 AI 주식 분석 서비스 비밀노트 포트폴리오" />
+    <title>비밀노트 | AI 주식 분석 포트폴리오</title>
+    <link rel="stylesheet" href="/assets/portfolio/styles.css?v=20260721p1" />
+    <script src="/assets/portfolio/app.js?v=20260721p1" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#portfolio-main">본문으로 이동</a>
+
+    <header class="site-header" id="top">
+      <a class="brand" href="#top" aria-label="비밀노트 포트폴리오 처음으로">
+        <span class="brand-mark" aria-hidden="true">B</span>
+        <span>비밀노트</span>
+        <small>AI PRODUCT CASE STUDY</small>
+      </a>
+      <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="portfolio-nav">메뉴</button>
+      <nav class="portfolio-nav" id="portfolio-nav" aria-label="포트폴리오 주요 섹션">
+        <a href="#journey">사용자 여정</a>
+        <a href="#features">핵심 기능</a>
+        <a href="#system">구현 구조</a>
+        <a class="nav-cta" href="/dashboard?view=trend">서비스 보기</a>
+      </nav>
+    </header>
+
+    <main id="portfolio-main">
+      <section class="hero" aria-labelledby="portfolio-title">
+        <div class="hero-copy">
+          <p class="eyebrow">PERSONAL PROJECT · 2026</p>
+          <h1 id="portfolio-title">비밀노트</h1>
+          <p class="hero-lead">흩어진 시장 데이터를<br />오늘의 투자 행동으로 바꾸는 AI 분석 서비스</p>
+          <p class="hero-description">
+            시세, 수급, 뉴스, 공시, 증권사 리포트와 거시 이벤트를 하나의 판단 흐름으로 연결했습니다.
+            사용자는 더 많은 정보를 읽는 대신, 무엇을 먼저 확인하고 어떻게 대응할지 이해합니다.
+          </p>
+          <a class="primary-link" href="#features">핵심 기능 4가지 보기</a>
+        </div>
+
+        <div class="hero-products" aria-label="비밀노트 모바일 화면 미리보기">
+          <figure class="hero-phone hero-phone-back">
+            <img src="/assets/portfolio/images/ai-market-report.jpg" alt="관심종목 AI 시황 리포트 화면" />
+          </figure>
+          <figure class="hero-phone hero-phone-front">
+            <img src="/assets/portfolio/images/ai-stock-summary-live.png" alt="SK하이닉스 AI 종목 요약 화면" />
+          </figure>
+        </div>
+
+        <dl class="project-facts">
+          <div><dt>Role</dt><dd>Product Design · AI UX · Full-stack</dd></div>
+          <div><dt>Scope</dt><dd>Research · Strategy · Responsive Web</dd></div>
+          <div><dt>Stack</dt><dd>FastAPI · PostgreSQL · KIS · DART · MCP</dd></div>
+        </dl>
+      </section>
+
+      <section class="problem-band" id="journey" aria-labelledby="problem-title">
+        <div class="section-heading">
+          <p class="eyebrow">THE PROBLEM</p>
+          <h2 id="problem-title">정보는 많지만,<br />지금 해야 할 행동은 보이지 않았다.</h2>
+        </div>
+        <div class="problem-copy">
+          <p>
+            개인 투자자는 시세 앱, 뉴스, 공시, 증권사 PDF와 미국 시장을 따로 확인합니다. 정보는 계속 늘어나지만
+            내 종목에 어떤 영향을 주는지, 지금 무엇을 모니터링해야 하는지는 스스로 다시 해석해야 합니다.
+          </p>
+          <p class="problem-thesis">비밀노트는 이 해석 비용을 줄이는 데서 출발했습니다.</p>
+        </div>
+      </section>
+
+      <section class="journey-map" aria-labelledby="journey-title">
+        <div class="section-heading compact">
+          <p class="eyebrow">CORE USER JOURNEY</p>
+          <h2 id="journey-title">시장 변화에서<br />검증 가능한 행동까지</h2>
+        </div>
+        <ol class="journey-steps">
+          <li><span>01</span><strong>감지</strong><p>오늘 시장에서 달라진 신호를 찾는다.</p></li>
+          <li><span>02</span><strong>연결</strong><p>변화가 내 관심종목에 미치는 영향을 본다.</p></li>
+          <li><span>03</span><strong>행동</strong><p>가격 기준과 대응 우선순위를 정한다.</p></li>
+          <li><span>04</span><strong>검증</strong><p>리포트와 원문으로 판단 근거를 확인한다.</p></li>
+        </ol>
+      </section>
+
+      <section class="feature-index" id="features" aria-labelledby="feature-index-title">
+        <p class="eyebrow">FOUR AI EXPERIENCES</p>
+        <h2 id="feature-index-title">사용자의 말에서 출발한<br />핵심 기능 4가지</h2>
+        <nav aria-label="핵심 기능 바로가기">
+          <a href="#feature-context"><span>01</span>AI 시황 리포트</a>
+          <a href="#feature-summary"><span>02</span>AI 종목 판단</a>
+          <a href="#feature-action"><span>03</span>행동 전략</a>
+          <a href="#feature-evidence"><span>04</span>근거 검증</a>
+        </nav>
+      </section>
+
+      <article class="feature-story" id="feature-context">
+        <div class="feature-visual">
+          <button class="phone-shot" type="button" data-lightbox-src="/assets/portfolio/images/ai-market-report.jpg" data-lightbox-alt="관심종목 AI 시황 리포트 모바일 화면">
+            <img src="/assets/portfolio/images/ai-market-report.jpg" alt="원자재 악재와 주요 이벤트를 관심종목 우선순위에 연결한 AI 시황 리포트" />
+            <span>화면 확대</span>
+          </button>
+          <p class="screen-caption">관심종목 · AI 시황 리포트</p>
+        </div>
+        <div class="feature-content">
+          <p class="feature-number">01 / CONTEXT</p>
+          <h2>AI 시황 리포트</h2>
+          <p class="feature-lead">시장의 사건을 내 종목의 모니터링 우선순위로 바꿉니다.</p>
+          <blockquote>
+            “미국장만 포커싱하지 말고 주요 이벤트, 뉴스 등 시황을 종합해서 내 종목 모니터링 리포트로 보여줘.”
+            <cite>실제 사용자 요청 어투</cite>
+          </blockquote>
+          <dl class="feature-details">
+            <div><dt>서비스 기능</dt><dd>거시 이벤트, 뉴스 분위기, 미국 섹터 흐름과 국내 수급을 결합해 관심종목별 영향 신호와 확인 우선순위를 생성합니다.</dd></div>
+            <div><dt>유저 저니 목적</dt><dd>장 시작 전후에 여러 앱을 이동하지 않고, 오늘 내 종목에 중요한 변수부터 빠르게 확인합니다.</dd></div>
+            <div><dt>기대 효과</dt><dd>시황 탐색 시간을 줄이고, 시장 이슈와 무관한 종목까지 불필요하게 반응하는 행동을 줄입니다.</dd></div>
+          </dl>
+          <ul class="ai-points" aria-label="AI 시황 리포트 핵심 기술">
+            <li>이벤트·뉴스 의미 분류</li><li>종목 영향도 매칭</li><li>모니터링 우선순위 생성</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="feature-story feature-story-reverse" id="feature-summary">
+        <div class="feature-visual">
+          <button class="phone-shot" type="button" data-lightbox-src="/assets/portfolio/images/ai-stock-summary-live.png" data-lightbox-alt="AI 종목 요약 모바일 화면">
+            <img src="/assets/portfolio/images/ai-stock-summary-live.png" alt="실시간 시세와 차트 수급 밸류 뉴스를 요약한 AI 종목 판단 화면" />
+            <span>화면 확대</span>
+          </button>
+          <p class="screen-caption">종목 상세 · AI 요약</p>
+        </div>
+        <div class="feature-content">
+          <p class="feature-number">02 / SYNTHESIS</p>
+          <h2>AI 종목 판단</h2>
+          <p class="feature-lead">서로 다른 지표를 하나의 일관된 판단 언어로 번역합니다.</p>
+          <blockquote>
+            “실제 주가는 엄청 상승하고 있는데 상승 가능성은 낮게 보여. 현재 흐름과 판단의 괴리가 없도록 봐줘.”
+            <cite>실제 사용자 요청 어투</cite>
+          </blockquote>
+          <dl class="feature-details">
+            <div><dt>서비스 기능</dt><dd>실시간 시세, 단기·중기 모멘텀, 수급, 밸류에이션, 뉴스 감성을 함께 계산하고 긍정·부정 신호를 색과 문장으로 요약합니다.</dd></div>
+            <div><dt>유저 저니 목적</dt><dd>주가 상승 하나만 보고 추격하지 않고, 상승을 지지하거나 경고하는 신호를 함께 비교합니다.</dd></div>
+            <div><dt>기대 효과</dt><dd>단일 지표의 과신을 줄이고, 판단의 데이터 완성도와 현재 시장 국면을 한눈에 파악합니다.</dd></div>
+          </dl>
+          <ul class="ai-points" aria-label="AI 종목 판단 핵심 기술">
+            <li>7개 데이터 축 정규화</li><li>장중 맥락 반영</li><li>신호 충돌 설명</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="feature-story" id="feature-action">
+        <div class="feature-visual">
+          <button class="phone-shot phone-shot-focus" type="button" data-lightbox-src="/assets/portfolio/images/ai-action-strategy-live.png" data-lightbox-alt="AI 행동 전략 모바일 화면">
+            <img src="/assets/portfolio/images/ai-action-strategy-live.png" alt="핵심 판단과 매매 시나리오를 제시하는 AI 행동 전략 화면" />
+            <span>화면 확대</span>
+          </button>
+          <p class="screen-caption">종목 상세 · AI 전략</p>
+        </div>
+        <div class="feature-content">
+          <p class="feature-number">03 / ACTION</p>
+          <h2>행동 전략</h2>
+          <p class="feature-lead">분석 결과를 사용자가 바로 이해할 수 있는 대응 순서로 바꿉니다.</p>
+          <blockquote>
+            “정보가 너무 많고 어쩌라는 건지 모르겠어. 지금 해야 할 행동이 먼저 보였으면 좋겠어.”
+            <cite>실제 사용자 요청 어투</cite>
+          </blockquote>
+          <dl class="feature-details">
+            <div><dt>서비스 기능</dt><dd>현재가와 변동성 데이터를 기반으로 관찰 가격대, 전환 조건, 비중 축소 기준과 이익 관리 구간을 단계별로 제시합니다.</dd></div>
+            <div><dt>유저 저니 목적</dt><dd>긴 분석을 모두 읽기 전에 오늘의 대응과 핵심 가격을 먼저 확인하고, 필요할 때만 상세 근거를 펼칩니다.</dd></div>
+            <div><dt>기대 효과</dt><dd>충동적인 추격 매수와 기준 없는 손절을 줄이고, 사전에 정한 조건에 따라 일관되게 대응합니다.</dd></div>
+          </dl>
+          <ul class="ai-points" aria-label="AI 행동 전략 핵심 기술">
+            <li>행동 우선 정보 구조</li><li>동적 가격 시나리오</li><li>근거 점진 공개</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="feature-story feature-story-reverse" id="feature-evidence">
+        <div class="feature-visual">
+          <button class="phone-shot phone-shot-evidence" type="button" data-lightbox-src="/assets/portfolio/images/ai-evidence-research-live.png" data-lightbox-alt="증권사 리포트 근거 검증 모바일 화면">
+            <img src="/assets/portfolio/images/ai-evidence-research-live.png" alt="증권사 리포트 목표가 투자의견 원문을 연결한 근거 화면" />
+            <span>화면 확대</span>
+          </button>
+          <p class="screen-caption">종목 상세 · 근거 검증</p>
+        </div>
+        <div class="feature-content">
+          <p class="feature-number">04 / EVIDENCE</p>
+          <h2>근거 검증</h2>
+          <p class="feature-lead">AI의 결론 뒤에 있는 데이터와 원문을 사용자가 직접 확인합니다.</p>
+          <blockquote>
+            “증권사 리포트가 발행되면 자동으로 쌓이고, 우리가 만든 웹과 모바일에서 바로 보고 싶어.”
+            <cite>실제 사용자 요청 어투</cite>
+          </blockquote>
+          <dl class="feature-details">
+            <div><dt>서비스 기능</dt><dd>증권사 리포트를 주기적으로 수집하고 종목코드에 연결해, 목표가·투자의견·발행일·원문을 판단 근거 탭에서 제공합니다.</dd></div>
+            <div><dt>유저 저니 목적</dt><dd>AI 요약을 그대로 믿는 대신, 최신 리서치와 뉴스 원문을 열어 결론의 최신성과 출처를 검증합니다.</dd></div>
+            <div><dt>기대 효과</dt><dd>AI 분석의 설명 가능성과 신뢰를 높이고, 과거 자료나 출처 없는 결론이 투자 판단에 섞이는 것을 줄입니다.</dd></div>
+          </dl>
+          <ul class="ai-points" aria-label="근거 검증 핵심 기술">
+            <li>5분 증분 수집</li><li>일일 과거자료 보강</li><li>종목·리포트 자동 연결</li>
+          </ul>
+        </div>
+      </article>
+
+      <section class="system-section" id="system" aria-labelledby="system-title">
+        <div class="section-heading">
+          <p class="eyebrow">SYSTEM DESIGN</p>
+          <h2 id="system-title">실시간 정보가<br />판단이 되기까지</h2>
+        </div>
+        <div class="system-flow" role="img" aria-label="시세 공시 리포트 뉴스 거시 데이터가 정규화 분석 설명 과정을 거쳐 웹 모바일과 MCP로 제공되는 구조">
+          <div class="system-column">
+            <span>INPUT</span>
+            <strong>KIS 실시간 시세</strong>
+            <strong>DART 공시·IR</strong>
+            <strong>증권사 리포트</strong>
+            <strong>뉴스·거시지표</strong>
+          </div>
+          <div class="system-arrow" aria-hidden="true">→</div>
+          <div class="system-column system-column-dark">
+            <span>AI DECISION LAYER</span>
+            <strong>수집·정규화</strong>
+            <strong>신호 점수화</strong>
+            <strong>종목 영향도 매칭</strong>
+            <strong>행동·근거 설명</strong>
+          </div>
+          <div class="system-arrow" aria-hidden="true">→</div>
+          <div class="system-column">
+            <span>EXPERIENCE</span>
+            <strong>반응형 Web</strong>
+            <strong>모바일 PWA</strong>
+            <strong>관심종목 브리핑</strong>
+            <strong>Kakao PlayMCP</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="closing-section" aria-labelledby="closing-title">
+        <p class="eyebrow">PRODUCT PRINCIPLE</p>
+        <h2 id="closing-title">AI가 더 많이 말하는 서비스가 아니라,<br />사용자가 더 빨리 판단하는 서비스를 만들었습니다.</h2>
+        <div class="closing-actions">
+          <a class="primary-link light" href="/dashboard?view=trend">운영 서비스 열기</a>
+          <a class="text-link" href="#top">처음으로</a>
+        </div>
+        <p class="disclaimer">본 서비스의 분석은 정보 제공을 위한 참고 자료이며 투자 권유가 아닙니다.</p>
+      </section>
+    </main>
+
+    <dialog class="image-dialog" id="image-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-head">
+        <strong id="dialog-title">모바일 화면</strong>
+        <button id="dialog-close" type="button" aria-label="화면 확대 닫기">닫기</button>
+      </div>
+      <img id="dialog-image" src="" alt="" />
+    </dialog>
+  </body>
+</html>
