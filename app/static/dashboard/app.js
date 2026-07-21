@@ -1959,6 +1959,7 @@ function liveUrl(url) {
 async function fetchJsonCached(url, options = {}) {
   const ttlMs = options.ttlMs ?? UI_CACHE_TTL_MS;
   const force = Boolean(options.force);
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 0;
   const now = Date.now();
   const cached = state.responseCache.get(url);
   if (!force && cached && now - cached.savedAt <= ttlMs) {
@@ -1967,14 +1968,27 @@ async function fetchJsonCached(url, options = {}) {
   if (!force && state.pendingRequests.has(url)) {
     return clonePayload(await state.pendingRequests.get(url));
   }
-  const request = fetch(url, { cache: force || ttlMs === 0 ? "no-store" : "default" }).then(async (response) => {
-    if (!response.ok) {
-      throw new Error(`request failed: ${url}`);
-    }
-    const payload = await response.json();
-    state.responseCache.set(url, { savedAt: Date.now(), payload: clonePayload(payload) });
-    return payload;
-  });
+  const controller = timeoutMs ? new AbortController() : null;
+  const timeoutId = controller
+    ? window.setTimeout(() => controller.abort(), timeoutMs)
+    : null;
+  const request = fetch(url, {
+    cache: force || ttlMs === 0 ? "no-store" : "default",
+    signal: controller?.signal,
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`request failed: ${url}`);
+      }
+      const payload = await response.json();
+      state.responseCache.set(url, { savedAt: Date.now(), payload: clonePayload(payload) });
+      return payload;
+    })
+    .finally(() => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    });
   state.pendingRequests.set(url, request);
   try {
     return clonePayload(await request);
@@ -3325,20 +3339,12 @@ function requestMarketRanking(category, market, options = {}) {
     limit: "20",
   });
   params.set("market", market);
-  params.set("refresh", "1");
-  const fallbackParams = new URLSearchParams(params);
-  fallbackParams.delete("refresh");
-  const primaryUrl = `/market/rankings?${params.toString()}`;
-  const fallbackUrl = `/market/rankings?${fallbackParams.toString()}`;
-  const fallbackRequest = () => fetchJsonCached(fallbackUrl, { force: true, ttlMs: 0 });
-  const promise = fetchJsonCached(primaryUrl, { force, ttlMs: force ? 0 : ttlMs })
-    .then((payload) => {
-      if (!payload.items || payload.items.length === 0) {
-        return fallbackRequest();
-      }
-      return payload;
-    })
-    .catch(() => fallbackRequest())
+  const url = `/market/rankings?${params.toString()}`;
+  const promise = fetchJsonCached(url, {
+    force,
+    ttlMs: force ? 0 : ttlMs,
+    timeoutMs: 12_000,
+  })
     .then((payload) => {
       state.marketRankingCache.set(key, { payload, savedAt: Date.now() });
       return payload;
@@ -3380,7 +3386,7 @@ async function loadMarketRankings(options = {}) {
     }
   } catch {
     if (state.view === "market" && state.rankingCategory === category && currentMarketFilter() === market) {
-      renderRankingMessage("데이터 없음");
+      renderRankingMessage("데이터를 불러오지 못했습니다. 시장 탭을 다시 눌러주세요.");
     }
   }
 }
