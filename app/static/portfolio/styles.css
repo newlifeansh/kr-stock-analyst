@@ -160,24 +160,6 @@ img { display: block; max-width: 100%; }
   font-size: 16px;
 }
 
-.hero-keywords {
-  display: flex;
-  gap: 8px;
-  margin: -14px 0 28px;
-  padding: 0;
-  flex-wrap: wrap;
-  list-style: none;
-}
-
-.hero-keywords li {
-  padding: 5px 8px;
-  border: 1px solid #4b4f55;
-  border-radius: 4px;
-  color: #c7cbd1;
-  font-size: 10px;
-  font-weight: 850;
-}
-
 .primary-link {
   display: inline-flex;
   align-items: center;
@@ -458,9 +440,6 @@ img { display: block; max-width: 100%; }
 .feature-details dt { color: #1d5fd1; font-size: 11px; font-weight: 950; }
 .feature-details dd { margin: 0; color: #3f454d; font-size: 14px; }
 
-.ai-points { display: flex; flex-wrap: wrap; gap: 8px; margin: 28px 0 0; padding: 0; list-style: none; }
-.ai-points li { padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; font-weight: 900; }
-
 .system-section { max-width: none; padding-right: max(24px, calc((100vw - var(--max)) / 2)); padding-left: max(24px, calc((100vw - var(--max)) / 2)); }
 .system-flow { display: grid; grid-template-columns: 1fr 32px 1fr 32px 1fr; align-items: stretch; }
 .system-column { display: flex; min-height: 390px; padding: 26px; flex-direction: column; border: 1px solid var(--line); background: #ffffff; }
@@ -554,7 +533,6 @@ img { display: block; max-width: 100%; }
   .hero h1 { font-size: 62px; }
   .hero-lead { margin-top: 24px; font-size: 25px; line-height: 1.3; }
   .hero-description { margin: 20px 0 26px; }
-  .hero-keywords { margin-top: -10px; margin-bottom: 24px; }
   .hero-products { top: 555px; height: 320px; }
   .hero-phone { width: 174px; }
   .hero-phone-back { right: 47%; }
@@ -648,16 +626,6 @@ img { display: block; max-width: 100%; }
   .hero-lead {
     margin-top: 12mm;
     font-size: 23pt;
-  }
-
-  .hero-keywords {
-    gap: 2mm;
-    margin: -4mm 0 7mm;
-  }
-
-  .hero-keywords li {
-    padding: 1.2mm 2mm;
-    font-size: 6pt;
   }
 
   .hero-description {
@@ -834,16 +802,6 @@ img { display: block; max-width: 100%; }
 
   .feature-details dd {
     font-size: 7.6pt;
-  }
-
-  .ai-points {
-    gap: 2mm;
-    margin-top: 4mm;
-  }
-
-  .ai-points li {
-    padding: 2mm;
-    font-size: 6.5pt;
   }
 
   .system-section {
