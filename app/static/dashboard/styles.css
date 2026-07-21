@@ -8613,7 +8613,6 @@ body .watch-table td::before {
   overflow: visible;
   border: 0;
   border-top: 10px solid var(--report-bg);
-  border-bottom: 1px solid var(--report-line);
   border-radius: 0;
   background: #ffffff;
   backdrop-filter: none;
