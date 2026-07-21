@@ -3975,7 +3975,7 @@ function renderWatchPreOpenPoint(card, dashboard, quoteOverride = null, item = {
     section.dataset.field = "preopen_point";
     section.addEventListener("toggle", () => {
       const code = section.dataset.code || "";
-      if (!code || section.dataset.mode !== "regular") {
+      if (!code) {
         return;
       }
       if (section.open) {
@@ -3987,10 +3987,7 @@ function renderWatchPreOpenPoint(card, dashboard, quoteOverride = null, item = {
   }
   section.dataset.code = itemCode;
   section.className = `watch-preopen-point ${point.tone} ${point.collapsed ? "collapsed" : ""}`;
-  if (point.mode !== "regular" && itemCode) {
-    state.watchPreopenExpanded.delete(itemCode);
-  }
-  const keepExpanded = point.mode === "regular" && itemCode ? state.watchPreopenExpanded.has(itemCode) : false;
+  const keepExpanded = itemCode ? state.watchPreopenExpanded.has(itemCode) : false;
   section.open = point.collapsed ? keepExpanded : true;
   section.dataset.mode = point.mode || "";
   const summary = document.createElement("summary");

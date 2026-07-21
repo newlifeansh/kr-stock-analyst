@@ -116,6 +116,18 @@ def test_insight_shell_and_feed():
     assert "toss_orders" in body
 
 
+def test_watch_point_expansion_survives_market_data_refresh():
+    client = TestClient(app)
+
+    for asset_path in ("/assets/dashboard/app.js", "/assets/nasdaq/app.js"):
+        response = client.get(asset_path)
+        assert response.status_code == 200
+        source = response.text
+        assert 'const keepExpanded = itemCode ? state.watchPreopenExpanded.has(itemCode) : false;' in source
+        assert 'section.dataset.mode !== "regular"' not in source
+        assert "state.watchPreopenExpanded.delete(itemCode)" not in source
+
+
 def test_meta_endpoints():
     client = TestClient(app)
 
