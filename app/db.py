@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import get_settings
@@ -59,6 +59,19 @@ def init_db() -> None:
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "postgresql":
+        bigint_columns = {
+            "daily_price": ("volume", "trading_value", "market_cap", "listed_shares"),
+            "investor_flow": ("buy_volume", "sell_volume", "net_buy_volume", "buy_value", "sell_value", "net_buy_value"),
+            "briefing_quote": ("volume", "trading_value"),
+            "briefing_mover": ("volume", "trading_value"),
+        }
+        with engine.begin() as connection:
+            for table_name, column_names in bigint_columns.items():
+                for column_name in column_names:
+                    connection.execute(
+                        text(f'ALTER TABLE "{table_name}" ALTER COLUMN "{column_name}" TYPE BIGINT')
+                    )
 
 
 def get_db():

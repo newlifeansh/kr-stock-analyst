@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import Session, sessionmaker
@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.collectors import krx, naver_quotes
 from app.db import Base
 from app.models import DailyPrice, IngestionRun, StockMaster
+from app.services.stock_dashboard import PRICE_HISTORY_BACKFILL_CACHE, _momentum, _prices, ensure_stock_price_history
 
 
 def _session() -> Session:
@@ -54,6 +55,40 @@ def test_is_supported_price_code():
     assert krx.is_supported_price_code("005930")
     assert not krx.is_supported_price_code("0001A0")
     assert not krx.is_supported_price_code("삼성전자")
+
+
+def test_ensure_stock_price_history_backfills_missing_momentum(monkeypatch):
+    PRICE_HISTORY_BACKFILL_CACHE.clear()
+    base_date = date(2026, 7, 21)
+
+    def fake_collect_stock_prices(db, code: str, from_yyyymmdd: str, to_yyyymmdd: str):
+        rows = []
+        for offset in range(90):
+            trade_date = base_date - timedelta(days=offset)
+            rows.append(
+                DailyPrice(
+                    code=code,
+                    trade_date=trade_date,
+                    close=1000 + offset,
+                    volume=100,
+                )
+            )
+        db.add_all(rows)
+        db.commit()
+        return len(rows)
+
+    monkeypatch.setattr(krx, "collect_stock_prices", fake_collect_stock_prices)
+
+    with _session() as db:
+        db.add(StockMaster(code="000660", name="SK하이닉스", market="KOSPI"))
+        db.commit()
+
+        count = ensure_stock_price_history(db, "000660")
+        momentum = _momentum(_prices(db, "000660"))
+
+        assert count == 90
+        assert momentum["one_month_return"] is not None
+        assert momentum["three_month_return"] is not None
 
 
 def test_collect_naver_quotes_commits_batches_and_skips_failed_codes(monkeypatch):

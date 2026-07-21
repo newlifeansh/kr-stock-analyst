@@ -115,7 +115,7 @@ from app.services.market_rankings import build_market_rankings
 from app.services.market_impact import build_market_impact
 from app.services.recommendations import build_recommendations
 from app.services.stock_ai_analysis import build_stock_ai_analysis
-from app.services.stock_dashboard import build_stock_dashboard
+from app.services.stock_dashboard import build_stock_dashboard, ensure_stock_price_history
 from app.services.kis_realtime import KisRealtimeQuoteProvider, parse_kis_stock_tick
 from app.services.ttl_cache import TTLCache
 from app.services.trends import build_event_graph, build_trend_analysis
@@ -1576,6 +1576,7 @@ def stock_dashboard(
     if not db.get(StockMaster, code):
         _ensure_stock_master_from_naver(db, code)
     if refresh:
+        ensure_stock_price_history(db, code)
         payload = build_stock_dashboard(db, code, refresh_live=True)
         if payload:
             api_cache.set(key, payload, STOCK_DASHBOARD_TTL_SECONDS)
@@ -1849,6 +1850,7 @@ def stock_ai_analysis(
     if not db.get(StockMaster, code):
         _ensure_stock_master_from_naver(db, code)
     if refresh:
+        ensure_stock_price_history(db, code)
         dashboard = build_stock_dashboard(db, code, refresh_live=True)
         if dashboard:
             api_cache.set(key, dashboard, STOCK_DASHBOARD_TTL_SECONDS)

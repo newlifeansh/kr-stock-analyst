@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -40,6 +41,17 @@ def upsert_many(db: Session, model: type, rows: Iterable[dict[str, Any]]) -> int
         for start in range(0, len(rows), max_rows_per_statement):
             chunk = rows[start : start + max_rows_per_statement]
             statement = sqlite_insert(model).values(chunk)
+            update_cols = {
+                column.name: getattr(statement.excluded, column.name)
+                for column in model.__table__.columns
+                if not column.primary_key
+            }
+            db.execute(statement.on_conflict_do_update(index_elements=_conflict_columns(model), set_=update_cols))
+    elif bind_name == "postgresql":
+        max_rows_per_statement = max(1, 30000 // max(1, len(model.__table__.columns)))
+        for start in range(0, len(rows), max_rows_per_statement):
+            chunk = rows[start : start + max_rows_per_statement]
+            statement = postgresql_insert(model).values(chunk)
             update_cols = {
                 column.name: getattr(statement.excluded, column.name)
                 for column in model.__table__.columns

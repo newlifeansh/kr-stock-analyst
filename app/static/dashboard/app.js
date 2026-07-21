@@ -3688,10 +3688,19 @@ function renderWatchlistStrategy(results = state.watchlistResults, usSectorMoves
   const usAverage = usRates.length ? usRates.reduce((sum, value) => sum + value, 0) / usRates.length : null;
   const usTone = usAverage === null ? "muted" : usAverage > 0 ? "positive" : usAverage < 0 ? "negative" : "muted";
   const factors = Array.isArray(marketContext?.impact?.factors) ? marketContext.impact.factors : [];
-  const majorFactors = factors.slice(0, 2);
+  const watchNames = new Set(valid.map((result) => result.item.name));
+  const watchThemes = new Set(valid.map((result) => watchlistTheme(result.item)).filter((theme) => theme !== "기타"));
+  const relevantFactors = factors.filter((factor) => {
+    const leaders = Array.isArray(factor.leader_stocks) ? factor.leader_stocks : [];
+    const sectors = Array.isArray(factor.affected_sectors) ? factor.affected_sectors : [];
+    return leaders.some((name) => watchNames.has(name))
+      || sectors.some((sector) => Array.from(watchThemes).some((theme) => String(sector).includes(theme) || theme.includes(String(sector))));
+  });
+  const majorFactors = relevantFactors.slice(0, 2);
   const events = Array.isArray(marketContext?.trends?.events) ? marketContext.trends.events : [];
-  const importantEvent = events.find((event) => event.importance === "중요") || events[0] || null;
-  const marketNews = events.flatMap((event) => event.timeline || []).find((item) => item?.title) || null;
+  const relevantEvents = events.filter((event) => valid.some((result) => eventMatchesWatchItem(event, result.item)));
+  const importantEvent = relevantEvents.find((event) => event.importance === "중요") || relevantEvents[0] || null;
+  const marketNews = relevantEvents.flatMap((event) => event.timeline || []).find((item) => item?.title) || null;
   const mainFactor = majorFactors[0] || null;
   const monitoring = valid
     .map((result) => {
@@ -3719,14 +3728,18 @@ function renderWatchlistStrategy(results = state.watchlistResults, usSectorMoves
     .sort((left, right) => right.score - left.score)
     .slice(0, Math.min(3, valid.length));
 
-  const headline = mainFactor
-    ? `${mainFactor.label} ${mainFactor.direction} 신호가 관심 종목의 핵심 변수`
+  const headline = mainFactor && positiveCount > negativeCount && mainFactor.direction === "악재"
+    ? `관심 종목은 상승 중, ${mainFactor.label} 악재와의 괴리 확인`
+    : mainFactor
+      ? `${mainFactor.label} ${mainFactor.direction} 신호가 관심 종목의 핵심 변수`
     : usAverage !== null && usAverage <= -0.3
       ? "미국 연관 섹터 약세, 관심 종목 변동성 확인"
       : "주요 이벤트와 뉴스 흐름을 반영해 관심 종목을 점검 중";
   const leaderNames = mainFactor ? (mainFactor.leader_stocks || []).filter((name) => valid.some((result) => result.item.name === name)) : [];
-  const action = mainFactor?.direction === "악재"
-    ? `${leaderNames.length ? `${leaderNames.slice(0, 2).join(" · ")} 점검: ` : ""}${mainFactor.interpretation || "수급·뉴스 반응을 우선 확인"}`
+  const action = mainFactor?.direction === "악재" && positiveCount > negativeCount
+    ? `${leaderNames.length ? `${leaderNames.slice(0, 2).join(" · ")} 상승 지속 여부: ` : ""}거래대금과 외국인·기관 수급이 악재를 이기는지 확인`
+    : mainFactor?.direction === "악재"
+      ? `${leaderNames.length ? `${leaderNames.slice(0, 2).join(" · ")} 점검: ` : ""}${mainFactor.interpretation || "수급·뉴스 반응을 우선 확인"}`
     : negativeCount > positiveCount
       ? "오늘 약세였던 종목의 뉴스·수급·미국 연관 섹터를 함께 확인"
       : phase.action;

@@ -5,11 +5,12 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 import re
 from statistics import mean
+from threading import RLock
 from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import DailyPrice, DisclosureItem, InvestorFlow, NewsItem, ResearchReport, StockMaster
@@ -46,8 +47,13 @@ FOREIGN_TYPES = ("외국인", "외국인합계", "외국계")
 INSTITUTION_TYPES = ("기관합계", "기관", "금융투자", "투신", "연기금")
 NAVER_ITEM_URL = "https://finance.naver.com/item/main.naver"
 NAVER_CACHE = TTLCache(maxsize=2048)
+PRICE_HISTORY_BACKFILL_CACHE = TTLCache(maxsize=2048)
+PRICE_HISTORY_BACKFILL_LOCK = RLock()
 NAVER_SNAPSHOT_TTL_SECONDS = 120
 NAVER_ITEM_NEWS_TTL_SECONDS = 180
+PRICE_HISTORY_MIN_ROWS = 64
+PRICE_HISTORY_LOOKBACK_DAYS = 220
+PRICE_HISTORY_BACKFILL_TTL_SECONDS = 60 * 60 * 6
 KST = timezone(timedelta(hours=9))
 
 
@@ -379,6 +385,58 @@ def _prices(db: Session, code: str, limit: int = 180) -> list[DailyPrice]:
         .limit(limit)
     )
     return list(reversed(list(db.scalars(statement))))
+
+
+def ensure_stock_price_history(
+    db: Session,
+    code: str,
+    min_rows: int = PRICE_HISTORY_MIN_ROWS,
+    lookback_days: int = PRICE_HISTORY_LOOKBACK_DAYS,
+) -> int:
+    def count_rows() -> int:
+        return int(
+            db.scalar(
+                select(func.count())
+                .select_from(DailyPrice)
+                .where(DailyPrice.code == code)
+            )
+            or 0
+        )
+
+    current_count = count_rows()
+    if current_count >= min_rows:
+        return current_count
+
+    cache_key = ("price_history_backfill", code)
+    cached_count = PRICE_HISTORY_BACKFILL_CACHE.get(cache_key)
+    if cached_count is not None:
+        return int(cached_count)
+
+    with PRICE_HISTORY_BACKFILL_LOCK:
+        current_count = count_rows()
+        if current_count >= min_rows:
+            return current_count
+        cached_count = PRICE_HISTORY_BACKFILL_CACHE.get(cache_key)
+        if cached_count is not None:
+            return int(cached_count)
+
+        today = _now_kst().date()
+        from_date = today - timedelta(days=lookback_days)
+        try:
+            from app.collectors.krx import collect_stock_prices
+
+            collect_stock_prices(
+                db,
+                code,
+                from_yyyymmdd=from_date.strftime("%Y%m%d"),
+                to_yyyymmdd=today.strftime("%Y%m%d"),
+            )
+        except Exception:
+            db.rollback()
+
+        refreshed_count = count_rows()
+        PRICE_HISTORY_BACKFILL_CACHE.set(cache_key, refreshed_count, PRICE_HISTORY_BACKFILL_TTL_SECONDS)
+        return refreshed_count
 
 
 def _nth_from_end(items: list[DailyPrice], offset: int) -> Optional[DailyPrice]:

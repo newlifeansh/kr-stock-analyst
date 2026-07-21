@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -53,10 +53,10 @@ class DailyPrice(Base):
     high: Mapped[Optional[int]] = mapped_column(Integer)
     low: Mapped[Optional[int]] = mapped_column(Integer)
     close: Mapped[Optional[int]] = mapped_column(Integer)
-    volume: Mapped[Optional[int]] = mapped_column(Integer)
-    trading_value: Mapped[Optional[int]] = mapped_column(Integer)
-    market_cap: Mapped[Optional[int]] = mapped_column(Integer)
-    listed_shares: Mapped[Optional[int]] = mapped_column(Integer)
+    volume: Mapped[Optional[int]] = mapped_column(BigInteger)
+    trading_value: Mapped[Optional[int]] = mapped_column(BigInteger)
+    market_cap: Mapped[Optional[int]] = mapped_column(BigInteger)
+    listed_shares: Mapped[Optional[int]] = mapped_column(BigInteger)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
@@ -72,12 +72,12 @@ class InvestorFlow(Base):
     code: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
     trade_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     investor_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
-    buy_volume: Mapped[Optional[int]] = mapped_column(Integer)
-    sell_volume: Mapped[Optional[int]] = mapped_column(Integer)
-    net_buy_volume: Mapped[Optional[int]] = mapped_column(Integer)
-    buy_value: Mapped[Optional[int]] = mapped_column(Integer)
-    sell_value: Mapped[Optional[int]] = mapped_column(Integer)
-    net_buy_value: Mapped[Optional[int]] = mapped_column(Integer)
+    buy_volume: Mapped[Optional[int]] = mapped_column(BigInteger)
+    sell_volume: Mapped[Optional[int]] = mapped_column(BigInteger)
+    net_buy_volume: Mapped[Optional[int]] = mapped_column(BigInteger)
+    buy_value: Mapped[Optional[int]] = mapped_column(BigInteger)
+    sell_value: Mapped[Optional[int]] = mapped_column(BigInteger)
+    net_buy_value: Mapped[Optional[int]] = mapped_column(BigInteger)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
@@ -197,8 +197,8 @@ class BriefingQuote(Base):
     price: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
     change_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
     change_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    volume: Mapped[Optional[int]] = mapped_column(Integer)
-    trading_value: Mapped[Optional[int]] = mapped_column(Integer)
+    volume: Mapped[Optional[int]] = mapped_column(BigInteger)
+    trading_value: Mapped[Optional[int]] = mapped_column(BigInteger)
 
 
 class BriefingMover(Base):
@@ -217,8 +217,8 @@ class BriefingMover(Base):
     price: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
     change_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
     change_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    volume: Mapped[Optional[int]] = mapped_column(Integer)
-    trading_value: Mapped[Optional[int]] = mapped_column(Integer)
+    volume: Mapped[Optional[int]] = mapped_column(BigInteger)
+    trading_value: Mapped[Optional[int]] = mapped_column(BigInteger)
 
 
 class BriefingEvent(Base):
