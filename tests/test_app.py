@@ -97,7 +97,7 @@ def test_insight_shell_and_feed():
     portfolio_shell = client.get("/portfolio")
     assert portfolio_shell.status_code == 200
     assert "AI 투자 의사결정 서비스 Case Study" in portfolio_shell.text
-    assert "핵심 경험 6가지" in portfolio_shell.text
+    assert "AI User Journey를 완성한" in portfolio_shell.text
 
     feed = client.get("/insight/feed")
     assert feed.status_code == 200

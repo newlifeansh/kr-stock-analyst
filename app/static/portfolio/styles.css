@@ -151,11 +151,31 @@ img { display: block; max-width: 100%; }
   font-weight: 850;
 }
 
+.hero-lead span { display: block; }
+
 .hero-description {
   max-width: 590px;
   margin: 26px 0 34px;
   color: #bdc2c9;
   font-size: 16px;
+}
+
+.hero-keywords {
+  display: flex;
+  gap: 8px;
+  margin: -14px 0 28px;
+  padding: 0;
+  flex-wrap: wrap;
+  list-style: none;
+}
+
+.hero-keywords li {
+  padding: 5px 8px;
+  border: 1px solid #4b4f55;
+  border-radius: 4px;
+  color: #c7cbd1;
+  font-size: 10px;
+  font-weight: 850;
 }
 
 .primary-link {
@@ -282,6 +302,8 @@ img { display: block; max-width: 100%; }
 
 .problem-copy p { margin: 0 0 24px; }
 .problem-thesis { color: #111111; font-weight: 900; }
+.build-loop { color: var(--muted); font-size: 13px; }
+.build-loop strong { margin-right: 8px; color: var(--blue); font-size: 11px; }
 
 .journey-map {
   max-width: none;
@@ -530,8 +552,9 @@ img { display: block; max-width: 100%; }
   .hero { min-height: 900px; }
   .hero-copy { padding-top: 54px; }
   .hero h1 { font-size: 62px; }
-  .hero-lead { margin-top: 24px; font-size: 26px; }
+  .hero-lead { margin-top: 24px; font-size: 25px; line-height: 1.3; }
   .hero-description { margin: 20px 0 26px; }
+  .hero-keywords { margin-top: -10px; margin-bottom: 24px; }
   .hero-products { top: 555px; height: 320px; }
   .hero-phone { width: 174px; }
   .hero-phone-back { right: 47%; }
@@ -625,6 +648,16 @@ img { display: block; max-width: 100%; }
   .hero-lead {
     margin-top: 12mm;
     font-size: 23pt;
+  }
+
+  .hero-keywords {
+    gap: 2mm;
+    margin: -4mm 0 7mm;
+  }
+
+  .hero-keywords li {
+    padding: 1.2mm 2mm;
+    font-size: 6pt;
   }
 
   .hero-description {
