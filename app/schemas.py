@@ -474,6 +474,8 @@ class StockAIAnalysisOut(BaseModel):
     generated_at: datetime
     stance: str
     confidence: Decimal
+    data_covered: int = 0
+    data_total: int = 0
     summary: str
     key_points: list[str]
     strategy: list[str]

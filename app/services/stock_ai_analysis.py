@@ -245,6 +245,25 @@ def _plain_chart_risk(chart_risks: list[str]) -> str:
     return "차트상 부담 신호가 있어 가격 변동이 커질 수 있습니다."
 
 
+def _intraday_context(day_change: float | None, one_month: float | None) -> str:
+    if day_change is None:
+        return "오늘 등락 데이터는 확인 중입니다."
+    if day_change >= 2 and one_month is not None and one_month <= -5:
+        return (
+            f"오늘 {_fmt_percent(day_change)} 강세지만 1개월 {_fmt_percent(one_month)}여서, "
+            "급락 뒤 반등인지 추세 전환인지 구분해야 합니다."
+        )
+    if day_change >= 2:
+        return f"오늘 {_fmt_percent(day_change)} 강세로 단기 매수세가 유입되고 있습니다."
+    if day_change <= -2 and one_month is not None and one_month >= 5:
+        return (
+            f"오늘 {_fmt_percent(day_change)} 조정 중이지만 1개월 {_fmt_percent(one_month)} 흐름은 아직 유지되고 있습니다."
+        )
+    if day_change <= -2:
+        return f"오늘 {_fmt_percent(day_change)} 약세로 단기 매도 압력이 커졌습니다."
+    return f"오늘 등락률은 {_fmt_percent(day_change)}로 방향성이 크지 않습니다."
+
+
 def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
     quote = dashboard.get("quote", {})
     momentum = dashboard.get("momentum", {})
@@ -260,6 +279,7 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
     is_us = _is_us_market(dashboard.get("market"))
 
     score = 0
+    day_change = _num(quote.get("change_rate"))
     chart_score = _num(chart.get("score"))
     one_month = _num(momentum.get("one_month_return"))
     three_month = _num(momentum.get("three_month_return"))
@@ -295,8 +315,9 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
     else:
         stance = "중립 관찰"
 
-    covered = sum(1 for value in coverage.values() if value) if isinstance(coverage, dict) else 0
-    confidence = Decimal(str(min(92, 40 + covered * 7 + max(0, abs(score)) * 3)))
+    data_total = len(coverage) if isinstance(coverage, dict) else 0
+    data_covered = sum(1 for value in coverage.values() if value) if isinstance(coverage, dict) else 0
+    confidence = Decimal(str(round(data_covered / data_total * 100, 1))) if data_total else Decimal("0")
 
     price = quote.get("price")
     actionable_trade = stance in {"관심 매수 후보", "추세 확인 후 분할 접근"}
@@ -310,6 +331,7 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
     first_sell_line = trade_levels["first_sell"]
     support_reference = trade_levels["support_reference"]
     resistance_reference = trade_levels["resistance_reference"]
+    intraday_context = _intraday_context(day_change, one_month)
     latest_news = sentiment.get("latest_items") or []
     latest_news_title = latest_news[0].get("title") if latest_news else "최근 뉴스 신호가 제한적입니다."
     etf_symbol = str(flows.get("etf_symbol") or "섹터 ETF")
@@ -322,14 +344,14 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
 
     if actionable_trade:
         summary = (
-            f"{_topic_name(dashboard.get('name'))} 현재 {_as_state(stance)} 분류됩니다. "
+            f"{intraday_context} {_topic_name(dashboard.get('name'))} 현재 {_as_state(stance)} 분류됩니다. "
             f"차트는 {chart.get('stance') or '-'}이고, 1개월 {_fmt_percent(one_month)}, "
             f"3개월 {_fmt_percent(three_month)} 흐름입니다. "
             f"현재가 {_fmt_number(price)} 기준 1차 매수권은 {buy_zone}, 돌파 기준은 {_fmt_number(breakout_line)}입니다."
         )
     else:
         summary = (
-            f"{_topic_name(dashboard.get('name'))} 현재 {_as_state(stance)} 분류됩니다. "
+            f"{intraday_context} {_topic_name(dashboard.get('name'))} 현재 {_as_state(stance)} 분류됩니다. "
             f"차트는 {chart.get('stance') or '-'}이고, 1개월 {_fmt_percent(one_month)}, "
             f"3개월 {_fmt_percent(three_month)} 흐름입니다. "
             f"현재가 {_fmt_number(price)} 기준 {buy_zone}은 실행 구간이 아니라 관찰 가격대이며, "
@@ -390,6 +412,7 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
 
     chart_risks = [str(item) for item in chart.get("risks") or []]
     key_points = [
+        intraday_context,
         f"가격 흐름은 {chart.get('stance') or chart.get('trend') or '-'}입니다. 1개월 {_fmt_percent(one_month)}, 3개월 {_fmt_percent(three_month)}라 단기와 중기 흐름을 같이 봅니다.",
         f"거래대금은 최근 {_fmt_money(quote.get('trading_value'))}이고 변화율은 {_fmt_percent(value_change)}입니다. 돈이 계속 들어오는지가 핵심입니다.",
         flow_point,
@@ -466,6 +489,8 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
         "generated_at": datetime.now(timezone.utc),
         "stance": stance,
         "confidence": confidence,
+        "data_covered": data_covered,
+        "data_total": data_total,
         "summary": summary,
         "key_points": key_points,
         "strategy": strategy,

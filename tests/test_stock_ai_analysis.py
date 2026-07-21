@@ -54,6 +54,9 @@ def test_stock_ai_analysis_uses_near_current_trade_levels_for_strategy():
     assert trade_levels["entry_label"] == "관찰 가격대"
     assert trade_levels["support_reference"] == 375000
     assert trade_levels["resistance_reference"] == 723000
+    assert payload["data_covered"] == 4
+    assert payload["data_total"] == 4
+    assert payload["confidence"] == 100
     assert 500000 <= trade_levels["buy_low"] <= 533000
     assert 533000 <= trade_levels["buy_high"] <= 560000
     assert 505000 <= trade_levels["stop"] <= 533000
@@ -85,3 +88,15 @@ def test_stock_ai_analysis_uses_buy_language_only_for_actionable_stance():
     assert trade_levels["actionable"] is True
     assert trade_levels["entry_label"] == "1차 매수권"
     assert "1차 매수" in strategy_text
+
+
+def test_stock_ai_analysis_explains_intraday_rebound_inside_weak_month():
+    dashboard = _base_dashboard()
+    dashboard["quote"] = {**dashboard["quote"], "change_rate": 4.92}
+    dashboard["momentum"] = {**dashboard["momentum"], "one_month_return": -27.54}
+
+    payload = build_stock_ai_analysis(dashboard)
+
+    assert "오늘 +4.92% 강세" in payload["summary"]
+    assert "급락 뒤 반등인지 추세 전환인지" in payload["summary"]
+    assert payload["key_points"][0].startswith("오늘 +4.92% 강세")

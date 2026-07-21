@@ -19,7 +19,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260721kr06" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260721kr07" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -191,14 +191,14 @@
             <article class="stock-visual-card">
               <div class="stock-visual-main">
                 <div class="score-ring" id="stock-summary-score-ring" style="--score: 0">
-                  <small>상승 가능성</small>
+                  <small>추세 지속력</small>
                   <span id="stock-summary-score">-</span>
                 </div>
                 <div>
                   <span class="section-eyebrow">종합 판단</span>
                   <h2 id="stock-summary-stance">데이터 준비 중</h2>
-                  <p class="stock-confidence-line">판단 신뢰도 <strong id="stock-summary-confidence">-</strong></p>
-                  <p class="stock-confidence-help">상승 가능성은 방향 점수, 판단 신뢰도는 데이터 충분도입니다.</p>
+                  <p class="stock-confidence-line">분석 데이터 <strong id="stock-summary-confidence">-</strong></p>
+                  <p class="stock-confidence-help">추세 지속력은 오늘 등락과 중기 지표를 합친 상태 점수이며, 미래 상승 확률이 아닙니다.</p>
                   <p id="stock-summary-line">시세와 핵심 지표를 불러오는 중입니다.</p>
                 </div>
               </div>
@@ -276,7 +276,7 @@
               </div>
               <dl class="ai-decision-table" id="ai-decision-table">
                 <div><dt>판단</dt><dd id="ai-decision-stance">-</dd></div>
-                <div><dt>신뢰도</dt><dd id="ai-decision-confidence">-</dd></div>
+                <div><dt>분석 데이터</dt><dd id="ai-decision-confidence">-</dd></div>
                 <div><dt>1차 구간</dt><dd id="ai-decision-entry">-</dd></div>
                 <div><dt>대응 기준</dt><dd id="ai-decision-condition">-</dd></div>
               </dl>
@@ -571,6 +571,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260721kr06" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260721kr07" defer></script>
   </body>
 </html>

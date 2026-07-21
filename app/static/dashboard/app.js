@@ -955,20 +955,31 @@ function watchNewsPoint(sentiment = {}) {
   return label === "혼재" ? "뉴스 혼재" : `뉴스 ${label}`;
 }
 
-function stockSignalProbability(data) {
+function stockTrendScore(data) {
   const chartScore = toNumber(data?.chart_analysis?.score);
   const flow = flowScore(data?.flows || {});
   const valuation = valuationScore(data?.valuation || {});
   const news = clampNumber(50 + (toNumber(data?.sentiment?.score) || 0), 0, 100);
   const momentum = clampNumber(50 + (toNumber(data?.momentum?.one_month_return) || 0) * 1.4, 0, 100);
+  const intraday = clampNumber(50 + (toNumber(data?.quote?.change_rate) || 0) * 6, 0, 100);
   const base = chartScore === null ? 50 : chartScore;
-  return clampNumber(base * 0.44 + flow * 0.18 + valuation * 0.14 + news * 0.12 + momentum * 0.12, 0, 100);
+  return clampNumber(base * 0.32 + flow * 0.14 + valuation * 0.1 + news * 0.1 + momentum * 0.14 + intraday * 0.2, 0, 100);
 }
 
-function stockSignalConfidence(data) {
+function stockDataCoverage(data) {
   const coverage = data?.coverage || {};
-  const covered = Object.values(coverage).filter(Boolean).length;
-  return clampNumber(56 + covered * 6, 50, 90);
+  const values = Object.values(coverage);
+  return values.length ? `${values.filter(Boolean).length}/${values.length}` : "-";
+}
+
+function aiDataCoverage(payload) {
+  const covered = toNumber(payload?.data_covered);
+  const total = toNumber(payload?.data_total);
+  if (covered !== null && total !== null && total > 0) {
+    return `${covered}/${total}`;
+  }
+  const confidence = toNumber(payload?.confidence);
+  return confidence === null ? "-" : formatProbability(confidence);
 }
 
 function formatProbability(value) {
@@ -976,22 +987,44 @@ function formatProbability(value) {
   return number === null ? "-" : `${number.toFixed(1)}%`;
 }
 
-function renderStockSummaryFallback(data) {
-  const chart = data?.chart_analysis || {};
-  const score = stockSignalProbability(data);
-  const confidence = stockSignalConfidence(data);
+function formatTrendScore(value) {
+  const number = toNumber(value);
+  return number === null ? "-" : `${number.toFixed(1)}점`;
+}
+
+function stockTrendContext(data) {
+  const dayChange = toNumber(data?.quote?.change_rate);
+  const oneMonth = toNumber(data?.momentum?.one_month_return);
+  if (dayChange !== null && dayChange >= 2 && oneMonth !== null && oneMonth <= -5) {
+    return `오늘 ${formatPercent(dayChange)} 강세지만 1개월 ${formatPercent(oneMonth)}여서, 급락 뒤 반등인지 추세 전환인지 확인이 필요합니다.`;
+  }
+  if (dayChange !== null && dayChange >= 2) {
+    return `오늘 ${formatPercent(dayChange)} 강세로 단기 매수세가 유입되고 있습니다.`;
+  }
+  if (dayChange !== null && dayChange <= -2) {
+    return `오늘 ${formatPercent(dayChange)} 약세로 단기 매도 압력이 커졌습니다.`;
+  }
+  return `${data.name}은 차트 ${data?.chart_analysis?.trend || "데이터 확인 중"}, 뉴스 ${newsLabel(data.sentiment)}, 밸류 ${valuationLabel(data.valuation)} 흐름입니다.`;
+}
+
+function renderStockTrendScore(data) {
+  const score = stockTrendScore(data);
   if (elements.stockSummaryScoreRing) {
     elements.stockSummaryScoreRing.style.setProperty("--score", score);
   }
-  setText(elements.stockSummaryScore, formatProbability(score));
-  setText(elements.stockSummaryConfidence, formatProbability(confidence));
+  setText(elements.stockSummaryScore, formatTrendScore(score));
+  setText(elements.stockAISayProbability, formatTrendScore(score));
+}
+
+function renderStockSummaryFallback(data) {
+  const chart = data?.chart_analysis || {};
+  const score = stockTrendScore(data);
+  const coverage = stockDataCoverage(data);
+  renderStockTrendScore(data);
+  setText(elements.stockSummaryConfidence, coverage);
   setText(elements.stockSummaryStance, chart.stance || "판단 대기");
-  setText(
-    elements.stockSummaryLine,
-    `${data.name}은 차트 ${chart.trend || "데이터 확인 중"}, 뉴스 ${newsLabel(data.sentiment)}, 밸류 ${valuationLabel(data.valuation)} 흐름입니다.`
-  );
-  setText(elements.stockAISayProbability, formatProbability(score));
-  setText(elements.stockAISayConfidence, `판단 신뢰도 ${formatProbability(confidence)}`);
+  setText(elements.stockSummaryLine, stockTrendContext(data));
+  setText(elements.stockAISayConfidence, `분석 데이터 ${coverage}`);
   setText(
     elements.stockAISayText,
     `${chart.trend || "추세 데이터"}와 ${flowLabel(data.flows)} 수급, ${valuationLabel(data.valuation)} 밸류를 함께 보면 현재 판단은 ${chart.stance || "추가 데이터 대기"}입니다.`
@@ -1021,7 +1054,7 @@ function renderAIDecisionSummary(payload) {
   const buyHigh = toNumber(levels.buy_high);
   const breakout = toNumber(levels.breakout);
   const stop = toNumber(levels.stop);
-  const confidence = toNumber(payload?.confidence);
+  const coverage = aiDataCoverage(payload);
   const actionable = isTradeLevelActionable(levels, payload);
   const entryLabel = levels.entry_label || (actionable ? "1차 매수권" : "관찰 가격대");
   const entry = buyLow !== null && buyHigh !== null
@@ -1038,7 +1071,7 @@ function renderAIDecisionSummary(payload) {
     ? `${actionable ? "분할 접근" : "관찰 우선"} · ${conditionParts.join(" · ")}`
     : (payload?.stance || "-");
   setText(elements.aiDecisionStance, payload?.stance || "-");
-  setText(elements.aiDecisionConfidence, confidence === null ? "-" : formatProbability(confidence));
+  setText(elements.aiDecisionConfidence, coverage);
   setText(elements.aiDecisionEntry, entry);
   setText(elements.aiDecisionCondition, condition);
   if (elements.aiDecisionStance) {
@@ -1480,6 +1513,7 @@ function updateQuoteStrip(quote, payload = null) {
   }
   if (state.currentDashboard?.quote) {
     state.currentDashboard.quote = { ...state.currentDashboard.quote, ...quote };
+    renderStockTrendScore(state.currentDashboard);
   }
   animateQuoteNumber(elements.quotePrice, quote.price, (value) => formatNumber(Math.round(Number(value))));
   animateQuoteNumber(elements.stockChangeValue, quote.change_value, formatChangeValue);
@@ -5127,13 +5161,14 @@ function renderAIAnalysis(payload) {
   state.stockAIAnalysis = payload;
   state.stockAIRequestedCode = payload.code;
   elements.aiAnalysisPanel.hidden = false;
-  elements.aiAnalysisMeta.textContent = `${payload.name} · 판단 신뢰도 ${formatProbability(payload.confidence)} · ${formatDate(payload.generated_at)}`;
+  const coverage = aiDataCoverage(payload);
+  elements.aiAnalysisMeta.textContent = `${payload.name} · 분석 데이터 ${coverage} · ${formatDate(payload.generated_at)}`;
   elements.aiAnalysisStance.textContent = payload.stance || "-";
   elements.aiAnalysisSummary.textContent = payload.summary || "";
   setText(elements.stockSummaryStance, payload.stance || "-");
   setText(elements.stockSummaryLine, payload.summary || elements.stockSummaryLine?.textContent || "");
-  setText(elements.stockSummaryConfidence, formatProbability(payload.confidence));
-  setText(elements.stockAISayConfidence, `판단 신뢰도 ${formatProbability(payload.confidence)}`);
+  setText(elements.stockSummaryConfidence, coverage);
+  setText(elements.stockAISayConfidence, `분석 데이터 ${coverage}`);
   setText(elements.stockAISayText, payload.summary || "AI 분석 요약을 생성하지 못했습니다.");
   const stance = payload.stance || "";
   setTone(elements.aiAnalysisStance, stance.includes("관망") ? -1 : stance.includes("중립") ? 0 : 1);
@@ -5184,7 +5219,7 @@ async function loadAIAnalysis(options = {}) {
   elements.aiAnalysisStance.textContent = "-";
   elements.aiAnalysisSummary.textContent = "차트, 수급, 밸류에이션, 뉴스, 거시 민감도를 현재 기준으로 다시 정리하는 중입니다.";
   setText(elements.stockAISayText, "현재 시세와 최신 지표를 기준으로 다시 분석하는 중입니다.");
-  setText(elements.stockAISayConfidence, "판단 신뢰도 계산 중");
+  setText(elements.stockAISayConfidence, "분석 데이터 확인 중");
   elements.aiKeyPoints.innerHTML = "";
   elements.aiStrategy.innerHTML = "";
   elements.aiRisks.innerHTML = "";
