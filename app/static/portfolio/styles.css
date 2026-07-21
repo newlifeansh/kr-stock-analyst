@@ -500,3 +500,264 @@ blockquote cite { display: block; margin-top: 14px; color: var(--muted); font-si
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
 }
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  html,
+  body {
+    width: 210mm;
+    margin: 0;
+    background: #ffffff;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .site-header,
+  .skip-link,
+  .feature-index,
+  .phone-shot span,
+  .image-dialog {
+    display: none !important;
+  }
+
+  .hero,
+  .problem-band,
+  .journey-map,
+  .feature-story,
+  .system-section,
+  .closing-section {
+    width: 210mm;
+    height: 297mm;
+    min-height: 297mm;
+    max-height: 297mm;
+    overflow: hidden;
+    break-after: page;
+    page-break-after: always;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .hero {
+    position: relative;
+  }
+
+  .hero-copy {
+    width: 122mm;
+    margin: 0;
+    padding: 35mm 0 0 16mm;
+  }
+
+  .hero h1 {
+    font-size: 58pt;
+  }
+
+  .hero-lead {
+    margin-top: 12mm;
+    font-size: 23pt;
+  }
+
+  .hero-description {
+    max-width: 112mm;
+    margin: 8mm 0 10mm;
+    font-size: 10pt;
+  }
+
+  .hero-products {
+    top: 38mm;
+    right: -22mm;
+    bottom: auto;
+    width: 100mm;
+    height: 205mm;
+  }
+
+  .hero-phone {
+    width: 60mm;
+    border-width: 1.4mm;
+    border-radius: 7mm 7mm 0 0;
+  }
+
+  .hero-phone-back {
+    top: 30mm;
+    right: 38mm;
+  }
+
+  .hero-phone-front {
+    top: 9mm;
+    right: 1mm;
+  }
+
+  .project-facts {
+    grid-template-columns: repeat(3, 1fr);
+    width: 178mm;
+    margin: 0 16mm;
+  }
+
+  .project-facts div {
+    padding: 5mm;
+  }
+
+  .project-facts dd {
+    font-size: 7.5pt;
+  }
+
+  .problem-band,
+  .journey-map,
+  .system-section {
+    grid-template-columns: 1fr;
+    gap: 18mm;
+    margin: 0;
+    padding: 28mm 18mm;
+  }
+
+  .section-heading h2,
+  .closing-section h2 {
+    font-size: 34pt;
+  }
+
+  .problem-copy {
+    align-self: start;
+    max-width: 150mm;
+    font-size: 15pt;
+  }
+
+  .journey-map {
+    background: #ffffff;
+  }
+
+  .journey-steps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .journey-steps li {
+    min-height: 55mm;
+    padding: 7mm;
+  }
+
+  .journey-steps strong {
+    margin-top: 10mm;
+    font-size: 18pt;
+  }
+
+  .feature-story,
+  .feature-story-reverse {
+    grid-template-columns: 76mm 134mm;
+    background: #ffffff;
+  }
+
+  .feature-story-reverse .feature-visual {
+    order: 0;
+  }
+
+  .feature-visual {
+    padding: 20mm 7mm 10mm;
+  }
+
+  .phone-shot {
+    width: 61mm;
+    height: 132mm;
+    border-width: 1.2mm;
+    border-radius: 6mm;
+    box-shadow: none;
+  }
+
+  .screen-caption {
+    margin-top: 5mm;
+    font-size: 7pt;
+  }
+
+  .feature-content {
+    max-width: none;
+    padding: 20mm 13mm 12mm;
+  }
+
+  .feature-number {
+    margin-bottom: 5mm;
+    font-size: 7pt;
+  }
+
+  .feature-content h2 {
+    font-size: 31pt;
+  }
+
+  .feature-lead {
+    margin-top: 6mm;
+    font-size: 12pt;
+  }
+
+  blockquote {
+    margin: 10mm 0 8mm;
+    padding: 5mm 0 5mm 5mm;
+    font-size: 9.5pt;
+  }
+
+  blockquote cite {
+    margin-top: 3mm;
+    font-size: 6.5pt;
+  }
+
+  .feature-details div {
+    grid-template-columns: 25mm 1fr;
+    gap: 4mm;
+    padding: 4mm 0;
+  }
+
+  .feature-details dt {
+    font-size: 7pt;
+  }
+
+  .feature-details dd {
+    font-size: 8.2pt;
+  }
+
+  .ai-points {
+    gap: 2mm;
+    margin-top: 6mm;
+  }
+
+  .ai-points li {
+    padding: 2mm;
+    font-size: 6.5pt;
+  }
+
+  .system-section {
+    padding-top: 25mm;
+  }
+
+  .system-flow {
+    grid-template-columns: 1fr 8mm 1fr 8mm 1fr;
+  }
+
+  .system-arrow {
+    height: auto;
+    transform: none;
+  }
+
+  .system-column {
+    min-height: 118mm;
+    padding: 6mm;
+  }
+
+  .system-column strong {
+    font-size: 8pt;
+  }
+
+  .closing-section {
+    padding: 40mm 18mm 12mm;
+  }
+
+  .closing-section h2 {
+    max-width: 170mm;
+  }
+
+  .closing-actions {
+    display: none;
+  }
+
+  .disclaimer {
+    margin-top: 120mm;
+  }
+}

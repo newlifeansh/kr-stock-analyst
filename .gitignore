@@ -17,3 +17,4 @@ tmp-*.png
 tmp-*.jpg
 tmp-*.jpeg
 tmp-*.webp
+tmp/
