@@ -37,6 +37,7 @@ const elements = {
   aiAnalysisSummary: $("ai-analysis-summary"),
   aiDecisionStance: $("ai-decision-stance"),
   aiDecisionConfidence: $("ai-decision-confidence"),
+  aiDecisionEntryLabel: $("ai-decision-entry-label"),
   aiDecisionEntry: $("ai-decision-entry"),
   aiDecisionCondition: $("ai-decision-condition"),
   aiPrimaryAction: $("ai-primary-action"),
@@ -1062,9 +1063,8 @@ function renderAIDecisionSummary(payload) {
   const stop = toNumber(levels.stop);
   const coverage = aiDataCoverage(payload);
   const actionable = isTradeLevelActionable(levels, payload);
-  const entryLabel = levels.entry_label || (actionable ? "1차 매수권" : "관찰 가격대");
   const entry = buyLow !== null && buyHigh !== null
-    ? `${entryLabel} ${formatNumber(Math.min(buyLow, buyHigh))}~${formatNumber(Math.max(buyLow, buyHigh))}`
+    ? `${formatNumber(Math.min(buyLow, buyHigh))}~${formatNumber(Math.max(buyLow, buyHigh))}`
     : "-";
   const conditionParts = [];
   if (breakout !== null) {
@@ -1073,11 +1073,10 @@ function renderAIDecisionSummary(payload) {
   if (stop !== null) {
     conditionParts.push(`축소 ${formatNumber(stop)}`);
   }
-  const condition = conditionParts.length
-    ? `${actionable ? "분할 접근" : "관찰 우선"} · ${conditionParts.join(" · ")}`
-    : (payload?.stance || "-");
+  const condition = conditionParts.length ? conditionParts.join(" · ") : (payload?.stance || "-");
   setText(elements.aiDecisionStance, payload?.stance || "-");
   setText(elements.aiDecisionConfidence, coverage);
+  setText(elements.aiDecisionEntryLabel, actionable ? "1차 진입" : "관찰 가격");
   setText(elements.aiDecisionEntry, entry);
   setText(elements.aiDecisionCondition, condition);
   if (elements.aiDecisionStance) {
@@ -5213,7 +5212,8 @@ function renderAIAnalysis(payload) {
   setText(elements.aiPrimaryAction, primaryAction);
   setText(elements.aiPrimaryReason, payload?.key_points?.[0] || payload?.summary || "현재가와 주요 가격 기준을 함께 확인합니다.");
   appendListItems(elements.aiKeyPoints, payload.key_points, "핵심 판단을 만들 데이터가 부족합니다.");
-  appendListItems(elements.aiStrategy, (payload.strategy || []).slice(0, 3), "현재는 신규 행동보다 관찰이 우선입니다.");
+  const followUpSteps = (payload.strategy || []).slice(1, 4);
+  appendListItems(elements.aiStrategy, followUpSteps, "현재는 신규 행동보다 관찰이 우선입니다.");
   appendListItems(elements.aiRisks, payload.risks, "확인할 리스크가 제한적입니다.");
   renderStockStrategyVisual(payload);
 

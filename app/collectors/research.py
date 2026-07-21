@@ -195,15 +195,12 @@ def parse_naver_listing_html(html: str, category: str) -> list[ResearchListItem]
     return items
 
 
-def enrich_company_detail(item: ResearchListItem) -> ResearchListItem:
-    if item.source_category != "company" or not item.detail_url:
-        return item
-
-    html = _naver_get_html(item.detail_url)
+def fetch_company_detail_fields(detail_url: str) -> dict[str, object]:
+    html = _naver_get_html(detail_url)
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table", class_="type_1")
     if not table:
-        return item
+        return {}
 
     text = table.get_text("\n", strip=True)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -217,11 +214,23 @@ def enrich_company_detail(item: ResearchListItem) -> ResearchListItem:
             target_price = _parse_decimal(lines[idx + 1])
 
     pdf_anchor = next((anchor for anchor in table.find_all("a", href=True) if ".pdf" in anchor.get("href", "").lower()), None)
-    if pdf_anchor and not item.pdf_url:
-        item.pdf_url = pdf_anchor.get("href")
+    return {
+        "opinion": opinion,
+        "target_price": target_price,
+        "pdf_url": pdf_anchor.get("href") if pdf_anchor else None,
+    }
 
-    item.opinion = opinion
-    item.target_price = target_price
+
+def enrich_company_detail(item: ResearchListItem) -> ResearchListItem:
+    if item.source_category != "company" or not item.detail_url:
+        return item
+
+    fields = fetch_company_detail_fields(item.detail_url)
+    if fields.get("pdf_url") and not item.pdf_url:
+        item.pdf_url = str(fields["pdf_url"])
+
+    item.opinion = fields.get("opinion")
+    item.target_price = fields.get("target_price")
     return item
 
 

@@ -1,3 +1,4 @@
+from app.collectors import research
 from app.collectors.research import parse_naver_listing_html
 
 
@@ -41,6 +42,19 @@ INDUSTRY_HTML = """
 """
 
 
+COMPANY_DETAIL_HTML = """
+<html>
+  <body>
+    <table class="type_1">
+      <tr><th>투자의견</th><td>매수</td></tr>
+      <tr><th>목표가</th><td>4,200,000</td></tr>
+      <tr><td><a href="https://stock.pstatic.net/stock-research/company/01/detail.pdf">PDF</a></td></tr>
+    </table>
+  </body>
+</html>
+"""
+
+
 def test_parse_company_listing_html():
     items = parse_naver_listing_html(COMPANY_HTML, "company")
     assert len(items) == 1
@@ -61,3 +75,13 @@ def test_parse_industry_listing_html():
     assert item.company_name is None
     assert item.title == "Higher, Better, More!"
     assert item.external_id == "54321"
+
+
+def test_fetch_company_detail_fields(monkeypatch):
+    monkeypatch.setattr(research, "_naver_get_html", lambda url: COMPANY_DETAIL_HTML)
+
+    fields = research.fetch_company_detail_fields("https://example.com/report")
+
+    assert fields["opinion"] == "매수"
+    assert fields["target_price"] == 4200000
+    assert fields["pdf_url"].endswith("detail.pdf")

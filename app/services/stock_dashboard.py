@@ -736,6 +736,20 @@ def _research_revision(db: Session, code: str, naver: dict[str, object]) -> dict
             previous_target = report.target_price
 
     latest = reports[-1] if reports else None
+    if latest and latest.detail_url and (latest.target_price is None or not latest.opinion):
+        try:
+            from app.collectors.research import fetch_company_detail_fields
+
+            fields = fetch_company_detail_fields(latest.detail_url)
+            if fields.get("target_price") is not None:
+                latest.target_price = fields["target_price"]
+            if fields.get("opinion"):
+                latest.opinion = str(fields["opinion"])
+            if fields.get("pdf_url") and not latest.pdf_url:
+                latest.pdf_url = str(fields["pdf_url"])
+            db.commit()
+        except Exception:
+            db.rollback()
     total_revision_count = up_count + down_count
     return {
         "report_count_90d": sum(
