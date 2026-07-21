@@ -135,6 +135,7 @@ def test_market_impact_uses_low_confidence_fallback_when_source_fails(monkeypatc
         raise RuntimeError(f"{series_id} unavailable")
 
     monkeypatch.setattr(market_impact, "_fetch_fred_series", failing_fetch)
+    monkeypatch.setattr(market_impact, "_fetch_yahoo_series", failing_fetch)
 
     payload = market_impact.build_market_impact()
     factors = payload["factors"]
@@ -143,3 +144,35 @@ def test_market_impact_uses_low_confidence_fallback_when_source_fails(monkeypatc
     assert {factor["key"] for factor in factors} == {"rate", "dollar", "bond", "commodity", "risk"}
     assert all(factor["confidence"] == Decimal("20") for factor in factors)
     assert all(factor["evidence"][0]["source"] == "시스템" for factor in factors)
+
+
+def test_market_impact_uses_yahoo_when_fred_times_out(monkeypatch):
+    samples = {
+        "^TNX": [4.40, 4.44, 4.48, 4.51, 4.56, 4.62],
+        "USDKRW=X": [1370, 1375, 1380, 1382, 1384, 1388],
+        "DX-Y.NYB": [124, 124.5, 124.8, 125.0, 125.3, 125.7],
+        "^VIX": [17.1, 17.4, 17.0, 17.9, 18.3, 19.0],
+        "CL=F": [78, 79, 80, 81, 82, 83],
+        "HG=F": [9.3, 9.31, 9.28, 9.26, 9.24, 9.23],
+        "^IXIC": [18000, 18100, 18040, 17920, 17800, 17720],
+        "BTC-USD": [104000, 103000, 102500, 101000, 100500, 99000],
+    }
+
+    def failing_fred(series_id, *, limit=260):
+        raise RuntimeError(f"{series_id} unavailable")
+
+    def fake_yahoo(symbol, *, limit=260):
+        return [
+            SeriesPoint(date=f"2026-06-{19 + index:02d}", value=value)
+            for index, value in enumerate(samples[symbol])
+        ]
+
+    monkeypatch.setattr(market_impact, "_fetch_fred_series", failing_fred)
+    monkeypatch.setattr(market_impact, "_fetch_yahoo_series", fake_yahoo)
+
+    payload = market_impact.build_market_impact()
+    factors = payload["factors"]
+
+    assert len(factors) == 5
+    assert any(item["evidence"][0]["source"] == "Yahoo Finance" for item in factors if item["evidence"])
+    assert all("공식 지표를 일부 가져오지 못해" not in item["interpretation"] for item in factors if item["evidence"][0]["source"] != "시스템")

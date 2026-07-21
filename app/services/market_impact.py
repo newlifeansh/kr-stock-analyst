@@ -7,15 +7,28 @@ from datetime import datetime
 from decimal import Decimal
 from io import StringIO
 from typing import Callable, Optional
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import requests
 
 FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
 FRED_SERIES_URL = "https://fred.stlouisfed.org/series/{series_id}"
+YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+YAHOO_QUOTE_URL = "https://finance.yahoo.com/quote/{symbol}"
 REQUEST_HEADERS = {"User-Agent": "Mozilla/5.0"}
 REQUEST_TIMEOUT_SECONDS = 4
 KST = ZoneInfo("Asia/Seoul")
+YAHOO_FALLBACKS = {
+    "DGS10": "^TNX",
+    "DEXKOUS": "USDKRW=X",
+    "DTWEXBGS": "DX-Y.NYB",
+    "VIXCLS": "^VIX",
+    "DCOILWTICO": "CL=F",
+    "PCOPPUSDM": "HG=F",
+    "NASDAQCOM": "^IXIC",
+    "CBBTCUSD": "BTC-USD",
+}
 
 
 @dataclass(frozen=True)
@@ -76,15 +89,61 @@ def _fetch_fred_series(series_id: str, *, limit: int = 260) -> list[SeriesPoint]
     return points[-limit:]
 
 
+def _fetch_yahoo_series(symbol: str, *, limit: int = 260) -> list[SeriesPoint]:
+    response = requests.get(
+        YAHOO_CHART_URL.format(symbol=quote(symbol, safe="")),
+        params={"range": "2y", "interval": "1d"},
+        headers=REQUEST_HEADERS,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    result = ((payload.get("chart") or {}).get("result") or [None])[0]
+    if not result:
+        return []
+    timestamps = result.get("timestamp") or []
+    quote_rows = (((result.get("indicators") or {}).get("quote") or [{}])[0]) or {}
+    closes = quote_rows.get("close") or []
+    points: list[SeriesPoint] = []
+    for timestamp, close in zip(timestamps, closes):
+        if timestamp is None or close in (None, ""):
+            continue
+        try:
+            points.append(
+                SeriesPoint(
+                    date=datetime.fromtimestamp(int(timestamp), tz=KST).date().isoformat(),
+                    value=float(close),
+                )
+            )
+        except (TypeError, ValueError, OSError):
+            continue
+    return points[-limit:]
+
+
+def _resolve_series(series_id: str, *, limit: int = 260) -> tuple[list[SeriesPoint], str, str]:
+    try:
+        points = _fetch_fred_series(series_id, limit=limit)
+        if points:
+            return points, "FRED", FRED_SERIES_URL.format(series_id=series_id)
+    except Exception:
+        pass
+
+    symbol = YAHOO_FALLBACKS.get(series_id)
+    if not symbol:
+        return [], "FRED", FRED_SERIES_URL.format(series_id=series_id)
+
+    points = _fetch_yahoo_series(symbol, limit=limit)
+    return points, "Yahoo Finance", YAHOO_QUOTE_URL.format(symbol=quote(symbol, safe=""))
+
+
 def _series_snapshot(
     series_id: str,
     metric: str,
     *,
-    source: str = "FRED",
     unit: str = "",
     change_kind: str = "pct",
 ) -> tuple[Optional[dict[str, object]], Optional[list[SeriesPoint]]]:
-    points = _fetch_fred_series(series_id)
+    points, source, source_url = _resolve_series(series_id)
     if not points:
         return None, points
     latest = points[-1]
@@ -108,7 +167,7 @@ def _series_snapshot(
         "change_5d": _round_decimal(change_5d),
         "change_5d_text": _signed(change_5d, change_suffix),
         "as_of": latest.date,
-        "url": FRED_SERIES_URL.format(series_id=series_id),
+        "url": source_url,
     }
     return evidence, points
 
