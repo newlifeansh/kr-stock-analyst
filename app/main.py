@@ -686,7 +686,7 @@ async def us_stock_quote_stream(websocket: WebSocket, symbol: str):
                 return
             await websocket.send_json(payload)
             await asyncio.sleep(8)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError):
         return
 
 
@@ -747,7 +747,7 @@ async def market_us_sector_moves_stream(websocket: WebSocket):
             await websocket.send_json(_json_ready({"type": "us_sector_moves", **payload}))
             interval_seconds = max(30, int(payload.get("refresh_interval_seconds") or 300))
             await asyncio.sleep(interval_seconds)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError):
         return
 
 
@@ -1839,7 +1839,7 @@ async def stock_quote_stream(websocket: WebSocket, code: str):
                 await websocket.send_json(payload)
             except asyncio.TimeoutError:
                 await _send_polling_quote(websocket, normalized)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError):
         return
     finally:
         await _unsubscribe_kis_quote(normalized, kis_queue)

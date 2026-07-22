@@ -180,16 +180,6 @@ class BriefingRuntime:
                     self.last_price_at = datetime.utcnow()
                 except Exception as exc:
                     self.source_errors["prices"] = str(exc)
-            if self.settings.investor_flow_enabled and self._investor_flow_due():
-                try:
-                    flow_result = self._collect_investor_flows(db)
-                    if flow_result["rows_loaded"]:
-                        refreshed_any = True
-                    self.last_investor_flow_source = str(flow_result["source"])
-                    self.last_investor_flow_message = str(flow_result["message"])
-                    self.last_investor_flow_at = datetime.utcnow()
-                except Exception as exc:
-                    self.source_errors["investor_flow"] = str(exc)
             if self.settings.financials_enabled and self._financials_due():
                 try:
                     financials_result = self._collect_financials(db)
@@ -210,6 +200,16 @@ class BriefingRuntime:
                     self.last_macro_at = datetime.utcnow()
                 except Exception as exc:
                     self.source_errors["macro"] = str(exc)
+            if self.settings.investor_flow_enabled and self._investor_flow_due():
+                try:
+                    flow_result = self._collect_investor_flows(db)
+                    if flow_result["rows_loaded"]:
+                        refreshed_any = True
+                    self.last_investor_flow_source = str(flow_result["source"])
+                    self.last_investor_flow_message = str(flow_result["message"])
+                    self.last_investor_flow_at = datetime.utcnow()
+                except Exception as exc:
+                    self.source_errors["investor_flow"] = str(exc)
             if self.settings.toss_enabled and self.settings.toss_sync_holdings_enabled and self._toss_due():
                 refreshed_any = self._run_toss_sync(db) or refreshed_any
             if self.settings.briefing_realtime_enabled or refreshed_any:
