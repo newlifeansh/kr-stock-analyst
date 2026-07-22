@@ -3,16 +3,23 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import re
 from statistics import mean
 from typing import Optional
 
+import requests
+from bs4 import BeautifulSoup
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, aliased
 
 from app.models import DailyPrice, NewsItem, StockMaster
 from app.services.stock_dashboard import NAVER_CACHE, _keyword_score, _naver_snapshot, _rate, _round_decimal
+from app.services.ttl_cache import TTLCache
 
 KST = timezone(timedelta(hours=9))
+NAVER_MARKET_RISE_URL = "https://finance.naver.com/sise/sise_rise.naver"
+MARKET_RISE_CACHE = TTLCache(maxsize=4)
+MARKET_RISE_TTL_SECONDS = 60
 
 
 def _now_kst() -> datetime:
@@ -42,6 +49,105 @@ def _mapping_row_value(row: dict[str, object]) -> Optional[int]:
     return None
 
 
+def _parse_naver_market_rise(html: bytes, market: str) -> list[dict[str, object]]:
+    soup = BeautifulSoup(html.decode("euc-kr", "replace"), "html.parser")
+    rows: list[dict[str, object]] = []
+    for link in soup.select("table.type_2 a.tltle"):
+        match = re.search(r"[?&]code=([0-9A-Z]+)", str(link.get("href") or ""))
+        row = link.find_parent("tr")
+        cells = row.find_all("td") if row else []
+        if not match or len(cells) < 6:
+            continue
+        try:
+            price = int(cells[2].get_text(" ", strip=True).replace(",", ""))
+            change_rate = Decimal(
+                cells[4].get_text(" ", strip=True).replace(",", "").replace("%", "").replace("+", "")
+            )
+            volume = int(cells[5].get_text(" ", strip=True).replace(",", ""))
+        except (ValueError, ArithmeticError):
+            continue
+        if price <= 0 or change_rate <= 0:
+            continue
+        rows.append(
+            {
+                "code": match.group(1),
+                "name": link.get_text(" ", strip=True),
+                "market": market,
+                "price": price,
+                "change_rate": _round_decimal(change_rate),
+                "volume": volume,
+                "trading_value": price * volume,
+            }
+        )
+    return rows
+
+
+def _fetch_naver_market_rise(market: str) -> list[dict[str, object]]:
+    response = requests.get(
+        NAVER_MARKET_RISE_URL,
+        params={"sosok": "1" if market == "KOSDAQ" else "0"},
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=12,
+    )
+    response.raise_for_status()
+    return _parse_naver_market_rise(response.content, market)
+
+
+def _naver_market_rise_items(db: Session, market: Optional[str]) -> list[dict[str, object]]:
+    markets = [market.upper()] if market and market.upper() in {"KOSPI", "KOSDAQ"} else ["KOSPI", "KOSDAQ"]
+    fetched: list[dict[str, object]] = []
+    with ThreadPoolExecutor(max_workers=len(markets)) as executor:
+        futures = {
+            executor.submit(
+                MARKET_RISE_CACHE.get_or_set,
+                ("naver_market_rise", target_market),
+                MARKET_RISE_TTL_SECONDS,
+                lambda selected_market=target_market: _fetch_naver_market_rise(selected_market),
+            ): target_market
+            for target_market in markets
+        }
+        for future in as_completed(futures):
+            try:
+                fetched.extend(future.result())
+            except Exception:
+                continue
+    if not fetched:
+        return []
+
+    master_statement = select(StockMaster)
+    if market:
+        master_statement = master_statement.where(StockMaster.market == market.upper())
+    masters = {stock.code: stock for stock in db.scalars(master_statement)}
+    history = {str(item["code"]): item for item in _fast_price_items(db, market, lookback=64)}
+    trade_date = _now_kst().date()
+    items: list[dict[str, object]] = []
+    for live in fetched:
+        code = str(live["code"])
+        stock = masters.get(code)
+        if not stock:
+            continue
+        base = history.get(code, {})
+        item = dict(base)
+        item.update(live)
+        item.update(
+            {
+                "name": stock.name,
+                "market": stock.market,
+                "trade_date": trade_date,
+                "market_cap": base.get("market_cap"),
+                "metric_value": live.get("change_rate"),
+                "one_month_return": _rate(live.get("price"), base.get("_one_month_price")),
+                "three_month_return": _rate(live.get("price"), base.get("_three_month_price")),
+                "trading_value_change": base.get("trading_value_change"),
+                "per": None,
+                "pbr": None,
+                "sentiment_score": None,
+            }
+        )
+        items.append(item)
+    return items
+
+
 def _price_groups(db: Session, market: Optional[str]) -> dict[str, tuple[StockMaster, list[DailyPrice]]]:
     latest_date = db.scalar(select(func.max(DailyPrice.trade_date)))
     if not latest_date:
@@ -63,6 +169,13 @@ def _price_groups(db: Session, market: Optional[str]) -> dict[str, tuple[StockMa
             groups[stock.code] = (stock, [])
         groups[stock.code][1].append(price)
     return groups
+
+
+def _stock_universe_count(db: Session, market: Optional[str]) -> int:
+    statement = select(func.count()).select_from(StockMaster)
+    if market:
+        statement = statement.where(StockMaster.market == market.upper())
+    return int(db.scalar(statement) or 0)
 
 
 def _base_item_from_rows(stock: dict[str, object], prices: list[dict[str, object]]) -> Optional[dict[str, object]]:
@@ -419,16 +532,27 @@ def build_market_rankings(
     refresh_live: bool = False,
 ) -> dict[str, object]:
     should_refresh_live = refresh_live and _is_regular_session()
-    rank_limit = min(max(limit * 5, limit), 200) if should_refresh_live and category in {"surge", "trading_value", "momentum"} else limit
-    if category == "surge" and not should_refresh_live:
+    source = "database"
+    live_market_items = _naver_market_rise_items(db, market) if category == "surge" and refresh_live else []
+    if live_market_items:
+        items = live_market_items
+        source = "naver_market_rise"
+    elif category == "surge" and not should_refresh_live:
         items = _latest_session_surge_items(db, market)
     elif category == "surge":
         items = _fast_price_items(db, market, lookback=64)
     else:
         groups = _price_groups(db, market)
         items = [item for stock, prices in groups.values() if (item := _base_item(stock, prices))]
+    rank_limit = (
+        limit
+        if source == "naver_market_rise"
+        else min(max(limit * 5, limit), 200)
+        if should_refresh_live and category in {"surge", "trading_value", "momentum"}
+        else limit
+    )
 
-    universe_count = len(items)
+    universe_count = _stock_universe_count(db, market) if source == "naver_market_rise" else len(items)
     matching_count = 0
     if category == "surge":
         rising_items = [item for item in items if Decimal(str(item.get("change_rate") or 0)) > 0]
@@ -452,7 +576,7 @@ def build_market_rankings(
     if category != "surge":
         matching_count = len(rankings)
 
-    if should_refresh_live and rankings:
+    if should_refresh_live and source != "naver_market_rise" and rankings:
         fallback_rankings = rankings[:limit]
         try:
             live_rankings = _enrich_live_rankings(rankings, category, limit)
@@ -473,6 +597,7 @@ def build_market_rankings(
         "category": category,
         "market": market,
         "as_of": _now_kst(),
+        "source": source,
         "universe_count": universe_count,
         "matching_count": matching_count,
         "items": rankings,

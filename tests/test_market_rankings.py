@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -70,3 +71,27 @@ def test_surge_ranking_scans_full_market_and_keeps_only_risers(monkeypatch):
         assert {item["market"] for item in payload["items"]} == {"KOSPI", "KOSDAQ"}
     finally:
         session.close()
+
+
+def test_parse_naver_market_rise_uses_quote_cells():
+    html = """
+    <html><body><table class="type_2"><tr>
+      <td class="no">1</td><td><a href="/item/main.naver?code=005930" class="tltle">삼성전자</a></td>
+      <td class="number">250,000</td><td class="number">상승 5,000</td>
+      <td class="number"><span>+2.04%</span></td><td class="number">1,234,567</td>
+    </tr></table></body></html>
+    """.encode("euc-kr")
+
+    rows = market_rankings._parse_naver_market_rise(html, "KOSPI")
+
+    assert rows == [
+        {
+            "code": "005930",
+            "name": "삼성전자",
+            "market": "KOSPI",
+            "price": 250000,
+            "change_rate": Decimal("2.04"),
+            "volume": 1234567,
+            "trading_value": 308641750000,
+        }
+    ]

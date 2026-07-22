@@ -3277,7 +3277,8 @@ function renderRankings(payload) {
   if (category === "surge") {
     if (elements.marketMeta) {
       const marketLabel = payload.market === "KOSPI" ? "KOSPI" : payload.market === "KOSDAQ" ? "KOSDAQ" : "전체 시장";
-      elements.marketMeta.textContent = `${marketLabel} ${formatNumber(payload.universe_count || 0)}종목 기준 · 상승 종목 ${formatNumber(payload.matching_count ?? payload.items?.length ?? 0)}개`;
+      const sourceLabel = payload.source === "naver_market_rise" ? "실시간" : "최근 거래일";
+      elements.marketMeta.textContent = `${sourceLabel} · ${marketLabel} ${formatNumber(payload.universe_count || 0)}종목 기준 · 상승 종목 ${formatNumber(payload.matching_count ?? payload.items?.length ?? 0)}개`;
     }
     if (!payload.items || payload.items.length === 0) {
       closeMarketQuoteStreams();
@@ -3351,6 +3352,7 @@ function requestMarketRanking(category, market, options = {}) {
   const params = new URLSearchParams({
     category: normalizedCategory,
     limit: "3000",
+    refresh: "1",
   });
   if (market !== "ALL") {
     params.set("market", market);
@@ -3359,7 +3361,7 @@ function requestMarketRanking(category, market, options = {}) {
   const promise = fetchJsonCached(url, {
     force,
     ttlMs: force ? 0 : ttlMs,
-    timeoutMs: 12_000,
+    timeoutMs: 25_000,
   })
     .then((payload) => {
       state.marketRankingCache.set(key, { payload, savedAt: Date.now() });

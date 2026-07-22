@@ -520,6 +520,7 @@ class MarketRankingOut(BaseModel):
     category: str
     market: Optional[str] = None
     as_of: datetime
+    source: str = "database"
     universe_count: int = 0
     matching_count: int = 0
     items: list[MarketRankingItemOut]
