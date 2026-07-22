@@ -192,7 +192,6 @@ const elements = {
 
 const WATCHLIST_KEY = "analyst.watchlist";
 const WATCHLIST_ID_KEY = "analyst.watchlistId";
-const WATCHLIST_ACTIVITY_KEY = "analyst.watchlistActivity";
 const RECOMMENDATION_HISTORY_KEY = "analyst.recommendationSnapshots";
 const RECOMMENDATION_TRACK_KEY = "analyst.recommendationTracks";
 const RECOMMENDATION_COOLDOWN_KEY = "analyst.recommendationCooldown";
@@ -201,8 +200,6 @@ const UI_CACHE_TTL_MS = 60_000;
 const PAGE_ENTRY_MINUTE_MS = 60_000;
 const LOGIN_SPLASH_DURATION_MS = 5_000;
 const APP_SPLASH_DURATION_MS = 5_000;
-const SESSION_IDLE_TIMEOUT_MS = 10 * 60_000;
-const SESSION_ACTIVITY_SYNC_MS = 10_000;
 const RECOMMENDATION_LIMIT = 10;
 const RECOMMENDATION_REGULAR_COOLDOWN_MS = 10 * 60_000;
 const RECOMMENDATION_OFFHOURS_COOLDOWN_MS = 30 * 60_000;
@@ -464,10 +461,6 @@ const state = {
   recommendationCooldownTimer: null,
   loginGateTimer: null,
   loginSplashSeen: false,
-  sessionIdleTimer: null,
-  sessionLastActiveAt: 0,
-  sessionLastSyncedAt: 0,
-  sessionScrollTicking: false,
   mobileMenuScrollY: 0,
 };
 
@@ -2304,105 +2297,6 @@ function setLoginStatus(text, tone = "") {
   elements.loginStatus.className = `login-status${tone ? ` ${tone}` : ""}`;
 }
 
-function readWatchlistActivity() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(WATCHLIST_ACTIVITY_KEY) || "null");
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-    const id = normalizeWatchlistId(parsed.id || "");
-    const at = Number(parsed.at);
-    if (!id || !Number.isFinite(at) || at <= 0) {
-      return null;
-    }
-    return { id, at };
-  } catch {
-    return null;
-  }
-}
-
-function getWatchlistLastActive(shareId = state.watchlistId) {
-  const normalizedId = normalizeWatchlistId(shareId || "");
-  if (!normalizedId) {
-    return null;
-  }
-  const activity = readWatchlistActivity();
-  if (!activity || activity.id !== normalizedId) {
-    return null;
-  }
-  return activity.at;
-}
-
-function clearWatchlistActivity() {
-  window.clearTimeout(state.sessionIdleTimer);
-  state.sessionIdleTimer = null;
-  state.sessionLastActiveAt = 0;
-  state.sessionLastSyncedAt = 0;
-  state.sessionScrollTicking = false;
-  localStorage.removeItem(WATCHLIST_ACTIVITY_KEY);
-}
-
-function writeWatchlistActivity(at = Date.now()) {
-  if (!state.watchlistId) {
-    return;
-  }
-  const activity = {
-    id: state.watchlistId,
-    at,
-  };
-  state.sessionLastActiveAt = at;
-  state.sessionLastSyncedAt = at;
-  localStorage.setItem(WATCHLIST_ACTIVITY_KEY, JSON.stringify(activity));
-}
-
-function scheduleSessionTimeout() {
-  window.clearTimeout(state.sessionIdleTimer);
-  state.sessionIdleTimer = null;
-  if (!state.watchlistId) {
-    return;
-  }
-  const lastActive = getWatchlistLastActive(state.watchlistId) || state.sessionLastActiveAt || Date.now();
-  state.sessionLastActiveAt = lastActive;
-  const remaining = SESSION_IDLE_TIMEOUT_MS - (Date.now() - lastActive);
-  if (remaining <= 0) {
-    logoutWatchlistIdentity({ reason: "timeout" });
-    return;
-  }
-  state.sessionIdleTimer = window.setTimeout(() => {
-    logoutWatchlistIdentity({ reason: "timeout" });
-  }, remaining + 250);
-}
-
-function markWatchlistSessionActive(options = {}) {
-  if (!state.watchlistId || !elements.loginGate?.hidden) {
-    return;
-  }
-  const now = Date.now();
-  state.sessionLastActiveAt = now;
-  if (options.force || now - state.sessionLastSyncedAt >= SESSION_ACTIVITY_SYNC_MS) {
-    writeWatchlistActivity(now);
-  }
-  scheduleSessionTimeout();
-}
-
-function validateWatchlistSession(shareId = state.watchlistId) {
-  const normalizedId = normalizeWatchlistId(shareId || "");
-  if (!normalizedId) {
-    return true;
-  }
-  const lastActive = getWatchlistLastActive(normalizedId) || state.sessionLastActiveAt;
-  if (!lastActive) {
-    return true;
-  }
-  state.sessionLastActiveAt = lastActive;
-  if (Date.now() - lastActive >= SESSION_IDLE_TIMEOUT_MS) {
-    logoutWatchlistIdentity({ reason: "timeout" });
-    return false;
-  }
-  scheduleSessionTimeout();
-  return true;
-}
-
 function setLoginGatePhase(phase) {
   if (!elements.loginGate) {
     return;
@@ -2528,7 +2422,6 @@ async function applyWatchlistId(shareId, options = {}) {
     state.writeToken = "";
     state.writeTokenShareId = "";
     localStorage.removeItem(WATCHLIST_ID_KEY);
-    clearWatchlistActivity();
     if (elements.watchlistIdInput) {
       elements.watchlistIdInput.value = "";
     }
@@ -2562,8 +2455,6 @@ async function applyWatchlistId(shareId, options = {}) {
     writeWatchlist(merged, { sync: false });
     await saveRemoteWatchlist(merged);
     setWatchlistIdStatus(`${normalizedId} · ${formatNumber(merged.length)}개 동기화`, "success");
-    writeWatchlistActivity(Date.now());
-    scheduleSessionTimeout();
     updateWatchButton();
     if (state.view === "watchlist") {
       loadWatchlist();
@@ -2577,7 +2468,7 @@ async function applyWatchlistId(shareId, options = {}) {
   }
 }
 
-function logoutWatchlistIdentity(options = {}) {
+function logoutWatchlistIdentity() {
   window.clearTimeout(state.watchlistSyncTimer);
   state.watchlistSyncTimer = null;
   state.watchlistSyncing = false;
@@ -2586,7 +2477,7 @@ function logoutWatchlistIdentity(options = {}) {
   state.writeTokenShareId = "";
   localStorage.removeItem(WATCHLIST_ID_KEY);
   localStorage.removeItem(WATCHLIST_KEY);
-  clearWatchlistActivity();
+  localStorage.removeItem("analyst.watchlistActivity");
   closeQuoteStream();
   closeWatchlistQuoteStreams();
   if (elements.watchlistIdInput) {
@@ -2611,10 +2502,7 @@ function logoutWatchlistIdentity(options = {}) {
     elements.watchChartList.innerHTML = '<p class="muted">로그인 후 AI 차트 분석을 불러옵니다.</p>';
   }
   setWatchlistIdStatus("로그아웃됨");
-  const message = options.reason === "timeout"
-    ? "10분 동안 동작이 없어 로그아웃되었습니다. 다시 아이디를 입력해주세요."
-    : "로그아웃되었습니다. 다시 아이디를 입력해주세요.";
-  showLoginGate(message, { skipSplash: true });
+  showLoginGate("로그아웃되었습니다. 다시 아이디를 입력해주세요.", { skipSplash: true });
 }
 
 async function initializeWatchlistIdentity() {
@@ -2624,12 +2512,6 @@ async function initializeWatchlistIdentity() {
   }
   updateWatchlistIdentityDisplay();
   if (savedId) {
-    const savedLastActive = getWatchlistLastActive(savedId);
-    if (savedLastActive && Date.now() - savedLastActive >= SESSION_IDLE_TIMEOUT_MS) {
-      state.watchlistId = savedId;
-      logoutWatchlistIdentity({ reason: "timeout" });
-      return;
-    }
     if (elements.loginInput) {
       elements.loginInput.value = savedId;
     }
@@ -7294,37 +7176,6 @@ document.addEventListener("click", (event) => {
   document.querySelectorAll(".term-help.open").forEach((item) => item.classList.remove("open"));
   if (!elements.form.contains(event.target)) {
     hideSuggestions();
-  }
-});
-
-document.addEventListener("pointerdown", () => {
-  markWatchlistSessionActive();
-}, { passive: true });
-
-document.addEventListener("keydown", () => {
-  markWatchlistSessionActive();
-});
-
-window.addEventListener("scroll", () => {
-  if (state.sessionScrollTicking) {
-    return;
-  }
-  state.sessionScrollTicking = true;
-  window.requestAnimationFrame(() => {
-    state.sessionScrollTicking = false;
-    markWatchlistSessionActive();
-  });
-}, { passive: true });
-
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) {
-    validateWatchlistSession();
-  }
-});
-
-window.addEventListener("storage", (event) => {
-  if (event.key === WATCHLIST_ACTIVITY_KEY && state.watchlistId) {
-    validateWatchlistSession();
   }
 });
 
