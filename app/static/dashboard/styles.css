@@ -640,35 +640,6 @@ a {
   flex: 0 0 auto;
 }
 
-.side-footer-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 44px;
-  padding: 0 12px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.side-footer-label {
-  color: rgba(255, 255, 255, 0.68);
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-
-#sidebar-presence-count {
-  color: var(--sider-text-strong);
-  font-size: 15px;
-  font-weight: 900;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
 .side-footer-link {
   display: flex;
   align-items: center;

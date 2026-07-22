@@ -22,7 +22,6 @@ const elements = {
   watchlistIdDisplay: $("watchlist-id-display"),
   watchlistIdStatus: $("watchlist-id-status"),
   logoutButton: $("logout-button"),
-  sidebarPresenceCount: $("sidebar-presence-count"),
   recommendView: $("recommend-view"),
   recommendHistoryView: $("recommend-history-view"),
   trendView: $("trend-view"),
@@ -460,13 +459,6 @@ const state = {
   appSplashTimer: null,
   appSplashHideTimer: null,
   appSplashResolve: null,
-  presenceSocket: null,
-  presenceReconnectTimer: null,
-  presencePageKey: "",
-  presenceCount: null,
-  presenceHundredsDigit: null,
-  presenceHundredsHourKey: "",
-  presenceHourTimer: null,
   recommendTrackRequestId: 0,
   recommendationLoading: false,
   recommendationCooldownTimer: null,
@@ -1384,81 +1376,6 @@ function formatMultiple(value) {
 function socketUrl(path) {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}${path}`;
-}
-
-function currentPresencePageKey() {
-  const path = window.location.pathname || "/dashboard";
-  const search = window.location.search || "";
-  return `${path}${search}` || "/dashboard";
-}
-
-function formatPresenceDisplayCount(count) {
-  if (!Number.isFinite(count)) {
-    return "-";
-  }
-  return String(Math.max(0, Math.trunc(Number(count))));
-}
-
-function renderPresenceStatus({ count = null, connected = false } = {}) {
-  if (elements.sidebarPresenceCount) {
-    elements.sidebarPresenceCount.textContent = Number.isFinite(count) ? `${formatPresenceDisplayCount(count)}명` : "-명";
-  }
-}
-
-function sendPresencePage() {
-  const page = currentPresencePageKey();
-  state.presencePageKey = page;
-  if (state.presenceSocket?.readyState === WebSocket.OPEN) {
-    state.presenceSocket.send(JSON.stringify({ page }));
-    return;
-  }
-  connectPresenceStream();
-}
-
-function connectPresenceStream() {
-  if (!("WebSocket" in window)) {
-    renderPresenceStatus({ count: null, connected: false });
-    return;
-  }
-  if (state.presenceSocket && state.presenceSocket.readyState <= WebSocket.OPEN) {
-    return;
-  }
-  if (state.presenceReconnectTimer) {
-    window.clearTimeout(state.presenceReconnectTimer);
-    state.presenceReconnectTimer = null;
-  }
-  const socket = new WebSocket(socketUrl("/ws/presence"));
-  state.presenceSocket = socket;
-  socket.onopen = () => {
-    renderPresenceStatus({ count: state.presenceCount, connected: true });
-    sendPresencePage();
-  };
-  socket.onmessage = (event) => {
-    try {
-      const payload = JSON.parse(event.data);
-      if (payload?.type !== "presence") {
-        return;
-      }
-      if (payload.page !== currentPresencePageKey()) {
-        return;
-      }
-      state.presencePageKey = payload.page;
-      state.presenceCount = Number.isFinite(Number(payload.count)) ? Number(payload.count) : null;
-      renderPresenceStatus({ count: state.presenceCount, connected: true });
-    } catch {
-      return;
-    }
-  };
-  socket.onclose = () => {
-    if (state.presenceSocket === socket) {
-      state.presenceSocket = null;
-    }
-    renderPresenceStatus({ count: state.presenceCount, connected: false });
-    state.presenceReconnectTimer = window.setTimeout(connectPresenceStream, 1500);
-  };
-  socket.onerror = () => {
-    socket.close();
-  };
 }
 
 function selectorEscape(value) {
@@ -3018,7 +2935,6 @@ function setView(view) {
     history.replaceState(null, "", "/dashboard?view=chart-history");
     renderChartSnapshots();
   }
-  sendPresencePage();
 }
 
 function renderEvents(listNode, items) {
