@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="국내주식 투자자를 위한 AI 주식 정보 서비스 비밀노트 제품 사례" />
     <title>비밀노트 | AI 주식 정보 서비스 제품 사례</title>
-    <link rel="stylesheet" href="/assets/portfolio/styles.css?v=20260722p8" />
-    <script src="/assets/portfolio/app.js?v=20260722p8" defer></script>
+    <link rel="stylesheet" href="/assets/portfolio/styles.css?v=20260722p10" />
+    <script src="/assets/portfolio/app.js?v=20260722p10" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#portfolio-main">본문으로 이동</a>
@@ -34,7 +34,7 @@
           <p class="hero-lead"><span>주식 정보를 모아,</span><span>지금 할 일을 알려줍니다</span></p>
           <p class="hero-description">
             시세, 뉴스, 공시, 증권사 리포트와 주요 경제지표를 한곳에 모았습니다.
-            사용자는 새 종목을 찾고, 매수 전 근거를 확인하고, 보유 종목의 대응 순서를 정할 수 있습니다.
+            사용자는 매일 달라지는 시장이 내 보유 종목에 미치는 영향을 먼저 확인하고, 새 종목 탐색과 매수 판단까지 이어갈 수 있습니다.
           </p>
           <div class="hero-actions">
             <a class="primary-link" href="https://insight-mcp-production-945f.up.railway.app/dashboard?view=trend">서비스 바로보기</a>
@@ -55,7 +55,7 @@
 
         <dl class="project-facts">
           <div><dt>담당</dt><dd>AI 제품 기획 · 화면 설계 · 전체 개발</dd></div>
-          <div><dt>핵심 기능</dt><dd>종목 찾기 · 매수 판단 · 보유 종목 대응</dd></div>
+          <div><dt>핵심 기능</dt><dd>보유 종목 대응 · 종목 찾기 · 매수 판단</dd></div>
           <div><dt>사용 정보</dt><dd>시세 · 공시 · 리포트 · 뉴스 · 경제지표</dd></div>
         </dl>
       </section>
@@ -77,12 +77,12 @@
       <section class="journey-map" aria-labelledby="journey-title">
         <div class="section-heading compact">
           <p class="eyebrow">사용 흐름</p>
-          <h2 id="journey-title">투자에 필요한<br />네 단계</h2>
+          <h2 id="journey-title">매일 확인하는<br />네 단계</h2>
         </div>
         <ol class="journey-steps">
-          <li><span>01 · 찾기</span><strong>새 종목을 찾습니다</strong><p>시장 이슈와 관련된 업종과 종목을 함께 보여줍니다.</p></li>
-          <li><span>02 · 확인</span><strong>종목 상태를 확인합니다</strong><p>주가, 수급, 실적, 뉴스와 리포트를 한눈에 비교합니다.</p></li>
-          <li><span>03 · 대응</span><strong>다음 행동을 정합니다</strong><p>매수 여부와 보유 종목의 확인 순서를 알려줍니다.</p></li>
+          <li><span>01 · 대응</span><strong>오늘 볼 종목을 확인합니다</strong><p>보유 종목 중 먼저 살펴볼 종목과 그 이유를 알려줍니다.</p></li>
+          <li><span>02 · 찾기</span><strong>새 종목을 찾습니다</strong><p>시장 이슈와 관련된 업종과 종목을 함께 보여줍니다.</p></li>
+          <li><span>03 · 확인</span><strong>종목 상태를 확인합니다</strong><p>주가, 수급, 실적, 뉴스와 리포트를 한눈에 비교합니다.</p></li>
           <li><span>04 · 이해</span><strong>시장 흐름을 이해합니다</strong><p>금리, 환율과 원자재가 주가에 미치는 이유를 설명합니다.</p></li>
         </ol>
       </section>
@@ -91,16 +91,46 @@
         <p class="eyebrow">핵심 기능</p>
         <h2 id="feature-index-title">6가지<br />핵심 기능</h2>
         <nav aria-label="핵심 기능 바로가기">
-          <a href="#feature-discover"><span>01 · 종목 찾기</span>새 종목 찾기<small>시장 이슈와 관련 종목 확인</small></a>
-          <a href="#feature-summary"><span>02 · 상태 확인</span>한눈에 보기<small>종목 상태 요약</small></a>
-          <a href="#feature-action"><span>03 · 매수 판단</span>매수 시점 확인<small>기다릴지 살지 판단</small></a>
-          <a href="#feature-evidence"><span>04 · 자료 확인</span>근거 확인<small>리포트와 원문 확인</small></a>
-          <a href="#feature-manage"><span>05 · 보유 종목</span>대응 순서 확인<small>먼저 볼 종목 확인</small></a>
+          <a class="feature-index-priority" href="#feature-manage"><span><b aria-hidden="true">★</b> 01 · 대응 정보</span>오늘의 대응 순서<small>매일 먼저 볼 종목 확인</small></a>
+          <a href="#feature-discover"><span>02 · 종목 찾기</span>새 종목 찾기<small>시장 이슈와 관련 종목 확인</small></a>
+          <a href="#feature-summary"><span>03 · 상태 확인</span>한눈에 보기<small>종목 상태 요약</small></a>
+          <a href="#feature-action"><span>04 · 매수 판단</span>매수 시점 확인<small>기다릴지 살지 판단</small></a>
+          <a href="#feature-evidence"><span>05 · 자료 확인</span>근거 확인<small>리포트와 원문 확인</small></a>
           <a href="#feature-learn"><span>06 · 시장 이해</span>영향 이유 보기<small>금리·환율·원자재 이해</small></a>
         </nav>
       </section>
 
-      <article class="feature-story" id="feature-discover">
+      <article class="feature-story feature-story-priority" id="feature-manage">
+        <div class="feature-visual">
+          <button class="phone-shot" type="button" data-lightbox-src="/assets/portfolio/images/ai-market-report.jpg" data-lightbox-alt="보유종목 AI 시황 리포트 모바일 화면">
+            <img src="/assets/portfolio/images/ai-market-report.jpg" alt="시장 이벤트와 보유종목을 연결해 대응 우선순위를 보여주는 AI 시황 리포트" />
+            <span>화면 확대</span>
+          </button>
+          <p class="screen-caption">관심종목 · 보유종목 대응 브리핑</p>
+        </div>
+        <div class="feature-content">
+          <p class="feature-number"><b aria-hidden="true">★</b> 01 / 대응 정보</p>
+          <h2><span>보유 종목</span> 대응하기</h2>
+          <p class="feature-korean-title">오늘 먼저 확인할 종목과 이유 안내</p>
+          <div class="return-reason">
+            <span class="return-reason-star" aria-hidden="true">★</span>
+            <div>
+              <strong>매일 들어와야 하는 이유</strong>
+              <p>시세·수급·공시·뉴스가 계속 바뀌기 때문에 <b>오늘 먼저 확인할 종목과 대응 순서</b>도 매일 달라집니다.</p>
+            </div>
+          </div>
+          <div class="usp-block"><span>한눈에 보기</span><strong>현재 시장 상황이 내 종목에 미치는 영향과 오늘 먼저 볼 종목을 알려줍니다.</strong></div>
+          <dl class="feature-details">
+            <div><dt>해결한 문제</dt><dd>전체 시장 뉴스가 내 보유 종목에 좋은지 나쁜지 직접 연결해서 판단하기 어려웠습니다.</dd></div>
+            <div><dt>사용한 정보</dt><dd>관심종목, 실시간 주가, 외국인·기관 매매, 종목 뉴스, 주요 일정과 미국 시장 흐름을 사용합니다.</dd></div>
+            <div><dt>사용 순서</dt><dd>오늘의 시장 변화 확인 → 내 종목에 미치는 영향 확인 → 먼저 볼 종목 확인 순서로 봅니다.</dd></div>
+            <div><dt>보여주는 방법</dt><dd>핵심 시장 소식, 좋은 신호와 나쁜 신호, 확인이 필요한 종목 순위를 짧게 보여줍니다.</dd></div>
+            <div><dt>기대 효과</dt><dd>모든 종목을 확인하지 않아도 변화가 큰 종목부터 빠르게 대응하고, 매일의 투자 점검을 놓치지 않을 수 있습니다.</dd></div>
+          </dl>
+        </div>
+      </article>
+
+      <article class="feature-story feature-story-reverse" id="feature-discover">
         <div class="feature-visual">
           <button class="phone-shot" type="button" data-lightbox-src="/assets/portfolio/images/trend-discovery-live.png" data-lightbox-alt="트렌드 분석 모바일 화면">
             <img src="/assets/portfolio/images/trend-discovery-live.png" alt="주요 이벤트에서 영향 업종과 신규 종목 후보를 탐색하는 트렌드 분석 화면" />
@@ -109,7 +139,7 @@
           <p class="screen-caption">트렌드 분석 · 신규 종목 탐색</p>
         </div>
         <div class="feature-content">
-          <p class="feature-number">01 / 종목 찾기</p>
+          <p class="feature-number">02 / 종목 찾기</p>
           <h2>새 종목 찾기</h2>
           <p class="feature-korean-title">시장 이슈와 관련 종목 확인</p>
           <div class="usp-block"><span>한눈에 보기</span><strong>중요한 시장 소식과 관련 종목을 함께 보여줍니다.</strong></div>
@@ -123,7 +153,7 @@
         </div>
       </article>
 
-      <article class="feature-story feature-story-reverse" id="feature-summary">
+      <article class="feature-story" id="feature-summary">
         <div class="feature-visual">
           <button class="phone-shot" type="button" data-lightbox-src="/assets/portfolio/images/ai-stock-summary-live.png" data-lightbox-alt="AI 종목 요약 모바일 화면">
             <img src="/assets/portfolio/images/ai-stock-summary-live.png" alt="실시간 시세와 차트 수급 밸류 뉴스를 요약한 AI 종목 판단 화면" />
@@ -132,7 +162,7 @@
           <p class="screen-caption">종목 상세 · AI 요약</p>
         </div>
         <div class="feature-content">
-          <p class="feature-number">02 / 상태 확인</p>
+          <p class="feature-number">03 / 상태 확인</p>
           <h2>종목 상태 한눈에 보기</h2>
           <p class="feature-korean-title">주요 정보를 한 화면에서 비교</p>
           <div class="usp-block"><span>한눈에 보기</span><strong>현재 주가와 지난 흐름, 수급, 실적, 뉴스를 한곳에서 보여줍니다.</strong></div>
@@ -146,7 +176,7 @@
         </div>
       </article>
 
-      <article class="feature-story" id="feature-action">
+      <article class="feature-story feature-story-reverse" id="feature-action">
         <div class="feature-visual">
           <button class="phone-shot phone-shot-focus" type="button" data-lightbox-src="/assets/portfolio/images/ai-action-strategy-live.png" data-lightbox-alt="AI 행동 전략 모바일 화면">
             <img src="/assets/portfolio/images/ai-action-strategy-live.png" alt="핵심 판단과 매매 시나리오를 제시하는 AI 행동 전략 화면" />
@@ -155,7 +185,7 @@
           <p class="screen-caption">종목 상세 · AI 전략</p>
         </div>
         <div class="feature-content">
-          <p class="feature-number">03 / 매수 판단</p>
+          <p class="feature-number">04 / 매수 판단</p>
           <h2>매수 시점 판단하기</h2>
           <p class="feature-korean-title">지금 살지 기다릴지 확인</p>
           <div class="usp-block"><span>한눈에 보기</span><strong>지금 매수할지, 기다릴지, 어느 가격을 확인할지 알려줍니다.</strong></div>
@@ -169,7 +199,7 @@
         </div>
       </article>
 
-      <article class="feature-story feature-story-reverse" id="feature-evidence">
+      <article class="feature-story" id="feature-evidence">
         <div class="feature-visual">
           <button class="phone-shot phone-shot-evidence" type="button" data-lightbox-src="/assets/portfolio/images/ai-evidence-research-live.png" data-lightbox-alt="증권사 리포트 근거 검증 모바일 화면">
             <img src="/assets/portfolio/images/ai-evidence-research-live.png" alt="증권사 리포트 목표가 투자의견 원문을 연결한 근거 화면" />
@@ -178,7 +208,7 @@
           <p class="screen-caption">종목 상세 · 근거 검증</p>
         </div>
         <div class="feature-content">
-          <p class="feature-number">04 / 자료 확인</p>
+          <p class="feature-number">05 / 자료 확인</p>
           <h2>판단 근거 확인하기</h2>
           <p class="feature-korean-title">리포트와 원문 직접 확인</p>
           <div class="usp-block"><span>한눈에 보기</span><strong>AI가 참고한 증권사 리포트, 공시와 뉴스 원문을 직접 확인할 수 있습니다.</strong></div>
@@ -188,29 +218,6 @@
             <div><dt>사용 순서</dt><dd>AI 요약 확인 → 최신 리포트 확인 → 필요한 자료의 원문 열기 순서로 봅니다.</dd></div>
             <div><dt>보여주는 방법</dt><dd>리포트 수, 목표주가, 의견, 증권사, 날짜와 원문 링크를 한 화면에 보여줍니다.</dd></div>
             <div><dt>기대 효과</dt><dd>정보의 출처와 날짜를 직접 확인해 더 안심하고 판단할 수 있습니다.</dd></div>
-          </dl>
-        </div>
-      </article>
-
-      <article class="feature-story" id="feature-manage">
-        <div class="feature-visual">
-          <button class="phone-shot" type="button" data-lightbox-src="/assets/portfolio/images/ai-market-report.jpg" data-lightbox-alt="보유종목 AI 시황 리포트 모바일 화면">
-            <img src="/assets/portfolio/images/ai-market-report.jpg" alt="시장 이벤트와 보유종목을 연결해 대응 우선순위를 보여주는 AI 시황 리포트" />
-            <span>화면 확대</span>
-          </button>
-          <p class="screen-caption">관심종목 · 보유종목 대응 브리핑</p>
-        </div>
-        <div class="feature-content">
-          <p class="feature-number">05 / 보유 종목</p>
-          <h2>보유 종목 대응하기</h2>
-          <p class="feature-korean-title">먼저 확인할 종목 안내</p>
-          <div class="usp-block"><span>한눈에 보기</span><strong>현재 시장 상황이 내 종목에 미치는 영향과 먼저 볼 종목을 알려줍니다.</strong></div>
-          <dl class="feature-details">
-            <div><dt>해결한 문제</dt><dd>전체 시장 뉴스가 내 보유 종목에 좋은지 나쁜지 직접 연결해서 판단하기 어려웠습니다.</dd></div>
-            <div><dt>사용한 정보</dt><dd>관심종목, 실시간 주가, 외국인·기관 매매, 종목 뉴스, 주요 일정과 미국 시장 흐름을 사용합니다.</dd></div>
-            <div><dt>사용 순서</dt><dd>국내장과 미국장 상태 확인 → 내 종목에 미치는 영향 확인 → 먼저 볼 종목 확인 순서로 봅니다.</dd></div>
-            <div><dt>보여주는 방법</dt><dd>핵심 시장 소식, 좋은 신호와 나쁜 신호, 확인이 필요한 종목 순위를 짧게 보여줍니다.</dd></div>
-            <div><dt>기대 효과</dt><dd>모든 종목을 확인하지 않아도 변화가 큰 종목부터 빠르게 대응할 수 있습니다.</dd></div>
           </dl>
         </div>
       </article>

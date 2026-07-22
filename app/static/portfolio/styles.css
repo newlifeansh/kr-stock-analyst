@@ -6,6 +6,8 @@
   --line: #d9dde2;
   --red: #d72638;
   --blue: #3478f6;
+  --marker: #ffe36e;
+  --marker-deep: #d69d00;
   --paper: #ffffff;
   --page: #f7f7f5;
   --max: 1180px;
@@ -348,6 +350,24 @@ img { display: block; max-width: 100%; }
 .feature-index nav span { color: var(--muted); font-size: 11px; }
 .feature-index nav small { color: var(--muted); font-size: 11px; font-weight: 700; }
 
+.feature-index nav .feature-index-priority {
+  position: relative;
+  border-top: 4px solid var(--marker-deep);
+  background: #fff9d8;
+}
+
+.feature-index nav .feature-index-priority:hover,
+.feature-index nav .feature-index-priority:focus-visible { background: #fff3a6; }
+.feature-index-priority span { color: #6f5100; }
+.feature-index-priority span b {
+  display: inline-block;
+  margin-right: 3px;
+  color: var(--marker-deep);
+  font-size: 17px;
+  line-height: 0;
+  transform: rotate(-9deg);
+}
+
 .feature-story {
   display: grid;
   grid-template-columns: minmax(340px, 0.78fr) minmax(0, 1.22fr);
@@ -418,6 +438,48 @@ img { display: block; max-width: 100%; }
 .feature-number { margin: 0 0 20px; color: var(--blue); font-size: 12px; font-weight: 900; }
 .feature-content h2 { margin: 0; font-size: clamp(42px, 4.5vw, 64px); line-height: 1.04; }
 .feature-korean-title { margin: 12px 0 0; color: var(--muted); font-size: 15px; font-weight: 850; }
+
+.feature-story-priority { border-top: 6px solid var(--marker-deep); }
+.feature-story-priority .feature-visual { background: #eceef1; }
+.feature-story-priority .feature-number {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #765600;
+}
+.feature-story-priority .feature-number b {
+  color: var(--marker-deep);
+  font-size: 22px;
+  line-height: 1;
+  transform: rotate(-10deg);
+}
+.feature-story-priority .feature-content h2 span {
+  background: linear-gradient(transparent 58%, var(--marker) 58%, var(--marker) 91%, transparent 91%);
+}
+
+.return-reason {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 14px;
+  margin: 34px 0 6px;
+  padding: 20px 0;
+  border-top: 2px solid var(--marker-deep);
+  border-bottom: 1px solid #e3c65c;
+  background: #fffdf2;
+}
+.return-reason-star {
+  color: var(--marker-deep);
+  font-size: 27px;
+  line-height: 1;
+  text-align: center;
+  transform: rotate(-9deg);
+}
+.return-reason strong { display: block; font-size: 18px; }
+.return-reason p { margin: 6px 0 0; color: #4a4330; font-size: 14px; }
+.return-reason p b {
+  color: #111111;
+  background: linear-gradient(transparent 60%, var(--marker) 60%, var(--marker) 94%, transparent 94%);
+}
 
 .usp-block {
   display: grid;
