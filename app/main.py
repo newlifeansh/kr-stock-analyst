@@ -111,7 +111,7 @@ from app.collectors.briefing import KisRestBriefingProvider
 from app.bootstrap import bootstrap_runtime_data
 from app.mcp_server import build_insight_mcp_server, mcp_sdk_available
 from app.services.company_briefs import build_company_briefs
-from app.services.market_rankings import build_market_rankings
+from app.services.market_rankings import build_market_period_returns, build_market_rankings
 from app.services.market_impact import build_market_impact
 from app.services.recommendations import build_recommendations
 from app.services.stock_ai_analysis import build_stock_ai_analysis
@@ -1964,6 +1964,14 @@ def market_rankings(
         MARKET_RANKING_TTL_SECONDS,
         lambda: build_market_rankings(db, category=category, market=market, limit=limit),
     )
+
+
+@app.get("/market/rankings/returns")
+def market_ranking_period_returns(
+    codes: str = Query(..., min_length=6, max_length=699),
+):
+    parsed_codes = [code.strip().upper() for code in codes.split(",")]
+    return {"items": build_market_period_returns(parsed_codes)}
 
 
 @app.get("/market/recommendations", response_model=MarketRecommendationOut)

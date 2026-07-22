@@ -3077,8 +3077,23 @@ function renderMarketSurgeLeaderboard(options = {}) {
     moreButton.className = "market-load-more";
     moreButton.type = "button";
     moreButton.textContent = `더 보기 (${formatNumber(visibleItems.length)} / ${formatNumber(state.marketLeaderboardItems.length)})`;
-    moreButton.addEventListener("click", () => {
-      state.marketLeaderboardVisibleCount += 100;
+    moreButton.addEventListener("click", async () => {
+      const nextVisibleCount = Math.min(
+        state.marketLeaderboardVisibleCount + 100,
+        state.marketLeaderboardItems.length
+      );
+      const nextItems = state.marketLeaderboardItems.slice(
+        state.marketLeaderboardVisibleCount,
+        nextVisibleCount
+      );
+      moreButton.disabled = true;
+      moreButton.textContent = "기간 수익률 불러오는 중";
+      try {
+        await hydrateMarketPeriodReturns(nextItems);
+      } catch (error) {
+        console.warn("급상승 종목 기간 수익률을 불러오지 못했습니다.", error);
+      }
+      state.marketLeaderboardVisibleCount = nextVisibleCount;
       renderMarketSurgeLeaderboard();
     });
     shell.appendChild(moreButton);
@@ -3086,6 +3101,25 @@ function renderMarketSurgeLeaderboard(options = {}) {
   cell.appendChild(shell);
   row.appendChild(cell);
   elements.rankingBody.appendChild(row);
+}
+
+async function hydrateMarketPeriodReturns(items) {
+  const codes = items
+    .filter((item) => item.one_month_return == null || item.three_month_return == null)
+    .map((item) => item.code)
+    .filter(Boolean);
+  if (!codes.length) {
+    return;
+  }
+  const payload = await fetchJsonCached(
+    `/market/rankings/returns?codes=${encodeURIComponent(codes.join(","))}`,
+    { force: true, ttlMs: 0, timeoutMs: 20_000 }
+  );
+  const returnsByCode = new Map((payload.items || []).map((item) => [item.code, item]));
+  state.marketLeaderboardItems = state.marketLeaderboardItems.map((item) => {
+    const periodReturns = returnsByCode.get(item.code);
+    return periodReturns ? { ...item, ...periodReturns } : item;
+  });
 }
 
 function startMarketSurgeLeaderboard(payload) {

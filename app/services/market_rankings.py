@@ -6,6 +6,7 @@ from decimal import Decimal
 import re
 from statistics import mean
 from typing import Optional
+from xml.etree import ElementTree
 
 import requests
 from bs4 import BeautifulSoup
@@ -18,8 +19,11 @@ from app.services.ttl_cache import TTLCache
 
 KST = timezone(timedelta(hours=9))
 NAVER_MARKET_RISE_URL = "https://finance.naver.com/sise/sise_rise.naver"
+NAVER_CHART_URL = "https://fchart.stock.naver.com/sise.nhn"
 MARKET_RISE_CACHE = TTLCache(maxsize=4)
+MARKET_PERIOD_CACHE = TTLCache(maxsize=4096)
 MARKET_RISE_TTL_SECONDS = 60
+MARKET_PERIOD_TTL_SECONDS = 60 * 30
 
 
 def _now_kst() -> datetime:
@@ -91,6 +95,97 @@ def _fetch_naver_market_rise(market: str) -> list[dict[str, object]]:
     )
     response.raise_for_status()
     return _parse_naver_market_rise(response.content, market)
+
+
+def _parse_naver_chart_baselines(payload: bytes) -> dict[str, Optional[int]]:
+    xml_text = payload.decode("euc-kr", "replace")
+    xml_text = re.sub(r"<\?xml[^>]+\?>", "", xml_text, count=1)
+    try:
+        root = ElementTree.fromstring(xml_text)
+    except (ElementTree.ParseError, ValueError):
+        return {"latest": None, "one_month": None, "three_month": None}
+    closes: list[int] = []
+    for item in root.findall(".//item"):
+        parts = str(item.attrib.get("data") or "").split("|")
+        if len(parts) < 5:
+            continue
+        try:
+            close = int(parts[4])
+        except ValueError:
+            continue
+        if close > 0:
+            closes.append(close)
+    return {
+        "latest": closes[-1] if closes else None,
+        "one_month": closes[-22] if len(closes) >= 22 else None,
+        "three_month": closes[-64] if len(closes) >= 64 else None,
+    }
+
+
+def _fetch_naver_chart_baselines(code: str) -> dict[str, Optional[int]]:
+    response = requests.get(
+        NAVER_CHART_URL,
+        params={"symbol": code, "timeframe": "day", "count": "100", "requestType": "0"},
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=8,
+    )
+    response.raise_for_status()
+    return _parse_naver_chart_baselines(response.content)
+
+
+def _naver_chart_baselines(code: str) -> dict[str, Optional[int]]:
+    return MARKET_PERIOD_CACHE.get_or_set(
+        ("naver_chart_baselines", code),
+        MARKET_PERIOD_TTL_SECONDS,
+        lambda: _fetch_naver_chart_baselines(code),
+    )
+
+
+def build_market_period_returns(codes: list[str]) -> list[dict[str, object]]:
+    unique_codes = list(dict.fromkeys(code.strip() for code in codes if re.fullmatch(r"[0-9A-Z]{6}", code.strip())))[:100]
+    if not unique_codes:
+        return []
+
+    output: list[dict[str, object]] = []
+    with ThreadPoolExecutor(max_workers=min(20, len(unique_codes))) as executor:
+        futures = {executor.submit(_naver_chart_baselines, code): code for code in unique_codes}
+        for future in as_completed(futures):
+            code = futures[future]
+            try:
+                baselines = future.result()
+            except Exception:
+                continue
+            latest = baselines.get("latest")
+            output.append(
+                {
+                    "code": code,
+                    "one_month_return": _rate(latest, baselines.get("one_month")),
+                    "three_month_return": _rate(latest, baselines.get("three_month")),
+                }
+            )
+    return output
+
+
+def _enrich_market_period_returns(items: list[dict[str, object]], max_items: int = 100) -> list[dict[str, object]]:
+    candidates = items[:max_items]
+    if not candidates:
+        return items
+    baselines_by_code: dict[str, dict[str, Optional[int]]] = {}
+    with ThreadPoolExecutor(max_workers=min(20, len(candidates))) as executor:
+        futures = {executor.submit(_naver_chart_baselines, str(item["code"])): str(item["code"]) for item in candidates}
+        for future in as_completed(futures):
+            try:
+                baselines_by_code[futures[future]] = future.result()
+            except Exception:
+                continue
+    for item in candidates:
+        baselines = baselines_by_code.get(str(item["code"]))
+        if not baselines:
+            continue
+        current_price = item.get("price") or baselines.get("latest")
+        item["one_month_return"] = _rate(current_price, baselines.get("one_month"))
+        item["three_month_return"] = _rate(current_price, baselines.get("three_month"))
+    return items
 
 
 def _naver_market_rise_items(db: Session, market: Optional[str]) -> list[dict[str, object]]:
@@ -592,6 +687,9 @@ def build_market_rankings(
             rankings = live_rankings[:limit]
         else:
             rankings = fallback_rankings
+
+    if category == "surge" and source == "naver_market_rise" and rankings:
+        rankings = _enrich_market_period_returns(rankings, max_items=min(100, limit))
 
     return {
         "category": category,

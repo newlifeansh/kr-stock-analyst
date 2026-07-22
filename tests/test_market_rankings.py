@@ -95,3 +95,36 @@ def test_parse_naver_market_rise_uses_quote_cells():
             "trading_value": 308641750000,
         }
     ]
+
+
+def test_parse_naver_chart_baselines_uses_22_and_64_session_closes():
+    items = "".join(
+        f'<item data="202601{index:02d}|100|110|90|{100 + index}|1000" />'
+        for index in range(1, 65)
+    )
+    payload = (
+        '<?xml version="1.0" encoding="EUC-KR" ?>'
+        f"<protocol><chartdata>{items}</chartdata></protocol>"
+    ).encode("euc-kr")
+
+    baselines = market_rankings._parse_naver_chart_baselines(payload)
+
+    assert baselines == {"latest": 164, "one_month": 143, "three_month": 101}
+
+
+def test_market_period_returns_calculates_cached_chart_history(monkeypatch):
+    monkeypatch.setattr(
+        market_rankings,
+        "_naver_chart_baselines",
+        lambda code: {"latest": 120, "one_month": 100, "three_month": 80},
+    )
+
+    items = market_rankings.build_market_period_returns(["005930", "005930", "invalid"])
+
+    assert items == [
+        {
+            "code": "005930",
+            "one_month_return": Decimal("20.00"),
+            "three_month_return": Decimal("50.0"),
+        }
+    ]
