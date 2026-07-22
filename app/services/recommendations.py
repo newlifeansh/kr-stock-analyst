@@ -38,7 +38,7 @@ METHODOLOGY = [
     "최근 시가총액 데이터가 있으면 상위 100개, 없으면 최신 거래대금 추정 상위 종목을 추천 유니버스로 사용한다.",
     "유니버스 안에서 1개월/3개월 모멘텀, 거래대금, 거래대금 변화로 후보를 선별한다. 가격 이력이 짧으면 최신 거래대금과 단기 흐름으로 보수적으로 대체한다.",
     "선별 후보에 대해 추정치/애널리스트 변화, 실적/가이던스, 밸류에이션, 거시 민감도, 수급, 뉴스 분위기를 0~100점으로 환산한다.",
-    "최종 점수는 10개 항목 가중합이며, 데이터가 부족한 항목은 중립 이하로 처리하고 이유/리스크에 표시한다.",
+    "정밀 계산은 10개 항목 가중합을 사용한다. 빠른 후보 선별은 실제로 확인된 가격·거래대금 항목만 재가중해 계산하며, 없는 데이터에 임의 점수를 넣지 않는다.",
 ]
 
 RECOMMENDATION_GROUP_PREFIXES = (
@@ -94,6 +94,14 @@ def _clamp(value: Decimal, low: Decimal = Decimal("0"), high: Decimal = Decimal(
 
 def _score(value: Decimal) -> Decimal:
     return _round_decimal(_clamp(value)) or Decimal("0")
+
+
+def _weighted_component_score(components: dict[str, Decimal]) -> Decimal:
+    available_weights = sum(WEIGHTS[key] for key in components)
+    if not available_weights:
+        return Decimal("0")
+    weighted = sum(components[key] * WEIGHTS[key] for key in components)
+    return _score(weighted / available_weights)
 
 
 def _score_revisions(dashboard: dict[str, object], reasons: list[str], risks: list[str]) -> Decimal:
@@ -399,7 +407,7 @@ def _score_dashboard(dashboard: dict[str, object]) -> dict[str, object]:
         "flows": _score_flows(dashboard, reasons, risks),
         "sentiment": _score_sentiment(dashboard, reasons, risks),
     }
-    total = sum(components[key] * weight for key, weight in WEIGHTS.items()) / Decimal("100")
+    total = _weighted_component_score(components)
     quote = dashboard["quote"]
     momentum = dashboard["momentum"]
     chart_analysis = dashboard["chart_analysis"]
@@ -456,50 +464,50 @@ def _fast_component_scores(item: dict[str, object], chart_analysis: dict[str, ob
         liquidity += Decimal("8")
 
     return {
-        "estimate_revision": Decimal("45"),
-        "analyst_revision_ratio": Decimal("45"),
-        "surprise": Decimal("48"),
-        "guidance": Decimal("48"),
         "price_momentum": _score(momentum),
         "trading_value": _score(liquidity),
-        "valuation": Decimal("45"),
-        "macro": Decimal("45"),
-        "flows": Decimal("45"),
-        "sentiment": Decimal("45"),
     }
 
 
 def _score_fast_candidate(item: dict[str, object], prices: list[object]) -> dict[str, object]:
     chart_analysis = _chart_analysis(prices)
     components = _fast_component_scores(item, chart_analysis)
-    total = sum(components[key] * weight for key, weight in WEIGHTS.items()) / Decimal("100")
+    total = _weighted_component_score(components)
     one_month = _num(item.get("one_month_return"))
     three_month = _num(item.get("three_month_return"))
     trading_change = _num(item.get("trading_value_change"))
     chart_score = _num(chart_analysis.get("score")) or Decimal("0")
 
-    reasons = [
-        f"1개월 {one_month}%·3개월 {three_month}% 가격 모멘텀 기준 선별",
-        f"차트 점수 {chart_score}점, {chart_analysis.get('trend') or '추세 데이터 부족'}",
-    ]
+    periods = []
+    if one_month is not None:
+        periods.append(f"1개월 {one_month}%")
+    if three_month is not None:
+        periods.append(f"3개월 {three_month}%")
+    reasons = []
+    if periods:
+        reasons.append(f"{'·'.join(periods)} 가격 모멘텀 기준 선별")
+    else:
+        reasons.append("최근 가격 이력과 거래대금을 기준으로 1차 후보 선별")
+    reasons.append(f"차트 점수 {chart_score}점, {chart_analysis.get('trend') or '추세 데이터 부족'}")
     if trading_change is not None:
         reasons.append(f"거래대금 변화 {trading_change}% 반영")
     if chart_analysis.get("support"):
         reasons.append(f"차트 지지 {chart_analysis.get('support')}, 저항 {chart_analysis.get('resistance')}")
 
     risks = [
-        "빠른 추천은 가격·거래대금·차트 중심으로 먼저 계산",
-        "추정치·수급·밸류 세부 점수는 종목 상세/카드 새로고침에서 보강",
+        "1차 후보는 가격·거래대금·차트로만 선별한 결과",
+        "리포트·공시·수급·밸류에 실제 데이터가 있는 종목은 정밀 새로고침에서 재계산",
     ]
     risks.extend(str(value) for value in chart_analysis.get("risks", [])[:3])
 
     score_value = _score(total)
+    fast_action = "1차 후보" if score_value >= Decimal("55") and chart_score >= Decimal("50") else "관찰"
     return {
         "code": item["code"],
         "name": item["name"],
         "market": item["market"],
         "score": score_value,
-        "action": _action(score_value, chart_analysis.get("score")),
+        "action": fast_action,
         "price": item.get("price"),
         "change_rate": item.get("change_rate"),
         "one_month_return": item.get("one_month_return"),
@@ -579,11 +587,7 @@ def build_recommendations(db: Session, limit: int = 8, candidate_limit: int = 50
     base_items = list(universe["base_items"])
 
     base_items.sort(key=_candidate_sort_key, reverse=True)
-    score_pool_limit = max(candidate_limit, limit * 4)
-    if refresh_live:
-        score_pool_limit = max(score_pool_limit, candidate_limit + max(limit, 8))
-    else:
-        score_pool_limit = max(score_pool_limit, candidate_limit + max(limit * 2, 20))
+    score_pool_limit = max(candidate_limit, limit * 2)
     candidates = base_items[: min(len(base_items), score_pool_limit)]
     scored = []
     if refresh_live:

@@ -107,7 +107,7 @@ class FinancialStatementLine(Base):
     reprt_code: Mapped[str] = mapped_column(String(8), nullable=False, index=True)
     fs_div: Mapped[Optional[str]] = mapped_column(String(10))
     sj_div: Mapped[Optional[str]] = mapped_column(String(10))
-    account_id: Mapped[Optional[str]] = mapped_column(String(80))
+    account_id: Mapped[Optional[str]] = mapped_column(String(255))
     account_name: Mapped[str] = mapped_column(String(200), nullable=False)
     ord: Mapped[Optional[int]] = mapped_column(Integer)
     current_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 2))

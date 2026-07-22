@@ -110,3 +110,7 @@ def test_collect_financial_statements_for_disclosure_companies_falls_back_to_ann
         assert db.query(func.count(IngestionRun.id)).scalar() == 1
         reports = {(line.stock_code, line.bsns_year, line.reprt_code) for line in db.query(FinancialStatementLine)}
         assert reports == {("000660", "2026", "11013"), ("005930", "2025", "11011")}
+
+
+def test_financial_account_id_accepts_long_dart_identifiers():
+    assert FinancialStatementLine.__table__.c.account_id.type.length == 255

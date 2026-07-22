@@ -1390,68 +1390,16 @@ function currentPresencePageKey() {
   return `${path}${search}` || "/dashboard";
 }
 
-function presenceHourKey(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}-${values.hour}`;
-}
-
-function hashPresenceHourDigit(hourKey) {
-  let hash = 0;
-  for (let index = 0; index < hourKey.length; index += 1) {
-    hash = (hash * 31 + hourKey.charCodeAt(index)) % 9973;
-  }
-  return (hash % 9) + 1;
-}
-
-function presenceHundredsDigit() {
-  const hourKey = presenceHourKey();
-  if (state.presenceHundredsHourKey === hourKey && Number.isFinite(state.presenceHundredsDigit)) {
-    return state.presenceHundredsDigit;
-  }
-  const digit = hashPresenceHourDigit(hourKey);
-  state.presenceHundredsHourKey = hourKey;
-  state.presenceHundredsDigit = digit;
-  return digit;
-}
-
-function schedulePresenceHourRefresh() {
-  if (state.presenceHourTimer) {
-    window.clearTimeout(state.presenceHourTimer);
-    state.presenceHourTimer = null;
-  }
-  const now = new Date();
-  const nextHour = new Date(now);
-  nextHour.setMinutes(60, 1, 0);
-  state.presenceHourTimer = window.setTimeout(() => {
-    state.presenceHundredsHourKey = "";
-    renderPresenceStatus({ count: state.presenceCount, connected: state.presenceSocket?.readyState === WebSocket.OPEN });
-    schedulePresenceHourRefresh();
-  }, Math.max(1000, nextHour.getTime() - now.getTime()));
-}
-
 function formatPresenceDisplayCount(count) {
   if (!Number.isFinite(count)) {
     return "-";
   }
-  const actual = Math.max(0, Math.trunc(Number(count)));
-  const lastTwoDigits = String(actual % 100).padStart(2, "0");
-  return `${presenceHundredsDigit()}${lastTwoDigits}`;
+  return String(Math.max(0, Math.trunc(Number(count))));
 }
 
 function renderPresenceStatus({ count = null, connected = false } = {}) {
   if (elements.sidebarPresenceCount) {
     elements.sidebarPresenceCount.textContent = Number.isFinite(count) ? `${formatPresenceDisplayCount(count)}명` : "-명";
-  }
-  if (connected || Number.isFinite(count)) {
-    schedulePresenceHourRefresh();
   }
 }
 
@@ -4144,15 +4092,21 @@ async function loadWatchlist(options = {}) {
   }
   const sectorMovesPromise = refreshUsSectorMoves({ force });
   const marketContextPromise = refreshWatchlistMarketContext({ force });
-  const results = await Promise.all(
-    items.map(async (item) => {
+  const results = await mapWithConcurrency(
+    items,
+    3,
+    async (item) => {
       try {
-        const url = `/stocks/${encodeURIComponent(item.code)}/dashboard?refresh=1`;
-        return { item, dashboard: await fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs }) };
+        const url = `/stocks/${encodeURIComponent(item.code)}/dashboard`;
+        const dashboard = await Promise.race([
+          fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs }),
+          rejectAfter(15_000, "watchlist dashboard timeout"),
+        ]);
+        return { item, dashboard };
       } catch {
         return { item, dashboard: null };
       }
-    })
+    }
   );
   clearWatchlistLoadingOverlay();
   state.watchlistResults = results.filter((result) => result.dashboard);
@@ -5265,8 +5219,7 @@ async function loadAIAnalysis(options = {}) {
     return;
   }
   const code = state.currentStock.code;
-  const normalizedOptions = options && options.auto === true ? options : {};
-  const forceRefresh = !normalizedOptions.auto;
+  const forceRefresh = true;
   const originalMainText = elements.aiAnalysisButton?.textContent || "AI 분석하기";
   const originalInlineText = elements.stockInlineAIRefresh?.textContent || "AI 분석 갱신하기";
   state.stockAILoading = true;

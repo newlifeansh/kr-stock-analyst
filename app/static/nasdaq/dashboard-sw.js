@@ -1,9 +1,9 @@
-const DASHBOARD_SW_VERSION = "20260719us87";
+const DASHBOARD_SW_VERSION = "20260722us89";
 const STATIC_CACHE = `secret-note-static-${DASHBOARD_SW_VERSION}`;
 const STATIC_ASSETS = [
   "/nasdaq?view=trend",
-  "/assets/nasdaq/styles.css?v=20260719us87",
-  "/assets/nasdaq/app.js?v=20260719us87",
+  "/assets/nasdaq/styles.css?v=20260722us89",
+  "/assets/nasdaq/app.js?v=20260722us89",
   "/assets/nasdaq/icons/icon-192.png?v=20260620bq",
   "/assets/nasdaq/icons/icon-512.png?v=20260620bq",
   "/assets/nasdaq/icons/apple-touch-icon.png?v=20260620bq"

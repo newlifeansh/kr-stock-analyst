@@ -49,7 +49,7 @@ def test_recommendations_fall_back_to_close_times_volume_without_market_cap():
         assert all(item["trading_value"] for item in payload["items"])
 
 
-def test_recommendations_score_a_wider_pool_than_requested_candidate_limit():
+def test_recommendations_only_expand_to_small_diversity_pool():
     with _session() as db:
         for idx in range(8):
             code = f"{100000 + idx:06d}"
@@ -59,8 +59,22 @@ def test_recommendations_score_a_wider_pool_than_requested_candidate_limit():
         universe_cache.clear()
         payload = build_recommendations(db, limit=2, candidate_limit=2, refresh_live=False)
 
-        assert payload["candidate_count"] == 8
+        assert payload["candidate_count"] == 4
         assert len(payload["items"]) == 2
+
+
+def test_fast_recommendations_only_score_observed_components_and_never_render_none_percent():
+    with _session() as db:
+        _seed_prices(db, "005930", "삼성전자", 80000, 1_000_000)
+        db.commit()
+
+        universe_cache.clear()
+        payload = build_recommendations(db, limit=1, candidate_limit=10, refresh_live=False)
+        item = payload["items"][0]
+
+        assert set(item["component_scores"]) == {"price_momentum", "trading_value"}
+        assert all("None%" not in reason for reason in item["reasons"])
+        assert "매수" not in item["action"]
 
 
 def test_recommendations_diversify_same_family_names_on_first_pass():

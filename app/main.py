@@ -1976,7 +1976,7 @@ def market_recommendations(
     _enforce_rate_limit(request, "market_recommendations", limit=10, window_seconds=60)
     key = ("market_recommendations", limit, candidate_limit)
     if refresh:
-        payload = build_recommendations(db, limit=limit, candidate_limit=candidate_limit)
+        payload = build_recommendations(db, limit=limit, candidate_limit=candidate_limit, refresh_live=True)
         api_cache.set(key, payload, RECOMMENDATION_TTL_SECONDS)
         return payload
     return api_cache.get_or_set(

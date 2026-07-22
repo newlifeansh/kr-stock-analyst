@@ -72,6 +72,12 @@ def init_db() -> None:
                     connection.execute(
                         text(f'ALTER TABLE "{table_name}" ALTER COLUMN "{column_name}" TYPE BIGINT')
                     )
+            connection.execute(
+                text(
+                    'ALTER TABLE "financial_statement_line" '
+                    'ALTER COLUMN "account_id" TYPE VARCHAR(255)'
+                )
+            )
 
 
 def get_db():

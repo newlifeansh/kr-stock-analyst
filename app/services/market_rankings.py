@@ -145,6 +145,19 @@ def _latest_session_surge_items(db: Session, market: Optional[str]) -> list[dict
     if not latest_date:
         return []
 
+    now = _now_kst()
+    if latest_date >= now.date() and (now.hour, now.minute) <= (15, 30):
+        completed_date_statement = (
+            select(func.max(DailyPrice.trade_date))
+            .join(StockMaster, StockMaster.code == DailyPrice.code)
+            .where(DailyPrice.trade_date < now.date())
+        )
+        if market:
+            completed_date_statement = completed_date_statement.where(StockMaster.market == market.upper())
+        latest_date = db.scalar(completed_date_statement)
+        if not latest_date:
+            return []
+
     previous_date_statement = (
         select(func.max(DailyPrice.trade_date))
         .join(StockMaster, StockMaster.code == DailyPrice.code)
