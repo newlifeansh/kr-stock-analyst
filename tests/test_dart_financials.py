@@ -51,6 +51,22 @@ def test_collect_financial_statement_maps_amounts_and_stock_code(monkeypatch):
         assert line.current_amount == 1000
 
 
+def test_collect_financial_statement_deduplicates_identical_dart_keys(monkeypatch):
+    monkeypatch.setattr(dart, "get_settings", lambda: _Settings())
+    payload = _payload("005930")
+    duplicate = dict(payload["list"][0])
+    duplicate["thstrm_amount"] = "1,100"
+    payload["list"].append(duplicate)
+    monkeypatch.setattr(dart, "fetch_opendart_json", lambda *args, **kwargs: payload)
+
+    with _session() as db:
+        count = dart.collect_financial_statement(db, "00126380", "2025", "annual", "CFS")
+
+        assert count == 1
+        line = db.query(FinancialStatementLine).one()
+        assert line.current_amount == 1100
+
+
 def test_collect_financial_statements_for_disclosure_companies_falls_back_to_annual(monkeypatch):
     monkeypatch.setattr(dart, "get_settings", lambda: _Settings())
 

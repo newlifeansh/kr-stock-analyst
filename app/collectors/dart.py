@@ -96,7 +96,21 @@ def _financial_statement_rows(
                 "raw": json.dumps(item, ensure_ascii=False),
             }
         )
-    return rows
+    deduped: dict[tuple[object, ...], dict[str, Any]] = {}
+    for row in rows:
+        key = (
+            row.get("corp_code"),
+            row.get("stock_code"),
+            row.get("bsns_year"),
+            row.get("reprt_code"),
+            row.get("fs_div"),
+            row.get("sj_div"),
+            row.get("account_id"),
+            row.get("account_name"),
+            row.get("ord"),
+        )
+        deduped[key] = row
+    return list(deduped.values())
 
 
 def collect_financial_statement(
