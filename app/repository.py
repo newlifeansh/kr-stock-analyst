@@ -31,7 +31,7 @@ from app.models import (
 
 
 def upsert_many(db: Session, model: type, rows: Iterable[dict[str, Any]]) -> int:
-    rows = list(rows)
+    rows = _deduplicate_upsert_rows(model, rows)
     if not rows:
         return 0
 
@@ -62,6 +62,14 @@ def upsert_many(db: Session, model: type, rows: Iterable[dict[str, Any]]) -> int
         for row in rows:
             db.merge(model(**row))
     return len(rows)
+
+
+def _deduplicate_upsert_rows(model: type, rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    conflict_columns = _conflict_columns(model)
+    deduped: dict[tuple[object, ...], dict[str, Any]] = {}
+    for row in rows:
+        deduped[tuple(row.get(column) for column in conflict_columns)] = row
+    return list(deduped.values())
 
 
 def _conflict_columns(model: type) -> list[str]:
