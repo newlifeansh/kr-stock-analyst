@@ -1950,7 +1950,7 @@ def stock_financials(
 def market_rankings(
     category: str = Query(default="surge", pattern="^(surge|trading_value|valuation|momentum|sentiment)$"),
     market: Optional[str] = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=100),
+    limit: int = Query(default=50, ge=1, le=3000),
     refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):

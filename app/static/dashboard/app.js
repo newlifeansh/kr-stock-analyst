@@ -111,6 +111,7 @@ const elements = {
   rankTabs: Array.from(document.querySelectorAll(".rank-tab")),
   rankCategorySelect: $("rank-category-select"),
   marketTabs: Array.from(document.querySelectorAll("[data-market-filter]")),
+  marketMeta: $("market-meta"),
   rankingBody: $("ranking-body"),
   name: $("stock-name"),
   meta: $("stock-meta"),
@@ -420,6 +421,7 @@ const state = {
   deferredInstallPrompt: null,
   marketRankingCache: new Map(),
   marketLeaderboardItems: [],
+  marketLeaderboardVisibleCount: 100,
   marketLeaderboardAsOf: "",
   marketLeaderboardTradeDate: "",
   marketQuoteSockets: new Map(),
@@ -1836,7 +1838,7 @@ function sortMarketLeaderboardItems() {
     }
     return (toNumber(b.trading_value) ?? 0) - (toNumber(a.trading_value) ?? 0);
   });
-  state.marketLeaderboardItems = state.marketLeaderboardItems.slice(0, 20).map((item, index) => ({
+  state.marketLeaderboardItems = state.marketLeaderboardItems.map((item, index) => ({
     ...item,
     rank: index + 1,
   }));
@@ -3149,10 +3151,22 @@ function renderMarketSurgeLeaderboard(options = {}) {
 
   const board = document.createElement("div");
   board.className = "market-leaderboard";
-  for (const item of state.marketLeaderboardItems) {
+  const visibleItems = state.marketLeaderboardItems.slice(0, state.marketLeaderboardVisibleCount);
+  for (const item of visibleItems) {
     board.appendChild(createMarketLeaderboardCard(item));
   }
   shell.appendChild(board);
+  if (visibleItems.length < state.marketLeaderboardItems.length) {
+    const moreButton = document.createElement("button");
+    moreButton.className = "market-load-more";
+    moreButton.type = "button";
+    moreButton.textContent = `더 보기 (${formatNumber(visibleItems.length)} / ${formatNumber(state.marketLeaderboardItems.length)})`;
+    moreButton.addEventListener("click", () => {
+      state.marketLeaderboardVisibleCount += 100;
+      renderMarketSurgeLeaderboard();
+    });
+    shell.appendChild(moreButton);
+  }
   cell.appendChild(shell);
   row.appendChild(cell);
   elements.rankingBody.appendChild(row);
@@ -3160,7 +3174,8 @@ function renderMarketSurgeLeaderboard(options = {}) {
 
 function startMarketSurgeLeaderboard(payload) {
   closeMarketQuoteStreams();
-  state.marketLeaderboardItems = (payload.items || []).slice(0, 20).map((item, index) => ({
+  state.marketLeaderboardVisibleCount = 100;
+  state.marketLeaderboardItems = (payload.items || []).map((item, index) => ({
     ...item,
     rank: index + 1,
     metric_value: item.metric_value ?? item.change_rate,
@@ -3169,7 +3184,7 @@ function startMarketSurgeLeaderboard(payload) {
   state.marketLeaderboardTradeDate = state.marketLeaderboardItems.find((item) => item.trade_date)?.trade_date || "";
   sortMarketLeaderboardItems();
   renderMarketSurgeLeaderboard();
-  for (const item of state.marketLeaderboardItems) {
+  for (const item of state.marketLeaderboardItems.slice(0, 20)) {
     connectMarketQuoteStream(item.code);
   }
 }
@@ -3260,6 +3275,10 @@ function renderRankings(payload) {
   elements.rankingBody.innerHTML = "";
   setMarketLeaderboardMode(category === "surge");
   if (category === "surge") {
+    if (elements.marketMeta) {
+      const marketLabel = payload.market === "KOSPI" ? "KOSPI" : payload.market === "KOSDAQ" ? "KOSDAQ" : "전체 시장";
+      elements.marketMeta.textContent = `${marketLabel} ${formatNumber(payload.universe_count || 0)}종목 기준 · 상승 종목 ${formatNumber(payload.matching_count ?? payload.items?.length ?? 0)}개`;
+    }
     if (!payload.items || payload.items.length === 0) {
       closeMarketQuoteStreams();
       renderRankingMessage("데이터 없음");
@@ -3295,11 +3314,11 @@ function renderRankings(payload) {
 }
 
 function currentMarketFilter() {
-  return elements.marketTabs.find((tab) => tab.classList.contains("active"))?.dataset.marketFilter || "KOSPI";
+  return elements.marketTabs.find((tab) => tab.classList.contains("active"))?.dataset.marketFilter || "ALL";
 }
 
 function setMarketFilter(market) {
-  const normalized = market === "KOSDAQ" ? "KOSDAQ" : "KOSPI";
+  const normalized = ["ALL", "KOSPI", "KOSDAQ"].includes(market) ? market : "ALL";
   for (const tab of elements.marketTabs) {
     const active = tab.dataset.marketFilter === normalized;
     tab.classList.toggle("active", active);
@@ -3331,9 +3350,11 @@ function requestMarketRanking(category, market, options = {}) {
   }
   const params = new URLSearchParams({
     category: normalizedCategory,
-    limit: "20",
+    limit: "3000",
   });
-  params.set("market", market);
+  if (market !== "ALL") {
+    params.set("market", market);
+  }
   const url = `/market/rankings?${params.toString()}`;
   const promise = fetchJsonCached(url, {
     force,

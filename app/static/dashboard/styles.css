@@ -995,7 +995,7 @@ h1 {
 
 .market-segment {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   width: 100%;
   overflow: hidden;
   border: 1px solid #111111;
@@ -1173,6 +1173,25 @@ h1 {
   font-size: 14px;
   font-weight: 700;
   line-height: 1.5;
+}
+
+.market-load-more {
+  width: min(420px, calc(100% - 32px));
+  min-height: 52px;
+  margin: 28px auto 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.market-load-more:hover,
+.market-load-more:focus-visible {
+  border-color: var(--ink);
+  background: #f7f8fa;
 }
 
 .market-leaderboard-shell {

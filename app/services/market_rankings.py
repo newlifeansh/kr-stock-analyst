@@ -428,8 +428,12 @@ def build_market_rankings(
         groups = _price_groups(db, market)
         items = [item for stock, prices in groups.values() if (item := _base_item(stock, prices))]
 
+    universe_count = len(items)
+    matching_count = 0
     if category == "surge":
-        rankings = _ranked(items, "surge", "change_rate", True, rank_limit)
+        rising_items = [item for item in items if Decimal(str(item.get("change_rate") or 0)) > 0]
+        matching_count = len(rising_items)
+        rankings = _ranked(rising_items, "surge", "change_rate", True, rank_limit)
     elif category == "trading_value":
         rankings = _ranked(items, "trading_value", "trading_value", True, rank_limit)
     elif category == "momentum":
@@ -445,6 +449,8 @@ def build_market_rankings(
         rankings = _news_sentiment_rank(db, items, limit)
     else:
         rankings = _ranked(items, "surge", "change_rate", True, rank_limit)
+    if category != "surge":
+        matching_count = len(rankings)
 
     if should_refresh_live and rankings:
         fallback_rankings = rankings[:limit]
@@ -467,5 +473,7 @@ def build_market_rankings(
         "category": category,
         "market": market,
         "as_of": _now_kst(),
+        "universe_count": universe_count,
+        "matching_count": matching_count,
         "items": rankings,
     }

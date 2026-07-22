@@ -19,7 +19,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260721kr12" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260722kr19" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -541,11 +541,13 @@
           <div class="identity">
             <div>
               <h1>급상승 종목</h1>
+              <p id="market-meta">전체 시장 종목을 확인하는 중</p>
             </div>
           </div>
           <div class="market-controls">
             <div class="market-segment" role="tablist" aria-label="시장 선택">
-              <button class="market-segment-button active" type="button" data-market-filter="KOSPI" role="tab" aria-selected="true">KOSPI</button>
+              <button class="market-segment-button active" type="button" data-market-filter="ALL" role="tab" aria-selected="true">전체</button>
+              <button class="market-segment-button" type="button" data-market-filter="KOSPI" role="tab" aria-selected="false">KOSPI</button>
               <button class="market-segment-button" type="button" data-market-filter="KOSDAQ" role="tab" aria-selected="false">KOSDAQ</button>
             </div>
           </div>
@@ -579,6 +581,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260722kr18" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260722kr19" defer></script>
   </body>
 </html>
