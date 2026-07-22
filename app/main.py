@@ -50,6 +50,7 @@ from app.models import (
     IngestionRun,
     InvestorFlow,
     MacroObservation,
+    PushSubscription,
     StockMaster,
     WatchlistItem,
 )
@@ -89,6 +90,8 @@ from app.schemas import (
     MarketRankingOut,
     MarketRecommendationOut,
     NewsItemOut,
+    PushSubscriptionDeleteIn,
+    PushSubscriptionIn,
     ResearchSourceOut,
     ResearchReportOut,
     StockAIAnalysisOut,
@@ -119,6 +122,7 @@ from app.services.stock_dashboard import build_stock_dashboard, ensure_stock_pri
 from app.services.kis_realtime import KisRealtimeQuoteProvider, parse_kis_stock_tick
 from app.services.ttl_cache import TTLCache
 from app.services.trends import build_event_graph, build_trend_analysis
+from app.services.web_push import web_push_runtime
 from app.services.us_market import (
     build_us_dashboard,
     build_us_event_graph,
@@ -193,6 +197,7 @@ async def lifespan(_: FastAPI):
         if mcp_server is not None:
             await stack.enter_async_context(mcp_server.session_manager.run())
         await briefing_runtime.start()
+        await web_push_runtime.start()
         if settings.bootstrap_on_start:
             bootstrap_task = asyncio.create_task(_run_bootstrap_task())
         try:
@@ -202,6 +207,7 @@ async def lifespan(_: FastAPI):
                 bootstrap_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await bootstrap_task
+            await web_push_runtime.stop()
             await briefing_runtime.stop()
 
 
@@ -596,6 +602,94 @@ def put_watchlist(share_id: str, payload: WatchlistUpdateIn, request: Request, d
     db.add_all(rows)
     db.commit()
     return _watchlist_response(db, normalized_id)
+
+
+@app.get("/push/config")
+def push_config():
+    return {
+        "enabled": web_push_runtime.configured,
+        "public_key": settings.web_push_vapid_public_key if web_push_runtime.configured else None,
+        "conditions": ["price_move", "disclosure_report", "major_event"],
+        "price_threshold": settings.web_push_price_threshold,
+    }
+
+
+@app.get("/push/subscriptions/{share_id}/status")
+def push_subscription_status(
+    share_id: str,
+    endpoint: str = Query(..., min_length=20, max_length=2048),
+    db: Session = Depends(get_db),
+):
+    normalized_id = _normalize_watchlist_id(share_id)
+    subscription = db.scalar(
+        select(PushSubscription).where(
+            PushSubscription.share_id == normalized_id,
+            PushSubscription.endpoint == endpoint,
+            PushSubscription.enabled.is_(True),
+        )
+    )
+    return {"enabled": subscription is not None}
+
+
+@app.post("/push/subscriptions/{share_id}")
+def save_push_subscription(
+    share_id: str,
+    payload: PushSubscriptionIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    normalized_id = _normalize_watchlist_id(share_id)
+    _require_write_access(request, normalized_id)
+    if not web_push_runtime.configured:
+        raise HTTPException(status_code=503, detail="웹푸시 발송 키가 설정되지 않았습니다.")
+    if not payload.endpoint.startswith("https://"):
+        raise HTTPException(status_code=422, detail="유효한 HTTPS 푸시 주소가 필요합니다.")
+    subscription = db.scalar(
+        select(PushSubscription).where(PushSubscription.endpoint == payload.endpoint)
+    )
+    should_test = subscription is None or not subscription.enabled or subscription.share_id != normalized_id
+    if subscription is None:
+        subscription = PushSubscription(
+            share_id=normalized_id,
+            endpoint=payload.endpoint,
+            p256dh=payload.keys.p256dh,
+            auth=payload.keys.auth,
+            user_agent=str(request.headers.get("user-agent") or "")[:500] or None,
+        )
+        db.add(subscription)
+    else:
+        if subscription.share_id != normalized_id or not subscription.enabled:
+            subscription.created_at = datetime.utcnow()
+        subscription.share_id = normalized_id
+        subscription.p256dh = payload.keys.p256dh
+        subscription.auth = payload.keys.auth
+        subscription.user_agent = str(request.headers.get("user-agent") or "")[:500] or None
+        subscription.enabled = True
+    db.commit()
+    db.refresh(subscription)
+    test_sent = web_push_runtime.send_test(db, subscription) if should_test else False
+    return {"enabled": True, "test_sent": test_sent}
+
+
+@app.delete("/push/subscriptions/{share_id}")
+def delete_push_subscription(
+    share_id: str,
+    payload: PushSubscriptionDeleteIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    normalized_id = _normalize_watchlist_id(share_id)
+    _require_write_access(request, normalized_id)
+    subscription = db.scalar(
+        select(PushSubscription).where(
+            PushSubscription.share_id == normalized_id,
+            PushSubscription.endpoint == payload.endpoint,
+        )
+    )
+    if subscription:
+        subscription.enabled = False
+        db.commit()
+    return {"enabled": False}
 
 
 def _normalize_us_symbol(value: str) -> str:

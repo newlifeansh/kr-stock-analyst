@@ -17,6 +17,7 @@ dependencies = [
     "pykrx>=1.0.48",
     "finance-datareader>=0.9.202",
     "certifi>=2026.6.17",
+    "pywebpush>=2.3.0,<3",
     "setuptools<81",
 ]
 

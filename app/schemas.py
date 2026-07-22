@@ -45,6 +45,20 @@ class WatchlistOut(BaseModel):
     updated_at: datetime
 
 
+class PushSubscriptionKeysIn(BaseModel):
+    p256dh: str = Field(..., min_length=20, max_length=500)
+    auth: str = Field(..., min_length=8, max_length=255)
+
+
+class PushSubscriptionIn(BaseModel):
+    endpoint: str = Field(..., min_length=20, max_length=2048)
+    keys: PushSubscriptionKeysIn
+
+
+class PushSubscriptionDeleteIn(BaseModel):
+    endpoint: str = Field(..., min_length=20, max_length=2048)
+
+
 class DailyPriceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

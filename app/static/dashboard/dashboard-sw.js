@@ -1,9 +1,9 @@
-const DASHBOARD_SW_VERSION = "20260722kr23";
+const DASHBOARD_SW_VERSION = "20260722kr24";
 const STATIC_CACHE = `secret-note-static-${DASHBOARD_SW_VERSION}`;
 const STATIC_ASSETS = [
   "/dashboard?view=trend",
   "/assets/dashboard/styles.css?v=20260722kr20",
-  "/assets/dashboard/app.js?v=20260722kr23",
+  "/assets/dashboard/app.js?v=20260722kr24",
   "/assets/dashboard/icons/icon-192.png?v=20260620bq",
   "/assets/dashboard/icons/icon-512.png?v=20260620bq",
   "/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq"
@@ -50,4 +50,38 @@ self.addEventListener("fetch", (event) => {
       }))
     );
   }
+});
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { title: "비밀노트", body: event.data?.text() || "새 알림이 있습니다." };
+  }
+  const title = payload.title || "비밀노트";
+  const options = {
+    body: payload.body || "관심종목에 새로운 변화가 있습니다.",
+    icon: "/assets/dashboard/icons/icon-192.png?v=20260620bq",
+    badge: "/assets/dashboard/icons/icon-192.png?v=20260620bq",
+    tag: payload.tag || "secret-note-push",
+    renotify: true,
+    data: { url: payload.url || "/dashboard?view=watchlist", kind: payload.kind || "general" },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = new URL(event.notification.data?.url || "/dashboard?view=watchlist", self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if (client.url.startsWith(self.location.origin) && "focus" in client) {
+          return client.navigate(targetUrl).then(() => client.focus());
+        }
+      }
+      return self.clients.openWindow ? self.clients.openWindow(targetUrl) : undefined;
+    })
+  );
 });

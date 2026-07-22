@@ -676,6 +676,23 @@ a {
   background: #ececec;
 }
 
+.watch-identity .watch-notification-button {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--sider-text-strong);
+}
+
+.watch-identity .watch-notification-button[data-active="true"] {
+  background: #ffffff;
+  color: #111111;
+}
+
+.watch-identity .watch-notification-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .watch-identity p {
   min-height: 17px;
   margin: 0;

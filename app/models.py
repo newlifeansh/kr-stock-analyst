@@ -42,6 +42,47 @@ class WatchlistItem(Base):
     )
 
 
+class PushSubscription(Base):
+    __tablename__ = "push_subscription"
+    __table_args__ = (UniqueConstraint("endpoint", name="uq_push_subscription_endpoint"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    share_id: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    endpoint: Mapped[str] = mapped_column(String(2048), nullable=False)
+    p256dh: Mapped[str] = mapped_column(Text, nullable=False)
+    auth: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_encoding: Mapped[str] = mapped_column(String(40), default="aes128gcm", nullable=False)
+    user_agent: Mapped[Optional[str]] = mapped_column(String(500))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class PushDelivery(Base):
+    __tablename__ = "push_delivery"
+    __table_args__ = (
+        UniqueConstraint("subscription_id", "event_key", name="uq_push_delivery_event"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    subscription_id: Mapped[int] = mapped_column(
+        ForeignKey("push_subscription.id"), nullable=False, index=True
+    )
+    event_key: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    notification_kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 class DailyPrice(Base):
     __tablename__ = "daily_price"
     __table_args__ = (UniqueConstraint("code", "trade_date", name="uq_daily_price"),)

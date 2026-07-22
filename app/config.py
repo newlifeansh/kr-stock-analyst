@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     macro_enabled: bool = True
     macro_poll_seconds: int = 21600
     macro_range: str = "1y"
+    web_push_enabled: bool = True
+    web_push_poll_seconds: int = 60
+    web_push_price_threshold: float = 5.0
+    web_push_event_lead_hours: int = 24
+    web_push_vapid_private_key: Optional[str] = None
+    web_push_vapid_public_key: Optional[str] = None
+    web_push_vapid_subject: str = "mailto:admin@secret-note.app"
     toss_enabled: bool = False
     toss_base_url: str = "https://openapi.tossinvest.com"
     toss_client_id: Optional[str] = None

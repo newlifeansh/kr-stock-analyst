@@ -22,6 +22,8 @@ const elements = {
   watchlistIdDisplay: $("watchlist-id-display"),
   watchlistIdStatus: $("watchlist-id-status"),
   logoutButton: $("logout-button"),
+  pushNotificationButton: $("push-notification-button"),
+  pushNotificationStatus: $("push-notification-status"),
   recommendView: $("recommend-view"),
   recommendHistoryView: $("recommend-history-view"),
   trendView: $("trend-view"),
@@ -461,6 +463,8 @@ const state = {
   recommendationCooldownTimer: null,
   loginGateTimer: null,
   loginSplashSeen: false,
+  pushConfig: null,
+  pushNotificationBusy: false,
   mobileMenuScrollY: 0,
 };
 
@@ -2455,6 +2459,7 @@ async function applyWatchlistId(shareId, options = {}) {
     writeWatchlist(merged, { sync: false });
     await saveRemoteWatchlist(merged);
     setWatchlistIdStatus(`${normalizedId} · ${formatNumber(merged.length)}개 동기화`, "success");
+    void refreshPushNotificationState({ syncServer: true });
     updateWatchButton();
     if (state.view === "watchlist") {
       loadWatchlist();
@@ -2468,7 +2473,11 @@ async function applyWatchlistId(shareId, options = {}) {
   }
 }
 
-function logoutWatchlistIdentity() {
+async function logoutWatchlistIdentity() {
+  const currentId = state.watchlistId;
+  if (currentId) {
+    await disablePushNotifications(currentId).catch(() => undefined);
+  }
   window.clearTimeout(state.watchlistSyncTimer);
   state.watchlistSyncTimer = null;
   state.watchlistSyncing = false;
@@ -2502,6 +2511,7 @@ function logoutWatchlistIdentity() {
     elements.watchChartList.innerHTML = '<p class="muted">로그인 후 AI 차트 분석을 불러옵니다.</p>';
   }
   setWatchlistIdStatus("로그아웃됨");
+  updatePushNotificationButton({ hidden: true });
   showLoginGate("로그아웃되었습니다. 다시 아이디를 입력해주세요.", { skipSplash: true });
 }
 
@@ -2700,6 +2710,185 @@ function registerDashboardServiceWorker() {
     return;
   }
   navigator.serviceWorker.register("/dashboard-sw.js", { scope: "/" }).catch(() => undefined);
+}
+
+function webPushSupported() {
+  return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+}
+
+function pushApplicationServerKey(value) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = `${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(base64);
+  return Uint8Array.from([...raw].map((character) => character.charCodeAt(0)));
+}
+
+function setPushNotificationStatus(text = "", tone = "") {
+  if (!elements.pushNotificationStatus) {
+    return;
+  }
+  elements.pushNotificationStatus.hidden = !text;
+  elements.pushNotificationStatus.textContent = text;
+  elements.pushNotificationStatus.className = tone;
+}
+
+function updatePushNotificationButton(options = {}) {
+  const button = elements.pushNotificationButton;
+  if (!button) {
+    return;
+  }
+  const hidden = options.hidden ?? !state.watchlistId;
+  button.hidden = hidden;
+  if (hidden) {
+    setPushNotificationStatus();
+    return;
+  }
+  button.disabled = options.disabled ?? false;
+  button.dataset.active = String(options.active === true);
+  button.textContent = options.label || "알림 받기";
+  button.title = options.title || "";
+}
+
+async function loadPushConfig() {
+  if (state.pushConfig) {
+    return state.pushConfig;
+  }
+  const response = await fetch("/push/config", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("push config failed");
+  }
+  state.pushConfig = await response.json();
+  return state.pushConfig;
+}
+
+async function currentPushSubscription() {
+  if (!webPushSupported()) {
+    return null;
+  }
+  const registration = await navigator.serviceWorker.ready;
+  return registration.pushManager.getSubscription();
+}
+
+async function savePushSubscription(shareId, subscription) {
+  const writeToken = await ensureWriteToken(shareId);
+  const response = await fetch(`/push/subscriptions/${encodeURIComponent(shareId)}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Write-Token": writeToken,
+    },
+    body: JSON.stringify(subscription.toJSON()),
+  });
+  if (!response.ok) {
+    throw new Error("push subscription save failed");
+  }
+  return response.json();
+}
+
+async function disablePushNotifications(shareId = state.watchlistId) {
+  if (!shareId || !webPushSupported()) {
+    return;
+  }
+  const subscription = await currentPushSubscription();
+  if (!subscription) {
+    return;
+  }
+  const writeToken = await ensureWriteToken(shareId);
+  const response = await fetch(`/push/subscriptions/${encodeURIComponent(shareId)}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Write-Token": writeToken,
+    },
+    body: JSON.stringify({ endpoint: subscription.endpoint }),
+  });
+  if (!response.ok) {
+    throw new Error("push subscription delete failed");
+  }
+  await subscription.unsubscribe();
+}
+
+async function refreshPushNotificationState(options = {}) {
+  if (!elements.pushNotificationButton || !state.watchlistId) {
+    updatePushNotificationButton({ hidden: true });
+    return;
+  }
+  if (!webPushSupported()) {
+    updatePushNotificationButton({ label: "알림 미지원", disabled: true });
+    setPushNotificationStatus("이 브라우저에서는 웹 알림을 사용할 수 없습니다.");
+    return;
+  }
+  try {
+    const config = await loadPushConfig();
+    if (!config.enabled || !config.public_key) {
+      updatePushNotificationButton({ label: "알림 준비 중", disabled: true });
+      setPushNotificationStatus("알림 서버를 준비하고 있습니다.");
+      return;
+    }
+    if (Notification.permission === "denied") {
+      updatePushNotificationButton({ label: "알림 차단됨", disabled: true });
+      setPushNotificationStatus("브라우저 설정에서 알림 권한을 허용해주세요.", "error");
+      return;
+    }
+    const subscription = await currentPushSubscription();
+    if (subscription) {
+      updatePushNotificationButton({ label: "알림 끄기", active: true });
+      setPushNotificationStatus("급등락 · 중요 공시/리포트 · 주요 이벤트", "success");
+      if (options.syncServer) {
+        await savePushSubscription(state.watchlistId, subscription);
+      }
+      return;
+    }
+    updatePushNotificationButton({ label: "알림 받기" });
+    setPushNotificationStatus("관심종목의 중요한 변화만 알려드립니다.");
+  } catch {
+    updatePushNotificationButton({ label: "알림 다시 시도" });
+    setPushNotificationStatus("알림 상태를 확인하지 못했습니다.", "error");
+  }
+}
+
+async function togglePushNotifications() {
+  if (state.pushNotificationBusy || !state.watchlistId) {
+    return;
+  }
+  state.pushNotificationBusy = true;
+  updatePushNotificationButton({ label: "확인 중", disabled: true });
+  try {
+    const existing = await currentPushSubscription();
+    if (existing) {
+      await disablePushNotifications(state.watchlistId);
+      updatePushNotificationButton({ label: "알림 받기" });
+      setPushNotificationStatus("이 기기의 알림을 껐습니다.");
+      return;
+    }
+    const config = await loadPushConfig();
+    if (!config.enabled || !config.public_key) {
+      throw new Error("push is not configured");
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      await refreshPushNotificationState();
+      return;
+    }
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: pushApplicationServerKey(config.public_key),
+    });
+    const result = await savePushSubscription(state.watchlistId, subscription);
+    updatePushNotificationButton({ label: "알림 끄기", active: true });
+    setPushNotificationStatus(
+      result.test_sent ? "설정 완료 · 확인 알림을 보냈습니다." : "알림 설정이 완료되었습니다.",
+      "success"
+    );
+  } catch {
+    updatePushNotificationButton({ label: "알림 다시 시도" });
+    setPushNotificationStatus("알림을 설정하지 못했습니다. 잠시 후 다시 시도해주세요.", "error");
+  } finally {
+    state.pushNotificationBusy = false;
+  }
 }
 
 function pageEntryTtlMs(view) {
@@ -6933,6 +7122,7 @@ elements.watchlistIdForm?.addEventListener("submit", (event) => {
   applyWatchlistId(elements.watchlistIdInput.value, { merge: true });
 });
 elements.logoutButton?.addEventListener("click", logoutWatchlistIdentity);
+elements.pushNotificationButton?.addEventListener("click", togglePushNotifications);
 elements.aiAnalysisButton.addEventListener("click", (event) => {
   event.preventDefault();
   loadAIAnalysis({ auto: false });
