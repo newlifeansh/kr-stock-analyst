@@ -80,6 +80,18 @@ def init_db() -> None:
             )
 
 
+def recover_interrupted_ingestions() -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE ingestion_run "
+                "SET status = 'interrupted', finished_at = CURRENT_TIMESTAMP, "
+                "message = COALESCE(message, 'Previous process stopped before completion') "
+                "WHERE status = 'running'"
+            )
+        )
+
+
 def get_db():
     db = SessionLocal()
     try:

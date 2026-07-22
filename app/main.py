@@ -27,7 +27,7 @@ from sqlalchemy import delete, desc, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db import SessionLocal, get_db, init_db
+from app.db import SessionLocal, get_db, init_db, recover_interrupted_ingestions
 from app.integrations.toss import (
     BROKER_NAME,
     TossInvestError,
@@ -187,6 +187,7 @@ async def _run_bootstrap_task() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    recover_interrupted_ingestions()
     bootstrap_task: asyncio.Task | None = None
     async with AsyncExitStack() as stack:
         if mcp_server is not None:
