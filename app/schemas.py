@@ -461,6 +461,7 @@ class StockDashboardOut(BaseModel):
     name: str
     market: str
     as_of: datetime
+    source: Optional[str] = None
     quote: DashboardQuoteOut
     revisions: DashboardRevisionOut
     surprise: DashboardSurpriseOut
@@ -508,6 +509,9 @@ class StockAIAnalysisOut(BaseModel):
     risks: list[str]
     sections: list[StockAIAnalysisSectionOut]
     trade_levels: Optional[StockAITradeLevelsOut] = None
+    generation_mode: str = "rules"
+    model_name: Optional[str] = None
+    generation_note: Optional[str] = None
 
 
 class MarketRankingItemOut(BaseModel):

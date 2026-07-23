@@ -497,4 +497,7 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
         "risks": risks[:5],
         "sections": sections,
         "trade_levels": trade_levels,
+        "generation_mode": "rules",
+        "model_name": None,
+        "generation_note": "데이터 기반 규칙 분석",
     }

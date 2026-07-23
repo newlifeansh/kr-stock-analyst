@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import json
 import logging
 import secrets
@@ -118,6 +119,7 @@ from app.services.market_rankings import build_market_period_returns, build_mark
 from app.services.market_impact import build_market_impact
 from app.services.recommendations import build_recommendations
 from app.services.stock_ai_analysis import build_stock_ai_analysis
+from app.services.local_stock_ai import enrich_stock_ai_analysis
 from app.services.stock_dashboard import build_stock_dashboard, ensure_stock_price_history
 from app.services.kis_realtime import KisRealtimeQuoteProvider, parse_kis_stock_tick
 from app.services.ttl_cache import TTLCache
@@ -170,7 +172,6 @@ MARKET_IMPACT_TTL_SECONDS = 900
 RECOMMENDATION_TTL_SECONDS = 600
 TREND_ANALYSIS_TTL_SECONDS = 120
 TREND_GRAPH_TTL_SECONDS = 300
-PRE_MARKET_QUOTE_TTL_SECONDS = 15
 WRITE_SESSION_COOKIE = "sn_write_session"
 WRITE_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 LOCAL_ONLY_HOSTS = {"127.0.0.1", "localhost", "::1", "testserver"}
@@ -1658,8 +1659,10 @@ def _fetch_pre_market_quote(code: str) -> dict[str, Any]:
 
 
 def _pre_market_quote(code: str) -> dict[str, Any]:
-    key = ("pre_market_quote", code)
-    return api_cache.get_or_set(key, PRE_MARKET_QUOTE_TTL_SECONDS, lambda: _fetch_pre_market_quote(code))
+    now = datetime.now(KST).time()
+    if not (time(8, 0) <= now <= time(9, 5) or time(15, 20) <= now <= time(15, 45)):
+        return {}
+    return _fetch_pre_market_quote(code)
 
 
 def _enrich_pre_market_quote(payload: Optional[dict[str, Any]], code: str) -> None:
@@ -1668,9 +1671,74 @@ def _enrich_pre_market_quote(payload: Optional[dict[str, Any]], code: str) -> No
     payload["quote"].update(_pre_market_quote(code))
 
 
+def _fetch_kis_current_quote(code: str) -> dict[str, Any]:
+    if not kis_rest_provider.is_configured():
+        return {}
+    try:
+        row = kis_rest_provider._request_current_price(code)
+    except Exception:
+        return {}
+    if not isinstance(row, dict):
+        return {}
+    sign = _pick_quote_field(row, "prdy_vrss_sign")
+    price = _parse_int_value(_pick_quote_field(row, "stck_prpr"))
+    if price in (None, 0):
+        return {}
+    change_value = _apply_kis_sign(_parse_int_value(_pick_quote_field(row, "prdy_vrss")), sign)
+    change_rate = _apply_kis_sign(_parse_decimal_value(_pick_quote_field(row, "prdy_ctrt")), sign)
+    return {
+        "trade_date": date.today(),
+        "price": price,
+        "change_value": change_value,
+        "change_rate": change_rate,
+        "volume": _parse_int_value(_pick_quote_field(row, "acml_vol")),
+        "trading_value": _parse_int_value(_pick_quote_field(row, "acml_tr_pbmn")),
+    }
+
+
+def _live_period_return(price: Optional[int], reference: Optional[int]) -> Optional[Decimal]:
+    if price in (None, 0) or reference in (None, 0):
+        return None
+    return ((Decimal(price) - Decimal(reference)) * Decimal("100") / Decimal(reference)).quantize(Decimal("0.01"))
+
+
+def _enrich_uncached_kis_quote(payload: Optional[dict[str, Any]], code: str, db: Session) -> bool:
+    if not payload or not isinstance(payload.get("quote"), dict):
+        return False
+    live_quote = _fetch_kis_current_quote(code)
+    if not live_quote:
+        return False
+    payload["quote"].update({key: value for key, value in live_quote.items() if value is not None})
+    payload["source"] = "kis_rest"
+    payload["as_of"] = datetime.now(KST)
+
+    rows = list(
+        reversed(
+            list(
+                db.scalars(
+                    select(DailyPrice)
+                    .where(DailyPrice.code == code)
+                    .order_by(DailyPrice.trade_date.desc())
+                    .limit(64)
+                )
+            )
+        )
+    )
+    momentum = payload.get("momentum")
+    if isinstance(momentum, dict):
+        one_month_reference = rows[-22].close if len(rows) > 21 else None
+        three_month_reference = rows[-64].close if len(rows) > 63 else None
+        momentum["one_month_return"] = _live_period_return(live_quote["price"], one_month_reference)
+        momentum["three_month_return"] = _live_period_return(live_quote["price"], three_month_reference)
+        if live_quote.get("trading_value") is not None:
+            momentum["latest_trading_value"] = live_quote["trading_value"]
+    return True
+
+
 @app.get("/stocks/{code}/dashboard", response_model=StockDashboardOut)
 def stock_dashboard(
     code: str,
+    response: Response,
     refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
@@ -1687,7 +1755,11 @@ def stock_dashboard(
         payload = api_cache.get_or_set(key, STOCK_DASHBOARD_TTL_SECONDS, lambda: build_stock_dashboard(db, code))
     if not payload:
         raise HTTPException(status_code=404, detail="Stock not found")
+    payload = deepcopy(payload)
+    _enrich_uncached_kis_quote(payload, code, db)
     _enrich_pre_market_quote(payload, code)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     return payload
 
 
@@ -1712,6 +1784,7 @@ def _stock_quote_stream_payload(code: str) -> Optional[dict[str, object]]:
         dashboard = build_stock_dashboard(db, normalized, refresh_live=True)
         if not dashboard:
             return None
+        _enrich_uncached_kis_quote(dashboard, normalized, db)
         _enrich_pre_market_quote(dashboard, normalized)
         return _json_ready(
             {
@@ -1720,7 +1793,7 @@ def _stock_quote_stream_payload(code: str) -> Optional[dict[str, object]]:
                 "name": dashboard["name"],
                 "market": dashboard["market"],
                 "as_of": dashboard["as_of"],
-                "source": "naver_polling",
+                "source": dashboard.get("source") or "naver_polling",
                 "interval_seconds": interval_seconds,
                 "quote": dashboard["quote"],
             }
@@ -1746,7 +1819,6 @@ def _kis_realtime_payload(code: str, tick: dict[str, object]) -> dict[str, objec
         "trading_value": tick.get("trading_value"),
         "market_cap": None,
     }
-    quote.update(_pre_market_quote(code))
     return _json_ready(
         {
             "type": "quote",
@@ -1940,6 +2012,17 @@ async def stock_quote_stream(websocket: WebSocket, code: str):
         await _unsubscribe_kis_quote(normalized, kis_queue)
 
 
+@app.get("/stocks/{code}/quote")
+def stock_live_quote(code: str, response: Response):
+    normalized = _normalize_stock_code(code)
+    payload = _stock_quote_stream_payload(normalized)
+    if not payload:
+        raise HTTPException(status_code=404, detail="Stock quote not found")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return payload
+
+
 @app.get("/stocks/{code}/ai-analysis", response_model=StockAIAnalysisOut)
 def stock_ai_analysis(
     code: str,
@@ -1961,7 +2044,10 @@ def stock_ai_analysis(
         dashboard = api_cache.get_or_set(key, STOCK_DASHBOARD_TTL_SECONDS, lambda: build_stock_dashboard(db, code))
     if not dashboard:
         raise HTTPException(status_code=404, detail="Stock not found")
-    return build_stock_ai_analysis(dashboard)
+    dashboard = deepcopy(dashboard)
+    _enrich_uncached_kis_quote(dashboard, code, db)
+    rules = build_stock_ai_analysis(dashboard)
+    return enrich_stock_ai_analysis(dashboard, rules)
 
 
 @app.get("/stocks/{code}/prices", response_model=list[DailyPriceOut])

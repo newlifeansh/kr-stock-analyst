@@ -10089,6 +10089,53 @@ body .watch-table td::before {
   text-align: center;
 }
 
+.ollama-ai-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: max-content;
+  padding: 4px 7px;
+  border: 1px solid #d9dee6;
+  border-radius: 999px;
+  background: #f3f5f7;
+  color: #111827 !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.ollama-ai-badge::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #64748b;
+  content: "";
+}
+
+.ollama-ai-badge.is-ollama::before {
+  background: #16a34a;
+}
+
+.ollama-ai-badge[hidden] {
+  display: none !important;
+}
+
+#stock-summary-section .stock-confidence-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+#stock-strategy-section .ai-analysis-meta-line {
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
 #stock-strategy-section #ai-analysis-stance.positive {
   background: #fff0f1;
   color: #d92638;

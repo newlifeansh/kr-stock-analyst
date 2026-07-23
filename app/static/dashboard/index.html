@@ -19,7 +19,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260722kr20" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260723kr27" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -195,7 +195,10 @@
                 <div>
                   <span class="section-eyebrow">종합 판단</span>
                   <h2 id="stock-summary-stance">데이터 준비 중</h2>
-                  <p class="stock-confidence-line">분석 데이터 <strong id="stock-summary-confidence">-</strong></p>
+                  <p class="stock-confidence-line">
+                    분석 데이터 <strong id="stock-summary-confidence">-</strong>
+                    <span class="ollama-ai-badge" id="stock-summary-ai-badge" title="Ollama 로컬 모델로 생성된 요약입니다." hidden>Ollama AI</span>
+                  </p>
                   <p class="stock-confidence-help">추세 지속력은 오늘 등락과 중기 지표를 합친 상태 점수이며, 미래 상승 확률이 아닙니다.</p>
                   <p id="stock-summary-line">시세와 핵심 지표를 불러오는 중입니다.</p>
                 </div>
@@ -259,7 +262,10 @@
                 <div>
                   <span class="section-eyebrow">AI 전략</span>
                   <h2>오늘의 대응</h2>
-                  <p id="ai-analysis-meta">-</p>
+                  <p class="ai-analysis-meta-line">
+                    <span class="ollama-ai-badge" id="ai-analysis-provider-badge" title="Ollama 로컬 모델로 생성된 요약입니다." hidden>Ollama AI</span>
+                    <span id="ai-analysis-meta">-</span>
+                  </p>
                 </div>
                 <strong id="ai-analysis-stance">-</strong>
               </div>
@@ -579,6 +585,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260722kr24" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260723kr27" defer></script>
   </body>
 </html>

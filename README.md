@@ -49,6 +49,29 @@ API 확인:
 - `GET http://127.0.0.1:8000/ingestions`
 - `POST/GET http://127.0.0.1:8000/mcp/`
 
+## 로컬 AI 분석
+
+종목 상세의 핵심 요약은 Ollama를 통해 Mac 안에서 생성할 수 있습니다. 가격 기준, 매매 전략, 위험 판단은 기존 데이터 계산 엔진이 유지하고, 로컬 모델은 검증된 근거를 초보자가 읽기 쉬운 한 문장으로 정리합니다. 모델이 만들지 않은 숫자를 추가하면 해당 결과를 버리고 데이터 분석으로 자동 전환합니다.
+
+M1 8GB 기준 권장 모델:
+
+```bash
+brew install ollama
+ollama pull qwen3:0.6b
+```
+
+`.env` 설정:
+
+```dotenv
+STOCK_AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen3:0.6b
+OLLAMA_TIMEOUT_SECONDS=60
+OLLAMA_CACHE_SECONDS=900
+```
+
+서버 실행 후 `GET /stocks/005930/ai-analysis` 응답의 `generation_mode`가 `local_llm`이면 로컬 AI가 적용된 상태입니다. Ollama가 꺼져 있거나 시간 제한을 넘기면 API는 실패하지 않고 기존 데이터 분석 결과를 반환합니다. Railway 같은 원격 서버에서는 로컬 Mac의 Ollama에 접근할 수 없으므로 `STOCK_AI_PROVIDER=rules`를 사용합니다.
+
 ## PlayMCP / Remote MCP
 
 이 프로젝트는 이제 `PlayMCP`에 등록할 수 있는 read-only Remote MCP 엔드포인트를 함께 제공합니다.

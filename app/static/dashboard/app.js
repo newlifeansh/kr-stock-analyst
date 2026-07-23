@@ -34,6 +34,7 @@ const elements = {
   aiAnalysisButton: $("ai-analysis-button"),
   aiAnalysisPanel: $("ai-analysis-panel"),
   aiAnalysisMeta: $("ai-analysis-meta"),
+  aiAnalysisProviderBadge: $("ai-analysis-provider-badge"),
   aiAnalysisStance: $("ai-analysis-stance"),
   aiAnalysisSummary: $("ai-analysis-summary"),
   aiDecisionStance: $("ai-decision-stance"),
@@ -50,6 +51,7 @@ const elements = {
   stockSummaryScoreRing: $("stock-summary-score-ring"),
   stockSummaryScore: $("stock-summary-score"),
   stockSummaryConfidence: $("stock-summary-confidence"),
+  stockSummaryAIBadge: $("stock-summary-ai-badge"),
   stockSummaryStance: $("stock-summary-stance"),
   stockSummaryLine: $("stock-summary-line"),
   stockAISayProbability: $("stock-ai-say-probability"),
@@ -416,7 +418,6 @@ const state = {
   writeTokenShareId: "",
   watchChartResults: [],
   selectedWatchChartCode: "",
-  deferredInstallPrompt: null,
   marketRankingCache: new Map(),
   marketLeaderboardItems: [],
   marketLeaderboardVisibleCount: 100,
@@ -655,7 +656,7 @@ function quoteSourceLabel(payload = null) {
   if (!payload) {
     return "";
   }
-  if (payload.source === "kis_realtime") {
+  if (["kis_realtime", "kis_rest"].includes(payload.source)) {
     return "KIS 실시간";
   }
   return "보조 갱신";
@@ -712,6 +713,44 @@ function previousCloseFromQuote(quote) {
     return price / (1 + changeRate / 100);
   }
   return null;
+}
+
+function rebasePeriodReturn(periodReturn, previousPrice, livePrice) {
+  const rate = toNumber(periodReturn);
+  const previous = toNumber(previousPrice);
+  const next = toNumber(livePrice);
+  if (rate === null || previous === null || next === null || previous <= 0 || next <= 0) {
+    return periodReturn;
+  }
+  return ((1 + rate / 100) * (next / previous) - 1) * 100;
+}
+
+function applyLiveQuoteToDashboard(dashboard, quote, payload = null) {
+  if (!dashboard || !quote) {
+    return dashboard;
+  }
+  const previousPrice = toNumber(dashboard.quote?.price);
+  const livePrice = toNumber(quote.price);
+  if (dashboard.momentum && previousPrice !== null && livePrice !== null && previousPrice !== livePrice) {
+    dashboard.momentum.one_month_return = rebasePeriodReturn(
+      dashboard.momentum.one_month_return,
+      previousPrice,
+      livePrice,
+    );
+    dashboard.momentum.three_month_return = rebasePeriodReturn(
+      dashboard.momentum.three_month_return,
+      previousPrice,
+      livePrice,
+    );
+  }
+  dashboard.quote = { ...(dashboard.quote || {}), ...quote };
+  if (payload?.as_of) {
+    dashboard.as_of = payload.as_of;
+  }
+  if (payload?.source) {
+    dashboard.source = payload.source;
+  }
+  return dashboard;
 }
 
 function formatChangeValue(value) {
@@ -1423,7 +1462,11 @@ function updateQuoteStrip(quote, payload = null) {
     return;
   }
   if (state.currentDashboard?.quote) {
-    state.currentDashboard.quote = { ...state.currentDashboard.quote, ...quote };
+    applyLiveQuoteToDashboard(state.currentDashboard, quote, payload);
+    elements.momentum1m.textContent = formatPercent(state.currentDashboard.momentum?.one_month_return);
+    elements.momentum3m.textContent = formatPercent(state.currentDashboard.momentum?.three_month_return);
+    setTone(elements.momentum1m, state.currentDashboard.momentum?.one_month_return);
+    setTone(elements.momentum3m, state.currentDashboard.momentum?.three_month_return);
     renderStockTrendScore(state.currentDashboard);
   }
   animateQuoteNumber(elements.quotePrice, quote.price, (value) => formatNumber(Math.round(Number(value))));
@@ -1444,7 +1487,7 @@ function updateQuoteStrip(quote, payload = null) {
   setText(elements.stockPrevCloseSummary, previousClose === null ? "-" : formatNumber(Math.round(previousClose)));
   setText(elements.stockPrevClose, previousClose === null ? "-" : formatNumber(Math.round(previousClose)));
   if (payload?.as_of && state.currentStock?.code === payload.code && payload.market) {
-    const sourceLabel = quoteSourceLabel(payload) || (payload.source === "kis_realtime" ? "KIS 실시간" : "보조 갱신");
+    const sourceLabel = quoteSourceLabel(payload);
     elements.meta.textContent = stockDetailMetaText({ code: payload.code, market: payload.market });
     renderStockLiveSummary({ code: payload.code, market: payload.market, as_of: payload.as_of, quote }, sourceLabel);
   }
@@ -1565,6 +1608,21 @@ function updateWatchlistRowQuote(code, quote, payload = null) {
   const changeCell = card.querySelector('[data-field="change_rate"]');
   const preMarketCell = card.querySelector('[data-field="pre_market"]');
   const tradingValueCell = card.querySelector('[data-field="trading_value"]');
+  const oneMonthCell = card.querySelector('[data-field="one_month"]');
+  const threeMonthCell = card.querySelector('[data-field="three_month"]');
+
+  if (card.watchDashboard) {
+    applyLiveQuoteToDashboard(card.watchDashboard, quote, payload);
+    quote = card.watchDashboard.quote;
+    if (oneMonthCell) {
+      flashTextUpdate(oneMonthCell, formatPercent(card.watchDashboard.momentum?.one_month_return), card.watchDashboard.momentum?.one_month_return);
+      setLiveCellTone(oneMonthCell, card.watchDashboard.momentum?.one_month_return);
+    }
+    if (threeMonthCell) {
+      flashTextUpdate(threeMonthCell, formatPercent(card.watchDashboard.momentum?.three_month_return), card.watchDashboard.momentum?.three_month_return);
+      setLiveCellTone(threeMonthCell, card.watchDashboard.momentum?.three_month_return);
+    }
+  }
 
   if (priceCell && quote.price !== null && quote.price !== undefined && quote.price !== "") {
     animateQuoteNumber(priceCell, quote.price, (value) => formatNumber(Math.round(Number(value))));
@@ -1582,13 +1640,6 @@ function updateWatchlistRowQuote(code, quote, payload = null) {
     flashTextUpdate(tradingValueCell, formatMoney(quote.trading_value), quote.trading_value);
   }
   if (card.watchDashboard) {
-    card.watchDashboard = {
-      ...card.watchDashboard,
-      quote: {
-        ...(card.watchDashboard.quote || {}),
-        ...quote,
-      },
-    };
     const point = renderWatchPreOpenPoint(card, card.watchDashboard, card.watchDashboard.quote, card.watchItem, card.usSectorMoves || state.usSectorMoves);
     const priceRow = card.querySelector(".watch-stock-price-row");
     if (priceRow && point.nextSibling !== priceRow) {
@@ -1677,12 +1728,20 @@ function updateRecommendationCardQuote(code, quote) {
   }
   const item = card.recommendationItem || {};
   if (quote.price !== null && quote.price !== undefined && quote.price !== "") {
+    item.one_month_return = rebasePeriodReturn(item.one_month_return, item.price, quote.price);
+    item.three_month_return = rebasePeriodReturn(item.three_month_return, item.price, quote.price);
     item.price = quote.price;
     const priceNode = card.querySelector('[data-field="recommend_price"]');
     if (priceNode) {
       animateQuoteNumber(priceNode, quote.price, (value) => formatNumber(Math.round(Number(value))));
     }
   }
+  const oneMonthNode = card.querySelector('[data-field="recommend_one_month"]');
+  const threeMonthNode = card.querySelector('[data-field="recommend_three_month"]');
+  flashTextUpdate(oneMonthNode, formatPercent(item.one_month_return), item.one_month_return);
+  flashTextUpdate(threeMonthNode, formatPercent(item.three_month_return), item.three_month_return);
+  setLiveCellTone(oneMonthNode, item.one_month_return);
+  setLiveCellTone(threeMonthNode, item.three_month_return);
   if (quote.change_rate !== null && quote.change_rate !== undefined && quote.change_rate !== "") {
     item.change_rate = quote.change_rate;
     const changeNode = card.querySelector('[data-field="recommend_change_rate"]');
@@ -1767,6 +1826,8 @@ function updateMarketLeaderboardQuote(code, quote) {
     return;
   }
   if (quote.price !== null && quote.price !== undefined && quote.price !== "") {
+    item.one_month_return = rebasePeriodReturn(item.one_month_return, item.price, quote.price);
+    item.three_month_return = rebasePeriodReturn(item.three_month_return, item.price, quote.price);
     item.price = quote.price;
   }
   if (quote.change_rate !== null && quote.change_rate !== undefined && quote.change_rate !== "") {
@@ -1867,16 +1928,26 @@ function liveUrl(url) {
   return `${url}${separator}_=${Date.now()}`;
 }
 
+function isUncachedKoreaMarketDataUrl(url) {
+  try {
+    const parsed = new URL(url, window.location.origin);
+    return /^\/stocks\/[^/]+\/(?:dashboard|quote)$/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 async function fetchJsonCached(url, options = {}) {
-  const ttlMs = options.ttlMs ?? UI_CACHE_TTL_MS;
-  const force = Boolean(options.force);
+  const bypassCache = isUncachedKoreaMarketDataUrl(url);
+  const ttlMs = bypassCache ? 0 : options.ttlMs ?? UI_CACHE_TTL_MS;
+  const force = bypassCache || Boolean(options.force);
   const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 0;
   const now = Date.now();
   const cached = state.responseCache.get(url);
-  if (!force && cached && now - cached.savedAt <= ttlMs) {
+  if (!bypassCache && !force && cached && now - cached.savedAt <= ttlMs) {
     return clonePayload(cached.payload);
   }
-  if (!force && state.pendingRequests.has(url)) {
+  if (!bypassCache && !force && state.pendingRequests.has(url)) {
     return clonePayload(await state.pendingRequests.get(url));
   }
   const controller = timeoutMs ? new AbortController() : null;
@@ -1892,7 +1963,9 @@ async function fetchJsonCached(url, options = {}) {
         throw new Error(`request failed: ${url}`);
       }
       const payload = await response.json();
-      state.responseCache.set(url, { savedAt: Date.now(), payload: clonePayload(payload) });
+      if (!bypassCache) {
+        state.responseCache.set(url, { savedAt: Date.now(), payload: clonePayload(payload) });
+      }
       return payload;
     })
     .finally(() => {
@@ -1900,11 +1973,15 @@ async function fetchJsonCached(url, options = {}) {
         window.clearTimeout(timeoutId);
       }
     });
-  state.pendingRequests.set(url, request);
+  if (!bypassCache) {
+    state.pendingRequests.set(url, request);
+  }
   try {
     return clonePayload(await request);
   } finally {
-    state.pendingRequests.delete(url);
+    if (!bypassCache) {
+      state.pendingRequests.delete(url);
+    }
   }
 }
 
@@ -2694,14 +2771,6 @@ function setFlowLoading(open) {
 }
 
 async function handleHomeInstall() {
-  if (state.deferredInstallPrompt) {
-    const promptEvent = state.deferredInstallPrompt;
-    state.deferredInstallPrompt = null;
-    promptEvent.prompt();
-    await promptEvent.userChoice.catch(() => null);
-    updateHomeInstallButton();
-    return;
-  }
   showInstallSheet();
 }
 
@@ -2817,14 +2886,14 @@ async function refreshPushNotificationState(options = {}) {
   }
   if (!webPushSupported()) {
     updatePushNotificationButton({ label: "알림 미지원", disabled: true });
-    setPushNotificationStatus("이 브라우저에서는 웹 알림을 사용할 수 없습니다.");
+    setPushNotificationStatus("이 브라우저에서는 알림을 지원하지 않습니다.");
     return;
   }
   try {
     const config = await loadPushConfig();
     if (!config.enabled || !config.public_key) {
       updatePushNotificationButton({ label: "알림 준비 중", disabled: true });
-      setPushNotificationStatus("알림 서버를 준비하고 있습니다.");
+      setPushNotificationStatus("알림 기능을 준비하고 있습니다.");
       return;
     }
     if (Notification.permission === "denied") {
@@ -2835,14 +2904,14 @@ async function refreshPushNotificationState(options = {}) {
     const subscription = await currentPushSubscription();
     if (subscription) {
       updatePushNotificationButton({ label: "알림 끄기", active: true });
-      setPushNotificationStatus("급등락 · 중요 공시/리포트 · 주요 이벤트", "success");
+      setPushNotificationStatus("급등락, 공시, 리포트만 바로 알려드려요.", "success");
       if (options.syncServer) {
         await savePushSubscription(state.watchlistId, subscription);
       }
       return;
     }
     updatePushNotificationButton({ label: "알림 받기" });
-    setPushNotificationStatus("관심종목의 중요한 변화만 알려드립니다.");
+    setPushNotificationStatus("관심종목의 급등락, 공시, 리포트를 알려드려요.");
   } catch {
     updatePushNotificationButton({ label: "알림 다시 시도" });
     setPushNotificationStatus("알림 상태를 확인하지 못했습니다.", "error");
@@ -2860,7 +2929,7 @@ async function togglePushNotifications() {
     if (existing) {
       await disablePushNotifications(state.watchlistId);
       updatePushNotificationButton({ label: "알림 받기" });
-      setPushNotificationStatus("이 기기의 알림을 껐습니다.");
+      setPushNotificationStatus("이 기기에서는 알림을 껐습니다.");
       return;
     }
     const config = await loadPushConfig();
@@ -2880,7 +2949,7 @@ async function togglePushNotifications() {
     const result = await savePushSubscription(state.watchlistId, subscription);
     updatePushNotificationButton({ label: "알림 끄기", active: true });
     setPushNotificationStatus(
-      result.test_sent ? "설정 완료 · 확인 알림을 보냈습니다." : "알림 설정이 완료되었습니다.",
+      result.test_sent ? "알림 설정 완료. 테스트 알림을 보냈어요." : "알림 설정 완료. 중요한 변화만 알려드릴게요.",
       "success"
     );
   } catch {
@@ -5186,6 +5255,8 @@ function applyStockTermTooltips() {
 
 function resetAIAnalysis() {
   elements.aiAnalysisPanel.hidden = true;
+  elements.aiAnalysisProviderBadge.hidden = true;
+  elements.stockSummaryAIBadge.hidden = true;
   elements.aiAnalysisMeta.textContent = "-";
   elements.aiAnalysisStance.textContent = "-";
   elements.aiAnalysisSummary.textContent = "";
@@ -5211,13 +5282,25 @@ function renderAIAnalysis(payload) {
   state.stockAIRequestedCode = payload.code;
   elements.aiAnalysisPanel.hidden = false;
   const coverage = aiDataCoverage(payload);
+  const isOllamaAnalysis = payload.generation_mode === "local_llm";
+  const generationLabel = isOllamaAnalysis ? "Ollama AI" : "데이터 분석";
+  const providerTitle = isOllamaAnalysis
+    ? `Ollama ${payload.model_name || "로컬 모델"}로 생성된 요약입니다.`
+    : "실시간 시세와 정형 데이터 계산 엔진으로 생성된 분석입니다.";
+  for (const badge of [elements.aiAnalysisProviderBadge, elements.stockSummaryAIBadge]) {
+    badge.hidden = false;
+    badge.textContent = generationLabel;
+    badge.title = providerTitle;
+    badge.classList.toggle("is-ollama", isOllamaAnalysis);
+  }
   elements.aiAnalysisMeta.textContent = `${payload.name} · 분석 데이터 ${coverage} · ${formatDate(payload.generated_at)}`;
+  elements.aiAnalysisMeta.title = payload.generation_note || "";
   elements.aiAnalysisStance.textContent = payload.stance || "-";
   elements.aiAnalysisSummary.textContent = payload.summary || "";
   setText(elements.stockSummaryStance, payload.stance || "-");
   setText(elements.stockSummaryLine, payload.summary || elements.stockSummaryLine?.textContent || "");
   setText(elements.stockSummaryConfidence, coverage);
-  setText(elements.stockAISayConfidence, `분석 데이터 ${coverage}`);
+  setText(elements.stockAISayConfidence, `${generationLabel} · 분석 데이터 ${coverage}`);
   setText(elements.stockAISayText, payload.summary || "AI 분석 요약을 생성하지 못했습니다.");
   const stance = payload.stance || "";
   setTone(elements.aiAnalysisStance, stance.includes("관망") ? -1 : stance.includes("중립") ? 0 : 1);
@@ -5267,6 +5350,8 @@ async function loadAIAnalysis(options = {}) {
   const originalMainText = elements.aiAnalysisButton?.textContent || "AI 분석하기";
   const originalInlineText = elements.stockInlineAIRefresh?.textContent || "AI 분석 갱신하기";
   state.stockAILoading = true;
+  elements.aiAnalysisProviderBadge.hidden = true;
+  elements.stockSummaryAIBadge.hidden = true;
   setAIAnalysisButtonsLoading(true);
   elements.aiAnalysisPanel.hidden = false;
   elements.aiAnalysisMeta.textContent = `${state.currentStock.name} · 분석 중`;
@@ -5998,8 +6083,8 @@ function createRecommendationCard(item) {
   const metricRows = [
     ["현재가", formatNumber(item.price), "recommend_price", item.price],
     ["등락률", formatPercent(item.change_rate), "recommend_change_rate", item.change_rate],
-    ["1개월", formatPercent(item.one_month_return), "", item.one_month_return],
-    ["3개월", formatPercent(item.three_month_return), "", item.three_month_return],
+    ["1개월", formatPercent(item.one_month_return), "recommend_one_month", item.one_month_return],
+    ["3개월", formatPercent(item.three_month_return), "recommend_three_month", item.three_month_return],
     ["거래대금", formatMoney(item.trading_value), "recommend_trading_value", item.trading_value],
   ];
   for (const [label, value, field, rawValue] of metricRows) {
@@ -6872,8 +6957,8 @@ function render(data, options = {}) {
     }
   }
 
-  renderStockLiveSummary(data);
-  updateQuoteStrip(data.quote);
+  renderStockLiveSummary(data, quoteSourceLabel(data));
+  updateQuoteStrip(data.quote, data);
   renderStockResearchSummary(data);
   renderStockDerivedIndicators(data);
   renderStockSummaryFallback(data);
@@ -7056,14 +7141,7 @@ window.addEventListener("touchmove", handlePullRefreshMove, { passive: false });
 window.addEventListener("touchend", handlePullRefreshEnd, { passive: true });
 window.addEventListener("touchcancel", () => resetPullRefreshIndicator({ immediate: true }), { passive: true });
 
-window.addEventListener("beforeinstallprompt", (event) => {
-  event.preventDefault();
-  state.deferredInstallPrompt = event;
-  updateHomeInstallButton();
-});
-
 window.addEventListener("appinstalled", () => {
-  state.deferredInstallPrompt = null;
   closeInstallSheet();
   updateHomeInstallButton();
 });

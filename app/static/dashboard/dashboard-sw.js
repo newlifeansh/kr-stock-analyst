@@ -1,9 +1,9 @@
-const DASHBOARD_SW_VERSION = "20260722kr24";
+const DASHBOARD_SW_VERSION = "20260723kr27";
 const STATIC_CACHE = `secret-note-static-${DASHBOARD_SW_VERSION}`;
 const STATIC_ASSETS = [
   "/dashboard?view=trend",
-  "/assets/dashboard/styles.css?v=20260722kr20",
-  "/assets/dashboard/app.js?v=20260722kr24",
+  "/assets/dashboard/styles.css?v=20260723kr27",
+  "/assets/dashboard/app.js?v=20260723kr27",
   "/assets/dashboard/icons/icon-192.png?v=20260620bq",
   "/assets/dashboard/icons/icon-512.png?v=20260620bq",
   "/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq"
@@ -57,11 +57,11 @@ self.addEventListener("push", (event) => {
   try {
     payload = event.data ? event.data.json() : {};
   } catch {
-    payload = { title: "비밀노트", body: event.data?.text() || "새 알림이 있습니다." };
+    payload = { title: "비밀노트", body: event.data?.text() || "중요한 알림이 도착했습니다." };
   }
   const title = payload.title || "비밀노트";
   const options = {
-    body: payload.body || "관심종목에 새로운 변화가 있습니다.",
+    body: payload.body || "관심종목의 중요한 변화가 있어요.",
     icon: "/assets/dashboard/icons/icon-192.png?v=20260620bq",
     badge: "/assets/dashboard/icons/icon-192.png?v=20260620bq",
     tag: payload.tag || "secret-note-push",
