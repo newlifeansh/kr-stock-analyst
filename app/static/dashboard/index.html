@@ -19,7 +19,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260723kr31" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260723kr32" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -87,6 +87,24 @@
           <ol class="install-steps" id="install-steps"></ol>
         </article>
       </section>
+      <section class="push-notification-sheet" id="push-notification-sheet" hidden>
+        <div class="push-notification-sheet-backdrop" id="push-notification-sheet-backdrop"></div>
+        <article class="push-notification-sheet-card" role="dialog" aria-modal="true" aria-labelledby="push-notification-sheet-title">
+          <div class="push-notification-sheet-head">
+            <div>
+              <h2 id="push-notification-sheet-title">알림 설정</h2>
+              <p>받고 싶은 알림만 골라서 받아보세요.</p>
+            </div>
+            <button id="push-notification-sheet-close" type="button" aria-label="닫기">×</button>
+          </div>
+          <p class="push-notification-sheet-status" id="push-notification-sheet-status">관심종목에 필요한 알림만 선택할 수 있습니다.</p>
+          <div class="push-notification-condition-list" id="push-notification-condition-list"></div>
+          <div class="push-notification-sheet-actions">
+            <button class="push-notification-sheet-disable" id="push-notification-sheet-disable-button" type="button" hidden>알림 오프</button>
+            <button class="push-notification-sheet-save" id="push-notification-sheet-save-button" type="button">알림 켜기</button>
+          </div>
+        </article>
+      </section>
       <aside class="side-nav" id="side-nav">
         <div class="side-brand">
           <strong>비밀노트</strong>
@@ -95,9 +113,9 @@
             id="push-notification-button"
             type="button"
             hidden
-            aria-label="알림 받기"
+            aria-label="알림 설정"
             aria-pressed="false"
-            title="알림 받기"
+            title="알림 설정"
           >
             <span class="side-brand-notification-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
@@ -105,9 +123,9 @@
                 <path d="M9.8 17a2.2 2.2 0 0 0 4.4 0"></path>
               </svg>
             </span>
-            <span class="side-brand-notification-text" id="push-notification-button-text" aria-hidden="true">알림 OFF</span>
+            <span class="side-brand-notification-text" id="push-notification-button-text" aria-hidden="true">알림 설정</span>
             <span class="side-brand-notification-dot" aria-hidden="true"></span>
-            <span class="sr-only" id="push-notification-button-label">알림 받기</span>
+            <span class="sr-only" id="push-notification-button-label">알림 설정</span>
           </button>
         </div>
         <p id="push-notification-status" class="sr-only" aria-live="polite"></p>
@@ -140,6 +158,7 @@
             <button id="logout-button" type="button">로그아웃</button>
           </div>
           <p id="watchlist-id-status">로컬 저장 중</p>
+          <button id="push-notification-disable-button" type="button" hidden>알림 오프</button>
         </section>
         <section class="side-footer-panel" aria-label="사이드 하단 정보">
           <a class="side-footer-link" href="https://open.kakao.com/o/gJeoIZAi" target="_blank" rel="noreferrer">개선 및 이용 문의</a>
@@ -609,6 +628,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260723kr31" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260723kr32" defer></script>
   </body>
 </html>

@@ -27,7 +27,15 @@ const elements = {
   pushNotificationButton: $("push-notification-button"),
   pushNotificationButtonText: $("push-notification-button-text"),
   pushNotificationButtonLabel: $("push-notification-button-label"),
+  pushNotificationDisableButton: $("push-notification-disable-button"),
   pushNotificationStatus: $("push-notification-status"),
+  pushNotificationSheet: $("push-notification-sheet"),
+  pushNotificationSheetBackdrop: $("push-notification-sheet-backdrop"),
+  pushNotificationSheetClose: $("push-notification-sheet-close"),
+  pushNotificationSheetStatus: $("push-notification-sheet-status"),
+  pushNotificationConditionList: $("push-notification-condition-list"),
+  pushNotificationSheetDisableButton: $("push-notification-sheet-disable-button"),
+  pushNotificationSheetSaveButton: $("push-notification-sheet-save-button"),
   recommendView: $("recommend-view"),
   recommendHistoryView: $("recommend-history-view"),
   trendView: $("trend-view"),
@@ -208,6 +216,23 @@ const UI_CACHE_TTL_MS = 60_000;
 const PAGE_ENTRY_MINUTE_MS = 60_000;
 const LOGIN_SPLASH_DURATION_MS = 5_000;
 const APP_SPLASH_DURATION_MS = 5_000;
+const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
+  {
+    id: "price_move",
+    label: "급등락",
+    description: "관심종목 변동이 기준 이상 커지면 알려드립니다.",
+  },
+  {
+    id: "disclosure_report",
+    label: "중요 공시·리포트",
+    description: "새 공시와 애널리스트 리포트 중 중요한 것만 알려드립니다.",
+  },
+  {
+    id: "major_event",
+    label: "주요 이벤트",
+    description: "관심종목에 영향이 큰 일정이 가까워지면 알려드립니다.",
+  },
+];
 const RECOMMENDATION_LIMIT = 10;
 const RECOMMENDATION_REGULAR_COOLDOWN_MS = 10 * 60_000;
 const RECOMMENDATION_OFFHOURS_COOLDOWN_MS = 30 * 60_000;
@@ -470,6 +495,8 @@ const state = {
   loginSplashSeen: false,
   pushConfig: null,
   pushNotificationBusy: false,
+  pushNotificationEnabled: false,
+  pushNotificationConditions: PUSH_NOTIFICATION_FALLBACK_OPTIONS.map((item) => item.id),
   mobileMenuScrollY: 0,
   pageLoadingSequence: 0,
   pageLoadingTokens: new Map(),
@@ -2768,6 +2795,140 @@ function closeInstallSheet() {
   }
 }
 
+function pushNotificationOptions() {
+  return state.pushConfig?.condition_options || PUSH_NOTIFICATION_FALLBACK_OPTIONS;
+}
+
+function normalizePushNotificationConditions(values) {
+  const allowed = new Set(pushNotificationOptions().map((item) => item.id));
+  const normalized = Array.isArray(values)
+    ? [...new Set(values.map((item) => String(item || "").trim()).filter((item) => allowed.has(item)))]
+    : [];
+  return normalized.length ? normalized : pushNotificationOptions().map((item) => item.id);
+}
+
+function selectedPushNotificationConditions() {
+  if (!elements.pushNotificationConditionList) {
+    return [];
+  }
+  return Array.from(elements.pushNotificationConditionList.querySelectorAll("input[data-push-condition]:checked")).map((input) => input.value);
+}
+
+function renderPushNotificationConditionOptions() {
+  const list = elements.pushNotificationConditionList;
+  if (!list) {
+    return;
+  }
+  const selected = new Set(state.pushNotificationConditions);
+  const disabled = state.pushNotificationBusy;
+  list.innerHTML = "";
+  for (const option of pushNotificationOptions()) {
+    const row = el("label", "push-notification-condition");
+    const copy = el("span", "push-notification-condition-copy");
+    copy.append(el("strong", "", option.label));
+    copy.append(el("span", "", option.description));
+    const control = el("span", "push-notification-condition-control");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = option.id;
+    input.dataset.pushCondition = option.id;
+    input.checked = selected.has(option.id);
+    input.disabled = disabled;
+    input.addEventListener("change", () => {
+      state.pushNotificationConditions = selectedPushNotificationConditions();
+      updatePushNotificationSheet();
+    });
+    const switchTrack = el("span", "push-notification-condition-switch");
+    control.append(input, switchTrack);
+    row.append(copy, control);
+    list.append(row);
+  }
+}
+
+function showPushNotificationSheet() {
+  renderPushNotificationConditionOptions();
+  updatePushNotificationSheet();
+  if (elements.pushNotificationSheet) {
+    elements.pushNotificationSheet.hidden = false;
+  }
+  document.body.classList.add("modal-open");
+}
+
+function closePushNotificationSheet() {
+  if (elements.pushNotificationSheet) {
+    elements.pushNotificationSheet.hidden = true;
+  }
+  document.body.classList.remove("modal-open");
+}
+
+function setPushNotificationSheetStatus(text = "", tone = "") {
+  if (!elements.pushNotificationSheetStatus) {
+    return;
+  }
+  elements.pushNotificationSheetStatus.textContent = text;
+  elements.pushNotificationSheetStatus.dataset.tone = tone;
+}
+
+function updatePushNotificationDisableButton(options = {}) {
+  if (!elements.pushNotificationDisableButton) {
+    return;
+  }
+  const hidden = options.hidden ?? !state.pushNotificationEnabled;
+  elements.pushNotificationDisableButton.hidden = hidden;
+  elements.pushNotificationDisableButton.disabled = options.disabled ?? false;
+}
+
+function updatePushNotificationSheet() {
+  renderPushNotificationConditionOptions();
+  const saveButton = elements.pushNotificationSheetSaveButton;
+  const disableButton = elements.pushNotificationSheetDisableButton;
+  const selected = state.pushNotificationConditions;
+  const configReady = Boolean(state.pushConfig?.enabled && state.pushConfig?.public_key);
+  const supported = webPushSupported();
+  const permissionDenied = supported && Notification.permission === "denied";
+  const busy = state.pushNotificationBusy;
+  if (saveButton) {
+    saveButton.textContent = busy ? "저장 중" : state.pushNotificationEnabled ? "설정 저장" : "알림 켜기";
+  }
+  if (disableButton) {
+    disableButton.hidden = !state.pushNotificationEnabled;
+    disableButton.disabled = busy;
+  }
+  if (!supported) {
+    saveButton && (saveButton.disabled = true);
+    setPushNotificationSheetStatus("이 브라우저에서는 웹 알림을 지원하지 않습니다.", "error");
+    return;
+  }
+  if (!configReady) {
+    saveButton && (saveButton.disabled = true);
+    setPushNotificationSheetStatus("알림 기능을 준비하고 있습니다. 잠시 후 다시 시도해주세요.");
+    return;
+  }
+  if (permissionDenied) {
+    saveButton && (saveButton.disabled = true);
+    setPushNotificationSheetStatus("브라우저 설정에서 알림 권한을 허용한 뒤 다시 열어주세요.", "error");
+    return;
+  }
+  if (!selected.length) {
+    saveButton && (saveButton.disabled = true);
+    setPushNotificationSheetStatus("최소 한 가지 알림은 선택해주세요.", "error");
+    return;
+  }
+  saveButton && (saveButton.disabled = busy);
+  setPushNotificationSheetStatus(
+    state.pushNotificationEnabled ? "받고 싶은 알림만 남기고 저장할 수 있어요." : "받고 싶은 알림을 고른 뒤 알림을 켜주세요.",
+    state.pushNotificationEnabled ? "success" : ""
+  );
+}
+
+async function openPushNotificationSheet() {
+  if (!state.watchlistId || state.pushNotificationBusy) {
+    return;
+  }
+  await refreshPushNotificationState();
+  showPushNotificationSheet();
+}
+
 function setFlowLoading(open) {
   if (!elements.flowLoadingModal) {
     return;
@@ -2893,10 +3054,11 @@ function updatePushNotificationButton(options = {}) {
   button.hidden = hidden;
   if (hidden) {
     setPushNotificationStatus();
+    updatePushNotificationDisableButton({ hidden: true });
     return;
   }
-  const label = options.label || "알림 받기";
-  const buttonText = options.buttonText || (options.active === true ? "알림 ON" : "알림 OFF");
+  const label = options.label || "알림 설정";
+  const buttonText = options.buttonText || "알림 설정";
   button.disabled = options.disabled ?? false;
   button.dataset.active = String(options.active === true);
   button.setAttribute("aria-pressed", String(options.active === true));
@@ -2932,6 +3094,7 @@ async function currentPushSubscription() {
 
 async function savePushSubscription(shareId, subscription) {
   const writeToken = await ensureWriteToken(shareId);
+  const conditions = normalizePushNotificationConditions(state.pushNotificationConditions);
   const response = await fetch(`/push/subscriptions/${encodeURIComponent(shareId)}`, {
     method: "POST",
     credentials: "same-origin",
@@ -2939,10 +3102,19 @@ async function savePushSubscription(shareId, subscription) {
       "Content-Type": "application/json",
       "X-Write-Token": writeToken,
     },
-    body: JSON.stringify(subscription.toJSON()),
+    body: JSON.stringify({ ...subscription.toJSON(), conditions }),
   });
   if (!response.ok) {
     throw new Error("push subscription save failed");
+  }
+  return response.json();
+}
+
+async function fetchPushSubscriptionStatus(shareId, endpoint) {
+  const url = `/push/subscriptions/${encodeURIComponent(shareId)}/status?endpoint=${encodeURIComponent(endpoint)}`;
+  const response = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("push subscription status failed");
   }
   return response.json();
 }
@@ -2977,69 +3149,92 @@ async function refreshPushNotificationState(options = {}) {
     return;
   }
   if (!webPushSupported()) {
+    state.pushNotificationEnabled = false;
     updatePushNotificationButton({ label: "알림 미지원", buttonText: "미지원", disabled: true });
+    updatePushNotificationDisableButton({ hidden: true });
     setPushNotificationStatus("이 브라우저에서는 알림을 지원하지 않습니다.");
     return;
   }
   try {
     const config = await loadPushConfig();
+    state.pushNotificationConditions = normalizePushNotificationConditions(state.pushNotificationConditions);
     if (!config.enabled || !config.public_key) {
-      updatePushNotificationButton({ label: "알림 준비 중", buttonText: "준비중", disabled: true });
+      state.pushNotificationEnabled = false;
+      updatePushNotificationButton({ label: "알림 준비 중", buttonText: "준비중", disabled: false });
+      updatePushNotificationDisableButton({ hidden: true });
       setPushNotificationStatus("알림 기능을 준비하고 있습니다.");
       return;
     }
     if (Notification.permission === "denied") {
-      updatePushNotificationButton({ label: "알림 차단됨", buttonText: "권한 차단", disabled: true });
+      state.pushNotificationEnabled = false;
+      updatePushNotificationButton({ label: "알림 차단됨", buttonText: "권한 차단", disabled: false });
+      updatePushNotificationDisableButton({ hidden: true });
       setPushNotificationStatus("브라우저 설정에서 알림 권한을 허용해주세요.", "error");
       return;
     }
     const subscription = await currentPushSubscription();
     if (subscription) {
-      updatePushNotificationButton({ label: "알림 끄기", buttonText: "알림 ON", active: true });
+      const status = await fetchPushSubscriptionStatus(state.watchlistId, subscription.endpoint).catch(() => null);
+      state.pushNotificationEnabled = Boolean(status?.enabled ?? true);
+      state.pushNotificationConditions = normalizePushNotificationConditions(status?.conditions || state.pushNotificationConditions);
+      updatePushNotificationButton({ label: "알림 설정", buttonText: "알림 설정", active: true });
+      updatePushNotificationDisableButton({ hidden: false });
       setPushNotificationStatus("급등락, 공시, 리포트만 바로 알려드려요.", "success");
       if (options.syncServer) {
         await savePushSubscription(state.watchlistId, subscription);
       }
       return;
     }
-    updatePushNotificationButton({ label: "알림 받기", buttonText: "알림 OFF" });
+    state.pushNotificationEnabled = false;
+    updatePushNotificationButton({ label: "알림 켜기", buttonText: "알림 켜기" });
+    updatePushNotificationDisableButton({ hidden: true });
     setPushNotificationStatus("관심종목의 급등락, 공시, 리포트를 알려드려요.");
   } catch {
+    state.pushNotificationEnabled = false;
     updatePushNotificationButton({ label: "알림 다시 시도", buttonText: "재시도" });
+    updatePushNotificationDisableButton({ hidden: true });
     setPushNotificationStatus("알림 상태를 확인하지 못했습니다.", "error");
   }
 }
 
-async function togglePushNotifications() {
+async function savePushNotificationSettings() {
   if (state.pushNotificationBusy || !state.watchlistId) {
     return;
   }
+  const conditions = selectedPushNotificationConditions();
+  if (!conditions.length) {
+    state.pushNotificationConditions = [];
+    updatePushNotificationSheet();
+    return;
+  }
+  state.pushNotificationConditions = conditions;
   state.pushNotificationBusy = true;
-  updatePushNotificationButton({ label: "알림 상태 확인 중", buttonText: "확인중", disabled: true });
+  updatePushNotificationSheet();
   try {
-    const existing = await currentPushSubscription();
-    if (existing) {
-      await disablePushNotifications(state.watchlistId);
-      updatePushNotificationButton({ label: "알림 받기", buttonText: "알림 OFF" });
-      setPushNotificationStatus("이 기기에서는 알림을 껐습니다.");
-      return;
-    }
     const config = await loadPushConfig();
     if (!config.enabled || !config.public_key) {
       throw new Error("push is not configured");
     }
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") {
-      await refreshPushNotificationState();
-      return;
+    let subscription = await currentPushSubscription();
+    if (!subscription) {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        await refreshPushNotificationState();
+        updatePushNotificationSheet();
+        return;
+      }
+      const registration = await navigator.serviceWorker.ready;
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: pushApplicationServerKey(config.public_key),
+      });
     }
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: pushApplicationServerKey(config.public_key),
-    });
     const result = await savePushSubscription(state.watchlistId, subscription);
-    updatePushNotificationButton({ label: "알림 끄기", buttonText: "알림 ON", active: true });
+    state.pushNotificationEnabled = true;
+    state.pushNotificationConditions = normalizePushNotificationConditions(result.conditions || conditions);
+    closePushNotificationSheet();
+    updatePushNotificationButton({ label: "알림 설정", buttonText: "알림 설정", active: true });
+    updatePushNotificationDisableButton({ hidden: false });
     setPushNotificationStatus(
       result.test_sent ? "알림 설정 완료. 테스트 알림을 보냈어요." : "알림 설정 완료. 중요한 변화만 알려드릴게요.",
       "success"
@@ -3047,8 +3242,32 @@ async function togglePushNotifications() {
   } catch {
     updatePushNotificationButton({ label: "알림 다시 시도", buttonText: "재시도" });
     setPushNotificationStatus("알림을 설정하지 못했습니다. 잠시 후 다시 시도해주세요.", "error");
+    setPushNotificationSheetStatus("알림을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.", "error");
   } finally {
     state.pushNotificationBusy = false;
+    updatePushNotificationSheet();
+  }
+}
+
+async function disablePushNotificationsFromUi() {
+  if (state.pushNotificationBusy || !state.watchlistId) {
+    return;
+  }
+  state.pushNotificationBusy = true;
+  updatePushNotificationSheet();
+  try {
+    await disablePushNotifications(state.watchlistId);
+    state.pushNotificationEnabled = false;
+    closePushNotificationSheet();
+    updatePushNotificationButton({ label: "알림 켜기", buttonText: "알림 켜기" });
+    updatePushNotificationDisableButton({ hidden: true });
+    setPushNotificationStatus("이 기기에서는 알림을 껐습니다.");
+  } catch {
+    setPushNotificationStatus("알림을 끄지 못했습니다. 잠시 후 다시 시도해주세요.", "error");
+    setPushNotificationSheetStatus("알림을 끄지 못했습니다. 잠시 후 다시 시도해주세요.", "error");
+  } finally {
+    state.pushNotificationBusy = false;
+    updatePushNotificationSheet();
   }
 }
 
@@ -7315,7 +7534,12 @@ elements.watchlistIdForm?.addEventListener("submit", (event) => {
   applyWatchlistId(elements.watchlistIdInput.value, { merge: true });
 });
 elements.logoutButton?.addEventListener("click", logoutWatchlistIdentity);
-elements.pushNotificationButton?.addEventListener("click", togglePushNotifications);
+elements.pushNotificationButton?.addEventListener("click", openPushNotificationSheet);
+elements.pushNotificationDisableButton?.addEventListener("click", disablePushNotificationsFromUi);
+elements.pushNotificationSheetBackdrop?.addEventListener("click", closePushNotificationSheet);
+elements.pushNotificationSheetClose?.addEventListener("click", closePushNotificationSheet);
+elements.pushNotificationSheetSaveButton?.addEventListener("click", savePushNotificationSettings);
+elements.pushNotificationSheetDisableButton?.addEventListener("click", disablePushNotificationsFromUi);
 elements.aiAnalysisButton.addEventListener("click", (event) => {
   event.preventDefault();
   launchPageLoading(PAGE_LOADING_LABELS.ai, () => loadAIAnalysis({ auto: false, force: true }));

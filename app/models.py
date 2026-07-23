@@ -53,6 +53,7 @@ class PushSubscription(Base):
     auth: Mapped[str] = mapped_column(String(255), nullable=False)
     content_encoding: Mapped[str] = mapped_column(String(40), default="aes128gcm", nullable=False)
     user_agent: Mapped[Optional[str]] = mapped_column(String(500))
+    notification_preferences: Mapped[Optional[str]] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

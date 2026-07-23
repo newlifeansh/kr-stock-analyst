@@ -438,10 +438,23 @@ a {
   display: block;
 }
 
+.push-notification-sheet {
+  position: fixed;
+  z-index: 95;
+  inset: 0;
+  display: block;
+}
+
 .install-sheet-backdrop {
   position: absolute;
   inset: 0;
   background: rgba(15, 23, 42, 0.42);
+}
+
+.push-notification-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.52);
 }
 
 .install-sheet-card {
@@ -458,11 +471,32 @@ a {
   box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
 }
 
+.push-notification-sheet-card {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 18px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.32);
+}
+
 .install-sheet-head {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) 34px;
   align-items: center;
   gap: 12px;
+}
+
+.push-notification-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .install-sheet-head img {
@@ -477,12 +511,26 @@ a {
   line-height: 1.25;
 }
 
+.push-notification-sheet-head h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
 .install-sheet-head p {
   margin: 4px 0 0;
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
   line-height: 1.4;
+}
+
+.push-notification-sheet-head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
 }
 
 .install-sheet-head button {
@@ -495,6 +543,19 @@ a {
   cursor: pointer;
   font-size: 22px;
   line-height: 1;
+}
+
+.push-notification-sheet-head button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  flex: 0 0 auto;
 }
 
 .install-steps {
@@ -547,14 +608,15 @@ a {
 
 .side-brand-notification {
   position: relative;
-  min-width: 104px;
+  width: auto !important;
+  min-width: 112px !important;
   height: 46px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   flex: 0 0 auto;
-  padding: 0 14px 0 12px;
+  padding: 0 14px 0 12px !important;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.08);
@@ -602,7 +664,7 @@ a {
   font-weight: 900;
   letter-spacing: 0.01em;
   line-height: 1;
-  white-space: nowrap;
+  white-space: nowrap !important;
 }
 
 .side-brand-notification-icon svg {
@@ -640,6 +702,145 @@ a {
   box-shadow: none;
   opacity: 1;
   transform: scale(1);
+}
+
+.push-notification-sheet-status {
+  margin: 0;
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #f4f6fb;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.push-notification-sheet-status[data-tone="success"] {
+  background: #ecfdf3;
+  color: #166534;
+}
+
+.push-notification-sheet-status[data-tone="error"] {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.push-notification-condition-list {
+  display: grid;
+  gap: 10px;
+}
+
+.push-notification-condition {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.push-notification-condition-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.push-notification-condition-copy strong {
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.push-notification-condition-copy span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.push-notification-condition-control {
+  position: relative;
+  width: 54px;
+  height: 32px;
+  flex: 0 0 auto;
+}
+
+.push-notification-condition-control input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.push-notification-condition-switch {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #d1d5db;
+  transition: background-color 140ms ease;
+}
+
+.push-notification-condition-switch::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
+  transition: transform 140ms ease;
+}
+
+.push-notification-condition-control input:checked + .push-notification-condition-switch {
+  background: #111111;
+}
+
+.push-notification-condition-control input:checked + .push-notification-condition-switch::after {
+  transform: translateX(22px);
+}
+
+.push-notification-condition-control input:disabled {
+  cursor: default;
+}
+
+.push-notification-condition-control input:disabled + .push-notification-condition-switch {
+  opacity: 0.5;
+}
+
+.push-notification-sheet-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.push-notification-sheet-actions button {
+  min-height: 44px;
+  border-radius: 14px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.push-notification-sheet-disable {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #111111;
+}
+
+.push-notification-sheet-save {
+  flex: 1 1 auto;
+  border: 1px solid #111111;
+  background: #111111;
+  color: #ffffff;
+}
+
+.push-notification-sheet-save:disabled,
+.push-notification-sheet-disable:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .side-menu {
@@ -6754,8 +6955,14 @@ a.flow-node.stock:hover {
   }
 
   .side-brand-notification {
-    min-width: 112px;
+    min-width: 116px !important;
     height: 48px;
+  }
+
+  .push-notification-sheet-card {
+    right: 16px;
+    bottom: 16px;
+    left: 16px;
   }
 
   .side-menu {

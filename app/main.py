@@ -176,6 +176,24 @@ WRITE_SESSION_COOKIE = "sn_write_session"
 WRITE_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 LOCAL_ONLY_HOSTS = {"127.0.0.1", "localhost", "::1", "testserver"}
 KST = ZoneInfo("Asia/Seoul")
+PUSH_CONDITION_OPTIONS = [
+    {
+        "id": "price_move",
+        "label": "급등락",
+        "description": f"관심종목 변동이 {settings.web_push_price_threshold:.0f}% 이상이면 알려드립니다.",
+    },
+    {
+        "id": "disclosure_report",
+        "label": "중요 공시·리포트",
+        "description": "새 공시와 애널리스트 리포트 중 중요한 것만 알려드립니다.",
+    },
+    {
+        "id": "major_event",
+        "label": "주요 이벤트",
+        "description": "관심종목에 영향이 큰 일정이 가까워지면 알려드립니다.",
+    },
+]
+DEFAULT_PUSH_CONDITIONS = tuple(item["id"] for item in PUSH_CONDITION_OPTIONS)
 
 
 async def _run_bootstrap_task() -> None:
@@ -256,6 +274,31 @@ def _host_only(value: object) -> str:
     if ":" in raw:
         raw = raw.split(":", 1)[0]
     return raw
+
+
+def _normalize_push_conditions(values: object) -> list[str]:
+    allowed = set(DEFAULT_PUSH_CONDITIONS)
+    if not isinstance(values, list):
+        return list(DEFAULT_PUSH_CONDITIONS)
+    normalized: list[str] = []
+    for item in values:
+        condition = str(item or "").strip()
+        if condition in allowed and condition not in normalized:
+            normalized.append(condition)
+    return normalized or list(DEFAULT_PUSH_CONDITIONS)
+
+
+def _subscription_conditions(subscription: Optional[PushSubscription]) -> list[str]:
+    if subscription is None:
+        return list(DEFAULT_PUSH_CONDITIONS)
+    raw = subscription.notification_preferences
+    if not raw:
+        return list(DEFAULT_PUSH_CONDITIONS)
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return list(DEFAULT_PUSH_CONDITIONS)
+    return _normalize_push_conditions(parsed)
 
 
 def _request_is_local_console(request: Request) -> bool:
@@ -610,7 +653,8 @@ def push_config():
     return {
         "enabled": web_push_runtime.configured,
         "public_key": settings.web_push_vapid_public_key if web_push_runtime.configured else None,
-        "conditions": ["price_move", "disclosure_report", "major_event"],
+        "conditions": list(DEFAULT_PUSH_CONDITIONS),
+        "condition_options": deepcopy(PUSH_CONDITION_OPTIONS),
         "price_threshold": settings.web_push_price_threshold,
     }
 
@@ -629,7 +673,10 @@ def push_subscription_status(
             PushSubscription.enabled.is_(True),
         )
     )
-    return {"enabled": subscription is not None}
+    return {
+        "enabled": subscription is not None,
+        "conditions": _subscription_conditions(subscription),
+    }
 
 
 @app.post("/push/subscriptions/{share_id}")
@@ -645,6 +692,7 @@ def save_push_subscription(
         raise HTTPException(status_code=503, detail="웹푸시 발송 키가 설정되지 않았습니다.")
     if not payload.endpoint.startswith("https://"):
         raise HTTPException(status_code=422, detail="유효한 HTTPS 푸시 주소가 필요합니다.")
+    conditions = _normalize_push_conditions(payload.conditions)
     subscription = db.scalar(
         select(PushSubscription).where(PushSubscription.endpoint == payload.endpoint)
     )
@@ -655,6 +703,7 @@ def save_push_subscription(
             endpoint=payload.endpoint,
             p256dh=payload.keys.p256dh,
             auth=payload.keys.auth,
+            notification_preferences=json.dumps(conditions, ensure_ascii=False),
             user_agent=str(request.headers.get("user-agent") or "")[:500] or None,
         )
         db.add(subscription)
@@ -664,12 +713,13 @@ def save_push_subscription(
         subscription.share_id = normalized_id
         subscription.p256dh = payload.keys.p256dh
         subscription.auth = payload.keys.auth
+        subscription.notification_preferences = json.dumps(conditions, ensure_ascii=False)
         subscription.user_agent = str(request.headers.get("user-agent") or "")[:500] or None
         subscription.enabled = True
     db.commit()
     db.refresh(subscription)
     test_sent = web_push_runtime.send_test(db, subscription) if should_test else False
-    return {"enabled": True, "test_sent": test_sent}
+    return {"enabled": True, "test_sent": test_sent, "conditions": conditions}
 
 
 @app.delete("/push/subscriptions/{share_id}")

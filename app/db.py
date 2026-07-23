@@ -59,6 +59,11 @@ def init_db() -> None:
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+    push_subscription_columns = {column["name"] for column in inspector.get_columns("push_subscription")}
+    if "notification_preferences" not in push_subscription_columns:
+        with engine.begin() as connection:
+            connection.execute(text('ALTER TABLE "push_subscription" ADD COLUMN "notification_preferences" TEXT'))
     if engine.dialect.name == "postgresql":
         inspector = inspect(engine)
         bigint_columns = {

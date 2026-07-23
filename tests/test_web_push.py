@@ -135,3 +135,73 @@ def test_delivery_is_sent_only_once(monkeypatch):
         assert delivery.attempts == 1
     finally:
         db.close()
+
+
+def test_delivery_respects_saved_notification_preferences(monkeypatch):
+    db = _session()
+    calls = []
+    try:
+        subscription = PushSubscription(
+            share_id="tester",
+            endpoint="https://push.example/subscription",
+            p256dh="p" * 64,
+            auth="a" * 24,
+            notification_preferences='["price_move"]',
+        )
+        db.add(subscription)
+        db.commit()
+        db.refresh(subscription)
+        monkeypatch.setattr(web_push, "webpush", lambda **kwargs: calls.append(kwargs))
+        runtime = web_push.WebPushRuntime(_settings())
+
+        report_candidate = web_push.NotificationCandidate(
+            event_key="report:naver:123",
+            kind="report",
+            title="삼성전자 새 애널리스트 리포트",
+            body="리포트 알림",
+            url="/dashboard/삼성전자",
+            tag="report-123",
+            occurred_at=datetime.utcnow(),
+        )
+        price_candidate = web_push.NotificationCandidate(
+            event_key="price:2026-07-23:005930:rise:5",
+            kind="price_move",
+            title="삼성전자 급등 +5.20%",
+            body="기준을 넘었습니다.",
+            url="/dashboard/삼성전자",
+            tag="price-005930-rise",
+            occurred_at=datetime.utcnow(),
+        )
+
+        assert runtime._send(db, subscription, report_candidate) is False
+        assert runtime._send(db, subscription, price_candidate) is True
+        assert len(calls) == 1
+    finally:
+        db.close()
+
+
+def test_test_notification_title_does_not_repeat_service_name(monkeypatch):
+    db = _session()
+    payloads = []
+    try:
+        subscription = PushSubscription(
+            share_id="tester",
+            endpoint="https://push.example/subscription",
+            p256dh="p" * 64,
+            auth="a" * 24,
+        )
+        db.add(subscription)
+        db.commit()
+        db.refresh(subscription)
+
+        def capture_webpush(**kwargs):
+            payloads.append(kwargs["data"])
+
+        monkeypatch.setattr(web_push, "webpush", capture_webpush)
+
+        assert web_push.WebPushRuntime(_settings()).send_test(db, subscription) is True
+        assert payloads
+        assert '"title": "알림 설정 완료"' in payloads[0]
+        assert "비밀노트" not in payloads[0]
+    finally:
+        db.close()

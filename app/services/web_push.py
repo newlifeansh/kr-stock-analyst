@@ -63,6 +63,13 @@ IMPORTANT_DISCLOSURE_KEYWORDS = (
     "배임",
     "시설투자",
 )
+DEFAULT_PUSH_CONDITIONS = ("price_move", "disclosure_report", "major_event")
+PUSH_KIND_TO_CONDITION = {
+    "price_move": "price_move",
+    "report": "disclosure_report",
+    "disclosure": "disclosure_report",
+    "major_event": "major_event",
+}
 
 
 @dataclass(frozen=True)
@@ -74,6 +81,30 @@ class NotificationCandidate:
     url: str
     tag: str
     occurred_at: Optional[datetime] = None
+
+
+def subscription_conditions(subscription: PushSubscription) -> set[str]:
+    raw = subscription.notification_preferences
+    if not raw:
+        return set(DEFAULT_PUSH_CONDITIONS)
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return set(DEFAULT_PUSH_CONDITIONS)
+    if not isinstance(parsed, list):
+        return set(DEFAULT_PUSH_CONDITIONS)
+    allowed = set(DEFAULT_PUSH_CONDITIONS)
+    normalized = {str(item) for item in parsed if str(item) in allowed}
+    return normalized or set(DEFAULT_PUSH_CONDITIONS)
+
+
+def candidate_enabled(subscription: PushSubscription, candidate: NotificationCandidate) -> bool:
+    if candidate.kind == "test":
+        return True
+    condition = PUSH_KIND_TO_CONDITION.get(candidate.kind)
+    if not condition:
+        return True
+    return condition in subscription_conditions(subscription)
 
 
 def _stock_url(name: str) -> str:
@@ -292,6 +323,8 @@ class WebPushRuntime:
         return output
 
     def _send(self, db: Session, subscription: PushSubscription, candidate: NotificationCandidate) -> bool:
+        if not candidate_enabled(subscription, candidate):
+            return False
         if candidate.kind in {"report", "disclosure"} and candidate.occurred_at:
             if candidate.occurred_at < subscription.created_at:
                 return False
@@ -411,7 +444,7 @@ class WebPushRuntime:
             NotificationCandidate(
                 event_key=f"test:{subscription.id}:{now.isoformat(timespec='seconds')}",
                 kind="test",
-                title="비밀노트 알림 설정 완료",
+                title="알림 설정 완료",
                 body="관심종목 급등락, 중요 공시·리포트, 주요 이벤트를 알려드립니다.",
                 url="/dashboard?view=watchlist",
                 tag="push-test",

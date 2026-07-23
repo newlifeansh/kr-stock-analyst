@@ -53,6 +53,7 @@ class PushSubscriptionKeysIn(BaseModel):
 class PushSubscriptionIn(BaseModel):
     endpoint: str = Field(..., min_length=20, max_length=2048)
     keys: PushSubscriptionKeysIn
+    conditions: list[str] = Field(default_factory=list, max_length=10)
 
 
 class PushSubscriptionDeleteIn(BaseModel):
