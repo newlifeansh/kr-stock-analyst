@@ -21,7 +21,7 @@ _DRAFT_CACHE: dict[str, tuple[float, LocalAnalysisDraft]] = {}
 
 
 class LocalAnalysisDraft(BaseModel):
-    summary: str = Field(min_length=12, max_length=200)
+    focus: str = Field(min_length=2, max_length=10)
 
 
 _CRITICAL_NUMBER_PATTERN = re.compile(
@@ -50,42 +50,27 @@ def _rounded(value: object, digits: int = 1) -> object:
 
 def _evidence_bundle(dashboard: dict[str, Any], rules: dict[str, object]) -> dict[str, object]:
     sentiment = dashboard.get("sentiment") if isinstance(dashboard.get("sentiment"), dict) else {}
-    news_items = sentiment.get("latest_items") if isinstance(sentiment, dict) else []
     quote = dashboard.get("quote") if isinstance(dashboard.get("quote"), dict) else {}
     momentum = dashboard.get("momentum") if isinstance(dashboard.get("momentum"), dict) else {}
     chart = dashboard.get("chart_analysis") if isinstance(dashboard.get("chart_analysis"), dict) else {}
-    revisions = dashboard.get("revisions") if isinstance(dashboard.get("revisions"), dict) else {}
     flows = dashboard.get("flows") if isinstance(dashboard.get("flows"), dict) else {}
     valuation = dashboard.get("valuation") if isinstance(dashboard.get("valuation"), dict) else {}
     return {
-        "종목": dashboard.get("name"),
-        "등락률": _rounded(quote.get("change_rate")),
-        "1개월": _rounded(momentum.get("one_month_return")),
-        "3개월": _rounded(momentum.get("three_month_return")),
-        "차트": chart.get("stance"),
-        "차트점수": _rounded(chart.get("score"), 0),
-        "외국인수급": _rounded(flows.get("foreign_intensity")),
-        "기관수급": _rounded(flows.get("institution_intensity")),
+        "일": _rounded(quote.get("change_rate")),
+        "1M": _rounded(momentum.get("one_month_return")),
+        "3M": _rounded(momentum.get("three_month_return")),
+        "차트": _rounded(chart.get("score"), 0),
+        "외": _rounded(flows.get("foreign_intensity")),
+        "기관": _rounded(flows.get("institution_intensity")),
         "PER": _rounded(valuation.get("per"), 2),
         "PBR": _rounded(valuation.get("pbr"), 2),
-        "리포트수": revisions.get("report_count_90d"),
-        "투자의견": revisions.get("latest_opinion"),
-        "뉴스점수": _rounded(sentiment.get("score")),
-        "주요뉴스": [
-            str(item.get("title") or "")[:80]
-            for item in (news_items or [])[:1]
-            if isinstance(item, dict)
-        ],
-        "계산판단": rules.get("stance"),
-        "계산요약": rules.get("summary"),
+        "뉴스": _rounded(sentiment.get("score")),
+        "판단": rules.get("stance"),
     }
 
 
 def _prompt_messages(bundle: dict[str, object]) -> list[dict[str, str]]:
-    system_prompt = """한국 주식 초보자를 위한 요약 편집자입니다.
-제공된 수치와 계산판단만 사용하고 사실이나 수치를 만들지 마세요.
-판단을 바꾸거나 매수·매도를 단정하지 마세요.
-가장 중요한 이유를 쉬운 한국어 60자 이내 한 문장으로만 쓰세요."""
+    system_prompt = "입력에서 가장 먼저 볼 근거를 단기, 수급, 밸류, 뉴스 중 하나로만 출력하세요."
     user_prompt = json.dumps(
         bundle,
         ensure_ascii=False,
@@ -100,19 +85,18 @@ def _prompt_messages(bundle: dict[str, object]) -> list[dict[str, str]]:
 
 def _validate_numbers(draft: LocalAnalysisDraft, bundle: dict[str, object]) -> None:
     source_text = json.dumps(bundle, ensure_ascii=False, default=str)
-    generated_text = draft.summary
+    generated_text = draft.focus
     unexpected = _number_facts(generated_text) - _number_facts(source_text)
     if unexpected:
         raise ValueError(f"Local model introduced unsupported numeric facts: {sorted(unexpected)}")
 
 
-def _first_complete_sentence(content: object) -> str:
+def _focus_from_content(content: object) -> str:
     text = re.sub(r"\s+", " ", str(content or "")).strip().strip('"')
-    if not text:
-        raise ValueError("Local model returned an empty summary")
-    match = re.search(r"^.{10,180}?(?:다\.|요\.)", text)
-    summary = match.group(0) if match else text[:200].rstrip()
-    return LocalAnalysisDraft(summary=summary).summary
+    for focus in ("단기", "수급", "밸류", "뉴스"):
+        if focus in text:
+            return LocalAnalysisDraft(focus=focus).focus
+    raise ValueError("Local model did not select a supported focus")
 
 
 def _fallback(rules: dict[str, object], note: str) -> dict[str, object]:
@@ -151,10 +135,13 @@ def _apply_draft(
     model_name: str,
 ) -> dict[str, object]:
     output = dict(rules)
-    output["summary"] = draft.summary
+    key_points = rules.get("key_points") if isinstance(rules.get("key_points"), list) else []
+    point_index = {"단기": 0, "수급": 3, "밸류": 4, "뉴스": 5}.get(draft.focus, 0)
+    point = str(key_points[point_index]) if len(key_points) > point_index else str(rules.get("summary") or "")
+    output["summary"] = f"{draft.focus} 우선 · {point}"
     output["generation_mode"] = "local_llm"
     output["model_name"] = model_name
-    output["generation_note"] = "로컬 AI 핵심 요약 · 가격 전략은 데이터 엔진"
+    output["generation_note"] = "Ollama AI 핵심 근거 선택 · 가격 전략은 데이터 엔진"
     return output
 
 
@@ -187,7 +174,7 @@ def enrich_stock_ai_analysis(
                     "messages": _prompt_messages(bundle),
                     "stream": False,
                     "think": False,
-                    "options": {"temperature": 0, "num_ctx": 512, "num_predict": 24},
+                    "options": {"temperature": 0, "num_ctx": 256, "num_predict": 6},
                     "keep_alive": "15m",
                 },
                 timeout=max(10, config.ollama_timeout_seconds),
@@ -195,7 +182,7 @@ def enrich_stock_ai_analysis(
             response.raise_for_status()
             body = response.json()
             content = body.get("message", {}).get("content")
-            draft = LocalAnalysisDraft(summary=_first_complete_sentence(content))
+            draft = LocalAnalysisDraft(focus=_focus_from_content(content))
             _validate_numbers(draft, bundle)
         except (requests.RequestException, ValidationError, ValueError, TypeError, json.JSONDecodeError) as exc:
             logger.warning("Local stock AI unavailable; using rule analysis: %s", exc)

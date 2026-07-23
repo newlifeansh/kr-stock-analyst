@@ -80,9 +80,9 @@ def test_rules_provider_does_not_call_local_model():
     assert calls == []
 
 
-def test_ollama_rewrites_prose_without_changing_calculated_decision():
+def test_ollama_prioritizes_grounded_evidence_without_changing_calculated_decision():
     clear_local_ai_cache()
-    draft = "삼성SDI는 단기 흐름이 약해 관망 우선 판단입니다. 1개월 -5.45% 흐름을 먼저 확인해야 합니다."
+    draft = "단기"
     captured = {}
 
     def post(url, **kwargs):
@@ -95,7 +95,7 @@ def test_ollama_rewrites_prose_without_changing_calculated_decision():
 
     assert result["generation_mode"] == "local_llm"
     assert result["model_name"] == "qwen3:0.6b"
-    assert result["summary"] == "삼성SDI는 단기 흐름이 약해 관망 우선 판단입니다."
+    assert result["summary"] == f"단기 우선 · {rules['key_points'][0]}"
     assert result["key_points"] == rules["key_points"]
     assert result["strategy"] == rules["strategy"]
     assert result["risks"] == rules["risks"]
@@ -104,17 +104,17 @@ def test_ollama_rewrites_prose_without_changing_calculated_decision():
     assert captured["url"] == "http://127.0.0.1:11434/api/chat"
     assert "format" not in captured["json"]
     assert captured["json"]["think"] is False
-    assert captured["json"]["options"]["num_ctx"] == 512
-    assert captured["json"]["options"]["num_predict"] == 24
+    assert captured["json"]["options"]["num_ctx"] == 256
+    assert captured["json"]["options"]["num_predict"] == 6
     compact_evidence = captured["json"]["messages"][1]["content"]
-    assert '"종목":"삼성SDI"' in compact_evidence
+    assert '"판단":"관망 우선"' in compact_evidence
     assert "533000" not in compact_evidence
     assert "key_points" not in compact_evidence
 
 
-def test_ollama_output_with_unsupported_number_falls_back_to_rules():
+def test_ollama_output_without_supported_focus_falls_back_to_rules():
     clear_local_ai_cache()
-    draft = "삼성SDI가 99.99% 상승할 수 있다는 근거 없는 문장입니다."
+    draft = "강력 매수"
 
     result = enrich_stock_ai_analysis(
         _dashboard(),
