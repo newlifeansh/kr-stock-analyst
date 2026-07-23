@@ -5354,7 +5354,7 @@ function resetAIAnalysis() {
   elements.aiAnalysisPanel.hidden = true;
   elements.aiAnalysisProviderBadge.hidden = true;
   elements.stockSummaryAIBadge.hidden = true;
-  elements.aiAnalysisMeta.textContent = "-";
+  elements.aiAnalysisMeta.textContent = "";
   elements.aiAnalysisStance.textContent = "-";
   elements.aiAnalysisSummary.textContent = "";
   setText(elements.aiDecisionStance, "-");
@@ -5391,7 +5391,7 @@ function renderAIAnalysis(payload) {
     badge.classList.toggle("is-ollama", isOllamaAnalysis);
     badge.classList.remove("is-loading");
   }
-  elements.aiAnalysisMeta.textContent = `${payload.name} · 분석 데이터 ${coverage} · ${formatDate(payload.generated_at)}`;
+  elements.aiAnalysisMeta.textContent = "";
   elements.aiAnalysisMeta.title = payload.generation_note || "";
   elements.aiAnalysisStance.textContent = payload.stance || "-";
   elements.aiAnalysisSummary.textContent = payload.summary || "";
@@ -5459,7 +5459,7 @@ async function loadAIAnalysis(options = {}) {
   }
   setAIAnalysisButtonsLoading(true);
   elements.aiAnalysisPanel.hidden = false;
-  elements.aiAnalysisMeta.textContent = `${state.currentStock.name} · 분석 중`;
+  elements.aiAnalysisMeta.textContent = "";
   elements.aiAnalysisStance.textContent = "-";
   elements.aiAnalysisSummary.textContent = "차트, 수급, 밸류에이션, 뉴스, 거시 민감도를 현재 기준으로 다시 정리하는 중입니다.";
   setText(elements.stockAISayText, "현재 시세와 최신 지표를 기준으로 다시 분석하는 중입니다.");
