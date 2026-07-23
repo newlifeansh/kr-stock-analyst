@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import BigInteger, String, create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import get_settings
@@ -60,6 +60,7 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     if engine.dialect.name == "postgresql":
+        inspector = inspect(engine)
         bigint_columns = {
             "daily_price": ("volume", "trading_value", "market_cap", "listed_shares"),
             "investor_flow": ("buy_volume", "sell_volume", "net_buy_volume", "buy_value", "sell_value", "net_buy_value"),
@@ -68,16 +69,29 @@ def init_db() -> None:
         }
         with engine.begin() as connection:
             for table_name, column_names in bigint_columns.items():
+                columns = {column["name"]: column for column in inspector.get_columns(table_name)}
                 for column_name in column_names:
+                    column_type = columns.get(column_name, {}).get("type")
+                    if isinstance(column_type, BigInteger):
+                        continue
                     connection.execute(
                         text(f'ALTER TABLE "{table_name}" ALTER COLUMN "{column_name}" TYPE BIGINT')
                     )
-            connection.execute(
-                text(
-                    'ALTER TABLE "financial_statement_line" '
-                    'ALTER COLUMN "account_id" TYPE VARCHAR(255)'
+            statement_columns = {
+                column["name"]: column for column in inspector.get_columns("financial_statement_line")
+            }
+            account_id_type = statement_columns.get("account_id", {}).get("type")
+            if not (
+                isinstance(account_id_type, String)
+                and account_id_type.length is not None
+                and account_id_type.length >= 255
+            ):
+                connection.execute(
+                    text(
+                        'ALTER TABLE "financial_statement_line" '
+                        'ALTER COLUMN "account_id" TYPE VARCHAR(255)'
+                    )
                 )
-            )
 
 
 def recover_interrupted_ingestions() -> None:
