@@ -547,14 +547,16 @@ a {
 
 .side-brand-notification {
   position: relative;
-  width: 38px;
-  height: 38px;
+  min-width: 104px;
+  height: 46px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   flex: 0 0 auto;
+  padding: 0 14px 0 12px;
   border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 999px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.72);
   cursor: pointer;
@@ -595,6 +597,14 @@ a {
   justify-content: center;
 }
 
+.side-brand-notification-text {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .side-brand-notification-icon svg {
   width: 18px;
   height: 18px;
@@ -608,8 +618,8 @@ a {
 
 .side-brand-notification-dot {
   position: absolute;
-  top: 7px;
-  right: 8px;
+  top: 8px;
+  right: 10px;
   width: 7px;
   height: 7px;
   border-radius: 999px;
@@ -621,6 +631,13 @@ a {
 }
 
 .side-brand-notification[data-active="true"] .side-brand-notification-dot {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.side-brand-notification:not([data-active="true"]) .side-brand-notification-dot {
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: none;
   opacity: 1;
   transform: scale(1);
 }
@@ -6737,8 +6754,8 @@ a.flow-node.stock:hover {
   }
 
   .side-brand-notification {
-    width: 40px;
-    height: 40px;
+    min-width: 112px;
+    height: 48px;
   }
 
   .side-menu {
@@ -10254,6 +10271,17 @@ body .watch-table td::before {
 
 .ollama-ai-badge.is-ollama::before {
   background: #16a34a;
+}
+
+.ollama-ai-badge.is-loading::before {
+  animation: ollama-badge-pulse 1s ease-in-out infinite;
+}
+
+@keyframes ollama-badge-pulse {
+  50% {
+    opacity: 0.35;
+    transform: scale(0.72);
+  }
 }
 
 .ollama-ai-badge[hidden] {

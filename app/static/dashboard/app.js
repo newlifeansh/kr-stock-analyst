@@ -25,6 +25,7 @@ const elements = {
   watchlistIdStatus: $("watchlist-id-status"),
   logoutButton: $("logout-button"),
   pushNotificationButton: $("push-notification-button"),
+  pushNotificationButtonText: $("push-notification-button-text"),
   pushNotificationButtonLabel: $("push-notification-button-label"),
   pushNotificationStatus: $("push-notification-status"),
   recommendView: $("recommend-view"),
@@ -2091,7 +2092,7 @@ async function refreshCurrentView() {
       const shouldRefreshAI = state.stockAIAnalysis !== null || elements.aiAnalysisPanel?.hidden === false;
       await load(query);
       if (shouldRefreshAI && state.currentStock?.code) {
-        await loadAIAnalysis({ auto: false });
+        await loadAIAnalysis({ auto: false, force: true });
       }
       return;
     }
@@ -2895,11 +2896,15 @@ function updatePushNotificationButton(options = {}) {
     return;
   }
   const label = options.label || "알림 받기";
+  const buttonText = options.buttonText || (options.active === true ? "알림 ON" : "알림 OFF");
   button.disabled = options.disabled ?? false;
   button.dataset.active = String(options.active === true);
   button.setAttribute("aria-pressed", String(options.active === true));
   button.setAttribute("aria-label", label);
   button.title = options.title || label;
+  if (elements.pushNotificationButtonText) {
+    elements.pushNotificationButtonText.textContent = buttonText;
+  }
   if (elements.pushNotificationButtonLabel) {
     elements.pushNotificationButtonLabel.textContent = label;
   }
@@ -2972,35 +2977,35 @@ async function refreshPushNotificationState(options = {}) {
     return;
   }
   if (!webPushSupported()) {
-    updatePushNotificationButton({ label: "알림 미지원", disabled: true });
+    updatePushNotificationButton({ label: "알림 미지원", buttonText: "미지원", disabled: true });
     setPushNotificationStatus("이 브라우저에서는 알림을 지원하지 않습니다.");
     return;
   }
   try {
     const config = await loadPushConfig();
     if (!config.enabled || !config.public_key) {
-      updatePushNotificationButton({ label: "알림 준비 중", disabled: true });
+      updatePushNotificationButton({ label: "알림 준비 중", buttonText: "준비중", disabled: true });
       setPushNotificationStatus("알림 기능을 준비하고 있습니다.");
       return;
     }
     if (Notification.permission === "denied") {
-      updatePushNotificationButton({ label: "알림 차단됨", disabled: true });
+      updatePushNotificationButton({ label: "알림 차단됨", buttonText: "권한 차단", disabled: true });
       setPushNotificationStatus("브라우저 설정에서 알림 권한을 허용해주세요.", "error");
       return;
     }
     const subscription = await currentPushSubscription();
     if (subscription) {
-      updatePushNotificationButton({ label: "알림 끄기", active: true });
+      updatePushNotificationButton({ label: "알림 끄기", buttonText: "알림 ON", active: true });
       setPushNotificationStatus("급등락, 공시, 리포트만 바로 알려드려요.", "success");
       if (options.syncServer) {
         await savePushSubscription(state.watchlistId, subscription);
       }
       return;
     }
-    updatePushNotificationButton({ label: "알림 받기" });
+    updatePushNotificationButton({ label: "알림 받기", buttonText: "알림 OFF" });
     setPushNotificationStatus("관심종목의 급등락, 공시, 리포트를 알려드려요.");
   } catch {
-    updatePushNotificationButton({ label: "알림 다시 시도" });
+    updatePushNotificationButton({ label: "알림 다시 시도", buttonText: "재시도" });
     setPushNotificationStatus("알림 상태를 확인하지 못했습니다.", "error");
   }
 }
@@ -3010,12 +3015,12 @@ async function togglePushNotifications() {
     return;
   }
   state.pushNotificationBusy = true;
-  updatePushNotificationButton({ label: "확인 중", disabled: true });
+  updatePushNotificationButton({ label: "알림 상태 확인 중", buttonText: "확인중", disabled: true });
   try {
     const existing = await currentPushSubscription();
     if (existing) {
       await disablePushNotifications(state.watchlistId);
-      updatePushNotificationButton({ label: "알림 받기" });
+      updatePushNotificationButton({ label: "알림 받기", buttonText: "알림 OFF" });
       setPushNotificationStatus("이 기기에서는 알림을 껐습니다.");
       return;
     }
@@ -3034,13 +3039,13 @@ async function togglePushNotifications() {
       applicationServerKey: pushApplicationServerKey(config.public_key),
     });
     const result = await savePushSubscription(state.watchlistId, subscription);
-    updatePushNotificationButton({ label: "알림 끄기", active: true });
+    updatePushNotificationButton({ label: "알림 끄기", buttonText: "알림 ON", active: true });
     setPushNotificationStatus(
       result.test_sent ? "알림 설정 완료. 테스트 알림을 보냈어요." : "알림 설정 완료. 중요한 변화만 알려드릴게요.",
       "success"
     );
   } catch {
-    updatePushNotificationButton({ label: "알림 다시 시도" });
+    updatePushNotificationButton({ label: "알림 다시 시도", buttonText: "재시도" });
     setPushNotificationStatus("알림을 설정하지 못했습니다. 잠시 후 다시 시도해주세요.", "error");
   } finally {
     state.pushNotificationBusy = false;
@@ -5384,6 +5389,7 @@ function renderAIAnalysis(payload) {
     badge.textContent = generationLabel;
     badge.title = providerTitle;
     badge.classList.toggle("is-ollama", isOllamaAnalysis);
+    badge.classList.remove("is-loading");
   }
   elements.aiAnalysisMeta.textContent = `${payload.name} · 분석 데이터 ${coverage} · ${formatDate(payload.generated_at)}`;
   elements.aiAnalysisMeta.title = payload.generation_note || "";
@@ -5438,12 +5444,19 @@ async function loadAIAnalysis(options = {}) {
     return;
   }
   const code = state.currentStock.code;
-  const forceRefresh = true;
+  const forceRefresh = options.force === true;
+  const hasExistingAnalysis = state.stockAIAnalysis && state.stockAIRequestedCode === code;
   const originalMainText = elements.aiAnalysisButton?.textContent || "AI 분석하기";
   const originalInlineText = elements.stockInlineAIRefresh?.textContent || "AI 분석 갱신하기";
   state.stockAILoading = true;
-  elements.aiAnalysisProviderBadge.hidden = true;
-  elements.stockSummaryAIBadge.hidden = true;
+  if (!hasExistingAnalysis) {
+    for (const badge of [elements.aiAnalysisProviderBadge, elements.stockSummaryAIBadge]) {
+      badge.hidden = false;
+      badge.textContent = "Ollama AI 분석 중";
+      badge.title = "Railway의 Ollama 모델로 핵심 근거를 분석하고 있습니다.";
+      badge.classList.add("is-ollama", "is-loading");
+    }
+  }
   setAIAnalysisButtonsLoading(true);
   elements.aiAnalysisPanel.hidden = false;
   elements.aiAnalysisMeta.textContent = `${state.currentStock.name} · 분석 중`;
@@ -5463,6 +5476,12 @@ async function loadAIAnalysis(options = {}) {
     renderAIAnalysis(await fetchJsonCached(url, { force: forceRefresh, ttlMs: forceRefresh ? 0 : UI_CACHE_TTL_MS }));
   } catch {
     elements.aiAnalysisSummary.textContent = "AI 분석을 생성하지 못했습니다.";
+    if (!hasExistingAnalysis) {
+      for (const badge of [elements.aiAnalysisProviderBadge, elements.stockSummaryAIBadge]) {
+        badge.hidden = true;
+        badge.classList.remove("is-loading");
+      }
+    }
   } finally {
     state.stockAILoading = false;
     setAIAnalysisButtonsLoading(false, { main: originalMainText, inline: originalInlineText });
@@ -7299,11 +7318,11 @@ elements.logoutButton?.addEventListener("click", logoutWatchlistIdentity);
 elements.pushNotificationButton?.addEventListener("click", togglePushNotifications);
 elements.aiAnalysisButton.addEventListener("click", (event) => {
   event.preventDefault();
-  launchPageLoading(PAGE_LOADING_LABELS.ai, () => loadAIAnalysis({ auto: false }));
+  launchPageLoading(PAGE_LOADING_LABELS.ai, () => loadAIAnalysis({ auto: false, force: true }));
 });
 elements.stockInlineAIRefresh?.addEventListener("click", (event) => {
   event.preventDefault();
-  launchPageLoading(PAGE_LOADING_LABELS.ai, () => loadAIAnalysis({ auto: false }));
+  launchPageLoading(PAGE_LOADING_LABELS.ai, () => loadAIAnalysis({ auto: false, force: true }));
 });
 for (const tab of elements.stockSectionTabs) {
   tab.addEventListener("click", (event) => {
