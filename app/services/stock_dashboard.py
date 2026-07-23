@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import DailyPrice, DisclosureItem, InvestorFlow, NewsItem, ResearchReport, StockMaster
+from app.services.company_profiles import company_profile_payload
 from app.services.ttl_cache import TTLCache
 
 POSITIVE_WORDS = (
@@ -1088,6 +1089,7 @@ def build_stock_dashboard(db: Session, code: str, refresh_live: bool = False) ->
         "name": stock.name,
         "market": stock.market,
         "as_of": _now_kst(),
+        "company_profile": company_profile_payload(db, stock),
         "quote": _quote(price_rows, naver, prefer_live=refresh_live),
         "revisions": revisions,
         "surprise": surprise,

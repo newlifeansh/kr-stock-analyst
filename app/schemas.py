@@ -457,12 +457,34 @@ class DashboardCoverageOut(BaseModel):
     macro_sensitivity: bool
 
 
+class DashboardCompanyProfileOut(BaseModel):
+    corp_name: Optional[str] = None
+    corp_name_eng: Optional[str] = None
+    summary: str
+    summary_source: str
+    industry: Optional[str] = None
+    sector: Optional[str] = None
+    ceo_name: Optional[str] = None
+    address: Optional[str] = None
+    homepage_url: Optional[str] = None
+    ir_url: Optional[str] = None
+    established_date: Optional[date] = None
+    fiscal_month: Optional[str] = None
+    business_report_title: Optional[str] = None
+    business_report_url: Optional[str] = None
+    business_report_published_at: Optional[datetime] = None
+    source_label: str
+    source_url: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
 class StockDashboardOut(BaseModel):
     code: str
     name: str
     market: str
     as_of: datetime
     source: Optional[str] = None
+    company_profile: DashboardCompanyProfileOut
     quote: DashboardQuoteOut
     revisions: DashboardRevisionOut
     surprise: DashboardSurpriseOut

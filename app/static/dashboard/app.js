@@ -136,6 +136,21 @@ const elements = {
   stockVolume: $("stock-volume"),
   stockPrevCloseSummary: $("stock-prev-close-summary"),
   stockPrevClose: $("stock-prev-close"),
+  stockCompanyProfile: $("stock-company-profile"),
+  stockCompanySummary: $("stock-company-summary"),
+  stockCompanyIndustry: $("stock-company-industry"),
+  stockCompanyCeo: $("stock-company-ceo"),
+  stockCompanyCeoRow: $("stock-company-ceo-row"),
+  stockCompanyEstablished: $("stock-company-established"),
+  stockCompanyEstablishedRow: $("stock-company-established-row"),
+  stockCompanyFiscal: $("stock-company-fiscal"),
+  stockCompanyFiscalRow: $("stock-company-fiscal-row"),
+  stockCompanyAddress: $("stock-company-address"),
+  stockCompanyAddressRow: $("stock-company-address-row"),
+  stockCompanyHomepage: $("stock-company-homepage"),
+  stockCompanyIr: $("stock-company-ir"),
+  stockCompanySourceLabel: $("stock-company-source-label"),
+  stockCompanySourceLink: $("stock-company-source-link"),
   stockOpen: $("stock-open"),
   stockHigh: $("stock-high"),
   stockLow: $("stock-low"),
@@ -1362,6 +1377,61 @@ function renderStockResearchSummary(data) {
       }
     }
   }
+}
+
+function setCompanyProfileRow(row, valueNode, value) {
+  if (!row || !valueNode) {
+    return;
+  }
+  const text = String(value || "").trim();
+  row.hidden = !text;
+  valueNode.textContent = text || "-";
+}
+
+function setCompanyProfileLink(link, href) {
+  if (!link) {
+    return;
+  }
+  const url = String(href || "").trim();
+  link.hidden = !url;
+  if (url) {
+    link.href = url;
+  } else {
+    link.removeAttribute("href");
+  }
+}
+
+function renderStockCompanyProfile(data) {
+  const profile = data?.company_profile || {};
+  setText(elements.stockCompanySummary, profile.summary || "기업 설명을 확인할 수 없습니다.");
+  const industry = [profile.industry, profile.sector]
+    .map((item) => String(item || "").trim())
+    .filter((item, index, items) => item && items.indexOf(item) === index)
+    .join(" · ");
+  if (elements.stockCompanyIndustry) {
+    elements.stockCompanyIndustry.textContent = industry ? `업종 ${industry}` : "";
+    elements.stockCompanyIndustry.hidden = !industry;
+  }
+  setCompanyProfileRow(elements.stockCompanyCeoRow, elements.stockCompanyCeo, profile.ceo_name);
+  setCompanyProfileRow(
+    elements.stockCompanyEstablishedRow,
+    elements.stockCompanyEstablished,
+    profile.established_date ? formatDateLabel(profile.established_date) : ""
+  );
+  setCompanyProfileRow(
+    elements.stockCompanyFiscalRow,
+    elements.stockCompanyFiscal,
+    profile.fiscal_month ? `${Number(profile.fiscal_month)}월` : ""
+  );
+  setCompanyProfileRow(elements.stockCompanyAddressRow, elements.stockCompanyAddress, profile.address);
+  setCompanyProfileLink(elements.stockCompanyHomepage, profile.homepage_url);
+  setCompanyProfileLink(elements.stockCompanyIr, profile.ir_url);
+  const sourceDate = profile.business_report_published_at ? formatDateLabel(profile.business_report_published_at) : "";
+  setText(
+    elements.stockCompanySourceLabel,
+    [profile.source_label || "기업 정보", sourceDate].filter(Boolean).join(" · ")
+  );
+  setCompanyProfileLink(elements.stockCompanySourceLink, profile.source_url);
 }
 
 function renderStockDerivedIndicators(data) {
@@ -7289,6 +7359,7 @@ function render(data, options = {}) {
 
   renderStockLiveSummary(data, quoteSourceLabel(data));
   updateQuoteStrip(data.quote, data);
+  renderStockCompanyProfile(data);
   renderStockResearchSummary(data);
   renderStockDerivedIndicators(data);
   renderStockSummaryFallback(data);

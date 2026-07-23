@@ -8919,6 +8919,136 @@ body .watch-table td::before {
   background: #1f2025;
 }
 
+#stock-view .stock-company-profile {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border-top: 10px solid var(--report-bg);
+  background: #ffffff;
+}
+
+#stock-view .stock-company-profile-head {
+  display: grid;
+  gap: 2px;
+}
+
+#stock-view .stock-company-profile h2 {
+  margin: 0;
+  color: #000000;
+  font-size: var(--stock-font-section);
+  line-height: 1.35;
+}
+
+#stock-view .stock-company-summary {
+  margin: 0;
+  color: #24272d;
+  font-size: var(--stock-font-body);
+  font-weight: 700;
+  line-height: 1.7;
+  white-space: pre-line;
+}
+
+#stock-view .stock-company-industry {
+  margin: 0;
+  color: var(--report-muted);
+  font-size: var(--type-caption);
+  font-weight: 800;
+}
+
+#stock-view .stock-company-details {
+  border-top: 1px solid var(--report-line);
+  border-bottom: 1px solid var(--report-line);
+}
+
+#stock-view .stock-company-details summary {
+  position: relative;
+  padding: 14px 24px 14px 0;
+  color: #343840;
+  cursor: pointer;
+  font-size: var(--stock-font-body);
+  font-weight: 900;
+  list-style: none;
+}
+
+#stock-view .stock-company-details summary::-webkit-details-marker {
+  display: none;
+}
+
+#stock-view .stock-company-details summary::after {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  content: "+";
+  color: var(--report-muted);
+  font-size: 20px;
+  transform: translateY(-50%);
+}
+
+#stock-view .stock-company-details[open] summary::after {
+  content: "−";
+}
+
+#stock-view .stock-company-details dl {
+  display: grid;
+  margin: 0;
+  padding: 0 0 10px;
+}
+
+#stock-view .stock-company-details dl > div {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--report-line);
+}
+
+#stock-view .stock-company-details dt,
+#stock-view .stock-company-details dd {
+  margin: 0;
+  font-size: var(--type-caption);
+  line-height: 1.55;
+}
+
+#stock-view .stock-company-details dt {
+  color: var(--report-muted);
+  font-weight: 800;
+}
+
+#stock-view .stock-company-details dd {
+  color: #24272d;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+#stock-view .stock-company-links,
+#stock-view .stock-company-source {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+#stock-view .stock-company-links {
+  padding: 0 0 14px;
+}
+
+#stock-view .stock-company-links a,
+#stock-view .stock-company-source a {
+  color: #111318;
+  font-size: var(--type-caption);
+  font-weight: 900;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+#stock-view .stock-company-source {
+  margin: 0;
+  color: var(--report-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 #stock-view .stock-quote-card .quote-strip,
 #stock-view .quote-strip {
   display: grid;

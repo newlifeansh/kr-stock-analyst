@@ -19,7 +19,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260723kr32" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260723kr33" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -221,6 +221,32 @@
               <button class="ai-analysis-button" id="ai-analysis-button" type="button">분석 갱신</button>
             </div>
           </article>
+
+          <section class="stock-company-profile" id="stock-company-profile" aria-labelledby="stock-company-profile-title">
+            <div class="stock-company-profile-head">
+              <span class="section-eyebrow">기업 소개</span>
+              <h2 id="stock-company-profile-title">이 회사는 어떤 기업인가요?</h2>
+            </div>
+            <p class="stock-company-summary" id="stock-company-summary">기업 정보를 불러오는 중입니다.</p>
+            <p class="stock-company-industry" id="stock-company-industry" hidden></p>
+            <details class="stock-company-details">
+              <summary>기업 기본정보</summary>
+              <dl>
+                <div id="stock-company-ceo-row"><dt>대표자</dt><dd id="stock-company-ceo">-</dd></div>
+                <div id="stock-company-established-row"><dt>설립일</dt><dd id="stock-company-established">-</dd></div>
+                <div id="stock-company-fiscal-row"><dt>결산월</dt><dd id="stock-company-fiscal">-</dd></div>
+                <div id="stock-company-address-row"><dt>본사</dt><dd id="stock-company-address">-</dd></div>
+              </dl>
+              <div class="stock-company-links">
+                <a id="stock-company-homepage" href="#" target="_blank" rel="noreferrer" hidden>회사 홈페이지</a>
+                <a id="stock-company-ir" href="#" target="_blank" rel="noreferrer" hidden>IR 홈페이지</a>
+              </div>
+            </details>
+            <p class="stock-company-source">
+              <span id="stock-company-source-label">출처 확인 중</span>
+              <a id="stock-company-source-link" href="#" target="_blank" rel="noreferrer" hidden>원문 보기</a>
+            </p>
+          </section>
 
           <nav class="stock-section-tabs stock-detail-tabs" aria-label="종목 상세 탭" role="tablist">
             <button class="active" type="button" role="tab" data-stock-tab="summary" aria-controls="stock-summary-section" aria-selected="true">요약</button>
@@ -628,6 +654,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260723kr32" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260723kr33" defer></script>
   </body>
 </html>

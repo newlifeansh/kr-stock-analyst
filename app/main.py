@@ -115,6 +115,7 @@ from app.collectors.briefing import KisRestBriefingProvider
 from app.bootstrap import bootstrap_runtime_data
 from app.mcp_server import build_insight_mcp_server, mcp_sdk_available
 from app.services.company_briefs import build_company_briefs
+from app.services.company_profiles import ensure_company_profile
 from app.services.market_rankings import build_market_period_returns, build_market_rankings
 from app.services.market_impact import build_market_impact
 from app.services.recommendations import build_recommendations
@@ -1794,8 +1795,15 @@ def stock_dashboard(
 ):
     code = _normalize_stock_code(code)
     key = ("stock_dashboard", code)
-    if not db.get(StockMaster, code):
-        _ensure_stock_master_from_naver(db, code)
+    stock = db.get(StockMaster, code)
+    if not stock:
+        stock = _ensure_stock_master_from_naver(db, code)
+    if stock:
+        try:
+            ensure_company_profile(db, stock, refresh=refresh)
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Company profile refresh failed for %s: %s", code, exc)
     if refresh:
         ensure_stock_price_history(db, code)
         payload = build_stock_dashboard(db, code, refresh_live=True)

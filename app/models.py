@@ -26,6 +26,36 @@ class StockMaster(Base):
     )
 
 
+class CompanyProfile(Base):
+    __tablename__ = "company_profile"
+
+    stock_code: Mapped[str] = mapped_column(
+        ForeignKey("stock_master.code"), primary_key=True
+    )
+    corp_code: Mapped[str] = mapped_column(String(20), nullable=False, unique=True, index=True)
+    corp_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    corp_name_eng: Mapped[Optional[str]] = mapped_column(String(300))
+    ceo_name: Mapped[Optional[str]] = mapped_column(String(200))
+    corp_class: Mapped[Optional[str]] = mapped_column(String(20))
+    address: Mapped[Optional[str]] = mapped_column(String(500))
+    homepage_url: Mapped[Optional[str]] = mapped_column(String(500))
+    ir_url: Mapped[Optional[str]] = mapped_column(String(500))
+    phone: Mapped[Optional[str]] = mapped_column(String(100))
+    industry_code: Mapped[Optional[str]] = mapped_column(String(40))
+    established_date: Mapped[Optional[date]] = mapped_column(Date)
+    fiscal_month: Mapped[Optional[str]] = mapped_column(String(10))
+    business_summary: Mapped[Optional[str]] = mapped_column(Text)
+    summary_source: Mapped[Optional[str]] = mapped_column(String(40))
+    business_report_title: Mapped[Optional[str]] = mapped_column(String(500))
+    business_report_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    business_report_published_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    source_modified_date: Mapped[Optional[date]] = mapped_column(Date)
+    raw: Mapped[Optional[str]] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False, index=True
+    )
+
+
 class WatchlistItem(Base):
     __tablename__ = "watchlist_item"
     __table_args__ = (UniqueConstraint("share_id", "code", name="uq_watchlist_item"),)
