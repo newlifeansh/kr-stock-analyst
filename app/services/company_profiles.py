@@ -197,7 +197,7 @@ def extract_business_summary(payload: bytes, max_characters: int = 480) -> Optio
             if sentence:
                 selected.append(sentence)
                 total += len(sentence) + 1
-            if len(selected) >= 3:
+            if len(selected) >= 2:
                 break
         if selected:
             return " ".join(selected)
@@ -267,6 +267,16 @@ def _fallback_summary(stock: StockMaster, corp_name: Optional[str] = None) -> st
     return f"{name}은 {stock.market}에 상장된 기업입니다. 사업 설명은 최신 DART 보고서 확인이 필요합니다."
 
 
+def _company_named_summary(summary: Optional[str], stock_name: str) -> Optional[str]:
+    if not summary:
+        return None
+    named = summary
+    if named.startswith("당사는"):
+        named = f"{stock_name}는{named[len('당사는'):]}"
+    named = named.replace("당사 및 당사의 종속기업", f"{stock_name}와 종속기업", 1)
+    return named
+
+
 def ensure_company_profile(
     db: Session,
     stock: StockMaster,
@@ -302,7 +312,7 @@ def ensure_company_profile(
                 {"crtfc_key": settings.dart_api_key, "rcept_no": receipt_no},
                 timeout=45,
             )
-            summary = extract_business_summary(document)
+            summary = _company_named_summary(extract_business_summary(document), stock.name)
     except Exception:
         summary = None
 
