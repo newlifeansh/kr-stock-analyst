@@ -10,6 +10,8 @@ const elements = {
   loginStatus: $("login-status"),
   pullRefreshIndicator: $("pull-refresh-indicator"),
   pullRefreshLabel: $("pull-refresh-label"),
+  pageLoading: $("page-loading"),
+  pageLoadingLabel: $("page-loading-label"),
   form: $("stock-form"),
   input: $("stock-code"),
   suggestions: $("stock-suggestions"),
@@ -23,6 +25,7 @@ const elements = {
   watchlistIdStatus: $("watchlist-id-status"),
   logoutButton: $("logout-button"),
   pushNotificationButton: $("push-notification-button"),
+  pushNotificationButtonLabel: $("push-notification-button-label"),
   pushNotificationStatus: $("push-notification-status"),
   recommendView: $("recommend-view"),
   recommendHistoryView: $("recommend-history-view"),
@@ -467,6 +470,8 @@ const state = {
   pushConfig: null,
   pushNotificationBusy: false,
   mobileMenuScrollY: 0,
+  pageLoadingSequence: 0,
+  pageLoadingTokens: new Map(),
 };
 
 function delay(ms) {
@@ -2539,9 +2544,9 @@ async function applyWatchlistId(shareId, options = {}) {
     void refreshPushNotificationState({ syncServer: true });
     updateWatchButton();
     if (state.view === "watchlist") {
-      loadWatchlist();
+      launchPageLoading(PAGE_LOADING_LABELS.watchlist, () => loadWatchlist());
     } else if (state.view === "chart") {
-      loadWatchCharts();
+      launchPageLoading(PAGE_LOADING_LABELS.chart, () => loadWatchCharts());
     }
     return true;
   } catch {
@@ -2770,6 +2775,84 @@ function setFlowLoading(open) {
   document.body.classList.toggle("modal-open", open);
 }
 
+const PAGE_LOADING_MINIMUM_MS = 320;
+const PAGE_LOADING_LABELS = {
+  stock: "종목 정보를 불러오는 중",
+  watchlist: "관심 종목을 점검하는 중",
+  recommend: "추천 종목을 분석하는 중",
+  "recommend-history": "추적 종목을 불러오는 중",
+  trend: "주요 이벤트를 불러오는 중",
+  "trend-past": "지난 이벤트를 불러오는 중",
+  "trend-impact": "시장 영향도를 계산하는 중",
+  chart: "차트 분석을 불러오는 중",
+  market: "급상승 종목을 불러오는 중",
+  ai: "AI 분석을 생성하는 중",
+};
+
+function refreshPageLoading() {
+  if (!elements.pageLoading) {
+    return;
+  }
+  const entries = Array.from(state.pageLoadingTokens.values());
+  if (entries.length) {
+    elements.pageLoadingLabel.textContent = entries[entries.length - 1].label;
+    elements.pageLoading.hidden = false;
+    document.body.setAttribute("aria-busy", "true");
+    window.requestAnimationFrame(() => elements.pageLoading?.classList.add("visible"));
+    return;
+  }
+  elements.pageLoading.classList.remove("visible");
+  document.body.removeAttribute("aria-busy");
+  window.setTimeout(() => {
+    if (state.pageLoadingTokens.size === 0 && elements.pageLoading) {
+      elements.pageLoading.hidden = true;
+    }
+  }, 150);
+}
+
+function clearPageLoading() {
+  state.pageLoadingTokens.clear();
+  if (!elements.pageLoading) {
+    return;
+  }
+  elements.pageLoading.classList.remove("visible");
+  elements.pageLoading.hidden = true;
+  document.body.removeAttribute("aria-busy");
+}
+
+function beginPageLoading(label = "데이터를 불러오는 중") {
+  state.pageLoadingSequence += 1;
+  const token = state.pageLoadingSequence;
+  state.pageLoadingTokens.set(token, { label, startedAt: Date.now() });
+  refreshPageLoading();
+  return token;
+}
+
+function endPageLoading(token) {
+  const entry = state.pageLoadingTokens.get(token);
+  if (!entry) {
+    return;
+  }
+  const remaining = Math.max(0, PAGE_LOADING_MINIMUM_MS - (Date.now() - entry.startedAt));
+  window.setTimeout(() => {
+    state.pageLoadingTokens.delete(token);
+    refreshPageLoading();
+  }, remaining);
+}
+
+async function runPageLoading(label, operation) {
+  const token = beginPageLoading(label);
+  try {
+    return await operation();
+  } finally {
+    endPageLoading(token);
+  }
+}
+
+function launchPageLoading(label, operation) {
+  return runPageLoading(label, operation).catch(() => undefined);
+}
+
 async function handleHomeInstall() {
   showInstallSheet();
 }
@@ -2796,9 +2879,8 @@ function setPushNotificationStatus(text = "", tone = "") {
   if (!elements.pushNotificationStatus) {
     return;
   }
-  elements.pushNotificationStatus.hidden = !text;
   elements.pushNotificationStatus.textContent = text;
-  elements.pushNotificationStatus.className = tone;
+  elements.pushNotificationStatus.dataset.tone = tone;
 }
 
 function updatePushNotificationButton(options = {}) {
@@ -2812,10 +2894,15 @@ function updatePushNotificationButton(options = {}) {
     setPushNotificationStatus();
     return;
   }
+  const label = options.label || "알림 받기";
   button.disabled = options.disabled ?? false;
   button.dataset.active = String(options.active === true);
-  button.textContent = options.label || "알림 받기";
-  button.title = options.title || "";
+  button.setAttribute("aria-pressed", String(options.active === true));
+  button.setAttribute("aria-label", label);
+  button.title = options.title || label;
+  if (elements.pushNotificationButtonLabel) {
+    elements.pushNotificationButtonLabel.textContent = label;
+  }
 }
 
 async function loadPushConfig() {
@@ -3002,6 +3089,9 @@ function pageEntryRefreshOptions(view, key = "") {
 }
 
 function setView(view) {
+  if (state.view !== view) {
+    clearPageLoading();
+  }
   state.view = view;
   setFlowLoading(false);
   hideSuggestions();
@@ -3041,36 +3131,38 @@ function setView(view) {
   }
   if (view === "market") {
     history.replaceState(null, "", "/dashboard?view=market");
-    loadMarketRankings(pageEntryRefreshOptions("market", currentMarketFilter()));
+    launchPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings(pageEntryRefreshOptions("market", currentMarketFilter())));
   } else if (view === "watchlist") {
     history.replaceState(null, "", "/dashboard?view=watchlist");
-    loadWatchlist(pageEntryRefreshOptions("watchlist"));
+    launchPageLoading(PAGE_LOADING_LABELS.watchlist, () => loadWatchlist(pageEntryRefreshOptions("watchlist")));
   } else if (view === "recommend") {
     history.replaceState(null, "", "/dashboard?view=recommend");
     updateRecommendationButtonState();
     const entryOptions = pageEntryRefreshOptions("recommend");
-    refreshUsSectorMoves(entryOptions);
-    refreshVisibleRecommendationCards(entryOptions);
     const shouldAutoLoadRecommendations = entryOptions.force || !elements.recommendList.querySelector(".recommend-card");
-    if (shouldAutoLoadRecommendations && !state.recommendationLoading) {
-      loadRecommendations({ auto: true, force: entryOptions.force });
-    }
+    launchPageLoading(PAGE_LOADING_LABELS.recommend, async () => {
+      const jobs = [refreshUsSectorMoves(entryOptions), refreshVisibleRecommendationCards(entryOptions)];
+      if (shouldAutoLoadRecommendations && !state.recommendationLoading) {
+        jobs.push(loadRecommendations({ auto: true, force: entryOptions.force }));
+      }
+      await Promise.all(jobs);
+    });
     connectUsSectorStream();
   } else if (view === "recommend-history") {
     history.replaceState(null, "", "/dashboard?view=recommend-history");
-    loadRecommendationHistory(pageEntryRefreshOptions("recommend-history"));
+    launchPageLoading(PAGE_LOADING_LABELS["recommend-history"], () => loadRecommendationHistory(pageEntryRefreshOptions("recommend-history")));
   } else if (view === "trend") {
     history.replaceState(null, "", "/dashboard?view=trend");
-    loadTrends("events", pageEntryRefreshOptions("trend", "events"));
+    launchPageLoading(PAGE_LOADING_LABELS.trend, () => loadTrends("events", pageEntryRefreshOptions("trend", "events")));
   } else if (view === "trend-past") {
     history.replaceState(null, "", "/dashboard?view=trend-past");
-    loadTrends("past", pageEntryRefreshOptions("trend-past", "past"));
+    launchPageLoading(PAGE_LOADING_LABELS["trend-past"], () => loadTrends("past", pageEntryRefreshOptions("trend-past", "past")));
   } else if (view === "trend-impact") {
     history.replaceState(null, "", "/dashboard?view=trend-impact");
-    loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact"));
+    launchPageLoading(PAGE_LOADING_LABELS["trend-impact"], () => loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact")));
   } else if (view === "chart") {
     history.replaceState(null, "", "/dashboard?view=chart");
-    loadWatchCharts(pageEntryRefreshOptions("chart"));
+    launchPageLoading(PAGE_LOADING_LABELS.chart, () => loadWatchCharts(pageEntryRefreshOptions("chart")));
   } else if (view === "chart-history") {
     history.replaceState(null, "", "/dashboard?view=chart-history");
     renderChartSnapshots();
@@ -7059,7 +7151,7 @@ async function resolveStock(query) {
   }
 }
 
-async function load(query) {
+async function loadStockRequest(query) {
   const normalized = String(query || "").trim();
   if (!normalized) {
     return;
@@ -7092,6 +7184,10 @@ async function load(query) {
   }
   history.replaceState(null, "", `/dashboard/${encodeURIComponent(stock.name)}`);
   setView("stock");
+}
+
+function load(query) {
+  return runPageLoading(PAGE_LOADING_LABELS.stock, () => loadStockRequest(query));
 }
 
 for (const item of elements.sideItems) {
@@ -7155,7 +7251,7 @@ for (const tab of elements.rankTabs) {
     for (const item of elements.rankTabs) {
       item.classList.toggle("active", item === tab);
     }
-    loadMarketRankings();
+    launchPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings());
   });
 }
 
@@ -7164,13 +7260,13 @@ elements.rankCategorySelect?.addEventListener("change", () => {
   for (const item of elements.rankTabs) {
     item.classList.toggle("active", item.dataset.category === state.rankingCategory);
   }
-  loadMarketRankings();
+  launchPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings());
 });
 
 for (const tab of elements.marketTabs) {
   tab.addEventListener("click", () => {
     const market = setMarketFilter(tab.dataset.marketFilter);
-    loadMarketRankings({ market });
+    launchPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings({ market }));
   });
 }
 elements.watchToggle.addEventListener("click", toggleWatchCurrent);
@@ -7203,11 +7299,11 @@ elements.logoutButton?.addEventListener("click", logoutWatchlistIdentity);
 elements.pushNotificationButton?.addEventListener("click", togglePushNotifications);
 elements.aiAnalysisButton.addEventListener("click", (event) => {
   event.preventDefault();
-  loadAIAnalysis({ auto: false });
+  launchPageLoading(PAGE_LOADING_LABELS.ai, () => loadAIAnalysis({ auto: false }));
 });
 elements.stockInlineAIRefresh?.addEventListener("click", (event) => {
   event.preventDefault();
-  loadAIAnalysis({ auto: false });
+  launchPageLoading(PAGE_LOADING_LABELS.ai, () => loadAIAnalysis({ auto: false }));
 });
 for (const tab of elements.stockSectionTabs) {
   tab.addEventListener("click", (event) => {
@@ -7215,7 +7311,9 @@ for (const tab of elements.stockSectionTabs) {
     setActiveStockTab(tab.dataset.stockTab || "summary");
   });
 }
-elements.recommendButton.addEventListener("click", loadRecommendations);
+elements.recommendButton.addEventListener("click", () => {
+  launchPageLoading(PAGE_LOADING_LABELS.recommend, () => loadRecommendations());
+});
 elements.recommendArchiveButton?.addEventListener("click", () => setView("recommend-history"));
 elements.recommendHistoryNewButton?.addEventListener("click", () => setView("recommend"));
 elements.watchChartRefresh?.addEventListener("click", () => {
@@ -7223,7 +7321,7 @@ elements.watchChartRefresh?.addEventListener("click", () => {
     clearCachedUrl(`/stocks/${encodeURIComponent(item.code)}/prices?limit=180`);
     clearCachedUrl(`/stocks/${encodeURIComponent(item.code)}/dashboard`);
   }
-  loadWatchCharts();
+  launchPageLoading(PAGE_LOADING_LABELS.chart, () => loadWatchCharts());
 });
 elements.chartArchiveButton?.addEventListener("click", () => setView("chart-history"));
 elements.chartHistoryBackButton.addEventListener("click", () => setView("chart"));
@@ -7245,7 +7343,7 @@ elements.recommendHistoryList.addEventListener("click", (event) => {
   if (deleteButton) {
     deleteRecommendationTrack(deleteButton.dataset.trackId);
     updateRecommendationTrackButtons();
-    loadRecommendationHistory();
+    launchPageLoading(PAGE_LOADING_LABELS["recommend-history"], () => loadRecommendationHistory());
     return;
   }
 });
@@ -7314,7 +7412,7 @@ elements.watchlistBody.addEventListener("click", (event) => {
   state.watchPreopenExpanded.delete(code);
   writeWatchlist(readWatchlist().filter((item) => item.code !== code));
   updateWatchButton();
-  loadWatchlist();
+  launchPageLoading(PAGE_LOADING_LABELS.watchlist, () => loadWatchlist());
 });
 
 elements.recommendList.addEventListener("click", (event) => {

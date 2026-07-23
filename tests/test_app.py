@@ -141,6 +141,21 @@ def test_stock_research_links_open_in_current_view_and_tab_survives_refresh():
     assert 'setActiveStockTab(state.stockActiveTab || "summary", { preserveScroll: true });' in source
 
 
+def test_dashboard_shows_shared_loading_state_for_navigation_and_stock_lookup():
+    client = TestClient(app)
+    shell = client.get("/dashboard").text
+    source = client.get("/assets/dashboard/app.js").text
+
+    assert 'id="page-loading"' in shell
+    assert 'id="page-loading-label"' in shell
+    assert "function runPageLoading" in source
+    assert "function launchPageLoading" in source
+    assert "function clearPageLoading" in source
+    assert "return runPageLoading(PAGE_LOADING_LABELS.stock" in source
+    for view in ("market", "watchlist", "recommend", "trend", "trend-impact", "chart"):
+        assert f"PAGE_LOADING_LABELS.{view.replace('-', '_')}" in source or f'PAGE_LOADING_LABELS["{view}"]' in source
+
+
 def test_meta_endpoints():
     client = TestClient(app)
 

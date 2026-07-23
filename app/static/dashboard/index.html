@@ -19,7 +19,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260723kr27" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260723kr29" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -58,6 +58,12 @@
         <div class="pull-refresh-spinner" aria-hidden="true"></div>
         <strong id="pull-refresh-label">아래로 당겨서 새로고침</strong>
       </section>
+      <section class="page-loading" id="page-loading" role="status" aria-live="polite" aria-busy="true" hidden>
+        <div class="page-loading-indicator">
+          <div class="loading-spinner" aria-hidden="true"></div>
+          <strong id="page-loading-label">데이터를 불러오는 중</strong>
+        </div>
+      </section>
       <div class="mobile-menu-scrim" id="mobile-menu-scrim" hidden></div>
       <section class="loading-modal" id="flow-loading-modal" role="status" aria-live="polite" hidden>
         <div class="loading-modal-backdrop"></div>
@@ -84,7 +90,26 @@
       <aside class="side-nav" id="side-nav">
         <div class="side-brand">
           <strong>비밀노트</strong>
+          <button
+            class="side-brand-notification"
+            id="push-notification-button"
+            type="button"
+            hidden
+            aria-label="알림 받기"
+            aria-pressed="false"
+            title="알림 받기"
+          >
+            <span class="side-brand-notification-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                <path d="M12 4a4 4 0 0 0-4 4v1.2c0 1.1-.4 2.1-1.1 3l-1 1.2a1 1 0 0 0 .8 1.6h10.6a1 1 0 0 0 .8-1.6l-1-1.2a4.7 4.7 0 0 1-1.1-3V8a4 4 0 0 0-4-4Z"></path>
+                <path d="M9.8 17a2.2 2.2 0 0 0 4.4 0"></path>
+              </svg>
+            </span>
+            <span class="side-brand-notification-dot" aria-hidden="true"></span>
+            <span class="sr-only" id="push-notification-button-label">알림 받기</span>
+          </button>
         </div>
+        <p id="push-notification-status" class="sr-only" aria-live="polite"></p>
         <nav class="side-menu">
           <div class="side-menu-group">
             <span class="side-menu-label">종목</span>
@@ -114,8 +139,6 @@
             <button id="logout-button" type="button">로그아웃</button>
           </div>
           <p id="watchlist-id-status">로컬 저장 중</p>
-          <button class="watch-notification-button" id="push-notification-button" type="button" hidden>알림 받기</button>
-          <p id="push-notification-status" hidden></p>
         </section>
         <section class="side-footer-panel" aria-label="사이드 하단 정보">
           <a class="side-footer-link" href="https://open.kakao.com/o/gJeoIZAi" target="_blank" rel="noreferrer">개선 및 이용 문의</a>
@@ -585,6 +608,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260723kr27" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260723kr29" defer></script>
   </body>
 </html>
