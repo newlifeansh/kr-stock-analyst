@@ -253,7 +253,7 @@ if mcp_server is not None:
 
 @app.get("/")
 def root_shell():
-    return RedirectResponse(url="/dashboard?view=trend", status_code=307)
+    return RedirectResponse(url="/dashboard", status_code=307)
 
 
 def _end_of_day(value: Optional[date]) -> Optional[datetime]:

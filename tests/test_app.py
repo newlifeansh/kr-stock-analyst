@@ -22,7 +22,7 @@ def test_root_redirects_to_korea_dashboard():
     client = TestClient(app)
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 307
-    assert response.headers["location"] == "/dashboard?view=trend"
+    assert response.headers["location"] == "/dashboard"
 
 
 def test_watchlist_share_id_roundtrip():
