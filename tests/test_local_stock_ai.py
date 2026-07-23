@@ -82,7 +82,7 @@ def test_rules_provider_does_not_call_local_model():
 
 def test_ollama_prioritizes_grounded_evidence_without_changing_calculated_decision():
     clear_local_ai_cache()
-    draft = "단기"
+    draft = "1"
     captured = {}
 
     def post(url, **kwargs):
@@ -105,7 +105,7 @@ def test_ollama_prioritizes_grounded_evidence_without_changing_calculated_decisi
     assert "format" not in captured["json"]
     assert captured["json"]["think"] is False
     assert captured["json"]["options"]["num_ctx"] == 256
-    assert captured["json"]["options"]["num_predict"] == 6
+    assert captured["json"]["options"]["num_predict"] == 2
     compact_evidence = captured["json"]["messages"][1]["content"]
     assert '"판단":"관망 우선"' in compact_evidence
     assert "533000" not in compact_evidence
@@ -114,7 +114,7 @@ def test_ollama_prioritizes_grounded_evidence_without_changing_calculated_decisi
 
 def test_ollama_output_without_supported_focus_falls_back_to_rules():
     clear_local_ai_cache()
-    draft = "강력 매수"
+    draft = "5"
 
     result = enrich_stock_ai_analysis(
         _dashboard(),

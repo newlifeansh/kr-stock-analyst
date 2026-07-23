@@ -24,21 +24,6 @@ class LocalAnalysisDraft(BaseModel):
     focus: str = Field(min_length=2, max_length=10)
 
 
-_CRITICAL_NUMBER_PATTERN = re.compile(
-    r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?\s*(?:%|원|조|억|만|배|점|건|개월|일|x))",
-    re.IGNORECASE,
-)
-
-
-def _number_facts(text: str) -> set[str]:
-    facts: set[str] = set()
-    for token in _CRITICAL_NUMBER_PATTERN.findall(text):
-        match = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", token)
-        if match:
-            facts.add(match.group(0).replace(",", "").lstrip("+"))
-    return facts
-
-
 def _rounded(value: object, digits: int = 1) -> object:
     if value is None or isinstance(value, bool):
         return value
@@ -70,7 +55,7 @@ def _evidence_bundle(dashboard: dict[str, Any], rules: dict[str, object]) -> dic
 
 
 def _prompt_messages(bundle: dict[str, object]) -> list[dict[str, str]]:
-    system_prompt = "입력에서 가장 먼저 볼 근거를 단기, 수급, 밸류, 뉴스 중 하나로만 출력하세요."
+    system_prompt = "1=단기, 2=수급, 3=밸류, 4=뉴스입니다. 입력에서 가장 먼저 볼 근거의 번호 하나만 출력하세요."
     user_prompt = json.dumps(
         bundle,
         ensure_ascii=False,
@@ -83,19 +68,12 @@ def _prompt_messages(bundle: dict[str, object]) -> list[dict[str, str]]:
     ]
 
 
-def _validate_numbers(draft: LocalAnalysisDraft, bundle: dict[str, object]) -> None:
-    source_text = json.dumps(bundle, ensure_ascii=False, default=str)
-    generated_text = draft.focus
-    unexpected = _number_facts(generated_text) - _number_facts(source_text)
-    if unexpected:
-        raise ValueError(f"Local model introduced unsupported numeric facts: {sorted(unexpected)}")
-
-
 def _focus_from_content(content: object) -> str:
     text = re.sub(r"\s+", " ", str(content or "")).strip().strip('"')
-    for focus in ("단기", "수급", "밸류", "뉴스"):
-        if focus in text:
-            return LocalAnalysisDraft(focus=focus).focus
+    match = re.search(r"[1-4]", text)
+    if match:
+        focus = {"1": "단기", "2": "수급", "3": "밸류", "4": "뉴스"}[match.group(0)]
+        return LocalAnalysisDraft(focus=focus).focus
     raise ValueError("Local model did not select a supported focus")
 
 
@@ -174,7 +152,7 @@ def enrich_stock_ai_analysis(
                     "messages": _prompt_messages(bundle),
                     "stream": False,
                     "think": False,
-                    "options": {"temperature": 0, "num_ctx": 256, "num_predict": 6},
+                    "options": {"temperature": 0, "num_ctx": 256, "num_predict": 2},
                     "keep_alive": "15m",
                 },
                 timeout=max(10, config.ollama_timeout_seconds),
@@ -183,7 +161,6 @@ def enrich_stock_ai_analysis(
             body = response.json()
             content = body.get("message", {}).get("content")
             draft = LocalAnalysisDraft(focus=_focus_from_content(content))
-            _validate_numbers(draft, bundle)
         except (requests.RequestException, ValidationError, ValueError, TypeError, json.JSONDecodeError) as exc:
             logger.warning("Local stock AI unavailable; using rule analysis: %s", exc)
             return _fallback(rules, "로컬 AI 연결 실패 · 데이터 분석 사용")
