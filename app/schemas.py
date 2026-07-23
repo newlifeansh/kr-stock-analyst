@@ -461,6 +461,7 @@ class DashboardCompanyProfileOut(BaseModel):
     corp_name: Optional[str] = None
     corp_name_eng: Optional[str] = None
     summary: str
+    short_summary: Optional[str] = None
     summary_source: str
     industry: Optional[str] = None
     sector: Optional[str] = None

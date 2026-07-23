@@ -112,6 +112,7 @@ def test_company_profile_is_collected_from_dart_and_stored(monkeypatch):
         assert profile.summary_source == "dart_business_report"
         assert "메모리 반도체" in (profile.business_summary or "")
         assert payload["ceo_name"] == "곽노정"
+        assert payload["short_summary"] == "주력 분야는 디램과 낸드플래시입니다."
         assert payload["industry"] == "반도체 제조업"
         assert payload["source_label"] == "DART 사업보고서"
         assert payload["source_url"].endswith("20260318000123")

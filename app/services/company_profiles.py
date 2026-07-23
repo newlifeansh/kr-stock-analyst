@@ -277,6 +277,29 @@ def _company_named_summary(summary: Optional[str], stock_name: str) -> Optional[
     return named
 
 
+def _short_company_summary(summary: Optional[str], stock_name: str) -> Optional[str]:
+    if not summary:
+        return None
+    normalized = re.sub(r"\s+", " ", summary).strip()
+    product_match = re.search(
+        r"(?:주력|주요) (?:제품|사업)은\s*(.+?)(?:이며|이고|입니다)",
+        normalized,
+    )
+    if product_match:
+        main_business = product_match.group(1).strip(" ,.")
+        main_business = main_business.replace(" 및 ", "·").replace("를 중심으로 하는", " 중심의")
+        secondary_match = re.search(
+            r"([A-Za-z가-힣0-9·]+(?:\s+[A-Za-z가-힣0-9·]+){0,3}\s+사업)도 병행",
+            normalized,
+        )
+        secondary = secondary_match.group(1).strip() if secondary_match else ""
+        if secondary and secondary not in main_business:
+            return f"{main_business}가 주력이며, {secondary}도 병행합니다."
+        return f"주력 분야는 {main_business}입니다."
+    first_sentence = re.split(r"(?<=[.!?])\s+", normalized, maxsplit=1)[0]
+    return first_sentence if first_sentence.endswith((".", "!", "?")) else f"{first_sentence}."
+
+
 def ensure_company_profile(
     db: Session,
     stock: StockMaster,
@@ -358,16 +381,19 @@ def company_profile_payload(db: Session, stock: StockMaster) -> dict[str, object
     if profile is None:
         return {
             "summary": _fallback_summary(stock),
+            "short_summary": _short_company_summary(_fallback_summary(stock), stock.name),
             "summary_source": "stock_master",
             "industry": stock.industry or stock.sector,
             "sector": stock.sector,
             "source_label": "상장 종목 기본정보",
         }
     source_url = profile.business_report_url or DART_COMPANY_PAGE_URL.format(corp_code=profile.corp_code)
+    summary = profile.business_summary or _fallback_summary(stock, profile.corp_name)
     return {
         "corp_name": profile.corp_name,
         "corp_name_eng": profile.corp_name_eng,
-        "summary": profile.business_summary or _fallback_summary(stock, profile.corp_name),
+        "summary": summary,
+        "short_summary": _short_company_summary(summary, stock.name),
         "summary_source": profile.summary_source,
         "industry": stock.industry or stock.sector,
         "sector": stock.sector,

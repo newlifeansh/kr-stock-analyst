@@ -27,8 +27,11 @@
   --sider-text: rgba(255, 255, 255, 0.72);
   --sider-text-strong: #ffffff;
   --button-contrast: #ffffff;
-  --type-body: 16px;
-  --type-title: 24px;
+  --type-display: 32px;
+  --type-title: 26px;
+  --type-section: 18px;
+  --type-body: 15px;
+  --type-label: 14px;
   --type-caption: 13px;
   --page-loading-spinner-size: 45px;
   --page-loading-spinner-border: 4px;
@@ -8592,13 +8595,12 @@ a.flow-node.stock:hover {
   }
 }
 
-/* Typography system: three-step 24/16/13px scale across every dashboard view. */
+/* Shared dashboard typeface. Semantic sizes are assigned by component below. */
 body,
 body * {
   font-family:
     "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR",
     sans-serif !important;
-  font-size: var(--type-body) !important;
   letter-spacing: 0 !important;
 }
 
@@ -10848,5 +10850,439 @@ body .watch-table td::before {
     padding-left: 0;
     border-top: 1px solid #eceff3;
     border-left: 0;
+  }
+}
+
+/* 2026-07-24 UI clarity pass: one hierarchy, one decision per screen. */
+body {
+  font-size: var(--type-body);
+  line-height: 1.55;
+}
+
+body :is(button, input, select, textarea) {
+  font-size: var(--type-label) !important;
+}
+
+body :is(
+  .identity h1,
+  #stock-name,
+  #trend-title,
+  #watchlist-view .identity h1,
+  #recommend-view .identity h1,
+  #chart-view .identity h1,
+  #market-view .identity h1
+) {
+  font-size: var(--type-title) !important;
+  font-weight: 900 !important;
+  line-height: 1.25 !important;
+}
+
+body :is(
+  .section-title,
+  .stock-company-profile h2,
+  .stock-visual-main h2,
+  .stock-section-card h2,
+  .chart-detail-grid h2,
+  .ai-analysis-head h2,
+  .watchlist-report-title h2,
+  .market-impact-copy h2,
+  .market-impact-flow-title strong,
+  .recommend-body h3,
+  .chart-ai-panel h3,
+  .chart-ai-panel h4
+) {
+  font-size: var(--type-section) !important;
+  font-weight: 900 !important;
+  line-height: 1.4 !important;
+}
+
+body :is(
+  .stock-company-summary,
+  .watch-preopen-point ul,
+  .trend-impact,
+  .recommend-body,
+  .chart-ai-summary,
+  .chart-ai-explanation,
+  .market-impact-flow-grid strong,
+  .market-impact-detail p
+) {
+  font-size: var(--type-body) !important;
+  line-height: 1.6 !important;
+}
+
+body :is(
+  .section-eyebrow,
+  .identity p,
+  .stock-company-industry,
+  .stock-company-source,
+  .recommend-rank,
+  .recommend-name span,
+  .trend-event-title span,
+  .event-schedule strong,
+  .market-impact-flow-title span,
+  .market-impact-node-label,
+  .market-impact-copy p,
+  .watch-stock-details > summary,
+  .recommend-detail-disclosure > summary,
+  .chart-detail-disclosure > summary,
+  .chart-ai-detail-disclosure > summary,
+  .trend-event-disclosure > summary,
+  .market-impact-disclosure > summary
+) {
+  font-size: var(--type-caption) !important;
+}
+
+body :is(#quote-price, .stock-price-main > strong) {
+  font-size: var(--type-display) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+body :is(
+  .watch-stock-card,
+  .recommend-card,
+  .trend-event,
+  .thread-item,
+  .watch-chart-card,
+  .chart-snapshot-panel,
+  .market-impact-hero,
+  .market-impact-flow,
+  .market-impact-detail
+) {
+  border-radius: 8px !important;
+}
+
+#stock-view .stock-company-profile {
+  gap: 10px;
+  padding: 18px 20px;
+}
+
+#stock-view .stock-company-profile-head {
+  gap: 1px;
+}
+
+#stock-view .stock-company-summary {
+  max-width: 760px;
+  color: #343840;
+  font-weight: 700;
+  word-break: keep-all;
+}
+
+#stock-view .stock-company-details summary {
+  min-height: 44px;
+  padding-block: 11px;
+  font-size: var(--type-label) !important;
+}
+
+.watch-stock-card {
+  gap: 12px;
+  padding: 16px;
+}
+
+.watch-stock-loading {
+  min-height: 112px;
+  align-content: center;
+  box-shadow: none;
+}
+
+.watch-stock-loading > strong {
+  font-size: var(--type-section) !important;
+}
+
+.watch-stock-loading-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: var(--type-caption);
+  font-weight: 800;
+}
+
+.watch-stock-loading-status .inline-loading-spinner {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+}
+
+.watch-stock-loading.is-error {
+  border-style: dashed;
+  background: #fafafa;
+}
+
+#watch-chart-meta.is-loading {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: var(--type-caption) !important;
+  font-weight: 800;
+}
+
+#watch-chart-meta.is-loading .inline-loading-spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.watch-chart-empty-card.is-loading {
+  min-height: 132px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.watch-stock-name strong {
+  font-size: var(--type-section) !important;
+}
+
+.watch-stock-name .watch-stock-inline-price,
+.watch-stock-name .watch-stock-inline-change {
+  font-size: var(--type-section) !important;
+}
+
+.watch-preopen-point {
+  gap: 8px;
+  padding: 14px;
+  border-radius: 8px;
+}
+
+.watch-preopen-point summary strong {
+  font-size: var(--type-section) !important;
+}
+
+.watch-stock-details,
+.recommend-detail-disclosure,
+.chart-detail-disclosure,
+.chart-ai-detail-disclosure,
+.trend-event-disclosure,
+.market-impact-disclosure {
+  min-width: 0;
+  border-top: 1px solid var(--report-line, var(--line-soft));
+}
+
+:is(
+  .watch-stock-details,
+  .recommend-detail-disclosure,
+  .chart-detail-disclosure,
+  .chart-ai-detail-disclosure,
+  .trend-event-disclosure,
+  .market-impact-disclosure
+) > summary {
+  position: relative;
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  padding: 12px 28px 12px 0;
+  color: var(--report-muted, var(--muted));
+  cursor: pointer;
+  font-weight: 900;
+  line-height: 1.4;
+  list-style: none;
+}
+
+:is(
+  .watch-stock-details,
+  .recommend-detail-disclosure,
+  .chart-detail-disclosure,
+  .chart-ai-detail-disclosure,
+  .trend-event-disclosure,
+  .market-impact-disclosure
+) > summary::-webkit-details-marker {
+  display: none;
+}
+
+:is(
+  .watch-stock-details,
+  .recommend-detail-disclosure,
+  .chart-detail-disclosure,
+  .chart-ai-detail-disclosure,
+  .trend-event-disclosure,
+  .market-impact-disclosure
+) > summary::after {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  color: var(--report-muted, var(--muted));
+  content: "+";
+  font-size: 18px;
+  transform: translateY(-50%);
+}
+
+:is(
+  .watch-stock-details,
+  .recommend-detail-disclosure,
+  .chart-detail-disclosure,
+  .chart-ai-detail-disclosure,
+  .trend-event-disclosure,
+  .market-impact-disclosure
+)[open] > summary::after {
+  content: "−";
+}
+
+.watch-stock-details > .watch-quote-strip {
+  margin-top: 2px;
+}
+
+.watch-stock-details > .watch-insight-grid {
+  margin-top: 10px;
+}
+
+.recommend-card {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+.recommend-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "rank rank"
+    "name score"
+    "metrics metrics"
+    "sector sector"
+    "actions actions";
+  gap: 12px;
+}
+
+.recommend-rank-line {
+  grid-area: rank;
+}
+
+.recommend-name {
+  grid-area: name;
+}
+
+.recommend-score {
+  grid-area: score;
+  align-self: center;
+}
+
+.recommend-metrics {
+  grid-area: metrics;
+}
+
+.recommend-us-sector {
+  grid-area: sector;
+}
+
+.recommend-card-actions {
+  grid-area: actions;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.recommend-detail-disclosure > .recommend-body {
+  padding-top: 14px;
+}
+
+.watch-chart-card {
+  gap: 14px;
+}
+
+.chart-detail-disclosure > :not(summary),
+.chart-ai-detail-disclosure > :not(summary) {
+  margin-top: 12px;
+}
+
+.trend-event {
+  padding: 16px;
+}
+
+.trend-event-head {
+  margin-bottom: 8px;
+}
+
+.trend-event-title > strong {
+  font-size: var(--type-section) !important;
+}
+
+.trend-event-disclosure {
+  margin-top: 12px;
+}
+
+.trend-event-disclosure > :not(summary) {
+  margin-top: 10px;
+}
+
+.market-impact-dashboard {
+  gap: 12px;
+}
+
+.market-impact-hero,
+.market-impact-flow {
+  padding: 16px;
+}
+
+.market-impact-center {
+  border-radius: 8px;
+}
+
+.market-impact-flow-grid article {
+  border-radius: 8px;
+}
+
+.market-impact-disclosure > .market-impact-details {
+  padding-top: 12px;
+}
+
+@media (max-width: 720px) {
+  .shell {
+    padding-inline: 14px;
+  }
+
+  #stock-view .topbar,
+  #stock-view .stock-quote-card,
+  #stock-view .stock-company-profile,
+  #stock-view .stock-tab-panel > * {
+    padding-inline: 16px;
+  }
+
+  .recommend-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .recommend-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .market-impact-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .market-impact-orbit {
+    min-height: 310px;
+  }
+
+  .market-impact-flow-grid,
+  .market-impact-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 420px) {
+  :root {
+    --type-display: 30px;
+    --type-title: 24px;
+  }
+
+  .shell {
+    padding-inline: 12px;
+  }
+
+  .watch-stock-card,
+  .recommend-card,
+  .trend-event,
+  .watch-chart-card {
+    padding: 14px;
+  }
+
+  .watch-stock-card .remove-watch {
+    height: 36px;
+    padding-inline: 10px;
+  }
+
+  .recommend-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .market-impact-orbit {
+    min-height: 292px;
   }
 }

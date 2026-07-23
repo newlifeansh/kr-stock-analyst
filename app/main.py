@@ -1791,6 +1791,7 @@ def stock_dashboard(
     code: str,
     response: Response,
     refresh: bool = Query(default=False),
+    include_profile: bool = Query(default=True),
     db: Session = Depends(get_db),
 ):
     code = _normalize_stock_code(code)
@@ -1798,7 +1799,7 @@ def stock_dashboard(
     stock = db.get(StockMaster, code)
     if not stock:
         stock = _ensure_stock_master_from_naver(db, code)
-    if stock:
+    if stock and include_profile:
         try:
             ensure_company_profile(db, stock, refresh=refresh)
         except Exception as exc:

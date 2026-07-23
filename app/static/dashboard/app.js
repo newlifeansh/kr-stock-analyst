@@ -229,8 +229,8 @@ const RECOMMENDATION_COOLDOWN_KEY = "analyst.recommendationCooldown";
 const CHART_SNAPSHOT_KEY = "analyst.chartSnapshots";
 const UI_CACHE_TTL_MS = 60_000;
 const PAGE_ENTRY_MINUTE_MS = 60_000;
-const LOGIN_SPLASH_DURATION_MS = 5_000;
-const APP_SPLASH_DURATION_MS = 5_000;
+const LOGIN_SPLASH_DURATION_MS = 700;
+const APP_SPLASH_DURATION_MS = 650;
 const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
   {
     id: "price_move",
@@ -461,6 +461,7 @@ const state = {
   writeToken: "",
   writeTokenShareId: "",
   watchChartResults: [],
+  watchChartLoadSequence: 0,
   selectedWatchChartCode: "",
   marketRankingCache: new Map(),
   marketLeaderboardItems: [],
@@ -485,6 +486,7 @@ const state = {
   quoteReconnectTimer: null,
   watchlistQuoteSockets: new Map(),
   watchlistQuoteReconnectTimers: new Map(),
+  watchlistLoadSequence: 0,
   watchlistResults: [],
   watchlistMarketContext: null,
   stockActiveTab: "summary",
@@ -493,6 +495,7 @@ const state = {
   stockAIRequestedCode: "",
   stockAILoading: false,
   watchPreopenExpanded: new Set(),
+  watchDetailsExpanded: new Set(),
   pullRefreshTracking: false,
   pullRefreshReady: false,
   pullRefreshRefreshing: false,
@@ -1403,7 +1406,7 @@ function setCompanyProfileLink(link, href) {
 
 function renderStockCompanyProfile(data) {
   const profile = data?.company_profile || {};
-  setText(elements.stockCompanySummary, profile.summary || "기업 설명을 확인할 수 없습니다.");
+  setText(elements.stockCompanySummary, profile.short_summary || profile.summary || "기업 설명을 확인할 수 없습니다.");
   const industry = [profile.industry, profile.sector]
     .map((item) => String(item || "").trim())
     .filter((item, index, items) => item && items.indexOf(item) === index)
@@ -2641,10 +2644,12 @@ async function applyWatchlistId(shareId, options = {}) {
     setWatchlistIdStatus(`${normalizedId} · ${formatNumber(merged.length)}개 동기화`, "success");
     void refreshPushNotificationState({ syncServer: true });
     updateWatchButton();
-    if (state.view === "watchlist") {
-      launchPageLoading(PAGE_LOADING_LABELS.watchlist, () => loadWatchlist());
-    } else if (state.view === "chart") {
-      launchPageLoading(PAGE_LOADING_LABELS.chart, () => loadWatchCharts());
+    if (options.refreshView !== false) {
+      if (state.view === "watchlist") {
+        void loadWatchlist();
+      } else if (state.view === "chart") {
+        void loadWatchCharts();
+      }
     }
     return true;
   } catch {
@@ -2707,7 +2712,7 @@ async function initializeWatchlistIdentity() {
     }
     setLoginStatus("저장된 ID로 불러오는 중");
     const [ok] = await Promise.all([
-      applyWatchlistId(savedId, { merge: true }),
+      applyWatchlistId(savedId, { merge: true, refreshView: false }),
       delay(LOGIN_SPLASH_DURATION_MS),
     ]);
     if (ok) {
@@ -3428,7 +3433,7 @@ function setView(view) {
     launchPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings(pageEntryRefreshOptions("market", currentMarketFilter())));
   } else if (view === "watchlist") {
     history.replaceState(null, "", "/dashboard?view=watchlist");
-    launchPageLoading(PAGE_LOADING_LABELS.watchlist, () => loadWatchlist(pageEntryRefreshOptions("watchlist")));
+    void loadWatchlist(pageEntryRefreshOptions("watchlist"));
   } else if (view === "recommend") {
     history.replaceState(null, "", "/dashboard?view=recommend");
     updateRecommendationButtonState();
@@ -3456,7 +3461,7 @@ function setView(view) {
     launchPageLoading(PAGE_LOADING_LABELS["trend-impact"], () => loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact")));
   } else if (view === "chart") {
     history.replaceState(null, "", "/dashboard?view=chart");
-    launchPageLoading(PAGE_LOADING_LABELS.chart, () => loadWatchCharts(pageEntryRefreshOptions("chart")));
+    void loadWatchCharts(pageEntryRefreshOptions("chart"));
   } else if (view === "chart-history") {
     history.replaceState(null, "", "/dashboard?view=chart-history");
     renderChartSnapshots();
@@ -4570,18 +4575,57 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
     createWatchInsight("거시 판단", macroView.label, macroView.tone)
   );
 
-  card.append(header, preOpenPoint, metrics, insights);
+  const details = document.createElement("details");
+  details.className = "watch-stock-details";
+  details.dataset.code = item.code || "";
+  details.open = state.watchDetailsExpanded.has(item.code || "");
+  details.addEventListener("toggle", () => {
+    if (!details.dataset.code) {
+      return;
+    }
+    if (details.open) {
+      state.watchDetailsExpanded.add(details.dataset.code);
+    } else {
+      state.watchDetailsExpanded.delete(details.dataset.code);
+    }
+  });
+  const detailsSummary = document.createElement("summary");
+  detailsSummary.textContent = "수익률·판단 보기";
+  details.append(detailsSummary, metrics, insights);
+
+  card.append(header, preOpenPoint, details);
   elements.watchlistBody.appendChild(card);
+  return card;
+}
+
+function appendWatchLoadingRow(item) {
+  const card = document.createElement("article");
+  card.className = "watch-stock-card watch-stock-loading";
+  card.dataset.code = item.code || "";
+  card.setAttribute("aria-label", `${item.name || item.code || "종목"} · ${PAGE_LOADING_LABELS.watchlist}`);
+  const name = document.createElement("strong");
+  name.textContent = item.name || item.code || "종목";
+  const status = document.createElement("div");
+  status.className = "watch-stock-loading-status";
+  const spinner = document.createElement("span");
+  spinner.className = "inline-loading-spinner";
+  spinner.setAttribute("aria-hidden", "true");
+  const label = document.createElement("span");
+  label.textContent = "핵심 지표 확인 중";
+  status.append(spinner, label);
+  card.append(name, status);
+  elements.watchlistBody.appendChild(card);
+  return card;
 }
 
 async function loadWatchlist(options = {}) {
+  const loadSequence = ++state.watchlistLoadSequence;
   const force = options.force !== false;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("watchlist");
   closeWatchlistQuoteStreams();
   const items = readWatchlist();
   elements.watchlistMeta.textContent = `${items.length}개 종목`;
   elements.watchlistBody.innerHTML = "";
-  showWatchlistLoadingOverlay();
   if (!items.length) {
     clearWatchlistLoadingOverlay();
     state.watchlistResults = [];
@@ -4589,6 +4633,8 @@ async function loadWatchlist(options = {}) {
     renderWatchlistMessage("관심 종목 없음");
     return;
   }
+  clearWatchlistLoadingOverlay();
+  const pendingRows = new Map(items.map((item) => [item.code, appendWatchLoadingRow(item)]));
   const sectorMovesPromise = refreshUsSectorMoves({ force });
   const marketContextPromise = refreshWatchlistMarketContext({ force });
   const results = await mapWithConcurrency(
@@ -4596,30 +4642,50 @@ async function loadWatchlist(options = {}) {
     3,
     async (item) => {
       try {
-        const url = `/stocks/${encodeURIComponent(item.code)}/dashboard`;
+        const url = `/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0`;
         const dashboard = await Promise.race([
           fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs }),
           rejectAfter(15_000, "watchlist dashboard timeout"),
         ]);
+        if (loadSequence !== state.watchlistLoadSequence) {
+          return { item, dashboard: null, cancelled: true };
+        }
+        const card = appendWatchRow(item, dashboard, state.usSectorMoves);
+        const pendingRow = pendingRows.get(item.code);
+        if (pendingRow?.isConnected) {
+          pendingRow.replaceWith(card);
+        } else {
+          elements.watchlistBody.appendChild(card);
+        }
+        connectWatchlistQuoteStream(item.code);
         return { item, dashboard };
       } catch {
+        if (loadSequence !== state.watchlistLoadSequence) {
+          return { item, dashboard: null, cancelled: true };
+        }
+        const pendingRow = pendingRows.get(item.code);
+        if (pendingRow?.isConnected) {
+          pendingRow.classList.add("is-error");
+          const label = pendingRow.querySelector(".watch-stock-loading-status span:last-child");
+          if (label) {
+            label.textContent = "데이터 확인이 지연되고 있습니다";
+          }
+          pendingRow.querySelector(".inline-loading-spinner")?.remove();
+        }
         return { item, dashboard: null };
       }
     }
   );
+  if (loadSequence !== state.watchlistLoadSequence) {
+    return;
+  }
   clearWatchlistLoadingOverlay();
   state.watchlistResults = results.filter((result) => result.dashboard);
   renderWatchlistStrategy(state.watchlistResults, state.usSectorMoves, state.watchlistMarketContext);
-  for (const result of results) {
-    if (result.dashboard) {
-      appendWatchRow(result.item, result.dashboard, state.usSectorMoves);
-      connectWatchlistQuoteStream(result.item.code);
-    }
-  }
   connectUsSectorStream();
   sectorMovesPromise.catch(() => {});
   marketContextPromise.catch(() => {});
-  if (!elements.watchlistBody.children.length) {
+  if (!state.watchlistResults.length && !elements.watchlistBody.children.length) {
     renderWatchlistMessage("데이터 없음");
   }
 }
@@ -5181,6 +5247,7 @@ function renderWatchChartAI(card) {
     const chart = card.querySelector(".watch-chart-visual");
     card.insertBefore(panel, chart || null);
   }
+  const keepDetailsOpen = Boolean(panel.querySelector(".chart-ai-detail-disclosure")?.open);
   panel.innerHTML = "";
   const head = el("div", "chart-ai-head");
   const title = el("div");
@@ -5211,7 +5278,12 @@ function renderWatchChartAI(card) {
     section.appendChild(list);
     grid.appendChild(section);
   }
-  panel.append(head, summary, pricePlan, explanation, grid);
+  const details = el("details", "chart-ai-detail-disclosure");
+  details.open = keepDetailsOpen;
+  const detailsSummary = document.createElement("summary");
+  detailsSummary.textContent = "AI 판단 근거 보기";
+  details.append(detailsSummary, explanation, grid);
+  panel.append(head, summary, pricePlan, details);
   panel.hidden = false;
 }
 
@@ -5314,14 +5386,21 @@ function createWatchChartCard(item, prices, dashboard, chartAnalysis = null) {
     resistance: analysis.resistance,
     notes: analysis.notes,
   };
-  card.append(head, chartWrap, legend, metrics, indicators, checklist, notes);
+  const details = el("details", "chart-detail-disclosure");
+  const detailsSummary = document.createElement("summary");
+  detailsSummary.textContent = "지표와 판단 근거 보기";
+  details.append(detailsSummary, metrics, indicators, checklist, notes);
+  card.append(head, chartWrap, legend, details);
   return card;
 }
 
 function renderWatchChartMessage(title, message = "") {
   elements.watchChartList.innerHTML = "";
   if (isLoadingMessageText(title)) {
-    showWatchChartLoadingOverlay();
+    clearWatchChartLoadingOverlay();
+    const card = el("article", "watch-chart-empty-card is-loading");
+    appendInlineLoadingState(card, PAGE_LOADING_LABELS.chart, message || "완료된 종목부터 순서대로 보여드립니다.");
+    elements.watchChartList.appendChild(card);
     return;
   }
   clearWatchChartLoadingOverlay();
@@ -5383,6 +5462,12 @@ function setWatchChartMetaLoading(total = 0, done = 0) {
   elements.watchChartMeta.setAttribute("aria-busy", "true");
   elements.watchChartMeta.setAttribute("aria-label", total ? `관심종목 ${formatNumber(total)}개 중 ${formatNumber(done)}개 로딩` : "차트 데이터 로딩");
   elements.watchChartMeta.textContent = "";
+  const spinner = document.createElement("span");
+  spinner.className = "inline-loading-spinner";
+  spinner.setAttribute("aria-hidden", "true");
+  const label = document.createElement("span");
+  label.textContent = total ? `${formatNumber(done)}/${formatNumber(total)} 확인 중` : "확인 중";
+  elements.watchChartMeta.append(spinner, label);
 }
 
 function renderWatchChartList(results) {
@@ -5471,10 +5556,11 @@ async function refreshWatchChartCard(card, button) {
   button.textContent = "갱신 중";
   try {
     clearCachedUrl(`/stocks/${encodeURIComponent(code)}/prices?limit=180`);
-    clearCachedUrl(`/stocks/${encodeURIComponent(code)}/dashboard?refresh=1`);
+    clearCachedUrl(`/stocks/${encodeURIComponent(code)}/dashboard?refresh=1&include_profile=0`);
+    clearCachedUrl(`/stocks/${encodeURIComponent(code)}/dashboard?include_profile=0`);
     const [prices, dashboard] = await Promise.all([
       fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/prices?limit=180`), { force: true, ttlMs: 0 }),
-      fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/dashboard?refresh=1`), { force: true, ttlMs: 0 }),
+      fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/dashboard?refresh=1&include_profile=0`), { force: true, ttlMs: 0 }),
     ]);
     const analysis = prices.length ? computeWatchChart(prices) : null;
     const next = { item: current.item, prices, dashboard, analysis };
@@ -5499,6 +5585,7 @@ async function refreshWatchChartCard(card, button) {
 }
 
 async function loadWatchCharts(options = {}) {
+  const loadSequence = ++state.watchChartLoadSequence;
   const force = options.force !== false;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("chart");
   const items = await resolveWatchChartItems();
@@ -5511,13 +5598,14 @@ async function loadWatchCharts(options = {}) {
     renderWatchChartMessage("관심 종목이 없습니다.", "종목 검색에서 관심 종목을 추가하면 이곳에 AI 차트 분석 리스트가 표시됩니다.");
     return;
   }
-  showWatchChartLoadingOverlay();
+  renderWatchChartMessage("차트 데이터를 불러오는 중", "완료된 종목부터 순서대로 보여드립니다.");
   setWatchChartMetaLoading(items.length, 0);
   if (elements.watchChartRefresh) {
     elements.watchChartRefresh.disabled = true;
     elements.watchChartRefresh.textContent = "불러오는 중";
   }
   try {
+    const completedResults = [];
     const results = await mapWithConcurrency(
       items,
       2,
@@ -5526,27 +5614,45 @@ async function loadWatchCharts(options = {}) {
           const [prices, dashboard] = await Promise.race([
             Promise.all([
               fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/prices?limit=180`, { force, ttlMs: force ? 0 : ttlMs }),
-              fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/dashboard?refresh=1`, { force, ttlMs: force ? 0 : ttlMs }),
+              fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0`, { force, ttlMs: force ? 0 : ttlMs }),
             ]),
             rejectAfter(15_000, "watch chart timeout"),
           ]);
-          return { item, prices, dashboard, analysis: prices.length ? computeWatchChart(prices) : null };
+          const result = { item, prices, dashboard, analysis: prices.length ? computeWatchChart(prices) : null };
+          if (loadSequence === state.watchChartLoadSequence) {
+            completedResults.push(result);
+            state.watchChartResults = [...completedResults];
+            renderWatchChartList(state.watchChartResults);
+          }
+          return result;
         } catch {
           return { item, prices: [], dashboard: null, analysis: null };
         }
       },
       (done, total) => {
+        if (loadSequence !== state.watchChartLoadSequence) {
+          return;
+        }
         if (elements.watchChartRefresh) {
           elements.watchChartRefresh.textContent = `${formatNumber(done)}/${formatNumber(total)}`;
         }
         setWatchChartMetaLoading(total, done);
       }
     );
+    if (loadSequence !== state.watchChartLoadSequence) {
+      return;
+    }
     state.watchChartResults = results;
     setWatchChartMetaText(`관심종목 ${formatNumber(items.length)}개`);
     renderWatchChartList(results);
   } finally {
+    if (loadSequence !== state.watchChartLoadSequence) {
+      return;
+    }
     clearWatchChartLoadingOverlay();
+    if (elements.watchChartMeta?.classList.contains("is-loading")) {
+      setWatchChartMetaText(`관심종목 ${formatNumber(items.length)}개`);
+    }
     if (elements.watchChartRefresh) {
       elements.watchChartRefresh.disabled = false;
       elements.watchChartRefresh.textContent = "새로고침";
@@ -6091,7 +6197,7 @@ async function loadRecommendationHistory(options = {}) {
   await Promise.all(
     tracks.map(async (track) => {
       try {
-        const dashboard = await fetchJsonCached(`/stocks/${encodeURIComponent(track.code)}/dashboard?refresh=1`, { force, ttlMs: force ? 0 : ttlMs });
+        const dashboard = await fetchJsonCached(`/stocks/${encodeURIComponent(track.code)}/dashboard?include_profile=0`, { force, ttlMs: force ? 0 : ttlMs });
         if (state.recommendTrackRequestId !== requestId || state.view !== "recommend-history") {
           return;
         }
@@ -6246,9 +6352,9 @@ async function refreshRecommendationCard(card, button) {
   const originalText = button.textContent;
   button.disabled = true;
   button.textContent = "갱신 중";
-  const url = `/stocks/${encodeURIComponent(item.code)}/dashboard?refresh=1`;
+  const url = `/stocks/${encodeURIComponent(item.code)}/dashboard?refresh=1&include_profile=0`;
   clearCachedUrl(url);
-  clearCachedUrl(`/stocks/${encodeURIComponent(item.code)}/dashboard`);
+  clearCachedUrl(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0`);
   try {
     const dashboard = await fetchJsonCached(url, { force: true, ttlMs: 0 });
     const updatedItem = updateRecommendationItemFromDashboard(item, dashboard);
@@ -6277,7 +6383,7 @@ async function refreshVisibleRecommendationCards(options = {}) {
       return;
     }
     try {
-      const dashboard = await fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/dashboard?refresh=1`, { force: true, ttlMs: 0 });
+      const dashboard = await fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0`, { force: true, ttlMs: 0 });
       const updatedItem = updateRecommendationItemFromDashboard(item, dashboard);
       if (card.isConnected) {
         card.replaceWith(createRecommendationCard(updatedItem));
@@ -6555,7 +6661,11 @@ function createRecommendationCard(item) {
   reasonWrap.append(reasons, risks);
 
   body.append(chartBox, components, reasonWrap);
-  card.append(head, body);
+  const details = el("details", "recommend-detail-disclosure");
+  const detailsSummary = document.createElement("summary");
+  detailsSummary.textContent = "세부 점수와 근거 보기";
+  details.append(detailsSummary, body);
+  card.append(head, details);
   return card;
 }
 
@@ -7000,7 +7110,11 @@ function renderMarketImpactAnalysis(payload) {
     appendMarketImpactDetail(detailGrid, factor);
   }
 
-  shell.append(hero, flow, detailGrid);
+  const details = el("details", "market-impact-disclosure");
+  const detailsSummary = document.createElement("summary");
+  detailsSummary.textContent = "공식 지표와 종목 영향 자세히 보기";
+  details.append(detailsSummary, detailGrid);
+  shell.append(hero, flow, details);
   elements.trendEvents.appendChild(shell);
 }
 
@@ -7038,7 +7152,11 @@ function appendTrendEvent(item, parent = elements.trendEvents) {
   source.target = "_blank";
   source.rel = "noreferrer";
 
-  card.append(head, impact, tags, points, source);
+  const details = el("details", "trend-event-disclosure");
+  const detailsSummary = document.createElement("summary");
+  detailsSummary.textContent = "세부 영향과 출처 보기";
+  details.append(detailsSummary, tags, points, source);
+  card.append(head, impact, details);
   parent.appendChild(card);
 }
 
@@ -7481,7 +7599,7 @@ async function loadStockRequest(query) {
   }
   try {
     render(
-      await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(stock.code)}/dashboard?refresh=1`), { force: true, ttlMs: 0 }),
+      await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(stock.code)}/dashboard`), { force: true, ttlMs: 0 }),
       { previousCode: previousStock?.code },
     );
   } catch {
@@ -7633,9 +7751,9 @@ elements.recommendHistoryNewButton?.addEventListener("click", () => setView("rec
 elements.watchChartRefresh?.addEventListener("click", () => {
   for (const item of readWatchlist()) {
     clearCachedUrl(`/stocks/${encodeURIComponent(item.code)}/prices?limit=180`);
-    clearCachedUrl(`/stocks/${encodeURIComponent(item.code)}/dashboard`);
+    clearCachedUrl(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0`);
   }
-  launchPageLoading(PAGE_LOADING_LABELS.chart, () => loadWatchCharts());
+  void loadWatchCharts();
 });
 elements.chartArchiveButton?.addEventListener("click", () => setView("chart-history"));
 elements.chartHistoryBackButton.addEventListener("click", () => setView("chart"));
@@ -7687,6 +7805,9 @@ function handleTrendEventClick(event) {
   if (event.target.closest(".event-flow")) {
     return;
   }
+  if (event.target.closest(".trend-event-disclosure")) {
+    return;
+  }
   const card = event.target.closest(".trend-event");
   if (card) {
     loadTrendGraph(card);
@@ -7724,9 +7845,10 @@ elements.watchlistBody.addEventListener("click", (event) => {
   }
   const code = button.dataset.code;
   state.watchPreopenExpanded.delete(code);
+  state.watchDetailsExpanded.delete(code);
   writeWatchlist(readWatchlist().filter((item) => item.code !== code));
   updateWatchButton();
-  launchPageLoading(PAGE_LOADING_LABELS.watchlist, () => loadWatchlist());
+  void loadWatchlist();
 });
 
 elements.recommendList.addEventListener("click", (event) => {
@@ -7861,28 +7983,32 @@ document.addEventListener("click", (event) => {
 
 registerDashboardServiceWorker();
 updateHomeInstallButton();
-initializeWatchlistIdentity();
 applyStockTermTooltips();
 
-if (state.view === "market") {
-  setView("market");
-} else if (state.view === "watchlist") {
-  setView("watchlist");
-} else if (state.view === "recommend") {
-  setView("recommend");
-} else if (state.view === "recommend-history") {
-  setView("recommend-history");
-} else if (state.view === "trend") {
-  setView("trend");
-} else if (state.view === "trend-past") {
-  setView("trend-past");
-} else if (state.view === "trend-impact") {
-  setView("trend-impact");
-} else if (state.view === "chart") {
-  setView("chart");
-} else if (state.view === "chart-history") {
-  setView("chart-history");
-} else {
-  setView("stock");
-  load(pathQuery());
+async function initializeDashboard() {
+  await initializeWatchlistIdentity();
+  if (state.view === "market") {
+    setView("market");
+  } else if (state.view === "watchlist") {
+    setView("watchlist");
+  } else if (state.view === "recommend") {
+    setView("recommend");
+  } else if (state.view === "recommend-history") {
+    setView("recommend-history");
+  } else if (state.view === "trend") {
+    setView("trend");
+  } else if (state.view === "trend-past") {
+    setView("trend-past");
+  } else if (state.view === "trend-impact") {
+    setView("trend-impact");
+  } else if (state.view === "chart") {
+    setView("chart");
+  } else if (state.view === "chart-history") {
+    setView("chart-history");
+  } else {
+    setView("stock");
+    load(pathQuery());
+  }
 }
+
+void initializeDashboard();
