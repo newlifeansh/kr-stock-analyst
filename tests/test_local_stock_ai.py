@@ -104,6 +104,12 @@ def test_ollama_rewrites_prose_without_changing_calculated_decision():
     assert captured["url"] == "http://127.0.0.1:11434/api/chat"
     assert "format" not in captured["json"]
     assert captured["json"]["think"] is False
+    assert captured["json"]["options"]["num_ctx"] == 512
+    assert captured["json"]["options"]["num_predict"] == 24
+    compact_evidence = captured["json"]["messages"][1]["content"]
+    assert '"종목":"삼성SDI"' in compact_evidence
+    assert "533000" not in compact_evidence
+    assert "key_points" not in compact_evidence
 
 
 def test_ollama_output_with_unsupported_number_falls_back_to_rules():

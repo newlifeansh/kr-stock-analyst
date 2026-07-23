@@ -21,7 +21,7 @@ _DRAFT_CACHE: dict[str, tuple[float, LocalAnalysisDraft]] = {}
 
 
 class LocalAnalysisDraft(BaseModel):
-    summary: str = Field(min_length=20, max_length=200)
+    summary: str = Field(min_length=12, max_length=200)
 
 
 _CRITICAL_NUMBER_PATTERN = re.compile(
@@ -39,6 +39,15 @@ def _number_facts(text: str) -> set[str]:
     return facts
 
 
+def _rounded(value: object, digits: int = 1) -> object:
+    if value is None or isinstance(value, bool):
+        return value
+    try:
+        return round(float(value), digits)
+    except (TypeError, ValueError):
+        return value
+
+
 def _evidence_bundle(dashboard: dict[str, Any], rules: dict[str, object]) -> dict[str, object]:
     sentiment = dashboard.get("sentiment") if isinstance(dashboard.get("sentiment"), dict) else {}
     news_items = sentiment.get("latest_items") if isinstance(sentiment, dict) else []
@@ -49,52 +58,35 @@ def _evidence_bundle(dashboard: dict[str, Any], rules: dict[str, object]) -> dic
     flows = dashboard.get("flows") if isinstance(dashboard.get("flows"), dict) else {}
     valuation = dashboard.get("valuation") if isinstance(dashboard.get("valuation"), dict) else {}
     return {
-        "stock": {
-            "code": dashboard.get("code"),
-            "name": dashboard.get("name"),
-            "as_of": dashboard.get("as_of"),
-        },
-        "signals": {
-            "price": quote.get("price"),
-            "day_change_rate": quote.get("change_rate"),
-            "one_month_return": momentum.get("one_month_return"),
-            "three_month_return": momentum.get("three_month_return"),
-            "chart_stance": chart.get("stance"),
-            "chart_score": chart.get("score"),
-            "foreign_flow": flows.get("foreign_intensity"),
-            "institution_flow": flows.get("institution_intensity"),
-            "per": valuation.get("per"),
-            "pbr": valuation.get("pbr"),
-            "analyst_report_count": revisions.get("report_count_90d"),
-            "latest_opinion": revisions.get("latest_opinion"),
-            "news_score": sentiment.get("score"),
-        },
-        "news": {
-            "headlines": [
-                str(item.get("title") or "")[:120]
-                for item in (news_items or [])[:2]
-                if isinstance(item, dict)
-            ],
-        },
-        "calculated_decision": {
-            "stance": rules.get("stance"),
-            "confidence": rules.get("confidence"),
-            "summary": rules.get("summary"),
-            "key_points": rules.get("key_points"),
-        },
+        "종목": dashboard.get("name"),
+        "등락률": _rounded(quote.get("change_rate")),
+        "1개월": _rounded(momentum.get("one_month_return")),
+        "3개월": _rounded(momentum.get("three_month_return")),
+        "차트": chart.get("stance"),
+        "차트점수": _rounded(chart.get("score"), 0),
+        "외국인수급": _rounded(flows.get("foreign_intensity")),
+        "기관수급": _rounded(flows.get("institution_intensity")),
+        "PER": _rounded(valuation.get("per"), 2),
+        "PBR": _rounded(valuation.get("pbr"), 2),
+        "리포트수": revisions.get("report_count_90d"),
+        "투자의견": revisions.get("latest_opinion"),
+        "뉴스점수": _rounded(sentiment.get("score")),
+        "주요뉴스": [
+            str(item.get("title") or "")[:80]
+            for item in (news_items or [])[:1]
+            if isinstance(item, dict)
+        ],
+        "계산판단": rules.get("stance"),
+        "계산요약": rules.get("summary"),
     }
 
 
 def _prompt_messages(bundle: dict[str, object]) -> list[dict[str, str]]:
-    system_prompt = """당신은 한국 주식 초보자를 위한 분석 편집자입니다.
-입력된 데이터와 계산 결과만 사용해 쉬운 한국어로 정리하세요.
-새로운 수치, 사실, 뉴스, 목표가를 만들지 마세요.
-계산된 stance와 trade_levels를 변경하거나 재계산하지 마세요.
-단정적인 수익 보장, 무조건 매수·매도 표현을 쓰지 말고 조건부 대응으로 설명하세요.
-summary는 계산된 판단을 바꾸지 말고 가장 중요한 이유를 100자 이내 한 문장으로 설명하세요.
-핵심 근거, 가격 전략과 위험 관리는 이미 계산되어 있으므로 다시 작성하지 마세요.
-제목, 목록, JSON, 부연 설명 없이 요약 문장만 출력하세요."""
-    user_prompt = "다음 분석 근거를 정리하세요.\n" + json.dumps(
+    system_prompt = """한국 주식 초보자를 위한 요약 편집자입니다.
+제공된 수치와 계산판단만 사용하고 사실이나 수치를 만들지 마세요.
+판단을 바꾸거나 매수·매도를 단정하지 마세요.
+가장 중요한 이유를 쉬운 한국어 60자 이내 한 문장으로만 쓰세요."""
+    user_prompt = json.dumps(
         bundle,
         ensure_ascii=False,
         default=str,
@@ -195,7 +187,7 @@ def enrich_stock_ai_analysis(
                     "messages": _prompt_messages(bundle),
                     "stream": False,
                     "think": False,
-                    "options": {"temperature": 0, "num_ctx": 1536, "num_predict": 80},
+                    "options": {"temperature": 0, "num_ctx": 512, "num_predict": 24},
                     "keep_alive": "15m",
                 },
                 timeout=max(10, config.ollama_timeout_seconds),

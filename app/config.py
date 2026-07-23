@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     web_push_vapid_subject: str = "mailto:admin@secret-note.app"
     stock_ai_provider: str = "rules"
     ollama_base_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "qwen3:0.6b"
+    ollama_model: str = "qwen2.5:0.5b"
     ollama_timeout_seconds: int = 60
     ollama_cache_seconds: int = 900
     toss_enabled: bool = False
