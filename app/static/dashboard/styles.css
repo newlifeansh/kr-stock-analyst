@@ -2529,7 +2529,7 @@ h1 {
 }
 
 #trend-view {
-  width: 100%;
+  width: auto;
   max-width: 100%;
   min-width: 0;
   overflow-x: hidden;
@@ -2540,7 +2540,7 @@ h1 {
 .trend-watch-news-board,
 .trend-watch-news-group,
 .trend-watch-news-item {
-  width: 100%;
+  width: auto;
   max-width: 100%;
   min-width: 0;
 }
@@ -2571,7 +2571,7 @@ h1 {
 .trend-watch-stock-rail {
   display: flex;
   gap: 8px;
-  width: 100%;
+  width: auto;
   max-width: 100%;
   margin-bottom: 18px;
   padding-bottom: 4px;
@@ -2580,6 +2580,7 @@ h1 {
   scroll-snap-type: x proximity;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  contain: inline-size;
 }
 
 .trend-watch-stock-rail::-webkit-scrollbar {
@@ -2672,20 +2673,31 @@ h1 {
 }
 
 .trend-watch-news-item {
-  display: grid;
-  gap: 6px;
+  display: block;
   padding: 14px 0;
   border-bottom: 1px solid var(--report-line, rgba(174, 179, 192, 0.28));
   color: inherit;
+  overflow: hidden;
 }
 
 .trend-watch-news-item strong {
+  display: block;
+  max-width: 100%;
   color: var(--report-text, #343d4c);
   font-size: var(--trend-card-title-size);
   font-weight: 800;
   line-height: 1.5;
+  overflow-wrap: anywhere !important;
+  word-break: break-all;
+  white-space: normal !important;
+}
+
+.trend-watch-news-item > span {
+  display: block;
+  max-width: 100%;
+  margin-top: 6px;
   overflow-wrap: anywhere;
-  word-break: normal;
+  white-space: normal;
 }
 
 .trend-watch-news-empty {
@@ -7335,7 +7347,8 @@ a.flow-node.stock:hover {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0;
-    width: 100%;
+    width: auto;
+    max-width: 100%;
     overflow: hidden;
     padding-bottom: 0;
   }
@@ -11393,6 +11406,18 @@ body :is(
     padding-inline: 14px;
   }
 
+  #trend-view {
+    width: calc(100vw - 28px);
+    max-width: calc(100vw - 28px);
+  }
+
+  #trend-view .trend-tabs,
+  #trend-view .trend-panel {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
   #stock-view .topbar,
   #stock-view .stock-quote-card,
   #stock-view .stock-company-profile,
@@ -11432,7 +11457,7 @@ body :is(
   }
 
   .trend-watch-stock-rail {
-    width: 100%;
+    width: auto;
     margin-right: 0;
     padding-right: 0;
   }
@@ -11455,6 +11480,11 @@ body :is(
 
   .shell {
     padding-inline: 12px;
+  }
+
+  #trend-view {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
   }
 
   .watch-stock-card,
