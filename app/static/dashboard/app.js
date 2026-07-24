@@ -34,6 +34,7 @@ const elements = {
   pushNotificationSheetClose: $("push-notification-sheet-close"),
   pushNotificationSheetStatus: $("push-notification-sheet-status"),
   pushNotificationConditionList: $("push-notification-condition-list"),
+  pushNotificationSheetTestButton: $("push-notification-sheet-test-button"),
   pushNotificationSheetDisableButton: $("push-notification-sheet-disable-button"),
   pushNotificationSheetSaveButton: $("push-notification-sheet-save-button"),
   recommendView: $("recommend-view"),
@@ -2968,6 +2969,7 @@ function updatePushNotificationDisableButton(options = {}) {
 function updatePushNotificationSheet() {
   renderPushNotificationConditionOptions();
   const saveButton = elements.pushNotificationSheetSaveButton;
+  const testButton = elements.pushNotificationSheetTestButton;
   const disableButton = elements.pushNotificationSheetDisableButton;
   const selected = state.pushNotificationConditions;
   const configReady = Boolean(state.pushConfig?.enabled && state.pushConfig?.public_key);
@@ -2980,6 +2982,16 @@ function updatePushNotificationSheet() {
   if (disableButton) {
     disableButton.hidden = !state.pushNotificationEnabled;
     disableButton.disabled = busy;
+  }
+  if (testButton) {
+    testButton.hidden = !state.pushNotificationEnabled;
+    testButton.disabled = busy;
+  }
+  if (isIOSDevice() && !isStandaloneApp()) {
+    saveButton && (saveButton.disabled = true);
+    testButton && (testButton.disabled = true);
+    setPushNotificationSheetStatus("iPhone은 홈 화면에 설치한 비밀노트 앱에서만 알림을 받을 수 있습니다.", "error");
+    return;
   }
   if (!supported) {
     saveButton && (saveButton.disabled = true);
@@ -3333,6 +3345,44 @@ async function savePushNotificationSettings() {
   } finally {
     state.pushNotificationBusy = false;
     updatePushNotificationSheet();
+  }
+}
+
+async function sendPushTestNotification() {
+  if (state.pushNotificationBusy || !state.watchlistId) {
+    return;
+  }
+  state.pushNotificationBusy = true;
+  updatePushNotificationSheet();
+  let statusText = "";
+  let statusTone = "";
+  try {
+    const subscription = await currentPushSubscription();
+    if (!subscription) {
+      throw new Error("push subscription missing");
+    }
+    const writeToken = await ensureWriteToken(state.watchlistId);
+    const response = await fetch(`/push/subscriptions/${encodeURIComponent(state.watchlistId)}/test`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Write-Token": writeToken,
+      },
+      body: JSON.stringify({ endpoint: subscription.endpoint }),
+    });
+    if (!response.ok) {
+      throw new Error("push test failed");
+    }
+    statusText = "테스트 알림을 보냈습니다. 보이지 않으면 iPhone 설정의 비밀노트 알림 허용을 확인해주세요.";
+    statusTone = "success";
+  } catch {
+    statusText = "테스트 알림을 보내지 못했습니다. 알림을 껐다가 다시 켜주세요.";
+    statusTone = "error";
+  } finally {
+    state.pushNotificationBusy = false;
+    updatePushNotificationSheet();
+    setPushNotificationSheetStatus(statusText, statusTone);
   }
 }
 
@@ -7864,6 +7914,7 @@ elements.pushNotificationDisableButton?.addEventListener("click", disablePushNot
 elements.pushNotificationSheetBackdrop?.addEventListener("click", closePushNotificationSheet);
 elements.pushNotificationSheetClose?.addEventListener("click", closePushNotificationSheet);
 elements.pushNotificationSheetSaveButton?.addEventListener("click", savePushNotificationSettings);
+elements.pushNotificationSheetTestButton?.addEventListener("click", sendPushTestNotification);
 elements.pushNotificationSheetDisableButton?.addEventListener("click", disablePushNotificationsFromUi);
 elements.aiAnalysisButton.addEventListener("click", (event) => {
   event.preventDefault();

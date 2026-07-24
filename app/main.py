@@ -723,6 +723,31 @@ def save_push_subscription(
     return {"enabled": True, "test_sent": test_sent, "conditions": conditions}
 
 
+@app.post("/push/subscriptions/{share_id}/test")
+def test_push_subscription(
+    share_id: str,
+    payload: PushSubscriptionDeleteIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    normalized_id = _normalize_watchlist_id(share_id)
+    _require_write_access(request, normalized_id)
+    if not web_push_runtime.configured:
+        raise HTTPException(status_code=503, detail="웹푸시 발송 키가 설정되지 않았습니다.")
+    subscription = db.scalar(
+        select(PushSubscription).where(
+            PushSubscription.share_id == normalized_id,
+            PushSubscription.endpoint == payload.endpoint,
+            PushSubscription.enabled.is_(True),
+        )
+    )
+    if subscription is None:
+        raise HTTPException(status_code=404, detail="현재 기기의 알림 구독을 찾지 못했습니다.")
+    if not web_push_runtime.send_test(db, subscription):
+        raise HTTPException(status_code=502, detail="푸시 서버가 시험 알림을 수락하지 않았습니다.")
+    return {"sent": True}
+
+
 @app.delete("/push/subscriptions/{share_id}")
 def delete_push_subscription(
     share_id: str,

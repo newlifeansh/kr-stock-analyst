@@ -818,6 +818,17 @@ a {
   gap: 10px;
 }
 
+.push-notification-sheet-test {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #111111;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #111111;
+  font-size: 14px;
+  font-weight: 900;
+}
+
 .push-notification-sheet-actions button {
   min-height: 44px;
   border-radius: 14px;
@@ -841,7 +852,8 @@ a {
 }
 
 .push-notification-sheet-save:disabled,
-.push-notification-sheet-disable:disabled {
+.push-notification-sheet-disable:disabled,
+.push-notification-sheet-test:disabled {
   cursor: default;
   opacity: 0.5;
 }

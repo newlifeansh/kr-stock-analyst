@@ -195,6 +195,16 @@ def test_mobile_stock_evidence_sections_share_one_alignment():
     assert "padding-inline: 0 !important;" in styles
 
 
+def test_push_settings_include_device_test_action():
+    client = TestClient(app)
+    shell = client.get("/dashboard").text
+    source = client.get("/assets/dashboard/app.js").text
+
+    assert 'id="push-notification-sheet-test-button"' in shell
+    assert "/push/subscriptions/${encodeURIComponent(state.watchlistId)}/test" in source
+    assert "iPhone은 홈 화면에 설치한 비밀노트 앱에서만 알림을 받을 수 있습니다." in source
+
+
 def test_meta_endpoints():
     client = TestClient(app)
 
