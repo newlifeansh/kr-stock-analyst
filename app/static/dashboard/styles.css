@@ -15172,8 +15172,7 @@ body :is(
 }
 
 #stock-view.stock-detail-v3 .quant-chart-marker text {
-  font-size: 10px;
-  font-weight: 750;
+  display: none;
 }
 
 #stock-view.stock-detail-v3 .quant-chart-marker.buy line {
@@ -15423,6 +15422,332 @@ body :is(
 
   #stock-view.stock-detail-v3 .quant-trade-row strong {
     font-size: 13px;
+  }
+}
+
+/* AI trading signal: current action first, details on demand. */
+#stock-view.stock-detail-v3 .stock-v3-compat[hidden] {
+  display: none !important;
+}
+
+#stock-view.stock-detail-v3 .quant-signal-stack {
+  width: min(100%, 820px);
+  margin: 0 auto;
+  gap: 10px;
+}
+
+#stock-view.stock-detail-v3 .quant-current-card {
+  padding: 24px 26px;
+  background: #f5f8fb;
+}
+
+#stock-view.stock-detail-v3 .quant-current-head {
+  align-items: center;
+  padding: 0;
+}
+
+#stock-view.stock-detail-v3 .quant-current-head > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#stock-view.stock-detail-v3 .quant-current-head span {
+  color: #737c88;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+#stock-view.stock-detail-v3 .quant-state-badge {
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: #e9edf2;
+  color: #555f6b !important;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: left;
+}
+
+#stock-view.stock-detail-v3 .quant-state-badge.quant-action-entry_pending,
+#stock-view.stock-detail-v3 .quant-state-badge.quant-action-holding {
+  background: #fff0f1;
+  color: #c92838 !important;
+}
+
+#stock-view.stock-detail-v3 .quant-state-badge.quant-action-partial_exit_pending,
+#stock-view.stock-detail-v3 .quant-state-badge.quant-action-partially_exited {
+  background: #fff5df;
+  color: #946100 !important;
+}
+
+#stock-view.stock-detail-v3 .quant-state-badge.quant-action-full_exit_pending,
+#stock-view.stock-detail-v3 .quant-state-badge.quant-action-exited {
+  background: #eaf2ff;
+  color: #2167c7 !important;
+}
+
+#stock-view.stock-detail-v3 .quant-signal-refresh {
+  flex: 0 0 auto;
+  min-width: 72px;
+  height: 36px;
+  border: 1px solid #cfd5dd;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #333a44;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+#stock-view.stock-detail-v3 .quant-signal-refresh:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+#stock-view.stock-detail-v3 .quant-current-message,
+#stock-view.stock-detail-v3 .quant-current-message[class*="quant-action-"] {
+  max-width: 620px;
+  margin: 28px 0 8px;
+  color: var(--stock-v3-text) !important;
+  font-size: 28px !important;
+  font-weight: 850;
+  line-height: 1.35;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+#stock-view.stock-detail-v3 .quant-current-meta {
+  margin: 0;
+  padding: 0;
+  color: #747d89;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+#stock-view.stock-detail-v3 .quant-current-position {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 24px;
+  border-top: 1px solid #dfe4ea;
+}
+
+#stock-view.stock-detail-v3 .quant-current-position > div {
+  min-width: 0;
+  padding: 16px 14px 0;
+  border-right: 1px solid #dfe4ea;
+}
+
+#stock-view.stock-detail-v3 .quant-current-position > div:first-child {
+  padding-left: 0;
+}
+
+#stock-view.stock-detail-v3 .quant-current-position > div:last-child {
+  padding-right: 0;
+}
+
+#stock-view.stock-detail-v3 .quant-current-position dd {
+  min-width: 0;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+#stock-view.stock-detail-v3 .quant-current-position dd.positive {
+  color: var(--stock-v3-red);
+}
+
+#stock-view.stock-detail-v3 .quant-current-position dd.negative {
+  color: var(--stock-v3-blue);
+}
+
+#stock-view.stock-detail-v3 .quant-next-confirmation {
+  margin: 20px 0 0;
+  padding: 13px 0 0;
+  border-top: 1px solid #dfe4ea;
+  color: #3e4753;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+#stock-view.stock-detail-v3 .quant-chart-card .stock-v3-section-head,
+#stock-view.stock-detail-v3 .quant-performance-card .stock-v3-section-head {
+  align-items: center;
+}
+
+#stock-view.stock-detail-v3 .quant-chart-card .stock-v3-source,
+#stock-view.stock-detail-v3 .quant-performance-card .stock-v3-source {
+  white-space: nowrap;
+}
+
+#stock-view.stock-detail-v3 .quant-signal-chart {
+  min-height: 280px;
+}
+
+#stock-view.stock-detail-v3 .quant-performance-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-left: 0;
+}
+
+#stock-view.stock-detail-v3 .quant-performance-grid > div {
+  min-width: 0;
+  padding: 16px 14px;
+}
+
+#stock-view.stock-detail-v3 .quant-performance-grid > div:first-child {
+  padding-left: 0;
+}
+
+#stock-view.stock-detail-v3 .quant-performance-grid > div:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+
+#stock-view.stock-detail-v3 .quant-performance-grid dd {
+  overflow-wrap: anywhere;
+}
+
+#stock-view.stock-detail-v3 .quant-history-card {
+  padding: 20px 26px;
+}
+
+#stock-view.stock-detail-v3 .quant-trade-disclosure > summary {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cfd5dd;
+  border-radius: 6px;
+  color: #252b33;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 750;
+  list-style: none;
+}
+
+#stock-view.stock-detail-v3 .quant-trade-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+#stock-view.stock-detail-v3 .quant-trade-disclosure > summary::after {
+  margin-left: 8px;
+  color: #7a838e;
+  content: "+";
+}
+
+#stock-view.stock-detail-v3 .quant-trade-disclosure[open] > summary::after {
+  content: "−";
+}
+
+#stock-view.stock-detail-v3 .quant-trade-disclosure[open] .quant-trade-list {
+  margin-top: 14px;
+}
+
+#stock-view.stock-detail-v3 .quant-trade-list {
+  border-top: 0;
+}
+
+#stock-view.stock-detail-v3 .quant-trade-row {
+  min-height: 62px;
+  padding: 9px 0;
+}
+
+#stock-view.stock-detail-v3 .quant-trade-row > div:last-child:empty {
+  display: none;
+}
+
+#stock-view.stock-detail-v3 .quant-disclaimer {
+  margin: 14px 0 0;
+  color: #8a929d;
+  font-size: 10px;
+  font-weight: 550;
+  line-height: 1.45;
+  text-align: center;
+}
+
+@media (max-width: 980px) {
+  #stock-view.stock-detail-v3 .quant-current-card {
+    padding: 24px 20px;
+  }
+
+  #stock-view.stock-detail-v3 .quant-history-card {
+    padding: 18px 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  #stock-view.stock-detail-v3 .quant-current-head {
+    padding: 0;
+  }
+
+  #stock-view.stock-detail-v3 .quant-current-message,
+  #stock-view.stock-detail-v3 .quant-current-message[class*="quant-action-"] {
+    margin-top: 24px;
+    font-size: 24px !important;
+    line-height: 1.42;
+  }
+
+  #stock-view.stock-detail-v3 .quant-current-meta {
+    padding: 0;
+    font-size: 11px;
+  }
+
+  #stock-view.stock-detail-v3 .quant-current-position {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #stock-view.stock-detail-v3 .quant-current-position > div,
+  #stock-view.stock-detail-v3 .quant-current-position > div:nth-child(-n + 2) {
+    padding: 14px 8px 0;
+    border-bottom: 0;
+  }
+
+  #stock-view.stock-detail-v3 .quant-current-position > div:nth-child(2n) {
+    border-right: 1px solid #dfe4ea;
+  }
+
+  #stock-view.stock-detail-v3 .quant-current-position > div:first-child {
+    padding-left: 0;
+  }
+
+  #stock-view.stock-detail-v3 .quant-current-position > div:last-child {
+    padding-right: 0;
+    border-right: 0;
+  }
+
+  #stock-view.stock-detail-v3 .quant-current-position dt {
+    font-size: 10px !important;
+  }
+
+  #stock-view.stock-detail-v3 .quant-current-position dd {
+    font-size: 13px;
+  }
+
+  #stock-view.stock-detail-v3 .quant-next-confirmation {
+    padding-inline: 0;
+  }
+
+  #stock-view.stock-detail-v3 .quant-performance-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #stock-view.stock-detail-v3 .quant-performance-grid > div {
+    padding: 14px 8px;
+  }
+
+  #stock-view.stock-detail-v3 .quant-performance-grid dt {
+    font-size: 10px !important;
+  }
+
+  #stock-view.stock-detail-v3 .quant-performance-grid dd {
+    font-size: 15px;
+  }
+
+  #stock-view.stock-detail-v3 .quant-signal-chart {
+    min-height: 230px;
+    margin-right: -6px;
+    margin-left: -6px;
   }
 }
 

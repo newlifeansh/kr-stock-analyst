@@ -63,6 +63,7 @@ const elements = {
   aiSectionList: $("ai-section-list"),
   quantSignalStatus: $("quant-signal-status"),
   quantSignalContent: $("quant-signal-content"),
+  quantSignalRefresh: $("quant-signal-refresh"),
   quantCurrentLabel: $("quant-current-label"),
   quantCurrentScore: $("quant-current-score"),
   quantCurrentMeta: $("quant-current-meta"),
@@ -982,7 +983,6 @@ function setActiveStockTab(tabName, options = {}) {
   if (!options.preserveScroll) {
     window.requestAnimationFrame(() => scrollStockTabsToTop({ instant: options.instant }));
   }
-  ensureStockAIAnalysis();
   ensureStockQuantSignals();
 }
 
@@ -4368,7 +4368,7 @@ const PAGE_LOADING_LABELS = {
   "trend-impact": "시장 영향도를 계산하는 중",
   chart: "차트 분석을 불러오는 중",
   market: "급상승 종목을 불러오는 중",
-  ai: "AI 분석을 생성하는 중",
+  ai: "AI 매매신호를 계산하는 중",
 };
 
 function refreshPageLoading() {
@@ -7166,7 +7166,7 @@ function resetAIAnalysis() {
   }
 }
 
-function resetQuantSignals(message = "퀀트 신호를 계산하는 중입니다.") {
+function resetQuantSignals(message = "AI 매매신호를 계산하는 중입니다.") {
   state.stockQuantSignals = null;
   state.stockQuantRequestedCode = "";
   if (elements.quantSignalStatus) {
@@ -7193,6 +7193,108 @@ function quantToneClass(value) {
     return "neutral";
   }
   return number > 0 ? "positive" : "negative";
+}
+
+function formatQuantActionDate(value) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) {
+    return formatDateLabel(value);
+  }
+  return `${Number(match[2])}월 ${Number(match[3])}일`;
+}
+
+function quantCurrentStatusView(payload) {
+  const current = payload.current || {};
+  const events = Array.isArray(payload.events) ? payload.events : [];
+  const trades = Array.isArray(payload.trades) ? payload.trades : [];
+  const latestEvent = events.length ? events[events.length - 1] : null;
+  const latestTrade = trades[0] || null;
+  const currentPrice = current.price ? `${formatNumber(current.price)}원` : "-";
+  const exposure = `${formatNumber(current.model_exposure_percent || 0)}%`;
+  const base = {
+    badge: "관망 중",
+    tone: "waiting",
+    headline: "아직 매매신호가 없어요.",
+    next: "현재는 새 매수 신호를 기다리고 있어요.",
+    rows: [
+      ["현재가", currentPrice, "neutral"],
+      ["보유 비중", exposure, "neutral"],
+      ["최근 신호", "없음", "neutral"],
+    ],
+  };
+
+  if (current.action === "entry_pending") {
+    return {
+      ...base,
+      badge: "매수 대기",
+      tone: "entry_pending",
+      headline: "살 조건이 확인됐어요.",
+      next: "다음 거래일 시가에 AI 전략의 매수로 반영할 예정이에요.",
+    };
+  }
+  if (current.action === "partial_exit_pending") {
+    return {
+      ...base,
+      badge: "일부 매도 대기",
+      tone: "partial_exit_pending",
+      headline: "일부 팔 조건이 확인됐어요.",
+      next: "다음 거래일 시가에 일부 매도로 반영할 예정이에요.",
+      rows: [
+        ["현재가", currentPrice, "neutral"],
+        ["현재 보유", exposure, "neutral"],
+        ["보유 수익률", formatPercent(current.unrealized_return), quantToneClass(current.unrealized_return)],
+      ],
+    };
+  }
+  if (current.action === "full_exit_pending") {
+    return {
+      ...base,
+      badge: "매도 대기",
+      tone: "full_exit_pending",
+      headline: "모두 팔 조건이 확인됐어요.",
+      next: "다음 거래일 시가에 모두 매도로 반영할 예정이에요.",
+      rows: [
+        ["현재가", currentPrice, "neutral"],
+        ["현재 보유", exposure, "neutral"],
+        ["보유 수익률", formatPercent(current.unrealized_return), quantToneClass(current.unrealized_return)],
+      ],
+    };
+  }
+  if (current.position_open) {
+    const partial = current.action === "partially_exited" || latestEvent?.side === "partial_sell";
+    const actionDate = current.partial_exit_date || current.entry_date || latestEvent?.execution_date;
+    const actionPrice = current.partial_exit_price || current.entry_price || latestEvent?.price;
+    return {
+      ...base,
+      badge: partial ? "일부 매도" : "보유 중",
+      tone: partial ? "partially_exited" : "holding",
+      headline: partial
+        ? `${formatQuantActionDate(actionDate)} ${formatNumber(actionPrice)}원에 일부 팔고 ${exposure}를 보유 중이에요.`
+        : `${formatQuantActionDate(actionDate)} ${formatNumber(actionPrice)}원에 사고 보유 중이에요.`,
+      next: current.next_confirmation || "다음 매도 신호를 확인하고 있어요.",
+      rows: [
+        [partial ? "일부 매도일" : "매수일", formatDateLabel(actionDate), "neutral"],
+        [partial ? "일부 매도가" : "매수가", actionPrice ? `${formatNumber(actionPrice)}원` : "-", "neutral"],
+        ["현재 수익률", formatPercent(current.unrealized_return), quantToneClass(current.unrealized_return)],
+      ],
+    };
+  }
+  if (latestEvent?.side === "sell") {
+    const tradeReturn = latestEvent.return_rate ?? latestTrade?.net_return;
+    return {
+      ...base,
+      badge: "매도 완료",
+      tone: "exited",
+      headline: `${formatQuantActionDate(latestEvent.execution_date)} ${formatNumber(latestEvent.price)}원에 모두 팔았어요.`,
+      next: "현재 보유 비중은 0%이며, 다음 매수 신호를 기다리고 있어요.",
+      rows: [
+        ["매도일", formatDateLabel(latestEvent.execution_date), "neutral"],
+        ["매도 가격", `${formatNumber(latestEvent.price)}원`, "neutral"],
+        ["해당 매매", formatPercent(tradeReturn), quantToneClass(tradeReturn)],
+      ],
+    };
+  }
+  return base;
 }
 
 function renderQuantSignalChart() {
@@ -7254,7 +7356,7 @@ function renderQuantSignalChart() {
       ${dateLabels}
     </svg>
   `;
-  setText(elements.quantChartSource, `${payload.strategy_version} · ${formatNumber(payload.data_rows)}거래일`);
+  setText(elements.quantChartSource, `최근 1년 · ${formatNumber(rows.length)}거래일`);
 }
 
 function renderQuantSignals(payload) {
@@ -7267,112 +7369,65 @@ function renderQuantSignals(payload) {
   if (!elements.quantSignalContent) {
     return;
   }
+  const revealingSignalContent = elements.quantSignalContent.hidden;
   elements.quantSignalContent.hidden = payload.data_state !== "ready";
   if (payload.data_state !== "ready") {
     renderStockMiniChart(state.stockPriceRows, state.currentDashboard?.quote);
     return;
   }
 
-  const current = payload.current || {};
   const performance = payload.performance || {};
-  setText(elements.quantCurrentLabel, current.label || "관망");
-  setText(elements.quantCurrentScore, `${formatNumber(current.score)}점`);
-  const currentMeta = [
-    current.live_observation ? "KIS 실시간 관찰" : "확정 일봉 기준",
-    current.price ? `현재 ${formatNumber(current.price)}원` : "",
-    payload.price_through ? `일봉 ${formatDateLabel(payload.price_through)}까지` : "",
-  ].filter(Boolean).join(" · ");
-  setText(elements.quantCurrentMeta, currentMeta);
-  elements.quantCurrentLabel.className = `quant-action-${current.action || "wait"}`;
-  elements.quantCurrentScore.className = `quant-action-${current.action || "wait"}`;
-  const lifecycle = current.lifecycle || {};
-  if (elements.quantLifecycle) {
-    const stageIndex = Number.isFinite(Number(lifecycle.stage_index)) ? Number(lifecycle.stage_index) : 0;
-    elements.quantLifecycle.innerHTML = (lifecycle.stages || ["관망", "진입", "보유", "분할매도", "청산"])
-      .map((stage, index) => `<li class="${index === stageIndex ? "active" : index < stageIndex ? "complete" : ""}"><span>${index + 1}</span><strong>${stage}</strong></li>`)
-      .join("");
-  }
-  elements.quantCurrentReasons.innerHTML = "";
-  for (const reason of current.reasons || []) {
-    elements.quantCurrentReasons.appendChild(el("li", "", reason));
-  }
-  const latestTransition = lifecycle.latest_transition || {};
-  const positionRows = current.position_open
-    ? [
-        ["모델 보유비중", `${formatNumber(current.model_exposure_percent)}%`],
-        ["전략상 진입", current.entry_price ? `${formatNumber(current.entry_price)}원` : "-"],
-        ["상태 수익률", formatPercent(current.unrealized_return)],
-        ["다음 위험선", current.stop_reference ? `${formatNumber(current.stop_reference)}원` : "-"],
-      ]
-    : [
-        ["모델 보유비중", "0%"],
-        ["최근 전환", latestTransition.label || "아직 없음"],
-        ["전환일", latestTransition.transition_date ? formatDateLabel(latestTransition.transition_date) : "-"],
-        ["진입 기준", "65점 + 상승 추세"],
-      ];
-  elements.quantCurrentPosition.innerHTML = positionRows.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("");
-  setText(elements.quantNextConfirmation, current.next_confirmation || "종가 신호를 다시 확인합니다.");
-
-  const confirmation = payload.confirmation || {};
-  setText(elements.quantContextLabel, confirmation.label || "보조 근거 확인");
-  setText(elements.quantContextCoverage, `${formatNumber(confirmation.available_count || 0)}/${formatNumber(confirmation.total_count || 0)} 연결`);
-  setText(elements.quantContextNote, confirmation.note || "가격 신호와 분리해 확인합니다.");
-  if (elements.quantContextList) {
-    elements.quantContextList.innerHTML = (confirmation.evidence || []).map((item) => `
-      <li class="quant-context-${item.state || "neutral"}">
-        <div><strong>${item.label}</strong><span>${item.source}</span></div>
-        <p>${item.summary}</p>
-      </li>
-    `).join("");
-  }
+  const statusView = quantCurrentStatusView(payload);
+  setText(elements.quantCurrentLabel, statusView.headline);
+  setText(elements.quantCurrentScore, statusView.badge);
+  setText(
+    elements.quantCurrentMeta,
+    `AI 모의 전략 · ${payload.price_through ? `${formatDateLabel(payload.price_through)} 종가까지 계산` : "최근 가격까지 계산"}`,
+  );
+  elements.quantCurrentLabel.className = `quant-current-message quant-action-${statusView.tone}`;
+  elements.quantCurrentScore.className = `quant-state-badge quant-action-${statusView.tone}`;
+  elements.quantCurrentPosition.innerHTML = statusView.rows
+    .map(([label, value, tone]) => `<div><dt>${label}</dt><dd class="${tone || "neutral"}">${value}</dd></div>`)
+    .join("");
+  setText(elements.quantNextConfirmation, statusView.next);
 
   setText(
     elements.quantPerformancePeriod,
     performance.period_start && performance.period_end
-      ? `${formatDateLabel(performance.period_start)}~${formatDateLabel(performance.period_end)}`
-      : "최근 1년",
+      ? `${formatDateLabel(performance.period_end)} 기준`
+      : "최근 1년 기준",
   );
   const performanceRows = [
-    ["적중률", performance.win_rate === null || performance.win_rate === undefined ? "-" : formatPercent(performance.win_rate), "neutral"],
-    ["전략 수익률", formatPercent(performance.strategy_return), quantToneClass(performance.strategy_return)],
-    ["같은 기간 주가", formatPercent(performance.benchmark_return), quantToneClass(performance.benchmark_return)],
-    ["최대 낙폭", formatPercent(performance.max_drawdown), "negative"],
-    ["평균 체결비용", formatPercent(performance.transaction_cost_per_side), "neutral"],
-    ["완료 거래", `${formatNumber(performance.completed_trades)}회`, "neutral"],
+    ["모의 누적수익률", formatPercent(performance.strategy_return), quantToneClass(performance.strategy_return)],
+    ["매매 적중률", performance.win_rate === null || performance.win_rate === undefined ? "-" : `${Number(performance.win_rate).toFixed(1)}%`, "neutral"],
+    ["완료 매매", `${formatNumber(performance.completed_trades)}회`, "neutral"],
   ];
   elements.quantPerformanceGrid.innerHTML = performanceRows.map(([label, value, tone]) => `<div><dt>${label}</dt><dd class="${tone}">${value}</dd></div>`).join("");
-  setText(elements.quantSampleNote, performance.sample_note || "성과 표본을 확인하세요.");
+  setText(elements.quantSampleNote, performance.sample_note || "같은 규칙을 최근 1년 가격에 적용한 결과입니다.");
   elements.quantSampleNote.classList.toggle("limited", performance.sample_state === "limited");
   elements.quantTradeList.innerHTML = "";
-  const trades = Array.isArray(payload.trades) ? payload.trades.slice(0, 6) : [];
-  if (!trades.length) {
-    elements.quantTradeList.appendChild(el("p", "stock-v3-chart-empty", "최근 1년 완료된 상태 전환이 없습니다."));
+  const events = Array.isArray(payload.events) ? payload.events.slice().reverse() : [];
+  if (!events.length) {
+    elements.quantTradeList.appendChild(el("p", "stock-v3-chart-empty", "최근 1년 매매내역이 없습니다."));
   } else {
-    for (const trade of trades) {
+    for (const event of events) {
       const row = el("article", "quant-trade-row");
-      const status = trade.status === "open"
-        ? trade.remaining_percent < 100 ? "분할매도 후 보유 중" : "전략상 보유 중"
-        : `${formatDateLabel(trade.entry_date)}~${formatDateLabel(trade.exit_date)}`;
-      const transition = trade.partial_exit_date
-        ? `진입 ${formatNumber(trade.entry_price)}원 · 1차 분할 ${formatNumber(trade.partial_exit_price)}원`
-        : `진입 ${formatNumber(trade.entry_price)}원`;
+      const actionLabel = event.side === "buy" ? "매수" : event.side === "partial_sell" ? "일부 매도" : "모두 매도";
+      const result = event.return_rate === null || event.return_rate === undefined ? "" : formatPercent(event.return_rate);
+      const remaining = event.side === "partial_sell" ? "절반 보유" : event.side === "sell" ? "보유 종료" : "보유 시작";
       row.innerHTML = `
-        <div><strong>${status}</strong><span>${transition}${trade.exit_price ? ` · 청산 ${formatNumber(trade.exit_price)}원` : ""}</span></div>
-        <div><strong class="${quantToneClass(trade.net_return)}">${formatPercent(trade.net_return)}</strong><span>${formatNumber(trade.holding_days)}거래일</span></div>
+        <div><strong>${formatQuantActionDate(event.execution_date)} ${actionLabel}</strong><span>${formatNumber(event.price)}원</span></div>
+        <div>${result ? `<strong class="${quantToneClass(event.return_rate)}">${result}</strong>` : ""}<span>${remaining}</span></div>
       `;
       elements.quantTradeList.appendChild(row);
     }
   }
-  elements.quantMethodologyList.innerHTML = "";
-  for (const item of payload.methodology || []) {
-    elements.quantMethodologyList.appendChild(el("li", "", item));
-  }
-  for (const item of payload.excluded_principles || []) {
-    elements.quantMethodologyList.appendChild(el("li", "quant-methodology-limit", `현재 미적용: ${item}`));
-  }
-  setText(elements.quantDisclaimer, payload.disclaimer || "모의 신호는 투자 판단의 참고 자료입니다.");
+  setText(elements.quantDisclaimer, "AI 전략의 모의 매매 결과이며 실제 계좌 주문이 아닙니다.");
   renderQuantSignalChart();
   renderStockMiniChart(state.stockPriceRows, state.currentDashboard?.quote);
+  if (revealingSignalContent && state.stockActiveTab === "strategy") {
+    window.requestAnimationFrame(() => scrollStockTabsToTop());
+  }
 }
 
 async function loadQuantSignals(options = {}) {
@@ -7382,9 +7437,13 @@ async function loadQuantSignals(options = {}) {
   const code = state.currentStock.code;
   const forceRefresh = options.force === true;
   state.stockQuantLoading = true;
+  if (elements.quantSignalRefresh) {
+    elements.quantSignalRefresh.disabled = true;
+    elements.quantSignalRefresh.textContent = "계산 중";
+  }
   if (elements.quantSignalStatus) {
     elements.quantSignalStatus.hidden = false;
-    elements.quantSignalStatus.textContent = forceRefresh ? "최신 시세로 퀀트 신호를 다시 계산하는 중입니다." : "퀀트 신호를 계산하는 중입니다.";
+    elements.quantSignalStatus.textContent = forceRefresh ? "최신 가격으로 AI 매매신호를 다시 계산하는 중입니다." : "AI 매매신호를 계산하는 중입니다.";
   }
   if (elements.quantSignalContent && state.stockQuantRequestedCode !== code) {
     elements.quantSignalContent.hidden = true;
@@ -7402,10 +7461,14 @@ async function loadQuantSignals(options = {}) {
   } catch {
     if (state.currentStock?.code === code && elements.quantSignalStatus) {
       elements.quantSignalStatus.hidden = false;
-      elements.quantSignalStatus.textContent = "퀀트 신호를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+      elements.quantSignalStatus.textContent = "AI 매매신호를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
     }
   } finally {
     state.stockQuantLoading = false;
+    if (elements.quantSignalRefresh) {
+      elements.quantSignalRefresh.disabled = false;
+      elements.quantSignalRefresh.textContent = "새로고침";
+    }
   }
 }
 
@@ -9561,7 +9624,11 @@ for (const button of elements.stockFlowPeriodTabs) {
     renderStockFlowHistoryChart();
   });
 }
-elements.aiAnalysisButton.addEventListener("click", (event) => {
+elements.quantSignalRefresh?.addEventListener("click", (event) => {
+  event.preventDefault();
+  launchPageLoading(PAGE_LOADING_LABELS.ai, () => loadQuantSignals({ auto: false, force: true }));
+});
+elements.aiAnalysisButton?.addEventListener("click", (event) => {
   event.preventDefault();
   launchPageLoading(PAGE_LOADING_LABELS.ai, () => Promise.all([
     loadQuantSignals({ auto: false, force: true }),

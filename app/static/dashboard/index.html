@@ -19,7 +19,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v5" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v11" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -368,102 +368,71 @@
           </section>
 
           <section class="stock-tab-panel stock-v3-ai" id="stock-strategy-section" data-stock-panel="strategy" role="tabpanel" hidden>
-            <p class="quant-signal-status" id="quant-signal-status" role="status">퀀트 신호를 계산하는 중입니다.</p>
+            <p class="quant-signal-status" id="quant-signal-status" role="status">AI 매매신호를 계산하는 중입니다.</p>
             <section class="quant-signal-stack" id="quant-signal-content" hidden>
               <article class="stock-v3-section quant-current-card">
                 <header class="quant-current-head">
-                  <div><span>백엔드 전략 상태</span><h2 id="quant-current-label">-</h2></div>
-                  <strong id="quant-current-score">-</strong>
+                  <div>
+                    <span>AI 전략 기준 현재 상태</span>
+                    <strong id="quant-current-score">-</strong>
+                  </div>
+                  <button class="quant-signal-refresh" id="quant-signal-refresh" type="button">새로고침</button>
                 </header>
-                <p class="quant-current-meta" id="quant-current-meta">확정 일봉과 실시간 현재가로 현재 상태를 판정합니다.</p>
-                <ol class="quant-lifecycle" id="quant-lifecycle" aria-label="전략 진행 단계"></ol>
-                <ul class="quant-current-reasons" id="quant-current-reasons"></ul>
+                <h2 class="quant-current-message" id="quant-current-label">현재 상태를 확인하는 중이에요.</h2>
+                <p class="quant-current-meta" id="quant-current-meta">최근 1년 가격으로 계산한 모의 매매 결과입니다.</p>
                 <dl class="quant-current-position" id="quant-current-position"></dl>
                 <p class="quant-next-confirmation" id="quant-next-confirmation"></p>
               </article>
 
-              <article class="stock-v3-section quant-context-card">
+              <article class="stock-v3-section quant-chart-card">
                 <header class="stock-v3-section-head">
-                  <div><span>오늘의 확인 자료</span><h2 id="quant-context-label">보조 근거 확인</h2></div>
-                  <span class="stock-v3-source" id="quant-context-coverage">-</span>
+                  <div><span>매수·매도 시점</span><h2>최근 1년 AI 매매신호</h2></div>
+                  <span class="stock-v3-source" id="quant-chart-source">-</span>
                 </header>
-                <p class="quant-context-note" id="quant-context-note"></p>
-                <ul class="quant-context-list" id="quant-context-list"></ul>
+                <div class="quant-signal-chart" id="quant-signal-chart" aria-label="최근 1년 가격과 AI 전략의 매수 매도 시점"></div>
+                <div class="quant-chart-legend" aria-label="차트 범례">
+                  <span class="buy">매수</span><span class="partial">일부 매도</span><span class="sell">모두 매도</span>
+                </div>
               </article>
 
               <article class="stock-v3-section quant-performance-card">
                 <header class="stock-v3-section-head">
-                  <div><span>같은 규칙 검증</span><h2>최근 1년 결과</h2></div>
+                  <div><span>같은 규칙으로 계산</span><h2>최근 1년 전략 결과</h2></div>
                   <span class="stock-v3-source" id="quant-performance-period">-</span>
                 </header>
                 <dl class="quant-performance-grid" id="quant-performance-grid"></dl>
                 <p class="quant-sample-note" id="quant-sample-note"></p>
               </article>
 
-              <article class="stock-v3-section quant-chart-card">
-                <header class="stock-v3-section-head">
-                  <div><span>종가 판정 · 다음 시가 반영</span><h2>포지션 상태 이력</h2></div>
-                  <span class="stock-v3-source" id="quant-chart-source">-</span>
-                </header>
-                <div class="quant-signal-chart" id="quant-signal-chart" aria-label="가격과 전략 포지션 상태 전환"></div>
-                <div class="quant-chart-legend" aria-label="차트 범례">
-                  <span class="buy">진입</span><span class="partial">분할매도</span><span class="sell">청산</span><span class="watch">현재 조건</span>
-                </div>
-              </article>
-
               <article class="stock-v3-section quant-history-card">
-                <header class="stock-v3-section-head">
-                  <div><span>비용 반영 결과</span><h2>최근 상태 전환</h2></div>
-                </header>
-                <div class="quant-trade-list" id="quant-trade-list"></div>
-                <details class="quant-methodology">
-                  <summary>계산 기준과 한계</summary>
-                  <ul id="quant-methodology-list"></ul>
-                  <p id="quant-disclaimer"></p>
+                <details class="quant-trade-disclosure">
+                  <summary>모든 매매내역 보기</summary>
+                  <div class="quant-trade-list" id="quant-trade-list"></div>
                 </details>
+                <p class="quant-disclaimer" id="quant-disclaimer"></p>
               </article>
-            </section>
 
-            <div class="stock-v3-ai-title">
-              <div><span>AI 해설</span><h2>오늘의 대응</h2></div>
-              <button class="ai-analysis-button" id="ai-analysis-button" type="button">전체 갱신</button>
-            </div>
-            <section class="ai-analysis-panel" id="ai-analysis-panel" hidden>
-              <div class="ai-analysis-head" id="stock-ai-section">
-                <div>
-                  <p class="ai-analysis-meta-line">
-                    <span class="ollama-ai-badge" id="ai-analysis-provider-badge" title="Ollama 로컬 모델로 생성된 요약입니다." hidden>Ollama AI</span>
-                    <span id="ai-analysis-meta"></span>
-                  </p>
-                </div>
-                <strong id="ai-analysis-stance">-</strong>
-              </div>
-              <article class="strategy-decision-hero">
-                <span>지금 할 일</span>
-                <strong id="ai-primary-action">분석 결과를 불러오는 중입니다.</strong>
-                <p id="ai-primary-reason">현재 흐름과 가격 기준을 확인하고 있습니다.</p>
-              </article>
-              <dl class="strategy-key-levels">
-                <div><dt id="ai-decision-entry-label">관찰 가격</dt><dd id="ai-decision-entry">-</dd></div>
-                <div><dt>전환·축소</dt><dd id="ai-decision-condition">-</dd></div>
-              </dl>
-              <section class="strategy-steps">
-                <h3>대응 순서</h3>
-                <ol id="ai-strategy" class="ai-list"></ol>
+              <section class="stock-v3-compat" hidden aria-hidden="true">
+                <ol id="quant-lifecycle"></ol>
+                <ul id="quant-current-reasons"></ul>
+                <span id="quant-context-label"></span><span id="quant-context-coverage"></span>
+                <p id="quant-context-note"></p><ul id="quant-context-list"></ul>
+                <ul id="quant-methodology-list"></ul>
+                <button id="ai-analysis-button" type="button"></button>
+                <section id="ai-analysis-panel" hidden>
+                  <div id="stock-ai-section">
+                    <span id="ai-analysis-provider-badge" hidden></span><span id="ai-analysis-meta"></span>
+                    <strong id="ai-analysis-stance">-</strong>
+                  </div>
+                  <strong id="ai-primary-action"></strong><p id="ai-primary-reason"></p>
+                  <span id="ai-decision-entry-label"></span><span id="ai-decision-entry"></span>
+                  <span id="ai-decision-condition"></span><ol id="ai-strategy"></ol>
+                  <p id="ai-analysis-summary"></p><ul id="ai-key-points"></ul><ul id="ai-risks"></ul>
+                  <span id="ai-decision-stance"></span><span id="ai-decision-confidence"></span>
+                </section>
+                <div id="stock-price-ladder"></div>
               </section>
-              <details class="strategy-detail-disclosure">
-                <summary>판단 근거와 위험 보기</summary>
-                <p class="ai-summary" id="ai-analysis-summary"></p>
-                <section><h3>핵심 판단</h3><ul id="ai-key-points" class="ai-list"></ul></section>
-                <section><h3>주의 리스크</h3><ul id="ai-risks" class="ai-list"></ul></section>
-              </details>
-              <span id="ai-decision-stance" hidden>-</span>
-              <span id="ai-decision-confidence" hidden>-</span>
             </section>
-            <article class="stock-v3-section stock-strategy-card">
-              <div class="strategy-head"><div><span class="section-eyebrow">가격 기준</span><h2>가격별 대응</h2></div></div>
-              <div class="price-ladder" id="stock-price-ladder"></div>
-            </article>
           </section>
 
           <section class="stock-tab-panel stock-evidence-panel stock-v3-compat-panel" id="stock-evidence-section" data-stock-panel="evidence" role="tabpanel" hidden>
@@ -683,6 +652,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v6" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v11" defer></script>
   </body>
 </html>

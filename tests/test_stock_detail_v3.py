@@ -22,9 +22,10 @@ def test_stock_detail_v3_shell_and_controls():
         'id="stock-news-temperature-chart"',
         'id="quant-signal-chart"',
         'id="quant-current-label"',
-        'id="quant-lifecycle"',
-        'id="quant-context-list"',
-        "20260725v6",
+        'id="quant-signal-refresh"',
+        "최근 1년 AI 매매신호",
+        "모든 매매내역 보기",
+        "20260725v11",
     ):
         assert expected in shell.text
     assert "1,000만원 모의 운용" not in shell.text
@@ -40,6 +41,10 @@ def test_stock_detail_v3_shell_and_controls():
     assert "renderQuantSignalChart" in source
     assert "/quant-signals" in source
     assert "quantSignalMarkers" in source
+    assert "원에 모두 팔았어요" in source
+    assert "AI 전략의 모의 매매 결과이며 실제 계좌 주문이 아닙니다." in source
+    assert "오늘의 대응" not in shell.text
+    assert "판단 근거와 위험 보기" not in shell.text
 
     styles = client.get("/assets/dashboard/styles.css").text
     assert "/* iPhone 16 Pro (402 CSS px)" in styles
