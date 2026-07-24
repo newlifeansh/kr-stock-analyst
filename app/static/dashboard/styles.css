@@ -11425,6 +11425,10 @@ body :is(
     padding-inline: 16px;
   }
 
+  #stock-view #stock-evidence-section > .evidence-core-grid {
+    padding-inline: 0 !important;
+  }
+
   .recommend-head {
     grid-template-columns: minmax(0, 1fr) auto;
   }

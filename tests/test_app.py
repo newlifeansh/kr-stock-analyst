@@ -187,6 +187,14 @@ def test_trend_watchlist_mobile_layout_stays_inside_viewport():
     assert "overflow-wrap: anywhere !important;" in styles
 
 
+def test_mobile_stock_evidence_sections_share_one_alignment():
+    client = TestClient(app)
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    assert "#stock-view #stock-evidence-section > .evidence-core-grid" in styles
+    assert "padding-inline: 0 !important;" in styles
+
+
 def test_meta_endpoints():
     client = TestClient(app)
 
