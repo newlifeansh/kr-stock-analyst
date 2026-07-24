@@ -2487,7 +2487,7 @@ h1 {
 
 .trend-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 0;
   overflow: hidden;
   margin-bottom: 16px;
@@ -2501,7 +2501,8 @@ h1 {
   min-width: 0;
   padding: 0 10px;
   border: 0;
-  border-right: 1px solid var(--report-line, rgba(174, 179, 192, 0.28));
+  border-right: 0;
+  border-bottom: 1px solid var(--report-line, rgba(174, 179, 192, 0.28));
   border-radius: 0;
   background: transparent;
   color: var(--report-muted, #8b949f);
@@ -2514,7 +2515,7 @@ h1 {
 }
 
 .trend-tab:last-child {
-  border-right: 0;
+  border-bottom: 0;
 }
 
 .trend-tab.active {
