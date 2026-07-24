@@ -167,6 +167,7 @@ def test_trend_is_home_with_live_event_and_watchlist_tabs():
     assert live_index < events_index < watchlist_index
     assert '>실시간</button>' in shell
     assert '<section class="trend-summary" hidden>' in shell
+    assert shell.index('id="trend-tabs"') < shell.index('class="trend-summary"')
     assert 'id="trend-watch-stock-rail"' in shell
     assert 'id="trend-watch-news-board"' in shell
     assert 'activeTrendTab: "live"' in source

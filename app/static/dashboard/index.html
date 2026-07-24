@@ -19,7 +19,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260724kr44" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260724kr45" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -552,10 +552,6 @@
           </div>
         </header>
 
-        <section class="trend-summary" hidden>
-          <p id="trend-headline">이벤트와 최신 뉴스를 불러오는 중입니다.</p>
-        </section>
-
         <section class="trend-tabs" id="trend-tabs" role="tablist" aria-label="트렌드 보기">
           <button class="trend-tab active" type="button" role="tab" aria-selected="true" aria-controls="trend-live-panel" data-trend-tab="live">실시간</button>
           <button class="trend-tab" type="button" role="tab" aria-selected="false" aria-controls="trend-events-panel" data-trend-tab="events">주요 이벤트</button>
@@ -568,6 +564,9 @@
         </section>
 
         <section class="trend-panel" id="trend-events-panel" role="tabpanel" hidden>
+          <section class="trend-summary" hidden>
+            <p id="trend-headline">이벤트와 최신 뉴스를 불러오는 중입니다.</p>
+          </section>
           <h2 class="section-title" id="trend-events-title">이벤트 캘린더</h2>
           <div class="trend-events" id="trend-events"></div>
         </section>
@@ -666,6 +665,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260724kr44" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260724kr45" defer></script>
   </body>
 </html>
