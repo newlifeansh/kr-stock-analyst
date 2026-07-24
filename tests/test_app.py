@@ -170,8 +170,10 @@ def test_trend_is_home_with_live_event_and_watchlist_tabs():
     assert shell.index('id="trend-tabs"') < shell.index('class="trend-summary"')
     assert 'id="trend-watch-stock-rail"' in shell
     assert 'id="trend-watch-news-board"' in shell
+    assert 'id="trend-topbar" hidden' in shell
     assert 'activeTrendTab: "live"' in source
     assert 'elements.trendSummary.hidden = active !== "events";' in source
+    assert 'elements.trendTopbar.hidden = activeTab !== "past";' in source
 
 
 def test_meta_endpoints():

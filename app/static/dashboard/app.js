@@ -94,6 +94,7 @@ const elements = {
   recommendHistoryMeta: $("recommend-history-meta"),
   recommendHistoryList: $("recommend-history-list"),
   trendTitle: $("trend-title"),
+  trendTopbar: $("trend-topbar"),
   trendSummary: document.querySelector("#trend-view .trend-summary"),
   trendHeadline: $("trend-headline"),
   trendEventsTitle: $("trend-events-title"),
@@ -7150,6 +7151,9 @@ function isFallbackMarketImpact(model) {
 }
 
 function setTrendImpactChrome({ loading = false } = {}) {
+  if (elements.trendTopbar) {
+    elements.trendTopbar.hidden = false;
+  }
   if (elements.trendTitle) {
     elements.trendTitle.textContent = "시장 영향도 분석";
   }
@@ -7170,6 +7174,9 @@ function setTrendImpactChrome({ loading = false } = {}) {
 }
 
 function restoreTrendChrome(activeTab = "live", headline = "") {
+  if (elements.trendTopbar) {
+    elements.trendTopbar.hidden = activeTab !== "past";
+  }
   if (elements.trendTitle) {
     elements.trendTitle.textContent = activeTab === "past" ? "지난 이벤트" : "트렌드 분석";
   }

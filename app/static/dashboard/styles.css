@@ -2528,6 +2528,27 @@ h1 {
   min-width: 0;
 }
 
+#trend-view {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+#trend-view .trend-panel,
+.trend-watchlist-panel,
+.trend-watch-news-board,
+.trend-watch-news-group,
+.trend-watch-news-item {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.trend-watchlist-panel {
+  overflow: hidden;
+}
+
 .trend-watchlist-head {
   display: flex;
   align-items: baseline;
@@ -2551,6 +2572,7 @@ h1 {
   display: flex;
   gap: 8px;
   width: 100%;
+  max-width: 100%;
   margin-bottom: 18px;
   padding-bottom: 4px;
   overflow-x: auto;
@@ -2662,7 +2684,8 @@ h1 {
   font-size: var(--trend-card-title-size);
   font-weight: 800;
   line-height: 1.5;
-  word-break: keep-all;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .trend-watch-news-empty {
@@ -11409,9 +11432,9 @@ body :is(
   }
 
   .trend-watch-stock-rail {
-    width: calc(100% + 14px);
-    margin-right: -14px;
-    padding-right: 14px;
+    width: 100%;
+    margin-right: 0;
+    padding-right: 0;
   }
 
   .trend-watch-news-board {
