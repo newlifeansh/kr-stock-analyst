@@ -29,6 +29,12 @@ POSITIVE_WORDS = (
     "강세",
     "성장",
     "돌파",
+    "수혜",
+    "상승",
+    "반등",
+    "회복",
+    "호재",
+    "매수",
 )
 NEGATIVE_WORDS = (
     "하향",
@@ -41,6 +47,12 @@ NEGATIVE_WORDS = (
     "악화",
     "손실",
     "둔화",
+    "우려",
+    "급락",
+    "악재",
+    "위기",
+    "충격",
+    "매도",
 )
 SURPRISE_WORDS = ("잠정", "실적", "매출액", "영업이익", "순이익", "어닝", "서프라이즈", "쇼크")
 GUIDANCE_WORDS = ("전망", "가이던스", "목표", "계획", "IR", "기업설명회", "투자설명회")
@@ -310,12 +322,27 @@ def _keyword_score(text: str) -> int:
     return score
 
 
-def _event_row(title: str, source: str, url: Optional[str], published_at: Optional[datetime]) -> dict[str, object]:
+def _keyword_impact(score: int) -> str:
+    if score > 0:
+        return "호재"
+    if score < 0:
+        return "악재"
+    return "중립"
+
+
+def _event_row(
+    title: str,
+    source: str,
+    url: Optional[str],
+    published_at: Optional[datetime],
+    impact: Optional[str] = None,
+) -> dict[str, object]:
     return {
         "title": title,
         "source": source,
         "url": url,
         "published_at": published_at,
+        "impact": impact,
     }
 
 
@@ -991,6 +1018,7 @@ def _sentiment(db: Session, stock: StockMaster, prices: list[DailyPrice], disclo
         positive = 0
         negative = 0
         neutral = 0
+        latest_items: list[dict[str, object]] = []
         for item in naver_news:
             score = _keyword_score(str(item["title"]))
             if score > 0:
@@ -999,6 +1027,7 @@ def _sentiment(db: Session, stock: StockMaster, prices: list[DailyPrice], disclo
                 negative += 1
             else:
                 neutral += 1
+            latest_items.append({**item, "impact": _keyword_impact(score)})
         total = positive + negative + neutral
         score_value = _round_decimal((Decimal(positive - negative) / Decimal(total)) * 100) if total else None
         return {
@@ -1006,13 +1035,13 @@ def _sentiment(db: Session, stock: StockMaster, prices: list[DailyPrice], disclo
             "positive_count": positive,
             "negative_count": negative,
             "neutral_count": neutral,
-            "latest_items": naver_news[:5],
+            "latest_items": latest_items[:10],
         }
 
     positive = 0
     negative = 0
     neutral = 0
-    scored_items = []
+    scored_items: list[tuple[NewsItem, int]] = []
     for item in items:
         score = _keyword_score(f"{item.title} {item.summary or ''}")
         if score > 0:
@@ -1021,7 +1050,7 @@ def _sentiment(db: Session, stock: StockMaster, prices: list[DailyPrice], disclo
             negative += 1
         else:
             neutral += 1
-        scored_items.append(item)
+        scored_items.append((item, score))
 
     if not scored_items:
         latest = prices[-1] if prices else None
@@ -1061,8 +1090,14 @@ def _sentiment(db: Session, stock: StockMaster, prices: list[DailyPrice], disclo
         "negative_count": negative,
         "neutral_count": neutral,
         "latest_items": [
-            _event_row(item.title, item.press_name or item.source, item.detail_url, item.published_at)
-            for item in scored_items[:5]
+            _event_row(
+                item.title,
+                item.press_name or item.source,
+                item.detail_url,
+                item.published_at,
+                _keyword_impact(score),
+            )
+            for item, score in scored_items[:10]
         ],
     }
 

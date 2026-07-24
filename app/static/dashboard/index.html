@@ -19,7 +19,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260724kr41" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260724kr42" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -131,8 +131,12 @@
         <p id="push-notification-status" class="sr-only" aria-live="polite"></p>
         <nav class="side-menu">
           <div class="side-menu-group">
+            <span class="side-menu-label">홈</span>
+            <button class="side-menu-item active" type="button" data-view="trend">트렌드 분석</button>
+          </div>
+          <div class="side-menu-group">
             <span class="side-menu-label">종목</span>
-            <button class="side-menu-item active" type="button" data-view="stock">종목 검색</button>
+            <button class="side-menu-item" type="button" data-view="stock">종목 검색</button>
             <button class="side-menu-item" type="button" data-view="watchlist">관심 종목</button>
             <button class="side-menu-item" type="button" data-view="chart">AI 차트 분석</button>
           </div>
@@ -143,12 +147,9 @@
           </div>
           <div class="side-menu-group">
             <span class="side-menu-label">시장</span>
-            <button class="side-menu-item" type="button" data-view="trend">트랜드 분석</button>
-            <div class="side-menu-sub">
-              <button class="side-menu-item side-menu-sub-item" type="button" data-view="trend-past">지난 이벤트</button>
-            </div>
             <button class="side-menu-item" type="button" data-view="trend-impact">시장 영향도 분석</button>
             <button class="side-menu-item" type="button" data-view="market">급상승 종목</button>
+            <button class="side-menu-item" type="button" data-view="trend-past">지난 이벤트</button>
           </div>
         </nav>
         <section class="watch-identity" id="watchlist-id-panel" aria-label="로그인 정보">
@@ -551,23 +552,34 @@
           </div>
         </header>
 
-        <section class="trend-summary">
+        <section class="trend-summary" hidden>
           <p id="trend-headline">이벤트와 최신 뉴스를 불러오는 중입니다.</p>
         </section>
 
-        <section class="trend-tabs" id="trend-tabs">
-          <button class="trend-tab active" type="button" data-trend-tab="events">주요 이벤트</button>
-          <button class="trend-tab" type="button" data-trend-tab="live">실시간 트렌드</button>
+        <section class="trend-tabs" id="trend-tabs" role="tablist" aria-label="트렌드 보기">
+          <button class="trend-tab active" type="button" role="tab" aria-selected="true" aria-controls="trend-live-panel" data-trend-tab="live">실시간 트렌드</button>
+          <button class="trend-tab" type="button" role="tab" aria-selected="false" aria-controls="trend-events-panel" data-trend-tab="events">주요 이벤트</button>
+          <button class="trend-tab" type="button" role="tab" aria-selected="false" aria-controls="trend-watchlist-panel" data-trend-tab="watchlist">관심종목</button>
         </section>
 
-        <section class="trend-panel" id="trend-events-panel">
+        <section class="trend-panel" id="trend-live-panel" role="tabpanel">
+          <h2 class="section-title">타임라인</h2>
+          <div class="trend-thread" id="trend-thread"></div>
+        </section>
+
+        <section class="trend-panel" id="trend-events-panel" role="tabpanel" hidden>
           <h2 class="section-title" id="trend-events-title">이벤트 캘린더</h2>
           <div class="trend-events" id="trend-events"></div>
         </section>
 
-        <section class="trend-panel" id="trend-live-panel" hidden>
-          <h2 class="section-title">타임라인 쓰레드</h2>
-          <div class="trend-thread" id="trend-thread"></div>
+        <section class="trend-panel trend-watchlist-panel" id="trend-watchlist-panel" role="tabpanel" hidden>
+          <div class="trend-watchlist-head">
+            <h2 class="section-title">관심종목 뉴스</h2>
+            <span id="trend-watchlist-meta"></span>
+          </div>
+          <div class="trend-watch-stock-rail" id="trend-watch-stock-rail" role="tablist" aria-label="관심종목 선택"></div>
+          <p class="trend-watchlist-status" id="trend-watchlist-status" role="status" aria-live="polite"></p>
+          <div class="trend-watch-news-board" id="trend-watch-news-board"></div>
         </section>
 
         <section class="trend-panel" id="trend-past-panel" hidden>
@@ -654,6 +666,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260724kr41" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260724kr42" defer></script>
   </body>
 </html>

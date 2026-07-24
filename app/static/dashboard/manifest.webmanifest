@@ -2,7 +2,7 @@
   "name": "비밀노트 주식분석",
   "short_name": "비밀노트",
   "description": "관심종목, 추천종목, 트렌드, AI 차트 분석을 모바일 홈에서 바로 여는 개인 주식 노트",
-  "start_url": "/dashboard",
+  "start_url": "/dashboard?view=trend",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

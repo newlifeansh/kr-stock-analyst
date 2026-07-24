@@ -22,7 +22,7 @@ def test_root_redirects_to_korea_dashboard():
     client = TestClient(app)
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 307
-    assert response.headers["location"] == "/dashboard"
+    assert response.headers["location"] == "/dashboard?view=trend"
 
 
 def test_watchlist_share_id_roundtrip():
@@ -154,6 +154,22 @@ def test_dashboard_shows_shared_loading_state_for_navigation_and_stock_lookup():
     assert "return runPageLoading(PAGE_LOADING_LABELS.stock" in source
     for view in ("market", "watchlist", "recommend", "trend", "trend-impact", "chart"):
         assert f"PAGE_LOADING_LABELS.{view.replace('-', '_')}" in source or f'PAGE_LOADING_LABELS["{view}"]' in source
+
+
+def test_trend_is_home_with_live_event_and_watchlist_tabs():
+    client = TestClient(app)
+    shell = client.get("/dashboard").text
+    source = client.get("/assets/dashboard/app.js").text
+
+    live_index = shell.index('data-trend-tab="live"')
+    events_index = shell.index('data-trend-tab="events"')
+    watchlist_index = shell.index('data-trend-tab="watchlist"')
+    assert live_index < events_index < watchlist_index
+    assert '<section class="trend-summary" hidden>' in shell
+    assert 'id="trend-watch-stock-rail"' in shell
+    assert 'id="trend-watch-news-board"' in shell
+    assert 'activeTrendTab: "live"' in source
+    assert 'elements.trendSummary.hidden = active !== "events";' in source
 
 
 def test_meta_endpoints():

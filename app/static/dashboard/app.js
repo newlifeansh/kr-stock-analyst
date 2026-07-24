@@ -101,10 +101,15 @@ const elements = {
   trendTabs: Array.from(document.querySelectorAll(".trend-tab")),
   trendEventsPanel: $("trend-events-panel"),
   trendLivePanel: $("trend-live-panel"),
+  trendWatchlistPanel: $("trend-watchlist-panel"),
   trendPastPanel: $("trend-past-panel"),
   trendEvents: $("trend-events"),
   trendPastEvents: $("trend-past-events"),
   trendThread: $("trend-thread"),
+  trendWatchlistMeta: $("trend-watchlist-meta"),
+  trendWatchStockRail: $("trend-watch-stock-rail"),
+  trendWatchlistStatus: $("trend-watchlist-status"),
+  trendWatchNewsBoard: $("trend-watch-news-board"),
   watchChartMeta: $("watch-chart-meta"),
   watchChartRefresh: $("watch-chart-refresh"),
   chartArchiveButton: $("chart-archive-button"),
@@ -443,10 +448,13 @@ const STOCK_TERM_HELP = {
   "수출 프록시": "수출 경기와 글로벌 수요 변화에 얼마나 민감한지 보는 대리 지표입니다.",
 };
 
+const requestedView = new URLSearchParams(window.location.search).get("view");
+const hasStockDetailPath = window.location.pathname.split("/").filter(Boolean).length > 1;
+
 const state = {
-  view: ["market", "watchlist", "recommend", "recommend-history", "trend", "trend-past", "trend-impact", "chart", "chart-history"].includes(new URLSearchParams(window.location.search).get("view"))
-    ? new URLSearchParams(window.location.search).get("view")
-    : "stock",
+  view: ["market", "watchlist", "recommend", "recommend-history", "trend", "trend-past", "trend-impact", "chart", "chart-history"].includes(requestedView)
+    ? requestedView
+    : hasStockDetailPath ? "stock" : "trend",
   rankingCategory: "surge",
   currentStock: null,
   currentDashboard: null,
@@ -455,6 +463,9 @@ const state = {
   suggestionTimer: null,
   suggestionController: null,
   activeTrendGraph: null,
+  activeTrendTab: "live",
+  selectedTrendWatchCode: "",
+  trendWatchRequestId: 0,
   watchlistId: "",
   watchlistSyncTimer: null,
   watchlistSyncing: false,
@@ -2206,7 +2217,7 @@ async function refreshCurrentView() {
       await loadRecommendationHistory();
       return;
     case "trend":
-      await loadTrends("events", { force: true });
+      await loadTrends(state.activeTrendTab || "live", { force: true });
       return;
     case "trend-past":
       await loadTrends("past", { force: true });
@@ -3452,7 +3463,8 @@ function setView(view) {
     launchPageLoading(PAGE_LOADING_LABELS["recommend-history"], () => loadRecommendationHistory(pageEntryRefreshOptions("recommend-history")));
   } else if (view === "trend") {
     history.replaceState(null, "", "/dashboard?view=trend");
-    launchPageLoading(PAGE_LOADING_LABELS.trend, () => loadTrends("events", pageEntryRefreshOptions("trend", "events")));
+    const activeTab = state.activeTrendTab || "live";
+    launchPageLoading(PAGE_LOADING_LABELS.trend, () => loadTrends(activeTab, pageEntryRefreshOptions("trend", activeTab)));
   } else if (view === "trend-past") {
     history.replaceState(null, "", "/dashboard?view=trend-past");
     launchPageLoading(PAGE_LOADING_LABELS["trend-past"], () => loadTrends("past", pageEntryRefreshOptions("trend-past", "past")));
@@ -6711,16 +6723,26 @@ function appendTags(parent, items) {
 }
 
 function setTrendTab(tabName) {
-  const active = ["events", "past", "live"].includes(tabName) ? tabName : "events";
+  const active = ["live", "events", "watchlist", "past"].includes(tabName) ? tabName : "live";
+  if (active !== "past") {
+    state.activeTrendTab = active;
+  }
   if (elements.trendTabsWrap) {
     elements.trendTabsWrap.hidden = active === "past";
   }
   for (const tab of elements.trendTabs) {
-    tab.classList.toggle("active", tab.dataset.trendTab === active);
+    const selected = tab.dataset.trendTab === active;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+  }
+  if (elements.trendSummary) {
+    elements.trendSummary.hidden = active !== "events";
   }
   elements.trendEventsPanel.hidden = active !== "events";
   elements.trendPastPanel.hidden = active !== "past";
   elements.trendLivePanel.hidden = active !== "live";
+  elements.trendWatchlistPanel.hidden = active !== "watchlist";
+  return active;
 }
 
 function appendThreadItem(parent, item) {
@@ -6757,6 +6779,109 @@ function appendThreadGroup(parent, label, items, tone) {
     }
   }
   parent.appendChild(group);
+}
+
+function trendWatchNewsImpact(item = {}) {
+  if (["호재", "악재", "중립"].includes(item.impact)) {
+    return item.impact;
+  }
+  const title = String(item.title || "");
+  if (/(상향|호조|개선|증가|최대|수주|흑자|서프라이즈|강세|성장|돌파)/i.test(title)) {
+    return "호재";
+  }
+  if (/(하향|부진|감소|적자|쇼크|약세|하락|악화|손실|둔화)/i.test(title)) {
+    return "악재";
+  }
+  return "중립";
+}
+
+function renderTrendWatchStockRail(items, activeCode) {
+  elements.trendWatchStockRail.innerHTML = "";
+  for (const item of items) {
+    const selected = item.code === activeCode;
+    const button = el("button", `trend-watch-stock-chip${selected ? " active" : ""}`, item.name);
+    button.type = "button";
+    button.dataset.code = item.code;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", String(selected));
+    elements.trendWatchStockRail.appendChild(button);
+  }
+}
+
+function appendTrendWatchNewsGroup(parent, label, items, tone) {
+  const group = el("section", `trend-watch-news-group ${tone}`);
+  const heading = el("div", "trend-watch-news-group-head");
+  heading.append(el("h3", "", label), el("span", "", `${formatNumber(items.length)}건`));
+  group.appendChild(heading);
+  if (!items.length) {
+    group.appendChild(el("p", "trend-watch-news-empty", `${label} 뉴스 없음`));
+  } else {
+    for (const item of items) {
+      const node = document.createElement(item.url ? "a" : "article");
+      node.className = "trend-watch-news-item";
+      if (item.url) {
+        node.href = item.url;
+        node.target = "_blank";
+        node.rel = "noreferrer";
+      }
+      node.append(
+        el("strong", "", item.title || "제목 없음"),
+        el("span", "", `${item.source || "출처 확인 중"} · ${formatDate(item.published_at)}`),
+      );
+      group.appendChild(node);
+    }
+  }
+  parent.appendChild(group);
+}
+
+function renderTrendWatchNews(item, dashboard) {
+  const sentiment = dashboard?.sentiment || {};
+  const latestItems = (sentiment.latest_items || []).filter((news) => news?.title && news.title !== "최근 종목 뉴스 없음");
+  const positiveItems = latestItems.filter((news) => trendWatchNewsImpact(news) === "호재");
+  const negativeItems = latestItems.filter((news) => trendWatchNewsImpact(news) === "악재");
+  const neutralItems = latestItems.filter((news) => trendWatchNewsImpact(news) === "중립");
+  elements.trendWatchlistMeta.textContent = `${item.name} · 호재 ${formatNumber(sentiment.positive_count || 0)} · 악재 ${formatNumber(sentiment.negative_count || 0)}`;
+  elements.trendWatchlistStatus.textContent = "";
+  elements.trendWatchNewsBoard.innerHTML = "";
+  appendTrendWatchNewsGroup(elements.trendWatchNewsBoard, "호재", positiveItems, "positive");
+  appendTrendWatchNewsGroup(elements.trendWatchNewsBoard, "악재", negativeItems, "negative");
+  if (neutralItems.length) {
+    appendTrendWatchNewsGroup(elements.trendWatchNewsBoard, "판단 보류", neutralItems, "neutral");
+  }
+}
+
+async function loadTrendWatchlistNews(options = {}) {
+  const items = readWatchlist();
+  elements.trendWatchNewsBoard.innerHTML = "";
+  if (!items.length) {
+    state.selectedTrendWatchCode = "";
+    elements.trendWatchStockRail.innerHTML = "";
+    elements.trendWatchlistMeta.textContent = "관심종목 0개";
+    elements.trendWatchlistStatus.textContent = "관심종목을 추가하면 종목별 최신 뉴스가 표시됩니다.";
+    return;
+  }
+  const requestedCode = String(options.code || state.selectedTrendWatchCode || "");
+  const selected = items.find((item) => item.code === requestedCode) || items[0];
+  state.selectedTrendWatchCode = selected.code;
+  renderTrendWatchStockRail(items, selected.code);
+  elements.trendWatchlistMeta.textContent = `${formatNumber(items.length)}개 종목`;
+  elements.trendWatchlistStatus.textContent = `${selected.name} 뉴스를 불러오는 중입니다.`;
+  const requestId = ++state.trendWatchRequestId;
+  try {
+    const force = options.force === true;
+    const url = `/stocks/${encodeURIComponent(selected.code)}/dashboard?include_profile=0`;
+    const dashboard = await fetchJsonCached(url, { force, ttlMs: force ? 0 : PAGE_ENTRY_MINUTE_MS });
+    if (requestId !== state.trendWatchRequestId) {
+      return;
+    }
+    renderTrendWatchNews(selected, dashboard);
+  } catch {
+    if (requestId !== state.trendWatchRequestId) {
+      return;
+    }
+    elements.trendWatchlistMeta.textContent = selected.name;
+    elements.trendWatchlistStatus.textContent = "종목 뉴스를 불러오지 못했습니다.";
+  }
 }
 
 function trendEventAxes(item) {
@@ -7040,10 +7165,11 @@ function setTrendImpactChrome({ loading = false } = {}) {
   }
   elements.trendEventsPanel.hidden = false;
   elements.trendLivePanel.hidden = true;
+  elements.trendWatchlistPanel.hidden = true;
   elements.trendPastPanel.hidden = true;
 }
 
-function restoreTrendChrome(activeTab = "events", headline = "") {
+function restoreTrendChrome(activeTab = "live", headline = "") {
   if (elements.trendTitle) {
     elements.trendTitle.textContent = activeTab === "past" ? "지난 이벤트" : "트렌드 분석";
   }
@@ -7051,7 +7177,7 @@ function restoreTrendChrome(activeTab = "events", headline = "") {
     elements.trendTabsWrap.hidden = false;
   }
   if (elements.trendSummary) {
-    elements.trendSummary.hidden = false;
+    elements.trendSummary.hidden = activeTab !== "events";
   }
   if (elements.trendEventsTitle) {
     elements.trendEventsTitle.hidden = false;
@@ -7317,7 +7443,7 @@ async function loadTrendGraph(card) {
   }
 }
 
-function renderTrends(payload, activeTab = "events") {
+function renderTrends(payload, activeTab = "live") {
   restoreTrendChrome(activeTab, payload.headline || "다가오는 주요 이벤트를 확인해보세요.");
   elements.trendEvents.innerHTML = "";
   elements.trendPastEvents.innerHTML = "";
@@ -7351,9 +7477,12 @@ function renderTrends(payload, activeTab = "events") {
     appendThreadGroup(elements.trendThread, "호재", positiveItems, "positive");
     appendThreadGroup(elements.trendThread, "악재", negativeItems, "negative");
   }
+  if (activeTab === "watchlist") {
+    void loadTrendWatchlistNews();
+  }
 }
 
-async function loadTrends(activeTab = state.view === "trend-past" ? "past" : "events", options = {}) {
+async function loadTrends(activeTab = state.view === "trend-past" ? "past" : state.activeTrendTab || "live", options = {}) {
   restoreTrendChrome(activeTab, "다가오는 이벤트와 최신 타임라인을 정리하는 중입니다.");
   try {
     const force = options.force === true;
@@ -7780,8 +7909,19 @@ elements.recommendHistoryList.addEventListener("click", (event) => {
   }
 });
 for (const tab of elements.trendTabs) {
-  tab.addEventListener("click", () => setTrendTab(tab.dataset.trendTab));
+  tab.addEventListener("click", () => {
+    const active = setTrendTab(tab.dataset.trendTab);
+    if (active === "watchlist") {
+      void loadTrendWatchlistNews();
+    }
+  });
 }
+elements.trendWatchStockRail?.addEventListener("click", (event) => {
+  const button = event.target.closest(".trend-watch-stock-chip");
+  if (button) {
+    void loadTrendWatchlistNews({ code: button.dataset.code });
+  }
+});
 function handleTrendEventClick(event) {
   const impactWatchButton = event.target.closest(".impact-watch-button");
   if (impactWatchButton) {

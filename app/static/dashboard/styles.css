@@ -2487,7 +2487,7 @@ h1 {
 
 .trend-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0;
   overflow: hidden;
   margin-bottom: 16px;
@@ -2525,6 +2525,148 @@ h1 {
 
 .trend-panel {
   min-width: 0;
+}
+
+.trend-watchlist-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.trend-watchlist-head .section-title {
+  margin-bottom: 0;
+}
+
+.trend-watchlist-head > span {
+  color: var(--report-muted, #8b949f);
+  font-size: var(--trend-meta-size);
+  font-weight: 700;
+  text-align: right;
+}
+
+.trend-watch-stock-rail {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 18px;
+  padding-bottom: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.trend-watch-stock-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.trend-watch-stock-chip {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--report-line, rgba(174, 179, 192, 0.38));
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--report-text, #343d4c);
+  font-weight: 800;
+  scroll-snap-align: start;
+  cursor: pointer;
+}
+
+.trend-watch-stock-chip.active {
+  border-color: #111111;
+  background: #111111;
+  color: #ffffff;
+}
+
+.trend-watchlist-status {
+  margin: 0;
+  color: var(--report-muted, #8b949f);
+  font-size: var(--trend-body-size);
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.trend-watchlist-status:empty {
+  display: none;
+}
+
+.trend-watch-news-board {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.trend-watch-news-group {
+  min-width: 0;
+  border-top: 2px solid #d9dde4;
+}
+
+.trend-watch-news-group.positive {
+  border-top-color: var(--positive);
+}
+
+.trend-watch-news-group.negative {
+  border-top-color: var(--negative);
+}
+
+.trend-watch-news-group.neutral {
+  grid-column: 1 / -1;
+}
+
+.trend-watch-news-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0 4px;
+}
+
+.trend-watch-news-group-head h3 {
+  margin: 0;
+  color: var(--report-text, #343d4c);
+  font-size: var(--trend-section-size);
+  font-weight: 900;
+}
+
+.trend-watch-news-group.positive .trend-watch-news-group-head h3 {
+  color: var(--positive);
+}
+
+.trend-watch-news-group.negative .trend-watch-news-group-head h3 {
+  color: var(--negative);
+}
+
+.trend-watch-news-group-head span,
+.trend-watch-news-item span,
+.trend-watch-news-empty {
+  color: var(--report-muted, #8b949f);
+  font-size: var(--trend-meta-size);
+  font-weight: 700;
+}
+
+.trend-watch-news-item {
+  display: grid;
+  gap: 6px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--report-line, rgba(174, 179, 192, 0.28));
+  color: inherit;
+}
+
+.trend-watch-news-item strong {
+  color: var(--report-text, #343d4c);
+  font-size: var(--trend-card-title-size);
+  font-weight: 800;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
+.trend-watch-news-empty {
+  margin: 0;
+  padding: 18px 0;
 }
 
 .trend-layout {
@@ -11254,6 +11396,31 @@ body :is(
   .market-impact-details {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .trend-watchlist-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .trend-watchlist-head > span {
+    text-align: left;
+  }
+
+  .trend-watch-stock-rail {
+    width: calc(100% + 14px);
+    margin-right: -14px;
+    padding-right: 14px;
+  }
+
+  .trend-watch-news-board {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .trend-watch-news-group.neutral {
+    grid-column: auto;
+  }
 }
 
 @media (max-width: 420px) {
@@ -11284,5 +11451,20 @@ body :is(
 
   .market-impact-orbit {
     min-height: 292px;
+  }
+
+  .trend-tabs {
+    margin-bottom: 18px;
+  }
+
+  .trend-tab {
+    height: 46px;
+    padding-inline: 6px;
+    font-size: 13px !important;
+  }
+
+  .trend-watch-stock-chip {
+    min-height: 42px;
+    padding-inline: 14px;
   }
 }

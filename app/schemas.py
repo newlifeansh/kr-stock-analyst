@@ -404,6 +404,7 @@ class DashboardEventOut(BaseModel):
     source: str
     url: Optional[str] = None
     published_at: Optional[datetime] = None
+    impact: Optional[str] = None
 
 
 class DashboardSurpriseOut(BaseModel):
