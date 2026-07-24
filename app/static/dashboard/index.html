@@ -19,7 +19,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v3r" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v5" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -372,39 +372,48 @@
             <section class="quant-signal-stack" id="quant-signal-content" hidden>
               <article class="stock-v3-section quant-current-card">
                 <header class="quant-current-head">
-                  <div><span>현재 관찰 신호</span><h2 id="quant-current-label">-</h2></div>
+                  <div><span>백엔드 전략 상태</span><h2 id="quant-current-label">-</h2></div>
                   <strong id="quant-current-score">-</strong>
                 </header>
-                <p class="quant-current-meta" id="quant-current-meta">종가 신호와 실시간 현재가를 비교합니다.</p>
+                <p class="quant-current-meta" id="quant-current-meta">확정 일봉과 실시간 현재가로 현재 상태를 판정합니다.</p>
+                <ol class="quant-lifecycle" id="quant-lifecycle" aria-label="전략 진행 단계"></ol>
                 <ul class="quant-current-reasons" id="quant-current-reasons"></ul>
                 <dl class="quant-current-position" id="quant-current-position"></dl>
                 <p class="quant-next-confirmation" id="quant-next-confirmation"></p>
               </article>
 
+              <article class="stock-v3-section quant-context-card">
+                <header class="stock-v3-section-head">
+                  <div><span>오늘의 확인 자료</span><h2 id="quant-context-label">보조 근거 확인</h2></div>
+                  <span class="stock-v3-source" id="quant-context-coverage">-</span>
+                </header>
+                <p class="quant-context-note" id="quant-context-note"></p>
+                <ul class="quant-context-list" id="quant-context-list"></ul>
+              </article>
+
               <article class="stock-v3-section quant-performance-card">
                 <header class="stock-v3-section-head">
-                  <div><span>같은 규칙 모의검증</span><h2>최근 1년 성과</h2></div>
+                  <div><span>같은 규칙 검증</span><h2>최근 1년 결과</h2></div>
                   <span class="stock-v3-source" id="quant-performance-period">-</span>
                 </header>
                 <dl class="quant-performance-grid" id="quant-performance-grid"></dl>
                 <p class="quant-sample-note" id="quant-sample-note"></p>
-                <div class="quant-capital" id="quant-capital"></div>
               </article>
 
               <article class="stock-v3-section quant-chart-card">
                 <header class="stock-v3-section-head">
-                  <div><span>다음 거래일 시가 체결 기준</span><h2>최근 1년 매매신호</h2></div>
+                  <div><span>종가 판정 · 다음 시가 반영</span><h2>포지션 상태 이력</h2></div>
                   <span class="stock-v3-source" id="quant-chart-source">-</span>
                 </header>
-                <div class="quant-signal-chart" id="quant-signal-chart" aria-label="가격과 모의 매수 매도 신호"></div>
+                <div class="quant-signal-chart" id="quant-signal-chart" aria-label="가격과 전략 포지션 상태 전환"></div>
                 <div class="quant-chart-legend" aria-label="차트 범례">
-                  <span class="buy">모의 매수</span><span class="sell">모의 매도</span><span class="watch">현재 관찰</span>
+                  <span class="buy">진입</span><span class="partial">분할매도</span><span class="sell">청산</span><span class="watch">현재 조건</span>
                 </div>
               </article>
 
               <article class="stock-v3-section quant-history-card">
                 <header class="stock-v3-section-head">
-                  <div><span>비용 반영 결과</span><h2>최근 모의 거래</h2></div>
+                  <div><span>비용 반영 결과</span><h2>최근 상태 전환</h2></div>
                 </header>
                 <div class="quant-trade-list" id="quant-trade-list"></div>
                 <details class="quant-methodology">
@@ -674,6 +683,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v3r" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v5" defer></script>
   </body>
 </html>

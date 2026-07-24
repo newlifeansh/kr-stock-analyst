@@ -22,9 +22,12 @@ def test_stock_detail_v3_shell_and_controls():
         'id="stock-news-temperature-chart"',
         'id="quant-signal-chart"',
         'id="quant-current-label"',
-        "20260725v3r",
+        'id="quant-lifecycle"',
+        'id="quant-context-list"',
+        "20260725v5",
     ):
         assert expected in shell.text
+    assert "1,000만원 모의 운용" not in shell.text
 
     source = client.get("/assets/dashboard/app.js").text
     assert 'state.stockPricePeriod = button.dataset.pricePeriod || "1D"' in source

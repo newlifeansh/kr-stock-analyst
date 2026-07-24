@@ -623,11 +623,15 @@ class QuantSignalEventOut(BaseModel):
     reason: str
     return_rate: Optional[Decimal] = None
     holding_days: Optional[int] = None
+    position_percent: Optional[Decimal] = None
+    state_after: Optional[str] = None
 
 
 class QuantTradeOut(BaseModel):
     entry_date: date
     entry_price: Optional[int] = None
+    partial_exit_date: Optional[date] = None
+    partial_exit_price: Optional[int] = None
     exit_date: Optional[date] = None
     exit_price: Optional[int] = None
     gross_return: Optional[Decimal] = None
@@ -635,6 +639,7 @@ class QuantTradeOut(BaseModel):
     holding_days: int
     status: str
     exit_reason: Optional[str] = None
+    remaining_percent: Optional[Decimal] = None
 
 
 class QuantPerformanceOut(BaseModel):
@@ -650,10 +655,50 @@ class QuantPerformanceOut(BaseModel):
     max_drawdown: Optional[Decimal] = None
     average_holding_days: Optional[Decimal] = None
     transaction_cost_per_side: Decimal
-    hypothetical_start: int
-    hypothetical_end: Optional[int] = None
     sample_state: str
     sample_note: str
+
+
+class QuantLifecycleTransitionOut(BaseModel):
+    label: Optional[str] = None
+    transition_date: Optional[date] = None
+    price: Optional[int] = None
+
+
+class QuantLifecycleOut(BaseModel):
+    state: str
+    label: str
+    stage_index: int
+    stages: list[str]
+    latest_transition: Optional[QuantLifecycleTransitionOut] = None
+
+
+class QuantDecisionLevelOut(BaseModel):
+    key: str
+    label: str
+    price: Optional[int] = None
+    condition: str
+
+
+class QuantContextEvidenceOut(BaseModel):
+    key: str
+    label: str
+    state: str
+    summary: str
+    source: str
+    as_of: Optional[datetime] = None
+    score: Optional[Decimal] = None
+    available: bool
+
+
+class QuantConfirmationOut(BaseModel):
+    state: str
+    label: str
+    score: Optional[Decimal] = None
+    available_count: int
+    total_count: int
+    note: str
+    evidence: list[QuantContextEvidenceOut] = Field(default_factory=list)
 
 
 class QuantCurrentSignalOut(BaseModel):
@@ -664,11 +709,17 @@ class QuantCurrentSignalOut(BaseModel):
     as_of: datetime
     live_observation: bool
     position_open: bool
+    model_exposure_percent: Decimal
+    lifecycle: QuantLifecycleOut
     entry_date: Optional[date] = None
     entry_price: Optional[int] = None
+    partial_exit_date: Optional[date] = None
+    partial_exit_price: Optional[int] = None
     holding_days: Optional[int] = None
     unrealized_return: Optional[Decimal] = None
     stop_reference: Optional[int] = None
+    partial_exit_reference: Optional[int] = None
+    levels: list[QuantDecisionLevelOut] = Field(default_factory=list)
     reasons: list[str]
     next_confirmation: str
 
@@ -685,12 +736,15 @@ class StockQuantSignalsOut(BaseModel):
     price_through: Optional[date] = None
     data_state: str
     data_message: str
+    confirmation: QuantConfirmationOut
     current: Optional[QuantCurrentSignalOut] = None
     performance: Optional[QuantPerformanceOut] = None
     factors: list[QuantFactorOut] = Field(default_factory=list)
     events: list[QuantSignalEventOut] = Field(default_factory=list)
     trades: list[QuantTradeOut] = Field(default_factory=list)
     methodology: list[str] = Field(default_factory=list)
+    applied_principles: list[str] = Field(default_factory=list)
+    excluded_principles: list[str] = Field(default_factory=list)
     disclaimer: str
 
 

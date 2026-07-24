@@ -66,13 +66,17 @@ const elements = {
   quantCurrentLabel: $("quant-current-label"),
   quantCurrentScore: $("quant-current-score"),
   quantCurrentMeta: $("quant-current-meta"),
+  quantLifecycle: $("quant-lifecycle"),
   quantCurrentReasons: $("quant-current-reasons"),
   quantCurrentPosition: $("quant-current-position"),
   quantNextConfirmation: $("quant-next-confirmation"),
+  quantContextLabel: $("quant-context-label"),
+  quantContextCoverage: $("quant-context-coverage"),
+  quantContextNote: $("quant-context-note"),
+  quantContextList: $("quant-context-list"),
   quantPerformancePeriod: $("quant-performance-period"),
   quantPerformanceGrid: $("quant-performance-grid"),
   quantSampleNote: $("quant-sample-note"),
-  quantCapital: $("quant-capital"),
   quantSignalChart: $("quant-signal-chart"),
   quantChartSource: $("quant-chart-source"),
   quantTradeList: $("quant-trade-list"),
@@ -1491,14 +1495,15 @@ function quantSignalMarkers(rows, points, options = {}) {
     .slice(compact ? -8 : -16);
   return visibleEvents.map((event) => {
     const point = pointByDate.get(String(event.execution_date));
-    const side = event.side === "sell" ? "sell" : "buy";
+    const side = event.side === "partial_sell" ? "partial" : event.side === "sell" ? "sell" : "buy";
     const direction = side === "buy" ? 1 : -1;
     const stemEnd = point.y + (direction * (compact ? 17 : 22));
     const labelY = point.y + (direction * (compact ? 30 : 36));
     const triangle = side === "buy"
       ? `${point.x - 5},${stemEnd + 5} ${point.x + 5},${stemEnd + 5} ${point.x},${stemEnd - 3}`
       : `${point.x - 5},${stemEnd - 5} ${point.x + 5},${stemEnd - 5} ${point.x},${stemEnd + 3}`;
-    const label = compact ? (side === "buy" ? "매수" : "매도") : (event.label || (side === "buy" ? "모의 매수" : "모의 매도"));
+    const compactLabel = side === "buy" ? "진입" : side === "partial" ? "분할" : "청산";
+    const label = compact ? compactLabel : (event.label || compactLabel);
     return `
       <g class="quant-chart-marker ${side}">
         <title>${label} · ${formatDateLabel(event.execution_date)} · ${formatNumber(event.price)}</title>
@@ -7155,6 +7160,12 @@ function resetQuantSignals(message = "퀀트 신호를 계산하는 중입니다
   if (elements.quantSignalChart) {
     elements.quantSignalChart.innerHTML = "";
   }
+  if (elements.quantLifecycle) {
+    elements.quantLifecycle.innerHTML = "";
+  }
+  if (elements.quantContextList) {
+    elements.quantContextList.innerHTML = "";
+  }
 }
 
 function quantToneClass(value) {
@@ -7208,14 +7219,14 @@ function renderQuantSignalChart() {
   const markers = quantSignalMarkers(rows, points);
   const current = payload.current || {};
   const lastPoint = points[points.length - 1];
-  const watchMarker = ["buy_watch", "sell_watch"].includes(current.action)
+  const watchMarker = ["entry_pending", "partial_exit_pending", "full_exit_pending"].includes(current.action)
     ? `<g class="quant-chart-marker watch"><circle cx="${lastPoint.x.toFixed(2)}" cy="${lastPoint.y.toFixed(2)}" r="9"></circle><text x="${(lastPoint.x - 5).toFixed(2)}" y="${Math.max(16, lastPoint.y - 16).toFixed(2)}" text-anchor="end">${current.label}</text></g>`
     : "";
   const start = closes[0];
   const end = closes[closes.length - 1];
   const toneClass = end >= start ? "up" : "down";
   elements.quantSignalChart.innerHTML = `
-    <svg class="stock-v2-price-svg quant-price-svg ${toneClass}" viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 1년 가격과 모의 매수 매도 신호">
+    <svg class="stock-v2-price-svg quant-price-svg ${toneClass}" viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 1년 가격과 전략 포지션 상태 전환">
       ${yTicks}
       <path class="stock-v2-chart-area" d="${areaPath}"></path>
       <path class="stock-v2-chart-line" d="${linePath}"></path>
@@ -7255,23 +7266,46 @@ function renderQuantSignals(payload) {
   setText(elements.quantCurrentMeta, currentMeta);
   elements.quantCurrentLabel.className = `quant-action-${current.action || "wait"}`;
   elements.quantCurrentScore.className = `quant-action-${current.action || "wait"}`;
+  const lifecycle = current.lifecycle || {};
+  if (elements.quantLifecycle) {
+    const stageIndex = Number.isFinite(Number(lifecycle.stage_index)) ? Number(lifecycle.stage_index) : 0;
+    elements.quantLifecycle.innerHTML = (lifecycle.stages || ["관망", "진입", "보유", "분할매도", "청산"])
+      .map((stage, index) => `<li class="${index === stageIndex ? "active" : index < stageIndex ? "complete" : ""}"><span>${index + 1}</span><strong>${stage}</strong></li>`)
+      .join("");
+  }
   elements.quantCurrentReasons.innerHTML = "";
   for (const reason of current.reasons || []) {
     elements.quantCurrentReasons.appendChild(el("li", "", reason));
   }
+  const latestTransition = lifecycle.latest_transition || {};
   const positionRows = current.position_open
     ? [
-        ["모의 진입", current.entry_price ? `${formatNumber(current.entry_price)}원` : "-"],
-        ["보유 기간", current.holding_days ? `${formatNumber(current.holding_days)}거래일` : "-"],
-        ["현재 수익률", formatPercent(current.unrealized_return)],
-        ["위험 기준", current.stop_reference ? `${formatNumber(current.stop_reference)}원` : "-"],
+        ["모델 보유비중", `${formatNumber(current.model_exposure_percent)}%`],
+        ["전략상 진입", current.entry_price ? `${formatNumber(current.entry_price)}원` : "-"],
+        ["상태 수익률", formatPercent(current.unrealized_return)],
+        ["다음 위험선", current.stop_reference ? `${formatNumber(current.stop_reference)}원` : "-"],
       ]
     : [
-        ["상태", "현재 포지션 없음"],
+        ["모델 보유비중", "0%"],
+        ["최근 전환", latestTransition.label || "아직 없음"],
+        ["전환일", latestTransition.transition_date ? formatDateLabel(latestTransition.transition_date) : "-"],
         ["진입 기준", "65점 + 상승 추세"],
       ];
   elements.quantCurrentPosition.innerHTML = positionRows.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("");
   setText(elements.quantNextConfirmation, current.next_confirmation || "종가 신호를 다시 확인합니다.");
+
+  const confirmation = payload.confirmation || {};
+  setText(elements.quantContextLabel, confirmation.label || "보조 근거 확인");
+  setText(elements.quantContextCoverage, `${formatNumber(confirmation.available_count || 0)}/${formatNumber(confirmation.total_count || 0)} 연결`);
+  setText(elements.quantContextNote, confirmation.note || "가격 신호와 분리해 확인합니다.");
+  if (elements.quantContextList) {
+    elements.quantContextList.innerHTML = (confirmation.evidence || []).map((item) => `
+      <li class="quant-context-${item.state || "neutral"}">
+        <div><strong>${item.label}</strong><span>${item.source}</span></div>
+        <p>${item.summary}</p>
+      </li>
+    `).join("");
+  }
 
   setText(
     elements.quantPerformancePeriod,
@@ -7284,28 +7318,27 @@ function renderQuantSignals(payload) {
     ["전략 수익률", formatPercent(performance.strategy_return), quantToneClass(performance.strategy_return)],
     ["같은 기간 주가", formatPercent(performance.benchmark_return), quantToneClass(performance.benchmark_return)],
     ["최대 낙폭", formatPercent(performance.max_drawdown), "negative"],
-    ["평균 거래", formatPercent(performance.average_return), quantToneClass(performance.average_return)],
+    ["평균 체결비용", formatPercent(performance.transaction_cost_per_side), "neutral"],
     ["완료 거래", `${formatNumber(performance.completed_trades)}회`, "neutral"],
   ];
   elements.quantPerformanceGrid.innerHTML = performanceRows.map(([label, value, tone]) => `<div><dt>${label}</dt><dd class="${tone}">${value}</dd></div>`).join("");
   setText(elements.quantSampleNote, performance.sample_note || "성과 표본을 확인하세요.");
   elements.quantSampleNote.classList.toggle("limited", performance.sample_state === "limited");
-  elements.quantCapital.innerHTML = `
-    <span>1,000만원 모의 운용</span>
-    <div><strong>${formatNumber(performance.hypothetical_start)}원</strong><i>→</i><strong class="${quantToneClass(performance.strategy_return)}">${formatNumber(performance.hypothetical_end)}원</strong></div>
-    <small>신호 체결 비용을 반영한 과거 모의 결과</small>
-  `;
-
   elements.quantTradeList.innerHTML = "";
   const trades = Array.isArray(payload.trades) ? payload.trades.slice(0, 6) : [];
   if (!trades.length) {
-    elements.quantTradeList.appendChild(el("p", "stock-v3-chart-empty", "최근 1년 완료된 모의 거래가 없습니다."));
+    elements.quantTradeList.appendChild(el("p", "stock-v3-chart-empty", "최근 1년 완료된 상태 전환이 없습니다."));
   } else {
     for (const trade of trades) {
       const row = el("article", "quant-trade-row");
-      const status = trade.status === "open" ? "모의 보유 중" : `${formatDateLabel(trade.entry_date)}~${formatDateLabel(trade.exit_date)}`;
+      const status = trade.status === "open"
+        ? trade.remaining_percent < 100 ? "분할매도 후 보유 중" : "전략상 보유 중"
+        : `${formatDateLabel(trade.entry_date)}~${formatDateLabel(trade.exit_date)}`;
+      const transition = trade.partial_exit_date
+        ? `진입 ${formatNumber(trade.entry_price)}원 · 1차 분할 ${formatNumber(trade.partial_exit_price)}원`
+        : `진입 ${formatNumber(trade.entry_price)}원`;
       row.innerHTML = `
-        <div><strong>${status}</strong><span>${formatNumber(trade.entry_price)}원 → ${trade.exit_price ? `${formatNumber(trade.exit_price)}원` : "현재가"}</span></div>
+        <div><strong>${status}</strong><span>${transition}${trade.exit_price ? ` · 청산 ${formatNumber(trade.exit_price)}원` : ""}</span></div>
         <div><strong class="${quantToneClass(trade.net_return)}">${formatPercent(trade.net_return)}</strong><span>${formatNumber(trade.holding_days)}거래일</span></div>
       `;
       elements.quantTradeList.appendChild(row);
@@ -7314,6 +7347,9 @@ function renderQuantSignals(payload) {
   elements.quantMethodologyList.innerHTML = "";
   for (const item of payload.methodology || []) {
     elements.quantMethodologyList.appendChild(el("li", "", item));
+  }
+  for (const item of payload.excluded_principles || []) {
+    elements.quantMethodologyList.appendChild(el("li", "quant-methodology-limit", `현재 미적용: ${item}`));
   }
   setText(elements.quantDisclaimer, payload.disclaimer || "모의 신호는 투자 판단의 참고 자료입니다.");
   renderQuantSignalChart();

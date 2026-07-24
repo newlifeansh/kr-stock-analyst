@@ -11,8 +11,13 @@ from sqlalchemy.pool import StaticPool
 from app import main
 from app.db import Base, get_db
 from app.main import app
-from app.models import DailyPrice, StockMaster
-from app.services.quant_signals import MIN_HISTORY_ROWS, STRATEGY_VERSION, build_quant_signal_payload
+from app.models import DailyPrice, DisclosureItem, InvestorFlow, NewsItem, ResearchReport, StockMaster
+from app.services.quant_signals import (
+    MIN_HISTORY_ROWS,
+    STRATEGY_VERSION,
+    build_quant_signal_payload,
+    load_quant_signal_payload,
+)
 
 
 def _price_rows(code: str, count: int = 340) -> list[DailyPrice]:
@@ -42,6 +47,7 @@ def _price_rows(code: str, count: int = 340) -> list[DailyPrice]:
                 low=round(min(open_price, value) * 0.988),
                 close=round(value),
                 volume=1_000_000 + (index % 23) * 50_000,
+                trading_value=50_000_000_000 + (index % 7) * 1_000_000_000,
             )
         )
     return rows
@@ -71,13 +77,36 @@ def test_quant_signals_execute_on_the_next_bar_and_include_costs():
     assert payload["data_state"] == "ready"
     assert payload["strategy_version"] == STRATEGY_VERSION
     assert payload["events"]
-    assert {event["side"] for event in payload["events"]} == {"buy", "sell"}
+    assert {event["side"] for event in payload["events"]} == {"buy", "partial_sell", "sell"}
     assert all(event["execution_date"] > event["signal_date"] for event in payload["events"])
+    partial_events = [event for event in payload["events"] if event["side"] == "partial_sell"]
+    assert partial_events
+    assert all(event["position_percent"] == Decimal("50.00") for event in partial_events)
     for trade in (item for item in payload["trades"] if item["status"] == "closed"):
         assert trade["net_return"] <= trade["gross_return"]
         assert trade["holding_days"] >= 1
-    assert payload["performance"]["transaction_cost_per_side"] == Decimal("0.20")
+        assert trade["partial_exit_date"] is not None
+    assert Decimal("0.12") <= payload["performance"]["transaction_cost_per_side"] <= Decimal("0.50")
     assert payload["performance"]["max_drawdown"] <= 0
+    assert "hypothetical_start" not in payload["performance"]
+    assert any("최대 낙폭" in item for item in payload["applied_principles"])
+    assert any("생존편향" in item for item in payload["excluded_principles"])
+
+
+def test_quant_lifecycle_keeps_half_exposure_after_partial_exit():
+    payload = build_quant_signal_payload(
+        _stock(),
+        _price_rows("005930", 150),
+        now=datetime(2026, 7, 25, 12, 0),
+    )
+
+    current = payload["current"]
+    assert current["lifecycle"]["state"] == "partially_exited"
+    assert current["model_exposure_percent"] == Decimal("50.00")
+    assert current["partial_exit_date"] is not None
+    assert current["partial_exit_price"] is not None
+    assert [level["key"] for level in current["levels"]] == ["full_exit"]
+    assert payload["events"][-1]["label"] == "1차 분할매도"
 
 
 def test_future_price_changes_do_not_rewrite_past_signals():
@@ -147,6 +176,81 @@ def test_quant_signal_endpoint_uses_same_engine_for_multiple_stocks(monkeypatch)
         assert samsung.json()["strategy_version"] == hynix.json()["strategy_version"]
         assert samsung.json()["code"] == "005930"
         assert hynix.json()["code"] == "000660"
+        assert samsung.json()["current"]["live_observation"] is False
     finally:
         app.dependency_overrides.pop(get_db, None)
         db.close()
+
+
+def test_current_context_uses_connected_sources_without_rewriting_backtest():
+    db = _session()
+    stock = _stock()
+    prices = _price_rows("005930")
+    latest_date = prices[-1].trade_date
+    db.add(stock)
+    db.add_all(prices)
+    db.add_all(
+        [
+            InvestorFlow(
+                code="005930",
+                trade_date=latest_date,
+                investor_type="외국인",
+                net_buy_value=12_000_000_000,
+            ),
+            InvestorFlow(
+                code="005930",
+                trade_date=latest_date,
+                investor_type="기관합계",
+                net_buy_value=-3_000_000_000,
+            ),
+            NewsItem(
+                source="test",
+                source_category="company",
+                external_id="news-1",
+                title="삼성전자 실적 개선과 성장 전망",
+                published_at=datetime(2026, 7, 24, 9, 0),
+            ),
+            ResearchReport(
+                source="test",
+                source_category="company",
+                external_id="report-1",
+                title="삼성전자 전망",
+                stock_code="005930",
+                broker_name="테스트증권",
+                opinion="매수",
+                target_price=Decimal("50000"),
+                published_at=datetime(2026, 7, 23, 9, 0),
+            ),
+            DisclosureItem(
+                source="dart",
+                external_id="disclosure-1",
+                disclosure_category="공시목록",
+                company_name="삼성전자",
+                stock_code="005930",
+                report_name="공급계약 수주 증가",
+                published_at=datetime(2026, 7, 22, 9, 0),
+            ),
+        ]
+    )
+    db.commit()
+
+    baseline = build_quant_signal_payload(stock, prices, now=datetime(2026, 7, 25, 12, 0))
+    enriched = load_quant_signal_payload(db, "005930", now=datetime(2026, 7, 25, 12, 0))
+
+    assert enriched is not None
+    assert enriched["confirmation"]["available_count"] == 5
+    assert {item["key"] for item in enriched["confirmation"]["evidence"]} == {
+        "flow",
+        "news",
+        "research",
+        "disclosure",
+        "liquidity",
+    }
+    assert [
+        (event["signal_date"], event["execution_date"], event["side"], event["price"])
+        for event in enriched["events"]
+    ] == [
+        (event["signal_date"], event["execution_date"], event["side"], event["price"])
+        for event in baseline["events"]
+    ]
+    db.close()
