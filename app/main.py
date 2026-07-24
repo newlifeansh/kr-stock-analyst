@@ -183,6 +183,8 @@ MARKET_RANKING_TTL_SECONDS = 120
 MARKET_IMPACT_TTL_SECONDS = 900
 RECOMMENDATION_TTL_SECONDS = 600
 INTRADAY_CLOSED_TTL_SECONDS = 60 * 60 * 72
+INTRADAY_WARMUP_MAX_STOCKS = 60
+INTRADAY_WARMUP_START = time(15, 35)
 TREND_ANALYSIS_TTL_SECONDS = 120
 TREND_GRAPH_TTL_SECONDS = 300
 WRITE_SESSION_COOKIE = "sn_write_session"
@@ -220,16 +222,37 @@ async def _run_bootstrap_task() -> None:
         logger.exception("Background bootstrap failed")
 
 
+async def _run_intraday_warmup_loop() -> None:
+    last_attempted_date: Optional[date] = None
+    while True:
+        now = datetime.now(KST)
+        should_warm = (
+            now.weekday() < 5
+            and now.time() >= INTRADAY_WARMUP_START
+            and last_attempted_date != now.date()
+        )
+        if should_warm:
+            last_attempted_date = now.date()
+            try:
+                warmed = await asyncio.to_thread(_warm_closed_intraday_snapshots, now)
+                logger.info("Closed intraday warmup completed: %s stocks", warmed)
+            except Exception:  # pragma: no cover - operational safeguard
+                logger.exception("Closed intraday warmup failed")
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
     recover_interrupted_ingestions()
     bootstrap_task: asyncio.Task | None = None
+    intraday_warmup_task: asyncio.Task | None = None
     async with AsyncExitStack() as stack:
         if mcp_server is not None:
             await stack.enter_async_context(mcp_server.session_manager.run())
         await briefing_runtime.start()
         await web_push_runtime.start()
+        intraday_warmup_task = asyncio.create_task(_run_intraday_warmup_loop())
         if settings.bootstrap_on_start:
             bootstrap_task = asyncio.create_task(_run_bootstrap_task())
         try:
@@ -239,6 +262,10 @@ async def lifespan(_: FastAPI):
                 bootstrap_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await bootstrap_task
+            if intraday_warmup_task is not None:
+                intraday_warmup_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await intraday_warmup_task
             await web_push_runtime.stop()
             await briefing_runtime.stop()
 
@@ -2377,6 +2404,37 @@ def _save_closed_intraday_snapshot(
 def _intraday_code_lock(code: str) -> RLock:
     with intraday_lock_guard:
         return intraday_code_locks.setdefault(code, RLock())
+
+
+def _warm_closed_intraday_snapshots(now: Optional[datetime] = None) -> int:
+    current = now or datetime.now(KST)
+    if _korea_regular_market_open(current) or not kis_rest_provider.is_configured():
+        return 0
+    with SessionLocal() as db:
+        recent_codes = list(
+            db.scalars(
+                select(WatchlistItem.code)
+                .order_by(desc(WatchlistItem.updated_at))
+                .limit(INTRADAY_WARMUP_MAX_STOCKS * 4)
+            )
+        )
+    codes = list(dict.fromkeys(_normalize_stock_code(code) for code in recent_codes))[
+        :INTRADAY_WARMUP_MAX_STOCKS
+    ]
+    warmed = 0
+    for code in codes:
+        with _intraday_code_lock(code):
+            with SessionLocal() as db:
+                cached, _ = _load_closed_intraday_snapshot(db, code, 390, current)
+                if cached is not None:
+                    continue
+                try:
+                    points = kis_rest_provider.fetch_intraday_chart(code, max_points=390)
+                    if _save_closed_intraday_snapshot(db, code, points, 390, current) is not None:
+                        warmed += 1
+                except Exception:
+                    logger.warning("Closed intraday warmup skipped for %s", code, exc_info=True)
+    return warmed
 
 
 @app.get("/stocks/{code}/intraday")

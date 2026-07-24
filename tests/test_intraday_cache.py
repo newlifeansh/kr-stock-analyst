@@ -158,3 +158,14 @@ def test_closed_intraday_collection_fetches_time_windows_in_parallel(monkeypatch
     assert len(rows) == 390
     assert rows[0]["trade_time"] == "090100"
     assert rows[-1]["trade_time"] == "153000"
+
+
+def test_intraday_warmup_does_not_run_during_regular_market(monkeypatch):
+    monkeypatch.setattr(main, "_korea_regular_market_open", lambda _now=None: True)
+    monkeypatch.setattr(
+        main.kis_rest_provider,
+        "is_configured",
+        lambda: (_ for _ in ()).throw(AssertionError("provider should not be checked")),
+    )
+
+    assert main._warm_closed_intraday_snapshots(datetime(2026, 7, 27, 10, 0, tzinfo=main.KST)) == 0
