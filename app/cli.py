@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 import subprocess
 from typing import Optional
@@ -7,6 +8,7 @@ from urllib.parse import urlparse
 import requests
 import typer
 from dotenv import dotenv_values
+from sqlalchemy import select
 
 from app.collectors.briefing import collect_home_briefing
 from app.collectors.disclosures import collect_disclosures
@@ -15,6 +17,7 @@ from app.collectors.ecos import collect_ecos_series
 from app.collectors.krx import (
     collect_investor_flows,
     collect_market_prices,
+    collect_prices_for_codes,
     collect_stock_prices,
     collect_stocks,
 )
@@ -23,10 +26,17 @@ from app.collectors.news import collect_news_items
 from app.collectors.naver_flows import collect_naver_investor_flows
 from app.collectors.naver_quotes import collect_naver_price_history, collect_naver_quotes
 from app.collectors.research import collect_research_reports
+from app.collectors.stock_snapshots import (
+    collect_stock_company_snapshots,
+    collect_stock_fundamental_snapshots,
+    collect_stock_news_snapshots,
+)
 from app.bootstrap import bootstrap_runtime_data
 from app.config import get_settings
 from app.db import SessionLocal, init_db
 from app.integrations.toss import sync_toss_accounts, sync_toss_holdings, sync_toss_orders
+from app.models import StockMaster
+from app.services.company_profiles import collect_company_profiles
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -132,6 +142,9 @@ RAILWAY_ENV_KEYS = [
     "PRICE_DAYS_BACK",
     "PRICE_CODE_LIMIT",
     "PRICE_MAX_WORKERS",
+    "STOCK_UNIVERSE_ENABLED",
+    "STOCK_UNIVERSE_POLL_SECONDS",
+    "STOCK_UNIVERSE_MARKETS",
     "INVESTOR_FLOW_ENABLED",
     "INVESTOR_FLOW_POLL_SECONDS",
     "INVESTOR_FLOW_PAGES",
@@ -143,6 +156,18 @@ RAILWAY_ENV_KEYS = [
     "FINANCIALS_REPORT",
     "FINANCIALS_FS_DIV",
     "FINANCIALS_COMPANY_LIMIT",
+    "FUNDAMENTAL_SNAPSHOT_ENABLED",
+    "FUNDAMENTAL_SNAPSHOT_POLL_SECONDS",
+    "FUNDAMENTAL_SNAPSHOT_REFRESH_DAYS",
+    "FUNDAMENTAL_SNAPSHOT_MAX_WORKERS",
+    "STOCK_NEWS_SNAPSHOT_ENABLED",
+    "STOCK_NEWS_SNAPSHOT_POLL_SECONDS",
+    "STOCK_NEWS_SNAPSHOT_REFRESH_HOURS",
+    "STOCK_NEWS_SNAPSHOT_MAX_WORKERS",
+    "STOCK_COMPANY_SNAPSHOT_ENABLED",
+    "STOCK_COMPANY_SNAPSHOT_POLL_SECONDS",
+    "STOCK_COMPANY_SNAPSHOT_REFRESH_DAYS",
+    "STOCK_COMPANY_SNAPSHOT_MAX_WORKERS",
     "MACRO_ENABLED",
     "MACRO_POLL_SECONDS",
     "MACRO_RANGE",
@@ -447,6 +472,96 @@ def collect_naver_price_history_command(
     typer.echo(f"Loaded {count} Naver daily price history rows.")
 
 
+@app.command("collect-stock-fundamentals")
+def collect_stock_fundamentals_command(
+    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Optional code limit"),
+    max_workers: int = typer.Option(8, "--max-workers", help="Concurrent workers"),
+    refresh_days: int = typer.Option(7, "--refresh-days", help="Skip snapshots newer than N days; 0 refreshes all"),
+) -> None:
+    init_db()
+    with SessionLocal() as db:
+        result = collect_stock_fundamental_snapshots(
+            db,
+            markets=markets,
+            limit=limit,
+            max_workers=max_workers,
+            refresh_days=refresh_days,
+        )
+    typer.echo(result["message"])
+
+
+@app.command("collect-company-profiles")
+def collect_company_profiles_command(
+    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Optional company limit"),
+    refresh: bool = typer.Option(False, "--refresh/--skip-fresh", help="Refresh profiles already stored"),
+    include_business_reports: bool = typer.Option(
+        False,
+        "--include-business-reports/--company-overview-only",
+        help="Download business reports too; overview-only is recommended for the first full backfill",
+    ),
+    max_workers: int = typer.Option(2, "--max-workers", help="Concurrent DART overview requests"),
+) -> None:
+    init_db()
+    with SessionLocal() as db:
+        result = collect_company_profiles(
+            db,
+            markets=markets,
+            limit=limit,
+            refresh=refresh,
+            include_business_reports=include_business_reports,
+            max_workers=max_workers,
+        )
+    typer.echo(result["message"])
+
+
+@app.command("collect-stock-news")
+def collect_stock_news_command(
+    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Optional code limit"),
+    max_workers: int = typer.Option(8, "--max-workers", help="Concurrent workers"),
+    refresh_hours: int = typer.Option(
+        6,
+        "--refresh-hours",
+        help="Skip snapshots newer than N hours; 0 refreshes all",
+    ),
+) -> None:
+    init_db()
+    with SessionLocal() as db:
+        result = collect_stock_news_snapshots(
+            db,
+            markets=markets,
+            limit=limit,
+            max_workers=max_workers,
+            refresh_hours=refresh_hours,
+        )
+    typer.echo(result["message"])
+
+
+@app.command("collect-stock-company-info")
+def collect_stock_company_info_command(
+    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Optional code limit"),
+    max_workers: int = typer.Option(8, "--max-workers", help="Concurrent workers"),
+    refresh_days: int = typer.Option(
+        30,
+        "--refresh-days",
+        help="Skip snapshots newer than N days; 0 refreshes all",
+    ),
+) -> None:
+    init_db()
+    with SessionLocal() as db:
+        result = collect_stock_company_snapshots(
+            db,
+            markets=markets,
+            limit=limit,
+            max_workers=max_workers,
+            refresh_days=refresh_days,
+        )
+    typer.echo(result["message"])
+
+
 @app.command("collect-market-universe")
 def collect_market_universe_command(
     date: str = typer.Option(..., "--date", help="YYYYMMDD"),
@@ -482,6 +597,46 @@ def collect_stock_prices_command(
     with SessionLocal() as db:
         count = collect_stock_prices(db, code, from_date, to_date)
     typer.echo(f"Loaded {count} price rows for {code}.")
+
+
+@app.command("collect-stock-history-universe")
+def collect_stock_history_universe_command(
+    from_date: str = typer.Option(
+        (datetime.utcnow() - timedelta(days=1200)).strftime("%Y%m%d"),
+        "--from-date",
+        help="YYYYMMDD; defaults to about 3 years ago",
+    ),
+    to_date: str = typer.Option(
+        datetime.utcnow().strftime("%Y%m%d"),
+        "--to-date",
+        help="YYYYMMDD",
+    ),
+    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Optional code limit"),
+    max_workers: int = typer.Option(8, "--max-workers", help="Concurrent workers"),
+) -> None:
+    init_db()
+    market_values = [value.strip().upper() for value in markets.split(",") if value.strip()]
+    with SessionLocal() as db:
+        statement = (
+            select(StockMaster.code)
+            .where(StockMaster.is_active.is_(True))
+            .order_by(StockMaster.market, StockMaster.code)
+        )
+        if market_values:
+            statement = statement.where(StockMaster.market.in_(market_values))
+        if limit:
+            statement = statement.limit(limit)
+        codes = list(db.scalars(statement))
+        count = collect_prices_for_codes(
+            db,
+            codes,
+            from_yyyymmdd=from_date,
+            to_yyyymmdd=to_date,
+            max_workers=max_workers,
+            prefer_fdr=True,
+        )
+    typer.echo(f"Loaded {count} daily price rows for {len(codes)} active stocks.")
 
 
 @app.command("collect-investor-flows")

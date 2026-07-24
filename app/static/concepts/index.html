@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f3f1eb" />
+    <title>주식 정보 서비스 디자인 탐색</title>
+    <link rel="stylesheet" href="/assets/concepts/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#concept-stage">본문 바로가기</a>
+    <header class="concept-switcher">
+      <div class="switcher-title">
+        <span class="eyebrow">DESIGN EXPLORATION · 01</span>
+        <strong>주식 정보 서비스 디자인 탐색</strong>
+      </div>
+      <nav class="concept-tabs" aria-label="디자인 시안 선택">
+        <button class="concept-tab is-active" type="button" data-concept="pulse" aria-pressed="true">
+          <span>01</span><b>Market Pulse</b><small>브리핑형</small>
+        </button>
+        <button class="concept-tab" type="button" data-concept="lens" aria-pressed="false">
+          <span>02</span><b>Equity Lens</b><small>리서치형</small>
+        </button>
+        <button class="concept-tab" type="button" data-concept="signals" aria-pressed="false">
+          <span>03</span><b>My Signals</b><small>추적형</small>
+        </button>
+      </nav>
+    </header>
+
+    <main id="concept-stage">
+      <section class="concept concept-pulse is-active" data-panel="pulse" aria-labelledby="pulse-title">
+        <aside class="pulse-rail">
+          <a class="wordmark" href="#"><i>F</i><span>FIN.</span></a>
+          <nav aria-label="Market Pulse 메뉴">
+            <button class="rail-action is-active" type="button" aria-label="오늘"><span>◫</span><small>오늘</small></button>
+            <button class="rail-action" type="button" aria-label="시장"><span>⌁</span><small>시장</small></button>
+            <button class="rail-action" type="button" aria-label="탐색"><span>⌕</span><small>탐색</small></button>
+          </nav>
+          <button class="avatar" type="button" aria-label="내 프로필">SY</button>
+        </aside>
+        <div class="pulse-main">
+          <header class="product-bar">
+            <div class="market-clock"><span class="live-dot"></span> KOSPI 장중 · 14:32</div>
+            <label class="global-search"><span>⌕</span><input type="search" placeholder="종목, 테마, 뉴스 검색" aria-label="종목, 테마, 뉴스 검색" /></label>
+            <button class="quiet-button" type="button">알림 <b>3</b></button>
+          </header>
+          <div class="pulse-content">
+            <header class="editorial-head">
+              <div><span class="eyebrow">FRIDAY, JULY 24</span><h1 id="pulse-title">오늘 시장의<br />핵심만 빠르게.</h1></div>
+              <p>수많은 숫자 대신, 지금 투자 판단에 영향을 주는 변화만 시간순으로 정리합니다.</p>
+            </header>
+            <section class="market-strip" aria-label="주요 시장 지수">
+              <article><span>KOSPI</span><strong>3,184.21</strong><em>▲ 0.84%</em><svg viewBox="0 0 120 34"><path d="M2 28 L18 25 L29 27 L42 16 L55 20 L69 11 L83 15 L97 5 L118 8" /></svg></article>
+              <article><span>KOSDAQ</span><strong>812.46</strong><em>▲ 1.21%</em><svg viewBox="0 0 120 34"><path d="M2 27 L17 19 L31 23 L45 12 L58 18 L72 9 L86 13 L101 4 L118 7" /></svg></article>
+              <article class="down"><span>USD / KRW</span><strong>1,372.80</strong><em>▼ 0.31%</em><svg viewBox="0 0 120 34"><path d="M2 6 L17 10 L31 8 L45 18 L58 14 L72 23 L86 20 L101 29 L118 26" /></svg></article>
+            </section>
+            <section class="pulse-grid">
+              <article class="lead-story">
+                <div class="story-meta"><span>지금 주목</span><time>14:18</time></div>
+                <h2>반도체가 지수를 끌어올리고,<br />외국인은 다시 돌아왔다</h2>
+                <p>SK하이닉스와 삼성전자에 외국인 순매수가 집중됐습니다. 장비주는 실적 눈높이 상향으로 동반 강세입니다.</p>
+                <div class="story-tickers"><button type="button">SK하이닉스 <b>+3.8%</b></button><button type="button">삼성전자 <b>+1.9%</b></button></div>
+                <div class="signal-bars" aria-label="관련 신호 강도"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              </article>
+              <aside class="timeline">
+                <header><h2>시장 타임라인</h2><button type="button">전체 보기 ↗</button></header>
+                <ol>
+                  <li class="is-hot"><time>14:18</time><div><b>외국인 순매수 1조 원 돌파</b><p>반도체 · 자동차 집중</p></div></li>
+                  <li><time>13:40</time><div><b>원/달러 환율 1,370원대</b><p>수출주 투자심리 개선</p></div></li>
+                  <li><time>11:05</time><div><b>2차전지주 낙폭 확대</b><p>리튬 가격 하락 영향</p></div></li>
+                  <li><time>09:12</time><div><b>코스피 상승 출발</b><p>미 기술주 훈풍 반영</p></div></li>
+                </ol>
+              </aside>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="concept concept-lens" data-panel="lens" aria-labelledby="lens-title" hidden>
+        <header class="lens-nav">
+          <a class="lens-logo" href="#">EQUITY<span>LENS</span></a>
+          <nav><button class="is-active" type="button">기업 분석</button><button type="button">산업</button><button type="button">스크리너</button></nav>
+          <div><button class="icon-button" type="button" aria-label="검색">⌕</button><button class="lens-login" type="button">로그인</button></div>
+        </header>
+        <div class="lens-layout">
+          <header class="company-hero">
+            <div class="company-id"><div class="company-mark">S</div><div><span>KOSPI · 005930</span><h1 id="lens-title">삼성전자</h1><p>Samsung Electronics Co., Ltd.</p></div></div>
+            <div class="quote-block"><strong>84,700</strong><span>KRW</span><em>+1,600&nbsp; (+1.93%)</em><small>7월 24일 14:32 기준</small></div>
+            <button class="watch-button" type="button" data-watch><span>＋</span> 관심종목</button>
+          </header>
+          <nav class="section-tabs" aria-label="삼성전자 분석 메뉴"><button class="is-active" type="button">개요</button><button type="button">실적</button><button type="button">밸류에이션</button><button type="button">컨센서스</button><button type="button">공시·뉴스</button></nav>
+          <div class="lens-content">
+            <section class="thesis-panel">
+              <div class="section-label">INVESTMENT VIEW</div>
+              <header><h2>회복의 방향은 명확하다.<br />관건은 속도다.</h2><div class="rating"><span>긍정</span><strong>78</strong><small>/ 100</small></div></header>
+              <p class="thesis-copy">메모리 가격 반등과 HBM 공급 확대가 이익 개선을 이끌고 있습니다. 다만 파운드리 가동률 회복과 선단 공정 수율은 추가 확인이 필요합니다.</p>
+              <div class="evidence-grid">
+                <article><span class="positive">＋ 성장 동력</span><b>메모리 영업이익 흑자 전환</b><p>가격 상승과 재고 정상화가 동시에 진행 중</p></article>
+                <article><span class="caution">△ 확인할 것</span><b>HBM3E 공급 일정</b><p>주요 고객사 인증 시점이 단기 변수</p></article>
+                <article><span class="risk">－ 핵심 위험</span><b>파운드리 적자 지속</b><p>가동률 개선 전까지 비용 부담 예상</p></article>
+              </div>
+            </section>
+            <aside class="lens-side">
+              <section class="range-card"><header><span>52주 가격 범위</span><b>상위 18%</b></header><div class="range-line"><i></i><b style="left:82%"></b></div><footer><span>최저 62,800</span><span>최고 88,800</span></footer></section>
+              <section class="metrics-card"><header><h3>핵심 지표</h3><button type="button" aria-label="지표 설명">?</button></header><dl><div><dt>PER</dt><dd>16.8배 <small>업종 21.3배</small></dd></div><div><dt>PBR</dt><dd>1.42배 <small>5년 평균 1.55배</small></dd></div><div><dt>ROE</dt><dd>9.1% <small class="up">▲ 개선</small></dd></div><div><dt>배당수익률</dt><dd>1.71% <small>예상</small></dd></div></dl></section>
+              <section class="consensus"><span>애널리스트 목표가</span><strong>104,500원</strong><em>상승여력 +23.4%</em><div><i style="width:82%"></i></div><small>매수 28 · 중립 3 · 매도 0</small></section>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="concept concept-signals" data-panel="signals" aria-labelledby="signals-title" hidden>
+        <aside class="signals-nav">
+          <a class="signals-logo" href="#"><span>▲</span>arc</a>
+          <nav><button class="is-active" type="button"><span>◈</span>Overview</button><button type="button"><span>◎</span>Watchlist</button><button type="button"><span>⌁</span>Signals</button><button type="button"><span>□</span>Calendar</button></nav>
+          <div class="nav-bottom"><button type="button"><span>?</span>Help center</button><button class="user-chip" type="button"><i>SY</i><span><b>수현</b><small>개인 투자자</small></span></button></div>
+        </aside>
+        <div class="signals-main">
+          <header class="signals-top"><label><span>⌕</span><input type="search" placeholder="Search anything" aria-label="전체 검색" /><kbd>⌘ K</kbd></label><div><button class="round-button" type="button" aria-label="알림">♢<i></i></button><button class="add-button" type="button" data-add-signal>＋ 새 시그널</button></div></header>
+          <div class="signals-content">
+            <header class="welcome"><div><span class="eyebrow">MY WORKSPACE</span><h1 id="signals-title">좋은 오후예요, 수현님.</h1><p>관심종목에서 새로운 변화 4건이 감지됐습니다.</p></div><div class="period-control" role="group" aria-label="기간 선택"><button class="is-active" type="button">1D</button><button type="button">1W</button><button type="button">1M</button></div></header>
+            <section class="portfolio-summary">
+              <article class="portfolio-total"><span>관심종목 오늘 변화</span><strong>+2.84%</strong><em>▲ +1.32% vs. KOSPI</em><div class="portfolio-chart"><svg viewBox="0 0 500 100" preserveAspectRatio="none"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7657ff" stop-opacity=".28"/><stop offset="1" stop-color="#7657ff" stop-opacity="0"/></linearGradient></defs><path class="area" d="M0 86 C50 80 68 62 110 66 S172 42 215 50 S282 20 324 30 S393 18 430 25 S470 9 500 14 L500 100 L0 100Z"/><path class="line" d="M0 86 C50 80 68 62 110 66 S172 42 215 50 S282 20 324 30 S393 18 430 25 S470 9 500 14"/></svg></div></article>
+              <article class="signal-score"><span>Signal confidence</span><strong>74<small>/100</small></strong><div class="score-ring" style="--score:74"><i></i></div><p><b>Strong</b> · 지난주보다 8점 상승</p></article>
+              <article class="next-event"><span>다음 주요 일정</span><time datetime="2026-07-31"><b>31</b>JUL</time><h3>삼성전자 실적 발표</h3><p>컨센서스 영업이익 10.4조원</p><button type="button">캘린더에서 보기 →</button></article>
+            </section>
+            <section class="workspace-grid">
+              <div class="watch-board"><header><div><h2>My watchlist</h2><span>6 assets</span></div><button type="button">관리</button></header><div class="watch-table" role="table" aria-label="관심종목"><div class="watch-row table-head" role="row"><span>종목</span><span>현재가</span><span>오늘</span><span>시그널</span></div><button class="watch-row" role="row" type="button"><span><i class="stock-logo sk">SK</i><b>SK하이닉스<small>000660</small></b></span><span>286,500</span><span class="gain">+3.84%</span><span><em class="signal strong">Strong buy</em></span></button><button class="watch-row" role="row" type="button"><span><i class="stock-logo sm">S</i><b>삼성전자<small>005930</small></b></span><span>84,700</span><span class="gain">+1.93%</span><span><em class="signal watch">Watch</em></span></button><button class="watch-row" role="row" type="button"><span><i class="stock-logo nv">N</i><b>NAVER<small>035420</small></b></span><span>232,000</span><span class="loss">−0.64%</span><span><em class="signal neutral">Neutral</em></span></button><button class="watch-row" role="row" type="button"><span><i class="stock-logo hd">H</i><b>현대차<small>005380</small></b></span><span>218,500</span><span class="gain">+0.46%</span><span><em class="signal watch">Watch</em></span></button></div></div>
+              <aside class="activity-feed"><header><h2>Live signals</h2><button type="button">모두 읽음</button></header><ul><li class="is-new"><i>↗</i><div><b>거래량 급증</b><p>SK하이닉스 거래량이 20일 평균의 <strong>2.4배</strong>를 돌파했습니다.</p><time>4분 전</time></div></li><li class="is-new"><i>◎</i><div><b>목표가 상향</b><p>3개 증권사가 삼성전자 목표가를 평균 <strong>6.2%</strong> 올렸습니다.</p><time>32분 전</time></div></li><li><i>◇</i><div><b>공시 업데이트</b><p>현대차가 자기주식 취득 결정을 공시했습니다.</p><time>1시간 전</time></div></li></ul></aside>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="/assets/concepts/app.js"></script>
+  </body>
+</html>

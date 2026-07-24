@@ -19,6 +19,7 @@ from app.models import (
     BriefingQuote,
     BriefingSnapshot,
     DailyPrice,
+    CompanyProfile,
     DisclosureItem,
     FinancialStatementLine,
     IngestionRun,
@@ -26,6 +27,9 @@ from app.models import (
     MacroObservation,
     NewsItem,
     ResearchReport,
+    StockFundamentalSnapshot,
+    StockNewsSnapshot,
+    StockCompanySnapshot,
     StockMaster,
 )
 
@@ -75,6 +79,14 @@ def _deduplicate_upsert_rows(model: type, rows: Iterable[dict[str, Any]]) -> lis
 def _conflict_columns(model: type) -> list[str]:
     if model is StockMaster:
         return ["code"]
+    if model is CompanyProfile:
+        return ["stock_code"]
+    if model is StockFundamentalSnapshot:
+        return ["stock_code"]
+    if model is StockNewsSnapshot:
+        return ["stock_code"]
+    if model is StockCompanySnapshot:
+        return ["stock_code"]
     if model is DailyPrice:
         return ["code", "trade_date"]
     if model is InvestorFlow:
@@ -134,7 +146,12 @@ def finish_ingestion(
 
 
 def list_stocks(db: Session, market: Optional[str] = None, limit: int = 5000) -> list[StockMaster]:
-    statement = select(StockMaster).order_by(StockMaster.market, StockMaster.code).limit(limit)
+    statement = (
+        select(StockMaster)
+        .where(StockMaster.is_active.is_(True))
+        .order_by(StockMaster.market, StockMaster.code)
+        .limit(limit)
+    )
     if market:
         statement = statement.where(StockMaster.market == market.upper())
     return list(db.scalars(statement))
@@ -263,8 +280,11 @@ def latest_news_items(
     query: Optional[str] = None,
     from_at: Optional[datetime] = None,
     to_at: Optional[datetime] = None,
+    include_social: bool = False,
 ) -> list[NewsItem]:
     statement = select(NewsItem).order_by(NewsItem.published_at.desc(), NewsItem.id.desc()).limit(limit)
+    if not include_social:
+        statement = statement.where(NewsItem.source != "x_api")
     if category:
         statement = statement.where(NewsItem.source_category == category)
     if press_name:

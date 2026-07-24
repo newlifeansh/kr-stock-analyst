@@ -9,6 +9,20 @@ def test_research_backfill_runs_daily_not_every_poll():
 
     assert runtime._research_backfill_due() is True
 
+
+def test_briefing_snapshot_uses_separate_storage_cadence():
+    runtime = briefing.BriefingRuntime(
+        Settings(briefing_poll_seconds=30, briefing_snapshot_seconds=300)
+    )
+
+    assert runtime._briefing_snapshot_due() is True
+
+    runtime.last_briefing_at = datetime.utcnow()
+    assert runtime._briefing_snapshot_due() is False
+
+    runtime.last_briefing_at = datetime.utcnow() - timedelta(seconds=301)
+    assert runtime._briefing_snapshot_due() is True
+
     runtime.last_research_backfill_at = datetime.utcnow()
     assert runtime._research_backfill_due() is False
 

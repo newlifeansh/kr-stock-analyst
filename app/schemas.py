@@ -14,6 +14,7 @@ class StockOut(BaseModel):
     code: str
     name: str
     market: str
+    is_active: bool = True
     isin: Optional[str] = None
     sector: Optional[str] = None
     industry: Optional[str] = None
@@ -211,25 +212,36 @@ class BriefingRuntimeStatusOut(BaseModel):
     disclosure_enabled: bool
     news_enabled: bool
     price_enabled: bool
+    stock_universe_enabled: bool
     toss_enabled: bool
     toss_sync_holdings_enabled: bool
     running: bool
     poll_seconds: int
+    snapshot_seconds: int
+    retention_snapshots: int
     research_poll_seconds: int
     research_backfill_poll_seconds: int
     disclosure_poll_seconds: int
     news_poll_seconds: int
     price_poll_seconds: int
+    stock_universe_poll_seconds: int
     investor_flow_enabled: bool
     investor_flow_poll_seconds: int
     financials_enabled: bool
     financials_poll_seconds: int
+    fundamental_snapshot_enabled: bool
+    fundamental_snapshot_poll_seconds: int
+    stock_news_snapshot_enabled: bool
+    stock_news_snapshot_poll_seconds: int
+    stock_company_snapshot_enabled: bool
+    stock_company_snapshot_poll_seconds: int
     macro_enabled: bool
     macro_poll_seconds: int
     toss_poll_seconds: int
     toss_order_poll_seconds: int
     configured_sources: list[str]
     last_success_at: Optional[datetime] = None
+    last_briefing_at: Optional[datetime] = None
     last_research_at: Optional[datetime] = None
     last_research_backfill_at: Optional[datetime] = None
     last_disclosure_at: Optional[datetime] = None
@@ -239,12 +251,20 @@ class BriefingRuntimeStatusOut(BaseModel):
     last_price_at: Optional[datetime] = None
     last_price_source: Optional[str] = None
     last_price_message: Optional[str] = None
+    last_stock_universe_at: Optional[datetime] = None
+    last_stock_universe_message: Optional[str] = None
     last_investor_flow_at: Optional[datetime] = None
     last_investor_flow_source: Optional[str] = None
     last_investor_flow_message: Optional[str] = None
     last_financials_at: Optional[datetime] = None
     last_financials_source: Optional[str] = None
     last_financials_message: Optional[str] = None
+    last_fundamental_snapshot_at: Optional[datetime] = None
+    last_fundamental_snapshot_message: Optional[str] = None
+    last_stock_news_snapshot_at: Optional[datetime] = None
+    last_stock_news_snapshot_message: Optional[str] = None
+    last_stock_company_snapshot_at: Optional[datetime] = None
+    last_stock_company_snapshot_message: Optional[str] = None
     last_macro_at: Optional[datetime] = None
     last_macro_source: Optional[str] = None
     last_macro_message: Optional[str] = None
@@ -407,6 +427,33 @@ class DashboardEventOut(BaseModel):
     impact: Optional[str] = None
 
 
+class StockXFeedItemOut(BaseModel):
+    post_id: str
+    text: str
+    author_name: str
+    username: Optional[str] = None
+    author_profile_image_url: Optional[str] = None
+    url: Optional[str] = None
+    created_at: Optional[datetime] = None
+    like_count: int = 0
+    repost_count: int = 0
+    reply_count: int = 0
+    quote_count: int = 0
+    impact: str = "중립"
+
+
+class StockXFeedOut(BaseModel):
+    code: str
+    name: str
+    configured: bool
+    source: str
+    query: str
+    search_url: str
+    as_of: datetime
+    message: Optional[str] = None
+    items: list[StockXFeedItemOut] = Field(default_factory=list)
+
+
 class DashboardSurpriseOut(BaseModel):
     recent_count: int
     positive_count: int
@@ -446,6 +493,24 @@ class DashboardSentimentOut(BaseModel):
     negative_count: int
     neutral_count: int
     latest_items: list[DashboardEventOut]
+
+
+class DashboardFinancialPointOut(BaseModel):
+    period: str
+    estimated: bool = False
+    revenue: Optional[Decimal] = None
+    operating_profit: Optional[Decimal] = None
+    net_income: Optional[Decimal] = None
+    operating_margin: Optional[Decimal] = None
+    net_margin: Optional[Decimal] = None
+    eps: Optional[Decimal] = None
+
+
+class DashboardFinancialSeriesOut(BaseModel):
+    annual: list[DashboardFinancialPointOut] = Field(default_factory=list)
+    quarterly: list[DashboardFinancialPointOut] = Field(default_factory=list)
+    unit: str = "억원"
+    source: str = "네이버 금융"
 
 
 class DashboardCoverageOut(BaseModel):
@@ -495,6 +560,7 @@ class StockDashboardOut(BaseModel):
     chart_analysis: DashboardChartAnalysisOut
     flows: DashboardFlowOut
     valuation: DashboardValuationOut
+    financial_series: DashboardFinancialSeriesOut
     macro_sensitivity: dict[str, Optional[Decimal]]
     sentiment: DashboardSentimentOut
     coverage: DashboardCoverageOut
@@ -537,6 +603,95 @@ class StockAIAnalysisOut(BaseModel):
     generation_mode: str = "rules"
     model_name: Optional[str] = None
     generation_note: Optional[str] = None
+
+
+class QuantFactorOut(BaseModel):
+    key: str
+    label: str
+    score: Optional[Decimal] = None
+    state: str
+    detail: str
+
+
+class QuantSignalEventOut(BaseModel):
+    signal_date: date
+    execution_date: date
+    side: str
+    label: str
+    price: Optional[int] = None
+    score: Optional[Decimal] = None
+    reason: str
+    return_rate: Optional[Decimal] = None
+    holding_days: Optional[int] = None
+
+
+class QuantTradeOut(BaseModel):
+    entry_date: date
+    entry_price: Optional[int] = None
+    exit_date: Optional[date] = None
+    exit_price: Optional[int] = None
+    gross_return: Optional[Decimal] = None
+    net_return: Optional[Decimal] = None
+    holding_days: int
+    status: str
+    exit_reason: Optional[str] = None
+
+
+class QuantPerformanceOut(BaseModel):
+    period_start: date
+    period_end: date
+    trading_days: int
+    completed_trades: int
+    win_rate: Optional[Decimal] = None
+    average_return: Optional[Decimal] = None
+    strategy_return: Optional[Decimal] = None
+    benchmark_return: Optional[Decimal] = None
+    max_return: Optional[Decimal] = None
+    max_drawdown: Optional[Decimal] = None
+    average_holding_days: Optional[Decimal] = None
+    transaction_cost_per_side: Decimal
+    hypothetical_start: int
+    hypothetical_end: Optional[int] = None
+    sample_state: str
+    sample_note: str
+
+
+class QuantCurrentSignalOut(BaseModel):
+    action: str
+    label: str
+    score: Decimal
+    price: Optional[int] = None
+    as_of: datetime
+    live_observation: bool
+    position_open: bool
+    entry_date: Optional[date] = None
+    entry_price: Optional[int] = None
+    holding_days: Optional[int] = None
+    unrealized_return: Optional[Decimal] = None
+    stop_reference: Optional[int] = None
+    reasons: list[str]
+    next_confirmation: str
+
+
+class StockQuantSignalsOut(BaseModel):
+    code: str
+    name: str
+    market: str
+    as_of: datetime
+    strategy_name: str
+    strategy_version: str
+    source: str
+    data_rows: int
+    price_through: Optional[date] = None
+    data_state: str
+    data_message: str
+    current: Optional[QuantCurrentSignalOut] = None
+    performance: Optional[QuantPerformanceOut] = None
+    factors: list[QuantFactorOut] = Field(default_factory=list)
+    events: list[QuantSignalEventOut] = Field(default_factory=list)
+    trades: list[QuantTradeOut] = Field(default_factory=list)
+    methodology: list[str] = Field(default_factory=list)
+    disclaimer: str
 
 
 class MarketRankingItemOut(BaseModel):

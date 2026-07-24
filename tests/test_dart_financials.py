@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.collectors import dart
 from app.db import Base
-from app.models import DisclosureItem, FinancialStatementLine, IngestionRun
+from app.models import DisclosureItem, FinancialStatementLine, IngestionRun, StockMaster
 
 
 class _Settings:
@@ -130,3 +130,24 @@ def test_collect_financial_statements_for_disclosure_companies_falls_back_to_ann
 
 def test_financial_account_id_accepts_long_dart_identifiers():
     assert FinancialStatementLine.__table__.c.account_id.type.length == 255
+
+
+def test_bulk_financials_uses_full_active_stock_master_without_disclosure(monkeypatch):
+    monkeypatch.setattr(dart, "get_settings", lambda: _Settings())
+    monkeypatch.setattr(dart, "dart_corp_code_map", lambda _settings=None: {"215600": "corp-sillajen"})
+    monkeypatch.setattr(dart, "fetch_opendart_json", lambda *args, **kwargs: _payload("215600", "매출액"))
+
+    with _session() as db:
+        db.add(StockMaster(code="215600", name="신라젠", market="KOSDAQ", is_active=True))
+        db.commit()
+
+        result = dart.collect_financial_statements_for_disclosure_companies(
+            db,
+            bsns_year="2026",
+            report="q1",
+            fs_div="CFS",
+        )
+
+        assert result["companies"] == 1
+        assert result["companies_loaded"] == 1
+        assert db.query(FinancialStatementLine).one().stock_code == "215600"

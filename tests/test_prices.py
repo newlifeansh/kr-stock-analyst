@@ -53,7 +53,8 @@ def test_collect_prices_for_codes_filters_invalid_codes_and_upserts(monkeypatch)
 
 def test_is_supported_price_code():
     assert krx.is_supported_price_code("005930")
-    assert not krx.is_supported_price_code("0001A0")
+    assert krx.is_supported_price_code("0039P0")
+    assert not krx.is_supported_price_code("BADCODE")
     assert not krx.is_supported_price_code("삼성전자")
 
 

@@ -97,6 +97,7 @@ def _market_codes(db: Session, markets: str, limit: Optional[int]) -> list[str]:
         market_values = sorted(MARKET_SET)
     statement = (
         select(StockMaster.code)
+        .where(StockMaster.is_active.is_(True))
         .where(StockMaster.market.in_(market_values))
         .order_by(StockMaster.market, StockMaster.code)
     )

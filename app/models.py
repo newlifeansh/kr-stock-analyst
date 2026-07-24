@@ -16,6 +16,7 @@ class StockMaster(Base):
     code: Mapped[str] = mapped_column(String(12), primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     market: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     isin: Mapped[Optional[str]] = mapped_column(String(20))
     sector: Mapped[Optional[str]] = mapped_column(String(120))
     industry: Mapped[Optional[str]] = mapped_column(String(120))
@@ -53,6 +54,51 @@ class CompanyProfile(Base):
     raw: Mapped[Optional[str]] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False, index=True
+    )
+
+
+class StockFundamentalSnapshot(Base):
+    __tablename__ = "stock_fundamental_snapshot"
+
+    stock_code: Mapped[str] = mapped_column(
+        ForeignKey("stock_master.code"), primary_key=True
+    )
+    source: Mapped[str] = mapped_column(String(40), default="naver_finance", nullable=False, index=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class StockNewsSnapshot(Base):
+    __tablename__ = "stock_news_snapshot"
+
+    stock_code: Mapped[str] = mapped_column(
+        ForeignKey("stock_master.code"), primary_key=True
+    )
+    source: Mapped[str] = mapped_column(String(40), default="naver_finance", nullable=False, index=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class StockCompanySnapshot(Base):
+    __tablename__ = "stock_company_snapshot"
+
+    stock_code: Mapped[str] = mapped_column(
+        ForeignKey("stock_master.code"), primary_key=True
+    )
+    source: Mapped[str] = mapped_column(String(40), default="naver_wisereport", nullable=False, index=True)
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    sector: Mapped[Optional[str]] = mapped_column(String(120))
+    industry: Mapped[Optional[str]] = mapped_column(String(120))
+    source_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
 

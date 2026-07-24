@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
+import json
 import re
 from statistics import mean
 from threading import RLock
@@ -13,7 +14,17 @@ from bs4 import BeautifulSoup
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import DailyPrice, DisclosureItem, InvestorFlow, NewsItem, ResearchReport, StockMaster
+from app.models import (
+    DailyPrice,
+    DisclosureItem,
+    InvestorFlow,
+    NewsItem,
+    ResearchReport,
+    StockFundamentalSnapshot,
+    StockNewsSnapshot,
+    StockMaster,
+)
+from app.repository import upsert_many
 from app.services.company_profiles import company_profile_payload
 from app.services.ttl_cache import TTLCache
 
@@ -59,15 +70,40 @@ GUIDANCE_WORDS = ("전망", "가이던스", "목표", "계획", "IR", "기업설
 FOREIGN_TYPES = ("외국인", "외국인합계", "외국계")
 INSTITUTION_TYPES = ("기관합계", "기관", "금융투자", "투신", "연기금")
 NAVER_ITEM_URL = "https://finance.naver.com/item/main.naver"
+NAVER_COMPANY_INFO_URL = "https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx"
 NAVER_CACHE = TTLCache(maxsize=2048)
 PRICE_HISTORY_BACKFILL_CACHE = TTLCache(maxsize=2048)
 PRICE_HISTORY_BACKFILL_LOCK = RLock()
 NAVER_SNAPSHOT_TTL_SECONDS = 120
 NAVER_ITEM_NEWS_TTL_SECONDS = 180
-PRICE_HISTORY_MIN_ROWS = 64
-PRICE_HISTORY_LOOKBACK_DAYS = 220
+PRICE_HISTORY_MIN_ROWS = 760
+PRICE_HISTORY_LOOKBACK_DAYS = 1200
 PRICE_HISTORY_BACKFILL_TTL_SECONDS = 60 * 60 * 6
 KST = timezone(timedelta(hours=9))
+FUNDAMENTAL_SNAPSHOT_KEYS = {
+    "data_status",
+    "instrument_type",
+    "unavailable_reason",
+    "per",
+    "eps",
+    "estimated_per",
+    "estimated_eps",
+    "pbr",
+    "bps",
+    "dividend_yield",
+    "industry_per",
+    "financial_series",
+    "latest_revenue",
+    "latest_operating_profit",
+    "latest_eps",
+    "financial_period",
+    "per_series",
+    "pbr_series",
+    "revenue_growth",
+    "operating_profit_growth",
+    "estimated_revenue",
+    "estimated_operating_profit",
+}
 
 
 def _now_kst() -> datetime:
@@ -199,6 +235,20 @@ def _fetch_naver_snapshot(code: str) -> dict[str, object]:
     if financial_table:
         headers: list[str] = []
         rows: dict[str, list[Optional[Decimal]]] = {}
+        annual_count = 0
+        annual_header = next(
+            (
+                cell
+                for cell in financial_table.select("thead th")
+                if "최근 연간 실적" in cell.get_text(" ", strip=True)
+            ),
+            None,
+        )
+        if annual_header:
+            try:
+                annual_count = int(annual_header.get("colspan") or 0)
+            except (TypeError, ValueError):
+                annual_count = 0
         for tr in financial_table.select("tr"):
             cells = [cell.get_text(" ", strip=True) for cell in tr.find_all(["th", "td"])]
             if not cells:
@@ -206,8 +256,40 @@ def _fetch_naver_snapshot(code: str) -> dict[str, object]:
             if cells[0].startswith("202"):
                 headers = cells
                 continue
-            if headers and cells[0] in {"매출액", "영업이익", "EPS(원)", "PER(배)", "PBR(배)", "BPS(원)"}:
+            if headers and cells[0] in {
+                "매출액",
+                "영업이익",
+                "당기순이익",
+                "영업이익률",
+                "순이익률",
+                "EPS(원)",
+                "PER(배)",
+                "PBR(배)",
+                "BPS(원)",
+            }:
                 rows[cells[0]] = [_to_decimal(cell) for cell in cells[1:]]
+
+        if headers:
+            annual_count = annual_count or min(4, len(headers))
+
+            def financial_point(index: int) -> dict[str, object]:
+                return {
+                    "period": headers[index],
+                    "estimated": "(E)" in headers[index],
+                    "revenue": _safe_cell(rows.get("매출액", []), index),
+                    "operating_profit": _safe_cell(rows.get("영업이익", []), index),
+                    "net_income": _safe_cell(rows.get("당기순이익", []), index),
+                    "operating_margin": _safe_cell(rows.get("영업이익률", []), index),
+                    "net_margin": _safe_cell(rows.get("순이익률", []), index),
+                    "eps": _safe_cell(rows.get("EPS(원)", []), index),
+                }
+
+            snapshot["financial_series"] = {
+                "annual": [financial_point(index) for index in range(min(annual_count, len(headers)))],
+                "quarterly": [financial_point(index) for index in range(annual_count, len(headers))],
+                "unit": "억원",
+                "source": "네이버 금융",
+            }
 
         actual_indices = [idx for idx, header in enumerate(headers) if "(E)" not in header]
         estimate_indices = [idx for idx, header in enumerate(headers) if "(E)" in header]
@@ -299,6 +381,42 @@ def _fetch_naver_snapshot(code: str) -> dict[str, object]:
     return snapshot
 
 
+def _fetch_naver_company_snapshot(code: str, *, strict: bool = False) -> dict[str, object]:
+    source_url = f"{NAVER_COMPANY_INFO_URL}?cmp_cd={code}"
+    try:
+        response = requests.get(
+            NAVER_COMPANY_INFO_URL,
+            params={"cmp_cd": code},
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": f"https://finance.naver.com/item/coinfo.naver?code={code}",
+            },
+            timeout=15,
+        )
+        response.raise_for_status()
+    except Exception:
+        if strict:
+            raise
+        return {}
+
+    response.encoding = response.apparent_encoding or "utf-8"
+    soup = BeautifulSoup(response.text, "html.parser")
+    summary_node = soup.select_one(".cmp_comment")
+    summary = re.sub(r"\s+", " ", summary_node.get_text(" ", strip=True)).strip() if summary_node else None
+    identity_node = soup.select_one("#pArea")
+    identity = re.sub(r"\s+", " ", identity_node.get_text(" ", strip=True)).strip() if identity_node else ""
+    classification = re.search(
+        r"(?:KOSPI|KOSDAQ)\s*:\s*(?:코스피|코스닥)\s+(.+?)\s+WICS\s*:\s*(.+?)\s+(?:EPS|BPS|PER)\b",
+        identity,
+    )
+    return {
+        "summary": summary or None,
+        "sector": classification.group(1).strip() if classification else None,
+        "industry": classification.group(2).strip() if classification else None,
+        "source_url": source_url,
+    }
+
+
 def _naver_snapshot(code: str, refresh: bool = False) -> dict[str, object]:
     if refresh:
         payload = _fetch_naver_snapshot(code)
@@ -309,6 +427,56 @@ def _naver_snapshot(code: str, refresh: bool = False) -> dict[str, object]:
         NAVER_SNAPSHOT_TTL_SECONDS,
         lambda: _fetch_naver_snapshot(code),
     )
+
+
+def fundamental_snapshot_payload(snapshot: dict[str, object]) -> dict[str, object]:
+    return {key: snapshot[key] for key in FUNDAMENTAL_SNAPSHOT_KEYS if snapshot.get(key) is not None}
+
+
+def _json_default(value: object) -> str:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    raise TypeError(f"Unsupported snapshot value: {type(value)!r}")
+
+
+def _stored_fundamental_snapshot(db: Session, code: str) -> dict[str, object]:
+    row = db.get(StockFundamentalSnapshot, code)
+    if not row:
+        return {}
+    try:
+        payload = json.loads(row.payload)
+    except (TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def store_fundamental_snapshot(
+    db: Session,
+    code: str,
+    snapshot: dict[str, object],
+    *,
+    fetched_at: Optional[datetime] = None,
+) -> bool:
+    payload = fundamental_snapshot_payload(snapshot)
+    if not payload:
+        return False
+    upsert_many(
+        db,
+        StockFundamentalSnapshot,
+        [
+            {
+                "stock_code": code,
+                "source": "naver_finance",
+                "payload": json.dumps(payload, ensure_ascii=False, default=_json_default),
+                "fetched_at": fetched_at or datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+            }
+        ],
+    )
+    db.commit()
+    return True
 
 
 def _keyword_score(text: str) -> int:
@@ -357,17 +525,22 @@ def _resolve_trade_date(value: Optional[str]) -> Optional[datetime]:
     return None
 
 
-def _fetch_naver_item_news(code: str) -> list[dict[str, object]]:
+def _fetch_naver_item_news(code: str, *, strict: bool = False) -> list[dict[str, object]]:
     try:
         response = requests.get(
             "https://finance.naver.com/item/news_news.naver",
             params={"code": code, "page": 1},
-            headers={"User-Agent": "Mozilla/5.0"},
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": f"https://finance.naver.com/item/main.naver?code={code}",
+            },
             timeout=10,
         )
         response.raise_for_status()
         response.encoding = "euc-kr"
     except Exception:
+        if strict:
+            raise
         return []
 
     soup = BeautifulSoup(response.text, "html.parser")
@@ -405,7 +578,42 @@ def _naver_item_news(code: str) -> list[dict[str, object]]:
     )
 
 
-def _prices(db: Session, code: str, limit: int = 180) -> list[DailyPrice]:
+def _stored_stock_news(db: Session, code: str) -> Optional[list[dict[str, object]]]:
+    row = db.get(StockNewsSnapshot, code)
+    if not row:
+        return None
+    try:
+        payload = json.loads(row.payload)
+    except (TypeError, ValueError):
+        return None
+    return payload if isinstance(payload, list) else None
+
+
+def store_stock_news(
+    db: Session,
+    code: str,
+    items: list[dict[str, object]],
+    *,
+    fetched_at: Optional[datetime] = None,
+) -> None:
+    now = fetched_at or datetime.utcnow()
+    upsert_many(
+        db,
+        StockNewsSnapshot,
+        [
+            {
+                "stock_code": code,
+                "source": "naver_finance",
+                "payload": json.dumps(items, ensure_ascii=False, default=_json_default),
+                "fetched_at": now,
+                "updated_at": now,
+            }
+        ],
+    )
+    db.commit()
+
+
+def _prices(db: Session, code: str, limit: int = 800) -> list[DailyPrice]:
     statement = (
         select(DailyPrice)
         .where(DailyPrice.code == code)
@@ -1001,7 +1209,14 @@ def _flows(db: Session, code: str, prices: list[DailyPrice], naver: dict[str, ob
     }
 
 
-def _sentiment(db: Session, stock: StockMaster, prices: list[DailyPrice], disclosures: dict[str, object]) -> dict[str, object]:
+def _sentiment(
+    db: Session,
+    stock: StockMaster,
+    prices: list[DailyPrice],
+    disclosures: dict[str, object],
+    *,
+    refresh_live: bool = False,
+) -> dict[str, object]:
     since = datetime.utcnow() - timedelta(days=30)
     query = stock.name
     items = list(
@@ -1013,7 +1228,13 @@ def _sentiment(db: Session, stock: StockMaster, prices: list[DailyPrice], disclo
             .limit(80)
         )
     )
-    naver_news = _naver_item_news(stock.code)
+    stored_news = _stored_stock_news(db, stock.code)
+    naver_news = _naver_item_news(stock.code) if refresh_live or stored_news is None else stored_news
+    if refresh_live or stored_news is None:
+        try:
+            store_stock_news(db, stock.code, naver_news)
+        except Exception:
+            db.rollback()
     if not items and naver_news:
         positive = 0
         negative = 0
@@ -1108,7 +1329,14 @@ def build_stock_dashboard(db: Session, code: str, refresh_live: bool = False) ->
         return None
 
     price_rows = _prices(db, code)
-    naver = _naver_snapshot(code, refresh=refresh_live)
+    stored_fundamentals = _stored_fundamental_snapshot(db, code)
+    live_naver = _naver_snapshot(code, refresh=refresh_live)
+    naver = {**stored_fundamentals, **live_naver}
+    if live_naver and (refresh_live or not stored_fundamentals):
+        try:
+            store_fundamental_snapshot(db, code, live_naver)
+        except Exception:
+            db.rollback()
     revisions = _research_revision(db, code, naver)
     surprise = _disclosure_events(db, code, SURPRISE_WORDS, naver)
     guidance = _disclosure_events(db, code, GUIDANCE_WORDS, fallback_to_recent=True)
@@ -1116,7 +1344,7 @@ def build_stock_dashboard(db: Session, code: str, refresh_live: bool = False) ->
     chart_analysis = _chart_analysis(price_rows)
     flows = _flows(db, code, price_rows, naver)
     valuation = _valuation(naver)
-    sentiment = _sentiment(db, stock, price_rows, surprise)
+    sentiment = _sentiment(db, stock, price_rows, surprise, refresh_live=refresh_live)
     macro_sensitivity = _macro_sensitivity(momentum, flows, valuation)
 
     return {
@@ -1133,6 +1361,8 @@ def build_stock_dashboard(db: Session, code: str, refresh_live: bool = False) ->
         "chart_analysis": chart_analysis,
         "flows": flows,
         "valuation": valuation,
+        "financial_series": naver.get("financial_series")
+        or {"annual": [], "quarterly": [], "unit": "억원", "source": "네이버 금융"},
         "macro_sensitivity": macro_sensitivity,
         "sentiment": sentiment,
         "coverage": {

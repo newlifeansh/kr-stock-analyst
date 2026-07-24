@@ -96,8 +96,10 @@ from app.schemas import (
     ResearchSourceOut,
     ResearchReportOut,
     StockAIAnalysisOut,
+    StockQuantSignalsOut,
     StockOut,
     StockDashboardOut,
+    StockXFeedOut,
     TossBuyingPowerOut,
     TossOrderCreateIn,
     TossOrderModifyIn,
@@ -112,6 +114,7 @@ from app.schemas import (
 )
 from app.services.briefing import briefing_runtime
 from app.collectors.briefing import KisRestBriefingProvider
+from app.collectors.naver_flows import collect_naver_investor_flows
 from app.bootstrap import bootstrap_runtime_data
 from app.mcp_server import build_insight_mcp_server, mcp_sdk_available
 from app.services.company_briefs import build_company_briefs
@@ -121,7 +124,10 @@ from app.services.market_impact import build_market_impact
 from app.services.recommendations import build_recommendations
 from app.services.stock_ai_analysis import build_stock_ai_analysis
 from app.services.local_stock_ai import enrich_stock_ai_analysis
+from app.services.quant_signals import load_quant_signal_payload
 from app.services.stock_dashboard import build_stock_dashboard, ensure_stock_price_history
+from app.services.stock_data_coverage import stock_data_coverage
+from app.services.x_feed import build_stock_x_feed
 from app.services.kis_realtime import KisRealtimeQuoteProvider, parse_kis_stock_tick
 from app.services.ttl_cache import TTLCache
 from app.services.trends import build_event_graph, build_trend_analysis
@@ -147,6 +153,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 INSIGHT_INDEX = STATIC_DIR / "insight" / "index.html"
 STOCK_DASHBOARD_INDEX = STATIC_DIR / "dashboard" / "index.html"
 PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
+CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -508,6 +515,13 @@ def portfolio_shell():
     if not PORTFOLIO_INDEX.exists():
         raise HTTPException(status_code=404, detail="Portfolio UI not found")
     return HTMLResponse(PORTFOLIO_INDEX.read_text(encoding="utf-8"))
+
+
+@app.get("/concepts")
+def concepts_shell():
+    if not CONCEPTS_INDEX.exists():
+        raise HTTPException(status_code=404, detail="Concept UI not found")
+    return HTMLResponse(CONCEPTS_INDEX.read_text(encoding="utf-8"))
 
 
 @app.get("/nasdaq")
@@ -1124,7 +1138,7 @@ def _ensure_stock_master_from_naver(db: Session, code: str) -> Optional[StockMas
     code = _normalize_stock_code(code)
     item = db.get(StockMaster, code)
     if item:
-        return item
+        return item if item.is_active else None
     identity = _fetch_naver_stock_identity(code)
     if not identity:
         return None
@@ -1132,7 +1146,8 @@ def _ensure_stock_master_from_naver(db: Session, code: str) -> Optional[StockMas
         code=identity["code"],
         name=identity["name"],
         market=identity["market"],
-        last_seen_date=date.today(),
+        is_active=True,
+        last_seen_date=None,
     )
     db.add(item)
     try:
@@ -1147,6 +1162,12 @@ def _ensure_stock_master_from_naver(db: Session, code: str) -> Optional[StockMas
 @app.get("/meta/insight-cadence", response_model=InsightCadenceOut)
 def insight_cadence():
     return insight_cadence_payload()
+
+
+@app.get("/meta/stock-data-coverage")
+def stock_data_coverage_status(response: Response, db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "no-store"
+    return stock_data_coverage(db)
 
 
 @app.get("/meta/research-sources", response_model=list[ResearchSourceOut])
@@ -1493,6 +1514,7 @@ def stocks(
 
 @app.get("/stocks/resolve", response_model=StockOut)
 def resolve_stock(
+    response: Response,
     query: str = Query(..., min_length=1),
     db: Session = Depends(get_db),
 ):
@@ -1500,21 +1522,37 @@ def resolve_stock(
     terms = _stock_query_terms(cleaned)
     code = _normalize_stock_code(cleaned)
     item = db.get(StockMaster, code)
+    if item and not item.is_active:
+        item = None
     if not item:
         item = _ensure_stock_master_from_naver(db, code)
     if not item:
-        item = db.scalar(select(StockMaster).where(StockMaster.name == cleaned).limit(1))
+        item = db.scalar(
+            select(StockMaster)
+            .where(StockMaster.is_active.is_(True), StockMaster.name == cleaned)
+            .limit(1)
+        )
     if not item:
         candidates = list(
             db.scalars(
                 select(StockMaster)
-                .where(or_(StockMaster.name.contains(cleaned), StockMaster.code.startswith(code)))
+                .where(
+                    StockMaster.is_active.is_(True),
+                    or_(StockMaster.name.contains(cleaned), StockMaster.code.startswith(code)),
+                )
                 .order_by(StockMaster.market, StockMaster.code)
                 .limit(5000)
             )
         )
         if not candidates:
-            candidates = list(db.scalars(select(StockMaster).order_by(StockMaster.market, StockMaster.code).limit(5000)))
+            candidates = list(
+                db.scalars(
+                    select(StockMaster)
+                    .where(StockMaster.is_active.is_(True))
+                    .order_by(StockMaster.market, StockMaster.code)
+                    .limit(5000)
+                )
+            )
         matches = [
             candidate
             for candidate in candidates
@@ -1532,6 +1570,8 @@ def resolve_stock(
         )
     if not item:
         raise HTTPException(status_code=404, detail="Stock not found")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     return item
 
 
@@ -1566,6 +1606,7 @@ def _stock_search_sort_key(
 
 @app.get("/stocks/search", response_model=list[StockOut])
 def search_stocks(
+    response: Response,
     query: str = Query(..., min_length=1),
     limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -1579,7 +1620,10 @@ def search_stocks(
     candidates = list(
         db.scalars(
             select(StockMaster)
-            .where(or_(StockMaster.name.contains(cleaned), StockMaster.code.startswith(code)))
+            .where(
+                StockMaster.is_active.is_(True),
+                or_(StockMaster.name.contains(cleaned), StockMaster.code.startswith(code)),
+            )
             .order_by(StockMaster.market, StockMaster.code)
             .limit(5000)
         )
@@ -1587,12 +1631,23 @@ def search_stocks(
     if not candidates:
         candidates = [
             item
-            for item in db.scalars(select(StockMaster).order_by(StockMaster.market, StockMaster.code).limit(5000))
+            for item in db.scalars(
+                select(StockMaster)
+                .where(StockMaster.is_active.is_(True))
+                .order_by(StockMaster.market, StockMaster.code)
+                .limit(5000)
+            )
             if any(term in _normalize_stock_query(item.name) for term in terms) or code in _normalize_stock_code(item.code)
         ]
 
     exact_code = db.get(StockMaster, code)
-    exact_name = db.scalar(select(StockMaster).where(StockMaster.name == cleaned).limit(1))
+    if exact_code and not exact_code.is_active:
+        exact_code = None
+    exact_name = db.scalar(
+        select(StockMaster)
+        .where(StockMaster.is_active.is_(True), StockMaster.name == cleaned)
+        .limit(1)
+    )
     if exact_code:
         candidates.append(exact_code)
     if exact_name:
@@ -1606,6 +1661,8 @@ def search_stocks(
         code: price.market_cap or 0
         for code, price in latest_prices_by_codes(db, list(unique)).items()
     }
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     return sorted(unique.values(), key=lambda item: _stock_search_sort_key(item, cleaned, market_caps))[:limit]
 
 
@@ -1842,6 +1899,36 @@ def stock_dashboard(
     payload = deepcopy(payload)
     _enrich_uncached_kis_quote(payload, code, db)
     _enrich_pre_market_quote(payload, code)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return payload
+
+
+@app.get("/stocks/{code}/x-feed", response_model=StockXFeedOut)
+def stock_x_feed(
+    code: str,
+    response: Response,
+    limit: int = Query(default=20, ge=1, le=50),
+    refresh: bool = Query(default=False),
+    db: Session = Depends(get_db),
+):
+    code = _normalize_stock_code(code)
+    stock = db.get(StockMaster, code)
+    if not stock:
+        stock = _ensure_stock_master_from_naver(db, code)
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+
+    key = ("stock_x_feed", code, limit)
+    if refresh:
+        payload = build_stock_x_feed(db, stock, settings, limit=limit, refresh=True)
+        api_cache.set(key, payload, max(30, settings.x_feed_cache_seconds))
+    else:
+        payload = api_cache.get_or_set(
+            key,
+            max(30, settings.x_feed_cache_seconds),
+            lambda: build_stock_x_feed(db, stock, settings, limit=limit),
+        )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     return payload
@@ -2107,6 +2194,36 @@ def stock_live_quote(code: str, response: Response):
     return payload
 
 
+@app.get("/stocks/{code}/intraday")
+def stock_intraday_chart(
+    code: str,
+    response: Response,
+    limit: int = Query(default=390, ge=30, le=390),
+):
+    normalized = _normalize_stock_code(code)
+    points: list[dict[str, object]] = []
+    source = "kis_rest"
+    message: Optional[str] = None
+    if not kis_rest_provider.is_configured():
+        source = "unavailable"
+        message = "KIS API가 설정되지 않았습니다."
+    else:
+        try:
+            points = kis_rest_provider.fetch_intraday_chart(normalized, max_points=limit)
+        except Exception as exc:
+            source = "unavailable"
+            message = str(exc)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return {
+        "code": normalized,
+        "source": source,
+        "as_of": datetime.now(KST),
+        "message": message,
+        "points": points,
+    }
+
+
 @app.get("/stocks/{code}/ai-analysis", response_model=StockAIAnalysisOut)
 def stock_ai_analysis(
     code: str,
@@ -2134,6 +2251,31 @@ def stock_ai_analysis(
     return enrich_stock_ai_analysis(dashboard, rules)
 
 
+@app.get("/stocks/{code}/quant-signals", response_model=StockQuantSignalsOut)
+def stock_quant_signals(
+    code: str,
+    request: Request,
+    response: Response,
+    refresh: bool = Query(default=False),
+    db: Session = Depends(get_db),
+):
+    _enforce_rate_limit(request, "stock_quant_signals", limit=30, window_seconds=60)
+    code = _normalize_stock_code(code)
+    if not db.get(StockMaster, code):
+        _ensure_stock_master_from_naver(db, code)
+    if not db.get(StockMaster, code):
+        raise HTTPException(status_code=404, detail="Stock not found")
+
+    ensure_stock_price_history(db, code)
+    live_quote = _fetch_kis_current_quote(code)
+    payload = load_quant_signal_payload(db, code, live_quote=live_quote)
+    if not payload:
+        raise HTTPException(status_code=404, detail="Stock not found")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return payload
+
+
 @app.get("/stocks/{code}/prices", response_model=list[DailyPriceOut])
 def stock_prices(
     code: str,
@@ -2159,12 +2301,28 @@ def stock_prices(
 @app.get("/stocks/{code}/flows", response_model=list[InvestorFlowOut])
 def stock_flows(
     code: str,
+    response: Response,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     investor_type: Optional[str] = None,
     limit: int = Query(default=500, ge=1, le=5000),
+    refresh: bool = Query(default=False),
+    pages: int = Query(default=13, ge=1, le=20),
     db: Session = Depends(get_db),
 ):
+    code = _normalize_stock_code(code)
+    if refresh:
+        try:
+            collect_naver_investor_flows(
+                db,
+                codes=[code],
+                pages=pages,
+                max_workers=1,
+                batch_size=500,
+            )
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Investor flow refresh failed for %s: %s", code, exc)
     statement = (
         select(InvestorFlow)
         .where(InvestorFlow.code == code)
@@ -2177,6 +2335,7 @@ def stock_flows(
         statement = statement.where(InvestorFlow.trade_date <= to_date)
     if investor_type:
         statement = statement.where(InvestorFlow.investor_type == investor_type)
+    response.headers["Cache-Control"] = "no-store" if refresh else "private, max-age=300"
     return list(db.scalars(statement))
 
 

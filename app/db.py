@@ -60,6 +60,17 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     inspector = inspect(engine)
+    stock_master_columns = {column["name"] for column in inspector.get_columns("stock_master")}
+    if "is_active" not in stock_master_columns:
+        active_type = "BOOLEAN" if engine.dialect.name == "postgresql" else "INTEGER"
+        active_default = "TRUE" if engine.dialect.name == "postgresql" else "1"
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    f'ALTER TABLE "stock_master" ADD COLUMN "is_active" '
+                    f'{active_type} NOT NULL DEFAULT {active_default}'
+                )
+            )
     push_subscription_columns = {column["name"] for column in inspector.get_columns("push_subscription")}
     if "notification_preferences" not in push_subscription_columns:
         with engine.begin() as connection:

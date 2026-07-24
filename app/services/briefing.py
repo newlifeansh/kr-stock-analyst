@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
@@ -17,12 +18,17 @@ from app.collectors.dart import (
     collect_financial_statements_for_disclosure_companies,
     latest_financial_report_target,
 )
-from app.collectors.krx import collect_market_prices, collect_prices_for_codes, is_supported_price_code
+from app.collectors.krx import collect_market_prices, collect_prices_for_codes, collect_stocks, is_supported_price_code
 from app.collectors.macro import DEFAULT_MACRO_SERIES, collect_yahoo_macro_observations
 from app.collectors.naver_flows import collect_naver_investor_flows
 from app.collectors.naver_quotes import collect_naver_quotes
 from app.collectors.news import collect_news_items
 from app.collectors.research import collect_research_reports
+from app.collectors.stock_snapshots import (
+    collect_stock_company_snapshots,
+    collect_stock_fundamental_snapshots,
+    collect_stock_news_snapshots,
+)
 from app.config import Settings, get_settings
 from app.db import SessionLocal
 from app.integrations.toss import TossInvestError
@@ -30,6 +36,9 @@ from app.integrations.toss import sync_toss_accounts, sync_toss_holdings, sync_t
 from app.models import DailyPrice, DisclosureItem, FinancialStatementLine, InvestorFlow, MacroObservation, StockMaster
 from app.repository import latest_disclosures, latest_news_items, latest_research_reports
 from app.services.company_briefs import build_company_briefs
+
+
+KST = ZoneInfo("Asia/Seoul")
 
 
 class BriefingRuntime:
@@ -41,6 +50,7 @@ class BriefingRuntime:
         self.running = False
         self.last_success_at: Optional[datetime] = None
         self.last_error: Optional[str] = None
+        self.last_briefing_at: Optional[datetime] = None
         self.last_research_at: Optional[datetime] = None
         self.last_research_backfill_at: Optional[datetime] = None
         self.last_disclosure_at: Optional[datetime] = None
@@ -50,12 +60,20 @@ class BriefingRuntime:
         self.last_price_at: Optional[datetime] = None
         self.last_price_source: Optional[str] = None
         self.last_price_message: Optional[str] = None
+        self.last_stock_universe_at: Optional[datetime] = None
+        self.last_stock_universe_message: Optional[str] = None
         self.last_investor_flow_at: Optional[datetime] = None
         self.last_investor_flow_source: Optional[str] = None
         self.last_investor_flow_message: Optional[str] = None
         self.last_financials_at: Optional[datetime] = None
         self.last_financials_source: Optional[str] = None
         self.last_financials_message: Optional[str] = None
+        self.last_fundamental_snapshot_at: Optional[datetime] = None
+        self.last_fundamental_snapshot_message: Optional[str] = None
+        self.last_stock_news_snapshot_at: Optional[datetime] = None
+        self.last_stock_news_snapshot_message: Optional[str] = None
+        self.last_stock_company_snapshot_at: Optional[datetime] = None
+        self.last_stock_company_snapshot_message: Optional[str] = None
         self.last_macro_at: Optional[datetime] = None
         self.last_macro_source: Optional[str] = None
         self.last_macro_message: Optional[str] = None
@@ -77,10 +95,18 @@ class BriefingRuntime:
             sources.append("naver_news")
         if self.settings.price_enabled:
             sources.append("krx_prices")
+        if self.settings.stock_universe_enabled:
+            sources.append("krx_stock_master")
         if self.settings.investor_flow_enabled:
             sources.append("naver_investor_flow")
         if self.settings.financials_enabled and self.settings.dart_api_key:
             sources.append("dart_financials")
+        if self.settings.fundamental_snapshot_enabled:
+            sources.append("naver_fundamentals")
+        if self.settings.stock_news_snapshot_enabled:
+            sources.append("naver_stock_news")
+        if self.settings.stock_company_snapshot_enabled:
+            sources.append("naver_company_info")
         if self.settings.macro_enabled:
             sources.append("yahoo_macro")
         if self.settings.toss_enabled and self.settings.toss_client_id and self.settings.toss_client_secret:
@@ -97,8 +123,12 @@ class BriefingRuntime:
                 self.settings.disclosure_enabled,
                 self.settings.news_enabled,
                 self.settings.price_enabled,
+                self.settings.stock_universe_enabled,
                 self.settings.investor_flow_enabled,
                 self.settings.financials_enabled,
+                self.settings.fundamental_snapshot_enabled,
+                self.settings.stock_news_snapshot_enabled,
+                self.settings.stock_company_snapshot_enabled,
                 self.settings.macro_enabled,
                 self.settings.toss_enabled and self.settings.toss_sync_holdings_enabled,
             ]
@@ -170,6 +200,18 @@ class BriefingRuntime:
                     refreshed_any = True
                 except Exception as exc:
                     self.source_errors["news"] = str(exc)
+            if self.settings.stock_universe_enabled and self._stock_universe_due():
+                try:
+                    loaded = collect_stocks(
+                        db,
+                        datetime.now(KST).strftime("%Y%m%d"),
+                        self.settings.stock_universe_markets,
+                    )
+                    self.last_stock_universe_at = datetime.utcnow()
+                    self.last_stock_universe_message = f"active_rows={loaded}"
+                    refreshed_any = refreshed_any or loaded > 0
+                except Exception as exc:
+                    self.source_errors["stock_universe"] = str(exc)
             if self.settings.price_enabled and self._price_due():
                 try:
                     price_result = self._collect_prices(db)
@@ -190,6 +232,45 @@ class BriefingRuntime:
                     self.last_financials_at = datetime.utcnow()
                 except Exception as exc:
                     self.source_errors["financials"] = str(exc)
+            if self.settings.fundamental_snapshot_enabled and self._fundamental_snapshot_due():
+                try:
+                    snapshot_result = collect_stock_fundamental_snapshots(
+                        db,
+                        max_workers=self.settings.fundamental_snapshot_max_workers,
+                        refresh_days=self.settings.fundamental_snapshot_refresh_days,
+                    )
+                    if snapshot_result["rows_loaded"]:
+                        refreshed_any = True
+                    self.last_fundamental_snapshot_message = str(snapshot_result["message"])
+                    self.last_fundamental_snapshot_at = datetime.utcnow()
+                except Exception as exc:
+                    self.source_errors["fundamental_snapshot"] = str(exc)
+            if self.settings.stock_news_snapshot_enabled and self._stock_news_snapshot_due():
+                try:
+                    stock_news_result = collect_stock_news_snapshots(
+                        db,
+                        max_workers=self.settings.stock_news_snapshot_max_workers,
+                        refresh_hours=self.settings.stock_news_snapshot_refresh_hours,
+                    )
+                    if stock_news_result["rows_loaded"]:
+                        refreshed_any = True
+                    self.last_stock_news_snapshot_message = str(stock_news_result["message"])
+                    self.last_stock_news_snapshot_at = datetime.utcnow()
+                except Exception as exc:
+                    self.source_errors["stock_news_snapshot"] = str(exc)
+            if self.settings.stock_company_snapshot_enabled and self._stock_company_snapshot_due():
+                try:
+                    company_snapshot_result = collect_stock_company_snapshots(
+                        db,
+                        max_workers=self.settings.stock_company_snapshot_max_workers,
+                        refresh_days=self.settings.stock_company_snapshot_refresh_days,
+                    )
+                    if company_snapshot_result["rows_loaded"]:
+                        refreshed_any = True
+                    self.last_stock_company_snapshot_message = str(company_snapshot_result["message"])
+                    self.last_stock_company_snapshot_at = datetime.utcnow()
+                except Exception as exc:
+                    self.source_errors["stock_company_snapshot"] = str(exc)
             if self.settings.macro_enabled and self._macro_due():
                 try:
                     macro_result = self._collect_macro(db)
@@ -212,13 +293,16 @@ class BriefingRuntime:
                     self.source_errors["investor_flow"] = str(exc)
             if self.settings.toss_enabled and self.settings.toss_sync_holdings_enabled and self._toss_due():
                 refreshed_any = self._run_toss_sync(db) or refreshed_any
-            if self.settings.briefing_realtime_enabled or refreshed_any:
+            if refreshed_any or (
+                self.settings.briefing_realtime_enabled and self._briefing_snapshot_due()
+            ):
                 collect_home_briefing(
                     db,
                     settings=self.settings,
                     market_provider=self.market_provider,
                     disclosure_provider=self.disclosure_provider,
                 )
+                self.last_briefing_at = datetime.utcnow()
 
     def _run_toss_sync(self, db) -> bool:
         attempted_at = datetime.utcnow()
@@ -267,6 +351,12 @@ class BriefingRuntime:
         elapsed = (datetime.utcnow() - self.last_research_at).total_seconds()
         return elapsed >= self.settings.research_poll_seconds
 
+    def _briefing_snapshot_due(self) -> bool:
+        if self.last_briefing_at is None:
+            return True
+        elapsed = (datetime.utcnow() - self.last_briefing_at).total_seconds()
+        return elapsed >= max(self.settings.briefing_snapshot_seconds, self.settings.briefing_poll_seconds)
+
     def _research_backfill_due(self) -> bool:
         if self.last_research_backfill_at is None:
             return True
@@ -291,6 +381,12 @@ class BriefingRuntime:
         elapsed = (datetime.utcnow() - self.last_price_at).total_seconds()
         return elapsed >= self.settings.price_poll_seconds
 
+    def _stock_universe_due(self) -> bool:
+        if self.last_stock_universe_at is None:
+            return True
+        elapsed = (datetime.utcnow() - self.last_stock_universe_at).total_seconds()
+        return elapsed >= self.settings.stock_universe_poll_seconds
+
     def _investor_flow_due(self) -> bool:
         if self.last_investor_flow_at is None:
             return True
@@ -302,6 +398,24 @@ class BriefingRuntime:
             return True
         elapsed = (datetime.utcnow() - self.last_financials_at).total_seconds()
         return elapsed >= self.settings.financials_poll_seconds
+
+    def _fundamental_snapshot_due(self) -> bool:
+        if self.last_fundamental_snapshot_at is None:
+            return True
+        elapsed = (datetime.utcnow() - self.last_fundamental_snapshot_at).total_seconds()
+        return elapsed >= self.settings.fundamental_snapshot_poll_seconds
+
+    def _stock_news_snapshot_due(self) -> bool:
+        if self.last_stock_news_snapshot_at is None:
+            return True
+        elapsed = (datetime.utcnow() - self.last_stock_news_snapshot_at).total_seconds()
+        return elapsed >= self.settings.stock_news_snapshot_poll_seconds
+
+    def _stock_company_snapshot_due(self) -> bool:
+        if self.last_stock_company_snapshot_at is None:
+            return True
+        elapsed = (datetime.utcnow() - self.last_stock_company_snapshot_at).total_seconds()
+        return elapsed >= self.settings.stock_company_snapshot_poll_seconds
 
     def _macro_due(self) -> bool:
         if self.last_macro_at is None:
@@ -396,7 +510,10 @@ class BriefingRuntime:
     def _latest_price_coverage(self, db, target_yyyymmdd: str) -> dict[str, object]:
         target_date = datetime.strptime(target_yyyymmdd, "%Y%m%d").date()
         code_rows = db.execute(
-            select(StockMaster.code).where(StockMaster.market.in_(["KOSPI", "KOSDAQ"]))
+            select(StockMaster.code).where(
+                StockMaster.is_active.is_(True),
+                StockMaster.market.in_(["KOSPI", "KOSDAQ"]),
+            )
         ).all()
         codes = [row[0] for row in code_rows if row[0]]
         if not codes:
@@ -441,7 +558,10 @@ class BriefingRuntime:
     def _latest_investor_flow_coverage(self, db) -> dict[str, object]:
         target_date = db.scalar(select(func.max(DailyPrice.trade_date))) or datetime.utcnow().date()
         code_rows = db.execute(
-            select(StockMaster.code).where(StockMaster.market.in_(["KOSPI", "KOSDAQ"]))
+            select(StockMaster.code).where(
+                StockMaster.is_active.is_(True),
+                StockMaster.market.in_(["KOSPI", "KOSDAQ"]),
+            )
         ).all()
         codes = [row[0] for row in code_rows if row[0]]
         if not codes:
@@ -616,25 +736,36 @@ class BriefingRuntime:
             "disclosure_enabled": self.settings.disclosure_enabled,
             "news_enabled": self.settings.news_enabled,
             "price_enabled": self.settings.price_enabled,
+            "stock_universe_enabled": self.settings.stock_universe_enabled,
             "toss_enabled": self.settings.toss_enabled,
             "toss_sync_holdings_enabled": self.settings.toss_sync_holdings_enabled,
             "running": self.running,
             "poll_seconds": self.settings.briefing_poll_seconds,
+            "snapshot_seconds": self.settings.briefing_snapshot_seconds,
+            "retention_snapshots": self.settings.briefing_retention_snapshots,
             "research_poll_seconds": self.settings.research_poll_seconds,
             "research_backfill_poll_seconds": self.settings.research_backfill_poll_seconds,
             "disclosure_poll_seconds": self.settings.disclosure_poll_seconds,
             "news_poll_seconds": self.settings.news_poll_seconds,
             "price_poll_seconds": self.settings.price_poll_seconds,
+            "stock_universe_poll_seconds": self.settings.stock_universe_poll_seconds,
             "investor_flow_enabled": self.settings.investor_flow_enabled,
             "investor_flow_poll_seconds": self.settings.investor_flow_poll_seconds,
             "financials_enabled": self.settings.financials_enabled,
             "financials_poll_seconds": self.settings.financials_poll_seconds,
+            "fundamental_snapshot_enabled": self.settings.fundamental_snapshot_enabled,
+            "fundamental_snapshot_poll_seconds": self.settings.fundamental_snapshot_poll_seconds,
+            "stock_news_snapshot_enabled": self.settings.stock_news_snapshot_enabled,
+            "stock_news_snapshot_poll_seconds": self.settings.stock_news_snapshot_poll_seconds,
+            "stock_company_snapshot_enabled": self.settings.stock_company_snapshot_enabled,
+            "stock_company_snapshot_poll_seconds": self.settings.stock_company_snapshot_poll_seconds,
             "macro_enabled": self.settings.macro_enabled,
             "macro_poll_seconds": self.settings.macro_poll_seconds,
             "toss_poll_seconds": self.settings.toss_poll_seconds,
             "toss_order_poll_seconds": self.settings.toss_order_poll_seconds,
             "configured_sources": self.configured_sources(),
             "last_success_at": self.last_success_at,
+            "last_briefing_at": self.last_briefing_at,
             "last_research_at": self.last_research_at,
             "last_research_backfill_at": self.last_research_backfill_at,
             "last_disclosure_at": self.last_disclosure_at,
@@ -644,12 +775,20 @@ class BriefingRuntime:
             "last_price_at": self.last_price_at,
             "last_price_source": self.last_price_source,
             "last_price_message": self.last_price_message,
+            "last_stock_universe_at": self.last_stock_universe_at,
+            "last_stock_universe_message": self.last_stock_universe_message,
             "last_investor_flow_at": self.last_investor_flow_at,
             "last_investor_flow_source": self.last_investor_flow_source,
             "last_investor_flow_message": self.last_investor_flow_message,
             "last_financials_at": self.last_financials_at,
             "last_financials_source": self.last_financials_source,
             "last_financials_message": self.last_financials_message,
+            "last_fundamental_snapshot_at": self.last_fundamental_snapshot_at,
+            "last_fundamental_snapshot_message": self.last_fundamental_snapshot_message,
+            "last_stock_news_snapshot_at": self.last_stock_news_snapshot_at,
+            "last_stock_news_snapshot_message": self.last_stock_news_snapshot_message,
+            "last_stock_company_snapshot_at": self.last_stock_company_snapshot_at,
+            "last_stock_company_snapshot_message": self.last_stock_company_snapshot_message,
             "last_macro_at": self.last_macro_at,
             "last_macro_source": self.last_macro_source,
             "last_macro_message": self.last_macro_message,

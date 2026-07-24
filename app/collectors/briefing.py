@@ -8,6 +8,7 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 import requests
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -259,6 +260,72 @@ class KisRestBriefingProvider:
         )
         return payload.get("output", {})
 
+    def fetch_intraday_chart(self, code: str, *, max_points: int = 390) -> list[dict[str, object]]:
+        """Fetch today's one-minute chart without retaining a quote cache."""
+        now = datetime.now(KST)
+        if now.time() < time(9, 0):
+            cursor = "153000"
+        elif now.time() > time(15, 30):
+            cursor = "153000"
+        else:
+            cursor = now.strftime("%H%M%S")
+
+        points: dict[tuple[str, str], dict[str, object]] = {}
+        latest_trade_date: Optional[str] = None
+        previous_cursor = ""
+        max_chunks = max(1, min(14, (max_points + 29) // 30))
+        for _ in range(max_chunks):
+            payload = self._get(
+                "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
+                "FHKST03010200",
+                {
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD": code,
+                    "FID_INPUT_HOUR_1": cursor,
+                    "FID_PW_DATA_INCU_YN": "Y",
+                    "FID_ETC_CLS_CODE": "",
+                },
+            )
+            rows = payload.get("output2", []) or []
+            if not rows:
+                break
+
+            valid_times: list[str] = []
+            for row in rows:
+                trade_date = str(row.get("stck_bsop_date") or "").strip()
+                trade_time = str(row.get("stck_cntg_hour") or "").strip().zfill(6)
+                if not trade_date or not trade_time:
+                    continue
+                latest_trade_date = latest_trade_date or trade_date
+                if trade_date != latest_trade_date:
+                    continue
+                price = _int(row.get("stck_prpr"))
+                if price is None:
+                    continue
+                valid_times.append(trade_time)
+                points[(trade_date, trade_time)] = {
+                    "trade_date": trade_date,
+                    "trade_time": trade_time,
+                    "price": price,
+                    "open": _int(row.get("stck_oprc")),
+                    "high": _int(row.get("stck_hgpr")),
+                    "low": _int(row.get("stck_lwpr")),
+                    "volume": _int(row.get("cntg_vol")),
+                    "trading_value": _int(row.get("acml_tr_pbmn")),
+                }
+            if not valid_times:
+                break
+            earliest = min(valid_times)
+            if earliest <= "090000" or len(points) >= max_points:
+                break
+            cursor_time = datetime.strptime(earliest, "%H%M%S") - timedelta(minutes=1)
+            next_cursor = cursor_time.strftime("%H%M%S")
+            if next_cursor == cursor or next_cursor == previous_cursor:
+                break
+            previous_cursor, cursor = cursor, next_cursor
+
+        return sorted(points.values(), key=lambda row: (str(row["trade_date"]), str(row["trade_time"])))[:max_points]
+
     def _fetch_fluctuation(self, list_type: str, limit: int, min_rate: str, max_rate: str) -> list[BriefingMoverPayload]:
         payload = self._get(
             "/uapi/domestic-stock/v1/ranking/fluctuation",
@@ -488,7 +555,29 @@ def build_home_briefing_bundle(
     )
 
 
-def persist_briefing_bundle(db: Session, bundle: BriefingBundle) -> BriefingSnapshot:
+def prune_briefing_snapshots(db: Session, briefing_kind: str, retain_count: int) -> int:
+    retain_count = max(int(retain_count), 1)
+    stale_snapshot_ids = select(BriefingSnapshot.id).where(
+        BriefingSnapshot.briefing_kind == briefing_kind
+    ).order_by(
+        BriefingSnapshot.as_of.desc(),
+        BriefingSnapshot.id.desc(),
+    ).offset(retain_count)
+    stale_ids = list(db.scalars(stale_snapshot_ids))
+    if not stale_ids:
+        return 0
+
+    for model in (BriefingEvent, BriefingMover, BriefingQuote, BriefingMetric):
+        db.execute(delete(model).where(model.snapshot_id.in_(stale_ids)))
+    db.execute(delete(BriefingSnapshot).where(BriefingSnapshot.id.in_(stale_ids)))
+    return len(stale_ids)
+
+
+def persist_briefing_bundle(
+    db: Session,
+    bundle: BriefingBundle,
+    retention_limit: int = 288,
+) -> BriefingSnapshot:
     snapshot = BriefingSnapshot(
         briefing_kind=bundle.briefing_kind,
         source=bundle.source,
@@ -569,6 +658,7 @@ def persist_briefing_bundle(db: Session, bundle: BriefingBundle) -> BriefingSnap
     upsert_many(db, BriefingMover, mover_rows)
     if event_rows:
         db.bulk_insert_mappings(BriefingEvent, event_rows)
+    prune_briefing_snapshots(db, bundle.briefing_kind, retention_limit)
     db.commit()
     return snapshot
 
@@ -590,7 +680,11 @@ def collect_home_briefing(
             disclosure_provider=disclosure_provider,
             now=now,
         )
-        snapshot = persist_briefing_bundle(db, bundle)
+        snapshot = persist_briefing_bundle(
+            db,
+            bundle,
+            retention_limit=settings.briefing_retention_snapshots,
+        )
         rows_loaded = len(bundle.metrics) + len(bundle.quotes) + len(bundle.movers) + len(bundle.events) + 1
         finish_ingestion(db, run, "success", rows_loaded=rows_loaded, message=bundle.summary)
         return snapshot

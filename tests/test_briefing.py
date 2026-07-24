@@ -13,7 +13,7 @@ from app.collectors.briefing import (
     persist_briefing_bundle,
 )
 from app.db import Base
-from app.models import BriefingEvent, BriefingMover, BriefingQuote, BriefingSnapshot
+from app.models import BriefingEvent, BriefingMetric, BriefingMover, BriefingQuote, BriefingSnapshot
 
 
 def test_persist_briefing_bundle_in_memory():
@@ -76,3 +76,59 @@ def test_persist_briefing_bundle_in_memory():
         assert db.scalar(select(func.count()).select_from(BriefingQuote)) == 1
         assert db.scalar(select(func.count()).select_from(BriefingMover)) == 1
         assert db.scalar(select(func.count()).select_from(BriefingEvent)) == 1
+
+
+def test_persist_briefing_bundle_prunes_old_snapshots_and_children():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    with SessionLocal() as db:
+        for minute in range(4):
+            bundle = BriefingBundle(
+                briefing_kind="home",
+                source="test",
+                transport="polling",
+                market_status="open",
+                is_live=True,
+                as_of=datetime(2026, 6, 17, 9, minute, 0),
+                summary=f"snapshot={minute}",
+                metrics=[
+                    BriefingMetricPayload(
+                        metric_key="market_status",
+                        label="장 상태",
+                        value_text="open",
+                    )
+                ],
+                quotes=[
+                    BriefingQuotePayload(
+                        code="005930",
+                        name="삼성전자",
+                        market="KOSPI",
+                        role="watchlist",
+                    )
+                ],
+                movers=[
+                    BriefingMoverPayload(
+                        list_type="gainers",
+                        rank=1,
+                        code="000660",
+                        name="SK하이닉스",
+                        market="KOSPI",
+                    )
+                ],
+                events=[
+                    BriefingEventPayload(
+                        event_type="news",
+                        source="test",
+                        title=f"뉴스 {minute}",
+                    )
+                ],
+            )
+            persist_briefing_bundle(db, bundle, retention_limit=2)
+
+        assert db.scalar(select(func.count()).select_from(BriefingSnapshot)) == 2
+        assert db.scalar(select(func.count()).select_from(BriefingMetric)) == 2
+        assert db.scalar(select(func.count()).select_from(BriefingQuote)) == 2
+        assert db.scalar(select(func.count()).select_from(BriefingMover)) == 2
+        assert db.scalar(select(func.count()).select_from(BriefingEvent)) == 2

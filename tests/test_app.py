@@ -65,6 +65,8 @@ def test_briefing_status():
     assert "investor_flow_poll_seconds" in body
     assert "financials_enabled" in body
     assert "financials_poll_seconds" in body
+    assert "fundamental_snapshot_enabled" in body
+    assert "fundamental_snapshot_poll_seconds" in body
     assert "macro_enabled" in body
     assert "macro_poll_seconds" in body
     assert "toss_poll_seconds" in body
@@ -72,6 +74,7 @@ def test_briefing_status():
     assert "last_price_at" in body
     assert "last_investor_flow_at" in body
     assert "last_financials_at" in body
+    assert "last_fundamental_snapshot_at" in body
     assert "last_macro_at" in body
     assert "source_errors" in body
 
@@ -99,6 +102,13 @@ def test_insight_shell_and_feed():
     assert "AI 주식 정보 서비스 제품 사례" in portfolio_shell.text
     assert "6가지" in portfolio_shell.text
     assert "핵심 기능" in portfolio_shell.text
+
+    concepts_shell = client.get("/concepts")
+    assert concepts_shell.status_code == 200
+    assert "주식 정보 서비스 디자인 탐색" in concepts_shell.text
+    assert "Market Pulse" in concepts_shell.text
+    assert "Equity Lens" in concepts_shell.text
+    assert "My Signals" in concepts_shell.text
 
     feed = client.get("/insight/feed")
     assert feed.status_code == 200

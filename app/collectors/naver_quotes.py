@@ -27,7 +27,11 @@ def _market_list(markets: str) -> list[str]:
 
 def _codes_for_markets(db: Session, markets: str, limit: Optional[int]) -> list[str]:
     market_names = _market_list(markets)
-    statement = select(StockMaster.code).order_by(StockMaster.market, StockMaster.code)
+    statement = (
+        select(StockMaster.code)
+        .where(StockMaster.is_active.is_(True))
+        .order_by(StockMaster.market, StockMaster.code)
+    )
     if market_names:
         statement = statement.where(StockMaster.market.in_(market_names))
     if limit:

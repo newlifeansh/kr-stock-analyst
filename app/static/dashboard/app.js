@@ -61,6 +61,23 @@ const elements = {
   aiStrategy: $("ai-strategy"),
   aiRisks: $("ai-risks"),
   aiSectionList: $("ai-section-list"),
+  quantSignalStatus: $("quant-signal-status"),
+  quantSignalContent: $("quant-signal-content"),
+  quantCurrentLabel: $("quant-current-label"),
+  quantCurrentScore: $("quant-current-score"),
+  quantCurrentMeta: $("quant-current-meta"),
+  quantCurrentReasons: $("quant-current-reasons"),
+  quantCurrentPosition: $("quant-current-position"),
+  quantNextConfirmation: $("quant-next-confirmation"),
+  quantPerformancePeriod: $("quant-performance-period"),
+  quantPerformanceGrid: $("quant-performance-grid"),
+  quantSampleNote: $("quant-sample-note"),
+  quantCapital: $("quant-capital"),
+  quantSignalChart: $("quant-signal-chart"),
+  quantChartSource: $("quant-chart-source"),
+  quantTradeList: $("quant-trade-list"),
+  quantMethodologyList: $("quant-methodology-list"),
+  quantDisclaimer: $("quant-disclaimer"),
   stockSummaryScoreRing: $("stock-summary-score-ring"),
   stockSummaryScore: $("stock-summary-score"),
   stockSummaryConfidence: $("stock-summary-confidence"),
@@ -72,6 +89,43 @@ const elements = {
   stockAISayText: $("stock-ai-say-text"),
   stockInlineAIRefresh: $("stock-inline-ai-refresh"),
   stockMiniChart: $("stock-mini-chart"),
+  stockDetailBack: $("stock-detail-back"),
+  stockV2PricePeriods: Array.from(document.querySelectorAll("[data-price-period]")),
+  stockV2ChartSource: $("stock-v2-chart-source"),
+  stockV2MarketCode: $("stock-v2-market-code"),
+  stockV2AsOf: $("stock-v2-as-of"),
+  stockV2RangePercent: $("stock-v2-range-percent"),
+  stockV2RangeChart: $("stock-v2-range-chart"),
+  stockV2ConsensusUpside: $("stock-v2-consensus-upside"),
+  stockV2ConsensusChart: $("stock-v2-consensus-chart"),
+  stockV2FlowState: $("stock-v2-flow-state"),
+  stockV2FlowChart: $("stock-v2-flow-chart"),
+  stockV2SentimentState: $("stock-v2-sentiment-state"),
+  stockV2SentimentChart: $("stock-v2-sentiment-chart"),
+  stockHomeTodayDate: $("stock-home-today-date"),
+  stockHomeSummaryList: $("stock-home-summary-list"),
+  stockHomeUpdates: $("stock-home-updates"),
+  stockHomeCheckpoints: $("stock-home-checkpoints"),
+  stockHomeKeywords: $("stock-home-keywords"),
+  stockHomeIssueTabs: $("stock-home-issue-tabs"),
+  stockHomeIssueCard: $("stock-home-issue-card"),
+  stockFinancialMetricTabs: Array.from(document.querySelectorAll("[data-financial-metric]")),
+  stockFinancialScopeTabs: Array.from(document.querySelectorAll("[data-financial-scope]")),
+  stockFinancialChart: $("stock-financial-chart"),
+  stockFinancialSummary: $("stock-financial-summary"),
+  stockFinancialSource: $("stock-financial-source"),
+  stockFlowModeTabs: Array.from(document.querySelectorAll("[data-flow-mode]")),
+  stockFlowPeriodTabs: Array.from(document.querySelectorAll("[data-flow-period]")),
+  stockFlowSummary: $("stock-flow-summary"),
+  stockFlowHistoryChart: $("stock-flow-history-chart"),
+  stockFlowSource: $("stock-flow-source"),
+  stockReportHistoryChart: $("stock-report-history-chart"),
+  stockReportSummary: $("stock-report-summary"),
+  stockNewsTemperature: $("stock-news-temperature"),
+  stockNewsTemperatureChart: $("stock-news-temperature-chart"),
+  stockXFeedStatus: $("stock-x-feed-status"),
+  stockXFeedList: $("stock-x-feed-list"),
+  stockXFeedMore: $("stock-x-feed-more"),
   stockSignalChart: $("stock-signal-chart"),
   stockSignalChartBar: $("stock-signal-chart-bar"),
   stockSignalFlow: $("stock-signal-flow"),
@@ -256,6 +310,7 @@ const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
   },
 ];
 const RECOMMENDATION_LIMIT = 10;
+const STOCK_PRICE_PERIOD_COUNTS = { "1M": 22, "3M": 66, "6M": 132, "1Y": 260 };
 const RECOMMENDATION_REGULAR_COOLDOWN_MS = 10 * 60_000;
 const RECOMMENDATION_OFFHOURS_COOLDOWN_MS = 30 * 60_000;
 const PULL_REFRESH_TRIGGER_DISTANCE = 72;
@@ -504,9 +559,26 @@ const state = {
   watchlistMarketContext: null,
   stockActiveTab: "summary",
   stockPriceRows: [],
+  stockPricePeriod: "1D",
+  stockIntradayRows: [],
+  stockFlowRows: [],
+  stockResearchRows: [],
+  stockDisclosureRows: [],
+  stockNewsRows: [],
+  stockXFeed: null,
+  stockFinancialMetric: "revenue",
+  stockFinancialScope: "quarterly",
+  stockFlowMode: "cumulative",
+  stockFlowPeriod: "3M",
+  stockHomeDetailsRequestId: 0,
+  stockIssueKeyword: "",
   stockAIAnalysis: null,
   stockAIRequestedCode: "",
   stockAILoading: false,
+  stockQuantSignals: null,
+  stockQuantRequestedCode: "",
+  stockQuantLoading: false,
+  stockQuantLastLiveRefreshAt: 0,
   watchPreopenExpanded: new Set(),
   watchDetailsExpanded: new Set(),
   pullRefreshTracking: false,
@@ -869,7 +941,7 @@ function scrollStockTabsToTop(options = {}) {
 }
 
 function shouldAutoLoadStockAI(tabName = state.stockActiveTab) {
-  return ["summary", "strategy"].includes(tabName) && Boolean(state.currentStock?.code);
+  return tabName === "strategy" && Boolean(state.currentStock?.code);
 }
 
 function ensureStockAIAnalysis() {
@@ -880,6 +952,16 @@ function ensureStockAIAnalysis() {
     return;
   }
   loadAIAnalysis({ auto: true });
+}
+
+function ensureStockQuantSignals() {
+  if (!shouldAutoLoadStockAI() || state.stockQuantLoading) {
+    return;
+  }
+  if (state.stockQuantSignals && state.stockQuantRequestedCode === state.currentStock?.code) {
+    return;
+  }
+  loadQuantSignals({ auto: true });
 }
 
 function setActiveStockTab(tabName, options = {}) {
@@ -896,6 +978,7 @@ function setActiveStockTab(tabName, options = {}) {
     window.requestAnimationFrame(() => scrollStockTabsToTop({ instant: options.instant }));
   }
   ensureStockAIAnalysis();
+  ensureStockQuantSignals();
 }
 
 function scrollToStockSection(hash, options = {}) {
@@ -903,14 +986,14 @@ function scrollToStockSection(hash, options = {}) {
     "#stock-summary-section": "summary",
     "#stock-ai-section": "strategy",
     "#stock-strategy-section": "strategy",
-    "#stock-chart-section": "evidence",
-    "#stock-flow-section": "evidence",
-    "#stock-research-section": "evidence",
-    "#stock-consensus-section": "evidence",
+    "#stock-chart-section": "summary",
+    "#stock-flow-section": "summary",
+    "#stock-research-section": "summary",
+    "#stock-consensus-section": "summary",
     "#stock-momentum-section": "summary",
-    "#stock-finance-section": "evidence",
-    "#stock-news-section": "evidence",
-    "#stock-macro-section": "evidence",
+    "#stock-finance-section": "summary",
+    "#stock-news-section": "summary",
+    "#stock-macro-section": "summary",
   };
   setActiveStockTab(map[hash] || "summary", { preserveScroll: options.instant });
 }
@@ -1202,51 +1285,1126 @@ function renderAIDecisionSummary(payload) {
   }
 }
 
-function renderStockMiniChart(prices) {
-  if (!elements.stockMiniChart) {
-    return;
-  }
+function stockPriceRowsWithLiveQuote(prices, quote = null) {
   const rows = (prices || [])
     .slice()
     .reverse()
-    .map((row) => ({ date: row.trade_date || row.date, close: toNumber(row.close) }))
-    .filter((row) => row.close !== null)
-    .slice(-80);
-  if (rows.length < 2) {
-    elements.stockMiniChart.innerHTML = "<p>가격 데이터 부족</p>";
+    .map((row) => ({
+      date: String(row.trade_date || row.date || ""),
+      open: toNumber(row.open),
+      high: toNumber(row.high),
+      low: toNumber(row.low),
+      close: toNumber(row.close),
+      volume: toNumber(row.volume),
+    }))
+    .filter((row) => row.date && row.close !== null);
+  const livePrice = toNumber(quote?.price);
+  const liveDate = String(quote?.trade_date || "");
+  if (livePrice !== null && liveDate) {
+    const matchingRow = rows.find((row) => row.date === liveDate);
+    if (matchingRow) {
+      matchingRow.close = livePrice;
+      matchingRow.volume = toNumber(quote?.volume) ?? matchingRow.volume;
+      matchingRow.high = Math.max(matchingRow.high ?? livePrice, livePrice);
+      matchingRow.low = Math.min(matchingRow.low ?? livePrice, livePrice);
+    } else {
+      rows.push({
+        date: liveDate,
+        open: null,
+        high: livePrice,
+        low: livePrice,
+        close: livePrice,
+        volume: toNumber(quote?.volume),
+      });
+    }
+  }
+  return rows.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function formatChartAxisPrice(value) {
+  const number = toNumber(value);
+  if (number === null) {
+    return "-";
+  }
+  if (Math.abs(number) >= 10000) {
+    return `${Math.round(number / 10000).toLocaleString("ko-KR")}만`;
+  }
+  return formatNumber(Math.round(number));
+}
+
+function formatChartDate(value) {
+  const text = String(value || "");
+  if (text.length < 10) {
+    return text || "-";
+  }
+  return `${text.slice(5, 7)}.${text.slice(8, 10)}`;
+}
+
+function renderStockV2Range(prices, quote = null) {
+  if (!elements.stockV2RangeChart) {
     return;
   }
-  const width = 360;
-  const height = 150;
-  const padding = 14;
-  const values = rows.map((row) => row.close);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max === min ? 1 : max - min;
-  const points = rows.map((row, index) => {
-    const x = padding + (index / (rows.length - 1)) * (width - padding * 2);
-    const y = height - padding - ((row.close - min) / span) * (height - padding * 2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-  const start = values[0];
-  const end = values[values.length - 1];
-  const startDate = formatDateLabel(rows[0]?.date);
-  const endDate = formatDateLabel(rows[rows.length - 1]?.date);
-  const toneClass = end >= start ? "up" : "down";
-  elements.stockMiniChart.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 가격 흐름">
-      <defs>
-        <linearGradient id="stockMiniGradient" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stop-color="currentColor" stop-opacity="0.20" />
-          <stop offset="100%" stop-color="currentColor" stop-opacity="0.02" />
-        </linearGradient>
-      </defs>
-      <polyline class="mini-chart-fill ${toneClass}" points="${points[0]} ${points.join(" ")} ${points[points.length - 1].split(",")[0]},${height - padding} ${padding},${height - padding}" />
-      <polyline class="mini-chart-line ${toneClass}" points="${points.join(" ")}" />
-    </svg>
-    <div><span>${formatNumber(start)}</span><strong>${formatNumber(end)}</strong></div>
-    <p class="mini-chart-date-range">기준 ${startDate} ~ ${endDate} · 최근 ${formatNumber(rows.length)}거래일</p>
+  const rows = stockPriceRowsWithLiveQuote(prices, quote);
+  if (rows.length < 2) {
+    setText(elements.stockV2RangePercent, "-");
+    elements.stockV2RangeChart.innerHTML = '<p class="stock-v2-empty">52주 가격 데이터가 부족합니다.</p>';
+    return;
+  }
+  const low = Math.min(...rows.map((row) => row.low ?? row.close));
+  const high = Math.max(...rows.map((row) => row.high ?? row.close));
+  const current = toNumber(quote?.price) ?? rows[rows.length - 1].close;
+  const span = high === low ? 1 : high - low;
+  const position = clampNumber(((current - low) / span) * 100, 0, 100);
+  const upperDistance = Math.max(0, 100 - position);
+  setText(elements.stockV2RangePercent, `상단 ${upperDistance.toFixed(0)}%`);
+  elements.stockV2RangeChart.innerHTML = `
+    <div class="stock-v2-range-value"><strong>${formatNumber(current)}</strong><span>현재가</span></div>
+    <div class="stock-v2-range-track" style="--position:${position.toFixed(2)}%">
+      <i class="stock-v2-range-fill"></i>
+      <b class="stock-v2-range-marker"><span>${formatNumber(current)}</span></b>
+    </div>
+    <div class="stock-v2-range-labels"><span>최저 ${formatNumber(low)}</span><span>최고 ${formatNumber(high)}</span></div>
   `;
+}
+
+function renderStockV2Consensus(data) {
+  if (!elements.stockV2ConsensusChart) {
+    return;
+  }
+  const current = toNumber(data?.quote?.price);
+  const target = toNumber(data?.revisions?.latest_target_price);
+  const reportCount = toNumber(data?.revisions?.report_count_90d) || 0;
+  if (current === null || target === null || target <= 0) {
+    setText(elements.stockV2ConsensusUpside, "자료 부족");
+    elements.stockV2ConsensusChart.innerHTML = '<p class="stock-v2-empty">최근 목표가가 확인되지 않았습니다.</p>';
+    return;
+  }
+  const upside = ((target / current) - 1) * 100;
+  const scaleMax = Math.max(current, target) * 1.08;
+  const currentWidth = clampNumber((current / scaleMax) * 100, 2, 100);
+  const targetWidth = clampNumber((target / scaleMax) * 100, 2, 100);
+  setText(elements.stockV2ConsensusUpside, `여력 ${formatPercent(upside)}`);
+  setTone(elements.stockV2ConsensusUpside, upside);
+  elements.stockV2ConsensusChart.innerHTML = `
+    <div class="stock-v2-comparison-row current"><span>현재가</span><div><i style="width:${currentWidth.toFixed(2)}%"></i></div><strong>${formatNumber(current)}</strong></div>
+    <div class="stock-v2-comparison-row target"><span>목표가</span><div><i style="width:${targetWidth.toFixed(2)}%"></i></div><strong>${formatNumber(target)}</strong></div>
+    <p>최근 90일 리포트 ${formatNumber(reportCount)}건 · ${data?.revisions?.latest_opinion || "의견 없음"}</p>
+  `;
+}
+
+function stockFlowState(foreign, institution) {
+  if (foreign === null || institution === null) {
+    return "자료 부족";
+  }
+  if (foreign > 0 && institution > 0) {
+    return "동반 순매수";
+  }
+  if (foreign < 0 && institution < 0) {
+    return "동반 순매도";
+  }
+  return foreign > institution ? "외국인 우위" : "기관 우위";
+}
+
+function renderStockV2Flow(data) {
+  if (!elements.stockV2FlowChart) {
+    return;
+  }
+  const foreign = toNumber(data?.flows?.foreign_net_buy_20d);
+  const institution = toNumber(data?.flows?.institution_net_buy_20d);
+  const stateLabel = stockFlowState(foreign, institution);
+  setText(elements.stockV2FlowState, stateLabel);
+  const tone = foreign !== null && institution !== null ? foreign + institution : 0;
+  setTone(elements.stockV2FlowState, tone);
+  if (foreign === null && institution === null) {
+    elements.stockV2FlowChart.innerHTML = '<p class="stock-v2-empty">20일 수급 데이터가 없습니다.</p>';
+    return;
+  }
+  const maxAbs = Math.max(Math.abs(foreign || 0), Math.abs(institution || 0), 1);
+  const rows = [
+    { label: "외국인", value: foreign },
+    { label: "기관", value: institution },
+  ];
+  elements.stockV2FlowChart.innerHTML = rows.map((row) => {
+    const value = row.value || 0;
+    const magnitude = Math.max(2, Math.abs(value) / maxAbs * 50);
+    const direction = value >= 0 ? "positive" : "negative";
+    return `
+      <div class="stock-v2-flow-row ${direction}">
+        <span>${row.label}</span>
+        <div class="stock-v2-flow-track"><i style="width:${magnitude.toFixed(2)}%"></i></div>
+        <strong>${formatMoney(row.value)}</strong>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderStockV2Sentiment(data) {
+  if (!elements.stockV2SentimentChart) {
+    return;
+  }
+  const positive = Math.max(0, toNumber(data?.sentiment?.positive_count) || 0);
+  const negative = Math.max(0, toNumber(data?.sentiment?.negative_count) || 0);
+  const neutral = Math.max(0, toNumber(data?.sentiment?.neutral_count) || 0);
+  const total = positive + negative + neutral;
+  if (!total) {
+    setText(elements.stockV2SentimentState, "자료 부족");
+    elements.stockV2SentimentChart.innerHTML = '<p class="stock-v2-empty">분류된 뉴스가 없습니다.</p>';
+    return;
+  }
+  const positivePct = positive / total * 100;
+  const neutralPct = neutral / total * 100;
+  const negativePct = negative / total * 100;
+  const stateLabel = positive > negative * 1.25 ? "긍정 우세" : negative > positive * 1.25 ? "부정 우세" : "혼조";
+  const score = toNumber(data?.sentiment?.score);
+  setText(elements.stockV2SentimentState, stateLabel);
+  setTone(elements.stockV2SentimentState, positive - negative);
+  elements.stockV2SentimentChart.innerHTML = `
+    <div class="stock-v2-donut" style="--positive:${positivePct.toFixed(2)}%;--neutral:${(positivePct + neutralPct).toFixed(2)}%">
+      <div><strong>${score === null ? "-" : formatPercent(score)}</strong><span>뉴스 점수</span></div>
+    </div>
+    <dl class="stock-v2-sentiment-legend">
+      <div class="positive"><dt>긍정</dt><dd>${positive}건 · ${positivePct.toFixed(0)}%</dd></div>
+      <div class="neutral"><dt>중립</dt><dd>${neutral}건 · ${neutralPct.toFixed(0)}%</dd></div>
+      <div class="negative"><dt>부정</dt><dd>${negative}건 · ${negativePct.toFixed(0)}%</dd></div>
+    </dl>
+  `;
+}
+
+function renderStockV2Dashboard(data) {
+  setText(elements.stockV2MarketCode, data?.code || "");
+  setText(elements.stockV2AsOf, data?.as_of ? `업데이트 ${formatDate(data.as_of)}` : "기준 시각 확인 중");
+  renderStockV2Consensus(data);
+  renderStockV2Flow(data);
+  renderStockV2Sentiment(data);
+  renderStockV2Range(state.stockPriceRows, data?.quote);
+}
+
+function quantSignalMarkers(rows, points, options = {}) {
+  const payload = state.stockQuantSignals;
+  if (!payload || state.stockQuantRequestedCode !== state.currentStock?.code || !Array.isArray(payload.events)) {
+    return "";
+  }
+  const compact = options.compact === true;
+  const pointByDate = new Map(rows.map((row, index) => [row.date, points[index]]));
+  const visibleEvents = payload.events
+    .filter((event) => pointByDate.has(String(event.execution_date || "")))
+    .slice(compact ? -8 : -16);
+  return visibleEvents.map((event) => {
+    const point = pointByDate.get(String(event.execution_date));
+    const side = event.side === "sell" ? "sell" : "buy";
+    const direction = side === "buy" ? 1 : -1;
+    const stemEnd = point.y + (direction * (compact ? 17 : 22));
+    const labelY = point.y + (direction * (compact ? 30 : 36));
+    const triangle = side === "buy"
+      ? `${point.x - 5},${stemEnd + 5} ${point.x + 5},${stemEnd + 5} ${point.x},${stemEnd - 3}`
+      : `${point.x - 5},${stemEnd - 5} ${point.x + 5},${stemEnd - 5} ${point.x},${stemEnd + 3}`;
+    const label = compact ? (side === "buy" ? "매수" : "매도") : (event.label || (side === "buy" ? "모의 매수" : "모의 매도"));
+    return `
+      <g class="quant-chart-marker ${side}">
+        <title>${label} · ${formatDateLabel(event.execution_date)} · ${formatNumber(event.price)}</title>
+        <line x1="${point.x.toFixed(2)}" y1="${point.y.toFixed(2)}" x2="${point.x.toFixed(2)}" y2="${stemEnd.toFixed(2)}"></line>
+        <polygon points="${triangle}"></polygon>
+        <text x="${point.x.toFixed(2)}" y="${labelY.toFixed(2)}" text-anchor="middle">${label}</text>
+      </g>
+    `;
+  }).join("");
+}
+
+function renderStockMiniChart(prices, quote = null) {
+  if (!elements.stockMiniChart) {
+    return;
+  }
+  const period = state.stockPricePeriod || "1D";
+  for (const button of elements.stockV2PricePeriods) {
+    const active = button.dataset.pricePeriod === period;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  if (period === "1D") {
+    renderStockIntradayChart(state.stockIntradayRows, quote);
+    return;
+  }
+  const allRows = stockPriceRowsWithLiveQuote(prices, quote);
+  const periodCount = STOCK_PRICE_PERIOD_COUNTS[period] || STOCK_PRICE_PERIOD_COUNTS["3M"];
+  const rows = allRows.slice(-periodCount);
+  if (rows.length < 2) {
+    elements.stockMiniChart.innerHTML = '<p class="stock-v2-empty">가격 데이터가 충분하지 않습니다.</p>';
+    setText(elements.stockV2ChartSource, "일별 가격 데이터 부족");
+    return;
+  }
+
+  const width = 760;
+  const height = 320;
+  const left = 58;
+  const right = 18;
+  const top = 18;
+  const priceBottom = 226;
+  const volumeTop = 248;
+  const volumeBottom = 296;
+  const plotWidth = width - left - right;
+  const plotHeight = priceBottom - top;
+  const closes = rows.map((row) => row.close);
+  const rawMin = Math.min(...closes);
+  const rawMax = Math.max(...closes);
+  const rawSpan = rawMax === rawMin ? Math.max(rawMax * 0.02, 1) : rawMax - rawMin;
+  const min = Math.max(0, rawMin - rawSpan * 0.08);
+  const max = rawMax + rawSpan * 0.08;
+  const span = max - min || 1;
+  const volumes = rows.map((row) => row.volume || 0);
+  const maxVolume = Math.max(...volumes, 1);
+  const pointFor = (row, index) => ({
+    x: left + (index / Math.max(1, rows.length - 1)) * plotWidth,
+    y: top + ((max - row.close) / span) * plotHeight,
+  });
+  const points = rows.map(pointFor);
+  const linePath = points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
+  const areaPath = `${linePath} L${points[points.length - 1].x.toFixed(2)} ${priceBottom} L${points[0].x.toFixed(2)} ${priceBottom} Z`;
+  const start = closes[0];
+  const end = closes[closes.length - 1];
+  const change = start ? ((end / start) - 1) * 100 : 0;
+  const toneClass = end >= start ? "up" : "down";
+  const yTicks = Array.from({ length: 4 }, (_, index) => {
+    const ratio = index / 3;
+    const y = top + ratio * plotHeight;
+    const value = max - ratio * span;
+    return `<g class="stock-v2-chart-grid"><line x1="${left}" y1="${y.toFixed(2)}" x2="${width - right}" y2="${y.toFixed(2)}"></line><text x="${left - 8}" y="${(y + 4).toFixed(2)}">${formatChartAxisPrice(value)}</text></g>`;
+  }).join("");
+  const volumeWidth = Math.max(1.5, (plotWidth / rows.length) * 0.56);
+  const volumeBars = rows.map((row, index) => {
+    const barHeight = ((row.volume || 0) / maxVolume) * (volumeBottom - volumeTop);
+    const x = points[index].x - volumeWidth / 2;
+    const y = volumeBottom - barHeight;
+    return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${volumeWidth.toFixed(2)}" height="${Math.max(1, barHeight).toFixed(2)}"></rect>`;
+  }).join("");
+  const labelIndexes = [0, Math.floor((rows.length - 1) / 2), rows.length - 1];
+  const dateLabels = labelIndexes.map((index) => `<text class="stock-v2-chart-date" x="${points[index].x.toFixed(2)}" y="316" text-anchor="${index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle"}">${formatChartDate(rows[index].date)}</text>`).join("");
+  const signalMarkers = quantSignalMarkers(rows, points, { compact: true });
+
+  elements.stockMiniChart.innerHTML = `
+    <div class="stock-v2-chart-summary ${toneClass}">
+      <strong>${formatPercent(change)}</strong><span>${formatChartDate(rows[0].date)} 대비</span>
+    </div>
+    <svg class="stock-v2-price-svg ${toneClass}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${formatDateLabel(rows[0].date)}부터 ${formatDateLabel(rows[rows.length - 1].date)}까지 가격과 거래량">
+      ${yTicks}
+      <path class="stock-v2-chart-area" d="${areaPath}"></path>
+      <g class="stock-v2-volume-bars">${volumeBars}</g>
+      <path class="stock-v2-chart-line" d="${linePath}"></path>
+      <circle class="stock-v2-chart-end" cx="${points[points.length - 1].x.toFixed(2)}" cy="${points[points.length - 1].y.toFixed(2)}" r="4"></circle>
+      ${signalMarkers}
+      ${dateLabels}
+      <line class="stock-v2-hover-line" x1="0" y1="${top}" x2="0" y2="${priceBottom}" hidden></line>
+      <circle class="stock-v2-hover-point" cx="0" cy="0" r="5" hidden></circle>
+      <rect class="stock-v2-chart-hit" x="${left}" y="${top}" width="${plotWidth}" height="${priceBottom - top}"></rect>
+    </svg>
+    <div class="stock-v2-chart-tooltip" hidden></div>
+  `;
+  const svg = elements.stockMiniChart.querySelector(".stock-v2-price-svg");
+  const hit = elements.stockMiniChart.querySelector(".stock-v2-chart-hit");
+  const hoverLine = elements.stockMiniChart.querySelector(".stock-v2-hover-line");
+  const hoverPoint = elements.stockMiniChart.querySelector(".stock-v2-hover-point");
+  const tooltip = elements.stockMiniChart.querySelector(".stock-v2-chart-tooltip");
+  const hideTooltip = () => {
+    hoverLine.hidden = true;
+    hoverPoint.hidden = true;
+    tooltip.hidden = true;
+  };
+  hit?.addEventListener("pointermove", (event) => {
+    const bounds = svg.getBoundingClientRect();
+    const viewX = (event.clientX - bounds.left) / bounds.width * width;
+    const index = clampNumber(Math.round((viewX - left) / plotWidth * (rows.length - 1)), 0, rows.length - 1);
+    const row = rows[index];
+    const point = points[index];
+    hoverLine.hidden = false;
+    hoverPoint.hidden = false;
+    tooltip.hidden = false;
+    hoverLine.setAttribute("x1", point.x.toFixed(2));
+    hoverLine.setAttribute("x2", point.x.toFixed(2));
+    hoverPoint.setAttribute("cx", point.x.toFixed(2));
+    hoverPoint.setAttribute("cy", point.y.toFixed(2));
+    tooltip.style.left = `${clampNumber(point.x / width * 100, 12, 88)}%`;
+    tooltip.innerHTML = `<span>${formatDateLabel(row.date)}</span><strong>${formatNumber(row.close)}</strong><em>거래량 ${formatCompactCount(row.volume)}</em>`;
+  });
+  hit?.addEventListener("pointerleave", hideTooltip);
+  setText(
+    elements.stockV2ChartSource,
+    `KIS 실시간 시세와 일별 가격 · ${formatNumber(rows.length)}거래일 · ${formatDateLabel(rows[0].date)}~${formatDateLabel(rows[rows.length - 1].date)}`
+  );
+}
+
+function formatIntradayTime(value) {
+  const text = String(value || "").padStart(6, "0");
+  return `${text.slice(0, 2)}:${text.slice(2, 4)}`;
+}
+
+function renderStockIntradayChart(intradayRows, quote = null) {
+  if (!elements.stockMiniChart) {
+    return;
+  }
+  const rows = (intradayRows || [])
+    .map((row) => ({
+      date: String(row.trade_date || ""),
+      time: String(row.trade_time || "").padStart(6, "0"),
+      price: toNumber(row.price),
+      volume: toNumber(row.volume) || 0,
+    }))
+    .filter((row) => row.date && row.time && row.price !== null)
+    .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+  if (rows.length < 2) {
+    elements.stockMiniChart.innerHTML = '<p class="stock-v3-chart-empty">당일 분봉을 불러오는 중입니다.</p>';
+    setText(elements.stockV2ChartSource, "한국투자증권 당일 분봉 조회 중");
+    return;
+  }
+
+  const width = 760;
+  const height = 300;
+  const left = 18;
+  const right = 70;
+  const top = 24;
+  const bottom = 254;
+  const plotWidth = width - left - right;
+  const plotHeight = bottom - top;
+  const previousClose = previousCloseFromQuote(quote);
+  const priceValues = rows.map((row) => row.price);
+  if (previousClose !== null) {
+    priceValues.push(previousClose);
+  }
+  const rawMin = Math.min(...priceValues);
+  const rawMax = Math.max(...priceValues);
+  const rawSpan = rawMax === rawMin ? Math.max(rawMax * 0.02, 1) : rawMax - rawMin;
+  const min = Math.max(0, rawMin - rawSpan * 0.08);
+  const max = rawMax + rawSpan * 0.08;
+  const span = max - min || 1;
+  const pointFor = (row, index) => ({
+    x: left + (index / Math.max(1, rows.length - 1)) * plotWidth,
+    y: top + ((max - row.price) / span) * plotHeight,
+  });
+  const points = rows.map(pointFor);
+  const linePath = points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
+  const areaPath = `${linePath} L${points[points.length - 1].x.toFixed(2)} ${bottom} L${points[0].x.toFixed(2)} ${bottom} Z`;
+  const lastPrice = rows[rows.length - 1].price;
+  const change = previousClose ? ((lastPrice / previousClose) - 1) * 100 : 0;
+  const toneClass = change >= 0 ? "up" : "down";
+  const highPrice = Math.max(...rows.map((row) => row.price));
+  const lowPrice = Math.min(...rows.map((row) => row.price));
+  const highIndex = rows.findIndex((row) => row.price === highPrice);
+  const lowIndex = rows.findIndex((row) => row.price === lowPrice);
+  const grid = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4;
+    const y = top + ratio * plotHeight;
+    const value = max - ratio * span;
+    return `<g class="stock-v3-chart-grid"><line x1="${left}" y1="${y.toFixed(2)}" x2="${width - right}" y2="${y.toFixed(2)}"></line><text x="${width - right + 10}" y="${(y + 4).toFixed(2)}">${formatNumber(Math.round(value))}</text></g>`;
+  }).join("");
+  const previousLine = previousClose === null ? "" : (() => {
+    const y = top + ((max - previousClose) / span) * plotHeight;
+    return `<g class="stock-v3-previous-line"><line x1="${left}" y1="${y.toFixed(2)}" x2="${width - right}" y2="${y.toFixed(2)}"></line><text x="${width - right - 4}" y="${(y - 6).toFixed(2)}" text-anchor="end">전일 ${formatNumber(Math.round(previousClose))}</text></g>`;
+  })();
+  const labelIndexes = [0, Math.floor((rows.length - 1) / 4), Math.floor((rows.length - 1) / 2), Math.floor((rows.length - 1) * 0.75), rows.length - 1];
+  const timeLabels = [...new Set(labelIndexes)].map((index) => `<text class="stock-v3-chart-date" x="${points[index].x.toFixed(2)}" y="285" text-anchor="${index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle"}">${formatIntradayTime(rows[index].time)}</text>`).join("");
+  const extrema = [
+    { label: "고가", value: highPrice, point: points[highIndex], className: "high" },
+    { label: "저가", value: lowPrice, point: points[lowIndex], className: "low" },
+  ].map((item) => `<g class="stock-v3-extrema ${item.className}"><circle cx="${item.point.x.toFixed(2)}" cy="${item.point.y.toFixed(2)}" r="3"></circle><text x="${item.point.x.toFixed(2)}" y="${(item.point.y + (item.className === "high" ? -10 : 20)).toFixed(2)}" text-anchor="middle">${item.label} ${formatNumber(item.value)}</text></g>`).join("");
+
+  elements.stockMiniChart.innerHTML = `
+    <div class="stock-v3-chart-badge ${toneClass}"><strong>${formatPercent(change)}</strong><span>${formatNumber(rows.length)}분</span></div>
+    <svg class="stock-v3-price-svg ${toneClass}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${formatDateLabel(rows[0].date)} 당일 분봉 차트">
+      ${grid}${previousLine}
+      <path class="stock-v3-chart-area" d="${areaPath}"></path>
+      <path class="stock-v3-chart-line" d="${linePath}"></path>
+      ${extrema}${timeLabels}
+      <line class="stock-v3-hover-line" x1="0" y1="${top}" x2="0" y2="${bottom}" hidden></line>
+      <circle class="stock-v3-hover-point" cx="0" cy="0" r="5" hidden></circle>
+      <rect class="stock-v3-chart-hit" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}"></rect>
+    </svg>
+    <div class="stock-v3-chart-tooltip" hidden></div>
+  `;
+  const svg = elements.stockMiniChart.querySelector(".stock-v3-price-svg");
+  const hit = elements.stockMiniChart.querySelector(".stock-v3-chart-hit");
+  const hoverLine = elements.stockMiniChart.querySelector(".stock-v3-hover-line");
+  const hoverPoint = elements.stockMiniChart.querySelector(".stock-v3-hover-point");
+  const tooltip = elements.stockMiniChart.querySelector(".stock-v3-chart-tooltip");
+  hit?.addEventListener("pointermove", (event) => {
+    const bounds = svg.getBoundingClientRect();
+    const viewX = (event.clientX - bounds.left) / bounds.width * width;
+    const index = clampNumber(Math.round((viewX - left) / plotWidth * (rows.length - 1)), 0, rows.length - 1);
+    const row = rows[index];
+    const point = points[index];
+    hoverLine.hidden = false;
+    hoverPoint.hidden = false;
+    tooltip.hidden = false;
+    hoverLine.setAttribute("x1", point.x.toFixed(2));
+    hoverLine.setAttribute("x2", point.x.toFixed(2));
+    hoverPoint.setAttribute("cx", point.x.toFixed(2));
+    hoverPoint.setAttribute("cy", point.y.toFixed(2));
+    tooltip.style.left = `${clampNumber(point.x / width * 100, 13, 87)}%`;
+    tooltip.innerHTML = `<span>${formatIntradayTime(row.time)}</span><strong>${formatNumber(row.price)}</strong><em>체결 ${formatCompactCount(row.volume)}</em>`;
+  });
+  hit?.addEventListener("pointerleave", () => {
+    hoverLine.hidden = true;
+    hoverPoint.hidden = true;
+    tooltip.hidden = true;
+  });
+  setText(elements.stockV2ChartSource, `한국투자증권 당일 분봉 · ${formatDateLabel(rows[0].date)} · 캐시하지 않음`);
+}
+
+function formatFinancialAmount(value) {
+  const number = toNumber(value);
+  if (number === null) {
+    return "-";
+  }
+  const absolute = Math.abs(number);
+  if (absolute >= 10000) {
+    return `${number < 0 ? "-" : ""}${(absolute / 10000).toFixed(1)}조`;
+  }
+  return `${formatNumber(Math.round(number))}억`;
+}
+
+function periodEndDate(period) {
+  const match = String(period || "").match(/(\d{4})\.(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-31` : "";
+}
+
+function closestStockPrice(targetDate) {
+  if (!targetDate) {
+    return null;
+  }
+  const rows = stockPriceRowsWithLiveQuote(state.stockPriceRows, state.currentDashboard?.quote);
+  let candidate = null;
+  for (const row of rows) {
+    if (row.date <= targetDate) {
+      candidate = row.close;
+    } else {
+      break;
+    }
+  }
+  return candidate;
+}
+
+function renderStockFinancialChart() {
+  if (!elements.stockFinancialChart || !state.currentDashboard) {
+    return;
+  }
+  const metric = state.stockFinancialMetric || "revenue";
+  const scope = state.stockFinancialScope || "quarterly";
+  for (const button of elements.stockFinancialMetricTabs) {
+    button.classList.toggle("active", button.dataset.financialMetric === metric);
+  }
+  for (const button of elements.stockFinancialScopeTabs) {
+    button.classList.toggle("active", button.dataset.financialScope === scope);
+  }
+  const series = (state.currentDashboard.financial_series?.[scope] || [])
+    .map((row) => ({ ...row, value: toNumber(row?.[metric]) }))
+    .filter((row) => row.value !== null);
+  const metricLabels = { revenue: "매출액", operating_profit: "영업이익", net_income: "순이익" };
+  if (!series.length) {
+    elements.stockFinancialChart.innerHTML = '<p class="stock-v3-chart-empty">표시할 실적 시계열이 없습니다.</p>';
+    elements.stockFinancialSummary.innerHTML = "";
+    return;
+  }
+
+  const width = 760;
+  const height = 330;
+  const left = 54;
+  const right = 54;
+  const top = 28;
+  const bottom = 276;
+  const plotWidth = width - left - right;
+  const plotHeight = bottom - top;
+  const values = series.map((row) => row.value);
+  const minValue = Math.min(0, ...values);
+  const maxValue = Math.max(0, ...values);
+  const span = maxValue - minValue || 1;
+  const y = (value) => top + ((maxValue - value) / span) * plotHeight;
+  const baseline = y(0);
+  const slot = plotWidth / series.length;
+  const barWidth = Math.min(68, slot * 0.58);
+  const bars = series.map((row, index) => {
+    const x = left + slot * index + (slot - barWidth) / 2;
+    const valueY = y(row.value);
+    const barY = row.value >= 0 ? valueY : baseline;
+    const barHeight = Math.max(2, Math.abs(valueY - baseline));
+    return `<g class="stock-v3-financial-bar ${row.estimated ? "estimated" : "actual"}"><rect x="${x.toFixed(2)}" y="${barY.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${barHeight.toFixed(2)}" rx="3"></rect><text x="${(x + barWidth / 2).toFixed(2)}" y="${(barY - 8).toFixed(2)}" text-anchor="middle">${formatFinancialAmount(row.value)}</text><text class="period" x="${(x + barWidth / 2).toFixed(2)}" y="305" text-anchor="middle">${String(row.period).replace("20", "").replace(" (E)", "E")}</text></g>`;
+  }).join("");
+  const prices = series.map((row) => closestStockPrice(periodEndDate(row.period)));
+  const validPrices = prices.filter((value) => value !== null);
+  let pricePath = "";
+  let priceDots = "";
+  if (validPrices.length >= 2) {
+    const priceMin = Math.min(...validPrices);
+    const priceMax = Math.max(...validPrices);
+    const priceSpan = priceMax - priceMin || 1;
+    const priceY = (value) => top + ((priceMax - value) / priceSpan) * plotHeight;
+    const points = prices.map((value, index) => value === null ? null : ({
+      x: left + slot * index + slot / 2,
+      y: priceY(value),
+      value,
+    })).filter(Boolean);
+    pricePath = `<path class="stock-v3-secondary-line" d="${points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ")}"></path>`;
+    priceDots = points.map((point) => `<circle class="stock-v3-secondary-dot" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="3"></circle>`).join("");
+  }
+  const grid = Array.from({ length: 4 }, (_, index) => {
+    const ratio = index / 3;
+    const gridY = top + ratio * plotHeight;
+    const value = maxValue - ratio * span;
+    return `<g class="stock-v3-chart-grid"><line x1="${left}" y1="${gridY.toFixed(2)}" x2="${width - right}" y2="${gridY.toFixed(2)}"></line><text x="${left - 8}" y="${(gridY + 4).toFixed(2)}" text-anchor="end">${formatFinancialAmount(value)}</text></g>`;
+  }).join("");
+  elements.stockFinancialChart.innerHTML = `
+    <svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${metricLabels[metric]} ${scope === "annual" ? "연간" : "분기"} 추이">
+      ${grid}<line class="stock-v3-baseline" x1="${left}" y1="${baseline.toFixed(2)}" x2="${width - right}" y2="${baseline.toFixed(2)}"></line>
+      ${bars}${pricePath}${priceDots}
+    </svg>
+    <div class="stock-v3-legend"><span class="bar">${metricLabels[metric]}</span><span class="line">주가</span><span class="estimate">E 추정치</span></div>
+  `;
+  const latest = series[series.length - 1];
+  const comparisonIndex = scope === "quarterly" && series.length > 4 ? series.length - 5 : series.length - 2;
+  const previous = comparisonIndex >= 0 ? series[comparisonIndex] : null;
+  const growth = previous?.value ? ((latest.value / previous.value) - 1) * 100 : null;
+  elements.stockFinancialSummary.innerHTML = `
+    <div><span>${latest.period}</span><strong>${formatFinancialAmount(latest.value)}</strong></div>
+    <div><span>${scope === "quarterly" ? "전년 동기 대비" : "전년 대비"}</span><strong class="${growth !== null && growth >= 0 ? "positive" : "negative"}">${growth === null ? "-" : formatPercent(growth)}</strong></div>
+    <div><span>영업이익률</span><strong>${latest.operating_margin === null || latest.operating_margin === undefined ? "-" : formatPercent(latest.operating_margin)}</strong></div>
+  `;
+  setText(elements.stockFinancialSource, `${state.currentDashboard.financial_series?.source || "네이버 금융"} · 단위 ${state.currentDashboard.financial_series?.unit || "억원"}`);
+}
+
+function stockFlowSeries() {
+  const grouped = new Map();
+  for (const row of state.stockFlowRows || []) {
+    const date = String(row.trade_date || "");
+    if (!date) {
+      continue;
+    }
+    const item = grouped.get(date) || { date, foreign: 0, institution: 0 };
+    const value = toNumber(row.net_buy_volume) || 0;
+    if (String(row.investor_type || "").includes("외국")) {
+      item.foreign += value;
+    }
+    if (String(row.investor_type || "").includes("기관")) {
+      item.institution += value;
+    }
+    grouped.set(date, item);
+  }
+  const periodCounts = { "3M": 66, "6M": 132, "1Y": 264 };
+  const count = periodCounts[state.stockFlowPeriod] || periodCounts["3M"];
+  const rows = [...grouped.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-count);
+  if (state.stockFlowMode === "cumulative") {
+    let foreign = 0;
+    let institution = 0;
+    return rows.map((row) => {
+      foreign += row.foreign;
+      institution += row.institution;
+      return { ...row, foreign, institution };
+    });
+  }
+  return rows;
+}
+
+function formatSignedShares(value) {
+  const number = toNumber(value);
+  if (number === null) {
+    return "-";
+  }
+  return `${number > 0 ? "+" : ""}${formatCompactCount(number)}`;
+}
+
+function renderStockFlowHistoryChart() {
+  if (!elements.stockFlowHistoryChart) {
+    return;
+  }
+  for (const button of elements.stockFlowModeTabs) {
+    button.classList.toggle("active", button.dataset.flowMode === state.stockFlowMode);
+  }
+  for (const button of elements.stockFlowPeriodTabs) {
+    button.classList.toggle("active", button.dataset.flowPeriod === state.stockFlowPeriod);
+  }
+  const rows = stockFlowSeries();
+  if (rows.length < 2) {
+    elements.stockFlowHistoryChart.innerHTML = '<p class="stock-v3-chart-empty">투자자 수급 이력을 불러오는 중입니다.</p>';
+    setText(elements.stockFlowSummary, "수급 이력 준비 중");
+    return;
+  }
+  const priceByDate = new Map(stockPriceRowsWithLiveQuote(state.stockPriceRows, state.currentDashboard?.quote).map((row) => [row.date, row.close]));
+  const chartRows = rows.map((row) => ({ ...row, price: priceByDate.get(row.date) ?? null }));
+  const width = 760;
+  const height = 330;
+  const left = 58;
+  const right = 58;
+  const top = 22;
+  const bottom = 274;
+  const plotWidth = width - left - right;
+  const plotHeight = bottom - top;
+  const flowValues = chartRows.flatMap((row) => [row.foreign, row.institution]);
+  const maxAbs = Math.max(...flowValues.map((value) => Math.abs(value)), 1);
+  const flowY = (value) => top + ((maxAbs - value) / (maxAbs * 2)) * plotHeight;
+  const pointX = (index) => left + (index / Math.max(1, chartRows.length - 1)) * plotWidth;
+  const pathFor = (key, yScale) => chartRows.map((row, index) => `${index ? "L" : "M"}${pointX(index).toFixed(2)} ${yScale(row[key]).toFixed(2)}`).join(" ");
+  const validPrices = chartRows.map((row) => row.price).filter((value) => value !== null);
+  let pricePath = "";
+  if (validPrices.length >= 2) {
+    const minPrice = Math.min(...validPrices);
+    const maxPrice = Math.max(...validPrices);
+    const priceSpan = maxPrice - minPrice || 1;
+    const priceY = (value) => top + ((maxPrice - value) / priceSpan) * plotHeight;
+    const points = chartRows.map((row, index) => row.price === null ? null : `${pointX(index).toFixed(2)} ${priceY(row.price).toFixed(2)}`).filter(Boolean);
+    pricePath = `<path class="stock-v3-flow-line price" d="${points.map((point, index) => `${index ? "L" : "M"}${point}`).join(" ")}"></path>`;
+  }
+  const grid = [-1, -0.5, 0, 0.5, 1].map((ratio) => {
+    const value = maxAbs * ratio;
+    const gridY = flowY(value);
+    return `<g class="stock-v3-chart-grid"><line x1="${left}" y1="${gridY.toFixed(2)}" x2="${width - right}" y2="${gridY.toFixed(2)}"></line><text x="${left - 8}" y="${(gridY + 4).toFixed(2)}" text-anchor="end">${formatCompactCount(value)}</text></g>`;
+  }).join("");
+  const labelIndexes = [0, Math.floor((chartRows.length - 1) / 2), chartRows.length - 1];
+  const labels = labelIndexes.map((index) => `<text class="stock-v3-chart-date" x="${pointX(index).toFixed(2)}" y="306" text-anchor="${index === 0 ? "start" : index === chartRows.length - 1 ? "end" : "middle"}">${formatChartDate(chartRows[index].date)}</text>`).join("");
+  elements.stockFlowHistoryChart.innerHTML = `
+    <svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="외국인과 기관 수급 및 주가 추이">
+      ${grid}<path class="stock-v3-flow-line foreign" d="${pathFor("foreign", flowY)}"></path><path class="stock-v3-flow-line institution" d="${pathFor("institution", flowY)}"></path>${pricePath}${labels}
+    </svg>
+    <div class="stock-v3-legend"><span class="foreign">외국인</span><span class="institution">기관</span><span class="line">주가</span></div>
+  `;
+  const latest = chartRows[chartRows.length - 1];
+  elements.stockFlowSummary.innerHTML = `
+    <span>외국인 <strong class="${latest.foreign >= 0 ? "positive" : "negative"}">${formatSignedShares(latest.foreign)}</strong></span>
+    <span>기관 <strong class="${latest.institution >= 0 ? "positive" : "negative"}">${formatSignedShares(latest.institution)}</strong></span>
+  `;
+  setText(elements.stockFlowSource, `네이버 금융 실제 수급 · ${formatDateLabel(chartRows[0].date)}~${formatDateLabel(latest.date)}`);
+}
+
+function renderStockReportHistoryChart() {
+  if (!elements.stockReportHistoryChart || !state.currentDashboard) {
+    return;
+  }
+  const priceRows = stockPriceRowsWithLiveQuote(state.stockPriceRows, state.currentDashboard.quote).slice(-132);
+  const reports = (state.stockResearchRows.length ? state.stockResearchRows : state.currentDashboard.revisions?.recent_reports || [])
+    .map((row) => ({
+      date: String(row.published_at || "").slice(0, 10),
+      target: toNumber(row.target_price),
+      title: row.title || "리포트",
+      broker: row.broker_name || "증권사",
+    }))
+    .filter((row) => row.date)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const targets = reports.filter((row) => row.target !== null && row.target > 0);
+  if (priceRows.length < 2) {
+    elements.stockReportHistoryChart.innerHTML = '<p class="stock-v3-chart-empty">주가 이력을 불러오는 중입니다.</p>';
+    return;
+  }
+  const width = 760;
+  const height = 330;
+  const left = 58;
+  const right = 58;
+  const top = 22;
+  const bottom = 274;
+  const plotWidth = width - left - right;
+  const plotHeight = bottom - top;
+  const values = [...priceRows.map((row) => row.close), ...targets.map((row) => row.target)].filter((value) => value !== null);
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const rawSpan = rawMax - rawMin || Math.max(rawMax * 0.1, 1);
+  const min = Math.max(0, rawMin - rawSpan * 0.08);
+  const max = rawMax + rawSpan * 0.08;
+  const y = (value) => top + ((max - value) / (max - min || 1)) * plotHeight;
+  const x = (index) => left + (index / Math.max(1, priceRows.length - 1)) * plotWidth;
+  const pricePath = priceRows.map((row, index) => `${index ? "L" : "M"}${x(index).toFixed(2)} ${y(row.close).toFixed(2)}`).join(" ");
+  let currentTarget = null;
+  const targetPoints = [];
+  for (let index = 0; index < priceRows.length; index += 1) {
+    const row = priceRows[index];
+    for (const report of targets) {
+      if (report.date <= row.date) {
+        currentTarget = report.target;
+      }
+    }
+    if (currentTarget !== null) {
+      targetPoints.push({ x: x(index), y: y(currentTarget), value: currentTarget });
+    }
+  }
+  const targetPath = targetPoints.length ? targetPoints.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ") : "";
+  const grid = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4;
+    const gridY = top + ratio * plotHeight;
+    const value = max - ratio * (max - min);
+    return `<g class="stock-v3-chart-grid"><line x1="${left}" y1="${gridY.toFixed(2)}" x2="${width - right}" y2="${gridY.toFixed(2)}"></line><text x="${width - right + 8}" y="${(gridY + 4).toFixed(2)}">${formatChartAxisPrice(value)}</text></g>`;
+  }).join("");
+  const labels = [0, Math.floor((priceRows.length - 1) / 2), priceRows.length - 1].map((index) => `<text class="stock-v3-chart-date" x="${x(index).toFixed(2)}" y="306" text-anchor="${index === 0 ? "start" : index === priceRows.length - 1 ? "end" : "middle"}">${formatChartDate(priceRows[index].date)}</text>`).join("");
+  elements.stockReportHistoryChart.innerHTML = `
+    <svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 6개월 목표가와 주가 비교">
+      ${grid}<path class="stock-v3-report-price" d="${pricePath}"></path>${targetPath ? `<path class="stock-v3-report-target" d="${targetPath}"></path>` : ""}${labels}
+    </svg>
+    <div class="stock-v3-legend"><span class="target">목표가</span><span class="line">주가</span></div>
+  `;
+  const current = toNumber(state.currentDashboard.quote?.price);
+  const latestTarget = targets.length ? targets[targets.length - 1].target : null;
+  const upside = current && latestTarget ? (latestTarget / current - 1) * 100 : null;
+  elements.stockReportSummary.innerHTML = `
+    <div><span>목표가 대비 현재가</span><strong>${upside === null ? "-" : formatPercent(upside)}</strong></div>
+    <div><span>최근 목표가</span><strong>${latestTarget === null ? "-" : formatNumber(latestTarget)}</strong></div>
+    <div><span>최근 180일 리포트</span><strong>${formatNumber(reports.length)}건</strong></div>
+  `;
+}
+
+function stockHomeContentItems(data = state.currentDashboard) {
+  const reports = state.stockResearchRows.length ? state.stockResearchRows : data?.revisions?.recent_reports || [];
+  const disclosures = state.stockDisclosureRows.length ? state.stockDisclosureRows : [
+    ...(data?.surprise?.latest_events || []),
+    ...(data?.guidance?.latest_events || []),
+  ];
+  const news = state.stockNewsRows.length ? state.stockNewsRows : data?.sentiment?.latest_items || [];
+  return { reports, disclosures, news };
+}
+
+function updateItemLink(row) {
+  return row?.detail_url || row?.pdf_url || row?.url || null;
+}
+
+function updateItemDate(row) {
+  return row?.published_at || row?.date || null;
+}
+
+function renderStockHomeUpdates(data) {
+  if (!elements.stockHomeUpdates) {
+    return;
+  }
+  const { reports, disclosures, news } = stockHomeContentItems(data);
+  const rows = [
+    { label: "리포트", icon: "R", row: reports[0], title: reports[0]?.title },
+    { label: "공시", icon: "D", row: disclosures[0], title: disclosures[0]?.report_name || disclosures[0]?.title },
+    { label: "뉴스", icon: "N", row: news[0], title: news[0]?.title },
+  ];
+  elements.stockHomeUpdates.innerHTML = "";
+  for (const item of rows) {
+    const title = String(item.title || "최근 자료가 없습니다.").trim();
+    const href = updateItemLink(item.row);
+    const node = href ? el("a", "stock-v3-update-row") : el("div", "stock-v3-update-row is-empty");
+    if (href) {
+      node.href = href;
+      node.setAttribute("aria-label", `${title} 원문 보기`);
+    }
+    node.append(
+      el("i", "", item.icon),
+      el("span", "stock-v3-update-kind", item.label),
+      el("strong", "", title),
+      el("time", "", item.row ? formatDateLabel(updateItemDate(item.row)) : "-")
+    );
+    elements.stockHomeUpdates.appendChild(node);
+  }
+}
+
+function renderStockTodaySummary(data) {
+  if (!elements.stockHomeSummaryList) {
+    return;
+  }
+  const quote = data?.quote || {};
+  const price = toNumber(quote.price);
+  const changeRate = toNumber(quote.change_rate);
+  const flows = data?.flows || {};
+  const prices = stockPriceRowsWithLiveQuote(state.stockPriceRows, quote);
+  const latestVolume = toNumber(quote.volume) ?? prices.at(-1)?.volume ?? null;
+  const previousVolumes = prices.slice(-21, -1).map((row) => row.volume).filter((value) => value > 0);
+  const averageVolume = previousVolumes.length ? previousVolumes.reduce((sum, value) => sum + value, 0) / previousVolumes.length : null;
+  const volumeRatio = latestVolume !== null && averageVolume ? latestVolume / averageVolume * 100 : null;
+  const range = prices.slice(-260);
+  const high = range.length ? Math.max(...range.map((row) => row.high ?? row.close)) : null;
+  const distanceFromHigh = price && high ? (price / high - 1) * 100 : null;
+  const phase = koreaMarketPhaseLabel();
+  const bullets = [
+    `${phase} ${price === null ? "시세 대기" : `${formatNumber(price)}원 (${formatPercent(changeRate)})`}${distanceFromHigh === null ? "" : ` · 52주 고점 대비 ${formatPercent(distanceFromHigh)}`}`,
+    `외국인 ${formatMoney(flows.foreign_net_buy_20d)} · 기관 ${formatMoney(flows.institution_net_buy_20d)} (최근 20거래일)`,
+    volumeRatio === null ? `거래량 ${formatCompactCount(latestVolume)}` : `거래량 ${formatCompactCount(latestVolume)} · 최근 20일 평균의 ${volumeRatio.toFixed(0)}%`,
+    `${data?.market || "시장"} · ${data?.company_profile?.industry || data?.company_profile?.sector || "업종 정보 확인 중"}`,
+  ];
+  elements.stockHomeSummaryList.innerHTML = "";
+  for (const text of bullets) {
+    elements.stockHomeSummaryList.appendChild(el("li", "", text));
+  }
+  const summaryDate = quote.trade_date || data?.as_of;
+  setText(elements.stockHomeTodayDate, formatDateLabel(summaryDate));
+}
+
+function renderStockHomeCheckpoints(data) {
+  if (!elements.stockHomeCheckpoints) {
+    return;
+  }
+  const flows = data?.flows || {};
+  const items = [
+    { label: "외국인 20일", value: toNumber(flows.foreign_net_buy_20d) },
+    { label: "기관 20일", value: toNumber(flows.institution_net_buy_20d) },
+  ];
+  elements.stockHomeCheckpoints.innerHTML = "";
+  for (const item of items) {
+    const card = el("article", `stock-v3-checkpoint ${item.value === null ? "neutral" : item.value >= 0 ? "positive" : "negative"}`);
+    card.append(
+      el("span", "", item.label),
+      el("strong", "", item.value === null ? "자료 없음" : item.value >= 0 ? "순매수" : "순매도"),
+      el("small", "", formatMoney(item.value))
+    );
+    elements.stockHomeCheckpoints.appendChild(card);
+  }
+}
+
+const STOCK_KEYWORD_STOPWORDS = new Set([
+  "관련", "대한", "위한", "통해", "최근", "전망", "주가", "증권", "투자", "리포트", "뉴스", "공시", "분석", "기업", "시장", "종목", "이번", "올해", "내년", "상승", "하락", "강세", "약세", "확대", "감소", "증가", "발표", "기준", "가능", "예상", "코스피", "코스닥", "the", "and", "with", "for", "from",
+]);
+
+function stockKeywords(data) {
+  const { reports, disclosures, news } = stockHomeContentItems(data);
+  const texts = [
+    data?.company_profile?.industry,
+    data?.company_profile?.sector,
+    ...reports.map((row) => row.title),
+    ...disclosures.map((row) => row.report_name || row.title),
+    ...news.map((row) => row.title),
+  ].filter(Boolean);
+  const stockName = String(data?.name || "").toLowerCase();
+  const counts = new Map();
+  for (const text of texts) {
+    const tokens = String(text).match(/[가-힣A-Za-z0-9]{2,}/g) || [];
+    for (const rawToken of tokens) {
+      const token = rawToken.replace(/^20\d{2}$/, "").trim();
+      const normalized = token.toLowerCase();
+      if (!token || normalized === stockName || STOCK_KEYWORD_STOPWORDS.has(normalized) || /^\d+$/.test(token)) {
+        continue;
+      }
+      counts.set(token, (counts.get(token) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)
+    .slice(0, 10)
+    .map(([label, count]) => ({ label, count }));
+}
+
+function renderStockIssueCard(data, keyword) {
+  if (!elements.stockHomeIssueCard) {
+    return;
+  }
+  const { reports, disclosures, news } = stockHomeContentItems(data);
+  const candidates = [
+    ...news.map((row) => ({ ...row, kind: "뉴스", title: row.title })),
+    ...reports.map((row) => ({ ...row, kind: "리포트", title: row.title })),
+    ...disclosures.map((row) => ({ ...row, kind: "공시", title: row.report_name || row.title })),
+  ].filter((row) => row.title);
+  const matched = candidates.filter((row) => String(row.title).toLowerCase().includes(String(keyword || "").toLowerCase()));
+  const row = (matched.length ? matched : candidates)[0];
+  elements.stockHomeIssueCard.innerHTML = "";
+  if (!row) {
+    elements.stockHomeIssueCard.appendChild(el("p", "stock-v3-chart-empty", "연결된 이슈가 없습니다."));
+    return;
+  }
+  const title = el("strong", "", row.title);
+  const href = updateItemLink(row);
+  if (href) {
+    const link = el("a", "", row.title);
+    link.href = href;
+    link.setAttribute("aria-label", `${row.title} 원문 보기`);
+    title.replaceWith(link);
+    elements.stockHomeIssueCard.append(link);
+  } else {
+    elements.stockHomeIssueCard.append(title);
+  }
+  elements.stockHomeIssueCard.append(
+    el("p", "", `${row.kind} · ${formatDateLabel(updateItemDate(row))}`),
+    el("span", "", keyword || "최근 이슈")
+  );
+}
+
+function renderStockHomeKeywords(data) {
+  const keywords = stockKeywords(data);
+  if (elements.stockHomeKeywords) {
+    elements.stockHomeKeywords.innerHTML = "";
+    for (const keyword of keywords) {
+      elements.stockHomeKeywords.appendChild(el("span", "", keyword.label));
+    }
+    if (!keywords.length) {
+      elements.stockHomeKeywords.appendChild(el("p", "stock-v3-chart-empty", "키워드 집계에 필요한 자료가 부족합니다."));
+    }
+  }
+  if (elements.stockHomeIssueTabs) {
+    elements.stockHomeIssueTabs.innerHTML = "";
+    const issueKeywords = keywords.slice(0, 5);
+    if (!issueKeywords.length) {
+      renderStockIssueCard(data, "");
+      return;
+    }
+    if (!issueKeywords.some((item) => item.label === state.stockIssueKeyword)) {
+      state.stockIssueKeyword = issueKeywords[0].label;
+    }
+    for (const keyword of issueKeywords) {
+      const button = el("button", keyword.label === state.stockIssueKeyword ? "active" : "", keyword.label);
+      button.type = "button";
+      button.addEventListener("click", () => {
+        state.stockIssueKeyword = keyword.label;
+        renderStockHomeKeywords(data);
+      });
+      elements.stockHomeIssueTabs.appendChild(button);
+    }
+    renderStockIssueCard(data, state.stockIssueKeyword);
+  }
+}
+
+function renderStockNewsTemperature(data) {
+  if (!elements.stockNewsTemperature || !elements.stockNewsTemperatureChart) {
+    return;
+  }
+  const sentiment = data?.sentiment || {};
+  const positive = Math.max(0, toNumber(sentiment.positive_count) || 0);
+  const negative = Math.max(0, toNumber(sentiment.negative_count) || 0);
+  const neutral = Math.max(0, toNumber(sentiment.neutral_count) || 0);
+  const total = positive + negative + neutral;
+  const positivePct = total ? positive / total * 100 : 0;
+  const negativePct = total ? negative / total * 100 : 0;
+  elements.stockNewsTemperature.innerHTML = `
+    <div class="stock-v3-temperature-gauge" style="--positive:${positivePct.toFixed(2)}%;--negative:${negativePct.toFixed(2)}%"><strong>${newsLabel(sentiment)}</strong><span>기사 ${formatNumber(total)}건</span></div>
+    <dl><div><dt>긍정</dt><dd>${positive}건</dd></div><div><dt>중립</dt><dd>${neutral}건</dd></div><div><dt>부정</dt><dd>${negative}건</dd></div></dl>
+  `;
+  const priceRows = stockPriceRowsWithLiveQuote(state.stockPriceRows, data?.quote).slice(-30);
+  if (priceRows.length < 2) {
+    elements.stockNewsTemperatureChart.innerHTML = '<p class="stock-v3-chart-empty">가격 이력을 불러오는 중입니다.</p>';
+    return;
+  }
+  const width = 760;
+  const height = 230;
+  const left = 28;
+  const right = 28;
+  const top = 20;
+  const bottom = 190;
+  const min = Math.min(...priceRows.map((row) => row.close));
+  const max = Math.max(...priceRows.map((row) => row.close));
+  const span = max - min || 1;
+  const x = (index) => left + (index / Math.max(1, priceRows.length - 1)) * (width - left - right);
+  const y = (value) => top + ((max - value) / span) * (bottom - top);
+  const path = priceRows.map((row, index) => `${index ? "L" : "M"}${x(index).toFixed(2)} ${y(row.close).toFixed(2)}`).join(" ");
+  const events = (sentiment.latest_items || []).map((row) => ({ ...row, date: String(row.published_at || "").slice(0, 10) }));
+  const markers = events.map((event) => {
+    const index = priceRows.findIndex((row) => row.date >= event.date);
+    if (index < 0) {
+      return "";
+    }
+    const tone = event.impact === "호재" ? "positive" : event.impact === "악재" ? "negative" : "neutral";
+    return `<circle class="stock-v3-news-marker ${tone}" cx="${x(index).toFixed(2)}" cy="${y(priceRows[index].close).toFixed(2)}" r="5"></circle>`;
+  }).join("");
+  elements.stockNewsTemperatureChart.innerHTML = `
+    <svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 뉴스 분류와 실제 주가 흐름">
+      <path class="stock-v3-news-price" d="${path}"></path>${markers}
+      <text class="stock-v3-chart-date" x="${left}" y="218">${formatChartDate(priceRows[0].date)}</text>
+      <text class="stock-v3-chart-date" x="${width - right}" y="218" text-anchor="end">${formatChartDate(priceRows.at(-1).date)}</text>
+    </svg>
+    <div class="stock-v3-legend"><span class="positive">호재</span><span class="negative">악재</span><span class="line">주가</span></div>
+  `;
+}
+
+function renderStockNewsRows(rows) {
+  if (!elements.newsList || !Array.isArray(rows) || !rows.length) {
+    return;
+  }
+  elements.newsList.innerHTML = "";
+  for (const row of rows.slice(0, 8)) {
+    const item = el("li", "stock-v3-news-row");
+    const href = updateItemLink(row);
+    const title = href ? el("a", "", row.title || "뉴스") : el("strong", "", row.title || "뉴스");
+    if (href) {
+      title.href = href;
+      title.setAttribute("aria-label", `${row.title || "뉴스"} 원문 보기`);
+    }
+    item.append(title, el("span", "", [row.press_name || row.source, formatDateLabel(updateItemDate(row))].filter(Boolean).join(" · ")));
+    elements.newsList.appendChild(item);
+  }
+}
+
+function stockXFeedDate(value) {
+  if (!value) {
+    return "시각 정보 없음";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return formatDate(value);
+  }
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function renderStockXFeed(payload) {
+  if (!elements.stockXFeedList || !elements.stockXFeedStatus || !elements.stockXFeedMore) {
+    return;
+  }
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  elements.stockXFeedList.innerHTML = "";
+  elements.stockXFeedMore.href = payload?.search_url || "https://x.com/search";
+  elements.stockXFeedStatus.hidden = false;
+  elements.stockXFeedStatus.textContent = payload?.message
+    || (items.length ? `최근 공개 게시물 ${formatNumber(items.length)}건` : "관련 공개 게시물을 찾지 못했습니다.");
+
+  for (const row of items.slice(0, 12)) {
+    const item = el("li", "stock-x-feed-item");
+    const link = el("a", "stock-x-feed-link");
+    link.href = row.url || payload?.search_url || "https://x.com/search";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.setAttribute("aria-label", `${row.author_name || "X 사용자"} 게시물 원문 보기`);
+
+    const avatar = el("span", "stock-x-feed-avatar", "X");
+    if (row.author_profile_image_url) {
+      const image = document.createElement("img");
+      image.src = row.author_profile_image_url;
+      image.alt = "";
+      image.loading = "lazy";
+      image.referrerPolicy = "no-referrer";
+      image.addEventListener("error", () => image.remove(), { once: true });
+      avatar.appendChild(image);
+    }
+
+    const body = el("span", "stock-x-feed-body");
+    const head = el("span", "stock-x-feed-head");
+    const identity = el("span", "stock-x-feed-identity");
+    identity.append(
+      el("strong", "", row.author_name || "X 사용자"),
+      el("span", "", row.username ? `@${row.username}` : "X")
+    );
+    const impact = el("span", `stock-x-feed-impact is-${row.impact === "호재" ? "positive" : row.impact === "악재" ? "negative" : "neutral"}`, row.impact || "중립");
+    head.append(identity, impact);
+    body.append(
+      head,
+      el("span", "stock-x-feed-text", row.text || "게시물 내용 없음"),
+      el(
+        "span",
+        "stock-x-feed-meta",
+        `${stockXFeedDate(row.created_at)} · 좋아요 ${formatCompactCount(row.like_count || 0)} · 재게시 ${formatCompactCount(row.repost_count || 0)}`
+      )
+    );
+    link.append(avatar, body);
+    item.appendChild(link);
+    elements.stockXFeedList.appendChild(item);
+  }
+
+  if (!items.length) {
+    const empty = el("li", "stock-x-feed-empty");
+    const link = el("a", "", "X에서 직접 검색하기 ↗");
+    link.href = payload?.search_url || "https://x.com/search";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    empty.appendChild(link);
+    elements.stockXFeedList.appendChild(empty);
+  }
+}
+
+function renderStockHome(data = state.currentDashboard) {
+  if (!data) {
+    return;
+  }
+  renderStockTodaySummary(data);
+  renderStockHomeUpdates(data);
+  renderStockHomeCheckpoints(data);
+  renderStockHomeKeywords(data);
+  renderStockFinancialChart();
+  renderStockFlowHistoryChart();
+  renderStockReportHistoryChart();
+  renderStockNewsTemperature(data);
+  if (state.stockNewsRows.length) {
+    renderStockNewsRows(state.stockNewsRows);
+  }
 }
 
 function isTradeLevelActionable(levels, payload) {
@@ -1376,18 +2534,24 @@ function renderStockResearchSummary(data) {
   setText(elements.revisionDown, formatNumber(revisions.target_down_count));
   if (elements.stockResearchList) {
     elements.stockResearchList.innerHTML = "";
-    const reports = revisions.recent_reports || [];
+    const reports = state.stockResearchRows.length ? state.stockResearchRows : revisions.recent_reports || [];
     if (!reports.length) {
       elements.stockResearchList.appendChild(el("li", "research-report-empty", "최근 180일 종목 리포트가 없습니다."));
     } else {
-      for (const report of reports) {
+      for (const report of reports.slice(0, 8)) {
         const item = el("li", "research-report-item");
-        const title = report.url ? el("a", "research-report-title", report.title || "리포트 원문") : el("strong", "research-report-title", report.title || "리포트");
-        if (report.url) {
-          title.href = report.url;
+        const reportUrl = updateItemLink(report);
+        const title = reportUrl ? el("a", "research-report-title", report.title || "리포트 원문") : el("strong", "research-report-title", report.title || "리포트");
+        if (reportUrl) {
+          title.href = reportUrl;
           title.setAttribute("aria-label", `${report.title || "리포트"} 원문 보기`);
         }
-        const details = [report.broker_name, formatDateLabel(report.published_at)].filter(Boolean).join(" · ");
+        const details = [
+          report.broker_name,
+          formatDateLabel(report.published_at),
+          report.target_price ? `목표가 ${formatNumber(report.target_price)}` : "",
+          report.opinion,
+        ].filter(Boolean).join(" · ");
         item.append(title, el("span", "research-report-meta", details || "발행 정보 확인 중"));
         elements.stockResearchList.appendChild(item);
       }
@@ -1475,8 +2639,41 @@ function resetStockPriceSummary() {
     setText(node, "-");
   }
   if (elements.stockMiniChart) {
-    elements.stockMiniChart.innerHTML = "<p>가격 데이터 준비 중</p>";
+    elements.stockMiniChart.innerHTML = '<p class="stock-v3-chart-empty">가격 데이터 준비 중</p>';
   }
+  setText(elements.stockV2ChartSource, "한국투자증권 시세를 불러오는 중입니다.");
+  setText(elements.stockV2RangePercent, "-");
+  setText(elements.stockV2ConsensusUpside, "-");
+  setText(elements.stockV2FlowState, "-");
+  setText(elements.stockV2SentimentState, "-");
+  if (elements.stockV2RangeChart) elements.stockV2RangeChart.innerHTML = '<p class="stock-v2-empty">가격 범위를 계산하는 중입니다.</p>';
+  if (elements.stockV2ConsensusChart) elements.stockV2ConsensusChart.innerHTML = '<p class="stock-v2-empty">리포트 목표가를 확인하는 중입니다.</p>';
+  if (elements.stockV2FlowChart) elements.stockV2FlowChart.innerHTML = '<p class="stock-v2-empty">수급 데이터를 확인하는 중입니다.</p>';
+  if (elements.stockV2SentimentChart) elements.stockV2SentimentChart.innerHTML = '<p class="stock-v2-empty">뉴스 분류를 확인하는 중입니다.</p>';
+}
+
+function resetStockHomeDetails() {
+  state.stockIntradayRows = [];
+  state.stockFlowRows = [];
+  state.stockResearchRows = [];
+  state.stockDisclosureRows = [];
+  state.stockNewsRows = [];
+  state.stockXFeed = null;
+  state.stockIssueKeyword = "";
+  if (elements.stockHomeUpdates) elements.stockHomeUpdates.innerHTML = '<p>리포트·공시·뉴스를 확인하는 중입니다.</p>';
+  if (elements.stockHomeCheckpoints) elements.stockHomeCheckpoints.innerHTML = '<p class="stock-v3-chart-empty">수급을 확인하는 중입니다.</p>';
+  if (elements.stockHomeKeywords) elements.stockHomeKeywords.innerHTML = '<p class="stock-v3-chart-empty">키워드를 정리하는 중입니다.</p>';
+  if (elements.stockHomeIssueTabs) elements.stockHomeIssueTabs.innerHTML = "";
+  if (elements.stockHomeIssueCard) elements.stockHomeIssueCard.innerHTML = '<p class="stock-v3-chart-empty">이슈를 연결하는 중입니다.</p>';
+  if (elements.stockFinancialChart) elements.stockFinancialChart.innerHTML = '<p class="stock-v3-chart-empty">실적을 불러오는 중입니다.</p>';
+  if (elements.stockFlowHistoryChart) elements.stockFlowHistoryChart.innerHTML = '<p class="stock-v3-chart-empty">수급 이력을 불러오는 중입니다.</p>';
+  if (elements.stockReportHistoryChart) elements.stockReportHistoryChart.innerHTML = '<p class="stock-v3-chart-empty">목표가 이력을 불러오는 중입니다.</p>';
+  if (elements.stockNewsTemperatureChart) elements.stockNewsTemperatureChart.innerHTML = '<p class="stock-v3-chart-empty">뉴스 온도를 계산하는 중입니다.</p>';
+  if (elements.stockXFeedStatus) {
+    elements.stockXFeedStatus.hidden = false;
+    elements.stockXFeedStatus.textContent = "X 피드를 불러오는 중입니다.";
+  }
+  if (elements.stockXFeedList) elements.stockXFeedList.innerHTML = "";
 }
 
 function renderStockPriceSummaryFromPrices(prices, quote = null) {
@@ -1504,17 +2701,93 @@ async function loadStockPriceSummary(code, quote) {
   resetStockPriceSummary();
   state.stockPriceRows = [];
   try {
-    const prices = await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/prices?limit=260`), { force: true, ttlMs: 0 });
+    const prices = await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/prices?limit=1000`), { force: true, ttlMs: 0 });
     if (state.currentStock?.code !== code) {
       return;
     }
     state.stockPriceRows = prices || [];
     renderStockPriceSummaryFromPrices(prices, quote);
-    renderStockMiniChart(prices);
+    renderStockMiniChart(prices, quote);
+    renderQuantSignalChart();
+    renderStockV2Range(prices, quote);
+    renderStockHome(state.currentDashboard);
   } catch {
     renderStockPriceSummaryFromPrices([], quote);
-    renderStockMiniChart([]);
+    renderStockMiniChart([], quote);
+    renderStockV2Range([], quote);
   }
+}
+
+async function loadStockIntraday(code, requestId) {
+  try {
+    const payload = await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/intraday?limit=390`), { force: true, ttlMs: 0 });
+    if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
+      return;
+    }
+    state.stockIntradayRows = Array.isArray(payload?.points) ? payload.points : [];
+  } catch {
+    if (requestId === state.stockHomeDetailsRequestId) {
+      state.stockIntradayRows = [];
+    }
+  }
+  if (state.stockPricePeriod === "1D") {
+    renderStockMiniChart(state.stockPriceRows, state.currentDashboard?.quote);
+  }
+}
+
+async function loadStockXFeed(data, requestId) {
+  const code = data?.code;
+  if (!code) {
+    return;
+  }
+  try {
+    const payload = await fetchJsonCached(
+      `/stocks/${encodeURIComponent(code)}/x-feed?limit=20`,
+      { ttlMs: 5 * UI_CACHE_TTL_MS }
+    );
+    if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
+      return;
+    }
+    state.stockXFeed = payload;
+    renderStockXFeed(payload);
+  } catch {
+    if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
+      return;
+    }
+    renderStockXFeed({
+      message: "X 피드를 불러오지 못했습니다.",
+      search_url: `https://x.com/search?q=${encodeURIComponent(data.name || code)}&f=live`,
+      items: [],
+    });
+  }
+}
+
+async function loadStockHomeDetails(data) {
+  const code = data?.code;
+  if (!code) {
+    return;
+  }
+  const requestId = ++state.stockHomeDetailsRequestId;
+  resetStockHomeDetails();
+  renderStockHome(data);
+  const intradayPromise = loadStockIntraday(code, requestId);
+  void loadStockXFeed(data, requestId);
+  const [flowsResult, researchResult, disclosuresResult, newsResult] = await Promise.allSettled([
+    fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/flows?limit=5000&refresh=true&pages=7`), { force: true, ttlMs: 0 }),
+    fetchJsonCached(`/research-reports?stock_code=${encodeURIComponent(code)}&limit=100`, { ttlMs: 5 * UI_CACHE_TTL_MS }),
+    fetchJsonCached(`/disclosures?stock_code=${encodeURIComponent(code)}&limit=30`, { ttlMs: 5 * UI_CACHE_TTL_MS }),
+    fetchJsonCached(`/news-items?query=${encodeURIComponent(data.name || code)}&limit=60`, { ttlMs: 2 * UI_CACHE_TTL_MS }),
+  ]);
+  if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
+    return;
+  }
+  state.stockFlowRows = flowsResult.status === "fulfilled" && Array.isArray(flowsResult.value) ? flowsResult.value : [];
+  state.stockResearchRows = researchResult.status === "fulfilled" && Array.isArray(researchResult.value) ? researchResult.value : [];
+  state.stockDisclosureRows = disclosuresResult.status === "fulfilled" && Array.isArray(disclosuresResult.value) ? disclosuresResult.value : [];
+  state.stockNewsRows = newsResult.status === "fulfilled" && Array.isArray(newsResult.value) ? newsResult.value : [];
+  renderStockResearchSummary(data);
+  renderStockHome(data);
+  await intradayPromise;
 }
 
 function formatMultiple(value) {
@@ -1612,6 +2885,20 @@ function updateQuoteStrip(quote, payload = null) {
   }
   if (state.stockAIAnalysis) {
     renderStockStrategyVisual(state.stockAIAnalysis);
+  }
+  if (state.currentDashboard) {
+    renderStockV2Dashboard(state.currentDashboard);
+    renderStockMiniChart(state.stockPriceRows, state.currentDashboard.quote);
+    renderStockTodaySummary(state.currentDashboard);
+  }
+  if (
+    state.stockActiveTab === "strategy"
+    && state.stockQuantSignals
+    && !state.stockQuantLoading
+    && Date.now() - state.stockQuantLastLiveRefreshAt >= 30_000
+  ) {
+    state.stockQuantLastLiveRefreshAt = Date.now();
+    void loadQuantSignals({ auto: true });
   }
 }
 
@@ -2050,7 +3337,8 @@ function liveUrl(url) {
 function isUncachedKoreaMarketDataUrl(url) {
   try {
     const parsed = new URL(url, window.location.origin);
-    return /^\/stocks\/[^/]+\/(?:dashboard|quote)$/.test(parsed.pathname);
+    return /^\/stocks\/(?:search|resolve)$/.test(parsed.pathname)
+      || /^\/stocks\/[^/]+\/(?:dashboard|quote)$/.test(parsed.pathname);
   } catch {
     return false;
   }
@@ -2203,9 +3491,13 @@ async function refreshCurrentView() {
     case "stock": {
       const query = state.currentStock?.name || pathQuery();
       const shouldRefreshAI = state.stockAIAnalysis !== null || elements.aiAnalysisPanel?.hidden === false;
+      const shouldRefreshQuant = state.stockQuantSignals !== null || state.stockActiveTab === "strategy";
       await load(query);
       if (shouldRefreshAI && state.currentStock?.code) {
         await loadAIAnalysis({ auto: false, force: true });
+      }
+      if (shouldRefreshQuant && state.currentStock?.code) {
+        await loadQuantSignals({ auto: false, force: true });
       }
       return;
     }
@@ -2380,6 +3672,7 @@ async function fetchSuggestions(query) {
   try {
     const response = await fetch(`/stocks/search?query=${encodeURIComponent(normalized)}&limit=30`, {
       signal: state.suggestionController.signal,
+      cache: "no-store",
     });
     if (!response.ok) {
       hideSuggestions();
@@ -2747,13 +4040,17 @@ function updateWatchButton() {
   if (!state.currentStock) {
     elements.watchToggle.disabled = true;
     elements.watchToggle.classList.remove("active");
-    elements.watchToggle.textContent = "관심 추가";
+    elements.watchToggle.textContent = "☆";
+    elements.watchToggle.setAttribute("aria-label", "관심종목 추가");
+    elements.watchToggle.title = "관심종목 추가";
     return;
   }
   const active = isWatched(state.currentStock.code);
   elements.watchToggle.disabled = false;
   elements.watchToggle.classList.toggle("active", active);
-  elements.watchToggle.textContent = active ? "관심 해제" : "관심 추가";
+  elements.watchToggle.textContent = active ? "★" : "☆";
+  elements.watchToggle.setAttribute("aria-label", active ? "관심종목 해제" : "관심종목 추가");
+  elements.watchToggle.title = active ? "관심종목 해제" : "관심종목 추가";
 }
 
 function toggleWatchCurrent() {
@@ -3454,6 +4751,7 @@ function setView(view) {
     clearPageLoading();
   }
   state.view = view;
+  document.body.dataset.view = view;
   setFlowLoading(false);
   hideSuggestions();
   if (view !== "stock") {
@@ -5844,6 +7142,218 @@ function resetAIAnalysis() {
   }
 }
 
+function resetQuantSignals(message = "퀀트 신호를 계산하는 중입니다.") {
+  state.stockQuantSignals = null;
+  state.stockQuantRequestedCode = "";
+  if (elements.quantSignalStatus) {
+    elements.quantSignalStatus.hidden = false;
+    elements.quantSignalStatus.textContent = message;
+  }
+  if (elements.quantSignalContent) {
+    elements.quantSignalContent.hidden = true;
+  }
+  if (elements.quantSignalChart) {
+    elements.quantSignalChart.innerHTML = "";
+  }
+}
+
+function quantToneClass(value) {
+  const number = toNumber(value);
+  if (number === null || number === 0) {
+    return "neutral";
+  }
+  return number > 0 ? "positive" : "negative";
+}
+
+function renderQuantSignalChart() {
+  if (!elements.quantSignalChart) {
+    return;
+  }
+  const payload = state.stockQuantSignals;
+  const rows = stockPriceRowsWithLiveQuote(state.stockPriceRows, state.currentDashboard?.quote).slice(-260);
+  if (!payload || payload.data_state !== "ready" || rows.length < 2) {
+    elements.quantSignalChart.innerHTML = '<p class="stock-v3-chart-empty">매매신호 차트를 만들 가격 데이터가 부족합니다.</p>';
+    return;
+  }
+
+  const width = 760;
+  const height = 320;
+  const left = 58;
+  const right = 18;
+  const top = 34;
+  const bottom = 268;
+  const plotWidth = width - left - right;
+  const plotHeight = bottom - top;
+  const closes = rows.map((row) => row.close);
+  const rawMin = Math.min(...closes);
+  const rawMax = Math.max(...closes);
+  const rawSpan = rawMax === rawMin ? Math.max(rawMax * 0.02, 1) : rawMax - rawMin;
+  const min = Math.max(0, rawMin - rawSpan * 0.14);
+  const max = rawMax + rawSpan * 0.14;
+  const span = max - min || 1;
+  const points = rows.map((row, index) => ({
+    x: left + (index / Math.max(1, rows.length - 1)) * plotWidth,
+    y: top + ((max - row.close) / span) * plotHeight,
+  }));
+  const linePath = points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
+  const areaPath = `${linePath} L${points[points.length - 1].x.toFixed(2)} ${bottom} L${points[0].x.toFixed(2)} ${bottom} Z`;
+  const yTicks = Array.from({ length: 4 }, (_, index) => {
+    const ratio = index / 3;
+    const y = top + ratio * plotHeight;
+    const value = max - ratio * span;
+    return `<g class="stock-v2-chart-grid"><line x1="${left}" y1="${y.toFixed(2)}" x2="${width - right}" y2="${y.toFixed(2)}"></line><text x="${left - 8}" y="${(y + 4).toFixed(2)}">${formatChartAxisPrice(value)}</text></g>`;
+  }).join("");
+  const labelIndexes = [0, Math.floor((rows.length - 1) / 2), rows.length - 1];
+  const dateLabels = labelIndexes.map((index) => `<text class="stock-v2-chart-date" x="${points[index].x.toFixed(2)}" y="310" text-anchor="${index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle"}">${formatChartDate(rows[index].date)}</text>`).join("");
+  const markers = quantSignalMarkers(rows, points);
+  const current = payload.current || {};
+  const lastPoint = points[points.length - 1];
+  const watchMarker = ["buy_watch", "sell_watch"].includes(current.action)
+    ? `<g class="quant-chart-marker watch"><circle cx="${lastPoint.x.toFixed(2)}" cy="${lastPoint.y.toFixed(2)}" r="9"></circle><text x="${(lastPoint.x - 5).toFixed(2)}" y="${Math.max(16, lastPoint.y - 16).toFixed(2)}" text-anchor="end">${current.label}</text></g>`
+    : "";
+  const start = closes[0];
+  const end = closes[closes.length - 1];
+  const toneClass = end >= start ? "up" : "down";
+  elements.quantSignalChart.innerHTML = `
+    <svg class="stock-v2-price-svg quant-price-svg ${toneClass}" viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 1년 가격과 모의 매수 매도 신호">
+      ${yTicks}
+      <path class="stock-v2-chart-area" d="${areaPath}"></path>
+      <path class="stock-v2-chart-line" d="${linePath}"></path>
+      ${markers}
+      ${watchMarker}
+      ${dateLabels}
+    </svg>
+  `;
+  setText(elements.quantChartSource, `${payload.strategy_version} · ${formatNumber(payload.data_rows)}거래일`);
+}
+
+function renderQuantSignals(payload) {
+  state.stockQuantSignals = payload;
+  state.stockQuantRequestedCode = payload.code;
+  if (elements.quantSignalStatus) {
+    elements.quantSignalStatus.hidden = payload.data_state === "ready";
+    elements.quantSignalStatus.textContent = payload.data_message || "신호 데이터가 부족합니다.";
+  }
+  if (!elements.quantSignalContent) {
+    return;
+  }
+  elements.quantSignalContent.hidden = payload.data_state !== "ready";
+  if (payload.data_state !== "ready") {
+    renderStockMiniChart(state.stockPriceRows, state.currentDashboard?.quote);
+    return;
+  }
+
+  const current = payload.current || {};
+  const performance = payload.performance || {};
+  setText(elements.quantCurrentLabel, current.label || "관망");
+  setText(elements.quantCurrentScore, `${formatNumber(current.score)}점`);
+  const currentMeta = [
+    current.live_observation ? "KIS 실시간 관찰" : "확정 일봉 기준",
+    current.price ? `현재 ${formatNumber(current.price)}원` : "",
+    payload.price_through ? `일봉 ${formatDateLabel(payload.price_through)}까지` : "",
+  ].filter(Boolean).join(" · ");
+  setText(elements.quantCurrentMeta, currentMeta);
+  elements.quantCurrentLabel.className = `quant-action-${current.action || "wait"}`;
+  elements.quantCurrentScore.className = `quant-action-${current.action || "wait"}`;
+  elements.quantCurrentReasons.innerHTML = "";
+  for (const reason of current.reasons || []) {
+    elements.quantCurrentReasons.appendChild(el("li", "", reason));
+  }
+  const positionRows = current.position_open
+    ? [
+        ["모의 진입", current.entry_price ? `${formatNumber(current.entry_price)}원` : "-"],
+        ["보유 기간", current.holding_days ? `${formatNumber(current.holding_days)}거래일` : "-"],
+        ["현재 수익률", formatPercent(current.unrealized_return)],
+        ["위험 기준", current.stop_reference ? `${formatNumber(current.stop_reference)}원` : "-"],
+      ]
+    : [
+        ["상태", "현재 포지션 없음"],
+        ["진입 기준", "65점 + 상승 추세"],
+      ];
+  elements.quantCurrentPosition.innerHTML = positionRows.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("");
+  setText(elements.quantNextConfirmation, current.next_confirmation || "종가 신호를 다시 확인합니다.");
+
+  setText(
+    elements.quantPerformancePeriod,
+    performance.period_start && performance.period_end
+      ? `${formatDateLabel(performance.period_start)}~${formatDateLabel(performance.period_end)}`
+      : "최근 1년",
+  );
+  const performanceRows = [
+    ["적중률", performance.win_rate === null || performance.win_rate === undefined ? "-" : formatPercent(performance.win_rate), "neutral"],
+    ["전략 수익률", formatPercent(performance.strategy_return), quantToneClass(performance.strategy_return)],
+    ["같은 기간 주가", formatPercent(performance.benchmark_return), quantToneClass(performance.benchmark_return)],
+    ["최대 낙폭", formatPercent(performance.max_drawdown), "negative"],
+    ["평균 거래", formatPercent(performance.average_return), quantToneClass(performance.average_return)],
+    ["완료 거래", `${formatNumber(performance.completed_trades)}회`, "neutral"],
+  ];
+  elements.quantPerformanceGrid.innerHTML = performanceRows.map(([label, value, tone]) => `<div><dt>${label}</dt><dd class="${tone}">${value}</dd></div>`).join("");
+  setText(elements.quantSampleNote, performance.sample_note || "성과 표본을 확인하세요.");
+  elements.quantSampleNote.classList.toggle("limited", performance.sample_state === "limited");
+  elements.quantCapital.innerHTML = `
+    <span>1,000만원 모의 운용</span>
+    <div><strong>${formatNumber(performance.hypothetical_start)}원</strong><i>→</i><strong class="${quantToneClass(performance.strategy_return)}">${formatNumber(performance.hypothetical_end)}원</strong></div>
+    <small>신호 체결 비용을 반영한 과거 모의 결과</small>
+  `;
+
+  elements.quantTradeList.innerHTML = "";
+  const trades = Array.isArray(payload.trades) ? payload.trades.slice(0, 6) : [];
+  if (!trades.length) {
+    elements.quantTradeList.appendChild(el("p", "stock-v3-chart-empty", "최근 1년 완료된 모의 거래가 없습니다."));
+  } else {
+    for (const trade of trades) {
+      const row = el("article", "quant-trade-row");
+      const status = trade.status === "open" ? "모의 보유 중" : `${formatDateLabel(trade.entry_date)}~${formatDateLabel(trade.exit_date)}`;
+      row.innerHTML = `
+        <div><strong>${status}</strong><span>${formatNumber(trade.entry_price)}원 → ${trade.exit_price ? `${formatNumber(trade.exit_price)}원` : "현재가"}</span></div>
+        <div><strong class="${quantToneClass(trade.net_return)}">${formatPercent(trade.net_return)}</strong><span>${formatNumber(trade.holding_days)}거래일</span></div>
+      `;
+      elements.quantTradeList.appendChild(row);
+    }
+  }
+  elements.quantMethodologyList.innerHTML = "";
+  for (const item of payload.methodology || []) {
+    elements.quantMethodologyList.appendChild(el("li", "", item));
+  }
+  setText(elements.quantDisclaimer, payload.disclaimer || "모의 신호는 투자 판단의 참고 자료입니다.");
+  renderQuantSignalChart();
+  renderStockMiniChart(state.stockPriceRows, state.currentDashboard?.quote);
+}
+
+async function loadQuantSignals(options = {}) {
+  if (!state.currentStock?.code || state.stockQuantLoading) {
+    return;
+  }
+  const code = state.currentStock.code;
+  const forceRefresh = options.force === true;
+  state.stockQuantLoading = true;
+  if (elements.quantSignalStatus) {
+    elements.quantSignalStatus.hidden = false;
+    elements.quantSignalStatus.textContent = forceRefresh ? "최신 시세로 퀀트 신호를 다시 계산하는 중입니다." : "퀀트 신호를 계산하는 중입니다.";
+  }
+  if (elements.quantSignalContent && state.stockQuantRequestedCode !== code) {
+    elements.quantSignalContent.hidden = true;
+  }
+  try {
+    const suffix = forceRefresh ? "?refresh=1" : "";
+    const payload = await fetchJsonCached(
+      liveUrl(`/stocks/${encodeURIComponent(code)}/quant-signals${suffix}`),
+      { force: true, ttlMs: 0 },
+    );
+    if (state.currentStock?.code === code) {
+      renderQuantSignals(payload);
+      state.stockQuantLastLiveRefreshAt = Date.now();
+    }
+  } catch {
+    if (state.currentStock?.code === code && elements.quantSignalStatus) {
+      elements.quantSignalStatus.hidden = false;
+      elements.quantSignalStatus.textContent = "퀀트 신호를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+    }
+  } finally {
+    state.stockQuantLoading = false;
+  }
+}
+
 function renderAIAnalysis(payload) {
   state.stockAIAnalysis = payload;
   state.stockAIRequestedCode = payload.code;
@@ -7648,12 +9158,19 @@ function setLoading(code) {
   state.currentDashboard = null;
   state.stockAIAnalysis = null;
   state.stockAIRequestedCode = "";
+  state.stockQuantSignals = null;
+  state.stockQuantRequestedCode = "";
+  state.stockQuantLastLiveRefreshAt = 0;
   state.stockPriceRows = [];
   elements.name.textContent = "종목 분석";
   elements.meta.textContent = `${code} · 불러오는 중`;
+  setText(elements.stockV2MarketCode, code);
+  setText(elements.stockV2AsOf, "기준 시각 확인 중");
   setText(elements.stockPreMarket, "장전 -");
   resetAIAnalysis();
+  resetQuantSignals();
   resetStockPriceSummary();
+  resetStockHomeDetails();
 }
 
 function render(data, options = {}) {
@@ -7662,7 +9179,11 @@ function render(data, options = {}) {
   state.currentDashboard = data;
   state.stockAIAnalysis = null;
   state.stockAIRequestedCode = "";
+  state.stockQuantSignals = null;
+  state.stockQuantRequestedCode = "";
+  state.stockQuantLastLiveRefreshAt = 0;
   resetAIAnalysis();
+  resetQuantSignals();
   setActiveStockTab(state.stockActiveTab || "summary", { preserveScroll: true });
   elements.name.textContent = data.name;
   elements.meta.textContent = stockDetailMetaText(data);
@@ -7680,7 +9201,9 @@ function render(data, options = {}) {
   renderStockDerivedIndicators(data);
   renderStockSummaryFallback(data);
   renderEvidenceSummary(data);
+  renderStockV2Dashboard(data);
   loadStockPriceSummary(data.code, data.quote);
+  void loadStockHomeDetails(data);
   connectQuoteStream(state.currentStock);
 
   const chart = data.chart_analysis || {};
@@ -7761,6 +9284,7 @@ function render(data, options = {}) {
   setTone(elements.macroFx, data.macro_sensitivity.fx_usdkrw);
   setTone(elements.macroCommodity, data.macro_sensitivity.commodity);
   setTone(elements.macroExport, data.macro_sensitivity.exports);
+  renderStockHome(data);
   updateWatchButton();
 }
 
@@ -7783,6 +9307,7 @@ async function loadStockRequest(query) {
   }
   const previousStock = state.currentStock;
   hideSuggestions();
+  elements.form?.classList.remove("expanded");
   setLoading(normalized);
   const stock = await resolveStock(normalized);
   if (!stock) {
@@ -7797,7 +9322,7 @@ async function loadStockRequest(query) {
   }
   try {
     render(
-      await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(stock.code)}/dashboard`), { force: true, ttlMs: 0 }),
+      await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(stock.code)}/dashboard?include_profile=0`), { force: true, ttlMs: 0 }),
       { previousCode: previousStock?.code },
     );
   } catch {
@@ -7928,9 +9453,65 @@ elements.pushNotificationSheetClose?.addEventListener("click", closePushNotifica
 elements.pushNotificationSheetSaveButton?.addEventListener("click", savePushNotificationSettings);
 elements.pushNotificationSheetTestButton?.addEventListener("click", sendPushTestNotification);
 elements.pushNotificationSheetDisableButton?.addEventListener("click", disablePushNotificationsFromUi);
+for (const button of elements.stockV2PricePeriods) {
+  button.addEventListener("click", () => {
+    state.stockPricePeriod = button.dataset.pricePeriod || "1D";
+    renderStockMiniChart(state.stockPriceRows, state.currentDashboard?.quote);
+  });
+}
+const stockSearchSubmitButton = elements.form?.querySelector(":scope > button");
+stockSearchSubmitButton?.addEventListener("click", (event) => {
+  if (!window.matchMedia("(max-width: 980px)").matches || elements.form.classList.contains("expanded")) {
+    return;
+  }
+  event.preventDefault();
+  elements.form.classList.add("expanded");
+  elements.input.focus();
+  elements.input.select();
+});
+elements.input?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    elements.form.classList.remove("expanded");
+    elements.input.blur();
+  }
+});
+elements.stockDetailBack?.addEventListener("click", () => {
+  if (window.history.length > 1 && document.referrer.startsWith(window.location.origin)) {
+    window.history.back();
+    return;
+  }
+  setView("trend");
+});
+for (const button of elements.stockFinancialMetricTabs) {
+  button.addEventListener("click", () => {
+    state.stockFinancialMetric = button.dataset.financialMetric || "revenue";
+    renderStockFinancialChart();
+  });
+}
+for (const button of elements.stockFinancialScopeTabs) {
+  button.addEventListener("click", () => {
+    state.stockFinancialScope = button.dataset.financialScope || "quarterly";
+    renderStockFinancialChart();
+  });
+}
+for (const button of elements.stockFlowModeTabs) {
+  button.addEventListener("click", () => {
+    state.stockFlowMode = button.dataset.flowMode || "cumulative";
+    renderStockFlowHistoryChart();
+  });
+}
+for (const button of elements.stockFlowPeriodTabs) {
+  button.addEventListener("click", () => {
+    state.stockFlowPeriod = button.dataset.flowPeriod || "3M";
+    renderStockFlowHistoryChart();
+  });
+}
 elements.aiAnalysisButton.addEventListener("click", (event) => {
   event.preventDefault();
-  launchPageLoading(PAGE_LOADING_LABELS.ai, () => loadAIAnalysis({ auto: false, force: true }));
+  launchPageLoading(PAGE_LOADING_LABELS.ai, () => Promise.all([
+    loadQuantSignals({ auto: false, force: true }),
+    loadAIAnalysis({ auto: false, force: true }),
+  ]));
 });
 elements.stockInlineAIRefresh?.addEventListener("click", (event) => {
   event.preventDefault();
@@ -8188,6 +9769,7 @@ document.addEventListener("click", (event) => {
   document.querySelectorAll(".term-help.open").forEach((item) => item.classList.remove("open"));
   if (!elements.form.contains(event.target)) {
     hideSuggestions();
+    elements.form.classList.remove("expanded");
   }
 });
 

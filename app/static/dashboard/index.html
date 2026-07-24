@@ -19,7 +19,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260724kr50" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v3r" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -168,31 +168,31 @@
       </aside>
 
       <main class="shell">
-      <section id="stock-view">
-        <header class="topbar stock-detail-topbar">
-          <div class="identity">
-            <div>
-              <h1 id="stock-name">종목 분석</h1>
-              <p id="stock-meta" hidden>-</p>
-            </div>
+      <section id="stock-view" class="stock-detail-v3">
+        <header class="stock-v3-commandbar">
+          <button class="stock-v3-back" id="stock-detail-back" type="button" aria-label="이전 화면">←</button>
+          <div class="stock-v3-command-title">
+            <span id="stock-v2-market-code">시장 · 종목코드</span>
+            <h1 id="stock-name">종목 분석</h1>
+            <p id="stock-meta" hidden>-</p>
           </div>
-          <form class="search" id="stock-form">
+          <button class="stock-v3-star watch-button" id="watch-toggle" type="button" aria-label="관심종목 추가">☆</button>
+          <form class="stock-v3-search" id="stock-form">
             <div class="search-box">
-              <input id="stock-code" type="search" placeholder="SK하이닉스" autocomplete="off" aria-autocomplete="list" aria-expanded="false" aria-controls="stock-suggestions" />
+              <input id="stock-code" type="search" placeholder="종목명 또는 코드" autocomplete="off" aria-autocomplete="list" aria-expanded="false" aria-controls="stock-suggestions" />
               <div class="suggestions" id="stock-suggestions" role="listbox" hidden></div>
             </div>
             <button type="submit">조회</button>
           </form>
         </header>
 
-        <section class="stock-mobile-detail">
-          <article class="stock-quote-card">
-            <div class="stock-quote-head">
-              <div>
-                <span class="market-chip" id="stock-live-badge">실시간</span>
-              </div>
+        <div class="stock-v3-layout">
+          <article class="stock-v3-quote-card">
+            <div class="stock-v3-quote-head">
+              <span class="market-chip" id="stock-live-badge">실시간</span>
+              <span id="stock-v2-as-of">기준 시각 확인 중</span>
             </div>
-            <div class="stock-price-main">
+            <div class="stock-v3-price-line">
               <strong id="quote-price">-</strong>
               <div>
                 <span id="stock-change-value">-</span>
@@ -200,139 +200,228 @@
               </div>
             </div>
             <p class="stock-pre-market" id="stock-pre-market" hidden>장전 -</p>
-            <section class="quote-strip">
-              <div>
-                <span>거래량</span>
-                <strong id="stock-volume">-</strong>
+            <div class="stock-v3-chart-pane">
+              <div class="stock-mini-chart" id="stock-mini-chart" aria-label="실제 가격과 거래량 흐름"></div>
+              <div class="stock-v3-price-periods" id="stock-v2-price-periods" role="group" aria-label="가격 차트 기간">
+                <button class="active" type="button" data-price-period="1D">1일</button>
+                <button type="button" data-price-period="1M">1개월</button>
+                <button type="button" data-price-period="3M">3개월</button>
+                <button type="button" data-price-period="6M">6개월</button>
+                <button type="button" data-price-period="1Y">1년</button>
               </div>
-              <div>
-                <span>거래대금</span>
-                <strong id="quote-value">-</strong>
-              </div>
-              <div>
-                <span>시가총액</span>
-                <strong id="quote-cap">-</strong>
-              </div>
-              <div>
-                <span>전일 종가</span>
-                <strong id="stock-prev-close-summary">-</strong>
-              </div>
-            </section>
-            <div class="stock-action-row">
-              <button class="watch-button" id="watch-toggle" type="button">관심 추가</button>
-              <button class="ai-analysis-button" id="ai-analysis-button" type="button">분석 갱신</button>
+              <p class="stock-v3-chart-source" id="stock-v2-chart-source">시세를 불러오는 중입니다.</p>
             </div>
+            <dl class="stock-v3-quote-metrics">
+              <div><dt>거래량</dt><dd id="stock-volume">-</dd></div>
+              <div><dt>거래대금</dt><dd id="quote-value">-</dd></div>
+              <div><dt>시가총액</dt><dd id="quote-cap">-</dd></div>
+              <div><dt>전일 종가</dt><dd id="stock-prev-close-summary">-</dd></div>
+            </dl>
           </article>
 
-          <section class="stock-company-profile" id="stock-company-profile" aria-labelledby="stock-company-profile-title">
-            <div class="stock-company-profile-head">
-              <span class="section-eyebrow">기업 소개</span>
-              <h2 id="stock-company-profile-title">기업 한눈에 보기</h2>
-            </div>
-            <p class="stock-company-summary" id="stock-company-summary">기업 정보를 불러오는 중입니다.</p>
-            <p class="stock-company-industry" id="stock-company-industry" hidden></p>
-            <details class="stock-company-details">
-              <summary>기업 기본정보</summary>
-              <dl>
-                <div id="stock-company-ceo-row"><dt>대표자</dt><dd id="stock-company-ceo">-</dd></div>
-                <div id="stock-company-established-row"><dt>설립일</dt><dd id="stock-company-established">-</dd></div>
-                <div id="stock-company-fiscal-row"><dt>결산월</dt><dd id="stock-company-fiscal">-</dd></div>
-                <div id="stock-company-address-row"><dt>본사</dt><dd id="stock-company-address">-</dd></div>
-              </dl>
-              <div class="stock-company-links">
-                <a id="stock-company-homepage" href="#" target="_blank" rel="noreferrer" hidden>회사 홈페이지</a>
-                <a id="stock-company-ir" href="#" target="_blank" rel="noreferrer" hidden>IR 홈페이지</a>
-              </div>
-            </details>
-            <p class="stock-company-source">
-              <span id="stock-company-source-label">출처 확인 중</span>
-              <a id="stock-company-source-link" href="#" target="_blank" rel="noreferrer" hidden>원문 보기</a>
-            </p>
-          </section>
-
           <nav class="stock-section-tabs stock-detail-tabs" aria-label="종목 상세 탭" role="tablist">
-            <button class="active" type="button" role="tab" data-stock-tab="summary" aria-controls="stock-summary-section" aria-selected="true">요약</button>
-            <button type="button" role="tab" data-stock-tab="strategy" aria-controls="stock-strategy-section" aria-selected="false">전략</button>
-            <button type="button" role="tab" data-stock-tab="evidence" aria-controls="stock-evidence-section" aria-selected="false">근거</button>
+            <button class="active" type="button" role="tab" data-stock-tab="summary" aria-controls="stock-summary-section" aria-selected="true">종목홈</button>
+            <button type="button" role="tab" data-stock-tab="strategy" aria-controls="stock-strategy-section" aria-selected="false">AI 매매신호</button>
           </nav>
 
-          <section class="stock-tab-panel" id="stock-summary-section" data-stock-panel="summary" role="tabpanel">
-            <article class="stock-visual-card">
-              <div class="stock-visual-main">
-                <div class="score-ring" id="stock-summary-score-ring" style="--score: 0">
-                  <small>추세 지속력</small>
-                  <span id="stock-summary-score">-</span>
-                </div>
-                <div>
-                  <span class="section-eyebrow">종합 판단</span>
-                  <h2 id="stock-summary-stance">데이터 준비 중</h2>
-                  <p class="stock-confidence-line">
-                    분석 데이터 <strong id="stock-summary-confidence">-</strong>
-                    <span class="ollama-ai-badge" id="stock-summary-ai-badge" title="Ollama 로컬 모델로 생성된 요약입니다." hidden>Ollama AI</span>
-                  </p>
-                  <p class="stock-confidence-help">추세 지속력은 오늘 등락과 중기 지표를 합친 상태 점수이며, 미래 상승 확률이 아닙니다.</p>
-                  <p id="stock-summary-line">시세와 핵심 지표를 불러오는 중입니다.</p>
-                </div>
-              </div>
-              <div class="stock-mini-chart" id="stock-mini-chart" aria-label="최근 가격 흐름"></div>
+          <section class="stock-tab-panel stock-v3-home" id="stock-summary-section" data-stock-panel="summary" role="tabpanel">
+            <article class="stock-v3-section stock-v3-today">
+              <header class="stock-v3-section-head">
+                <div><span>오늘 브리핑</span><h2>오늘의 요약</h2></div>
+                <time id="stock-home-today-date">-</time>
+              </header>
+              <ul id="stock-home-summary-list" class="stock-v3-summary-list">
+                <li>오늘 시세와 수급을 정리하는 중입니다.</li>
+              </ul>
             </article>
 
-            <section class="stock-summary-cards">
-              <article class="summary-signal-card">
-                <span>차트</span>
-                <strong id="stock-signal-chart">-</strong>
-                <div class="signal-meter"><i id="stock-signal-chart-bar"></i></div>
+            <section class="stock-v3-two-column">
+              <article class="stock-v3-section stock-company-profile" id="stock-company-profile" aria-labelledby="stock-company-profile-title">
+                <header class="stock-v3-section-head">
+                  <div><span>기업 정보</span><h2 id="stock-company-profile-title">이 회사는</h2></div>
+                </header>
+                <p class="stock-company-summary" id="stock-company-summary">기업 정보를 불러오는 중입니다.</p>
+                <p class="stock-company-industry" id="stock-company-industry" hidden></p>
+                <details class="stock-company-details">
+                  <summary>기업 기본정보</summary>
+                  <dl>
+                    <div id="stock-company-ceo-row"><dt>대표자</dt><dd id="stock-company-ceo">-</dd></div>
+                    <div id="stock-company-established-row"><dt>설립일</dt><dd id="stock-company-established">-</dd></div>
+                    <div id="stock-company-fiscal-row"><dt>결산월</dt><dd id="stock-company-fiscal">-</dd></div>
+                    <div id="stock-company-address-row"><dt>본사</dt><dd id="stock-company-address">-</dd></div>
+                  </dl>
+                  <div class="stock-company-links">
+                    <a id="stock-company-homepage" href="#" target="_blank" rel="noreferrer" hidden>회사 홈페이지</a>
+                    <a id="stock-company-ir" href="#" target="_blank" rel="noreferrer" hidden>IR 홈페이지</a>
+                  </div>
+                </details>
+                <p class="stock-company-source">
+                  <span id="stock-company-source-label">출처 확인 중</span>
+                  <a id="stock-company-source-link" href="#" target="_blank" rel="noreferrer" hidden>원문 보기</a>
+                </p>
               </article>
-              <article class="summary-signal-card">
-                <span>수급</span>
-                <strong id="stock-signal-flow">-</strong>
-                <div class="signal-meter"><i id="stock-signal-flow-bar"></i></div>
-              </article>
-              <article class="summary-signal-card">
-                <span>밸류</span>
-                <strong id="stock-signal-valuation">-</strong>
-                <div class="signal-meter"><i id="stock-signal-valuation-bar"></i></div>
-              </article>
-              <article class="summary-signal-card">
-                <span>뉴스</span>
-                <strong id="stock-signal-news">-</strong>
-                <div class="signal-meter"><i id="stock-signal-news-bar"></i></div>
+
+              <article class="stock-v3-section">
+                <header class="stock-v3-section-head"><div><span>최근 정보</span><h2>종목 소식</h2></div></header>
+                <div class="stock-v3-update-list" id="stock-home-updates">
+                  <p>리포트·공시·뉴스를 확인하는 중입니다.</p>
+                </div>
               </article>
             </section>
 
-            <section class="stock-section-grid stock-summary-data">
-              <article class="panel stock-section-card" id="stock-momentum-section">
-                <h2>모멘텀</h2>
-                <dl class="metrics stock-stat-grid">
-                  <div><dt>1개월</dt><dd id="momentum-1m">-</dd></div>
-                  <div><dt>3개월</dt><dd id="momentum-3m">-</dd></div>
-                  <div><dt>거래대금 변화</dt><dd id="value-change">-</dd></div>
-                  <div><dt>업종PER</dt><dd id="industry-per">-</dd></div>
-                </dl>
+            <section class="stock-v3-two-column">
+              <article class="stock-v3-section">
+                <header class="stock-v3-section-head"><div><span>수급 확인</span><h2>체크 포인트</h2></div></header>
+                <div class="stock-v3-checkpoints" id="stock-home-checkpoints"></div>
               </article>
-
-              <article class="panel stock-section-card">
-                <h2>투자지표</h2>
-                <dl class="metrics stock-stat-grid">
-                  <div><dt>PER</dt><dd id="per">-</dd></div>
-                  <div><dt>EPS</dt><dd id="stock-eps">-</dd></div>
-                  <div><dt>추정PER</dt><dd id="estimated-per">-</dd></div>
-                  <div><dt>추정EPS</dt><dd id="estimate-eps">-</dd></div>
-                  <div><dt>PBR</dt><dd id="pbr">-</dd></div>
-                  <div><dt>BPS</dt><dd id="stock-bps">-</dd></div>
-                  <div><dt>배당수익률</dt><dd id="stock-dividend-yield">-</dd></div>
-                  <div><dt>주당배당금</dt><dd id="stock-dividend-per-share">-</dd></div>
-                </dl>
+              <article class="stock-v3-section">
+                <header class="stock-v3-section-head"><div><span>최근 반복 단어</span><h2>핵심 키워드</h2></div></header>
+                <p class="stock-v3-section-description">최근 리포트·공시·뉴스에서 반복된 단어입니다.</p>
+                <div class="stock-v3-keywords" id="stock-home-keywords"></div>
               </article>
             </section>
+
+            <article class="stock-v3-section stock-v3-issues">
+              <header class="stock-v3-section-head"><div><span>연관 정보</span><h2>종목 이슈</h2></div></header>
+              <div class="stock-v3-topic-tabs" id="stock-home-issue-tabs" role="tablist" aria-label="종목 이슈 선택"></div>
+              <div class="stock-v3-topic-card" id="stock-home-issue-card"></div>
+            </article>
+
+            <article class="stock-v3-section stock-v3-chart-section" id="stock-finance-section">
+              <header class="stock-v3-section-head">
+                <div><span>실적</span><h2>실적 분석</h2></div>
+                <span class="stock-v3-source" id="stock-financial-source">실제 공시·금융 데이터</span>
+              </header>
+              <div class="stock-v3-segment" id="stock-financial-metric-tabs" role="group" aria-label="실적 항목">
+                <button class="active" type="button" data-financial-metric="revenue">매출액</button>
+                <button type="button" data-financial-metric="operating_profit">영업이익</button>
+                <button type="button" data-financial-metric="net_income">순이익</button>
+              </div>
+              <div class="stock-v3-text-tabs" id="stock-financial-scope-tabs" role="group" aria-label="실적 기간">
+                <button class="active" type="button" data-financial-scope="quarterly">분기</button>
+                <button type="button" data-financial-scope="annual">연간</button>
+              </div>
+              <div class="stock-v3-main-chart" id="stock-financial-chart" aria-label="실제 실적 추이 차트"></div>
+              <div class="stock-v3-chart-summary" id="stock-financial-summary"></div>
+            </article>
+
+            <article class="stock-v3-section stock-v3-chart-section" id="stock-flow-section">
+              <header class="stock-v3-section-head">
+                <div><span>수급</span><h2>투자자별 매매동향</h2></div>
+                <span class="stock-v3-source" id="stock-flow-source">네이버 금융 집계</span>
+              </header>
+              <div class="stock-v3-segment" id="stock-flow-mode-tabs" role="group" aria-label="수급 집계 방식">
+                <button class="active" type="button" data-flow-mode="cumulative">누적매매</button>
+                <button type="button" data-flow-mode="daily">일별매매</button>
+              </div>
+              <div class="stock-v3-text-tabs" id="stock-flow-period-tabs" role="group" aria-label="수급 기간">
+                <button class="active" type="button" data-flow-period="3M">3개월</button>
+                <button type="button" data-flow-period="6M">6개월</button>
+                <button type="button" data-flow-period="1Y">1년</button>
+              </div>
+              <div class="stock-v3-flow-total" id="stock-flow-summary"></div>
+              <div class="stock-v3-main-chart" id="stock-flow-history-chart" aria-label="외국인 기관 수급과 주가 추이"></div>
+            </article>
+
+            <article class="stock-v3-section stock-v3-chart-section" id="stock-research-section">
+              <header class="stock-v3-section-head">
+                <div><span>증권사 자료</span><h2>리포트 분석</h2></div>
+                <span class="stock-v3-source">증권사 발행 자료</span>
+              </header>
+              <div class="stock-v3-segment" role="group" aria-label="리포트 분석 항목">
+                <button class="active" type="button">목표가 추이</button>
+                <button type="button" disabled>발행 추이</button>
+                <button type="button" disabled>발행 증권사</button>
+              </div>
+              <div class="stock-v3-main-chart" id="stock-report-history-chart" aria-label="목표가와 실제 주가 비교"></div>
+              <div class="stock-v3-chart-summary" id="stock-report-summary"></div>
+              <ul class="research-report-list stock-v3-report-list" id="stock-research-list"></ul>
+            </article>
+
+            <article class="stock-v3-section" id="stock-news-section">
+              <header class="stock-v3-section-head"><div><span>최근 기사</span><h2>뉴스</h2></div></header>
+              <div class="stock-v3-segment" role="group" aria-label="뉴스 분류">
+                <button class="active" type="button">종목뉴스</button>
+                <button type="button" disabled>AI 속보</button>
+              </div>
+              <ul class="event-list stock-v3-news-list" id="news-list"></ul>
+            </article>
+
+            <article class="stock-v3-section stock-v3-chart-section">
+              <header class="stock-v3-section-head">
+                <div><span>기사 분석</span><h2>뉴스 온도</h2></div>
+                <span class="stock-v3-source">최근 30일 기사 분류</span>
+              </header>
+              <div class="stock-v3-sentiment-summary" id="stock-news-temperature"></div>
+              <div class="stock-v3-main-chart" id="stock-news-temperature-chart" aria-label="뉴스 온도와 주가 흐름"></div>
+            </article>
+
+            <article class="stock-v3-section stock-x-feed-section" id="stock-x-feed-section">
+              <header class="stock-v3-section-head">
+                <div><span>시장 반응</span><h2>X 피드</h2></div>
+                <a class="stock-v3-source stock-x-feed-more" id="stock-x-feed-more" href="https://x.com/search" target="_blank" rel="noopener noreferrer">X에서 더 보기 ↗</a>
+              </header>
+              <p class="stock-v3-section-description">종목과 관련된 최근 공개 게시물입니다. 사실 확인 전 시장 반응 참고용으로만 확인하세요.</p>
+              <p class="stock-x-feed-status" id="stock-x-feed-status" role="status">X 피드를 불러오는 중입니다.</p>
+              <ul class="stock-x-feed-list" id="stock-x-feed-list" aria-label="종목 관련 X 게시물"></ul>
+            </article>
           </section>
 
-          <section class="stock-tab-panel" id="stock-strategy-section" data-stock-panel="strategy" role="tabpanel" hidden>
+          <section class="stock-tab-panel stock-v3-ai" id="stock-strategy-section" data-stock-panel="strategy" role="tabpanel" hidden>
+            <p class="quant-signal-status" id="quant-signal-status" role="status">퀀트 신호를 계산하는 중입니다.</p>
+            <section class="quant-signal-stack" id="quant-signal-content" hidden>
+              <article class="stock-v3-section quant-current-card">
+                <header class="quant-current-head">
+                  <div><span>현재 관찰 신호</span><h2 id="quant-current-label">-</h2></div>
+                  <strong id="quant-current-score">-</strong>
+                </header>
+                <p class="quant-current-meta" id="quant-current-meta">종가 신호와 실시간 현재가를 비교합니다.</p>
+                <ul class="quant-current-reasons" id="quant-current-reasons"></ul>
+                <dl class="quant-current-position" id="quant-current-position"></dl>
+                <p class="quant-next-confirmation" id="quant-next-confirmation"></p>
+              </article>
+
+              <article class="stock-v3-section quant-performance-card">
+                <header class="stock-v3-section-head">
+                  <div><span>같은 규칙 모의검증</span><h2>최근 1년 성과</h2></div>
+                  <span class="stock-v3-source" id="quant-performance-period">-</span>
+                </header>
+                <dl class="quant-performance-grid" id="quant-performance-grid"></dl>
+                <p class="quant-sample-note" id="quant-sample-note"></p>
+                <div class="quant-capital" id="quant-capital"></div>
+              </article>
+
+              <article class="stock-v3-section quant-chart-card">
+                <header class="stock-v3-section-head">
+                  <div><span>다음 거래일 시가 체결 기준</span><h2>최근 1년 매매신호</h2></div>
+                  <span class="stock-v3-source" id="quant-chart-source">-</span>
+                </header>
+                <div class="quant-signal-chart" id="quant-signal-chart" aria-label="가격과 모의 매수 매도 신호"></div>
+                <div class="quant-chart-legend" aria-label="차트 범례">
+                  <span class="buy">모의 매수</span><span class="sell">모의 매도</span><span class="watch">현재 관찰</span>
+                </div>
+              </article>
+
+              <article class="stock-v3-section quant-history-card">
+                <header class="stock-v3-section-head">
+                  <div><span>비용 반영 결과</span><h2>최근 모의 거래</h2></div>
+                </header>
+                <div class="quant-trade-list" id="quant-trade-list"></div>
+                <details class="quant-methodology">
+                  <summary>계산 기준과 한계</summary>
+                  <ul id="quant-methodology-list"></ul>
+                  <p id="quant-disclaimer"></p>
+                </details>
+              </article>
+            </section>
+
+            <div class="stock-v3-ai-title">
+              <div><span>AI 해설</span><h2>오늘의 대응</h2></div>
+              <button class="ai-analysis-button" id="ai-analysis-button" type="button">전체 갱신</button>
+            </div>
             <section class="ai-analysis-panel" id="ai-analysis-panel" hidden>
               <div class="ai-analysis-head" id="stock-ai-section">
                 <div>
-                  <span class="section-eyebrow">AI 전략</span>
-                  <h2>오늘의 대응</h2>
                   <p class="ai-analysis-meta-line">
                     <span class="ollama-ai-badge" id="ai-analysis-provider-badge" title="Ollama 로컬 모델로 생성된 요약입니다." hidden>Ollama AI</span>
                     <span id="ai-analysis-meta"></span>
@@ -356,141 +445,60 @@
               <details class="strategy-detail-disclosure">
                 <summary>판단 근거와 위험 보기</summary>
                 <p class="ai-summary" id="ai-analysis-summary"></p>
-                <section>
-                  <h3>핵심 판단</h3>
-                  <ul id="ai-key-points" class="ai-list"></ul>
-                </section>
-                <section>
-                  <h3>주의 리스크</h3>
-                  <ul id="ai-risks" class="ai-list"></ul>
-                </section>
+                <section><h3>핵심 판단</h3><ul id="ai-key-points" class="ai-list"></ul></section>
+                <section><h3>주의 리스크</h3><ul id="ai-risks" class="ai-list"></ul></section>
               </details>
               <span id="ai-decision-stance" hidden>-</span>
               <span id="ai-decision-confidence" hidden>-</span>
             </section>
-
-            <article class="panel stock-strategy-card">
-              <div class="strategy-head">
-                <div>
-                  <span class="section-eyebrow">가격 기준</span>
-                  <h2>가격별 대응</h2>
-                </div>
-              </div>
+            <article class="stock-v3-section stock-strategy-card">
+              <div class="strategy-head"><div><span class="section-eyebrow">가격 기준</span><h2>가격별 대응</h2></div></div>
               <div class="price-ladder" id="stock-price-ladder"></div>
             </article>
           </section>
 
-          <section class="stock-tab-panel stock-evidence-panel" id="stock-evidence-section" data-stock-panel="evidence" role="tabpanel" hidden>
-            <article class="panel stock-section-card wide stock-ai-evidence">
-              <div class="evidence-head">
-                <div>
-                  <span class="section-eyebrow">판단 근거</span>
-                  <h2>핵심 근거</h2>
-                </div>
-              </div>
-              <dl class="evidence-summary-table" id="evidence-summary-table">
-                <div><dt>차트</dt><dd id="evidence-summary-chart">-</dd></div>
-                <div><dt>수급</dt><dd id="evidence-summary-flow">-</dd></div>
-                <div><dt>실적·밸류</dt><dd id="evidence-summary-value">-</dd></div>
-                <div><dt>뉴스</dt><dd id="evidence-summary-news">-</dd></div>
-              </dl>
-              <div class="ai-section-list" id="ai-section-list"></div>
-            </article>
-
-            <section class="evidence-core-grid">
-              <article class="panel stock-section-card" id="stock-flow-section">
-                <span class="section-eyebrow">수급</span>
-                <h2>누가 사고 파는가</h2>
-                <dl class="metrics evidence-metric-grid">
-                  <div><dt>외국인 20일</dt><dd id="foreign-flow">-</dd></div>
-                  <div><dt>기관 20일</dt><dd id="institution-flow">-</dd></div>
-                  <div><dt>외국인 강도</dt><dd id="foreign-intensity">-</dd></div>
-                  <div><dt>기관 강도</dt><dd id="institution-intensity">-</dd></div>
-                </dl>
-              </article>
-
-              <article class="panel stock-section-card" id="stock-research-section">
-                <span class="section-eyebrow">리서치</span>
-                <h2>시장의 기대 변화</h2>
-                <dl class="metrics evidence-metric-grid">
-                  <div><dt>리포트</dt><dd id="revision-count">-</dd></div>
-                  <div><dt>상향비율</dt><dd id="revision-ratio">-</dd></div>
-                  <div><dt>목표가</dt><dd id="stock-target-price">-</dd></div>
-                  <div><dt>투자의견</dt><dd id="stock-latest-opinion">-</dd></div>
-                </dl>
-                <ul class="research-report-list" id="stock-research-list"></ul>
-              </article>
-
-              <article class="panel stock-section-card" id="stock-finance-section">
-                <span class="section-eyebrow">밸류·실적</span>
-                <h2>가격 부담과 이익 변화</h2>
-                <dl class="metrics evidence-metric-grid">
-                  <div><dt>영업이익 변화</dt><dd id="profit-growth">-</dd></div>
-                  <div><dt>PER z</dt><dd id="per-z">-</dd></div>
-                  <div><dt>PBR z</dt><dd id="pbr-z">-</dd></div>
-                </dl>
-              </article>
-
-              <article class="panel stock-section-card" id="stock-news-section">
-                <span class="section-eyebrow">뉴스</span>
-                <h2>최근 분위기</h2>
-                <div class="sentiment-line">
-                  <strong id="sentiment-score">-</strong>
-                  <span id="sentiment-counts">-</span>
-                </div>
-                <ul class="event-list news-evidence-list" id="news-evidence-list"></ul>
-              </article>
-
-              <article class="panel stock-section-card wide" id="stock-macro-section">
-                <span class="section-eyebrow">거시</span>
-                <h2>외부 변수 민감도</h2>
-                <dl class="metrics evidence-metric-grid">
-                  <div><dt>금리 프록시</dt><dd id="macro-rate">-</dd></div>
-                  <div><dt>환율 프록시</dt><dd id="macro-fx">-</dd></div>
-                  <div><dt>원자재 프록시</dt><dd id="macro-commodity">-</dd></div>
-                  <div><dt>수출 프록시</dt><dd id="macro-export">-</dd></div>
-                </dl>
-              </article>
-            </section>
-
-            <section class="stock-evidence-hidden" hidden>
-              <article id="stock-chart-section">
-                <span id="chart-score">-</span>
-                <span id="chart-stance">-</span>
-                <span id="chart-trend">-</span>
-                <span id="chart-setup">-</span>
-                <span id="chart-risk">-</span>
-                <span id="chart-volume">-</span>
-                <span id="chart-support">-</span>
-                <span id="chart-resistance">-</span>
-                <ul id="chart-signals"></ul>
-                <ul id="chart-risks"></ul>
-              </article>
-              <article id="stock-price-section">
-                <span id="stock-prev-close">-</span>
-                <span id="stock-open">-</span>
-                <span id="stock-high">-</span>
-                <span id="stock-low">-</span>
-                <span id="stock-volume-detail">-</span>
-                <span id="stock-trading-value-detail">-</span>
-                <span id="stock-market-cap-detail">-</span>
-                <span id="stock-foreign-ratio">-</span>
-              </article>
-              <article id="stock-consensus-section">
-                <span id="estimate-revenue">-</span>
-                <span id="estimate-profit">-</span>
-                <span id="revision-up">-</span>
-                <span id="revision-down">-</span>
-              </article>
-              <span id="latest-revenue">-</span>
-              <span id="latest-profit">-</span>
-              <span id="latest-eps">-</span>
-              <ul id="surprise-list"></ul>
-              <ul id="guidance-list"></ul>
-              <ul id="news-list"></ul>
-            </section>
+          <section class="stock-tab-panel stock-evidence-panel stock-v3-compat-panel" id="stock-evidence-section" data-stock-panel="evidence" role="tabpanel" hidden>
+            <div id="ai-section-list"></div>
           </section>
-        </section>
+
+          <section class="stock-v3-compat" hidden aria-hidden="true">
+            <div id="stock-summary-score-ring"><span id="stock-summary-score">-</span></div>
+            <span id="stock-summary-confidence">-</span><span id="stock-summary-ai-badge"></span>
+            <span id="stock-summary-stance">-</span><span id="stock-summary-line">-</span>
+            <span id="stock-ai-say-probability">-</span><span id="stock-ai-say-confidence">-</span>
+            <span id="stock-ai-say-text">-</span><button id="stock-inline-ai-refresh" type="button"></button>
+            <span id="stock-signal-chart">-</span><i id="stock-signal-chart-bar"></i>
+            <span id="stock-signal-flow">-</span><i id="stock-signal-flow-bar"></i>
+            <span id="stock-signal-valuation">-</span><i id="stock-signal-valuation-bar"></i>
+            <span id="stock-signal-news">-</span><i id="stock-signal-news-bar"></i>
+            <span id="stock-strategy-status">-</span><span id="stock-strategy-stance">-</span>
+            <span id="stock-v2-range-percent">-</span><div id="stock-v2-range-chart"></div>
+            <span id="stock-v2-consensus-upside">-</span><div id="stock-v2-consensus-chart"></div>
+            <span id="stock-v2-flow-state">-</span><div id="stock-v2-flow-chart"></div>
+            <span id="stock-v2-sentiment-state">-</span><div id="stock-v2-sentiment-chart"></div>
+            <span id="evidence-summary-chart">-</span><span id="evidence-summary-flow">-</span>
+            <span id="evidence-summary-value">-</span><span id="evidence-summary-news">-</span>
+            <span id="revision-count">-</span><span id="revision-ratio">-</span>
+            <span id="stock-target-price">-</span><span id="stock-latest-opinion">-</span><span id="stock-latest-report-at">-</span>
+            <span id="momentum-1m">-</span><span id="momentum-3m">-</span><span id="value-change">-</span>
+            <span id="foreign-flow">-</span><span id="institution-flow">-</span>
+            <span id="foreign-intensity">-</span><span id="institution-intensity">-</span>
+            <span id="per">-</span><span id="pbr">-</span><span id="estimated-per">-</span><span id="industry-per">-</span>
+            <span id="per-z">-</span><span id="pbr-z">-</span><span id="ev-ebitda-z">-</span>
+            <span id="stock-eps">-</span><span id="stock-bps">-</span><span id="stock-dividend-yield">-</span><span id="stock-dividend-per-share">-</span>
+            <span id="profit-growth">-</span><span id="sentiment-score">-</span><span id="sentiment-counts">-</span>
+            <span id="macro-rate">-</span><span id="macro-fx">-</span><span id="macro-commodity">-</span><span id="macro-export">-</span>
+            <span id="chart-score">-</span><span id="chart-stance">-</span><span id="chart-trend">-</span>
+            <span id="chart-setup">-</span><span id="chart-risk">-</span><span id="chart-volume">-</span>
+            <span id="chart-support">-</span><span id="chart-resistance">-</span><ul id="chart-signals"></ul><ul id="chart-risks"></ul>
+            <span id="stock-prev-close">-</span><span id="stock-open">-</span><span id="stock-high">-</span><span id="stock-low">-</span>
+            <span id="stock-volume-detail">-</span><span id="stock-trading-value-detail">-</span><span id="stock-market-cap-detail">-</span><span id="stock-foreign-ratio">-</span>
+            <span id="estimate-revenue">-</span><span id="estimate-profit">-</span><span id="estimate-eps">-</span>
+            <span id="revision-up">-</span><span id="revision-down">-</span>
+            <span id="latest-revenue">-</span><span id="latest-profit">-</span><span id="latest-eps">-</span>
+            <ul id="surprise-list"></ul><ul id="guidance-list"></ul><ul id="news-evidence-list"></ul>
+          </section>
+        </div>
       </section>
 
       <section id="watchlist-view" hidden>
@@ -666,6 +674,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260724kr50" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v3r" defer></script>
   </body>
 </html>

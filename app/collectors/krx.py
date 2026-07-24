@@ -9,12 +9,13 @@ from typing import Any, Optional
 
 import certifi
 import pandas as pd
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.models import DailyPrice, InvestorFlow, StockMaster
 from app.repository import finish_ingestion, start_ingestion, upsert_many
 
-PRICE_CODE_PATTERN = re.compile(r"^\d{6}$")
+PRICE_CODE_PATTERN = re.compile(r"^[0-9A-Z]{6}$")
 
 
 def _stock_module():
@@ -57,6 +58,7 @@ def _stock_rows_from_pykrx(yyyymmdd: str, markets: list[str], seen_date: date) -
                     "code": code,
                     "name": stock.get_market_ticker_name(code),
                     "market": market,
+                    "is_active": True,
                     "last_seen_date": seen_date,
                 }
             )
@@ -78,6 +80,7 @@ def _stock_rows_from_fdr(markets: list[str], seen_date: date) -> list[dict[str, 
             "code": row["Code"],
             "name": row["Name"],
             "market": row["Market"],
+            "is_active": True,
             "isin": row.get("ISU_CD"),
             "last_seen_date": seen_date,
         }
@@ -148,6 +151,12 @@ def collect_stocks(db: Session, yyyymmdd: str, markets: str) -> int:
             rows = []
         if not rows:
             rows = _stock_rows_from_fdr(market_names, seen_date)
+        if rows:
+            db.execute(
+                update(StockMaster)
+                .where(StockMaster.market.in_(market_names))
+                .values(is_active=False)
+            )
         count = upsert_many(db, StockMaster, rows)
         db.commit()
         finish_ingestion(db, run, "success", count)
@@ -216,6 +225,7 @@ def collect_prices_for_codes(
     from_yyyymmdd: str,
     to_yyyymmdd: str,
     max_workers: int = 8,
+    prefer_fdr: bool = False,
 ) -> int:
     unique_codes: list[str] = []
     seen: set[str] = set()
@@ -231,28 +241,41 @@ def collect_prices_for_codes(
 
     run = start_ingestion(db, "market_data", f"daily_price_batch:{to_yyyymmdd}")
     try:
-        rows: list[dict[str, Any]] = []
+        pending_rows: list[dict[str, Any]] = []
         errors: dict[str, str] = {}
+        count = 0
+
+        def flush() -> None:
+            nonlocal pending_rows, count
+            if not pending_rows:
+                return
+            count += upsert_many(db, DailyPrice, pending_rows)
+            db.commit()
+            pending_rows = []
+
         worker_count = max(1, min(max_workers, len(unique_codes)))
+        fetcher = _price_rows_from_fdr if prefer_fdr else _price_rows_for_code
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = {
-                executor.submit(_price_rows_for_code, code, from_yyyymmdd, to_yyyymmdd): code for code in unique_codes
+                executor.submit(fetcher, code, from_yyyymmdd, to_yyyymmdd): code for code in unique_codes
             }
             for future in as_completed(futures):
                 code = futures[future]
                 try:
-                    rows.extend(future.result())
+                    pending_rows.extend(future.result())
                 except Exception as exc:
                     errors[code] = str(exc)
+                    continue
+                if len(pending_rows) >= 20000:
+                    flush()
+        flush()
 
-        if not rows and errors:
+        if count == 0 and errors:
             message = "; ".join(f"{code}: {error}" for code, error in list(errors.items())[:5])
             db.rollback()
             finish_ingestion(db, run, "failed", 0, message)
             raise RuntimeError(message)
 
-        count = upsert_many(db, DailyPrice, rows)
-        db.commit()
         message = None
         if errors:
             message = f"failed_codes={len(errors)}"
