@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
@@ -272,24 +273,23 @@ class KisRestBriefingProvider:
 
         points: dict[tuple[str, str], dict[str, object]] = {}
         latest_trade_date: Optional[str] = None
-        previous_cursor = ""
         max_chunks = max(1, min(14, (max_points + 29) // 30))
-        for _ in range(max_chunks):
-            payload = self._get(
+
+        def request_chunk(chunk_cursor: str) -> dict[str, Any]:
+            return self._get(
                 "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
                 "FHKST03010200",
                 {
                     "FID_COND_MRKT_DIV_CODE": "J",
                     "FID_INPUT_ISCD": code,
-                    "FID_INPUT_HOUR_1": cursor,
+                    "FID_INPUT_HOUR_1": chunk_cursor,
                     "FID_PW_DATA_INCU_YN": "Y",
                     "FID_ETC_CLS_CODE": "",
                 },
             )
-            rows = payload.get("output2", []) or []
-            if not rows:
-                break
 
+        def consume_rows(rows: list[dict[str, Any]]) -> list[str]:
+            nonlocal latest_trade_date
             valid_times: list[str] = []
             for row in rows:
                 trade_date = str(row.get("stck_bsop_date") or "").strip()
@@ -313,6 +313,38 @@ class KisRestBriefingProvider:
                     "volume": _int(row.get("cntg_vol")),
                     "trading_value": _int(row.get("acml_tr_pbmn")),
                 }
+            return valid_times
+
+        if current_market_status(now) != "open" and max_chunks > 1:
+            self._ensure_token()
+            closing_cursor = datetime.combine(now.date(), time(15, 30))
+            cursors = [
+                (closing_cursor - timedelta(minutes=30 * index)).strftime("%H%M%S")
+                for index in range(max_chunks)
+            ]
+
+            def safe_request(chunk_cursor: str) -> tuple[str, Optional[dict[str, Any]], Optional[Exception]]:
+                try:
+                    return chunk_cursor, request_chunk(chunk_cursor), None
+                except Exception as exc:
+                    return chunk_cursor, None, exc
+
+            with ThreadPoolExecutor(max_workers=min(4, len(cursors))) as executor:
+                results = list(executor.map(safe_request, cursors))
+            for chunk_cursor, payload, error in results:
+                if error is not None:
+                    payload = request_chunk(chunk_cursor)
+                consume_rows((payload or {}).get("output2", []) or [])
+            return sorted(points.values(), key=lambda row: (str(row["trade_date"]), str(row["trade_time"])))[:max_points]
+
+        previous_cursor = ""
+        for _ in range(max_chunks):
+            payload = request_chunk(cursor)
+            rows = payload.get("output2", []) or []
+            if not rows:
+                break
+
+            valid_times = consume_rows(rows)
             if not valid_times:
                 break
             earliest = min(valid_times)

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from threading import Lock
+from time import sleep
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app import main
+from app.collectors.briefing import KisRestBriefingProvider
+from app.config import Settings
 from app.db import Base
 
 
@@ -113,3 +117,44 @@ def test_closed_intraday_snapshot_survives_memory_cache_clear():
     assert len(loaded["points"]) == 30
     assert loaded["trade_date"] == date(2026, 7, 24)
 
+
+def test_closed_intraday_collection_fetches_time_windows_in_parallel(monkeypatch):
+    provider = KisRestBriefingProvider(Settings(kis_app_key="key", kis_app_secret="secret"))
+    active = 0
+    max_active = 0
+    lock = Lock()
+
+    monkeypatch.setattr(provider, "_ensure_token", lambda: "token")
+    monkeypatch.setattr("app.collectors.briefing.current_market_status", lambda _now=None: "closed")
+
+    def fake_get(_path, _tr_id, params):
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        sleep(0.01)
+        cursor = datetime.strptime(params["FID_INPUT_HOUR_1"], "%H%M%S")
+        rows = []
+        for offset in range(30):
+            point_time = cursor - timedelta(minutes=offset)
+            if point_time.time() < datetime.strptime("090100", "%H%M%S").time():
+                continue
+            rows.append(
+                {
+                    "stck_bsop_date": "20260724",
+                    "stck_cntg_hour": point_time.strftime("%H%M%S"),
+                    "stck_prpr": "100000",
+                    "cntg_vol": "100",
+                }
+            )
+        with lock:
+            active -= 1
+        return {"output2": rows}
+
+    monkeypatch.setattr(provider, "_get", fake_get)
+    rows = provider.fetch_intraday_chart("000660", max_points=390)
+
+    assert max_active > 1
+    assert len(rows) == 390
+    assert rows[0]["trade_time"] == "090100"
+    assert rows[-1]["trade_time"] == "153000"
