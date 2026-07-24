@@ -5217,22 +5217,34 @@ function buildWatchChartAIAnalysis(item, analysis, dashboard) {
   const decisionTone = buyCandidate ? "buy" : sellCandidate ? "sell" : "hold";
   const confidence = analysis.score >= 78 || analysis.score <= 40 ? "보통 이상" : "보통";
   const trendLabel = analysis.score >= 78 ? "강한 상승 흐름" : analysis.score >= 64 ? "상승 흐름 유지" : analysis.score >= 48 ? "방향성 약함" : "약세 구간";
-  const volatilityPct = clampNumber((analysis.atr || 2.5) * 0.75, 1.4, 4.2);
-  const buyLowPct = clampNumber(volatilityPct * 0.85, 1.2, 3.5);
-  const buyHighPct = buyCandidate ? 0.7 : 0.2;
-  const stopPct = clampNumber((analysis.atr || 2.5) * 1.15, 2.8, 5.8);
-  const breakoutPct = clampNumber((analysis.atr || 2.5) * 0.55, 1.0, 3.2);
-  const targetPct = clampNumber((analysis.atr || 2.5) * 1.2, 3.0, 6.5);
-  const nearbyResistance = analysis.resistance && price && analysis.resistance > price && analysis.resistance <= price * 1.045
+  const atrBasis = clampNumber(analysis.atr || 2.5, 1, 8);
+  const buyLowPct = clampNumber(atrBasis * 0.45, 1, 2.2);
+  const buyHighDiscountPct = clampNumber(atrBasis * 0.1, 0.2, 0.6);
+  const stopPct = clampNumber(atrBasis * 0.55, 2, 3.5);
+  const breakoutPct = clampNumber(atrBasis * 0.35, 1.2, 2.5);
+  const targetPct = clampNumber(atrBasis * 0.8, 3, 5.5);
+  const nearbyResistance = analysis.resistance && price && analysis.resistance > price && analysis.resistance <= price * 1.03
     ? analysis.resistance
     : null;
-  const nearbySupport = analysis.support && price && analysis.support < price && analysis.support >= price * 0.94
+  const nearbySupport = analysis.support && price && analysis.support < price && analysis.support >= price * 0.97
     ? analysis.support
     : null;
-  const buyLow = nearbySupport || (price ? price * (1 - buyLowPct / 100) : null);
-  const buyHigh = price ? price * (1 + buyHighPct / 100) : null;
-  const stopRaw = nearbySupport ? Math.min(nearbySupport * 0.985, price * (1 - 2.2 / 100)) : (price ? price * (1 - stopPct / 100) : null);
-  const breakoutRaw = nearbyResistance || (price ? price * (1 + breakoutPct / 100) : null);
+  const buyHigh = price ? price * (1 - buyHighDiscountPct / 100) : null;
+  const fallbackBuyLow = price ? price * (1 - buyLowPct / 100) : null;
+  const supportedBuyLow = nearbySupport && fallbackBuyLow && buyHigh && nearbySupport >= fallbackBuyLow && nearbySupport <= buyHigh
+    ? nearbySupport
+    : fallbackBuyLow;
+  const buyLow = supportedBuyLow && buyHigh
+    ? Math.max(fallbackBuyLow, Math.min(supportedBuyLow, buyHigh * 0.992))
+    : supportedBuyLow;
+  const stopRaw = price && buyLow
+    ? Math.min(price * (1 - stopPct / 100), buyLow * 0.992)
+    : null;
+  const breakoutRaw = price
+    ? nearbyResistance
+      ? clampNumber(nearbyResistance, price * 1.012, price * 1.025)
+      : price * (1 + breakoutPct / 100)
+    : null;
   const targetRaw = price ? Math.max(breakoutRaw || 0, price * (1 + targetPct / 100)) : null;
   const buyZone = formatPriceRange(buyLow, buyHigh);
   const stopLine = formatNumber(roundTradePrice(stopRaw));

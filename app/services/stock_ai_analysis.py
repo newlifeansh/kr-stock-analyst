@@ -106,23 +106,60 @@ def _trade_levels(price: object, chart: dict[str, Any]) -> dict[str, int | str |
     moving_averages = chart.get("moving_averages") if isinstance(chart.get("moving_averages"), dict) else {}
     support_reference = _round_trade_price(_num(chart.get("support")))
     resistance_reference = _round_trade_price(_num(chart.get("resistance")))
-    raw_support = _near_price_level(chart.get("support"), price_number, side="support")
-    raw_resistance = _near_price_level(chart.get("resistance"), price_number, side="resistance")
+    raw_support = _near_price_level(
+        chart.get("support"),
+        price_number,
+        side="support",
+        max_distance_pct=3.0,
+    )
+    raw_resistance = _near_price_level(
+        chart.get("resistance"),
+        price_number,
+        side="resistance",
+        max_distance_pct=3.0,
+    )
     ma_supports = [
-        _near_price_level(moving_averages.get(key), price_number, side="support", max_distance_pct=8.0)
+        _near_price_level(moving_averages.get(key), price_number, side="support", max_distance_pct=3.0)
         for key in ("ma5", "ma20", "ma60")
     ]
     ma_supports = [value for value in ma_supports if value is not None]
 
-    base_pullback_pct = _clamp((atr or 3.0) * 0.85, 1.8, 5.5)
-    buy_low = raw_support or (max(ma_supports) if ma_supports else _round_trade_price(price_number * (1 - base_pullback_pct / 100)))
-    buy_high = _round_trade_price(price_number * 1.006)
-    stop_pct = _clamp((atr or 3.0) * 1.25, 3.0, 7.0)
-    stop = _round_trade_price(min((buy_low or price_number) * 0.985, price_number * (1 - stop_pct / 100)))
-    breakout_pct = _clamp((atr or 3.0) * 0.75, 1.8, 5.5)
-    breakout = raw_resistance or _round_trade_price(price_number * (1 + breakout_pct / 100))
-    sell_pct = _clamp((atr or 3.0) * 1.6, 4.0, 9.0)
-    first_sell = _round_trade_price(max((breakout or 0) * 1.01, price_number * (1 + sell_pct / 100)))
+    # The execution guide is intentionally tighter than the full technical box.
+    # Distant support/resistance remains visible as evidence, but should not create
+    # an impractically wide first-order range.
+    atr_basis = _clamp(atr or 3.0, 1.0, 8.0)
+    pullback_pct = _clamp(atr_basis * 0.45, 1.0, 2.2)
+    upper_discount_pct = _clamp(atr_basis * 0.10, 0.2, 0.6)
+    buy_high_raw = price_number * (1 - upper_discount_pct / 100)
+    fallback_buy_low = price_number * (1 - pullback_pct / 100)
+    nearby_supports = [value for value in [raw_support, *ma_supports] if value is not None]
+    nearby_supports = [value for value in nearby_supports if fallback_buy_low <= value <= buy_high_raw]
+    preferred_buy_low = max(nearby_supports) if nearby_supports else fallback_buy_low
+    minimum_zone_low = buy_high_raw * 0.992
+    buy_low = _round_trade_price(max(fallback_buy_low, min(preferred_buy_low, minimum_zone_low)))
+    buy_high = _round_trade_price(buy_high_raw)
+
+    stop_pct = _clamp(atr_basis * 0.55, 2.0, 3.5)
+    stop = _round_trade_price(
+        min(
+            price_number * (1 - stop_pct / 100),
+            (buy_low or price_number) * 0.992,
+        )
+    )
+    breakout_pct = _clamp(atr_basis * 0.35, 1.2, 2.5)
+    breakout_floor = price_number * 1.012
+    breakout_ceiling = price_number * 1.025
+    breakout_raw = price_number * (1 + breakout_pct / 100)
+    if raw_resistance is not None:
+        breakout_raw = _clamp(raw_resistance, breakout_floor, breakout_ceiling)
+    breakout = _round_trade_price(breakout_raw)
+    sell_pct = _clamp(atr_basis * 0.8, 3.0, 5.5)
+    first_sell = _round_trade_price(
+        max(
+            (breakout or 0) * 1.008,
+            price_number * (1 + sell_pct / 100),
+        )
+    )
 
     return {
         "buy_low": buy_low,

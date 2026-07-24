@@ -57,10 +57,34 @@ def test_stock_ai_analysis_uses_near_current_trade_levels_for_strategy():
     assert payload["data_covered"] == 4
     assert payload["data_total"] == 4
     assert payload["confidence"] == 100
-    assert 500000 <= trade_levels["buy_low"] <= 533000
-    assert 533000 <= trade_levels["buy_high"] <= 560000
-    assert 505000 <= trade_levels["stop"] <= 533000
-    assert 533000 <= trade_levels["breakout"] <= 570000
+    assert 522000 <= trade_levels["buy_low"] < trade_levels["buy_high"] < 533000
+    assert (trade_levels["buy_high"] - trade_levels["buy_low"]) / 533000 <= 0.02
+    assert 514000 <= trade_levels["stop"] <= 522000
+    assert 539000 <= trade_levels["breakout"] <= 547000
+    assert 549000 <= trade_levels["first_sell"] <= 557000
+
+
+def test_stock_ai_analysis_caps_trade_range_when_atr_and_support_are_far():
+    dashboard = _base_dashboard()
+    dashboard["quote"]["price"] = 1_759_000
+    dashboard["chart_analysis"] = {
+        **dashboard["chart_analysis"],
+        "support": 1_662_000,
+        "resistance": 1_856_000,
+        "atr_percent": 7.5,
+        "moving_averages": {"ma5": 1_690_000, "ma20": 1_650_000, "ma60": 1_580_000},
+    }
+
+    levels = build_stock_ai_analysis(dashboard)["trade_levels"]
+
+    assert levels["support_reference"] == 1_662_000
+    assert levels["resistance_reference"] == 1_856_000
+    assert 1_719_000 <= levels["buy_low"] <= 1_722_000
+    assert 1_747_000 <= levels["buy_high"] <= 1_750_000
+    assert (levels["buy_high"] - levels["buy_low"]) / 1_759_000 <= 0.02
+    assert 1_696_000 <= levels["stop"] <= 1_699_000
+    assert 1_802_000 <= levels["breakout"] <= 1_804_000
+    assert 1_855_000 <= levels["first_sell"] <= 1_857_000
 
 
 def test_stock_ai_analysis_uses_buy_language_only_for_actionable_stance():
