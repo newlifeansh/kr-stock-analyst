@@ -85,6 +85,22 @@ class StockNewsSnapshot(Base):
     )
 
 
+class StockIntradaySnapshot(Base):
+    __tablename__ = "stock_intraday_snapshot"
+
+    stock_code: Mapped[str] = mapped_column(String(12), primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(40), default="kis_rest", nullable=False, index=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    max_points: Mapped[int] = mapped_column(Integer, default=390, nullable=False)
+    point_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    validated_on: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 class StockCompanySnapshot(Base):
     __tablename__ = "stock_company_snapshot"
 

@@ -7,7 +7,7 @@ import logging
 import secrets
 import time as time_module
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 import re
@@ -53,6 +53,7 @@ from app.models import (
     MacroObservation,
     PushSubscription,
     StockMaster,
+    StockIntradaySnapshot,
     WatchlistItem,
 )
 from app.repository import (
@@ -160,6 +161,7 @@ NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
 api_cache = TTLCache(maxsize=1024)
+intraday_chart_cache = TTLCache(maxsize=4096)
 kis_realtime_provider = KisRealtimeQuoteProvider(settings)
 kis_rest_provider = KisRestBriefingProvider(settings)
 mcp_server = build_insight_mcp_server(settings) if settings.mcp_enabled else None
@@ -173,11 +175,14 @@ presence_lock = asyncio.Lock()
 write_session_cache = TTLCache(maxsize=8192)
 rate_limit_lock = RLock()
 rate_limit_windows: dict[tuple[str, str], list[float]] = {}
+intraday_lock_guard = RLock()
+intraday_code_locks: dict[str, RLock] = {}
 
 STOCK_DASHBOARD_TTL_SECONDS = 120
 MARKET_RANKING_TTL_SECONDS = 120
 MARKET_IMPACT_TTL_SECONDS = 900
 RECOMMENDATION_TTL_SECONDS = 600
+INTRADAY_CLOSED_TTL_SECONDS = 60 * 60 * 72
 TREND_ANALYSIS_TTL_SECONDS = 120
 TREND_GRAPH_TTL_SECONDS = 300
 WRITE_SESSION_COOKIE = "sn_write_session"
@@ -2194,17 +2199,221 @@ def stock_live_quote(code: str, response: Response):
     return payload
 
 
+def _korea_regular_market_open(now: Optional[datetime] = None) -> bool:
+    current = now or datetime.now(KST)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=KST)
+    else:
+        current = current.astimezone(KST)
+    return current.weekday() < 5 and time(9, 0) <= current.time() < time(15, 31)
+
+
+def _seconds_until_next_korea_open(now: datetime) -> int:
+    current = now.astimezone(KST) if now.tzinfo else now.replace(tzinfo=KST)
+    target = datetime.combine(current.date(), time(9, 0), tzinfo=KST)
+    if current >= target:
+        target += timedelta(days=1)
+    while target.weekday() >= 5:
+        target += timedelta(days=1)
+    return max(30, int((target - current).total_seconds()) - 30)
+
+
+def _previous_weekday(day: date) -> date:
+    candidate = day - timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
+
+
+def _intraday_trade_date(points: list[dict[str, object]]) -> Optional[date]:
+    for point in reversed(points):
+        raw = str(point.get("trade_date") or "").strip()
+        try:
+            return datetime.strptime(raw, "%Y%m%d").date()
+        except ValueError:
+            continue
+    return None
+
+
+def _closed_intraday_snapshot_is_current(
+    *,
+    trade_date: date,
+    validated_on: date,
+    now: datetime,
+    latest_daily_date: Optional[date],
+) -> bool:
+    today = now.date()
+    if validated_on == today:
+        return True
+    if now.weekday() < 5 and now.time() >= time(15, 31):
+        return trade_date == today
+    if latest_daily_date is not None:
+        return trade_date >= latest_daily_date
+    return trade_date == _previous_weekday(today)
+
+
+def _latest_daily_trade_date(db: Session, code: str) -> Optional[date]:
+    return db.scalar(
+        select(DailyPrice.trade_date)
+        .where(DailyPrice.code == code)
+        .order_by(desc(DailyPrice.trade_date))
+        .limit(1)
+    )
+
+
+def _intraday_record_is_usable(
+    record: dict[str, Any],
+    *,
+    limit: int,
+    now: datetime,
+    latest_daily_date: Optional[date],
+) -> bool:
+    points = record.get("points")
+    trade_date = record.get("trade_date")
+    validated_on = record.get("validated_on")
+    return (
+        isinstance(points, list)
+        and int(record.get("max_points") or 0) >= limit
+        and isinstance(trade_date, date)
+        and isinstance(validated_on, date)
+        and _closed_intraday_snapshot_is_current(
+            trade_date=trade_date,
+            validated_on=validated_on,
+            now=now,
+            latest_daily_date=latest_daily_date,
+        )
+    )
+
+
+def _load_closed_intraday_snapshot(
+    db: Session,
+    code: str,
+    limit: int,
+    now: datetime,
+) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    latest_daily_date = _latest_daily_trade_date(db, code)
+    cached = intraday_chart_cache.get(code)
+    if isinstance(cached, dict) and _intraday_record_is_usable(
+        cached,
+        limit=limit,
+        now=now,
+        latest_daily_date=latest_daily_date,
+    ):
+        return cached, "memory"
+
+    snapshot = db.get(StockIntradaySnapshot, code)
+    if snapshot is None:
+        return None, None
+    try:
+        points = json.loads(snapshot.payload)
+    except (TypeError, ValueError):
+        return None, None
+    record = {
+        "points": points,
+        "trade_date": snapshot.trade_date,
+        "validated_on": snapshot.validated_on,
+        "max_points": snapshot.max_points,
+        "fetched_at": snapshot.fetched_at,
+    }
+    if not _intraday_record_is_usable(
+        record,
+        limit=limit,
+        now=now,
+        latest_daily_date=latest_daily_date,
+    ):
+        return None, None
+    intraday_chart_cache.set(code, record, INTRADAY_CLOSED_TTL_SECONDS)
+    return record, "database"
+
+
+def _save_closed_intraday_snapshot(
+    db: Session,
+    code: str,
+    points: list[dict[str, object]],
+    limit: int,
+    now: datetime,
+) -> Optional[dict[str, Any]]:
+    trade_date = _intraday_trade_date(points)
+    if trade_date is None or trade_date > now.date():
+        return None
+    fetched_at = datetime.utcnow()
+    snapshot = db.get(StockIntradaySnapshot, code)
+    if snapshot is None:
+        snapshot = StockIntradaySnapshot(
+            stock_code=code,
+            trade_date=trade_date,
+            source="kis_rest",
+            payload="[]",
+            max_points=limit,
+            point_count=0,
+            validated_on=now.date(),
+            fetched_at=fetched_at,
+        )
+        db.add(snapshot)
+    snapshot.trade_date = trade_date
+    snapshot.source = "kis_rest"
+    snapshot.payload = json.dumps(points, ensure_ascii=False, separators=(",", ":"))
+    snapshot.max_points = limit
+    snapshot.point_count = len(points)
+    snapshot.validated_on = now.date()
+    snapshot.fetched_at = fetched_at
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to persist closed intraday chart for %s", code)
+        return None
+    record = {
+        "points": points,
+        "trade_date": trade_date,
+        "validated_on": now.date(),
+        "max_points": limit,
+        "fetched_at": fetched_at,
+    }
+    intraday_chart_cache.set(code, record, INTRADAY_CLOSED_TTL_SECONDS)
+    return record
+
+
+def _intraday_code_lock(code: str) -> RLock:
+    with intraday_lock_guard:
+        return intraday_code_locks.setdefault(code, RLock())
+
+
 @app.get("/stocks/{code}/intraday")
 def stock_intraday_chart(
     code: str,
     response: Response,
     limit: int = Query(default=390, ge=30, le=390),
+    db: Session = Depends(get_db),
 ):
     normalized = _normalize_stock_code(code)
+    now = datetime.now(KST)
+    market_open = _korea_regular_market_open(now)
     points: list[dict[str, object]] = []
     source = "kis_rest"
+    cache_state = "live" if market_open else "miss"
+    cached_at: Optional[datetime] = None
     message: Optional[str] = None
-    if not kis_rest_provider.is_configured():
+
+    if not market_open:
+        with _intraday_code_lock(normalized):
+            cached, hit = _load_closed_intraday_snapshot(db, normalized, limit, now)
+            if cached is not None:
+                points = list(cached["points"])[:limit]
+                cache_state = hit or "database"
+                cached_at = cached.get("fetched_at")
+            elif not kis_rest_provider.is_configured():
+                source = "unavailable"
+                message = "KIS API가 설정되지 않았습니다."
+            else:
+                try:
+                    points = kis_rest_provider.fetch_intraday_chart(normalized, max_points=limit)
+                    saved = _save_closed_intraday_snapshot(db, normalized, points, limit, now)
+                    cached_at = saved.get("fetched_at") if saved else None
+                except Exception as exc:
+                    source = "unavailable"
+                    message = str(exc)
+    elif not kis_rest_provider.is_configured():
         source = "unavailable"
         message = "KIS API가 설정되지 않았습니다."
     else:
@@ -2213,12 +2422,23 @@ def stock_intraday_chart(
         except Exception as exc:
             source = "unavailable"
             message = str(exc)
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
+
+    if market_open:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    elif points:
+        response.headers["Cache-Control"] = f"private, max-age={_seconds_until_next_korea_open(now)}"
+    else:
+        response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Intraday-Cache"] = cache_state
     return {
         "code": normalized,
         "source": source,
-        "as_of": datetime.now(KST),
+        "as_of": now,
+        "market_state": "regular" if market_open else "closed",
+        "cache_state": cache_state,
+        "cached_at": cached_at,
+        "trade_date": _intraday_trade_date(points),
         "message": message,
         "points": points,
     }

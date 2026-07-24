@@ -565,6 +565,7 @@ const state = {
   stockPriceRows: [],
   stockPricePeriod: "1D",
   stockIntradayRows: [],
+  stockIntradayMeta: null,
   stockFlowRows: [],
   stockResearchRows: [],
   stockDisclosureRows: [],
@@ -1526,7 +1527,7 @@ function renderStockMiniChart(prices, quote = null) {
     button.setAttribute("aria-pressed", String(active));
   }
   if (period === "1D") {
-    renderStockIntradayChart(state.stockIntradayRows, quote);
+    renderStockIntradayChart(state.stockIntradayRows, quote, state.stockIntradayMeta);
     return;
   }
   const allRows = stockPriceRowsWithLiveQuote(prices, quote);
@@ -1641,7 +1642,7 @@ function formatIntradayTime(value) {
   return `${text.slice(0, 2)}:${text.slice(2, 4)}`;
 }
 
-function renderStockIntradayChart(intradayRows, quote = null) {
+function renderStockIntradayChart(intradayRows, quote = null, meta = null) {
   if (!elements.stockMiniChart) {
     return;
   }
@@ -1749,7 +1750,13 @@ function renderStockIntradayChart(intradayRows, quote = null) {
     hoverPoint.hidden = true;
     tooltip.hidden = true;
   });
-  setText(elements.stockV2ChartSource, `한국투자증권 당일 분봉 · ${formatDateLabel(rows[0].date)} · 캐시하지 않음`);
+  const sourceLabel = meta?.market_state === "regular"
+    ? "한국투자증권 실시간 분봉"
+    : "한국투자증권 장마감 확정 분봉";
+  const speedLabel = meta?.market_state === "regular"
+    ? "실시간 갱신"
+    : ["memory", "database"].includes(meta?.cache_state) ? "빠른 저장본" : "저장 완료";
+  setText(elements.stockV2ChartSource, `${sourceLabel} · ${formatDateLabel(rows[0].date)} · ${speedLabel}`);
 }
 
 function formatFinancialAmount(value) {
@@ -2659,6 +2666,7 @@ function resetStockPriceSummary() {
 
 function resetStockHomeDetails() {
   state.stockIntradayRows = [];
+  state.stockIntradayMeta = null;
   state.stockFlowRows = [];
   state.stockResearchRows = [];
   state.stockDisclosureRows = [];
@@ -2725,14 +2733,25 @@ async function loadStockPriceSummary(code, quote) {
 
 async function loadStockIntraday(code, requestId) {
   try {
-    const payload = await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/intraday?limit=390`), { force: true, ttlMs: 0 });
+    const marketOpen = koreaMarketPhase() === "regular";
+    const endpoint = `/stocks/${encodeURIComponent(code)}/intraday?limit=390`;
+    const requestUrl = marketOpen ? liveUrl(endpoint) : endpoint;
+    const payload = await fetchJsonCached(requestUrl, {
+      force: marketOpen,
+      ttlMs: marketOpen ? 0 : 30 * PAGE_ENTRY_MINUTE_MS,
+    });
     if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
       return;
     }
     state.stockIntradayRows = Array.isArray(payload?.points) ? payload.points : [];
+    state.stockIntradayMeta = payload || null;
+    if (!state.stockIntradayRows.length) {
+      state.responseCache.delete(requestUrl);
+    }
   } catch {
     if (requestId === state.stockHomeDetailsRequestId) {
       state.stockIntradayRows = [];
+      state.stockIntradayMeta = null;
     }
   }
   if (state.stockPricePeriod === "1D") {

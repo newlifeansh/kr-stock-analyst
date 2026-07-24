@@ -24,7 +24,7 @@ def test_stock_detail_v3_shell_and_controls():
         'id="quant-current-label"',
         'id="quant-lifecycle"',
         'id="quant-context-list"',
-        "20260725v5",
+        "20260725v6",
     ):
         assert expected in shell.text
     assert "1,000만원 모의 운용" not in shell.text
@@ -34,6 +34,8 @@ def test_stock_detail_v3_shell_and_controls():
     assert 'state.stockFinancialMetric = button.dataset.financialMetric || "revenue"' in source
     assert 'state.stockFlowMode = button.dataset.flowMode || "cumulative"' in source
     assert "renderStockIntradayChart" in source
+    assert 'marketOpen ? liveUrl(endpoint) : endpoint' in source
+    assert "한국투자증권 장마감 확정 분봉" in source
     assert "renderStockReportHistoryChart" in source
     assert "renderQuantSignalChart" in source
     assert "/quant-signals" in source
