@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v16" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v17" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -482,7 +482,7 @@
         </div>
       </section>
 
-      <section id="watchlist-view" class="watchlist-v15" data-ui-version="1.5" hidden>
+      <section id="watchlist-view" class="watchlist-v15 watchlist-v2" data-ui-version="1.5" hidden>
         <header class="topbar">
           <div class="identity">
             <div>
@@ -494,7 +494,18 @@
 
         <section class="watchlist-panel">
           <section class="watchlist-strategy" id="watchlist-strategy" aria-live="polite" hidden></section>
-          <section class="watchlist-card-list" id="watchlist-body" aria-live="polite"></section>
+          <header class="watch-v2-list-head">
+            <div>
+              <h2>종목별 현황</h2>
+              <p id="watchlist-filter-summary">실시간 데이터를 확인 중입니다.</p>
+            </div>
+            <div class="watch-v2-filter" role="tablist" aria-label="관심 종목 필터">
+              <button class="active" type="button" role="tab" aria-selected="true" data-watch-filter="all">전체</button>
+              <button type="button" role="tab" aria-selected="false" data-watch-filter="attention">확인 필요</button>
+              <button type="button" role="tab" aria-selected="false" data-watch-filter="positive">흐름 양호</button>
+            </div>
+          </header>
+          <section class="watchlist-card-list watch-v2-list-surface" id="watchlist-body" aria-live="polite"></section>
         </section>
       </section>
 
@@ -655,6 +666,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v16" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v17" defer></script>
   </body>
 </html>
