@@ -21237,6 +21237,12 @@ body:not([data-view="stock"]) :is(
   border-radius: 6px;
 }
 
+body:not([data-view="stock"]) #recommend-history-view > .app-section-heading {
+  width: 100%;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
 @media (max-width: 720px) {
   #stock-view.stock-detail-v3 .stock-v3-news-temperature-section {
     padding-top: 20px;
@@ -21281,6 +21287,20 @@ body:not([data-view="stock"]) :is(
     border-right: 0;
     border-left: 0;
     border-radius: 0;
+  }
+
+  body:not([data-view="stock"]) :is(
+    #portfolio-tracking-panel,
+    #recommend-history-view
+  ) {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view > .app-section-heading {
+    padding: 16px 20px 14px;
   }
 
   body:not([data-view="stock"]) :is(

@@ -9,8 +9,8 @@ def test_watchlist_v15_shell_and_asset_version():
 
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
-    assert 'name="application-version" content="3.8"' in shell.text
-    assert "20260725v47" in shell.text
+    assert 'name="application-version" content="3.9"' in shell.text
+    assert "20260725v48" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -56,6 +56,9 @@ def test_watchlist_v15_is_responsive_and_matches_stock_detail_tokens():
     for expected in (
         "/* Dashboard stock-detail fidelity 3.3 */",
         "#recommend-history-view .recommend-history.archive-page",
+        "#recommend-history-view > .app-section-heading",
+        "padding: 16px 20px 14px;",
+        "#portfolio-tracking-panel",
         "#trend-view .trend-tabs",
         "width: calc(100% + 40px) !important;",
         ".market-impact-hero",
