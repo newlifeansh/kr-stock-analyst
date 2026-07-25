@@ -20847,3 +20847,120 @@ body:not([data-view="stock"]) :is(
     font-weight: 700 !important;
   }
 }
+
+/* Dashboard stock-detail fidelity 3.3 */
+body:not([data-view="stock"]) :is(
+  .trend-summary,
+  .market-leaderboard-strip,
+  .recommend-metrics,
+  .recommend-track-metrics,
+  .recommend-track-signals,
+  .chart-indicators,
+  .market-impact-hero,
+  .market-impact-flow,
+  .market-impact-detail,
+  #watchlist-view.watchlist-v3 .watch-v2-metrics,
+  #recommend-history-view .recommend-history.archive-page
+) {
+  box-shadow: none !important;
+}
+
+body:not([data-view="stock"]) #trend-view .trend-summary {
+  border: 1px solid var(--app-v3-line);
+  border-radius: 8px !important;
+  background: #f7f8fa;
+  color: var(--app-v3-muted);
+  font-size: var(--app-type-body) !important;
+  font-weight: var(--app-weight-body) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) #trend-view {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+body:not([data-view="stock"]) .market-impact-center {
+  border-radius: 8px;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-history.archive-page {
+  margin: 0;
+  padding: 20px;
+  border: 1px solid var(--app-v3-line);
+  border-radius: 8px;
+  background: var(--app-v3-panel);
+}
+
+body:not([data-view="stock"]) :is(
+  .market-leaderboard-strip,
+  .recommend-metrics,
+  .recommend-track-metrics,
+  .recommend-track-signals,
+  .chart-indicators
+) {
+  border-color: var(--app-v3-line);
+  border-radius: 7px;
+}
+
+body:not([data-view="stock"]) :is(
+  #login-gate .login-card input,
+  #login-gate .login-card button,
+  .loading-modal-card,
+  .install-sheet-card,
+  .push-notification-sheet-card
+) {
+  border-radius: 8px;
+}
+
+body:not([data-view="stock"]) #login-gate .login-card input {
+  border-color: var(--app-v3-line-strong);
+  box-shadow: none;
+}
+
+body:not([data-view="stock"]) #login-gate .login-card button {
+  border-radius: 6px;
+}
+
+body:not([data-view="stock"]) :is(
+  .push-notification-sheet-status,
+  .push-notification-condition
+) {
+  border-radius: 8px;
+}
+
+body:not([data-view="stock"]) :is(
+  .push-notification-sheet-save,
+  .push-notification-sheet-disable,
+  .push-notification-sheet-test
+) {
+  border-radius: 6px;
+}
+
+@media (max-width: 720px) {
+  body:not([data-view="stock"]) #trend-view .trend-tabs {
+    width: calc(100% + 40px) !important;
+    max-width: none !important;
+  }
+
+  body:not([data-view="stock"]) #trend-view .trend-summary {
+    padding: 14px 16px;
+    border-radius: 8px !important;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view .recommend-history.archive-page {
+    padding: 0 20px 24px;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+  }
+
+  body:not([data-view="stock"]) :is(
+    .thread-item,
+    .trend-event,
+    #recommend-view .recommend-card,
+    #recommend-history-view .recommend-track-card
+  ) {
+    border-radius: 0 !important;
+  }
+}
