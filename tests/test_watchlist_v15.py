@@ -9,8 +9,8 @@ def test_watchlist_v15_shell_and_asset_version():
 
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
-    assert 'name="application-version" content="4.7"' in shell.text
-    assert "20260725v56" in shell.text
+    assert 'name="application-version" content="4.8"' in shell.text
+    assert "20260725v57" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -167,7 +167,9 @@ def test_watchlist_v15_is_responsive_and_matches_stock_detail_tokens():
         "#trend-view .trend-tabs",
         "width: calc(100% + 40px) !important;",
         ".market-impact-hero",
-        ".market-impact-node",
+        ".market-impact-factor-row",
+        ".market-impact-factor-track",
+        ".market-impact-balance-track",
         ".market-impact-metric",
         ".market-impact-stock-tags a",
         ".push-notification-condition",
@@ -196,6 +198,34 @@ def test_watchlist_v15_is_responsive_and_matches_stock_detail_tokens():
 
     assert "#watchlist-view.watchlist-v3 .watch-v2-list-surface" in styles
     assert "#watchlist-view.watchlist-v3 .watchlist-empty-card" in styles
+
+
+def test_market_impact_uses_borderless_ranked_distribution():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    for expected in (
+        "function appendMarketImpactFactorRow",
+        'el("section", "market-impact-overview")',
+        'el("section", "market-impact-factor-map")',
+        'el("div", "market-impact-balance-track")',
+        'el("div", "market-impact-factor-track")',
+        '`${leadFactor.label}가 가장 큰 변수`',
+    ):
+        assert expected in source
+
+    for expected in (
+        "/* Market impact 4.8: borderless signal distribution. */",
+        "#trend-impact-content .market-impact-hero",
+        "border: 0 !important;",
+        ".market-impact-factor-row.is-leading",
+        ".market-impact-balance-track",
+    ):
+        assert expected in styles
+
+    assert "function appendMarketImpactNode" not in source
+    assert 'el("div", "market-impact-orbit")' not in source
 
 
 def test_dashboard_v32_uses_stock_detail_typography_on_every_page():

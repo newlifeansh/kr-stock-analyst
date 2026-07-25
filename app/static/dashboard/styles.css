@@ -9085,6 +9085,312 @@ body:not([data-view="stock"]) #recommend-history-view .recommend-track-points {
   }
 }
 
+/* Market impact 4.8: borderless signal distribution. */
+body:not([data-view="stock"]) #trend-impact-content .market-impact-hero {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
+  gap: 30px 48px;
+  align-items: start;
+  padding: 28px 0 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: #ffffff;
+  box-shadow: none !important;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-overview {
+  display: grid;
+  gap: 28px;
+  min-width: 0;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-status {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-status-top,
+body:not([data-view="stock"]) #trend-impact-content .market-impact-balance-labels,
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-map-head,
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-head,
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-name,
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-value {
+  display: flex;
+  align-items: center;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-status-top,
+body:not([data-view="stock"]) #trend-impact-content .market-impact-balance-labels,
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-map-head,
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-head {
+  justify-content: space-between;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-status-top {
+  gap: 16px;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-status-top time {
+  color: var(--app-v3-muted);
+  font-size: var(--app-type-caption);
+  font-weight: var(--app-weight-caption);
+  line-height: 1.55;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-status > strong {
+  color: var(--app-v3-text);
+  font-size: 36px;
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-status.good > strong {
+  color: var(--positive);
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-status.bad > strong {
+  color: var(--negative);
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-balance {
+  display: grid;
+  gap: 10px;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-balance-labels {
+  gap: 16px;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-balance-labels span {
+  font-size: var(--app-type-label);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+body:not([data-view="stock"]) #trend-impact-content :is(
+  .market-impact-balance-labels .good,
+  .market-impact-factor-value .good
+) {
+  color: var(--positive);
+}
+
+body:not([data-view="stock"]) #trend-impact-content :is(
+  .market-impact-balance-labels .bad,
+  .market-impact-factor-value .bad
+) {
+  color: var(--negative);
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-balance-track {
+  display: flex;
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf0f4;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-balance-track > span {
+  width: var(--balance-width, 0%);
+  height: 100%;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-balance-track > .good {
+  background: var(--positive);
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-balance-track > .bad {
+  background: var(--negative);
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-map {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-map-head {
+  gap: 20px;
+  min-width: 0;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-map-head > strong {
+  color: var(--app-v3-text);
+  font-size: var(--app-type-list);
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: right;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-list {
+  display: grid;
+  gap: 16px;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-row {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-head {
+  gap: 16px;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-name {
+  min-width: 0;
+  gap: 10px;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-rank {
+  width: 20px;
+  flex: 0 0 20px;
+  color: #b0b6bf;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-name > strong {
+  overflow: hidden;
+  color: #555d69;
+  font-size: var(--app-type-list);
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-row.is-leading .market-impact-factor-name > strong {
+  color: var(--app-v3-text);
+  font-weight: 800;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-value {
+  flex: 0 0 auto;
+  gap: 10px;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-value > strong {
+  min-width: 54px;
+  color: var(--app-v3-text);
+  font-size: var(--app-type-metric);
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-value > span {
+  min-width: 26px;
+  font-size: var(--app-type-label);
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: right;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-track {
+  height: 6px;
+  margin-left: 30px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf0f4;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-row.is-leading .market-impact-factor-track {
+  height: 9px;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-fill {
+  display: block;
+  width: var(--factor-width, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--negative);
+  transition: width 240ms ease;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-row.good .market-impact-factor-fill {
+  background: var(--positive);
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-copy {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  padding: 18px 20px;
+  border: 0;
+  border-radius: 8px;
+  background: #f5f7f9;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-copy h2 {
+  max-width: 760px;
+  color: var(--app-v3-text);
+  font-size: var(--app-type-section) !important;
+  font-weight: 750 !important;
+  line-height: 1.5 !important;
+  word-break: keep-all;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-copy p {
+  margin: 2px 0 0;
+}
+
+@media (max-width: 720px) {
+  body:not([data-view="stock"]) #trend-impact-content .market-impact-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 30px;
+    padding: 22px 0 0;
+  }
+
+  body:not([data-view="stock"]) #trend-impact-content .market-impact-overview {
+    gap: 22px;
+  }
+
+  body:not([data-view="stock"]) #trend-impact-content .market-impact-status > strong {
+    font-size: 30px;
+  }
+
+  body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-map {
+    gap: 18px;
+  }
+
+  body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-list {
+    gap: 15px;
+  }
+
+  body:not([data-view="stock"]) #trend-impact-content .market-impact-copy {
+    padding: 17px 18px;
+  }
+}
+
+@media (max-width: 430px) {
+  body:not([data-view="stock"]) #trend-impact-content .market-impact-status-top {
+    align-items: flex-start;
+  }
+
+  body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-map-head {
+    align-items: flex-start;
+  }
+
+  body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-map-head > strong {
+    max-width: 58%;
+  }
+
+  body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-name {
+    gap: 8px;
+  }
+
+  body:not([data-view="stock"]) #trend-impact-content .market-impact-factor-track {
+    margin-left: 28px;
+  }
+}
+
 /* Home market indices 3.7 */
 body:not([data-view="stock"]) .home-market-indices {
   min-width: 0;
