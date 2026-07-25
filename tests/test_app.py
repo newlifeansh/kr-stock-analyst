@@ -1,6 +1,11 @@
-from fastapi.testclient import TestClient
+from datetime import datetime, timedelta
 
+from fastapi.testclient import TestClient
+from sqlalchemy import delete
+
+from app.db import SessionLocal, init_db
 from app.main import app
+from app.models import PushNotificationHistory
 
 
 def test_health():
@@ -23,6 +28,90 @@ def test_root_redirects_to_korea_dashboard():
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 307
     assert response.headers["location"] == "/dashboard?view=home"
+
+
+def test_push_notification_history_keeps_only_recent_three_days():
+    init_db()
+    client = TestClient(app)
+    share_id = "codex-push-history"
+    token_response = client.get(f"/session/write-token?share_id={share_id}")
+    assert token_response.status_code == 200
+    write_token = token_response.json()["write_token"]
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        db.execute(delete(PushNotificationHistory).where(PushNotificationHistory.share_id == share_id))
+        db.add_all(
+            [
+                PushNotificationHistory(
+                    share_id=share_id,
+                    event_key="recent:event",
+                    notification_kind="price_move",
+                    title="최근 알림",
+                    body="최근 3일 안에 받은 알림입니다.",
+                    url="/dashboard/삼성전자",
+                    created_at=now - timedelta(hours=2),
+                ),
+                PushNotificationHistory(
+                    share_id=share_id,
+                    event_key="expired:event",
+                    notification_kind="report",
+                    title="지난 알림",
+                    body="보관 기간을 지났습니다.",
+                    url="/dashboard/삼성전자",
+                    created_at=now - timedelta(days=4),
+                ),
+            ]
+        )
+        db.commit()
+    try:
+        denied = client.get(f"/push/notifications/{share_id}")
+        assert denied.status_code == 403
+
+        response = client.get(
+            f"/push/notifications/{share_id}",
+            headers={"X-Write-Token": write_token},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["retention_days"] == 3
+        assert [item["title"] for item in payload["items"]] == ["최근 알림"]
+        assert payload["items"][0]["created_at"].endswith("Z")
+        with SessionLocal() as db:
+            remaining = list(
+                db.scalars(
+                    PushNotificationHistory.__table__.select().where(
+                        PushNotificationHistory.share_id == share_id
+                    )
+                )
+            )
+            assert len(remaining) == 1
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(PushNotificationHistory).where(PushNotificationHistory.share_id == share_id))
+            db.commit()
+
+
+def test_dashboard_notification_button_opens_history_before_settings():
+    client = TestClient(app)
+    shell = client.get("/dashboard?view=home").text
+    source = client.get("/assets/dashboard/app.js").text
+
+    for expected in (
+        'id="push-history-sheet"',
+        'id="push-history-settings"',
+        'id="push-history-list"',
+        "최근 3일",
+    ):
+        assert expected in shell
+    for expected in (
+        "async function openPushNotificationCenter()",
+        "if (!state.pushNotificationEnabled)",
+        "showPushNotificationHistory();",
+        "await loadPushNotificationHistory();",
+        'fetch(`/push/notifications/${encodeURIComponent(state.watchlistId)}`',
+        'elements.pushHistorySettings?.addEventListener("click", openPushSettingsFromHistory)',
+    ):
+        assert expected in source
 
 
 def test_watchlist_share_id_roundtrip():

@@ -51,6 +51,7 @@ from app.models import (
     IngestionRun,
     InvestorFlow,
     MacroObservation,
+    PushNotificationHistory,
     PushSubscription,
     StockMaster,
     StockIntradaySnapshot,
@@ -727,6 +728,45 @@ def push_subscription_status(
     return {
         "enabled": subscription is not None,
         "conditions": _subscription_conditions(subscription),
+    }
+
+
+@app.get("/push/notifications/{share_id}")
+def push_notification_history(
+    share_id: str,
+    request: Request,
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    normalized_id = _normalize_watchlist_id(share_id)
+    _require_write_access(request, normalized_id)
+    cutoff = datetime.utcnow() - timedelta(days=3)
+    db.execute(delete(PushNotificationHistory).where(PushNotificationHistory.created_at < cutoff))
+    db.commit()
+    rows = list(
+        db.scalars(
+            select(PushNotificationHistory)
+            .where(
+                PushNotificationHistory.share_id == normalized_id,
+                PushNotificationHistory.created_at >= cutoff,
+            )
+            .order_by(desc(PushNotificationHistory.created_at), desc(PushNotificationHistory.id))
+            .limit(limit)
+        )
+    )
+    return {
+        "retention_days": 3,
+        "items": [
+            {
+                "id": row.id,
+                "kind": row.notification_kind,
+                "title": row.title,
+                "body": row.body,
+                "url": row.url,
+                "created_at": f"{row.created_at.isoformat(timespec='seconds')}Z",
+            }
+            for row in rows
+        ],
     }
 
 

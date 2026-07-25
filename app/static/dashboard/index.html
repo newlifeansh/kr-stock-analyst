@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260726v68" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260726v69" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -104,6 +104,22 @@
             <button id="install-sheet-close" type="button" aria-label="닫기">×</button>
           </div>
           <ol class="install-steps" id="install-steps"></ol>
+        </article>
+      </section>
+      <section class="push-notification-sheet push-history-sheet" id="push-history-sheet" hidden>
+        <div class="push-notification-sheet-backdrop" id="push-history-sheet-backdrop"></div>
+        <article class="push-notification-sheet-card push-history-sheet-card" role="dialog" aria-modal="true" aria-labelledby="push-history-sheet-title">
+          <div class="push-history-sheet-head">
+            <div>
+              <p>최근 3일</p>
+              <h2 id="push-history-sheet-title">알림</h2>
+            </div>
+            <div class="push-history-sheet-tools">
+              <button class="push-history-settings" id="push-history-settings" type="button">설정</button>
+              <button class="push-history-close" id="push-history-close" type="button" aria-label="알림 내역 닫기">×</button>
+            </div>
+          </div>
+          <div class="push-history-list" id="push-history-list" role="list" aria-live="polite"></div>
         </article>
       </section>
       <section class="push-notification-sheet" id="push-notification-sheet" hidden>
@@ -617,6 +633,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260726v68" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260726v69" defer></script>
   </body>
 </html>

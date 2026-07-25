@@ -176,6 +176,22 @@ class PushDelivery(Base):
     )
 
 
+class PushNotificationHistory(Base):
+    __tablename__ = "push_notification_history"
+    __table_args__ = (
+        UniqueConstraint("share_id", "event_key", name="uq_push_notification_history_event"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    share_id: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    event_key: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    notification_kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[Optional[str]] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class DailyPrice(Base):
     __tablename__ = "daily_price"
     __table_args__ = (UniqueConstraint("code", "trade_date", name="uq_daily_price"),)

@@ -42,6 +42,11 @@ const elements = {
   pushNotificationButtonLabel: $("push-notification-button-label"),
   pushNotificationDisableButton: $("push-notification-disable-button"),
   pushNotificationStatus: $("push-notification-status"),
+  pushHistorySheet: $("push-history-sheet"),
+  pushHistorySheetBackdrop: $("push-history-sheet-backdrop"),
+  pushHistorySettings: $("push-history-settings"),
+  pushHistoryClose: $("push-history-close"),
+  pushHistoryList: $("push-history-list"),
   pushNotificationSheet: $("push-notification-sheet"),
   pushNotificationSheetBackdrop: $("push-notification-sheet-backdrop"),
   pushNotificationSheetClose: $("push-notification-sheet-close"),
@@ -676,6 +681,8 @@ const state = {
   pushNotificationBusy: false,
   pushNotificationEnabled: false,
   pushNotificationConditions: PUSH_NOTIFICATION_FALLBACK_OPTIONS.map((item) => item.id),
+  pushNotificationHistory: [],
+  pushNotificationHistoryBusy: false,
   pageLoadingSequence: 0,
   pageLoadingTokens: new Map(),
 };
@@ -4421,6 +4428,118 @@ function closePushNotificationSheet() {
   document.body.classList.remove("modal-open");
 }
 
+const PUSH_HISTORY_KIND_LABELS = {
+  price_move: "시세",
+  report: "리포트",
+  disclosure: "공시",
+  major_event: "주요 이벤트",
+  test: "테스트",
+};
+
+function formatPushHistoryTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function renderPushNotificationHistory(options = {}) {
+  const list = elements.pushHistoryList;
+  if (!list) {
+    return;
+  }
+  list.replaceChildren();
+  if (options.loading) {
+    const loading = el("div", "push-history-state");
+    loading.textContent = "알림을 불러오는 중입니다.";
+    list.append(loading);
+    return;
+  }
+  if (options.error) {
+    const error = el("div", "push-history-state is-error");
+    error.textContent = "알림 내역을 불러오지 못했습니다. 잠시 후 다시 열어주세요.";
+    list.append(error);
+    return;
+  }
+  if (!state.pushNotificationHistory.length) {
+    const empty = el("div", "push-history-state");
+    const title = el("strong");
+    title.textContent = "새 알림이 없습니다.";
+    const copy = el("span");
+    copy.textContent = "최근 3일 동안 받은 알림이 여기에 표시됩니다.";
+    empty.append(title, copy);
+    list.append(empty);
+    return;
+  }
+  for (const item of state.pushNotificationHistory) {
+    const row = el("button", "push-history-item");
+    row.type = "button";
+    row.setAttribute("role", "listitem");
+    const meta = el("span", "push-history-item-meta");
+    const kind = el("span");
+    kind.textContent = PUSH_HISTORY_KIND_LABELS[item.kind] || "알림";
+    const time = el("time");
+    time.dateTime = item.created_at || "";
+    time.textContent = formatPushHistoryTime(item.created_at);
+    meta.append(kind, time);
+    const title = el("strong", "push-history-item-title");
+    title.textContent = item.title || "알림";
+    const body = el("span", "push-history-item-body");
+    body.textContent = item.body || "";
+    row.append(meta, title, body);
+    if (item.url) {
+      row.addEventListener("click", () => {
+        window.location.assign(item.url);
+      });
+    } else {
+      row.disabled = true;
+    }
+    list.append(row);
+  }
+}
+
+function showPushNotificationHistory() {
+  if (elements.pushHistorySheet) {
+    elements.pushHistorySheet.hidden = false;
+  }
+  document.body.classList.add("modal-open");
+}
+
+function closePushNotificationHistory() {
+  if (elements.pushHistorySheet) {
+    elements.pushHistorySheet.hidden = true;
+  }
+  document.body.classList.remove("modal-open");
+}
+
+async function loadPushNotificationHistory() {
+  if (!state.watchlistId || state.pushNotificationHistoryBusy) {
+    return;
+  }
+  state.pushNotificationHistoryBusy = true;
+  renderPushNotificationHistory({ loading: true });
+  try {
+    const writeToken = await ensureWriteToken(state.watchlistId);
+    const response = await fetch(`/push/notifications/${encodeURIComponent(state.watchlistId)}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "X-Write-Token": writeToken },
+    });
+    if (!response.ok) {
+      throw new Error("push history failed");
+    }
+    const payload = await response.json();
+    state.pushNotificationHistory = Array.isArray(payload.items) ? payload.items : [];
+    renderPushNotificationHistory();
+  } catch {
+    renderPushNotificationHistory({ error: true });
+  } finally {
+    state.pushNotificationHistoryBusy = false;
+  }
+}
+
 function setPushNotificationSheetStatus(text = "", tone = "") {
   if (!elements.pushNotificationSheetStatus) {
     return;
@@ -4498,6 +4617,24 @@ async function openPushNotificationSheet() {
   }
   await refreshPushNotificationState();
   showPushNotificationSheet();
+}
+
+async function openPushNotificationCenter() {
+  if (!state.watchlistId || state.pushNotificationBusy) {
+    return;
+  }
+  await refreshPushNotificationState();
+  if (!state.pushNotificationEnabled) {
+    showPushNotificationSheet();
+    return;
+  }
+  showPushNotificationHistory();
+  await loadPushNotificationHistory();
+}
+
+async function openPushSettingsFromHistory() {
+  closePushNotificationHistory();
+  await openPushNotificationSheet();
 }
 
 function setFlowLoading(open) {
@@ -4754,7 +4891,7 @@ async function refreshPushNotificationState(options = {}) {
       const status = await fetchPushSubscriptionStatus(state.watchlistId, subscription.endpoint).catch(() => null);
       state.pushNotificationEnabled = Boolean(status?.enabled ?? true);
       state.pushNotificationConditions = normalizePushNotificationConditions(status?.conditions || state.pushNotificationConditions);
-      updatePushNotificationButton({ label: "알림 설정", buttonText: "알림 설정", active: true });
+      updatePushNotificationButton({ label: "알림 내역", buttonText: "알림", active: true });
       updatePushNotificationDisableButton({ hidden: false });
       setPushNotificationStatus("급등락, 공시, 리포트만 바로 알려드려요.", "success");
       if (options.syncServer) {
@@ -4810,7 +4947,7 @@ async function savePushNotificationSettings() {
     state.pushNotificationEnabled = true;
     state.pushNotificationConditions = normalizePushNotificationConditions(result.conditions || conditions);
     closePushNotificationSheet();
-    updatePushNotificationButton({ label: "알림 설정", buttonText: "알림 설정", active: true });
+    updatePushNotificationButton({ label: "알림 내역", buttonText: "알림", active: true });
     updatePushNotificationDisableButton({ hidden: false });
     setPushNotificationStatus(
       result.test_sent ? "알림 설정 완료. 테스트 알림을 보냈어요." : "알림 설정 완료. 중요한 변화만 알려드릴게요.",
@@ -10368,7 +10505,10 @@ elements.watchlistIdForm?.addEventListener("submit", (event) => {
   applyWatchlistId(elements.watchlistIdInput.value, { merge: true });
 });
 elements.logoutButton?.addEventListener("click", logoutWatchlistIdentity);
-elements.pushNotificationButton?.addEventListener("click", openPushNotificationSheet);
+elements.pushNotificationButton?.addEventListener("click", openPushNotificationCenter);
+elements.pushHistorySheetBackdrop?.addEventListener("click", closePushNotificationHistory);
+elements.pushHistoryClose?.addEventListener("click", closePushNotificationHistory);
+elements.pushHistorySettings?.addEventListener("click", openPushSettingsFromHistory);
 elements.pushNotificationDisableButton?.addEventListener("click", disablePushNotificationsFromUi);
 elements.pushNotificationSheetBackdrop?.addEventListener("click", closePushNotificationSheet);
 elements.pushNotificationSheetClose?.addEventListener("click", closePushNotificationSheet);

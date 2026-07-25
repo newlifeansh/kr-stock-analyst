@@ -6,7 +6,14 @@ from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings
 from app.db import Base
-from app.models import DisclosureItem, PushDelivery, PushSubscription, StockMaster, WatchlistItem
+from app.models import (
+    DisclosureItem,
+    PushDelivery,
+    PushNotificationHistory,
+    PushSubscription,
+    StockMaster,
+    WatchlistItem,
+)
 from app.services import web_push
 from app.services.trends import EVENT_TEMPLATES
 
@@ -133,6 +140,58 @@ def test_delivery_is_sent_only_once(monkeypatch):
         delivery = db.query(PushDelivery).one()
         assert delivery.status == "sent"
         assert delivery.attempts == 1
+        history = db.query(PushNotificationHistory).one()
+        assert history.share_id == "tester"
+        assert history.title == candidate.title
+        assert history.body == candidate.body
+        assert history.url == candidate.url
+    finally:
+        db.close()
+
+
+def test_notification_history_is_deduplicated_per_user_and_prunes_old_rows(monkeypatch):
+    db = _session()
+    try:
+        subscriptions = [
+            PushSubscription(
+                share_id="tester",
+                endpoint=f"https://push.example/subscription-{index}",
+                p256dh="p" * 64,
+                auth="a" * 24,
+            )
+            for index in range(2)
+        ]
+        db.add_all(subscriptions)
+        db.add(
+            PushNotificationHistory(
+                share_id="tester",
+                event_key="old:event",
+                notification_kind="report",
+                title="오래된 알림",
+                body="보관 기간을 지났습니다.",
+                url="/dashboard",
+                created_at=datetime.utcnow() - timedelta(days=4),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(web_push, "webpush", lambda **kwargs: None)
+        candidate = web_push.NotificationCandidate(
+            event_key="event:shared-device-test",
+            kind="major_event",
+            title="주요 이벤트 임박",
+            body="관심종목에 영향을 줄 수 있습니다.",
+            url="/dashboard?view=home&home_tab=events",
+            tag="event-test",
+            occurred_at=datetime.utcnow(),
+        )
+        runtime = web_push.WebPushRuntime(_settings())
+
+        assert runtime._send(db, subscriptions[0], candidate) is True
+        assert runtime._send(db, subscriptions[1], candidate) is True
+
+        histories = db.query(PushNotificationHistory).all()
+        assert len(histories) == 1
+        assert histories[0].event_key == candidate.event_key
     finally:
         db.close()
 

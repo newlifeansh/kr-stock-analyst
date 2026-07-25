@@ -11,7 +11,7 @@ from typing import Optional
 from urllib.parse import quote
 
 from pywebpush import WebPushException, webpush
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -19,6 +19,7 @@ from app.db import SessionLocal
 from app.models import (
     DisclosureItem,
     PushDelivery,
+    PushNotificationHistory,
     PushSubscription,
     ResearchReport,
     StockMaster,
@@ -34,6 +35,7 @@ from app.services.trends import (
 
 logger = logging.getLogger(__name__)
 KST = timezone(timedelta(hours=9))
+NOTIFICATION_HISTORY_RETENTION = timedelta(days=3)
 
 IMPORTANT_DISCLOSURE_CATEGORIES = {
     "earnings_flash",
@@ -372,6 +374,29 @@ class WebPushRuntime:
             delivery.status = "sent"
             delivery.sent_at = datetime.utcnow()
             delivery.error = None
+            history_cutoff = datetime.utcnow() - NOTIFICATION_HISTORY_RETENTION
+            db.execute(
+                delete(PushNotificationHistory).where(
+                    PushNotificationHistory.created_at < history_cutoff
+                )
+            )
+            history = db.scalar(
+                select(PushNotificationHistory).where(
+                    PushNotificationHistory.share_id == subscription.share_id,
+                    PushNotificationHistory.event_key == candidate.event_key,
+                )
+            )
+            if history is None:
+                db.add(
+                    PushNotificationHistory(
+                        share_id=subscription.share_id,
+                        event_key=candidate.event_key,
+                        notification_kind=candidate.kind,
+                        title=candidate.title,
+                        body=candidate.body,
+                        url=candidate.url,
+                    )
+                )
             db.commit()
             return True
         except WebPushException as exc:
@@ -394,6 +419,12 @@ class WebPushRuntime:
         now_utc = datetime.utcnow()
         now_kst = datetime.now(KST).replace(tzinfo=None)
         with SessionLocal() as db:
+            db.execute(
+                delete(PushNotificationHistory).where(
+                    PushNotificationHistory.created_at < now_utc - NOTIFICATION_HISTORY_RETENTION
+                )
+            )
+            db.commit()
             subscriptions = list(
                 db.scalars(
                     select(PushSubscription)
