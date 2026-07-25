@@ -5307,12 +5307,19 @@ function createWatchMetric(label, value, field = "", toneValue = null) {
   return item;
 }
 
-function createWatchReportMetric(label, value, tone = "") {
+function createWatchReportMetric(label, value, tone = "", field = "", toneValue = null) {
   const item = document.createElement("div");
   if (tone) {
     item.className = tone;
   }
-  item.append(el("dt", "", label), el("dd", "", value));
+  const valueNode = el("dd", "", value);
+  if (field) {
+    valueNode.dataset.field = field;
+  }
+  if (toneValue !== null && toneValue !== undefined) {
+    setTone(valueNode, toneValue);
+  }
+  item.append(el("dt", "", label), valueNode);
   return item;
 }
 
@@ -5799,7 +5806,7 @@ function renderWatchlistStrategy(results = state.watchlistResults, usSectorMoves
   const actionBlock = el("section", "watch-v2-action");
   actionBlock.append(el("span", "", "오늘의 대응"), el("strong", "", action));
 
-  const stats = el("ul", "watch-v2-portfolio-line");
+  const stats = el("dl", "watch-v2-portfolio-line");
   const statItems = [
     ["관심", `${valid.length}개`, ""],
     ["상승", `${positiveCount}개`, positiveCount ? "positive" : ""],
@@ -5807,9 +5814,7 @@ function renderWatchlistStrategy(results = state.watchlistResults, usSectorMoves
     ["미국 연관", usAverage === null ? "확인 중" : formatPercent(usAverage), usTone],
   ];
   for (const [label, value, tone] of statItems) {
-    const row = el("li", tone);
-    row.append(el("span", "", label), el("strong", "", value));
-    stats.appendChild(row);
+    stats.appendChild(createWatchReportMetric(label, value, tone));
   }
 
   const context = el("dl", "watch-v2-briefing-context");
@@ -6128,13 +6133,13 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
   removeButton.title = "관심 해제";
   header.append(link, removeButton);
 
-  const metrics = document.createElement("section");
+  const metrics = document.createElement("dl");
   metrics.className = "watch-v15-metrics watch-v2-metrics";
   metrics.append(
-    createWatchMetric("거래대금", formatMoney(dashboard.quote.trading_value), "trading_value"),
-    createWatchMetric("1개월", formatPercent(dashboard.momentum.one_month_return), "one_month", dashboard.momentum.one_month_return),
-    createWatchMetric("3개월", formatPercent(dashboard.momentum.three_month_return), "three_month", dashboard.momentum.three_month_return),
-    createWatchMetric("뉴스", formatPercent(dashboard.sentiment.score), "sentiment", dashboard.sentiment.score)
+    createWatchReportMetric("거래대금", formatMoney(dashboard.quote.trading_value), "", "trading_value"),
+    createWatchReportMetric("1개월", formatPercent(dashboard.momentum.one_month_return), "", "one_month", dashboard.momentum.one_month_return),
+    createWatchReportMetric("3개월", formatPercent(dashboard.momentum.three_month_return), "", "three_month", dashboard.momentum.three_month_return),
+    createWatchReportMetric("뉴스", formatPercent(dashboard.sentiment.score), "", "sentiment", dashboard.sentiment.score)
   );
 
   const preOpenPoint = renderWatchPreOpenPoint(card, dashboard, null, item, usSectorMoves);

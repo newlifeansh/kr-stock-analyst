@@ -8,9 +8,11 @@ def test_watchlist_v15_shell_and_asset_version():
     shell = client.get("/dashboard?view=watchlist")
 
     assert shell.status_code == 200
-    assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2" data-ui-version="1.5"' in shell.text
-    assert 'name="application-version" content="1.5"' in shell.text
-    assert "20260725v17" in shell.text
+    assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="1.6"' in shell.text
+    assert 'name="application-version" content="1.6"' in shell.text
+    assert "20260725v19" in shell.text
+    assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
+    assert 'class="watch-v3-stock-section"' in shell.text
 
 
 def test_watchlist_v15_uses_progressive_real_time_cards():
@@ -43,18 +45,20 @@ def test_watchlist_v15_is_responsive_and_matches_stock_detail_tokens():
     styles = client.get("/assets/dashboard/styles.css").text
 
     for expected in (
-        "/* Watchlist 2.0:",
-        "#watchlist-view.watchlist-v2",
+        "/* Watchlist 3.0:",
+        "#watchlist-view.watchlist-v3",
         "grid-template-columns: minmax(0, 1fr);",
-        "grid-template-columns: repeat(4, minmax(0, 1fr));",
+        "grid-template-columns: repeat(2, minmax(0, 1fr));",
         "@media (max-width: 720px)",
         "grid-template-columns: repeat(3, minmax(0, 1fr));",
         '"Apple SD Gothic Neo"',
         "overflow: clip;",
         "flex-direction: row;",
         "align-items: flex-start;",
+        ".watch-v3-tabs button.active::after",
+        "font-size: 16px !important;",
     ):
         assert expected in styles
 
-    assert "#watchlist-view.watchlist-v2 .watch-v2-list-surface" in styles
-    assert "#watchlist-view.watchlist-v2 .watchlist-empty-card" in styles
+    assert "#watchlist-view.watchlist-v3 .watch-v2-list-surface" in styles
+    assert "#watchlist-view.watchlist-v3 .watchlist-empty-card" in styles
