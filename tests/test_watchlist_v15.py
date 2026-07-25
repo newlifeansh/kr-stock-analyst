@@ -9,8 +9,8 @@ def test_watchlist_v15_shell_and_asset_version():
 
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
-    assert 'name="application-version" content="4.5"' in shell.text
-    assert "20260725v54" in shell.text
+    assert 'name="application-version" content="4.6"' in shell.text
+    assert "20260725v55" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -128,14 +128,27 @@ def test_tracked_recommendation_uses_readable_values_and_stock_detail_table():
         'el("h3", "", "저장 당시 참고 근거")',
         ".map(sanitizeRecommendationTrackPoint).filter(Boolean)",
         "setRecommendationTrackExpanded(nextCard, keepExpanded);",
+        'open.className = "recommend-track-stock-link";',
+        'el("button", "recommend-track-remove track-delete", "★")',
+        'metrics.className = "recommend-track-metrics";',
+        'el("span", "recommend-track-detail-toggle-label", "저장 당시 판단")',
+        'el("span", "recommend-track-detail-toggle-icon", "+")',
     ):
         assert expected in source
 
+    assert 'open.className = "snapshot-button";' not in source
+    assert 'el("button", "snapshot-delete track-delete", "추적 해제")' not in source
+
     for expected in (
         "/* Tracked recommendation tables match the continuous stock-detail table. */",
+        "/* Tracked recommendations use the same flat section language as stock detail. */",
+        "/* Final tracking layout overrides legacy dashboard card rules. */",
         "#recommend-history-view :is(",
         ".recommend-track-signals > div:last-child",
         ".recommend-track-saved-info",
+        ".recommend-track-stock-link",
+        ".recommend-track-remove",
+        ".recommend-track-detail-toggle-icon",
         "grid-template-columns: repeat(2, minmax(0, 1fr));",
     ):
         assert expected in styles

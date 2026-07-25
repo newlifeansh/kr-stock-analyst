@@ -8257,7 +8257,14 @@ function setRecommendationTrackExpanded(card, expanded) {
     return;
   }
   detail.hidden = !expanded;
-  toggle.textContent = expanded ? "접기" : "자세히 보기";
+  const label = toggle.querySelector(".recommend-track-detail-toggle-label");
+  const icon = toggle.querySelector(".recommend-track-detail-toggle-icon");
+  if (label) {
+    label.textContent = expanded ? "저장 당시 판단 접기" : "저장 당시 판단";
+  }
+  if (icon) {
+    icon.textContent = expanded ? "−" : "+";
+  }
   toggle.setAttribute("aria-expanded", String(expanded));
 }
 
@@ -8274,33 +8281,35 @@ function createRecommendationTrackCard(track, dashboard = null) {
   card.recommendationTrack = track;
   card.trackDashboard = dashboard;
 
-  const head = el("div", "recommend-track-head");
-  const title = el("div", "recommend-track-title");
+  const head = el("header", "recommend-track-head");
+  const open = document.createElement("a");
+  open.className = "recommend-track-stock-link";
+  open.href = viewStockUrl(track.name || track.code || "");
+  open.setAttribute("aria-label", `${track.name || "종목"} 종목 상세 보기`);
+  const title = el("span", "recommend-track-title");
   title.append(
     el("strong", "", track.name || "-"),
     el("span", "", `${track.code || "-"} · ${track.market || "-"}`)
   );
-  const actions = el("div", "recommend-track-actions");
-  const open = document.createElement("a");
-  open.className = "snapshot-button";
-  open.href = viewStockUrl(track.name || track.code || "");
-  open.textContent = "종목 상세";
-  const remove = el("button", "snapshot-delete track-delete", "추적 해제");
+  open.append(title, el("span", "recommend-track-open-label", "상세 ›"));
+  const remove = el("button", "recommend-track-remove track-delete", "★");
   remove.type = "button";
   remove.dataset.trackId = track.id || "";
-  actions.append(open, remove);
-  head.append(title, actions);
+  remove.setAttribute("aria-label", `${track.name || "종목"} 추적 해제`);
+  remove.title = "추적 해제";
+  head.append(open, remove);
 
-  const metrics = el("div", "recommend-track-metrics");
+  const metrics = document.createElement("dl");
+  metrics.className = "recommend-track-metrics";
   const metricRows = [
-    ["추적 단가", trackedPrice !== null ? formatNumber(trackedPrice) : "가격 정보 없음", "", trackedPrice],
-    ["현재 단가", currentPrice !== null ? formatNumber(currentPrice) : "불러오는 중", "tracked_current_price", currentPrice],
-    ["주당 손익", profit.value !== null ? formatChangeValue(profit.value) : "계산 전", "tracked_pnl_value", profit.value],
-    ["손익률", profit.rate !== null ? formatPercent(profit.rate) : "계산 전", "tracked_pnl_rate", profit.rate],
+    ["추적가", trackedPrice !== null ? `${formatNumber(trackedPrice)}원` : "정보 없음", "", trackedPrice],
+    ["현재가", currentPrice !== null ? `${formatNumber(currentPrice)}원` : "확인 중", "tracked_current_price", currentPrice],
+    ["주당 손익", profit.value !== null ? `${formatChangeValue(profit.value)}원` : "계산 전", "tracked_pnl_value", profit.value],
+    ["수익률", profit.rate !== null ? formatPercent(profit.rate) : "계산 전", "tracked_pnl_rate", profit.rate],
   ];
   for (const [label, value, field, rawValue] of metricRows) {
     const row = el("div");
-    const valueNode = el("strong", "", value);
+    const valueNode = el("dd", "", value);
     if (field) {
       valueNode.dataset.field = field;
     }
@@ -8310,11 +8319,12 @@ function createRecommendationTrackCard(track, dashboard = null) {
     if (field === "tracked_pnl_value" || field === "tracked_pnl_rate") {
       setTone(valueNode, rawValue);
     }
-    row.append(el("span", "", label), valueNode);
+    row.append(el("dt", "", label), valueNode);
     metrics.appendChild(row);
   }
 
-  const signalGrid = el("div", "recommend-track-signals");
+  const signalGrid = document.createElement("dl");
+  signalGrid.className = "recommend-track-signals";
   const signalRows = [
     ["추적 등록", track.tracked_at ? formatDate(track.tracked_at) : "등록일 정보 없음"],
     ["저장 당시 판단", recommendationTrackDecisionLabel(track.ai?.decision || track.tracked_action)],
@@ -8324,13 +8334,17 @@ function createRecommendationTrackCard(track, dashboard = null) {
   ];
   for (const [label, value] of signalRows) {
     const row = el("div");
-    row.append(el("span", "", label), el("strong", "", value || "정보 없음"));
+    row.append(el("dt", "", label), el("dd", "", value || "정보 없음"));
     signalGrid.appendChild(row);
   }
 
-  const detailToggle = el("button", "recommend-track-detail-toggle", "자세히 보기");
+  const detailToggle = el("button", "recommend-track-detail-toggle");
   detailToggle.type = "button";
   detailToggle.setAttribute("aria-expanded", "false");
+  detailToggle.append(
+    el("span", "recommend-track-detail-toggle-label", "저장 당시 판단"),
+    el("span", "recommend-track-detail-toggle-icon", "+")
+  );
 
   const detail = el("section", "recommend-track-detail");
   detail.hidden = true;
@@ -8370,11 +8384,11 @@ function updateTrackedRecommendationQuote(code, quote) {
   const pnlValueNode = card.querySelector('[data-field="tracked_pnl_value"]');
   const pnlRateNode = card.querySelector('[data-field="tracked_pnl_rate"]');
   if (currentPriceNode && quote.price !== null && quote.price !== undefined && quote.price !== "") {
-    animateQuoteNumber(currentPriceNode, quote.price, (value) => formatNumber(Math.round(Number(value))));
+    animateQuoteNumber(currentPriceNode, quote.price, (value) => `${formatNumber(Math.round(Number(value)))}원`);
   }
   const profit = recommendationTrackProfit(trackedPrice, quote.price);
   if (pnlValueNode && profit.value !== null) {
-    animateQuoteNumber(pnlValueNode, profit.value, formatChangeValue);
+    animateQuoteNumber(pnlValueNode, profit.value, (value) => `${formatChangeValue(value)}원`);
     setLiveCellTone(pnlValueNode, profit.value);
   }
   if (pnlRateNode && profit.rate !== null) {
