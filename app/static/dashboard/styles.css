@@ -14882,16 +14882,6 @@ body :is(
   line-height: 1.25;
 }
 
-#stock-view.stock-detail-v3 .quant-current-head > strong {
-  flex: 0 0 auto;
-  min-width: 76px;
-  padding-top: 5px;
-  font-size: 21px;
-  font-weight: 750;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
 #stock-view.stock-detail-v3 .quant-action-entry_pending,
 #stock-view.stock-detail-v3 .quant-action-entered,
 #stock-view.stock-detail-v3 .quant-action-holding {
@@ -15354,10 +15344,6 @@ body :is(
     font-size: 25px !important;
   }
 
-  #stock-view.stock-detail-v3 .quant-current-head > strong {
-    font-size: 18px;
-  }
-
   #stock-view.stock-detail-v3 .quant-current-meta {
     padding: 0 20px 16px;
     font-size: 11px;
@@ -15459,36 +15445,6 @@ body :is(
   font-weight: 750;
 }
 
-#stock-view.stock-detail-v3 .quant-state-badge {
-  min-width: 0;
-  padding: 5px 8px;
-  border-radius: 4px;
-  background: #e9edf2;
-  color: #555f6b !important;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1;
-  text-align: left;
-}
-
-#stock-view.stock-detail-v3 .quant-state-badge.quant-action-entry_pending,
-#stock-view.stock-detail-v3 .quant-state-badge.quant-action-holding {
-  background: #fff0f1;
-  color: #c92838 !important;
-}
-
-#stock-view.stock-detail-v3 .quant-state-badge.quant-action-partial_exit_pending,
-#stock-view.stock-detail-v3 .quant-state-badge.quant-action-partially_exited {
-  background: #fff5df;
-  color: #946100 !important;
-}
-
-#stock-view.stock-detail-v3 .quant-state-badge.quant-action-full_exit_pending,
-#stock-view.stock-detail-v3 .quant-state-badge.quant-action-exited {
-  background: #eaf2ff;
-  color: #2167c7 !important;
-}
-
 #stock-view.stock-detail-v3 .quant-signal-refresh {
   flex: 0 0 auto;
   min-width: 72px;
@@ -15511,7 +15467,6 @@ body :is(
 #stock-view.stock-detail-v3 .quant-current-message[class*="quant-action-"] {
   max-width: 620px;
   margin: 28px 0 8px;
-  color: var(--stock-v3-text) !important;
   font-size: 28px !important;
   font-weight: 850;
   line-height: 1.35;

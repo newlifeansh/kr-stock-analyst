@@ -25,7 +25,7 @@ def test_stock_detail_v3_shell_and_controls():
         'id="quant-signal-refresh"',
         "최근 1년 AI 매매신호",
         "모든 매매내역 보기",
-        "20260725v11",
+        "20260725v12",
     ):
         assert expected in shell.text
     assert "1,000만원 모의 운용" not in shell.text
@@ -41,7 +41,9 @@ def test_stock_detail_v3_shell_and_controls():
     assert "renderQuantSignalChart" in source
     assert "/quant-signals" in source
     assert "quantSignalMarkers" in source
-    assert "원에 모두 팔았어요" in source
+    assert 'headline: "매도 완료"' in source
+    assert 'id="quant-current-score"' not in shell.text
+    assert "원에 모두 팔았어요" not in source
     assert "AI 전략의 모의 매매 결과이며 실제 계좌 주문이 아닙니다." in source
     assert "오늘의 대응" not in shell.text
     assert "판단 근거와 위험 보기" not in shell.text

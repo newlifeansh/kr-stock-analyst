@@ -65,7 +65,6 @@ const elements = {
   quantSignalContent: $("quant-signal-content"),
   quantSignalRefresh: $("quant-signal-refresh"),
   quantCurrentLabel: $("quant-current-label"),
-  quantCurrentScore: $("quant-current-score"),
   quantCurrentMeta: $("quant-current-meta"),
   quantLifecycle: $("quant-lifecycle"),
   quantCurrentReasons: $("quant-current-reasons"),
@@ -7212,9 +7211,8 @@ function quantCurrentStatusView(payload) {
   const currentPrice = current.price ? `${formatNumber(current.price)}원` : "-";
   const exposure = `${formatNumber(current.model_exposure_percent || 0)}%`;
   const base = {
-    badge: "관망 중",
     tone: "waiting",
-    headline: "아직 매매신호가 없어요.",
+    headline: "관망 중",
     next: "현재는 새 매수 신호를 기다리고 있어요.",
     rows: [
       ["현재가", currentPrice, "neutral"],
@@ -7226,18 +7224,16 @@ function quantCurrentStatusView(payload) {
   if (current.action === "entry_pending") {
     return {
       ...base,
-      badge: "매수 대기",
       tone: "entry_pending",
-      headline: "살 조건이 확인됐어요.",
+      headline: "매수 대기",
       next: "다음 거래일 시가에 AI 전략의 매수로 반영할 예정이에요.",
     };
   }
   if (current.action === "partial_exit_pending") {
     return {
       ...base,
-      badge: "일부 매도 대기",
       tone: "partial_exit_pending",
-      headline: "일부 팔 조건이 확인됐어요.",
+      headline: "일부 매도 대기",
       next: "다음 거래일 시가에 일부 매도로 반영할 예정이에요.",
       rows: [
         ["현재가", currentPrice, "neutral"],
@@ -7249,9 +7245,8 @@ function quantCurrentStatusView(payload) {
   if (current.action === "full_exit_pending") {
     return {
       ...base,
-      badge: "매도 대기",
       tone: "full_exit_pending",
-      headline: "모두 팔 조건이 확인됐어요.",
+      headline: "매도 대기",
       next: "다음 거래일 시가에 모두 매도로 반영할 예정이에요.",
       rows: [
         ["현재가", currentPrice, "neutral"],
@@ -7266,11 +7261,8 @@ function quantCurrentStatusView(payload) {
     const actionPrice = current.partial_exit_price || current.entry_price || latestEvent?.price;
     return {
       ...base,
-      badge: partial ? "일부 매도" : "보유 중",
       tone: partial ? "partially_exited" : "holding",
-      headline: partial
-        ? `${formatQuantActionDate(actionDate)} ${formatNumber(actionPrice)}원에 일부 팔고 ${exposure}를 보유 중이에요.`
-        : `${formatQuantActionDate(actionDate)} ${formatNumber(actionPrice)}원에 사고 보유 중이에요.`,
+      headline: partial ? "일부 매도" : "보유 중",
       next: current.next_confirmation || "다음 매도 신호를 확인하고 있어요.",
       rows: [
         [partial ? "일부 매도일" : "매수일", formatDateLabel(actionDate), "neutral"],
@@ -7283,9 +7275,8 @@ function quantCurrentStatusView(payload) {
     const tradeReturn = latestEvent.return_rate ?? latestTrade?.net_return;
     return {
       ...base,
-      badge: "매도 완료",
       tone: "exited",
-      headline: `${formatQuantActionDate(latestEvent.execution_date)} ${formatNumber(latestEvent.price)}원에 모두 팔았어요.`,
+      headline: "매도 완료",
       next: "현재 보유 비중은 0%이며, 다음 매수 신호를 기다리고 있어요.",
       rows: [
         ["매도일", formatDateLabel(latestEvent.execution_date), "neutral"],
@@ -7379,13 +7370,11 @@ function renderQuantSignals(payload) {
   const performance = payload.performance || {};
   const statusView = quantCurrentStatusView(payload);
   setText(elements.quantCurrentLabel, statusView.headline);
-  setText(elements.quantCurrentScore, statusView.badge);
   setText(
     elements.quantCurrentMeta,
     `AI 모의 전략 · ${payload.price_through ? `${formatDateLabel(payload.price_through)} 종가까지 계산` : "최근 가격까지 계산"}`,
   );
   elements.quantCurrentLabel.className = `quant-current-message quant-action-${statusView.tone}`;
-  elements.quantCurrentScore.className = `quant-state-badge quant-action-${statusView.tone}`;
   elements.quantCurrentPosition.innerHTML = statusView.rows
     .map(([label, value, tone]) => `<div><dt>${label}</dt><dd class="${tone || "neutral"}">${value}</dd></div>`)
     .join("");
