@@ -6,7 +6,6 @@ if ("scrollRestoration" in history) {
 
 const elements = {
   appFrame: document.querySelector(".app-frame"),
-  appSplash: $("app-splash"),
   loginGate: $("login-gate"),
   loginSplash: $("login-splash"),
   loginForm: $("login-form"),
@@ -335,7 +334,6 @@ const CHART_SNAPSHOT_KEY = "analyst.chartSnapshots";
 const UI_CACHE_TTL_MS = 60_000;
 const PAGE_ENTRY_MINUTE_MS = 60_000;
 const LOGIN_SPLASH_DURATION_MS = 700;
-const APP_SPLASH_DURATION_MS = 650;
 const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
   {
     id: "price_move",
@@ -668,9 +666,6 @@ const state = {
   pullRefreshStartX: 0,
   pullRefreshStartY: 0,
   pullRefreshHideTimer: null,
-  appSplashTimer: null,
-  appSplashHideTimer: null,
-  appSplashResolve: null,
   recommendTrackRequestId: 0,
   recommendationLoading: false,
   currentRecommendationDetailItem: null,
@@ -687,35 +682,6 @@ const state = {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function showAppSplash(duration = APP_SPLASH_DURATION_MS) {
-  if (!elements.appSplash) {
-    return delay(duration);
-  }
-  if (state.appSplashResolve) {
-    state.appSplashResolve();
-    state.appSplashResolve = null;
-  }
-  window.clearTimeout(state.appSplashTimer);
-  window.clearTimeout(state.appSplashHideTimer);
-  elements.appSplash.hidden = false;
-  window.requestAnimationFrame(() => {
-    elements.appSplash?.classList.add("visible");
-  });
-  return new Promise((resolve) => {
-    state.appSplashResolve = resolve;
-    state.appSplashTimer = window.setTimeout(() => {
-      elements.appSplash?.classList.remove("visible");
-      state.appSplashHideTimer = window.setTimeout(() => {
-        if (elements.appSplash) {
-          elements.appSplash.hidden = true;
-        }
-        state.appSplashResolve = null;
-        resolve();
-      }, 340);
-    }, duration);
-  });
 }
 
 function rejectAfter(ms, message) {
@@ -3620,7 +3586,9 @@ function canStartPullRefresh(target) {
   if (!(target instanceof Element)) {
     return true;
   }
-  return !target.closest("input, textarea, select, .suggestions, .loading-modal-card, .install-sheet-card");
+  return !target.closest(
+    "a, button, [role='button'], [role='link'], input, textarea, select, .suggestions, .loading-modal-card, .install-sheet-card",
+  );
 }
 
 async function refreshCurrentView() {
@@ -3677,10 +3645,8 @@ async function triggerPullRefresh() {
   }
   state.pullRefreshRefreshing = true;
   setPullRefreshIndicator(PULL_REFRESH_TRIGGER_DISTANCE, { ready: true, refreshing: true });
-  const refreshPromise = refreshCurrentView().catch(() => null);
-  const splashPromise = showAppSplash(APP_SPLASH_DURATION_MS);
   try {
-    await Promise.all([refreshPromise, splashPromise]);
+    await refreshCurrentView().catch(() => null);
   } finally {
     state.pullRefreshRefreshing = false;
     resetPullRefreshIndicator();

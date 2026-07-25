@@ -240,6 +240,17 @@ def test_dashboard_restores_the_visible_view_on_browser_history_navigation():
     assert "syncViewFromLocation" in source
 
 
+def test_dashboard_internal_navigation_does_not_render_the_logo_splash():
+    client = TestClient(app)
+    shell = client.get("/dashboard").text
+    source = client.get("/assets/dashboard/app.js").text
+
+    assert 'id="app-splash"' not in shell
+    assert "showAppSplash" not in source
+    assert "APP_SPLASH_DURATION_MS" not in source
+    assert "a, button, [role='button'], [role='link']" in source
+
+
 def test_watchlist_news_deduplicates_matching_headlines():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text

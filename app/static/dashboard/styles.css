@@ -144,39 +144,6 @@ a {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 24px 80px rgba(207, 19, 34, 0.24);
 }
 
-.app-splash {
-  position: fixed;
-  z-index: 1200;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: #000000;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition:
-    opacity 320ms ease,
-    visibility 320ms ease;
-}
-
-.app-splash[hidden] {
-  display: none;
-}
-
-.app-splash.visible {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-}
-
-.app-splash-logo {
-  width: clamp(92px, 16vw, 132px);
-  height: clamp(92px, 16vw, 132px);
-  border-radius: 30px;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 24px 80px rgba(207, 19, 34, 0.24);
-}
-
 .login-card {
   position: relative;
   z-index: 1;
