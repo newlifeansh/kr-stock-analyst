@@ -27,7 +27,7 @@ def test_stock_detail_v3_shell_and_controls():
         "최근 1년 AI 매매신호",
         "모든 매매내역 보기",
         'class="ollama-ai-badge stock-home-ai-status"',
-        "20260725v55",
+        "20260725v56",
     ):
         assert expected in shell.text
     assert "1,000만원 모의 운용" not in shell.text
@@ -39,7 +39,10 @@ def test_stock_detail_v3_shell_and_controls():
     assert 'state.stockFlowMode = button.dataset.flowMode || "cumulative"' in source
     assert "renderStockIntradayChart" in source
     assert 'marketOpen ? liveUrl(endpoint) : endpoint' in source
-    assert "한국투자증권 장마감 확정 분봉" in source
+    assert "한국투자증권 장마감 확정 분봉" not in source
+    assert "네이버 금융 실제 수급" not in source
+    assert 'id="stock-v2-chart-source"' not in shell.text
+    assert 'id="stock-flow-source"' not in shell.text
     assert "renderStockReportHistoryChart" in source
     assert "const height = 178;" in source
     assert 'y="170"' in source

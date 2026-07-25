@@ -98,7 +98,6 @@ const elements = {
   stockMiniChart: $("stock-mini-chart"),
   stockDetailBack: $("stock-detail-back"),
   stockV2PricePeriods: Array.from(document.querySelectorAll("[data-price-period]")),
-  stockV2ChartSource: $("stock-v2-chart-source"),
   stockV2MarketCode: $("stock-v2-market-code"),
   stockV2AsOf: $("stock-v2-as-of"),
   stockV2RangePercent: $("stock-v2-range-percent"),
@@ -125,7 +124,6 @@ const elements = {
   stockFlowPeriodTabs: Array.from(document.querySelectorAll("[data-flow-period]")),
   stockFlowSummary: $("stock-flow-summary"),
   stockFlowHistoryChart: $("stock-flow-history-chart"),
-  stockFlowSource: $("stock-flow-source"),
   stockReportHistoryChart: $("stock-report-history-chart"),
   stockReportSummary: $("stock-report-summary"),
   stockNewsTemperature: $("stock-news-temperature"),
@@ -1595,7 +1593,6 @@ function renderStockMiniChart(prices, quote = null) {
   const rows = allRows.slice(-periodCount);
   if (rows.length < 2) {
     elements.stockMiniChart.innerHTML = '<p class="stock-v2-empty">가격 데이터가 충분하지 않습니다.</p>';
-    setText(elements.stockV2ChartSource, "일별 가격 데이터 부족");
     return;
   }
 
@@ -1691,10 +1688,6 @@ function renderStockMiniChart(prices, quote = null) {
     tooltip.innerHTML = `<span>${formatDateLabel(row.date)}</span><strong>${formatNumber(row.close)}</strong><em>거래량 ${formatCompactCount(row.volume)}</em>`;
   });
   hit?.addEventListener("pointerleave", hideTooltip);
-  setText(
-    elements.stockV2ChartSource,
-    `KIS 실시간 시세와 일별 가격 · ${formatNumber(rows.length)}거래일 · ${formatDateLabel(rows[0].date)}~${formatDateLabel(rows[rows.length - 1].date)}`
-  );
 }
 
 function formatIntradayTime(value) {
@@ -1717,7 +1710,6 @@ function renderStockIntradayChart(intradayRows, quote = null, meta = null) {
     .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
   if (rows.length < 2) {
     elements.stockMiniChart.innerHTML = '<p class="stock-v3-chart-empty">당일 분봉을 불러오는 중입니다.</p>';
-    setText(elements.stockV2ChartSource, "한국투자증권 당일 분봉 조회 중");
     return;
   }
 
@@ -1810,13 +1802,6 @@ function renderStockIntradayChart(intradayRows, quote = null, meta = null) {
     hoverPoint.hidden = true;
     tooltip.hidden = true;
   });
-  const sourceLabel = meta?.market_state === "regular"
-    ? "한국투자증권 실시간 분봉"
-    : "한국투자증권 장마감 확정 분봉";
-  const speedLabel = meta?.market_state === "regular"
-    ? "실시간 갱신"
-    : ["memory", "database"].includes(meta?.cache_state) ? "빠른 저장본" : "저장 완료";
-  setText(elements.stockV2ChartSource, `${sourceLabel} · ${formatDateLabel(rows[0].date)} · ${speedLabel}`);
 }
 
 function formatFinancialAmount(value) {
@@ -2038,7 +2023,6 @@ function renderStockFlowHistoryChart() {
     <span>외국인 <strong class="${latest.foreign >= 0 ? "positive" : "negative"}">${formatSignedShares(latest.foreign)}</strong></span>
     <span>기관 <strong class="${latest.institution >= 0 ? "positive" : "negative"}">${formatSignedShares(latest.institution)}</strong></span>
   `;
-  setText(elements.stockFlowSource, `네이버 금융 실제 수급 · ${formatDateLabel(chartRows[0].date)}~${formatDateLabel(latest.date)}`);
 }
 
 function renderStockReportHistoryChart() {
@@ -2757,7 +2741,6 @@ function resetStockPriceSummary() {
   if (elements.stockMiniChart) {
     elements.stockMiniChart.innerHTML = '<p class="stock-v3-chart-empty">가격 데이터 준비 중</p>';
   }
-  setText(elements.stockV2ChartSource, "한국투자증권 시세를 불러오는 중입니다.");
   setText(elements.stockV2RangePercent, "-");
   setText(elements.stockV2ConsensusUpside, "-");
   setText(elements.stockV2FlowState, "-");

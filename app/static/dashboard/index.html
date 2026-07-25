@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="4.6" />
+    <meta name="application-version" content="4.7" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v55" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v56" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -170,7 +170,6 @@
                 <button type="button" data-price-period="6M">6개월</button>
                 <button type="button" data-price-period="1Y">1년</button>
               </div>
-              <p class="stock-v3-chart-source" id="stock-v2-chart-source">시세를 불러오는 중입니다.</p>
             </div>
             <dl class="stock-v3-quote-metrics">
               <div><dt>거래량</dt><dd id="stock-volume">-</dd></div>
@@ -272,7 +271,6 @@
             <article class="stock-v3-section stock-v3-chart-section" id="stock-flow-section">
               <header class="stock-v3-section-head">
                 <div><span>수급</span><h2>투자자별 매매동향</h2></div>
-                <span class="stock-v3-source" id="stock-flow-source">네이버 금융 집계</span>
               </header>
               <div class="stock-v3-segment" id="stock-flow-mode-tabs" role="group" aria-label="수급 집계 방식">
                 <button class="active" type="button" data-flow-mode="cumulative">누적매매</button>
@@ -605,6 +603,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v55" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v56" defer></script>
   </body>
 </html>
