@@ -178,18 +178,17 @@ const elements = {
   homeMarketFactor: $("home-market-factor"),
   homeMarketBalance: $("home-market-balance"),
   homeMarketIndices: $("home-market-indices"),
+  homeIndexSharedAsOf: $("home-index-shared-asof"),
   homeKospiCard: $("home-kospi-card"),
   homeKospiPrevious: $("home-kospi-previous"),
   homeKospiChart: $("home-kospi-chart"),
   homeKospiCurrent: $("home-kospi-current"),
   homeKospiChange: $("home-kospi-change"),
-  homeKospiAsOf: $("home-kospi-asof"),
   homeKosdaqCard: $("home-kosdaq-card"),
   homeKosdaqPrevious: $("home-kosdaq-previous"),
   homeKosdaqChart: $("home-kosdaq-chart"),
   homeKosdaqCurrent: $("home-kosdaq-current"),
   homeKosdaqChange: $("home-kosdaq-change"),
-  homeKosdaqAsOf: $("home-kosdaq-asof"),
   homePastToggle: $("home-past-toggle"),
   discoverySearchForm: $("discovery-search-form"),
   discoverySearchInput: $("discovery-search-input"),
@@ -9311,7 +9310,6 @@ function homeMarketIndexElements(code) {
       chart: elements.homeKosdaqChart,
       current: elements.homeKosdaqCurrent,
       change: elements.homeKosdaqChange,
-      asOf: elements.homeKosdaqAsOf,
     };
   }
   return {
@@ -9320,7 +9318,6 @@ function homeMarketIndexElements(code) {
     chart: elements.homeKospiChart,
     current: elements.homeKospiCurrent,
     change: elements.homeKospiChange,
-    asOf: elements.homeKospiAsOf,
   };
 }
 
@@ -9387,7 +9384,6 @@ function renderHomeMarketIndex(item, code) {
   refs.change.textContent = change === null
     ? "전일 대비 -"
     : `${change > 0 ? "▲" : change < 0 ? "▼" : "-"} ${formatMarketIndexValue(Math.abs(change))} · ${formatPercent(changeRate)}`;
-  refs.asOf.textContent = item?.as_of ? `${String(item.as_of).replaceAll("-", ".")} 기준` : "기준일 없음";
   const chart = marketIndexChartMarkup(item);
   if (chart) {
     refs.chart.innerHTML = chart;
@@ -9409,6 +9405,14 @@ function renderHomeMarketIndices(payload = {}) {
   const byCode = new Map(items.map((item) => [item.code, item]));
   renderHomeMarketIndex(byCode.get("KOSPI"), "KOSPI");
   renderHomeMarketIndex(byCode.get("KOSDAQ"), "KOSDAQ");
+  const dates = [...new Set(items.map((item) => String(item?.as_of || "")).filter(Boolean))].sort();
+  if (elements.homeIndexSharedAsOf) {
+    elements.homeIndexSharedAsOf.textContent = dates.length === 0
+      ? "기준일 없음"
+      : dates.length === 1
+        ? `${dates[0].replaceAll("-", ".")} 기준`
+        : `${dates[0].replaceAll("-", ".")}~${dates[dates.length - 1].replaceAll("-", ".")} 기준`;
+  }
 }
 
 function setHomeMarketIndicesLoading() {

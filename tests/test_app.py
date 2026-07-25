@@ -194,6 +194,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert 'id="home-market-indices"' in shell
     assert 'id="home-kospi-chart"' in shell
     assert 'id="home-kosdaq-chart"' in shell
+    assert 'id="home-index-shared-asof"' in shell
+    assert 'id="home-kospi-asof"' not in shell
+    assert 'id="home-kosdaq-asof"' not in shell
     assert "/market/indices?limit=30" in source
     assert "renderHomeMarketIndices" in source
     assert 'class="side-nav"' not in shell

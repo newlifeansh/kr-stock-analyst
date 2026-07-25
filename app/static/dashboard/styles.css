@@ -8765,7 +8765,7 @@ body:not([data-view="stock"]) .home-market-indices {
 
 body:not([data-view="stock"]) .home-index-card {
   min-width: 0;
-  min-height: 242px;
+  min-height: 230px;
   display: grid;
   grid-template-rows: auto auto minmax(82px, 1fr) auto;
   gap: 8px;
@@ -8909,11 +8909,14 @@ body:not([data-view="stock"]) .home-index-card > footer span {
   text-align: right;
 }
 
-body:not([data-view="stock"]) .home-index-card > footer small {
+body:not([data-view="stock"]) .home-index-shared-asof {
+  grid-column: 1 / -1;
+  margin: -2px 2px 0;
   color: var(--app-v3-muted);
   font-size: 10px;
   font-weight: 500;
   line-height: 1.4;
+  text-align: right;
 }
 
 body:not([data-view="stock"]) .home-index-card.is-loading .home-index-chart {
@@ -8931,7 +8934,7 @@ body:not([data-view="stock"]) .home-index-card.is-loading .home-index-chart {
   }
 
   body:not([data-view="stock"]) .home-index-card {
-    min-height: 216px;
+    min-height: 202px;
     grid-template-rows: auto auto 76px auto;
     gap: 6px;
     padding: 14px 12px;
@@ -8974,7 +8977,7 @@ body:not([data-view="stock"]) .home-index-card.is-loading .home-index-chart {
   }
 
   body:not([data-view="stock"]) .home-index-card {
-    min-height: 204px;
+    min-height: 194px;
     padding: 12px 10px;
   }
 
