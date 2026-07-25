@@ -561,6 +561,7 @@ const state = {
   watchlistLoadSequence: 0,
   watchlistResults: [],
   watchlistMarketContext: null,
+  watchlistStrategyRenderTimer: null,
   stockActiveTab: "summary",
   stockPriceRows: [],
   stockPricePeriod: "1D",
@@ -585,7 +586,6 @@ const state = {
   stockQuantLoading: false,
   stockQuantLastLiveRefreshAt: 0,
   watchPreopenExpanded: new Set(),
-  watchDetailsExpanded: new Set(),
   pullRefreshTracking: false,
   pullRefreshReady: false,
   pullRefreshRefreshing: false,
@@ -3075,10 +3075,11 @@ function updateWatchlistRowQuote(code, quote, payload = null) {
   }
   if (card.watchDashboard) {
     const point = renderWatchPreOpenPoint(card, card.watchDashboard, card.watchDashboard.quote, card.watchItem, card.usSectorMoves || state.usSectorMoves);
-    const priceRow = card.querySelector(".watch-stock-price-row");
-    if (priceRow && point.nextSibling !== priceRow) {
-      card.insertBefore(point, priceRow);
+    const metrics = card.querySelector(".watch-v15-metrics");
+    if (metrics && point.nextSibling !== metrics) {
+      card.insertBefore(point, metrics);
     }
+    scheduleWatchlistStrategyRender();
   }
 }
 
@@ -5295,15 +5296,62 @@ function createWatchMetric(label, value, field = "", toneValue = null) {
   return item;
 }
 
-function createWatchInsight(label, value, tone = "muted") {
-  const item = document.createElement("article");
-  item.className = `watch-insight-card ${tone}`;
-  const labelNode = document.createElement("span");
-  labelNode.textContent = label;
-  const valueNode = document.createElement("strong");
-  valueNode.textContent = value;
-  item.append(labelNode, valueNode);
+function createWatchReportMetric(label, value, tone = "") {
+  const item = document.createElement("div");
+  if (tone) {
+    item.className = tone;
+  }
+  item.append(el("dt", "", label), el("dd", "", value));
   return item;
+}
+
+function createWatchContextItem(label, value, tone = "muted") {
+  const item = document.createElement("div");
+  item.className = tone;
+  item.append(el("dt", "", label), el("dd", "", value));
+  return item;
+}
+
+function watchFlowView(dashboard = {}) {
+  const foreign = toNumber(dashboard.flows?.foreign_net_buy_20d);
+  const institution = toNumber(dashboard.flows?.institution_net_buy_20d);
+  if (foreign === null && institution === null) {
+    return { label: "수급 확인 중", tone: "muted" };
+  }
+  if ((foreign ?? 0) < 0 && (institution ?? 0) < 0) {
+    return { label: "외국인·기관 매도", tone: "negative" };
+  }
+  if ((foreign ?? 0) > 0 && (institution ?? 0) > 0) {
+    return { label: "외국인·기관 매수", tone: "positive" };
+  }
+  if ((foreign ?? 0) > 0) {
+    return { label: "외국인 매수 우위", tone: "positive" };
+  }
+  if ((institution ?? 0) > 0) {
+    return { label: "기관 매수 우위", tone: "positive" };
+  }
+  return { label: "수급 엇갈림", tone: "muted" };
+}
+
+function watchNewsView(dashboard = {}) {
+  const score = toNumber(dashboard.sentiment?.score);
+  if (score === null) {
+    return { label: "뉴스 확인 중", tone: "muted" };
+  }
+  return {
+    label: newsLabel(dashboard.sentiment),
+    tone: score >= 25 ? "positive" : score <= -25 ? "negative" : "muted",
+  };
+}
+
+function scheduleWatchlistStrategyRender() {
+  window.clearTimeout(state.watchlistStrategyRenderTimer);
+  state.watchlistStrategyRenderTimer = window.setTimeout(() => {
+    state.watchlistStrategyRenderTimer = null;
+    if (state.view === "watchlist") {
+      renderWatchlistStrategy(state.watchlistResults, state.usSectorMoves, state.watchlistMarketContext);
+    }
+  }, 350);
 }
 
 async function loadUsSectorMoves(options = {}) {
@@ -5542,9 +5590,9 @@ function updateWatchPreOpenPoints(usSectorMoves = state.usSectorMoves) {
     }
     card.usSectorMoves = usSectorMoves;
     const point = renderWatchPreOpenPoint(card, card.watchDashboard, card.watchDashboard.quote, card.watchItem, usSectorMoves);
-    const priceRow = card.querySelector(".watch-stock-price-row");
-    if (priceRow && point.nextSibling !== priceRow) {
-      card.insertBefore(point, priceRow);
+    const metrics = card.querySelector(".watch-v15-metrics");
+    if (metrics && point.nextSibling !== metrics) {
+      card.insertBefore(point, metrics);
     }
   }
 }
@@ -5672,45 +5720,61 @@ function renderWatchlistStrategy(results = state.watchlistResults, usSectorMoves
       ? "오늘 약세였던 종목의 뉴스·수급·미국 연관 섹터를 함께 확인"
       : phase.action;
 
-  const header = el("div", "watchlist-report-head");
-  const titleBlock = el("div", "watchlist-report-title");
-  titleBlock.append(el("p", "", "AI 시황 리포트"), el("h2", "", headline));
-  const phaseBadge = el("span", `watchlist-report-phase ${usTone}`, `${phase.label} / ${phase.usLabel}`);
+  const header = el("header", "watch-v15-report-head");
+  const titleBlock = el("div", "watch-v15-report-title");
+  titleBlock.append(el("span", "", "AI 시황 리포트"), el("h2", "", headline));
+  const phaseBadge = el("span", `watch-v15-phase ${usTone}`, `${phase.label} · ${phase.usLabel}`);
   header.append(titleBlock, phaseBadge);
 
-  const actionBlock = el("section", "watchlist-report-action");
+  const stats = el("dl", "watch-v15-portfolio-stats");
+  stats.append(
+    createWatchReportMetric("관심", `${valid.length}개`),
+    createWatchReportMetric("상승", `${positiveCount}개`, positiveCount ? "positive" : ""),
+    createWatchReportMetric("하락", `${negativeCount}개`, negativeCount ? "negative" : ""),
+    createWatchReportMetric("미국 연관", usAverage === null ? "확인 중" : formatPercent(usAverage), usTone),
+  );
+
+  const reportMain = el("section", "watch-v15-report-main");
+  const actionBlock = el("div", "watch-v15-report-action");
   actionBlock.append(el("span", "", "지금 확인"), el("strong", "", action));
 
-  const signals = el("div", "watchlist-report-signals");
-  for (const factor of majorFactors) {
-    signals.append(el("span", factor.direction === "호재" ? "positive" : factor.direction === "악재" ? "negative" : "muted", `${factor.label} ${factor.direction}`));
-  }
-  if (importantEvent) {
-    signals.append(el("span", "event", `주요 이벤트 · ${importantEvent.title.replace("미국 ", "")}`));
-  }
-  const news = marketNews ? el("p", "watchlist-report-news", marketNews.title) : null;
+  const context = el("dl", "watch-v15-report-context");
+  const factorText = majorFactors.length
+    ? majorFactors.map((factor) => `${factor.label} ${factor.direction}`).join(" · ")
+    : "직접 연결된 특이 신호 없음";
+  const factorTone = majorFactors.some((factor) => factor.direction === "악재")
+    ? "negative"
+    : majorFactors.some((factor) => factor.direction === "호재")
+      ? "positive"
+      : "muted";
+  context.append(
+    createWatchContextItem("시장 변수", factorText, factorTone),
+    createWatchContextItem("주요 일정", importantEvent ? importantEvent.title.replace("미국 ", "") : "가까운 주요 일정 없음", importantEvent ? "event" : "muted"),
+    createWatchContextItem("시장 뉴스", marketNews?.title || "연결된 주요 뉴스 확인 중", "muted"),
+  );
+  reportMain.append(actionBlock, context);
 
-  const monitorBlock = el("section", "watchlist-monitoring");
-  const monitorHead = el("div", "watchlist-monitoring-head");
-  monitorHead.append(el("h3", "", "모니터링 우선"), el("span", "", `관심 ${valid.length}개 · 하락 ${negativeCount}개`));
-  const monitorList = el("div", "watchlist-monitoring-list");
+  const monitorBlock = el("section", "watch-v15-monitoring");
+  const monitorHead = el("div", "watch-v15-monitoring-head");
+  monitorHead.append(el("h3", "", "우선 확인 종목"), el("span", "", `${monitoring.length}개 선별`));
+  const monitorList = el("div", "watch-v15-monitoring-list");
   for (const [index, item] of monitoring.entries()) {
     const row = document.createElement("a");
-    row.className = "watchlist-monitor-row";
+    row.className = "watch-v15-monitor-row";
     row.href = viewStockUrl(item.item.name);
-    const rank = el("span", "watchlist-monitor-rank", String(index + 1));
-    const name = el("strong", "", item.item.name);
-    const reason = el("span", toNumber(item.relatedAverage) < 0 ? "negative" : "muted", item.reason);
-    row.append(rank, name, reason);
+    const rank = el("span", "watch-v15-monitor-rank", String(index + 1));
+    const copy = el("span", "watch-v15-monitor-copy");
+    copy.append(el("strong", "", item.item.name), el("small", "", item.reason));
+    const change = toNumber(item.dashboard.quote?.change_rate);
+    const rate = el("span", change > 0 ? "positive" : change < 0 ? "negative" : "muted", formatPercent(change));
+    row.append(rank, copy, rate);
     monitorList.appendChild(row);
   }
   monitorBlock.append(monitorHead, monitorList);
-  const reportNodes = [header, actionBlock, signals];
-  if (news) {
-    reportNodes.push(news);
-  }
-  reportNodes.push(monitorBlock);
-  section.replaceChildren(...reportNodes);
+
+  const body = el("div", "watch-v15-report-body");
+  body.append(reportMain, monitorBlock);
+  section.replaceChildren(header, stats, body);
   section.hidden = false;
 }
 
@@ -5810,7 +5874,7 @@ function renderWatchPreOpenPoint(card, dashboard, quoteOverride = null, item = {
       section.replaceWith(nextSection);
     }
     section = nextSection;
-    section.className = "watch-preopen-point";
+    section.className = "watch-preopen-point watch-v15-response";
     section.dataset.field = "preopen_point";
     section.addEventListener("toggle", () => {
       const code = section.dataset.code || "";
@@ -5825,7 +5889,7 @@ function renderWatchPreOpenPoint(card, dashboard, quoteOverride = null, item = {
     });
   }
   section.dataset.code = itemCode;
-  section.className = `watch-preopen-point ${point.tone} ${point.collapsed ? "collapsed" : ""}`;
+  section.className = `watch-preopen-point watch-v15-response ${point.tone} ${point.collapsed ? "collapsed" : ""}`;
   const keepExpanded = itemCode ? state.watchPreopenExpanded.has(itemCode) : false;
   section.open = point.collapsed ? keepExpanded : true;
   section.dataset.mode = point.mode || "";
@@ -5875,7 +5939,21 @@ function renderWatchlistMessage(text) {
   elements.watchlistBody.innerHTML = "";
   const message = document.createElement("article");
   message.className = "watchlist-empty-card";
-  message.textContent = text;
+  const isEmpty = text === "관심 종목 없음";
+  const title = document.createElement("strong");
+  title.textContent = isEmpty ? "관심 종목이 아직 없습니다." : "종목 정보를 불러오지 못했습니다.";
+  const description = document.createElement("p");
+  description.textContent = isEmpty
+    ? "종목 검색에서 별표를 누르면 이곳에서 시황과 대응 정보를 한 번에 볼 수 있습니다."
+    : "잠시 후 다시 열거나 새로고침해 주세요.";
+  message.append(title, description);
+  if (isEmpty) {
+    const action = document.createElement("button");
+    action.type = "button";
+    action.textContent = "종목 검색 열기";
+    action.addEventListener("click", () => setView("stock"));
+    message.appendChild(action);
+  }
   elements.watchlistBody.appendChild(message);
 }
 
@@ -5910,7 +5988,7 @@ function showWatchlistLoadingOverlay() {
 
 function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
   const card = document.createElement("article");
-  card.className = "watch-stock-card";
+  card.className = "watch-stock-card watch-v15-stock-card";
   card.dataset.code = item.code;
   card.dataset.watchCard = "true";
   card.watchDashboard = dashboard;
@@ -5918,7 +5996,7 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
   card.usSectorMoves = usSectorMoves;
 
   const header = document.createElement("div");
-  header.className = "watch-stock-head";
+  header.className = "watch-stock-head watch-v15-stock-head";
   const link = document.createElement("a");
   link.className = "watch-stock-name";
   link.href = viewStockUrl(item.name);
@@ -5941,12 +6019,15 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
   const removeButton = document.createElement("button");
   removeButton.className = "remove-watch";
   removeButton.type = "button";
-  removeButton.textContent = "관심 해제";
+  removeButton.textContent = "★";
   removeButton.dataset.code = item.code;
+  removeButton.setAttribute("aria-label", `${item.name} 관심 해제`);
+  removeButton.setAttribute("aria-pressed", "true");
+  removeButton.title = "관심 해제";
   header.append(link, removeButton);
 
   const metrics = document.createElement("section");
-  metrics.className = "quote-strip watch-quote-strip";
+  metrics.className = "watch-v15-metrics";
   metrics.append(
     createWatchMetric("거래대금", formatMoney(dashboard.quote.trading_value), "trading_value"),
     createWatchMetric("1개월", formatPercent(dashboard.momentum.one_month_return), "one_month", dashboard.momentum.one_month_return),
@@ -5956,40 +6037,33 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
 
   const valuationView = interpretValuation(dashboard);
   const macroView = interpretMacro(dashboard);
+  const flowView = watchFlowView(dashboard);
+  const newsView = watchNewsView(dashboard);
   const preOpenPoint = renderWatchPreOpenPoint(card, dashboard, null, item, usSectorMoves);
-  const insights = document.createElement("section");
-  insights.className = "watch-insight-grid";
-  insights.append(
-    createWatchInsight("밸류 판단", valuationView.label, valuationView.tone),
-    createWatchInsight("거시 판단", macroView.label, macroView.tone)
+  const context = document.createElement("dl");
+  context.className = "watch-v15-context";
+  context.append(
+    createWatchContextItem("수급", flowView.label, flowView.tone),
+    createWatchContextItem("밸류", valuationView.label, valuationView.tone),
+    createWatchContextItem("뉴스", newsView.label, newsView.tone),
+    createWatchContextItem("거시", macroView.label, macroView.tone),
   );
 
-  const details = document.createElement("details");
-  details.className = "watch-stock-details";
-  details.dataset.code = item.code || "";
-  details.open = state.watchDetailsExpanded.has(item.code || "");
-  details.addEventListener("toggle", () => {
-    if (!details.dataset.code) {
-      return;
-    }
-    if (details.open) {
-      state.watchDetailsExpanded.add(details.dataset.code);
-    } else {
-      state.watchDetailsExpanded.delete(details.dataset.code);
-    }
-  });
-  const detailsSummary = document.createElement("summary");
-  detailsSummary.textContent = "수익률·판단 보기";
-  details.append(detailsSummary, metrics, insights);
+  const footer = document.createElement("footer");
+  footer.className = "watch-v15-card-footer";
+  const detailLink = document.createElement("a");
+  detailLink.href = viewStockUrl(item.name);
+  detailLink.append(el("span", "", "종목 상세 보기"), el("span", "", "›"));
+  footer.appendChild(detailLink);
 
-  card.append(header, preOpenPoint, details);
+  card.append(header, preOpenPoint, metrics, context, footer);
   elements.watchlistBody.appendChild(card);
   return card;
 }
 
 function appendWatchLoadingRow(item) {
   const card = document.createElement("article");
-  card.className = "watch-stock-card watch-stock-loading";
+  card.className = "watch-stock-card watch-v15-stock-card watch-stock-loading";
   card.dataset.code = item.code || "";
   card.setAttribute("aria-label", `${item.name || item.code || "종목"} · ${PAGE_LOADING_LABELS.watchlist}`);
   const name = document.createElement("strong");
@@ -6013,12 +6087,15 @@ async function loadWatchlist(options = {}) {
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("watchlist");
   closeWatchlistQuoteStreams();
   const items = readWatchlist();
-  elements.watchlistMeta.textContent = `${items.length}개 종목`;
+  const itemOrder = new Map(items.map((item, index) => [item.code, index]));
+  let completedCount = 0;
+  elements.watchlistMeta.textContent = `${items.length}개 종목 · 핵심 지표 확인 중`;
   elements.watchlistBody.innerHTML = "";
+  state.watchlistResults = [];
+  renderWatchlistStrategy();
   if (!items.length) {
+    elements.watchlistMeta.textContent = "0개 종목";
     clearWatchlistLoadingOverlay();
-    state.watchlistResults = [];
-    renderWatchlistStrategy();
     renderWatchlistMessage("관심 종목 없음");
     return;
   }
@@ -6046,6 +6123,11 @@ async function loadWatchlist(options = {}) {
         } else {
           elements.watchlistBody.appendChild(card);
         }
+        state.watchlistResults = [
+          ...state.watchlistResults.filter((result) => result.item.code !== item.code),
+          { item, dashboard },
+        ].sort((left, right) => (itemOrder.get(left.item.code) || 0) - (itemOrder.get(right.item.code) || 0));
+        renderWatchlistStrategy(state.watchlistResults, state.usSectorMoves, state.watchlistMarketContext);
         connectWatchlistQuoteStream(item.code);
         return { item, dashboard };
       } catch {
@@ -6062,6 +6144,11 @@ async function loadWatchlist(options = {}) {
           pendingRow.querySelector(".inline-loading-spinner")?.remove();
         }
         return { item, dashboard: null };
+      } finally {
+        completedCount += 1;
+        if (loadSequence === state.watchlistLoadSequence && completedCount < items.length) {
+          elements.watchlistMeta.textContent = `${items.length}개 종목 · ${completedCount}/${items.length}개 확인 중`;
+        }
       }
     }
   );
@@ -6070,6 +6157,7 @@ async function loadWatchlist(options = {}) {
   }
   clearWatchlistLoadingOverlay();
   state.watchlistResults = results.filter((result) => result.dashboard);
+  elements.watchlistMeta.textContent = `${items.length}개 종목 · 실시간 시세`;
   renderWatchlistStrategy(state.watchlistResults, state.usSectorMoves, state.watchlistMarketContext);
   connectUsSectorStream();
   sectorMovesPromise.catch(() => {});
@@ -9750,7 +9838,6 @@ elements.watchlistBody.addEventListener("click", (event) => {
   }
   const code = button.dataset.code;
   state.watchPreopenExpanded.delete(code);
-  state.watchDetailsExpanded.delete(code);
   writeWatchlist(readWatchlist().filter((item) => item.code !== code));
   updateWatchButton();
   void loadWatchlist();
