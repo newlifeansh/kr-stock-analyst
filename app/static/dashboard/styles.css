@@ -15923,6 +15923,7 @@ body :is(
 #watchlist-view.watchlist-v15 .topbar {
   display: flex;
   align-items: flex-end;
+  justify-content: flex-start;
   min-height: 86px;
   margin: 0 0 14px;
   padding: 10px 2px 18px;
@@ -15930,7 +15931,14 @@ body :is(
 }
 
 #watchlist-view.watchlist-v15 .identity {
+  width: 100%;
+  justify-items: start;
   gap: 5px;
+  text-align: left;
+}
+
+#watchlist-view.watchlist-v15 .identity > div {
+  width: 100%;
 }
 
 #watchlist-view.watchlist-v15 .identity h1 {
@@ -16620,6 +16628,9 @@ body :is(
   }
 
   #watchlist-view.watchlist-v15 .topbar {
+    align-items: flex-start;
+    flex-direction: row;
+    justify-content: flex-start;
     min-height: 78px;
     padding: 8px 0 16px;
   }

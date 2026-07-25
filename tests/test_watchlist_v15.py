@@ -10,7 +10,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15" data-ui-version="1.5"' in shell.text
     assert 'name="application-version" content="1.5"' in shell.text
-    assert "20260725v15" in shell.text
+    assert "20260725v16" in shell.text
 
 
 def test_watchlist_v15_uses_progressive_real_time_cards():
@@ -49,6 +49,8 @@ def test_watchlist_v15_is_responsive_and_matches_stock_detail_tokens():
         "grid-template-columns: minmax(0, 1fr);",
         '"Apple SD Gothic Neo"',
         "overflow: clip;",
+        "flex-direction: row;",
+        "align-items: flex-start;",
     ):
         assert expected in styles
 
