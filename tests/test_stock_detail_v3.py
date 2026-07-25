@@ -20,13 +20,14 @@ def test_stock_detail_v3_shell_and_controls():
         'id="stock-flow-history-chart"',
         'id="stock-report-history-chart"',
         'id="stock-news-temperature-chart"',
+        'class="stock-v3-section stock-v3-chart-section stock-v3-news-temperature-section"',
         'id="quant-signal-chart"',
         'id="quant-current-label"',
         'id="quant-signal-refresh"',
         "최근 1년 AI 매매신호",
         "모든 매매내역 보기",
         'class="ollama-ai-badge stock-home-ai-status"',
-        "20260725v46",
+        "20260725v47",
     ):
         assert expected in shell.text
     assert "1,000만원 모의 운용" not in shell.text
@@ -40,6 +41,8 @@ def test_stock_detail_v3_shell_and_controls():
     assert 'marketOpen ? liveUrl(endpoint) : endpoint' in source
     assert "한국투자증권 장마감 확정 분봉" in source
     assert "renderStockReportHistoryChart" in source
+    assert "const height = 178;" in source
+    assert 'y="170"' in source
     assert "renderQuantSignalChart" in source
     assert "/quant-signals" in source
     assert "quantSignalMarkers" in source
@@ -61,6 +64,9 @@ def test_stock_detail_v3_shell_and_controls():
     assert '"Apple SD Gothic Neo"' in styles
     assert "--stock-v3-type-display: 38px" in styles
     assert "--stock-v3-type-tab: 16px" in styles
+    assert ".stock-v3-news-temperature-section .stock-v3-main-chart" in styles
+    assert ".stock-v3-news-temperature-section .stock-v3-temperature-gauge" in styles
+    assert "min-height: 74px;" in styles
 
 
 def test_short_company_summary_corrects_korean_topic_particle():

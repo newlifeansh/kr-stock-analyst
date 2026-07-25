@@ -2328,11 +2328,11 @@ function renderStockNewsTemperature(data) {
     return;
   }
   const width = 760;
-  const height = 230;
+  const height = 178;
   const left = 28;
   const right = 28;
-  const top = 20;
-  const bottom = 190;
+  const top = 12;
+  const bottom = 142;
   const min = Math.min(...priceRows.map((row) => row.close));
   const max = Math.max(...priceRows.map((row) => row.close));
   const span = max - min || 1;
@@ -2351,8 +2351,8 @@ function renderStockNewsTemperature(data) {
   elements.stockNewsTemperatureChart.innerHTML = `
     <svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 뉴스 분류와 실제 주가 흐름">
       <path class="stock-v3-news-price" d="${path}"></path>${markers}
-      <text class="stock-v3-chart-date" x="${left}" y="218">${formatChartDate(priceRows[0].date)}</text>
-      <text class="stock-v3-chart-date" x="${width - right}" y="218" text-anchor="end">${formatChartDate(priceRows.at(-1).date)}</text>
+      <text class="stock-v3-chart-date" x="${left}" y="170">${formatChartDate(priceRows[0].date)}</text>
+      <text class="stock-v3-chart-date" x="${width - right}" y="170" text-anchor="end">${formatChartDate(priceRows.at(-1).date)}</text>
     </svg>
     <div class="stock-v3-legend"><span class="positive">호재</span><span class="negative">악재</span><span class="line">주가</span></div>
   `;

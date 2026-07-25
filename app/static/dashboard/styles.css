@@ -21173,6 +21173,55 @@ body:not([data-view="stock"]) #login-gate .login-card button {
   border-radius: 6px;
 }
 
+/* Stock detail: compact news temperature without inheriting large-chart space. */
+#stock-view.stock-detail-v3 .stock-v3-news-temperature-section {
+  padding-bottom: 18px;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-section-head {
+  margin-bottom: 10px;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-sentiment-summary {
+  gap: 16px;
+  margin: 2px 0 6px;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-temperature-gauge {
+  min-height: 86px;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-temperature-gauge strong {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-temperature-gauge span {
+  margin-top: 2px;
+  line-height: 1.25;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-sentiment-summary dl > div {
+  min-height: 48px;
+  align-content: center;
+  gap: 2px;
+  padding: 0 10px;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-main-chart {
+  min-height: 0;
+  margin-top: 0;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-data-svg {
+  width: 100%;
+  height: auto;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-legend {
+  margin-top: 0;
+}
+
 body:not([data-view="stock"]) :is(
   .push-notification-sheet-status,
   .push-notification-condition
@@ -21189,6 +21238,34 @@ body:not([data-view="stock"]) :is(
 }
 
 @media (max-width: 720px) {
+  #stock-view.stock-detail-v3 .stock-v3-news-temperature-section {
+    padding-top: 20px;
+    padding-bottom: 12px;
+  }
+
+  #stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-section-head {
+    margin-bottom: 8px;
+  }
+
+  #stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-sentiment-summary {
+    gap: 8px;
+    margin: 0 0 4px;
+  }
+
+  #stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-temperature-gauge {
+    min-height: 74px;
+  }
+
+  #stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-sentiment-summary dl > div {
+    min-height: 44px;
+    padding: 0 8px;
+  }
+
+  #stock-view.stock-detail-v3 .stock-v3-news-temperature-section .stock-v3-main-chart {
+    min-height: 0;
+    margin: 0 -2px;
+  }
+
   body:not([data-view="stock"]) #trend-view .trend-tabs {
     width: calc(100% + 40px) !important;
     max-width: none !important;
