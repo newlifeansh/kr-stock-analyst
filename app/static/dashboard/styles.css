@@ -2152,6 +2152,10 @@ h1 {
   background: #fffdf2;
 }
 
+.recommend-ai-panel[hidden] {
+  display: none;
+}
+
 .recommend-ai-head {
   display: flex;
   align-items: center;
@@ -21303,6 +21307,59 @@ body:not([data-view="stock"]) :is(
 
 #recommend-view .recommend-ai-button {
   grid-column: auto;
+}
+
+/* Recommendation metrics use the same continuous table language as stock detail. */
+body:not([data-view="stock"]) #recommend-view .recommend-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  overflow: visible;
+  border: 0;
+  border-top: 1px solid var(--app-v3-line);
+  border-radius: 0;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-view .recommend-metrics > div {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  align-content: center;
+  justify-content: stretch;
+  gap: 3px;
+  padding: 10px 10px 9px 0;
+  border: 0;
+  border-right: 1px solid var(--app-v3-line);
+  border-bottom: 1px solid var(--app-v3-line);
+  border-radius: 0;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-view .recommend-metrics > div:nth-child(even) {
+  padding-right: 0;
+  padding-left: 12px;
+  border-right: 0;
+}
+
+body:not([data-view="stock"]) #recommend-view .recommend-metrics > div:last-child {
+  grid-column: 1 / -1;
+  padding-right: 0;
+  border-right: 0;
+}
+
+body:not([data-view="stock"]) #recommend-view .recommend-metrics span {
+  color: var(--app-v3-muted);
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  line-height: 1.4 !important;
+}
+
+body:not([data-view="stock"]) #recommend-view .recommend-metrics strong {
+  color: var(--app-v3-text);
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  line-height: 1.35 !important;
+  text-align: left;
 }
 
 body:not([data-view="stock"]) #recommend-history-view > .app-section-heading {

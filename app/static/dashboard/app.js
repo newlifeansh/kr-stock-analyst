@@ -8612,15 +8612,18 @@ function buildRecommendationAIExplanation(item) {
 function renderRecommendationAIExplanation(card) {
   const item = card.recommendationItem;
   if (!item) {
-    return;
+    return null;
   }
   const payload = buildRecommendationAIExplanation(item);
   let panel = card.querySelector(".recommend-ai-panel");
   if (!panel) {
     panel = el("section", "recommend-ai-panel");
-    const body = card.querySelector(".recommend-body");
-    card.insertBefore(panel, body || null);
+    panel.setAttribute("role", "region");
+    panel.setAttribute("aria-label", `${item.name || "추천 종목"} AI 설명`);
+    const disclosure = card.querySelector(".recommend-detail-disclosure");
+    card.insertBefore(panel, disclosure || null);
   }
+  panel.hidden = false;
   panel.innerHTML = "";
   const head = el("div", "recommend-ai-head");
   head.append(el("h3", "", "AI 설명"), el("strong", `recommend-ai-decision ${payload.decision}`, payload.decision));
@@ -8639,6 +8642,7 @@ function renderRecommendationAIExplanation(card) {
     grid.appendChild(box);
   }
   panel.append(head, summary, grid);
+  return panel;
 }
 
 function createRecommendationUsSectorSummary(item, usSectorMoves = state.usSectorMoves) {
@@ -8699,6 +8703,7 @@ function createRecommendationCard(item) {
   watchButton.classList.toggle("active", isWatched(item.code));
   const explainButton = el("button", "recommend-ai-button", "AI 설명");
   explainButton.type = "button";
+  explainButton.setAttribute("aria-expanded", "false");
   rankLine.appendChild(rank);
   const name = el("a", "recommend-name");
   name.href = viewStockUrl(item.name);
@@ -10403,7 +10408,19 @@ elements.recommendList.addEventListener("click", (event) => {
   if (explainButton) {
     const card = explainButton.closest(".recommend-card");
     if (card) {
-      renderRecommendationAIExplanation(card);
+      const currentPanel = card.querySelector(".recommend-ai-panel");
+      if (currentPanel && !currentPanel.hidden) {
+        currentPanel.hidden = true;
+        explainButton.textContent = "AI 설명";
+        explainButton.setAttribute("aria-expanded", "false");
+        return;
+      }
+      const panel = renderRecommendationAIExplanation(card);
+      explainButton.textContent = "설명 닫기";
+      explainButton.setAttribute("aria-expanded", "true");
+      window.requestAnimationFrame(() => {
+        panel?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
     }
     return;
   }

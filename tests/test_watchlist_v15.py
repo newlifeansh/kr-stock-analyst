@@ -9,11 +9,15 @@ def test_watchlist_v15_shell_and_asset_version():
 
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
-    assert 'name="application-version" content="4.3"' in shell.text
-    assert "20260725v52" in shell.text
+    assert 'name="application-version" content="4.4"' in shell.text
+    assert "20260725v53" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
+
+    styles = client.get("/assets/dashboard/styles.css").text
+    assert "Recommendation metrics use the same continuous table language as stock detail" in styles
+    assert "#recommend-view .recommend-metrics > div:last-child" in styles
     assert 'class="watch-v2-list-head"' not in shell.text
     assert 'id="watchlist-filter-summary"' not in shell.text
     assert shell.text.index('id="watchlist-strategy"') < shell.text.index('class="watch-v2-filter watch-v3-tabs"')
@@ -64,6 +68,24 @@ def test_recommendation_cards_use_one_compact_action_row():
         assert expected in source or expected in styles
 
     assert 'el("button", "recommend-refresh", "새로고침")' not in source
+
+
+def test_recommendation_ai_explanation_opens_inside_the_card():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    for expected in (
+        'const disclosure = card.querySelector(".recommend-detail-disclosure");',
+        "card.insertBefore(panel, disclosure || null);",
+        'explainButton.setAttribute("aria-expanded", "false");',
+        'explainButton.textContent = "설명 닫기";',
+        'panel?.scrollIntoView({ behavior: "smooth", block: "nearest" });',
+    ):
+        assert expected in source
+
+    assert 'card.insertBefore(panel, body || null);' not in source
+    assert ".recommend-ai-panel[hidden]" in styles
 
 
 def test_recommendation_score_explains_scale_and_interpretation():
