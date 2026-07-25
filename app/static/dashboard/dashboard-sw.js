@@ -1,9 +1,9 @@
-const DASHBOARD_SW_VERSION = "20260725v20";
+const DASHBOARD_SW_VERSION = "20260725v27";
 const STATIC_CACHE = `secret-note-static-${DASHBOARD_SW_VERSION}`;
 const STATIC_ASSETS = [
-  "/dashboard?view=trend",
-  "/assets/dashboard/styles.css?v=20260725v20",
-  "/assets/dashboard/app.js?v=20260725v20",
+  "/dashboard?view=home",
+  "/assets/dashboard/styles.css?v=20260725v27",
+  "/assets/dashboard/app.js?v=20260725v27",
   "/assets/dashboard/icons/icon-192.png?v=20260620bq",
   "/assets/dashboard/icons/icon-512.png?v=20260620bq",
   "/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq"
@@ -38,7 +38,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).catch(() => caches.match("/dashboard?view=trend")));
+    event.respondWith(fetch(request).catch(() => caches.match("/dashboard?view=home")));
     return;
   }
   if (url.pathname.startsWith("/assets/dashboard/")) {
@@ -66,14 +66,14 @@ self.addEventListener("push", (event) => {
     badge: "/assets/dashboard/icons/icon-192.png?v=20260620bq",
     tag: payload.tag || "secret-note-push",
     renotify: true,
-    data: { url: payload.url || "/dashboard?view=watchlist", kind: payload.kind || "general" },
+    data: { url: payload.url || "/dashboard?view=portfolio", kind: payload.kind || "general" },
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = new URL(event.notification.data?.url || "/dashboard?view=watchlist", self.location.origin).href;
+  const targetUrl = new URL(event.notification.data?.url || "/dashboard?view=portfolio", self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {

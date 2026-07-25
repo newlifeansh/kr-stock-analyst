@@ -97,6 +97,7 @@ from app.schemas import (
     ResearchSourceOut,
     ResearchReportOut,
     StockAIAnalysisOut,
+    StockCommunityFeedOut,
     StockQuantSignalsOut,
     StockOut,
     StockDashboardOut,
@@ -120,6 +121,7 @@ from app.bootstrap import bootstrap_runtime_data
 from app.mcp_server import build_insight_mcp_server, mcp_sdk_available
 from app.services.company_briefs import build_company_briefs
 from app.services.company_profiles import ensure_company_profile
+from app.services.community_feed import build_stock_community_feed
 from app.services.market_rankings import build_market_period_returns, build_market_rankings
 from app.services.market_impact import build_market_impact
 from app.services.recommendations import build_recommendations
@@ -292,7 +294,7 @@ if mcp_server is not None:
 
 @app.get("/")
 def root_shell():
-    return RedirectResponse(url="/dashboard?view=trend", status_code=307)
+    return RedirectResponse(url="/dashboard?view=home", status_code=307)
 
 
 def _end_of_day(value: Optional[date]) -> Optional[datetime]:
@@ -1961,6 +1963,31 @@ def stock_x_feed(
             max(30, settings.x_feed_cache_seconds),
             lambda: build_stock_x_feed(db, stock, settings, limit=limit),
         )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return payload
+
+
+@app.get("/stocks/{code}/community-feed", response_model=StockCommunityFeedOut)
+def stock_community_feed(
+    code: str,
+    response: Response,
+    limit: int = Query(default=12, ge=1, le=20),
+    db: Session = Depends(get_db),
+):
+    code = _normalize_stock_code(code)
+    stock = db.get(StockMaster, code)
+    if not stock:
+        stock = _ensure_stock_master_from_naver(db, code)
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+
+    key = ("stock_community_feed", code, limit)
+    payload = api_cache.get_or_set(
+        key,
+        300,
+        lambda: build_stock_community_feed(stock, limit=limit),
+    )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     return payload

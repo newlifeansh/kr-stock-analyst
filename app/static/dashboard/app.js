@@ -16,6 +16,10 @@ const elements = {
   input: $("stock-code"),
   suggestions: $("stock-suggestions"),
   stockView: $("stock-view"),
+  homeView: $("home-view"),
+  searchView: $("search-view"),
+  portfolioView: $("portfolio-view"),
+  appNavItems: Array.from(document.querySelectorAll("[data-app-view]")),
   stockSectionTabs: Array.from(document.querySelectorAll("[data-stock-tab]")),
   stockTabPanels: Array.from(document.querySelectorAll("[data-stock-panel]")),
   watchlistView: $("watchlist-view"),
@@ -127,9 +131,8 @@ const elements = {
   stockReportSummary: $("stock-report-summary"),
   stockNewsTemperature: $("stock-news-temperature"),
   stockNewsTemperatureChart: $("stock-news-temperature-chart"),
-  stockXFeedStatus: $("stock-x-feed-status"),
-  stockXFeedList: $("stock-x-feed-list"),
-  stockXFeedMore: $("stock-x-feed-more"),
+  stockCommunityStatus: $("stock-community-status"),
+  stockCommunityProviders: $("stock-community-providers"),
   stockSignalChart: $("stock-signal-chart"),
   stockSignalChartBar: $("stock-signal-chart-bar"),
   stockSignalFlow: $("stock-signal-flow"),
@@ -163,6 +166,8 @@ const elements = {
   trendTabs: Array.from(document.querySelectorAll(".trend-tab")),
   trendEventsPanel: $("trend-events-panel"),
   trendLivePanel: $("trend-live-panel"),
+  trendImpactPanel: $("trend-impact-panel"),
+  trendImpactContent: $("trend-impact-content"),
   trendWatchlistPanel: $("trend-watchlist-panel"),
   trendPastPanel: $("trend-past-panel"),
   trendEvents: $("trend-events"),
@@ -172,6 +177,17 @@ const elements = {
   trendWatchStockRail: $("trend-watch-stock-rail"),
   trendWatchlistStatus: $("trend-watchlist-status"),
   trendWatchNewsBoard: $("trend-watch-news-board"),
+  homeMarketSnapshot: $("home-market-snapshot"),
+  homeMarketStatus: $("home-market-status"),
+  homeMarketFactor: $("home-market-factor"),
+  homeMarketBalance: $("home-market-balance"),
+  homePastToggle: $("home-past-toggle"),
+  discoverySearchForm: $("discovery-search-form"),
+  discoverySearchInput: $("discovery-search-input"),
+  discoverySearchSuggestions: $("discovery-search-suggestions"),
+  portfolioTabs: Array.from(document.querySelectorAll("[data-portfolio-tab]")),
+  portfolioWatchlistPanel: $("portfolio-watchlist-panel"),
+  portfolioTrackingPanel: $("portfolio-tracking-panel"),
   watchChartMeta: $("watch-chart-meta"),
   watchChartRefresh: $("watch-chart-refresh"),
   chartArchiveButton: $("chart-archive-button"),
@@ -179,6 +195,10 @@ const elements = {
   watchChartList: $("watch-chart-list"),
   watchChartSnapshotMeta: $("watch-chart-snapshot-meta"),
   watchChartSnapshots: $("watch-chart-snapshots"),
+  chartStockSearchForm: $("chart-stock-search-form"),
+  chartStockSearchInput: $("chart-stock-search-input"),
+  chartStockSearchSuggestions: $("chart-stock-search-suggestions"),
+  chartWatchlistPicker: $("chart-watchlist-picker"),
   homeInstallButton: $("home-install-button"),
   installSheet: $("install-sheet"),
   installSheetBackdrop: $("install-sheet-backdrop"),
@@ -186,10 +206,6 @@ const elements = {
   installSteps: $("install-steps"),
   installSheetSubtitle: $("install-sheet-subtitle"),
   flowLoadingModal: $("flow-loading-modal"),
-  mobileMenuToggle: $("mobile-menu-toggle"),
-  mobileMenuScrim: $("mobile-menu-scrim"),
-  sideNav: $("side-nav"),
-  sideItems: Array.from(document.querySelectorAll(".side-menu-item")),
   rankTabs: Array.from(document.querySelectorAll(".rank-tab")),
   rankCategorySelect: $("rank-category-select"),
   marketTabs: Array.from(document.querySelectorAll("[data-market-filter]")),
@@ -513,11 +529,25 @@ const STOCK_TERM_HELP = {
 
 const requestedView = new URLSearchParams(window.location.search).get("view");
 const hasStockDetailPath = window.location.pathname.split("/").filter(Boolean).length > 1;
+const LEGACY_VIEW_MAP = {
+  trend: "home",
+  "trend-past": "home",
+  "trend-impact": "home",
+  market: "search",
+  recommend: "search",
+  watchlist: "portfolio",
+  "recommend-history": "portfolio",
+  stock: "search",
+  home: "home",
+  search: "search",
+  portfolio: "portfolio",
+  chart: "chart",
+  "chart-history": "chart-history",
+};
+const initialView = hasStockDetailPath ? "stock" : (LEGACY_VIEW_MAP[requestedView] || "home");
 
 const state = {
-  view: ["market", "watchlist", "recommend", "recommend-history", "trend", "trend-past", "trend-impact", "chart", "chart-history"].includes(requestedView)
-    ? requestedView
-    : hasStockDetailPath ? "stock" : "trend",
+  view: initialView,
   rankingCategory: "surge",
   currentStock: null,
   currentDashboard: null,
@@ -526,7 +556,15 @@ const state = {
   suggestionTimer: null,
   suggestionController: null,
   activeTrendGraph: null,
-  activeTrendTab: "live",
+  activeTrendTab: requestedView === "trend-impact" ? "impact" : requestedView === "trend-past" ? "events" : "live",
+  showPastEvents: requestedView === "trend-past",
+  portfolioTab: requestedView === "recommend-history" ? "tracking" : "watchlist",
+  discoverySuggestions: [],
+  discoverySuggestionController: null,
+  discoverySuggestionTimer: null,
+  chartSuggestions: [],
+  chartSuggestionController: null,
+  chartSuggestionTimer: null,
   selectedTrendWatchCode: "",
   trendWatchRequestId: 0,
   watchlistId: "",
@@ -574,7 +612,7 @@ const state = {
   stockResearchRows: [],
   stockDisclosureRows: [],
   stockNewsRows: [],
-  stockXFeed: null,
+  stockCommunity: null,
   stockFinancialMetric: "revenue",
   stockFinancialScope: "quarterly",
   stockFlowMode: "cumulative",
@@ -608,7 +646,6 @@ const state = {
   pushNotificationBusy: false,
   pushNotificationEnabled: false,
   pushNotificationConditions: PUSH_NOTIFICATION_FALLBACK_OPTIONS.map((item) => item.id),
-  mobileMenuScrollY: 0,
   pageLoadingSequence: 0,
   pageLoadingTokens: new Map(),
 };
@@ -2329,7 +2366,7 @@ function renderStockNewsRows(rows) {
   }
 }
 
-function stockXFeedDate(value) {
+function stockCommunityDate(value) {
   if (!value) {
     return "시각 정보 없음";
   }
@@ -2345,67 +2382,110 @@ function stockXFeedDate(value) {
   }).format(date);
 }
 
-function renderStockXFeed(payload) {
-  if (!elements.stockXFeedList || !elements.stockXFeedStatus || !elements.stockXFeedMore) {
+function stockCommunityAvatarLabel(providerKey) {
+  if (providerKey === "naver_board") {
+    return "N";
+  }
+  return "T";
+}
+
+function stockCommunityMeta(providerKey, row) {
+  if (providerKey === "naver_board") {
+    return `${stockCommunityDate(row.created_at)} · 조회 ${formatCompactCount(row.view_count || 0)} · 공감 ${formatCompactCount(row.like_count || 0)} · 비공감 ${formatCompactCount(row.dislike_count || 0)}`;
+  }
+  return `${stockCommunityDate(row.created_at)} · 좋아요 ${formatCompactCount(row.like_count || 0)} · 답글 ${formatCompactCount(row.reply_count || 0)}`;
+}
+
+function renderStockCommunity(payload) {
+  if (!elements.stockCommunityProviders || !elements.stockCommunityStatus) {
     return;
   }
-  const items = Array.isArray(payload?.items) ? payload.items : [];
-  elements.stockXFeedList.innerHTML = "";
-  elements.stockXFeedMore.href = payload?.search_url || "https://x.com/search";
-  elements.stockXFeedStatus.hidden = false;
-  elements.stockXFeedStatus.textContent = payload?.message
-    || (items.length ? `최근 공개 게시물 ${formatNumber(items.length)}건` : "관련 공개 게시물을 찾지 못했습니다.");
+  const providers = Array.isArray(payload?.providers) ? payload.providers : [];
+  const totalItems = providers.reduce((sum, provider) => sum + (Array.isArray(provider?.items) ? provider.items.length : 0), 0);
+  elements.stockCommunityProviders.innerHTML = "";
+  elements.stockCommunityStatus.hidden = false;
+  elements.stockCommunityStatus.textContent = payload?.message
+    || (totalItems ? `커뮤니티 글 ${formatNumber(totalItems)}건을 모았습니다.` : "관련 커뮤니티 글을 찾지 못했습니다.");
 
-  for (const row of items.slice(0, 12)) {
-    const item = el("li", "stock-x-feed-item");
-    const link = el("a", "stock-x-feed-link");
-    link.href = row.url || payload?.search_url || "https://x.com/search";
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.setAttribute("aria-label", `${row.author_name || "X 사용자"} 게시물 원문 보기`);
+  for (const provider of providers) {
+    const section = el("section", "stock-community-provider");
+    const head = el("div", "stock-community-provider-head");
+    const heading = el("div", "stock-community-provider-title");
+    const title = document.createElement("strong");
+    title.textContent = provider.label || "커뮤니티";
+    const description = el(
+      "span",
+      "",
+      provider.message
+        || ((Array.isArray(provider.items) && provider.items.length)
+          ? `최근 글 ${formatNumber(provider.items.length)}건`
+          : "표시할 글이 없습니다.")
+    );
+    heading.append(title, description);
+    head.appendChild(heading);
+    if (provider.search_url) {
+      const more = el("a", "stock-community-provider-more", provider.more_label || "더 보기 ↗");
+      more.href = provider.search_url;
+      more.target = "_blank";
+      more.rel = "noopener noreferrer";
+      head.appendChild(more);
+    }
+    section.appendChild(head);
 
-    const avatar = el("span", "stock-x-feed-avatar", "X");
-    if (row.author_profile_image_url) {
-      const image = document.createElement("img");
-      image.src = row.author_profile_image_url;
-      image.alt = "";
-      image.loading = "lazy";
-      image.referrerPolicy = "no-referrer";
-      image.addEventListener("error", () => image.remove(), { once: true });
-      avatar.appendChild(image);
+    const list = el("ul", "stock-community-list");
+    const items = Array.isArray(provider.items) ? provider.items : [];
+    for (const row of items.slice(0, 8)) {
+      const item = el("li", "stock-community-item");
+      const link = el("a", "stock-community-link");
+      link.href = row.url || provider.search_url || "#";
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.setAttribute("aria-label", `${provider.label || "커뮤니티"} 게시물 원문 보기`);
+
+      const avatar = el("span", `stock-community-avatar is-${provider.key}`, stockCommunityAvatarLabel(provider.key));
+      if (row.author_profile_image_url) {
+        const image = document.createElement("img");
+        image.src = row.author_profile_image_url;
+        image.alt = "";
+        image.loading = "lazy";
+        image.referrerPolicy = "no-referrer";
+        image.addEventListener("error", () => image.remove(), { once: true });
+        avatar.appendChild(image);
+      }
+
+      const body = el("span", "stock-community-body");
+      const line = el("span", "stock-community-line");
+      const identity = el("span", "stock-community-identity");
+      identity.append(
+        el("strong", "", row.author_name || provider.label || "커뮤니티"),
+        el("span", "", row.username ? `@${row.username}` : (provider.key === "naver_board" ? "종토방" : "Threads"))
+      );
+      const impact = el("span", `stock-community-impact is-${row.impact === "호재" ? "positive" : row.impact === "악재" ? "negative" : "neutral"}`, row.impact || "중립");
+      line.append(identity, impact);
+      body.append(
+        line,
+        el("span", "stock-community-text", row.title || row.text || "게시물 내용 없음"),
+        el("span", "stock-community-meta", stockCommunityMeta(provider.key, row))
+      );
+      link.append(avatar, body);
+      item.appendChild(link);
+      list.appendChild(item);
     }
 
-    const body = el("span", "stock-x-feed-body");
-    const head = el("span", "stock-x-feed-head");
-    const identity = el("span", "stock-x-feed-identity");
-    identity.append(
-      el("strong", "", row.author_name || "X 사용자"),
-      el("span", "", row.username ? `@${row.username}` : "X")
-    );
-    const impact = el("span", `stock-x-feed-impact is-${row.impact === "호재" ? "positive" : row.impact === "악재" ? "negative" : "neutral"}`, row.impact || "중립");
-    head.append(identity, impact);
-    body.append(
-      head,
-      el("span", "stock-x-feed-text", row.text || "게시물 내용 없음"),
-      el(
-        "span",
-        "stock-x-feed-meta",
-        `${stockXFeedDate(row.created_at)} · 좋아요 ${formatCompactCount(row.like_count || 0)} · 재게시 ${formatCompactCount(row.repost_count || 0)}`
-      )
-    );
-    link.append(avatar, body);
-    item.appendChild(link);
-    elements.stockXFeedList.appendChild(item);
-  }
-
-  if (!items.length) {
-    const empty = el("li", "stock-x-feed-empty");
-    const link = el("a", "", "X에서 직접 검색하기 ↗");
-    link.href = payload?.search_url || "https://x.com/search";
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    empty.appendChild(link);
-    elements.stockXFeedList.appendChild(empty);
+    if (!items.length) {
+      const empty = el("li", "stock-community-empty");
+      const link = el("a", "", provider.more_label || "더 보기 ↗");
+      link.href = provider.search_url || "#";
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      empty.append(
+        el("span", "", provider.message || "표시할 게시물이 없습니다."),
+        link
+      );
+      list.appendChild(empty);
+    }
+    section.appendChild(list);
+    elements.stockCommunityProviders.appendChild(section);
   }
 }
 
@@ -2678,7 +2758,7 @@ function resetStockHomeDetails() {
   state.stockResearchRows = [];
   state.stockDisclosureRows = [];
   state.stockNewsRows = [];
-  state.stockXFeed = null;
+  state.stockCommunity = null;
   state.stockIssueKeyword = "";
   if (elements.stockHomeUpdates) elements.stockHomeUpdates.innerHTML = '<p>리포트·공시·뉴스를 확인하는 중입니다.</p>';
   if (elements.stockHomeCheckpoints) elements.stockHomeCheckpoints.innerHTML = '<p class="stock-v3-chart-empty">수급을 확인하는 중입니다.</p>';
@@ -2689,11 +2769,11 @@ function resetStockHomeDetails() {
   if (elements.stockFlowHistoryChart) elements.stockFlowHistoryChart.innerHTML = '<p class="stock-v3-chart-empty">수급 이력을 불러오는 중입니다.</p>';
   if (elements.stockReportHistoryChart) elements.stockReportHistoryChart.innerHTML = '<p class="stock-v3-chart-empty">목표가 이력을 불러오는 중입니다.</p>';
   if (elements.stockNewsTemperatureChart) elements.stockNewsTemperatureChart.innerHTML = '<p class="stock-v3-chart-empty">뉴스 온도를 계산하는 중입니다.</p>';
-  if (elements.stockXFeedStatus) {
-    elements.stockXFeedStatus.hidden = false;
-    elements.stockXFeedStatus.textContent = "X 피드를 불러오는 중입니다.";
+  if (elements.stockCommunityStatus) {
+    elements.stockCommunityStatus.hidden = false;
+    elements.stockCommunityStatus.textContent = "커뮤니티 글을 불러오는 중입니다.";
   }
-  if (elements.stockXFeedList) elements.stockXFeedList.innerHTML = "";
+  if (elements.stockCommunityProviders) elements.stockCommunityProviders.innerHTML = "";
 }
 
 function renderStockPriceSummaryFromPrices(prices, quote = null) {
@@ -2766,29 +2846,28 @@ async function loadStockIntraday(code, requestId) {
   }
 }
 
-async function loadStockXFeed(data, requestId) {
+async function loadStockCommunity(data, requestId) {
   const code = data?.code;
   if (!code) {
     return;
   }
   try {
     const payload = await fetchJsonCached(
-      `/stocks/${encodeURIComponent(code)}/x-feed?limit=20`,
+      `/stocks/${encodeURIComponent(code)}/community-feed?limit=12`,
       { ttlMs: 5 * UI_CACHE_TTL_MS }
     );
     if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
       return;
     }
-    state.stockXFeed = payload;
-    renderStockXFeed(payload);
+    state.stockCommunity = payload;
+    renderStockCommunity(payload);
   } catch {
     if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
       return;
     }
-    renderStockXFeed({
-      message: "X 피드를 불러오지 못했습니다.",
-      search_url: `https://x.com/search?q=${encodeURIComponent(data.name || code)}&f=live`,
-      items: [],
+    renderStockCommunity({
+      message: "커뮤니티 글을 불러오지 못했습니다.",
+      providers: [],
     });
   }
 }
@@ -2802,7 +2881,7 @@ async function loadStockHomeDetails(data) {
   resetStockHomeDetails();
   renderStockHome(data);
   const intradayPromise = loadStockIntraday(code, requestId);
-  void loadStockXFeed(data, requestId);
+  void loadStockCommunity(data, requestId);
   const [flowsResult, researchResult, disclosuresResult, newsResult] = await Promise.allSettled([
     fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/flows?limit=5000&refresh=true&pages=7`), { force: true, ttlMs: 0 }),
     fetchJsonCached(`/research-reports?stock_code=${encodeURIComponent(code)}&limit=100`, { ttlMs: 5 * UI_CACHE_TTL_MS }),
@@ -3129,7 +3208,7 @@ function connectWatchlistQuoteStream(code) {
     if (state.watchlistQuoteSockets.get(code) === socket) {
       state.watchlistQuoteSockets.delete(code);
     }
-    if (state.view !== "watchlist" || !elements.watchlistBody.querySelector(`[data-watch-card][data-code="${selectorEscape(code)}"]`)) {
+    if (state.view !== "portfolio" || state.portfolioTab !== "watchlist" || !elements.watchlistBody.querySelector(`[data-watch-card][data-code="${selectorEscape(code)}"]`)) {
       return;
     }
     const reconnectTimer = window.setTimeout(() => connectWatchlistQuoteStream(code), 5000);
@@ -3238,7 +3317,7 @@ function connectRecommendationQuoteStream(code) {
     const hasTarget =
       Boolean(elements.recommendList.querySelector(`.recommend-card[data-code="${selectorEscape(code)}"]`))
       || Boolean(elements.recommendHistoryList.querySelector(`.recommend-track-card[data-code="${selectorEscape(code)}"]`));
-    if (!["recommend", "recommend-history"].includes(state.view) || !hasTarget) {
+    if (!["search", "portfolio"].includes(state.view) || !hasTarget) {
       return;
     }
     const reconnectTimer = window.setTimeout(() => connectRecommendationQuoteStream(code), 5000);
@@ -3318,7 +3397,7 @@ function connectMarketQuoteStream(code) {
     if (state.marketQuoteSockets.get(code) === socket) {
       state.marketQuoteSockets.delete(code);
     }
-    if (state.view !== "market" || state.rankingCategory !== "surge") {
+    if (state.view !== "search" || state.rankingCategory !== "surge") {
       return;
     }
     const reconnectTimer = window.setTimeout(() => connectMarketQuoteStream(code), 5000);
@@ -3514,9 +3593,6 @@ function canStartPullRefresh(target) {
   if (elements.loginGate && !elements.loginGate.hidden) {
     return false;
   }
-  if (document.body.classList.contains("mobile-menu-open")) {
-    return false;
-  }
   if (currentScrollTop() > 0) {
     return false;
   }
@@ -3541,33 +3617,28 @@ async function refreshCurrentView() {
       }
       return;
     }
-    case "watchlist":
-      await loadWatchlist();
+    case "home":
+      await Promise.all([
+        loadTrends(state.activeTrendTab === "impact" ? "live" : state.activeTrendTab || "live", { force: true }),
+        loadMarketImpactAnalysis({ force: true, embedded: true }),
+      ]);
       return;
-    case "recommend":
-      await loadRecommendations();
+    case "search":
+      state.marketRankingCache.delete(marketRankingKey("surge", currentMarketFilter()));
+      await Promise.all([loadMarketRankings({ market: currentMarketFilter(), force: true }), loadRecommendations({ auto: true, force: true })]);
       return;
-    case "recommend-history":
-      await loadRecommendationHistory();
-      return;
-    case "trend":
-      await loadTrends(state.activeTrendTab || "live", { force: true });
-      return;
-    case "trend-past":
-      await loadTrends("past", { force: true });
-      return;
-    case "trend-impact":
-      await loadMarketImpactAnalysis({ force: true });
+    case "portfolio":
+      if (state.portfolioTab === "tracking") {
+        await loadRecommendationHistory({ force: true });
+      } else {
+        await Promise.all([loadWatchlist({ force: true }), loadTrendWatchlistNews({ force: true })]);
+      }
       return;
     case "chart":
       await loadWatchCharts();
       return;
     case "chart-history":
       renderChartSnapshots();
-      return;
-    case "market":
-      state.marketRankingCache.delete(marketRankingKey("surge", currentMarketFilter()));
-      await loadMarketRankings({ market: currentMarketFilter() });
       return;
     default:
       return;
@@ -3731,6 +3802,90 @@ function scheduleSuggestions() {
   state.suggestionTimer = setTimeout(() => fetchSuggestions(elements.input.value), 160);
 }
 
+function hideStandaloneSuggestions(input, container) {
+  if (!input || !container) {
+    return;
+  }
+  container.hidden = true;
+  container.innerHTML = "";
+  input.setAttribute("aria-expanded", "false");
+}
+
+function renderStandaloneSuggestions(input, container, items, onChoose) {
+  if (!input || !container) {
+    return;
+  }
+  container.innerHTML = "";
+  if (!Array.isArray(items) || !items.length) {
+    hideStandaloneSuggestions(input, container);
+    return;
+  }
+  for (const item of items.slice(0, 12)) {
+    const button = document.createElement("button");
+    button.className = "discovery-suggestion-item";
+    button.type = "button";
+    button.setAttribute("role", "option");
+    button.append(
+      el("strong", "", item.name || item.code),
+      el("span", "", `${item.code || ""}${item.market ? ` · ${item.market}` : ""}`),
+    );
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", () => {
+      input.value = item.name || item.code || "";
+      hideStandaloneSuggestions(input, container);
+      onChoose(item);
+    });
+    container.appendChild(button);
+  }
+  container.hidden = false;
+  input.setAttribute("aria-expanded", "true");
+}
+
+async function fetchStandaloneSuggestions(kind, query) {
+  const normalized = String(query || "").trim();
+  const isChart = kind === "chart";
+  const input = isChart ? elements.chartStockSearchInput : elements.discoverySearchInput;
+  const container = isChart ? elements.chartStockSearchSuggestions : elements.discoverySearchSuggestions;
+  const controllerKey = isChart ? "chartSuggestionController" : "discoverySuggestionController";
+  if (!normalized) {
+    hideStandaloneSuggestions(input, container);
+    return;
+  }
+  state[controllerKey]?.abort();
+  const controller = new AbortController();
+  state[controllerKey] = controller;
+  try {
+    const response = await fetch(`/stocks/search?query=${encodeURIComponent(normalized)}&limit=12`, {
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      hideStandaloneSuggestions(input, container);
+      return;
+    }
+    const items = await response.json();
+    if (isChart) {
+      state.chartSuggestions = items;
+      renderStandaloneSuggestions(input, container, items, (item) => void loadChartStock(item));
+    } else {
+      state.discoverySuggestions = items;
+      renderStandaloneSuggestions(input, container, items, (item) => void load(item.name || item.code));
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      hideStandaloneSuggestions(input, container);
+    }
+  }
+}
+
+function scheduleStandaloneSuggestions(kind) {
+  const isChart = kind === "chart";
+  const timerKey = isChart ? "chartSuggestionTimer" : "discoverySuggestionTimer";
+  const input = isChart ? elements.chartStockSearchInput : elements.discoverySearchInput;
+  window.clearTimeout(state[timerKey]);
+  state[timerKey] = window.setTimeout(() => fetchStandaloneSuggestions(kind, input?.value), 160);
+}
+
 function setTone(node, value) {
   node.classList.remove("positive", "negative", "muted");
   const number = Number(value);
@@ -3818,7 +3973,7 @@ function setWatchlistIdStatus(text, tone = "") {
     return;
   }
   elements.watchlistIdStatus.textContent = text;
-  elements.watchlistIdStatus.className = tone;
+  elements.watchlistIdStatus.className = ["sr-only", tone].filter(Boolean).join(" ");
   updateWatchlistIdentityDisplay();
 }
 
@@ -3959,7 +4114,7 @@ async function applyWatchlistId(shareId, options = {}) {
       elements.watchlistIdInput.value = "";
     }
     updateWatchlistIdentityDisplay();
-    if (state.view === "recommend") {
+    if (state.view === "search") {
       updateRecommendationButtonState();
     }
     setWatchlistIdStatus("로컬 저장 중");
@@ -3977,7 +4132,7 @@ async function applyWatchlistId(shareId, options = {}) {
     elements.watchlistIdInput.value = normalizedId;
   }
   updateWatchlistIdentityDisplay();
-  if (state.view === "recommend") {
+  if (state.view === "search") {
     updateRecommendationButtonState();
   }
   setWatchlistIdStatus("서버 목록 불러오는 중");
@@ -3991,7 +4146,7 @@ async function applyWatchlistId(shareId, options = {}) {
     void refreshPushNotificationState({ syncServer: true });
     updateWatchButton();
     if (options.refreshView !== false) {
-      if (state.view === "watchlist") {
+      if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
         void loadWatchlist();
       } else if (state.view === "chart") {
         void loadWatchCharts();
@@ -4029,7 +4184,7 @@ async function logoutWatchlistIdentity() {
   updateWatchlistIdentityDisplay();
   updateWatchButton();
   updateRecommendationWatchButtons();
-  if (state.view === "recommend") {
+  if (state.view === "search") {
     updateRecommendationButtonState();
   }
   if (elements.watchlistBody) {
@@ -4099,7 +4254,7 @@ function toggleWatchCurrent() {
   }
   toggleWatchlistItem(state.currentStock);
   updateWatchButton();
-  if (state.view === "watchlist") {
+  if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
     loadWatchlist();
   }
 }
@@ -4143,30 +4298,6 @@ function updateImpactWatchButtons() {
     button.textContent = "+";
     button.setAttribute("aria-label", active ? "관심 해제" : "관심 추가");
     button.title = active ? "관심 해제" : "관심 추가";
-  }
-}
-
-function setMobileMenu(open) {
-  if (!elements.mobileMenuToggle || !elements.mobileMenuScrim) {
-    return;
-  }
-  const isOpen = document.body.classList.contains("mobile-menu-open");
-  if (open === isOpen) {
-    return;
-  }
-  if (open) {
-    state.mobileMenuScrollY = window.scrollY || document.documentElement.scrollTop || 0;
-    document.body.style.top = `-${state.mobileMenuScrollY}px`;
-  }
-  document.body.classList.toggle("mobile-menu-open", open);
-  elements.mobileMenuToggle.setAttribute("aria-expanded", open ? "true" : "false");
-  elements.mobileMenuToggle.setAttribute("aria-label", open ? "메뉴 닫기" : "메뉴 열기");
-  elements.mobileMenuScrim.hidden = !open;
-  if (!open) {
-    const scrollY = state.mobileMenuScrollY || 0;
-    document.body.style.top = "";
-    state.mobileMenuScrollY = 0;
-    window.scrollTo(0, scrollY);
   }
 }
 
@@ -4449,6 +4580,12 @@ async function runPageLoading(label, operation) {
 
 function launchPageLoading(label, operation) {
   return runPageLoading(label, operation).catch(() => undefined);
+}
+
+function launchBriefPageLoading(label, operation, maxWaitMs = 1800) {
+  const task = Promise.resolve().then(operation);
+  task.catch(() => undefined);
+  return runPageLoading(label, () => Promise.race([task, delay(maxWaitMs)])).catch(() => undefined);
 }
 
 async function handleHomeInstall() {
@@ -4786,7 +4923,49 @@ function pageEntryRefreshOptions(view, key = "") {
   return { force, ttlMs };
 }
 
-function setView(view) {
+function canonicalAppView(requested) {
+  if (requested === "trend-impact") {
+    state.activeTrendTab = "impact";
+  } else if (requested === "trend-past") {
+    state.activeTrendTab = "events";
+    state.showPastEvents = true;
+  } else if (requested === "trend") {
+    state.activeTrendTab = state.activeTrendTab || "live";
+  } else if (requested === "recommend-history") {
+    state.portfolioTab = "tracking";
+  } else if (requested === "watchlist") {
+    state.portfolioTab = "watchlist";
+  }
+  return requested === "stock" ? "stock" : (LEGACY_VIEW_MAP[requested] || "home");
+}
+
+function setPortfolioTab(tabName, options = {}) {
+  const active = tabName === "tracking" ? "tracking" : "watchlist";
+  state.portfolioTab = active;
+  for (const tab of elements.portfolioTabs) {
+    const selected = tab.dataset.portfolioTab === active;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+  }
+  elements.portfolioWatchlistPanel.hidden = active !== "watchlist";
+  elements.portfolioTrackingPanel.hidden = active !== "tracking";
+  if (options.load === false || state.view !== "portfolio") {
+    return active;
+  }
+  if (active === "tracking") {
+    launchBriefPageLoading(PAGE_LOADING_LABELS["recommend-history"], () => loadRecommendationHistory(pageEntryRefreshOptions("recommend-history")));
+  } else {
+    const entryOptions = pageEntryRefreshOptions("watchlist");
+    launchBriefPageLoading(PAGE_LOADING_LABELS.watchlist, () => Promise.all([
+      loadWatchlist(entryOptions),
+      loadTrendWatchlistNews(entryOptions),
+    ]));
+  }
+  return active;
+}
+
+function setView(requestedViewName) {
+  const view = canonicalAppView(requestedViewName);
   if (state.view !== view) {
     clearPageLoading();
   }
@@ -4797,72 +4976,73 @@ function setView(view) {
   if (view !== "stock") {
     closeQuoteStream();
   }
-  if (view !== "watchlist") {
+  if (!(view === "portfolio" && state.portfolioTab === "watchlist")) {
     closeWatchlistQuoteStreams();
   }
-  if (view !== "market") {
+  if (view !== "search") {
     closeMarketQuoteStreams();
   }
-  if (!["recommend", "recommend-history"].includes(view)) {
+  if (!["search", "portfolio"].includes(view)) {
     closeRecommendationQuoteStreams();
   }
-  if (view !== "recommend") {
+  if (view !== "search") {
     window.clearTimeout(state.recommendationCooldownTimer);
     state.recommendationCooldownTimer = null;
   }
-  if (!["watchlist", "recommend"].includes(view)) {
+  if (!["search", "portfolio"].includes(view)) {
     closeUsSectorStream();
   }
   elements.stockView.hidden = view !== "stock";
-  elements.watchlistView.hidden = view !== "watchlist";
-  elements.recommendView.hidden = view !== "recommend";
-  elements.recommendHistoryView.hidden = view !== "recommend-history";
-  elements.trendView.hidden = !["trend", "trend-past", "trend-impact"].includes(view);
+  elements.homeView.hidden = view !== "home";
+  elements.searchView.hidden = view !== "search";
+  elements.portfolioView.hidden = view !== "portfolio";
+  elements.trendView.hidden = false;
+  elements.watchlistView.hidden = false;
+  elements.recommendView.hidden = false;
+  elements.recommendHistoryView.hidden = false;
   elements.chartView.hidden = view !== "chart";
   elements.chartHistoryView.hidden = view !== "chart-history";
-  elements.marketView.hidden = view !== "market";
+  elements.marketView.hidden = false;
   const activeView = view === "chart-history" ? "chart" : view;
-  for (const item of elements.sideItems) {
-    item.classList.toggle("active", item.dataset.view === activeView);
+  for (const item of elements.appNavItems) {
+    const active = item.dataset.appView === activeView;
+    item.classList.toggle("active", active);
+    if (active) {
+      item.setAttribute("aria-current", "page");
+    } else {
+      item.removeAttribute("aria-current");
+    }
   }
-  for (const group of document.querySelectorAll(".side-menu-group")) {
-    group.classList.toggle("has-active", Boolean(group.querySelector(".side-menu-item.active")));
-  }
-  if (view === "market") {
-    history.replaceState(null, "", "/dashboard?view=market");
-    launchPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings(pageEntryRefreshOptions("market", currentMarketFilter())));
-  } else if (view === "watchlist") {
-    history.replaceState(null, "", "/dashboard?view=watchlist");
-    void loadWatchlist(pageEntryRefreshOptions("watchlist"));
-  } else if (view === "recommend") {
-    history.replaceState(null, "", "/dashboard?view=recommend");
+  if (view === "home") {
+    history.replaceState(null, "", "/dashboard?view=home");
+    const activeTab = state.activeTrendTab || "live";
+    launchBriefPageLoading(PAGE_LOADING_LABELS.trend, async () => {
+      await Promise.all([
+        loadTrends(activeTab === "impact" ? "live" : activeTab, pageEntryRefreshOptions("trend", activeTab)),
+        loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact")),
+      ]);
+    });
+  } else if (view === "search") {
+    history.replaceState(null, "", "/dashboard?view=search");
     updateRecommendationButtonState();
     const entryOptions = pageEntryRefreshOptions("recommend");
     const shouldAutoLoadRecommendations = entryOptions.force || !elements.recommendList.querySelector(".recommend-card");
-    launchPageLoading(PAGE_LOADING_LABELS.recommend, async () => {
-      const jobs = [refreshUsSectorMoves(entryOptions), refreshVisibleRecommendationCards(entryOptions)];
-      if (shouldAutoLoadRecommendations && !state.recommendationLoading) {
-        jobs.push(loadRecommendations({ auto: true, force: entryOptions.force }));
-      }
-      await Promise.all(jobs);
-    });
+    const marketOptions = pageEntryRefreshOptions("market", currentMarketFilter());
+    const marketJob = loadMarketRankings({ ...marketOptions, force: false });
+    launchBriefPageLoading("급상승 종목을 불러오는 중", () => marketJob, 1600);
+    void refreshUsSectorMoves(entryOptions).catch(() => undefined);
+    void refreshVisibleRecommendationCards(entryOptions).catch(() => undefined);
+    if (shouldAutoLoadRecommendations && !state.recommendationLoading) {
+      void loadRecommendations({ auto: true, force: false });
+    }
     connectUsSectorStream();
-  } else if (view === "recommend-history") {
-    history.replaceState(null, "", "/dashboard?view=recommend-history");
-    launchPageLoading(PAGE_LOADING_LABELS["recommend-history"], () => loadRecommendationHistory(pageEntryRefreshOptions("recommend-history")));
-  } else if (view === "trend") {
-    history.replaceState(null, "", "/dashboard?view=trend");
-    const activeTab = state.activeTrendTab || "live";
-    launchPageLoading(PAGE_LOADING_LABELS.trend, () => loadTrends(activeTab, pageEntryRefreshOptions("trend", activeTab)));
-  } else if (view === "trend-past") {
-    history.replaceState(null, "", "/dashboard?view=trend-past");
-    launchPageLoading(PAGE_LOADING_LABELS["trend-past"], () => loadTrends("past", pageEntryRefreshOptions("trend-past", "past")));
-  } else if (view === "trend-impact") {
-    history.replaceState(null, "", "/dashboard?view=trend-impact");
-    launchPageLoading(PAGE_LOADING_LABELS["trend-impact"], () => loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact")));
+  } else if (view === "portfolio") {
+    history.replaceState(null, "", "/dashboard?view=portfolio");
+    setPortfolioTab(state.portfolioTab, { load: true });
   } else if (view === "chart") {
     history.replaceState(null, "", "/dashboard?view=chart");
-    void loadWatchCharts(pageEntryRefreshOptions("chart"));
+    renderChartWatchlistPicker();
+    launchBriefPageLoading(PAGE_LOADING_LABELS.chart, () => loadWatchCharts(pageEntryRefreshOptions("chart")));
   } else if (view === "chart-history") {
     history.replaceState(null, "", "/dashboard?view=chart-history");
     renderChartSnapshots();
@@ -5234,8 +5414,10 @@ function requestMarketRanking(category, market, options = {}) {
   const params = new URLSearchParams({
     category: normalizedCategory,
     limit: "3000",
-    refresh: "1",
   });
+  if (force) {
+    params.set("refresh", "1");
+  }
   if (market !== "ALL") {
     params.set("market", market);
   }
@@ -5281,11 +5463,11 @@ async function loadMarketRankings(options = {}) {
   renderRankingMessage("불러오는 중");
   try {
     const payload = await requestMarketRanking(category, market, { force, ttlMs });
-    if (state.view === "market" && state.rankingCategory === category && currentMarketFilter() === market) {
+    if (state.view === "search" && state.rankingCategory === category && currentMarketFilter() === market) {
       renderRankings(payload);
     }
   } catch {
-    if (state.view === "market" && state.rankingCategory === category && currentMarketFilter() === market) {
+    if (state.view === "search" && state.rankingCategory === category && currentMarketFilter() === market) {
       renderRankingMessage("데이터를 불러오지 못했습니다. 시장 탭을 다시 눌러주세요.");
     }
   }
@@ -5425,7 +5607,7 @@ function scheduleWatchlistStrategyRender() {
   window.clearTimeout(state.watchlistStrategyRenderTimer);
   state.watchlistStrategyRenderTimer = window.setTimeout(() => {
     state.watchlistStrategyRenderTimer = null;
-    if (state.view === "watchlist") {
+    if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
       renderWatchlistStrategy(state.watchlistResults, state.usSectorMoves, state.watchlistMarketContext);
     }
   }, 350);
@@ -5473,7 +5655,7 @@ function closeUsSectorStream() {
 }
 
 function connectUsSectorStream() {
-  if (!("WebSocket" in window) || !["watchlist", "recommend"].includes(state.view)) {
+  if (!("WebSocket" in window) || !["search", "portfolio"].includes(state.view)) {
     scheduleUsSectorRefresh(state.usSectorMoves);
     return;
   }
@@ -5499,7 +5681,7 @@ function connectUsSectorStream() {
     if (state.usSectorSocket === socket) {
       state.usSectorSocket = null;
     }
-    if (!["watchlist", "recommend"].includes(state.view)) {
+    if (!["search", "portfolio"].includes(state.view)) {
       return;
     }
     state.usSectorReconnectTimer = window.setTimeout(connectUsSectorStream, 5000);
@@ -5512,7 +5694,7 @@ function connectUsSectorStream() {
 
 function scheduleUsSectorRefresh(payload = state.usSectorMoves) {
   clearUsSectorRefreshTimer();
-  if (!["watchlist", "recommend"].includes(state.view)) {
+  if (!["search", "portfolio"].includes(state.view)) {
     return;
   }
   if (state.usSectorSocket && state.usSectorSocket.readyState <= WebSocket.OPEN) {
@@ -7112,6 +7294,47 @@ async function resolveWatchChartItems() {
   return items;
 }
 
+function renderChartWatchlistPicker(activeCode = "") {
+  if (!elements.chartWatchlistPicker) {
+    return;
+  }
+  elements.chartWatchlistPicker.innerHTML = "";
+  const items = readWatchlist();
+  if (!items.length) {
+    elements.chartWatchlistPicker.appendChild(el("p", "muted", "관심종목을 추가하면 여기에서 바로 선택할 수 있습니다."));
+    return;
+  }
+  for (const item of items) {
+    const button = el("button", `chart-stock-chip${item.code === activeCode ? " active" : ""}`, item.name);
+    button.type = "button";
+    button.dataset.code = item.code;
+    button.setAttribute("aria-pressed", String(item.code === activeCode));
+    button.addEventListener("click", () => void loadChartStock(item));
+    elements.chartWatchlistPicker.appendChild(button);
+  }
+}
+
+async function loadChartStock(stockOrQuery) {
+  const query = typeof stockOrQuery === "string" ? stockOrQuery : stockOrQuery?.code || stockOrQuery?.name;
+  const stock = typeof stockOrQuery === "object" && stockOrQuery?.code
+    ? stockOrQuery
+    : await resolveStock(query);
+  if (!stock?.code) {
+    setWatchChartMetaText("종목을 찾지 못했습니다.");
+    renderWatchChartMessage("검색 결과가 없습니다.", "종목명이나 종목코드를 다시 확인해주세요.");
+    return;
+  }
+  if (elements.chartStockSearchInput) {
+    elements.chartStockSearchInput.value = stock.name || stock.code;
+  }
+  renderChartWatchlistPicker(stock.code);
+  await loadWatchCharts({
+    items: [{ code: stock.code, name: stock.name || stock.code, market: stock.market || "" }],
+    force: true,
+    single: true,
+  });
+}
+
 function renderWatchChartDetail(code) {
   const result = state.watchChartResults.find((item) => item.item?.code === code);
   if (!result || !result.dashboard || !result.prices?.length) {
@@ -7175,7 +7398,8 @@ async function loadWatchCharts(options = {}) {
   const loadSequence = ++state.watchChartLoadSequence;
   const force = options.force !== false;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("chart");
-  const items = await resolveWatchChartItems();
+  const items = Array.isArray(options.items) ? normalizeWatchlistItems(options.items) : await resolveWatchChartItems();
+  const listLabel = options.single ? "선택 종목" : "관심종목";
   renderChartSnapshots();
   elements.watchChartList.innerHTML = "";
   state.watchChartResults = [];
@@ -7230,7 +7454,7 @@ async function loadWatchCharts(options = {}) {
       return;
     }
     state.watchChartResults = results;
-    setWatchChartMetaText(`관심종목 ${formatNumber(items.length)}개`);
+    setWatchChartMetaText(`${listLabel} ${formatNumber(items.length)}개`);
     renderWatchChartList(results);
   } finally {
     if (loadSequence !== state.watchChartLoadSequence) {
@@ -7238,7 +7462,7 @@ async function loadWatchCharts(options = {}) {
     }
     clearWatchChartLoadingOverlay();
     if (elements.watchChartMeta?.classList.contains("is-loading")) {
-      setWatchChartMetaText(`관심종목 ${formatNumber(items.length)}개`);
+      setWatchChartMetaText(`${listLabel} ${formatNumber(items.length)}개`);
     }
     if (elements.watchChartRefresh) {
       elements.watchChartRefresh.disabled = false;
@@ -8079,7 +8303,7 @@ async function loadRecommendationHistory(options = {}) {
     tracks.map(async (track) => {
       try {
         const dashboard = await fetchJsonCached(`/stocks/${encodeURIComponent(track.code)}/dashboard?include_profile=0`, { force, ttlMs: force ? 0 : ttlMs });
-        if (state.recommendTrackRequestId !== requestId || state.view !== "recommend-history") {
+        if (state.recommendTrackRequestId !== requestId || state.view !== "portfolio" || state.portfolioTab !== "tracking") {
           return;
         }
         const currentCard = elements.recommendHistoryList.querySelector(`.recommend-track-card[data-code="${selectorEscape(track.code)}"]`);
@@ -8592,12 +8816,10 @@ function appendTags(parent, items) {
 }
 
 function setTrendTab(tabName) {
-  const active = ["live", "events", "watchlist", "past"].includes(tabName) ? tabName : "live";
-  if (active !== "past") {
-    state.activeTrendTab = active;
-  }
+  const active = ["live", "events", "impact"].includes(tabName) ? tabName : "live";
+  state.activeTrendTab = active;
   if (elements.trendTabsWrap) {
-    elements.trendTabsWrap.hidden = active === "past";
+    elements.trendTabsWrap.hidden = false;
   }
   for (const tab of elements.trendTabs) {
     const selected = tab.dataset.trendTab === active;
@@ -8608,9 +8830,13 @@ function setTrendTab(tabName) {
     elements.trendSummary.hidden = active !== "events";
   }
   elements.trendEventsPanel.hidden = active !== "events";
-  elements.trendPastPanel.hidden = active !== "past";
   elements.trendLivePanel.hidden = active !== "live";
-  elements.trendWatchlistPanel.hidden = active !== "watchlist";
+  elements.trendImpactPanel.hidden = active !== "impact";
+  elements.trendPastPanel.hidden = active !== "events" || !state.showPastEvents;
+  if (elements.homePastToggle) {
+    elements.homePastToggle.setAttribute("aria-expanded", String(active === "events" && state.showPastEvents));
+    elements.homePastToggle.textContent = state.showPastEvents ? "지난 이벤트 닫기" : "지난 이벤트";
+  }
   return active;
 }
 
@@ -8705,17 +8931,31 @@ function appendTrendWatchNewsGroup(parent, label, items, tone) {
 
 function renderTrendWatchNews(item, dashboard) {
   const sentiment = dashboard?.sentiment || {};
-  const latestItems = (sentiment.latest_items || []).filter((news) => news?.title && news.title !== "최근 종목 뉴스 없음");
+  const seenNews = new Set();
+  const seenTitles = new Set();
+  const latestItems = (sentiment.latest_items || []).filter((news) => {
+    if (!news?.title || news.title === "최근 종목 뉴스 없음") {
+      return false;
+    }
+    const normalizedTitle = String(news.title).replace(/\s+/g, " ").trim().toLocaleLowerCase("ko-KR");
+    const key = news.url || `${news.title}|${news.source || ""}|${news.published_at || ""}`;
+    if (seenNews.has(key) || seenTitles.has(normalizedTitle)) {
+      return false;
+    }
+    seenNews.add(key);
+    seenTitles.add(normalizedTitle);
+    return true;
+  });
   const positiveItems = latestItems.filter((news) => trendWatchNewsImpact(news) === "호재");
   const negativeItems = latestItems.filter((news) => trendWatchNewsImpact(news) === "악재");
   const neutralItems = latestItems.filter((news) => trendWatchNewsImpact(news) === "중립");
   elements.trendWatchlistMeta.textContent = `${item.name} · 호재 ${formatNumber(sentiment.positive_count || 0)} · 악재 ${formatNumber(sentiment.negative_count || 0)}`;
   elements.trendWatchlistStatus.textContent = "";
   elements.trendWatchNewsBoard.innerHTML = "";
-  appendTrendWatchNewsGroup(elements.trendWatchNewsBoard, "호재", positiveItems, "positive");
-  appendTrendWatchNewsGroup(elements.trendWatchNewsBoard, "악재", negativeItems, "negative");
+  appendTrendWatchNewsGroup(elements.trendWatchNewsBoard, "호재", positiveItems.slice(0, 2), "positive");
+  appendTrendWatchNewsGroup(elements.trendWatchNewsBoard, "악재", negativeItems.slice(0, 2), "negative");
   if (neutralItems.length) {
-    appendTrendWatchNewsGroup(elements.trendWatchNewsBoard, "판단 보류", neutralItems, "neutral");
+    appendTrendWatchNewsGroup(elements.trendWatchNewsBoard, "판단 보류", neutralItems.slice(0, 1), "neutral");
   }
 }
 
@@ -9018,57 +9258,47 @@ function isFallbackMarketImpact(model) {
   });
 }
 
-function setTrendImpactChrome({ loading = false } = {}) {
-  if (elements.trendTopbar) {
-    elements.trendTopbar.hidden = false;
-  }
-  if (elements.trendTitle) {
-    elements.trendTitle.textContent = "시장 영향도 분석";
-  }
-  if (elements.trendTabsWrap) {
-    elements.trendTabsWrap.hidden = true;
-  }
-  if (elements.trendSummary) {
-    elements.trendSummary.hidden = true;
-  }
-  if (elements.trendEventsTitle) {
-    elements.trendEventsTitle.hidden = true;
-    elements.trendEventsTitle.textContent = loading ? "시장 영향도 계산 중" : "";
-  }
-  elements.trendEventsPanel.hidden = false;
-  elements.trendLivePanel.hidden = true;
-  elements.trendWatchlistPanel.hidden = true;
-  elements.trendPastPanel.hidden = true;
-}
-
 function restoreTrendChrome(activeTab = "live", headline = "") {
   if (elements.trendTopbar) {
-    elements.trendTopbar.hidden = activeTab !== "past";
+    elements.trendTopbar.hidden = true;
   }
   if (elements.trendTitle) {
-    elements.trendTitle.textContent = activeTab === "past" ? "지난 이벤트" : "트렌드 분석";
+    elements.trendTitle.textContent = "시장 홈";
   }
   if (elements.trendTabsWrap) {
     elements.trendTabsWrap.hidden = false;
   }
   if (elements.trendSummary) {
-    elements.trendSummary.hidden = activeTab !== "events";
+    elements.trendSummary.hidden = true;
   }
   if (elements.trendEventsTitle) {
     elements.trendEventsTitle.hidden = false;
-    elements.trendEventsTitle.textContent = activeTab === "past" ? "지난 이벤트" : "이벤트 캘린더";
+    elements.trendEventsTitle.textContent = "이벤트 캘린더";
   }
   elements.trendHeadline.textContent = headline;
 }
 
-function renderMarketImpactAnalysis(payload) {
+function renderHomeMarketSnapshot(model) {
+  if (!elements.homeMarketSnapshot) {
+    return;
+  }
+  const leading = [...(model.factors || [])].sort((a, b) => Number(b.percent || 0) - Number(a.percent || 0))[0];
+  elements.homeMarketStatus.textContent = model.marketStatus || "중립";
+  elements.homeMarketFactor.textContent = leading ? `${leading.label} ${leading.direction || leading.status || "확인"}` : "확인 중";
+  elements.homeMarketBalance.textContent = `호재 ${Number(model.goodWeight || 0).toFixed(0)} · 악재 ${Number(model.badWeight || 0).toFixed(0)}`;
+  setTone(elements.homeMarketStatus, model.marketStatus === "호재 우위" ? 1 : model.marketStatus === "리스크 우위" ? -1 : 0);
+  setTone(elements.homeMarketFactor, (leading?.direction || leading?.status) === "호재" ? 1 : -1);
+  setTone(elements.homeMarketBalance, Number(model.goodWeight || 0) - Number(model.badWeight || 0));
+}
+
+function renderMarketImpactAnalysis(payload, target = elements.trendImpactContent) {
   const model = normalizeMarketImpactModel(payload);
   const fallback = isFallbackMarketImpact(model);
-  setTrendImpactChrome();
-  elements.trendHeadline.textContent = "";
-  elements.trendEvents.innerHTML = "";
-  elements.trendPastEvents.innerHTML = "";
-  elements.trendThread.innerHTML = "";
+  renderHomeMarketSnapshot(model);
+  if (!target) {
+    return;
+  }
+  target.innerHTML = "";
 
   const shell = el("section", "market-impact-dashboard");
   const hero = el("article", "market-impact-hero");
@@ -9116,7 +9346,7 @@ function renderMarketImpactAnalysis(payload) {
   detailsSummary.textContent = "공식 지표와 종목 영향 자세히 보기";
   details.append(detailsSummary, detailGrid);
   shell.append(hero, flow, details);
-  elements.trendEvents.appendChild(shell);
+  target.appendChild(shell);
 }
 
 function appendTrendEvent(item, parent = elements.trendEvents) {
@@ -9323,7 +9553,8 @@ function renderTrends(payload, activeTab = "live") {
   elements.trendEvents.innerHTML = "";
   elements.trendPastEvents.innerHTML = "";
   elements.trendThread.innerHTML = "";
-  setTrendTab(activeTab);
+  const selectedTab = ["live", "events", "impact"].includes(state.activeTrendTab) ? state.activeTrendTab : activeTab;
+  setTrendTab(selectedTab);
   const events = focusedTrendEvents(payload.events);
   const pastEvents = focusedTrendEvents(payload.past_events);
   const timeline = (payload.timeline || []).filter(isFocusedTrendTimelineItem);
@@ -9352,12 +9583,9 @@ function renderTrends(payload, activeTab = "live") {
     appendThreadGroup(elements.trendThread, "호재", positiveItems, "positive");
     appendThreadGroup(elements.trendThread, "악재", negativeItems, "negative");
   }
-  if (activeTab === "watchlist") {
-    void loadTrendWatchlistNews();
-  }
 }
 
-async function loadTrends(activeTab = state.view === "trend-past" ? "past" : state.activeTrendTab || "live", options = {}) {
+async function loadTrends(activeTab = state.activeTrendTab || "live", options = {}) {
   restoreTrendChrome(activeTab, "다가오는 이벤트와 최신 타임라인을 정리하는 중입니다.");
   try {
     const force = options.force === true;
@@ -9370,25 +9598,26 @@ async function loadTrends(activeTab = state.view === "trend-past" ? "past" : sta
 }
 
 async function loadMarketImpactAnalysis(options = {}) {
-  setTrendImpactChrome({ loading: true });
-  elements.trendHeadline.textContent = "";
-  elements.trendEvents.innerHTML = "";
-  elements.trendEvents.appendChild(el("p", "muted", "외부 지표를 수집하고 영향도를 계산하는 중입니다."));
+  const target = elements.trendImpactContent;
+  if (target) {
+    target.innerHTML = "";
+    target.appendChild(el("p", "muted", "외부 지표를 수집하고 영향도를 계산하는 중입니다."));
+  }
   try {
     const force = options.force === true;
     const ttlMs = options.ttlMs ?? pageEntryTtlMs("trend-impact");
     const url = force ? liveUrl("/market/impact?refresh=true") : "/market/impact";
     const payload = await fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs });
-    renderMarketImpactAnalysis(payload);
+    renderMarketImpactAnalysis(payload, target);
   } catch {
     try {
       const fallbackPayload = await fetchJsonCached("/market/trends?days=7", { force: true, ttlMs: 0 });
-      renderMarketImpactAnalysis(fallbackPayload);
+      renderMarketImpactAnalysis(fallbackPayload, target);
     } catch {
-      setTrendImpactChrome();
-      elements.trendHeadline.textContent = "";
-      elements.trendEvents.innerHTML = "";
-      elements.trendEvents.appendChild(el("p", "muted", "시장 영향도 데이터 없음"));
+      if (target) {
+        target.innerHTML = "";
+        target.appendChild(el("p", "muted", "시장 영향도 데이터 없음"));
+      }
     }
   }
 }
@@ -9628,7 +9857,12 @@ async function loadStockRequest(query) {
     resetAIAnalysis();
     return;
   }
-  history.replaceState(null, "", `/dashboard/${encodeURIComponent(stock.name)}`);
+  const stockUrl = `/dashboard/${encodeURIComponent(stock.name)}`;
+  if (state.view === "stock") {
+    history.replaceState(null, "", stockUrl);
+  } else {
+    history.pushState(null, "", stockUrl);
+  }
   setView("stock");
 }
 
@@ -9636,35 +9870,33 @@ function load(query) {
   return runPageLoading(PAGE_LOADING_LABELS.stock, () => loadStockRequest(query));
 }
 
-for (const item of elements.sideItems) {
-  item.addEventListener("click", () => {
-    if (item.dataset.view === "stock") {
-      const query = state.currentStock?.name || pathQuery();
-      const entryOptions = pageEntryRefreshOptions("stock", state.currentStock?.code || query);
-      if (state.currentStock?.name && !entryOptions.force) {
-        setView("stock");
-      } else {
-        load(query);
-      }
-    } else {
-      setView(item.dataset.view);
-    }
-    setMobileMenu(false);
-  });
+async function syncViewFromLocation() {
+  const parts = window.location.pathname.split("/").filter(Boolean);
+  if (parts[0] === "dashboard" && parts[1]) {
+    setView("stock");
+    await load(decodeURIComponent(parts[1]));
+    return;
+  }
+  const routeView = new URLSearchParams(window.location.search).get("view") || "home";
+  setView(routeView);
 }
 
-elements.mobileMenuToggle?.addEventListener("click", () => {
-  setMobileMenu(!document.body.classList.contains("mobile-menu-open"));
+window.addEventListener("popstate", () => {
+  void syncViewFromLocation();
 });
 
-elements.mobileMenuScrim?.addEventListener("click", () => setMobileMenu(false));
+for (const item of elements.appNavItems) {
+  item.addEventListener("click", () => {
+    setView(item.dataset.appView);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  });
+}
 elements.homeInstallButton?.addEventListener("click", handleHomeInstall);
 elements.installSheetBackdrop?.addEventListener("click", closeInstallSheet);
 elements.installSheetClose?.addEventListener("click", closeInstallSheet);
 
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
-    setMobileMenu(false);
     closeInstallSheet();
     document.querySelectorAll(".term-help.open").forEach((item) => item.classList.remove("open"));
   }
@@ -9672,7 +9904,6 @@ window.addEventListener("keydown", (event) => {
 
 window.addEventListener("resize", () => {
   if (window.innerWidth > 980) {
-    setMobileMenu(false);
     resetPullRefreshIndicator({ immediate: true });
   }
   updateHomeInstallButton();
@@ -9862,10 +10093,17 @@ elements.recommendHistoryList.addEventListener("click", (event) => {
 for (const tab of elements.trendTabs) {
   tab.addEventListener("click", () => {
     const active = setTrendTab(tab.dataset.trendTab);
-    if (active === "watchlist") {
-      void loadTrendWatchlistNews();
+    if (active === "impact" && !elements.trendImpactContent.querySelector(".market-impact-dashboard")) {
+      void loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact"));
     }
   });
+}
+elements.homePastToggle?.addEventListener("click", () => {
+  state.showPastEvents = !state.showPastEvents;
+  setTrendTab("events");
+});
+for (const tab of elements.portfolioTabs) {
+  tab.addEventListener("click", () => setPortfolioTab(tab.dataset.portfolioTab, { load: true }));
 }
 elements.trendWatchStockRail?.addEventListener("click", (event) => {
   const button = event.target.closest(".trend-watch-stock-chip");
@@ -9907,6 +10145,36 @@ function handleTrendEventClick(event) {
 
 elements.trendEvents.addEventListener("click", handleTrendEventClick);
 elements.trendPastEvents.addEventListener("click", handleTrendEventClick);
+elements.trendImpactContent?.addEventListener("click", handleTrendEventClick);
+
+elements.discoverySearchForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const query = elements.discoverySearchInput.value.trim();
+  if (query) {
+    hideStandaloneSuggestions(elements.discoverySearchInput, elements.discoverySearchSuggestions);
+    void load(query);
+  }
+});
+elements.discoverySearchInput?.addEventListener("input", () => scheduleStandaloneSuggestions("discovery"));
+elements.discoverySearchInput?.addEventListener("focus", () => {
+  if (elements.discoverySearchInput.value.trim()) {
+    scheduleStandaloneSuggestions("discovery");
+  }
+});
+elements.chartStockSearchForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const query = elements.chartStockSearchInput.value.trim();
+  if (query) {
+    hideStandaloneSuggestions(elements.chartStockSearchInput, elements.chartStockSearchSuggestions);
+    void loadChartStock(query);
+  }
+});
+elements.chartStockSearchInput?.addEventListener("input", () => scheduleStandaloneSuggestions("chart"));
+elements.chartStockSearchInput?.addEventListener("focus", () => {
+  if (elements.chartStockSearchInput.value.trim()) {
+    scheduleStandaloneSuggestions("chart");
+  }
+});
 
 elements.input.addEventListener("input", scheduleSuggestions);
 elements.input.addEventListener("focus", () => {
@@ -10077,6 +10345,12 @@ document.addEventListener("click", (event) => {
     hideSuggestions();
     elements.form.classList.remove("expanded");
   }
+  if (elements.discoverySearchForm && !elements.discoverySearchForm.contains(event.target)) {
+    hideStandaloneSuggestions(elements.discoverySearchInput, elements.discoverySearchSuggestions);
+  }
+  if (elements.chartStockSearchForm && !elements.chartStockSearchForm.contains(event.target)) {
+    hideStandaloneSuggestions(elements.chartStockSearchInput, elements.chartStockSearchSuggestions);
+  }
 });
 
 registerDashboardServiceWorker();
@@ -10085,27 +10359,11 @@ applyStockTermTooltips();
 
 async function initializeDashboard() {
   await initializeWatchlistIdentity();
-  if (state.view === "market") {
-    setView("market");
-  } else if (state.view === "watchlist") {
-    setView("watchlist");
-  } else if (state.view === "recommend") {
-    setView("recommend");
-  } else if (state.view === "recommend-history") {
-    setView("recommend-history");
-  } else if (state.view === "trend") {
-    setView("trend");
-  } else if (state.view === "trend-past") {
-    setView("trend-past");
-  } else if (state.view === "trend-impact") {
-    setView("trend-impact");
-  } else if (state.view === "chart") {
-    setView("chart");
-  } else if (state.view === "chart-history") {
-    setView("chart-history");
-  } else {
+  if (state.view === "stock") {
     setView("stock");
-    load(pathQuery());
+    await load(pathQuery());
+  } else {
+    setView(state.view);
   }
 }
 

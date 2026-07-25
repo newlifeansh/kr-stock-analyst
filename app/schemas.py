@@ -454,6 +454,43 @@ class StockXFeedOut(BaseModel):
     items: list[StockXFeedItemOut] = Field(default_factory=list)
 
 
+class StockCommunityFeedItemOut(BaseModel):
+    provider_key: str
+    post_id: str
+    title: str
+    text: str
+    author_name: str
+    username: Optional[str] = None
+    author_profile_image_url: Optional[str] = None
+    url: Optional[str] = None
+    created_at: Optional[datetime] = None
+    like_count: int = 0
+    dislike_count: int = 0
+    reply_count: int = 0
+    repost_count: int = 0
+    view_count: int = 0
+    impact: str = "중립"
+
+
+class StockCommunityProviderOut(BaseModel):
+    key: str
+    label: str
+    source: str
+    configured: bool
+    search_url: str
+    more_label: str
+    message: Optional[str] = None
+    items: list[StockCommunityFeedItemOut] = Field(default_factory=list)
+
+
+class StockCommunityFeedOut(BaseModel):
+    code: str
+    name: str
+    as_of: datetime
+    message: Optional[str] = None
+    providers: list[StockCommunityProviderOut] = Field(default_factory=list)
+
+
 class DashboardSurpriseOut(BaseModel):
     recent_count: int
     positive_count: int

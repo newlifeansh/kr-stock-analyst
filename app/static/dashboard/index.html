@@ -3,24 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>종목 분석</title>
+    <title>비밀노트 | 국내증시</title>
     <meta name="theme-color" content="#111827" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="1.7" />
+    <meta name="application-version" content="3.0" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
     <script>
       if (window.location.protocol === "file:") {
         var serverUrl = new URL("http://127.0.0.1:8001/dashboard");
-        serverUrl.search = window.location.search || "?view=trend";
+        serverUrl.search = window.location.search || "?view=home";
         serverUrl.hash = window.location.hash;
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v20" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v27" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -43,17 +43,40 @@
       <section class="app-splash" id="app-splash" aria-hidden="true" hidden>
         <img class="app-splash-logo" src="/assets/dashboard/icons/icon-192.png?v=20260620bq" alt="비밀노트" />
       </section>
-      <header class="mobile-app-bar">
-        <button class="mobile-menu-button" id="mobile-menu-toggle" type="button" aria-label="메뉴 열기" aria-expanded="false" aria-controls="side-nav">
-          <span></span>
-          <span></span>
-          <span></span>
-        </button>
-        <div class="mobile-brand">
+      <header class="app-topbar">
+        <div class="mobile-brand" aria-label="비밀노트 국내증시">
+          <span class="app-brand-mark" aria-hidden="true">B</span>
           <strong>비밀노트</strong>
           <span>국내증시</span>
         </div>
-        <button class="home-install-button" id="home-install-button" type="button" hidden>홈 추가</button>
+        <div class="app-topbar-actions">
+          <button class="home-install-button" id="home-install-button" type="button" hidden>홈 추가</button>
+          <button
+            class="app-icon-button app-notification-button"
+            id="push-notification-button"
+            type="button"
+            hidden
+            aria-label="알림 설정"
+            aria-pressed="false"
+            title="알림 설정"
+          >
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path d="M12 4a4 4 0 0 0-4 4v1.2c0 1.1-.4 2.1-1.1 3l-1 1.2a1 1 0 0 0 .8 1.6h10.6a1 1 0 0 0 .8-1.6l-1-1.2a4.7 4.7 0 0 1-1.1-3V8a4 4 0 0 0-4-4Z"></path>
+              <path d="M9.8 17a2.2 2.2 0 0 0 4.4 0"></path>
+            </svg>
+            <span id="push-notification-button-text" aria-hidden="true">알림 설정</span>
+            <span class="sr-only" id="push-notification-button-label">알림 설정</span>
+          </button>
+          <span class="app-account-id" id="watchlist-id-display">로그인 필요</span>
+          <button class="app-logout-button" id="logout-button" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5"></path><path d="M13 8l4 4-4 4"></path><path d="M8 12h9"></path></svg>
+            <span>로그아웃</span>
+          </button>
+          <a class="app-support-link" href="https://open.kakao.com/o/gJeoIZAi" target="_blank" rel="noreferrer" aria-label="개선 및 이용 문의">문의</a>
+          <p id="watchlist-id-status" class="sr-only">로컬 저장 중</p>
+          <p id="push-notification-status" class="sr-only" aria-live="polite"></p>
+          <button id="push-notification-disable-button" type="button" hidden>알림 오프</button>
+        </div>
       </header>
       <section class="pull-refresh-indicator" id="pull-refresh-indicator" aria-live="polite" hidden>
         <div class="pull-refresh-spinner" aria-hidden="true"></div>
@@ -65,7 +88,6 @@
           <strong id="page-loading-label">데이터를 불러오는 중</strong>
         </div>
       </section>
-      <div class="mobile-menu-scrim" id="mobile-menu-scrim" hidden></div>
       <section class="loading-modal" id="flow-loading-modal" role="status" aria-live="polite" hidden>
         <div class="loading-modal-backdrop"></div>
         <article class="loading-modal-card">
@@ -107,68 +129,7 @@
           </div>
         </article>
       </section>
-      <aside class="side-nav" id="side-nav">
-        <div class="side-brand">
-          <strong>비밀노트</strong>
-          <button
-            class="side-brand-notification"
-            id="push-notification-button"
-            type="button"
-            hidden
-            aria-label="알림 설정"
-            aria-pressed="false"
-            title="알림 설정"
-          >
-            <span class="side-brand-notification-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                <path d="M12 4a4 4 0 0 0-4 4v1.2c0 1.1-.4 2.1-1.1 3l-1 1.2a1 1 0 0 0 .8 1.6h10.6a1 1 0 0 0 .8-1.6l-1-1.2a4.7 4.7 0 0 1-1.1-3V8a4 4 0 0 0-4-4Z"></path>
-                <path d="M9.8 17a2.2 2.2 0 0 0 4.4 0"></path>
-              </svg>
-            </span>
-            <span class="side-brand-notification-text" id="push-notification-button-text" aria-hidden="true">알림 설정</span>
-            <span class="side-brand-notification-dot" aria-hidden="true"></span>
-            <span class="sr-only" id="push-notification-button-label">알림 설정</span>
-          </button>
-        </div>
-        <p id="push-notification-status" class="sr-only" aria-live="polite"></p>
-        <nav class="side-menu">
-          <div class="side-menu-group">
-            <span class="side-menu-label">홈</span>
-            <button class="side-menu-item active" type="button" data-view="trend">트렌드 분석</button>
-          </div>
-          <div class="side-menu-group">
-            <span class="side-menu-label">종목</span>
-            <button class="side-menu-item" type="button" data-view="stock">종목 검색</button>
-            <button class="side-menu-item" type="button" data-view="watchlist">관심 종목</button>
-            <button class="side-menu-item" type="button" data-view="chart">AI 차트 분석</button>
-          </div>
-          <div class="side-menu-group">
-            <span class="side-menu-label">추천</span>
-            <button class="side-menu-item" type="button" data-view="recommend">지금 추천 종목</button>
-            <button class="side-menu-item" type="button" data-view="recommend-history">추적 종목</button>
-          </div>
-          <div class="side-menu-group">
-            <span class="side-menu-label">시장</span>
-            <button class="side-menu-item" type="button" data-view="trend-impact">시장 영향도 분석</button>
-            <button class="side-menu-item" type="button" data-view="market">급상승 종목</button>
-            <button class="side-menu-item" type="button" data-view="trend-past">지난 이벤트</button>
-          </div>
-        </nav>
-        <section class="watch-identity" id="watchlist-id-panel" aria-label="로그인 정보">
-          <span class="watch-identity-label">접속 ID</span>
-          <div class="watch-identity-row">
-            <strong class="watch-identity-current" id="watchlist-id-display">로그인 필요</strong>
-            <button id="logout-button" type="button">로그아웃</button>
-          </div>
-          <p id="watchlist-id-status">로컬 저장 중</p>
-          <button id="push-notification-disable-button" type="button" hidden>알림 오프</button>
-        </section>
-        <section class="side-footer-panel" aria-label="사이드 하단 정보">
-          <a class="side-footer-link" href="https://open.kakao.com/o/gJeoIZAi" target="_blank" rel="noreferrer">개선 및 이용 문의</a>
-        </section>
-      </aside>
-
-      <main class="shell">
+      <main class="shell" data-ui-version="3.0">
       <section id="stock-view" class="stock-detail-v3" data-ui-version="1.5">
         <header class="stock-v3-commandbar">
           <button class="stock-v3-back" id="stock-detail-back" type="button" aria-label="이전 화면">←</button>
@@ -360,14 +321,13 @@
               <div class="stock-v3-main-chart" id="stock-news-temperature-chart" aria-label="뉴스 온도와 주가 흐름"></div>
             </article>
 
-            <article class="stock-v3-section stock-x-feed-section" id="stock-x-feed-section">
+            <article class="stock-v3-section stock-community-section" id="stock-community-section">
               <header class="stock-v3-section-head">
-                <div><span>시장 반응</span><h2>X 피드</h2></div>
-                <a class="stock-v3-source stock-x-feed-more" id="stock-x-feed-more" href="https://x.com/search" target="_blank" rel="noopener noreferrer">X에서 더 보기 ↗</a>
+                <div><span>시장 반응</span><h2>커뮤니티</h2></div>
               </header>
-              <p class="stock-v3-section-description">종목과 관련된 최근 공개 게시물입니다. 사실 확인 전 시장 반응 참고용으로만 확인하세요.</p>
-              <p class="stock-x-feed-status" id="stock-x-feed-status" role="status">X 피드를 불러오는 중입니다.</p>
-              <ul class="stock-x-feed-list" id="stock-x-feed-list" aria-label="종목 관련 X 게시물"></ul>
+              <p class="stock-v3-section-description">네이버 종토방과 Threads에서 종목 반응을 함께 확인합니다. 사실 확인 전 참고용으로만 보세요.</p>
+              <p class="stock-community-status" id="stock-community-status" role="status">커뮤니티 글을 불러오는 중입니다.</p>
+              <div class="stock-community-providers" id="stock-community-providers" aria-label="종목 관련 커뮤니티 글"></div>
             </article>
           </section>
 
@@ -482,193 +442,179 @@
         </div>
       </section>
 
-      <section id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="1.7" hidden>
-        <header class="topbar">
-          <div class="identity">
-            <div>
-              <h1>관심 종목</h1>
-              <p id="watchlist-meta">저장된 종목</p>
-            </div>
-          </div>
+      <section id="home-view" class="app-page app-home" data-ui-version="3.0" hidden>
+        <header class="app-page-intro">
+          <span>오늘의 시장</span>
+          <h1>홈</h1>
+          <p>시장 흐름과 다음 일정을 한 화면에서 확인합니다.</p>
         </header>
+        <section class="home-market-snapshot" id="home-market-snapshot" aria-live="polite">
+          <div><span>시장 상태</span><strong id="home-market-status">분석 중</strong></div>
+          <div><span>가장 큰 변수</span><strong id="home-market-factor">확인 중</strong></div>
+          <div><span>시장 균형</span><strong id="home-market-balance">확인 중</strong></div>
+        </section>
 
-        <section class="watchlist-panel">
-          <section class="watchlist-strategy" id="watchlist-strategy" aria-live="polite" hidden></section>
-          <div class="watch-v2-filter watch-v3-tabs" role="tablist" aria-label="관심 종목 필터">
-            <button class="active" type="button" role="tab" aria-selected="true" data-watch-filter="all">전체</button>
-            <button type="button" role="tab" aria-selected="false" data-watch-filter="attention">확인 필요</button>
-            <button type="button" role="tab" aria-selected="false" data-watch-filter="positive">흐름 양호</button>
-          </div>
-          <section class="watch-v3-stock-section">
-            <header class="watch-v2-list-head">
-              <div>
-                <span>실시간 비교</span>
-                <h2>종목별 현황</h2>
-              </div>
-              <p id="watchlist-filter-summary">실시간 데이터를 확인 중입니다.</p>
-            </header>
-            <section class="watchlist-card-list watch-v2-list-surface" id="watchlist-body" aria-live="polite"></section>
+        <section id="trend-view" class="home-market-content">
+          <header class="topbar" id="trend-topbar" hidden>
+            <div class="identity"><div><h1 id="trend-title">시장 홈</h1></div></div>
+          </header>
+          <section class="trend-tabs app-segment-tabs" id="trend-tabs" role="tablist" aria-label="시장 정보 보기">
+            <button class="trend-tab active" type="button" role="tab" aria-selected="true" aria-controls="trend-live-panel" data-trend-tab="live">실시간</button>
+            <button class="trend-tab" type="button" role="tab" aria-selected="false" aria-controls="trend-events-panel" data-trend-tab="events">주요 이벤트</button>
+            <button class="trend-tab" type="button" role="tab" aria-selected="false" aria-controls="trend-impact-panel" data-trend-tab="impact">시장 영향</button>
+          </section>
+          <section class="trend-panel" id="trend-live-panel" role="tabpanel">
+            <div class="app-section-heading"><div><span>실시간 이슈</span><h2>시장 타임라인</h2></div></div>
+            <div class="trend-thread" id="trend-thread"></div>
+          </section>
+          <section class="trend-panel" id="trend-events-panel" role="tabpanel" hidden>
+            <section class="trend-summary" hidden><p id="trend-headline">이벤트와 최신 뉴스를 불러오는 중입니다.</p></section>
+            <div class="app-section-heading">
+              <div><span>앞으로 7일</span><h2 id="trend-events-title">이벤트 캘린더</h2></div>
+              <button class="text-action" id="home-past-toggle" type="button" aria-expanded="false">지난 이벤트</button>
+            </div>
+            <div class="trend-events" id="trend-events"></div>
+            <section class="trend-past-inline" id="trend-past-panel" hidden>
+              <div class="app-section-heading"><div><span>기록</span><h2>지난 이벤트</h2></div></div>
+              <div class="trend-events" id="trend-past-events"></div>
+            </section>
+          </section>
+          <section class="trend-panel" id="trend-impact-panel" role="tabpanel" hidden>
+            <div class="app-section-heading"><div><span>금리·환율·원자재·위험자산</span><h2>시장 영향 분석</h2></div></div>
+            <div class="trend-events market-impact-content" id="trend-impact-content">
+              <p class="muted">시장 변수를 계산하는 중입니다.</p>
+            </div>
           </section>
         </section>
       </section>
 
-      <section id="recommend-view" hidden>
-        <header class="topbar">
-          <div class="identity">
-            <div>
-              <h1>지금 추천종목</h1>
-              <p id="recommend-meta" hidden></p>
-            </div>
-          </div>
-          <div class="topbar-actions">
-            <button class="primary-action" id="recommend-button" type="button">추천받기</button>
-          </div>
+      <section id="search-view" class="app-page app-search" data-ui-version="3.0" hidden>
+        <header class="app-page-intro">
+          <span>종목 발견</span>
+          <h1>검색</h1>
+          <p>종목을 찾거나 지금 움직이는 후보를 살펴보세요.</p>
         </header>
+        <form class="discovery-search" id="discovery-search-form" autocomplete="off">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path></svg>
+          <input id="discovery-search-input" type="search" placeholder="종목명 또는 종목코드" aria-label="종목 검색" aria-autocomplete="list" aria-expanded="false" aria-controls="discovery-search-suggestions" />
+          <button type="submit">검색</button>
+          <div class="discovery-suggestions" id="discovery-search-suggestions" role="listbox" hidden></div>
+        </form>
 
-        <section class="recommend-summary" hidden>
-          <p id="recommend-status"></p>
-        </section>
-
-        <section class="recommend-list" id="recommend-list"></section>
-      </section>
-
-      <section id="recommend-history-view" hidden>
-        <header class="topbar">
-          <div class="identity">
-            <div>
-              <h1>추적 종목</h1>
-              <p id="recommend-history-meta">추적 종목 없음</p>
-            </div>
-          </div>
-        </header>
-
-        <section class="recommend-history archive-page">
-          <div class="snapshot-list" id="recommend-history-list"></div>
-        </section>
-      </section>
-
-      <section id="trend-view" hidden>
-        <header class="topbar" id="trend-topbar" hidden>
-          <div class="identity">
-            <div>
-              <h1 id="trend-title">트렌드 분석</h1>
-            </div>
-          </div>
-        </header>
-
-        <section class="trend-tabs" id="trend-tabs" role="tablist" aria-label="트렌드 보기">
-          <button class="trend-tab active" type="button" role="tab" aria-selected="true" aria-controls="trend-live-panel" data-trend-tab="live">실시간</button>
-          <button class="trend-tab" type="button" role="tab" aria-selected="false" aria-controls="trend-events-panel" data-trend-tab="events">주요 이벤트</button>
-          <button class="trend-tab" type="button" role="tab" aria-selected="false" aria-controls="trend-watchlist-panel" data-trend-tab="watchlist">관심종목</button>
-        </section>
-
-        <section class="trend-panel" id="trend-live-panel" role="tabpanel">
-          <h2 class="section-title">타임라인</h2>
-          <div class="trend-thread" id="trend-thread"></div>
-        </section>
-
-        <section class="trend-panel" id="trend-events-panel" role="tabpanel" hidden>
-          <section class="trend-summary" hidden>
-            <p id="trend-headline">이벤트와 최신 뉴스를 불러오는 중입니다.</p>
-          </section>
-          <h2 class="section-title" id="trend-events-title">이벤트 캘린더</h2>
-          <div class="trend-events" id="trend-events"></div>
-        </section>
-
-        <section class="trend-panel trend-watchlist-panel" id="trend-watchlist-panel" role="tabpanel" hidden>
-          <div class="trend-watchlist-head">
-            <h2 class="section-title">관심종목 뉴스</h2>
-            <span id="trend-watchlist-meta"></span>
-          </div>
-          <div class="trend-watch-stock-rail" id="trend-watch-stock-rail" role="tablist" aria-label="관심종목 선택"></div>
-          <p class="trend-watchlist-status" id="trend-watchlist-status" role="status" aria-live="polite"></p>
-          <div class="trend-watch-news-board" id="trend-watch-news-board"></div>
-        </section>
-
-        <section class="trend-panel" id="trend-past-panel" hidden>
-          <h2 class="section-title">지난 이벤트</h2>
-          <div class="trend-events" id="trend-past-events"></div>
-        </section>
-      </section>
-
-      <section id="chart-view" hidden>
-        <header class="topbar">
-          <div class="identity">
-            <div>
-              <h1>AI 차트 분석</h1>
-              <p id="watch-chart-meta">관심종목 기준</p>
-            </div>
-          </div>
-        </header>
-
-        <section class="watch-chart-list" id="watch-chart-list"></section>
-      </section>
-
-      <section id="chart-history-view" hidden>
-        <header class="topbar">
-          <div class="identity">
-            <div>
-              <h1>지난 AI 차트 스냅샷</h1>
-              <p id="watch-chart-snapshot-meta">저장 없음</p>
-            </div>
-          </div>
-          <button class="primary-action" id="chart-history-back-button" type="button">AI 차트 분석</button>
-        </header>
-
-        <section class="chart-snapshot-panel archive-page">
-          <div class="history-head">
-            <strong>차트 스냅샷 아카이브</strong>
-            <span>저장 기록 관리</span>
-          </div>
-          <div class="chart-snapshot-list" id="watch-chart-snapshots"></div>
-        </section>
-      </section>
-
-      <section id="market-view" hidden>
-        <header class="topbar">
-          <div class="identity">
-            <div>
-              <h1>급상승 종목</h1>
-              <p id="market-meta">전체 시장 종목을 확인하는 중</p>
-            </div>
-          </div>
-          <div class="market-controls">
+        <section id="market-view" class="discovery-module">
+          <header class="app-section-heading discovery-module-head">
+            <div><span>실시간 시장</span><h2>급등주</h2><p id="market-meta">전체 시장 종목을 확인하는 중</p></div>
             <div class="market-segment" role="tablist" aria-label="시장 선택">
               <button class="market-segment-button active" type="button" data-market-filter="ALL" role="tab" aria-selected="true">전체</button>
               <button class="market-segment-button" type="button" data-market-filter="KOSPI" role="tab" aria-selected="false">KOSPI</button>
               <button class="market-segment-button" type="button" data-market-filter="KOSDAQ" role="tab" aria-selected="false">KOSDAQ</button>
             </div>
-          </div>
-        </header>
-
-        <section class="rank-tabs" id="rank-tabs" hidden>
-          <button class="rank-tab active" type="button" data-category="surge">급상승</button>
-          <button class="rank-tab" type="button" data-category="trading_value">거래대금</button>
-          <button class="rank-tab" type="button" data-category="valuation">밸류에이션</button>
-          <button class="rank-tab" type="button" data-category="momentum">모멘텀</button>
-          <button class="rank-tab" type="button" data-category="sentiment">뉴스 분위기</button>
+          </header>
+          <section class="rank-tabs" id="rank-tabs" hidden>
+            <button class="rank-tab active" type="button" data-category="surge">급상승</button>
+            <button class="rank-tab" type="button" data-category="trading_value">거래대금</button>
+            <button class="rank-tab" type="button" data-category="valuation">밸류에이션</button>
+            <button class="rank-tab" type="button" data-category="momentum">모멘텀</button>
+            <button class="rank-tab" type="button" data-category="sentiment">뉴스 분위기</button>
+          </section>
+          <section class="ranking-panel">
+            <table class="ranking-table">
+              <thead><tr><th>순위</th><th>종목</th><th>현재가</th><th>핵심값</th><th>1개월</th><th>3개월</th><th>거래대금</th></tr></thead>
+              <tbody id="ranking-body"></tbody>
+            </table>
+          </section>
         </section>
 
-        <section class="ranking-panel">
-          <table class="ranking-table">
-            <thead>
-              <tr>
-                <th>순위</th>
-                <th>종목</th>
-                <th>현재가</th>
-                <th>핵심값</th>
-                <th>1개월</th>
-                <th>3개월</th>
-                <th>거래대금</th>
-              </tr>
-            </thead>
-            <tbody id="ranking-body"></tbody>
-          </table>
+        <section id="recommend-view" class="discovery-module">
+          <header class="app-section-heading discovery-module-head">
+            <div><span>데이터 선별</span><h2>추천 종목</h2><p id="recommend-meta" hidden></p></div>
+            <button class="primary-action" id="recommend-button" type="button">추천받기</button>
+          </header>
+          <section class="recommend-summary" hidden><p id="recommend-status"></p></section>
+          <section class="recommend-list" id="recommend-list"></section>
         </section>
       </section>
+
+      <section id="portfolio-view" class="app-page app-portfolio" data-ui-version="3.0" hidden>
+        <header class="app-page-intro">
+          <span>내가 보는 종목</span>
+          <h1>내 종목</h1>
+          <p>관심종목과 추천 후 추적 중인 종목을 나눠서 확인합니다.</p>
+        </header>
+        <section class="portfolio-tabs app-segment-tabs" role="tablist" aria-label="내 종목 보기">
+          <button class="portfolio-tab active" type="button" role="tab" aria-selected="true" data-portfolio-tab="watchlist">관심종목</button>
+          <button class="portfolio-tab" type="button" role="tab" aria-selected="false" data-portfolio-tab="tracking">추적종목</button>
+        </section>
+        <section class="portfolio-tab-panel" id="portfolio-watchlist-panel" role="tabpanel">
+          <section class="trend-watchlist-panel portfolio-news-panel" id="trend-watchlist-panel">
+            <div class="trend-watchlist-head"><h2>관심종목 뉴스</h2><span id="trend-watchlist-meta"></span></div>
+            <div class="trend-watch-stock-rail" id="trend-watch-stock-rail" role="tablist" aria-label="관심종목 선택"></div>
+            <p class="trend-watchlist-status" id="trend-watchlist-status" role="status" aria-live="polite"></p>
+            <div class="trend-watch-news-board" id="trend-watch-news-board"></div>
+          </section>
+          <section id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0">
+            <p id="watchlist-meta" class="sr-only">저장된 종목</p>
+            <section class="watchlist-panel">
+              <section class="watchlist-strategy" id="watchlist-strategy" aria-live="polite" hidden></section>
+              <div class="watch-v2-filter watch-v3-tabs" role="tablist" aria-label="관심 종목 필터">
+                <button class="active" type="button" role="tab" aria-selected="true" data-watch-filter="all">전체</button>
+                <button type="button" role="tab" aria-selected="false" data-watch-filter="attention">확인 필요</button>
+                <button type="button" role="tab" aria-selected="false" data-watch-filter="positive">흐름 양호</button>
+              </div>
+              <section class="watch-v3-stock-section">
+                <header class="watch-v2-list-head"><div><span>실시간 비교</span><h2>종목별 현황</h2></div><p id="watchlist-filter-summary">실시간 데이터를 확인 중입니다.</p></header>
+                <section class="watchlist-card-list watch-v2-list-surface" id="watchlist-body" aria-live="polite"></section>
+              </section>
+            </section>
+          </section>
+        </section>
+        <section class="portfolio-tab-panel" id="portfolio-tracking-panel" role="tabpanel" hidden>
+          <section id="recommend-history-view">
+            <header class="app-section-heading"><div><span>추천 후 관찰</span><h2>추적 종목</h2><p id="recommend-history-meta">추적 종목 없음</p></div></header>
+            <section class="recommend-history archive-page"><div class="snapshot-list" id="recommend-history-list"></div></section>
+          </section>
+        </section>
+      </section>
+
+      <section id="chart-view" class="app-page app-chart" data-ui-version="3.0" hidden>
+        <header class="app-page-intro chart-page-intro">
+          <span>기술 흐름</span><h1>차트분석</h1><p id="watch-chart-meta">관심종목 기준</p>
+        </header>
+        <form class="discovery-search chart-stock-search" id="chart-stock-search-form" autocomplete="off">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path></svg>
+          <input id="chart-stock-search-input" type="search" placeholder="분석할 종목 검색" aria-label="차트 분석 종목 검색" aria-autocomplete="list" aria-expanded="false" aria-controls="chart-stock-search-suggestions" />
+          <button type="submit">분석</button>
+          <div class="discovery-suggestions" id="chart-stock-search-suggestions" role="listbox" hidden></div>
+        </form>
+        <section class="chart-watchlist-pick">
+          <div class="app-section-heading"><div><span>빠른 선택</span><h2>관심종목</h2></div><div class="chart-page-actions"><button class="text-action" id="watch-chart-refresh" type="button">새로고침</button><button class="text-action" id="chart-archive-button" type="button">저장 기록</button></div></div>
+          <div class="chart-watchlist-picker" id="chart-watchlist-picker" aria-label="관심종목에서 선택"></div>
+        </section>
+        <section class="watch-chart-list" id="watch-chart-list"></section>
+      </section>
+
+      <section id="chart-history-view" class="app-page" hidden>
+        <header class="app-page-intro"><span>저장 기록</span><h1>지난 차트 분석</h1><p id="watch-chart-snapshot-meta">저장 없음</p><button class="text-action" id="chart-history-back-button" type="button">차트분석으로</button></header>
+        <section class="chart-snapshot-panel archive-page"><div class="history-head"><strong>차트 스냅샷</strong><span>저장 기록 관리</span></div><div class="chart-snapshot-list" id="watch-chart-snapshots"></div></section>
+      </section>
       </main>
+
+      <nav class="bottom-nav" id="bottom-nav" aria-label="주요 메뉴">
+        <button class="bottom-nav-item active" type="button" data-app-view="home" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7"></path><path d="M5 9v11h14V9"></path><path d="M9 20v-6h6v6"></path></svg><span>홈</span>
+        </button>
+        <button class="bottom-nav-item" type="button" data-app-view="search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path></svg><span>검색</span>
+        </button>
+        <button class="bottom-nav-item" type="button" data-app-view="portfolio">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"></path></svg><span>내 종목</span>
+        </button>
+        <button class="bottom-nav-item" type="button" data-app-view="chart">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M22 20V7"></path></svg><span>차트분석</span>
+        </button>
+      </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v20" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v27" defer></script>
   </body>
 </html>

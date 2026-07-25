@@ -22,7 +22,7 @@ def test_root_redirects_to_korea_dashboard():
     client = TestClient(app)
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 307
-    assert response.headers["location"] == "/dashboard?view=trend"
+    assert response.headers["location"] == "/dashboard?view=home"
 
 
 def test_watchlist_share_id_roundtrip():
@@ -162,28 +162,63 @@ def test_dashboard_shows_shared_loading_state_for_navigation_and_stock_lookup():
     assert "function launchPageLoading" in source
     assert "function clearPageLoading" in source
     assert "return runPageLoading(PAGE_LOADING_LABELS.stock" in source
-    for view in ("market", "watchlist", "recommend", "trend", "trend-impact", "chart"):
+    assert "function launchBriefPageLoading" in source
+    for view in ("market", "watchlist", "recommend", "trend", "chart"):
         assert f"PAGE_LOADING_LABELS.{view.replace('-', '_')}" in source or f'PAGE_LOADING_LABELS["{view}"]' in source
 
 
-def test_trend_is_home_with_live_event_and_watchlist_tabs():
+def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     client = TestClient(app)
     shell = client.get("/dashboard").text
     source = client.get("/assets/dashboard/app.js").text
 
     live_index = shell.index('data-trend-tab="live"')
     events_index = shell.index('data-trend-tab="events"')
-    watchlist_index = shell.index('data-trend-tab="watchlist"')
-    assert live_index < events_index < watchlist_index
+    impact_index = shell.index('data-trend-tab="impact"')
+    assert live_index < events_index < impact_index
     assert '>실시간</button>' in shell
+    assert '>주요 이벤트</button>' in shell
+    assert '>시장 영향</button>' in shell
     assert '<section class="trend-summary" hidden>' in shell
     assert shell.index('id="trend-tabs"') < shell.index('class="trend-summary"')
+    assert 'id="home-view"' in shell
+    assert 'id="search-view"' in shell
+    assert 'id="portfolio-view"' in shell
+    assert 'id="chart-view"' in shell
+    assert 'id="discovery-search-form"' in shell
+    assert 'id="portfolio-watchlist-panel"' in shell
+    assert 'id="chart-stock-search-form"' in shell
     assert 'id="trend-watch-stock-rail"' in shell
     assert 'id="trend-watch-news-board"' in shell
     assert 'id="trend-topbar" hidden' in shell
-    assert 'activeTrendTab: "live"' in source
-    assert 'elements.trendSummary.hidden = active !== "events";' in source
-    assert 'elements.trendTopbar.hidden = activeTab !== "past";' in source
+    assert 'class="side-nav"' not in shell
+    nav_order = [
+        shell.index('data-app-view="home"'),
+        shell.index('data-app-view="search"'),
+        shell.index('data-app-view="portfolio"'),
+        shell.index('data-app-view="chart"'),
+    ]
+    assert nav_order == sorted(nav_order)
+    assert 'trend: "home"' in source
+    assert 'market: "search"' in source
+    assert 'watchlist: "portfolio"' in source
+    assert 'const initialView = hasStockDetailPath ? "stock" : (LEGACY_VIEW_MAP[requestedView] || "home");' in source
+
+
+def test_dashboard_restores_the_visible_view_on_browser_history_navigation():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+
+    assert 'window.addEventListener("popstate"' in source
+    assert "syncViewFromLocation" in source
+
+
+def test_watchlist_news_deduplicates_matching_headlines():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+
+    assert "const seenTitles = new Set();" in source
+    assert "seenTitles.has(normalizedTitle)" in source
 
 
 def test_trend_watchlist_mobile_layout_stays_inside_viewport():

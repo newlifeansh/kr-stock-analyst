@@ -10,7 +10,7 @@ from app.db import Base, get_db
 from app.main import app
 from app.models import NewsItem, StockMaster
 from app.repository import latest_news_items
-from app.services import x_feed
+from app.services import community_feed, x_feed
 
 
 def _session() -> Session:
@@ -125,16 +125,64 @@ def test_x_feed_endpoint_has_search_fallback_without_token(monkeypatch):
         db.close()
 
 
-def test_stock_detail_contains_x_feed_ui():
+def test_stock_community_feed_endpoint_uses_naver_board_and_threads(monkeypatch):
+    db = _session()
+    db.add(StockMaster(code="215600", name="신라젠", market="KOSDAQ", is_active=True))
+    db.commit()
+
+    class Response:
+        text = """
+        <table class="type2">
+          <tr><th>날짜</th><th>제목</th><th>글쓴이</th><th>조회</th><th>추천</th><th>비추천</th></tr>
+          <tr align="center">
+            <td><span>2026.07.25 12:13</span></td>
+            <td class="title"><a href="/item/board_read.naver?code=215600&nid=426298204&page=1" title="신라젠 다시 상승 준비">신라젠 다시 상승 준비</a></td>
+            <td class="p11 align_right">개미투자자</td>
+            <td><span>27</span></td>
+            <td><strong>3</strong></td>
+            <td><strong>0</strong></td>
+          </tr>
+        </table>
+        """
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    def fake_get(url, **kwargs):
+        assert url == community_feed.NAVER_BOARD_URL
+        assert kwargs["params"]["code"] == "215600"
+        return Response()
+
+    def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    monkeypatch.setattr(community_feed.requests, "get", fake_get)
+    try:
+        response = TestClient(app).get("/stocks/215600/community-feed")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["code"] == "215600"
+        assert payload["providers"][0]["key"] == "naver_board"
+        assert payload["providers"][0]["items"][0]["title"] == "신라젠 다시 상승 준비"
+        assert payload["providers"][0]["items"][0]["view_count"] == 27
+        assert payload["providers"][1]["key"] == "threads"
+        assert payload["providers"][1]["search_url"].startswith("https://www.threads.com/search?q=")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
+def test_stock_detail_contains_community_ui():
     client = TestClient(app)
     shell = client.get("/dashboard/215600").text
     source = client.get("/assets/dashboard/app.js").text
     styles = client.get("/assets/dashboard/styles.css").text
 
-    assert 'id="stock-x-feed-section"' in shell
-    assert 'id="stock-x-feed-list"' in shell
-    assert 'id="stock-x-feed-more"' in shell
-    assert "function loadStockXFeed" in source
-    assert "/x-feed?limit=20" in source
-    assert ".stock-x-feed-link" in styles
-    assert ".stock-x-feed-text" in styles
+    assert 'id="stock-community-section"' in shell
+    assert 'id="stock-community-providers"' in shell
+    assert "function loadStockCommunity" in source
+    assert "/community-feed?limit=12" in source
+    assert ".stock-community-link" in styles
+    assert ".stock-community-text" in styles
