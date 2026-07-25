@@ -21368,6 +21368,108 @@ body:not([data-view="stock"]) #recommend-history-view > .app-section-heading {
   box-sizing: border-box;
 }
 
+/* Tracked recommendation tables match the continuous stock-detail table. */
+body:not([data-view="stock"]) #recommend-history-view :is(
+  .recommend-track-metrics,
+  .recommend-track-signals
+) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  overflow: visible;
+  border: 0;
+  border-top: 1px solid var(--app-v3-line);
+  border-radius: 0;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(
+  .recommend-track-metrics,
+  .recommend-track-signals
+) > div {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  align-content: center;
+  justify-content: stretch;
+  gap: 3px;
+  padding: 10px 10px 9px 0;
+  border: 0;
+  border-right: 1px solid var(--app-v3-line);
+  border-bottom: 1px solid var(--app-v3-line);
+  border-radius: 0;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(
+  .recommend-track-metrics,
+  .recommend-track-signals
+) > div:nth-child(even) {
+  padding-right: 0;
+  padding-left: 12px;
+  border-right: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-signals > div:last-child {
+  grid-column: 1 / -1;
+  padding-right: 0;
+  border-right: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(
+  .recommend-track-metrics,
+  .recommend-track-signals
+) span {
+  color: var(--app-v3-muted);
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  line-height: 1.4 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(
+  .recommend-track-metrics,
+  .recommend-track-signals
+) strong {
+  color: var(--app-v3-text);
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  line-height: 1.35 !important;
+  text-align: left;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-detail {
+  gap: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-saved-info,
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-summary {
+  display: grid;
+  gap: 12px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--app-v3-line);
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-saved-info h3,
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-summary h3 {
+  margin: 0;
+  color: var(--app-v3-text);
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  line-height: 1.4 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-summary p,
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-points {
+  color: var(--app-v3-text);
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  line-height: 1.65 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-points {
+  gap: 8px;
+  padding-left: 20px;
+}
+
 @media (max-width: 720px) {
   #stock-view.stock-detail-v3 .stock-v3-news-temperature-section {
     padding-top: 20px;

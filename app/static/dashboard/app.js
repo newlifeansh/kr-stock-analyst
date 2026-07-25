@@ -8188,6 +8188,79 @@ function recommendationTrackProfit(trackedPrice, currentPrice) {
   return { value, rate };
 }
 
+function recommendationTrackDecisionLabel(value) {
+  const text = String(value || "").trim();
+  if (!text || /^(?:none|null|nan|undefined|-)$/i.test(text)) {
+    return "판단 정보 없음";
+  }
+  if (text === "보류") {
+    return "관찰 우선";
+  }
+  if (text === "1차 후보") {
+    return "관찰 후보";
+  }
+  return text;
+}
+
+function recommendationTrackScoreLabel(value, includeLevel = false) {
+  const score = toNumber(value);
+  if (score === null) {
+    return "점수 정보 없음";
+  }
+  if (!includeLevel) {
+    return `${formatNumber(score)}점 / 100점`;
+  }
+  const level = recommendationScoreLevel(score);
+  return `${formatNumber(score)}점 · ${level.label}`;
+}
+
+function sanitizeRecommendationTrackPoint(value) {
+  const text = String(value || "").trim();
+  if (!text || /^(?:none|null|nan|undefined|-)$/i.test(text)) {
+    return "";
+  }
+  if (/가격 모멘텀 기준 선별/i.test(text) && /(?:none|null|nan|undefined)/i.test(text)) {
+    return "1개월·3개월 수익률 데이터가 부족해 최근 가격과 거래대금을 우선 확인합니다.";
+  }
+
+  const chartMatch = text.match(/^차트 점수\s*([+-]?[\d,.]+)점,\s*(.+)$/i);
+  if (chartMatch) {
+    const score = toNumber(chartMatch[1].replaceAll(",", ""));
+    const trend = chartMatch[2].replaceAll("/", "·").trim();
+    return `차트 흐름은 ${recommendationTrackScoreLabel(score)}이며 ${trend} 상태입니다.`;
+  }
+
+  const tradingMatch = text.match(/^거래대금 변화\s*([+-]?[\d,.]+)%\s*반영$/i);
+  if (tradingMatch) {
+    const change = toNumber(tradingMatch[1].replaceAll(",", ""));
+    if (change !== null) {
+      return `거래대금은 비교 기준보다 ${formatNumber(Math.abs(change))}% ${change >= 0 ? "늘었습니다" : "줄었습니다"}.`;
+    }
+  }
+
+  const levelMatch = text.match(/^차트 지지\s*([\d,.]+),\s*저항\s*([\d,.]+)$/i);
+  if (levelMatch) {
+    const support = toNumber(levelMatch[1].replaceAll(",", ""));
+    const resistance = toNumber(levelMatch[2].replaceAll(",", ""));
+    if (support !== null && resistance !== null) {
+      return `가격 기준선은 지지 ${formatNumber(support)}원 · 저항 ${formatNumber(resistance)}원이었습니다.`;
+    }
+  }
+
+  return text.replace(/\b(?:None|null|NaN|undefined)\b%?/gi, "데이터 없음");
+}
+
+function setRecommendationTrackExpanded(card, expanded) {
+  const detail = card?.querySelector(".recommend-track-detail");
+  const toggle = card?.querySelector(".recommend-track-detail-toggle");
+  if (!detail || !toggle) {
+    return;
+  }
+  detail.hidden = !expanded;
+  toggle.textContent = expanded ? "접기" : "자세히 보기";
+  toggle.setAttribute("aria-expanded", String(expanded));
+}
+
 function createRecommendationTrackCard(track, dashboard = null) {
   const saved = track.item || {};
   const chart = saved.chart_analysis || {};
@@ -8220,10 +8293,10 @@ function createRecommendationTrackCard(track, dashboard = null) {
 
   const metrics = el("div", "recommend-track-metrics");
   const metricRows = [
-    ["추적 단가", trackedPrice !== null ? formatNumber(trackedPrice) : "-", "", trackedPrice],
+    ["추적 단가", trackedPrice !== null ? formatNumber(trackedPrice) : "가격 정보 없음", "", trackedPrice],
     ["현재 단가", currentPrice !== null ? formatNumber(currentPrice) : "불러오는 중", "tracked_current_price", currentPrice],
-    ["주당 손익", profit.value !== null ? formatChangeValue(profit.value) : "-", "tracked_pnl_value", profit.value],
-    ["손익률", profit.rate !== null ? formatPercent(profit.rate) : "-", "tracked_pnl_rate", profit.rate],
+    ["주당 손익", profit.value !== null ? formatChangeValue(profit.value) : "계산 전", "tracked_pnl_value", profit.value],
+    ["손익률", profit.rate !== null ? formatPercent(profit.rate) : "계산 전", "tracked_pnl_rate", profit.rate],
   ];
   for (const [label, value, field, rawValue] of metricRows) {
     const row = el("div");
@@ -8243,15 +8316,15 @@ function createRecommendationTrackCard(track, dashboard = null) {
 
   const signalGrid = el("div", "recommend-track-signals");
   const signalRows = [
-    ["추적 시작", formatDate(track.tracked_at)],
-    ["당시 AI 판단", track.ai?.decision || track.tracked_action || "-"],
-    ["당시 추천 점수", formatNumber(track.tracked_score)],
-    ["당시 차트 점수", formatNumber(chart.score)],
-    ["현재 기준", dashboard?.as_of ? formatDate(dashboard.as_of) : "현재 시세 확인 중"],
+    ["추적 등록", track.tracked_at ? formatDate(track.tracked_at) : "등록일 정보 없음"],
+    ["저장 당시 판단", recommendationTrackDecisionLabel(track.ai?.decision || track.tracked_action)],
+    ["추천 점수", recommendationTrackScoreLabel(track.tracked_score, true)],
+    ["차트 점수", recommendationTrackScoreLabel(chart.score)],
+    ["최근 확인", dashboard?.as_of ? formatDate(dashboard.as_of) : "현재 시세 확인 중"],
   ];
   for (const [label, value] of signalRows) {
     const row = el("div");
-    row.append(el("span", "", label), el("strong", "", value || "-"));
+    row.append(el("span", "", label), el("strong", "", value || "정보 없음"));
     signalGrid.appendChild(row);
   }
 
@@ -8262,20 +8335,24 @@ function createRecommendationTrackCard(track, dashboard = null) {
   const detail = el("section", "recommend-track-detail");
   detail.hidden = true;
 
+  const savedInfo = el("section", "recommend-track-saved-info");
+  savedInfo.append(el("h3", "", "저장 당시 정보"), signalGrid);
+
   const summary = el("section", "recommend-track-summary");
   summary.append(
-    el("h3", "", "추적 시점 AI 요약"),
-    el("p", "", track.ai?.summary || `${track.name || "종목"} 추적 시점 요약이 아직 없습니다.`)
+    el("h3", "", "저장 당시 판단"),
+    el("p", "", track.ai?.summary || `${track.name || "종목"}의 저장 당시 판단 정보가 없습니다.`)
   );
 
   const reasons = el("section", "recommend-track-summary");
-  reasons.appendChild(el("h3", "", "당시 핵심 포인트"));
+  reasons.appendChild(el("h3", "", "저장 당시 참고 근거"));
   const reasonList = document.createElement("ul");
   reasonList.className = "recommend-track-points";
-  appendListItems(reasonList, saved.reasons || [], "저장된 요약 포인트가 없습니다.");
+  const readableReasons = (saved.reasons || []).map(sanitizeRecommendationTrackPoint).filter(Boolean);
+  appendListItems(reasonList, readableReasons, "저장 당시 참고할 근거가 없습니다.");
   reasons.appendChild(reasonList);
 
-  detail.append(signalGrid, summary, reasons);
+  detail.append(savedInfo, summary, reasons);
   card.append(head, metrics, detailToggle, detail);
   return card;
 }
@@ -8332,7 +8409,10 @@ async function loadRecommendationHistory(options = {}) {
         }
         const currentCard = elements.recommendHistoryList.querySelector(`.recommend-track-card[data-code="${selectorEscape(track.code)}"]`);
         if (currentCard) {
-          currentCard.replaceWith(createRecommendationTrackCard(track, dashboard));
+          const keepExpanded = !currentCard.querySelector(".recommend-track-detail")?.hidden;
+          const nextCard = createRecommendationTrackCard(track, dashboard);
+          setRecommendationTrackExpanded(nextCard, keepExpanded);
+          currentCard.replaceWith(nextCard);
         }
       } catch {
         return;
@@ -10234,10 +10314,7 @@ elements.recommendHistoryList.addEventListener("click", (event) => {
     const card = detailButton.closest(".recommend-track-card");
     const detail = card?.querySelector(".recommend-track-detail");
     if (detail) {
-      const nextOpen = detail.hidden;
-      detail.hidden = !nextOpen;
-      detailButton.textContent = nextOpen ? "접기" : "자세히 보기";
-      detailButton.setAttribute("aria-expanded", String(nextOpen));
+      setRecommendationTrackExpanded(card, detail.hidden);
     }
     return;
   }

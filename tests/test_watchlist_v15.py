@@ -9,8 +9,8 @@ def test_watchlist_v15_shell_and_asset_version():
 
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
-    assert 'name="application-version" content="4.4"' in shell.text
-    assert "20260725v53" in shell.text
+    assert 'name="application-version" content="4.5"' in shell.text
+    assert "20260725v54" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -108,6 +108,35 @@ def test_recommendation_score_explains_scale_and_interpretation():
         "#recommend-view .recommend-score-value",
         "#recommend-view .recommend-score-help::after",
         "#recommend-view .recommend-score-level.high",
+    ):
+        assert expected in styles
+
+
+def test_tracked_recommendation_uses_readable_values_and_stock_detail_table():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    for expected in (
+        "function sanitizeRecommendationTrackPoint",
+        'return "1개월·3개월 수익률 데이터가 부족해 최근 가격과 거래대금을 우선 확인합니다.";',
+        'return "판단 정보 없음";',
+        'return `${formatNumber(score)}점 / 100점`;',
+        '["저장 당시 판단", recommendationTrackDecisionLabel',
+        'el("h3", "", "저장 당시 정보")',
+        'el("h3", "", "저장 당시 판단")',
+        'el("h3", "", "저장 당시 참고 근거")',
+        ".map(sanitizeRecommendationTrackPoint).filter(Boolean)",
+        "setRecommendationTrackExpanded(nextCard, keepExpanded);",
+    ):
+        assert expected in source
+
+    for expected in (
+        "/* Tracked recommendation tables match the continuous stock-detail table. */",
+        "#recommend-history-view :is(",
+        ".recommend-track-signals > div:last-child",
+        ".recommend-track-saved-info",
+        "grid-template-columns: repeat(2, minmax(0, 1fr));",
     ):
         assert expected in styles
 
