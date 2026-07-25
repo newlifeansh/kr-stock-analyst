@@ -10,7 +10,7 @@ from xml.etree import ElementTree
 
 import requests
 from bs4 import BeautifulSoup
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session, aliased
 
 from app.models import DailyPrice, NewsItem, StockMaster
@@ -346,34 +346,25 @@ def _fast_price_items(db: Session, market: Optional[str], lookback: int = 64) ->
 
 
 def _latest_session_surge_items(db: Session, market: Optional[str]) -> list[dict[str, object]]:
-    latest_date_statement = select(func.max(DailyPrice.trade_date)).join(StockMaster, StockMaster.code == DailyPrice.code)
-    if market:
-        latest_date_statement = latest_date_statement.where(StockMaster.market == market.upper())
-    latest_date = db.scalar(latest_date_statement)
-    if not latest_date:
-        return []
-
-    now = _now_kst()
-    if latest_date >= now.date() and (now.hour, now.minute) <= (15, 30):
-        completed_date_statement = (
-            select(func.max(DailyPrice.trade_date))
-            .join(StockMaster, StockMaster.code == DailyPrice.code)
-            .where(DailyPrice.trade_date < now.date())
-        )
-        if market:
-            completed_date_statement = completed_date_statement.where(StockMaster.market == market.upper())
-        latest_date = db.scalar(completed_date_statement)
-        if not latest_date:
-            return []
-
-    previous_date_statement = (
-        select(func.max(DailyPrice.trade_date))
+    date_statement = (
+        select(DailyPrice.trade_date)
         .join(StockMaster, StockMaster.code == DailyPrice.code)
-        .where(DailyPrice.trade_date < latest_date)
+        .distinct()
+        .order_by(desc(DailyPrice.trade_date))
     )
     if market:
-        previous_date_statement = previous_date_statement.where(StockMaster.market == market.upper())
-    previous_date = db.scalar(previous_date_statement)
+        date_statement = date_statement.where(StockMaster.market == market.upper())
+    date_statement = date_statement.limit(16)
+    now = _now_kst()
+    completed_dates = [
+        trade_date
+        for trade_date in db.scalars(date_statement)
+        if trade_date.weekday() < 5
+        and not (trade_date >= now.date() and (now.hour, now.minute) <= (15, 30))
+    ]
+    if len(completed_dates) < 2:
+        return []
+    latest_date, previous_date = completed_dates[:2]
 
     LatestPrice = aliased(DailyPrice)
     PreviousPrice = aliased(DailyPrice)
@@ -409,6 +400,51 @@ def _latest_session_surge_items(db: Session, market: Optional[str]) -> list[dict
                 "sentiment_score": None,
             }
         )
+    return items
+
+
+def _enrich_database_period_returns(
+    db: Session,
+    items: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    codes = [str(item["code"]) for item in items if item.get("code")]
+    trade_dates = [item["trade_date"] for item in items if item.get("trade_date")]
+    if not codes or not trade_dates:
+        return items
+
+    row_number = func.row_number().over(
+        partition_by=DailyPrice.code,
+        order_by=DailyPrice.trade_date.desc(),
+    ).label("row_number")
+    ranked = (
+        select(
+            DailyPrice.code.label("code"),
+            DailyPrice.trade_date.label("trade_date"),
+            DailyPrice.close.label("close"),
+            row_number,
+        )
+        .where(
+            DailyPrice.code.in_(codes),
+            DailyPrice.trade_date <= max(trade_dates),
+            DailyPrice.close.is_not(None),
+        )
+        .subquery()
+    )
+    history: dict[str, list[int]] = {code: [] for code in codes}
+    rows = db.execute(
+        select(ranked)
+        .where(ranked.c.row_number <= 64)
+        .order_by(ranked.c.code, ranked.c.trade_date)
+    ).mappings()
+    for row in rows:
+        if row["close"] is not None:
+            history[str(row["code"])].append(int(row["close"]))
+
+    for item in items:
+        closes = history.get(str(item.get("code"))) or []
+        current_price = item.get("price")
+        item["one_month_return"] = _rate(current_price, closes[-22] if len(closes) >= 22 else None)
+        item["three_month_return"] = _rate(current_price, closes[-64] if len(closes) >= 64 else None)
     return items
 
 
@@ -628,7 +664,7 @@ def build_market_rankings(
 ) -> dict[str, object]:
     should_refresh_live = refresh_live and _is_regular_session()
     source = "database"
-    live_market_items = _naver_market_rise_items(db, market) if category == "surge" and refresh_live else []
+    live_market_items = _naver_market_rise_items(db, market) if category == "surge" and should_refresh_live else []
     if live_market_items:
         items = live_market_items
         source = "naver_market_rise"
@@ -650,7 +686,11 @@ def build_market_rankings(
     universe_count = _stock_universe_count(db, market) if source == "naver_market_rise" else len(items)
     matching_count = 0
     if category == "surge":
-        rising_items = [item for item in items if Decimal(str(item.get("change_rate") or 0)) > 0]
+        rising_items = [
+            item
+            for item in items
+            if Decimal("0") < Decimal(str(item.get("change_rate") or 0)) <= Decimal("30.5")
+        ]
         matching_count = len(rising_items)
         rankings = _ranked(rising_items, "surge", "change_rate", True, rank_limit)
     elif category == "trading_value":
@@ -690,6 +730,8 @@ def build_market_rankings(
 
     if category == "surge" and source == "naver_market_rise" and rankings:
         rankings = _enrich_market_period_returns(rankings, max_items=min(100, limit))
+    elif category == "surge" and source == "database" and rankings:
+        rankings = _enrich_database_period_returns(db, rankings)
 
     return {
         "category": category,

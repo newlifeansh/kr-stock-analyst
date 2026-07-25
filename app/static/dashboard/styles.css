@@ -8755,6 +8755,388 @@ a.flow-node.stock:hover {
   }
 }
 
+/* Pin portfolio 5.0: stock-detail hierarchy for saved recommendation monitoring. */
+body:not([data-view="stock"]) #portfolio-tracking-panel > #recommend-history-view {
+  width: 100%;
+  min-width: 0;
+  overflow: clip;
+  background: var(--app-v3-bg, #f4f5f7);
+}
+
+body:not([data-view="stock"]) #recommend-history-view > .app-section-heading {
+  padding: 22px 24px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--app-v3-line, #e3e6ea);
+  border-radius: 0;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view > .app-section-heading span,
+body:not([data-view="stock"]) #recommend-history-view > .app-section-heading p {
+  color: var(--app-v3-muted, #8a929e);
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  line-height: 1.45 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view > .app-section-heading h2 {
+  margin: 3px 0 4px;
+  color: var(--app-v3-text, #17191d);
+  font-size: 24px !important;
+  font-weight: 750 !important;
+  line-height: 1.3 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-history.archive-page {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+body:not([data-view="stock"]) #recommend-history-view #recommend-history-list {
+  display: grid;
+  gap: 10px;
+  padding: 10px 0 24px;
+  background: var(--app-v3-bg, #f4f5f7);
+}
+
+body:not([data-view="stock"]) #recommend-history-view #recommend-history-list > .muted {
+  margin: 0;
+  padding: 28px 24px;
+  border: 0;
+  background: #ffffff;
+  color: var(--app-v3-muted, #6f7782);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+body:not([data-view="stock"]) #recommend-history-view #recommend-history-list > .recommend-track-card {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-head {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 18px;
+  border: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-stock-link {
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-title {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-title strong {
+  overflow: hidden;
+  color: var(--app-v3-text, #17191d);
+  font-size: 23px !important;
+  font-weight: 750 !important;
+  line-height: 1.25 !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-title span {
+  color: var(--app-v3-muted, #8a929e);
+  font-size: 13px !important;
+  font-weight: 550 !important;
+  line-height: 1.4 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-pin-state {
+  flex: 0 0 auto;
+  padding-top: 3px;
+  color: #e3263f;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0 24px;
+  overflow: hidden;
+  border: 1px solid var(--app-v3-line, #e3e6ea);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics > div {
+  display: grid;
+  min-width: 0;
+  min-height: 72px;
+  align-content: center;
+  gap: 5px;
+  padding: 13px 16px;
+  border: 0;
+  border-right: 1px solid var(--app-v3-line, #e3e6ea);
+  border-bottom: 1px solid var(--app-v3-line, #e3e6ea);
+  border-radius: 0;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics > div:nth-child(even) {
+  border-right: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics dt {
+  color: var(--app-v3-muted, #8a929e);
+  font-size: 12px !important;
+  font-weight: 550 !important;
+  line-height: 1.35 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--app-v3-text, #17191d);
+  font-size: 17px !important;
+  font-weight: 750 !important;
+  line-height: 1.3 !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics dd.positive {
+  color: #d9233f;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics dd.negative {
+  color: #1769d2;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 24px 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-actions :is(a, button) {
+  display: inline-flex;
+  min-width: 0;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid #15171a;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-stock-action {
+  background: #15171a;
+  color: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-remove {
+  position: static;
+  width: auto;
+  min-width: 0;
+  background: #ffffff;
+  color: #15171a;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-detail-toggle {
+  display: flex;
+  width: calc(100% - 48px);
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 18px 24px 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--app-v3-line, #e3e6ea);
+  border-radius: 0;
+  background: #ffffff;
+  color: var(--app-v3-text, #17191d);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-detail-toggle-icon {
+  color: var(--app-v3-muted, #8a929e);
+  font-size: 19px;
+  font-weight: 600;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-detail {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border-top: 8px solid var(--app-v3-bg, #f4f5f7);
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-detail[hidden] {
+  display: none;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-saved-info,
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-summary {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 22px 24px;
+  border: 0;
+  border-bottom: 1px solid var(--app-v3-line, #e3e6ea);
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(
+  .recommend-track-saved-info,
+  .recommend-track-summary
+) h3 {
+  margin: 0;
+  color: var(--app-v3-text, #17191d);
+  font-size: 17px !important;
+  font-weight: 750 !important;
+  line-height: 1.4 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-signals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--app-v3-line, #e3e6ea);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-signals > div {
+  display: grid;
+  min-width: 0;
+  min-height: 66px;
+  align-content: center;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 0;
+  border-right: 1px solid var(--app-v3-line, #e3e6ea);
+  border-bottom: 1px solid var(--app-v3-line, #e3e6ea);
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-signals > div:nth-child(even) {
+  border-right: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-signals > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-signals dt {
+  color: var(--app-v3-muted, #8a929e);
+  font-size: 12px !important;
+  font-weight: 550 !important;
+  line-height: 1.35 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-signals dd {
+  margin: 0;
+  color: var(--app-v3-text, #17191d);
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  line-height: 1.4 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-summary p,
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-points {
+  margin: 0;
+  color: #313741;
+  font-size: 15px !important;
+  font-weight: 500 !important;
+  line-height: 1.65 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-points {
+  display: grid;
+  gap: 10px;
+  padding-left: 20px;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-points li::marker {
+  color: #3182f6;
+}
+
+@media (max-width: 720px) {
+  body:not([data-view="stock"]) #recommend-history-view > .app-section-heading {
+    padding: 20px 18px 16px;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view #recommend-history-list {
+    gap: 8px;
+    padding-top: 8px;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view .recommend-track-head {
+    padding: 20px 18px 16px;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view .recommend-track-title strong {
+    font-size: 21px !important;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics {
+    margin: 0 18px;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics > div {
+    min-height: 68px;
+    padding: 12px;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics dd {
+    font-size: 16px !important;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view .recommend-track-actions {
+    margin: 16px 18px 0;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view .recommend-track-detail-toggle {
+    width: calc(100% - 36px);
+    margin: 16px 18px 0;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view .recommend-track-saved-info,
+  body:not([data-view="stock"]) #recommend-history-view .recommend-track-summary {
+    padding: 20px 18px;
+  }
+}
+
 /* Portfolio 4.9: separate AI strategy from stock news without stacking both feeds. */
 body:not([data-view="stock"]) #portfolio-watchlist-panel {
   min-width: 0;
@@ -22320,5 +22702,621 @@ body:not([data-view="stock"]) #recommend-history-view :is(
     border-right: 0;
     border-left: 0;
     border-radius: 0 !important;
+  }
+}
+
+/* Pin portfolio 5.0 final precedence: mirror the stock-detail visual system. */
+body:not([data-view="stock"]) #portfolio-tracking-panel > #recommend-history-view {
+  width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+  border: 0;
+  border-radius: 0;
+  background: var(--app-v3-bg, #f4f5f7);
+}
+
+/* Home surge 5.1: compact market discovery between indices and the news timeline. */
+body:not([data-view="stock"]) .home-surge {
+  margin: 8px 0;
+  padding: 0 28px;
+  background: #fff;
+  border-top: 8px solid #f3f5f7;
+  border-bottom: 8px solid #f3f5f7;
+}
+
+body:not([data-view="stock"]) .home-surge-head {
+  min-height: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid #e4e8ed;
+}
+
+body:not([data-view="stock"]) .home-surge-head > div {
+  min-width: 0;
+}
+
+body:not([data-view="stock"]) .home-surge-head span,
+body:not([data-view="stock"]) .market-ranking-head span {
+  display: block;
+  margin-bottom: 6px;
+  color: #8a94a3;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+body:not([data-view="stock"]) .home-surge-head h2,
+body:not([data-view="stock"]) .market-ranking-head h1 {
+  margin: 0;
+  color: #151922;
+  font-size: 24px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+body:not([data-view="stock"]) .home-surge-head .text-action {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 8px 0 8px 16px;
+  color: #4c5667;
+  background: transparent;
+  border: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+body:not([data-view="stock"]) .home-surge-list {
+  min-height: 72px;
+}
+
+body:not([data-view="stock"]) .home-surge-list > .muted {
+  margin: 0;
+  padding: 24px 0;
+}
+
+body:not([data-view="stock"]) .home-surge-row {
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid #e8ebef;
+}
+
+body:not([data-view="stock"]) .home-surge-row:last-child {
+  border-bottom: 0;
+}
+
+body:not([data-view="stock"]) .home-surge-rank {
+  color: #9aa3af;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+body:not([data-view="stock"]) .home-surge-identity,
+body:not([data-view="stock"]) .home-surge-quote {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+body:not([data-view="stock"]) .home-surge-identity strong,
+body:not([data-view="stock"]) .home-surge-quote strong {
+  overflow: hidden;
+  color: #191d26;
+  font-size: 16px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) .home-surge-identity small,
+body:not([data-view="stock"]) .home-surge-quote small {
+  color: #8a94a3;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+body:not([data-view="stock"]) .home-surge-quote {
+  align-items: flex-end;
+  text-align: right;
+}
+
+body:not([data-view="stock"]) .home-surge-quote.positive small,
+body:not([data-view="stock"]) .market-leaderboard-change.positive {
+  color: #dc2638;
+}
+
+body:not([data-view="stock"]) .home-surge-quote.negative small,
+body:not([data-view="stock"]) .market-leaderboard-change.negative {
+  color: #2879df;
+}
+
+body[data-view="movers"] .app-content {
+  background: #fff;
+}
+
+body:not([data-view="stock"]) .app-market-rankings {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 28px;
+}
+
+body:not([data-view="stock"]) .market-ranking-head {
+  margin-bottom: 24px;
+}
+
+body:not([data-view="stock"]) .market-ranking-head p {
+  margin: 10px 0 0;
+  color: #7e8898;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+body:not([data-view="stock"]) .app-market-rankings > .market-segment {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0 0 20px;
+  padding: 0;
+  overflow: hidden;
+  background: #f1f3f6;
+  border: 0;
+  border-radius: 8px;
+}
+
+body:not([data-view="stock"]) .app-market-rankings .market-segment-button {
+  min-height: 52px;
+  margin: 0;
+  color: #8a94a3;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+body:not([data-view="stock"]) .app-market-rankings .market-segment-button.active {
+  color: #fff;
+  background: #151922;
+}
+
+body:not([data-view="stock"]) .market-ranking-list {
+  border-top: 1px solid #dfe3e8;
+}
+
+body:not([data-view="stock"]) .ranking-message-cell {
+  margin: 0;
+  padding: 28px 0;
+  text-align: center;
+}
+
+body:not([data-view="stock"]) .market-leaderboard,
+body:not([data-view="stock"]) .market-leaderboard-shell {
+  display: block;
+  margin: 0;
+  padding: 0;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-card {
+  margin: 0;
+  padding: 18px 0;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid #e4e8ed;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-main {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+body:not([data-view="stock"]) .market-rank-badge {
+  width: auto;
+  height: auto;
+  display: block;
+  color: #8a94a3;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-name strong {
+  overflow: hidden;
+  color: #171b23;
+  font-size: 17px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-name span {
+  color: #8a94a3;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-quote-block {
+  min-width: 82px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-price,
+body:not([data-view="stock"]) .market-leaderboard-change {
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-strip {
+  margin: 14px 0 0 40px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid #eef0f3;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-strip > div {
+  min-width: 0;
+  padding: 11px 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-strip span {
+  color: #929ba8;
+  font-size: 11px;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-strip strong {
+  overflow: hidden;
+  color: #4b5565;
+  font-size: 13px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-strip strong.positive {
+  color: #dc2638;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-strip strong.negative {
+  color: #2879df;
+}
+
+@media (max-width: 640px) {
+  body:not([data-view="stock"]) .home-surge {
+    padding: 0 20px;
+  }
+
+  body:not([data-view="stock"]) .home-surge-head {
+    min-height: 82px;
+  }
+
+  body:not([data-view="stock"]) .home-surge-head h2,
+  body:not([data-view="stock"]) .market-ranking-head h1 {
+    font-size: 22px;
+  }
+
+  body:not([data-view="stock"]) .app-market-rankings {
+    padding: 24px 20px 104px;
+  }
+}
+
+body:not([data-view="stock"]) #recommend-history-view > .app-section-heading {
+  padding: 20px 24px 17px;
+  border: 0;
+  border-bottom: 1px solid var(--app-v3-line, #e3e6ea);
+  border-radius: 0;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view > .app-section-heading :is(span, p) {
+  color: var(--app-v3-muted, #8a929e);
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  line-height: 1.45 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view > .app-section-heading h2 {
+  margin: 3px 0 4px;
+  color: var(--app-v3-text, #17191d);
+  font-size: 24px !important;
+  font-weight: 750 !important;
+  line-height: 1.3 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-history.archive-page {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+body:not([data-view="stock"]) #recommend-history-view #recommend-history-list {
+  display: grid;
+  gap: 8px;
+  padding: 8px 0 24px;
+  background: var(--app-v3-bg, #f4f5f7);
+}
+
+body:not([data-view="stock"]) #recommend-history-view #recommend-history-list > .recommend-track-card {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 18px;
+  border: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-stock-link {
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-title {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-title strong {
+  overflow: hidden;
+  color: var(--app-v3-text, #17191d);
+  font-size: 21px !important;
+  font-weight: 750 !important;
+  line-height: 1.25 !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-title span {
+  color: var(--app-v3-muted, #8a929e);
+  font-size: 13px !important;
+  font-weight: 550 !important;
+  line-height: 1.4 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-pin-state {
+  flex: 0 0 auto;
+  padding-top: 3px;
+  color: #e3263f;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(.recommend-track-metrics, .recommend-track-signals) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--app-v3-line, #e3e6ea);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics {
+  width: auto !important;
+  margin: 0 24px;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(.recommend-track-metrics, .recommend-track-signals) > div {
+  display: grid;
+  min-width: 0;
+  min-height: 68px;
+  align-content: center;
+  gap: 5px;
+  padding: 12px 15px;
+  border: 0;
+  border-right: 1px solid var(--app-v3-line, #e3e6ea);
+  border-bottom: 1px solid var(--app-v3-line, #e3e6ea);
+  border-radius: 0;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(.recommend-track-metrics, .recommend-track-signals) > div:nth-child(even) {
+  border-right: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(.recommend-track-metrics, .recommend-track-signals) > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(.recommend-track-metrics, .recommend-track-signals) :is(dt, span) {
+  color: var(--app-v3-muted, #8a929e);
+  font-size: 12px !important;
+  font-weight: 550 !important;
+  line-height: 1.35 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(.recommend-track-metrics, .recommend-track-signals) :is(dd, strong) {
+  margin: 0;
+  overflow: hidden;
+  color: var(--app-v3-text, #17191d);
+  font-size: 16px !important;
+  font-weight: 750 !important;
+  line-height: 1.35 !important;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics :is(dd.positive, strong.positive) {
+  color: #d9233f;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics :is(dd.negative, strong.negative) {
+  color: #1769d2;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-actions {
+  display: grid;
+  width: auto !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 24px 0;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-actions :is(a, button) {
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid #15171a;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-stock-action {
+  background: #15171a;
+  color: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-remove {
+  position: static;
+  background: #ffffff;
+  color: #15171a;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-detail-toggle {
+  display: flex;
+  width: calc(100% - 48px);
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 18px 24px 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--app-v3-line, #e3e6ea);
+  border-radius: 0;
+  background: #ffffff;
+  color: var(--app-v3-text, #17191d);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-detail-toggle-icon {
+  color: var(--app-v3-muted, #8a929e);
+  font-size: 19px;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-detail {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border-top: 8px solid var(--app-v3-bg, #f4f5f7);
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-detail[hidden] {
+  display: none;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(.recommend-track-saved-info, .recommend-track-summary) {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 22px 24px;
+  border: 0;
+  border-bottom: 1px solid var(--app-v3-line, #e3e6ea);
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(.recommend-track-saved-info, .recommend-track-summary) h3 {
+  margin: 0;
+  color: var(--app-v3-text, #17191d);
+  font-size: 17px !important;
+  font-weight: 750 !important;
+  line-height: 1.4 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(.recommend-track-summary p, .recommend-track-points) {
+  margin: 0;
+  color: var(--app-v3-text, #343941);
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  line-height: 1.65 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-points {
+  display: grid;
+  gap: 8px;
+  padding-left: 19px;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-points li::marker {
+  color: #1769d2;
+}
+
+@media (max-width: 720px) {
+  body:not([data-view="stock"]) #recommend-history-view > .app-section-heading {
+    padding: 18px 20px 15px;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view :is(.recommend-track-head, .recommend-track-saved-info, .recommend-track-summary) {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics {
+    margin-right: 20px;
+    margin-left: 20px;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view .recommend-track-actions {
+    margin-right: 20px;
+    margin-left: 20px;
+  }
+
+  body:not([data-view="stock"]) #recommend-history-view .recommend-track-detail-toggle {
+    width: calc(100% - 40px);
+    margin-right: 20px;
+    margin-left: 20px;
   }
 }

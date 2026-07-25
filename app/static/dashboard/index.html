@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="4.9" />
+    <meta name="application-version" content="5.1" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v60" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v64" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -457,6 +457,14 @@
           <p class="home-index-shared-asof" id="home-index-shared-asof">최근 30거래일 기준</p>
         </section>
 
+        <section class="home-surge" id="home-surge" aria-labelledby="home-surge-title" aria-live="polite">
+          <header class="home-surge-head">
+            <div><span id="home-surge-meta">최근 장 마감 기준</span><h2 id="home-surge-title">급등주</h2></div>
+            <button class="text-action" id="home-surge-more" type="button">더보기</button>
+          </header>
+          <div class="home-surge-list" id="home-surge-list"><p class="muted">급등 종목을 불러오는 중입니다.</p></div>
+        </section>
+
         <section id="trend-view" class="home-market-content">
           <header class="topbar" id="trend-topbar" hidden>
             <div class="identity"><div><h1 id="trend-title">시장 홈</h1></div></div>
@@ -490,6 +498,18 @@
         </section>
       </section>
 
+      <section id="market-view" class="app-page app-market-rankings" data-ui-version="3.0" hidden>
+        <header class="market-ranking-head">
+          <div><span id="market-meta">최근 장 마감 기준</span><h1>급등주 순위</h1></div>
+          <p>선택한 시장의 상승률 상위 30개 종목입니다.</p>
+        </header>
+        <div class="market-segment app-segment-tabs" role="tablist" aria-label="시장 선택">
+          <button class="market-segment-button active" type="button" data-market-filter="KOSPI" role="tab" aria-selected="true">KOSPI</button>
+          <button class="market-segment-button" type="button" data-market-filter="KOSDAQ" role="tab" aria-selected="false">KOSDAQ</button>
+        </div>
+        <section class="market-ranking-list" id="ranking-body" aria-live="polite"><p class="muted">급등 종목을 불러오는 중입니다.</p></section>
+      </section>
+
       <section id="search-view" class="app-page app-search" data-ui-version="3.0" hidden>
         <form class="discovery-search" id="discovery-search-form" autocomplete="off">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path></svg>
@@ -497,30 +517,6 @@
           <button type="submit">검색</button>
           <div class="discovery-suggestions" id="discovery-search-suggestions" role="listbox" hidden></div>
         </form>
-
-        <section id="market-view" class="discovery-module">
-          <header class="app-section-heading discovery-module-head">
-            <div><span>실시간 시장</span><h2>급등주</h2><p id="market-meta">전체 시장 종목을 확인하는 중</p></div>
-            <div class="market-segment" role="tablist" aria-label="시장 선택">
-              <button class="market-segment-button active" type="button" data-market-filter="ALL" role="tab" aria-selected="true">전체</button>
-              <button class="market-segment-button" type="button" data-market-filter="KOSPI" role="tab" aria-selected="false">KOSPI</button>
-              <button class="market-segment-button" type="button" data-market-filter="KOSDAQ" role="tab" aria-selected="false">KOSDAQ</button>
-            </div>
-          </header>
-          <section class="rank-tabs" id="rank-tabs" hidden>
-            <button class="rank-tab active" type="button" data-category="surge">급상승</button>
-            <button class="rank-tab" type="button" data-category="trading_value">거래대금</button>
-            <button class="rank-tab" type="button" data-category="valuation">밸류에이션</button>
-            <button class="rank-tab" type="button" data-category="momentum">모멘텀</button>
-            <button class="rank-tab" type="button" data-category="sentiment">뉴스 분위기</button>
-          </section>
-          <section class="ranking-panel">
-            <table class="ranking-table">
-              <thead><tr><th>순위</th><th>종목</th><th>현재가</th><th>핵심값</th><th>1개월</th><th>3개월</th><th>거래대금</th></tr></thead>
-              <tbody id="ranking-body"></tbody>
-            </table>
-          </section>
-        </section>
 
         <section id="recommend-view" class="discovery-module">
           <header class="app-section-heading discovery-module-head">
@@ -535,7 +531,7 @@
       <section id="portfolio-view" class="app-page app-portfolio" data-ui-version="3.0" hidden>
         <section class="portfolio-tabs app-segment-tabs" role="tablist" aria-label="내 종목 보기">
           <button class="portfolio-tab active" type="button" role="tab" aria-selected="true" data-portfolio-tab="watchlist">관심종목</button>
-          <button class="portfolio-tab" type="button" role="tab" aria-selected="false" data-portfolio-tab="tracking">추적종목</button>
+          <button class="portfolio-tab" type="button" role="tab" aria-selected="false" data-portfolio-tab="tracking">핀 종목</button>
         </section>
         <section class="portfolio-tab-panel" id="portfolio-watchlist-panel" role="tabpanel">
           <div class="watchlist-content-tabs" id="watchlist-content-tabs" role="tablist" aria-label="관심종목 정보">
@@ -569,7 +565,7 @@
         </section>
         <section class="portfolio-tab-panel" id="portfolio-tracking-panel" role="tabpanel" hidden>
           <section id="recommend-history-view">
-            <header class="app-section-heading"><div><span>추천 후 관찰</span><h2>추적 종목</h2><p id="recommend-history-meta">추적 종목 없음</p></div></header>
+            <header class="app-section-heading"><div><span>추천에서 저장한 종목</span><h2>핀 종목</h2><p id="recommend-history-meta">핀 종목 없음</p></div></header>
             <section class="recommend-history archive-page"><div class="snapshot-list" id="recommend-history-list"></div></section>
           </section>
         </section>
@@ -611,6 +607,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v60" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v64" defer></script>
   </body>
 </html>

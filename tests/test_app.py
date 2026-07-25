@@ -208,7 +208,26 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     ]
     assert nav_order == sorted(nav_order)
     assert 'trend: "home"' in source
-    assert 'market: "search"' in source
+
+
+def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():
+    client = TestClient(app)
+    shell = client.get("/dashboard?view=home").text
+    source = client.get("/assets/dashboard/app.js").text
+
+    assert 'id="home-surge"' in shell
+    assert 'id="home-surge-more"' in shell
+    assert 'id="market-view" class="app-page app-market-rankings"' in shell
+    assert shell.index('id="home-market-indices"') < shell.index('id="home-surge"') < shell.index('id="trend-view"')
+    assert shell.index('id="search-view"') > shell.index('id="market-view"')
+    assert 'data-market-filter="KOSPI"' in shell
+    assert 'data-market-filter="KOSDAQ"' in shell
+    assert 'data-market-filter="ALL"' not in shell
+    assert "function renderHomeSurgeRankings" in source
+    assert ".slice(0, 5)" in source
+    assert 'limit: 30' in source
+    assert 'history.replaceState(null, "", "/dashboard?view=movers")' in source
+    assert 'market: "movers"' in source
     assert 'watchlist: "portfolio"' in source
     assert 'const initialView = hasStockDetailPath ? "stock" : (LEGACY_VIEW_MAP[requestedView] || "home");' in source
 

@@ -19,6 +19,7 @@ const elements = {
   homeView: $("home-view"),
   searchView: $("search-view"),
   portfolioView: $("portfolio-view"),
+  marketView: $("market-view"),
   appNavItems: Array.from(document.querySelectorAll("[data-app-view]")),
   stockSectionTabs: Array.from(document.querySelectorAll("[data-stock-tab]")),
   stockTabPanels: Array.from(document.querySelectorAll("[data-stock-panel]")),
@@ -46,7 +47,6 @@ const elements = {
   trendView: $("trend-view"),
   chartView: $("chart-view"),
   chartHistoryView: $("chart-history-view"),
-  marketView: $("market-view"),
   watchToggle: $("watch-toggle"),
   aiAnalysisButton: $("ai-analysis-button"),
   aiAnalysisPanel: $("ai-analysis-panel"),
@@ -187,6 +187,10 @@ const elements = {
   homeKosdaqChart: $("home-kosdaq-chart"),
   homeKosdaqCurrent: $("home-kosdaq-current"),
   homeKosdaqChange: $("home-kosdaq-change"),
+  homeSurge: $("home-surge"),
+  homeSurgeMeta: $("home-surge-meta"),
+  homeSurgeList: $("home-surge-list"),
+  homeSurgeMore: $("home-surge-more"),
   homePastToggle: $("home-past-toggle"),
   discoverySearchForm: $("discovery-search-form"),
   discoverySearchInput: $("discovery-search-input"),
@@ -550,13 +554,15 @@ const LEGACY_VIEW_MAP = {
   trend: "home",
   "trend-past": "home",
   "trend-impact": "home",
-  market: "search",
+  market: "movers",
+  movers: "movers",
   recommend: "search",
   watchlist: "portfolio",
   "recommend-history": "portfolio",
   stock: "search",
   home: "home",
   search: "search",
+  movers: "movers",
   portfolio: "portfolio",
   chart: "chart",
   "chart-history": "chart-history",
@@ -595,7 +601,7 @@ const state = {
   selectedWatchChartCode: "",
   marketRankingCache: new Map(),
   marketLeaderboardItems: [],
-  marketLeaderboardVisibleCount: 100,
+  marketLeaderboardVisibleCount: 30,
   marketLeaderboardAsOf: "",
   marketLeaderboardTradeDate: "",
   marketQuoteSockets: new Map(),
@@ -3626,11 +3632,15 @@ async function refreshCurrentView() {
         loadTrends(state.activeTrendTab === "impact" ? "live" : state.activeTrendTab || "live", { force: true }),
         loadMarketImpactAnalysis({ force: true, embedded: true }),
         loadHomeMarketIndices({ force: true }),
+        loadHomeSurgeRankings({ force: true, ttlMs: 0 }),
       ]);
       return;
     case "search":
-      state.marketRankingCache.delete(marketRankingKey("surge", currentMarketFilter()));
-      await Promise.all([loadMarketRankings({ market: currentMarketFilter(), force: true }), loadRecommendations({ auto: true, force: true })]);
+      await loadRecommendations({ auto: true, force: true });
+      return;
+    case "movers":
+      state.marketRankingCache.delete(marketRankingKey("surge", currentMarketFilter(), 30));
+      await loadMarketRankings({ market: currentMarketFilter(), limit: 30, force: true });
       return;
     case "portfolio":
       if (state.portfolioTab === "tracking") {
@@ -4291,7 +4301,7 @@ function updateRecommendationTrackButtons() {
     const code = button.dataset.code || "";
     const active = isTrackedRecommendation(code);
     button.classList.toggle("active", active);
-    button.textContent = active ? "추적 보기" : "추적";
+    button.textContent = active ? "핀 종목 보기" : "핀 설정하기";
   }
 }
 
@@ -4514,7 +4524,7 @@ const PAGE_LOADING_LABELS = {
   stock: "종목 정보를 불러오는 중",
   watchlist: "관심 종목을 점검하는 중",
   recommend: "추천 종목을 분석하는 중",
-  "recommend-history": "추적 종목을 불러오는 중",
+  "recommend-history": "핀 종목을 불러오는 중",
   trend: "주요 이벤트를 불러오는 중",
   "trend-past": "지난 이벤트를 불러오는 중",
   "trend-impact": "시장 영향도를 계산하는 중",
@@ -5005,7 +5015,7 @@ function setView(requestedViewName) {
   if (!(view === "portfolio" && state.portfolioTab === "watchlist")) {
     closeWatchlistQuoteStreams();
   }
-  if (view !== "search") {
+  if (view !== "movers") {
     closeMarketQuoteStreams();
   }
   if (!["search", "portfolio"].includes(view)) {
@@ -5022,14 +5032,14 @@ function setView(requestedViewName) {
   elements.homeView.hidden = view !== "home";
   elements.searchView.hidden = view !== "search";
   elements.portfolioView.hidden = view !== "portfolio";
+  elements.marketView.hidden = view !== "movers";
   elements.trendView.hidden = false;
   elements.watchlistView.hidden = false;
   elements.recommendView.hidden = false;
   elements.recommendHistoryView.hidden = false;
   elements.chartView.hidden = view !== "chart";
   elements.chartHistoryView.hidden = view !== "chart-history";
-  elements.marketView.hidden = false;
-  const activeView = view === "chart-history" ? "chart" : view;
+  const activeView = view === "chart-history" ? "chart" : view === "movers" ? "home" : view;
   for (const item of elements.appNavItems) {
     const active = item.dataset.appView === activeView;
     item.classList.toggle("active", active);
@@ -5047,6 +5057,7 @@ function setView(requestedViewName) {
         loadTrends(activeTab === "impact" ? "live" : activeTab, pageEntryRefreshOptions("trend", activeTab)),
         loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact")),
         loadHomeMarketIndices(pageEntryRefreshOptions("market-indices")),
+        loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home")),
       ]);
     });
   } else if (view === "search") {
@@ -5054,15 +5065,20 @@ function setView(requestedViewName) {
     updateRecommendationButtonState();
     const entryOptions = pageEntryRefreshOptions("recommend");
     const shouldAutoLoadRecommendations = entryOptions.force || !elements.recommendList.querySelector(".recommend-card");
-    const marketOptions = pageEntryRefreshOptions("market", currentMarketFilter());
-    const marketJob = loadMarketRankings({ ...marketOptions, force: false });
-    launchBriefPageLoading("급상승 종목을 불러오는 중", () => marketJob, 1600);
     void refreshUsSectorMoves(entryOptions).catch(() => undefined);
     void refreshVisibleRecommendationCards(entryOptions).catch(() => undefined);
     if (shouldAutoLoadRecommendations && !state.recommendationLoading) {
       void loadRecommendations({ auto: true, force: false });
     }
     connectUsSectorStream();
+  } else if (view === "movers") {
+    history.replaceState(null, "", "/dashboard?view=movers");
+    const market = currentMarketFilter();
+    launchBriefPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings({
+      ...pageEntryRefreshOptions("market", market),
+      market,
+      limit: 30,
+    }));
   } else if (view === "portfolio") {
     history.replaceState(null, "", "/dashboard?view=portfolio");
     setPortfolioTab(state.portfolioTab, { load: true });
@@ -5128,15 +5144,15 @@ function rankingMetricLabel(category, item) {
 }
 
 function setMarketLeaderboardMode(enabled) {
-  elements.rankingBody.closest(".ranking-table")?.classList.toggle("market-leaderboard-table", enabled);
+  elements.rankingBody?.classList.toggle("market-leaderboard-list", enabled);
 }
 
 function renderRankingMessage(text) {
   elements.rankingBody.innerHTML = "";
-  const row = document.createElement("tr");
-  row.className = "ranking-message-row";
-  row.innerHTML = `<td colspan="7" class="muted ranking-message-cell">${text}</td>`;
-  elements.rankingBody.appendChild(row);
+  const message = document.createElement("p");
+  message.className = "muted ranking-message-cell";
+  message.textContent = text;
+  elements.rankingBody.appendChild(message);
 }
 
 function createMarketLeaderboardCard(item) {
@@ -5144,19 +5160,16 @@ function createMarketLeaderboardCard(item) {
   card.className = "market-leaderboard-card";
   card.dataset.code = item.code;
 
-  const main = document.createElement("section");
+  const main = document.createElement("a");
   main.className = "market-leaderboard-main";
+  main.href = viewStockUrl(item.name);
 
   const rank = document.createElement("span");
   rank.className = "market-rank-badge";
   rank.textContent = String(item.rank || "-");
 
-  const quoteBlock = document.createElement("div");
-  quoteBlock.className = "market-leaderboard-quote-block";
-
-  const name = document.createElement("a");
+  const name = document.createElement("span");
   name.className = "market-leaderboard-name";
-  name.href = viewStockUrl(item.name);
 
   const strong = document.createElement("strong");
   strong.textContent = item.name;
@@ -5174,16 +5187,14 @@ function createMarketLeaderboardCard(item) {
   change.textContent = formatPercent(item.change_rate);
   setTone(change, item.change_rate);
 
-  quoteBlock.append(rank, price);
+  const quoteBlock = document.createElement("span");
+  quoteBlock.className = "market-leaderboard-quote-block";
+  quoteBlock.append(price, change);
 
-  const summary = document.createElement("div");
-  summary.className = "market-leaderboard-summary";
-  summary.append(name, change);
-
-  main.append(quoteBlock, summary);
+  main.append(rank, name, quoteBlock);
 
   const strip = document.createElement("section");
-  strip.className = "quote-strip market-leaderboard-strip";
+  strip.className = "market-leaderboard-strip";
   strip.append(
     createWatchMetric("거래대금", formatMoney(item.trading_value)),
     createWatchMetric("1개월", formatPercent(item.one_month_return), "", item.one_month_return),
@@ -5196,11 +5207,6 @@ function createMarketLeaderboardCard(item) {
 
 function renderMarketSurgeLeaderboard(options = {}) {
   elements.rankingBody.innerHTML = "";
-  const row = document.createElement("tr");
-  row.className = "market-leaderboard-row";
-  const cell = document.createElement("td");
-  cell.colSpan = 7;
-
   const shell = document.createElement("section");
   shell.className = "market-leaderboard-shell";
 
@@ -5211,35 +5217,7 @@ function renderMarketSurgeLeaderboard(options = {}) {
     board.appendChild(createMarketLeaderboardCard(item));
   }
   shell.appendChild(board);
-  if (visibleItems.length < state.marketLeaderboardItems.length) {
-    const moreButton = document.createElement("button");
-    moreButton.className = "market-load-more";
-    moreButton.type = "button";
-    moreButton.textContent = `더 보기 (${formatNumber(visibleItems.length)} / ${formatNumber(state.marketLeaderboardItems.length)})`;
-    moreButton.addEventListener("click", async () => {
-      const nextVisibleCount = Math.min(
-        state.marketLeaderboardVisibleCount + 100,
-        state.marketLeaderboardItems.length
-      );
-      const nextItems = state.marketLeaderboardItems.slice(
-        state.marketLeaderboardVisibleCount,
-        nextVisibleCount
-      );
-      moreButton.disabled = true;
-      moreButton.textContent = "기간 수익률 불러오는 중";
-      try {
-        await hydrateMarketPeriodReturns(nextItems);
-      } catch (error) {
-        console.warn("급상승 종목 기간 수익률을 불러오지 못했습니다.", error);
-      }
-      state.marketLeaderboardVisibleCount = nextVisibleCount;
-      renderMarketSurgeLeaderboard();
-    });
-    shell.appendChild(moreButton);
-  }
-  cell.appendChild(shell);
-  row.appendChild(cell);
-  elements.rankingBody.appendChild(row);
+  elements.rankingBody.appendChild(shell);
 }
 
 async function hydrateMarketPeriodReturns(items) {
@@ -5263,7 +5241,7 @@ async function hydrateMarketPeriodReturns(items) {
 
 function startMarketSurgeLeaderboard(payload) {
   closeMarketQuoteStreams();
-  state.marketLeaderboardVisibleCount = 100;
+  state.marketLeaderboardVisibleCount = 30;
   state.marketLeaderboardItems = (payload.items || []).map((item, index) => ({
     ...item,
     rank: index + 1,
@@ -5365,9 +5343,7 @@ function renderRankings(payload) {
   setMarketLeaderboardMode(category === "surge");
   if (category === "surge") {
     if (elements.marketMeta) {
-      const marketLabel = payload.market === "KOSPI" ? "KOSPI" : payload.market === "KOSDAQ" ? "KOSDAQ" : "전체 시장";
-      const sourceLabel = payload.source === "naver_market_rise" ? "실시간" : "최근 거래일";
-      elements.marketMeta.textContent = `${sourceLabel} · ${marketLabel} ${formatNumber(payload.universe_count || 0)}종목 기준 · 상승 종목 ${formatNumber(payload.matching_count ?? payload.items?.length ?? 0)}개`;
+      elements.marketMeta.textContent = `${marketRankingBasisLabel(payload)} · 상승 ${formatNumber(payload.matching_count ?? payload.items?.length ?? 0)}개`;
     }
     if (!payload.items || payload.items.length === 0) {
       closeMarketQuoteStreams();
@@ -5403,12 +5379,70 @@ function renderRankings(payload) {
   }
 }
 
+function marketRankingBasisLabel(payload = {}, options = {}) {
+  const firstTradeDate = (payload.items || []).find((item) => item.trade_date)?.trade_date;
+  const marketLabel = payload.market === "KOSDAQ" ? "KOSDAQ" : payload.market === "KOSPI" ? "KOSPI" : "전체 시장";
+  const prefix = payload.source === "naver_market_rise" ? "실시간" : firstTradeDate ? `${String(firstTradeDate).replaceAll("-", ".")} 장 마감` : "최근 장 마감";
+  return options.includeMarket === false ? `${prefix} 기준` : `${prefix} · ${marketLabel}`;
+}
+
+function createHomeSurgeRow(item, index) {
+  const row = document.createElement("a");
+  row.className = "home-surge-row";
+  row.href = viewStockUrl(item.name);
+  row.dataset.code = item.code || "";
+
+  const rank = el("span", "home-surge-rank", String(index + 1));
+  const identity = el("span", "home-surge-identity");
+  identity.append(el("strong", "", item.name || item.code || "-"), el("small", "", `${item.code || "-"} · ${item.market || "-"}`));
+  const quote = el("span", "home-surge-quote");
+  quote.append(el("strong", "", formatNumber(item.price)), el("small", "", formatPercent(item.change_rate)));
+  setTone(quote, item.change_rate);
+  row.append(rank, identity, quote);
+  return row;
+}
+
+function renderHomeSurgeRankings(payload = {}) {
+  if (!elements.homeSurgeList) {
+    return;
+  }
+  const items = (payload.items || []).slice(0, 5);
+  elements.homeSurgeMeta.textContent = marketRankingBasisLabel(payload, { includeMarket: false });
+  elements.homeSurgeList.innerHTML = "";
+  if (!items.length) {
+    elements.homeSurgeList.append(el("p", "muted", "상승 종목이 없습니다."));
+    return;
+  }
+  items.forEach((item, index) => elements.homeSurgeList.appendChild(createHomeSurgeRow(item, index)));
+}
+
+async function loadHomeSurgeRankings(options = {}) {
+  if (!elements.homeSurgeList) {
+    return;
+  }
+  const force = options.force === true;
+  const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
+  if (!elements.homeSurgeList.querySelector(".home-surge-row")) {
+    elements.homeSurgeList.innerHTML = '<p class="muted">급등 종목을 불러오는 중입니다.</p>';
+  }
+  try {
+    const payload = await requestMarketRanking("surge", "ALL", { force, ttlMs, limit: 5 });
+    if (state.view === "home") {
+      renderHomeSurgeRankings(payload);
+    }
+  } catch {
+    if (state.view === "home") {
+      elements.homeSurgeList.innerHTML = '<p class="muted">급등 종목을 불러오지 못했습니다.</p>';
+    }
+  }
+}
+
 function currentMarketFilter() {
-  return elements.marketTabs.find((tab) => tab.classList.contains("active"))?.dataset.marketFilter || "ALL";
+  return elements.marketTabs.find((tab) => tab.classList.contains("active"))?.dataset.marketFilter || "KOSPI";
 }
 
 function setMarketFilter(market) {
-  const normalized = ["ALL", "KOSPI", "KOSDAQ"].includes(market) ? market : "ALL";
+  const normalized = ["KOSPI", "KOSDAQ"].includes(market) ? market : "KOSPI";
   for (const tab of elements.marketTabs) {
     const active = tab.dataset.marketFilter === normalized;
     tab.classList.toggle("active", active);
@@ -5417,8 +5451,8 @@ function setMarketFilter(market) {
   return normalized;
 }
 
-function marketRankingKey(category, market) {
-  return `${market}:surge`;
+function marketRankingKey(category, market, limit = 30) {
+  return `${market}:surge:${limit}`;
 }
 
 function marketCategoryLabel(category) {
@@ -5427,7 +5461,8 @@ function marketCategoryLabel(category) {
 
 function requestMarketRanking(category, market, options = {}) {
   const normalizedCategory = "surge";
-  const key = marketRankingKey(normalizedCategory, market);
+  const limit = Math.max(1, Math.min(3000, Number(options.limit) || 30));
+  const key = marketRankingKey(normalizedCategory, market, limit);
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
   const now = Date.now();
@@ -5440,7 +5475,7 @@ function requestMarketRanking(category, market, options = {}) {
   }
   const params = new URLSearchParams({
     category: normalizedCategory,
-    limit: "3000",
+    limit: String(limit),
   });
   if (force) {
     params.set("refresh", "1");
@@ -5477,10 +5512,11 @@ async function loadMarketRankings(options = {}) {
     elements.rankCategorySelect.value = category;
   }
   const market = options.market || currentMarketFilter();
+  const limit = Math.max(1, Math.min(30, Number(options.limit) || 30));
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
   setMarketLeaderboardMode(category === "surge");
-  const key = marketRankingKey(category, market);
+  const key = marketRankingKey(category, market, limit);
   const cached = state.marketRankingCache.get(key);
   if (!force && cached?.payload && Date.now() - (cached.savedAt || 0) <= ttlMs) {
     renderRankings(cached.payload);
@@ -5489,12 +5525,12 @@ async function loadMarketRankings(options = {}) {
   closeMarketQuoteStreams();
   renderRankingMessage("불러오는 중");
   try {
-    const payload = await requestMarketRanking(category, market, { force, ttlMs });
-    if (state.view === "search" && state.rankingCategory === category && currentMarketFilter() === market) {
+    const payload = await requestMarketRanking(category, market, { force, ttlMs, limit });
+    if (state.view === "movers" && state.rankingCategory === category && currentMarketFilter() === market) {
       renderRankings(payload);
     }
   } catch {
-    if (state.view === "search" && state.rankingCategory === category && currentMarketFilter() === market) {
+    if (state.view === "movers" && state.rankingCategory === category && currentMarketFilter() === market) {
       renderRankingMessage("데이터를 불러오지 못했습니다. 시장 탭을 다시 눌러주세요.");
     }
   }
@@ -8180,7 +8216,7 @@ function deleteRecommendationTrack(trackId) {
 
 function updateRecommendationTrackMeta() {
   const tracks = readRecommendationTracks();
-  elements.recommendHistoryMeta.textContent = tracks.length ? `종목 ${formatNumber(tracks.length)}개 추적 중` : "추적 종목 없음";
+  elements.recommendHistoryMeta.textContent = tracks.length ? `${formatNumber(tracks.length)}개 종목에 핀 설정됨` : "핀 종목 없음";
 }
 
 function recommendationTrackProfit(trackedPrice, currentPrice) {
@@ -8256,6 +8292,50 @@ function sanitizeRecommendationTrackPoint(value) {
   return text.replace(/\b(?:None|null|NaN|undefined)\b%?/gi, "데이터 없음");
 }
 
+function recommendationPinSummary(track, dashboard, profit) {
+  const decision = recommendationTrackDecisionLabel(track.ai?.decision || track.tracked_action);
+  if (profit.rate === null) {
+    return `현재 가격을 확인 중이며, 핀 시작 당시 판단은 ${decision}이었습니다.`;
+  }
+  return `핀 설정 후 현재 수익률은 ${formatPercent(profit.rate)}이며, 시작 판단은 ${decision}입니다.`;
+}
+
+function recommendationPinHighlights(track, dashboard, profit) {
+  const saved = track.item || {};
+  const chart = saved.chart_analysis || {};
+  const trackedPrice = toNumber(track.tracked_price);
+  const currentPrice = toNumber(dashboard?.quote?.price);
+  const points = [];
+
+  if (trackedPrice !== null && currentPrice !== null) {
+    const direction = profit.rate > 0 ? "상승" : profit.rate < 0 ? "하락" : "변동 없음";
+    points.push(`가격은 핀 시작 ${formatNumber(trackedPrice)}원에서 현재 ${formatNumber(currentPrice)}원으로 ${direction}했습니다.`);
+  }
+
+  const score = toNumber(track.tracked_score);
+  if (score !== null) {
+    points.push(`시작 당시 추천 점수는 ${formatNumber(score)}점으로 ${recommendationScoreLevel(score).label} 구간이었습니다.`);
+  }
+
+  const support = toNumber(chart.support);
+  const resistance = toNumber(chart.resistance);
+  if (support !== null || resistance !== null) {
+    const levels = [
+      support !== null ? `지지 ${formatNumber(support)}원` : "",
+      resistance !== null ? `저항 ${formatNumber(resistance)}원` : "",
+    ].filter(Boolean).join(" · ");
+    points.push(`다음 가격 확인 기준은 ${levels}입니다.`);
+  }
+
+  if (points.length < 3) {
+    const readableReason = (saved.reasons || []).map(sanitizeRecommendationTrackPoint).find(Boolean);
+    if (readableReason) {
+      points.push(readableReason);
+    }
+  }
+  return points.slice(0, 3);
+}
+
 function setRecommendationTrackExpanded(card, expanded) {
   const detail = card?.querySelector(".recommend-track-detail");
   const toggle = card?.querySelector(".recommend-track-detail-toggle");
@@ -8266,7 +8346,7 @@ function setRecommendationTrackExpanded(card, expanded) {
   const label = toggle.querySelector(".recommend-track-detail-toggle-label");
   const icon = toggle.querySelector(".recommend-track-detail-toggle-icon");
   if (label) {
-    label.textContent = expanded ? "저장 당시 판단 접기" : "저장 당시 판단";
+    label.textContent = expanded ? "핵심 정보 접기" : "핵심 정보 보기";
   }
   if (icon) {
     icon.textContent = expanded ? "−" : "+";
@@ -8297,20 +8377,29 @@ function createRecommendationTrackCard(track, dashboard = null) {
     el("strong", "", track.name || "-"),
     el("span", "", `${track.code || "-"} · ${track.market || "-"}`)
   );
-  open.append(title, el("span", "recommend-track-open-label", "상세 ›"));
-  const remove = el("button", "recommend-track-remove track-delete", "★");
+  open.append(title);
+  const pinState = el("span", "recommend-track-pin-state", "핀 설정됨");
+  pinState.setAttribute("aria-label", `${track.name || "종목"} 핀 설정됨`);
+  head.append(open, pinState);
+
+  const actions = el("div", "recommend-track-actions");
+  const stockDetail = document.createElement("a");
+  stockDetail.className = "recommend-track-stock-action";
+  stockDetail.href = viewStockUrl(track.name || track.code || "");
+  stockDetail.textContent = "종목 상세";
+  const remove = el("button", "recommend-track-remove track-delete", "핀 해제하기");
   remove.type = "button";
   remove.dataset.trackId = track.id || "";
-  remove.setAttribute("aria-label", `${track.name || "종목"} 추적 해제`);
-  remove.title = "추적 해제";
-  head.append(open, remove);
+  remove.setAttribute("aria-label", `${track.name || "종목"} 핀 해제하기`);
+  remove.title = "핀 해제하기";
+  actions.append(stockDetail, remove);
 
   const metrics = document.createElement("dl");
   metrics.className = "recommend-track-metrics";
   const metricRows = [
-    ["추적가", trackedPrice !== null ? `${formatNumber(trackedPrice)}원` : "정보 없음", "", trackedPrice],
+    ["핀 시작일", track.tracked_at ? formatDateLabel(track.tracked_at).replaceAll("-", ".") : "날짜 정보 없음", "", ""],
+    ["핀 시작가", trackedPrice !== null ? `${formatNumber(trackedPrice)}원` : "정보 없음", "", trackedPrice],
     ["현재가", currentPrice !== null ? `${formatNumber(currentPrice)}원` : "확인 중", "tracked_current_price", currentPrice],
-    ["주당 손익", profit.value !== null ? `${formatChangeValue(profit.value)}원` : "계산 전", "tracked_pnl_value", profit.value],
     ["수익률", profit.rate !== null ? formatPercent(profit.rate) : "계산 전", "tracked_pnl_rate", profit.rate],
   ];
   for (const [label, value, field, rawValue] of metricRows) {
@@ -8322,7 +8411,7 @@ function createRecommendationTrackCard(track, dashboard = null) {
     if (rawValue !== null && rawValue !== undefined && rawValue !== "") {
       valueNode.dataset.rawValue = String(rawValue);
     }
-    if (field === "tracked_pnl_value" || field === "tracked_pnl_rate") {
+    if (field === "tracked_pnl_rate") {
       setTone(valueNode, rawValue);
     }
     row.append(el("dt", "", label), valueNode);
@@ -8332,11 +8421,9 @@ function createRecommendationTrackCard(track, dashboard = null) {
   const signalGrid = document.createElement("dl");
   signalGrid.className = "recommend-track-signals";
   const signalRows = [
-    ["추적 등록", track.tracked_at ? formatDate(track.tracked_at) : "등록일 정보 없음"],
-    ["저장 당시 판단", recommendationTrackDecisionLabel(track.ai?.decision || track.tracked_action)],
+    ["시작 판단", recommendationTrackDecisionLabel(track.ai?.decision || track.tracked_action)],
     ["추천 점수", recommendationTrackScoreLabel(track.tracked_score, true)],
     ["차트 점수", recommendationTrackScoreLabel(chart.score)],
-    ["최근 확인", dashboard?.as_of ? formatDate(dashboard.as_of) : "현재 시세 확인 중"],
   ];
   for (const [label, value] of signalRows) {
     const row = el("div");
@@ -8348,7 +8435,7 @@ function createRecommendationTrackCard(track, dashboard = null) {
   detailToggle.type = "button";
   detailToggle.setAttribute("aria-expanded", "false");
   detailToggle.append(
-    el("span", "recommend-track-detail-toggle-label", "저장 당시 판단"),
+    el("span", "recommend-track-detail-toggle-label", "핵심 정보 보기"),
     el("span", "recommend-track-detail-toggle-icon", "+")
   );
 
@@ -8356,24 +8443,23 @@ function createRecommendationTrackCard(track, dashboard = null) {
   detail.hidden = true;
 
   const savedInfo = el("section", "recommend-track-saved-info");
-  savedInfo.append(el("h3", "", "저장 당시 정보"), signalGrid);
+  savedInfo.append(el("h3", "", "핀 시작 정보"), signalGrid);
 
   const summary = el("section", "recommend-track-summary");
   summary.append(
-    el("h3", "", "저장 당시 판단"),
-    el("p", "", track.ai?.summary || `${track.name || "종목"}의 저장 당시 판단 정보가 없습니다.`)
+    el("h3", "", "핵심 요약"),
+    el("p", "", recommendationPinSummary(track, dashboard, profit))
   );
 
   const reasons = el("section", "recommend-track-summary");
-  reasons.appendChild(el("h3", "", "저장 당시 참고 근거"));
+  reasons.appendChild(el("h3", "", "확인할 것"));
   const reasonList = document.createElement("ul");
   reasonList.className = "recommend-track-points";
-  const readableReasons = (saved.reasons || []).map(sanitizeRecommendationTrackPoint).filter(Boolean);
-  appendListItems(reasonList, readableReasons, "저장 당시 참고할 근거가 없습니다.");
+  appendListItems(reasonList, recommendationPinHighlights(track, dashboard, profit), "현재 가격과 시작 당시 판단을 다시 확인하세요.");
   reasons.appendChild(reasonList);
 
   detail.append(savedInfo, summary, reasons);
-  card.append(head, metrics, detailToggle, detail);
+  card.append(head, metrics, actions, detailToggle, detail);
   return card;
 }
 
@@ -8387,16 +8473,11 @@ function updateTrackedRecommendationQuote(code, quote) {
   }
   const trackedPrice = toNumber(card.dataset.trackedPrice);
   const currentPriceNode = card.querySelector('[data-field="tracked_current_price"]');
-  const pnlValueNode = card.querySelector('[data-field="tracked_pnl_value"]');
   const pnlRateNode = card.querySelector('[data-field="tracked_pnl_rate"]');
   if (currentPriceNode && quote.price !== null && quote.price !== undefined && quote.price !== "") {
     animateQuoteNumber(currentPriceNode, quote.price, (value) => `${formatNumber(Math.round(Number(value)))}원`);
   }
   const profit = recommendationTrackProfit(trackedPrice, quote.price);
-  if (pnlValueNode && profit.value !== null) {
-    animateQuoteNumber(pnlValueNode, profit.value, (value) => `${formatChangeValue(value)}원`);
-    setLiveCellTone(pnlValueNode, profit.value);
-  }
   if (pnlRateNode && profit.rate !== null) {
     animateQuoteNumber(pnlRateNode, profit.rate, formatPercent);
     setLiveCellTone(pnlRateNode, profit.rate);
@@ -8413,7 +8494,7 @@ async function loadRecommendationHistory(options = {}) {
   elements.recommendHistoryList.innerHTML = "";
   closeRecommendationQuoteStreams();
   if (!tracks.length) {
-    elements.recommendHistoryList.appendChild(el("p", "muted", "추천 카드에서 종목별 추적하기를 누르면, 누른 시점의 주당 단가와 현재 손익률을 여기서 바로 비교할 수 있습니다."));
+    elements.recommendHistoryList.appendChild(el("p", "muted", "추천 종목에서 ‘핀 설정하기’를 누르면 시작일과 이후 수익률을 한곳에서 확인할 수 있습니다."));
     return;
   }
   for (const track of tracks) {
@@ -8793,7 +8874,7 @@ function createRecommendationCard(item) {
   const rank = el("div", "recommend-rank", `#${item.rank} · ${actionText}`);
   rank.classList.add(actionText.includes("매수") ? "buy" : "watch");
   const rankLine = el("div", "recommend-rank-line");
-  const trackButton = el("button", "recommend-track-button", isTrackedRecommendation(item.code) ? "추적 보기" : "추적");
+  const trackButton = el("button", "recommend-track-button", isTrackedRecommendation(item.code) ? "핀 종목 보기" : "핀 설정하기");
   trackButton.type = "button";
   trackButton.dataset.code = item.code || "";
   trackButton.classList.toggle("active", isTrackedRecommendation(item.code));
@@ -10191,6 +10272,11 @@ for (const item of elements.appNavItems) {
   });
 }
 elements.homeInstallButton?.addEventListener("click", handleHomeInstall);
+elements.homeSurgeMore?.addEventListener("click", () => {
+  setMarketFilter("KOSPI");
+  setView("movers");
+  window.scrollTo({ top: 0, behavior: "auto" });
+});
 elements.installSheetBackdrop?.addEventListener("click", closeInstallSheet);
 elements.installSheetClose?.addEventListener("click", closeInstallSheet);
 
@@ -10242,7 +10328,7 @@ elements.rankCategorySelect?.addEventListener("change", () => {
 for (const tab of elements.marketTabs) {
   tab.addEventListener("click", () => {
     const market = setMarketFilter(tab.dataset.marketFilter);
-    launchPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings({ market }));
+    launchPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings({ market, limit: 30 }));
   });
 }
 elements.watchToggle.addEventListener("click", toggleWatchCurrent);

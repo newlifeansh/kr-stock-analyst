@@ -9,8 +9,8 @@ def test_watchlist_v15_shell_and_asset_version():
 
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
-    assert 'name="application-version" content="4.9"' in shell.text
-    assert "20260725v60" in shell.text
+    assert 'name="application-version" content="5.1"' in shell.text
+    assert "20260725v64" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -80,7 +80,7 @@ def test_recommendation_cards_use_one_compact_action_row():
     for expected in (
         'actions.append(watchButton, trackButton, explainButton);',
         'isWatched(item.code) ? "관심 해제" : "관심 추가"',
-        'isTrackedRecommendation(item.code) ? "추적 보기" : "추적"',
+        'isTrackedRecommendation(item.code) ? "핀 종목 보기" : "핀 설정하기"',
         'el("button", "recommend-ai-button", "AI 설명")',
         "grid-template-columns: repeat(3, minmax(0, 1fr));",
     ):
@@ -138,30 +138,40 @@ def test_tracked_recommendation_uses_readable_values_and_stock_detail_table():
 
     for expected in (
         "function sanitizeRecommendationTrackPoint",
+        "function recommendationPinSummary",
+        "function recommendationPinHighlights",
         'return "1개월·3개월 수익률 데이터가 부족해 최근 가격과 거래대금을 우선 확인합니다.";',
         'return "판단 정보 없음";',
         'return `${formatNumber(score)}점 / 100점`;',
-        '["저장 당시 판단", recommendationTrackDecisionLabel',
-        'el("h3", "", "저장 당시 정보")',
-        'el("h3", "", "저장 당시 판단")',
-        'el("h3", "", "저장 당시 참고 근거")',
-        ".map(sanitizeRecommendationTrackPoint).filter(Boolean)",
+        '["핀 시작일", track.tracked_at ? formatDateLabel',
+        '["핀 시작가", trackedPrice !== null',
+        '["현재가", currentPrice !== null',
+        '["수익률", profit.rate !== null',
+        '["시작 판단", recommendationTrackDecisionLabel',
+        'el("h3", "", "핀 시작 정보")',
+        'el("h3", "", "핵심 요약")',
+        'el("h3", "", "확인할 것")',
         "setRecommendationTrackExpanded(nextCard, keepExpanded);",
         'open.className = "recommend-track-stock-link";',
-        'el("button", "recommend-track-remove track-delete", "★")',
+        'el("button", "recommend-track-remove track-delete", "핀 해제하기")',
+        'stockDetail.textContent = "종목 상세";',
         'metrics.className = "recommend-track-metrics";',
-        'el("span", "recommend-track-detail-toggle-label", "저장 당시 판단")',
+        'el("span", "recommend-track-detail-toggle-label", "핵심 정보 보기")',
         'el("span", "recommend-track-detail-toggle-icon", "+")',
     ):
         assert expected in source
 
     assert 'open.className = "snapshot-button";' not in source
     assert 'el("button", "snapshot-delete track-delete", "추적 해제")' not in source
+    assert '["주당 손익"' not in source
+    for old_label in ('"추적 보기"', '"추적 종목"', '"추적 해제"', '["추적가"'):
+        assert old_label not in source
 
     for expected in (
         "/* Tracked recommendation tables match the continuous stock-detail table. */",
         "/* Tracked recommendations use the same flat section language as stock detail. */",
         "/* Final tracking layout overrides legacy dashboard card rules. */",
+        "/* Pin portfolio 5.0 final precedence: mirror the stock-detail visual system. */",
         "#recommend-history-view :is(",
         ".recommend-track-signals > div:last-child",
         ".recommend-track-saved-info",
@@ -171,6 +181,11 @@ def test_tracked_recommendation_uses_readable_values_and_stock_detail_table():
         "grid-template-columns: repeat(2, minmax(0, 1fr));",
     ):
         assert expected in styles
+
+    shell = client.get("/dashboard?view=recommend-history").text
+    assert '>핀 종목</button>' in shell
+    assert "핀 종목 없음" in shell
+    assert "추적종목" not in shell
 
 
 def test_watchlist_v15_is_responsive_and_matches_stock_detail_tokens():

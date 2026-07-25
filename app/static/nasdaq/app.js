@@ -552,7 +552,7 @@ const SECTION_SHELL_TABS = {
   ],
   research: [
     { view: "recommend", label: "지금 추천 종목" },
-    { view: "recommend-history", label: "추적 종목" },
+    { view: "recommend-history", label: "핀 종목" },
   ],
   disclosure: [
     { view: "trend", label: "트랜드 분석" },
@@ -654,7 +654,7 @@ function shellMetaTextForView(view) {
   if (view === "stock" && isStockOverviewMode(view)) return stockOverviewMetaText();
   if (view === "watchlist") return elements.watchlistMeta.textContent || "저장된 종목";
   if (view === "recommend") return elements.recommendMeta.textContent || "추천 계산 전";
-  if (view === "recommend-history") return elements.recommendHistoryMeta.textContent || "추적 종목 없음";
+  if (view === "recommend-history") return elements.recommendHistoryMeta.textContent || "핀 종목 없음";
   if (view === "trend" || view === "trend-past" || view === "trend-impact") return elements.trendMeta.textContent || "최근 이벤트 기준";
   if (view === "chart") return elements.watchChartMeta.textContent || "관심종목 기준";
   if (view === "chart-history") return elements.watchChartSnapshotMeta.textContent || "저장 없음";
@@ -666,7 +666,7 @@ function shellTitleForView(view) {
   if (view === "stock") return "종목 검색";
   if (view === "watchlist") return "관심 종목";
   if (view === "recommend") return "지금 추천 종목";
-  if (view === "recommend-history") return "추적 종목";
+  if (view === "recommend-history") return "핀 종목";
   if (view === "trend") return "트랜드 분석";
   if (view === "trend-past") return "지난 이벤트";
   if (view === "trend-impact") return "시장 영향도 분석";
@@ -735,7 +735,7 @@ function sectionShellConfig(view = state.view) {
     config.categoryOptions = [["all", "추천결론"], ["buy", "매수"], ["hold", "관심"], ["review", "보류"]];
     config.auxOneOptions = [["all", "시장"], ["NASDAQ", "NASDAQ"], ["SP500", "S&P 500"]];
     config.primaryAction = { action: "recommend", label: "추천받기" };
-    config.secondaryAction = { action: "recommend-history", label: "추적종목" };
+    config.secondaryAction = { action: "recommend-history", label: "핀 종목" };
   } else if (view === "recommend-history") {
     config.keywordPlaceholder = "추천 종목 또는 생성일";
     config.showDates = true;
@@ -3888,7 +3888,7 @@ function updateRecommendationTrackButtons() {
     const code = button.dataset.code || "";
     const active = isTrackedRecommendation(code);
     button.classList.toggle("active", active);
-    button.textContent = active ? "추적 보기" : "추적하기";
+    button.textContent = active ? "핀 종목 보기" : "핀 설정하기";
   }
 }
 
@@ -6059,7 +6059,7 @@ function deleteRecommendationTrack(trackId) {
 
 function updateRecommendationTrackMeta() {
   const tracks = readRecommendationTracks();
-  elements.recommendHistoryMeta.textContent = tracks.length ? `종목 ${formatNumber(tracks.length)}개 추적 중` : "추적 종목 없음";
+  elements.recommendHistoryMeta.textContent = tracks.length ? `${formatNumber(tracks.length)}개 종목에 핀 설정됨` : "핀 종목 없음";
   syncSectionShellMeta();
 }
 
@@ -6098,7 +6098,7 @@ function createRecommendationTrackCard(track, dashboard = null) {
   open.className = "snapshot-button";
   open.href = viewStockUrl({ code: track.code || "AAPL" });
   open.textContent = "종목 상세";
-  const remove = el("button", "snapshot-delete track-delete", "추적 해제");
+  const remove = el("button", "snapshot-delete track-delete", "핀 해제하기");
   remove.type = "button";
   remove.dataset.trackId = track.id || "";
   actions.append(open, remove);
@@ -6106,9 +6106,9 @@ function createRecommendationTrackCard(track, dashboard = null) {
 
   const metrics = el("div", "recommend-track-metrics");
   const metricRows = [
-    ["추적 단가", trackedPrice !== null ? formatPrice(trackedPrice) : "-", "", trackedPrice],
+    ["핀 시작일", formatDateOnly(track.tracked_at).replaceAll("-", "."), "", ""],
+    ["핀 시작가", trackedPrice !== null ? formatPrice(trackedPrice) : "-", "", trackedPrice],
     ["현재 단가", currentPrice !== null ? formatPrice(currentPrice) : "불러오는 중", "tracked_current_price", currentPrice],
-    ["주당 손익", profit.value !== null ? formatPriceChange(profit.value) : "-", "tracked_pnl_value", profit.value],
     ["손익률", profit.rate !== null ? formatPercent(profit.rate) : "-", "tracked_pnl_rate", profit.rate],
   ];
   for (const [label, value, field, rawValue] of metricRows) {
@@ -6120,7 +6120,7 @@ function createRecommendationTrackCard(track, dashboard = null) {
     if (rawValue !== null && rawValue !== undefined && rawValue !== "") {
       valueNode.dataset.rawValue = String(rawValue);
     }
-    if (field === "tracked_pnl_value" || field === "tracked_pnl_rate") {
+    if (field === "tracked_pnl_rate") {
       setTone(valueNode, rawValue);
     }
     row.append(el("span", "", label), valueNode);
@@ -6129,7 +6129,7 @@ function createRecommendationTrackCard(track, dashboard = null) {
 
   const signalGrid = el("div", "recommend-track-signals");
   const signalRows = [
-    ["추적 시작", formatDate(track.tracked_at)],
+    ["핀 시작일", formatDateOnly(track.tracked_at).replaceAll("-", ".")],
     ["당시 AI 판단", track.ai?.decision || track.tracked_action || "-"],
     ["당시 추천 점수", formatNumber(track.tracked_score)],
     ["당시 차트 점수", formatNumber(chart.score)],
@@ -6150,8 +6150,8 @@ function createRecommendationTrackCard(track, dashboard = null) {
 
   const summary = el("section", "recommend-track-summary");
   summary.append(
-    el("h3", "", "추적 시점 AI 요약"),
-    el("p", "", track.ai?.summary || `${track.name || "종목"} 추적 시점 요약이 아직 없습니다.`),
+    el("h3", "", "핀 시작 요약"),
+    el("p", "", track.ai?.summary || `${track.name || "종목"}의 핀 시작 요약이 아직 없습니다.`),
   );
 
   const reasons = el("section", "recommend-track-summary");
@@ -6176,16 +6176,11 @@ function updateTrackedRecommendationQuote(code, quote) {
   }
   const trackedPrice = toNumber(card.dataset.trackedPrice);
   const currentPriceNode = card.querySelector('[data-field="tracked_current_price"]');
-  const pnlValueNode = card.querySelector('[data-field="tracked_pnl_value"]');
   const pnlRateNode = card.querySelector('[data-field="tracked_pnl_rate"]');
   if (currentPriceNode && quote.price !== null && quote.price !== undefined && quote.price !== "") {
     animateTextUpdate(currentPriceNode, formatPrice(quote.price), quote.price);
   }
   const profit = recommendationTrackProfit(trackedPrice, quote.price);
-  if (pnlValueNode && profit.value !== null) {
-    animateTextUpdate(pnlValueNode, formatPriceChange(profit.value), profit.value);
-    setTone(pnlValueNode, profit.value);
-  }
   if (pnlRateNode && profit.rate !== null) {
     animateTextUpdate(pnlRateNode, formatPercent(profit.rate), profit.rate);
     setTone(pnlRateNode, profit.rate);
@@ -6202,7 +6197,7 @@ async function loadRecommendationHistory(options = {}) {
   elements.recommendHistoryList.innerHTML = "";
   closeListQuoteStreams();
   if (!tracks.length) {
-    elements.recommendHistoryList.appendChild(el("p", "muted", "추천 카드에서 종목별 추적하기를 누르면, 누른 시점의 주당 단가와 현재 손익률을 여기서 바로 비교할 수 있습니다."));
+    elements.recommendHistoryList.appendChild(el("p", "muted", "추천 종목에서 ‘핀 설정하기’를 누르면 시작일과 이후 수익률을 한곳에서 확인할 수 있습니다."));
     renderSectionShell();
     return;
   }
@@ -6460,7 +6455,7 @@ function createRecommendationCard(item) {
   const refreshButton = el("button", "recommend-refresh", "새로고침");
   refreshButton.type = "button";
   refreshButton.dataset.code = item.code || "";
-  const trackButton = el("button", "recommend-track-button", isTrackedRecommendation(item.code) ? "추적 보기" : "추적하기");
+  const trackButton = el("button", "recommend-track-button", isTrackedRecommendation(item.code) ? "핀 종목 보기" : "핀 설정하기");
   trackButton.type = "button";
   trackButton.dataset.code = item.code || "";
   trackButton.classList.toggle("active", isTrackedRecommendation(item.code));
