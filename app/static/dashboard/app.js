@@ -866,7 +866,7 @@ function formatPreMarketDisplay(quote, payload = null) {
 }
 
 function stockMetaText(data, sourceLabel = "") {
-  const parts = [data.code, data.market, formatDate(data.as_of)];
+  const parts = [data.code, data.market, formatDataBasis(data.as_of)];
   const preMarket = formatPreMarketChange(data.quote, false);
   if (preMarket !== "-") {
     parts.push(`장전 ${preMarket}`);
@@ -1522,7 +1522,7 @@ function renderStockV2Sentiment(data) {
 
 function renderStockV2Dashboard(data) {
   setText(elements.stockV2MarketCode, data?.code || "");
-  setText(elements.stockV2AsOf, data?.as_of ? `업데이트 ${formatDate(data.as_of)}` : "기준 시각 확인 중");
+  setText(elements.stockV2AsOf, formatDataBasis(data?.as_of));
   renderStockV2Consensus(data);
   renderStockV2Flow(data);
   renderStockV2Sentiment(data);
@@ -2160,7 +2160,7 @@ function renderStockTodaySummary(data) {
     elements.stockHomeSummaryList.appendChild(el("li", "", text));
   }
   const summaryDate = quote.trade_date || data?.as_of;
-  setText(elements.stockHomeTodayDate, formatDateLabel(summaryDate));
+  setText(elements.stockHomeTodayDate, formatDataBasis(summaryDate));
 }
 
 function renderStockHomeCheckpoints(data) {
@@ -3418,6 +3418,18 @@ function formatDateLabel(value) {
     return "-";
   }
   return String(value).replace("T", " ").slice(0, 10);
+}
+
+function formatDataBasis(value, fallback = "기준 정보 확인 중") {
+  if (!value) {
+    return fallback;
+  }
+  const source = String(value).trim();
+  const dateMatch = source.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s](\d{2}:\d{2}))?/);
+  if (!dateMatch) {
+    return fallback;
+  }
+  return `${dateMatch[1]}${dateMatch[2] ? ` ${dateMatch[2]}` : ""} 기준`;
 }
 
 function el(tag, className = "", text = "") {
@@ -5365,8 +5377,11 @@ function renderRankings(payload) {
 function marketRankingBasisLabel(payload = {}, options = {}) {
   const firstTradeDate = (payload.items || []).find((item) => item.trade_date)?.trade_date;
   const marketLabel = payload.market === "KOSDAQ" ? "KOSDAQ" : payload.market === "KOSPI" ? "KOSPI" : "전체 시장";
-  const prefix = payload.source === "naver_market_rise" ? "실시간" : firstTradeDate ? `${String(firstTradeDate).replaceAll("-", ".")} 장 마감` : "최근 장 마감";
-  return options.includeMarket === false ? `${prefix} 기준` : `${prefix} · ${marketLabel}`;
+  const basisValue = payload.source === "naver_market_rise"
+    ? payload.as_of || firstTradeDate
+    : firstTradeDate || payload.as_of;
+  const basis = formatDataBasis(basisValue, "기준 정보 확인 중");
+  return options.includeMarket === false ? basis : `${basis} · ${marketLabel}`;
 }
 
 function createHomeSurgeRow(item, index) {
@@ -6885,7 +6900,7 @@ function renderChartSnapshots() {
     item.dataset.snapshotId = snapshot.id;
     item.append(
       el("strong", "", `${snapshot.name} · ${snapshot.stance}`),
-      el("span", "", `${formatDate(snapshot.saved_at)} · 점수 ${formatNumber(snapshot.score)} · 현재가 ${formatNumber(snapshot.price)}`)
+      el("span", "", `${formatDataBasis(snapshot.saved_at)} · 점수 ${formatNumber(snapshot.score)} · 현재가 ${formatNumber(snapshot.price)}`)
     );
     if (snapshot.chart_svg) {
       const preview = el("div", "chart-snapshot-preview");
@@ -7047,7 +7062,7 @@ function renderWatchChartAI(card) {
   panel.innerHTML = "";
   const head = el("div", "chart-ai-head");
   const title = el("div");
-  title.append(el("h3", "", "AI 차트 분석"), el("span", "", formatDate(new Date().toISOString())));
+  title.append(el("h3", "", "AI 차트 분석"), el("span", "", formatDataBasis(new Date().toISOString())));
   const decision = el("strong", `chart-ai-decision ${payload.decisionTone}`, payload.decision);
   head.append(title, decision);
   const summary = el("p", "chart-ai-summary", payload.summary);
@@ -7847,7 +7862,7 @@ function renderQuantSignals(payload) {
   setText(
     elements.quantPerformancePeriod,
     performance.period_start && performance.period_end
-      ? `${formatDateLabel(performance.period_end)} 기준`
+      ? formatDataBasis(performance.period_end)
       : "최근 1년 기준",
   );
   const performanceRows = [
@@ -8993,7 +9008,7 @@ function renderRecommendations(payload, options = {}) {
     saveRecommendationSnapshot(normalizedPayload);
   }
   updateRecommendationTrackMeta();
-  const recommendMetaText = payload.as_of ? `기준 시간 : ${formatDate(payload.as_of)}` : "";
+  const recommendMetaText = payload.as_of ? formatDataBasis(payload.as_of) : "";
   elements.recommendMeta.textContent = recommendMetaText;
   elements.recommendMeta.hidden = !recommendMetaText;
   setRecommendStatus("");
@@ -9602,10 +9617,8 @@ function renderHomeMarketIndices(payload = {}) {
   const dates = [...new Set(items.map((item) => String(item?.as_of || "")).filter(Boolean))].sort();
   if (elements.homeIndexSharedAsOf) {
     elements.homeIndexSharedAsOf.textContent = dates.length === 0
-      ? "기준일 없음"
-      : dates.length === 1
-        ? `${dates[0].replaceAll("-", ".")} 기준`
-        : `${dates[0].replaceAll("-", ".")}~${dates[dates.length - 1].replaceAll("-", ".")} 기준`;
+      ? "기준 정보 확인 중"
+      : formatDataBasis(dates[dates.length - 1]);
   }
 }
 
@@ -9652,7 +9665,7 @@ function renderMarketImpactAnalysis(payload, target = elements.trendImpactConten
   const overview = el("section", "market-impact-overview");
   const status = el("div", `market-impact-status ${model.marketStatus === "호재 우위" ? "good" : "bad"}`);
   const statusTop = el("div", "market-impact-status-top");
-  statusTop.append(el("span", "section-eyebrow", "국내증시"), el("time", "", `${formatDate(model.asOf)} 기준`));
+  statusTop.append(el("span", "section-eyebrow", "국내증시"), el("time", "", formatDataBasis(model.asOf)));
   status.append(statusTop, el("strong", "", model.marketStatus));
 
   const goodWeight = Math.max(0, Number(model.goodWeight || 0));
@@ -10067,7 +10080,7 @@ function setLoading(code) {
   elements.name.textContent = "종목 분석";
   elements.meta.textContent = `${code} · 불러오는 중`;
   setText(elements.stockV2MarketCode, code);
-  setText(elements.stockV2AsOf, "기준 시각 확인 중");
+  setText(elements.stockV2AsOf, "기준 정보 확인 중");
   setText(elements.stockPreMarket, "장전 -");
   resetAIAnalysis();
   resetQuantSignals();

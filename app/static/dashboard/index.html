@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260726v67" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260726v68" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -148,7 +148,7 @@
           <article class="stock-v3-quote-card">
             <div class="stock-v3-quote-head">
               <span class="market-chip" id="stock-live-badge">실시간</span>
-              <span id="stock-v2-as-of">기준 시각 확인 중</span>
+              <span id="stock-v2-as-of">기준 정보 확인 중</span>
             </div>
             <div class="stock-v3-price-line">
               <strong id="quote-price">-</strong>
@@ -451,12 +451,12 @@
             <div class="home-index-chart" id="home-kosdaq-chart" role="img" aria-label="코스닥 최근 30거래일 추이"><span>지수 데이터를 불러오는 중입니다.</span></div>
             <footer><div><strong id="home-kosdaq-current">-</strong><span id="home-kosdaq-change">-</span></div></footer>
           </article>
-          <p class="home-index-shared-asof" id="home-index-shared-asof">최근 30거래일 기준</p>
+          <p class="home-index-shared-asof" id="home-index-shared-asof">기준 정보 확인 중</p>
         </section>
 
         <section class="home-surge" id="home-surge" aria-labelledby="home-surge-title" aria-live="polite">
           <header class="home-surge-head">
-            <div><span id="home-surge-meta">최근 장 마감 기준</span><h2 id="home-surge-title">급등주</h2></div>
+            <div><span id="home-surge-meta">기준 정보 확인 중</span><h2 id="home-surge-title">급등주</h2></div>
             <button class="text-action" id="home-surge-more" type="button">더보기</button>
           </header>
           <div class="home-surge-list" id="home-surge-list"><p class="muted">급등 종목을 불러오는 중입니다.</p></div>
@@ -497,7 +497,7 @@
 
       <section id="market-view" class="app-page app-market-rankings" data-ui-version="3.0" hidden>
         <header class="market-ranking-head">
-          <div><span id="market-meta">최근 장 마감 기준</span><h1>급등주 순위</h1></div>
+          <div><span id="market-meta">기준 정보 확인 중</span><h1>급등주 순위</h1></div>
           <p>선택한 시장의 상승률 상위 30개 종목입니다.</p>
         </header>
         <div class="market-segment app-segment-tabs" role="tablist" aria-label="시장 선택">
@@ -617,6 +617,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260726v67" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260726v68" defer></script>
   </body>
 </html>

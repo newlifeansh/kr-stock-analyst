@@ -251,6 +251,21 @@ def test_dashboard_internal_navigation_does_not_render_the_logo_splash():
     assert "a, button, [role='button'], [role='link']" in source
 
 
+def test_dashboard_uses_one_data_basis_date_format_across_views():
+    client = TestClient(app)
+    shell = client.get("/dashboard").text
+    source = client.get("/assets/dashboard/app.js").text
+
+    assert 'function formatDataBasis(value, fallback = "기준 정보 확인 중")' in source
+    assert 'return `${dateMatch[1]}${dateMatch[2] ? ` ${dateMatch[2]}` : ""} 기준`;' in source
+    assert "setText(elements.stockHomeTodayDate, formatDataBasis(summaryDate));" in source
+    assert "formatDataBasis(payload.as_of)" in source
+    assert "formatDataBasis(model.asOf)" in source
+    assert "기준 시간 :" not in source
+    assert "기준 시각 확인 중" not in shell
+    assert "최근 장 마감 기준" not in shell
+
+
 def test_watchlist_news_deduplicates_matching_headlines():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text
