@@ -491,6 +491,14 @@ const RECOMMEND_TERM_HELP = {
   뉴스: "최근 뉴스 제목과 요약의 분위기가 호재 쪽인지 악재 쪽인지 본 점수입니다.",
 };
 
+const RECOMMEND_SCORE_HELP = [
+  "100점 만점의 추천 우선순위 점수입니다.",
+  "1차 후보는 가격 흐름·거래대금·차트를 중심으로 계산하고, 정밀 분석에서는 리포트·실적·밸류·수급·뉴스·거시 데이터를 추가로 반영합니다.",
+  "기준은 70점 이상 우수, 55~69점 관찰, 55점 미만 신중입니다.",
+  "1차 후보는 55점 이상이면서 차트 50점 이상이어야 합니다.",
+  "수익률 확률이나 매수 확정 신호는 아닙니다.",
+].join(" ");
+
 const STOCK_TERM_HELP = {
   ...RECOMMEND_TERM_HELP,
   "차트 점수": "이동평균선, 지지·저항, 거래량, 변동성을 합쳐 지금 차트가 행동하기 좋은지 점수화한 값입니다.",
@@ -7523,6 +7531,32 @@ function recommendTermLabel(label) {
   return wrapper;
 }
 
+function recommendationScoreLevel(value) {
+  const score = toNumber(value);
+  if (score >= 70) {
+    return { label: "우수", guide: "70점 이상", className: "high" };
+  }
+  if (score >= 55) {
+    return { label: "관찰", guide: "55~69점", className: "watch" };
+  }
+  return { label: "신중", guide: "55점 미만", className: "cautious" };
+}
+
+function recommendationScoreDisplay(value) {
+  const level = recommendationScoreLevel(value);
+  const wrapper = el("div", "recommend-score");
+  const valueRow = el("div", "recommend-score-value");
+  const help = el("button", "term-help recommend-score-help", "?");
+  help.type = "button";
+  help.setAttribute("aria-label", "추천 점수 설명");
+  help.setAttribute("data-tooltip", RECOMMEND_SCORE_HELP);
+  valueRow.append(el("strong", "", formatNumber(value)), el("span", "", "/ 100"), help);
+  const levelRow = el("div", `recommend-score-level ${level.className}`);
+  levelRow.append(el("b", "", level.label), el("span", "", `· ${level.guide}`));
+  wrapper.append(valueRow, levelRow);
+  return wrapper;
+}
+
 function componentTermLabel(key, label) {
   return recommendTermLabel(label || COMPONENT_LABELS[key] || key);
 }
@@ -8678,8 +8712,7 @@ function createRecommendationCard(item) {
   const nameMeta = el("span", "", `${item.code} · ${item.market}`);
   name.append(nameStrong, nameMeta);
 
-  const score = el("div", "recommend-score");
-  score.append(el("strong", "", String(item.score)), el("span", "", "점"));
+  const score = recommendationScoreDisplay(item.score);
 
   const metrics = el("div", "recommend-metrics");
   const metricRows = [

@@ -21241,6 +21241,73 @@ body:not([data-view="stock"]) :is(
   justify-content: flex-start;
 }
 
+#recommend-view .recommend-score {
+  display: grid;
+  min-width: 126px;
+  justify-items: end;
+  gap: 3px;
+}
+
+#recommend-view .recommend-score-value {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+#recommend-view .recommend-score-value > span {
+  color: var(--app-v3-muted, #8a929e);
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+}
+
+#recommend-view .recommend-score-help {
+  flex: 0 0 18px;
+}
+
+#recommend-view .recommend-score-help::after {
+  top: calc(100% + 10px);
+  right: -4px;
+  left: auto;
+  width: min(280px, calc(100vw - 40px));
+  transform: none;
+}
+
+#recommend-view .recommend-score-help::before {
+  top: calc(100% + 5px);
+  right: 4px;
+  left: auto;
+  transform: rotate(45deg);
+}
+
+#recommend-view .recommend-score-level {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+#recommend-view .recommend-score-level b,
+#recommend-view .recommend-score-level span {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  line-height: 1.4 !important;
+}
+
+#recommend-view .recommend-score-level.high :is(b, span) {
+  color: #d9233f;
+}
+
+#recommend-view .recommend-score-level.watch :is(b, span) {
+  color: #1769d2;
+}
+
+#recommend-view .recommend-score-level.cautious :is(b, span) {
+  color: var(--app-v3-muted, #6b7280);
+}
+
 #recommend-view .recommend-card-actions {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
