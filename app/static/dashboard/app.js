@@ -4289,7 +4289,7 @@ function updateRecommendationWatchButtons() {
     const code = button.dataset.code || "";
     const active = isWatched(code);
     button.classList.toggle("active", active);
-    button.textContent = active ? "관심 해제" : "관심 추가하기";
+    button.textContent = active ? "관심 해제" : "관심 추가";
   }
 }
 
@@ -4298,7 +4298,7 @@ function updateRecommendationTrackButtons() {
     const code = button.dataset.code || "";
     const active = isTrackedRecommendation(code);
     button.classList.toggle("active", active);
-    button.textContent = active ? "추적 보기" : "추적하기";
+    button.textContent = active ? "추적 보기" : "추적";
   }
 }
 
@@ -8661,22 +8661,17 @@ function createRecommendationCard(item) {
   const rank = el("div", "recommend-rank", `#${item.rank} · ${actionText}`);
   rank.classList.add(actionText.includes("매수") ? "buy" : "watch");
   const rankLine = el("div", "recommend-rank-line");
-  const topActions = el("div", "recommend-top-actions");
-  const refreshButton = el("button", "recommend-refresh", "새로고침");
-  refreshButton.type = "button";
-  refreshButton.dataset.code = item.code || "";
-  const trackButton = el("button", "recommend-track-button", isTrackedRecommendation(item.code) ? "추적 보기" : "추적하기");
+  const trackButton = el("button", "recommend-track-button", isTrackedRecommendation(item.code) ? "추적 보기" : "추적");
   trackButton.type = "button";
   trackButton.dataset.code = item.code || "";
   trackButton.classList.toggle("active", isTrackedRecommendation(item.code));
-  const watchButton = el("button", "recommend-watch-button", isWatched(item.code) ? "관심 해제" : "관심 추가하기");
+  const watchButton = el("button", "recommend-watch-button", isWatched(item.code) ? "관심 해제" : "관심 추가");
   watchButton.type = "button";
   watchButton.dataset.code = item.code || "";
   watchButton.classList.toggle("active", isWatched(item.code));
-  const explainButton = el("button", "recommend-ai-button", "AI 설명 받기");
+  const explainButton = el("button", "recommend-ai-button", "AI 설명");
   explainButton.type = "button";
-  topActions.append(trackButton, refreshButton);
-  rankLine.append(rank, topActions);
+  rankLine.appendChild(rank);
   const name = el("a", "recommend-name");
   name.href = viewStockUrl(item.name);
   const nameStrong = el("strong", "", item.name);
@@ -8710,7 +8705,7 @@ function createRecommendationCard(item) {
     metrics.appendChild(row);
   }
   const actions = el("div", "recommend-card-actions");
-  actions.append(watchButton, explainButton);
+  actions.append(watchButton, trackButton, explainButton);
   head.append(rankLine, name, score, metrics, createRecommendationUsSectorSummary(item), actions);
 
   const body = el("div", "recommend-body");
@@ -10377,7 +10372,6 @@ elements.recommendList.addEventListener("click", (event) => {
     const card = explainButton.closest(".recommend-card");
     if (card) {
       renderRecommendationAIExplanation(card);
-      explainButton.textContent = "AI 설명 갱신";
     }
     return;
   }

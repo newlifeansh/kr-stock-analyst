@@ -21237,6 +21237,43 @@ body:not([data-view="stock"]) :is(
   border-radius: 6px;
 }
 
+#recommend-view .recommend-rank-line {
+  justify-content: flex-start;
+}
+
+#recommend-view .recommend-card-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#recommend-view .recommend-card-actions :is(
+  .recommend-watch-button,
+  .recommend-track-button,
+  .recommend-ai-button
+) {
+  min-width: 0;
+  height: 40px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+#recommend-view .recommend-track-button {
+  border-color: var(--app-v3-line, #dfe3e8);
+  background: #ffffff;
+  color: #111111;
+}
+
+#recommend-view .recommend-track-button:hover {
+  border-color: #111111;
+  background: #ffffff;
+  color: #111111;
+}
+
+#recommend-view .recommend-ai-button {
+  grid-column: auto;
+}
+
 body:not([data-view="stock"]) #recommend-history-view > .app-section-heading {
   width: 100%;
   padding: 20px;
@@ -21301,6 +21338,14 @@ body:not([data-view="stock"]) #recommend-history-view > .app-section-heading {
 
   body:not([data-view="stock"]) #recommend-history-view > .app-section-heading {
     padding: 16px 20px 14px;
+  }
+
+  #recommend-view .recommend-card-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #recommend-view .recommend-ai-button {
+    grid-column: auto;
   }
 
   body:not([data-view="stock"]) :is(

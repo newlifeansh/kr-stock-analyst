@@ -9,8 +9,8 @@ def test_watchlist_v15_shell_and_asset_version():
 
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
-    assert 'name="application-version" content="3.9"' in shell.text
-    assert "20260725v48" in shell.text
+    assert 'name="application-version" content="4.0"' in shell.text
+    assert "20260725v49" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -47,6 +47,23 @@ def test_watchlist_v15_uses_progressive_real_time_cards():
 
     assert "watchDetailsExpanded" not in source
     assert 'className = "watch-stock-details"' not in source
+
+
+def test_recommendation_cards_use_one_compact_action_row():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    for expected in (
+        'actions.append(watchButton, trackButton, explainButton);',
+        'isWatched(item.code) ? "관심 해제" : "관심 추가"',
+        'isTrackedRecommendation(item.code) ? "추적 보기" : "추적"',
+        'el("button", "recommend-ai-button", "AI 설명")',
+        "grid-template-columns: repeat(3, minmax(0, 1fr));",
+    ):
+        assert expected in source or expected in styles
+
+    assert 'el("button", "recommend-refresh", "새로고침")' not in source
 
 
 def test_watchlist_v15_is_responsive_and_matches_stock_detail_tokens():
