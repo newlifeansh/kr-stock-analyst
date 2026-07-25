@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v64" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260726v66" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -528,6 +528,19 @@
         </section>
       </section>
 
+      <section id="recommend-detail-page" class="app-page recommend-detail-page" data-ui-version="3.0" hidden>
+        <header class="recommend-detail-topbar">
+          <button id="recommend-detail-back" class="recommend-detail-back" type="button" aria-label="추천 종목 목록으로 돌아가기">←</button>
+          <div>
+            <strong id="recommend-detail-name">추천 종목</strong>
+            <span id="recommend-detail-code"></span>
+          </div>
+        </header>
+        <section id="recommend-detail-content" class="recommend-detail-content" aria-live="polite">
+          <p class="muted">추천 분석을 불러오는 중입니다.</p>
+        </section>
+      </section>
+
       <section id="portfolio-view" class="app-page app-portfolio" data-ui-version="3.0" hidden>
         <section class="portfolio-tabs app-segment-tabs" role="tablist" aria-label="내 종목 보기">
           <button class="portfolio-tab active" type="button" role="tab" aria-selected="true" data-portfolio-tab="watchlist">관심종목</button>
@@ -607,6 +620,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v64" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260726v66" defer></script>
   </body>
 </html>

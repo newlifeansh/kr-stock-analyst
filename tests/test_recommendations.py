@@ -1,11 +1,24 @@
 from datetime import date, timedelta
+from decimal import Decimal
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import DailyPrice, StockMaster
-from app.services.recommendations import build_recommendations, universe_cache
+from app.services.recommendations import _action, _decision_reason, build_recommendations, universe_cache
+
+
+def test_high_recommendation_score_produces_an_actionable_but_measured_decision():
+    action = _action(Decimal("82.12"), Decimal("80"))
+
+    assert action == "분할 접근"
+    assert "추격 대신 나눠 접근" in _decision_reason(
+        action,
+        Decimal("82.12"),
+        Decimal("80"),
+        Decimal("30.55"),
+    )
 
 
 def _session() -> Session:

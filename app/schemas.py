@@ -822,6 +822,7 @@ class RecommendationItemOut(BaseModel):
     market: str
     score: Decimal
     action: str
+    decision_reason: Optional[str] = None
     price: Optional[int] = None
     change_rate: Optional[Decimal] = None
     one_month_return: Optional[Decimal] = None

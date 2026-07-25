@@ -1,5 +1,9 @@
 const $ = (id) => document.getElementById(id);
 
+if ("scrollRestoration" in history) {
+  history.scrollRestoration = "manual";
+}
+
 const elements = {
   appFrame: document.querySelector(".app-frame"),
   appSplash: $("app-splash"),
@@ -18,6 +22,11 @@ const elements = {
   stockView: $("stock-view"),
   homeView: $("home-view"),
   searchView: $("search-view"),
+  recommendDetailPage: $("recommend-detail-page"),
+  recommendDetailBack: $("recommend-detail-back"),
+  recommendDetailName: $("recommend-detail-name"),
+  recommendDetailCode: $("recommend-detail-code"),
+  recommendDetailContent: $("recommend-detail-content"),
   portfolioView: $("portfolio-view"),
   marketView: $("market-view"),
   appNavItems: Array.from(document.querySelectorAll("[data-app-view]")),
@@ -562,6 +571,7 @@ const LEGACY_VIEW_MAP = {
   stock: "search",
   home: "home",
   search: "search",
+  "recommend-detail": "recommend-detail",
   movers: "movers",
   portfolio: "portfolio",
   chart: "chart",
@@ -663,6 +673,7 @@ const state = {
   appSplashResolve: null,
   recommendTrackRequestId: 0,
   recommendationLoading: false,
+  currentRecommendationDetailItem: null,
   recommendationCooldownTimer: null,
   loginGateTimer: null,
   loginSplashSeen: false,
@@ -5031,6 +5042,7 @@ function setView(requestedViewName) {
   elements.stockView.hidden = view !== "stock";
   elements.homeView.hidden = view !== "home";
   elements.searchView.hidden = view !== "search";
+  elements.recommendDetailPage.hidden = view !== "recommend-detail";
   elements.portfolioView.hidden = view !== "portfolio";
   elements.marketView.hidden = view !== "movers";
   elements.trendView.hidden = false;
@@ -5039,7 +5051,7 @@ function setView(requestedViewName) {
   elements.recommendHistoryView.hidden = false;
   elements.chartView.hidden = view !== "chart";
   elements.chartHistoryView.hidden = view !== "chart-history";
-  const activeView = view === "chart-history" ? "chart" : view === "movers" ? "home" : view;
+  const activeView = view === "chart-history" ? "chart" : view === "movers" ? "home" : view === "recommend-detail" ? "search" : view;
   for (const item of elements.appNavItems) {
     const active = item.dataset.appView === activeView;
     item.classList.toggle("active", active);
@@ -5071,6 +5083,11 @@ function setView(requestedViewName) {
       void loadRecommendations({ auto: true, force: false });
     }
     connectUsSectorStream();
+  } else if (view === "recommend-detail") {
+    const code = state.currentRecommendationDetailItem?.code || new URLSearchParams(window.location.search).get("code") || "";
+    history.replaceState(null, "", `/dashboard?view=recommend-detail${code ? `&code=${encodeURIComponent(code)}` : ""}`);
+    window.scrollTo(0, 0);
+    launchBriefPageLoading("AI 추천 설명을 불러오는 중", () => loadRecommendationDetail(code));
   } else if (view === "movers") {
     history.replaceState(null, "", "/dashboard?view=movers");
     const market = currentMarketFilter();
@@ -8710,120 +8727,190 @@ function buildRecommendationAIExplanation(item) {
   const price = toNumber(item.price);
   const oneMonth = toNumber(item.one_month_return);
   const threeMonth = toNumber(item.three_month_return);
-  const change = toNumber(item.change_rate);
   const support = toNumber(chart.support);
   const resistance = toNumber(chart.resistance);
   const chartScore = toNumber(chart.score);
-  const volumeRatio = toNumber(chart.volume_ratio);
-  const distanceToResistance = toNumber(chart.distance_to_resistance);
-  const distanceToSupport = toNumber(chart.distance_to_support);
-  const componentScores = item.component_scores || {};
-  const valuationScore = toNumber(componentScores.valuation);
-  const sentimentScore = toNumber(componentScores.sentiment);
-  const flowsScore = toNumber(componentScores.flows);
-
-  let decision = "보류";
-  if (score >= 68 && chartScore >= 65 && price && support && distanceToResistance !== null && distanceToResistance >= 3) {
-    decision = "매수";
-  } else if (score < 48 || (price && support && price < support) || chartScore < 45) {
-    decision = "매도";
-  }
-
-  const nearbySupport = price && support && support < price && support >= price * 0.9 ? support : null;
-  const nearbyResistance = price && resistance && resistance > price ? resistance : null;
-  const entryLow = price ? Math.max(nearbySupport || 0, Math.round(price * 0.985 / 100) * 100) : null;
-  const entryHigh = price ? Math.round(price * 1.005 / 100) * 100 : null;
-  const breakout = price ? Math.round(Math.max(nearbyResistance || 0, price * 1.025) / 100) * 100 : null;
-  const reduce = price ? Math.round(Math.max((nearbySupport || 0) * 0.985, price * 0.965) / 100) * 100 : null;
-  const target = price ? Math.round(Math.max(nearbyResistance || 0, price * 1.04) / 100) * 100 : null;
-
-  const summary =
-    decision === "매수"
-      ? `${item.name}은 지금 바로 크게 따라가기보다 ${formatNumber(entryLow)}~${formatNumber(entryHigh)} 구간에서 나눠 담는 쪽이 현실적입니다.`
-      : decision === "매도"
-        ? `${item.name}은 추천 점수나 차트 흐름이 약해져서 새 매수보다 보유 비중을 줄이는 판단이 우선입니다.`
-        : `${item.name}은 관심 종목으로 볼 수 있지만, 현재 판단은 매수 실행보다 관찰이 우선입니다. 가격이 안정되거나 돌파 전환가를 넘을 때만 접근합니다.`;
-
-  const plain = [
-    `현재가는 ${formatNumber(price)}이고 오늘 등락률은 ${formatPercent(change)}입니다.`,
-    `최근 1개월 수익률은 ${formatPercent(oneMonth)}, 3개월 수익률은 ${formatPercent(threeMonth)}입니다. 이미 많이 오른 종목은 좋은 종목이어도 한 번에 사면 손실 구간을 크게 맞을 수 있습니다.`,
-    `추천 점수는 ${formatNumber(score)}점이고 AI 차트 점수는 ${formatNumber(chartScore)}점입니다. 점수는 “좋은 기업인가”보다 “지금 가격에서 행동하기 쉬운가”에 가깝게 봅니다.`,
-  ];
-  if (valuationScore !== null) {
-    plain.push(`밸류에이션 점수는 ${formatNumber(valuationScore)}점입니다. 낮으면 가격 부담이 크다는 뜻이고, 높으면 현재 가격이 과거와 비교해 덜 부담스럽다는 뜻입니다.`);
-  }
-  if (flowsScore !== null) {
-    plain.push(`수급 점수는 ${formatNumber(flowsScore)}점입니다. 외국인과 기관의 매수세가 함께 들어오면 가격이 버티는 힘이 좋아질 수 있습니다.`);
-  }
-  if (sentimentScore !== null) {
-    plain.push(`뉴스 분위기 점수는 ${formatNumber(sentimentScore)}점입니다. 좋은 뉴스가 많아도 가격에 이미 반영된 경우가 있으니 가격 위치와 함께 봐야 합니다.`);
-  }
-
-  const timing = [
-    price
-      ? decision === "매수"
-        ? `현실적인 1차 매수 구간: ${formatNumber(entryLow)}~${formatNumber(entryHigh)}. 이 구간에서 가격이 밀리지 않을 때만 나눠 담습니다.`
-        : `관찰 가격대: ${formatNumber(entryLow)}~${formatNumber(entryHigh)}. 현재 판단에서는 실행 구간이 아니라 가격이 버티는지 보는 기준입니다.`
-      : "현재가 데이터가 부족해서 가격대를 숫자로 잡기 어렵습니다.",
-    breakout ? `매수 전환가: ${formatNumber(breakout)} 이상. 이 가격 위에서 거래대금이 늘 때만 소액 접근합니다.` : "돌파 가격은 저항선 데이터가 부족해 계산하지 않았습니다.",
-    reduce ? `손실을 줄일 가격: ${formatNumber(reduce)} 아래. 이 가격 아래에서는 생각이 틀렸다고 보고 비중을 줄이는 기준으로 삼습니다.` : "손실 제한 가격은 지지선 데이터가 부족해 계산하지 않았습니다.",
-    target ? `1차 이익실현 참고 가격: ${formatNumber(target)} 부근. 욕심내기보다 일부 수익을 잠그는 구간으로 봅니다.` : "이익실현 가격은 저항선 데이터가 부족해 계산하지 않았습니다.",
-  ];
-
-  const risks = [];
-  if (oneMonth !== null && oneMonth > 25) {
-    risks.push("최근 1개월 상승률이 커서 추격매수 부담이 있습니다.");
-  }
-  if (threeMonth !== null && threeMonth > 60) {
-    risks.push("3개월 기준으로 많이 오른 상태라 작은 악재에도 조정이 깊어질 수 있습니다.");
-  }
-  if (distanceToSupport !== null && distanceToSupport > 12) {
-    risks.push("현재가가 손실 제한 가격과 멀어 손절 폭이 커질 수 있습니다.");
-  }
-  if (volumeRatio !== null && volumeRatio < 0.9) {
-    risks.push("거래량이 충분히 붙지 않아 상승 힘이 약할 수 있습니다.");
-  }
-  if (!risks.length) {
-    risks.push("큰 위험 신호는 많지 않지만, 추천 종목도 가격이 빠르게 변하면 판단을 다시 해야 합니다.");
-  }
-
-  return { decision, summary, plain, timing, risks };
+  const action = item.action || (score >= 75 && (chartScore === null || chartScore >= 60) ? "분할 접근" : score >= 68 ? "매수 우선검토" : score < 45 ? "신중" : "관찰");
+  const entryLow = price ? roundTradePrice(Math.max(support && support < price ? support : 0, price * 0.985)) : null;
+  const entryHigh = price ? roundTradePrice(price * 1.005) : null;
+  const breakout = price ? roundTradePrice(Math.max(resistance && resistance > price ? resistance : 0, price * 1.025)) : null;
+  const reduce = price ? roundTradePrice(Math.max(support ? support * 0.985 : 0, price * 0.965)) : null;
+  const reason = item.decision_reason || (
+    action === "분할 접근"
+      ? "후보 점수와 차트가 모두 우수해 추격하지 않고 가격을 나눠 확인합니다."
+      : action === "매수 우선검토"
+        ? "점수와 차트가 기준을 통과해 진입 가격 확인이 우선입니다."
+        : action === "신중"
+          ? "점수 또는 차트가 기준에 못 미쳐 신규 진입보다 위험 확인이 우선입니다."
+          : "후보 점수는 확인됐지만 추가 전환 신호를 기다립니다."
+  );
+  return {
+    decision: action,
+    summary: reason,
+    entryLow,
+    entryHigh,
+    breakout,
+    reduce,
+    score,
+    chartScore,
+    oneMonth,
+    threeMonth,
+  };
 }
 
-function renderRecommendationAIExplanation(card) {
-  const item = card.recommendationItem;
-  if (!item) {
+function saveRecommendationDetailItem(item) {
+  state.currentRecommendationDetailItem = item;
+  try {
+    sessionStorage.setItem("recommendation-detail-v1", JSON.stringify(item));
+  } catch {
+    return;
+  }
+}
+
+function readRecommendationDetailItem(code = "") {
+  if (state.currentRecommendationDetailItem && (!code || state.currentRecommendationDetailItem.code === code)) {
+    return state.currentRecommendationDetailItem;
+  }
+  try {
+    const item = JSON.parse(sessionStorage.getItem("recommendation-detail-v1") || "null");
+    return item && (!code || item.code === code) ? item : null;
+  } catch {
     return null;
   }
-  const payload = buildRecommendationAIExplanation(item);
-  let panel = card.querySelector(".recommend-ai-panel");
-  if (!panel) {
-    panel = el("section", "recommend-ai-panel");
-    panel.setAttribute("role", "region");
-    panel.setAttribute("aria-label", `${item.name || "추천 종목"} AI 설명`);
-    const disclosure = card.querySelector(".recommend-detail-disclosure");
-    card.insertBefore(panel, disclosure || null);
+}
+
+function recommendationDetailMetric(label, value, rawValue = null) {
+  const row = el("div", "recommend-detail-metric");
+  const strong = el("strong", "", value);
+  if (rawValue !== null) {
+    setTone(strong, rawValue);
   }
-  panel.hidden = false;
-  panel.innerHTML = "";
-  const head = el("div", "recommend-ai-head");
-  head.append(el("h3", "", "AI 설명"), el("strong", `recommend-ai-decision ${payload.decision}`, payload.decision));
-  const summary = el("p", "recommend-ai-summary", payload.summary);
-  const grid = el("div", "recommend-ai-grid");
-  for (const [title, items] of [
-    ["쉽게 풀어보기", payload.plain],
-    ["매매 타이밍", payload.timing],
-    ["조심할 점", payload.risks],
+  row.append(el("span", "", label), strong);
+  return row;
+}
+
+function renderRecommendationDetail(item, aiAnalysis = null, loading = false) {
+  if (!elements.recommendDetailContent || !item) {
+    return;
+  }
+  const explanation = buildRecommendationAIExplanation(item);
+  const level = recommendationScoreLevel(item.score);
+  const generationMode = aiAnalysis?.generation_mode || "";
+  const providerText = loading
+    ? "Ollama AI 분석 중"
+    : generationMode === "local_llm"
+      ? "Ollama AI 분석 완료"
+      : aiAnalysis
+        ? "데이터 분석 완료"
+        : "Ollama AI 대기";
+  const providerClass = generationMode === "local_llm" ? "local" : generationMode === "rules" ? "rules" : "loading";
+  const aiSummary = aiAnalysis?.summary || explanation.summary;
+
+  elements.recommendDetailName.textContent = item.name || "추천 종목";
+  elements.recommendDetailCode.textContent = [item.code, item.market].filter(Boolean).join(" · ");
+  elements.recommendDetailContent.innerHTML = "";
+
+  const hero = el("section", "recommend-detail-hero");
+  const heroHead = el("div", "recommend-detail-hero-head");
+  const titleWrap = el("div");
+  titleWrap.append(el("span", "recommend-detail-eyebrow", "추천 결과"), el("h1", "", explanation.decision));
+  const scoreWrap = el("div", `recommend-detail-score ${level.className}`);
+  scoreWrap.append(el("strong", "", formatNumber(item.score)), el("span", "", "/ 100"), el("em", "", level.label));
+  heroHead.append(titleWrap, scoreWrap);
+  hero.append(heroHead, el("p", "recommend-detail-lead", explanation.summary));
+
+  const action = el("section", "recommend-detail-section recommend-detail-action");
+  const actionHead = el("div", "recommend-detail-section-head");
+  actionHead.append(el("div", "", "지금 할 일"), el("span", `recommend-detail-ai-badge ${providerClass}`, providerText));
+  action.append(actionHead);
+  const actionText =
+    explanation.decision === "분할 접근"
+      ? `${formatPriceRange(explanation.entryLow, explanation.entryHigh)}에서 2~3회로 나눠 접근합니다.`
+      : explanation.decision === "매수 우선검토"
+        ? `${formatPriceRange(explanation.entryLow, explanation.entryHigh)}에서 가격이 버티는지 먼저 확인합니다.`
+        : explanation.decision === "신중"
+          ? "신규 진입은 미루고 차트와 수급이 회복되는지 확인합니다."
+          : "현재 가격을 따라가지 말고 전환 신호를 기다립니다.";
+  action.append(el("h2", "", actionText), el("p", "", aiSummary));
+
+  const levels = el("section", "recommend-detail-section");
+  levels.appendChild(el("h2", "", "가격 기준"));
+  const levelGrid = el("div", "recommend-detail-table");
+  levelGrid.append(
+    recommendationDetailMetric("현재가", formatNumber(item.price)),
+    recommendationDetailMetric("접근 구간", formatPriceRange(explanation.entryLow, explanation.entryHigh)),
+    recommendationDetailMetric("매수 전환", explanation.breakout ? `${formatNumber(explanation.breakout)} 이상` : "확인 중"),
+    recommendationDetailMetric("위험 관리", explanation.reduce ? `${formatNumber(explanation.reduce)} 아래` : "확인 중"),
+  );
+  levels.appendChild(levelGrid);
+
+  const snapshot = el("section", "recommend-detail-section");
+  snapshot.appendChild(el("h2", "", "판단에 쓴 핵심 수치"));
+  const snapshotGrid = el("div", "recommend-detail-table");
+  snapshotGrid.append(
+    recommendationDetailMetric("추천 점수", `${formatNumber(item.score)}점`, item.score),
+    recommendationDetailMetric("차트 점수", explanation.chartScore === null ? "-" : `${formatNumber(explanation.chartScore)}점`, explanation.chartScore),
+    recommendationDetailMetric("1개월", formatPercent(item.one_month_return), item.one_month_return),
+    recommendationDetailMetric("3개월", formatPercent(item.three_month_return), item.three_month_return),
+  );
+  snapshot.appendChild(snapshotGrid);
+
+  const evidence = el("section", "recommend-detail-section");
+  evidence.appendChild(el("h2", "", "세부 근거"));
+  const columns = el("div", "recommend-detail-evidence");
+  for (const [title, values, fallback] of [
+    ["긍정 근거", item.reasons, "확인된 긍정 근거가 부족합니다."],
+    ["주의할 점", item.risks, "두드러진 위험 신호는 없습니다."],
   ]) {
-    const box = el("section");
-    box.appendChild(el("h4", "", title));
-    const list = el("ul");
-    appendListItems(list, items, "표시할 설명이 부족합니다.");
-    box.appendChild(list);
-    grid.appendChild(box);
+    const column = el("section");
+    column.appendChild(el("h3", "", title));
+    const list = document.createElement("ul");
+    appendListItems(list, (values || []).slice(0, 5), fallback);
+    column.appendChild(list);
+    columns.appendChild(column);
   }
-  panel.append(head, summary, grid);
-  return panel;
+  evidence.appendChild(columns);
+
+  const source = el("p", "recommend-detail-source", generationMode === "local_llm"
+    ? `${aiAnalysis.model_name || "Ollama"}가 핵심 근거를 선택했고, 점수와 가격 기준은 데이터 규칙으로 계산했습니다.`
+    : aiAnalysis?.generation_note || "점수와 가격 기준은 수집된 시장 데이터 규칙으로 계산합니다.");
+
+  elements.recommendDetailContent.append(hero, action, levels, snapshot, evidence, source);
+}
+
+async function loadRecommendationDetail(code = "") {
+  window.scrollTo(0, 0);
+  let item = readRecommendationDetailItem(code);
+  if (!item && code) {
+    try {
+      const payload = await fetchJsonCached("/market/recommendations?limit=20&candidate_limit=100", { force: true, ttlMs: 0 });
+      item = (payload.items || []).find((candidate) => candidate.code === code) || null;
+    } catch {
+      item = null;
+    }
+  }
+  if (!item) {
+    elements.recommendDetailContent.replaceChildren(el("p", "muted", "추천 정보를 찾지 못했습니다. 추천 목록에서 다시 선택해주세요."));
+    return;
+  }
+  saveRecommendationDetailItem(item);
+  renderRecommendationDetail(item, null, true);
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.scrollTo(0, 0)));
+  try {
+    const aiAnalysis = await fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/ai-analysis`, { force: true, ttlMs: 0 });
+    renderRecommendationDetail(item, aiAnalysis, false);
+  } catch {
+    renderRecommendationDetail(item, { generation_mode: "rules", generation_note: "Ollama 연결을 확인하지 못해 데이터 분석으로 표시합니다." }, false);
+  }
+}
+
+function openRecommendationDetail(item) {
+  if (!item?.code) {
+    return;
+  }
+  saveRecommendationDetailItem(item);
+  window.scrollTo(0, 0);
+  setView("recommend-detail");
 }
 
 function createRecommendationUsSectorSummary(item, usSectorMoves = state.usSectorMoves) {
@@ -8865,14 +8952,13 @@ function updateRecommendationUsSectorCards(usSectorMoves = state.usSectorMoves) 
 }
 
 function createRecommendationCard(item) {
-  const componentScores = item.component_scores || {};
   const card = el("article", "recommend-card");
   card.dataset.code = item.code || "";
   card.recommendationItem = item;
   const head = el("div", "recommend-head");
   const actionText = item.action || "관찰";
   const rank = el("div", "recommend-rank", `#${item.rank} · ${actionText}`);
-  rank.classList.add(actionText.includes("매수") ? "buy" : "watch");
+  rank.classList.add(actionText.includes("매수") || actionText.includes("분할") ? "buy" : "watch");
   const rankLine = el("div", "recommend-rank-line");
   const trackButton = el("button", "recommend-track-button", isTrackedRecommendation(item.code) ? "핀 종목 보기" : "핀 설정하기");
   trackButton.type = "button";
@@ -8882,9 +8968,8 @@ function createRecommendationCard(item) {
   watchButton.type = "button";
   watchButton.dataset.code = item.code || "";
   watchButton.classList.toggle("active", isWatched(item.code));
-  const explainButton = el("button", "recommend-ai-button", "AI 설명");
+  const explainButton = el("button", "recommend-ai-button", "AI 상세 보기");
   explainButton.type = "button";
-  explainButton.setAttribute("aria-expanded", "false");
   rankLine.appendChild(rank);
   const name = el("a", "recommend-name");
   name.href = viewStockUrl(item.name);
@@ -8920,61 +9005,7 @@ function createRecommendationCard(item) {
   const actions = el("div", "recommend-card-actions");
   actions.append(watchButton, trackButton, explainButton);
   head.append(rankLine, name, score, metrics, createRecommendationUsSectorSummary(item), actions);
-
-  const body = el("div", "recommend-body");
-  const chart = item.chart_analysis || {};
-  const chartBox = el("section", "recommend-chart");
-  chartBox.appendChild(el("h3", "", "AI 차트 분석"));
-  const chartSummary = el("div", "recommend-chart-summary");
-  const chartRows = [
-    ["차트점수", formatNumber(chart.score)],
-    ["판단", chart.stance || "-"],
-    ["추세", chart.trend || "-"],
-    ["셋업", chart.setup || "-"],
-    ["리스크", chart.risk_level || "-"],
-    ["거래량", formatRatio(chart.volume_ratio)],
-    ["지지", chart.support ? `${formatNumber(chart.support)} (${formatPercent(chart.distance_to_support)})` : "-"],
-    ["저항", chart.resistance ? `${formatNumber(chart.resistance)} (${formatPercent(chart.distance_to_resistance)})` : "-"],
-  ];
-  for (const [label, value] of chartRows) {
-    const row = el("div");
-    row.append(recommendTermLabel(label), el("strong", "", value));
-    chartSummary.appendChild(row);
-  }
-  const chartSignals = document.createElement("ul");
-  appendListItems(chartSignals, chart.signals, "뚜렷한 차트 신호가 아직 약합니다.");
-  chartBox.append(chartSummary, chartSignals);
-
-  const components = el("section");
-  components.appendChild(el("h3", "", "항목별 점수"));
-  const componentGrid = el("div", "component-grid");
-  for (const [key, label] of Object.entries(COMPONENT_LABELS)) {
-    const row = el("div");
-    row.append(componentTermLabel(key, label), el("strong", "", formatNumber(componentScores[key])));
-    componentGrid.appendChild(row);
-  }
-  components.appendChild(componentGrid);
-
-  const reasonWrap = el("section", "recommend-reasons");
-  const reasons = el("div");
-  reasons.appendChild(el("h3", "", "추천 이유"));
-  const reasonList = document.createElement("ul");
-  appendListItems(reasonList, item.reasons, "뚜렷한 긍정 이유가 부족합니다.");
-  reasons.appendChild(reasonList);
-
-  const risks = el("div");
-  risks.appendChild(el("h3", "", "확인 리스크"));
-  const riskList = document.createElement("ul");
-  appendListItems(riskList, item.risks, "주요 리스크 신호는 제한적입니다.");
-  risks.appendChild(riskList);
-  reasonWrap.append(reasons, risks);
-
-  body.append(chartBox, components, reasonWrap);
-  const details = el("details", "recommend-detail-disclosure");
-  const detailsSummary = document.createElement("summary");
-  detailsSummary.textContent = "세부 점수와 근거 보기";
-  details.append(detailsSummary, body);
-  card.append(head, details);
+  card.append(head);
   return card;
 }
 
@@ -10632,20 +10663,8 @@ elements.recommendList.addEventListener("click", (event) => {
   const explainButton = event.target.closest(".recommend-ai-button");
   if (explainButton) {
     const card = explainButton.closest(".recommend-card");
-    if (card) {
-      const currentPanel = card.querySelector(".recommend-ai-panel");
-      if (currentPanel && !currentPanel.hidden) {
-        currentPanel.hidden = true;
-        explainButton.textContent = "AI 설명";
-        explainButton.setAttribute("aria-expanded", "false");
-        return;
-      }
-      const panel = renderRecommendationAIExplanation(card);
-      explainButton.textContent = "설명 닫기";
-      explainButton.setAttribute("aria-expanded", "true");
-      window.requestAnimationFrame(() => {
-        panel?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      });
+    if (card?.recommendationItem) {
+      openRecommendationDetail(card.recommendationItem);
     }
     return;
   }
@@ -10659,6 +10678,8 @@ elements.recommendList.addEventListener("click", (event) => {
     refreshRecommendationCard(card, button);
   }
 });
+
+elements.recommendDetailBack?.addEventListener("click", () => setView("search"));
 
 elements.watchChartList.addEventListener("click", (event) => {
   const backButton = event.target.closest(".chart-detail-back");

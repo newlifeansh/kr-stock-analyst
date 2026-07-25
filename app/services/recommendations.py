@@ -381,15 +381,34 @@ def _select_diverse_recommendations(scored: list[dict[str, object]], limit: int)
 def _action(score: Decimal, chart_score: object = None) -> str:
     score = _score(score)
     chart_value = _num(chart_score)
-    if chart_value is not None and chart_value < Decimal("45"):
-        return "관망"
-    if score >= 68 and (chart_value is None or chart_value >= Decimal("60")):
+    if score < 45 or (chart_value is not None and chart_value < Decimal("40")):
+        return "신중"
+    if score >= 75 and (chart_value is None or chart_value >= Decimal("60")):
+        return "분할 접근"
+    if score >= 68 and (chart_value is None or chart_value >= Decimal("55")):
         return "매수 우선검토"
-    if score >= 60 and (chart_value is None or chart_value >= Decimal("50")):
-        return "관심 매수후보"
-    if score >= 55:
-        return "관찰"
     return "관찰"
+
+
+def _decision_reason(
+    action: str,
+    score: Decimal,
+    chart_score: object = None,
+    one_month_return: object = None,
+) -> str:
+    chart_value = _num(chart_score)
+    one_month = _num(one_month_return)
+    if action == "분할 접근":
+        if one_month is not None and one_month >= Decimal("20"):
+            return "후보 점수와 차트는 우수하지만 단기 상승 부담이 있어 추격 대신 나눠 접근합니다."
+        return "후보 점수와 차트가 함께 우수해 가격을 나눠 확인하며 접근합니다."
+    if action == "매수 우선검토":
+        return "점수와 차트가 기준을 통과해 진입 가격과 거래대금 확인이 우선입니다."
+    if action == "신중":
+        return "점수 또는 차트가 기준에 못 미쳐 신규 진입보다 위험 확인이 우선입니다."
+    if chart_value is not None and chart_value < Decimal("55"):
+        return "후보 점수는 확인됐지만 차트 전환이 약해 흐름을 더 지켜봅니다."
+    return f"추천 점수 {score}점으로 관찰 구간이며 추가 확인 신호를 기다립니다."
 
 
 def _score_dashboard(dashboard: dict[str, object]) -> dict[str, object]:
@@ -412,12 +431,19 @@ def _score_dashboard(dashboard: dict[str, object]) -> dict[str, object]:
     momentum = dashboard["momentum"]
     chart_analysis = dashboard["chart_analysis"]
     score_value = _score(total)
+    action = _action(score_value, chart_analysis.get("score"))
     return {
         "code": dashboard["code"],
         "name": dashboard["name"],
         "market": dashboard["market"],
         "score": score_value,
-        "action": _action(score_value, chart_analysis.get("score")),
+        "action": action,
+        "decision_reason": _decision_reason(
+            action,
+            score_value,
+            chart_analysis.get("score"),
+            momentum.get("one_month_return"),
+        ),
         "price": quote.get("price"),
         "change_rate": quote.get("change_rate"),
         "one_month_return": momentum.get("one_month_return"),
@@ -501,13 +527,14 @@ def _score_fast_candidate(item: dict[str, object], prices: list[object]) -> dict
     risks.extend(str(value) for value in chart_analysis.get("risks", [])[:3])
 
     score_value = _score(total)
-    fast_action = "1차 후보" if score_value >= Decimal("55") and chart_score >= Decimal("50") else "관찰"
+    fast_action = _action(score_value, chart_score)
     return {
         "code": item["code"],
         "name": item["name"],
         "market": item["market"],
         "score": score_value,
         "action": fast_action,
+        "decision_reason": _decision_reason(fast_action, score_value, chart_score, one_month),
         "price": item.get("price"),
         "change_rate": item.get("change_rate"),
         "one_month_return": item.get("one_month_return"),

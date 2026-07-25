@@ -10,7 +10,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.1"' in shell.text
-    assert "20260725v64" in shell.text
+    assert "20260726v66" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -81,7 +81,7 @@ def test_recommendation_cards_use_one_compact_action_row():
         'actions.append(watchButton, trackButton, explainButton);',
         'isWatched(item.code) ? "관심 해제" : "관심 추가"',
         'isTrackedRecommendation(item.code) ? "핀 종목 보기" : "핀 설정하기"',
-        'el("button", "recommend-ai-button", "AI 설명")',
+        'el("button", "recommend-ai-button", "AI 상세 보기")',
         "grid-template-columns: repeat(3, minmax(0, 1fr));",
     ):
         assert expected in source or expected in styles
@@ -89,22 +89,23 @@ def test_recommendation_cards_use_one_compact_action_row():
     assert 'el("button", "recommend-refresh", "새로고침")' not in source
 
 
-def test_recommendation_ai_explanation_opens_inside_the_card():
+def test_recommendation_ai_explanation_opens_on_a_dedicated_page():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text
     styles = client.get("/assets/dashboard/styles.css").text
 
     for expected in (
-        'const disclosure = card.querySelector(".recommend-detail-disclosure");',
-        "card.insertBefore(panel, disclosure || null);",
-        'explainButton.setAttribute("aria-expanded", "false");',
-        'explainButton.textContent = "설명 닫기";',
-        'panel?.scrollIntoView({ behavior: "smooth", block: "nearest" });',
+        'id="recommend-detail-page"',
+        'function openRecommendationDetail(item)',
+        'setView("recommend-detail");',
+        'openRecommendationDetail(card.recommendationItem);',
+        'Ollama AI 분석 완료',
     ):
-        assert expected in source
+        assert expected in source or expected in client.get("/dashboard?view=recommend-detail").text
 
-    assert 'card.insertBefore(panel, body || null);' not in source
-    assert ".recommend-ai-panel[hidden]" in styles
+    assert 'renderRecommendationAIExplanation(card)' not in source
+    assert 'detailsSummary.textContent = "세부 점수와 근거 보기"' not in source
+    assert ".recommend-detail-page" in styles
 
 
 def test_recommendation_score_explains_scale_and_interpretation():
