@@ -8755,6 +8755,71 @@ a.flow-node.stock:hover {
   }
 }
 
+/* Portfolio 4.9: separate AI strategy from stock news without stacking both feeds. */
+body:not([data-view="stock"]) #portfolio-watchlist-panel {
+  min-width: 0;
+  gap: 0;
+}
+
+body:not([data-view="stock"]) .watchlist-content-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 16px 24px 8px;
+  padding: 4px;
+  border: 0;
+  border-radius: 8px;
+  background: #eef1f5;
+}
+
+body:not([data-view="stock"]) .watchlist-content-tabs button {
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #8b929d;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+body:not([data-view="stock"]) .watchlist-content-tabs button.active {
+  background: #ffffff;
+  color: var(--app-v3-text);
+  box-shadow: 0 1px 4px rgba(17, 24, 39, 0.08);
+}
+
+body:not([data-view="stock"]) .watchlist-content-tabs button:focus-visible {
+  outline: 0;
+  box-shadow: 0 1px 4px rgba(17, 24, 39, 0.08), 0 0 0 2px rgba(17, 24, 39, 0.08);
+}
+
+body:not([data-view="stock"]) .watchlist-content-panel {
+  min-width: 0;
+}
+
+body:not([data-view="stock"]) .watchlist-content-panel[hidden] {
+  display: none !important;
+}
+
+body:not([data-view="stock"]) #watchlist-news-panel .portfolio-news-panel {
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  body:not([data-view="stock"]) .watchlist-content-tabs {
+    margin: 14px 20px 8px;
+  }
+
+  body:not([data-view="stock"]) .watchlist-content-tabs button {
+    min-height: 48px;
+    font-size: 15px;
+  }
+}
+
 /* Tracked recommendations use the same flat section language as stock detail. */
 body:not([data-view="stock"]) #portfolio-tracking-panel > #recommend-history-view {
   width: 100%;

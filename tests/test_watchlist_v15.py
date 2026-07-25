@@ -9,11 +9,18 @@ def test_watchlist_v15_shell_and_asset_version():
 
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
-    assert 'name="application-version" content="4.8"' in shell.text
-    assert "20260725v57" in shell.text
+    assert 'name="application-version" content="4.9"' in shell.text
+    assert "20260725v59" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
+    assert 'id="watchlist-content-tabs"' in shell.text
+    assert 'data-watch-content-tab="strategy">AI 전략</button>' in shell.text
+    assert 'data-watch-content-tab="news">종목 뉴스</button>' in shell.text
+    assert 'id="watchlist-strategy-panel"' in shell.text
+    assert 'id="watchlist-news-panel"' in shell.text
+    assert shell.text.index('data-watch-content-tab="strategy"') < shell.text.index('data-watch-content-tab="news"')
+    assert shell.text.index('id="watchlist-strategy-panel"') < shell.text.index('id="watchlist-news-panel"')
 
     styles = client.get("/assets/dashboard/styles.css").text
     assert "Recommendation metrics use the same continuous table language as stock detail" in styles
@@ -46,11 +53,23 @@ def test_watchlist_v15_uses_progressive_real_time_cards():
         'elements.watchlistMeta.textContent = `${items.length}개 종목 · ${completedCount}/${items.length}개 확인 중`;',
         'const keepExpanded = itemCode ? state.watchPreopenExpanded.has(itemCode) : false;',
         'action.textContent = "종목 검색 열기";',
+        "function setWatchlistContentTab",
+        'const active = tabName === "news" ? "news" : "strategy";',
+        'tab.addEventListener("click", () => setWatchlistContentTab(tab.dataset.watchContentTab, { load: true }));',
     ):
         assert expected in source
 
     assert "watchDetailsExpanded" not in source
     assert 'className = "watch-stock-details"' not in source
+
+    styles = client.get("/assets/dashboard/styles.css").text
+    for expected in (
+        "/* Portfolio 4.9: separate AI strategy from stock news without stacking both feeds. */",
+        "grid-template-columns: repeat(2, minmax(0, 1fr));",
+        ".watchlist-content-tabs button.active",
+        ".watchlist-content-panel[hidden]",
+    ):
+        assert expected in styles
 
 
 def test_recommendation_cards_use_one_compact_action_row():

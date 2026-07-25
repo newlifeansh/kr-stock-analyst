@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="4.8" />
+    <meta name="application-version" content="4.9" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v57" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v59" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -538,24 +538,32 @@
           <button class="portfolio-tab" type="button" role="tab" aria-selected="false" data-portfolio-tab="tracking">추적종목</button>
         </section>
         <section class="portfolio-tab-panel" id="portfolio-watchlist-panel" role="tabpanel">
-          <section class="trend-watchlist-panel portfolio-news-panel" id="trend-watchlist-panel">
-            <div class="trend-watchlist-head"><h2>관심종목 뉴스</h2><span id="trend-watchlist-meta"></span></div>
-            <div class="trend-watch-stock-rail" id="trend-watch-stock-rail" role="tablist" aria-label="관심종목 선택"></div>
-            <p class="trend-watchlist-status" id="trend-watchlist-status" role="status" aria-live="polite"></p>
-            <div class="trend-watch-news-board" id="trend-watch-news-board"></div>
-          </section>
-          <section id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0">
-            <p id="watchlist-meta" class="sr-only">저장된 종목</p>
-            <section class="watchlist-panel">
-              <section class="watchlist-strategy" id="watchlist-strategy" aria-live="polite" hidden></section>
-              <div class="watch-v2-filter watch-v3-tabs" role="tablist" aria-label="관심 종목 필터">
-                <button class="active" type="button" role="tab" aria-selected="true" data-watch-filter="all">전체</button>
-                <button type="button" role="tab" aria-selected="false" data-watch-filter="attention">확인 필요</button>
-                <button type="button" role="tab" aria-selected="false" data-watch-filter="positive">흐름 양호</button>
-              </div>
-              <section class="watch-v3-stock-section">
-                <section class="watchlist-card-list watch-v2-list-surface" id="watchlist-body" aria-live="polite"></section>
+          <div class="watchlist-content-tabs" id="watchlist-content-tabs" role="tablist" aria-label="관심종목 정보">
+            <button id="watchlist-strategy-tab" class="active" type="button" role="tab" aria-selected="true" aria-controls="watchlist-strategy-panel" data-watch-content-tab="strategy">AI 전략</button>
+            <button id="watchlist-news-tab" type="button" role="tab" aria-selected="false" aria-controls="watchlist-news-panel" data-watch-content-tab="news">종목 뉴스</button>
+          </div>
+          <section class="watchlist-content-panel" id="watchlist-strategy-panel" role="tabpanel" aria-labelledby="watchlist-strategy-tab">
+            <section id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0">
+              <p id="watchlist-meta" class="sr-only">저장된 종목</p>
+              <section class="watchlist-panel">
+                <section class="watchlist-strategy" id="watchlist-strategy" aria-live="polite" hidden></section>
+                <div class="watch-v2-filter watch-v3-tabs" role="tablist" aria-label="관심 종목 필터">
+                  <button class="active" type="button" role="tab" aria-selected="true" data-watch-filter="all">전체</button>
+                  <button type="button" role="tab" aria-selected="false" data-watch-filter="attention">확인 필요</button>
+                  <button type="button" role="tab" aria-selected="false" data-watch-filter="positive">흐름 양호</button>
+                </div>
+                <section class="watch-v3-stock-section">
+                  <section class="watchlist-card-list watch-v2-list-surface" id="watchlist-body" aria-live="polite"></section>
+                </section>
               </section>
+            </section>
+          </section>
+          <section class="watchlist-content-panel" id="watchlist-news-panel" role="tabpanel" aria-labelledby="watchlist-news-tab" hidden>
+            <section class="trend-watchlist-panel portfolio-news-panel" id="trend-watchlist-panel">
+              <div class="trend-watchlist-head"><h2>관심종목 뉴스</h2><span id="trend-watchlist-meta"></span></div>
+              <div class="trend-watch-stock-rail" id="trend-watch-stock-rail" role="tablist" aria-label="관심종목 선택"></div>
+              <p class="trend-watchlist-status" id="trend-watchlist-status" role="status" aria-live="polite"></p>
+              <div class="trend-watch-news-board" id="trend-watch-news-board"></div>
             </section>
           </section>
         </section>
@@ -603,6 +611,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v57" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v59" defer></script>
   </body>
 </html>

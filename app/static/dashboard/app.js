@@ -194,6 +194,9 @@ const elements = {
   portfolioTabs: Array.from(document.querySelectorAll("[data-portfolio-tab]")),
   portfolioWatchlistPanel: $("portfolio-watchlist-panel"),
   portfolioTrackingPanel: $("portfolio-tracking-panel"),
+  watchlistContentTabs: Array.from(document.querySelectorAll("[data-watch-content-tab]")),
+  watchlistStrategyPanel: $("watchlist-strategy-panel"),
+  watchlistNewsPanel: $("watchlist-news-panel"),
   watchChartMeta: $("watch-chart-meta"),
   watchChartRefresh: $("watch-chart-refresh"),
   chartArchiveButton: $("chart-archive-button"),
@@ -573,6 +576,7 @@ const state = {
   activeTrendTab: requestedView === "trend-impact" ? "impact" : requestedView === "trend-past" ? "events" : "live",
   showPastEvents: requestedView === "trend-past",
   portfolioTab: requestedView === "recommend-history" ? "tracking" : "watchlist",
+  watchlistContentTab: "strategy",
   discoverySuggestions: [],
   discoverySuggestionController: null,
   discoverySuggestionTimer: null,
@@ -4942,6 +4946,29 @@ function canonicalAppView(requested) {
   return requested === "stock" ? "stock" : (LEGACY_VIEW_MAP[requested] || "home");
 }
 
+function setWatchlistContentTab(tabName, options = {}) {
+  const active = tabName === "news" ? "news" : "strategy";
+  state.watchlistContentTab = active;
+  for (const tab of elements.watchlistContentTabs) {
+    const selected = tab.dataset.watchContentTab === active;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
+  elements.watchlistStrategyPanel.hidden = active !== "strategy";
+  elements.watchlistNewsPanel.hidden = active !== "news";
+  if (options.load === false || state.view !== "portfolio" || state.portfolioTab !== "watchlist") {
+    return active;
+  }
+  if (active === "news") {
+    closeWatchlistQuoteStreams();
+    launchBriefPageLoading("관심종목 뉴스를 불러오는 중", () => loadTrendWatchlistNews(pageEntryRefreshOptions("watchlist", "news")));
+  } else {
+    launchBriefPageLoading(PAGE_LOADING_LABELS.watchlist, () => loadWatchlist(pageEntryRefreshOptions("watchlist", "strategy")));
+  }
+  return active;
+}
+
 function setPortfolioTab(tabName, options = {}) {
   const active = tabName === "tracking" ? "tracking" : "watchlist";
   state.portfolioTab = active;
@@ -4958,11 +4985,7 @@ function setPortfolioTab(tabName, options = {}) {
   if (active === "tracking") {
     launchBriefPageLoading(PAGE_LOADING_LABELS["recommend-history"], () => loadRecommendationHistory(pageEntryRefreshOptions("recommend-history")));
   } else {
-    const entryOptions = pageEntryRefreshOptions("watchlist");
-    launchBriefPageLoading(PAGE_LOADING_LABELS.watchlist, () => Promise.all([
-      loadWatchlist(entryOptions),
-      loadTrendWatchlistNews(entryOptions),
-    ]));
+    setWatchlistContentTab(state.watchlistContentTab, { load: true });
   }
   return active;
 }
@@ -10377,6 +10400,9 @@ elements.homePastToggle?.addEventListener("click", () => {
 });
 for (const tab of elements.portfolioTabs) {
   tab.addEventListener("click", () => setPortfolioTab(tab.dataset.portfolioTab, { load: true }));
+}
+for (const tab of elements.watchlistContentTabs) {
+  tab.addEventListener("click", () => setWatchlistContentTab(tab.dataset.watchContentTab, { load: true }));
 }
 elements.trendWatchStockRail?.addEventListener("click", (event) => {
   const button = event.target.closest(".trend-watch-stock-chip");
