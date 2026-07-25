@@ -20882,6 +20882,26 @@ body:not([data-view="stock"]) #trend-view {
 
 body:not([data-view="stock"]) .market-impact-center {
   border-radius: 8px;
+  box-shadow: none;
+}
+
+body:not([data-view="stock"]) .market-impact-node {
+  box-shadow: none;
+}
+
+body:not([data-view="stock"]) .market-impact-icon {
+  border-radius: 8px;
+}
+
+body:not([data-view="stock"]) .market-impact-metric {
+  border-radius: 8px;
+}
+
+body:not([data-view="stock"]) :is(
+  .market-impact-stock-tags a,
+  .market-impact-stock-tags span
+) {
+  border-radius: 6px;
 }
 
 body:not([data-view="stock"]) #recommend-history-view .recommend-history.archive-page {

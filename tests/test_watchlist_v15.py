@@ -10,7 +10,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="3.3"' in shell.text
-    assert "20260725v40" in shell.text
+    assert "20260725v41" in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
     assert shell.text.index('id="watchlist-strategy"') < shell.text.index('class="watch-v2-filter watch-v3-tabs"')
@@ -52,6 +52,9 @@ def test_watchlist_v15_is_responsive_and_matches_stock_detail_tokens():
         "#trend-view .trend-tabs",
         "width: calc(100% + 40px) !important;",
         ".market-impact-hero",
+        ".market-impact-node",
+        ".market-impact-metric",
+        ".market-impact-stock-tags a",
         ".push-notification-condition",
         "box-shadow: none !important;",
         "border-radius: 8px;",
