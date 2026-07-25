@@ -25,7 +25,7 @@ def test_stock_detail_v3_shell_and_controls():
         'id="quant-signal-refresh"',
         "최근 1년 AI 매매신호",
         "모든 매매내역 보기",
-        "20260725v12",
+        "20260725v13",
     ):
         assert expected in shell.text
     assert "1,000만원 모의 운용" not in shell.text
@@ -49,6 +49,7 @@ def test_stock_detail_v3_shell_and_controls():
     assert "판단 근거와 위험 보기" not in shell.text
 
     styles = client.get("/assets/dashboard/styles.css").text
+    assert "aspect-ratio: 19 / 8" in styles
     assert "/* iPhone 16 Pro (402 CSS px)" in styles
     assert "@media (max-width: 430px)" in styles
     assert '"Apple SD Gothic Neo"' in styles

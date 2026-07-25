@@ -15147,7 +15147,8 @@ body :is(
 
 #stock-view.stock-detail-v3 .quant-signal-chart {
   position: relative;
-  min-height: 320px;
+  min-height: 0;
+  aspect-ratio: 19 / 8;
 }
 
 #stock-view.stock-detail-v3 .quant-signal-chart svg {
@@ -15396,7 +15397,7 @@ body :is(
   }
 
   #stock-view.stock-detail-v3 .quant-signal-chart {
-    min-height: 250px;
+    min-height: 0;
     margin-right: -7px;
     margin-left: -7px;
   }
@@ -15537,7 +15538,7 @@ body :is(
 }
 
 #stock-view.stock-detail-v3 .quant-signal-chart {
-  min-height: 280px;
+  min-height: 0;
 }
 
 #stock-view.stock-detail-v3 .quant-performance-grid {
@@ -15700,7 +15701,7 @@ body :is(
   }
 
   #stock-view.stock-detail-v3 .quant-signal-chart {
-    min-height: 230px;
+    min-height: 0;
     margin-right: -6px;
     margin-left: -6px;
   }
