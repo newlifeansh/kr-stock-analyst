@@ -20242,3 +20242,608 @@ body:not([data-view="stock"]) .bottom-nav-item.active span {
     padding: 0 10px;
   }
 }
+
+/* Dashboard typography system 3.2: use the stock-detail hierarchy everywhere. */
+body:not([data-view="stock"]) {
+  --app-type-page: 24px;
+  --app-type-display: 40px;
+  --app-type-tab: 14px;
+  --app-type-section: 20px;
+  --app-type-body: 14px;
+  --app-type-list: 13px;
+  --app-type-label: 11px;
+  --app-type-caption: 11px;
+  --app-type-metric: 15px;
+  --app-type-button: 14px;
+  --app-weight-page: 900;
+  --app-weight-section: 900;
+  --app-weight-body: 650;
+  --app-weight-list: 750;
+  --app-weight-label: 700;
+  --app-weight-caption: 400;
+  --app-weight-metric: 800;
+  --app-weight-button: 800;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR",
+    sans-serif;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+body:not([data-view="stock"]) :is(
+  .dashboard-detail-system,
+  .dashboard-detail-system *,
+  .login-gate,
+  .login-gate *,
+  .loading-modal,
+  .loading-modal *,
+  .install-sheet,
+  .install-sheet *,
+  .push-notification-sheet,
+  .push-notification-sheet *
+) {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR",
+    sans-serif !important;
+  letter-spacing: 0;
+}
+
+body:not([data-view="stock"]) :is(.mobile-brand strong, .app-page-intro h1) {
+  font-size: var(--app-type-page) !important;
+  font-weight: var(--app-weight-page) !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .app-page-intro > span,
+  .app-section-heading > div > span,
+  .discovery-module-head > div > span,
+  .watch-v2-briefing-title > span,
+  .watch-v2-list-head > div > span,
+  .watch-v2-action > span,
+  .section-eyebrow,
+  .chart-page-intro > span
+) {
+  font-size: var(--app-type-caption) !important;
+  font-weight: var(--app-weight-caption) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .app-page-intro p,
+  .app-section-heading p,
+  .discovery-module-head p,
+  .trend-watchlist-status,
+  .ranking-message-cell,
+  .snapshot-list .muted
+) {
+  font-size: var(--app-type-label) !important;
+  font-weight: var(--app-weight-label) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .app-section-heading h2,
+  .portfolio-news-panel .trend-watchlist-head h2,
+  .watch-v2-briefing-title h2,
+  .watch-v2-list-head h2,
+  .market-impact-copy h2,
+  .watch-chart-head .watch-chart-name,
+  .chart-ai-head h3,
+  .history-head > strong
+) {
+  font-size: var(--app-type-section) !important;
+  font-weight: var(--app-weight-section) !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .app-segment-tabs button,
+  #watchlist-view.watchlist-v3 .watch-v3-tabs button
+) {
+  font-size: var(--app-type-tab) !important;
+  font-weight: 800 !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  button,
+  .text-action,
+  .primary-action,
+  .flow-button,
+  .snapshot-button,
+  .snapshot-delete,
+  .market-load-more
+) {
+  font-size: var(--app-type-button);
+  font-weight: var(--app-weight-button);
+  line-height: 1.55;
+}
+
+body:not([data-view="stock"]) :is(
+  .discovery-search > input,
+  .watch-v2-action strong,
+  .trend-impact,
+  .watch-points,
+  .market-impact-copy p,
+  .market-impact-detail > p,
+  .chart-ai-summary,
+  .chart-ai-explanation,
+  .chart-ai-list,
+  .watch-chart-empty-card p
+) {
+  font-size: var(--app-type-body) !important;
+  font-weight: var(--app-weight-body) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .thread-group-title,
+  .thread-item strong,
+  .trend-event-title > strong,
+  .trend-watch-news-group-head h3,
+  .trend-watch-news-item strong,
+  .watch-v2-monitoring-head h3,
+  .watch-v2-monitor-copy strong,
+  .watch-v2-response summary strong,
+  .watch-v2-row-footer a,
+  .chart-ai-panel h4,
+  .chart-checklist strong,
+  .chart-note-list li,
+  .recommend-body h3,
+  .recommend-body li,
+  .recommend-detail-disclosure > summary,
+  .chart-detail-disclosure > summary
+) {
+  font-size: var(--app-type-list) !important;
+  font-weight: var(--app-weight-list) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .thread-meta,
+  .trend-event-title span,
+  .event-source,
+  .trend-watch-news-group-head span,
+  .trend-watch-news-item span,
+  .trend-watchlist-head > span,
+  .watch-v2-monitor-copy small,
+  .watch-v2-monitoring-head span,
+  .watch-v2-status,
+  .watch-us-sector-strip > span,
+  .history-head span,
+  .recommend-name span,
+  .recommend-rank,
+  .recommend-track-meta,
+  .watch-chart-row-market,
+  .watch-chart-head span,
+  .chart-ai-head span
+) {
+  font-size: var(--app-type-caption) !important;
+  font-weight: var(--app-weight-caption) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .thread-tag,
+  .event-axis-badge,
+  .tag,
+  .event-badge,
+  .market-impact-node-label,
+  .market-impact-node-content em,
+  .market-impact-detail-head em,
+  .market-impact-tag-block > span,
+  .watch-chart-score-badge span,
+  .watch-chart-stance-badge,
+  .recommend-metrics span,
+  .component-grid span,
+  .recommend-track-metrics span,
+  .recommend-track-signals span,
+  .market-leaderboard-strip span,
+  .watch-v2-metrics span,
+  .watch-v2-response summary span,
+  .watch-v2-briefing-context dt
+) {
+  font-size: var(--app-type-label) !important;
+  font-weight: var(--app-weight-label) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .home-market-snapshot strong,
+  .recommend-metrics strong,
+  .component-grid strong,
+  .recommend-track-metrics strong,
+  .recommend-track-signals strong,
+  .market-leaderboard-strip strong,
+  .watch-v2-metrics strong,
+  .watch-v2-briefing-context dd,
+  .chart-ai-price-plan strong,
+  .watch-chart-metrics strong,
+  .chart-indicators strong
+) {
+  font-size: var(--app-type-metric) !important;
+  font-weight: var(--app-weight-metric) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) .home-market-snapshot span {
+  font-size: var(--app-type-label) !important;
+  font-weight: var(--app-weight-label) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(.market-segment-button, .trend-watch-stock-chip, .chart-stock-chip) {
+  font-size: var(--app-type-button) !important;
+  font-weight: var(--app-weight-button) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-name strong,
+body:not([data-view="stock"]) .recommend-name strong,
+body:not([data-view="stock"]) #watchlist-view.watchlist-v3 .watch-v2-stock-name-row > strong,
+body:not([data-view="stock"]) .watch-chart-row-main strong {
+  font-size: var(--app-type-section) !important;
+  font-weight: var(--app-weight-section) !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) :is(.market-leaderboard-name span, .watch-chart-row-market) {
+  font-size: var(--app-type-label) !important;
+  font-weight: var(--app-weight-label) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-price {
+  font-size: 24px !important;
+  font-weight: var(--app-weight-page) !important;
+  line-height: 1.08 !important;
+}
+
+body:not([data-view="stock"]) .market-leaderboard-change {
+  font-size: 17px !important;
+  font-weight: 800 !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(.recommend-score strong, .watch-chart-score-badge strong, .watch-chart-score > strong) {
+  font-size: 24px !important;
+  font-weight: var(--app-weight-page) !important;
+  line-height: 1 !important;
+}
+
+body:not([data-view="stock"]) :is(.recommend-score span, .watch-chart-score > span) {
+  font-size: var(--app-type-label) !important;
+  font-weight: var(--app-weight-label) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(.watch-stock-inline-price, .watch-stock-inline-change) {
+  font-size: var(--app-type-metric) !important;
+  font-weight: var(--app-weight-metric) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) .watch-chart-row-price {
+  font-size: 20px !important;
+  font-weight: var(--app-weight-metric) !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .market-impact-center-content > span,
+  .market-impact-center-content > small,
+  .market-impact-flow-title span,
+  .market-impact-flow-grid span,
+  .market-impact-flow-grid small,
+  .market-impact-metric span,
+  .market-impact-metric small,
+  .market-impact-tag-block span,
+  .chart-ai-price-plan span,
+  .watch-chart-metrics span,
+  .chart-indicators span,
+  .chart-indicators em
+) {
+  font-size: var(--app-type-label) !important;
+  font-weight: var(--app-weight-label) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .market-impact-center-content > strong,
+  .market-impact-node-content > strong
+) {
+  font-size: var(--app-type-section) !important;
+  font-weight: var(--app-weight-section) !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) :is(.market-impact-flow-title strong, .market-impact-flow-grid strong, .market-impact-detail-head strong) {
+  font-size: var(--app-type-list) !important;
+  font-weight: var(--app-weight-list) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(.loading-modal-card h2, .install-sheet-head h2, .push-notification-sheet-head h2) {
+  font-size: var(--app-type-section) !important;
+  font-weight: var(--app-weight-section) !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .loading-modal-card p,
+  .install-sheet-head p,
+  .install-sheet-card li,
+  .push-notification-sheet-head p,
+  .push-notification-sheet-status,
+  .push-notification-condition-copy p
+) {
+  font-size: var(--app-type-body) !important;
+  font-weight: var(--app-weight-body) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(.push-notification-condition-copy strong, .push-notification-condition-title) {
+  font-size: var(--app-type-list) !important;
+  font-weight: var(--app-weight-list) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) .login-card h1 {
+  font-size: var(--app-type-page) !important;
+  font-weight: var(--app-weight-page) !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) :is(.login-card p, .login-card input) {
+  font-size: var(--app-type-body) !important;
+  font-weight: var(--app-weight-body) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(.discovery-suggestion-item strong, .recommend-archive-head strong) {
+  font-size: var(--app-type-list) !important;
+  font-weight: var(--app-weight-list) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .discovery-suggestion-item span,
+  .recommend-archive-head span,
+  .recommend-archive-meta,
+  .chart-snapshot-meta
+) {
+  font-size: var(--app-type-label) !important;
+  font-weight: var(--app-weight-label) !important;
+  line-height: 1.55 !important;
+}
+
+@media (max-width: 430px) {
+  body:not([data-view="stock"]) {
+    --app-type-page: 20px;
+    --app-type-display: 38px;
+    --app-type-tab: 16px;
+    --app-type-section: 19px;
+    --app-type-body: 15px;
+    --app-type-list: 15px;
+    --app-type-label: 12px;
+    --app-type-caption: 11px;
+    --app-type-metric: 15px;
+    --app-type-button: 14px;
+    --app-weight-page: 700;
+    --app-weight-section: 700;
+    --app-weight-body: 500;
+    --app-weight-list: 600;
+    --app-weight-label: 500;
+    --app-weight-caption: 500;
+    --app-weight-metric: 700;
+    --app-weight-button: 800;
+  }
+
+  body:not([data-view="stock"]) .mobile-brand strong {
+    font-size: var(--app-type-page) !important;
+    font-weight: var(--app-weight-page) !important;
+  }
+
+  body:not([data-view="stock"]) .mobile-brand > span:last-child {
+    font-size: var(--app-type-caption) !important;
+    font-weight: 600 !important;
+    line-height: 1.55 !important;
+  }
+
+  body:not([data-view="stock"]) .app-page-intro h1 {
+    font-size: var(--app-type-page) !important;
+    font-weight: var(--app-weight-page) !important;
+  }
+
+  body:not([data-view="stock"]) :is(
+    .app-section-heading h2,
+    .portfolio-news-panel .trend-watchlist-head h2,
+    .watch-v2-briefing-title h2,
+    .watch-v2-list-head h2,
+    .market-impact-copy h2,
+    .watch-chart-head .watch-chart-name,
+    .chart-ai-head h3,
+    .history-head > strong,
+    .market-leaderboard-name strong,
+    .recommend-name strong,
+    #watchlist-view.watchlist-v3 .watch-v2-stock-name-row > strong,
+    .watch-chart-row-main strong
+  ) {
+    font-size: var(--app-type-section) !important;
+    font-weight: var(--app-weight-section) !important;
+  }
+
+  body:not([data-view="stock"]) :is(
+    .app-segment-tabs button,
+    #watchlist-view.watchlist-v3 .watch-v3-tabs button
+  ) {
+    font-size: var(--app-type-tab) !important;
+    font-weight: 700 !important;
+  }
+
+  body:not([data-view="stock"]) .market-leaderboard-price {
+    font-size: 24px !important;
+    font-weight: 700 !important;
+  }
+
+  body:not([data-view="stock"]) .market-leaderboard-change {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+  }
+
+  body:not([data-view="stock"]) :is(.recommend-score strong, .watch-chart-score-badge strong, .watch-chart-score > strong) {
+    font-size: 24px !important;
+    font-weight: 700 !important;
+  }
+
+  body:not([data-view="stock"]) .watch-chart-row-price {
+    font-size: 20px !important;
+    font-weight: 700 !important;
+  }
+
+  body:not([data-view="stock"]) :is(.bottom-nav-item span, .market-rank-badge) {
+    font-size: var(--app-type-caption) !important;
+    font-weight: 600 !important;
+    line-height: 1.55 !important;
+  }
+}
+
+/* Legacy title rules contain ID selectors inside :is(); page IDs keep this scale authoritative. */
+body:not([data-view="stock"]) :is(
+  #home-view,
+  #search-view,
+  #portfolio-view,
+  #chart-view,
+  #chart-history-view
+) .app-page-intro h1 {
+  font-size: var(--app-type-page) !important;
+  font-weight: var(--app-weight-page) !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  #home-view,
+  #search-view,
+  #portfolio-view,
+  #chart-view,
+  #chart-history-view
+) .app-section-heading h2,
+body:not([data-view="stock"]) #portfolio-view .trend-watchlist-head h2,
+body:not([data-view="stock"]) #trend-impact-content .market-impact-copy h2 {
+  font-size: var(--app-type-section) !important;
+  font-weight: var(--app-weight-section) !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) #market-view .market-leaderboard-price {
+  font-size: 24px !important;
+  font-weight: var(--app-weight-page) !important;
+  line-height: 1.08 !important;
+}
+
+body:not([data-view="stock"]) #market-view .market-leaderboard-change {
+  font-size: 17px !important;
+  font-weight: 800 !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) #recommend-view .recommend-score strong,
+body:not([data-view="stock"]) #chart-view :is(.watch-chart-score-badge strong, .watch-chart-score > strong) {
+  font-size: 24px !important;
+  font-weight: var(--app-weight-page) !important;
+  line-height: 1 !important;
+}
+
+body:not([data-view="stock"]) #login-gate .login-card h1 {
+  font-size: var(--app-type-page) !important;
+  font-weight: var(--app-weight-page) !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  #flow-loading-modal,
+  #install-sheet,
+  #push-notification-sheet
+) h2 {
+  font-size: var(--app-type-section) !important;
+  font-weight: var(--app-weight-section) !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) #watchlist-view.watchlist-v3 :is(
+  .watch-stock-inline-price,
+  .watch-stock-inline-change
+) {
+  font-size: var(--app-type-metric) !important;
+  font-weight: var(--app-weight-metric) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .discovery-search > button,
+  .text-action,
+  .primary-action,
+  .flow-button,
+  .app-logout-button,
+  .app-support-link,
+  .home-install-button,
+  .market-load-more,
+  .snapshot-button,
+  .snapshot-delete,
+  .push-notification-sheet-actions button,
+  .push-notification-sheet-test
+) {
+  font-size: var(--app-type-button) !important;
+  font-weight: var(--app-weight-button) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) #trend-impact-content .market-impact-disclosure > summary {
+  font-size: var(--app-type-button) !important;
+  font-weight: var(--app-weight-button) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-title strong {
+  font-size: var(--app-type-section) !important;
+  font-weight: var(--app-weight-section) !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-title span,
+body:not([data-view="stock"]) #recommend-view #recommend-status,
+body:not([data-view="stock"]) #chart-view #watch-chart-meta,
+body:not([data-view="stock"]) .push-notification-condition-copy span {
+  font-size: var(--app-type-label) !important;
+  font-weight: var(--app-weight-label) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) #watchlist-view.watchlist-v3 .watch-v2-monitor-row > span:last-child {
+  font-size: var(--app-type-metric) !important;
+  font-weight: var(--app-weight-metric) !important;
+  line-height: 1.55 !important;
+}
+
+body:not([data-view="stock"]) :is(
+  .page-loading-indicator strong,
+  #pull-refresh-label,
+  #watchlist-view.watchlist-v3 .watch-stock-loading > strong
+) {
+  font-size: var(--app-type-button) !important;
+  font-weight: var(--app-weight-button) !important;
+  line-height: 1.55 !important;
+}
+
+@media (max-width: 430px) {
+  body:not([data-view="stock"]) #market-view .market-leaderboard-change {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+  }
+
+  body:not([data-view="stock"]) #recommend-view .recommend-score strong,
+  body:not([data-view="stock"]) #chart-view :is(.watch-chart-score-badge strong, .watch-chart-score > strong) {
+    font-weight: 700 !important;
+  }
+}

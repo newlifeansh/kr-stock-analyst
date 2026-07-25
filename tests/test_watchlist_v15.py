@@ -9,8 +9,8 @@ def test_watchlist_v15_shell_and_asset_version():
 
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
-    assert 'name="application-version" content="3.1"' in shell.text
-    assert "20260725v30" in shell.text
+    assert 'name="application-version" content="3.2"' in shell.text
+    assert "20260725v34" in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
     assert shell.text.index('id="watchlist-strategy"') < shell.text.index('class="watch-v2-filter watch-v3-tabs"')
@@ -64,3 +64,29 @@ def test_watchlist_v15_is_responsive_and_matches_stock_detail_tokens():
 
     assert "#watchlist-view.watchlist-v3 .watch-v2-list-surface" in styles
     assert "#watchlist-view.watchlist-v3 .watchlist-empty-card" in styles
+
+
+def test_dashboard_v32_uses_stock_detail_typography_on_every_page():
+    client = TestClient(app)
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    for expected in (
+        "/* Dashboard typography system 3.2:",
+        "--app-type-page: 24px;",
+        "--app-type-section: 20px;",
+        "--app-type-body: 14px;",
+        "--app-type-label: 11px;",
+        "--app-type-metric: 15px;",
+        "--app-type-page: 20px;",
+        "--app-type-tab: 16px;",
+        "--app-type-section: 19px;",
+        "--app-type-body: 15px;",
+        "--app-type-label: 12px;",
+        ".market-leaderboard-name strong",
+        ".recommend-name strong",
+        ".watch-chart-row-main strong",
+        ".loading-modal-card h2",
+        ".push-notification-sheet-head h2",
+        ".login-card h1",
+    ):
+        assert expected in styles
