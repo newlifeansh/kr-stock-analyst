@@ -15932,14 +15932,6 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
   color: #6f7783 !important;
 }
 
-#stock-view.stock-detail-v3 .quant-current-meta {
-  margin: 0;
-  padding: 0 26px 18px;
-  color: var(--stock-v3-muted);
-  font-size: 12px;
-  font-weight: 550;
-}
-
 #stock-view.stock-detail-v3 .quant-lifecycle {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -16374,11 +16366,6 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
     font-size: 25px !important;
   }
 
-  #stock-view.stock-detail-v3 .quant-current-meta {
-    padding: 0 20px 16px;
-    font-size: 11px;
-  }
-
   #stock-view.stock-detail-v3 .quant-lifecycle {
     padding: 0 14px 18px;
   }
@@ -16453,26 +16440,13 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
 }
 
 #stock-view.stock-detail-v3 .quant-current-card {
-  padding: 24px 26px;
-  background: #f5f8fb;
+  padding: 22px 26px 0;
+  background: #ffffff;
 }
 
 #stock-view.stock-detail-v3 .quant-current-head {
   align-items: center;
   padding: 0;
-}
-
-#stock-view.stock-detail-v3 .quant-current-head > div {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-#stock-view.stock-detail-v3 .quant-current-head span {
-  color: #737c88;
-  font-size: 12px;
-  font-weight: 750;
 }
 
 #stock-view.stock-detail-v3 .quant-signal-refresh {
@@ -16496,25 +16470,17 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
 #stock-view.stock-detail-v3 .quant-current-message,
 #stock-view.stock-detail-v3 .quant-current-message[class*="quant-action-"] {
   max-width: 620px;
-  margin: 28px 0 8px;
-  font-size: 28px !important;
+  margin: 0;
+  font-size: 25px !important;
   font-weight: 850;
-  line-height: 1.35;
+  line-height: 1.25;
   letter-spacing: 0;
   overflow-wrap: anywhere;
 }
 
-#stock-view.stock-detail-v3 .quant-current-meta {
-  margin: 0;
-  padding: 0;
-  color: #747d89;
-  font-size: 12px;
-  font-weight: 600;
-}
-
 #stock-view.stock-detail-v3 .quant-current-position {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 24px;
+  margin-top: 20px;
   border-top: 1px solid #dfe4ea;
 }
 
@@ -16548,7 +16514,7 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
 
 #stock-view.stock-detail-v3 .quant-next-confirmation {
   margin: 20px 0 0;
-  padding: 13px 0 0;
+  padding: 14px 0 18px;
   border-top: 1px solid #dfe4ea;
   color: #3e4753;
   font-size: 13px;
@@ -16653,7 +16619,7 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
 
 @media (max-width: 980px) {
   #stock-view.stock-detail-v3 .quant-current-card {
-    padding: 24px 20px;
+    padding: 20px 20px 0;
   }
 
   #stock-view.stock-detail-v3 .quant-history-card {
@@ -16668,14 +16634,9 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
 
   #stock-view.stock-detail-v3 .quant-current-message,
   #stock-view.stock-detail-v3 .quant-current-message[class*="quant-action-"] {
-    margin-top: 24px;
-    font-size: 24px !important;
-    line-height: 1.42;
-  }
-
-  #stock-view.stock-detail-v3 .quant-current-meta {
-    padding: 0;
-    font-size: 11px;
+    margin: 0;
+    font-size: 23px !important;
+    line-height: 1.3;
   }
 
   #stock-view.stock-detail-v3 .quant-current-position {

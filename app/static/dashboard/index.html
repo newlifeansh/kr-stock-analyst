@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="4.1" />
+    <meta name="application-version" content="4.2" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v50" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v51" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -334,13 +334,9 @@
             <section class="quant-signal-stack" id="quant-signal-content" hidden>
               <article class="stock-v3-section quant-current-card">
                 <header class="quant-current-head">
-                  <div>
-                    <span>AI 전략 기준 현재 상태</span>
-                  </div>
+                  <h2 class="quant-current-message" id="quant-current-label">현재 상태를 확인하는 중이에요.</h2>
                   <button class="quant-signal-refresh" id="quant-signal-refresh" type="button">새로고침</button>
                 </header>
-                <h2 class="quant-current-message" id="quant-current-label">현재 상태를 확인하는 중이에요.</h2>
-                <p class="quant-current-meta" id="quant-current-meta">최근 1년 가격으로 계산한 모의 매매 결과입니다.</p>
                 <dl class="quant-current-position" id="quant-current-position"></dl>
                 <p class="quant-next-confirmation" id="quant-next-confirmation"></p>
               </article>
@@ -608,6 +604,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v50" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v51" defer></script>
   </body>
 </html>

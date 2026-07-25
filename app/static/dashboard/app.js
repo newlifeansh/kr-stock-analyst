@@ -69,7 +69,6 @@ const elements = {
   quantSignalContent: $("quant-signal-content"),
   quantSignalRefresh: $("quant-signal-refresh"),
   quantCurrentLabel: $("quant-current-label"),
-  quantCurrentMeta: $("quant-current-meta"),
   quantLifecycle: $("quant-lifecycle"),
   quantCurrentReasons: $("quant-current-reasons"),
   quantCurrentPosition: $("quant-current-position"),
@@ -7815,10 +7814,6 @@ function renderQuantSignals(payload) {
   const performance = payload.performance || {};
   const statusView = quantCurrentStatusView(payload);
   setText(elements.quantCurrentLabel, statusView.headline);
-  setText(
-    elements.quantCurrentMeta,
-    `AI 모의 전략 · ${payload.price_through ? `${formatDateLabel(payload.price_through)} 종가까지 계산` : "최근 가격까지 계산"}`,
-  );
   elements.quantCurrentLabel.className = `quant-current-message quant-action-${statusView.tone}`;
   elements.quantCurrentPosition.innerHTML = statusView.rows
     .map(([label, value, tone]) => `<div><dt>${label}</dt><dd class="${tone || "neutral"}">${value}</dd></div>`)

@@ -27,7 +27,7 @@ def test_stock_detail_v3_shell_and_controls():
         "최근 1년 AI 매매신호",
         "모든 매매내역 보기",
         'class="ollama-ai-badge stock-home-ai-status"',
-        "20260725v50",
+        "20260725v51",
     ):
         assert expected in shell.text
     assert "1,000만원 모의 운용" not in shell.text
@@ -51,6 +51,8 @@ def test_stock_detail_v3_shell_and_controls():
     assert 'badge.textContent = "Ollama AI 분석 중";' in source
     assert 'badge.textContent = "AI 분석 확인 실패";' in source
     assert 'headline: "매도 완료"' in source
+    assert "AI 전략 기준 현재 상태" not in shell.text
+    assert "AI 모의 전략 ·" not in source
     assert 'id="quant-current-score"' not in shell.text
     assert "원에 모두 팔았어요" not in source
     assert "AI 전략의 모의 매매 결과이며 실제 계좌 주문이 아닙니다." in source
