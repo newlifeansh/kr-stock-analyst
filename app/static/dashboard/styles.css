@@ -15621,11 +15621,6 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
   .home-market-snapshot > div:last-child { border-bottom: 0; }
 }
 
-#stock-view.stock-detail-v3 .stock-community-section .stock-v3-section-description {
-  margin: 10px 0 0;
-  color: var(--stock-v3-muted);
-}
-
 #stock-view.stock-detail-v3 .quant-signal-status {
   min-height: 118px;
   display: grid;
@@ -18904,7 +18899,7 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
   padding: 10px;
   overflow: visible;
   border: 0;
-  border-top: 1px solid var(--watch-v2-line);
+  border-top: 0;
   border-radius: 0 !important;
   background: var(--watch-v2-bg);
 }

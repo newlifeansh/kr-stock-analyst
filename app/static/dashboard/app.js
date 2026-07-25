@@ -146,7 +146,6 @@ const elements = {
   stockPriceLadder: $("stock-price-ladder"),
   watchlistMeta: $("watchlist-meta"),
   watchlistStrategy: $("watchlist-strategy"),
-  watchlistFilterSummary: $("watchlist-filter-summary"),
   watchlistFilterButtons: Array.from(document.querySelectorAll("[data-watch-filter]")),
   watchlistBody: $("watchlist-body"),
   recommendMeta: $("recommend-meta"),
@@ -159,8 +158,6 @@ const elements = {
   recommendHistoryList: $("recommend-history-list"),
   trendTitle: $("trend-title"),
   trendTopbar: $("trend-topbar"),
-  trendSummary: document.querySelector("#trend-view .trend-summary"),
-  trendHeadline: $("trend-headline"),
   trendEventsTitle: $("trend-events-title"),
   trendTabsWrap: $("trend-tabs"),
   trendTabs: Array.from(document.querySelectorAll(".trend-tab")),
@@ -2403,9 +2400,10 @@ function renderStockCommunity(payload) {
   const providers = Array.isArray(payload?.providers) ? payload.providers : [];
   const totalItems = providers.reduce((sum, provider) => sum + (Array.isArray(provider?.items) ? provider.items.length : 0), 0);
   elements.stockCommunityProviders.innerHTML = "";
-  elements.stockCommunityStatus.hidden = false;
-  elements.stockCommunityStatus.textContent = payload?.message
-    || (totalItems ? `커뮤니티 글 ${formatNumber(totalItems)}건을 모았습니다.` : "관련 커뮤니티 글을 찾지 못했습니다.");
+  elements.stockCommunityStatus.hidden = totalItems > 0;
+  elements.stockCommunityStatus.textContent = totalItems
+    ? ""
+    : (payload?.message || "관련 커뮤니티 글을 찾지 못했습니다.");
 
   for (const provider of providers) {
     const section = el("section", "stock-community-provider");
@@ -5570,11 +5568,6 @@ function applyWatchlistFilter() {
     return;
   }
   const rows = Array.from(elements.watchlistBody.querySelectorAll("[data-watch-card]"));
-  const counts = rows.reduce((summary, row) => {
-    const status = row.dataset.watchStatus || "neutral";
-    summary[status] = (summary[status] || 0) + 1;
-    return summary;
-  }, { attention: 0, positive: 0, neutral: 0 });
   const filter = state.watchlistFilter || "all";
   let visibleCount = 0;
   for (const row of rows) {
@@ -5588,17 +5581,6 @@ function applyWatchlistFilter() {
     const active = button.dataset.watchFilter === filter;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
-  }
-  if (elements.watchlistFilterSummary) {
-    if (!rows.length) {
-      elements.watchlistFilterSummary.textContent = "실시간 데이터를 확인 중입니다.";
-    } else if (filter === "attention") {
-      elements.watchlistFilterSummary.textContent = `${counts.attention}개 종목을 먼저 확인하세요.`;
-    } else if (filter === "positive") {
-      elements.watchlistFilterSummary.textContent = `${counts.positive}개 종목의 흐름이 양호합니다.`;
-    } else {
-      elements.watchlistFilterSummary.textContent = `${rows.length}개 중 ${counts.attention}개 종목은 확인이 필요합니다.`;
-    }
   }
   elements.watchlistBody.classList.toggle("is-filter-empty", rows.length > 0 && visibleCount === 0);
 }
@@ -6232,9 +6214,6 @@ function renderWatchlistMessage(text) {
     message.appendChild(action);
   }
   elements.watchlistBody.appendChild(message);
-  if (elements.watchlistFilterSummary) {
-    elements.watchlistFilterSummary.textContent = isEmpty ? "관심 종목을 추가해 주세요." : "데이터를 확인하지 못했습니다.";
-  }
 }
 
 function clearWatchlistLoadingOverlay() {
@@ -8826,9 +8805,6 @@ function setTrendTab(tabName) {
     tab.classList.toggle("active", selected);
     tab.setAttribute("aria-selected", String(selected));
   }
-  if (elements.trendSummary) {
-    elements.trendSummary.hidden = active !== "events";
-  }
   elements.trendEventsPanel.hidden = active !== "events";
   elements.trendLivePanel.hidden = active !== "live";
   elements.trendImpactPanel.hidden = active !== "impact";
@@ -9258,7 +9234,7 @@ function isFallbackMarketImpact(model) {
   });
 }
 
-function restoreTrendChrome(activeTab = "live", headline = "") {
+function restoreTrendChrome(activeTab = "live") {
   if (elements.trendTopbar) {
     elements.trendTopbar.hidden = true;
   }
@@ -9268,14 +9244,10 @@ function restoreTrendChrome(activeTab = "live", headline = "") {
   if (elements.trendTabsWrap) {
     elements.trendTabsWrap.hidden = false;
   }
-  if (elements.trendSummary) {
-    elements.trendSummary.hidden = true;
-  }
   if (elements.trendEventsTitle) {
     elements.trendEventsTitle.hidden = false;
     elements.trendEventsTitle.textContent = "이벤트 캘린더";
   }
-  elements.trendHeadline.textContent = headline;
 }
 
 function renderHomeMarketSnapshot(model) {
@@ -9549,7 +9521,7 @@ async function loadTrendGraph(card) {
 }
 
 function renderTrends(payload, activeTab = "live") {
-  restoreTrendChrome(activeTab, payload.headline || "다가오는 주요 이벤트를 확인해보세요.");
+  restoreTrendChrome(activeTab);
   elements.trendEvents.innerHTML = "";
   elements.trendPastEvents.innerHTML = "";
   elements.trendThread.innerHTML = "";
@@ -9586,14 +9558,17 @@ function renderTrends(payload, activeTab = "live") {
 }
 
 async function loadTrends(activeTab = state.activeTrendTab || "live", options = {}) {
-  restoreTrendChrome(activeTab, "다가오는 이벤트와 최신 타임라인을 정리하는 중입니다.");
+  restoreTrendChrome(activeTab);
   try {
     const force = options.force === true;
     const ttlMs = options.ttlMs ?? pageEntryTtlMs(activeTab === "past" ? "trend-past" : "trend");
     const url = "/market/trends?days=7";
     renderTrends(await fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs }), activeTab);
   } catch {
-    elements.trendHeadline.textContent = "트렌드 데이터를 불러오지 못했습니다.";
+    const target = activeTab === "events" ? elements.trendEvents : elements.trendThread;
+    if (target) {
+      target.replaceChildren(el("p", "muted", "트렌드 데이터를 불러오지 못했습니다."));
+    }
   }
 }
 

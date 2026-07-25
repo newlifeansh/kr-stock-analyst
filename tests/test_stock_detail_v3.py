@@ -26,10 +26,11 @@ def test_stock_detail_v3_shell_and_controls():
         "최근 1년 AI 매매신호",
         "모든 매매내역 보기",
         'class="ollama-ai-badge stock-home-ai-status"',
-        "20260725v43",
+        "20260725v45",
     ):
         assert expected in shell.text
     assert "1,000만원 모의 운용" not in shell.text
+    assert "네이버 종토방과 Threads에서 종목 반응을 함께 확인합니다." not in shell.text
 
     source = client.get("/assets/dashboard/app.js").text
     assert 'state.stockPricePeriod = button.dataset.pricePeriod || "1D"' in source

@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="3.5" />
+    <meta name="application-version" content="3.6" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v43" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v45" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -324,7 +324,6 @@
               <header class="stock-v3-section-head">
                 <div><span>시장 반응</span><h2>커뮤니티</h2></div>
               </header>
-              <p class="stock-v3-section-description">네이버 종토방과 Threads에서 종목 반응을 함께 확인합니다. 사실 확인 전 참고용으로만 보세요.</p>
               <p class="stock-community-status" id="stock-community-status" role="status">커뮤니티 글을 불러오는 중입니다.</p>
               <div class="stock-community-providers" id="stock-community-providers" aria-label="종목 관련 커뮤니티 글"></div>
             </article>
@@ -462,7 +461,6 @@
             <div class="trend-thread" id="trend-thread"></div>
           </section>
           <section class="trend-panel" id="trend-events-panel" role="tabpanel" hidden>
-            <section class="trend-summary" hidden><p id="trend-headline">이벤트와 최신 뉴스를 불러오는 중입니다.</p></section>
             <div class="app-section-heading">
               <div><span>앞으로 7일</span><h2 id="trend-events-title">이벤트 캘린더</h2></div>
               <button class="text-action" id="home-past-toggle" type="button" aria-expanded="false">지난 이벤트</button>
@@ -546,7 +544,6 @@
                 <button type="button" role="tab" aria-selected="false" data-watch-filter="positive">흐름 양호</button>
               </div>
               <section class="watch-v3-stock-section">
-                <header class="watch-v2-list-head"><div><span>실시간 비교</span><h2>종목별 현황</h2></div><p id="watchlist-filter-summary">실시간 데이터를 확인 중입니다.</p></header>
                 <section class="watchlist-card-list watch-v2-list-surface" id="watchlist-body" aria-live="polite"></section>
               </section>
             </section>
@@ -596,6 +593,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v43" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v45" defer></script>
   </body>
 </html>

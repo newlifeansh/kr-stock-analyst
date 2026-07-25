@@ -179,8 +179,8 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert '>실시간</button>' in shell
     assert '>주요 이벤트</button>' in shell
     assert '>시장 영향</button>' in shell
-    assert '<section class="trend-summary" hidden>' in shell
-    assert shell.index('id="trend-tabs"') < shell.index('class="trend-summary"')
+    assert 'class="trend-summary"' not in shell
+    assert 'id="trend-headline"' not in shell
     assert 'id="home-view"' in shell
     assert 'id="search-view"' in shell
     assert 'id="portfolio-view"' in shell
