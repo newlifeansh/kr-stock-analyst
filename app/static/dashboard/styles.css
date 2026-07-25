@@ -13247,6 +13247,13 @@ body :is(
   gap: 3px;
 }
 
+#stock-view.stock-detail-v3 .stock-v3-today-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+}
+
 #stock-view.stock-detail-v3 .stock-v3-section-head > div > span,
 #stock-view.stock-detail-v3 .stock-v3-ai-title > div > span {
   color: #9aa0aa;
@@ -14148,8 +14155,12 @@ body :is(
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #18a765;
+  background: #64748b;
   content: "";
+}
+
+#stock-view.stock-detail-v3 .ollama-ai-badge.is-ollama::before {
+  background: #18a765;
 }
 
 #stock-view.stock-detail-v3 .strategy-decision-hero {

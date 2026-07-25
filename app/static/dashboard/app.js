@@ -946,6 +946,10 @@ function scrollStockTabsToTop(options = {}) {
 }
 
 function shouldAutoLoadStockAI(tabName = state.stockActiveTab) {
+  return tabName === "summary" && Boolean(state.currentStock?.code);
+}
+
+function shouldAutoLoadStockQuantSignals(tabName = state.stockActiveTab) {
   return tabName === "strategy" && Boolean(state.currentStock?.code);
 }
 
@@ -960,7 +964,7 @@ function ensureStockAIAnalysis() {
 }
 
 function ensureStockQuantSignals() {
-  if (!shouldAutoLoadStockAI() || state.stockQuantLoading) {
+  if (!shouldAutoLoadStockQuantSignals() || state.stockQuantLoading) {
     return;
   }
   if (state.stockQuantSignals && state.stockQuantRequestedCode === state.currentStock?.code) {
@@ -982,6 +986,7 @@ function setActiveStockTab(tabName, options = {}) {
   if (!options.preserveScroll) {
     window.requestAnimationFrame(() => scrollStockTabsToTop({ instant: options.instant }));
   }
+  ensureStockAIAnalysis();
   ensureStockQuantSignals();
 }
 
@@ -7478,6 +7483,7 @@ function renderAIAnalysis(payload) {
     badge.classList.toggle("is-ollama", isOllamaAnalysis);
     badge.classList.remove("is-loading");
   }
+  elements.stockSummaryAIBadge.textContent = `${generationLabel} 분석 완료`;
   elements.aiAnalysisMeta.textContent = "";
   elements.aiAnalysisMeta.title = payload.generation_note || "";
   elements.aiAnalysisStance.textContent = payload.stance || "-";
@@ -7532,17 +7538,14 @@ async function loadAIAnalysis(options = {}) {
   }
   const code = state.currentStock.code;
   const forceRefresh = options.force === true;
-  const hasExistingAnalysis = state.stockAIAnalysis && state.stockAIRequestedCode === code;
   const originalMainText = elements.aiAnalysisButton?.textContent || "AI 분석하기";
   const originalInlineText = elements.stockInlineAIRefresh?.textContent || "AI 분석 갱신하기";
   state.stockAILoading = true;
-  if (!hasExistingAnalysis) {
-    for (const badge of [elements.aiAnalysisProviderBadge, elements.stockSummaryAIBadge]) {
-      badge.hidden = false;
-      badge.textContent = "Ollama AI 분석 중";
-      badge.title = "Railway의 Ollama 모델로 핵심 근거를 분석하고 있습니다.";
-      badge.classList.add("is-ollama", "is-loading");
-    }
+  for (const badge of [elements.aiAnalysisProviderBadge, elements.stockSummaryAIBadge]) {
+    badge.hidden = false;
+    badge.textContent = "Ollama AI 분석 중";
+    badge.title = "Railway의 Ollama 모델로 핵심 근거를 분석하고 있습니다.";
+    badge.classList.add("is-ollama", "is-loading");
   }
   setAIAnalysisButtonsLoading(true);
   elements.aiAnalysisPanel.hidden = false;
@@ -7563,11 +7566,11 @@ async function loadAIAnalysis(options = {}) {
     renderAIAnalysis(await fetchJsonCached(url, { force: forceRefresh, ttlMs: forceRefresh ? 0 : UI_CACHE_TTL_MS }));
   } catch {
     elements.aiAnalysisSummary.textContent = "AI 분석을 생성하지 못했습니다.";
-    if (!hasExistingAnalysis) {
-      for (const badge of [elements.aiAnalysisProviderBadge, elements.stockSummaryAIBadge]) {
-        badge.hidden = true;
-        badge.classList.remove("is-loading");
-      }
+    for (const badge of [elements.aiAnalysisProviderBadge, elements.stockSummaryAIBadge]) {
+      badge.hidden = false;
+      badge.textContent = "AI 분석 확인 실패";
+      badge.title = "분석 서버의 응답을 확인하지 못했습니다.";
+      badge.classList.remove("is-loading", "is-ollama");
     }
   } finally {
     state.stockAILoading = false;

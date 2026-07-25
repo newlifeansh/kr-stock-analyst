@@ -25,7 +25,8 @@ def test_stock_detail_v3_shell_and_controls():
         'id="quant-signal-refresh"',
         "최근 1년 AI 매매신호",
         "모든 매매내역 보기",
-        "20260725v13",
+        'class="ollama-ai-badge stock-home-ai-status"',
+        "20260725v14",
     ):
         assert expected in shell.text
     assert "1,000만원 모의 운용" not in shell.text
@@ -41,6 +42,10 @@ def test_stock_detail_v3_shell_and_controls():
     assert "renderQuantSignalChart" in source
     assert "/quant-signals" in source
     assert "quantSignalMarkers" in source
+    assert "ensureStockAIAnalysis();" in source
+    assert 'elements.stockSummaryAIBadge.textContent = `${generationLabel} 분석 완료`;' in source
+    assert 'badge.textContent = "Ollama AI 분석 중";' in source
+    assert 'badge.textContent = "AI 분석 확인 실패";' in source
     assert 'headline: "매도 완료"' in source
     assert 'id="quant-current-score"' not in shell.text
     assert "원에 모두 팔았어요" not in source
