@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="1.6" />
+    <meta name="application-version" content="1.7" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v19" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v20" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -482,7 +482,7 @@
         </div>
       </section>
 
-      <section id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="1.6" hidden>
+      <section id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="1.7" hidden>
         <header class="topbar">
           <div class="identity">
             <div>
@@ -492,14 +492,13 @@
           </div>
         </header>
 
-        <div class="watch-v2-filter watch-v3-tabs" role="tablist" aria-label="관심 종목 필터">
-          <button class="active" type="button" role="tab" aria-selected="true" data-watch-filter="all">전체</button>
-          <button type="button" role="tab" aria-selected="false" data-watch-filter="attention">확인 필요</button>
-          <button type="button" role="tab" aria-selected="false" data-watch-filter="positive">흐름 양호</button>
-        </div>
-
         <section class="watchlist-panel">
           <section class="watchlist-strategy" id="watchlist-strategy" aria-live="polite" hidden></section>
+          <div class="watch-v2-filter watch-v3-tabs" role="tablist" aria-label="관심 종목 필터">
+            <button class="active" type="button" role="tab" aria-selected="true" data-watch-filter="all">전체</button>
+            <button type="button" role="tab" aria-selected="false" data-watch-filter="attention">확인 필요</button>
+            <button type="button" role="tab" aria-selected="false" data-watch-filter="positive">흐름 양호</button>
+          </div>
           <section class="watch-v3-stock-section">
             <header class="watch-v2-list-head">
               <div>
@@ -670,6 +669,6 @@
       </main>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v19" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v20" defer></script>
   </body>
 </html>

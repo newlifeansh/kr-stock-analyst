@@ -17625,7 +17625,7 @@ body :is(
   }
 }
 
-/* Watchlist 3.0: share the stock-detail visual language. */
+/* Watchlist 3.1: share the stock-detail visual language. */
 #watchlist-view.watchlist-v3 {
   --watch-v2-bg: #f3f4f6;
   --watch-v2-panel: #ffffff;
@@ -17686,7 +17686,7 @@ body :is(
   width: 100%;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 0 0 14px;
+  margin: 0;
   padding: 0 24px;
   overflow: visible;
   border: 1px solid var(--watch-v2-line);
@@ -18046,12 +18046,13 @@ body :is(
 #watchlist-view.watchlist-v3 .watch-v2-list-surface {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 0;
+  gap: 10px;
+  padding: 10px;
   overflow: visible;
   border: 0;
   border-top: 1px solid var(--watch-v2-line);
   border-radius: 0 !important;
-  background: var(--watch-v2-panel);
+  background: var(--watch-v2-bg);
 }
 
 #watchlist-view.watchlist-v3 .watch-v2-list-surface.is-filter-empty::after {
@@ -18071,17 +18072,16 @@ body :is(
   align-content: start;
   gap: 0;
   margin: 0;
-  padding: 20px 26px 0;
+  padding: 22px 24px 0;
   overflow: hidden;
-  border: 0;
-  border-bottom: 1px solid var(--watch-v2-line);
-  border-radius: 0 !important;
+  border: 1px solid var(--watch-v2-line);
+  border-radius: 8px !important;
   background: var(--watch-v2-panel);
   box-shadow: none;
 }
 
 #watchlist-view.watchlist-v3 .watch-v2-stock-row:last-child {
-  border-bottom: 0;
+  border-bottom: 1px solid var(--watch-v2-line);
 }
 
 #watchlist-view.watchlist-v3 .watch-v2-stock-row[hidden] {
@@ -18384,7 +18384,7 @@ body :is(
   }
 
   #watchlist-view.watchlist-v3 .watch-v3-tabs {
-    margin-bottom: 8px;
+    margin: 0;
     padding: 0 18px;
     border: 0;
     border-bottom: 1px solid var(--watch-v2-line);
@@ -18451,7 +18451,16 @@ body :is(
   }
 
   #watchlist-view.watchlist-v3 .watch-v2-stock-row {
-    padding: 20px 20px 0;
+    padding: 22px 20px 0;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0 !important;
+  }
+
+  #watchlist-view.watchlist-v3 .watch-v2-list-surface {
+    gap: 10px;
+    padding: 10px 0;
+    border-top: 0;
   }
 
   #watchlist-view.watchlist-v3 .watch-v2-stock-name-row > strong {
