@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="3.3" />
+    <meta name="application-version" content="3.4" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v41" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v42" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -443,11 +443,6 @@
       </section>
 
       <section id="home-view" class="app-page app-home" data-ui-version="3.0" hidden>
-        <header class="app-page-intro">
-          <span>오늘의 시장</span>
-          <h1>홈</h1>
-          <p>시장 흐름과 다음 일정을 한 화면에서 확인합니다.</p>
-        </header>
         <section class="home-market-snapshot" id="home-market-snapshot" aria-live="polite">
           <div><span>시장 상태</span><strong id="home-market-status">분석 중</strong></div>
           <div><span>가장 큰 변수</span><strong id="home-market-factor">확인 중</strong></div>
@@ -489,11 +484,6 @@
       </section>
 
       <section id="search-view" class="app-page app-search" data-ui-version="3.0" hidden>
-        <header class="app-page-intro">
-          <span>종목 발견</span>
-          <h1>검색</h1>
-          <p>종목을 찾거나 지금 움직이는 후보를 살펴보세요.</p>
-        </header>
         <form class="discovery-search" id="discovery-search-form" autocomplete="off">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path></svg>
           <input id="discovery-search-input" type="search" placeholder="종목명 또는 종목코드" aria-label="종목 검색" aria-autocomplete="list" aria-expanded="false" aria-controls="discovery-search-suggestions" />
@@ -536,11 +526,6 @@
       </section>
 
       <section id="portfolio-view" class="app-page app-portfolio" data-ui-version="3.0" hidden>
-        <header class="app-page-intro">
-          <span>내가 보는 종목</span>
-          <h1>내 종목</h1>
-          <p>관심종목과 추천 후 추적 중인 종목을 나눠서 확인합니다.</p>
-        </header>
         <section class="portfolio-tabs app-segment-tabs" role="tablist" aria-label="내 종목 보기">
           <button class="portfolio-tab active" type="button" role="tab" aria-selected="true" data-portfolio-tab="watchlist">관심종목</button>
           <button class="portfolio-tab" type="button" role="tab" aria-selected="false" data-portfolio-tab="tracking">추적종목</button>
@@ -577,9 +562,6 @@
       </section>
 
       <section id="chart-view" class="app-page app-chart" data-ui-version="3.0" hidden>
-        <header class="app-page-intro chart-page-intro">
-          <span>기술 흐름</span><h1>차트분석</h1><p id="watch-chart-meta">관심종목 기준</p>
-        </header>
         <form class="discovery-search chart-stock-search" id="chart-stock-search-form" autocomplete="off">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path></svg>
           <input id="chart-stock-search-input" type="search" placeholder="분석할 종목 검색" aria-label="차트 분석 종목 검색" aria-autocomplete="list" aria-expanded="false" aria-controls="chart-stock-search-suggestions" />
@@ -615,6 +597,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v41" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v42" defer></script>
   </body>
 </html>
