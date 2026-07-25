@@ -191,6 +191,11 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert 'id="trend-watch-stock-rail"' in shell
     assert 'id="trend-watch-news-board"' in shell
     assert 'id="trend-topbar" hidden' in shell
+    assert 'id="home-market-indices"' in shell
+    assert 'id="home-kospi-chart"' in shell
+    assert 'id="home-kosdaq-chart"' in shell
+    assert "/market/indices?limit=30" in source
+    assert "renderHomeMarketIndices" in source
     assert 'class="side-nav"' not in shell
     nav_order = [
         shell.index('data-app-view="home"'),

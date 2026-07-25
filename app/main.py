@@ -122,6 +122,7 @@ from app.mcp_server import build_insight_mcp_server, mcp_sdk_available
 from app.services.company_briefs import build_company_briefs
 from app.services.company_profiles import ensure_company_profile
 from app.services.community_feed import build_stock_community_feed
+from app.services.market_indices import build_market_indices
 from app.services.market_rankings import build_market_period_returns, build_market_rankings
 from app.services.market_impact import build_market_impact
 from app.services.recommendations import build_recommendations
@@ -182,6 +183,7 @@ intraday_code_locks: dict[str, RLock] = {}
 
 STOCK_DASHBOARD_TTL_SECONDS = 120
 MARKET_RANKING_TTL_SECONDS = 120
+MARKET_INDICES_TTL_SECONDS = 300
 MARKET_IMPACT_TTL_SECONDS = 900
 RECOMMENDATION_TTL_SECONDS = 600
 INTRADAY_CLOSED_TTL_SECONDS = 60 * 60 * 72
@@ -2785,6 +2787,24 @@ def macro_observations(
     if series_code:
         statement = statement.where(MacroObservation.series_code == series_code)
     return list(db.scalars(statement))
+
+
+@app.get("/market/indices")
+def market_indices(
+    limit: int = Query(default=30, ge=2, le=120),
+    refresh: bool = Query(default=False),
+    db: Session = Depends(get_db),
+):
+    key = ("market_indices", limit)
+    if refresh:
+        payload = build_market_indices(db, limit=limit)
+        api_cache.set(key, payload, MARKET_INDICES_TTL_SECONDS)
+        return payload
+    return api_cache.get_or_set(
+        key,
+        MARKET_INDICES_TTL_SECONDS,
+        lambda: build_market_indices(db, limit=limit),
+    )
 
 
 @app.get("/ingestions", response_model=list[IngestionRunOut])

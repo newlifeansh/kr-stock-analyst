@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="3.6" />
+    <meta name="application-version" content="3.7" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v45" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260725v46" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -447,6 +447,21 @@
           <div><span>시장 균형</span><strong id="home-market-balance">확인 중</strong></div>
         </section>
 
+        <section class="home-market-indices" id="home-market-indices" aria-label="국내 주요 지수" aria-live="polite">
+          <article class="home-index-card is-loading" id="home-kospi-card">
+            <header><h2>코스피</h2><span class="home-index-session">장마감</span></header>
+            <p class="home-index-previous">전일 <strong id="home-kospi-previous">-</strong></p>
+            <div class="home-index-chart" id="home-kospi-chart" role="img" aria-label="코스피 최근 30거래일 추이"><span>지수 데이터를 불러오는 중입니다.</span></div>
+            <footer><div><strong id="home-kospi-current">-</strong><span id="home-kospi-change">-</span></div><small id="home-kospi-asof">최근 30거래일</small></footer>
+          </article>
+          <article class="home-index-card is-loading" id="home-kosdaq-card">
+            <header><h2>코스닥</h2><span class="home-index-session">장마감</span></header>
+            <p class="home-index-previous">전일 <strong id="home-kosdaq-previous">-</strong></p>
+            <div class="home-index-chart" id="home-kosdaq-chart" role="img" aria-label="코스닥 최근 30거래일 추이"><span>지수 데이터를 불러오는 중입니다.</span></div>
+            <footer><div><strong id="home-kosdaq-current">-</strong><span id="home-kosdaq-change">-</span></div><small id="home-kosdaq-asof">최근 30거래일</small></footer>
+          </article>
+        </section>
+
         <section id="trend-view" class="home-market-content">
           <header class="topbar" id="trend-topbar" hidden>
             <div class="identity"><div><h1 id="trend-title">시장 홈</h1></div></div>
@@ -593,6 +608,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260725v45" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260725v46" defer></script>
   </body>
 </html>

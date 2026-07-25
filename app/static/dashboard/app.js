@@ -178,6 +178,19 @@ const elements = {
   homeMarketStatus: $("home-market-status"),
   homeMarketFactor: $("home-market-factor"),
   homeMarketBalance: $("home-market-balance"),
+  homeMarketIndices: $("home-market-indices"),
+  homeKospiCard: $("home-kospi-card"),
+  homeKospiPrevious: $("home-kospi-previous"),
+  homeKospiChart: $("home-kospi-chart"),
+  homeKospiCurrent: $("home-kospi-current"),
+  homeKospiChange: $("home-kospi-change"),
+  homeKospiAsOf: $("home-kospi-asof"),
+  homeKosdaqCard: $("home-kosdaq-card"),
+  homeKosdaqPrevious: $("home-kosdaq-previous"),
+  homeKosdaqChart: $("home-kosdaq-chart"),
+  homeKosdaqCurrent: $("home-kosdaq-current"),
+  homeKosdaqChange: $("home-kosdaq-change"),
+  homeKosdaqAsOf: $("home-kosdaq-asof"),
   homePastToggle: $("home-past-toggle"),
   discoverySearchForm: $("discovery-search-form"),
   discoverySearchInput: $("discovery-search-input"),
@@ -3619,6 +3632,7 @@ async function refreshCurrentView() {
       await Promise.all([
         loadTrends(state.activeTrendTab === "impact" ? "live" : state.activeTrendTab || "live", { force: true }),
         loadMarketImpactAnalysis({ force: true, embedded: true }),
+        loadHomeMarketIndices({ force: true }),
       ]);
       return;
     case "search":
@@ -4900,6 +4914,8 @@ function pageEntryTtlMs(view) {
       return 10 * PAGE_ENTRY_MINUTE_MS;
     case "trend-impact":
       return 5 * PAGE_ENTRY_MINUTE_MS;
+    case "market-indices":
+      return 5 * PAGE_ENTRY_MINUTE_MS;
     case "chart":
       return 2 * PAGE_ENTRY_MINUTE_MS;
     case "chart-history":
@@ -5018,6 +5034,7 @@ function setView(requestedViewName) {
       await Promise.all([
         loadTrends(activeTab === "impact" ? "live" : activeTab, pageEntryRefreshOptions("trend", activeTab)),
         loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact")),
+        loadHomeMarketIndices(pageEntryRefreshOptions("market-indices")),
       ]);
     });
   } else if (view === "search") {
@@ -9261,6 +9278,142 @@ function renderHomeMarketSnapshot(model) {
   setTone(elements.homeMarketStatus, model.marketStatus === "호재 우위" ? 1 : model.marketStatus === "리스크 우위" ? -1 : 0);
   setTone(elements.homeMarketFactor, (leading?.direction || leading?.status) === "호재" ? 1 : -1);
   setTone(elements.homeMarketBalance, Number(model.goodWeight || 0) - Number(model.badWeight || 0));
+}
+
+function homeMarketIndexElements(code) {
+  if (code === "KOSDAQ") {
+    return {
+      card: elements.homeKosdaqCard,
+      previous: elements.homeKosdaqPrevious,
+      chart: elements.homeKosdaqChart,
+      current: elements.homeKosdaqCurrent,
+      change: elements.homeKosdaqChange,
+      asOf: elements.homeKosdaqAsOf,
+    };
+  }
+  return {
+    card: elements.homeKospiCard,
+    previous: elements.homeKospiPrevious,
+    chart: elements.homeKospiChart,
+    current: elements.homeKospiCurrent,
+    change: elements.homeKospiChange,
+    asOf: elements.homeKospiAsOf,
+  };
+}
+
+function formatMarketIndexValue(value) {
+  const number = toNumber(value);
+  return number === null
+    ? "-"
+    : number.toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function marketIndexChartMarkup(item) {
+  const points = Array.isArray(item?.points)
+    ? item.points.map((point) => toNumber(point?.value)).filter((value) => value !== null)
+    : [];
+  if (points.length < 2) {
+    return "";
+  }
+  const width = 320;
+  const height = 96;
+  const top = 7;
+  const bottom = 7;
+  const minimum = Math.min(...points);
+  const maximum = Math.max(...points);
+  const range = Math.max(maximum - minimum, Math.abs(maximum || 1) * 0.002);
+  const coordinates = points.map((value, index) => {
+    const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
+    const y = top + ((maximum - value) / range) * (height - top - bottom);
+    return [x, y];
+  });
+  const line = coordinates.map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
+  const area = `${line} L${width} ${height} L0 ${height} Z`;
+  const gradientId = `home-index-gradient-${String(item.code || "index").toLowerCase()}`;
+  const first = coordinates[0];
+  const last = coordinates[coordinates.length - 1];
+  return `
+    <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="currentColor" stop-opacity="0.2"></stop>
+          <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
+        </linearGradient>
+      </defs>
+      <path class="home-index-area" d="${area}" fill="url(#${gradientId})"></path>
+      <path class="home-index-line" d="${line}"></path>
+      <circle class="home-index-point" cx="${first[0].toFixed(2)}" cy="${first[1].toFixed(2)}" r="3.5"></circle>
+      <circle class="home-index-point" cx="${last[0].toFixed(2)}" cy="${last[1].toFixed(2)}" r="3.5"></circle>
+    </svg>`;
+}
+
+function renderHomeMarketIndex(item, code) {
+  const refs = homeMarketIndexElements(code);
+  if (!refs.card || !refs.chart) {
+    return;
+  }
+  const current = toNumber(item?.current);
+  const previous = toNumber(item?.previous_close);
+  const change = toNumber(item?.change);
+  const changeRate = toNumber(item?.change_rate);
+  const tone = change === null || change === 0 ? "neutral" : change > 0 ? "positive" : "negative";
+  refs.card.classList.remove("is-loading", "is-empty", "positive", "negative", "neutral");
+  refs.card.classList.add(tone);
+  refs.previous.textContent = formatMarketIndexValue(previous);
+  refs.current.textContent = formatMarketIndexValue(current);
+  refs.change.textContent = change === null
+    ? "전일 대비 -"
+    : `${change > 0 ? "▲" : change < 0 ? "▼" : "-"} ${formatMarketIndexValue(Math.abs(change))} · ${formatPercent(changeRate)}`;
+  refs.asOf.textContent = item?.as_of ? `${String(item.as_of).replaceAll("-", ".")} 기준` : "기준일 없음";
+  const chart = marketIndexChartMarkup(item);
+  if (chart) {
+    refs.chart.innerHTML = chart;
+  } else {
+    refs.card.classList.add("is-empty");
+    refs.chart.replaceChildren(el("span", "", "표시할 지수 이력이 없습니다."));
+  }
+  const label = item?.label || (code === "KOSDAQ" ? "코스닥" : "코스피");
+  refs.chart.setAttribute(
+    "aria-label",
+    current === null
+      ? `${label} 지수 데이터 없음`
+      : `${label} ${formatMarketIndexValue(current)}, 전일 대비 ${change === null ? "확인 불가" : `${formatMarketIndexValue(Math.abs(change))} ${change >= 0 ? "상승" : "하락"}`}`,
+  );
+}
+
+function renderHomeMarketIndices(payload = {}) {
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const byCode = new Map(items.map((item) => [item.code, item]));
+  renderHomeMarketIndex(byCode.get("KOSPI"), "KOSPI");
+  renderHomeMarketIndex(byCode.get("KOSDAQ"), "KOSDAQ");
+}
+
+function setHomeMarketIndicesLoading() {
+  for (const code of ["KOSPI", "KOSDAQ"]) {
+    const refs = homeMarketIndexElements(code);
+    if (!refs.card || !refs.chart) {
+      continue;
+    }
+    refs.card.classList.remove("is-empty", "positive", "negative", "neutral");
+    refs.card.classList.add("is-loading");
+    refs.chart.replaceChildren(el("span", "", "지수 데이터를 불러오는 중입니다."));
+  }
+}
+
+async function loadHomeMarketIndices(options = {}) {
+  if (!elements.homeMarketIndices) {
+    return;
+  }
+  setHomeMarketIndicesLoading();
+  try {
+    const force = options.force === true;
+    const ttlMs = options.ttlMs ?? pageEntryTtlMs("market-indices");
+    const endpoint = `/market/indices?limit=30${force ? "&refresh=true" : ""}`;
+    const url = force ? liveUrl(endpoint) : endpoint;
+    renderHomeMarketIndices(await fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs }));
+  } catch {
+    renderHomeMarketIndices({ items: [] });
+  }
 }
 
 function renderMarketImpactAnalysis(payload, target = elements.trendImpactContent) {
