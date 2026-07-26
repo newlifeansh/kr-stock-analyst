@@ -10,7 +10,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.1"' in shell.text
-    assert "20260726v71" in shell.text
+    assert "20260726v72" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -268,7 +268,16 @@ def test_market_impact_uses_five_element_relationship_and_sector_correlations():
         assert expected in styles
 
     assert 'label: "금리", percent:' not in source
+    assert "외부 변수 → 국내증시 → 영향 종목" not in source
     assert source.count("appendMarketImpactDetail(detailGrid, factor)") == 1
+
+    for expected in (
+        "/* Market impact flow 5.3: restrained research-table treatment for legacy views. */",
+        "#trend-impact-content .market-impact-flow-title span",
+        "display: none !important;",
+        "grid-template-columns: minmax(112px, 0.32fr) minmax(0, 1.4fr) minmax(180px, 0.7fr);",
+    ):
+        assert expected in styles
 
 
 def test_dashboard_v32_uses_stock_detail_typography_on_every_page():
