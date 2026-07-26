@@ -24461,7 +24461,7 @@ body:not([data-view="stock"]) .home-ai-signals {
 }
 
 body:not([data-view="stock"]) .home-ai-signals-head {
-  min-height: 92px;
+  min-height: 78px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -24508,11 +24508,11 @@ body:not([data-view="stock"]) .home-ai-signals-list > .muted {
 }
 
 body:not([data-view="stock"]) .home-ai-signal-row {
-  min-height: 78px;
+  min-height: 58px;
   display: grid;
-  grid-template-columns: minmax(120px, 0.8fr) minmax(180px, 1.2fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   color: inherit;
   text-decoration: none;
   border-bottom: 1px solid #e8ebef;
@@ -24522,11 +24522,10 @@ body:not([data-view="stock"]) .home-ai-signal-row:last-child {
   border-bottom: 0;
 }
 
-body:not([data-view="stock"]) :is(.home-ai-signal-identity, .home-ai-signal-status, .home-ai-signal-basis) {
+body:not([data-view="stock"]) :is(.home-ai-signal-identity, .home-ai-signal-status) {
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
 }
 
 body:not([data-view="stock"]) .home-ai-signal-row strong {
@@ -24549,30 +24548,21 @@ body:not([data-view="stock"]) .home-ai-signal-row small {
 }
 
 body:not([data-view="stock"]) .home-ai-signal-status {
-  padding-left: 13px;
-  border-left: 3px solid #cbd1d9;
+  justify-content: flex-end;
+  padding-left: 16px;
+  border-left: 1px solid #e4e8ed;
 }
 
-body:not([data-view="stock"]) .home-ai-signal-row.is-buy .home-ai-signal-status {
-  border-left-color: #e22d3f;
-}
-
-body:not([data-view="stock"]) .home-ai-signal-row.is-buy .home-ai-signal-status strong,
 body:not([data-view="stock"]) .home-ai-signal-row.is-hold .home-ai-signal-status strong {
   color: #dc2638;
-}
-
-body:not([data-view="stock"]) .home-ai-signal-row.is-sell .home-ai-signal-status {
-  border-left-color: #2879df;
 }
 
 body:not([data-view="stock"]) .home-ai-signal-row.is-sell .home-ai-signal-status strong {
   color: #2879df;
 }
 
-body:not([data-view="stock"]) .home-ai-signal-basis {
-  align-items: flex-end;
-  text-align: right;
+body:not([data-view="stock"]) .home-ai-signal-row.is-neutral .home-ai-signal-status strong {
+  color: #737d8c;
 }
 
 body:not([data-view="stock"]) .home-surge {
@@ -24873,7 +24863,7 @@ body:not([data-view="stock"]) .market-leaderboard-strip strong.negative {
 
   body:not([data-view="stock"]) .home-ai-signals-head,
   body:not([data-view="stock"]) .home-surge-head {
-    min-height: 82px;
+    min-height: 72px;
   }
 
   body:not([data-view="stock"]) .home-ai-signals-head h2,
@@ -24883,13 +24873,13 @@ body:not([data-view="stock"]) .market-leaderboard-strip strong.negative {
   }
 
   body:not([data-view="stock"]) .home-ai-signal-row {
-    min-height: 84px;
-    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) auto;
-    gap: 10px;
+    min-height: 56px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
   }
 
   body:not([data-view="stock"]) .home-ai-signal-status {
-    padding-left: 9px;
+    padding-left: 12px;
   }
 
   body:not([data-view="stock"]) .home-ai-signal-row strong {

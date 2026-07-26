@@ -320,6 +320,10 @@ def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():
     assert 'data-market-filter="ALL"' not in shell
     assert "function renderHomeSurgeRankings" in source
     assert "function renderHomeAiSignals" in source
+    assert 'return { label: "매도 완료", tone: "sell", signalDate };' in source
+    assert 'return { label: "보유 중", tone: "hold", signalDate };' in source
+    assert 'return { label: "관망 중", tone: "neutral", signalDate };' in source
+    assert '`${formatNumber(items.length)}개 종목`' in source
     assert "/quant-signals`" in source
     assert ".slice(0, 5)" in source
     assert 'limit: 30' in source

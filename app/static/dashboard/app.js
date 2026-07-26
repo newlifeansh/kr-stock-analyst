@@ -5585,22 +5585,19 @@ function marketRankingBasisLabel(payload = {}, options = {}) {
 }
 
 function homeAiSignalView(item = {}) {
-  const action = item.current?.action || "unavailable";
-  const views = {
-    waiting: ["관망", "neutral", "진입 조건을 기다리는 중"],
-    entry_pending: ["매수 확인", "buy", "종가 확정 후 매수 여부 확인"],
-    entered: ["매수 완료", "buy", "전략 기준 매수 완료"],
-    holding: ["보유 중", "hold", "매도 기준 도달 전 보유"],
-    partial_exit_pending: ["일부 매도 확인", "sell", "분할매도 조건 확인"],
-    partially_exited: ["일부 매도", "sell", "일부 수익 실현 후 보유"],
-    full_exit_pending: ["매도 확인", "sell", "종가 확정 후 매도 여부 확인"],
-    exited: ["매도 완료", "sell", "다음 매수 신호를 기다리는 중"],
-    unavailable: ["분석 준비 중", "neutral", item.data_message || "가격 이력을 확인하는 중"],
-  };
-  const [label, tone, summary] = views[action] || views.unavailable;
+  const current = item.current || {};
+  const action = current.action || "unavailable";
   const transition = item.current?.lifecycle?.latest_transition;
   const signalDate = transition?.transition_date || item.price_through || item.current?.as_of || item.as_of;
-  return { label, tone, summary, signalDate };
+  const soldToday = action === "exited"
+    && String(transition?.transition_date || "").slice(0, 10) === koreaDateKey();
+  if (soldToday) {
+    return { label: "매도 완료", tone: "sell", signalDate };
+  }
+  if (current.position_open) {
+    return { label: "보유 중", tone: "hold", signalDate };
+  }
+  return { label: "관망 중", tone: "neutral", signalDate };
 }
 
 function createHomeAiSignalRow(item) {
@@ -5611,18 +5608,10 @@ function createHomeAiSignalRow(item) {
   row.dataset.code = item.code || "";
 
   const identity = el("span", "home-ai-signal-identity");
-  identity.append(
-    el("strong", "", item.name || item.code || "-"),
-    el("small", "", `${item.code || "-"} · ${item.market || "-"}`),
-  );
+  identity.append(el("strong", "", item.name || item.code || "-"));
   const status = el("span", "home-ai-signal-status");
-  status.append(el("strong", "", view.label), el("small", "", view.summary));
-  const basis = el("span", "home-ai-signal-basis");
-  basis.append(
-    el("strong", "", item.current?.score === null || item.current?.score === undefined ? "-" : `${Number(item.current.score).toFixed(0)}점`),
-    el("small", "", formatDataBasis(view.signalDate, "기준 확인 중")),
-  );
-  row.append(identity, status, basis);
+  status.append(el("strong", "", view.label));
+  row.append(identity, status);
   return row;
 }
 
@@ -5632,7 +5621,7 @@ function renderHomeAiSignals(payload = {}) {
   }
   const items = Array.isArray(payload.items) ? payload.items : [];
   elements.homeAiSignalsMeta.textContent = items.length
-    ? `관심 ${formatNumber(items.length)}개 · ${formatDataBasis(payload.as_of)}`
+    ? `${formatNumber(items.length)}개 종목`
     : "관심종목 없음";
   elements.homeAiSignalsList.innerHTML = "";
   if (!items.length) {
