@@ -325,6 +325,11 @@ def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():
     assert 'data-market-filter="KOSPI"' in shell
     assert 'data-market-filter="KOSDAQ"' in shell
     assert 'data-market-filter="ALL"' not in shell
+    assert 'id="market-ranking-back"' in shell
+    assert 'class="market-segment market-ranking-tabs"' in shell
+    assert '<h1>급등주</h1>' in shell
+    assert 'function createMarketLeaderboardMetric' in source
+    assert 'setView("home")' in source
     assert "function renderHomeSurgeRankings" in source
     assert "function renderHomeAiSignals" in source
     assert 'return { label: "매도 완료", tone: "sell", signalDate };' in source

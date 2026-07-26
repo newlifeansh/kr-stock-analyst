@@ -36,7 +36,6 @@
   --page-loading-spinner-size: 45px;
   --page-loading-spinner-border: 4px;
 }
-
 /* Market impact 5.0: five-element relationship and sector correlation map. */
 body:not([data-view="stock"]) #trend-impact-content .market-five-dashboard {
   gap: 0;
@@ -25445,5 +25444,412 @@ body:not([data-view="stock"]) #recommend-history-view .recommend-track-points li
     width: calc(100% - 40px);
     margin-right: 20px;
     margin-left: 20px;
+  }
+}
+
+/* Market movers 4.0: shares the stock-detail visual language. */
+body[data-view="movers"] {
+  background: #f3f4f6;
+}
+
+body[data-view="movers"] .app-topbar,
+body[data-view="movers"] .bottom-nav {
+  display: none;
+}
+
+body[data-view="movers"] .shell[data-ui-version="3.0"] {
+  width: min(920px, 100%);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 22px;
+}
+
+#market-view.app-market-rankings {
+  --movers-bg: #f3f4f6;
+  --movers-surface: #ffffff;
+  --movers-text: #16181d;
+  --movers-muted: #8a919d;
+  --movers-line: #e8ebef;
+  --movers-line-strong: #d8dde4;
+  --movers-positive: #e03131;
+  --movers-negative: #3478df;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  color: var(--movers-text);
+  background: var(--movers-bg);
+  font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#market-view.app-market-rankings .market-ranking-commandbar {
+  min-height: 74px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px;
+  background: var(--movers-surface);
+  border-bottom: 1px solid var(--movers-line);
+}
+
+#market-view.app-market-rankings .market-ranking-back {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--movers-text);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#market-view.app-market-rankings .market-ranking-back:hover {
+  background: #f3f4f6;
+}
+
+#market-view.app-market-rankings .market-ranking-title {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+#market-view.app-market-rankings .market-ranking-title h1 {
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--movers-text);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+#market-view.app-market-rankings .market-ranking-title span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--movers-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#market-view.app-market-rankings .market-ranking-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  background: var(--movers-surface);
+  border: 0;
+  border-bottom: 1px solid var(--movers-line);
+  border-radius: 0;
+}
+
+#market-view.app-market-rankings .market-ranking-tabs .market-segment-button {
+  position: relative;
+  min-width: 0;
+  min-height: 58px;
+  margin: 0;
+  padding: 0 16px;
+  color: var(--movers-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+#market-view.app-market-rankings .market-ranking-tabs .market-segment-button::after {
+  position: absolute;
+  right: 12%;
+  bottom: -1px;
+  left: 12%;
+  height: 3px;
+  content: "";
+  background: transparent;
+  border-radius: 3px 3px 0 0;
+}
+
+#market-view.app-market-rankings .market-ranking-tabs .market-segment-button.active {
+  color: var(--movers-text);
+  background: transparent;
+  font-weight: 800;
+}
+
+#market-view.app-market-rankings .market-ranking-tabs .market-segment-button.active::after {
+  background: var(--movers-text);
+}
+
+#market-view.app-market-rankings .market-ranking-list {
+  padding-top: 10px;
+  background: var(--movers-bg);
+  border: 0;
+}
+
+#market-view.app-market-rankings .market-leaderboard,
+#market-view.app-market-rankings .market-leaderboard-shell {
+  display: block;
+  margin: 0;
+  padding: 0;
+}
+
+#market-view.app-market-rankings .market-leaderboard-card {
+  margin: 0 0 8px;
+  padding: 20px 26px 0;
+  background: var(--movers-surface);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+#market-view.app-market-rankings .market-leaderboard-main {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+#market-view.app-market-rankings .market-rank-badge {
+  width: 28px;
+  height: auto;
+  display: block;
+  color: var(--movers-muted);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+}
+
+#market-view.app-market-rankings .market-leaderboard-name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+}
+
+#market-view.app-market-rankings .market-leaderboard-name strong {
+  overflow: hidden;
+  color: var(--movers-text);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#market-view.app-market-rankings .market-leaderboard-name span {
+  color: var(--movers-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+#market-view.app-market-rankings .market-leaderboard-quote-block {
+  min-width: 94px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+}
+
+#market-view.app-market-rankings .market-leaderboard-price {
+  color: var(--movers-text);
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+#market-view.app-market-rankings .market-leaderboard-change {
+  color: var(--movers-muted);
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+#market-view.app-market-rankings .market-leaderboard-change.positive,
+#market-view.app-market-rankings .market-leaderboard-strip dd.positive {
+  color: var(--movers-positive);
+}
+
+#market-view.app-market-rankings .market-leaderboard-change.negative,
+#market-view.app-market-rankings .market-leaderboard-strip dd.negative {
+  color: var(--movers-negative);
+}
+
+#market-view.app-market-rankings .market-leaderboard-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 16px 0 0 40px;
+  padding: 0;
+  background: transparent;
+  border-top: 1px solid var(--movers-line);
+  border-right: 0;
+  border-bottom: 1px solid var(--movers-line);
+  border-left: 0;
+  border-radius: 0;
+}
+
+#market-view.app-market-rankings .market-leaderboard-strip > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 12px 10px;
+  background: transparent;
+  border-radius: 0;
+}
+
+#market-view.app-market-rankings .market-leaderboard-strip > div:not(:last-child) {
+  border-right: 1px solid var(--movers-line);
+}
+
+#market-view.app-market-rankings .market-leaderboard-strip dt,
+#market-view.app-market-rankings .market-leaderboard-strip dd {
+  margin: 0;
+}
+
+#market-view.app-market-rankings .market-leaderboard-strip dt {
+  color: var(--movers-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+#market-view.app-market-rankings .market-leaderboard-strip dd {
+  overflow: hidden;
+  color: var(--movers-text);
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#market-view.app-market-rankings .ranking-message-cell {
+  margin: 0;
+  padding: 48px 24px;
+  color: var(--movers-muted);
+  background: var(--movers-surface);
+  border: 0;
+  border-radius: 0;
+  text-align: center;
+}
+
+@media (max-width: 980px) {
+  body[data-view="movers"] .shell[data-ui-version="3.0"] {
+    width: 100%;
+    max-width: 100%;
+    padding: 0;
+  }
+
+  #market-view.app-market-rankings .market-ranking-commandbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    min-height: 62px;
+    grid-template-columns: 38px minmax(0, 1fr);
+    padding: 9px 10px;
+  }
+
+  #market-view.app-market-rankings .market-ranking-back {
+    width: 38px;
+    height: 38px;
+    font-size: 21px;
+  }
+
+  #market-view.app-market-rankings .market-ranking-title {
+    gap: 8px;
+  }
+
+  #market-view.app-market-rankings .market-ranking-title h1 {
+    font-size: 18px;
+  }
+
+  #market-view.app-market-rankings .market-ranking-title span {
+    font-size: 10px;
+  }
+
+  #market-view.app-market-rankings .market-ranking-tabs {
+    top: 62px;
+    min-height: 56px;
+  }
+
+  #market-view.app-market-rankings .market-ranking-tabs .market-segment-button {
+    min-height: 56px;
+    font-size: 15px;
+  }
+
+  #market-view.app-market-rankings .market-ranking-list {
+    padding-top: 8px;
+  }
+
+  #market-view.app-market-rankings .market-leaderboard-card {
+    padding: 18px 20px 0;
+  }
+}
+
+@media (max-width: 480px) {
+  #market-view.app-market-rankings .market-leaderboard-main {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  #market-view.app-market-rankings .market-rank-badge {
+    width: 22px;
+    font-size: 11px;
+  }
+
+  #market-view.app-market-rankings .market-leaderboard-name strong {
+    font-size: 16px;
+  }
+
+  #market-view.app-market-rankings .market-leaderboard-name span {
+    font-size: 10px;
+  }
+
+  #market-view.app-market-rankings .market-leaderboard-quote-block {
+    min-width: 82px;
+  }
+
+  #market-view.app-market-rankings .market-leaderboard-price {
+    font-size: 16px;
+  }
+
+  #market-view.app-market-rankings .market-leaderboard-change {
+    font-size: 12px;
+  }
+
+  #market-view.app-market-rankings .market-leaderboard-strip {
+    margin-left: 30px;
+  }
+
+  #market-view.app-market-rankings .market-leaderboard-strip > div {
+    padding: 11px 8px;
+  }
+
+  #market-view.app-market-rankings .market-leaderboard-strip dt {
+    font-size: 10px;
+  }
+
+  #market-view.app-market-rankings .market-leaderboard-strip dd {
+    font-size: 13px;
   }
 }

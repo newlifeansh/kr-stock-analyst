@@ -239,6 +239,7 @@ const elements = {
   rankTabs: Array.from(document.querySelectorAll(".rank-tab")),
   rankCategorySelect: $("rank-category-select"),
   marketTabs: Array.from(document.querySelectorAll("[data-market-filter]")),
+  marketRankingBack: $("market-ranking-back"),
   marketMeta: $("market-meta"),
   rankingBody: $("ranking-body"),
   name: $("stock-name"),
@@ -5426,16 +5427,29 @@ function createMarketLeaderboardCard(item) {
 
   main.append(rank, name, quoteBlock);
 
-  const strip = document.createElement("section");
+  const strip = document.createElement("dl");
   strip.className = "market-leaderboard-strip";
   strip.append(
-    createWatchMetric("거래대금", formatMoney(item.trading_value)),
-    createWatchMetric("1개월", formatPercent(item.one_month_return), "", item.one_month_return),
-    createWatchMetric("3개월", formatPercent(item.three_month_return), "", item.three_month_return)
+    createMarketLeaderboardMetric("거래대금", formatMoney(item.trading_value)),
+    createMarketLeaderboardMetric("1개월", formatPercent(item.one_month_return), item.one_month_return),
+    createMarketLeaderboardMetric("3개월", formatPercent(item.three_month_return), item.three_month_return)
   );
 
   card.append(main, strip);
   return card;
+}
+
+function createMarketLeaderboardMetric(label, value, toneValue = null) {
+  const item = document.createElement("div");
+  const term = document.createElement("dt");
+  const description = document.createElement("dd");
+  term.textContent = label;
+  description.textContent = value;
+  if (toneValue !== null && toneValue !== undefined) {
+    setTone(description, toneValue);
+  }
+  item.append(term, description);
+  return item;
 }
 
 function renderMarketSurgeLeaderboard(options = {}) {
@@ -5576,7 +5590,7 @@ function renderRankings(payload) {
   setMarketLeaderboardMode(category === "surge");
   if (category === "surge") {
     if (elements.marketMeta) {
-      elements.marketMeta.textContent = `${marketRankingBasisLabel(payload)} · 상승 ${formatNumber(payload.matching_count ?? payload.items?.length ?? 0)}개`;
+      elements.marketMeta.textContent = `${marketRankingBasisLabel(payload, { includeMarket: false })} · 상승 ${formatNumber(payload.matching_count ?? payload.items?.length ?? 0)}개`;
     }
     if (!payload.items || payload.items.length === 0) {
       closeMarketQuoteStreams();
@@ -10846,6 +10860,14 @@ elements.homeInstallButton?.addEventListener("click", handleHomeInstall);
 elements.homeSurgeMore?.addEventListener("click", () => {
   setMarketFilter("KOSPI");
   setView("movers");
+  window.scrollTo({ top: 0, behavior: "auto" });
+});
+elements.marketRankingBack?.addEventListener("click", () => {
+  if (window.history.length > 1 && document.referrer.startsWith(window.location.origin)) {
+    window.history.back();
+    return;
+  }
+  setView("home");
   window.scrollTo({ top: 0, behavior: "auto" });
 });
 elements.installSheetBackdrop?.addEventListener("click", closeInstallSheet);

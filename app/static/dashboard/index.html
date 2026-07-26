@@ -27,7 +27,7 @@
         // The login form remains visible when browser storage is unavailable.
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260726v78" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260726v80" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -530,15 +530,18 @@
         </section>
       </section>
 
-      <section id="market-view" class="app-page app-market-rankings" data-ui-version="3.0" hidden>
-        <header class="market-ranking-head">
-          <div><span id="market-meta">기준 정보 확인 중</span><h1>급등주 순위</h1></div>
-          <p>선택한 시장의 상승률 상위 30개 종목입니다.</p>
+      <section id="market-view" class="app-page app-market-rankings" data-ui-version="4.0" hidden>
+        <header class="market-ranking-commandbar">
+          <button class="market-ranking-back" id="market-ranking-back" type="button" aria-label="홈으로 돌아가기">←</button>
+          <div class="market-ranking-title">
+            <h1>급등주</h1>
+            <span id="market-meta">기준 정보 확인 중</span>
+          </div>
         </header>
-        <div class="market-segment app-segment-tabs" role="tablist" aria-label="시장 선택">
+        <nav class="market-segment market-ranking-tabs" role="tablist" aria-label="시장 선택">
           <button class="market-segment-button active" type="button" data-market-filter="KOSPI" role="tab" aria-selected="true">KOSPI</button>
           <button class="market-segment-button" type="button" data-market-filter="KOSDAQ" role="tab" aria-selected="false">KOSDAQ</button>
-        </div>
+        </nav>
         <section class="market-ranking-list" id="ranking-body" aria-live="polite"><p class="muted">급등 종목을 불러오는 중입니다.</p></section>
       </section>
 
@@ -652,6 +655,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260726v78" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260726v80" defer></script>
   </body>
 </html>
