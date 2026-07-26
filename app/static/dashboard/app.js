@@ -474,6 +474,19 @@ const MARKET_IMPACT_LEARNING_GUIDES = {
   },
 };
 
+const MARKET_FIVE_ELEMENTS = [
+  { key: "risk", element: "목", className: "wood", role: "성장·위험선호" },
+  { key: "commodity", element: "화", className: "fire", role: "원자재·물가" },
+  { key: "rate", element: "토", className: "earth", role: "금리·자금비용" },
+  { key: "bond", element: "금", className: "metal", role: "채권·할인율" },
+  { key: "dollar", element: "수", className: "water", role: "달러·유동성" },
+];
+
+const MARKET_FIVE_RELATIONS = {
+  generate: { risk: "commodity", commodity: "rate", rate: "bond", bond: "dollar", dollar: "risk" },
+  control: { risk: "rate", rate: "dollar", dollar: "commodity", commodity: "bond", bond: "risk" },
+};
+
 const MARKET_IMPACT_IMPORTANCE_WEIGHT = {
   "매우 중요": 22,
   중요: 16,
@@ -9787,6 +9800,194 @@ async function loadHomeMarketIndices(options = {}) {
   }
 }
 
+function marketFiveMeta(key) {
+  return MARKET_FIVE_ELEMENTS.find((item) => item.key === key) || MARKET_FIVE_ELEMENTS[0];
+}
+
+function marketImpactDirection(factor = {}) {
+  return factor.direction || factor.status || "악재";
+}
+
+function marketFiveFactorMap(model = {}) {
+  return new Map((model.factors || []).map((factor) => [factor.key, factor]));
+}
+
+function createMarketFiveRelationSvg() {
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.setAttribute("class", "market-five-lines");
+  svg.setAttribute("viewBox", "0 0 1000 900");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+
+  const defs = document.createElementNS(namespace, "defs");
+  for (const [id, className] of [["market-five-generate-arrow", "generate"], ["market-five-control-arrow", "control"]]) {
+    const marker = document.createElementNS(namespace, "marker");
+    marker.setAttribute("id", id);
+    marker.setAttribute("viewBox", "0 0 10 10");
+    marker.setAttribute("refX", "8");
+    marker.setAttribute("refY", "5");
+    marker.setAttribute("markerWidth", "6");
+    marker.setAttribute("markerHeight", "6");
+    marker.setAttribute("orient", "auto-start-reverse");
+    const arrow = document.createElementNS(namespace, "path");
+    arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+    arrow.setAttribute("class", className);
+    marker.appendChild(arrow);
+    defs.appendChild(marker);
+  }
+  svg.appendChild(defs);
+
+  const generatePaths = [
+    "M540 105 C690 115 805 220 835 340",
+    "M855 420 C850 575 795 700 710 755",
+    "M655 810 C520 850 390 850 285 790",
+    "M230 745 C135 645 110 505 145 405",
+    "M170 330 C225 205 330 125 460 105",
+  ];
+  for (const data of generatePaths) {
+    const path = document.createElementNS(namespace, "path");
+    path.setAttribute("d", data);
+    path.setAttribute("class", "market-five-generate-line");
+    path.setAttribute("marker-end", "url(#market-five-generate-arrow)");
+    svg.appendChild(path);
+  }
+
+  const controlLines = [
+    [500, 190, 685, 690],
+    [675, 720, 215, 405],
+    [210, 375, 790, 375],
+    [790, 405, 325, 720],
+    [315, 690, 490, 190],
+  ];
+  for (const [x1, y1, x2, y2] of controlLines) {
+    const line = document.createElementNS(namespace, "line");
+    line.setAttribute("x1", String(x1));
+    line.setAttribute("y1", String(y1));
+    line.setAttribute("x2", String(x2));
+    line.setAttribute("y2", String(y2));
+    line.setAttribute("class", "market-five-control-line");
+    line.setAttribute("marker-end", "url(#market-five-control-arrow)");
+    svg.appendChild(line);
+  }
+  return svg;
+}
+
+function buildMarketSectorCorrelations(model = {}) {
+  const sectors = new Map();
+  for (const factor of model.factors || []) {
+    const direction = marketImpactDirection(factor);
+    const signedImpact = Number(factor.percent || 0) * (direction === "호재" ? 1 : -1);
+    for (const sector of factor.affected_sectors || []) {
+      if (!sectors.has(sector)) {
+        sectors.set(sector, { name: sector, score: 0, factors: [] });
+      }
+      const item = sectors.get(sector);
+      item.score += signedImpact;
+      item.factors.push({
+        key: factor.key,
+        label: factor.label,
+        element: marketFiveMeta(factor.key).element,
+        direction,
+        impact: Number(factor.percent || 0),
+      });
+    }
+  }
+  return [...sectors.values()]
+    .map((sector) => ({ ...sector, score: Math.max(-100, Math.min(100, sector.score)) }))
+    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score) || a.name.localeCompare(b.name, "ko"))
+    .slice(0, 8);
+}
+
+function marketRelationText(source, target, kind) {
+  const sameDirection = marketImpactDirection(source) === marketImpactDirection(target);
+  const strength = ((Number(source.percent || 0) + Number(target.percent || 0)) / 2).toFixed(1);
+  if (kind === "generate") {
+    return `${sameDirection ? "같은 방향 강화" : "반대 방향 상쇄"} · 관계 강도 ${strength}`;
+  }
+  return `${sameDirection ? "동시 압력" : "서로 견제"} · 관계 강도 ${strength}`;
+}
+
+function renderMarketFiveRelation(panel, selectedKey, factorMap, sectorRows) {
+  const factor = factorMap.get(selectedKey);
+  if (!factor) {
+    return;
+  }
+  const meta = marketFiveMeta(selectedKey);
+  const generateFactor = factorMap.get(MARKET_FIVE_RELATIONS.generate[selectedKey]);
+  const controlFactor = factorMap.get(MARKET_FIVE_RELATIONS.control[selectedKey]);
+  panel.replaceChildren();
+
+  const head = el("div", "market-five-relation-head");
+  const title = el("div", "");
+  title.append(el("span", `market-five-element-mark ${meta.className}`, meta.element), el("strong", "", `${factor.label} 영향 경로`));
+  head.append(title, el("em", marketImpactDirection(factor) === "호재" ? "good" : "bad", `${marketImpactDirection(factor)} ${Number(factor.percent || 0).toFixed(1)}%`));
+
+  const relations = el("div", "market-five-relation-grid");
+  for (const [kind, label, targetFactor] of [
+    ["generate", "상생 · 이어지는 변수", generateFactor],
+    ["control", "상극 · 견제하는 변수", controlFactor],
+  ]) {
+    if (!targetFactor) {
+      continue;
+    }
+    const item = el("div", `market-five-relation-item ${kind}`);
+    item.append(
+      el("span", "", label),
+      el("strong", "", `${factor.label} → ${targetFactor.label}`),
+      el("small", "", marketRelationText(factor, targetFactor, kind)),
+    );
+    relations.appendChild(item);
+  }
+  const interpretation = el("p", "market-five-interpretation", factor.interpretation || factor.summary || marketImpactLearningGuide(factor).lesson);
+  const sectors = el("p", "market-five-linked-sectors", `주요 영향 업종 · ${(factor.affected_sectors || []).join(" · ") || "확인 중"}`);
+  panel.append(head, relations, interpretation, sectors);
+
+  for (const row of sectorRows) {
+    const linked = String(row.dataset.factorKeys || "").split(" ").includes(selectedKey);
+    row.classList.toggle("is-linked", linked);
+    row.classList.toggle("is-muted", !linked);
+  }
+}
+
+function appendMarketSectorCorrelation(parent, sector) {
+  const tone = sector.score > 0.5 ? "good" : sector.score < -0.5 ? "bad" : "neutral";
+  const row = el("article", `market-sector-row ${tone}`);
+  row.dataset.factorKeys = sector.factors.map((factor) => factor.key).join(" ");
+  const head = el("div", "market-sector-row-head");
+  const identity = el("div", "");
+  identity.append(
+    el("strong", "", sector.name),
+    el("span", "", sector.factors.map((factor) => `${factor.element} · ${factor.label}`).join(" / ")),
+  );
+  const result = el("div", "market-sector-result");
+  result.append(
+    el("span", "", tone === "good" ? "우호" : tone === "bad" ? "부담" : "중립"),
+    el("strong", "", `${sector.score > 0 ? "+" : ""}${sector.score.toFixed(1)}`),
+  );
+  head.append(identity, result);
+
+  const scale = el("div", "market-sector-scale");
+  scale.setAttribute("aria-label", `${sector.name} 순영향 ${sector.score.toFixed(1)}점`);
+  const axis = el("span", "market-sector-axis");
+  const bar = el("span", "market-sector-bar");
+  bar.style.setProperty("--sector-impact", `${Math.min(50, Math.abs(sector.score) / 2)}%`);
+  scale.append(axis, bar);
+
+  const matrix = el("div", "market-sector-matrix");
+  for (const meta of MARKET_FIVE_ELEMENTS) {
+    const factor = sector.factors.find((item) => item.key === meta.key);
+    const cell = el("span", factor ? (factor.direction === "호재" ? "good" : "bad") : "neutral");
+    cell.title = factor ? `${factor.label} ${factor.direction} ${factor.impact.toFixed(1)}%` : `${meta.role} 직접 영향 없음`;
+    cell.setAttribute("aria-label", cell.title);
+    cell.append(el("b", "", meta.element), document.createTextNode(factor ? (factor.direction === "호재" ? "+" : "−") : "·"));
+    matrix.appendChild(cell);
+  }
+  row.append(head, scale, matrix);
+  parent.appendChild(row);
+  return row;
+}
+
 function renderMarketImpactAnalysis(payload, target = elements.trendImpactContent) {
   const model = normalizeMarketImpactModel(payload);
   const fallback = isFallbackMarketImpact(model);
@@ -9796,80 +9997,101 @@ function renderMarketImpactAnalysis(payload, target = elements.trendImpactConten
   }
   target.innerHTML = "";
 
-  const shell = el("section", "market-impact-dashboard");
-  const hero = el("article", "market-impact-hero");
+  const factorMap = marketFiveFactorMap(model);
+  const orderedFactors = MARKET_FIVE_ELEMENTS.map((meta) => factorMap.get(meta.key)).filter(Boolean);
+  const leadFactor = [...orderedFactors].sort((a, b) => Number(b.percent || 0) - Number(a.percent || 0))[0];
+  const initialKey = leadFactor?.key || MARKET_FIVE_ELEMENTS[0].key;
+  const shell = el("section", "market-impact-dashboard market-five-dashboard");
 
-  const overview = el("section", "market-impact-overview");
-  const status = el("div", `market-impact-status ${model.marketStatus === "호재 우위" ? "good" : "bad"}`);
-  const statusTop = el("div", "market-impact-status-top");
-  statusTop.append(el("span", "section-eyebrow", "국내증시"), el("time", "", formatDataBasis(model.asOf)));
-  status.append(statusTop, el("strong", "", model.marketStatus));
-
+  const summary = el("section", "market-five-summary");
+  const summaryHead = el("div", "market-five-summary-head");
+  const status = el("div", "");
+  status.append(el("span", "section-eyebrow", "국내증시"), el("strong", model.marketStatus === "호재 우위" ? "good" : "bad", model.marketStatus));
+  summaryHead.append(status, el("time", "", formatDataBasis(model.asOf)));
   const goodWeight = Math.max(0, Number(model.goodWeight || 0));
   const badWeight = Math.max(0, Number(model.badWeight || 0));
   const weightTotal = goodWeight + badWeight || 1;
-  const goodShare = (goodWeight / weightTotal) * 100;
-  const badShare = 100 - goodShare;
-  const balance = el("div", "market-impact-balance");
-  balance.setAttribute("aria-label", `호재 ${goodWeight.toFixed(1)}%, 악재 ${badWeight.toFixed(1)}%`);
-  const balanceLabels = el("div", "market-impact-balance-labels");
-  balanceLabels.append(el("span", "good", `호재 ${goodWeight.toFixed(1)}%`), el("span", "bad", `악재 ${badWeight.toFixed(1)}%`));
-  const balanceTrack = el("div", "market-impact-balance-track");
+  const balance = el("div", "market-five-balance");
+  const balanceTrack = el("div", "market-five-balance-track");
   const goodBar = el("span", "good");
   const badBar = el("span", "bad");
-  goodBar.style.setProperty("--balance-width", `${goodShare}%`);
-  badBar.style.setProperty("--balance-width", `${badShare}%`);
+  goodBar.style.setProperty("--balance-width", `${(goodWeight / weightTotal) * 100}%`);
+  badBar.style.setProperty("--balance-width", `${(badWeight / weightTotal) * 100}%`);
   balanceTrack.append(goodBar, badBar);
-  balance.append(balanceLabels, balanceTrack);
-  overview.append(status, balance);
+  balance.append(balanceTrack, el("p", "", `호재 ${goodWeight.toFixed(1)} · 악재 ${badWeight.toFixed(1)}`));
+  summary.append(summaryHead, el("p", "market-five-summary-copy", fallback ? "외부 변수가 국내 업종으로 전달되는 구조를 확인합니다." : model.summary), balance);
 
-  const factorMap = el("section", "market-impact-factor-map");
-  const orderedFactors = [...model.factors].sort((a, b) => Number(b.percent || 0) - Number(a.percent || 0));
-  const leadFactor = orderedFactors[0];
-  const factorHeader = el("div", "market-impact-factor-map-head");
-  factorHeader.append(
-    el("span", "section-eyebrow", "영향도 분포"),
-    el("strong", "", leadFactor ? `${leadFactor.label}가 가장 큰 변수` : "변수를 분석하는 중"),
-  );
-  const factorList = el("div", "market-impact-factor-list");
-  orderedFactors.forEach((factor, index) => appendMarketImpactFactorRow(factorList, factor, index));
-  factorMap.append(factorHeader, factorList);
+  const mapSection = el("section", "market-five-map-section");
+  const mapHeader = el("header", "market-five-map-head");
+  const mapTitle = el("div", "");
+  mapTitle.append(el("span", "section-eyebrow", "상생·상극 시장 구조"), el("h2", "", "시장 오행 관계도"));
+  const legend = el("div", "market-five-legend");
+  legend.append(el("span", "generate", "상생 · 전달"), el("span", "control", "상극 · 견제"));
+  mapHeader.append(mapTitle, legend);
 
-  const heroCopy = el("div", "market-impact-copy");
-  const heroSummary = fallback ? "외부 변수가 국내 업종과 종목에 전달되는 원리를 확인합니다." : model.summary;
-  heroCopy.append(el("span", "section-eyebrow", fallback ? "영향 구조" : "핵심 해석"), el("h2", "", heroSummary));
-  if (fallback) {
-    heroCopy.append(el("p", "", "공식 지표가 연결되면 방향과 비중이 자동으로 갱신됩니다."));
-  }
-  hero.append(overview, factorMap, heroCopy);
-
-  const flow = el("section", "market-impact-flow");
-  const flowTitle = el("div", "market-impact-flow-title");
-  flowTitle.append(el("strong", "", fallback ? "영향 원리" : "현재 흐름"), el("span", "", "외부 변수 → 국내증시 → 영향 종목"));
-  const flowGrid = el("div", "market-impact-flow-grid");
-  const leadingFactors = model.factors.slice(0, 3);
-  for (const factor of leadingFactors) {
-    const direction = factor.direction || factor.status || "악재";
-    const item = el("article", direction === "호재" ? "good" : "bad");
-    item.append(
-      el("span", "", `${factor.label} ${direction}`),
-      el("strong", "", fallback ? marketImpactLearningGuide(factor).lesson : (factor.interpretation || factor.summary)),
-      el("small", "", (factor.leader_stocks || factor.stocks || []).slice(0, 3).join(" · ")),
+  const canvas = el("div", "market-five-canvas");
+  canvas.appendChild(createMarketFiveRelationSvg());
+  const nodeButtons = [];
+  for (const meta of MARKET_FIVE_ELEMENTS) {
+    const factor = factorMap.get(meta.key);
+    if (!factor) {
+      continue;
+    }
+    const direction = marketImpactDirection(factor);
+    const button = el("button", `market-five-node ${meta.className} ${direction === "호재" ? "good" : "bad"}`);
+    button.type = "button";
+    button.dataset.factorKey = meta.key;
+    button.setAttribute("aria-pressed", "false");
+    button.setAttribute("aria-label", `${meta.element} ${factor.label}, 영향도 ${Number(factor.percent || 0).toFixed(1)}%, ${direction}`);
+    button.append(
+      el("span", "market-five-node-role", meta.role),
+      el("strong", "", `${Number(factor.percent || 0).toFixed(1)}%`),
+      el("span", "market-five-node-factor", factor.label),
+      el("b", "market-five-node-element", meta.element),
     );
-    flowGrid.appendChild(item);
+    canvas.appendChild(button);
+    nodeButtons.push(button);
   }
-  flow.append(flowTitle, flowGrid);
+  const center = el("div", "market-five-center");
+  center.append(el("span", "", "국내증시"), el("strong", model.marketStatus === "호재 우위" ? "good" : "bad", model.marketStatus), el("small", "", "변수 간 순환"));
+  canvas.appendChild(center);
+
+  const relationPanel = el("section", "market-five-relation-panel");
+  relationPanel.setAttribute("aria-live", "polite");
+  mapSection.append(mapHeader, canvas, relationPanel);
+
+  const sectorSection = el("section", "market-sector-section");
+  const sectorHeader = el("header", "market-sector-head");
+  const sectorTitle = el("div", "");
+  sectorTitle.append(el("span", "section-eyebrow", "주요 업종 연결"), el("h2", "", "섹터 상관 영향도"));
+  sectorHeader.append(sectorTitle, el("p", "", "오행별 + 호재 · − 악재"));
+  const sectorList = el("div", "market-sector-list");
+  const sectorRows = buildMarketSectorCorrelations(model).map((sector) => appendMarketSectorCorrelation(sectorList, sector));
+  sectorSection.append(sectorHeader, sectorList);
+
+  const selectFactor = (key) => {
+    for (const button of nodeButtons) {
+      const active = button.dataset.factorKey === key;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+    renderMarketFiveRelation(relationPanel, key, factorMap, sectorRows);
+  };
+  for (const button of nodeButtons) {
+    button.addEventListener("click", () => selectFactor(button.dataset.factorKey));
+  }
+  selectFactor(initialKey);
 
   const detailGrid = el("section", "market-impact-details");
-  for (const factor of model.factors) {
+  for (const factor of orderedFactors) {
     appendMarketImpactDetail(detailGrid, factor);
   }
-
   const details = el("details", "market-impact-disclosure");
   const detailsSummary = document.createElement("summary");
-  detailsSummary.textContent = "공식 지표와 종목 영향 자세히 보기";
+  detailsSummary.textContent = "공식 지표와 종목 근거 보기";
   details.append(detailsSummary, detailGrid);
-  shell.append(hero, flow, details);
+
+  shell.append(summary, mapSection, sectorSection, details);
   target.appendChild(shell);
 }
 

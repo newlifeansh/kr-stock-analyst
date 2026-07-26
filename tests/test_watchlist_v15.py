@@ -10,7 +10,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.1"' in shell.text
-    assert "20260726v69" in shell.text
+    assert "20260726v70" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -235,32 +235,40 @@ def test_watchlist_v15_is_responsive_and_matches_stock_detail_tokens():
     assert "#watchlist-view.watchlist-v3 .watchlist-empty-card" in styles
 
 
-def test_market_impact_uses_borderless_ranked_distribution():
+def test_market_impact_uses_five_element_relationship_and_sector_correlations():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text
     styles = client.get("/assets/dashboard/styles.css").text
 
     for expected in (
-        "function appendMarketImpactFactorRow",
-        'el("section", "market-impact-overview")',
-        'el("section", "market-impact-factor-map")',
-        'el("div", "market-impact-balance-track")',
-        'el("div", "market-impact-factor-track")',
-        '`${leadFactor.label}가 가장 큰 변수`',
+        "const MARKET_FIVE_ELEMENTS",
+        "const MARKET_FIVE_RELATIONS",
+        "function createMarketFiveRelationSvg",
+        "function buildMarketSectorCorrelations",
+        'el("section", "market-five-map-section")',
+        'el("section", "market-sector-section")',
+        'el("h2", "", "시장 오행 관계도")',
+        'el("h2", "", "섹터 상관 영향도")',
+        'detailsSummary.textContent = "공식 지표와 종목 근거 보기"',
     ):
         assert expected in source
 
     for expected in (
-        "/* Market impact 4.8: borderless signal distribution. */",
-        "#trend-impact-content .market-impact-hero",
-        "border: 0 !important;",
-        ".market-impact-factor-row.is-leading",
-        ".market-impact-balance-track",
+        "/* Market impact 5.0: five-element relationship and sector correlation map. */",
+        "#trend-impact-content .market-five-canvas",
+        ".market-five-generate-line",
+        ".market-five-control-line",
+        ".market-five-node.wood",
+        ".market-five-node.fire",
+        ".market-five-node.earth",
+        ".market-five-node.metal",
+        ".market-five-node.water",
+        ".market-sector-matrix",
     ):
         assert expected in styles
 
-    assert "function appendMarketImpactNode" not in source
-    assert 'el("div", "market-impact-orbit")' not in source
+    assert 'label: "금리", percent:' not in source
+    assert source.count("appendMarketImpactDetail(detailGrid, factor)") == 1
 
 
 def test_dashboard_v32_uses_stock_detail_typography_on_every_page():
