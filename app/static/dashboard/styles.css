@@ -25780,7 +25780,7 @@ body[data-view="movers"] .shell[data-ui-version="3.0"] {
   }
 
   #market-view.app-market-rankings .market-ranking-title h1 {
-    font-size: 18px;
+    font-size: 18px !important;
   }
 
   #market-view.app-market-rankings .market-ranking-title span {
