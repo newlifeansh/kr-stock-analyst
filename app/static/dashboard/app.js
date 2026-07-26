@@ -9657,23 +9657,21 @@ function appendMarketImpactDetail(parent, factor) {
   const card = el("article", `market-impact-detail ${direction === "호재" ? "good" : "bad"}`);
   const head = el("div", "market-impact-detail-head");
   head.append(
-    el("span", `market-impact-icon ${factor.key || factor.className || ""}`, factor.label),
     el("strong", "", factor.label),
     el("em", direction === "호재" ? "good" : "bad", `${direction} ${factor.percent.toFixed(1)}%`),
   );
   const summary = el("p", "", fallback ? guide.lesson : (factor.interpretation || factor.summary || "현재 공식 지표 기준으로 영향 방향을 계산했습니다."));
-  const evidenceGrid = el("div", "market-impact-metric-grid");
+  const evidenceList = el("div", "market-impact-source-list");
   if (fallback) {
-    const learning = el("div", "market-impact-metric market-impact-learning-note");
+    const learning = el("div", "market-impact-source market-impact-learning-note");
     learning.append(
       el("span", "", "확인할 공식 지표"),
       el("strong", "", guide.metrics),
-      el("small", "", "지표 연결 시 방향과 비중이 자동으로 갱신됩니다."),
     );
-    evidenceGrid.appendChild(learning);
+    evidenceList.appendChild(learning);
   } else {
-    for (const item of factor.evidence || []) {
-      const metric = el("a", "market-impact-metric");
+    for (const item of (factor.evidence || []).slice(0, 2)) {
+      const metric = el("a", "market-impact-source");
       metric.href = item.url || "#";
       if (item.url) {
         metric.target = "_blank";
@@ -9684,29 +9682,36 @@ function appendMarketImpactDetail(parent, factor) {
         el("strong", "", item.value_text || formatNumber(item.value)),
         el("small", "", `1일 ${item.change_1d_text || formatNumber(item.change_1d)} · 5일 ${item.change_5d_text || formatNumber(item.change_5d)}`),
       );
-      evidenceGrid.appendChild(metric);
+      evidenceList.appendChild(metric);
     }
   }
-  if (!evidenceGrid.childElementCount) {
-    evidenceGrid.appendChild(el("p", "muted", "공식 지표 수집 대기 중"));
+  if (!evidenceList.childElementCount) {
+    evidenceList.appendChild(el("p", "muted", "공식 지표 수집 대기 중"));
   }
-  const sectorWrap = el("div", "market-impact-tag-block");
+  const keywordGroups = el("div", "market-impact-keyword-groups");
+  const sectorWrap = el("div", "market-impact-keyword-group");
   sectorWrap.appendChild(el("span", "", "영향 업종"));
-  const sectors = el("div", "market-impact-stock-tags");
+  const sectors = el("div", "market-impact-keyword-rail");
   for (const sector of factor.affected_sectors || []) {
     sectors.appendChild(el("span", "", sector));
   }
   sectorWrap.appendChild(sectors);
-  const stockWrap = el("div", "market-impact-tag-block");
+  const stockWrap = el("div", "market-impact-keyword-group");
   stockWrap.appendChild(el("span", "", "대표 종목"));
-  const stocks = el("div", "market-impact-stock-tags");
+  const stocks = el("div", "market-impact-keyword-rail");
   for (const stock of factor.leader_stocks || factor.stocks || []) {
     const tag = el("a", "", stock);
     tag.href = viewStockUrl(stock);
     stocks.appendChild(tag);
   }
   stockWrap.appendChild(stocks);
-  card.append(head, summary, evidenceGrid, sectorWrap, stockWrap);
+  if (sectors.childElementCount) {
+    keywordGroups.appendChild(sectorWrap);
+  }
+  if (stocks.childElementCount) {
+    keywordGroups.appendChild(stockWrap);
+  }
+  card.append(head, summary, evidenceList, keywordGroups);
   parent.appendChild(card);
 }
 

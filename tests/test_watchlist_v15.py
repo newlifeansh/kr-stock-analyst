@@ -10,7 +10,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.1"' in shell.text
-    assert "20260726v72" in shell.text
+    assert "20260726v73" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -250,6 +250,8 @@ def test_market_impact_uses_five_element_relationship_and_sector_correlations():
         'el("h2", "", "시장 오행 관계도")',
         'el("h2", "", "섹터 상관 영향도")',
         'detailsSummary.textContent = "공식 지표와 종목 근거 보기"',
+        'el("div", "market-impact-source-list")',
+        'el("div", "market-impact-keyword-rail")',
     ):
         assert expected in source
 
@@ -264,11 +266,16 @@ def test_market_impact_uses_five_element_relationship_and_sector_correlations():
         ".market-five-node.metal",
         ".market-five-node.water",
         ".market-sector-matrix",
+        "/* Market impact evidence 5.4: compact analyst notes and keyword rails. */",
+        ".market-impact-source-list",
+        ".market-impact-keyword-groups",
+        ".market-impact-keyword-rail",
     ):
         assert expected in styles
 
     assert 'label: "금리", percent:' not in source
     assert "외부 변수 → 국내증시 → 영향 종목" not in source
+    assert 'el("span", `market-impact-icon ${factor.key || factor.className || ""}`, factor.label)' not in source
     assert source.count("appendMarketImpactDetail(detailGrid, factor)") == 1
 
     for expected in (
