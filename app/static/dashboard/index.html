@@ -27,7 +27,7 @@
         // The login form remains visible when browser storage is unavailable.
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260726v77" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260726v78" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -113,22 +113,6 @@
           <ol class="install-steps" id="install-steps"></ol>
         </article>
       </section>
-      <section class="push-notification-sheet push-history-sheet" id="push-history-sheet" hidden>
-        <div class="push-notification-sheet-backdrop" id="push-history-sheet-backdrop"></div>
-        <article class="push-notification-sheet-card push-history-sheet-card" role="dialog" aria-modal="true" aria-labelledby="push-history-sheet-title">
-          <div class="push-history-sheet-head">
-            <div>
-              <p>최근 3일</p>
-              <h2 id="push-history-sheet-title">알림</h2>
-            </div>
-            <div class="push-history-sheet-tools">
-              <button class="push-history-settings" id="push-history-settings" type="button">설정</button>
-              <button class="push-history-close" id="push-history-close" type="button" aria-label="알림 내역 닫기">×</button>
-            </div>
-          </div>
-          <div class="push-history-list" id="push-history-list" role="list" aria-live="polite"></div>
-        </article>
-      </section>
       <section class="push-notification-sheet" id="push-notification-sheet" hidden>
         <div class="push-notification-sheet-backdrop" id="push-notification-sheet-backdrop"></div>
         <article class="push-notification-sheet-card" role="dialog" aria-modal="true" aria-labelledby="push-notification-sheet-title">
@@ -149,6 +133,24 @@
         </article>
       </section>
       <main class="shell" data-ui-version="3.0">
+      <section id="notifications-view" class="app-page notifications-page" data-ui-version="3.0" hidden>
+        <header class="notifications-commandbar">
+          <button class="notifications-back" id="push-history-back" type="button" aria-label="이전 화면">←</button>
+          <div>
+            <span>최근 3일</span>
+            <h1 id="push-history-title">알림</h1>
+          </div>
+          <button class="notifications-settings" id="push-history-settings" type="button" aria-haspopup="dialog">설정</button>
+        </header>
+        <nav class="notifications-tabs" id="push-history-tabs" role="tablist" aria-label="알림 유형">
+          <button class="active" type="button" role="tab" aria-selected="true" data-notification-tab="all">전체</button>
+          <button type="button" role="tab" aria-selected="false" data-notification-tab="ai_signal">AI 매매신호</button>
+          <button type="button" role="tab" aria-selected="false" data-notification-tab="watchlist">관심종목</button>
+          <button type="button" role="tab" aria-selected="false" data-notification-tab="major_event">주요 이벤트</button>
+        </nav>
+        <div class="notifications-summary" id="push-history-meta" aria-live="polite">알림을 불러오는 중</div>
+        <section class="notifications-list" id="push-history-list" role="list" aria-live="polite"></section>
+      </section>
       <section id="stock-view" class="stock-detail-v3" data-ui-version="1.5">
         <header class="stock-v3-commandbar">
           <button class="stock-v3-back" id="stock-detail-back" type="button" aria-label="이전 화면">←</button>
@@ -650,6 +652,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260726v77" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260726v78" defer></script>
   </body>
 </html>

@@ -91,13 +91,18 @@ def test_push_notification_history_keeps_only_recent_three_days():
             db.commit()
 
 
-def test_dashboard_notification_button_opens_history_before_settings():
+def test_dashboard_notification_button_opens_notification_page_before_settings():
     client = TestClient(app)
     shell = client.get("/dashboard?view=home").text
     source = client.get("/assets/dashboard/app.js").text
 
     for expected in (
-        'id="push-history-sheet"',
+        'id="notifications-view"',
+        'id="push-history-tabs"',
+        'data-notification-tab="all"',
+        'data-notification-tab="ai_signal"',
+        'data-notification-tab="watchlist"',
+        'data-notification-tab="major_event"',
         'id="push-history-settings"',
         'id="push-history-list"',
         "최근 3일",
@@ -106,8 +111,10 @@ def test_dashboard_notification_button_opens_history_before_settings():
     for expected in (
         "async function openPushNotificationCenter()",
         "if (!state.pushNotificationEnabled)",
-        "showPushNotificationHistory();",
-        "await loadPushNotificationHistory();",
+        'setView("notifications");',
+        'if (view === "notifications")',
+        'history.replaceState(null, "", "/dashboard?view=notifications");',
+        'state.pushNotificationHistoryTab = tab.dataset.notificationTab || "all";',
         'fetch(`/push/notifications/${encodeURIComponent(state.watchlistId)}`',
         'elements.pushHistorySettings?.addEventListener("click", openPushSettingsFromHistory)',
     ):

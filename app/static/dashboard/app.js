@@ -42,10 +42,11 @@ const elements = {
   pushNotificationButtonLabel: $("push-notification-button-label"),
   pushNotificationDisableButton: $("push-notification-disable-button"),
   pushNotificationStatus: $("push-notification-status"),
-  pushHistorySheet: $("push-history-sheet"),
-  pushHistorySheetBackdrop: $("push-history-sheet-backdrop"),
+  notificationsView: $("notifications-view"),
+  pushHistoryBack: $("push-history-back"),
   pushHistorySettings: $("push-history-settings"),
-  pushHistoryClose: $("push-history-close"),
+  pushHistoryTabs: Array.from(document.querySelectorAll("[data-notification-tab]")),
+  pushHistoryMeta: $("push-history-meta"),
   pushHistoryList: $("push-history-list"),
   pushNotificationSheet: $("push-notification-sheet"),
   pushNotificationSheetBackdrop: $("push-notification-sheet-backdrop"),
@@ -597,6 +598,7 @@ const LEGACY_VIEW_MAP = {
   home: "home",
   search: "search",
   "recommend-detail": "recommend-detail",
+  notifications: "notifications",
   movers: "movers",
   portfolio: "portfolio",
   chart: "chart",
@@ -707,6 +709,8 @@ const state = {
   pushNotificationConditions: PUSH_NOTIFICATION_FALLBACK_OPTIONS.map((item) => item.id),
   pushNotificationHistory: [],
   pushNotificationHistoryBusy: false,
+  pushNotificationHistoryTab: "all",
+  notificationReturnView: "home",
   pageLoadingSequence: 0,
   pageLoadingTokens: new Map(),
 };
@@ -4491,12 +4495,15 @@ function closePushNotificationSheet() {
 }
 
 const PUSH_HISTORY_KIND_LABELS = {
+  ai_signal: "AI 매매신호",
   price_move: "시세",
   report: "리포트",
   disclosure: "공시",
   major_event: "주요 이벤트",
   test: "테스트",
 };
+
+const PUSH_HISTORY_WATCHLIST_KINDS = new Set(["price_move", "report", "disclosure"]);
 
 function formatPushHistoryTime(value) {
   const date = new Date(value);
@@ -4507,6 +4514,26 @@ function formatPushHistoryTime(value) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function pushHistoryItemsForActiveTab() {
+  const tab = state.pushNotificationHistoryTab;
+  if (tab === "all") {
+    return state.pushNotificationHistory;
+  }
+  if (tab === "watchlist") {
+    return state.pushNotificationHistory.filter((item) => PUSH_HISTORY_WATCHLIST_KINDS.has(item.kind));
+  }
+  return state.pushNotificationHistory.filter((item) => item.kind === tab);
+}
+
+function updatePushHistoryTabs() {
+  for (const tab of elements.pushHistoryTabs) {
+    const selected = tab.dataset.notificationTab === state.pushNotificationHistoryTab;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
+}
+
 function renderPushNotificationHistory(options = {}) {
   const list = elements.pushHistoryList;
   if (!list) {
@@ -4514,29 +4541,48 @@ function renderPushNotificationHistory(options = {}) {
   }
   list.replaceChildren();
   if (options.loading) {
+    if (elements.pushHistoryMeta) {
+      elements.pushHistoryMeta.textContent = "알림을 불러오는 중";
+    }
     const loading = el("div", "push-history-state");
     loading.textContent = "알림을 불러오는 중입니다.";
     list.append(loading);
     return;
   }
   if (options.error) {
+    if (elements.pushHistoryMeta) {
+      elements.pushHistoryMeta.textContent = "불러오기 실패";
+    }
     const error = el("div", "push-history-state is-error");
     error.textContent = "알림 내역을 불러오지 못했습니다. 잠시 후 다시 열어주세요.";
     list.append(error);
     return;
   }
-  if (!state.pushNotificationHistory.length) {
+  updatePushHistoryTabs();
+  const items = pushHistoryItemsForActiveTab();
+  if (elements.pushHistoryMeta) {
+    elements.pushHistoryMeta.textContent = `${items.length}건 · 최근 3일`;
+  }
+  if (!items.length) {
     const empty = el("div", "push-history-state");
     const title = el("strong");
-    title.textContent = "새 알림이 없습니다.";
+    title.textContent = state.pushNotificationHistory.length ? "이 유형의 알림이 없습니다." : "새 알림이 없습니다.";
     const copy = el("span");
     copy.textContent = "최근 3일 동안 받은 알림이 여기에 표시됩니다.";
     empty.append(title, copy);
     list.append(empty);
     return;
   }
-  for (const item of state.pushNotificationHistory) {
-    const row = el("button", "push-history-item");
+  let previousDate = "";
+  for (const item of items) {
+    const formattedTime = formatPushHistoryTime(item.created_at);
+    const itemDate = formattedTime.slice(0, 10);
+    if (itemDate && itemDate !== previousDate) {
+      const dateHeading = el("h2", "notifications-date", itemDate);
+      list.append(dateHeading);
+      previousDate = itemDate;
+    }
+    const row = el("button", `push-history-item kind-${item.kind || "default"}`);
     row.type = "button";
     row.setAttribute("role", "listitem");
     const meta = el("span", "push-history-item-meta");
@@ -4544,7 +4590,7 @@ function renderPushNotificationHistory(options = {}) {
     kind.textContent = PUSH_HISTORY_KIND_LABELS[item.kind] || "알림";
     const time = el("time");
     time.dateTime = item.created_at || "";
-    time.textContent = formatPushHistoryTime(item.created_at);
+    time.textContent = formattedTime.slice(11) || formattedTime;
     meta.append(kind, time);
     const title = el("strong", "push-history-item-title");
     title.textContent = item.title || "알림";
@@ -4560,20 +4606,6 @@ function renderPushNotificationHistory(options = {}) {
     }
     list.append(row);
   }
-}
-
-function showPushNotificationHistory() {
-  if (elements.pushHistorySheet) {
-    elements.pushHistorySheet.hidden = false;
-  }
-  document.body.classList.add("modal-open");
-}
-
-function closePushNotificationHistory() {
-  if (elements.pushHistorySheet) {
-    elements.pushHistorySheet.hidden = true;
-  }
-  document.body.classList.remove("modal-open");
 }
 
 async function loadPushNotificationHistory() {
@@ -4690,12 +4722,12 @@ async function openPushNotificationCenter() {
     showPushNotificationSheet();
     return;
   }
-  showPushNotificationHistory();
-  await loadPushNotificationHistory();
+  state.notificationReturnView = state.view === "notifications" ? state.notificationReturnView : state.view;
+  setView("notifications");
+  window.scrollTo({ top: 0, behavior: "auto" });
 }
 
 async function openPushSettingsFromHistory() {
-  closePushNotificationHistory();
   await openPushNotificationSheet();
 }
 
@@ -5111,6 +5143,8 @@ function pageEntryTtlMs(view) {
       return 2 * PAGE_ENTRY_MINUTE_MS;
     case "chart-history":
       return 5 * PAGE_ENTRY_MINUTE_MS;
+    case "notifications":
+      return 15_000;
     default:
       return PAGE_ENTRY_MINUTE_MS;
   }
@@ -5217,6 +5251,7 @@ function setView(requestedViewName) {
     closeUsSectorStream();
   }
   elements.stockView.hidden = view !== "stock";
+  elements.notificationsView.hidden = view !== "notifications";
   elements.homeView.hidden = view !== "home";
   elements.searchView.hidden = view !== "search";
   elements.recommendDetailPage.hidden = view !== "recommend-detail";
@@ -5238,7 +5273,10 @@ function setView(requestedViewName) {
       item.removeAttribute("aria-current");
     }
   }
-  if (view === "home") {
+  if (view === "notifications") {
+    history.replaceState(null, "", "/dashboard?view=notifications");
+    launchBriefPageLoading("알림을 불러오는 중", () => loadPushNotificationHistory());
+  } else if (view === "home") {
     history.replaceState(null, "", "/dashboard?view=home");
     const activeTab = state.activeTrendTab || "live";
     launchBriefPageLoading(PAGE_LOADING_LABELS.trend, async () => {
@@ -10892,9 +10930,22 @@ elements.watchlistIdForm?.addEventListener("submit", (event) => {
 });
 elements.logoutButton?.addEventListener("click", logoutWatchlistIdentity);
 elements.pushNotificationButton?.addEventListener("click", openPushNotificationCenter);
-elements.pushHistorySheetBackdrop?.addEventListener("click", closePushNotificationHistory);
-elements.pushHistoryClose?.addEventListener("click", closePushNotificationHistory);
+elements.pushHistoryBack?.addEventListener("click", () => {
+  const returnView = state.notificationReturnView || "home";
+  if (returnView === "stock" && state.currentStock?.name) {
+    window.location.assign(viewStockUrl(state.currentStock.name));
+    return;
+  }
+  setView(["home", "search", "portfolio", "chart", "movers"].includes(returnView) ? returnView : "home");
+  window.scrollTo({ top: 0, behavior: "auto" });
+});
 elements.pushHistorySettings?.addEventListener("click", openPushSettingsFromHistory);
+for (const tab of elements.pushHistoryTabs) {
+  tab.addEventListener("click", () => {
+    state.pushNotificationHistoryTab = tab.dataset.notificationTab || "all";
+    renderPushNotificationHistory();
+  });
+}
 elements.pushNotificationDisableButton?.addEventListener("click", disablePushNotificationsFromUi);
 elements.pushNotificationSheetBackdrop?.addEventListener("click", closePushNotificationSheet);
 elements.pushNotificationSheetClose?.addEventListener("click", closePushNotificationSheet);
