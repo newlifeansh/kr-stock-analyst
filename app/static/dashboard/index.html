@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="5.1" />
+    <meta name="application-version" content="5.4" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
@@ -27,7 +27,7 @@
         // The login form remains visible when browser storage is unavailable.
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260726v81" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260727v84" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -134,13 +134,10 @@
       </section>
       <main class="shell" data-ui-version="3.0">
       <section id="notifications-view" class="app-page notifications-page" data-ui-version="3.0" hidden>
-        <header class="notifications-commandbar">
-          <button class="notifications-back" id="push-history-back" type="button" aria-label="이전 화면">←</button>
-          <div>
-            <span>최근 3일</span>
-            <h1 id="push-history-title">알림</h1>
-          </div>
-          <button class="notifications-settings" id="push-history-settings" type="button" aria-haspopup="dialog">설정</button>
+        <header class="secondary-commandbar notifications-commandbar">
+          <button class="secondary-commandbar-back notifications-back" id="push-history-back" type="button" aria-label="이전 화면">←</button>
+          <h1 id="push-history-title">알림</h1>
+          <button class="secondary-commandbar-action notifications-settings" id="push-history-settings" type="button" aria-haspopup="dialog">설정</button>
         </header>
         <nav class="notifications-tabs" id="push-history-tabs" role="tablist" aria-label="알림 유형">
           <button class="active" type="button" role="tab" aria-selected="true" data-notification-tab="all">전체</button>
@@ -530,14 +527,13 @@
         </section>
       </section>
 
-      <section id="market-view" class="app-page app-market-rankings" data-ui-version="4.0" hidden>
-        <header class="market-ranking-commandbar">
-          <button class="market-ranking-back" id="market-ranking-back" type="button" aria-label="홈으로 돌아가기">←</button>
-          <div class="market-ranking-title">
-            <h1>급등주</h1>
-            <span id="market-meta">기준 정보 확인 중</span>
-          </div>
+      <section id="market-view" class="app-page app-market-rankings" data-ui-version="5.0" hidden>
+        <header class="secondary-commandbar market-ranking-commandbar">
+          <button class="secondary-commandbar-back market-ranking-back" id="market-ranking-back" type="button" aria-label="홈으로 돌아가기">←</button>
+          <h1>급등주</h1>
+          <span class="secondary-commandbar-spacer" aria-hidden="true"></span>
         </header>
+        <p class="secondary-view-meta market-ranking-meta" id="market-meta">기준 정보 확인 중</p>
         <nav class="market-segment market-ranking-tabs" role="tablist" aria-label="시장 선택">
           <button class="market-segment-button active" type="button" data-market-filter="KOSPI" role="tab" aria-selected="true">KOSPI</button>
           <button class="market-segment-button" type="button" data-market-filter="KOSDAQ" role="tab" aria-selected="false">KOSDAQ</button>
@@ -564,12 +560,13 @@
       </section>
 
       <section id="recommend-detail-page" class="app-page recommend-detail-page" data-ui-version="3.0" hidden>
-        <header class="recommend-detail-topbar">
-          <button id="recommend-detail-back" class="recommend-detail-back" type="button" aria-label="추천 종목 목록으로 돌아가기">←</button>
-          <div>
-            <strong id="recommend-detail-name">추천 종목</strong>
+        <header class="secondary-commandbar recommend-detail-topbar">
+          <button id="recommend-detail-back" class="secondary-commandbar-back recommend-detail-back" type="button" aria-label="추천 종목 목록으로 돌아가기">←</button>
+          <div class="secondary-commandbar-title">
+            <h1 id="recommend-detail-name">추천 종목</h1>
             <span id="recommend-detail-code"></span>
           </div>
+          <span class="secondary-commandbar-spacer" aria-hidden="true"></span>
         </header>
         <section id="recommend-detail-content" class="recommend-detail-content" aria-live="polite">
           <p class="muted">추천 분석을 불러오는 중입니다.</p>
@@ -634,7 +631,12 @@
       </section>
 
       <section id="chart-history-view" class="app-page" hidden>
-        <header class="app-page-intro"><span>저장 기록</span><h1>지난 차트 분석</h1><p id="watch-chart-snapshot-meta">저장 없음</p><button class="text-action" id="chart-history-back-button" type="button">차트분석으로</button></header>
+        <header class="secondary-commandbar chart-history-commandbar">
+          <button class="secondary-commandbar-back" id="chart-history-back-button" type="button" aria-label="차트분석으로 돌아가기">←</button>
+          <h1>지난 차트 분석</h1>
+          <span class="secondary-commandbar-spacer" aria-hidden="true"></span>
+        </header>
+        <p class="secondary-view-meta" id="watch-chart-snapshot-meta">저장 없음</p>
         <section class="chart-snapshot-panel archive-page"><div class="history-head"><strong>차트 스냅샷</strong><span>저장 기록 관리</span></div><div class="chart-snapshot-list" id="watch-chart-snapshots"></div></section>
       </section>
       </main>
@@ -655,6 +657,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260726v81" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260727v84" defer></script>
   </body>
 </html>

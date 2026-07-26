@@ -647,7 +647,11 @@ def _live_bar(confirmed: list[PriceBar], live_quote: Optional[dict[str, Any]], n
             live_date = date.fromisoformat(live_date[:10])
         except ValueError:
             live_date = now.date()
-    market_is_live = now.weekday() < 5 and time(8, 0) <= now.time() < time(15, 40)
+    market_is_live = (
+        now.weekday() < 5
+        and time(8, 0) <= now.time() < time(15, 40)
+        and live_date == now.date()
+    )
     if live_date > confirmed[-1].trade_date and not market_is_live:
         live_date = confirmed[-1].trade_date
     live_volume = max(0.0, float(live_quote.get("volume") or 0))

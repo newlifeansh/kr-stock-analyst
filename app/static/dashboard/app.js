@@ -5309,7 +5309,8 @@ function setView(requestedViewName) {
     history.replaceState(null, "", "/dashboard?view=movers");
     const market = currentMarketFilter();
     launchBriefPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings({
-      ...pageEntryRefreshOptions("market", market),
+      force: false,
+      ttlMs: pageEntryTtlMs("market"),
       market,
       limit: 30,
     }));

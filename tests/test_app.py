@@ -105,7 +105,7 @@ def test_dashboard_notification_button_opens_notification_page_before_settings()
         'data-notification-tab="major_event"',
         'id="push-history-settings"',
         'id="push-history-list"',
-        "최근 3일",
+        'class="secondary-commandbar notifications-commandbar"',
     ):
         assert expected in shell
     for expected in (
@@ -119,6 +119,30 @@ def test_dashboard_notification_button_opens_notification_page_before_settings()
         'elements.pushHistorySettings?.addEventListener("click", openPushSettingsFromHistory)',
     ):
         assert expected in source
+
+
+def test_secondary_pages_use_stock_detail_navigation_contract():
+    client = TestClient(app)
+    shell = client.get("/dashboard?view=home").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    for expected in (
+        'class="secondary-commandbar notifications-commandbar"',
+        'class="secondary-commandbar market-ranking-commandbar"',
+        'class="secondary-commandbar recommend-detail-topbar"',
+        'class="secondary-commandbar chart-history-commandbar"',
+        'class="secondary-commandbar-back notifications-back"',
+        'class="secondary-commandbar-back market-ranking-back"',
+        'id="chart-history-back-button"',
+    ):
+        assert expected in shell
+
+    assert '<header class="app-page-intro"><span>저장 기록</span>' not in shell
+    assert "Secondary navigation 6.0" in styles
+    for view in ("notifications", "movers", "recommend-detail", "chart-history"):
+        assert f'[data-view="{view}"]' in styles
+    assert ":is(.app-topbar, .bottom-nav)" in styles
+    assert "grid-template-columns: 42px minmax(0, 1fr) 42px" in styles
 
 
 def test_watchlist_share_id_roundtrip():
@@ -327,6 +351,7 @@ def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():
     assert 'data-market-filter="ALL"' not in shell
     assert 'id="market-ranking-back"' in shell
     assert 'class="market-segment market-ranking-tabs"' in shell
+    assert 'data-ui-version="5.0"' in shell
     assert '<h1>급등주</h1>' in shell
     assert 'function createMarketLeaderboardMetric' in source
     assert 'setView("home")' in source
@@ -339,6 +364,8 @@ def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():
     assert "/quant-signals`" in source
     assert ".slice(0, 5)" in source
     assert 'limit: 30' in source
+    assert 'ttlMs: pageEntryTtlMs("market")' in source
+    assert 'force: false' in source
     assert 'history.replaceState(null, "", "/dashboard?view=movers")' in source
     assert 'market: "movers"' in source
     assert 'watchlist: "portfolio"' in source
