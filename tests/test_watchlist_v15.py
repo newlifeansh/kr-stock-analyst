@@ -10,7 +10,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.1"' in shell.text
-    assert "20260726v74" in shell.text
+    assert "20260726v76" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -241,18 +241,20 @@ def test_event_calendar_uses_compact_stock_detail_hierarchy():
     styles = client.get("/assets/dashboard/styles.css").text
 
     for expected in (
-        'const date = el("time", "", dateLabel)',
-        'el("span", "event-stage", "발표 예정")',
+        'schedule.append(el("span", "event-stage", "발표 예정"), date)',
         'el("h3", "", item.title)',
-        'el("button", "flow-button", "영향 흐름 보기")',
-        'detailsSummary.textContent = "영향 근거"',
-        'button.textContent = "영향 흐름 보기"',
+        'el("dl", "event-facts")',
+        'el("dt", "", "영향 분야")',
+        'el("dt", "", "예상 영향")',
+        'el("button", "flow-button", "영향 흐름")',
+        'detailsSummary.textContent = "근거와 출처"',
+        'button.textContent = "영향 흐름"',
     ):
         assert expected in source
 
     for expected in (
-        "/* Event calendar 5.5: stock-detail hierarchy with compact status and actions. */",
-        "#trend-events-panel .trend-event::before",
+        "/* Event calendar 6.0: compact stock-detail table hierarchy. */",
+        "#trend-events-panel .event-facts",
         "#trend-events-panel .event-schedule time",
         "#trend-events-panel .event-importance-critical",
         "#trend-events-panel .event-axis-badges",

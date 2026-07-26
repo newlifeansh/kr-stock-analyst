@@ -684,6 +684,8 @@ const state = {
   stockQuantSignals: null,
   stockQuantRequestedCode: "",
   stockQuantLoading: false,
+  stockQuantLoadingCode: "",
+  stockQuantRequestSequence: 0,
   stockQuantLastLiveRefreshAt: 0,
   watchPreopenExpanded: new Set(),
   pullRefreshTracking: false,
@@ -1020,7 +1022,7 @@ function shouldAutoLoadStockAI(tabName = state.stockActiveTab) {
 }
 
 function shouldAutoLoadStockQuantSignals(tabName = state.stockActiveTab) {
-  return tabName === "strategy" && Boolean(state.currentStock?.code);
+  return Boolean(state.currentStock?.code);
 }
 
 function ensureStockAIAnalysis() {
@@ -3957,6 +3959,34 @@ function viewStockUrl(name) {
   return `/dashboard/${encodeURIComponent(name)}`;
 }
 
+function stockRouteQuery(href) {
+  try {
+    const url = new URL(href, window.location.origin);
+    if (url.origin !== window.location.origin) {
+      return "";
+    }
+    const parts = url.pathname.split("/").filter(Boolean);
+    return parts[0] === "dashboard" && parts[1] ? decodeURIComponent(parts[1]) : "";
+  } catch {
+    return "";
+  }
+}
+
+function navigateToStock(query, href = viewStockUrl(query)) {
+  const normalized = String(query || "").trim();
+  if (!normalized) {
+    return Promise.resolve();
+  }
+  const url = new URL(href, window.location.origin);
+  const nextPath = `${url.pathname}${url.search}${url.hash}`;
+  if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextPath) {
+    history.pushState({ view: "stock" }, "", nextPath);
+  }
+  setView("stock");
+  window.scrollTo({ top: 0, behavior: "auto" });
+  return load(normalized, { historyMode: "none" });
+}
+
 function readWatchlist() {
   try {
     const parsed = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || "[]");
@@ -4030,6 +4060,7 @@ function showLoginGate(message = "", options = {}) {
   if (!elements.loginGate) {
     return;
   }
+  document.documentElement.classList.remove("has-saved-watchlist-id");
   const skipSplash = options.skipSplash ?? state.loginSplashSeen;
   window.clearTimeout(state.loginGateTimer);
   elements.loginGate.hidden = false;
@@ -4058,6 +4089,7 @@ function hideLoginGate() {
   window.clearTimeout(state.loginGateTimer);
   state.loginGateTimer = null;
   elements.loginGate.hidden = true;
+  document.documentElement.classList.add("has-saved-watchlist-id");
 }
 
 async function fetchRemoteWatchlist(shareId) {
@@ -8153,12 +8185,18 @@ function renderQuantSignals(payload) {
 }
 
 async function loadQuantSignals(options = {}) {
-  if (!state.currentStock?.code || state.stockQuantLoading) {
+  if (!state.currentStock?.code) {
     return;
   }
   const code = state.currentStock.code;
+  if (state.stockQuantLoading && state.stockQuantLoadingCode === code) {
+    return;
+  }
   const forceRefresh = options.force === true;
+  const requestSequence = ++state.stockQuantRequestSequence;
   state.stockQuantLoading = true;
+  state.stockQuantLoadingCode = code;
+  state.stockQuantRequestedCode = code;
   if (elements.quantSignalRefresh) {
     elements.quantSignalRefresh.disabled = true;
     elements.quantSignalRefresh.textContent = "계산 중";
@@ -8186,10 +8224,13 @@ async function loadQuantSignals(options = {}) {
       elements.quantSignalStatus.textContent = "AI 매매신호를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
     }
   } finally {
-    state.stockQuantLoading = false;
-    if (elements.quantSignalRefresh) {
-      elements.quantSignalRefresh.disabled = false;
-      elements.quantSignalRefresh.textContent = "새로고침";
+    if (state.stockQuantLoadingCode === code && state.stockQuantRequestSequence === requestSequence) {
+      state.stockQuantLoading = false;
+      state.stockQuantLoadingCode = "";
+      if (elements.quantSignalRefresh) {
+        elements.quantSignalRefresh.disabled = false;
+        elements.quantSignalRefresh.textContent = "새로고침";
+      }
     }
   }
 }
@@ -10215,24 +10256,32 @@ function appendTrendEvent(item, parent = elements.trendEvents) {
   const dateLabel = formatDate(item.starts_at);
   const date = el("time", "", dateLabel);
   date.dateTime = item.starts_at || "";
-  schedule.append(date, el("span", "event-stage", "발표 예정"));
-  title.append(schedule, el("h3", "", item.title));
-  const axisBadges = el("div", "event-axis-badges");
+  schedule.append(el("span", "event-stage", "발표 예정"), date);
+  const importanceLabel = el("span", `event-importance event-importance-${importanceClass}`, importance);
+  head.append(schedule, importanceLabel);
+  title.append(el("h3", "", item.title));
+
+  const facts = el("dl", "event-facts");
+  const axisFact = el("div", "event-fact event-axis-fact");
+  axisFact.appendChild(el("dt", "", "영향 분야"));
+  const axisBadges = el("dd", "event-axis-badges");
   for (const axis of trendEventAxes(item)) {
     axisBadges.appendChild(el("span", `event-axis-badge ${TREND_AXIS_CLASS[axis] || ""}`, axis));
   }
   if (axisBadges.children.length > 0) {
-    title.appendChild(axisBadges);
+    axisFact.appendChild(axisBadges);
   } else {
-    title.appendChild(el("span", "", item.category));
+    axisFact.appendChild(el("dd", "event-axis-badges", item.category));
   }
-  const importanceLabel = el("span", `event-importance event-importance-${importanceClass}`, importance);
-  head.append(title, importanceLabel);
 
-  const impact = el("p", "trend-impact", item.expected_impact);
+  const impactFact = el("div", "event-fact event-impact-fact");
+  impactFact.append(el("dt", "", "예상 영향"), el("dd", "trend-impact", item.expected_impact));
+  facts.append(axisFact, impactFact);
+
   const actionRow = el("div", "event-actions");
-  const flowButton = el("button", "flow-button", "영향 흐름 보기");
+  const flowButton = el("button", "flow-button", "영향 흐름");
   flowButton.type = "button";
+  flowButton.setAttribute("aria-label", `${item.title} 영향 흐름 보기`);
   actionRow.appendChild(flowButton);
 
   const tags = el("div", "tag-row event-detail-tags");
@@ -10248,9 +10297,9 @@ function appendTrendEvent(item, parent = elements.trendEvents) {
 
   const details = el("details", "trend-event-disclosure");
   const detailsSummary = document.createElement("summary");
-  detailsSummary.textContent = "영향 근거";
+  detailsSummary.textContent = "근거와 출처";
   details.append(detailsSummary, tags, points, source);
-  card.append(head, impact, actionRow, details);
+  card.append(head, title, facts, actionRow, details);
   parent.appendChild(card);
 }
 
@@ -10406,7 +10455,7 @@ async function loadTrendGraph(card) {
     setFlowLoading(false);
     if (button) {
       button.disabled = false;
-      button.textContent = "영향 흐름 보기";
+      button.textContent = "영향 흐름";
     }
   }
 }
@@ -10566,15 +10615,19 @@ function setLoading(code) {
 
 function render(data, options = {}) {
   const previousCode = options.previousCode || state.currentStock?.code;
+  const preserveQuantRequest = options.preserveQuantRequest === true
+    && state.stockQuantRequestedCode === data.code;
   state.currentStock = { code: data.code, name: data.name, market: data.market };
   state.currentDashboard = data;
   state.stockAIAnalysis = null;
   state.stockAIRequestedCode = "";
-  state.stockQuantSignals = null;
-  state.stockQuantRequestedCode = "";
-  state.stockQuantLastLiveRefreshAt = 0;
   resetAIAnalysis();
-  resetQuantSignals();
+  if (!preserveQuantRequest) {
+    state.stockQuantSignals = null;
+    state.stockQuantRequestedCode = "";
+    state.stockQuantLastLiveRefreshAt = 0;
+    resetQuantSignals();
+  }
   setActiveStockTab(state.stockActiveTab || "summary", { preserveScroll: true });
   elements.name.textContent = data.name;
   elements.meta.textContent = stockDetailMetaText(data);
@@ -10691,7 +10744,7 @@ async function resolveStock(query) {
   }
 }
 
-async function loadStockRequest(query) {
+async function loadStockRequest(query, options = {}) {
   const normalized = String(query || "").trim();
   if (!normalized) {
     return;
@@ -10711,10 +10764,12 @@ async function loadStockRequest(query) {
   if (previousStock?.code && previousStock.code !== stock.code) {
     setActiveStockTab("summary", { preserveScroll: true });
   }
+  state.currentStock = { code: stock.code, name: stock.name, market: stock.market };
+  const quantSignalPrefetch = loadQuantSignals({ auto: true });
   try {
     render(
       await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(stock.code)}/dashboard?include_profile=0`), { force: true, ttlMs: 0 }),
-      { previousCode: previousStock?.code },
+      { previousCode: previousStock?.code, preserveQuantRequest: true },
     );
   } catch {
     elements.name.textContent = stock.name;
@@ -10723,17 +10778,20 @@ async function loadStockRequest(query) {
     resetAIAnalysis();
     return;
   }
+  void quantSignalPrefetch;
   const stockUrl = `/dashboard/${encodeURIComponent(stock.name)}`;
-  if (state.view === "stock") {
-    history.replaceState(null, "", stockUrl);
-  } else {
-    history.pushState(null, "", stockUrl);
+  if (options.historyMode !== "none") {
+    if (state.view === "stock") {
+      history.replaceState(null, "", stockUrl);
+    } else {
+      history.pushState(null, "", stockUrl);
+    }
   }
   setView("stock");
 }
 
-function load(query) {
-  return runPageLoading(PAGE_LOADING_LABELS.stock, () => loadStockRequest(query));
+function load(query, options = {}) {
+  return runPageLoading(PAGE_LOADING_LABELS.stock, () => loadStockRequest(query, options));
 }
 
 async function syncViewFromLocation() {
@@ -11208,6 +11266,25 @@ elements.form.addEventListener("submit", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const stockLink = event.target.closest('a[href^="/dashboard/"]');
+  if (
+    stockLink
+    && !event.defaultPrevented
+    && event.button === 0
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.shiftKey
+    && !event.altKey
+    && !stockLink.hasAttribute("download")
+    && (!stockLink.target || stockLink.target === "_self")
+  ) {
+    const query = stockRouteQuery(stockLink.href);
+    if (query) {
+      event.preventDefault();
+      void navigateToStock(query, stockLink.href);
+      return;
+    }
+  }
   const termButton = event.target.closest(".term-help");
   if (termButton) {
     const wasOpen = termButton.classList.contains("open");
