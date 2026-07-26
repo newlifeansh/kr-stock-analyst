@@ -10205,14 +10205,18 @@ function renderMarketImpactAnalysis(payload, target = elements.trendImpactConten
 }
 
 function appendTrendEvent(item, parent = elements.trendEvents) {
-  const card = el("article", "trend-event");
+  const importance = String(item.importance || "일반").trim();
+  const importanceClass = importance.includes("매우") ? "critical" : importance.includes("중요") ? "important" : "standard";
+  const card = el("article", `trend-event event-importance-${importanceClass}`);
   card.dataset.eventId = item.id;
   const head = el("div", "trend-event-head");
   const title = el("div", "trend-event-title");
   const schedule = el("div", "event-schedule");
   const dateLabel = formatDate(item.starts_at);
-  schedule.append(el("span", "", "발표"), el("strong", "", dateLabel));
-  title.append(schedule, el("strong", "", item.title));
+  const date = el("time", "", dateLabel);
+  date.dateTime = item.starts_at || "";
+  schedule.append(date, el("span", "event-stage", "발표 예정"));
+  title.append(schedule, el("h3", "", item.title));
   const axisBadges = el("div", "event-axis-badges");
   for (const axis of trendEventAxes(item)) {
     axisBadges.appendChild(el("span", `event-axis-badge ${TREND_AXIS_CLASS[axis] || ""}`, axis));
@@ -10222,12 +10226,16 @@ function appendTrendEvent(item, parent = elements.trendEvents) {
   } else {
     title.appendChild(el("span", "", item.category));
   }
-  const badgeWrap = el("div", "event-actions");
-  badgeWrap.append(el("span", "event-badge", item.importance), el("button", "flow-button", "흐름 보기"));
-  head.append(title, badgeWrap);
+  const importanceLabel = el("span", `event-importance event-importance-${importanceClass}`, importance);
+  head.append(title, importanceLabel);
 
   const impact = el("p", "trend-impact", item.expected_impact);
-  const tags = el("div", "tag-row");
+  const actionRow = el("div", "event-actions");
+  const flowButton = el("button", "flow-button", "영향 흐름 보기");
+  flowButton.type = "button";
+  actionRow.appendChild(flowButton);
+
+  const tags = el("div", "tag-row event-detail-tags");
   appendTags(tags, [...(item.affected_variables || []), ...(item.affected_sectors || [])]);
 
   const points = el("ul", "watch-points");
@@ -10240,9 +10248,9 @@ function appendTrendEvent(item, parent = elements.trendEvents) {
 
   const details = el("details", "trend-event-disclosure");
   const detailsSummary = document.createElement("summary");
-  detailsSummary.textContent = "세부 영향과 출처 보기";
+  detailsSummary.textContent = "영향 근거";
   details.append(detailsSummary, tags, points, source);
-  card.append(head, impact, details);
+  card.append(head, impact, actionRow, details);
   parent.appendChild(card);
 }
 
@@ -10398,7 +10406,7 @@ async function loadTrendGraph(card) {
     setFlowLoading(false);
     if (button) {
       button.disabled = false;
-      button.textContent = "흐름 보기";
+      button.textContent = "영향 흐름 보기";
     }
   }
 }

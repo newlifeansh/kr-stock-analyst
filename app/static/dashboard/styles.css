@@ -827,6 +827,224 @@ body:not([data-view="stock"]) #trend-impact-content .market-impact-keyword-rail 
   color: var(--app-v3-text, #17191d);
 }
 
+/* Event calendar 5.5: stock-detail hierarchy with compact status and actions. */
+body:not([data-view="stock"]) #trend-events-panel > .trend-events {
+  border-top: 1px solid var(--app-v3-line, #e4e7eb);
+}
+
+body:not([data-view="stock"]) #trend-events-panel .trend-event {
+  --event-accent: #69717d;
+  position: relative;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 20px 4px 20px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--app-v3-line, #e4e7eb);
+  border-radius: 0 !important;
+  background: #fff;
+  box-shadow: none;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .trend-event::before {
+  position: absolute;
+  top: 20px;
+  bottom: 20px;
+  left: 0;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--event-accent);
+  content: "";
+}
+
+body:not([data-view="stock"]) #trend-events-panel .trend-event.event-importance-critical {
+  --event-accent: #d9273f;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .trend-event.event-importance-important {
+  --event-accent: #b46a00;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .trend-event-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  margin: 0;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .trend-event-title {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .event-schedule {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  margin: 0;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .event-schedule time {
+  color: var(--app-v3-muted, #7b838e);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .event-schedule .event-stage {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: #f1f3f5;
+  color: #676f7a;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .trend-event-title h3 {
+  margin: 0;
+  color: var(--app-v3-text, #17191d);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.42;
+  letter-spacing: 0;
+  word-break: keep-all;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .event-importance {
+  flex: 0 0 auto;
+  padding-top: 1px;
+  color: #69717d;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .event-importance-critical {
+  color: #d9273f;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .event-importance-important {
+  color: #a55f00;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .event-axis-badges {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .event-axis-badges::-webkit-scrollbar {
+  display: none;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .event-axis-badge {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--app-v3-line, #dfe3e8);
+  border-radius: 999px;
+  background: #fff;
+  color: #5f6772;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .event-axis-badge:is(.axis-oil, .axis-fx, .axis-rate) {
+  background: #fff;
+  color: #5f6772;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .trend-impact {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: #39414c;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.58;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: keep-all;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .event-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .flow-button {
+  min-width: 124px;
+  height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--app-v3-text, #17191d);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .flow-button:hover {
+  background: #30343a;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .trend-event-disclosure {
+  margin: 0;
+  border-top: 1px solid var(--app-v3-line, #e4e7eb);
+}
+
+body:not([data-view="stock"]) #trend-events-panel .trend-event-disclosure > summary {
+  min-height: 42px;
+  padding: 11px 24px 0 0;
+  color: var(--app-v3-muted, #7b838e);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+body:not([data-view="stock"]) #trend-events-panel .event-detail-tags {
+  margin-top: 10px;
+}
+
+@media (max-width: 720px) {
+  body:not([data-view="stock"]) #trend-events-panel .trend-event {
+    gap: 11px;
+    padding: 18px 20px 18px 31px;
+  }
+
+  body:not([data-view="stock"]) #trend-events-panel .trend-event::before {
+    top: 18px;
+    bottom: 18px;
+    left: 20px;
+  }
+
+  body:not([data-view="stock"]) #trend-events-panel .trend-event-title h3 {
+    font-size: 16px;
+  }
+
+  body:not([data-view="stock"]) #trend-events-panel .trend-impact {
+    font-size: 13px;
+  }
+
+  body:not([data-view="stock"]) #trend-events-panel .flow-button {
+    width: 100%;
+  }
+}
+
 /* Market impact flow 5.3: restrained research-table treatment for legacy views. */
 body:not([data-view="stock"]) #trend-impact-content .market-impact-flow {
   display: grid;
