@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260726v70" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260726v71" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -470,6 +470,16 @@
           <p class="home-index-shared-asof" id="home-index-shared-asof">기준 정보 확인 중</p>
         </section>
 
+        <section class="home-ai-signals" id="home-ai-signals" aria-labelledby="home-ai-signals-title" aria-live="polite">
+          <header class="home-ai-signals-head">
+            <div><span id="home-ai-signals-meta">관심종목 신호 확인 중</span><h2 id="home-ai-signals-title">AI 매매신호</h2></div>
+            <a class="text-action" href="/dashboard?view=portfolio">내 종목</a>
+          </header>
+          <div class="home-ai-signals-list" id="home-ai-signals-list">
+            <p class="muted">관심종목의 AI 매매신호를 불러오는 중입니다.</p>
+          </div>
+        </section>
+
         <section class="home-surge" id="home-surge" aria-labelledby="home-surge-title" aria-live="polite">
           <header class="home-surge-head">
             <div><span id="home-surge-meta">기준 정보 확인 중</span><h2 id="home-surge-title">급등주</h2></div>
@@ -633,6 +643,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260726v70" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260726v71" defer></script>
   </body>
 </html>

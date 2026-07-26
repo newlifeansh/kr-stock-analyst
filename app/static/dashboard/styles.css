@@ -1459,6 +1459,17 @@ a {
   line-height: 1.45;
 }
 
+.push-notification-condition.is-required {
+  background: #f7f9fc;
+}
+
+.push-notification-required {
+  color: #2879df;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
 .push-notification-condition-control {
   position: relative;
   width: 54px;
@@ -1507,7 +1518,7 @@ a {
 }
 
 .push-notification-condition-control input:disabled + .push-notification-condition-switch {
-  opacity: 0.5;
+  opacity: 1;
 }
 
 .push-notification-sheet-actions {
@@ -23886,7 +23897,130 @@ body:not([data-view="stock"]) #portfolio-tracking-panel > #recommend-history-vie
   background: var(--app-v3-bg, #f4f5f7);
 }
 
-/* Home surge 5.1: compact market discovery between indices and the news timeline. */
+/* Home AI signals 5.2: stock-detail aligned watchlist signal board. */
+body:not([data-view="stock"]) .home-ai-signals {
+  margin: 8px 0 0;
+  padding: 0 28px;
+  background: #fff;
+  border-top: 8px solid #f3f5f7;
+  border-bottom: 8px solid #f3f5f7;
+}
+
+body:not([data-view="stock"]) .home-ai-signals-head {
+  min-height: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid #e4e8ed;
+}
+
+body:not([data-view="stock"]) .home-ai-signals-head > div {
+  min-width: 0;
+}
+
+body:not([data-view="stock"]) .home-ai-signals-head span {
+  display: block;
+  margin-bottom: 6px;
+  color: #8a94a3;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+body:not([data-view="stock"]) .home-ai-signals-head h2 {
+  margin: 0;
+  color: #151922;
+  font-size: 24px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+body:not([data-view="stock"]) .home-ai-signals-head .text-action {
+  flex: 0 0 auto;
+  padding: 8px 0 8px 16px;
+  color: #4c5667;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+body:not([data-view="stock"]) .home-ai-signals-list {
+  min-height: 72px;
+}
+
+body:not([data-view="stock"]) .home-ai-signals-list > .muted {
+  margin: 0;
+  padding: 24px 0;
+}
+
+body:not([data-view="stock"]) .home-ai-signal-row {
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(180px, 1.2fr) auto;
+  align-items: center;
+  gap: 20px;
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid #e8ebef;
+}
+
+body:not([data-view="stock"]) .home-ai-signal-row:last-child {
+  border-bottom: 0;
+}
+
+body:not([data-view="stock"]) :is(.home-ai-signal-identity, .home-ai-signal-status, .home-ai-signal-basis) {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+body:not([data-view="stock"]) .home-ai-signal-row strong {
+  overflow: hidden;
+  color: #191d26;
+  font-size: 16px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) .home-ai-signal-row small {
+  overflow: hidden;
+  color: #8a94a3;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) .home-ai-signal-status {
+  padding-left: 13px;
+  border-left: 3px solid #cbd1d9;
+}
+
+body:not([data-view="stock"]) .home-ai-signal-row.is-buy .home-ai-signal-status {
+  border-left-color: #e22d3f;
+}
+
+body:not([data-view="stock"]) .home-ai-signal-row.is-buy .home-ai-signal-status strong,
+body:not([data-view="stock"]) .home-ai-signal-row.is-hold .home-ai-signal-status strong {
+  color: #dc2638;
+}
+
+body:not([data-view="stock"]) .home-ai-signal-row.is-sell .home-ai-signal-status {
+  border-left-color: #2879df;
+}
+
+body:not([data-view="stock"]) .home-ai-signal-row.is-sell .home-ai-signal-status strong {
+  color: #2879df;
+}
+
+body:not([data-view="stock"]) .home-ai-signal-basis {
+  align-items: flex-end;
+  text-align: right;
+}
+
 body:not([data-view="stock"]) .home-surge {
   margin: 8px 0;
   padding: 0 28px;
@@ -24178,17 +24312,38 @@ body:not([data-view="stock"]) .market-leaderboard-strip strong.negative {
 }
 
 @media (max-width: 640px) {
+  body:not([data-view="stock"]) .home-ai-signals,
   body:not([data-view="stock"]) .home-surge {
     padding: 0 20px;
   }
 
+  body:not([data-view="stock"]) .home-ai-signals-head,
   body:not([data-view="stock"]) .home-surge-head {
     min-height: 82px;
   }
 
+  body:not([data-view="stock"]) .home-ai-signals-head h2,
   body:not([data-view="stock"]) .home-surge-head h2,
   body:not([data-view="stock"]) .market-ranking-head h1 {
     font-size: 22px;
+  }
+
+  body:not([data-view="stock"]) .home-ai-signal-row {
+    min-height: 84px;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  body:not([data-view="stock"]) .home-ai-signal-status {
+    padding-left: 9px;
+  }
+
+  body:not([data-view="stock"]) .home-ai-signal-row strong {
+    font-size: 14px;
+  }
+
+  body:not([data-view="stock"]) .home-ai-signal-row small {
+    font-size: 10px;
   }
 
   body:not([data-view="stock"]) .app-market-rankings {

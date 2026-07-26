@@ -281,6 +281,7 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert 'id="trend-watch-news-board"' in shell
     assert 'id="trend-topbar" hidden' in shell
     assert 'id="home-market-indices"' in shell
+    assert 'id="home-ai-signals"' in shell
     assert 'id="home-kospi-chart"' in shell
     assert 'id="home-kosdaq-chart"' in shell
     assert 'id="home-index-shared-asof"' in shell
@@ -307,12 +308,19 @@ def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():
     assert 'id="home-surge"' in shell
     assert 'id="home-surge-more"' in shell
     assert 'id="market-view" class="app-page app-market-rankings"' in shell
-    assert shell.index('id="home-market-indices"') < shell.index('id="home-surge"') < shell.index('id="trend-view"')
+    assert (
+        shell.index('id="home-market-indices"')
+        < shell.index('id="home-ai-signals"')
+        < shell.index('id="home-surge"')
+        < shell.index('id="trend-view"')
+    )
     assert shell.index('id="search-view"') > shell.index('id="market-view"')
     assert 'data-market-filter="KOSPI"' in shell
     assert 'data-market-filter="KOSDAQ"' in shell
     assert 'data-market-filter="ALL"' not in shell
     assert "function renderHomeSurgeRankings" in source
+    assert "function renderHomeAiSignals" in source
+    assert "/quant-signals`" in source
     assert ".slice(0, 5)" in source
     assert 'limit: 30' in source
     assert 'history.replaceState(null, "", "/dashboard?view=movers")' in source

@@ -1186,9 +1186,13 @@ def build_quant_signal_payload(
         "as_of": current_time,
         "strategy_name": STRATEGY_NAME,
         "strategy_version": STRATEGY_VERSION,
-        "source": "저장 일봉 + KIS 실시간 현재가 + 수급·뉴스·리포트·공시"
-        if live_quote
-        else "저장 일봉 + 수급·뉴스·리포트·공시",
+        "source": (
+            "저장 일봉 + KIS 실시간 현재가 + 수급·뉴스·리포트·공시"
+            if live_quote
+            else "저장 일봉 + 수급·뉴스·리포트·공시"
+        )
+        if context is not None
+        else ("저장 일봉 + KIS 실시간 현재가" if live_quote else "저장 일봉"),
         "data_rows": len(confirmed),
         "price_through": confirmed[-1].trade_date if confirmed else None,
         "confirmation": current_context,
@@ -1253,6 +1257,7 @@ def load_quant_signal_payload(
     live_quote: Optional[dict[str, Any]] = None,
     now: Optional[datetime] = None,
     limit: int = 900,
+    include_context: bool = True,
 ) -> Optional[dict[str, Any]]:
     stock = db.get(StockMaster, code)
     if not stock or not stock.is_active:
@@ -1270,12 +1275,16 @@ def load_quant_signal_payload(
         )
     )
     current_time = now or datetime.now(KST)
-    context = _load_current_context(
-        db,
-        stock,
-        rows,
-        live_quote=live_quote,
-        now=current_time,
+    context = (
+        _load_current_context(
+            db,
+            stock,
+            rows,
+            live_quote=live_quote,
+            now=current_time,
+        )
+        if include_context
+        else None
     )
     return build_quant_signal_payload(
         stock,

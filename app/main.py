@@ -119,7 +119,7 @@ from app.services.briefing import briefing_runtime
 from app.collectors.briefing import KisRestBriefingProvider
 from app.collectors.naver_flows import collect_naver_investor_flows
 from app.bootstrap import bootstrap_runtime_data
-from app.mcp_server import build_insight_mcp_server, mcp_sdk_available
+from app.mcp_server import build_insight_mcp_server
 from app.services.company_briefs import build_company_briefs
 from app.services.company_profiles import ensure_company_profile
 from app.services.community_feed import build_stock_community_feed
@@ -198,6 +198,12 @@ LOCAL_ONLY_HOSTS = {"127.0.0.1", "localhost", "::1", "testserver"}
 KST = ZoneInfo("Asia/Seoul")
 PUSH_CONDITION_OPTIONS = [
     {
+        "id": "ai_signal",
+        "label": "AI 매매신호",
+        "description": "관심종목의 매수·매도 신호가 바뀌면 항상 알려드립니다.",
+        "required": True,
+    },
+    {
         "id": "price_move",
         "label": "급등락",
         "description": f"관심종목 변동이 {settings.web_push_price_threshold:.0f}% 이상이면 알려드립니다.",
@@ -214,6 +220,9 @@ PUSH_CONDITION_OPTIONS = [
     },
 ]
 DEFAULT_PUSH_CONDITIONS = tuple(item["id"] for item in PUSH_CONDITION_OPTIONS)
+REQUIRED_PUSH_CONDITIONS = tuple(
+    item["id"] for item in PUSH_CONDITION_OPTIONS if item.get("required")
+)
 
 
 async def _run_bootstrap_task() -> None:
@@ -330,7 +339,8 @@ def _normalize_push_conditions(values: object) -> list[str]:
         condition = str(item or "").strip()
         if condition in allowed and condition not in normalized:
             normalized.append(condition)
-    return normalized or list(DEFAULT_PUSH_CONDITIONS)
+    selected = normalized or list(DEFAULT_PUSH_CONDITIONS)
+    return list(dict.fromkeys((*REQUIRED_PUSH_CONDITIONS, *selected)))
 
 
 def _subscription_conditions(subscription: Optional[PushSubscription]) -> list[str]:
@@ -671,6 +681,46 @@ def session_write_token(
 @app.get("/watchlists/{share_id}", response_model=WatchlistOut)
 def get_watchlist(share_id: str, db: Session = Depends(get_db)):
     return _watchlist_response(db, _normalize_watchlist_id(share_id))
+
+
+@app.get("/watchlists/{share_id}/quant-signals")
+def get_watchlist_quant_signals(
+    share_id: str,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    _enforce_rate_limit(request, "watchlist_quant_signals", limit=30, window_seconds=60)
+    normalized_id = _normalize_watchlist_id(share_id)
+    watch_items = list(
+        db.scalars(
+            select(WatchlistItem)
+            .where(WatchlistItem.share_id == normalized_id)
+            .order_by(WatchlistItem.sort_order, WatchlistItem.created_at, WatchlistItem.code)
+        )
+    )
+    items: list[dict[str, object]] = []
+    for watch_item in watch_items:
+        payload = load_quant_signal_payload(db, watch_item.code, include_context=False)
+        items.append(
+            {
+                "code": watch_item.code,
+                "name": watch_item.name,
+                "market": watch_item.market,
+                "data_state": payload.get("data_state") if payload else "unavailable",
+                "data_message": payload.get("data_message") if payload else "가격 이력을 확인하는 중입니다.",
+                "as_of": payload.get("as_of") if payload else None,
+                "price_through": payload.get("price_through") if payload else None,
+                "current": payload.get("current") if payload else None,
+            }
+        )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return {
+        "share_id": normalized_id,
+        "as_of": datetime.now(KST),
+        "items": items,
+    }
 
 
 @app.put("/watchlists/{share_id}", response_model=WatchlistOut)

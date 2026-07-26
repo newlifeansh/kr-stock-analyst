@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app import main
 from app.db import Base, get_db
 from app.main import app
-from app.models import DailyPrice, DisclosureItem, InvestorFlow, NewsItem, ResearchReport, StockMaster
+from app.models import DailyPrice, DisclosureItem, InvestorFlow, NewsItem, ResearchReport, StockMaster, WatchlistItem
 from app.services.quant_signals import (
     MIN_HISTORY_ROWS,
     STRATEGY_VERSION,
@@ -177,6 +177,36 @@ def test_quant_signal_endpoint_uses_same_engine_for_multiple_stocks(monkeypatch)
         assert samsung.json()["code"] == "005930"
         assert hynix.json()["code"] == "000660"
         assert samsung.json()["current"]["live_observation"] is False
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
+def test_watchlist_quant_signal_endpoint_aggregates_the_same_strategy_without_cache():
+    db = _session()
+    db.add_all([_stock(), _stock("000660", "SK하이닉스")])
+    db.add_all(_price_rows("005930") + _price_rows("000660"))
+    db.add_all(
+        [
+            WatchlistItem(share_id="tester", code="005930", name="삼성전자", market="KOSPI", sort_order=0),
+            WatchlistItem(share_id="tester", code="000660", name="SK하이닉스", market="KOSPI", sort_order=1),
+        ]
+    )
+    db.commit()
+
+    def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        response = TestClient(app).get("/watchlists/tester/quant-signals")
+        assert response.status_code == 200
+        assert response.headers["cache-control"].startswith("no-store")
+        payload = response.json()
+        assert payload["share_id"] == "tester"
+        assert [item["code"] for item in payload["items"]] == ["005930", "000660"]
+        assert all(item["current"] for item in payload["items"])
+        assert all(item["data_state"] == "ready" for item in payload["items"])
     finally:
         app.dependency_overrides.pop(get_db, None)
         db.close()

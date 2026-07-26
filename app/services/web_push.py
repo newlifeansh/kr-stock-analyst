@@ -26,6 +26,7 @@ from app.models import (
     WatchlistItem,
 )
 from app.services.stock_dashboard import _naver_snapshot
+from app.services.quant_signals import load_quant_signal_payload
 from app.services.trends import (
     _matched_template_sectors,
     _stock_sectors,
@@ -65,8 +66,10 @@ IMPORTANT_DISCLOSURE_KEYWORDS = (
     "배임",
     "시설투자",
 )
-DEFAULT_PUSH_CONDITIONS = ("price_move", "disclosure_report", "major_event")
+DEFAULT_PUSH_CONDITIONS = ("ai_signal", "price_move", "disclosure_report", "major_event")
+REQUIRED_PUSH_CONDITIONS = {"ai_signal"}
 PUSH_KIND_TO_CONDITION = {
+    "ai_signal": "ai_signal",
     "price_move": "price_move",
     "report": "disclosure_report",
     "disclosure": "disclosure_report",
@@ -97,7 +100,7 @@ def subscription_conditions(subscription: PushSubscription) -> set[str]:
         return set(DEFAULT_PUSH_CONDITIONS)
     allowed = set(DEFAULT_PUSH_CONDITIONS)
     normalized = {str(item) for item in parsed if str(item) in allowed}
-    return normalized or set(DEFAULT_PUSH_CONDITIONS)
+    return REQUIRED_PUSH_CONDITIONS | (normalized or set(DEFAULT_PUSH_CONDITIONS))
 
 
 def candidate_enabled(subscription: PushSubscription, candidate: NotificationCandidate) -> bool:
@@ -107,6 +110,59 @@ def candidate_enabled(subscription: PushSubscription, candidate: NotificationCan
     if not condition:
         return True
     return condition in subscription_conditions(subscription)
+
+
+def _signal_date(value: object) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _ai_signal_candidate(
+    item: WatchlistItem,
+    payload: Optional[dict[str, object]],
+    now: datetime,
+) -> Optional[NotificationCandidate]:
+    current = payload.get("current") if payload else None
+    if not isinstance(current, dict):
+        return None
+    action = str(current.get("action") or "")
+    signal_labels = {
+        "entry_pending": "매수 확인",
+        "entered": "매수 완료",
+        "partial_exit_pending": "일부 매도 확인",
+        "partially_exited": "일부 매도",
+        "full_exit_pending": "매도 확인",
+        "exited": "매도 완료",
+    }
+    label = signal_labels.get(action)
+    if not label:
+        return None
+    lifecycle = current.get("lifecycle") if isinstance(current.get("lifecycle"), dict) else {}
+    transition = lifecycle.get("latest_transition") if isinstance(lifecycle.get("latest_transition"), dict) else {}
+    completed = action in {"entered", "partially_exited", "exited"}
+    basis_value = transition.get("transition_date") if completed else payload.get("price_through")
+    basis = _signal_date(basis_value)
+    if basis is None or basis.date() != now.date():
+        return None
+    detail = str(current.get("next_confirmation") or "종목상세에서 신호 기준을 확인하세요.")
+    return NotificationCandidate(
+        event_key=f"ai-signal:{item.code}:{action}:{basis.date().isoformat()}",
+        kind="ai_signal",
+        title=f"{item.name} AI 매매신호 · {label}",
+        body=detail,
+        url=_stock_url(item.name),
+        tag=f"ai-signal-{item.code}",
+        occurred_at=now,
+    )
 
 
 def _stock_url(name: str) -> str:
@@ -324,6 +380,34 @@ class WebPushRuntime:
                 )
         return output
 
+    def _ai_signal_candidates(
+        self,
+        db: Session,
+        watchlists: dict[str, list[WatchlistItem]],
+        now: datetime,
+    ) -> dict[str, list[NotificationCandidate]]:
+        output = {share_id: [] for share_id in watchlists}
+        payloads: dict[str, Optional[dict[str, object]]] = {}
+        for items in watchlists.values():
+            for item in items:
+                if item.code not in payloads:
+                    try:
+                        payloads[item.code] = load_quant_signal_payload(
+                            db,
+                            item.code,
+                            now=now,
+                            include_context=False,
+                        )
+                    except Exception:
+                        logger.exception("AI signal calculation failed for %s", item.code)
+                        payloads[item.code] = None
+        for share_id, items in watchlists.items():
+            for item in items:
+                candidate = _ai_signal_candidate(item, payloads.get(item.code), now)
+                if candidate:
+                    output[share_id].append(candidate)
+        return output
+
     def _send(self, db: Session, subscription: PushSubscription, candidate: NotificationCandidate) -> bool:
         if not candidate_enabled(subscription, candidate):
             return False
@@ -455,6 +539,7 @@ class WebPushRuntime:
                     if candidate:
                         candidates_by_share[share_id].append(candidate)
             for source in (
+                self._ai_signal_candidates(db, watchlists, now_kst),
                 self._content_candidates(db, watchlists, now_utc),
                 self._event_candidates(db, watchlists, now_kst),
             ):
@@ -476,7 +561,7 @@ class WebPushRuntime:
                 event_key=f"test:{subscription.id}:{now.isoformat(timespec='seconds')}",
                 kind="test",
                 title="알림 설정 완료",
-                body="관심종목 급등락, 중요 공시·리포트, 주요 이벤트를 알려드립니다.",
+                body="관심종목 AI 매매신호, 급등락, 중요 공시·리포트, 주요 이벤트를 알려드립니다.",
                 url="/dashboard?view=watchlist",
                 tag="push-test",
                 occurred_at=now,

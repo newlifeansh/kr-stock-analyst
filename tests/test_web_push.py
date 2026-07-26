@@ -239,6 +239,61 @@ def test_delivery_respects_saved_notification_preferences(monkeypatch):
         db.close()
 
 
+def test_ai_signal_is_mandatory_even_when_only_price_alerts_are_selected():
+    subscription = PushSubscription(
+        share_id="tester",
+        endpoint="https://push.example/subscription",
+        p256dh="p" * 64,
+        auth="a" * 24,
+        notification_preferences='["price_move"]',
+    )
+    candidate = web_push.NotificationCandidate(
+        event_key="ai-signal:005930:entered:2026-07-25",
+        kind="ai_signal",
+        title="삼성전자 AI 매매신호 · 매수 완료",
+        body="초기 위험선을 확인합니다.",
+        url="/dashboard/삼성전자",
+        tag="ai-signal-005930",
+    )
+
+    assert "ai_signal" in web_push.subscription_conditions(subscription)
+    assert web_push.candidate_enabled(subscription, candidate) is True
+
+
+def test_ai_signal_candidate_only_emits_a_new_action_for_today(monkeypatch):
+    db = _session()
+    try:
+        watch = WatchlistItem(share_id="tester", code="005930", name="삼성전자", market="KOSPI")
+        db.add(watch)
+        db.commit()
+        now = datetime(2026, 7, 25, 18, 0)
+        monkeypatch.setattr(
+            web_push,
+            "load_quant_signal_payload",
+            lambda *_args, **_kwargs: {
+                "price_through": "2026-07-25",
+                "current": {
+                    "action": "entry_pending",
+                    "next_confirmation": "종가 확정 후 매수 여부를 확인합니다.",
+                    "lifecycle": {"latest_transition": None},
+                },
+            },
+        )
+
+        candidates = web_push.WebPushRuntime(_settings())._ai_signal_candidates(
+            db,
+            {"tester": [watch]},
+            now,
+        )
+
+        assert len(candidates["tester"]) == 1
+        assert candidates["tester"][0].kind == "ai_signal"
+        assert "매수 확인" in candidates["tester"][0].title
+        assert candidates["tester"][0].event_key == "ai-signal:005930:entry_pending:2026-07-25"
+    finally:
+        db.close()
+
+
 def test_test_notification_title_does_not_repeat_service_name(monkeypatch):
     db = _session()
     payloads = []
