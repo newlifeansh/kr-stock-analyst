@@ -298,6 +298,7 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     client = TestClient(app)
     shell = client.get("/dashboard").text
     source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
 
     live_index = shell.index('data-trend-tab="live"')
     events_index = shell.index('data-trend-tab="events"')
@@ -341,9 +342,13 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert "function startHomeMarketSignalTicker" in source
     assert '시총 상위 100' not in shell
     assert '시총 상위 종목의 최근 신호' not in shell
-    assert 'styles.css?v=20260727v99' in shell
-    assert 'app.js?v=20260727v99' in shell
-    assert 'DASHBOARD_SW_VERSION = "20260727v99"' in client.get("/dashboard-sw.js").text
+    assert 'styles.css?v=20260727v100' in shell
+    assert 'app.js?v=20260727v100' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260727v100"' in client.get("/dashboard-sw.js").text
+    assert 'id="logout-button"' not in shell
+    assert ".app-notification-button svg" in styles
+    assert "width: 25px;" in styles
+    assert "height: 25px;" in styles
     assert "renderHomeMarketIndices" in source
     assert 'class="side-nav"' not in shell
     nav_order = [

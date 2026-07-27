@@ -26905,6 +26905,11 @@ body:not([data-view="stock"]) .app-notification-button[data-active="true"] {
   box-shadow: none;
 }
 
+.app-notification-button svg {
+  width: 25px;
+  height: 25px;
+}
+
 .app-notification-button:hover,
 .app-notification-button[data-active="true"]:hover {
   border-color: transparent;
