@@ -328,6 +328,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert "/market/indices?limit=30" in source
     assert "/market/quant-signals?universe_limit=100&limit=30&recent_days=30" in source
     assert "function startHomeMarketSignalTicker" in source
+    assert 'styles.css?v=20260727v88' in shell
+    assert 'app.js?v=20260727v88' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260727v88"' in client.get("/dashboard-sw.js").text
     assert "renderHomeMarketIndices" in source
     assert 'class="side-nav"' not in shell
     nav_order = [

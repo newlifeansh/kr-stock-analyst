@@ -27,7 +27,7 @@ def test_stock_detail_v3_shell_and_controls():
         "최근 1년 AI 매매신호",
         "모든 매매내역 보기",
         'class="ollama-ai-badge stock-home-ai-status"',
-        "20260727v87",
+        "20260727v88",
     ):
         assert expected in shell.text
     assert "1,000만원 모의 운용" not in shell.text
