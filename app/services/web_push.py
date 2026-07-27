@@ -15,7 +15,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.db import SessionLocal
+from app.db import PushSessionLocal
 from app.models import (
     DisclosureItem,
     PushDelivery,
@@ -502,7 +502,7 @@ class WebPushRuntime:
             return 0
         now_utc = datetime.utcnow()
         now_kst = datetime.now(KST).replace(tzinfo=None)
-        with SessionLocal() as db:
+        with PushSessionLocal() as db:
             db.execute(
                 delete(PushNotificationHistory).where(
                     PushNotificationHistory.created_at < now_utc - NOTIFICATION_HISTORY_RETENTION

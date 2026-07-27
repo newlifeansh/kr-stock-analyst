@@ -4,6 +4,7 @@ from pathlib import Path
 
 from sqlalchemy import BigInteger, String, create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
 
@@ -53,6 +54,19 @@ if database_url.startswith("sqlite"):
         cursor.execute("PRAGMA busy_timeout=30000")
         cursor.close()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+# Push scans must keep running even when concurrent dashboard requests exhaust
+# the main application pool. The low-frequency worker opens one short-lived
+# connection per scan instead of competing for the request pool.
+if database_url.startswith("sqlite"):
+    PushSessionLocal = SessionLocal
+else:
+    push_engine = create_engine(
+        database_url,
+        poolclass=NullPool,
+        pool_pre_ping=True,
+    )
+    PushSessionLocal = sessionmaker(bind=push_engine, autoflush=False, autocommit=False)
 
 
 def init_db() -> None:
