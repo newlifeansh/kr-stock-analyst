@@ -850,6 +850,12 @@ def get_market_quant_signals(
 def put_watchlist(share_id: str, payload: WatchlistUpdateIn, request: Request, db: Session = Depends(get_db)):
     normalized_id = _normalize_watchlist_id(share_id)
     _require_write_access(request, normalized_id)
+    existing = {
+        item.code: item
+        for item in db.scalars(
+            select(WatchlistItem).where(WatchlistItem.share_id == normalized_id)
+        )
+    }
     seen: set[str] = set()
     rows: list[WatchlistItem] = []
     for item in payload.items:
@@ -858,17 +864,20 @@ def put_watchlist(share_id: str, payload: WatchlistUpdateIn, request: Request, d
             continue
         seen.add(code)
         master = db.get(StockMaster, code)
-        rows.append(
-            WatchlistItem(
+        row = existing.get(code)
+        if row is None:
+            row = WatchlistItem(
                 share_id=normalized_id,
                 code=code,
-                name=(item.name or (master.name if master else code)).strip(),
-                market=item.market or (master.market if master else None),
-                sort_order=len(rows),
             )
-        )
-    db.execute(delete(WatchlistItem).where(WatchlistItem.share_id == normalized_id))
-    db.add_all(rows)
+        row.name = (item.name or (master.name if master else code)).strip()
+        row.market = item.market or (master.market if master else None)
+        row.sort_order = len(rows)
+        rows.append(row)
+    for code, row in existing.items():
+        if code not in seen:
+            db.delete(row)
+    db.add_all(row for row in rows if row.id is None)
     db.commit()
     return _watchlist_response(db, normalized_id)
 

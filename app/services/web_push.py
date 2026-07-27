@@ -86,6 +86,7 @@ class NotificationCandidate:
     url: str
     tag: str
     occurred_at: Optional[datetime] = None
+    stock_codes: tuple[str, ...] = ()
 
 
 def subscription_conditions(subscription: PushSubscription) -> set[str]:
@@ -162,6 +163,7 @@ def _ai_signal_candidate(
         url=_stock_url(item.name),
         tag=f"ai-signal-{item.code}",
         occurred_at=now,
+        stock_codes=(item.code,),
     )
 
 
@@ -199,6 +201,7 @@ def _price_candidate(
         url=_stock_url(item.name),
         tag=f"price-{item.code}-{direction}",
         occurred_at=now,
+        stock_codes=(item.code,),
     )
 
 
@@ -216,6 +219,7 @@ def _report_candidate(item: ResearchReport, stock_name: str) -> NotificationCand
         url=_stock_url(stock_name),
         tag=f"report-{item.stock_code or item.external_id}",
         occurred_at=item.updated_at,
+        stock_codes=(item.stock_code,) if item.stock_code else (),
     )
 
 
@@ -228,6 +232,7 @@ def _disclosure_candidate(item: DisclosureItem, stock_name: str) -> Notification
         url=_stock_url(stock_name),
         tag=f"disclosure-{item.stock_code or item.external_id}",
         occurred_at=item.updated_at,
+        stock_codes=(item.stock_code,) if item.stock_code else (),
     )
 
 
@@ -358,10 +363,12 @@ class WebPushRuntime:
                 continue
             for share_id, items in watchlists.items():
                 matched_names = []
+                matched_codes = []
                 for item in items:
                     stock = stocks.get(item.code)
                     if stock and _matched_template_sectors(template, _stock_sectors(stock)):
                         matched_names.append(item.name)
+                        matched_codes.append(item.code)
                 if not matched_names:
                     continue
                 names_text = ", ".join(matched_names[:3])
@@ -376,6 +383,7 @@ class WebPushRuntime:
                         url="/dashboard?view=trend",
                         tag=f"event-{event['id']}",
                         occurred_at=now,
+                        stock_codes=tuple(matched_codes),
                     )
                 )
         return output
@@ -420,7 +428,7 @@ class WebPushRuntime:
                 PushDelivery.event_key == candidate.event_key,
             )
         )
-        if delivery and (delivery.status == "sent" or delivery.attempts >= 3):
+        if delivery and (delivery.status in {"sent", "baseline"} or delivery.attempts >= 3):
             return False
         if delivery is None:
             delivery = PushDelivery(
@@ -497,6 +505,83 @@ class WebPushRuntime:
             db.commit()
             return False
 
+    @staticmethod
+    def _baseline_marker_key(subscription: PushSubscription, item: WatchlistItem) -> str:
+        subscription_epoch = subscription.created_at.isoformat(timespec="microseconds")
+        watch_epoch = item.created_at.isoformat(timespec="microseconds")
+        return f"watch-baseline:{item.code}:{subscription_epoch}:{watch_epoch}"
+
+    def _initialized_watch_codes(
+        self,
+        db: Session,
+        subscription: PushSubscription,
+        items: list[WatchlistItem],
+    ) -> set[str]:
+        marker_by_code = {
+            item.code: self._baseline_marker_key(subscription, item)
+            for item in items
+        }
+        if not marker_by_code:
+            return set()
+        existing = set(
+            db.scalars(
+                select(PushDelivery.event_key).where(
+                    PushDelivery.subscription_id == subscription.id,
+                    PushDelivery.event_key.in_(tuple(marker_by_code.values())),
+                    PushDelivery.status == "baseline",
+                )
+            )
+        )
+        return {code for code, marker in marker_by_code.items() if marker in existing}
+
+    @staticmethod
+    def _record_candidate_baseline(
+        db: Session,
+        subscription: PushSubscription,
+        candidate: NotificationCandidate,
+    ) -> None:
+        delivery = db.scalar(
+            select(PushDelivery).where(
+                PushDelivery.subscription_id == subscription.id,
+                PushDelivery.event_key == candidate.event_key,
+            )
+        )
+        if delivery is None:
+            db.add(
+                PushDelivery(
+                    subscription_id=subscription.id,
+                    event_key=candidate.event_key,
+                    notification_kind=candidate.kind,
+                    title=candidate.title,
+                    status="baseline",
+                    attempts=0,
+                )
+            )
+        elif delivery.status not in {"sent", "baseline"}:
+            delivery.status = "baseline"
+            delivery.error = None
+
+    def _mark_watchlist_initialized(
+        self,
+        db: Session,
+        subscription: PushSubscription,
+        items: list[WatchlistItem],
+        initialized_codes: set[str],
+    ) -> None:
+        for item in items:
+            if item.code in initialized_codes:
+                continue
+            db.add(
+                PushDelivery(
+                    subscription_id=subscription.id,
+                    event_key=self._baseline_marker_key(subscription, item),
+                    notification_kind="baseline",
+                    title=f"{item.name} 알림 기준선",
+                    status="baseline",
+                    attempts=0,
+                )
+            )
+
     def run_once(self) -> int:
         if not self.configured:
             return 0
@@ -548,8 +633,16 @@ class WebPushRuntime:
 
             sent = 0
             for subscription in subscriptions:
+                items = watchlists.get(subscription.share_id, [])
+                initialized_codes = self._initialized_watch_codes(db, subscription, items)
                 for candidate in candidates_by_share.get(subscription.share_id, []):
+                    related_codes = set(candidate.stock_codes)
+                    if related_codes and not (related_codes & initialized_codes):
+                        self._record_candidate_baseline(db, subscription, candidate)
+                        continue
                     sent += int(self._send(db, subscription, candidate))
+                self._mark_watchlist_initialized(db, subscription, items, initialized_codes)
+                db.commit()
             return sent
 
     def send_test(self, db: Session, subscription: PushSubscription) -> bool:

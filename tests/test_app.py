@@ -5,7 +5,7 @@ from sqlalchemy import delete
 
 from app.db import SessionLocal, init_db
 from app.main import app
-from app.models import PushNotificationHistory
+from app.models import PushNotificationHistory, WatchlistItem
 
 
 def test_health():
@@ -169,6 +169,53 @@ def test_watchlist_share_id_roundtrip():
     loaded = client.get(f"/watchlists/{share_id}")
     assert loaded.status_code == 200
     assert loaded.json()["items"] == payload["items"]
+
+
+def test_watchlist_update_preserves_existing_item_added_at():
+    init_db()
+    client = TestClient(app)
+    share_id = "codex-watchlist-added-at"
+    token_response = client.get(f"/session/write-token?share_id={share_id}")
+    write_token = token_response.json()["write_token"]
+    headers = {"X-Write-Token": write_token}
+    first_payload = {
+        "items": [{"code": "005930", "name": "삼성전자", "market": "KOSPI"}]
+    }
+    second_payload = {
+        "items": [
+            {"code": "005930", "name": "삼성전자", "market": "KOSPI"},
+            {"code": "000660", "name": "SK하이닉스", "market": "KOSPI"},
+        ]
+    }
+    try:
+        assert client.put(f"/watchlists/{share_id}", json=first_payload, headers=headers).status_code == 200
+        with SessionLocal() as db:
+            first_added_at = db.scalar(
+                WatchlistItem.__table__.select()
+                .with_only_columns(WatchlistItem.created_at)
+                .where(
+                    WatchlistItem.share_id == share_id,
+                    WatchlistItem.code == "005930",
+                )
+            )
+
+        assert client.put(f"/watchlists/{share_id}", json=second_payload, headers=headers).status_code == 200
+        with SessionLocal() as db:
+            rows = list(
+                db.scalars(
+                    WatchlistItem.__table__.select()
+                    .with_only_columns(WatchlistItem.created_at)
+                    .where(
+                        WatchlistItem.share_id == share_id,
+                        WatchlistItem.code == "005930",
+                    )
+                )
+            )
+        assert rows == [first_added_at]
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(WatchlistItem).where(WatchlistItem.share_id == share_id))
+            db.commit()
 
 
 def test_briefing_status():

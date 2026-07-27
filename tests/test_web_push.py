@@ -319,3 +319,62 @@ def test_test_notification_title_does_not_repeat_service_name(monkeypatch):
         assert "비밀노트" not in payloads[0]
     finally:
         db.close()
+
+
+def test_new_watch_item_baselines_existing_events_before_sending_new_ones(monkeypatch):
+    db = _session()
+    calls = []
+    try:
+        subscription = PushSubscription(
+            share_id="tester",
+            endpoint="https://push.example/subscription",
+            p256dh="p" * 64,
+            auth="a" * 24,
+        )
+        watch = WatchlistItem(
+            share_id="tester",
+            code="005930",
+            name="삼성전자",
+            market="KOSPI",
+        )
+        db.add_all([subscription, watch])
+        db.commit()
+        db.refresh(subscription)
+        db.refresh(watch)
+        monkeypatch.setattr(web_push, "webpush", lambda **kwargs: calls.append(kwargs))
+        runtime = web_push.WebPushRuntime(_settings())
+        existing_candidate = web_push.NotificationCandidate(
+            event_key="report:naver:existing",
+            kind="report",
+            title="삼성전자 기존 리포트",
+            body="알림 설정 전에 존재하던 리포트",
+            url="/dashboard/삼성전자",
+            tag="report-existing",
+            occurred_at=datetime.utcnow(),
+            stock_codes=("005930",),
+        )
+
+        initialized = runtime._initialized_watch_codes(db, subscription, [watch])
+        assert initialized == set()
+        runtime._record_candidate_baseline(db, subscription, existing_candidate)
+        runtime._mark_watchlist_initialized(db, subscription, [watch], initialized)
+        db.commit()
+
+        assert runtime._send(db, subscription, existing_candidate) is False
+        assert calls == []
+        assert runtime._initialized_watch_codes(db, subscription, [watch]) == {"005930"}
+
+        new_candidate = web_push.NotificationCandidate(
+            event_key="report:naver:new",
+            kind="report",
+            title="삼성전자 새 리포트",
+            body="알림 설정 이후 발행된 리포트",
+            url="/dashboard/삼성전자",
+            tag="report-new",
+            occurred_at=datetime.utcnow(),
+            stock_codes=("005930",),
+        )
+        assert runtime._send(db, subscription, new_candidate) is True
+        assert len(calls) == 1
+    finally:
+        db.close()
