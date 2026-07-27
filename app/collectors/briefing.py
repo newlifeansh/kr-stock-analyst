@@ -200,6 +200,36 @@ class KisRestBriefingProvider:
             pass
         return movers
 
+    def fetch_market_indices(self) -> list[dict[str, object]]:
+        """Fetch KOSPI/KOSDAQ index snapshots without a quote cache."""
+        snapshots: list[dict[str, object]] = []
+        for code, input_code in (("KOSPI", "0001"), ("KOSDAQ", "1001")):
+            payload = self._get(
+                "/uapi/domestic-stock/v1/quotations/inquire-index-price",
+                "FHPUP02100000",
+                {
+                    "FID_COND_MRKT_DIV_CODE": "U",
+                    "FID_INPUT_ISCD": input_code,
+                },
+            )
+            row = payload.get("output", {}) or {}
+            current = _decimal(row.get("bstp_nmix_prpr"))
+            change = _decimal(row.get("bstp_nmix_prdy_vrss"))
+            change_rate = _decimal(row.get("bstp_nmix_prdy_ctrt"))
+            if current is None:
+                continue
+            snapshots.append(
+                {
+                    "code": code,
+                    "source": "kis",
+                    "current": current,
+                    "previous_close": current - change if change is not None else None,
+                    "change": change,
+                    "change_rate": change_rate,
+                }
+            )
+        return snapshots
+
     def _base_url(self) -> str:
         if self.settings.kis_env == "demo":
             return "https://openapivts.koreainvestment.com:29443"

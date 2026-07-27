@@ -123,7 +123,7 @@ from app.mcp_server import build_insight_mcp_server
 from app.services.company_briefs import build_company_briefs
 from app.services.company_profiles import ensure_company_profile
 from app.services.community_feed import build_stock_community_feed
-from app.services.market_indices import build_market_indices
+from app.services.market_indices import build_market_indices, merge_live_market_indices
 from app.services.market_rankings import build_market_period_returns, build_market_rankings
 from app.services.market_impact import build_market_impact
 from app.services.recommendations import build_recommendations
@@ -2885,16 +2885,24 @@ def market_indices(
     refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
-    key = ("market_indices", limit)
+    key = ("market_indices_history", limit)
     if refresh:
-        payload = build_market_indices(db, limit=limit)
-        api_cache.set(key, payload, MARKET_INDICES_TTL_SECONDS)
-        return payload
-    return api_cache.get_or_set(
-        key,
-        MARKET_INDICES_TTL_SECONDS,
-        lambda: build_market_indices(db, limit=limit),
-    )
+        stored_payload = build_market_indices(db, limit=limit)
+        api_cache.set(key, stored_payload, MARKET_INDICES_TTL_SECONDS)
+    else:
+        stored_payload = api_cache.get_or_set(
+            key,
+            MARKET_INDICES_TTL_SECONDS,
+            lambda: build_market_indices(db, limit=limit),
+        )
+
+    if not kis_rest_provider.is_configured():
+        return stored_payload
+    try:
+        return merge_live_market_indices(stored_payload, kis_rest_provider.fetch_market_indices())
+    except Exception:
+        logging.getLogger(__name__).exception("KIS market index refresh failed")
+        return stored_payload
 
 
 @app.get("/ingestions", response_model=list[IngestionRunOut])

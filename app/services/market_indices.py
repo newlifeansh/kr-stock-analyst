@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, time, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -12,6 +14,8 @@ INDEX_DEFINITIONS = (
     ("KOSPI", "코스피", "^KS11"),
     ("KOSDAQ", "코스닥", "^KQ11"),
 )
+
+KST = ZoneInfo("Asia/Seoul")
 
 
 def _number(value: Decimal | None) -> float | None:
@@ -80,3 +84,61 @@ def build_market_indices(db: Session, *, limit: int = 30) -> dict[str, object]:
             for code, label, series_code in INDEX_DEFINITIONS
         ]
     }
+
+
+def latest_korean_market_date(now: datetime | None = None) -> str:
+    local = now or datetime.now(KST)
+    if local.tzinfo is None:
+        local = local.replace(tzinfo=KST)
+    local = local.astimezone(KST)
+    candidate = local.date()
+    if local.time() < time(9, 0):
+        candidate -= timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate.isoformat()
+
+
+def merge_live_market_indices(
+    stored_payload: dict[str, object],
+    live_snapshots: list[dict[str, object]],
+    *,
+    as_of: str | None = None,
+) -> dict[str, object]:
+    live_by_code = {str(item.get("code")): item for item in live_snapshots}
+    basis_date = as_of or latest_korean_market_date()
+    merged_items: list[dict[str, object]] = []
+
+    for stored_item in stored_payload.get("items", []):
+        item = dict(stored_item)
+        live = live_by_code.get(str(item.get("code")))
+        if not live or live.get("current") is None:
+            merged_items.append(item)
+            continue
+
+        current = _number(live.get("current"))
+        previous_close = _number(live.get("previous_close"))
+        change = _number(live.get("change"))
+        change_rate = _number(live.get("change_rate"))
+        points = [
+            dict(point)
+            for point in item.get("points", [])
+            if point.get("date") != basis_date
+        ]
+        points.append({"date": basis_date, "value": current})
+
+        item.update(
+            {
+                "source": live.get("source") or "kis",
+                "as_of": basis_date,
+                "current": current,
+                "previous_close": previous_close,
+                "change": change,
+                "change_rate": change_rate,
+                "points": points,
+                "is_live": True,
+            }
+        )
+        merged_items.append(item)
+
+    return {"items": merged_items}

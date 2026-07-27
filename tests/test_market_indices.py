@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.models import MacroObservation
-from app.services.market_indices import build_market_indices
+from app.services.market_indices import build_market_indices, merge_live_market_indices
 
 
 def test_market_indices_use_latest_real_observations_and_history():
@@ -81,3 +81,48 @@ def test_market_indices_use_latest_real_observations_and_history():
         ]
     finally:
         session.close()
+
+
+def test_live_market_indices_replace_current_values_and_append_basis_point():
+    stored = {
+        "items": [
+            {
+                "code": "KOSPI",
+                "source": "yahoo",
+                "as_of": "2026-07-23",
+                "current": 7049.47,
+                "previous_close": 6747.95,
+                "change": 301.52,
+                "change_rate": 4.47,
+                "points": [
+                    {"date": "2026-07-22", "value": 6747.95},
+                    {"date": "2026-07-23", "value": 7049.47},
+                ],
+            }
+        ]
+    }
+
+    payload = merge_live_market_indices(
+        stored,
+        [
+            {
+                "code": "KOSPI",
+                "source": "kis",
+                "current": Decimal("6603.61"),
+                "previous_close": Decimal("6690.62"),
+                "change": Decimal("-87.01"),
+                "change_rate": Decimal("-1.30"),
+            }
+        ],
+        as_of="2026-07-27",
+    )
+
+    kospi = payload["items"][0]
+    assert kospi["source"] == "kis"
+    assert kospi["as_of"] == "2026-07-27"
+    assert kospi["current"] == 6603.61
+    assert kospi["previous_close"] == 6690.62
+    assert kospi["change"] == -87.01
+    assert kospi["change_rate"] == -1.3
+    assert kospi["is_live"] is True
+    assert kospi["points"][-1] == {"date": "2026-07-27", "value": 6603.61}
