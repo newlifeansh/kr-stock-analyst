@@ -11559,6 +11559,11 @@ body:not([data-view="stock"]) .home-index-session {
   line-height: 1;
 }
 
+body:not([data-view="stock"]) .home-index-session.is-realtime {
+  background: #eaf8f0;
+  color: #16824b;
+}
+
 body:not([data-view="stock"]) .home-index-previous {
   min-width: 0;
   margin: 0;

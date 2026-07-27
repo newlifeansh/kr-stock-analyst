@@ -330,9 +330,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert "function startHomeMarketSignalTicker" in source
     assert '시총 상위 100' not in shell
     assert '시총 상위 종목의 최근 신호' not in shell
-    assert 'styles.css?v=20260727v89' in shell
-    assert 'app.js?v=20260727v89' in shell
-    assert 'DASHBOARD_SW_VERSION = "20260727v89"' in client.get("/dashboard-sw.js").text
+    assert 'styles.css?v=20260727v90' in shell
+    assert 'app.js?v=20260727v90' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260727v90"' in client.get("/dashboard-sw.js").text
     assert "renderHomeMarketIndices" in source
     assert 'class="side-nav"' not in shell
     nav_order = [

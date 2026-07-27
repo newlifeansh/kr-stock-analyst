@@ -633,6 +633,7 @@ const state = {
   marketSignalTickerTimer: null,
   marketSignalRefreshTimer: null,
   marketSignalRetryTimer: null,
+  marketIndexRefreshTimer: null,
   discoverySuggestions: [],
   discoverySuggestionController: null,
   discoverySuggestionTimer: null,
@@ -5152,7 +5153,7 @@ function pageEntryTtlMs(view) {
     case "trend-impact":
       return 5 * PAGE_ENTRY_MINUTE_MS;
     case "market-indices":
-      return 5 * PAGE_ENTRY_MINUTE_MS;
+      return 0;
     case "chart":
       return 2 * PAGE_ENTRY_MINUTE_MS;
     case "chart-history":
@@ -5263,6 +5264,7 @@ function setView(requestedViewName) {
   }
   if (view !== "home") {
     stopHomeMarketSignalTicker();
+    stopHomeMarketIndexRefresh();
   }
   if (!["search", "portfolio"].includes(view)) {
     closeUsSectorStream();
@@ -10076,6 +10078,7 @@ function homeMarketIndexElements(code) {
       chart: elements.homeKosdaqChart,
       current: elements.homeKosdaqCurrent,
       change: elements.homeKosdaqChange,
+      session: elements.homeKosdaqCard?.querySelector(".home-index-session"),
     };
   }
   return {
@@ -10084,6 +10087,7 @@ function homeMarketIndexElements(code) {
     chart: elements.homeKospiChart,
     current: elements.homeKospiCurrent,
     change: elements.homeKospiChange,
+    session: elements.homeKospiCard?.querySelector(".home-index-session"),
   };
 }
 
@@ -10150,6 +10154,11 @@ function renderHomeMarketIndex(item, code) {
   refs.change.textContent = change === null
     ? "전일 대비 -"
     : `${change > 0 ? "▲" : change < 0 ? "▼" : "-"} ${formatMarketIndexValue(Math.abs(change))} · ${formatPercent(changeRate)}`;
+  if (refs.session) {
+    const realtime = item?.source === "kis" && item?.market_session === "open";
+    refs.session.textContent = realtime ? "실시간" : "장마감";
+    refs.session.classList.toggle("is-realtime", realtime);
+  }
   const chart = marketIndexChartMarkup(item);
   if (chart) {
     refs.chart.innerHTML = chart;
@@ -10171,9 +10180,15 @@ function renderHomeMarketIndices(payload = {}) {
   const byCode = new Map(items.map((item) => [item.code, item]));
   renderHomeMarketIndex(byCode.get("KOSPI"), "KOSPI");
   renderHomeMarketIndex(byCode.get("KOSDAQ"), "KOSDAQ");
+  const timestamps = [
+    payload.updated_at,
+    ...items.map((item) => item?.updated_at),
+  ].map((value) => String(value || "")).filter(Boolean).sort();
   const dates = [...new Set(items.map((item) => String(item?.as_of || "")).filter(Boolean))].sort();
   if (elements.homeIndexSharedAsOf) {
-    elements.homeIndexSharedAsOf.textContent = dates.length === 0
+    elements.homeIndexSharedAsOf.textContent = timestamps.length
+      ? formatDataBasis(timestamps[timestamps.length - 1])
+      : dates.length === 0
       ? "기준 정보 확인 중"
       : formatDataBasis(dates[dates.length - 1]);
   }
@@ -10195,16 +10210,41 @@ async function loadHomeMarketIndices(options = {}) {
   if (!elements.homeMarketIndices) {
     return;
   }
-  setHomeMarketIndicesLoading();
-  try {
-    const force = options.force === true;
-    const ttlMs = options.ttlMs ?? pageEntryTtlMs("market-indices");
-    const endpoint = `/market/indices?limit=30${force ? "&refresh=true" : ""}`;
-    const url = force ? liveUrl(endpoint) : endpoint;
-    renderHomeMarketIndices(await fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs }));
-  } catch {
-    renderHomeMarketIndices({ items: [] });
+  if (!options.silent) {
+    setHomeMarketIndicesLoading();
   }
+  try {
+    const refreshHistory = options.refreshHistory === true;
+    const endpoint = `/market/indices?limit=30${refreshHistory ? "&refresh=true" : ""}`;
+    renderHomeMarketIndices(await fetchJsonCached(liveUrl(endpoint), { force: true, ttlMs: 0 }));
+    if (state.view === "home") {
+      startHomeMarketIndexRefresh();
+    }
+  } catch {
+    if (!options.silent) {
+      renderHomeMarketIndices({ items: [] });
+    }
+  }
+}
+
+function stopHomeMarketIndexRefresh() {
+  window.clearTimeout(state.marketIndexRefreshTimer);
+  state.marketIndexRefreshTimer = null;
+}
+
+function startHomeMarketIndexRefresh() {
+  stopHomeMarketIndexRefresh();
+  if (state.view !== "home") {
+    return;
+  }
+  const intervalMs = koreaMarketPhase() === "regular" ? 5_000 : 60_000;
+  state.marketIndexRefreshTimer = window.setTimeout(async () => {
+    if (state.view === "home" && !document.hidden) {
+      await loadHomeMarketIndices({ force: true, silent: true });
+    } else if (state.view === "home") {
+      startHomeMarketIndexRefresh();
+    }
+  }, intervalMs);
 }
 
 function marketFiveMeta(key) {
@@ -11591,6 +11631,17 @@ document.addEventListener("click", (event) => {
   if (elements.chartStockSearchForm && !elements.chartStockSearchForm.contains(event.target)) {
     hideStandaloneSuggestions(elements.chartStockSearchInput, elements.chartStockSearchSuggestions);
   }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (state.view !== "home") {
+    return;
+  }
+  if (document.hidden) {
+    stopHomeMarketIndexRefresh();
+    return;
+  }
+  void loadHomeMarketIndices({ force: true, silent: true });
 });
 
 registerDashboardServiceWorker();

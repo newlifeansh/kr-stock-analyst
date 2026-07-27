@@ -1,4 +1,6 @@
+from datetime import datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import create_engine
@@ -115,6 +117,7 @@ def test_live_market_indices_replace_current_values_and_append_basis_point():
             }
         ],
         as_of="2026-07-27",
+        now=datetime(2026, 7, 27, 14, 5, tzinfo=ZoneInfo("Asia/Seoul")),
     )
 
     kospi = payload["items"][0]
@@ -125,4 +128,9 @@ def test_live_market_indices_replace_current_values_and_append_basis_point():
     assert kospi["change"] == -87.01
     assert kospi["change_rate"] == -1.3
     assert kospi["is_live"] is True
+    assert kospi["is_realtime"] is True
+    assert kospi["market_session"] == "open"
+    assert kospi["updated_at"] == "2026-07-27T14:05:00+09:00"
     assert kospi["points"][-1] == {"date": "2026-07-27", "value": 6603.61}
+    assert payload["source"] == "kis"
+    assert payload["updated_at"] == "2026-07-27T14:05:00+09:00"

@@ -2995,10 +2995,14 @@ def macro_observations(
 
 @app.get("/market/indices")
 def market_indices(
+    response: Response,
     limit: int = Query(default=30, ge=2, le=120),
     refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     key = ("market_indices_history", limit)
     if refresh:
         stored_payload = build_market_indices(db, limit=limit)

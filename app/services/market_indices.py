@@ -99,14 +99,31 @@ def latest_korean_market_date(now: datetime | None = None) -> str:
     return candidate.isoformat()
 
 
+def korean_market_session(now: datetime | None = None) -> str:
+    local = now or datetime.now(KST)
+    if local.tzinfo is None:
+        local = local.replace(tzinfo=KST)
+    local = local.astimezone(KST)
+    if local.weekday() >= 5:
+        return "closed"
+    return "open" if time(9, 0) <= local.time() < time(15, 30) else "closed"
+
+
 def merge_live_market_indices(
     stored_payload: dict[str, object],
     live_snapshots: list[dict[str, object]],
     *,
     as_of: str | None = None,
+    now: datetime | None = None,
 ) -> dict[str, object]:
     live_by_code = {str(item.get("code")): item for item in live_snapshots}
-    basis_date = as_of or latest_korean_market_date()
+    local_now = now or datetime.now(KST)
+    if local_now.tzinfo is None:
+        local_now = local_now.replace(tzinfo=KST)
+    local_now = local_now.astimezone(KST)
+    basis_date = as_of or latest_korean_market_date(local_now)
+    updated_at = local_now.isoformat(timespec="seconds")
+    market_session = korean_market_session(local_now)
     merged_items: list[dict[str, object]] = []
 
     for stored_item in stored_payload.get("items", []):
@@ -137,8 +154,16 @@ def merge_live_market_indices(
                 "change_rate": change_rate,
                 "points": points,
                 "is_live": True,
+                "is_realtime": market_session == "open",
+                "market_session": market_session,
+                "updated_at": updated_at,
             }
         )
         merged_items.append(item)
 
-    return {"items": merged_items}
+    return {
+        "items": merged_items,
+        "source": "kis",
+        "market_session": market_session,
+        "updated_at": updated_at,
+    }
