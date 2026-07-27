@@ -11091,37 +11091,44 @@ async function loadRecommendations(options = {}) {
   if (state.recommendationLoading) {
     return;
   }
-  const auto = options.auto === true;
   const recompute = options.recompute !== false;
-  const forceFetch = options.force === true || recompute;
   const saveSnapshot = options.save === true;
 
   state.recommendationLoading = true;
-  setRecommendStatus("현재 시점의 추천 종목을 선별하는 중입니다.");
-  elements.recommendList.innerHTML = "";
+  const hadRecommendations = elements.recommendList.children.length > 0;
+  if (!hadRecommendations) {
+    setRecommendStatus("추천 종목을 불러오는 중입니다.");
+  }
   const sectorMovesPromise = refreshUsSectorMoves(options);
-  const fetchRecommendations = () => {
-    const baseUrl = `/market/recommendations?limit=${RECOMMENDATION_LIMIT}&candidate_limit=45${recompute ? "&refresh=1" : ""}`;
-    const requestUrl = forceFetch ? liveUrl(baseUrl) : baseUrl;
-    return fetchJsonCached(requestUrl, forceFetch ? { force: true, ttlMs: 0 } : {});
-  };
+  const baseUrl = `/market/recommendations?limit=${RECOMMENDATION_LIMIT}&candidate_limit=45`;
+  const fetchLatestRecommendations = () => fetchJsonCached(baseUrl, { force: true, ttlMs: 0 });
+  const liveRefreshPromise = recompute
+    ? fetchJsonCached(liveUrl(`${baseUrl}&refresh=1`), { force: true, ttlMs: 0 })
+    : null;
+  let rendered = hadRecommendations;
   try {
-    const payload = await fetchRecommendations();
-    renderRecommendations(payload, { save: saveSnapshot, usSectorMoves: state.usSectorMoves });
+    const initialPayload = await fetchLatestRecommendations();
+    renderRecommendations(initialPayload, { save: saveSnapshot, usSectorMoves: state.usSectorMoves });
+    rendered = true;
   } catch {
-    setRecommendStatus("추천 종목을 다시 불러오는 중입니다.");
-    try {
-      await delay(auto ? 500 : 1200);
-      const payload = await fetchRecommendations();
-      renderRecommendations(payload, { save: saveSnapshot, usSectorMoves: state.usSectorMoves });
-    } catch {
+    if (!liveRefreshPromise && !rendered) {
       setRecommendStatus("추천 종목을 불러오지 못했습니다. 잠시 후 검색 화면을 다시 열어주세요.");
     }
-  } finally {
-    sectorMovesPromise.catch(() => {});
-    connectUsSectorStream();
-    state.recommendationLoading = false;
   }
+  if (liveRefreshPromise) {
+    try {
+      const livePayload = await liveRefreshPromise;
+      renderRecommendations(livePayload, { save: saveSnapshot, usSectorMoves: state.usSectorMoves });
+      rendered = true;
+    } catch {
+      if (!rendered) {
+        setRecommendStatus("추천 종목을 불러오지 못했습니다. 잠시 후 검색 화면을 다시 열어주세요.");
+      }
+    }
+  }
+  sectorMovesPromise.catch(() => {});
+  connectUsSectorStream();
+  state.recommendationLoading = false;
 }
 
 function setLoading(code) {

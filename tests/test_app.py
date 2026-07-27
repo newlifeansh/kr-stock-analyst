@@ -314,7 +314,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert 'id="recommend-button"' not in shell
     assert '>추천받기<' not in shell
     assert 'loadRecommendations({ auto: true, force: true, recompute: true })' in source
-    assert '현재 시점의 추천 종목을 선별하는 중입니다.' in source
+    assert '추천 종목을 불러오는 중입니다.' in source
+    assert 'const liveRefreshPromise = recompute' in source
+    assert 'const initialPayload = await fetchLatestRecommendations();' in source
     assert 'id="portfolio-watchlist-panel"' in shell
     assert 'id="chart-stock-search-form"' in shell
     assert 'id="trend-watch-stock-rail"' in shell
@@ -337,9 +339,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert "function startHomeMarketSignalTicker" in source
     assert '시총 상위 100' not in shell
     assert '시총 상위 종목의 최근 신호' not in shell
-    assert 'styles.css?v=20260727v97' in shell
-    assert 'app.js?v=20260727v97' in shell
-    assert 'DASHBOARD_SW_VERSION = "20260727v97"' in client.get("/dashboard-sw.js").text
+    assert 'styles.css?v=20260727v98' in shell
+    assert 'app.js?v=20260727v98' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260727v98"' in client.get("/dashboard-sw.js").text
     assert "renderHomeMarketIndices" in source
     assert 'class="side-nav"' not in shell
     nav_order = [
