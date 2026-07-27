@@ -63,8 +63,8 @@ def test_dashboard_frontend_bypasses_quote_cache_and_shows_provider_badge():
     source = TestClient(main_module.app).get("/assets/dashboard/app.js").text
 
     assert "isUncachedKoreaMarketDataUrl" in source
-    assert "/^\\/stocks\\/[^/]+\\/(?:dashboard|quote)$/" in source
+    assert "/^\\/stocks\\/[^/]+\\/quote$/" in source
+    assert 'parsed.searchParams.get("include_live") !== "0"' in source
     assert "if (!bypassCache)" in source
     assert 'badge.textContent = generationLabel;' in source
     assert 'badge.classList.toggle("is-ollama", isOllamaAnalysis);' in source
-

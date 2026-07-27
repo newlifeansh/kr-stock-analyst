@@ -793,7 +793,9 @@ def get_watchlist_quant_signals(
         "as_of": datetime.now(KST),
         "items": items,
     }
-    watchlist_quant_signal_cache.set(cache_key, result, 60)
+    # The strategy is based on daily bars. Reusing the computed state for a few
+    # minutes avoids rebuilding up to 900 rows for every watch item on each view.
+    watchlist_quant_signal_cache.set(cache_key, result, 300)
     return deepcopy(result)
 
 
@@ -2143,6 +2145,7 @@ def stock_dashboard(
     response: Response,
     refresh: bool = Query(default=False),
     include_profile: bool = Query(default=True),
+    include_live: bool = Query(default=True),
     db: Session = Depends(get_db),
 ):
     code = _normalize_stock_code(code)
@@ -2166,10 +2169,13 @@ def stock_dashboard(
     if not payload:
         raise HTTPException(status_code=404, detail="Stock not found")
     payload = deepcopy(payload)
-    _enrich_uncached_kis_quote(payload, code, db)
-    _enrich_pre_market_quote(payload, code)
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
+    if include_live:
+        _enrich_uncached_kis_quote(payload, code, db)
+        _enrich_pre_market_quote(payload, code)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    else:
+        response.headers["Cache-Control"] = "private, max-age=60"
     return payload
 
 
@@ -2244,23 +2250,53 @@ def _stock_quote_stream_payload(code: str) -> Optional[dict[str, object]]:
     interval_seconds = _quote_poll_interval_seconds()
     with SessionLocal() as db:
         normalized = _normalize_stock_code(code)
-        if not db.get(StockMaster, normalized):
-            _ensure_stock_master_from_naver(db, normalized)
-        dashboard = build_stock_dashboard(db, normalized, refresh_live=True)
-        if not dashboard:
+        stock = db.get(StockMaster, normalized)
+        if not stock:
+            stock = _ensure_stock_master_from_naver(db, normalized)
+        if not stock:
             return None
-        _enrich_uncached_kis_quote(dashboard, normalized, db)
-        _enrich_pre_market_quote(dashboard, normalized)
+
+        recent_prices = list(
+            db.scalars(
+                select(DailyPrice)
+                .where(DailyPrice.code == normalized)
+                .order_by(DailyPrice.trade_date.desc())
+                .limit(2)
+            )
+        )
+        latest = recent_prices[0] if recent_prices else None
+        previous = recent_prices[1] if len(recent_prices) > 1 else None
+        quote: dict[str, object] = {
+            "trade_date": latest.trade_date if latest else None,
+            "price": latest.close if latest else None,
+            "change_value": None,
+            "change_rate": None,
+            "volume": latest.volume if latest else None,
+            "trading_value": latest.trading_value if latest else None,
+            "market_cap": latest.market_cap if latest else None,
+        }
+        if latest and previous and latest.close is not None and previous.close not in (None, 0):
+            quote["change_value"] = latest.close - previous.close
+            quote["change_rate"] = _change_rate_from_prices(latest.close, previous.close)
+
+        live_quote = _fetch_kis_current_quote(normalized)
+        source = "stored_daily_price"
+        as_of: datetime = datetime.now(KST)
+        if live_quote:
+            quote.update({key: value for key, value in live_quote.items() if value is not None})
+            source = "kis_rest"
+        container = {"quote": quote}
+        _enrich_pre_market_quote(container, normalized)
         return _json_ready(
             {
                 "type": "quote",
-                "code": dashboard["code"],
-                "name": dashboard["name"],
-                "market": dashboard["market"],
-                "as_of": dashboard["as_of"],
-                "source": dashboard.get("source") or "naver_polling",
+                "code": normalized,
+                "name": stock.name,
+                "market": stock.market,
+                "as_of": as_of,
+                "source": source,
                 "interval_seconds": interval_seconds,
-                "quote": dashboard["quote"],
+                "quote": quote,
             }
         )
 

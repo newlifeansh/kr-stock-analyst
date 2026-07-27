@@ -669,6 +669,7 @@ const state = {
   usSectorMoves: null,
   usSectorRefreshTimer: null,
   usSectorRefreshing: false,
+  usSectorRefreshPromise: null,
   usSectorSocket: null,
   usSectorReconnectTimer: null,
   recommendationQuoteSockets: new Map(),
@@ -3039,7 +3040,10 @@ async function loadStockPriceSummary(code, quote) {
   resetStockPriceSummary();
   state.stockPriceRows = [];
   try {
-    const prices = await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/prices?limit=1000`), { force: true, ttlMs: 0 });
+    const marketOpen = koreaMarketPhase() === "regular";
+    const prices = await fetchJsonCached(`/stocks/${encodeURIComponent(code)}/prices?limit=1000`, {
+      ttlMs: marketOpen ? 30_000 : 30 * PAGE_ENTRY_MINUTE_MS,
+    });
     if (state.currentStock?.code !== code) {
       return;
     }
@@ -3121,7 +3125,7 @@ async function loadStockHomeDetails(data) {
   const intradayPromise = loadStockIntraday(code, requestId);
   void loadStockCommunity(data, requestId);
   const [flowsResult, researchResult, disclosuresResult, newsResult] = await Promise.allSettled([
-    fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/flows?limit=5000&refresh=true&pages=7`), { force: true, ttlMs: 0 }),
+    fetchJsonCached(`/stocks/${encodeURIComponent(code)}/flows?limit=5000&pages=7`, { ttlMs: 5 * PAGE_ENTRY_MINUTE_MS }),
     fetchJsonCached(`/research-reports?stock_code=${encodeURIComponent(code)}&limit=100`, { ttlMs: 5 * UI_CACHE_TTL_MS }),
     fetchJsonCached(`/disclosures?stock_code=${encodeURIComponent(code)}&limit=30`, { ttlMs: 5 * UI_CACHE_TTL_MS }),
     fetchJsonCached(`/news-items?query=${encodeURIComponent(data.name || code)}&limit=60`, { ttlMs: 2 * UI_CACHE_TTL_MS }),
@@ -3707,7 +3711,8 @@ function isUncachedKoreaMarketDataUrl(url) {
   try {
     const parsed = new URL(url, window.location.origin);
     return /^\/stocks\/(?:search|resolve)$/.test(parsed.pathname)
-      || /^\/stocks\/[^/]+\/(?:dashboard|quote)$/.test(parsed.pathname);
+      || /^\/stocks\/[^/]+\/quote$/.test(parsed.pathname)
+      || (/^\/stocks\/[^/]+\/dashboard$/.test(parsed.pathname) && parsed.searchParams.get("include_live") !== "0");
   } catch {
     return false;
   }
@@ -5654,21 +5659,25 @@ function setView(requestedViewName) {
     void loadHomeAiSignals(pageEntryRefreshOptions("watchlist", "home-ai-signals"));
     void loadHomeMarketSignalTicker(pageEntryRefreshOptions("market-signals"));
     void loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home"));
-    launchBriefPageLoading(PAGE_LOADING_LABELS.trend, async () => {
-      await Promise.all([
-        loadTrends(activeTab === "impact" ? "live" : activeTab, pageEntryRefreshOptions("trend", activeTab)),
-        loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact")),
-        loadHomeMarketIndices(pageEntryRefreshOptions("market-indices")),
-      ]);
-    }, 900);
+    launchBriefPageLoading(
+      PAGE_LOADING_LABELS.trend,
+      () => loadHomeMarketIndices(pageEntryRefreshOptions("market-indices")),
+      900,
+    );
+    window.setTimeout(() => {
+      if (state.view !== "home") return;
+      void loadTrends(activeTab === "impact" ? "live" : activeTab, pageEntryRefreshOptions("trend", activeTab));
+      if (activeTab === "impact") {
+        void loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact"));
+      }
+    }, 80);
   } else if (view === "search") {
     history.replaceState(null, "", "/dashboard?view=search");
     const entryOptions = pageEntryRefreshOptions("recommend");
-    void refreshUsSectorMoves(entryOptions).catch(() => undefined);
     if (!state.recommendationLoading) {
       launchBriefPageLoading(
         PAGE_LOADING_LABELS.recommend,
-        () => loadRecommendations({ auto: true, force: true, recompute: true }),
+        () => loadRecommendations({ auto: true, ...entryOptions, recompute: false }),
       );
     }
     connectUsSectorStream();
@@ -6308,7 +6317,7 @@ async function loadHomeMarketSignalTicker(options = {}) {
   }
   try {
     const payload = await fetchJsonCached(
-      liveUrl("/market/quant-signals?universe_limit=100&limit=30&recent_days=30"),
+      "/market/quant-signals?universe_limit=100&limit=30&recent_days=30",
       { force: options.force === true, ttlMs: options.force ? 0 : PAGE_ENTRY_MINUTE_MS },
     );
     if (state.view === "home") {
@@ -6601,8 +6610,10 @@ async function loadUsSectorMoves(options = {}) {
     return state.usSectorMoves;
   }
   try {
-    const url = "/market/us-sector-moves?refresh=1";
-    const payload = await fetchJsonCached(url, { force: options.force === true, ttlMs: 5 * 60 * 1000 });
+    const force = options.force === true;
+    const ttlMs = options.ttlMs ?? 5 * 60 * 1000;
+    const url = force ? liveUrl("/market/us-sector-moves?refresh=1") : "/market/us-sector-moves";
+    const payload = await fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs });
     state.usSectorMoves = payload;
     return payload;
   } catch {
@@ -6690,18 +6701,25 @@ function scheduleUsSectorRefresh(payload = state.usSectorMoves) {
 }
 
 async function refreshUsSectorMoves(options = {}) {
-  if (state.usSectorRefreshing && !options.force) {
-    return state.usSectorMoves;
+  if (state.usSectorRefreshPromise) {
+    return state.usSectorRefreshPromise;
   }
   state.usSectorRefreshing = true;
-  try {
-    const payload = await loadUsSectorMoves({ force: options.force === true });
-    applyUsSectorMoves(payload);
-    scheduleUsSectorRefresh(payload);
-    return payload;
-  } finally {
-    state.usSectorRefreshing = false;
-  }
+  state.usSectorRefreshPromise = (async () => {
+    try {
+      const payload = await loadUsSectorMoves({
+        force: options.force === true,
+        ttlMs: options.ttlMs,
+      });
+      applyUsSectorMoves(payload);
+      scheduleUsSectorRefresh(payload);
+      return payload;
+    } finally {
+      state.usSectorRefreshing = false;
+      state.usSectorRefreshPromise = null;
+    }
+  })();
+  return state.usSectorRefreshPromise;
 }
 
 function usSectorMoveMap(usSectorMoves = state.usSectorMoves) {
@@ -7340,7 +7358,7 @@ function appendWatchLoadingRow(item) {
 
 async function loadWatchlist(options = {}) {
   const loadSequence = ++state.watchlistLoadSequence;
-  const force = options.force !== false;
+  const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("watchlist");
   closeWatchlistQuoteStreams();
   const items = readWatchlist();
@@ -7363,10 +7381,10 @@ async function loadWatchlist(options = {}) {
   const marketContextPromise = refreshWatchlistMarketContext({ force });
   const results = await mapWithConcurrency(
     items,
-    3,
+    6,
     async (item) => {
       try {
-        const url = `/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0`;
+        const url = `/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0&include_live=0`;
         const dashboard = await Promise.race([
           fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs }),
           rejectAfter(15_000, "watchlist dashboard timeout"),
@@ -8381,7 +8399,7 @@ async function refreshWatchChartCard(card, button) {
 
 async function loadWatchCharts(options = {}) {
   const loadSequence = ++state.watchChartLoadSequence;
-  const force = options.force !== false;
+  const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("chart");
   const items = Array.isArray(options.items) ? normalizeWatchlistItems(options.items) : await resolveWatchChartItems();
   const listLabel = options.single ? "선택 종목" : "관심종목";
@@ -8404,13 +8422,13 @@ async function loadWatchCharts(options = {}) {
     const completedResults = [];
     const results = await mapWithConcurrency(
       items,
-      2,
+      4,
       async (item) => {
         try {
           const [prices, dashboard] = await Promise.race([
             Promise.all([
               fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/prices?limit=180`, { force, ttlMs: force ? 0 : ttlMs }),
-              fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0`, { force, ttlMs: force ? 0 : ttlMs }),
+              fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0&include_live=0`, { force, ttlMs: force ? 0 : ttlMs }),
             ]),
             rejectAfter(15_000, "watch chart timeout"),
           ]);
@@ -9454,7 +9472,7 @@ async function loadRecommendationHistory(options = {}) {
   await Promise.all(
     tracks.map(async (track) => {
       try {
-        const dashboard = await fetchJsonCached(`/stocks/${encodeURIComponent(track.code)}/dashboard?include_profile=0`, { force, ttlMs: force ? 0 : ttlMs });
+        const dashboard = await fetchJsonCached(`/stocks/${encodeURIComponent(track.code)}/dashboard?include_profile=0&include_live=0`, { force, ttlMs: force ? 0 : ttlMs });
         if (state.recommendTrackRequestId !== requestId || state.view !== "portfolio" || state.portfolioTab !== "tracking") {
           return;
         }
@@ -9528,7 +9546,7 @@ async function refreshVisibleRecommendationCards(options = {}) {
       return;
     }
     try {
-      const dashboard = await fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0`, { force: true, ttlMs: 0 });
+      const dashboard = await fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0&include_live=0`, { force: true, ttlMs: 0 });
       const updatedItem = updateRecommendationItemFromDashboard(item, dashboard);
       if (card.isConnected) {
         card.replaceWith(createRecommendationCard(updatedItem));
@@ -10028,7 +10046,7 @@ async function loadTrendWatchlistNews(options = {}) {
   const requestId = ++state.trendWatchRequestId;
   try {
     const force = options.force === true;
-    const url = `/stocks/${encodeURIComponent(selected.code)}/dashboard?include_profile=0`;
+    const url = `/stocks/${encodeURIComponent(selected.code)}/dashboard?include_profile=0&include_live=0`;
     const dashboard = await fetchJsonCached(url, { force, ttlMs: force ? 0 : PAGE_ENTRY_MINUTE_MS });
     if (requestId !== state.trendWatchRequestId) {
       return;
@@ -11107,7 +11125,9 @@ async function loadRecommendations(options = {}) {
   if (state.recommendationLoading) {
     return;
   }
-  const recompute = options.recompute !== false;
+  const force = options.force === true;
+  const recompute = options.recompute === true;
+  const ttlMs = options.ttlMs ?? pageEntryTtlMs("recommend");
   const saveSnapshot = options.save === true;
 
   state.recommendationLoading = true;
@@ -11117,7 +11137,7 @@ async function loadRecommendations(options = {}) {
   }
   const sectorMovesPromise = refreshUsSectorMoves(options);
   const baseUrl = `/market/recommendations?limit=${RECOMMENDATION_LIMIT}&candidate_limit=45`;
-  const fetchLatestRecommendations = () => fetchJsonCached(baseUrl, { force: true, ttlMs: 0 });
+  const fetchLatestRecommendations = () => fetchJsonCached(baseUrl, { force, ttlMs: force ? 0 : ttlMs });
   const liveRefreshPromise = recompute
     ? fetchJsonCached(liveUrl(`${baseUrl}&refresh=1`), { force: true, ttlMs: 0 })
     : null;
@@ -11322,7 +11342,10 @@ async function loadStockRequest(query, options = {}) {
   const quantSignalPrefetch = loadQuantSignals({ auto: true });
   try {
     render(
-      await fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(stock.code)}/dashboard?include_profile=0`), { force: true, ttlMs: 0 }),
+      await fetchJsonCached(`/stocks/${encodeURIComponent(stock.code)}/dashboard?include_profile=0&include_live=0`, {
+        force: options.force === true,
+        ttlMs: pageEntryTtlMs("stock"),
+      }),
       { previousCode: previousStock?.code, preserveQuantRequest: true },
     );
   } catch {
