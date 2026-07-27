@@ -260,6 +260,112 @@ def test_ai_signal_is_mandatory_even_when_only_price_alerts_are_selected():
     assert web_push.candidate_enabled(subscription, candidate) is True
 
 
+def test_market_ai_signal_is_enabled_for_legacy_defaults_but_not_custom_preferences():
+    legacy_subscription = PushSubscription(
+        share_id="legacy",
+        endpoint="https://push.example/legacy",
+        p256dh="p" * 64,
+        auth="a" * 24,
+        notification_preferences='["ai_signal", "price_move", "disclosure_report", "major_event"]',
+    )
+    custom_subscription = PushSubscription(
+        share_id="custom",
+        endpoint="https://push.example/custom",
+        p256dh="p" * 64,
+        auth="a" * 24,
+        notification_preferences='["ai_signal", "price_move"]',
+    )
+
+    assert "market_ai_signal" in web_push.subscription_conditions(legacy_subscription)
+    assert "market_ai_signal" not in web_push.subscription_conditions(custom_subscription)
+
+
+def test_market_ai_signal_candidates_are_built_from_saved_market_snapshot(monkeypatch):
+    db = _session()
+    try:
+        monkeypatch.setattr(
+            web_push,
+            "load_market_quant_signal_snapshot",
+            lambda *_args, **_kwargs: {
+                "items": [
+                    {
+                        "code": "005930",
+                        "name": "삼성전자",
+                        "side": "buy",
+                        "execution_date": "2026-07-28",
+                    },
+                    {
+                        "code": "000660",
+                        "name": "SK하이닉스",
+                        "side": "sell",
+                        "execution_date": "2026-07-28",
+                    },
+                ]
+            },
+        )
+
+        candidates = web_push.WebPushRuntime(_settings())._market_ai_signal_candidates(db)
+
+        assert [candidate.kind for candidate in candidates] == [
+            "market_ai_signal",
+            "market_ai_signal",
+        ]
+        assert candidates[0].event_key == "market-ai-signal:005930:buy:2026-07-28"
+        assert "삼성전자" in candidates[0].title
+        assert "매수" in candidates[0].title
+        assert candidates[1].event_key == "market-ai-signal:000660:sell:2026-07-28"
+        assert "매도" in candidates[1].title
+    finally:
+        db.close()
+
+
+def test_market_ai_signal_baseline_blocks_old_events_and_allows_new_events(monkeypatch):
+    db = _session()
+    calls = []
+    try:
+        subscription = PushSubscription(
+            share_id="tester",
+            endpoint="https://push.example/subscription",
+            p256dh="p" * 64,
+            auth="a" * 24,
+            notification_preferences='["ai_signal", "market_ai_signal"]',
+        )
+        db.add(subscription)
+        db.commit()
+        db.refresh(subscription)
+        monkeypatch.setattr(web_push, "webpush", lambda **kwargs: calls.append(kwargs))
+        runtime = web_push.WebPushRuntime(_settings())
+        existing_candidate = web_push.NotificationCandidate(
+            event_key="market-ai-signal:005930:buy:2026-07-27",
+            kind="market_ai_signal",
+            title="삼성전자 시장 AI 매매신호 · 매수",
+            body="알림 설정 전 기존 신호",
+            url="/dashboard/삼성전자",
+            tag="market-ai-signal-005930",
+        )
+
+        runtime._record_candidate_baseline(db, subscription, existing_candidate)
+        runtime._mark_market_signal_initialized(db, subscription)
+        db.commit()
+
+        assert runtime._market_signal_initialized(db, subscription) is True
+        assert runtime._send(db, subscription, existing_candidate) is False
+        assert calls == []
+
+        new_candidate = web_push.NotificationCandidate(
+            event_key="market-ai-signal:000660:sell:2026-07-28",
+            kind="market_ai_signal",
+            title="SK하이닉스 시장 AI 매매신호 · 매도",
+            body="알림 설정 이후 새 신호",
+            url="/dashboard/SK하이닉스",
+            tag="market-ai-signal-000660",
+        )
+        assert runtime._send(db, subscription, new_candidate) is True
+        assert len(calls) == 1
+    finally:
+        db.close()
+
+
 def test_ai_signal_candidate_only_emits_a_new_action_for_today(monkeypatch):
     db = _session()
     try:

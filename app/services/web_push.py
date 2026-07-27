@@ -26,7 +26,10 @@ from app.models import (
     WatchlistItem,
 )
 from app.services.stock_dashboard import _naver_snapshot
-from app.services.quant_signals import load_quant_signal_payload
+from app.services.quant_signals import (
+    load_market_quant_signal_snapshot,
+    load_quant_signal_payload,
+)
 from app.services.trends import (
     _matched_template_sectors,
     _stock_sectors,
@@ -66,10 +69,18 @@ IMPORTANT_DISCLOSURE_KEYWORDS = (
     "배임",
     "시설투자",
 )
-DEFAULT_PUSH_CONDITIONS = ("ai_signal", "price_move", "disclosure_report", "major_event")
+LEGACY_DEFAULT_PUSH_CONDITIONS = {"ai_signal", "price_move", "disclosure_report", "major_event"}
+DEFAULT_PUSH_CONDITIONS = (
+    "ai_signal",
+    "market_ai_signal",
+    "price_move",
+    "disclosure_report",
+    "major_event",
+)
 REQUIRED_PUSH_CONDITIONS = {"ai_signal"}
 PUSH_KIND_TO_CONDITION = {
     "ai_signal": "ai_signal",
+    "market_ai_signal": "market_ai_signal",
     "price_move": "price_move",
     "report": "disclosure_report",
     "disclosure": "disclosure_report",
@@ -100,7 +111,10 @@ def subscription_conditions(subscription: PushSubscription) -> set[str]:
     if not isinstance(parsed, list):
         return set(DEFAULT_PUSH_CONDITIONS)
     allowed = set(DEFAULT_PUSH_CONDITIONS)
-    normalized = {str(item) for item in parsed if str(item) in allowed}
+    parsed_values = {str(item) for item in parsed}
+    normalized = {item for item in parsed_values if item in allowed}
+    if LEGACY_DEFAULT_PUSH_CONDITIONS.issubset(parsed_values):
+        normalized.add("market_ai_signal")
     return REQUIRED_PUSH_CONDITIONS | (normalized or set(DEFAULT_PUSH_CONDITIONS))
 
 
@@ -416,6 +430,38 @@ class WebPushRuntime:
                     output[share_id].append(candidate)
         return output
 
+    def _market_ai_signal_candidates(self, db: Session) -> list[NotificationCandidate]:
+        snapshot = load_market_quant_signal_snapshot(
+            db,
+            universe_limit=100,
+            limit=30,
+            recent_days=30,
+        )
+        if not snapshot:
+            return []
+        candidates: list[NotificationCandidate] = []
+        for item in snapshot.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            code = str(item.get("code") or "").strip()
+            name = str(item.get("name") or code).strip()
+            side = str(item.get("side") or "").strip()
+            execution_date = str(item.get("execution_date") or "").strip()
+            if not code or side not in {"buy", "sell"} or not execution_date:
+                continue
+            action = "매수" if side == "buy" else "매도"
+            candidates.append(
+                NotificationCandidate(
+                    event_key=f"market-ai-signal:{code}:{side}:{execution_date}",
+                    kind="market_ai_signal",
+                    title=f"{name} 시장 AI 매매신호 · {action}",
+                    body=f"{execution_date} {action} 신호가 새로 확정됐습니다. 종목상세에서 가격과 기준을 확인하세요.",
+                    url=_stock_url(name),
+                    tag=f"market-ai-signal-{code}",
+                )
+            )
+        return candidates
+
     def _send(self, db: Session, subscription: PushSubscription, candidate: NotificationCandidate) -> bool:
         if not candidate_enabled(subscription, candidate):
             return False
@@ -582,6 +628,45 @@ class WebPushRuntime:
                 )
             )
 
+    @staticmethod
+    def _market_signal_baseline_marker_key(subscription: PushSubscription) -> str:
+        preference_epoch = (subscription.updated_at or subscription.created_at).isoformat(
+            timespec="microseconds"
+        )
+        return f"market-ai-baseline:{subscription.id}:{preference_epoch}"
+
+    def _market_signal_initialized(
+        self,
+        db: Session,
+        subscription: PushSubscription,
+    ) -> bool:
+        marker = self._market_signal_baseline_marker_key(subscription)
+        return db.scalar(
+            select(PushDelivery.id).where(
+                PushDelivery.subscription_id == subscription.id,
+                PushDelivery.event_key == marker,
+                PushDelivery.status == "baseline",
+            )
+        ) is not None
+
+    def _mark_market_signal_initialized(
+        self,
+        db: Session,
+        subscription: PushSubscription,
+    ) -> None:
+        if self._market_signal_initialized(db, subscription):
+            return
+        db.add(
+            PushDelivery(
+                subscription_id=subscription.id,
+                event_key=self._market_signal_baseline_marker_key(subscription),
+                notification_kind="baseline",
+                title="시장 AI 매매신호 알림 기준선",
+                status="baseline",
+                attempts=0,
+            )
+        )
+
     def run_once(self) -> int:
         if not self.configured:
             return 0
@@ -631,6 +716,8 @@ class WebPushRuntime:
                 for share_id, candidates in source.items():
                     candidates_by_share[share_id].extend(candidates)
 
+            market_signal_candidates = self._market_ai_signal_candidates(db)
+
             sent = 0
             for subscription in subscriptions:
                 items = watchlists.get(subscription.share_id, [])
@@ -642,6 +729,14 @@ class WebPushRuntime:
                         continue
                     sent += int(self._send(db, subscription, candidate))
                 self._mark_watchlist_initialized(db, subscription, items, initialized_codes)
+                if "market_ai_signal" in subscription_conditions(subscription):
+                    if self._market_signal_initialized(db, subscription):
+                        for candidate in market_signal_candidates:
+                            sent += int(self._send(db, subscription, candidate))
+                    else:
+                        for candidate in market_signal_candidates:
+                            self._record_candidate_baseline(db, subscription, candidate)
+                        self._mark_market_signal_initialized(db, subscription)
                 db.commit()
             return sent
 

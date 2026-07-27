@@ -361,6 +361,11 @@ const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
     required: true,
   },
   {
+    id: "market_ai_signal",
+    label: "시장 AI 매매신호",
+    description: "관심종목 밖에서 새 매수·매도 신호가 발생하면 알려드립니다.",
+  },
+  {
     id: "price_move",
     label: "급등락",
     description: "관심종목 변동이 기준 이상 커지면 알려드립니다.",
@@ -4724,6 +4729,7 @@ function closePushNotificationSheet() {
 
 const PUSH_HISTORY_KIND_LABELS = {
   ai_signal: "AI 매매신호",
+  market_ai_signal: "시장 AI 매매신호",
   price_move: "시세",
   report: "리포트",
   disclosure: "공시",
@@ -4797,6 +4803,9 @@ function pushHistoryItemsForActiveTab() {
   }
   if (tab === "watchlist") {
     return state.pushNotificationHistory.filter((item) => PUSH_HISTORY_WATCHLIST_KINDS.has(item.kind));
+  }
+  if (tab === "ai_signal") {
+    return state.pushNotificationHistory.filter((item) => ["ai_signal", "market_ai_signal"].includes(item.kind));
   }
   return state.pushNotificationHistory.filter((item) => item.kind === tab);
 }

@@ -212,6 +212,11 @@ PUSH_CONDITION_OPTIONS = [
         "required": True,
     },
     {
+        "id": "market_ai_signal",
+        "label": "시장 AI 매매신호",
+        "description": "관심종목 밖에서 새 매수·매도 신호가 발생하면 알려드립니다.",
+    },
+    {
         "id": "price_move",
         "label": "급등락",
         "description": f"관심종목 변동이 {settings.web_push_price_threshold:.0f}% 이상이면 알려드립니다.",
@@ -394,6 +399,12 @@ def _normalize_push_conditions(values: object) -> list[str]:
         condition = str(item or "").strip()
         if condition in allowed and condition not in normalized:
             normalized.append(condition)
+    legacy_defaults = {"ai_signal", "price_move", "disclosure_report", "major_event"}
+    if (
+        legacy_defaults.issubset({str(item or "").strip() for item in values})
+        and "market_ai_signal" not in normalized
+    ):
+        normalized.append("market_ai_signal")
     selected = normalized or list(DEFAULT_PUSH_CONDITIONS)
     return list(dict.fromkeys((*REQUIRED_PUSH_CONDITIONS, *selected)))
 
