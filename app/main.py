@@ -172,6 +172,7 @@ NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
 api_cache = TTLCache(maxsize=1024)
 intraday_chart_cache = TTLCache(maxsize=4096)
 market_quant_signal_cache = TTLCache(maxsize=16)
+watchlist_quant_signal_cache = TTLCache(maxsize=256)
 market_quant_signal_refresh_lock = RLock()
 kis_realtime_provider = KisRealtimeQuoteProvider(settings)
 kis_rest_provider = KisRestBriefingProvider(settings)
@@ -746,6 +747,12 @@ def get_watchlist_quant_signals(
 ):
     _enforce_rate_limit(request, "watchlist_quant_signals", limit=30, window_seconds=60)
     normalized_id = _normalize_watchlist_id(share_id)
+    cache_key = ("watchlist_quant_signals", normalized_id)
+    cached_payload = watchlist_quant_signal_cache.get(cache_key)
+    if cached_payload is not None:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        return deepcopy(cached_payload)
     watch_items = list(
         db.scalars(
             select(WatchlistItem)
@@ -770,11 +777,13 @@ def get_watchlist_quant_signals(
         )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response.headers["Pragma"] = "no-cache"
-    return {
+    result = {
         "share_id": normalized_id,
         "as_of": datetime.now(KST),
         "items": items,
     }
+    watchlist_quant_signal_cache.set(cache_key, result, 60)
+    return deepcopy(result)
 
 
 @app.get("/market/quant-signals")

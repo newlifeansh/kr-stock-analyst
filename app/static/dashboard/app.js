@@ -41,6 +41,7 @@ const elements = {
   pushNotificationButton: $("push-notification-button"),
   pushNotificationButtonText: $("push-notification-button-text"),
   pushNotificationButtonLabel: $("push-notification-button-label"),
+  pushNotificationUnreadDot: $("push-notification-unread-dot"),
   pushNotificationDisableButton: $("push-notification-disable-button"),
   pushNotificationStatus: $("push-notification-status"),
   notificationsView: $("notifications-view"),
@@ -341,6 +342,10 @@ const elements = {
 
 const WATCHLIST_KEY = "analyst.watchlist";
 const WATCHLIST_ID_KEY = "analyst.watchlistId";
+const HOME_AI_SIGNALS_CACHE_PREFIX = "analyst.homeAiSignals";
+const PUSH_HISTORY_CACHE_PREFIX = "analyst.pushHistory";
+const PUSH_LAST_SEEN_PREFIX = "analyst.pushLastSeen";
+const PUSH_ENABLED_PREFIX = "analyst.pushEnabled";
 const RECOMMENDATION_HISTORY_KEY = "analyst.recommendationSnapshots";
 const RECOMMENDATION_TRACK_KEY = "analyst.recommendationTracks";
 const RECOMMENDATION_COOLDOWN_KEY = "analyst.recommendationCooldown";
@@ -724,6 +729,8 @@ const state = {
   pushNotificationHistory: [],
   pushNotificationHistoryBusy: false,
   pushNotificationHistoryTab: "all",
+  pushNotificationUnread: false,
+  pushNotificationUnreadTimer: null,
   notificationReturnView: "home",
   pageLoadingSequence: 0,
   pageLoadingTokens: new Map(),
@@ -731,6 +738,60 @@ const state = {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function scopedStorageKey(prefix, shareId = state.watchlistId) {
+  const normalizedId = normalizeWatchlistId(shareId);
+  return normalizedId ? `${prefix}.${normalizedId}` : "";
+}
+
+function readStoredJson(key, fallback = null) {
+  if (!key) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(localStorage.getItem(key) || "null") ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStoredJson(key, value) {
+  if (!key) {
+    return;
+  }
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage can be unavailable in private browsing; live requests still work.
+  }
+}
+
+function readCachedHomeAiSignals() {
+  const cached = readStoredJson(scopedStorageKey(HOME_AI_SIGNALS_CACHE_PREFIX), null);
+  return cached && Array.isArray(cached.items) ? cached : null;
+}
+
+function writeCachedHomeAiSignals(payload = {}) {
+  writeStoredJson(scopedStorageKey(HOME_AI_SIGNALS_CACHE_PREFIX), {
+    savedAt: Date.now(),
+    items: Array.isArray(payload.items) ? payload.items : [],
+  });
+}
+
+function pushEnabledStorageKey() {
+  return scopedStorageKey(PUSH_ENABLED_PREFIX);
+}
+
+function readCachedPushEnabled() {
+  return localStorage.getItem(pushEnabledStorageKey()) === "true";
+}
+
+function writeCachedPushEnabled(enabled) {
+  const key = pushEnabledStorageKey();
+  if (key) {
+    localStorage.setItem(key, String(enabled === true));
+  }
 }
 
 function rejectAfter(ms, message) {
@@ -4213,6 +4274,13 @@ async function applyWatchlistId(shareId, options = {}) {
   state.writeToken = "";
   state.writeTokenShareId = "";
   localStorage.setItem(WATCHLIST_ID_KEY, normalizedId);
+  state.pushNotificationEnabled = readCachedPushEnabled();
+  hydratePushNotificationHistory();
+  updatePushNotificationButton({
+    label: state.pushNotificationEnabled ? "알림 내역" : "알림 설정",
+    buttonText: "알림",
+    active: state.pushNotificationEnabled,
+  });
   if (elements.watchlistIdInput) {
     elements.watchlistIdInput.value = normalizedId;
   }
@@ -4221,14 +4289,19 @@ async function applyWatchlistId(shareId, options = {}) {
     updateRecommendationButtonState();
   }
   setWatchlistIdStatus("서버 목록 불러오는 중");
-  try {
+  const syncIdentity = async () => {
     const localItems = readWatchlist();
     const remotePayload = await fetchRemoteWatchlist(normalizedId);
-    const merged = options.merge === false ? normalizeWatchlistItems(remotePayload.items) : normalizeWatchlistItems([...localItems, ...(remotePayload.items || [])]);
+    const remoteItems = normalizeWatchlistItems(remotePayload.items || []);
+    const merged = options.merge === false ? remoteItems : normalizeWatchlistItems([...localItems, ...remoteItems]);
     writeWatchlist(merged, { sync: false });
-    await saveRemoteWatchlist(merged);
     setWatchlistIdStatus(`${normalizedId} · ${formatNumber(merged.length)}개 동기화`, "success");
-    void refreshPushNotificationState({ syncServer: true });
+    if (JSON.stringify(merged) !== JSON.stringify(remoteItems)) {
+      queueRemoteWatchlistSync();
+    }
+    if (options.backgroundSync !== true) {
+      void refreshPushNotificationState({ syncServer: false });
+    }
     updateWatchButton();
     if (options.refreshView !== false) {
       if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
@@ -4237,6 +4310,16 @@ async function applyWatchlistId(shareId, options = {}) {
         void loadWatchCharts();
       }
     }
+  };
+  if (options.backgroundSync === true) {
+    void refreshPushNotificationState({ syncServer: false });
+    void syncIdentity().catch(() => {
+      setWatchlistIdStatus(`${normalizedId} · 저장된 목록 사용 중`, "error");
+    });
+    return true;
+  }
+  try {
+    await syncIdentity();
     return true;
   } catch {
     setWatchlistIdStatus("동기화 실패 · ID를 확인해주세요", "error");
@@ -4250,11 +4333,14 @@ async function logoutWatchlistIdentity() {
     await disablePushNotifications(currentId).catch(() => undefined);
   }
   window.clearTimeout(state.watchlistSyncTimer);
+  stopPushNotificationUnreadRefresh();
   state.watchlistSyncTimer = null;
   state.watchlistSyncing = false;
   state.watchlistId = "";
   state.writeToken = "";
   state.writeTokenShareId = "";
+  state.pushNotificationHistory = [];
+  state.pushNotificationUnread = false;
   localStorage.removeItem(WATCHLIST_ID_KEY);
   localStorage.removeItem(WATCHLIST_KEY);
   localStorage.removeItem("analyst.watchlistActivity");
@@ -4298,7 +4384,7 @@ async function initializeWatchlistIdentity() {
     }
     setLoginStatus("저장된 ID로 불러오는 중");
     const [ok] = await Promise.all([
-      applyWatchlistId(savedId, { merge: true, refreshView: false }),
+      applyWatchlistId(savedId, { merge: true, refreshView: false, backgroundSync: true }),
       delay(LOGIN_SPLASH_DURATION_MS),
     ]);
     if (ok) {
@@ -4520,6 +4606,54 @@ const PUSH_HISTORY_KIND_LABELS = {
 
 const PUSH_HISTORY_WATCHLIST_KINDS = new Set(["price_move", "report", "disclosure"]);
 
+function pushHistoryCacheKey() {
+  return scopedStorageKey(PUSH_HISTORY_CACHE_PREFIX);
+}
+
+function pushLastSeenStorageKey() {
+  return scopedStorageKey(PUSH_LAST_SEEN_PREFIX);
+}
+
+function recentPushHistoryItems(items = []) {
+  const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000;
+  return items.filter((item) => {
+    const timestamp = Date.parse(item?.created_at || "");
+    return Number.isFinite(timestamp) && timestamp >= cutoff;
+  });
+}
+
+function readCachedPushHistory() {
+  const cached = readStoredJson(pushHistoryCacheKey(), null);
+  return recentPushHistoryItems(Array.isArray(cached?.items) ? cached.items : []);
+}
+
+function writeCachedPushHistory(items = []) {
+  writeStoredJson(pushHistoryCacheKey(), { savedAt: Date.now(), items: recentPushHistoryItems(items) });
+}
+
+function updatePushUnreadFromHistory(items = state.pushNotificationHistory) {
+  const newest = items.reduce((latest, item) => Math.max(latest, Date.parse(item?.created_at || "") || 0), 0);
+  const seenAt = Number(localStorage.getItem(pushLastSeenStorageKey()) || 0);
+  setPushNotificationUnread(newest > seenAt);
+}
+
+function markPushNotificationsSeen() {
+  const newest = state.pushNotificationHistory.reduce(
+    (latest, item) => Math.max(latest, Date.parse(item?.created_at || "") || 0),
+    Date.now(),
+  );
+  const key = pushLastSeenStorageKey();
+  if (key) {
+    localStorage.setItem(key, String(newest));
+  }
+  setPushNotificationUnread(false);
+}
+
+function hydratePushNotificationHistory() {
+  state.pushNotificationHistory = readCachedPushHistory();
+  updatePushUnreadFromHistory();
+}
+
 function formatPushHistoryTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -4623,12 +4757,21 @@ function renderPushNotificationHistory(options = {}) {
   }
 }
 
-async function loadPushNotificationHistory() {
+async function loadPushNotificationHistory(options = {}) {
   if (!state.watchlistId || state.pushNotificationHistoryBusy) {
     return;
   }
+  if (!state.pushNotificationHistory.length) {
+    hydratePushNotificationHistory();
+  }
   state.pushNotificationHistoryBusy = true;
-  renderPushNotificationHistory({ loading: true });
+  if (options.render !== false) {
+    if (state.pushNotificationHistory.length) {
+      renderPushNotificationHistory();
+    } else if (!options.silent) {
+      renderPushNotificationHistory({ loading: true });
+    }
+  }
   try {
     const writeToken = await ensureWriteToken(state.watchlistId);
     const response = await fetch(`/push/notifications/${encodeURIComponent(state.watchlistId)}`, {
@@ -4641,9 +4784,19 @@ async function loadPushNotificationHistory() {
     }
     const payload = await response.json();
     state.pushNotificationHistory = Array.isArray(payload.items) ? payload.items : [];
-    renderPushNotificationHistory();
+    writeCachedPushHistory(state.pushNotificationHistory);
+    if (state.view === "notifications") {
+      markPushNotificationsSeen();
+    } else {
+      updatePushUnreadFromHistory();
+    }
+    if (options.render !== false || state.view === "notifications") {
+      renderPushNotificationHistory();
+    }
   } catch {
-    renderPushNotificationHistory({ error: true });
+    if (options.render !== false && !state.pushNotificationHistory.length) {
+      renderPushNotificationHistory({ error: true });
+    }
   } finally {
     state.pushNotificationHistoryBusy = false;
   }
@@ -4732,14 +4885,22 @@ async function openPushNotificationCenter() {
   if (!state.watchlistId || state.pushNotificationBusy) {
     return;
   }
-  await refreshPushNotificationState();
-  if (!state.pushNotificationEnabled) {
+  const likelyEnabled = state.pushNotificationEnabled
+    || readCachedPushEnabled()
+    || (webPushSupported() && Notification.permission === "granted");
+  if (!likelyEnabled) {
     showPushNotificationSheet();
+    void refreshPushNotificationState().then(updatePushNotificationSheet);
     return;
   }
+  state.pushNotificationEnabled = true;
+  writeCachedPushEnabled(true);
+  hydratePushNotificationHistory();
   state.notificationReturnView = state.view === "notifications" ? state.notificationReturnView : state.view;
   setView("notifications");
+  markPushNotificationsSeen();
   window.scrollTo({ top: 0, behavior: "auto" });
+  void refreshPushNotificationState();
 }
 
 async function openPushSettingsFromHistory() {
@@ -4868,6 +5029,38 @@ function setPushNotificationStatus(text = "", tone = "") {
   elements.pushNotificationStatus.dataset.tone = tone;
 }
 
+function setPushNotificationUnread(unread) {
+  state.pushNotificationUnread = unread === true;
+  if (elements.pushNotificationUnreadDot) {
+    elements.pushNotificationUnreadDot.hidden = !state.pushNotificationUnread;
+  }
+  const button = elements.pushNotificationButton;
+  if (button && !button.hidden) {
+    const baseLabel = state.pushNotificationEnabled ? "알림 내역" : "알림 설정";
+    const label = state.pushNotificationUnread ? `${baseLabel}, 새 알림 있음` : baseLabel;
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    if (elements.pushNotificationButtonLabel) {
+      elements.pushNotificationButtonLabel.textContent = label;
+    }
+  }
+}
+
+function stopPushNotificationUnreadRefresh() {
+  window.clearInterval(state.pushNotificationUnreadTimer);
+  state.pushNotificationUnreadTimer = null;
+}
+
+function startPushNotificationUnreadRefresh() {
+  stopPushNotificationUnreadRefresh();
+  if (!state.watchlistId || !state.pushNotificationEnabled) {
+    return;
+  }
+  state.pushNotificationUnreadTimer = window.setInterval(() => {
+    void loadPushNotificationHistory({ silent: true, render: false });
+  }, 60_000);
+}
+
 function updatePushNotificationButton(options = {}) {
   const button = elements.pushNotificationButton;
   if (!button) {
@@ -4876,6 +5069,7 @@ function updatePushNotificationButton(options = {}) {
   const hidden = options.hidden ?? !state.watchlistId;
   button.hidden = hidden;
   if (hidden) {
+    setPushNotificationUnread(false);
     setPushNotificationStatus();
     updatePushNotificationDisableButton({ hidden: true });
     return;
@@ -4893,6 +5087,7 @@ function updatePushNotificationButton(options = {}) {
   if (elements.pushNotificationButtonLabel) {
     elements.pushNotificationButtonLabel.textContent = label;
   }
+  setPushNotificationUnread(state.pushNotificationUnread);
 }
 
 async function loadPushConfig() {
@@ -4973,6 +5168,8 @@ async function refreshPushNotificationState(options = {}) {
   }
   if (!webPushSupported()) {
     state.pushNotificationEnabled = false;
+    writeCachedPushEnabled(false);
+    stopPushNotificationUnreadRefresh();
     updatePushNotificationButton({ label: "알림 미지원", buttonText: "미지원", disabled: true });
     updatePushNotificationDisableButton({ hidden: true });
     setPushNotificationStatus("이 브라우저에서는 알림을 지원하지 않습니다.");
@@ -4983,6 +5180,8 @@ async function refreshPushNotificationState(options = {}) {
     state.pushNotificationConditions = normalizePushNotificationConditions(state.pushNotificationConditions);
     if (!config.enabled || !config.public_key) {
       state.pushNotificationEnabled = false;
+      writeCachedPushEnabled(false);
+      stopPushNotificationUnreadRefresh();
       updatePushNotificationButton({ label: "알림 준비 중", buttonText: "준비중", disabled: false });
       updatePushNotificationDisableButton({ hidden: true });
       setPushNotificationStatus("알림 기능을 준비하고 있습니다.");
@@ -4990,6 +5189,8 @@ async function refreshPushNotificationState(options = {}) {
     }
     if (Notification.permission === "denied") {
       state.pushNotificationEnabled = false;
+      writeCachedPushEnabled(false);
+      stopPushNotificationUnreadRefresh();
       updatePushNotificationButton({ label: "알림 차단됨", buttonText: "권한 차단", disabled: false });
       updatePushNotificationDisableButton({ hidden: true });
       setPushNotificationStatus("브라우저 설정에서 알림 권한을 허용해주세요.", "error");
@@ -4999,21 +5200,32 @@ async function refreshPushNotificationState(options = {}) {
     if (subscription) {
       const status = await fetchPushSubscriptionStatus(state.watchlistId, subscription.endpoint).catch(() => null);
       state.pushNotificationEnabled = Boolean(status?.enabled ?? true);
+      writeCachedPushEnabled(state.pushNotificationEnabled);
       state.pushNotificationConditions = normalizePushNotificationConditions(status?.conditions || state.pushNotificationConditions);
       updatePushNotificationButton({ label: "알림 내역", buttonText: "알림", active: true });
       updatePushNotificationDisableButton({ hidden: false });
       setPushNotificationStatus("급등락, 공시, 리포트만 바로 알려드려요.", "success");
+      startPushNotificationUnreadRefresh();
+      void loadPushNotificationHistory({ silent: true, render: false });
       if (options.syncServer) {
         await savePushSubscription(state.watchlistId, subscription);
       }
       return;
     }
     state.pushNotificationEnabled = false;
+    writeCachedPushEnabled(false);
+    stopPushNotificationUnreadRefresh();
     updatePushNotificationButton({ label: "알림 켜기", buttonText: "알림 켜기" });
     updatePushNotificationDisableButton({ hidden: true });
     setPushNotificationStatus("관심종목의 급등락, 공시, 리포트를 알려드려요.");
   } catch {
-    state.pushNotificationEnabled = false;
+    state.pushNotificationEnabled = readCachedPushEnabled();
+    if (state.pushNotificationEnabled) {
+      updatePushNotificationButton({ label: "알림 내역", buttonText: "알림", active: true });
+      startPushNotificationUnreadRefresh();
+      return;
+    }
+    stopPushNotificationUnreadRefresh();
     updatePushNotificationButton({ label: "알림 다시 시도", buttonText: "재시도" });
     updatePushNotificationDisableButton({ hidden: true });
     setPushNotificationStatus("알림 상태를 확인하지 못했습니다.", "error");
@@ -5295,20 +5507,22 @@ function setView(requestedViewName) {
   }
   if (view === "notifications") {
     history.replaceState(null, "", "/dashboard?view=notifications");
-    launchBriefPageLoading("알림을 불러오는 중", () => loadPushNotificationHistory());
+    hydratePushNotificationHistory();
+    renderPushNotificationHistory(state.pushNotificationHistory.length ? {} : { loading: true });
+    void loadPushNotificationHistory();
   } else if (view === "home") {
     history.replaceState(null, "", "/dashboard?view=home");
     const activeTab = state.activeTrendTab || "live";
+    void loadHomeAiSignals(pageEntryRefreshOptions("watchlist", "home-ai-signals"));
+    void loadHomeMarketSignalTicker(pageEntryRefreshOptions("market-signals"));
+    void loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home"));
     launchBriefPageLoading(PAGE_LOADING_LABELS.trend, async () => {
       await Promise.all([
         loadTrends(activeTab === "impact" ? "live" : activeTab, pageEntryRefreshOptions("trend", activeTab)),
         loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact")),
-        loadHomeMarketSignalTicker(pageEntryRefreshOptions("market-signals")),
         loadHomeMarketIndices(pageEntryRefreshOptions("market-indices")),
-        loadHomeAiSignals(pageEntryRefreshOptions("watchlist", "home-ai-signals")),
-        loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home")),
       ]);
-    });
+    }, 900);
   } else if (view === "search") {
     history.replaceState(null, "", "/dashboard?view=search");
     updateRecommendationButtonState();
@@ -5733,6 +5947,30 @@ function renderHomeAiSignals(payload = {}) {
   items.slice(0, 5).forEach((item) => elements.homeAiSignalsList.appendChild(createHomeAiSignalRow(item)));
 }
 
+function renderPendingHomeAiSignals() {
+  if (!elements.homeAiSignalsList) {
+    return;
+  }
+  const watched = readWatchlist().slice(0, 5);
+  elements.homeAiSignalsMeta.textContent = watched.length ? `${formatNumber(watched.length)}개 종목 확인 중` : "관심종목 없음";
+  elements.homeAiSignalsList.replaceChildren();
+  if (!watched.length) {
+    elements.homeAiSignalsList.append(el("p", "muted", "관심종목을 추가하면 매매신호를 확인할 수 있습니다."));
+    return;
+  }
+  for (const item of watched) {
+    const row = document.createElement("a");
+    row.className = "home-ai-signal-row is-pending";
+    row.href = viewStockUrl(item.name || item.code || "");
+    const identity = el("span", "home-ai-signal-identity");
+    identity.append(el("strong", "", item.name || item.code || "-"));
+    const status = el("span", "home-ai-signal-status");
+    status.append(el("strong", "", "확인 중"));
+    row.append(identity, status);
+    elements.homeAiSignalsList.append(row);
+  }
+}
+
 function aiSignalStageCounts(items = state.aiSignalItems) {
   return items.reduce((counts, item) => {
     const view = homeAiSignalView(item);
@@ -5815,18 +6053,24 @@ async function loadHomeAiSignals(options = {}) {
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? PAGE_ENTRY_MINUTE_MS;
   if (!elements.homeAiSignalsList.querySelector(".home-ai-signal-row")) {
-    elements.homeAiSignalsList.innerHTML = '<p class="muted">관심종목의 AI 매매신호를 불러오는 중입니다.</p>';
+    const cached = readCachedHomeAiSignals();
+    if (cached) {
+      renderHomeAiSignals(cached);
+    } else {
+      renderPendingHomeAiSignals();
+    }
   }
   try {
     const payload = await fetchJsonCached(
       `/watchlists/${encodeURIComponent(state.watchlistId)}/quant-signals`,
       { force, ttlMs: force ? 0 : ttlMs },
     );
+    writeCachedHomeAiSignals(payload);
     if (state.view === "home") {
       renderHomeAiSignals(payload);
     }
   } catch {
-    if (state.view === "home") {
+    if (state.view === "home" && !elements.homeAiSignalsList.querySelector(".home-ai-signal-row")) {
       elements.homeAiSignalsList.innerHTML = '<p class="muted">AI 매매신호를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>';
     }
   }

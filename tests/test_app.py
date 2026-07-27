@@ -105,12 +105,15 @@ def test_dashboard_notification_button_opens_notification_page_before_settings()
         'data-notification-tab="major_event"',
         'id="push-history-settings"',
         'id="push-history-list"',
+        'id="push-notification-unread-dot"',
         'class="secondary-commandbar notifications-commandbar"',
     ):
         assert expected in shell
     for expected in (
         "async function openPushNotificationCenter()",
-        "if (!state.pushNotificationEnabled)",
+        "const likelyEnabled = state.pushNotificationEnabled",
+        "function setPushNotificationUnread(unread)",
+        "function hydratePushNotificationHistory()",
         'setView("notifications");',
         'if (view === "notifications")',
         'history.replaceState(null, "", "/dashboard?view=notifications");',
@@ -330,9 +333,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert "function startHomeMarketSignalTicker" in source
     assert '시총 상위 100' not in shell
     assert '시총 상위 종목의 최근 신호' not in shell
-    assert 'styles.css?v=20260727v93' in shell
-    assert 'app.js?v=20260727v93' in shell
-    assert 'DASHBOARD_SW_VERSION = "20260727v93"' in client.get("/dashboard-sw.js").text
+    assert 'styles.css?v=20260727v94' in shell
+    assert 'app.js?v=20260727v94' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260727v94"' in client.get("/dashboard-sw.js").text
     assert "renderHomeMarketIndices" in source
     assert 'class="side-nav"' not in shell
     nav_order = [

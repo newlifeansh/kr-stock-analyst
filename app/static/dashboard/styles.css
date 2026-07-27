@@ -26803,3 +26803,56 @@ body:not([data-view="stock"]) #portfolio-view :is(.watch-v2-row-footer, .recomme
     max-width: 100px;
   }
 }
+
+/* Header notifications 6.1: quiet icon control with an unread indicator. */
+.app-notification-button,
+.app-notification-button[data-active="true"],
+body:not([data-view="stock"]) .app-notification-button,
+body:not([data-view="stock"]) .app-notification-button[data-active="true"] {
+  position: relative;
+  width: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--app-v3-text, #17191d);
+  box-shadow: none;
+}
+
+.app-notification-button:hover,
+.app-notification-button[data-active="true"]:hover {
+  border-color: transparent;
+  background: #f3f4f6;
+  color: #111111;
+}
+
+.app-notification-button:focus-visible,
+.app-notification-button[data-active="true"]:focus-visible {
+  border-color: transparent;
+  background: #f3f4f6;
+  color: #111111;
+  outline: 2px solid #17191d;
+  outline-offset: 2px;
+}
+
+.app-notification-unread-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #e32636;
+  box-sizing: content-box;
+  pointer-events: none;
+}
+
+.app-notification-unread-dot[hidden] {
+  display: none;
+}
+
+body:not([data-view="stock"]) .home-ai-signal-row.is-pending .home-ai-signal-status strong {
+  color: #8a94a3;
+}
