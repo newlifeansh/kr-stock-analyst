@@ -188,7 +188,7 @@ def _enrich_market_period_returns(items: list[dict[str, object]], max_items: int
     return items
 
 
-def _naver_market_rise_items(db: Session, market: Optional[str]) -> list[dict[str, object]]:
+def _naver_market_rise_items(db: Optional[Session], market: Optional[str]) -> list[dict[str, object]]:
     markets = [market.upper()] if market and market.upper() in {"KOSPI", "KOSDAQ"} else ["KOSPI", "KOSDAQ"]
     fetched: list[dict[str, object]] = []
     with ThreadPoolExecutor(max_workers=len(markets)) as executor:
@@ -209,12 +209,29 @@ def _naver_market_rise_items(db: Session, market: Optional[str]) -> list[dict[st
     if not fetched:
         return []
 
+    trade_date = _now_kst().date()
+    if db is None:
+        return [
+            {
+                **live,
+                "trade_date": trade_date,
+                "market_cap": None,
+                "metric_value": live.get("change_rate"),
+                "one_month_return": None,
+                "three_month_return": None,
+                "trading_value_change": None,
+                "per": None,
+                "pbr": None,
+                "sentiment_score": None,
+            }
+            for live in fetched
+        ]
+
     master_statement = select(StockMaster)
     if market:
         master_statement = master_statement.where(StockMaster.market == market.upper())
     masters = {stock.code: stock for stock in db.scalars(master_statement)}
     history = {str(item["code"]): item for item in _fast_price_items(db, market, lookback=64)}
-    trade_date = _now_kst().date()
     items: list[dict[str, object]] = []
     for live in fetched:
         code = str(live["code"])
@@ -656,15 +673,18 @@ def _news_sentiment_rank(db: Session, items: list[dict[str, object]], limit: int
 
 
 def build_market_rankings(
-    db: Session,
+    db: Optional[Session],
     category: str,
     market: Optional[str] = None,
     limit: int = 50,
     refresh_live: bool = False,
 ) -> dict[str, object]:
-    should_refresh_live = refresh_live and _is_regular_session()
+    should_refresh_live = category == "surge" and (refresh_live or _is_regular_session())
     source = "database"
-    live_market_items = _naver_market_rise_items(db, market) if category == "surge" and should_refresh_live else []
+    # The live surge board must remain available even when the database pool is
+    # busy. Naver's market-wide riser feed already contains every field needed
+    # for the current-session ranking; historical returns are enriched below.
+    live_market_items = _naver_market_rise_items(None, market) if category == "surge" and should_refresh_live else []
     if live_market_items:
         items = live_market_items
         source = "naver_market_rise"
@@ -683,7 +703,7 @@ def build_market_rankings(
         else limit
     )
 
-    universe_count = _stock_universe_count(db, market) if source == "naver_market_rise" else len(items)
+    universe_count = len(items)
     matching_count = 0
     if category == "surge":
         rising_items = [

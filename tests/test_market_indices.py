@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.models import MacroObservation
-from app.services.market_indices import build_market_indices, merge_live_market_indices
+from app.services.market_indices import build_market_indices, empty_market_indices, merge_live_market_indices
 
 
 def test_market_indices_use_latest_real_observations_and_history():
@@ -134,3 +134,11 @@ def test_live_market_indices_replace_current_values_and_append_basis_point():
     assert kospi["points"][-1] == {"date": "2026-07-27", "value": 6603.61}
     assert payload["source"] == "kis"
     assert payload["updated_at"] == "2026-07-27T14:05:00+09:00"
+
+
+def test_empty_market_indices_preserves_live_merge_shape():
+    payload = empty_market_indices()
+
+    assert [item["code"] for item in payload["items"]] == ["KOSPI", "KOSDAQ"]
+    assert all(item["current"] is None for item in payload["items"])
+    assert all(item["points"] == [] for item in payload["items"])

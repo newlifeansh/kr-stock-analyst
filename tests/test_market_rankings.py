@@ -191,3 +191,34 @@ def test_market_period_returns_calculates_cached_chart_history(monkeypatch):
             "three_month_return": Decimal("50.0"),
         }
     ]
+
+
+def test_live_surge_ranking_does_not_require_database(monkeypatch):
+    monkeypatch.setattr(
+        market_rankings,
+        "_fetch_naver_market_rise",
+        lambda market: [
+            {
+                "code": "000001" if market == "KOSPI" else "000002",
+                "name": "코스피상승" if market == "KOSPI" else "코스닥상승",
+                "market": market,
+                "price": 1200,
+                "change_rate": Decimal("12.5") if market == "KOSPI" else Decimal("20.0"),
+                "volume": 100,
+                "trading_value": 120000,
+            }
+        ],
+    )
+    monkeypatch.setattr(market_rankings, "_enrich_market_period_returns", lambda items, max_items: items)
+
+    payload = market_rankings.build_market_rankings(
+        None,
+        category="surge",
+        market=None,
+        limit=5,
+        refresh_live=True,
+    )
+
+    assert payload["source"] == "naver_market_rise"
+    assert payload["matching_count"] == 2
+    assert [item["code"] for item in payload["items"]] == ["000002", "000001"]

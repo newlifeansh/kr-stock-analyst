@@ -11634,14 +11634,33 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("visibilitychange", () => {
-  if (state.view !== "home") {
-    return;
-  }
   if (document.hidden) {
     stopHomeMarketIndexRefresh();
+    closeQuoteStream();
+    closeWatchlistQuoteStreams();
+    closeMarketQuoteStreams();
+    closeRecommendationQuoteStreams();
+    closeUsSectorStream();
     return;
   }
-  void loadHomeMarketIndices({ force: true, silent: true });
+  if (state.view === "home") {
+    void loadHomeMarketIndices({ force: true, silent: true });
+  } else if (state.view === "stock" && state.currentStock) {
+    connectQuoteStream(state.currentStock);
+  } else if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
+    elements.watchlistBody.querySelectorAll("[data-watch-card][data-code]").forEach((card) => {
+      connectWatchlistQuoteStream(card.dataset.code);
+    });
+    connectUsSectorStream();
+  } else if (state.view === "search") {
+    if (state.rankingCategory === "surge") {
+      state.marketLeaderboardItems.slice(0, 30).forEach((item) => connectMarketQuoteStream(item.code));
+    }
+    elements.recommendList.querySelectorAll(".recommend-card[data-code]").forEach((card) => {
+      connectRecommendationQuoteStream(card.dataset.code);
+    });
+    connectUsSectorStream();
+  }
 });
 
 registerDashboardServiceWorker();

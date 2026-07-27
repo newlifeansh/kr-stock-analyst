@@ -18,6 +18,26 @@ INDEX_DEFINITIONS = (
 KST = ZoneInfo("Asia/Seoul")
 
 
+def empty_market_indices() -> dict[str, object]:
+    return {
+        "items": [
+            {
+                "code": code,
+                "label": label,
+                "series_code": series_code,
+                "source": "unavailable",
+                "as_of": None,
+                "current": None,
+                "previous_close": None,
+                "change": None,
+                "change_rate": None,
+                "points": [],
+            }
+            for code, label, series_code in INDEX_DEFINITIONS
+        ]
+    }
+
+
 def _number(value: Decimal | None) -> float | None:
     return float(value) if value is not None else None
 
