@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote_plus, urljoin
 
 import requests
 from bs4 import BeautifulSoup
 
+from app.config import Settings
 from app.models import StockMaster
 
 NAVER_BOARD_URL = "https://finance.naver.com/item/board.naver"
 NAVER_BOARD_SOURCE = "naver_finance_board"
-THREADS_SOURCE = "threads_search"
+THREADS_API_SOURCE = "threads_api"
+THREADS_SEARCH_SOURCE = "threads_search"
 THREADS_SEARCH_URL = "https://www.threads.com/search?q={query}"
+THREADS_SEARCH_PATH = "/keyword_search"
+THREADS_FIELDS = "id,text,permalink,username,timestamp,profile_picture_url"
 
 POSITIVE_WORDS = (
     "상승",
@@ -69,23 +73,125 @@ def _parse_naver_datetime(value: str) -> Optional[datetime]:
 
 
 def _threads_query(stock: StockMaster) -> str:
-    return f"{stock.name} 주식"
+    return stock.name
 
 
 def threads_search_url(stock: StockMaster) -> str:
     return THREADS_SEARCH_URL.format(query=quote_plus(_threads_query(stock)))
 
 
-def _build_threads_provider(stock: StockMaster) -> dict[str, object]:
+def _parse_threads_datetime(value: object) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed = datetime.strptime(text, "%Y-%m-%dT%H:%M:%S%z")
+        except ValueError:
+            return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def _threads_title(text: str) -> str:
+    compact = " ".join(str(text or "").split())
+    if len(compact) <= 90:
+        return compact
+    return f"{compact[:89].rstrip()}…"
+
+
+def _fetch_threads_rows(
+    stock: StockMaster,
+    settings: Settings,
+    limit: int,
+) -> list[dict[str, object]]:
+    base_url = settings.threads_api_base_url.rstrip("/")
+    response = requests.get(
+        f"{base_url}{THREADS_SEARCH_PATH}",
+        params={
+            "q": _threads_query(stock),
+            "search_type": str(settings.threads_feed_search_type or "RECENT").upper(),
+            "fields": THREADS_FIELDS,
+            "limit": max(1, min(settings.threads_feed_max_results, limit)),
+        },
+        headers={"Authorization": f"Bearer {settings.threads_access_token}"},
+        timeout=max(1, settings.threads_feed_timeout_seconds),
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    rows: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for item in payload.get("data") or []:
+        post_id = str(item.get("id") or "").strip()
+        text = " ".join(str(item.get("text") or "").split())
+        if not post_id or not text or post_id in seen:
+            continue
+        seen.add(post_id)
+        username = str(item.get("username") or "").strip()
+        rows.append(
+            {
+                "provider_key": "threads",
+                "post_id": post_id,
+                "title": _threads_title(text),
+                "text": text,
+                "author_name": username or "Threads 사용자",
+                "username": username or None,
+                "author_profile_image_url": item.get("profile_picture_url") or None,
+                "url": item.get("permalink") or None,
+                "created_at": _parse_threads_datetime(item.get("timestamp")),
+                "like_count": 0,
+                "dislike_count": 0,
+                "reply_count": 0,
+                "repost_count": 0,
+                "view_count": 0,
+                "impact": _impact(text),
+            }
+        )
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def _build_threads_provider(
+    stock: StockMaster,
+    settings: Settings,
+    limit: int,
+) -> dict[str, object]:
+    search_url = threads_search_url(stock)
+    fallback = {
+        "key": "threads",
+        "label": "Threads",
+        "source": THREADS_SEARCH_SOURCE,
+        "configured": False,
+        "search_url": search_url,
+        "more_label": "Threads에서 더 보기 ↗",
+        "message": "Threads 원문 검색으로 연결합니다.",
+        "items": [],
+    }
+    if not settings.threads_feed_enabled or not settings.threads_access_token:
+        return fallback
+
+    try:
+        items = _fetch_threads_rows(stock, settings, limit)
+    except Exception:
+        return {
+            **fallback,
+            "message": "Threads 최근 글을 불러오지 못했습니다. 원문 검색에서 확인해 주세요.",
+        }
+
     return {
         "key": "threads",
         "label": "Threads",
-        "source": THREADS_SOURCE,
-        "configured": False,
-        "search_url": threads_search_url(stock),
+        "source": THREADS_API_SOURCE,
+        "configured": True,
+        "search_url": search_url,
         "more_label": "Threads에서 더 보기 ↗",
-        "message": "Threads는 공개 검색 링크로 먼저 연결했습니다. Meta API를 붙이면 종목별 실시간 글까지 바로 불러올 수 있습니다.",
-        "items": [],
+        "message": f"Meta API · 최근 글 {len(items)}건" if items else "Meta API · 최근 글이 없습니다.",
+        "items": items,
     }
 
 
@@ -173,6 +279,7 @@ def _build_naver_provider(stock: StockMaster, limit: int, timeout_seconds: int) 
 
 def build_stock_community_feed(
     stock: StockMaster,
+    settings: Settings,
     *,
     limit: int = 12,
     timeout_seconds: int = 8,
@@ -180,7 +287,7 @@ def build_stock_community_feed(
     limit = max(1, min(20, limit))
     providers = [
         _build_naver_provider(stock, min(limit, 8), timeout_seconds),
-        _build_threads_provider(stock),
+        _build_threads_provider(stock, settings, min(limit, settings.threads_feed_max_results)),
     ]
     return {
         "code": stock.code,

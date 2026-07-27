@@ -2223,11 +2223,21 @@ def stock_community_feed(
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
 
-    key = ("stock_community_feed", code, limit)
+    key = (
+        "stock_community_feed",
+        code,
+        limit,
+        bool(settings.threads_feed_enabled and settings.threads_access_token),
+    )
     payload = api_cache.get_or_set(
         key,
-        300,
-        lambda: build_stock_community_feed(stock, limit=limit),
+        max(30, settings.threads_feed_cache_seconds),
+        lambda: build_stock_community_feed(
+            stock,
+            settings,
+            limit=limit,
+            timeout_seconds=settings.threads_feed_timeout_seconds,
+        ),
     )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response.headers["Pragma"] = "no-cache"

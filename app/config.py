@@ -78,6 +78,13 @@ class Settings(BaseSettings):
     x_feed_timeout_seconds: int = 12
     x_feed_max_results: int = 20
     x_feed_retention_days: int = 14
+    threads_feed_enabled: bool = True
+    threads_access_token: Optional[str] = None
+    threads_api_base_url: str = "https://graph.threads.net"
+    threads_feed_cache_seconds: int = 300
+    threads_feed_timeout_seconds: int = 12
+    threads_feed_max_results: int = 20
+    threads_feed_search_type: str = "RECENT"
     macro_enabled: bool = True
     macro_poll_seconds: int = 21600
     macro_range: str = "1y"

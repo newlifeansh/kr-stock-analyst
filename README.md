@@ -281,6 +281,13 @@ DISCLOSURE_ENABLED=true
 DISCLOSURE_POLL_SECONDS=300
 NEWS_ENABLED=true
 NEWS_POLL_SECONDS=300
+THREADS_FEED_ENABLED=true
+THREADS_ACCESS_TOKEN=...
+THREADS_API_BASE_URL=https://graph.threads.net
+THREADS_FEED_CACHE_SECONDS=300
+THREADS_FEED_TIMEOUT_SECONDS=12
+THREADS_FEED_MAX_RESULTS=20
+THREADS_FEED_SEARCH_TYPE=RECENT
 BOOTSTRAP_ON_START=true
 MCP_ENABLED=true
 MCP_PUBLIC_BASE_URL=https://your-domain
@@ -295,6 +302,10 @@ TOSS_ACCOUNT_SEQ=...
 TOSS_POLL_SECONDS=60
 TOSS_ORDER_POLL_SECONDS=300
 ```
+
+Threads 종목 검색은 Meta 앱의 Threads 사용 사례와 `threads_basic`,
+`threads_keyword_search` 권한이 승인된 사용자 액세스 토큰을 사용합니다. 토큰이 없거나
+권한 승인이 끝나지 않은 환경에서는 종목별 Threads 공개 검색 링크로 자동 전환됩니다.
 
 ## 1차 인사이트 구조
 

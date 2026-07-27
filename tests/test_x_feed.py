@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import main as main_module
 from app.config import Settings
 from app.db import Base, get_db
 from app.main import app
@@ -106,8 +107,6 @@ def test_x_feed_endpoint_has_search_fallback_without_token(monkeypatch):
     def override_db():
         yield db
 
-    from app import main as main_module
-
     monkeypatch.setattr(main_module.settings, "x_feed_enabled", True)
     monkeypatch.setattr(main_module.settings, "x_bearer_token", None)
     app.dependency_overrides[get_db] = override_db
@@ -158,6 +157,7 @@ def test_stock_community_feed_endpoint_uses_naver_board_and_threads(monkeypatch)
         yield db
 
     app.dependency_overrides[get_db] = override_db
+    monkeypatch.setattr(main_module.settings, "threads_access_token", None)
     monkeypatch.setattr(community_feed.requests, "get", fake_get)
     try:
         response = TestClient(app).get("/stocks/215600/community-feed")
@@ -172,6 +172,56 @@ def test_stock_community_feed_endpoint_uses_naver_board_and_threads(monkeypatch)
     finally:
         app.dependency_overrides.pop(get_db, None)
         db.close()
+
+
+def test_threads_keyword_search_is_mapped_with_meta_api(monkeypatch):
+    calls = []
+
+    class Response:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return {
+                "data": [
+                    {
+                        "id": "threads-post-1",
+                        "text": "신라젠 임상 기대감으로 상승 가능성을 살펴봅니다.",
+                        "permalink": "https://www.threads.net/@market/post/example",
+                        "username": "market_note",
+                        "timestamp": "2026-07-25T01:20:00+0000",
+                        "profile_picture_url": "https://example.test/threads-profile.jpg",
+                    }
+                ]
+            }
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setattr(community_feed.requests, "get", fake_get)
+    settings = Settings(
+        threads_access_token="threads-secret",
+        threads_feed_timeout_seconds=7,
+        threads_feed_max_results=12,
+    )
+    stock = StockMaster(code="215600", name="신라젠", market="KOSDAQ", is_active=True)
+
+    payload = community_feed.build_stock_community_feed(stock, settings, limit=12)
+    provider = payload["providers"][1]
+
+    assert provider["configured"] is True
+    assert provider["source"] == "threads_api"
+    assert provider["message"] == "Meta API · 최근 글 1건"
+    assert provider["items"][0]["username"] == "market_note"
+    assert provider["items"][0]["impact"] == "호재"
+    assert provider["items"][0]["created_at"] == datetime(2026, 7, 25, 1, 20)
+    assert calls[1][0] == "https://graph.threads.net/keyword_search"
+    assert calls[1][1]["headers"] == {"Authorization": "Bearer threads-secret"}
+    assert calls[1][1]["params"]["q"] == "신라젠"
+    assert calls[1][1]["params"]["search_type"] == "RECENT"
 
 
 def test_stock_detail_contains_community_ui():
