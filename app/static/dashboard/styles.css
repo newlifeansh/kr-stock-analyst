@@ -16621,6 +16621,16 @@ body :is(
   margin-top: 8px;
 }
 
+#stock-view.stock-detail-v3 #stock-report-history-chart[data-mode="issuance"] {
+  min-height: 0;
+  margin-top: 2px;
+}
+
+#stock-view.stock-detail-v3 #stock-report-history-chart[data-mode="broker"] {
+  min-height: 280px;
+  margin-top: 4px;
+}
+
 #stock-view.stock-detail-v3 .stock-v3-chart-empty,
 #stock-view.stock-detail-v3 .stock-v2-empty {
   min-height: 180px;
@@ -16673,6 +16683,11 @@ body :is(
 
 #stock-view.stock-detail-v3 .stock-v3-report-issuance rect {
   fill: #2f7df4;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-report-baseline {
+  stroke: var(--stock-v3-line-strong);
+  stroke-width: 1;
 }
 
 #stock-view.stock-detail-v3 .stock-v3-report-issuance > text:not(.stock-v3-chart-date) {
@@ -17560,6 +17575,15 @@ body :is(
     min-height: 250px;
     margin-right: -6px;
     margin-left: -6px;
+  }
+
+  #stock-view.stock-detail-v3 #stock-report-history-chart[data-mode="issuance"] {
+    min-height: 0;
+    margin-top: 0;
+  }
+
+  #stock-view.stock-detail-v3 #stock-report-history-chart[data-mode="broker"] {
+    min-height: 250px;
   }
 
   #stock-view.stock-detail-v3 .stock-v3-chart-summary {
