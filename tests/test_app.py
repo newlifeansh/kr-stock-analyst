@@ -389,9 +389,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert "function startHomeMarketSignalTicker" in source
     assert '시총 상위 100' not in shell
     assert '시총 상위 종목의 최근 신호' not in shell
-    assert 'styles.css?v=20260728v105' in shell
-    assert 'app.js?v=20260728v105' in shell
-    assert 'DASHBOARD_SW_VERSION = "20260728v105"' in client.get("/dashboard-sw.js").text
+    assert 'styles.css?v=20260728v106' in shell
+    assert 'app.js?v=20260728v106' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260728v106"' in client.get("/dashboard-sw.js").text
     assert 'id="logout-button"' not in shell
     assert ".app-notification-button svg" in styles
     assert "width: 25px;" in styles

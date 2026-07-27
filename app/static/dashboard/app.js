@@ -2181,8 +2181,8 @@ function renderStockReportIssuance(reports) {
   const height = 220;
   const left = 54;
   const right = 30;
-  const top = 36;
-  const bottom = 170;
+  const top = 48;
+  const bottom = 182;
   const maxCount = Math.max(...rows.map((row) => row.count), 1);
   const slot = (width - left - right) / rows.length;
   const barWidth = Math.min(66, slot * 0.55);
@@ -2190,7 +2190,7 @@ function renderStockReportIssuance(reports) {
     const barHeight = row.count / maxCount * (bottom - top);
     const x = left + slot * index + (slot - barWidth) / 2;
     const y = bottom - barHeight;
-    return `<g class="stock-v3-report-issuance"><rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${barHeight.toFixed(2)}" rx="4"></rect><text x="${(x + barWidth / 2).toFixed(2)}" y="${Math.max(24, y - 8).toFixed(2)}" text-anchor="middle">${row.count}건</text><text class="stock-v3-chart-date" x="${(x + barWidth / 2).toFixed(2)}" y="202" text-anchor="middle">${row.month.replace("-", ".")}</text></g>`;
+    return `<g class="stock-v3-report-issuance"><rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${barHeight.toFixed(2)}" rx="4"></rect><text x="${(x + barWidth / 2).toFixed(2)}" y="${Math.max(36, y - 8).toFixed(2)}" text-anchor="middle">${row.count}건</text><text class="stock-v3-chart-date" x="${(x + barWidth / 2).toFixed(2)}" y="214" text-anchor="middle">${row.month.replace("-", ".")}</text></g>`;
   }).join("");
   elements.stockReportHistoryChart.innerHTML = `<svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 월별 리포트 발행 건수"><line class="stock-v3-report-baseline" x1="${left}" y1="${bottom}" x2="${width - right}" y2="${bottom}"></line>${bars}</svg>`;
   const recentCutoff = new Date();
