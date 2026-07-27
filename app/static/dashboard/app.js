@@ -2677,11 +2677,10 @@ function renderStockCommunity(payload) {
 
   const items = Array.isArray(selected.items) ? selected.items : [];
   const summary = el("div", "stock-community-board-summary");
-  summary.appendChild(el("strong", "", selected.label || "커뮤니티"));
   if (items.length) {
-    summary.appendChild(el("span", "", `최근 글 ${formatNumber(items.length)}건`));
+    summary.appendChild(el("strong", "", `최근 글 ${formatNumber(items.length)}건`));
+    board.appendChild(summary);
   }
-  board.appendChild(summary);
 
   const list = el("ul", "stock-community-list");
   for (const row of items.slice(0, 8)) {

@@ -164,7 +164,7 @@ def _build_threads_provider(
     search_url = threads_search_url(stock)
     fallback = {
         "key": "threads",
-        "label": "Threads",
+        "label": "threads",
         "source": THREADS_SEARCH_SOURCE,
         "configured": False,
         "search_url": search_url,
@@ -185,7 +185,7 @@ def _build_threads_provider(
 
     return {
         "key": "threads",
-        "label": "Threads",
+        "label": "threads",
         "source": THREADS_API_SOURCE,
         "configured": True,
         "search_url": search_url,
@@ -252,7 +252,7 @@ def _build_naver_provider(stock: StockMaster, limit: int, timeout_seconds: int) 
         items = _fetch_naver_board_rows(stock, limit, timeout_seconds)
         return {
             "key": "naver_board",
-            "label": "네이버 종토방",
+            "label": "네이버",
             "source": NAVER_BOARD_SOURCE,
             "configured": True,
             "search_url": search_url,
@@ -267,7 +267,7 @@ def _build_naver_provider(stock: StockMaster, limit: int, timeout_seconds: int) 
     except Exception:
         return {
             "key": "naver_board",
-            "label": "네이버 종토방",
+            "label": "네이버",
             "source": NAVER_BOARD_SOURCE,
             "configured": False,
             "search_url": search_url,

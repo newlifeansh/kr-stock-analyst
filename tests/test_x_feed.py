@@ -165,9 +165,11 @@ def test_stock_community_feed_endpoint_uses_naver_board_and_threads(monkeypatch)
         payload = response.json()
         assert payload["code"] == "215600"
         assert payload["providers"][0]["key"] == "naver_board"
+        assert payload["providers"][0]["label"] == "네이버"
         assert payload["providers"][0]["items"][0]["title"] == "신라젠 다시 상승 준비"
         assert payload["providers"][0]["items"][0]["view_count"] == 27
         assert payload["providers"][1]["key"] == "threads"
+        assert payload["providers"][1]["label"] == "threads"
         assert payload["providers"][1]["search_url"].startswith("https://www.threads.com/search?q=")
     finally:
         app.dependency_overrides.pop(get_db, None)
