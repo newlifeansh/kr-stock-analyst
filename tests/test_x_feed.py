@@ -237,6 +237,7 @@ def test_stock_detail_contains_community_ui():
     assert "function loadStockCommunity" in source
     assert "/community-feed?limit=12" in source
     assert ".stock-community-tabs" in styles
+    assert '"stock-community-tabs stock-v3-segment"' in source
     assert ".stock-community-entry" in styles
     assert ".stock-community-text" in styles
     assert "state.stockCommunityProviderKey" in source

@@ -2652,7 +2652,7 @@ function renderStockCommunity(payload) {
   state.stockCommunityProviderKey = selected.key;
 
   const board = el("section", "stock-community-board");
-  const tabs = el("div", "stock-community-tabs");
+  const tabs = el("div", "stock-community-tabs stock-v3-segment");
   tabs.setAttribute("role", "tablist");
   tabs.setAttribute("aria-label", "커뮤니티 출처");
   for (const provider of providers) {
