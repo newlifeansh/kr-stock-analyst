@@ -28,6 +28,7 @@ const elements = {
   recommendDetailContent: $("recommend-detail-content"),
   portfolioView: $("portfolio-view"),
   marketView: $("market-view"),
+  aiSignalsView: $("ai-signals-view"),
   appNavItems: Array.from(document.querySelectorAll("[data-app-view]")),
   stockSectionTabs: Array.from(document.querySelectorAll("[data-stock-tab]")),
   stockTabPanels: Array.from(document.querySelectorAll("[data-stock-panel]")),
@@ -204,6 +205,11 @@ const elements = {
   homeAiSignals: $("home-ai-signals"),
   homeAiSignalsMeta: $("home-ai-signals-meta"),
   homeAiSignalsList: $("home-ai-signals-list"),
+  homeAiSignalsMore: $("home-ai-signals-more"),
+  aiSignalsBack: $("ai-signals-back"),
+  aiSignalsMeta: $("ai-signals-meta"),
+  aiSignalStageTabs: Array.from(document.querySelectorAll("[data-ai-signal-stage]")),
+  aiSignalsPageList: $("ai-signals-page-list"),
   homeSurge: $("home-surge"),
   homeSurgeMeta: $("home-surge-meta"),
   homeSurgeList: $("home-surge-list"),
@@ -600,6 +606,7 @@ const LEGACY_VIEW_MAP = {
   search: "search",
   "recommend-detail": "recommend-detail",
   notifications: "notifications",
+  "ai-signals": "ai-signals",
   movers: "movers",
   portfolio: "portfolio",
   chart: "chart",
@@ -621,6 +628,8 @@ const state = {
   showPastEvents: requestedView === "trend-past",
   portfolioTab: requestedView === "recommend-history" ? "tracking" : "watchlist",
   watchlistContentTab: "strategy",
+  aiSignalStage: "recent-buy",
+  aiSignalItems: [],
   discoverySuggestions: [],
   discoverySuggestionController: null,
   discoverySuggestionTimer: null,
@@ -5258,13 +5267,14 @@ function setView(requestedViewName) {
   elements.recommendDetailPage.hidden = view !== "recommend-detail";
   elements.portfolioView.hidden = view !== "portfolio";
   elements.marketView.hidden = view !== "movers";
+  elements.aiSignalsView.hidden = view !== "ai-signals";
   elements.trendView.hidden = false;
   elements.watchlistView.hidden = false;
   elements.recommendView.hidden = false;
   elements.recommendHistoryView.hidden = false;
   elements.chartView.hidden = view !== "chart";
   elements.chartHistoryView.hidden = view !== "chart-history";
-  const activeView = view === "chart-history" ? "chart" : view === "movers" ? "home" : view === "recommend-detail" ? "search" : view;
+  const activeView = view === "chart-history" ? "chart" : ["movers", "ai-signals"].includes(view) ? "home" : view === "recommend-detail" ? "search" : view;
   for (const item of elements.appNavItems) {
     const active = item.dataset.appView === activeView;
     item.classList.toggle("active", active);
@@ -5314,6 +5324,9 @@ function setView(requestedViewName) {
       market,
       limit: 30,
     }));
+  } else if (view === "ai-signals") {
+    history.replaceState(null, "", "/dashboard?view=ai-signals");
+    launchBriefPageLoading("AI 매매신호를 불러오는 중", () => loadAiSignalsPage(pageEntryRefreshOptions("watchlist", "ai-signals")));
   } else if (view === "portfolio") {
     history.replaceState(null, "", "/dashboard?view=portfolio");
     setPortfolioTab(state.portfolioTab, { load: true });
@@ -5642,19 +5655,40 @@ function homeAiSignalView(item = {}) {
   const action = current.action || "unavailable";
   const transition = item.current?.lifecycle?.latest_transition;
   const signalDate = transition?.transition_date || item.price_through || item.current?.as_of || item.as_of;
-  const soldToday = action === "exited"
-    && String(transition?.transition_date || "").slice(0, 10) === koreaDateKey();
-  if (soldToday) {
-    return { label: "매도 완료", tone: "sell", signalDate };
+  if (action === "entered") {
+    return { key: "recent-buy", label: "최근 매수", tone: "buy", signalDate };
   }
   if (current.position_open) {
-    return { label: "보유 중", tone: "hold", signalDate };
+    return { key: "holding", label: "보유 중", tone: "hold", signalDate };
   }
-  return { label: "관망 중", tone: "neutral", signalDate };
+  if (action === "exited") {
+    return { key: "recent-sell", label: "최근 매도", tone: "sell", signalDate };
+  }
+  return null;
 }
 
-function createHomeAiSignalRow(item) {
+function aiSignalSortValue(item) {
   const view = homeAiSignalView(item);
+  const stageOrder = { "recent-buy": 0, holding: 1, "recent-sell": 2 };
+  const timestamp = Date.parse(view?.signalDate || "") || 0;
+  return [(stageOrder[view?.key] ?? 9), -timestamp];
+}
+
+function normalizedAiSignalItems(items = []) {
+  return items
+    .filter((item) => homeAiSignalView(item))
+    .sort((left, right) => {
+      const leftSort = aiSignalSortValue(left);
+      const rightSort = aiSignalSortValue(right);
+      return leftSort[0] - rightSort[0] || leftSort[1] - rightSort[1];
+    });
+}
+
+function createHomeAiSignalRow(item, options = {}) {
+  const view = homeAiSignalView(item);
+  if (!view) {
+    return null;
+  }
   const row = document.createElement("a");
   row.className = `home-ai-signal-row is-${view.tone}`;
   row.href = viewStockUrl(item.name || item.code || "");
@@ -5662,8 +5696,14 @@ function createHomeAiSignalRow(item) {
 
   const identity = el("span", "home-ai-signal-identity");
   identity.append(el("strong", "", item.name || item.code || "-"));
+  if (options.detail) {
+    identity.append(el("small", "", `${item.code || "-"} · ${item.market || "-"}`));
+  }
   const status = el("span", "home-ai-signal-status");
   status.append(el("strong", "", view.label));
+  if (options.detail && view.signalDate) {
+    status.append(el("small", "", formatDataBasis(view.signalDate, "")));
+  }
   row.append(identity, status);
   return row;
 }
@@ -5672,16 +5712,86 @@ function renderHomeAiSignals(payload = {}) {
   if (!elements.homeAiSignalsList) {
     return;
   }
-  const items = Array.isArray(payload.items) ? payload.items : [];
-  elements.homeAiSignalsMeta.textContent = items.length
-    ? `${formatNumber(items.length)}개 종목`
-    : "관심종목 없음";
+  const items = normalizedAiSignalItems(Array.isArray(payload.items) ? payload.items : []);
+  state.aiSignalItems = items;
+  elements.homeAiSignalsMeta.textContent = items.length ? `${formatNumber(items.length)}개 신호` : "새 신호 없음";
   elements.homeAiSignalsList.innerHTML = "";
   if (!items.length) {
-    elements.homeAiSignalsList.append(el("p", "muted", "관심종목을 추가하면 AI 매매신호를 한곳에서 확인할 수 있습니다."));
+    elements.homeAiSignalsList.append(el("p", "muted", "최근 매수·보유·매도 신호가 없습니다."));
     return;
   }
-  items.forEach((item) => elements.homeAiSignalsList.appendChild(createHomeAiSignalRow(item)));
+  items.slice(0, 5).forEach((item) => elements.homeAiSignalsList.appendChild(createHomeAiSignalRow(item)));
+}
+
+function aiSignalStageCounts(items = state.aiSignalItems) {
+  return items.reduce((counts, item) => {
+    const view = homeAiSignalView(item);
+    if (view) {
+      counts[view.key] = (counts[view.key] || 0) + 1;
+    }
+    return counts;
+  }, { "recent-buy": 0, holding: 0, "recent-sell": 0 });
+}
+
+function setAiSignalStage(stageName, options = {}) {
+  const allowed = new Set(["recent-buy", "holding", "recent-sell"]);
+  state.aiSignalStage = allowed.has(stageName) ? stageName : "recent-buy";
+  for (const tab of elements.aiSignalStageTabs) {
+    const selected = tab.dataset.aiSignalStage === state.aiSignalStage;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
+  if (options.render !== false) {
+    renderAiSignalsPage();
+  }
+}
+
+function renderAiSignalsPage() {
+  if (!elements.aiSignalsPageList) {
+    return;
+  }
+  const items = normalizedAiSignalItems(state.aiSignalItems);
+  const counts = aiSignalStageCounts(items);
+  elements.aiSignalsMeta.textContent = items.length ? `${formatNumber(items.length)}개 신호` : "새 신호 없음";
+  for (const tab of elements.aiSignalStageTabs) {
+    const count = counts[tab.dataset.aiSignalStage] || 0;
+    const countNode = tab.querySelector("span");
+    if (countNode) {
+      countNode.textContent = formatNumber(count);
+    }
+  }
+  const visible = items.filter((item) => homeAiSignalView(item)?.key === state.aiSignalStage);
+  elements.aiSignalsPageList.innerHTML = "";
+  if (!visible.length) {
+    const labels = { "recent-buy": "최근 매수", holding: "보유 중", "recent-sell": "최근 매도" };
+    elements.aiSignalsPageList.append(el("p", "muted", `${labels[state.aiSignalStage]} 종목이 없습니다.`));
+    return;
+  }
+  visible.forEach((item) => elements.aiSignalsPageList.appendChild(createHomeAiSignalRow(item, { detail: true })));
+}
+
+async function loadAiSignalsPage(options = {}) {
+  if (!state.watchlistId) {
+    state.aiSignalItems = [];
+    renderAiSignalsPage();
+    return;
+  }
+  elements.aiSignalsPageList.innerHTML = '<p class="muted">관심종목의 AI 매매신호를 불러오는 중입니다.</p>';
+  try {
+    const payload = await fetchJsonCached(
+      `/watchlists/${encodeURIComponent(state.watchlistId)}/quant-signals`,
+      { force: options.force === true, ttlMs: options.force ? 0 : (options.ttlMs ?? PAGE_ENTRY_MINUTE_MS) },
+    );
+    state.aiSignalItems = normalizedAiSignalItems(payload.items || []);
+    const counts = aiSignalStageCounts(state.aiSignalItems);
+    if (!counts[state.aiSignalStage]) {
+      state.aiSignalStage = ["recent-buy", "holding", "recent-sell"].find((stage) => counts[stage]) || "recent-buy";
+    }
+    setAiSignalStage(state.aiSignalStage);
+  } catch {
+    elements.aiSignalsPageList.innerHTML = '<p class="muted">AI 매매신호를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>';
+  }
 }
 
 async function loadHomeAiSignals(options = {}) {
@@ -10863,6 +10973,17 @@ for (const item of elements.appNavItems) {
   });
 }
 elements.homeInstallButton?.addEventListener("click", handleHomeInstall);
+elements.homeAiSignalsMore?.addEventListener("click", () => {
+  setView("ai-signals");
+  window.scrollTo({ top: 0, behavior: "auto" });
+});
+elements.aiSignalsBack?.addEventListener("click", () => {
+  setView("home");
+  window.scrollTo({ top: 0, behavior: "auto" });
+});
+for (const tab of elements.aiSignalStageTabs) {
+  tab.addEventListener("click", () => setAiSignalStage(tab.dataset.aiSignalStage));
+}
 elements.homeSurgeMore?.addEventListener("click", () => {
   setMarketFilter("KOSPI");
   setView("movers");

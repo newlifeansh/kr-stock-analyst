@@ -24747,11 +24747,14 @@ body:not([data-view="stock"]) .home-ai-signals-head h2 {
 
 body:not([data-view="stock"]) .home-ai-signals-head .text-action {
   flex: 0 0 auto;
+  min-width: 0;
   padding: 8px 0 8px 16px;
   color: #4c5667;
+  background: transparent;
+  border: 0;
   font-size: 14px;
   font-weight: 700;
-  text-decoration: none;
+  cursor: pointer;
 }
 
 body:not([data-view="stock"]) .home-ai-signals-list {
@@ -24784,6 +24787,12 @@ body:not([data-view="stock"]) :is(.home-ai-signal-identity, .home-ai-signal-stat
   align-items: center;
 }
 
+body:not([data-view="stock"]) .app-ai-signals :is(.home-ai-signal-identity, .home-ai-signal-status) {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
 body:not([data-view="stock"]) .home-ai-signal-row strong {
   overflow: hidden;
   color: #191d26;
@@ -24809,6 +24818,14 @@ body:not([data-view="stock"]) .home-ai-signal-status {
   border-left: 1px solid #e4e8ed;
 }
 
+body:not([data-view="stock"]) .app-ai-signals .home-ai-signal-status {
+  align-items: flex-end;
+}
+
+body:not([data-view="stock"]) .home-ai-signal-row.is-buy .home-ai-signal-status strong {
+  color: #dc2638;
+}
+
 body:not([data-view="stock"]) .home-ai-signal-row.is-hold .home-ai-signal-status strong {
   color: #dc2638;
 }
@@ -24819,6 +24836,82 @@ body:not([data-view="stock"]) .home-ai-signal-row.is-sell .home-ai-signal-status
 
 body:not([data-view="stock"]) .home-ai-signal-row.is-neutral .home-ai-signal-status strong {
   color: #737d8c;
+}
+
+/* AI signal archive 1.0: three-stage status board. */
+body[data-view="ai-signals"] {
+  background: #f3f4f6;
+}
+
+body[data-view="ai-signals"] .app-content {
+  background: #fff;
+}
+
+#ai-signals-view.app-ai-signals {
+  width: 100%;
+  max-width: 920px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 0 20px 48px;
+  color: #16181d;
+  background: #fff;
+  font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#ai-signals-view .ai-signals-commandbar,
+#ai-signals-view > .secondary-view-meta {
+  margin-right: -20px;
+  margin-left: -20px;
+}
+
+#ai-signals-view .ai-signal-stage-tabs {
+  position: sticky;
+  top: 72px;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 -20px;
+  background: #fff;
+  border-bottom: 1px solid #e5e8ec;
+}
+
+#ai-signals-view .ai-signal-stage-tabs button {
+  min-width: 0;
+  min-height: 58px;
+  padding: 0 8px;
+  color: #8a929e;
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  font-size: 15px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+#ai-signals-view .ai-signal-stage-tabs button.active {
+  color: #17191e;
+  border-bottom-color: #17191e;
+}
+
+#ai-signals-view .ai-signal-stage-tabs span {
+  margin-left: 3px;
+  color: #9aa2ae;
+  font-size: 12px;
+}
+
+#ai-signals-view .ai-signals-page-list {
+  min-height: 120px;
+  border-top: 0;
+}
+
+#ai-signals-view .ai-signals-page-list > .muted {
+  margin: 0;
+  padding: 36px 0;
+  text-align: center;
+}
+
+#ai-signals-view .home-ai-signal-row {
+  min-height: 76px;
 }
 
 body:not([data-view="stock"]) .home-surge {
@@ -26110,6 +26203,7 @@ body[data-view="movers"] .shell[data-ui-version="3.0"] {
 /* Secondary navigation 6.0: stock-detail style for every non-root page. */
 body:is(
   [data-view="notifications"],
+  [data-view="ai-signals"],
   [data-view="movers"],
   [data-view="recommend-detail"],
   [data-view="chart-history"]
@@ -26119,6 +26213,7 @@ body:is(
 
 body:is(
   [data-view="notifications"],
+  [data-view="ai-signals"],
   [data-view="movers"],
   [data-view="recommend-detail"],
   [data-view="chart-history"]
@@ -26233,6 +26328,7 @@ body:is(
 }
 
 .notifications-commandbar,
+#ai-signals-view .ai-signals-commandbar,
 #market-view.app-market-rankings .market-ranking-commandbar,
 .recommend-detail-topbar,
 .chart-history-commandbar {
@@ -26244,6 +26340,7 @@ body:is(
 }
 
 .notifications-commandbar h1,
+#ai-signals-view .ai-signals-commandbar h1,
 #market-view.app-market-rankings .market-ranking-commandbar > h1,
 .recommend-detail-topbar h1,
 .chart-history-commandbar h1 {
@@ -26278,6 +26375,7 @@ body:is(
 @media (max-width: 720px) {
   .secondary-commandbar,
   .notifications-commandbar,
+  #ai-signals-view .ai-signals-commandbar,
   #market-view.app-market-rankings .market-ranking-commandbar,
   .recommend-detail-topbar,
   .chart-history-commandbar {
@@ -26290,6 +26388,7 @@ body:is(
   .secondary-commandbar > h1,
   .secondary-commandbar-title h1,
   .notifications-commandbar h1,
+  #ai-signals-view .ai-signals-commandbar h1,
   #market-view.app-market-rankings .market-ranking-commandbar > h1,
   .recommend-detail-topbar h1,
   .chart-history-commandbar h1 {
@@ -26320,6 +26419,10 @@ body:is(
 
   #market-view.app-market-rankings .market-ranking-tabs {
     top: 64px !important;
+  }
+
+  #ai-signals-view .ai-signal-stage-tabs {
+    top: 64px;
   }
 }
 

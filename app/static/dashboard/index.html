@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="5.5" />
+    <meta name="application-version" content="5.6" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
@@ -27,7 +27,7 @@
         // The login form remains visible when browser storage is unavailable.
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260727v86" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260727v87" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -479,7 +479,7 @@
         <section class="home-ai-signals" id="home-ai-signals" aria-labelledby="home-ai-signals-title" aria-live="polite">
           <header class="home-ai-signals-head">
             <div><span id="home-ai-signals-meta">관심종목 신호 확인 중</span><h2 id="home-ai-signals-title">AI 매매신호</h2></div>
-            <a class="text-action" href="/dashboard?view=portfolio">내 종목</a>
+            <button class="text-action" id="home-ai-signals-more" type="button">더보기</button>
           </header>
           <div class="home-ai-signals-list" id="home-ai-signals-list">
             <p class="muted">관심종목의 AI 매매신호를 불러오는 중입니다.</p>
@@ -524,6 +524,23 @@
               <p class="muted">시장 변수를 계산하는 중입니다.</p>
             </div>
           </section>
+        </section>
+      </section>
+
+      <section id="ai-signals-view" class="app-page app-ai-signals" data-ui-version="1.0" hidden>
+        <header class="secondary-commandbar ai-signals-commandbar">
+          <button class="secondary-commandbar-back" id="ai-signals-back" type="button" aria-label="홈으로 돌아가기">←</button>
+          <h1>AI 매매신호</h1>
+          <span class="secondary-commandbar-spacer" aria-hidden="true"></span>
+        </header>
+        <p class="secondary-view-meta" id="ai-signals-meta">관심종목 신호 확인 중</p>
+        <nav class="ai-signal-stage-tabs" id="ai-signal-stage-tabs" role="tablist" aria-label="AI 매매신호 상태">
+          <button class="active" type="button" role="tab" aria-selected="true" data-ai-signal-stage="recent-buy">최근 매수 <span>0</span></button>
+          <button type="button" role="tab" aria-selected="false" data-ai-signal-stage="holding">보유 중 <span>0</span></button>
+          <button type="button" role="tab" aria-selected="false" data-ai-signal-stage="recent-sell">최근 매도 <span>0</span></button>
+        </nav>
+        <section class="ai-signals-page-list" id="ai-signals-page-list" aria-live="polite">
+          <p class="muted">관심종목의 AI 매매신호를 불러오는 중입니다.</p>
         </section>
       </section>
 
@@ -657,6 +674,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260727v86" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260727v87" defer></script>
   </body>
 </html>

@@ -128,10 +128,12 @@ def test_secondary_pages_use_stock_detail_navigation_contract():
 
     for expected in (
         'class="secondary-commandbar notifications-commandbar"',
+        'class="secondary-commandbar ai-signals-commandbar"',
         'class="secondary-commandbar market-ranking-commandbar"',
         'class="secondary-commandbar recommend-detail-topbar"',
         'class="secondary-commandbar chart-history-commandbar"',
         'class="secondary-commandbar-back notifications-back"',
+        'id="ai-signals-back"',
         'class="secondary-commandbar-back market-ranking-back"',
         'id="chart-history-back-button"',
     ):
@@ -139,7 +141,7 @@ def test_secondary_pages_use_stock_detail_navigation_contract():
 
     assert '<header class="app-page-intro"><span>저장 기록</span>' not in shell
     assert "Secondary navigation 6.0" in styles
-    for view in ("notifications", "movers", "recommend-detail", "chart-history"):
+    for view in ("notifications", "ai-signals", "movers", "recommend-detail", "chart-history"):
         assert f'[data-view="{view}"]' in styles
     assert ":is(.app-topbar, .bottom-nav)" in styles
     assert "grid-template-columns: 42px minmax(0, 1fr) 42px" in styles
@@ -313,6 +315,8 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert 'id="trend-topbar" hidden' in shell
     assert 'id="home-market-indices"' in shell
     assert 'id="home-ai-signals"' in shell
+    assert 'id="home-ai-signals-more"' in shell
+    assert 'id="ai-signals-view" class="app-page app-ai-signals"' in shell
     assert 'id="home-kospi-chart"' in shell
     assert 'id="home-kosdaq-chart"' in shell
     assert 'id="home-index-shared-asof"' in shell
@@ -357,10 +361,15 @@ def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():
     assert 'setView("home")' in source
     assert "function renderHomeSurgeRankings" in source
     assert "function renderHomeAiSignals" in source
-    assert 'return { label: "매도 완료", tone: "sell", signalDate };' in source
-    assert 'return { label: "보유 중", tone: "hold", signalDate };' in source
-    assert 'return { label: "관망 중", tone: "neutral", signalDate };' in source
-    assert '`${formatNumber(items.length)}개 종목`' in source
+    assert 'return { key: "recent-buy", label: "최근 매수", tone: "buy", signalDate };' in source
+    assert 'return { key: "holding", label: "보유 중", tone: "hold", signalDate };' in source
+    assert 'return { key: "recent-sell", label: "최근 매도", tone: "sell", signalDate };' in source
+    assert 'items.slice(0, 5).forEach' in source
+    assert 'data-ai-signal-stage="recent-buy"' in shell
+    assert 'data-ai-signal-stage="holding"' in shell
+    assert 'data-ai-signal-stage="recent-sell"' in shell
+    assert 'history.replaceState(null, "", "/dashboard?view=ai-signals")' in source
+    assert 'setView("ai-signals")' in source
     assert "/quant-signals`" in source
     assert ".slice(0, 5)" in source
     assert 'limit: 30' in source
