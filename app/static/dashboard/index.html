@@ -454,10 +454,12 @@
       </section>
 
       <section id="home-view" class="app-page app-home" data-ui-version="3.0" hidden>
-        <section class="home-market-snapshot" id="home-market-snapshot" aria-live="polite">
-          <div><span>시장 상태</span><strong id="home-market-status">분석 중</strong></div>
-          <div><span>가장 큰 변수</span><strong id="home-market-factor">확인 중</strong></div>
-          <div><span>시장 균형</span><strong id="home-market-balance">확인 중</strong></div>
+        <section class="home-market-signal-ticker" id="home-market-signal-ticker" aria-labelledby="home-market-signal-title">
+          <h2 id="home-market-signal-title">AI 매매신호</h2>
+          <div class="home-market-signal-window" id="home-market-signal-window" aria-live="polite">
+            <p class="muted">시총 상위 종목의 최근 신호를 확인하는 중입니다.</p>
+          </div>
+          <span class="home-market-signal-scope" id="home-market-signal-scope">시총 상위 100</span>
         </section>
 
         <section class="home-market-indices" id="home-market-indices" aria-label="국내 주요 지수" aria-live="polite">

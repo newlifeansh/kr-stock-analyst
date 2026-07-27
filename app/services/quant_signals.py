@@ -7,7 +7,7 @@ import json
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -36,6 +36,9 @@ TRAILING_STOP_ATR = 2.6
 MIN_EXECUTION_COST_PER_SIDE = 0.00125
 MAX_EXECUTION_COST_PER_SIDE = 0.005
 DEFAULT_EXECUTION_COST_PER_SIDE = 0.002
+MARKET_SIGNAL_UNIVERSE_LIMIT = 100
+MARKET_SIGNAL_FEED_LIMIT = 30
+MARKET_SIGNAL_RECENT_DAYS = 30
 
 POSITIVE_WORDS = (
     "상향",
@@ -1297,3 +1300,126 @@ def load_quant_signal_payload(
         now=current_time,
         context=context,
     )
+
+
+def load_market_quant_signal_feed(
+    db: Session,
+    *,
+    universe_limit: int = MARKET_SIGNAL_UNIVERSE_LIMIT,
+    limit: int = MARKET_SIGNAL_FEED_LIMIT,
+    recent_days: int = MARKET_SIGNAL_RECENT_DAYS,
+    now: Optional[datetime] = None,
+) -> dict[str, Any]:
+    """Build the latest buy/sell transitions for the largest listed companies."""
+    current_time = now or datetime.now(KST)
+    capped_universe_limit = max(1, min(int(universe_limit), MARKET_SIGNAL_UNIVERSE_LIMIT))
+    capped_limit = max(1, min(int(limit), 50))
+    capped_recent_days = max(1, min(int(recent_days), 90))
+    market_cap_date = db.scalar(
+        select(func.max(DailyPrice.trade_date)).where(DailyPrice.market_cap.is_not(None))
+    )
+    empty = {
+        "as_of": current_time,
+        "universe_as_of": market_cap_date,
+        "universe_count": 0,
+        "recent_days": capped_recent_days,
+        "items": [],
+    }
+    if market_cap_date is None:
+        return empty
+
+    ranked_rows = list(
+        db.execute(
+            select(StockMaster, DailyPrice.market_cap)
+            .join(
+                DailyPrice,
+                (DailyPrice.code == StockMaster.code)
+                & (DailyPrice.trade_date == market_cap_date),
+            )
+            .where(
+                StockMaster.is_active.is_(True),
+                StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+                DailyPrice.market_cap.is_not(None),
+                DailyPrice.market_cap > 0,
+                DailyPrice.close.is_not(None),
+            )
+            .order_by(DailyPrice.market_cap.desc(), StockMaster.code)
+            .limit(capped_universe_limit)
+        )
+    )
+    if not ranked_rows:
+        return empty
+
+    stocks = [row[0] for row in ranked_rows]
+    rank_by_code = {stock.code: index + 1 for index, stock in enumerate(stocks)}
+    stock_by_code = {stock.code: stock for stock in stocks}
+    # The engine evaluates only the latest BACKTEST_ROWS after warm-up. Roughly
+    # 550 calendar days keeps enough trading bars without loading years of rows
+    # for every company in the top-100 universe.
+    history_start = market_cap_date - timedelta(days=550)
+    price_rows = list(
+        db.scalars(
+            select(DailyPrice)
+            .where(
+                DailyPrice.code.in_(tuple(stock_by_code)),
+                DailyPrice.trade_date >= history_start,
+                DailyPrice.trade_date <= market_cap_date,
+            )
+            .order_by(DailyPrice.code, DailyPrice.trade_date)
+        )
+    )
+    prices_by_code: dict[str, list[DailyPrice]] = {code: [] for code in stock_by_code}
+    for price_row in price_rows:
+        prices_by_code.setdefault(price_row.code, []).append(price_row)
+
+    cutoff = current_time.date() - timedelta(days=capped_recent_days)
+    items: list[dict[str, Any]] = []
+    for code, stock in stock_by_code.items():
+        payload = build_quant_signal_payload(
+            stock,
+            prices_by_code.get(code, []),
+            now=current_time,
+            context=None,
+        )
+        events = payload.get("events") or []
+        latest_event = next(
+            (
+                event
+                for event in reversed(events)
+                if event.get("side") in {"buy", "partial_sell", "sell"}
+                and event.get("execution_date")
+                and event["execution_date"] >= cutoff
+            ),
+            None,
+        )
+        if latest_event is None:
+            continue
+        is_buy = latest_event.get("side") == "buy"
+        items.append(
+            {
+                "code": code,
+                "name": stock.name,
+                "market": stock.market,
+                "market_cap_rank": rank_by_code[code],
+                "signal": "매수" if is_buy else "매도",
+                "side": "buy" if is_buy else "sell",
+                "signal_date": latest_event.get("signal_date"),
+                "execution_date": latest_event.get("execution_date"),
+                "price": latest_event.get("price"),
+            }
+        )
+
+    items.sort(
+        key=lambda item: (
+            item.get("execution_date") or date.min,
+            -(int(item.get("market_cap_rank") or capped_universe_limit + 1)),
+        ),
+        reverse=True,
+    )
+    return {
+        "as_of": current_time,
+        "universe_as_of": market_cap_date,
+        "universe_count": len(stocks),
+        "recent_days": capped_recent_days,
+        "items": items[:capped_limit],
+    }

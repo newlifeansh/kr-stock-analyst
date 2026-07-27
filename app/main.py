@@ -129,7 +129,7 @@ from app.services.market_impact import build_market_impact
 from app.services.recommendations import build_recommendations
 from app.services.stock_ai_analysis import build_stock_ai_analysis
 from app.services.local_stock_ai import enrich_stock_ai_analysis
-from app.services.quant_signals import load_quant_signal_payload
+from app.services.quant_signals import load_market_quant_signal_feed, load_quant_signal_payload
 from app.services.stock_dashboard import build_stock_dashboard, ensure_stock_price_history
 from app.services.stock_data_coverage import stock_data_coverage
 from app.services.x_feed import build_stock_x_feed
@@ -166,6 +166,7 @@ NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
 api_cache = TTLCache(maxsize=1024)
 intraday_chart_cache = TTLCache(maxsize=4096)
+market_quant_signal_cache = TTLCache(maxsize=16)
 kis_realtime_provider = KisRealtimeQuoteProvider(settings)
 kis_rest_provider = KisRestBriefingProvider(settings)
 mcp_server = build_insight_mcp_server(settings) if settings.mcp_enabled else None
@@ -721,6 +722,32 @@ def get_watchlist_quant_signals(
         "as_of": datetime.now(KST),
         "items": items,
     }
+
+
+@app.get("/market/quant-signals")
+def get_market_quant_signals(
+    request: Request,
+    response: Response,
+    universe_limit: int = Query(default=100, ge=20, le=100),
+    limit: int = Query(default=30, ge=1, le=50),
+    recent_days: int = Query(default=30, ge=1, le=90),
+    db: Session = Depends(get_db),
+):
+    _enforce_rate_limit(request, "market_quant_signals", limit=30, window_seconds=60)
+    cache_key = ("market_quant_signals", universe_limit, limit, recent_days)
+    payload = market_quant_signal_cache.get_or_set(
+        cache_key,
+        45,
+        lambda: load_market_quant_signal_feed(
+            db,
+            universe_limit=universe_limit,
+            limit=limit,
+            recent_days=recent_days,
+        ),
+    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return payload
 
 
 @app.put("/watchlists/{share_id}", response_model=WatchlistOut)

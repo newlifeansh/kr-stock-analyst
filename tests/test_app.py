@@ -314,6 +314,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert 'id="trend-watch-news-board"' in shell
     assert 'id="trend-topbar" hidden' in shell
     assert 'id="home-market-indices"' in shell
+    assert 'id="home-market-signal-ticker"' in shell
+    assert 'id="home-market-snapshot"' not in shell
+    assert '>시장 상태<' not in shell
     assert 'id="home-ai-signals"' in shell
     assert 'id="home-ai-signals-more"' in shell
     assert 'id="ai-signals-view" class="app-page app-ai-signals"' in shell
@@ -323,6 +326,8 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert 'id="home-kospi-asof"' not in shell
     assert 'id="home-kosdaq-asof"' not in shell
     assert "/market/indices?limit=30" in source
+    assert "/market/quant-signals?universe_limit=100&limit=30&recent_days=30" in source
+    assert "function startHomeMarketSignalTicker" in source
     assert "renderHomeMarketIndices" in source
     assert 'class="side-nav"' not in shell
     nav_order = [
@@ -344,7 +349,8 @@ def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():
     assert 'id="home-surge-more"' in shell
     assert 'id="market-view" class="app-page app-market-rankings"' in shell
     assert (
-        shell.index('id="home-market-indices"')
+        shell.index('id="home-market-signal-ticker"')
+        < shell.index('id="home-market-indices"')
         < shell.index('id="home-ai-signals"')
         < shell.index('id="home-surge"')
         < shell.index('id="trend-view"')

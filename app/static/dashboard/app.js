@@ -186,10 +186,9 @@ const elements = {
   trendWatchStockRail: $("trend-watch-stock-rail"),
   trendWatchlistStatus: $("trend-watchlist-status"),
   trendWatchNewsBoard: $("trend-watch-news-board"),
-  homeMarketSnapshot: $("home-market-snapshot"),
-  homeMarketStatus: $("home-market-status"),
-  homeMarketFactor: $("home-market-factor"),
-  homeMarketBalance: $("home-market-balance"),
+  homeMarketSignalTicker: $("home-market-signal-ticker"),
+  homeMarketSignalWindow: $("home-market-signal-window"),
+  homeMarketSignalScope: $("home-market-signal-scope"),
   homeMarketIndices: $("home-market-indices"),
   homeIndexSharedAsOf: $("home-index-shared-asof"),
   homeKospiCard: $("home-kospi-card"),
@@ -630,6 +629,10 @@ const state = {
   watchlistContentTab: "strategy",
   aiSignalStage: "recent-buy",
   aiSignalItems: [],
+  marketSignalTickerItems: [],
+  marketSignalTickerIndex: 0,
+  marketSignalTickerTimer: null,
+  marketSignalRefreshTimer: null,
   discoverySuggestions: [],
   discoverySuggestionController: null,
   discoverySuggestionTimer: null,
@@ -3667,6 +3670,7 @@ async function refreshCurrentView() {
       await Promise.all([
         loadTrends(state.activeTrendTab === "impact" ? "live" : state.activeTrendTab || "live", { force: true }),
         loadMarketImpactAnalysis({ force: true, embedded: true }),
+        loadHomeMarketSignalTicker({ force: true }),
         loadHomeMarketIndices({ force: true }),
         loadHomeAiSignals({ force: true, ttlMs: 0 }),
         loadHomeSurgeRankings({ force: true, ttlMs: 0 }),
@@ -5257,6 +5261,9 @@ function setView(requestedViewName) {
     window.clearTimeout(state.recommendationCooldownTimer);
     state.recommendationCooldownTimer = null;
   }
+  if (view !== "home") {
+    stopHomeMarketSignalTicker();
+  }
   if (!["search", "portfolio"].includes(view)) {
     closeUsSectorStream();
   }
@@ -5294,6 +5301,7 @@ function setView(requestedViewName) {
       await Promise.all([
         loadTrends(activeTab === "impact" ? "live" : activeTab, pageEntryRefreshOptions("trend", activeTab)),
         loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact")),
+        loadHomeMarketSignalTicker(pageEntryRefreshOptions("market-signals")),
         loadHomeMarketIndices(pageEntryRefreshOptions("market-indices")),
         loadHomeAiSignals(pageEntryRefreshOptions("watchlist", "home-ai-signals")),
         loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home")),
@@ -5818,6 +5826,90 @@ async function loadHomeAiSignals(options = {}) {
   } catch {
     if (state.view === "home") {
       elements.homeAiSignalsList.innerHTML = '<p class="muted">AI 매매신호를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>';
+    }
+  }
+}
+
+function stopHomeMarketSignalTicker() {
+  window.clearInterval(state.marketSignalTickerTimer);
+  window.clearInterval(state.marketSignalRefreshTimer);
+  state.marketSignalTickerTimer = null;
+  state.marketSignalRefreshTimer = null;
+}
+
+function createHomeMarketSignalTickerRow(item, index) {
+  const row = document.createElement("a");
+  row.className = "home-market-signal-row";
+  row.href = viewStockUrl(item.name || item.code || "");
+  row.dataset.side = item.side === "buy" ? "buy" : "sell";
+  const order = el("span", "home-market-signal-rank", String(index + 1).padStart(2, "0"));
+  const name = el("strong", "home-market-signal-name", item.name || item.code || "-");
+  const action = el("span", "home-market-signal-action", item.signal || (item.side === "buy" ? "매수" : "매도"));
+  row.append(order, name, action);
+  return row;
+}
+
+function showHomeMarketSignalTickerItem() {
+  if (!elements.homeMarketSignalWindow) {
+    return;
+  }
+  const items = state.marketSignalTickerItems;
+  if (!items.length) {
+    elements.homeMarketSignalWindow.innerHTML = '<p class="muted">최근 30일 매매신호가 없습니다.</p>';
+    return;
+  }
+  const itemIndex = state.marketSignalTickerIndex % items.length;
+  elements.homeMarketSignalWindow.replaceChildren(createHomeMarketSignalTickerRow(items[itemIndex], itemIndex));
+}
+
+function startHomeMarketSignalTicker() {
+  window.clearInterval(state.marketSignalTickerTimer);
+  if (state.marketSignalTickerItems.length > 1) {
+    state.marketSignalTickerTimer = window.setInterval(() => {
+      if (state.view !== "home") {
+        return;
+      }
+      state.marketSignalTickerIndex = (state.marketSignalTickerIndex + 1) % state.marketSignalTickerItems.length;
+      showHomeMarketSignalTickerItem();
+    }, 3000);
+  }
+  window.clearInterval(state.marketSignalRefreshTimer);
+  state.marketSignalRefreshTimer = window.setInterval(() => {
+    if (state.view === "home") {
+      void loadHomeMarketSignalTicker({ force: true, silent: true });
+    }
+  }, 60_000);
+}
+
+function renderHomeMarketSignalTicker(payload = {}) {
+  state.marketSignalTickerItems = Array.isArray(payload.items) ? payload.items : [];
+  state.marketSignalTickerIndex = 0;
+  if (elements.homeMarketSignalScope) {
+    const count = Number(payload.universe_count || 100);
+    elements.homeMarketSignalScope.textContent = `시총 상위 ${formatNumber(count)}`;
+  }
+  showHomeMarketSignalTickerItem();
+  startHomeMarketSignalTicker();
+}
+
+async function loadHomeMarketSignalTicker(options = {}) {
+  if (!elements.homeMarketSignalWindow) {
+    return;
+  }
+  if (!options.silent && !elements.homeMarketSignalWindow.querySelector(".home-market-signal-row")) {
+    elements.homeMarketSignalWindow.innerHTML = '<p class="muted">시총 상위 종목의 최근 신호를 확인하는 중입니다.</p>';
+  }
+  try {
+    const payload = await fetchJsonCached(
+      liveUrl("/market/quant-signals?universe_limit=100&limit=30&recent_days=30"),
+      { force: options.force === true, ttlMs: options.force ? 0 : PAGE_ENTRY_MINUTE_MS },
+    );
+    if (state.view === "home") {
+      renderHomeMarketSignalTicker(payload);
+    }
+  } catch {
+    if (state.view === "home" && !options.silent) {
+      elements.homeMarketSignalWindow.innerHTML = '<p class="muted">최근 매매신호를 불러오지 못했습니다.</p>';
     }
   }
 }
@@ -9955,19 +10047,6 @@ function restoreTrendChrome(activeTab = "live") {
   }
 }
 
-function renderHomeMarketSnapshot(model) {
-  if (!elements.homeMarketSnapshot) {
-    return;
-  }
-  const leading = [...(model.factors || [])].sort((a, b) => Number(b.percent || 0) - Number(a.percent || 0))[0];
-  elements.homeMarketStatus.textContent = model.marketStatus || "중립";
-  elements.homeMarketFactor.textContent = leading ? `${leading.label} ${leading.direction || leading.status || "확인"}` : "확인 중";
-  elements.homeMarketBalance.textContent = `호재 ${Number(model.goodWeight || 0).toFixed(0)} · 악재 ${Number(model.badWeight || 0).toFixed(0)}`;
-  setTone(elements.homeMarketStatus, model.marketStatus === "호재 우위" ? 1 : model.marketStatus === "리스크 우위" ? -1 : 0);
-  setTone(elements.homeMarketFactor, (leading?.direction || leading?.status) === "호재" ? 1 : -1);
-  setTone(elements.homeMarketBalance, Number(model.goodWeight || 0) - Number(model.badWeight || 0));
-}
-
 function homeMarketIndexElements(code) {
   if (code === "KOSDAQ") {
     return {
@@ -10298,7 +10377,6 @@ function appendMarketSectorCorrelation(parent, sector) {
 function renderMarketImpactAnalysis(payload, target = elements.trendImpactContent) {
   const model = normalizeMarketImpactModel(payload);
   const fallback = isFallbackMarketImpact(model);
-  renderHomeMarketSnapshot(model);
   if (!target) {
     return;
   }
