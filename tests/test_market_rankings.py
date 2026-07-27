@@ -101,6 +101,46 @@ def test_weekend_snapshot_uses_last_completed_weekday(monkeypatch):
         session.close()
 
 
+def test_after_close_forced_refresh_uses_completed_session_not_live_feed(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    try:
+        session.add(StockMaster(code="005930", name="삼성전자", market="KOSPI"))
+        session.add_all(
+            [
+                DailyPrice(code="005930", trade_date=datetime(2026, 7, 24).date(), close=100, volume=100),
+                DailyPrice(code="005930", trade_date=datetime(2026, 7, 27).date(), close=110, volume=120),
+            ]
+        )
+        session.commit()
+        monkeypatch.setattr(
+            market_rankings,
+            "_now_kst",
+            lambda: datetime(2026, 7, 27, 22, 4, tzinfo=market_rankings.KST),
+        )
+        monkeypatch.setattr(
+            market_rankings,
+            "_naver_market_rise_items",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("live feed must not run after close")),
+        )
+
+        payload = market_rankings.build_market_rankings(
+            session,
+            category="surge",
+            market=None,
+            limit=5,
+            refresh_live=True,
+        )
+
+        assert payload["source"] == "database"
+        assert payload["matching_count"] == 1
+        assert payload["items"][0]["trade_date"] == datetime(2026, 7, 27).date()
+        assert payload["items"][0]["change_rate"] == 10
+    finally:
+        session.close()
+
+
 def test_database_surge_rankings_include_period_returns(monkeypatch):
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)
@@ -194,6 +234,11 @@ def test_market_period_returns_calculates_cached_chart_history(monkeypatch):
 
 
 def test_live_surge_ranking_does_not_require_database(monkeypatch):
+    monkeypatch.setattr(
+        market_rankings,
+        "_now_kst",
+        lambda: datetime(2026, 7, 27, 10, 0, tzinfo=market_rankings.KST),
+    )
     monkeypatch.setattr(
         market_rankings,
         "_fetch_naver_market_rise",

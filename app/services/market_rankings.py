@@ -679,7 +679,10 @@ def build_market_rankings(
     limit: int = 50,
     refresh_live: bool = False,
 ) -> dict[str, object]:
-    should_refresh_live = category == "surge" and (refresh_live or _is_regular_session())
+    # A forced refresh must not turn a completed-session board back into a live
+    # scrape. During pre-open, after close, and weekends the latest
+    # completed DailyPrice snapshot is the authoritative ranking.
+    should_refresh_live = category == "surge" and _is_regular_session()
     source = "database"
     # The live surge board must remain available even when the database pool is
     # busy. Naver's market-wide riser feed already contains every field needed

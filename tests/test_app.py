@@ -333,9 +333,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert "function startHomeMarketSignalTicker" in source
     assert '시총 상위 100' not in shell
     assert '시총 상위 종목의 최근 신호' not in shell
-    assert 'styles.css?v=20260727v95' in shell
-    assert 'app.js?v=20260727v95' in shell
-    assert 'DASHBOARD_SW_VERSION = "20260727v95"' in client.get("/dashboard-sw.js").text
+    assert 'styles.css?v=20260727v96' in shell
+    assert 'app.js?v=20260727v96' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260727v96"' in client.get("/dashboard-sw.js").text
     assert "renderHomeMarketIndices" in source
     assert 'class="side-nav"' not in shell
     nav_order = [
@@ -374,6 +374,7 @@ def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():
     assert 'function createMarketLeaderboardMetric' in source
     assert 'setView("home")' in source
     assert "function renderHomeSurgeRankings" in source
+    assert 'formattedBasis.replace(/ 기준$/, " 장 마감 기준")' in source
     assert "function renderHomeAiSignals" in source
     assert 'return { key: "recent-buy", label: "최근 매수", tone: "buy", signalDate };' in source
     assert 'return { key: "holding", label: "보유 중", tone: "hold", signalDate };' in source

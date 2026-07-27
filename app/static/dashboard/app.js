@@ -6010,7 +6010,10 @@ function marketRankingBasisLabel(payload = {}, options = {}) {
   const basisValue = payload.source === "naver_market_rise"
     ? payload.as_of || firstTradeDate
     : firstTradeDate || payload.as_of;
-  const basis = formatDataBasis(basisValue, "기준 정보 확인 중");
+  const formattedBasis = formatDataBasis(basisValue, "기준 정보 확인 중");
+  const basis = payload.source === "naver_market_rise"
+    ? formattedBasis
+    : formattedBasis.replace(/ 기준$/, " 장 마감 기준");
   return options.includeMarket === false ? basis : `${basis} · ${marketLabel}`;
 }
 
