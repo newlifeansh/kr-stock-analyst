@@ -26322,3 +26322,234 @@ body:is(
     top: 64px !important;
   }
 }
+
+/* Application surfaces 6.1: carry the stock-detail rhythm through root pages. */
+body:not([data-view="stock"]) {
+  --app-v3-bg: #f3f4f6;
+  --app-v3-panel: #ffffff;
+  --app-v3-text: #16181d;
+  --app-v3-muted: #8a919d;
+  --app-v3-line: #e8ebef;
+  --app-v3-line-strong: #d8dde4;
+  --app-v3-red: #e03131;
+  --app-v3-blue: #3478df;
+  background: var(--app-v3-bg);
+  color: var(--app-v3-text);
+}
+
+body:not([data-view="stock"]) :is(
+  .discovery-search > button,
+  .primary-action,
+  .text-action,
+  .recommend-watch-button,
+  .recommend-track-button,
+  .recommend-ai-button,
+  .chart-refresh-button,
+  .chart-ai-button,
+  .chart-save-button
+) {
+  min-height: 44px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+body:not([data-view="stock"]) :is(
+  .recommend-metrics,
+  .recommend-track-metrics,
+  .recommend-track-signals,
+  .watch-v2-metrics,
+  .component-grid,
+  .chart-indicators,
+  .watch-chart-metrics
+) {
+  overflow: hidden;
+  border: 1px solid var(--app-v3-line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+body:not([data-view="stock"]) :is(
+  .recommend-metrics,
+  .recommend-track-metrics,
+  .recommend-track-signals,
+  .watch-v2-metrics,
+  .component-grid,
+  .chart-indicators,
+  .watch-chart-metrics
+) > div {
+  min-width: 0;
+  border-color: var(--app-v3-line);
+  border-radius: 0;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #chart-view .chart-watchlist-pick {
+  gap: 0;
+  padding-bottom: 18px;
+}
+
+body:not([data-view="stock"]) #chart-view .chart-watchlist-pick .app-section-heading {
+  min-height: 64px;
+  margin: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--app-v3-line);
+}
+
+body:not([data-view="stock"]) #chart-view .chart-watchlist-picker {
+  margin: 0;
+  padding: 14px 0 16px;
+  border-bottom: 1px solid var(--app-v3-line);
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-list,
+body:not([data-view="stock"]) #chart-view .watch-chart-selector-list {
+  display: grid;
+  gap: 0;
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-row {
+  min-height: 104px;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: 16px;
+  margin: 0;
+  padding: 17px 0;
+  border: 0;
+  border-bottom: 1px solid var(--app-v3-line);
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-row:last-child {
+  border-bottom: 0;
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-row:hover,
+body:not([data-view="stock"]) #chart-view .watch-chart-row:active {
+  border-color: var(--app-v3-line);
+  background: #f8f9fa;
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-row-main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-row-main strong {
+  font-size: 17px !important;
+  font-weight: 800 !important;
+  line-height: 1.35 !important;
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-row-market {
+  overflow: hidden;
+  color: var(--app-v3-muted);
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-row-price {
+  margin-top: 7px;
+  color: var(--app-v3-text);
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  line-height: 1.25 !important;
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-row-metrics {
+  min-width: 0;
+  display: grid;
+  justify-items: end;
+  align-content: center;
+  gap: 7px;
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-score-badge {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-score-badge span {
+  font-size: 10px !important;
+  font-weight: 650 !important;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-score-badge strong {
+  color: var(--app-v3-text);
+  font-size: 22px !important;
+  font-weight: 800 !important;
+}
+
+body:not([data-view="stock"]) #chart-view .watch-chart-stance-badge {
+  min-height: 25px;
+  max-width: 96px;
+  padding: 0 8px;
+  overflow: hidden;
+  border-radius: 6px;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  text-overflow: ellipsis;
+}
+
+@media (min-width: 821px) {
+  body:not([data-view="stock"]) #chart-view .watch-chart-selector-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 28px;
+  }
+
+  body:not([data-view="stock"]) #chart-view .watch-chart-row:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+}
+
+body:not([data-view="stock"]) #search-view .recommend-card-actions {
+  gap: 8px;
+  padding-top: 2px;
+}
+
+body:not([data-view="stock"]) #search-view .recommend-card-actions > button {
+  height: 44px;
+  min-height: 44px;
+  border-radius: 8px;
+}
+
+body:not([data-view="stock"]) #portfolio-view :is(.watch-v2-stock-row, .recommend-track-card) {
+  box-shadow: none;
+}
+
+body:not([data-view="stock"]) #portfolio-view :is(.watch-v2-row-footer, .recommend-track-actions) button,
+body:not([data-view="stock"]) #portfolio-view :is(.watch-v2-row-footer, .recommend-track-actions) a {
+  min-height: 44px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+@media (max-width: 720px) {
+  body:not([data-view="stock"]) #chart-view .chart-watchlist-pick {
+    padding: 20px 20px 16px;
+  }
+
+  body:not([data-view="stock"]) #chart-view .chart-watchlist-pick .app-section-heading {
+    min-height: 58px;
+  }
+
+  body:not([data-view="stock"]) #chart-view .watch-chart-row {
+    grid-template-columns: minmax(0, 1fr) 100px;
+    min-height: 100px;
+    gap: 12px;
+    padding: 16px 0;
+  }
+
+  body:not([data-view="stock"]) #chart-view .watch-chart-stance-badge {
+    max-width: 100px;
+  }
+}

@@ -7627,10 +7627,15 @@ function renderWatchChartList(results) {
     const main = el("div", "watch-chart-row-main");
     const head = el("div", "watch-chart-row-head");
     const name = el("strong", "", item.name);
+    const market = el(
+      "span",
+      "watch-chart-row-market",
+      [item.code, item.market || dashboard?.market || "국내증시"].filter(Boolean).join(" · "),
+    );
     const price = el("span", "watch-chart-row-price", formatNumber(analysis.latest?.close));
     setTone(price, dashboard?.quote?.change_rate);
     head.append(name);
-    main.append(head, price);
+    main.append(head, market, price);
 
     const metrics = el("div", "watch-chart-row-metrics");
     const scoreWrap = el("div", "watch-chart-score-badge");
