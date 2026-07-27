@@ -330,9 +330,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert "function startHomeMarketSignalTicker" in source
     assert '시총 상위 100' not in shell
     assert '시총 상위 종목의 최근 신호' not in shell
-    assert 'styles.css?v=20260727v90' in shell
-    assert 'app.js?v=20260727v90' in shell
-    assert 'DASHBOARD_SW_VERSION = "20260727v90"' in client.get("/dashboard-sw.js").text
+    assert 'styles.css?v=20260727v91' in shell
+    assert 'app.js?v=20260727v91' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260727v91"' in client.get("/dashboard-sw.js").text
     assert "renderHomeMarketIndices" in source
     assert 'class="side-nav"' not in shell
     nav_order = [
@@ -354,9 +354,9 @@ def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():
     assert 'id="home-surge-more"' in shell
     assert 'id="market-view" class="app-page app-market-rankings"' in shell
     assert (
-        shell.index('id="home-market-signal-ticker"')
-        < shell.index('id="home-market-indices"')
+        shell.index('id="home-market-indices"')
         < shell.index('id="home-ai-signals"')
+        < shell.index('id="home-market-signal-ticker"')
         < shell.index('id="home-surge"')
         < shell.index('id="trend-view"')
     )

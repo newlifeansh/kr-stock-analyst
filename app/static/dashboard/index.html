@@ -27,7 +27,7 @@
         // The login form remains visible when browser storage is unavailable.
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260727v90" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260727v91" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -454,13 +454,6 @@
       </section>
 
       <section id="home-view" class="app-page app-home" data-ui-version="3.0" hidden>
-        <section class="home-market-signal-ticker" id="home-market-signal-ticker" aria-labelledby="home-market-signal-title">
-          <h2 id="home-market-signal-title">AI 매매신호</h2>
-          <div class="home-market-signal-window is-loading" id="home-market-signal-window" aria-live="polite" aria-label="최신 AI 매매신호를 불러오는 중">
-            <span class="home-market-signal-skeleton" aria-hidden="true"></span>
-          </div>
-        </section>
-
         <section class="home-market-indices" id="home-market-indices" aria-label="국내 주요 지수" aria-live="polite">
           <article class="home-index-card is-loading" id="home-kospi-card">
             <header><h2>코스피</h2><span class="home-index-session">장마감</span></header>
@@ -477,11 +470,17 @@
           <p class="home-index-shared-asof" id="home-index-shared-asof">기준 정보 확인 중</p>
         </section>
 
-        <section class="home-ai-signals" id="home-ai-signals" aria-labelledby="home-ai-signals-title" aria-live="polite">
+        <section class="home-ai-signals" id="home-ai-signals" aria-labelledby="home-ai-signals-title">
           <header class="home-ai-signals-head">
             <div><span id="home-ai-signals-meta">관심종목 신호 확인 중</span><h2 id="home-ai-signals-title">AI 매매신호</h2></div>
             <button class="text-action" id="home-ai-signals-more" type="button">더보기</button>
           </header>
+          <section class="home-market-signal-ticker" id="home-market-signal-ticker" aria-label="시장 최신 AI 매매신호">
+            <span class="home-market-signal-kicker">최신 신호</span>
+            <div class="home-market-signal-window is-loading" id="home-market-signal-window" aria-live="polite" aria-label="최신 AI 매매신호를 불러오는 중">
+              <span class="home-market-signal-skeleton" aria-hidden="true"></span>
+            </div>
+          </section>
           <div class="home-ai-signals-list" id="home-ai-signals-list">
             <p class="muted">관심종목의 AI 매매신호를 불러오는 중입니다.</p>
           </div>
@@ -675,6 +674,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260727v90" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260727v91" defer></script>
   </body>
 </html>

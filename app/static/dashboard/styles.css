@@ -1070,25 +1070,35 @@ body:not([data-view="stock"]) .home-market-signal-ticker {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 24px;
-  min-height: 58px;
-  padding: 0 28px;
+  gap: 14px;
+  min-height: 48px;
+  padding: 0;
   overflow: hidden;
-  border-bottom: 1px solid var(--app-v3-line);
+  border-bottom: 1px solid #e8ebef;
   background: #fff;
 }
 
-body:not([data-view="stock"]) .home-market-signal-ticker h2 {
-  margin: 0;
-  color: var(--app-v3-text);
-  font-size: 13px;
-  font-weight: 800;
+body:not([data-view="stock"]) .home-market-signal-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #727c8a;
+  font-size: 11px;
+  font-weight: 700;
   letter-spacing: 0;
   white-space: nowrap;
 }
 
+body:not([data-view="stock"]) .home-market-signal-kicker::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #20a566;
+  content: "";
+}
+
 body:not([data-view="stock"]) .home-market-signal-window {
-  height: 44px;
+  height: 47px;
   min-width: 0;
   overflow: hidden;
 }
@@ -1096,7 +1106,7 @@ body:not([data-view="stock"]) .home-market-signal-window {
 body:not([data-view="stock"]) .home-market-signal-window > .muted {
   display: flex;
   align-items: center;
-  height: 44px;
+  height: 47px;
   margin: 0;
   color: var(--app-v3-muted);
   font-size: 12px;
@@ -1107,7 +1117,7 @@ body:not([data-view="stock"]) .home-market-signal-row {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  height: 44px;
+  height: 47px;
   min-width: 0;
   color: inherit;
   text-decoration: none;
@@ -1144,7 +1154,7 @@ body:not([data-view="stock"]) .home-market-signal-skeleton {
   align-items: center;
   gap: 14px;
   width: 100%;
-  height: 44px;
+  height: 47px;
 }
 
 body:not([data-view="stock"]) .home-market-signal-skeleton::before,
@@ -1179,12 +1189,11 @@ body:not([data-view="stock"]) .home-market-signal-skeleton::after {
 @media (max-width: 720px) {
   body:not([data-view="stock"]) .home-market-signal-ticker {
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 18px;
-    min-height: 54px;
-    padding: 0 20px;
+    gap: 12px;
+    min-height: 46px;
+    padding: 0;
   }
 
-  body:not([data-view="stock"]) .home-market-signal-ticker h2,
   body:not([data-view="stock"]) .home-market-signal-name {
     font-size: 13px;
   }
@@ -11498,8 +11507,8 @@ body:not([data-view="stock"]) .home-market-indices {
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid var(--app-v3-line);
   border-radius: 8px;
   background: #f3f4f6;
@@ -11507,11 +11516,11 @@ body:not([data-view="stock"]) .home-market-indices {
 
 body:not([data-view="stock"]) .home-index-card {
   min-width: 0;
-  min-height: 230px;
+  min-height: 178px;
   display: grid;
-  grid-template-rows: auto auto minmax(82px, 1fr) auto;
-  gap: 8px;
-  padding: 18px;
+  grid-template-rows: auto auto minmax(58px, 1fr) auto;
+  gap: 5px;
+  padding: 14px;
   overflow: hidden;
   border: 1px solid var(--app-v3-line);
   border-radius: 8px;
@@ -11541,7 +11550,7 @@ body:not([data-view="stock"]) .home-index-card h2 {
   margin: 0;
   overflow: hidden;
   color: var(--app-v3-text);
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 800;
   line-height: 1.3;
   text-overflow: ellipsis;
@@ -11585,7 +11594,7 @@ body:not([data-view="stock"]) .home-index-previous strong {
 
 body:not([data-view="stock"]) .home-index-chart {
   min-width: 0;
-  min-height: 82px;
+  min-height: 58px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -11594,7 +11603,7 @@ body:not([data-view="stock"]) .home-index-chart {
 body:not([data-view="stock"]) .home-index-chart svg {
   width: 100%;
   height: 100%;
-  min-height: 82px;
+  min-height: 58px;
   overflow: visible;
 }
 
@@ -11639,7 +11648,7 @@ body:not([data-view="stock"]) .home-index-card > footer > div {
 body:not([data-view="stock"]) .home-index-card > footer strong {
   min-width: 0;
   color: var(--app-v3-text);
-  font-size: 24px;
+  font-size: 21px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
@@ -11673,22 +11682,22 @@ body:not([data-view="stock"]) .home-index-card.is-loading .home-index-chart {
 @media (max-width: 720px) {
   body:not([data-view="stock"]) .home-market-indices {
     width: 100%;
-    gap: 8px;
-    padding: 12px;
+    gap: 7px;
+    padding: 9px;
     border-right: 0;
     border-left: 0;
     border-radius: 0;
   }
 
   body:not([data-view="stock"]) .home-index-card {
-    min-height: 202px;
-    grid-template-rows: auto auto 76px auto;
-    gap: 6px;
-    padding: 14px 12px;
+    min-height: 154px;
+    grid-template-rows: auto auto 48px auto;
+    gap: 4px;
+    padding: 11px 10px;
   }
 
   body:not([data-view="stock"]) .home-index-card h2 {
-    font-size: 17px;
+    font-size: 16px;
   }
 
   body:not([data-view="stock"]) .home-index-session {
@@ -11698,7 +11707,7 @@ body:not([data-view="stock"]) .home-index-card.is-loading .home-index-chart {
 
   body:not([data-view="stock"]) .home-index-chart,
   body:not([data-view="stock"]) .home-index-chart svg {
-    min-height: 76px;
+    min-height: 48px;
   }
 
   body:not([data-view="stock"]) .home-index-card > footer > div {
@@ -11708,11 +11717,11 @@ body:not([data-view="stock"]) .home-index-card.is-loading .home-index-chart {
   }
 
   body:not([data-view="stock"]) .home-index-card > footer strong {
-    font-size: 21px;
+    font-size: 18px;
   }
 
   body:not([data-view="stock"]) .home-index-card > footer span {
-    font-size: 11px;
+    font-size: 10px;
     text-align: left;
   }
 }
@@ -11724,8 +11733,8 @@ body:not([data-view="stock"]) .home-index-card.is-loading .home-index-chart {
   }
 
   body:not([data-view="stock"]) .home-index-card {
-    min-height: 194px;
-    padding: 12px 10px;
+    min-height: 146px;
+    padding: 10px 8px;
   }
 
   body:not([data-view="stock"]) .home-index-card h2 {
@@ -11733,7 +11742,7 @@ body:not([data-view="stock"]) .home-index-card.is-loading .home-index-chart {
   }
 
   body:not([data-view="stock"]) .home-index-card > footer strong {
-    font-size: 18px;
+    font-size: 17px;
   }
 }
 
@@ -24851,7 +24860,7 @@ body:not([data-view="stock"]) #portfolio-tracking-panel > #recommend-history-vie
 
 /* Home AI signals 5.2: stock-detail aligned watchlist signal board. */
 body:not([data-view="stock"]) .home-ai-signals {
-  margin: 8px 0 0;
+  margin: 0;
   padding: 0 28px;
   background: #fff;
   border-top: 8px solid #f3f5f7;
