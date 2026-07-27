@@ -164,7 +164,6 @@ const elements = {
   watchlistFilterButtons: Array.from(document.querySelectorAll("[data-watch-filter]")),
   watchlistBody: $("watchlist-body"),
   recommendMeta: $("recommend-meta"),
-  recommendButton: $("recommend-button"),
   recommendArchiveButton: $("recommend-archive-button"),
   recommendHistoryNewButton: $("recommend-history-new-button"),
   recommendStatus: $("recommend-status"),
@@ -350,7 +349,6 @@ const PUSH_LAST_SEEN_PREFIX = "analyst.pushLastSeen";
 const PUSH_ENABLED_PREFIX = "analyst.pushEnabled";
 const RECOMMENDATION_HISTORY_KEY = "analyst.recommendationSnapshots";
 const RECOMMENDATION_TRACK_KEY = "analyst.recommendationTracks";
-const RECOMMENDATION_COOLDOWN_KEY = "analyst.recommendationCooldown";
 const CHART_SNAPSHOT_KEY = "analyst.chartSnapshots";
 const UI_CACHE_TTL_MS = 60_000;
 const PAGE_ENTRY_MINUTE_MS = 60_000;
@@ -380,8 +378,6 @@ const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
 ];
 const RECOMMENDATION_LIMIT = 10;
 const STOCK_PRICE_PERIOD_COUNTS = { "1M": 22, "3M": 66, "6M": 132, "1Y": 260 };
-const RECOMMENDATION_REGULAR_COOLDOWN_MS = 10 * 60_000;
-const RECOMMENDATION_OFFHOURS_COOLDOWN_MS = 30 * 60_000;
 const PULL_REFRESH_TRIGGER_DISTANCE = 72;
 const PULL_REFRESH_MAX_DISTANCE = 104;
 const PULL_REFRESH_DRAG_OFFSET = 10;
@@ -723,7 +719,6 @@ const state = {
   recommendTrackRequestId: 0,
   recommendationLoading: false,
   currentRecommendationDetailItem: null,
-  recommendationCooldownTimer: null,
   loginGateTimer: null,
   loginSplashSeen: false,
   pushConfig: null,
@@ -3879,7 +3874,7 @@ async function refreshCurrentView() {
       ]);
       return;
     case "search":
-      await loadRecommendations({ auto: true, force: true });
+      await loadRecommendations({ auto: true, force: true, recompute: true });
       return;
     case "movers":
       state.marketRankingCache.delete(marketRankingKey("surge", currentMarketFilter(), 30));
@@ -4400,9 +4395,6 @@ async function applyWatchlistId(shareId, options = {}) {
       elements.watchlistIdInput.value = "";
     }
     updateWatchlistIdentityDisplay();
-    if (state.view === "search") {
-      updateRecommendationButtonState();
-    }
     setWatchlistIdStatus("로컬 저장 중");
     return false;
   }
@@ -4425,9 +4417,6 @@ async function applyWatchlistId(shareId, options = {}) {
     elements.watchlistIdInput.value = normalizedId;
   }
   updateWatchlistIdentityDisplay();
-  if (state.view === "search") {
-    updateRecommendationButtonState();
-  }
   setWatchlistIdStatus("서버 목록 불러오는 중");
   const syncIdentity = async () => {
     const localItems = readWatchlist();
@@ -4495,9 +4484,6 @@ async function logoutWatchlistIdentity() {
   updateWatchlistIdentityDisplay();
   updateWatchButton();
   updateRecommendationWatchButtons();
-  if (state.view === "search") {
-    updateRecommendationButtonState();
-  }
   if (elements.watchlistBody) {
     elements.watchlistBody.innerHTML = '<p class="muted">로그인 후 관심 종목을 불러옵니다.</p>';
   }
@@ -5610,10 +5596,6 @@ function setView(requestedViewName) {
   if (!["search", "portfolio"].includes(view)) {
     closeRecommendationQuoteStreams();
   }
-  if (view !== "search") {
-    window.clearTimeout(state.recommendationCooldownTimer);
-    state.recommendationCooldownTimer = null;
-  }
   if (view !== "home") {
     stopHomeMarketSignalTicker();
     stopHomeMarketIndexRefresh();
@@ -5665,13 +5647,13 @@ function setView(requestedViewName) {
     }, 900);
   } else if (view === "search") {
     history.replaceState(null, "", "/dashboard?view=search");
-    updateRecommendationButtonState();
     const entryOptions = pageEntryRefreshOptions("recommend");
-    const shouldAutoLoadRecommendations = entryOptions.force || !elements.recommendList.querySelector(".recommend-card");
     void refreshUsSectorMoves(entryOptions).catch(() => undefined);
-    void refreshVisibleRecommendationCards(entryOptions).catch(() => undefined);
-    if (shouldAutoLoadRecommendations && !state.recommendationLoading) {
-      void loadRecommendations({ auto: true, force: false });
+    if (!state.recommendationLoading) {
+      launchBriefPageLoading(
+        PAGE_LOADING_LABELS.recommend,
+        () => loadRecommendations({ auto: true, force: true, recompute: true }),
+      );
     }
     connectUsSectorStream();
   } else if (view === "recommend-detail") {
@@ -9479,121 +9461,6 @@ function setRecommendStatus(message = "") {
   elements.recommendStatus.parentElement.hidden = !message;
 }
 
-function koreaDateKey(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-function recommendationCooldownStorageKey() {
-  return `${RECOMMENDATION_COOLDOWN_KEY}:${state.watchlistId || "guest"}`;
-}
-
-function recommendationCooldownMs(date = new Date()) {
-  return koreaMarketPhase(date) === "regular"
-    ? RECOMMENDATION_REGULAR_COOLDOWN_MS
-    : RECOMMENDATION_OFFHOURS_COOLDOWN_MS;
-}
-
-function readRecommendationCooldown() {
-  try {
-    const raw = localStorage.getItem(recommendationCooldownStorageKey());
-    if (!raw) {
-      return null;
-    }
-    const record = JSON.parse(raw);
-    if (!record || record.dayKey !== koreaDateKey()) {
-      localStorage.removeItem(recommendationCooldownStorageKey());
-      return null;
-    }
-    const generatedAt = Number(record.generatedAt);
-    const cooldownUntil = Number(record.cooldownUntil);
-    if (!Number.isFinite(generatedAt) || !Number.isFinite(cooldownUntil)) {
-      localStorage.removeItem(recommendationCooldownStorageKey());
-      return null;
-    }
-    return {
-      dayKey: record.dayKey,
-      generatedAt,
-      cooldownUntil,
-      phase: record.phase || "closed",
-    };
-  } catch {
-    return null;
-  }
-}
-
-function saveRecommendationCooldown() {
-  const now = new Date();
-  const generatedAt = now.getTime();
-  const durationMs = recommendationCooldownMs(now);
-  const record = {
-    dayKey: koreaDateKey(now),
-    generatedAt,
-    cooldownUntil: generatedAt + durationMs,
-    durationMs,
-    phase: koreaMarketPhase(now),
-  };
-  try {
-    localStorage.setItem(recommendationCooldownStorageKey(), JSON.stringify(record));
-  } catch {
-    return record;
-  }
-  return record;
-}
-
-function recommendationCooldownRemainingMs(record = readRecommendationCooldown()) {
-  if (!record) {
-    return 0;
-  }
-  return Math.max(0, record.cooldownUntil - Date.now());
-}
-
-function formatRecommendationCooldown(ms) {
-  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
-function updateRecommendationButtonState() {
-  if (!elements.recommendButton) {
-    return;
-  }
-  window.clearTimeout(state.recommendationCooldownTimer);
-  state.recommendationCooldownTimer = null;
-
-  if (state.recommendationLoading) {
-    elements.recommendButton.disabled = true;
-    elements.recommendButton.textContent = "계산 중";
-    elements.recommendButton.title = "";
-    return;
-  }
-
-  const record = readRecommendationCooldown();
-  const remaining = recommendationCooldownRemainingMs(record);
-  if (remaining > 0) {
-    elements.recommendButton.disabled = true;
-    elements.recommendButton.textContent = `다시 추천받기 ${formatRecommendationCooldown(remaining)}`;
-    elements.recommendButton.title = "남은 시간이 끝나면 새 추천을 다시 계산할 수 있습니다.";
-    state.recommendationCooldownTimer = window.setTimeout(updateRecommendationButtonState, 1000);
-    return;
-  }
-
-  elements.recommendButton.disabled = false;
-  elements.recommendButton.textContent = record ? "다시 추천받기" : "추천받기";
-  elements.recommendButton.title = record ? "현재 시점 기준으로 추천 10개를 다시 계산합니다." : "현재 시점 기준으로 추천 10개를 계산합니다.";
-}
-
 function updateRecommendationItemFromDashboard(item, dashboard) {
   return {
     ...item,
@@ -11221,24 +11088,16 @@ async function loadMarketImpactAnalysis(options = {}) {
 }
 
 async function loadRecommendations(options = {}) {
-  const auto = options.auto === true;
-  const recompute = options.recompute === true || (!auto && options.recompute !== false);
-  const forceFetch = options.force === true || recompute;
-  const saveSnapshot = options.save ?? !auto;
-  const remaining = recommendationCooldownRemainingMs();
-  if (!auto && remaining > 0) {
-    updateRecommendationButtonState();
-    setRecommendStatus(`다시 추천은 ${formatRecommendationCooldown(remaining)} 후 가능합니다.`);
+  if (state.recommendationLoading) {
     return;
   }
+  const auto = options.auto === true;
+  const recompute = options.recompute !== false;
+  const forceFetch = options.force === true || recompute;
+  const saveSnapshot = options.save === true;
 
   state.recommendationLoading = true;
-  updateRecommendationButtonState();
-  setRecommendStatus(
-    auto
-      ? "추천 데이터를 불러오는 중입니다."
-      : "가격, 거래대금, 추정치, 밸류, 수급, 뉴스 데이터를 새로 점수화하는 중입니다.",
-  );
+  setRecommendStatus("현재 시점의 추천 종목을 선별하는 중입니다.");
   elements.recommendList.innerHTML = "";
   const sectorMovesPromise = refreshUsSectorMoves(options);
   const fetchRecommendations = () => {
@@ -11249,30 +11108,19 @@ async function loadRecommendations(options = {}) {
   try {
     const payload = await fetchRecommendations();
     renderRecommendations(payload, { save: saveSnapshot, usSectorMoves: state.usSectorMoves });
-    if (!auto && (payload.items || []).length > 0) {
-      saveRecommendationCooldown();
-    }
   } catch {
-    setRecommendStatus(auto ? "추천 데이터를 다시 불러오는 중입니다." : "추천 데이터를 다시 시도하는 중입니다.");
+    setRecommendStatus("추천 종목을 다시 불러오는 중입니다.");
     try {
       await delay(auto ? 500 : 1200);
       const payload = await fetchRecommendations();
       renderRecommendations(payload, { save: saveSnapshot, usSectorMoves: state.usSectorMoves });
-      if (!auto && (payload.items || []).length > 0) {
-        saveRecommendationCooldown();
-      }
     } catch {
-      setRecommendStatus(
-        auto
-          ? "추천 데이터를 불러오지 못했습니다. 잠시 후 다시 들어와주세요."
-          : "추천 데이터를 계산하지 못했습니다. 잠시 후 다시 눌러주세요.",
-      );
+      setRecommendStatus("추천 종목을 불러오지 못했습니다. 잠시 후 검색 화면을 다시 열어주세요.");
     }
   } finally {
     sectorMovesPromise.catch(() => {});
     connectUsSectorStream();
     state.recommendationLoading = false;
-    updateRecommendationButtonState();
   }
 }
 
@@ -11715,9 +11563,6 @@ for (const tab of elements.stockSectionTabs) {
     setActiveStockTab(tab.dataset.stockTab || "summary");
   });
 }
-elements.recommendButton.addEventListener("click", () => {
-  launchPageLoading(PAGE_LOADING_LABELS.recommend, () => loadRecommendations());
-});
 elements.recommendArchiveButton?.addEventListener("click", () => setView("recommend-history"));
 elements.recommendHistoryNewButton?.addEventListener("click", () => setView("recommend"));
 elements.watchChartRefresh?.addEventListener("click", () => {
