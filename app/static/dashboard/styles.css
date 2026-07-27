@@ -1068,12 +1068,12 @@ body:not([data-view="stock"]) #trend-events-panel .event-detail-tags {
 /* Home market signal ticker */
 body:not([data-view="stock"]) .home-market-signal-ticker {
   display: grid;
-  grid-template-columns: 108px minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  min-height: 64px;
+  gap: 24px;
+  min-height: 58px;
   padding: 0 28px;
   overflow: hidden;
-  border-top: 1px solid var(--app-v3-line);
   border-bottom: 1px solid var(--app-v3-line);
   background: #fff;
 }
@@ -1081,14 +1081,14 @@ body:not([data-view="stock"]) .home-market-signal-ticker {
 body:not([data-view="stock"]) .home-market-signal-ticker h2 {
   margin: 0;
   color: var(--app-v3-text);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
   letter-spacing: 0;
   white-space: nowrap;
 }
 
 body:not([data-view="stock"]) .home-market-signal-window {
-  height: 48px;
+  height: 44px;
   min-width: 0;
   overflow: hidden;
 }
@@ -1096,43 +1096,38 @@ body:not([data-view="stock"]) .home-market-signal-window {
 body:not([data-view="stock"]) .home-market-signal-window > .muted {
   display: flex;
   align-items: center;
-  height: 48px;
+  height: 44px;
   margin: 0;
   color: var(--app-v3-muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 body:not([data-view="stock"]) .home-market-signal-row {
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
-  height: 48px;
+  justify-content: space-between;
+  gap: 18px;
+  height: 44px;
   min-width: 0;
   color: inherit;
   text-decoration: none;
   animation: home-market-signal-enter 180ms ease-out both;
 }
 
-body:not([data-view="stock"]) .home-market-signal-rank {
-  color: #9aa1ac;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-}
-
 body:not([data-view="stock"]) .home-market-signal-name {
   overflow: hidden;
   color: var(--app-v3-text);
   font-size: 14px;
-  font-weight: 750;
+  font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 body:not([data-view="stock"]) .home-market-signal-action {
-  min-width: 38px;
+  flex: 0 0 auto;
+  min-width: 42px;
   text-align: right;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -1144,12 +1139,36 @@ body:not([data-view="stock"]) .home-market-signal-row[data-side="sell"] .home-ma
   color: var(--app-v3-down);
 }
 
-body:not([data-view="stock"]) .home-market-signal-scope {
-  margin-left: 24px;
-  color: var(--app-v3-muted);
-  font-size: 11px;
-  font-weight: 650;
-  white-space: nowrap;
+body:not([data-view="stock"]) .home-market-signal-skeleton {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  height: 44px;
+}
+
+body:not([data-view="stock"]) .home-market-signal-skeleton::before,
+body:not([data-view="stock"]) .home-market-signal-skeleton::after {
+  display: block;
+  height: 12px;
+  border-radius: 3px;
+  background: #edf0f4;
+  content: "";
+  animation: home-market-signal-pulse 900ms ease-in-out infinite alternate;
+}
+
+body:not([data-view="stock"]) .home-market-signal-skeleton::before {
+  width: min(48%, 180px);
+}
+
+body:not([data-view="stock"]) .home-market-signal-skeleton::after {
+  width: 42px;
+  margin-left: auto;
+}
+
+@keyframes home-market-signal-pulse {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
 }
 
 @keyframes home-market-signal-enter {
@@ -1159,8 +1178,9 @@ body:not([data-view="stock"]) .home-market-signal-scope {
 
 @media (max-width: 720px) {
   body:not([data-view="stock"]) .home-market-signal-ticker {
-    grid-template-columns: 92px minmax(0, 1fr);
-    min-height: 58px;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 18px;
+    min-height: 54px;
     padding: 0 20px;
   }
 
@@ -1169,13 +1189,15 @@ body:not([data-view="stock"]) .home-market-signal-scope {
     font-size: 13px;
   }
 
-  body:not([data-view="stock"]) .home-market-signal-scope {
-    display: none;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   body:not([data-view="stock"]) .home-market-signal-row {
+    animation: none;
+  }
+
+  body:not([data-view="stock"]) .home-market-signal-skeleton::before,
+  body:not([data-view="stock"]) .home-market-signal-skeleton::after {
     animation: none;
   }
 }

@@ -118,6 +118,17 @@ class StockCompanySnapshot(Base):
     )
 
 
+class MarketQuantSignalSnapshot(Base):
+    __tablename__ = "market_quant_signal_snapshot"
+
+    cache_key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 class WatchlistItem(Base):
     __tablename__ = "watchlist_item"
     __table_args__ = (UniqueConstraint("share_id", "code", name="uq_watchlist_item"),)

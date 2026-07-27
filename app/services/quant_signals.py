@@ -14,6 +14,7 @@ from app.models import (
     DailyPrice,
     DisclosureItem,
     InvestorFlow,
+    MarketQuantSignalSnapshot,
     NewsItem,
     ResearchReport,
     StockMaster,
@@ -39,6 +40,7 @@ DEFAULT_EXECUTION_COST_PER_SIDE = 0.002
 MARKET_SIGNAL_UNIVERSE_LIMIT = 100
 MARKET_SIGNAL_FEED_LIMIT = 30
 MARKET_SIGNAL_RECENT_DAYS = 30
+MARKET_SIGNAL_SNAPSHOT_VERSION = "v1"
 
 POSITIVE_WORDS = (
     "상향",
@@ -1319,6 +1321,7 @@ def load_market_quant_signal_feed(
         select(func.max(DailyPrice.trade_date)).where(DailyPrice.market_cap.is_not(None))
     )
     empty = {
+        "status": "ready",
         "as_of": current_time,
         "universe_as_of": market_cap_date,
         "universe_count": 0,
@@ -1417,9 +1420,74 @@ def load_market_quant_signal_feed(
         reverse=True,
     )
     return {
+        "status": "ready",
         "as_of": current_time,
         "universe_as_of": market_cap_date,
         "universe_count": len(stocks),
         "recent_days": capped_recent_days,
         "items": items[:capped_limit],
     }
+
+
+def market_quant_signal_snapshot_key(
+    universe_limit: int,
+    limit: int,
+    recent_days: int,
+) -> str:
+    return f"{MARKET_SIGNAL_SNAPSHOT_VERSION}:{int(universe_limit)}:{int(limit)}:{int(recent_days)}"
+
+
+def load_market_quant_signal_snapshot(
+    db: Session,
+    *,
+    universe_limit: int = MARKET_SIGNAL_UNIVERSE_LIMIT,
+    limit: int = MARKET_SIGNAL_FEED_LIMIT,
+    recent_days: int = MARKET_SIGNAL_RECENT_DAYS,
+) -> Optional[dict[str, Any]]:
+    cache_key = market_quant_signal_snapshot_key(universe_limit, limit, recent_days)
+    snapshot = db.get(MarketQuantSignalSnapshot, cache_key)
+    if snapshot is None:
+        return None
+    try:
+        payload = json.loads(snapshot.payload)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    payload["status"] = "ready"
+    payload["snapshot_generated_at"] = snapshot.generated_at.isoformat()
+    return payload
+
+
+def save_market_quant_signal_snapshot(
+    db: Session,
+    payload: dict[str, Any],
+    *,
+    universe_limit: int = MARKET_SIGNAL_UNIVERSE_LIMIT,
+    limit: int = MARKET_SIGNAL_FEED_LIMIT,
+    recent_days: int = MARKET_SIGNAL_RECENT_DAYS,
+    generated_at: Optional[datetime] = None,
+) -> dict[str, Any]:
+    cache_key = market_quant_signal_snapshot_key(universe_limit, limit, recent_days)
+    stored_at = (generated_at or datetime.utcnow()).replace(tzinfo=None)
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        default=lambda value: value.isoformat() if isinstance(value, (date, datetime)) else str(value),
+    )
+    snapshot = db.get(MarketQuantSignalSnapshot, cache_key)
+    if snapshot is None:
+        snapshot = MarketQuantSignalSnapshot(
+            cache_key=cache_key,
+            payload=serialized,
+            generated_at=stored_at,
+        )
+        db.add(snapshot)
+    else:
+        snapshot.payload = serialized
+        snapshot.generated_at = stored_at
+    db.commit()
+    result = dict(payload)
+    result["status"] = "ready"
+    result["snapshot_generated_at"] = stored_at.isoformat()
+    return result

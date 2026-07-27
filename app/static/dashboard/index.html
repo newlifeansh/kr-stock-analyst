@@ -27,7 +27,7 @@
         // The login form remains visible when browser storage is unavailable.
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260727v88" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260727v89" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -456,10 +456,9 @@
       <section id="home-view" class="app-page app-home" data-ui-version="3.0" hidden>
         <section class="home-market-signal-ticker" id="home-market-signal-ticker" aria-labelledby="home-market-signal-title">
           <h2 id="home-market-signal-title">AI 매매신호</h2>
-          <div class="home-market-signal-window" id="home-market-signal-window" aria-live="polite">
-            <p class="muted">시총 상위 종목의 최근 신호를 확인하는 중입니다.</p>
+          <div class="home-market-signal-window is-loading" id="home-market-signal-window" aria-live="polite" aria-label="최신 AI 매매신호를 불러오는 중">
+            <span class="home-market-signal-skeleton" aria-hidden="true"></span>
           </div>
-          <span class="home-market-signal-scope" id="home-market-signal-scope">시총 상위 100</span>
         </section>
 
         <section class="home-market-indices" id="home-market-indices" aria-label="국내 주요 지수" aria-live="polite">
@@ -676,6 +675,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260727v88" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260727v89" defer></script>
   </body>
 </html>

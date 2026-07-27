@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import requests
 import websockets
 from bs4 import BeautifulSoup
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -129,7 +129,12 @@ from app.services.market_impact import build_market_impact
 from app.services.recommendations import build_recommendations
 from app.services.stock_ai_analysis import build_stock_ai_analysis
 from app.services.local_stock_ai import enrich_stock_ai_analysis
-from app.services.quant_signals import load_market_quant_signal_feed, load_quant_signal_payload
+from app.services.quant_signals import (
+    load_market_quant_signal_feed,
+    load_market_quant_signal_snapshot,
+    load_quant_signal_payload,
+    save_market_quant_signal_snapshot,
+)
 from app.services.stock_dashboard import build_stock_dashboard, ensure_stock_price_history
 from app.services.stock_data_coverage import stock_data_coverage
 from app.services.x_feed import build_stock_x_feed
@@ -167,6 +172,7 @@ NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
 api_cache = TTLCache(maxsize=1024)
 intraday_chart_cache = TTLCache(maxsize=4096)
 market_quant_signal_cache = TTLCache(maxsize=16)
+market_quant_signal_refresh_lock = RLock()
 kis_realtime_provider = KisRealtimeQuoteProvider(settings)
 kis_rest_provider = KisRestBriefingProvider(settings)
 mcp_server = build_insight_mcp_server(settings) if settings.mcp_enabled else None
@@ -256,18 +262,61 @@ async def _run_intraday_warmup_loop() -> None:
         await asyncio.sleep(60)
 
 
+def _refresh_market_quant_signal_snapshot(
+    universe_limit: int = 100,
+    limit: int = 30,
+    recent_days: int = 30,
+) -> Optional[dict[str, Any]]:
+    if not market_quant_signal_refresh_lock.acquire(blocking=False):
+        return None
+    try:
+        with SessionLocal() as db:
+            payload = load_market_quant_signal_feed(
+                db,
+                universe_limit=universe_limit,
+                limit=limit,
+                recent_days=recent_days,
+            )
+            stored = save_market_quant_signal_snapshot(
+                db,
+                payload,
+                universe_limit=universe_limit,
+                limit=limit,
+                recent_days=recent_days,
+            )
+            market_quant_signal_cache.set(
+                ("market_quant_signals", universe_limit, limit, recent_days),
+                stored,
+                300,
+            )
+            return stored
+    except Exception:  # pragma: no cover - operational safeguard
+        logger.exception("Market quant signal snapshot refresh failed")
+        return None
+    finally:
+        market_quant_signal_refresh_lock.release()
+
+
+async def _run_market_quant_signal_refresh_loop() -> None:
+    while True:
+        await asyncio.to_thread(_refresh_market_quant_signal_snapshot)
+        await asyncio.sleep(300)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
     recover_interrupted_ingestions()
     bootstrap_task: asyncio.Task | None = None
     intraday_warmup_task: asyncio.Task | None = None
+    market_quant_signal_task: asyncio.Task | None = None
     async with AsyncExitStack() as stack:
         if mcp_server is not None:
             await stack.enter_async_context(mcp_server.session_manager.run())
         await briefing_runtime.start()
         await web_push_runtime.start()
         intraday_warmup_task = asyncio.create_task(_run_intraday_warmup_loop())
+        market_quant_signal_task = asyncio.create_task(_run_market_quant_signal_refresh_loop())
         if settings.bootstrap_on_start:
             bootstrap_task = asyncio.create_task(_run_bootstrap_task())
         try:
@@ -281,6 +330,10 @@ async def lifespan(_: FastAPI):
                 intraday_warmup_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await intraday_warmup_task
+            if market_quant_signal_task is not None:
+                market_quant_signal_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await market_quant_signal_task
             await web_push_runtime.stop()
             await briefing_runtime.stop()
 
@@ -728,6 +781,7 @@ def get_watchlist_quant_signals(
 def get_market_quant_signals(
     request: Request,
     response: Response,
+    background_tasks: BackgroundTasks,
     universe_limit: int = Query(default=100, ge=20, le=100),
     limit: int = Query(default=30, ge=1, le=50),
     recent_days: int = Query(default=30, ge=1, le=90),
@@ -735,16 +789,49 @@ def get_market_quant_signals(
 ):
     _enforce_rate_limit(request, "market_quant_signals", limit=30, window_seconds=60)
     cache_key = ("market_quant_signals", universe_limit, limit, recent_days)
-    payload = market_quant_signal_cache.get_or_set(
-        cache_key,
-        45,
-        lambda: load_market_quant_signal_feed(
+    payload = market_quant_signal_cache.get(cache_key)
+    if payload is None:
+        payload = load_market_quant_signal_snapshot(
             db,
             universe_limit=universe_limit,
             limit=limit,
             recent_days=recent_days,
-        ),
-    )
+        )
+    if payload is None:
+        if market_quant_signal_refresh_lock.acquire(blocking=False):
+            try:
+                generated = load_market_quant_signal_feed(
+                    db,
+                    universe_limit=universe_limit,
+                    limit=limit,
+                    recent_days=recent_days,
+                )
+                payload = save_market_quant_signal_snapshot(
+                    db,
+                    generated,
+                    universe_limit=universe_limit,
+                    limit=limit,
+                    recent_days=recent_days,
+                )
+            finally:
+                market_quant_signal_refresh_lock.release()
+    if payload is None:
+        background_tasks.add_task(
+            _refresh_market_quant_signal_snapshot,
+            universe_limit,
+            limit,
+            recent_days,
+        )
+        payload = {
+            "status": "preparing",
+            "as_of": datetime.now(KST),
+            "universe_as_of": None,
+            "universe_count": 0,
+            "recent_days": recent_days,
+            "items": [],
+        }
+    else:
+        market_quant_signal_cache.set(cache_key, payload, 300)
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     return payload
