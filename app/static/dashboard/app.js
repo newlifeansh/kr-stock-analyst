@@ -191,21 +191,14 @@ const elements = {
   homeMarketSignalTicker: $("home-market-signal-ticker"),
   homeMarketSignalWindow: $("home-market-signal-window"),
   homeMarketIndices: $("home-market-indices"),
+  homeMarketCarousel: $("home-market-carousel"),
   homeIndexSharedAsOf: $("home-index-shared-asof"),
-  homeKospiCard: $("home-kospi-card"),
-  homeKospiPrevious: $("home-kospi-previous"),
-  homeKospiChart: $("home-kospi-chart"),
-  homeKospiCurrent: $("home-kospi-current"),
-  homeKospiChange: $("home-kospi-change"),
-  homeKosdaqCard: $("home-kosdaq-card"),
-  homeKosdaqPrevious: $("home-kosdaq-previous"),
-  homeKosdaqChart: $("home-kosdaq-chart"),
-  homeKosdaqCurrent: $("home-kosdaq-current"),
-  homeKosdaqChange: $("home-kosdaq-change"),
   homeAiSignals: $("home-ai-signals"),
   homeAiSignalsMeta: $("home-ai-signals-meta"),
   homeAiSignalsList: $("home-ai-signals-list"),
   homeAiSignalsMore: $("home-ai-signals-more"),
+  homeAiResponseTitle: $("home-ai-response-title"),
+  homeAiResponseSummary: $("home-ai-response-summary"),
   aiSignalsBack: $("ai-signals-back"),
   aiSignalsMeta: $("ai-signals-meta"),
   aiSignalStageTabs: Array.from(document.querySelectorAll("[data-ai-signal-stage]")),
@@ -6074,6 +6067,48 @@ function normalizedAiSignalItems(items = []) {
     });
 }
 
+function compactStockNames(items = [], limit = 2) {
+  const names = items.map((item) => item.name || item.code).filter(Boolean);
+  if (!names.length) {
+    return "관심종목";
+  }
+  const visible = names.slice(0, limit).join("·");
+  return names.length > limit ? `${visible} 외 ${formatNumber(names.length - limit)}개` : visible;
+}
+
+function renderHomeAiResponse(items = []) {
+  if (!elements.homeAiResponseTitle || !elements.homeAiResponseSummary) {
+    return;
+  }
+  const grouped = { "recent-buy": [], holding: [], "recent-sell": [] };
+  for (const item of normalizedAiSignalItems(items)) {
+    const view = homeAiSignalView(item);
+    if (view) {
+      grouped[view.key].push(item);
+    }
+  }
+  if (grouped["recent-buy"].length) {
+    elements.homeAiResponseTitle.textContent = `${compactStockNames(grouped["recent-buy"])}에서 최근 매수 신호가 확인됐습니다.`;
+  } else if (grouped.holding.length) {
+    elements.homeAiResponseTitle.textContent = `${compactStockNames(grouped.holding)}은 보유 기준을 유지합니다.`;
+  } else if (grouped["recent-sell"].length) {
+    elements.homeAiResponseTitle.textContent = `${compactStockNames(grouped["recent-sell"])}은 재진입 신호를 기다립니다.`;
+  } else {
+    elements.homeAiResponseTitle.textContent = "새로운 매매신호가 확인되지 않았습니다.";
+  }
+  const followUps = [];
+  if (grouped.holding.length) {
+    followUps.push(`보유 ${formatNumber(grouped.holding.length)}개는 매도 기준 도달 여부를 확인하세요.`);
+  }
+  if (grouped["recent-sell"].length) {
+    followUps.push(`최근 매도 ${formatNumber(grouped["recent-sell"].length)}개는 재진입 전까지 관망합니다.`);
+  }
+  if (grouped["recent-buy"].length) {
+    followUps.push(`최근 매수 ${formatNumber(grouped["recent-buy"].length)}개는 손실 제한 기준을 먼저 확인하세요.`);
+  }
+  elements.homeAiResponseSummary.textContent = followUps.slice(0, 2).join(" ") || "관심종목을 추가하면 현재 대응을 바로 정리해 드립니다.";
+}
+
 function createHomeAiSignalRow(item, options = {}) {
   const view = homeAiSignalView(item);
   if (!view) {
@@ -6104,6 +6139,7 @@ function renderHomeAiSignals(payload = {}) {
   }
   const items = normalizedAiSignalItems(Array.isArray(payload.items) ? payload.items : []);
   state.aiSignalItems = items;
+  renderHomeAiResponse(items);
   elements.homeAiSignalsMeta.textContent = items.length ? `${formatNumber(items.length)}개 신호` : "새 신호 없음";
   elements.homeAiSignalsList.innerHTML = "";
   if (!items.length) {
@@ -6118,6 +6154,10 @@ function renderPendingHomeAiSignals() {
     return;
   }
   const watched = readWatchlist().slice(0, 5);
+  if (elements.homeAiResponseTitle && elements.homeAiResponseSummary) {
+    elements.homeAiResponseTitle.textContent = watched.length ? "관심종목의 현재 신호를 확인하고 있습니다." : "관심종목을 먼저 추가해 주세요.";
+    elements.homeAiResponseSummary.textContent = watched.length ? "확인이 끝나면 보유·매수·관망 대응을 두 줄로 정리합니다." : "추가한 종목의 매매신호와 대응을 홈에서 바로 확인할 수 있습니다.";
+  }
   elements.homeAiSignalsMeta.textContent = watched.length ? `${formatNumber(watched.length)}개 종목 확인 중` : "관심종목 없음";
   elements.homeAiSignalsList.replaceChildren();
   if (!watched.length) {
@@ -10374,26 +10414,7 @@ function restoreTrendChrome(activeTab = "live") {
   }
 }
 
-function homeMarketIndexElements(code) {
-  if (code === "KOSDAQ") {
-    return {
-      card: elements.homeKosdaqCard,
-      previous: elements.homeKosdaqPrevious,
-      chart: elements.homeKosdaqChart,
-      current: elements.homeKosdaqCurrent,
-      change: elements.homeKosdaqChange,
-      session: elements.homeKosdaqCard?.querySelector(".home-index-session"),
-    };
-  }
-  return {
-    card: elements.homeKospiCard,
-    previous: elements.homeKospiPrevious,
-    chart: elements.homeKospiChart,
-    current: elements.homeKospiCurrent,
-    change: elements.homeKospiChange,
-    session: elements.homeKospiCard?.querySelector(".home-index-session"),
-  };
-}
+const HOME_MARKET_ASSET_ORDER = ["KOSDAQ", "KOSPI", "NASDAQ", "SP500", "GOLD", "OIL"];
 
 function formatMarketIndexValue(value) {
   const number = toNumber(value);
@@ -10441,49 +10462,62 @@ function marketIndexChartMarkup(item) {
     </svg>`;
 }
 
-function renderHomeMarketIndex(item, code) {
-  const refs = homeMarketIndexElements(code);
-  if (!refs.card || !refs.chart) {
-    return;
-  }
+function createHomeMarketAssetCard(item = {}) {
+  const card = document.createElement("article");
+  const code = String(item.code || "MARKET");
   const current = toNumber(item?.current);
   const previous = toNumber(item?.previous_close);
   const change = toNumber(item?.change);
   const changeRate = toNumber(item?.change_rate);
   const tone = change === null || change === 0 ? "neutral" : change > 0 ? "positive" : "negative";
-  refs.card.classList.remove("is-loading", "is-empty", "positive", "negative", "neutral");
-  refs.card.classList.add(tone);
-  refs.previous.textContent = formatMarketIndexValue(previous);
-  refs.current.textContent = formatMarketIndexValue(current);
-  refs.change.textContent = change === null
+  card.className = `home-index-card ${tone}${current === null ? " is-empty" : ""}`;
+  card.dataset.code = code;
+
+  const header = document.createElement("header");
+  header.append(el("h2", "", item.label || code));
+  const session = el("span", "home-index-session", item.is_realtime ? "실시간" : "장마감");
+  session.classList.toggle("is-realtime", Boolean(item.is_realtime));
+  header.append(session);
+
+  const value = el("strong", "home-index-current", formatMarketIndexValue(current));
+  const changeText = change === null
     ? "전일 대비 -"
     : `${change > 0 ? "▲" : change < 0 ? "▼" : "-"} ${formatMarketIndexValue(Math.abs(change))} · ${formatPercent(changeRate)}`;
-  if (refs.session) {
-    const realtime = item?.source === "kis" && item?.market_session === "open";
-    refs.session.textContent = realtime ? "실시간" : "장마감";
-    refs.session.classList.toggle("is-realtime", realtime);
-  }
+  const changeNode = el("span", "home-index-change", changeText);
+
+  const chartNode = el("div", "home-index-chart");
   const chart = marketIndexChartMarkup(item);
   if (chart) {
-    refs.chart.innerHTML = chart;
+    chartNode.innerHTML = chart;
   } else {
-    refs.card.classList.add("is-empty");
-    refs.chart.replaceChildren(el("span", "", "표시할 지수 이력이 없습니다."));
+    chartNode.append(el("span", "", "시세 확인 중"));
   }
-  const label = item?.label || (code === "KOSDAQ" ? "코스닥" : "코스피");
-  refs.chart.setAttribute(
+  const label = item?.label || code;
+  chartNode.setAttribute("role", "img");
+  chartNode.setAttribute(
     "aria-label",
     current === null
-      ? `${label} 지수 데이터 없음`
+      ? `${label} 시세 데이터 없음`
       : `${label} ${formatMarketIndexValue(current)}, 전일 대비 ${change === null ? "확인 불가" : `${formatMarketIndexValue(Math.abs(change))} ${change >= 0 ? "상승" : "하락"}`}`,
   );
+
+  const previousNode = el("p", "home-index-previous");
+  previousNode.append("전일 ", el("strong", "", formatMarketIndexValue(previous)));
+  card.append(header, value, changeNode, chartNode, previousNode);
+  return card;
 }
 
 function renderHomeMarketIndices(payload = {}) {
+  if (!elements.homeMarketCarousel) {
+    return;
+  }
   const items = Array.isArray(payload.items) ? payload.items : [];
   const byCode = new Map(items.map((item) => [item.code, item]));
-  renderHomeMarketIndex(byCode.get("KOSPI"), "KOSPI");
-  renderHomeMarketIndex(byCode.get("KOSDAQ"), "KOSDAQ");
+  elements.homeMarketCarousel.replaceChildren();
+  HOME_MARKET_ASSET_ORDER.forEach((code) => {
+    const fallbackLabels = { KOSDAQ: "코스닥", KOSPI: "코스피", NASDAQ: "나스닥", SP500: "S&P 500", GOLD: "금", OIL: "원유" };
+    elements.homeMarketCarousel.appendChild(createHomeMarketAssetCard(byCode.get(code) || { code, label: fallbackLabels[code] }));
+  });
   const timestamps = [
     payload.updated_at,
     ...items.map((item) => item?.updated_at),
@@ -10499,15 +10533,15 @@ function renderHomeMarketIndices(payload = {}) {
 }
 
 function setHomeMarketIndicesLoading() {
-  for (const code of ["KOSPI", "KOSDAQ"]) {
-    const refs = homeMarketIndexElements(code);
-    if (!refs.card || !refs.chart) {
-      continue;
-    }
-    refs.card.classList.remove("is-empty", "positive", "negative", "neutral");
-    refs.card.classList.add("is-loading");
-    refs.chart.replaceChildren(el("span", "", "지수 데이터를 불러오는 중입니다."));
+  if (!elements.homeMarketCarousel) {
+    return;
   }
+  elements.homeMarketCarousel.replaceChildren();
+  HOME_MARKET_ASSET_ORDER.forEach((code) => {
+    const card = createHomeMarketAssetCard({ code, label: "시장 확인 중" });
+    card.classList.add("is-loading");
+    elements.homeMarketCarousel.appendChild(card);
+  });
 }
 
 async function loadHomeMarketIndices(options = {}) {
@@ -10519,8 +10553,21 @@ async function loadHomeMarketIndices(options = {}) {
   }
   try {
     const refreshHistory = options.refreshHistory === true;
-    const endpoint = `/market/indices?limit=30${refreshHistory ? "&refresh=true" : ""}`;
-    renderHomeMarketIndices(await fetchJsonCached(liveUrl(endpoint), { force: true, ttlMs: 0 }));
+    const domesticEndpoint = `/market/indices?limit=30${refreshHistory ? "&refresh=true" : ""}`;
+    const [domesticResult, globalResult] = await Promise.allSettled([
+      fetchJsonCached(liveUrl(domesticEndpoint), { force: true, ttlMs: 0 }),
+      fetchJsonCached(liveUrl("/market/global-assets?limit=30"), { force: true, ttlMs: 0 }),
+    ]);
+    const domesticPayload = domesticResult.status === "fulfilled" ? domesticResult.value : {};
+    const globalPayload = globalResult.status === "fulfilled" ? globalResult.value : {};
+    const mergedItems = [
+      ...(Array.isArray(domesticPayload.items) ? domesticPayload.items : []),
+      ...(Array.isArray(globalPayload.items) ? globalPayload.items : []),
+    ];
+    renderHomeMarketIndices({
+      items: mergedItems,
+      updated_at: [domesticPayload.updated_at, globalPayload.updated_at].filter(Boolean).sort().at(-1) || null,
+    });
     if (state.view === "home") {
       startHomeMarketIndexRefresh();
     }
@@ -10541,7 +10588,7 @@ function startHomeMarketIndexRefresh() {
   if (state.view !== "home") {
     return;
   }
-  const intervalMs = koreaMarketPhase() === "regular" ? 5_000 : 60_000;
+  const intervalMs = koreaMarketPhase() === "regular" ? 5_000 : 30_000;
   state.marketIndexRefreshTimer = window.setTimeout(async () => {
     if (state.view === "home" && !document.hidden) {
       await loadHomeMarketIndices({ force: true, silent: true });

@@ -17,6 +17,8 @@ DEFAULT_MACRO_SERIES = [
     {"symbol": "^TNX", "name": "US 10Y Treasury Yield", "unit": "%"},
     {"symbol": "CL=F", "name": "WTI Crude Oil Futures", "unit": "USD"},
     {"symbol": "GC=F", "name": "Gold Futures", "unit": "USD"},
+    {"symbol": "^IXIC", "name": "NASDAQ Composite", "unit": "index"},
+    {"symbol": "^GSPC", "name": "S&P 500 Index", "unit": "index"},
     {"symbol": "^KS11", "name": "KOSPI Index", "unit": "index"},
     {"symbol": "^KQ11", "name": "KOSDAQ Index", "unit": "index"},
 ]

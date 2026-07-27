@@ -379,8 +379,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert 'id="home-ai-signals"' in shell
     assert 'id="home-ai-signals-more"' in shell
     assert 'id="ai-signals-view" class="app-page app-ai-signals"' in shell
-    assert 'id="home-kospi-chart"' in shell
-    assert 'id="home-kosdaq-chart"' in shell
+    assert 'id="home-market-carousel"' in shell
+    assert 'const HOME_MARKET_ASSET_ORDER = ["KOSDAQ", "KOSPI", "NASDAQ", "SP500", "GOLD", "OIL"]' in source
+    assert 'liveUrl("/market/global-assets?limit=30")' in source
     assert 'id="home-index-shared-asof"' in shell
     assert 'id="home-kospi-asof"' not in shell
     assert 'id="home-kosdaq-asof"' not in shell
@@ -389,9 +390,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert "function startHomeMarketSignalTicker" in source
     assert '시총 상위 100' not in shell
     assert '시총 상위 종목의 최근 신호' not in shell
-    assert 'styles.css?v=20260728v106' in shell
-    assert 'app.js?v=20260728v106' in shell
-    assert 'DASHBOARD_SW_VERSION = "20260728v106"' in client.get("/dashboard-sw.js").text
+    assert 'styles.css?v=20260728v107' in shell
+    assert 'app.js?v=20260728v107' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260728v107"' in client.get("/dashboard-sw.js").text
     assert 'id="logout-button"' not in shell
     assert ".app-notification-button svg" in styles
     assert "width: 25px;" in styles

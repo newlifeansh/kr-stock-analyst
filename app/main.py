@@ -124,6 +124,11 @@ from app.services.company_briefs import build_company_briefs
 from app.services.company_profiles import ensure_company_profile
 from app.services.community_feed import build_stock_community_feed
 from app.services.market_indices import build_market_indices, empty_market_indices, merge_live_market_indices
+from app.services.global_market_assets import (
+    build_stored_global_market_assets,
+    fetch_live_global_market_assets,
+    merge_global_market_assets,
+)
 from app.services.market_rankings import build_market_period_returns, build_market_rankings
 from app.services.market_impact import build_market_impact
 from app.services.recommendations import build_recommendations
@@ -193,6 +198,7 @@ intraday_code_locks: dict[str, RLock] = {}
 STOCK_DASHBOARD_TTL_SECONDS = 120
 MARKET_RANKING_TTL_SECONDS = 120
 MARKET_INDICES_TTL_SECONDS = 300
+GLOBAL_MARKET_ASSETS_TTL_SECONDS = 30
 MARKET_IMPACT_TTL_SECONDS = 900
 RECOMMENDATION_TTL_SECONDS = 600
 INTRADAY_CLOSED_TTL_SECONDS = 60 * 60 * 72
@@ -3112,6 +3118,33 @@ def market_indices(
     except Exception:
         logging.getLogger(__name__).exception("KIS market index refresh failed")
         return stored_payload
+
+
+@app.get("/market/global-assets")
+def global_market_assets(
+    response: Response,
+    limit: int = Query(default=30, ge=2, le=120),
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    stored_key = ("global_market_assets_history", limit)
+    stored_payload = api_cache.get(stored_key)
+    if stored_payload is None:
+        stored_payload = build_stored_global_market_assets(db, limit=limit)
+        api_cache.set(stored_key, stored_payload, MARKET_INDICES_TTL_SECONDS)
+    live_key = ("global_market_assets_live",)
+    live_items = api_cache.get(live_key)
+    if live_items is None:
+        try:
+            live_items = fetch_live_global_market_assets()
+            if live_items:
+                api_cache.set(live_key, live_items, GLOBAL_MARKET_ASSETS_TTL_SECONDS)
+        except Exception:
+            logging.getLogger(__name__).exception("Global market asset refresh failed")
+            live_items = []
+    return merge_global_market_assets(stored_payload, live_items or [])
 
 
 @app.get("/ingestions", response_model=list[IngestionRunOut])

@@ -55,5 +55,6 @@ def test_dashboard_polls_live_market_indices_without_frontend_cache():
     source = TestClient(main_module.app).get("/assets/dashboard/app.js").text
 
     assert "marketIndexRefreshTimer" in source
-    assert 'liveUrl(endpoint), { force: true, ttlMs: 0 }' in source
-    assert 'koreaMarketPhase() === "regular" ? 5_000 : 60_000' in source
+    assert 'liveUrl(domesticEndpoint), { force: true, ttlMs: 0 }' in source
+    assert 'liveUrl("/market/global-assets?limit=30"), { force: true, ttlMs: 0 }' in source
+    assert 'koreaMarketPhase() === "regular" ? 5_000 : 30_000' in source

@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260728v106" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260728v107" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -444,19 +444,10 @@
       </section>
 
       <section id="home-view" class="app-page app-home" data-ui-version="3.0" hidden>
-        <section class="home-market-indices" id="home-market-indices" aria-label="국내 주요 지수" aria-live="polite">
-          <article class="home-index-card is-loading" id="home-kospi-card">
-            <header><h2>코스피</h2><span class="home-index-session">장마감</span></header>
-            <p class="home-index-previous">전일 <strong id="home-kospi-previous">-</strong></p>
-            <div class="home-index-chart" id="home-kospi-chart" role="img" aria-label="코스피 최근 30거래일 추이"><span>지수 데이터를 불러오는 중입니다.</span></div>
-            <footer><div><strong id="home-kospi-current">-</strong><span id="home-kospi-change">-</span></div></footer>
-          </article>
-          <article class="home-index-card is-loading" id="home-kosdaq-card">
-            <header><h2>코스닥</h2><span class="home-index-session">장마감</span></header>
-            <p class="home-index-previous">전일 <strong id="home-kosdaq-previous">-</strong></p>
-            <div class="home-index-chart" id="home-kosdaq-chart" role="img" aria-label="코스닥 최근 30거래일 추이"><span>지수 데이터를 불러오는 중입니다.</span></div>
-            <footer><div><strong id="home-kosdaq-current">-</strong><span id="home-kosdaq-change">-</span></div></footer>
-          </article>
+        <section class="home-market-indices" id="home-market-indices" aria-label="주요 시장 시세" aria-live="polite">
+          <div class="home-market-carousel" id="home-market-carousel">
+            <p class="muted">시장 정보를 불러오는 중입니다.</p>
+          </div>
           <p class="home-index-shared-asof" id="home-index-shared-asof">기준 정보 확인 중</p>
         </section>
 
@@ -466,10 +457,15 @@
             <button class="text-action" id="home-ai-signals-more" type="button">더보기</button>
           </header>
           <section class="home-market-signal-ticker" id="home-market-signal-ticker" aria-label="시장 최신 AI 매매신호">
-            <span class="home-market-signal-kicker">최신 신호</span>
+            <span class="home-market-signal-kicker">AI 매매신호</span>
             <div class="home-market-signal-window is-loading" id="home-market-signal-window" aria-live="polite" aria-label="최신 AI 매매신호를 불러오는 중">
               <span class="home-market-signal-skeleton" aria-hidden="true"></span>
             </div>
+          </section>
+          <section class="home-ai-response" id="home-ai-response" aria-labelledby="home-ai-response-title">
+            <span>내 종목 AI 대응</span>
+            <h3 id="home-ai-response-title">관심종목 신호를 확인하고 있습니다.</h3>
+            <p id="home-ai-response-summary">현재 상태에 맞는 대응을 두 줄로 정리합니다.</p>
           </section>
           <div class="home-ai-signals-list" id="home-ai-signals-list">
             <p class="muted">관심종목의 AI 매매신호를 불러오는 중입니다.</p>
@@ -663,6 +659,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260728v106" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260728v107" defer></script>
   </body>
 </html>
