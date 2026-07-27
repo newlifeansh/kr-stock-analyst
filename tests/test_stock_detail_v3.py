@@ -27,7 +27,7 @@ def test_stock_detail_v3_shell_and_controls():
         "최근 1년 AI 매매신호",
         "모든 매매내역 보기",
         'class="ollama-ai-badge stock-home-ai-status"',
-            "20260727v92",
+            "20260727v93",
     ):
         assert expected in shell.text
     assert "1,000만원 모의 운용" not in shell.text
@@ -80,7 +80,8 @@ def test_stock_detail_v3_shell_and_controls():
     assert ".stock-v3-news-temperature-section .stock-v3-main-chart" in styles
     assert ".stock-v3-news-temperature-section .stock-v3-temperature-gauge" in styles
     assert "min-height: 74px;" in styles
-    assert "html.has-saved-watchlist-id .login-gate" in styles
+    assert "html.has-saved-watchlist-id .login-gate" not in styles
+    assert 'id="login-gate" data-phase="splash"' in shell.text
 
 
 def test_short_company_summary_corrects_korean_topic_particle():

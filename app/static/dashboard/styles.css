@@ -1797,10 +1797,6 @@ a {
   display: none;
 }
 
-html.has-saved-watchlist-id .login-gate {
-  display: none;
-}
-
 .login-gate[data-phase="form"] {
   background: #f5f7fb;
 }

@@ -19,18 +19,11 @@
         serverUrl.hash = window.location.hash;
         window.location.replace(serverUrl.toString());
       }
-      try {
-        if (window.localStorage.getItem("analyst.watchlistId")) {
-          document.documentElement.classList.add("has-saved-watchlist-id");
-        }
-      } catch (_) {
-        // The login form remains visible when browser storage is unavailable.
-      }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260727v92" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260727v93" />
   </head>
   <body>
-    <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
       <div class="login-splash" id="login-splash" aria-hidden="true">
         <img class="login-splash-logo" src="/assets/dashboard/icons/icon-192.png?v=20260620bq" alt="비밀노트" />
       </div>
@@ -674,6 +667,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260727v92" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260727v93" defer></script>
   </body>
 </html>
