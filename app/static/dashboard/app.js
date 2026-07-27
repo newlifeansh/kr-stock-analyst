@@ -728,6 +728,7 @@ const state = {
   pushNotificationHistory: [],
   pushNotificationHistoryBusy: false,
   pushNotificationHistoryTab: "all",
+  pushNotificationHistoryScrollTop: new Map(),
   pushNotificationUnread: false,
   pushNotificationUnreadTimer: null,
   notificationReturnView: "home",
@@ -4880,6 +4881,12 @@ function renderPushNotificationHistory(options = {}) {
       row.disabled = true;
     }
     list.append(row);
+  }
+  if (options.restoreScroll) {
+    const savedScrollTop = state.pushNotificationHistoryScrollTop.get(state.pushNotificationHistoryTab) || 0;
+    window.requestAnimationFrame(() => {
+      list.scrollTop = savedScrollTop;
+    });
   }
 }
 
@@ -11472,8 +11479,18 @@ elements.pushHistoryBack?.addEventListener("click", () => {
 elements.pushHistorySettings?.addEventListener("click", openPushSettingsFromHistory);
 for (const tab of elements.pushHistoryTabs) {
   tab.addEventListener("click", () => {
-    state.pushNotificationHistoryTab = tab.dataset.notificationTab || "all";
-    renderPushNotificationHistory();
+    const nextTab = tab.dataset.notificationTab || "all";
+    if (nextTab === state.pushNotificationHistoryTab) {
+      return;
+    }
+    if (elements.pushHistoryList) {
+      state.pushNotificationHistoryScrollTop.set(
+        state.pushNotificationHistoryTab,
+        elements.pushHistoryList.scrollTop,
+      );
+    }
+    state.pushNotificationHistoryTab = nextTab;
+    renderPushNotificationHistory({ restoreScroll: true });
   });
 }
 elements.pushNotificationDisableButton?.addEventListener("click", disablePushNotificationsFromUi);

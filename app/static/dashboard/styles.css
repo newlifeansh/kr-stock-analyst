@@ -1214,10 +1214,14 @@ body:not([data-view="stock"]) .home-market-signal-skeleton::after {
 /* Notification center: full-page activity feed with the stock-detail visual language. */
 .notifications-page {
   width: min(100%, 780px);
-  min-height: calc(100vh - 170px);
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   margin: 0 auto;
-  padding-bottom: 88px;
-  overflow-x: clip;
+  padding-bottom: 0;
+  overflow: hidden;
   background: #ffffff;
   color: #17191d;
 }
@@ -1332,8 +1336,13 @@ body:not([data-view="stock"]) .home-market-signal-skeleton::after {
 }
 
 .notifications-list {
-  min-height: 240px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   background: #ffffff;
+  -webkit-overflow-scrolling: touch;
 }
 
 .notifications-date {
