@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260727v94" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260727v95" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -303,10 +303,10 @@
                 <div><span>증권사 자료</span><h2>리포트 분석</h2></div>
                 <span class="stock-v3-source">증권사 발행 자료</span>
               </header>
-              <div class="stock-v3-segment" role="group" aria-label="리포트 분석 항목">
-                <button class="active" type="button">목표가 추이</button>
-                <button type="button" disabled>발행 추이</button>
-                <button type="button" disabled>발행 증권사</button>
+              <div class="stock-v3-segment" role="tablist" aria-label="리포트 분석 항목">
+                <button class="active" type="button" role="tab" aria-selected="true" data-report-mode="target">목표가 추이</button>
+                <button type="button" role="tab" aria-selected="false" data-report-mode="issuance">발행 추이</button>
+                <button type="button" role="tab" aria-selected="false" data-report-mode="broker">발행 증권사</button>
               </div>
               <div class="stock-v3-main-chart" id="stock-report-history-chart" aria-label="목표가와 실제 주가 비교"></div>
               <div class="stock-v3-chart-summary" id="stock-report-summary"></div>
@@ -315,9 +315,9 @@
 
             <article class="stock-v3-section" id="stock-news-section">
               <header class="stock-v3-section-head"><div><span>최근 기사</span><h2>뉴스</h2></div></header>
-              <div class="stock-v3-segment" role="group" aria-label="뉴스 분류">
-                <button class="active" type="button">종목뉴스</button>
-                <button type="button" disabled>AI 속보</button>
+              <div class="stock-v3-segment" role="tablist" aria-label="뉴스 분류">
+                <button class="active" type="button" role="tab" aria-selected="true" data-news-mode="company">종목뉴스</button>
+                <button type="button" role="tab" aria-selected="false" data-news-mode="breaking">AI 속보</button>
               </div>
               <ul class="event-list stock-v3-news-list" id="news-list"></ul>
             </article>
@@ -668,6 +668,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260727v94" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260727v95" defer></script>
   </body>
 </html>

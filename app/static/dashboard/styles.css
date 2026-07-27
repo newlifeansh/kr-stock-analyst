@@ -16562,6 +16562,11 @@ body :is(
   box-shadow: 0 2px 7px rgba(19, 26, 38, 0.08);
 }
 
+#stock-view.stock-detail-v3 .stock-v3-segment button:focus-visible {
+  outline: 2px solid #252a31;
+  outline-offset: 2px;
+}
+
 #stock-view.stock-detail-v3 .stock-v3-segment button:disabled {
   cursor: default;
   opacity: 0.55;
@@ -16655,6 +16660,68 @@ body :is(
   font-size: 15px;
   font-weight: 850;
   font-variant-numeric: tabular-nums;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-report-issuance rect {
+  fill: #2f7df4;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-report-issuance > text:not(.stock-v3-chart-date) {
+  fill: #252a31;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-report-brokers {
+  display: grid;
+  align-content: start;
+  min-height: 280px;
+  padding-top: 10px;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-report-broker-row {
+  display: grid;
+  grid-template-columns: 24px minmax(96px, 0.8fr) minmax(120px, 1.5fr) 42px;
+  align-items: center;
+  gap: 12px;
+  min-height: 45px;
+  border-bottom: 1px solid var(--stock-v3-line);
+}
+
+#stock-view.stock-detail-v3 .stock-v3-report-broker-row:last-child {
+  border-bottom: 0;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-report-broker-rank {
+  color: var(--stock-v3-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-report-broker-row strong,
+#stock-view.stock-detail-v3 .stock-v3-report-broker-row b {
+  color: #252a31;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-report-broker-row b {
+  text-align: right;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-report-broker-meter {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf0f4;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-report-broker-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2f7df4;
 }
 
 #stock-view.stock-detail-v3 .stock-v3-flow-total {
@@ -16993,6 +17060,15 @@ body :is(
 #stock-view.stock-detail-v3 .stock-v3-news-row > span {
   color: var(--stock-v3-muted);
   font-size: 10px;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-news-empty {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  color: var(--stock-v3-muted);
+  font-size: 12px;
+  text-align: center;
 }
 
 #stock-view.stock-detail-v3 .stock-v3-sentiment-summary {

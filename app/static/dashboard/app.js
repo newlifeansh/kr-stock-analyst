@@ -140,8 +140,10 @@ const elements = {
   stockFlowPeriodTabs: Array.from(document.querySelectorAll("[data-flow-period]")),
   stockFlowSummary: $("stock-flow-summary"),
   stockFlowHistoryChart: $("stock-flow-history-chart"),
+  stockReportModeTabs: Array.from(document.querySelectorAll("[data-report-mode]")),
   stockReportHistoryChart: $("stock-report-history-chart"),
   stockReportSummary: $("stock-report-summary"),
+  stockNewsModeTabs: Array.from(document.querySelectorAll("[data-news-mode]")),
   stockNewsTemperature: $("stock-news-temperature"),
   stockNewsTemperatureChart: $("stock-news-temperature-chart"),
   stockCommunityStatus: $("stock-community-status"),
@@ -697,6 +699,8 @@ const state = {
   stockFinancialScope: "quarterly",
   stockFlowMode: "cumulative",
   stockFlowPeriod: "3M",
+  stockReportMode: "target",
+  stockNewsMode: "company",
   stockHomeDetailsRequestId: 0,
   stockIssueKeyword: "",
   stockAIAnalysis: null,
@@ -2122,23 +2126,135 @@ function renderStockFlowHistoryChart() {
   `;
 }
 
-function renderStockReportHistoryChart() {
-  if (!elements.stockReportHistoryChart || !state.currentDashboard) {
-    return;
-  }
-  const priceRows = stockPriceRowsWithLiveQuote(state.stockPriceRows, state.currentDashboard.quote).slice(-132);
-  const reports = (state.stockResearchRows.length ? state.stockResearchRows : state.currentDashboard.revisions?.recent_reports || [])
+function stockResearchReports() {
+  const source = state.stockResearchRows.length
+    ? state.stockResearchRows
+    : state.currentDashboard?.revisions?.recent_reports || [];
+  return source
     .map((row) => ({
-      date: String(row.published_at || "").slice(0, 10),
+      ...row,
+      date: String(row.published_at || row.date || "").slice(0, 10),
       target: toNumber(row.target_price),
       title: row.title || "리포트",
       broker: row.broker_name || "증권사",
     }))
     .filter((row) => row.date)
     .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function setStockReportModeTabs() {
+  const mode = state.stockReportMode || "target";
+  for (const button of elements.stockReportModeTabs) {
+    const active = button.dataset.reportMode === mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  }
+}
+
+function setStockReportSummary(items) {
+  if (!elements.stockReportSummary) {
+    return;
+  }
+  elements.stockReportSummary.replaceChildren(...items.map(([label, value]) => {
+    const item = el("div");
+    item.append(el("span", "", label), el("strong", "", value));
+    return item;
+  }));
+}
+
+function renderStockReportIssuance(reports) {
+  const monthly = new Map();
+  for (const report of reports) {
+    const month = report.date.slice(0, 7);
+    monthly.set(month, (monthly.get(month) || 0) + 1);
+  }
+  const rows = Array.from(monthly, ([month, count]) => ({ month, count })).slice(-6);
+  if (!rows.length) {
+    elements.stockReportHistoryChart.innerHTML = '<p class="stock-v3-chart-empty">최근 발행된 증권사 리포트가 없습니다.</p>';
+    elements.stockReportSummary.innerHTML = "";
+    return;
+  }
+  const width = 760;
+  const height = 270;
+  const left = 54;
+  const right = 30;
+  const top = 24;
+  const bottom = 224;
+  const maxCount = Math.max(...rows.map((row) => row.count), 1);
+  const slot = (width - left - right) / rows.length;
+  const barWidth = Math.min(66, slot * 0.55);
+  const bars = rows.map((row, index) => {
+    const barHeight = row.count / maxCount * (bottom - top);
+    const x = left + slot * index + (slot - barWidth) / 2;
+    const y = bottom - barHeight;
+    return `<g class="stock-v3-report-issuance"><rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${barHeight.toFixed(2)}" rx="5"></rect><text x="${(x + barWidth / 2).toFixed(2)}" y="${Math.max(16, y - 8).toFixed(2)}" text-anchor="middle">${row.count}건</text><text class="stock-v3-chart-date" x="${(x + barWidth / 2).toFixed(2)}" y="252" text-anchor="middle">${row.month.replace("-", ".")}</text></g>`;
+  }).join("");
+  elements.stockReportHistoryChart.innerHTML = `<svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 월별 리포트 발행 건수">${bars}</svg>`;
+  const recentCutoff = new Date();
+  recentCutoff.setDate(recentCutoff.getDate() - 30);
+  const recentCount = reports.filter((row) => new Date(`${row.date}T00:00:00`) >= recentCutoff).length;
+  setStockReportSummary([
+    ["최근 30일", `${formatNumber(recentCount)}건`],
+    ["최근 6개월", `${formatNumber(rows.reduce((sum, row) => sum + row.count, 0))}건`],
+    ["최근 발행일", reports.at(-1)?.date || "-"],
+  ]);
+}
+
+function renderStockReportBrokers(reports) {
+  const brokerCounts = new Map();
+  for (const report of reports) {
+    brokerCounts.set(report.broker, (brokerCounts.get(report.broker) || 0) + 1);
+  }
+  const rows = Array.from(brokerCounts, ([broker, count]) => ({ broker, count }))
+    .sort((a, b) => b.count - a.count || a.broker.localeCompare(b.broker));
+  if (!rows.length) {
+    elements.stockReportHistoryChart.innerHTML = '<p class="stock-v3-chart-empty">발행 증권사 정보가 없습니다.</p>';
+    elements.stockReportSummary.innerHTML = "";
+    return;
+  }
+  const maxCount = Math.max(...rows.map((row) => row.count), 1);
+  const list = el("div", "stock-v3-report-brokers");
+  rows.slice(0, 8).forEach((row, index) => {
+    const meter = el("span", "stock-v3-report-broker-meter");
+    const fill = el("i");
+    fill.style.width = `${(row.count / maxCount * 100).toFixed(2)}%`;
+    meter.appendChild(fill);
+    const item = el("div", "stock-v3-report-broker-row");
+    item.append(
+      el("span", "stock-v3-report-broker-rank", String(index + 1)),
+      el("strong", "", row.broker),
+      meter,
+      el("b", "", `${formatNumber(row.count)}건`)
+    );
+    list.appendChild(item);
+  });
+  elements.stockReportHistoryChart.replaceChildren(list);
+  setStockReportSummary([
+    ["발행 증권사", `${formatNumber(rows.length)}곳`],
+    ["최다 발행", rows[0].broker],
+    ["전체 리포트", `${formatNumber(reports.length)}건`],
+  ]);
+}
+
+function renderStockReportHistoryChart() {
+  if (!elements.stockReportHistoryChart || !state.currentDashboard) {
+    return;
+  }
+  setStockReportModeTabs();
+  const reports = stockResearchReports();
+  if (state.stockReportMode === "issuance") {
+    renderStockReportIssuance(reports);
+    return;
+  }
+  if (state.stockReportMode === "broker") {
+    renderStockReportBrokers(reports);
+    return;
+  }
+  const priceRows = stockPriceRowsWithLiveQuote(state.stockPriceRows, state.currentDashboard.quote).slice(-132);
   const targets = reports.filter((row) => row.target !== null && row.target > 0);
   if (priceRows.length < 2) {
     elements.stockReportHistoryChart.innerHTML = '<p class="stock-v3-chart-empty">주가 이력을 불러오는 중입니다.</p>';
+    elements.stockReportSummary.innerHTML = "";
     return;
   }
   const width = 760;
@@ -2446,11 +2562,37 @@ function renderStockNewsTemperature(data) {
 }
 
 function renderStockNewsRows(rows) {
-  if (!elements.newsList || !Array.isArray(rows) || !rows.length) {
+  if (!elements.newsList) {
     return;
   }
+  const mode = state.stockNewsMode || "company";
+  for (const button of elements.stockNewsModeTabs) {
+    const active = button.dataset.newsMode === mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  }
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  let filteredRows = sourceRows.filter((row) => mode === "breaking"
+    ? row.source_category === "breaking"
+    : row.source_category !== "breaking");
+  if (mode === "company" && !filteredRows.length) {
+    filteredRows = sourceRows;
+  }
+  const seen = new Set();
+  filteredRows = filteredRows.filter((row) => {
+    const key = row.external_id || updateItemLink(row) || row.title;
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
   elements.newsList.innerHTML = "";
-  for (const row of rows.slice(0, 8)) {
+  if (!filteredRows.length) {
+    elements.newsList.appendChild(el("li", "stock-v3-news-empty", mode === "breaking" ? "최근 AI 속보가 없습니다." : "최근 종목뉴스가 없습니다."));
+    return;
+  }
+  for (const row of filteredRows.slice(0, 8)) {
     const item = el("li", "stock-v3-news-row");
     const href = updateItemLink(row);
     const title = href ? el("a", "", row.title || "뉴스") : el("strong", "", row.title || "뉴스");
@@ -2599,9 +2741,7 @@ function renderStockHome(data = state.currentDashboard) {
   renderStockFlowHistoryChart();
   renderStockReportHistoryChart();
   renderStockNewsTemperature(data);
-  if (state.stockNewsRows.length) {
-    renderStockNewsRows(state.stockNewsRows);
-  }
+  renderStockNewsRows(state.stockNewsRows.length ? state.stockNewsRows : data?.sentiment?.latest_items || []);
 }
 
 function isTradeLevelActionable(levels, payload) {
@@ -11535,6 +11675,20 @@ for (const button of elements.stockFlowPeriodTabs) {
   button.addEventListener("click", () => {
     state.stockFlowPeriod = button.dataset.flowPeriod || "3M";
     renderStockFlowHistoryChart();
+  });
+}
+for (const button of elements.stockReportModeTabs) {
+  button.addEventListener("click", () => {
+    state.stockReportMode = button.dataset.reportMode || "target";
+    renderStockReportHistoryChart();
+  });
+}
+for (const button of elements.stockNewsModeTabs) {
+  button.addEventListener("click", () => {
+    state.stockNewsMode = button.dataset.newsMode || "company";
+    renderStockNewsRows(state.stockNewsRows.length
+      ? state.stockNewsRows
+      : state.currentDashboard?.sentiment?.latest_items || []);
   });
 }
 elements.quantSignalRefresh?.addEventListener("click", (event) => {
