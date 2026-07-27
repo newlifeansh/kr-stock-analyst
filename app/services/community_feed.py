@@ -168,8 +168,8 @@ def _build_threads_provider(
         "source": THREADS_SEARCH_SOURCE,
         "configured": False,
         "search_url": search_url,
-        "more_label": "Threads에서 더 보기 ↗",
-        "message": "Threads 원문 검색으로 연결합니다.",
+        "more_label": "Threads 원문",
+        "message": "Meta API 연결 후 게시물을 이 화면에서 바로 확인할 수 있습니다.",
         "items": [],
     }
     if not settings.threads_feed_enabled or not settings.threads_access_token:
@@ -180,7 +180,7 @@ def _build_threads_provider(
     except Exception:
         return {
             **fallback,
-            "message": "Threads 최근 글을 불러오지 못했습니다. 원문 검색에서 확인해 주세요.",
+            "message": "Threads 게시물을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.",
         }
 
     return {
@@ -189,8 +189,8 @@ def _build_threads_provider(
         "source": THREADS_API_SOURCE,
         "configured": True,
         "search_url": search_url,
-        "more_label": "Threads에서 더 보기 ↗",
-        "message": f"Meta API · 최근 글 {len(items)}건" if items else "Meta API · 최근 글이 없습니다.",
+        "more_label": "Threads 원문",
+        "message": f"최근 글 {len(items)}건" if items else "최근 글이 없습니다.",
         "items": items,
     }
 

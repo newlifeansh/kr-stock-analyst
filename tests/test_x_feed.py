@@ -214,7 +214,7 @@ def test_threads_keyword_search_is_mapped_with_meta_api(monkeypatch):
 
     assert provider["configured"] is True
     assert provider["source"] == "threads_api"
-    assert provider["message"] == "Meta API · 최근 글 1건"
+    assert provider["message"] == "최근 글 1건"
     assert provider["items"][0]["username"] == "market_note"
     assert provider["items"][0]["impact"] == "호재"
     assert provider["items"][0]["created_at"] == datetime(2026, 7, 25, 1, 20)
@@ -234,5 +234,8 @@ def test_stock_detail_contains_community_ui():
     assert 'id="stock-community-providers"' in shell
     assert "function loadStockCommunity" in source
     assert "/community-feed?limit=12" in source
-    assert ".stock-community-link" in styles
+    assert ".stock-community-tabs" in styles
+    assert ".stock-community-entry" in styles
     assert ".stock-community-text" in styles
+    assert "state.stockCommunityProviderKey" in source
+    assert "stock-community-expand" in source

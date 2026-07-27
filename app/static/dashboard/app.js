@@ -697,6 +697,7 @@ const state = {
   stockDisclosureRows: [],
   stockNewsRows: [],
   stockCommunity: null,
+  stockCommunityProviderKey: "naver_board",
   stockFinancialMetric: "revenue",
   stockFinancialScope: "quarterly",
   stockFlowMode: "cumulative",
@@ -2649,86 +2650,101 @@ function renderStockCommunity(payload) {
     ? ""
     : (payload?.message || "관련 커뮤니티 글을 찾지 못했습니다.");
 
-  for (const provider of providers) {
-    const section = el("section", "stock-community-provider");
-    const head = el("div", "stock-community-provider-head");
-    const heading = el("div", "stock-community-provider-title");
-    const title = document.createElement("strong");
-    title.textContent = provider.label || "커뮤니티";
-    const description = el(
-      "span",
-      "",
-      provider.message
-        || ((Array.isArray(provider.items) && provider.items.length)
-          ? `최근 글 ${formatNumber(provider.items.length)}건`
-          : "표시할 글이 없습니다.")
-    );
-    heading.append(title, description);
-    head.appendChild(heading);
-    if (provider.search_url) {
-      const more = el("a", "stock-community-provider-more", provider.more_label || "더 보기 ↗");
-      more.href = provider.search_url;
-      more.target = "_blank";
-      more.rel = "noopener noreferrer";
-      head.appendChild(more);
-    }
-    section.appendChild(head);
-
-    const list = el("ul", "stock-community-list");
-    const items = Array.isArray(provider.items) ? provider.items : [];
-    for (const row of items.slice(0, 8)) {
-      const item = el("li", "stock-community-item");
-      const link = el("a", "stock-community-link");
-      link.href = row.url || provider.search_url || "#";
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.setAttribute("aria-label", `${provider.label || "커뮤니티"} 게시물 원문 보기`);
-
-      const avatar = el("span", `stock-community-avatar is-${provider.key}`, stockCommunityAvatarLabel(provider.key));
-      if (row.author_profile_image_url) {
-        const image = document.createElement("img");
-        image.src = row.author_profile_image_url;
-        image.alt = "";
-        image.loading = "lazy";
-        image.referrerPolicy = "no-referrer";
-        image.addEventListener("error", () => image.remove(), { once: true });
-        avatar.appendChild(image);
-      }
-
-      const body = el("span", "stock-community-body");
-      const line = el("span", "stock-community-line");
-      const identity = el("span", "stock-community-identity");
-      identity.append(
-        el("strong", "", row.author_name || provider.label || "커뮤니티"),
-        el("span", "", row.username ? `@${row.username}` : (provider.key === "naver_board" ? "종토방" : "Threads"))
-      );
-      const impact = el("span", `stock-community-impact is-${row.impact === "호재" ? "positive" : row.impact === "악재" ? "negative" : "neutral"}`, row.impact || "중립");
-      line.append(identity, impact);
-      body.append(
-        line,
-        el("span", "stock-community-text", row.title || row.text || "게시물 내용 없음"),
-        el("span", "stock-community-meta", stockCommunityMeta(provider.key, row))
-      );
-      link.append(avatar, body);
-      item.appendChild(link);
-      list.appendChild(item);
-    }
-
-    if (!items.length) {
-      const empty = el("li", "stock-community-empty");
-      const link = el("a", "", provider.more_label || "더 보기 ↗");
-      link.href = provider.search_url || "#";
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      empty.append(
-        el("span", "", provider.message || "표시할 게시물이 없습니다."),
-        link
-      );
-      list.appendChild(empty);
-    }
-    section.appendChild(list);
-    elements.stockCommunityProviders.appendChild(section);
+  if (!providers.length) {
+    return;
   }
+
+  const selected = providers.find((provider) => provider.key === state.stockCommunityProviderKey) || providers[0];
+  state.stockCommunityProviderKey = selected.key;
+
+  const board = el("section", "stock-community-board");
+  const tabs = el("div", "stock-community-tabs");
+  tabs.setAttribute("role", "tablist");
+  tabs.setAttribute("aria-label", "커뮤니티 출처");
+  for (const provider of providers) {
+    const button = el("button", provider.key === selected.key ? "active" : "", provider.label || "커뮤니티");
+    button.type = "button";
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", provider.key === selected.key ? "true" : "false");
+    button.addEventListener("click", () => {
+      if (state.stockCommunityProviderKey === provider.key) return;
+      state.stockCommunityProviderKey = provider.key;
+      renderStockCommunity(payload);
+    });
+    tabs.appendChild(button);
+  }
+  board.appendChild(tabs);
+
+  const items = Array.isArray(selected.items) ? selected.items : [];
+  const summary = el("div", "stock-community-board-summary");
+  summary.appendChild(el("strong", "", selected.label || "커뮤니티"));
+  if (items.length) {
+    summary.appendChild(el("span", "", `최근 글 ${formatNumber(items.length)}건`));
+  }
+  board.appendChild(summary);
+
+  const list = el("ul", "stock-community-list");
+  for (const row of items.slice(0, 8)) {
+    const item = el("li", "stock-community-item");
+    const article = el("article", "stock-community-entry");
+    const avatar = el("span", `stock-community-avatar is-${selected.key}`, stockCommunityAvatarLabel(selected.key));
+    if (row.author_profile_image_url) {
+      const image = document.createElement("img");
+      image.src = row.author_profile_image_url;
+      image.alt = "";
+      image.loading = "lazy";
+      image.referrerPolicy = "no-referrer";
+      image.addEventListener("error", () => image.remove(), { once: true });
+      avatar.appendChild(image);
+    }
+
+    const body = el("div", "stock-community-body");
+    const line = el("div", "stock-community-line");
+    const identity = el("span", "stock-community-identity");
+    identity.append(
+      el("strong", "", row.author_name || selected.label || "커뮤니티"),
+      el("span", "", row.username ? `@${row.username}` : (selected.key === "naver_board" ? "종토방" : "Threads"))
+    );
+    const impact = el("span", `stock-community-impact is-${row.impact === "호재" ? "positive" : row.impact === "악재" ? "negative" : "neutral"}`, row.impact || "중립");
+    line.append(identity, impact);
+
+    const text = el("p", "stock-community-text", row.text || row.title || "게시물 내용 없음");
+    const footer = el("div", "stock-community-footer");
+    footer.appendChild(el("span", "stock-community-meta", stockCommunityMeta(selected.key, row)));
+    const actions = el("span", "stock-community-actions");
+    if (String(row.text || row.title || "").length > 120) {
+      const expand = el("button", "stock-community-expand", "펼치기");
+      expand.type = "button";
+      expand.setAttribute("aria-expanded", "false");
+      expand.addEventListener("click", () => {
+        const expanded = text.classList.toggle("expanded");
+        expand.textContent = expanded ? "접기" : "펼치기";
+        expand.setAttribute("aria-expanded", expanded ? "true" : "false");
+      });
+      actions.appendChild(expand);
+    }
+    if (row.url) {
+      const original = el("a", "stock-community-original", "원문 ↗");
+      original.href = row.url;
+      original.target = "_blank";
+      original.rel = "noopener noreferrer";
+      original.setAttribute("aria-label", `${selected.label || "커뮤니티"} 게시물 원문 보기`);
+      actions.appendChild(original);
+    }
+    footer.appendChild(actions);
+    body.append(line, text, footer);
+    article.append(avatar, body);
+    item.appendChild(article);
+    list.appendChild(item);
+  }
+
+  if (!items.length) {
+    const empty = el("li", "stock-community-empty");
+    empty.appendChild(el("span", "", selected.message || "표시할 게시물이 없습니다."));
+    list.appendChild(empty);
+  }
+  board.appendChild(list);
+  elements.stockCommunityProviders.appendChild(board);
 }
 
 function renderStockHome(data = state.currentDashboard) {
