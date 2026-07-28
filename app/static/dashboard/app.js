@@ -10853,10 +10853,19 @@ function createHomeMarketAssetCard(item = {}) {
   header.append(el("h2", "", item.label || code));
 
   const value = el("strong", "home-index-current", formatMarketIndexValue(current));
-  const changeText = change === null
-    ? "전일 대비 -"
-    : `${change > 0 ? "▲" : change < 0 ? "▼" : "-"} ${formatMarketIndexValue(Math.abs(change))} · ${formatPercent(changeRate)}`;
-  const changeNode = el("span", "home-index-change", changeText);
+  const changeNode = el("span", "home-index-change");
+  if (change === null) {
+    changeNode.append(el("span", "home-index-change-value", "전일 대비 -"));
+  } else {
+    changeNode.append(
+      el(
+        "span",
+        "home-index-change-value",
+        `${change > 0 ? "▲" : change < 0 ? "▼" : "-"} ${formatMarketIndexValue(Math.abs(change))}`,
+      ),
+      el("span", "home-index-change-rate", formatPercent(changeRate)),
+    );
+  }
 
   const chartNode = el("div", "home-index-chart");
   const chart = marketIndexChartMarkup(item);
