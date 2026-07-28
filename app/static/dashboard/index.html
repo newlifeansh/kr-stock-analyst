@@ -2,7 +2,7 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>비밀노트 | 국내증시</title>
     <meta name="theme-color" content="#111827" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -20,7 +20,8 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260728v117" />
+    <script src="/assets/zoom-lock.js?v=20260728z1"></script>
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260728v129" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -467,8 +468,14 @@
           </section>
           <section class="home-ai-response" id="home-ai-response" aria-labelledby="home-ai-response-title">
             <header><span>AI 대응</span><time id="home-ai-response-asof">기준 정보 확인 중</time></header>
-            <h3 id="home-ai-response-title">관심종목 신호를 확인하고 있습니다.</h3>
-            <p id="home-ai-response-summary">현재 상태에 맞는 대응을 두 줄로 정리합니다.</p>
+            <div class="home-ai-response-line">
+              <span>시장 변동성</span>
+              <h3 id="home-ai-response-title">시장 흐름을 확인하고 있습니다.</h3>
+            </div>
+            <div class="home-ai-response-line is-watch">
+              <span>관심종목 유의</span>
+              <p id="home-ai-response-summary">우선 확인할 관심종목을 찾고 있습니다.</p>
+            </div>
           </section>
           <div class="home-ai-signals-list" id="home-ai-signals-list">
             <p class="muted">관심종목의 AI 매매신호를 불러오는 중입니다.</p>
@@ -629,15 +636,76 @@
           <div class="discovery-suggestions" id="chart-stock-search-suggestions" role="listbox" hidden></div>
         </form>
         <section class="chart-start-guide" id="chart-start-guide">
-          <span>차트 시나리오</span>
-          <h1>5일·10일 뒤의 예상 범위를 확인하세요</h1>
-          <p>실제 가격과 거래량을 바탕으로 추세, 모멘텀, 변동성을 계산해 가능한 흐름의 범위를 보여줍니다.</p>
-          <ol>
-            <li><strong>1</strong><span>종목명이나 종목코드를 검색합니다.</span></li>
-            <li><strong>2</strong><span>5일 또는 10일을 선택해 예상 중심선과 범위를 비교합니다.</span></li>
-          </ol>
-          <small>예상 범위는 투자 판단을 돕기 위한 시나리오이며 실제 가격을 보장하지 않습니다.</small>
-          <button class="chart-history-link" id="chart-archive-button" type="button">지난 분석 보기</button>
+          <header class="chart-example-heading">
+            <span>분석 예시</span>
+            <h1>검색하면 이렇게 비교해드려요</h1>
+            <p>최근 가격 흐름과 5일·10일 예상 범위를 한 차트에서 확인합니다.</p>
+          </header>
+          <figure class="chart-example-figure">
+            <div class="chart-example-title">
+              <strong>예시 차트</strong>
+              <span>가상 데이터</span>
+            </div>
+            <svg class="chart-example-svg" viewBox="0 0 720 330" role="img" aria-labelledby="chart-example-svg-title chart-example-svg-desc">
+              <title id="chart-example-svg-title">최근 흐름과 5일, 10일 예상 범위 비교 예시</title>
+              <desc id="chart-example-svg-desc">현재 시점을 기준으로 최근 가격 흐름과 5일 및 10일 뒤의 예상 중심선과 변동 범위를 비교합니다.</desc>
+              <defs>
+                <linearGradient id="chart-example-past-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#dce4ef" stop-opacity="0.72"></stop>
+                  <stop offset="1" stop-color="#dce4ef" stop-opacity="0.08"></stop>
+                </linearGradient>
+                <linearGradient id="chart-example-range-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#e4373d" stop-opacity="0.16"></stop>
+                  <stop offset="1" stop-color="#2f78dc" stop-opacity="0.07"></stop>
+                </linearGradient>
+              </defs>
+              <g class="chart-example-grid" aria-hidden="true">
+                <line x1="46" y1="54" x2="688" y2="54"></line>
+                <line x1="46" y1="118" x2="688" y2="118"></line>
+                <line x1="46" y1="182" x2="688" y2="182"></line>
+                <line x1="46" y1="246" x2="688" y2="246"></line>
+              </g>
+              <rect class="chart-example-future-zone" x="350" y="34" width="338" height="222" rx="5"></rect>
+              <path class="chart-example-past-area" d="M46 246 L46 176 C78 158 88 102 124 120 S176 202 213 175 S265 130 302 164 S330 180 350 164 L350 246 Z"></path>
+              <path class="chart-example-range" d="M350 164 C398 142 438 148 474 130 S544 102 586 116 S646 82 688 62 L688 210 C648 198 610 216 574 200 S506 190 468 198 S398 188 350 164 Z"></path>
+              <path class="chart-example-past-line" d="M46 176 C78 158 88 102 124 120 S176 202 213 175 S265 130 302 164 S330 180 350 164"></path>
+              <path class="chart-example-ten-line" d="M350 164 C398 160 434 142 474 150 S542 130 586 136 S644 112 688 105"></path>
+              <path class="chart-example-five-line" d="M350 164 C388 150 425 156 458 144 S492 134 520 130"></path>
+              <line class="chart-example-now-line" x1="350" y1="34" x2="350" y2="256"></line>
+              <circle class="chart-example-now-dot" cx="350" cy="164" r="6"></circle>
+              <circle class="chart-example-five-dot" cx="520" cy="130" r="6"></circle>
+              <circle class="chart-example-ten-dot" cx="688" cy="105" r="6"></circle>
+              <g class="chart-example-labels" aria-hidden="true">
+                <text x="46" y="292">최근 흐름</text>
+                <text class="current" x="350" y="292" text-anchor="middle">현재</text>
+                <text x="520" y="292" text-anchor="middle">5일 후</text>
+                <text x="688" y="292" text-anchor="end">10일 후</text>
+              </g>
+            </svg>
+            <figcaption class="chart-example-legend">
+              <span class="actual">실제 흐름</span>
+              <span class="five">5일 예상</span>
+              <span class="ten">10일 예상</span>
+              <span class="range">예상 범위</span>
+            </figcaption>
+          </figure>
+          <div class="chart-example-comparison" aria-label="예시 분석 비교">
+            <section>
+              <span>5일 분석</span>
+              <strong>단기 방향 확인</strong>
+              <em>중심값 +3.8%</em>
+            </section>
+            <section>
+              <span>10일 분석</span>
+              <strong>흐름 지속 확인</strong>
+              <em>중심값 +6.1%</em>
+            </section>
+          </div>
+          <div class="chart-example-actions">
+            <button class="chart-example-search-link" id="chart-example-search-button" type="button">종목 검색해보기</button>
+            <button class="chart-history-link" id="chart-archive-button" type="button">지난 분석 보기</button>
+          </div>
+          <small>예상 범위는 실제 가격과 거래량을 분석한 참고 정보이며 미래 가격을 보장하지 않습니다.</small>
         </section>
         <section class="watch-chart-list chart-forecast-result" id="watch-chart-list" aria-live="polite"></section>
       </section>
@@ -651,6 +719,21 @@
         <p class="secondary-view-meta" id="watch-chart-snapshot-meta">저장 없음</p>
         <section class="chart-snapshot-panel archive-page"><div class="history-head"><strong>차트 스냅샷</strong><span>저장 기록 관리</span></div><div class="chart-snapshot-list" id="watch-chart-snapshots"></div></section>
       </section>
+
+      <footer class="service-footer" aria-label="서비스 정보">
+        <dl>
+          <div>
+            <dt>서비스 담당자</dt>
+            <dd>안석환</dd>
+          </div>
+          <div>
+            <dt>서비스 문의</dt>
+            <dd>
+              <a href="https://www.linkedin.com/in/connor-sh" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+            </dd>
+          </div>
+        </dl>
+      </footer>
       </main>
 
       <nav class="bottom-nav" id="bottom-nav" aria-label="주요 메뉴">
@@ -669,6 +752,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260728v117" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260728v129" defer></script>
   </body>
 </html>

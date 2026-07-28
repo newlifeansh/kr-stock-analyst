@@ -27,7 +27,7 @@ def test_stock_detail_v3_shell_and_controls():
         "최근 1년 AI 매매신호",
         "모든 매매내역 보기",
         'class="ollama-ai-badge stock-home-ai-status"',
-            "20260728v117",
+            "20260728v129",
     ):
         assert expected in shell.text
     assert "1,000만원 모의 운용" not in shell.text
@@ -52,6 +52,10 @@ def test_stock_detail_v3_shell_and_controls():
     assert "stockReportModeTabs" in source
     assert "stockNewsModeTabs" in source
     assert 'row.source_category === "breaking"' in source
+    assert "stock-v3-news-list" in shell.text
+    assert '"stock-v3-news-thumb"' in source
+    assert "row.image_url" in source
+    assert 'formatDate(updateItemDate(row))' in source
     assert "const height = 178;" in source
     assert 'y="170"' in source
     assert "renderQuantSignalChart" in source
@@ -87,6 +91,9 @@ def test_stock_detail_v3_shell_and_controls():
     assert "--stock-v3-type-tab: 16px" in styles
     assert ".stock-v3-news-temperature-section .stock-v3-main-chart" in styles
     assert ".stock-v3-news-temperature-section .stock-v3-temperature-gauge" in styles
+    assert ".stock-v3-news-link" in styles
+    assert ".stock-v3-news-title" in styles
+    assert ".stock-v3-news-thumb" in styles
     assert "min-height: 74px;" in styles
     assert "html.has-saved-watchlist-id .login-gate" not in styles
     assert 'id="login-gate" data-phase="splash"' in shell.text
