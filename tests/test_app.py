@@ -398,9 +398,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260728v115' in shell
-    assert 'app.js?v=20260728v115' in shell
-    assert 'DASHBOARD_SW_VERSION = "20260728v115"' in client.get("/dashboard-sw.js").text
+    assert 'styles.css?v=20260728v117' in shell
+    assert 'app.js?v=20260728v117' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260728v117"' in client.get("/dashboard-sw.js").text
     assert 'id="logout-button"' not in shell
     assert ".app-notification-button svg" in styles
     assert "width: 25px;" in styles
@@ -415,6 +415,21 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     ]
     assert nav_order == sorted(nav_order)
     assert 'trend: "home"' in source
+
+
+def test_chart_view_is_search_first_and_renders_five_or_ten_day_scenarios():
+    client = TestClient(app)
+    shell = client.get("/dashboard?view=chart").text
+    source = client.get("/assets/dashboard/app.js").text
+
+    assert 'id="chart-view" class="app-page app-chart" data-ui-version="4.0"' in shell
+    assert 'placeholder="궁금한 종목의 흐름 분석하기"' in shell
+    assert "5일·10일 뒤의 예상 범위를 확인하세요" in shell
+    assert 'id="chart-watchlist-picker"' not in shell
+    assert "function computeChartForecast" in source
+    assert "function renderChartForecastResult" in source
+    assert "for (const days of [5, 10])" in source
+    assert "실제 가격은 뉴스와 수급에 따라 예상 범위를 벗어날 수 있습니다." in source
 
 
 def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():

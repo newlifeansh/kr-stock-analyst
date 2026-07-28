@@ -20,7 +20,7 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260728v115" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260728v117" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -621,18 +621,25 @@
         </section>
       </section>
 
-      <section id="chart-view" class="app-page app-chart" data-ui-version="3.0" hidden>
+      <section id="chart-view" class="app-page app-chart" data-ui-version="4.0" hidden>
         <form class="discovery-search chart-stock-search" id="chart-stock-search-form" autocomplete="off">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path></svg>
-          <input id="chart-stock-search-input" type="search" placeholder="분석할 종목 검색" aria-label="차트 분석 종목 검색" aria-autocomplete="list" aria-expanded="false" aria-controls="chart-stock-search-suggestions" />
-          <button type="submit">분석</button>
+          <input id="chart-stock-search-input" type="search" placeholder="궁금한 종목의 흐름 분석하기" aria-label="차트 분석 종목 검색" aria-autocomplete="list" aria-expanded="false" aria-controls="chart-stock-search-suggestions" />
+          <button type="submit">조회</button>
           <div class="discovery-suggestions" id="chart-stock-search-suggestions" role="listbox" hidden></div>
         </form>
-        <section class="chart-watchlist-pick">
-          <div class="app-section-heading"><div><span>빠른 선택</span><h2>관심종목</h2></div><div class="chart-page-actions"><button class="text-action" id="watch-chart-refresh" type="button">새로고침</button><button class="text-action" id="chart-archive-button" type="button">저장 기록</button></div></div>
-          <div class="chart-watchlist-picker" id="chart-watchlist-picker" aria-label="관심종목에서 선택"></div>
+        <section class="chart-start-guide" id="chart-start-guide">
+          <span>차트 시나리오</span>
+          <h1>5일·10일 뒤의 예상 범위를 확인하세요</h1>
+          <p>실제 가격과 거래량을 바탕으로 추세, 모멘텀, 변동성을 계산해 가능한 흐름의 범위를 보여줍니다.</p>
+          <ol>
+            <li><strong>1</strong><span>종목명이나 종목코드를 검색합니다.</span></li>
+            <li><strong>2</strong><span>5일 또는 10일을 선택해 예상 중심선과 범위를 비교합니다.</span></li>
+          </ol>
+          <small>예상 범위는 투자 판단을 돕기 위한 시나리오이며 실제 가격을 보장하지 않습니다.</small>
+          <button class="chart-history-link" id="chart-archive-button" type="button">지난 분석 보기</button>
         </section>
-        <section class="watch-chart-list" id="watch-chart-list"></section>
+        <section class="watch-chart-list chart-forecast-result" id="watch-chart-list" aria-live="polite"></section>
       </section>
 
       <section id="chart-history-view" class="app-page" hidden>
@@ -662,6 +669,6 @@
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260728v115" defer></script>
+    <script src="/assets/dashboard/app.js?v=20260728v117" defer></script>
   </body>
 </html>

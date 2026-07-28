@@ -27724,3 +27724,514 @@ body:not([data-view="stock"]) .home-ai-response p {
     font-size: 14px;
   }
 }
+
+/* Chart forecast v4: search-first technical scenarios */
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] {
+  --forecast-positive: #e4373d;
+  --forecast-negative: #2f78dc;
+  --forecast-text: #17191e;
+  --forecast-muted: #8b929c;
+  --forecast-line: #e6e9ed;
+  --forecast-surface: #f5f7f9;
+  display: grid;
+  gap: 0;
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 0 calc(96px + env(safe-area-inset-bottom));
+  background: #ffffff;
+  color: var(--forecast-text);
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"][hidden] {
+  display: none;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-stock-search {
+  position: relative;
+  z-index: 4;
+  height: 60px;
+  margin: 0;
+  padding: 0 16px;
+  border: 0;
+  border-top: 1px solid var(--forecast-line);
+  border-bottom: 1px solid var(--forecast-line);
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-stock-search > svg {
+  width: 20px;
+  height: 20px;
+  stroke: #6f7782;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-stock-search > input {
+  min-width: 0;
+  color: var(--forecast-text);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-stock-search > input::placeholder {
+  color: #a0a6ae;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-stock-search > button {
+  min-width: 62px;
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 6px;
+  background: #17191e;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide {
+  display: grid;
+  gap: 0;
+  padding: 38px 24px 34px;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide[hidden] {
+  display: none;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide > span,
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-eyebrow {
+  color: var(--forecast-muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide h1 {
+  max-width: 520px;
+  margin: 8px 0 0;
+  color: var(--forecast-text);
+  font-size: 25px;
+  font-weight: 850;
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide > p {
+  max-width: 600px;
+  margin: 14px 0 0;
+  color: #5f6670;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.65;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide ol {
+  display: grid;
+  gap: 0;
+  margin: 28px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--forecast-line);
+  list-style: none;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  border-bottom: 1px solid var(--forecast-line);
+  color: #343941;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide li strong {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #17191e;
+  color: #ffffff;
+  font-size: 12px;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide small {
+  margin-top: 18px;
+  color: var(--forecast-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-history-link {
+  width: max-content;
+  margin-top: 22px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid #4e5661;
+  border-radius: 0;
+  background: transparent;
+  color: #4e5661;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-result {
+  display: block;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-page {
+  display: grid;
+  gap: 0;
+  background: #ffffff;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 28px 24px 20px;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-heading {
+  min-width: 0;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-heading h1 {
+  margin: 5px 0 2px;
+  overflow: hidden;
+  color: var(--forecast-text);
+  font-size: 24px;
+  font-weight: 850;
+  line-height: 1.28;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-heading p,
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-basis {
+  margin: 0;
+  color: var(--forecast-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-basis {
+  padding-bottom: 2px;
+  white-space: nowrap;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 52px;
+  margin: 0 24px;
+  border-bottom: 1px solid var(--forecast-line);
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-controls button {
+  position: relative;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #9aa0a9;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-controls button.active {
+  color: var(--forecast-text);
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-controls button.active::after {
+  position: absolute;
+  right: 18%;
+  bottom: -1px;
+  left: 18%;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--forecast-text);
+  content: "";
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-visual {
+  margin: 0;
+  padding: 26px 20px 18px;
+  border-bottom: 8px solid var(--forecast-surface);
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-grid line {
+  stroke: #eceef1;
+  stroke-width: 1;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-grid text,
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-axis-label {
+  fill: #9aa0a8;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-axis-label.current {
+  fill: #17191e;
+  font-weight: 750;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-future-zone {
+  fill: #f5f9ff;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-volume rect {
+  fill: #e8ebef;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] :is(.chart-forecast-actual, .chart-forecast-center, .chart-forecast-bound) {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-actual {
+  stroke: #333944;
+  stroke-width: 3;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-band {
+  fill: rgba(47, 120, 220, 0.1);
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-bound {
+  stroke: #8bb4ef;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 6;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-center {
+  stroke: #555d68;
+  stroke-width: 3;
+  stroke-dasharray: 7 6;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-center.positive,
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-end-dot.positive {
+  stroke: var(--forecast-positive);
+  fill: var(--forecast-positive);
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-center.negative,
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-end-dot.negative {
+  stroke: var(--forecast-negative);
+  fill: var(--forecast-negative);
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-now {
+  stroke: #6f7781;
+  stroke-width: 1.5;
+  stroke-dasharray: 3 4;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-current-dot {
+  fill: #313843;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-legend {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin-top: 10px;
+  color: #767e88;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-legend span::before {
+  width: 12px;
+  height: 3px;
+  display: inline-block;
+  margin-right: 5px;
+  border-radius: 3px;
+  background: #333944;
+  content: "";
+  vertical-align: middle;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-legend .center::before {
+  background: var(--forecast-positive);
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-legend .range::before {
+  background: #cfe1fa;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] :is(.chart-forecast-summary, .chart-forecast-reasons) {
+  padding: 26px 24px;
+  border-bottom: 8px solid var(--forecast-surface);
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-summary-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-summary-head span {
+  color: var(--forecast-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-summary-head strong {
+  color: var(--forecast-text);
+  font-size: 18px;
+  font-weight: 850;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .positive {
+  color: var(--forecast-positive) !important;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .negative {
+  color: var(--forecast-negative) !important;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+  border-top: 1px solid var(--forecast-line);
+  border-left: 1px solid var(--forecast-line);
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-metric {
+  min-width: 0;
+  min-height: 82px;
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  padding: 14px 16px;
+  border-right: 1px solid var(--forecast-line);
+  border-bottom: 1px solid var(--forecast-line);
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-metric span {
+  color: var(--forecast-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-metric strong {
+  overflow-wrap: anywhere;
+  color: var(--forecast-text);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-reasons h2 {
+  margin: 0 0 12px;
+  color: var(--forecast-text);
+  font-size: 19px;
+  font-weight: 850;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-reason {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  border-bottom: 1px solid var(--forecast-line);
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-reason span {
+  color: var(--forecast-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-reason strong {
+  color: #343941;
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.4;
+  text-align: right;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-note {
+  margin: 0;
+  padding: 20px 24px 0;
+  color: var(--forecast-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-insufficient,
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .watch-chart-empty-card {
+  margin: 28px 24px;
+  padding: 22px 0;
+  border: 0;
+  border-top: 1px solid var(--forecast-line);
+  border-bottom: 1px solid var(--forecast-line);
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"].is-loading {
+  filter: none;
+}
+
+body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] ~ .watch-chart-loader-overlay .inline-loading-spinner,
+.watch-chart-loader-overlay .inline-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+}
+
+@media (max-width: 480px) {
+  body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide {
+    padding: 32px 20px 28px;
+  }
+
+  body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide h1 {
+    font-size: 23px;
+  }
+
+  body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-header {
+    padding: 24px 20px 18px;
+  }
+
+  body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-controls {
+    margin: 0 20px;
+  }
+
+  body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-visual {
+    padding: 22px 10px 16px;
+  }
+
+  body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] :is(.chart-forecast-summary, .chart-forecast-reasons) {
+    padding: 24px 20px;
+  }
+
+  body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-note {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+}
