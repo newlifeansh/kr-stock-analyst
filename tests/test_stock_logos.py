@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import struct
 
 import pytest
 from sqlalchemy import create_engine
@@ -13,6 +14,7 @@ from app.services.stock_logos import (
     PNG_SIGNATURE,
     alphasquare_stock_logo_url,
     ensure_stock_logo,
+    fallback_stock_logo_bytes,
     fetch_stock_logo,
     normalize_stock_logo_code,
     sync_stock_logos,
@@ -114,3 +116,10 @@ def test_stock_response_exposes_internal_logo_url() -> None:
     payload = StockOut.model_validate(stock)
 
     assert payload.logo_url == "/stock-logos/005930.png"
+
+
+def test_fallback_stock_logo_is_a_256_pixel_png() -> None:
+    image_data = fallback_stock_logo_bytes()
+
+    assert image_data.startswith(PNG_SIGNATURE)
+    assert struct.unpack(">II", image_data[16:24]) == (256, 256)

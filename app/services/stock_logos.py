@@ -3,6 +3,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import lru_cache
+from pathlib import Path
 import re
 from typing import Callable, Optional
 
@@ -17,6 +19,7 @@ ALPHASQUARE_KR_LOGO_BASE_URL = "https://file.alphasquare.co.kr/media/images/stoc
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MAX_LOGO_BYTES = 2 * 1024 * 1024
 STOCK_CODE_PATTERN = re.compile(r"^\d{6}$")
+FALLBACK_STOCK_LOGO_PATH = Path(__file__).resolve().parents[1] / "static" / "stock-logo-fallback.png"
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,14 @@ class StockLogoFetchResult:
     status: str
     content_type: Optional[str] = None
     image_data: Optional[bytes] = None
+
+
+@lru_cache(maxsize=1)
+def fallback_stock_logo_bytes() -> bytes:
+    image_data = FALLBACK_STOCK_LOGO_PATH.read_bytes()
+    if not image_data.startswith(PNG_SIGNATURE):
+        raise RuntimeError("Fallback stock logo must be a PNG image")
+    return image_data
 
 
 def normalize_stock_logo_code(code: str) -> str:

@@ -143,7 +143,7 @@ from app.services.quant_signals import (
 )
 from app.services.stock_dashboard import build_stock_dashboard, ensure_stock_price_history
 from app.services.stock_data_coverage import stock_data_coverage
-from app.services.stock_logos import ensure_stock_logo, sync_stock_logos
+from app.services.stock_logos import ensure_stock_logo, fallback_stock_logo_bytes, sync_stock_logos
 from app.services.x_feed import build_stock_x_feed
 from app.services.kis_realtime import KisRealtimeQuoteProvider, parse_kis_stock_tick
 from app.services.ttl_cache import TTLCache
@@ -1818,24 +1818,32 @@ def stock_logo(code: str, db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="Stock logo not found")
         item = db.get(StockLogo, normalized)
         if not item or item.status != "ready" or not item.image_data:
-            if not settings.stock_logo_enabled:
-                raise HTTPException(status_code=404, detail="Stock logo not found")
-            item = ensure_stock_logo(
-                db,
-                normalized,
-                timeout_seconds=settings.stock_logo_timeout_seconds,
-                missing_retry_days=settings.stock_logo_missing_retry_days,
-            )
+            if settings.stock_logo_enabled:
+                item = ensure_stock_logo(
+                    db,
+                    normalized,
+                    timeout_seconds=settings.stock_logo_timeout_seconds,
+                    missing_retry_days=settings.stock_logo_missing_retry_days,
+                )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Stock logo not found") from exc
     if not item or item.status != "ready" or not item.image_data:
-        raise HTTPException(status_code=404, detail="Stock logo not found")
+        return Response(
+            content=fallback_stock_logo_bytes(),
+            media_type="image/png",
+            headers={
+                "Cache-Control": "public, max-age=21600, stale-while-revalidate=86400",
+                "X-Content-Type-Options": "nosniff",
+                "X-Stock-Logo-Fallback": "true",
+            },
+        )
     return Response(
         content=item.image_data,
         media_type=item.content_type or "image/png",
         headers={
             "Cache-Control": "public, max-age=2592000, stale-while-revalidate=86400",
             "X-Content-Type-Options": "nosniff",
+            "X-Stock-Logo-Fallback": "false",
         },
     )
 
