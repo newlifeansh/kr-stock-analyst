@@ -220,8 +220,6 @@ const elements = {
   watchlistNewsPanel: $("watchlist-news-panel"),
   watchChartMeta: $("watch-chart-meta"),
   watchChartRefresh: $("watch-chart-refresh"),
-  chartArchiveButton: $("chart-archive-button"),
-  chartExampleSearchButton: $("chart-example-search-button"),
   chartHistoryBackButton: $("chart-history-back-button"),
   watchChartList: $("watch-chart-list"),
   watchChartSnapshotMeta: $("watch-chart-snapshot-meta"),
@@ -12110,11 +12108,6 @@ elements.watchChartRefresh?.addEventListener("click", () => {
     clearCachedUrl(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0`);
     void loadWatchCharts({ items: [item], force: true, single: true });
   }
-});
-elements.chartArchiveButton?.addEventListener("click", () => setView("chart-history"));
-elements.chartExampleSearchButton?.addEventListener("click", () => {
-  elements.chartStockSearchInput?.focus({ preventScroll: true });
-  elements.chartStockSearchForm?.scrollIntoView({ behavior: "smooth", block: "center" });
 });
 elements.chartHistoryBackButton.addEventListener("click", () => setView("chart"));
 elements.recommendHistoryList.addEventListener("click", (event) => {
