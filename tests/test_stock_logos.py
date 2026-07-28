@@ -44,6 +44,7 @@ def test_alphasquare_logo_url_uses_six_digit_code() -> None:
         "https://file.alphasquare.co.kr/media/images/stock_logo/kr/005930.png"
     )
     assert normalize_stock_logo_code("A005930") == "005930"
+    assert normalize_stock_logo_code("0001a0") == "0001A0"
     with pytest.raises(ValueError):
         normalize_stock_logo_code("AAPL")
 

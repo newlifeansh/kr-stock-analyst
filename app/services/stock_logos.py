@@ -18,7 +18,7 @@ from app.models import StockLogo, StockMaster
 ALPHASQUARE_KR_LOGO_BASE_URL = "https://file.alphasquare.co.kr/media/images/stock_logo/kr"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MAX_LOGO_BYTES = 2 * 1024 * 1024
-STOCK_CODE_PATTERN = re.compile(r"^\d{6}$")
+STOCK_CODE_PATTERN = re.compile(r"^[0-9A-Z]{6}$")
 FALLBACK_STOCK_LOGO_PATH = Path(__file__).resolve().parents[1] / "static" / "stock-logo-fallback.png"
 
 
@@ -40,9 +40,11 @@ def fallback_stock_logo_bytes() -> bytes:
 
 
 def normalize_stock_logo_code(code: str) -> str:
-    cleaned = re.sub(r"\D", "", str(code or ""))
+    cleaned = re.sub(r"[^0-9A-Z]", "", str(code or "").upper())
+    if len(cleaned) == 7 and cleaned.startswith("A") and cleaned[1:].isdigit():
+        cleaned = cleaned[1:]
     if not STOCK_CODE_PATTERN.fullmatch(cleaned):
-        raise ValueError("Korean stock logo code must be six digits")
+        raise ValueError("Korean stock logo code must be six letters or digits")
     return cleaned
 
 
