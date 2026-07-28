@@ -613,6 +613,7 @@ const LEGACY_VIEW_MAP = {
   "chart-history": "chart-history",
 };
 const initialView = hasStockDetailPath ? "stock" : (LEGACY_VIEW_MAP[requestedView] || "home");
+const US_SECTOR_STREAM_VIEWS = new Set(["home", "search", "portfolio"]);
 
 const state = {
   view: initialView,
@@ -632,6 +633,7 @@ const state = {
   aiSignalItems: [],
   homeAiSignalsAsOf: "",
   homeMarketIndexItems: [],
+  homeTrendContext: null,
   marketSignalTickerItems: [],
   marketSignalTickerIndex: 0,
   marketSignalTickerTimer: null,
@@ -5684,7 +5686,7 @@ function setView(requestedViewName) {
     stopHomeMarketSignalTicker();
     stopHomeMarketIndexRefresh();
   }
-  if (!["search", "portfolio"].includes(view)) {
+  if (!US_SECTOR_STREAM_VIEWS.has(view)) {
     closeUsSectorStream();
   }
   elements.stockView.hidden = view !== "stock";
@@ -5721,6 +5723,8 @@ function setView(requestedViewName) {
     const activeTab = state.activeTrendTab || "live";
     void loadHomeAiSignals(pageEntryRefreshOptions("watchlist", "home-ai-signals"));
     void loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home"));
+    void refreshUsSectorMoves({ force: false, ttlMs: PAGE_ENTRY_MINUTE_MS });
+    connectUsSectorStream();
     launchBriefPageLoading(
       PAGE_LOADING_LABELS.trend,
       () => loadHomeMarketIndices(pageEntryRefreshOptions("market-indices")),
@@ -6183,21 +6187,214 @@ function homeAttentionSentence(items = []) {
   return `${name} 유의: 최근 매도 신호가 있어 가격이 안정되기 전 재진입을 서두르지 마세요.`;
 }
 
+function compactMarketHeadline(value, maxLength = 42) {
+  const text = String(value || "")
+    .replace(/^\[[^\]]+\]\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(1, maxLength - 1)).trim()}…`;
+}
+
+function homeTrendTimeline(payload = state.homeTrendContext || {}) {
+  const entries = [
+    ...(Array.isArray(payload.timeline) ? payload.timeline : []),
+    ...(Array.isArray(payload.events) ? payload.events.flatMap((event) => event.timeline || []) : []),
+  ];
+  const seen = new Set();
+  return entries.filter((item) => {
+    const key = item.id || `${item.published_at || ""}:${item.title || ""}`;
+    if (!item?.title || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function majorMarketIssueContext(payload = state.homeTrendContext || {}, now = Date.now()) {
+  const majorIssuePattern = /전쟁|공습|미사일|침공|무력\s*충돌|군사\s*충돌|교전|휴전\s*파기|테러|핵실험|비상계엄|대규모\s*제재|지진|쓰나미|태풍|허리케인|홍수|산불|대형\s*재난|비상사태|무역전쟁|수출\s*규제|금수/;
+  const candidates = homeTrendTimeline(payload)
+    .map((item) => ({ ...item, timestamp: Date.parse(item.published_at || "") }))
+    .filter((item) => Number.isFinite(item.timestamp)
+      && item.timestamp <= now + 10 * 60 * 1000
+      && item.timestamp >= now - 36 * 60 * 60 * 1000
+      && majorIssuePattern.test(item.title));
+  if (!candidates.length) {
+    return null;
+  }
+  const item = candidates.sort((left, right) => right.timestamp - left.timestamp)[0];
+  const title = compactMarketHeadline(item.title);
+  const isWar = /전쟁|공습|미사일|침공|충돌|교전|테러|핵실험|제재/.test(item.title);
+  const isDisaster = /지진|쓰나미|태풍|허리케인|홍수|산불|재난|비상사태/.test(item.title);
+  const themes = isWar
+    ? ["방산", "정유", "항공", "해운"]
+    : isDisaster
+      ? ["보험", "운송", "건설"]
+      : ["자동차", "반도체", "수출"];
+  return {
+    kind: "major-issue",
+    title,
+    asOf: item.published_at,
+    themes,
+    leaderStocks: item.leader_stocks || [],
+    sentence: `${title} 소식이 최우선 변수입니다. 관련 자산과 업종의 급격한 방향 전환에 유의하세요.`,
+    watchReason: "대형 이슈 영향권이므로 관련 속보와 장중 수급 변화를 함께 확인하세요.",
+  };
+}
+
+function upcomingMarketEventContext(payload = state.homeTrendContext || {}, now = Date.now()) {
+  const importanceScore = { "매우 중요": 3, 중요: 2, 보통: 1 };
+  const candidates = (Array.isArray(payload.events) ? payload.events : [])
+    .map((event) => ({ ...event, timestamp: Date.parse(event.starts_at || "") }))
+    .filter((event) => Number.isFinite(event.timestamp)
+      && event.timestamp >= now - 15 * 60 * 1000
+      && event.timestamp <= now + 36 * 60 * 60 * 1000)
+    .sort((left, right) => {
+      const importanceGap = (importanceScore[right.importance] || 0) - (importanceScore[left.importance] || 0);
+      return importanceGap || left.timestamp - right.timestamp;
+    });
+  if (!candidates.length) {
+    return null;
+  }
+  const event = candidates[0];
+  const eventDate = new Date(event.timestamp);
+  const today = new Date(now);
+  const sameDay = eventDate.getFullYear() === today.getFullYear()
+    && eventDate.getMonth() === today.getMonth()
+    && eventDate.getDate() === today.getDate();
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  const isTomorrow = eventDate.getFullYear() === tomorrow.getFullYear()
+    && eventDate.getMonth() === tomorrow.getMonth()
+    && eventDate.getDate() === tomorrow.getDate();
+  const timeLabel = eventDate.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const dayLabel = sameDay ? "오늘" : isTomorrow ? "내일" : `${eventDate.getMonth() + 1}월 ${eventDate.getDate()}일`;
+  const focus = [...(event.affected_variables || []), ...(event.affected_sectors || [])].slice(0, 3).join("·");
+  return {
+    kind: "event",
+    title: event.title,
+    asOf: event.starts_at,
+    timestamp: event.timestamp,
+    importance: event.importance,
+    themes: event.affected_sectors || [],
+    leaderStocks: (event.timeline || []).flatMap((item) => item.leader_stocks || []),
+    sentence: `${dayLabel} ${timeLabel} ${event.title} 발표가 예정돼 ${focus || "국내증시"} 변동성이 커질 수 있습니다.`,
+    watchReason: `${event.title} 민감 종목입니다. 발표 전후 가격보다 거래대금과 외국인 수급 변화를 먼저 확인하세요.`,
+  };
+}
+
+function usSectorMarketContext(payload = state.usSectorMoves || {}) {
+  if (!["premarket", "regular", "afterhours"].includes(payload.market_session)) {
+    return null;
+  }
+  const broadSymbols = new Set(["QQQ", "SPY", "IWM"]);
+  const candidates = (payload.items || [])
+    .filter((item) => !broadSymbols.has(item.symbol))
+    .map((item) => ({ ...item, rate: toNumber(item.change_rate) }))
+    .filter((item) => item.rate !== null)
+    .sort((left, right) => Math.abs(right.rate) - Math.abs(left.rate));
+  if (!candidates.length) {
+    return null;
+  }
+  const item = candidates[0];
+  const direction = item.rate >= 2.5 ? "급등" : item.rate > 0 ? "강세" : item.rate <= -2.5 ? "급락" : "약세";
+  return {
+    kind: "us-sector",
+    title: `${item.label} ${direction}`,
+    asOf: payload.as_of,
+    rate: item.rate,
+    sector: item.sector || item.label,
+    themes: [item.sector, item.label].filter(Boolean),
+    leaderStocks: [],
+    sentence: `${usSectorSessionLabel(payload)} ${item.label}이 ${formatPercent(item.rate)}로 ${direction}입니다. 국내 연관 종목의 장중 수급 변화를 확인하세요.`,
+    watchReason: `${item.label} 흐름과 직접 연결됩니다. 현재가보다 거래대금과 외국인 수급 변화를 먼저 확인하세요.`,
+  };
+}
+
+function selectHomeMarketContext() {
+  const majorIssue = majorMarketIssueContext();
+  if (majorIssue) {
+    return majorIssue;
+  }
+  const sector = usSectorMarketContext();
+  const event = upcomingMarketEventContext();
+  const eventDistance = event?.timestamp ? event.timestamp - Date.now() : Infinity;
+  if (sector && (Math.abs(sector.rate) >= 1.5 || eventDistance > 12 * 60 * 60 * 1000)) {
+    return sector;
+  }
+  if (event) {
+    return event;
+  }
+  return sector;
+}
+
+function normalizedHomeThemes(context = {}) {
+  const aliases = {
+    기술주: ["인터넷", "반도체"],
+    성장주: ["인터넷", "반도체", "2차전지"],
+    "자동차/소비": ["자동차"],
+    에너지: ["정유"],
+    "소재/화학": ["화학"],
+    산업재: ["산업재", "방산"],
+    "운송/해운": ["해운", "항공"],
+  };
+  const values = [];
+  for (const theme of context.themes || []) {
+    const normalized = String(theme || "").trim();
+    if (!normalized) continue;
+    values.push(normalized, ...(aliases[normalized] || []));
+  }
+  return [...new Set(values)];
+}
+
+function homeContextWatchItems(context = {}, signalItems = []) {
+  const watchlist = readWatchlist();
+  const pool = watchlist.length
+    ? watchlist
+    : normalizedAiSignalItems(signalItems).map((item) => ({ code: item.code, name: item.name, market: item.market }));
+  const leaders = new Set(context.leaderStocks || []);
+  const themes = normalizedHomeThemes(context);
+  return pool.filter((item) => {
+    if (leaders.has(item.name)) {
+      return true;
+    }
+    const stockTheme = watchlistTheme(item);
+    return stockTheme !== "기타" && themes.some((theme) => theme.includes(stockTheme) || stockTheme.includes(theme));
+  }).slice(0, 2);
+}
+
+function homeContextAttentionSentence(context, signalItems = []) {
+  if (!context) {
+    return homeAttentionSentence(signalItems);
+  }
+  const matched = homeContextWatchItems(context, signalItems);
+  if (!matched.length) {
+    return homeAttentionSentence(signalItems);
+  }
+  return `${matched.map((item) => item.name).join("·")} 유의: ${context.watchReason}`;
+}
+
 function latestHomeAiResponseAsOf(asOf = "") {
   const candidates = [
     asOf,
     state.homeAiSignalsAsOf,
+    state.homeTrendContext?.as_of,
+    state.usSectorMoves?.as_of,
+    ...homeTrendTimeline().map((item) => item.published_at),
     ...state.homeMarketIndexItems.flatMap((item) => [item?.updated_at, item?.as_of]),
-  ].map((value) => String(value || "")).filter(Boolean).sort();
-  return candidates.at(-1) || "";
+  ].map((value) => String(value || "")).filter(Boolean);
+  return candidates.sort((left, right) => (Date.parse(left) || 0) - (Date.parse(right) || 0)).at(-1) || "";
 }
 
 function renderHomeAiResponse(items = state.aiSignalItems, asOf = "") {
   if (!elements.homeAiResponseTitle || !elements.homeAiResponseSummary) {
     return;
   }
-  elements.homeAiResponseTitle.textContent = homeMarketVolatilitySentence();
-  elements.homeAiResponseSummary.textContent = homeAttentionSentence(items);
+  const context = selectHomeMarketContext();
+  elements.homeAiResponseTitle.textContent = context?.sentence || homeMarketVolatilitySentence();
+  elements.homeAiResponseSummary.textContent = homeContextAttentionSentence(context, items);
   if (elements.homeAiResponseAsOf) {
     elements.homeAiResponseAsOf.textContent = formatDataBasis(latestHomeAiResponseAsOf(asOf), "기준 정보 확인 중");
   }
@@ -6802,6 +6999,9 @@ function applyUsSectorMoves(payload) {
   updateWatchPreOpenPoints(payload);
   renderWatchlistStrategy(state.watchlistResults, payload, state.watchlistMarketContext);
   updateRecommendationUsSectorCards(payload);
+  if (state.view === "home") {
+    renderHomeAiResponse();
+  }
 }
 
 function closeUsSectorStream() {
@@ -6815,7 +7015,7 @@ function closeUsSectorStream() {
 }
 
 function connectUsSectorStream() {
-  if (!("WebSocket" in window) || !["search", "portfolio"].includes(state.view)) {
+  if (!("WebSocket" in window) || !US_SECTOR_STREAM_VIEWS.has(state.view)) {
     scheduleUsSectorRefresh(state.usSectorMoves);
     return;
   }
@@ -6841,7 +7041,7 @@ function connectUsSectorStream() {
     if (state.usSectorSocket === socket) {
       state.usSectorSocket = null;
     }
-    if (!["search", "portfolio"].includes(state.view)) {
+    if (!US_SECTOR_STREAM_VIEWS.has(state.view)) {
       return;
     }
     state.usSectorReconnectTimer = window.setTimeout(connectUsSectorStream, 5000);
@@ -6854,7 +7054,7 @@ function connectUsSectorStream() {
 
 function scheduleUsSectorRefresh(payload = state.usSectorMoves) {
   clearUsSectorRefreshTimer();
-  if (!["search", "portfolio"].includes(state.view)) {
+  if (!US_SECTOR_STREAM_VIEWS.has(state.view)) {
     return;
   }
   if (state.usSectorSocket && state.usSectorSocket.readyState <= WebSocket.OPEN) {
@@ -7042,6 +7242,10 @@ function watchlistTheme(item = {}) {
   if (/현대차|기아|모비스|만도/.test(text)) return "자동차";
   if (/KB금융|신한|하나금융|우리금융|은행|증권|보험|미래에셋|삼성생명|메리츠|키움/.test(text)) return "금융";
   if (/SK이노|S-Oil|에쓰오일|GS|HD현대|한국가스|정유|에너지/.test(text)) return "정유";
+  if (/LG화학|롯데케미칼|금호석유|한화솔루션|효성첨단소재|화학|소재|철강|POSCO|포스코|고려아연/.test(text)) return "화학";
+  if (/한화에어로|LIG넥스원|현대로템|한국항공우주|풍산|한화시스템|방산/.test(text)) return "방산";
+  if (/HD한국조선|HD현대중공업|한화오션|삼성중공업|조선/.test(text)) return "산업재";
+  if (/셀트리온|삼성바이오|유한양행|한미약품|신풍제약|바이오|제약|헬스케어/.test(text)) return "헬스케어";
   if (/NAVER|카카오|크래프톤|엔씨|게임|인터넷|플랫폼|소프트웨어/.test(text)) return "인터넷";
   if (/대한항공|아시아나|항공/.test(text)) return "항공";
   if (/HMM|팬오션|해운|운송|물류|CJ대한통운/.test(text)) return "해운";
@@ -11567,7 +11771,12 @@ async function loadTrends(activeTab = state.activeTrendTab || "live", options = 
     const force = options.force === true;
     const ttlMs = options.ttlMs ?? pageEntryTtlMs(activeTab === "past" ? "trend-past" : "trend");
     const url = "/market/trends?days=7";
-    renderTrends(await fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs }), activeTab);
+    const payload = await fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs });
+    state.homeTrendContext = payload;
+    if (state.view === "home") {
+      renderHomeAiResponse();
+    }
+    renderTrends(payload, activeTab);
   } catch {
     const target = activeTab === "events" ? elements.trendEvents : elements.trendThread;
     if (target) {
@@ -12439,6 +12648,9 @@ document.addEventListener("visibilitychange", () => {
   }
   if (state.view === "home") {
     void loadHomeMarketIndices({ force: true, silent: true });
+    void loadTrends(state.activeTrendTab === "impact" ? "live" : state.activeTrendTab || "live", { force: true, ttlMs: 0 });
+    void refreshUsSectorMoves({ force: true, ttlMs: 0 });
+    connectUsSectorStream();
   } else if (state.view === "stock" && state.currentStock) {
     connectQuoteStream(state.currentStock);
   } else if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
