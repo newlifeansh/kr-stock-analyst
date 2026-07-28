@@ -386,13 +386,16 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert 'id="home-kospi-asof"' not in shell
     assert 'id="home-kosdaq-asof"' not in shell
     assert "/market/indices?limit=30" in source
-    assert "/market/quant-signals?universe_limit=100&limit=30&recent_days=30" in source
+    assert "/market/quant-signals?universe_limit=100&limit=30&recent_days=30" not in source
+    assert "function homeHoldingSignalItems" in source
+    assert ".filter((item) => Boolean(item.current?.position_open))" in source
+    assert "추세 유지 · 분할매도·청산 기준 미도달" in source
     assert "function startHomeMarketSignalTicker" in source
     assert '시총 상위 100' not in shell
     assert '시총 상위 종목의 최근 신호' not in shell
-    assert 'styles.css?v=20260728v108' in shell
-    assert 'app.js?v=20260728v108' in shell
-    assert 'DASHBOARD_SW_VERSION = "20260728v108"' in client.get("/dashboard-sw.js").text
+    assert 'styles.css?v=20260728v109' in shell
+    assert 'app.js?v=20260728v109' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260728v109"' in client.get("/dashboard-sw.js").text
     assert 'id="logout-button"' not in shell
     assert ".app-notification-button svg" in styles
     assert "width: 25px;" in styles
