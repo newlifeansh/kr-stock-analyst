@@ -395,9 +395,9 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260728v112' in shell
-    assert 'app.js?v=20260728v112' in shell
-    assert 'DASHBOARD_SW_VERSION = "20260728v112"' in client.get("/dashboard-sw.js").text
+    assert 'styles.css?v=20260728v114' in shell
+    assert 'app.js?v=20260728v114' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260728v114"' in client.get("/dashboard-sw.js").text
     assert 'id="logout-button"' not in shell
     assert ".app-notification-button svg" in styles
     assert "width: 25px;" in styles
