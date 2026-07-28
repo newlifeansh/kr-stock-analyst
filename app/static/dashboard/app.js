@@ -6320,24 +6320,44 @@ function compactHoldingSignalSummary(item = {}) {
   return String(current.next_confirmation || "보유 기준 유지 · 위험선 확인").trim();
 }
 
-function homeHoldingSignalItems(items = []) {
+function compactSignalDate(value) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : "날짜 확인 중";
+}
+
+function homeMarketSignalItems(items = []) {
   return normalizedAiSignalItems(items)
-    .filter((item) => Boolean(item.current?.position_open))
     .map((item) => ({
       ...item,
-      summary: compactHoldingSignalSummary(item),
-      returnRate: toNumber(item.current?.unrealized_return),
+      tickerSignal: (() => {
+        const current = item.current || {};
+        const transition = current.lifecycle?.latest_transition || {};
+        const isSell = ["partial_exit_pending", "partially_exited", "full_exit_pending", "exited"].includes(current.action)
+          || /매도|청산/.test(String(transition.label || ""));
+        const signalDate = isSell
+          ? current.partial_exit_date || transition.transition_date || current.as_of || item.as_of
+          : current.entry_date || transition.transition_date || current.as_of || item.as_of;
+        return {
+          label: isSell ? "매도" : "매수",
+          side: isSell ? "sell" : "buy",
+          date: compactSignalDate(signalDate),
+        };
+      })(),
     }));
+}
+
+function homeHoldingSignalItems(items = []) {
+  return homeMarketSignalItems(items);
 }
 
 function createHomeMarketSignalTickerRow(item) {
   const row = document.createElement("a");
   row.className = "home-market-signal-row";
   row.href = viewStockUrl(item.name || item.code || "");
-  const returnRate = toNumber(item.returnRate);
-  row.dataset.tone = returnRate === null || returnRate === 0 ? "neutral" : returnRate > 0 ? "positive" : "negative";
+  const signal = item.tickerSignal || { label: "매수", side: "buy", date: "날짜 확인 중" };
+  row.dataset.side = signal.side;
   const name = el("strong", "home-market-signal-name", item.name || item.code || "-");
-  const summary = el("span", "home-market-signal-summary", returnRate === null ? "보유 중" : formatPercent(returnRate));
+  const summary = el("span", "home-market-signal-action", `${signal.label} (${signal.date})`);
   row.append(name, summary);
   return row;
 }
@@ -6373,7 +6393,7 @@ function startHomeMarketSignalTicker() {
 }
 
 function renderHomeMarketSignalTicker(payload = {}) {
-  state.marketSignalTickerItems = homeHoldingSignalItems(Array.isArray(payload.items) ? payload.items : []);
+  state.marketSignalTickerItems = homeMarketSignalItems(Array.isArray(payload.items) ? payload.items : []);
   state.marketSignalTickerIndex = 0;
   showHomeMarketSignalTickerItem();
   startHomeMarketSignalTicker();

@@ -388,16 +388,19 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert "/market/indices?limit=30" in source
     assert "/market/quant-signals?universe_limit=100&limit=30&recent_days=30" not in source
     assert "function homeHoldingSignalItems" in source
-    assert ".filter((item) => Boolean(item.current?.position_open))" in source
+    assert "function homeMarketSignalItems" in source
+    assert 'label: isSell ? "매도" : "매수"' in source
+    assert '`${signal.label} (${signal.date})`' in source
+    assert 'formatPercent(returnRate)' not in source[source.index("function createHomeMarketSignalTickerRow"):source.index("function showHomeMarketSignalTickerItem")]
     assert "추세 유지 · 분할매도·청산 기준 미도달" in source
     assert "function startHomeMarketSignalTicker" in source
     assert '시총 상위 100' not in shell
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260728v114' in shell
-    assert 'app.js?v=20260728v114' in shell
-    assert 'DASHBOARD_SW_VERSION = "20260728v114"' in client.get("/dashboard-sw.js").text
+    assert 'styles.css?v=20260728v115' in shell
+    assert 'app.js?v=20260728v115' in shell
+    assert 'DASHBOARD_SW_VERSION = "20260728v115"' in client.get("/dashboard-sw.js").text
     assert 'id="logout-button"' not in shell
     assert ".app-notification-button svg" in styles
     assert "width: 25px;" in styles
