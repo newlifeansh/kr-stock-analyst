@@ -6308,7 +6308,7 @@ function usSectorMarketContext(payload = state.usSectorMoves || {}) {
     sector: item.sector || item.label,
     themes: [item.sector, item.label].filter(Boolean),
     leaderStocks: [],
-    sentence: `${usSectorSessionLabel(payload)} ${item.label}이 ${formatPercent(item.rate)}로 ${direction}입니다. 국내 연관 종목의 장중 수급 변화를 확인하세요.`,
+    sentence: `${usSectorSessionLabel(payload)} ${item.label} 섹터가 ${formatPercent(item.rate)}로 ${direction}입니다. 국내 연관 종목의 장중 수급 변화를 확인하세요.`,
     watchReason: `${item.label} 흐름과 직접 연결됩니다. 현재가보다 거래대금과 외국인 수급 변화를 먼저 확인하세요.`,
   };
 }
