@@ -37,6 +37,7 @@ from app.db import SessionLocal, init_db
 from app.integrations.toss import sync_toss_accounts, sync_toss_holdings, sync_toss_orders
 from app.models import StockMaster
 from app.services.company_profiles import collect_company_profiles
+from app.services.stock_logos import sync_stock_logos
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -145,6 +146,12 @@ RAILWAY_ENV_KEYS = [
     "STOCK_UNIVERSE_ENABLED",
     "STOCK_UNIVERSE_POLL_SECONDS",
     "STOCK_UNIVERSE_MARKETS",
+    "STOCK_LOGO_ENABLED",
+    "STOCK_LOGO_POLL_SECONDS",
+    "STOCK_LOGO_INITIAL_DELAY_SECONDS",
+    "STOCK_LOGO_TIMEOUT_SECONDS",
+    "STOCK_LOGO_MAX_WORKERS",
+    "STOCK_LOGO_MISSING_RETRY_DAYS",
     "INVESTOR_FLOW_ENABLED",
     "INVESTOR_FLOW_POLL_SECONDS",
     "INVESTOR_FLOW_PAGES",
@@ -433,6 +440,26 @@ def collect_stocks_command(
     with SessionLocal() as db:
         count = collect_stocks(db, date, markets)
     typer.echo(f"Loaded {count} stock rows.")
+
+
+@app.command("sync-stock-logos")
+def sync_stock_logos_command(
+    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Optional missing-logo limit"),
+    max_workers: int = typer.Option(4, "--max-workers", help="Concurrent workers"),
+) -> None:
+    settings = get_settings()
+    init_db()
+    with SessionLocal() as db:
+        result = sync_stock_logos(
+            db,
+            markets=markets,
+            timeout_seconds=settings.stock_logo_timeout_seconds,
+            max_workers=max_workers,
+            missing_retry_days=settings.stock_logo_missing_retry_days,
+            limit=limit,
+        )
+    typer.echo(json.dumps(result, ensure_ascii=False))
 
 
 @app.command("collect-prices")
