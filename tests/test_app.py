@@ -398,7 +398,7 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260728v129' in shell
+    assert 'styles.css?v=20260728v130' in shell
     assert 'class="service-footer"' in shell
     assert '>안석환<' in shell
     assert 'href="https://www.linkedin.com/in/connor-sh"' in shell
@@ -406,7 +406,7 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert '>관심종목 유의<' in shell
     assert 'function homeMarketVolatilitySentence' in source
     assert 'function homeAttentionSentence' in source
-    assert 'app.js?v=20260728v129' in shell
+    assert 'app.js?v=20260728v130' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -416,7 +416,7 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert 'min-height: calc(62px + env(safe-area-inset-top, 0px));' in styles
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
-    assert 'DASHBOARD_SW_VERSION = "20260728v129"' in client.get("/dashboard-sw.js").text
+    assert 'DASHBOARD_SW_VERSION = "20260728v130"' in client.get("/dashboard-sw.js").text
     assert '#trend-events-panel .trend-event' in styles
     assert 'padding-right: 0;' in styles
     assert 'padding-left: 0;' in styles
