@@ -27913,7 +27913,7 @@ body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] {
   width: 100%;
   max-width: 860px;
   margin: 0 auto;
-  padding: 0 0 calc(96px + env(safe-area-inset-bottom));
+  padding: 0 0 12px;
   background: #ffffff;
   color: var(--forecast-text);
 }
@@ -27968,8 +27968,8 @@ body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-stock-se
 
 body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide {
   display: grid;
-  gap: 22px;
-  padding: 32px 24px 34px;
+  gap: 18px;
+  padding: 32px 24px 18px;
   background: #ffffff;
 }
 
@@ -28181,41 +28181,11 @@ body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-example-
   font-weight: 750;
 }
 
-body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-example-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 18px;
-}
-
-body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-example-search-link {
-  min-height: 48px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--forecast-text);
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 800;
-}
-
 body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide small {
-  margin-top: -8px;
+  margin-top: -2px;
   color: var(--forecast-muted);
   font-size: 11px;
   line-height: 1.55;
-}
-
-body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-history-link {
-  width: max-content;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-bottom: 1px solid #4e5661;
-  border-radius: 0;
-  background: transparent;
-  color: #4e5661;
-  font-size: 13px;
-  font-weight: 700;
 }
 
 body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-forecast-result {
@@ -28737,7 +28707,7 @@ body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] ~ .watch-chart-
 
 @media (max-width: 480px) {
   body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide {
-    padding: 32px 20px 28px;
+    padding: 28px 20px 14px;
   }
 
   body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"] .chart-start-guide h1 {
