@@ -53,6 +53,7 @@ from app.models import (
     MacroObservation,
     PushNotificationHistory,
     PushSubscription,
+    StockLogo,
     StockMaster,
     StockIntradaySnapshot,
     WatchlistItem,
@@ -142,6 +143,7 @@ from app.services.quant_signals import (
 )
 from app.services.stock_dashboard import build_stock_dashboard, ensure_stock_price_history
 from app.services.stock_data_coverage import stock_data_coverage
+from app.services.stock_logos import ensure_stock_logo, sync_stock_logos
 from app.services.x_feed import build_stock_x_feed
 from app.services.kis_realtime import KisRealtimeQuoteProvider, parse_kis_stock_tick
 from app.services.ttl_cache import TTLCache
@@ -315,6 +317,27 @@ async def _run_market_quant_signal_refresh_loop() -> None:
         await asyncio.sleep(300)
 
 
+async def _run_stock_logo_sync_loop() -> None:
+    await asyncio.sleep(max(0, settings.stock_logo_initial_delay_seconds))
+    while True:
+        try:
+            def sync_once() -> dict[str, int]:
+                with SessionLocal() as db:
+                    return sync_stock_logos(
+                        db,
+                        markets=settings.stock_universe_markets,
+                        timeout_seconds=settings.stock_logo_timeout_seconds,
+                        max_workers=settings.stock_logo_max_workers,
+                        missing_retry_days=settings.stock_logo_missing_retry_days,
+                    )
+
+            result = await asyncio.to_thread(sync_once)
+            logger.info("Stock logo sync completed: %s", result)
+        except Exception:  # pragma: no cover - operational safeguard
+            logger.exception("Stock logo sync failed")
+        await asyncio.sleep(max(300, settings.stock_logo_poll_seconds))
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
@@ -322,6 +345,7 @@ async def lifespan(_: FastAPI):
     bootstrap_task: asyncio.Task | None = None
     intraday_warmup_task: asyncio.Task | None = None
     market_quant_signal_task: asyncio.Task | None = None
+    stock_logo_task: asyncio.Task | None = None
     async with AsyncExitStack() as stack:
         if mcp_server is not None:
             await stack.enter_async_context(mcp_server.session_manager.run())
@@ -329,6 +353,8 @@ async def lifespan(_: FastAPI):
         await web_push_runtime.start()
         intraday_warmup_task = asyncio.create_task(_run_intraday_warmup_loop())
         market_quant_signal_task = asyncio.create_task(_run_market_quant_signal_refresh_loop())
+        if settings.stock_logo_enabled:
+            stock_logo_task = asyncio.create_task(_run_stock_logo_sync_loop())
         if settings.bootstrap_on_start:
             bootstrap_task = asyncio.create_task(_run_bootstrap_task())
         try:
@@ -346,6 +372,10 @@ async def lifespan(_: FastAPI):
                 market_quant_signal_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await market_quant_signal_task
+            if stock_logo_task is not None:
+                stock_logo_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await stock_logo_task
             await web_push_runtime.stop()
             await briefing_runtime.stop()
 
@@ -1778,6 +1808,36 @@ def toss_stock_lookup(
     except TossInvestError as exc:
         raise _toss_http_error(exc) from exc
     return [_live_stock_payload(item) for item in items]
+
+
+@app.get("/stock-logos/{code}.png")
+def stock_logo(code: str, db: Session = Depends(get_db)):
+    try:
+        normalized = _normalize_stock_code(code)
+        if db.get(StockMaster, normalized) is None:
+            raise HTTPException(status_code=404, detail="Stock logo not found")
+        item = db.get(StockLogo, normalized)
+        if not item or item.status != "ready" or not item.image_data:
+            if not settings.stock_logo_enabled:
+                raise HTTPException(status_code=404, detail="Stock logo not found")
+            item = ensure_stock_logo(
+                db,
+                normalized,
+                timeout_seconds=settings.stock_logo_timeout_seconds,
+                missing_retry_days=settings.stock_logo_missing_retry_days,
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Stock logo not found") from exc
+    if not item or item.status != "ready" or not item.image_data:
+        raise HTTPException(status_code=404, detail="Stock logo not found")
+    return Response(
+        content=item.image_data,
+        media_type=item.content_type or "image/png",
+        headers={
+            "Cache-Control": "public, max-age=2592000, stale-while-revalidate=86400",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.get("/stocks", response_model=list[StockOut])

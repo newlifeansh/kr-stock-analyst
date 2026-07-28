@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, LargeBinary, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -22,6 +22,26 @@ class StockMaster(Base):
     industry: Mapped[Optional[str]] = mapped_column(String(120))
     listed_date: Mapped[Optional[date]] = mapped_column(Date)
     last_seen_date: Mapped[Optional[date]] = mapped_column(Date, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    @property
+    def logo_url(self) -> str:
+        return f"/stock-logos/{self.code}.png"
+
+
+class StockLogo(Base):
+    __tablename__ = "stock_logo"
+
+    stock_code: Mapped[str] = mapped_column(
+        ForeignKey("stock_master.code"), primary_key=True
+    )
+    source_url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    content_type: Mapped[Optional[str]] = mapped_column(String(100))
+    image_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
+    status: Mapped[str] = mapped_column(String(20), default="missing", nullable=False, index=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )

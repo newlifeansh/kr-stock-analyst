@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     stock_universe_enabled: bool = True
     stock_universe_poll_seconds: int = 86400
     stock_universe_markets: str = "KOSPI,KOSDAQ"
+    stock_logo_enabled: bool = True
+    stock_logo_poll_seconds: int = 86400
+    stock_logo_initial_delay_seconds: int = 30
+    stock_logo_timeout_seconds: int = 8
+    stock_logo_max_workers: int = 4
+    stock_logo_missing_retry_days: int = 7
     investor_flow_enabled: bool = True
     investor_flow_poll_seconds: int = 1800
     investor_flow_pages: int = 1

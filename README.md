@@ -233,6 +233,9 @@ APP_SERVICE=insight-mcp \
 # 기준일 종목 마스터 수집
 analyst collect-stocks --date 20260617 --markets KOSPI,KOSDAQ
 
+# 알파스퀘어 종목 로고를 운영 DB에 캐싱
+analyst sync-stock-logos --markets KOSPI,KOSDAQ
+
 # 특정일 전종목 가격/시총 수집
 analyst collect-prices --date 20260617 --market KOSPI
 

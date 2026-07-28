@@ -20,6 +20,7 @@ class StockOut(BaseModel):
     industry: Optional[str] = None
     listed_date: Optional[date] = None
     last_seen_date: Optional[date] = None
+    logo_url: Optional[str] = None
 
 
 class WatchlistItemIn(BaseModel):
