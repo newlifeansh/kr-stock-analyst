@@ -10,7 +10,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.6"' in shell.text
-    assert "20260728v130" in shell.text
+    assert "20260728v131" in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -339,5 +339,28 @@ def test_dashboard_v32_uses_stock_detail_typography_on_every_page():
         ".loading-modal-card h2",
         ".push-notification-sheet-head h2",
         ".login-card h1",
+    ):
+        assert expected in styles
+
+
+def test_market_lists_share_stock_logo_identity():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    for expected in (
+        "function createStockListLogo(code)",
+        "`/stock-logos/${encodeURIComponent(normalizedCode)}.png`",
+        "main.append(rank, createStockListLogo(item.code), name, quoteBlock)",
+        "createStockListCopy(item.name, item.code, item.market)",
+    ):
+        assert expected in source
+
+    for expected in (
+        ".stock-list-logo {",
+        ".stock-list-logo img {",
+        "object-fit: contain;",
+        ".home-surge-identity {",
+        ".recommend-name .stock-list-copy",
     ):
         assert expected in styles

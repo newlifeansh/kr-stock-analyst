@@ -3734,6 +3734,32 @@ function el(tag, className = "", text = "") {
   return node;
 }
 
+function createStockListLogo(code) {
+  const normalizedCode = String(code || "").trim().toUpperCase();
+  const frame = el("span", "stock-list-logo");
+  frame.setAttribute("aria-hidden", "true");
+  if (!normalizedCode) {
+    frame.classList.add("is-empty");
+    return frame;
+  }
+  const image = document.createElement("img");
+  image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png`;
+  image.alt = "";
+  image.loading = "lazy";
+  image.decoding = "async";
+  frame.appendChild(image);
+  return frame;
+}
+
+function createStockListCopy(name, code, market) {
+  const copy = el("span", "stock-list-copy");
+  copy.append(
+    el("strong", "", name || code || "-"),
+    el("small", "", `${code || "-"} · ${market || "-"}`)
+  );
+  return copy;
+}
+
 function clonePayload(payload) {
   return JSON.parse(JSON.stringify(payload));
 }
@@ -5851,7 +5877,7 @@ function createMarketLeaderboardCard(item) {
   quoteBlock.className = "market-leaderboard-quote-block";
   quoteBlock.append(price, change);
 
-  main.append(rank, name, quoteBlock);
+  main.append(rank, createStockListLogo(item.code), name, quoteBlock);
 
   const strip = document.createElement("dl");
   strip.className = "market-leaderboard-strip";
@@ -6478,7 +6504,10 @@ function createHomeSurgeRow(item, index) {
 
   const rank = el("span", "home-surge-rank", String(index + 1));
   const identity = el("span", "home-surge-identity");
-  identity.append(el("strong", "", item.name || item.code || "-"), el("small", "", `${item.code || "-"} · ${item.market || "-"}`));
+  identity.append(
+    createStockListLogo(item.code),
+    createStockListCopy(item.name, item.code, item.market)
+  );
   const quote = el("span", "home-surge-quote");
   quote.append(el("strong", "", formatNumber(item.price)), el("small", "", formatPercent(item.change_rate)));
   setTone(quote, item.change_rate);
@@ -10231,9 +10260,10 @@ function createRecommendationCard(item) {
   rankLine.appendChild(rank);
   const name = el("a", "recommend-name");
   name.href = viewStockUrl(item.name);
-  const nameStrong = el("strong", "", item.name);
-  const nameMeta = el("span", "", `${item.code} · ${item.market}`);
-  name.append(nameStrong, nameMeta);
+  name.append(
+    createStockListLogo(item.code),
+    createStockListCopy(item.name, item.code, item.market)
+  );
 
   const score = recommendationScoreDisplay(item.score);
 
