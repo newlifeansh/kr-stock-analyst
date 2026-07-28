@@ -25,6 +25,7 @@ from app.models import (
     StockMaster,
 )
 from app.repository import upsert_many
+from app.services.chart_patterns import detect_chart_patterns
 from app.services.company_profiles import company_profile_payload
 from app.services.ttl_cache import TTLCache
 
@@ -811,6 +812,7 @@ def _chart_analysis(prices: list[DailyPrice]) -> dict[str, object]:
     distance_to_resistance = _distance(latest_close, resistance)
     distance_to_support = _distance(latest_close, support)
     atr = _atr_percent(prices)
+    patterns = detect_chart_patterns(prices)
 
     signals: list[str] = []
     risks: list[str] = []
@@ -832,6 +834,7 @@ def _chart_analysis(prices: list[DailyPrice]) -> dict[str, object]:
             "distance_to_resistance": distance_to_resistance,
             "signals": ["종가 데이터가 부족합니다."],
             "risks": ["차트 판단 불가"],
+            "patterns": patterns,
         }
 
     if ma20 is not None and latest_close > ma20:
@@ -940,6 +943,7 @@ def _chart_analysis(prices: list[DailyPrice]) -> dict[str, object]:
         "distance_to_resistance": distance_to_resistance,
         "signals": signals[:6] or ["뚜렷한 차트 신호가 아직 약합니다."],
         "risks": risks[:5] or ["주요 차트 리스크 신호는 제한적입니다."],
+        "patterns": patterns,
     }
 
 

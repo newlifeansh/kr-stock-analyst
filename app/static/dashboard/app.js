@@ -221,6 +221,7 @@ const elements = {
   watchChartMeta: $("watch-chart-meta"),
   watchChartRefresh: $("watch-chart-refresh"),
   chartArchiveButton: $("chart-archive-button"),
+  chartExampleSearchButton: $("chart-example-search-button"),
   chartHistoryBackButton: $("chart-history-back-button"),
   watchChartList: $("watch-chart-list"),
   watchChartSnapshotMeta: $("watch-chart-snapshot-meta"),
@@ -228,6 +229,7 @@ const elements = {
   chartStockSearchForm: $("chart-stock-search-form"),
   chartStockSearchInput: $("chart-stock-search-input"),
   chartStockSearchSuggestions: $("chart-stock-search-suggestions"),
+  chartStartGuide: $("chart-start-guide"),
   chartWatchlistPicker: $("chart-watchlist-picker"),
   homeInstallButton: $("home-install-button"),
   installSheet: $("install-sheet"),
@@ -630,6 +632,8 @@ const state = {
   watchlistContentTab: "strategy",
   aiSignalStage: "recent-buy",
   aiSignalItems: [],
+  homeAiSignalsAsOf: "",
+  homeMarketIndexItems: [],
   marketSignalTickerItems: [],
   marketSignalTickerIndex: 0,
   marketSignalTickerTimer: null,
@@ -2591,12 +2595,36 @@ function renderStockNewsRows(rows) {
   for (const row of filteredRows.slice(0, 8)) {
     const item = el("li", "stock-v3-news-row");
     const href = updateItemLink(row);
-    const title = href ? el("a", "", row.title || "뉴스") : el("strong", "", row.title || "뉴스");
+    const article = href ? el("a", "stock-v3-news-link") : el("article", "stock-v3-news-link");
+    const copy = el("div", "stock-v3-news-copy");
+    const title = el("strong", "stock-v3-news-title", row.title || "뉴스");
+    const meta = el(
+      "span",
+      "stock-v3-news-meta",
+      [row.press_name || row.source, formatDate(updateItemDate(row))].filter(Boolean).join(" · "),
+    );
     if (href) {
-      title.href = href;
-      title.setAttribute("aria-label", `${row.title || "뉴스"} 원문 보기`);
+      article.href = href;
+      article.setAttribute("aria-label", `${row.title || "뉴스"} 원문 보기`);
     }
-    item.append(title, el("span", "", [row.press_name || row.source, formatDateLabel(updateItemDate(row))].filter(Boolean).join(" · ")));
+    copy.append(title, meta);
+    article.appendChild(copy);
+    if (row.image_url) {
+      const thumbnail = el("img", "stock-v3-news-thumb");
+      thumbnail.src = row.image_url;
+      thumbnail.alt = "";
+      thumbnail.loading = "lazy";
+      thumbnail.decoding = "async";
+      thumbnail.referrerPolicy = "no-referrer";
+      thumbnail.addEventListener("error", () => {
+        thumbnail.remove();
+        article.classList.add("is-text-only");
+      }, { once: true });
+      article.appendChild(thumbnail);
+    } else {
+      article.classList.add("is-text-only");
+    }
+    item.appendChild(article);
     elements.newsList.appendChild(item);
   }
 }
@@ -3906,7 +3934,9 @@ async function refreshCurrentView() {
       }
       return;
     case "chart":
-      await loadWatchCharts();
+      if (state.watchChartResults[0]?.item) {
+        await loadWatchCharts({ items: [state.watchChartResults[0].item], force: true, single: true });
+      }
       return;
     case "chart-history":
       renderChartSnapshots();
@@ -4133,6 +4163,10 @@ async function fetchStandaloneSuggestions(kind, query) {
       return;
     }
     const items = await response.json();
+    if (document.activeElement !== input) {
+      hideStandaloneSuggestions(input, container);
+      return;
+    }
     if (isChart) {
       state.chartSuggestions = items;
       renderStandaloneSuggestions(input, container, items, (item) => void loadChartStock(item));
@@ -4453,8 +4487,6 @@ async function applyWatchlistId(shareId, options = {}) {
     if (options.refreshView !== false) {
       if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
         void loadWatchlist();
-      } else if (state.view === "chart") {
-        void loadWatchCharts();
       }
     }
   };
@@ -5709,8 +5741,11 @@ function setView(requestedViewName) {
     setPortfolioTab(state.portfolioTab, { load: true });
   } else if (view === "chart") {
     history.replaceState(null, "", "/dashboard?view=chart");
-    renderChartWatchlistPicker();
-    launchBriefPageLoading(PAGE_LOADING_LABELS.chart, () => loadWatchCharts(pageEntryRefreshOptions("chart")));
+    clearWatchChartLoadingOverlay();
+    if (!state.watchChartResults.length) {
+      elements.chartStartGuide?.removeAttribute("hidden");
+      elements.watchChartList.innerHTML = "";
+    }
   } else if (view === "chart-history") {
     history.replaceState(null, "", "/dashboard?view=chart-history");
     renderChartSnapshots();
@@ -6064,48 +6099,83 @@ function normalizedAiSignalItems(items = []) {
     });
 }
 
-function compactStockNames(items = [], limit = 2) {
-  const names = items.map((item) => item.name || item.code).filter(Boolean);
-  if (!names.length) {
-    return "관심종목";
+function homeMarketVolatilitySentence(items = state.homeMarketIndexItems) {
+  const domestic = (Array.isArray(items) ? items : [])
+    .filter((item) => ["KOSPI", "KOSDAQ"].includes(String(item?.code || "").toUpperCase()))
+    .map((item) => ({
+      label: item.label || item.code,
+      rate: toNumber(item.change_rate),
+    }))
+    .filter((item) => item.rate !== null);
+  if (!domestic.length) {
+    return "시장 변동성 데이터를 확인하고 있습니다.";
   }
-  const visible = names.slice(0, limit).join("·");
-  return names.length > limit ? `${visible} 외 ${formatNumber(names.length - limit)}개` : visible;
+  const strongest = [...domestic].sort((left, right) => Math.abs(right.rate) - Math.abs(left.rate))[0];
+  const rates = domestic.map((item) => item.rate);
+  const maximumMove = Math.max(...rates.map((rate) => Math.abs(rate)));
+  const hasMixedDirection = rates.some((rate) => rate > 0) && rates.some((rate) => rate < 0);
+  const allPositive = rates.every((rate) => rate > 0);
+  const allNegative = rates.every((rate) => rate < 0);
+  if (maximumMove >= 2) {
+    return `${strongest.label} ${formatPercent(strongest.rate)}로 변동성이 큰 구간이어서 장중 급등락에 유의해야 합니다.`;
+  }
+  if (hasMixedDirection) {
+    return "코스피와 코스닥 흐름이 엇갈려 종목별 변동성 차이를 확인해야 합니다.";
+  }
+  if (allPositive && maximumMove >= 0.7) {
+    return "코스피와 코스닥이 함께 강세지만 단기 추격보다 종목별 수급 확인이 필요합니다.";
+  }
+  if (allNegative && maximumMove >= 0.7) {
+    return "코스피와 코스닥이 함께 약세여서 추가 하락과 수급 이탈에 유의해야 합니다.";
+  }
+  return "국내 지수 변동은 제한적이지만 종목별 움직임 차이를 확인할 구간입니다.";
 }
 
-function renderHomeAiResponse(items = [], asOf = "") {
+function homeAttentionSignal(items = []) {
+  const normalized = normalizedAiSignalItems(items);
+  const score = (item) => toNumber(item?.current?.score) ?? -Infinity;
+  const pickHighest = (candidates) => [...candidates].sort((left, right) => score(right) - score(left))[0] || null;
+  const holding = normalized.filter((item) => homeAiSignalView(item)?.key === "holding");
+  const recentBuy = normalized.filter((item) => homeAiSignalView(item)?.key === "recent-buy");
+  const recentSell = normalized.filter((item) => homeAiSignalView(item)?.key === "recent-sell");
+  return pickHighest(holding) || pickHighest(recentBuy) || recentSell[0] || null;
+}
+
+function homeAttentionSentence(items = []) {
+  const item = homeAttentionSignal(items);
+  if (!item) {
+    return readWatchlist().length
+      ? "관심종목 분석을 불러오는 중이므로 현재가와 수급 변화를 먼저 확인하세요."
+      : "관심종목을 추가하면 우선 확인할 종목과 이유를 알려드립니다.";
+  }
+  const name = item.name || item.code || "관심종목";
+  const view = homeAiSignalView(item);
+  if (view?.key === "holding") {
+    return `${name} 유의: 보유 신호가 유지 중이므로 변동성 확대 시 매도 기준 도달 여부를 확인하세요.`;
+  }
+  if (view?.key === "recent-buy") {
+    return `${name} 유의: 최근 매수 신호 이후 변동성이 커질 수 있어 손실 제한 기준을 확인하세요.`;
+  }
+  return `${name} 유의: 최근 매도 신호가 있어 가격이 안정되기 전 재진입을 서두르지 마세요.`;
+}
+
+function latestHomeAiResponseAsOf(asOf = "") {
+  const candidates = [
+    asOf,
+    state.homeAiSignalsAsOf,
+    ...state.homeMarketIndexItems.flatMap((item) => [item?.updated_at, item?.as_of]),
+  ].map((value) => String(value || "")).filter(Boolean).sort();
+  return candidates.at(-1) || "";
+}
+
+function renderHomeAiResponse(items = state.aiSignalItems, asOf = "") {
   if (!elements.homeAiResponseTitle || !elements.homeAiResponseSummary) {
     return;
   }
-  const grouped = { "recent-buy": [], holding: [], "recent-sell": [] };
-  for (const item of normalizedAiSignalItems(items)) {
-    const view = homeAiSignalView(item);
-    if (view) {
-      grouped[view.key].push(item);
-    }
-  }
-  if (grouped["recent-buy"].length) {
-    elements.homeAiResponseTitle.textContent = `${compactStockNames(grouped["recent-buy"])}: 최근 매수 신호 확인. 손실 제한 기준을 먼저 점검하세요.`;
-  } else if (grouped.holding.length) {
-    elements.homeAiResponseTitle.textContent = `${compactStockNames(grouped.holding)}: 보유 기준 유지. 매도 기준 도달 여부를 확인하세요.`;
-  } else if (grouped["recent-sell"].length) {
-    elements.homeAiResponseTitle.textContent = `${compactStockNames(grouped["recent-sell"])}: 재진입 신호 대기. 다음 매수 신호 전까지 관망하세요.`;
-  } else {
-    elements.homeAiResponseTitle.textContent = "새로운 매매신호가 확인되지 않았습니다.";
-  }
-  const followUps = [];
-  if (grouped.holding.length) {
-    followUps.push(`보유 ${formatNumber(grouped.holding.length)}개는 매도 기준 도달 여부를 확인하세요.`);
-  }
-  if (grouped["recent-sell"].length) {
-    followUps.push(`최근 매도 ${formatNumber(grouped["recent-sell"].length)}개는 재진입 전까지 관망합니다.`);
-  }
-  if (grouped["recent-buy"].length) {
-    followUps.push(`최근 매수 ${formatNumber(grouped["recent-buy"].length)}개는 손실 제한 기준을 먼저 확인하세요.`);
-  }
-  elements.homeAiResponseSummary.textContent = followUps.slice(0, 2).join(" ") || "관심종목을 추가하면 현재 대응을 바로 정리해 드립니다.";
+  elements.homeAiResponseTitle.textContent = homeMarketVolatilitySentence();
+  elements.homeAiResponseSummary.textContent = homeAttentionSentence(items);
   if (elements.homeAiResponseAsOf) {
-    elements.homeAiResponseAsOf.textContent = formatDataBasis(asOf, "기준 정보 확인 중");
+    elements.homeAiResponseAsOf.textContent = formatDataBasis(latestHomeAiResponseAsOf(asOf), "기준 정보 확인 중");
   }
 }
 
@@ -6139,8 +6209,9 @@ function renderHomeAiSignals(payload = {}) {
   }
   const items = normalizedAiSignalItems(Array.isArray(payload.items) ? payload.items : []);
   state.aiSignalItems = items;
+  state.homeAiSignalsAsOf = payload.updated_at || payload.as_of || "";
   renderHomeMarketSignalTicker({ items });
-  renderHomeAiResponse(items, payload.updated_at || payload.as_of || "");
+  renderHomeAiResponse(items, state.homeAiSignalsAsOf);
   elements.homeAiSignalsMeta.textContent = items.length ? `${formatNumber(items.length)}개 신호` : "새 신호 없음";
   elements.homeAiSignalsList.innerHTML = "";
   if (!items.length) {
@@ -6157,8 +6228,8 @@ function renderPendingHomeAiSignals() {
   const watched = readWatchlist().slice(0, 5);
   showHomeMarketSignalLoading();
   if (elements.homeAiResponseTitle && elements.homeAiResponseSummary) {
-    elements.homeAiResponseTitle.textContent = watched.length ? "관심종목의 현재 신호를 확인하고 있습니다." : "관심종목을 먼저 추가해 주세요.";
-    elements.homeAiResponseSummary.textContent = watched.length ? "확인이 끝나면 보유·매수·관망 대응을 두 줄로 정리합니다." : "추가한 종목의 매매신호와 대응을 홈에서 바로 확인할 수 있습니다.";
+    elements.homeAiResponseTitle.textContent = "시장 변동성 데이터를 확인하고 있습니다.";
+    elements.homeAiResponseSummary.textContent = watched.length ? "우선 확인할 관심종목을 찾고 있습니다." : "관심종목을 추가하면 우선 확인할 종목과 이유를 알려드립니다.";
   }
   elements.homeAiSignalsMeta.textContent = watched.length ? `${formatNumber(watched.length)}개 종목 확인 중` : "관심종목 없음";
   elements.homeAiSignalsList.replaceChildren();
@@ -7732,7 +7803,330 @@ function computeWatchChart(prices) {
     volumeRatio,
     checklist,
     notes,
+    patterns: [],
   };
+}
+
+function attachChartPatterns(analysis, dashboard) {
+  if (!analysis) {
+    return analysis;
+  }
+  analysis.patterns = Array.isArray(dashboard?.chart_analysis?.patterns)
+    ? dashboard.chart_analysis.patterns
+    : [];
+  return analysis;
+}
+
+function primaryChartPattern(analysis) {
+  const patterns = Array.isArray(analysis?.patterns) ? analysis.patterns : [];
+  return patterns.find((item) => item.status === "확인") || patterns[0] || null;
+}
+
+function chartPatternTone(pattern) {
+  if (pattern?.direction === "bullish") return "positive";
+  if (pattern?.direction === "bearish") return "negative";
+  return "neutral";
+}
+
+function computeChartForecast(analysis, horizon = 5) {
+  const days = horizon === 10 ? 10 : 5;
+  const rows = (analysis?.prices || []).filter((row) => toNumber(row.close) !== null);
+  const closes = rows.map((row) => toNumber(row.close));
+  const current = closes.at(-1) ?? null;
+  if (current === null || closes.length < 30) {
+    return { days, available: false, reason: "예상 범위를 계산하려면 최소 30거래일의 가격이 필요합니다." };
+  }
+
+  const returns = [];
+  for (let index = 1; index < closes.length; index += 1) {
+    if (closes[index - 1] > 0 && closes[index] > 0) {
+      returns.push(Math.log(closes[index] / closes[index - 1]));
+    }
+  }
+  const recentReturns = returns.slice(-20);
+  const shortReturns = returns.slice(-5);
+  const shortDrift = average(shortReturns) ?? 0;
+  const mediumDrift = average(recentReturns) ?? 0;
+  const trendGap = analysis.ma5 && analysis.ma20 ? (analysis.ma5 - analysis.ma20) / analysis.ma20 : 0;
+  const momentumBoost = analysis.macd?.histogram && current ? clampNumber(analysis.macd.histogram / current, -0.01, 0.01) : 0;
+  const primaryPattern = primaryChartPattern(analysis);
+  const patternWeight = primaryPattern
+    ? (primaryPattern.status === "확인" ? 0.0015 : 0.00045) * ((toNumber(primaryPattern.confidence) ?? 50) / 100)
+    : 0;
+  const patternDrift = primaryPattern?.direction === "bullish"
+    ? patternWeight
+    : primaryPattern?.direction === "bearish" ? -patternWeight : 0;
+  const dailyDrift = clampNumber(shortDrift * 0.42 + mediumDrift * 0.38 + trendGap * 0.014 + momentumBoost * 0.2 + patternDrift, -0.025, 0.025);
+  const returnVolatility = standardDeviation(recentReturns) ?? 0;
+  const atrVolatility = (analysis.atr ?? 0) / 100;
+  const dailyVolatility = clampNumber(returnVolatility * 0.68 + atrVolatility * 0.32, 0.005, 0.06);
+  const points = [];
+  for (let day = 1; day <= days; day += 1) {
+    const center = current * Math.exp(dailyDrift * day);
+    const band = Math.min(0.35, 1.28 * dailyVolatility * Math.sqrt(day));
+    points.push({ day, center, lower: center * (1 - band), upper: center * (1 + band) });
+  }
+  const expected = points.at(-1)?.center ?? current;
+  const expectedRate = ((expected - current) / current) * 100;
+  const trendAligned = (dailyDrift >= 0 && analysis.ma20 && current >= analysis.ma20)
+    || (dailyDrift < 0 && analysis.ma20 && current < analysis.ma20);
+  const confidenceScore = clampNumber(
+    48 + Math.min(18, rows.length / 10) + (trendAligned ? 10 : 0) + (primaryPattern?.status === "확인" ? 5 : 0) - Math.max(0, dailyVolatility * 240),
+    35,
+    82,
+  );
+  const confidence = confidenceScore >= 68 ? "높음" : confidenceScore >= 52 ? "보통" : "낮음";
+  const direction = expectedRate > 1 ? "상승 우위" : expectedRate < -1 ? "하락 우위" : "횡보 가능성";
+  return {
+    days,
+    available: true,
+    current,
+    expected,
+    expectedRate,
+    dailyDrift,
+    dailyVolatility,
+    confidence,
+    confidenceScore,
+    direction,
+    points,
+    primaryPattern,
+  };
+}
+
+function chartForecastTone(value) {
+  const number = toNumber(value) ?? 0;
+  return number > 0.1 ? "positive" : number < -0.1 ? "negative" : "neutral";
+}
+
+function createChartForecastSvg(analysis, forecast) {
+  const actual = analysis.prices.slice(-90).map((row) => ({
+    date: String(row.trade_date || row.date || "").slice(0, 10),
+    close: toNumber(row.close),
+    volume: toNumber(row.volume) ?? 0,
+  })).filter((row) => row.close !== null);
+  if (actual.length < 2 || !forecast?.available) {
+    return "";
+  }
+  const width = 720;
+  const height = 330;
+  const left = 24;
+  const right = 54;
+  const top = 24;
+  const bottom = 54;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const future = forecast.points;
+  const values = [
+    ...actual.map((row) => row.close),
+    ...future.flatMap((point) => [point.lower, point.center, point.upper]),
+  ];
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+  const padding = Math.max(1, (max - min) * 0.12);
+  min -= padding;
+  max += padding;
+  const span = max - min || 1;
+  const totalSteps = actual.length - 1 + future.length;
+  const x = (step) => left + (step / totalSteps) * plotWidth;
+  const y = (value) => top + ((max - value) / span) * plotHeight;
+  const path = (points) => points.map((point, index) => `${index ? "L" : "M"}${point[0].toFixed(1)},${point[1].toFixed(1)}`).join(" ");
+  const actualPoints = actual.map((row, index) => [x(index), y(row.close)]);
+  const currentIndex = actual.length - 1;
+  const centerPoints = [[x(currentIndex), y(actual.at(-1).close)], ...future.map((point) => [x(currentIndex + point.day), y(point.center)])];
+  const upperPoints = [[x(currentIndex), y(actual.at(-1).close)], ...future.map((point) => [x(currentIndex + point.day), y(point.upper)])];
+  const lowerPoints = [[x(currentIndex), y(actual.at(-1).close)], ...future.map((point) => [x(currentIndex + point.day), y(point.lower)])];
+  const bandPoints = [...upperPoints, ...lowerPoints.slice().reverse()];
+  const maxVolume = Math.max(1, ...actual.map((row) => row.volume));
+  const volumeBars = actual.map((row, index) => {
+    const barHeight = Math.max(2, (row.volume / maxVolume) * 34);
+    return `<rect x="${(x(index) - 1.7).toFixed(1)}" y="${(top + plotHeight - barHeight).toFixed(1)}" width="3.4" height="${barHeight.toFixed(1)}" rx="1.5" />`;
+  }).join("");
+  const grids = [0, 0.5, 1].map((ratio) => {
+    const value = max - span * ratio;
+    const gridY = top + plotHeight * ratio;
+    return `<line x1="${left}" y1="${gridY.toFixed(1)}" x2="${width - right}" y2="${gridY.toFixed(1)}"/><text x="${width - right + 8}" y="${(gridY + 4).toFixed(1)}">${formatChartAxisPrice(value)}</text>`;
+  }).join("");
+  const currentX = x(currentIndex);
+  const end = future.at(-1);
+  const endX = x(totalSteps);
+  const endY = y(end.center);
+  const pattern = forecast.primaryPattern;
+  const dateIndex = new Map(actual.map((row, index) => [row.date, index]));
+  const patternPoints = (pattern?.points || [])
+    .map((point) => {
+      const index = dateIndex.get(String(point.date || "").slice(0, 10));
+      const price = toNumber(point.price);
+      return index === undefined || price === null ? null : [x(index), y(price)];
+    })
+    .filter(Boolean);
+  const patternLine = patternPoints.length >= 2
+    ? `<polyline class="chart-pattern-shape ${chartPatternTone(pattern)}" points="${patternPoints.map((point) => `${point[0].toFixed(1)},${point[1].toFixed(1)}`).join(" ")}" />`
+    : "";
+  const trigger = toNumber(pattern?.trigger);
+  const triggerLine = trigger !== null && trigger >= min && trigger <= max && patternPoints.length
+    ? `<line class="chart-pattern-trigger" x1="${patternPoints[0][0].toFixed(1)}" y1="${y(trigger).toFixed(1)}" x2="${currentX.toFixed(1)}" y2="${y(trigger).toFixed(1)}" />`
+    : "";
+  const patternLabel = patternLine
+    ? `<text class="chart-pattern-label ${chartPatternTone(pattern)}" x="${patternPoints[0][0].toFixed(1)}" y="${Math.max(top + 14, patternPoints[0][1] - 12).toFixed(1)}">${pattern.name} · ${pattern.status}</text>`
+    : "";
+  return `
+    <svg class="chart-forecast-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="실제 가격과 ${forecast.days}거래일 예상 범위">
+      <g class="chart-forecast-grid">${grids}</g>
+      <rect class="chart-forecast-future-zone" x="${currentX.toFixed(1)}" y="${top}" width="${(width - right - currentX).toFixed(1)}" height="${plotHeight}" />
+      <g class="chart-forecast-volume">${volumeBars}</g>
+      <path class="chart-forecast-band" d="${path(bandPoints)} Z" />
+      <path class="chart-forecast-actual" d="${path(actualPoints)}" />
+      ${patternLine}${triggerLine}${patternLabel}
+      <path class="chart-forecast-bound" d="${path(upperPoints)}" />
+      <path class="chart-forecast-bound" d="${path(lowerPoints)}" />
+      <path class="chart-forecast-center ${chartForecastTone(forecast.expectedRate)}" d="${path(centerPoints)}" />
+      <line class="chart-forecast-now" x1="${currentX.toFixed(1)}" y1="${top}" x2="${currentX.toFixed(1)}" y2="${top + plotHeight}" />
+      <circle class="chart-forecast-current-dot" cx="${currentX.toFixed(1)}" cy="${y(actual.at(-1).close).toFixed(1)}" r="5" />
+      <circle class="chart-forecast-end-dot ${chartForecastTone(forecast.expectedRate)}" cx="${endX.toFixed(1)}" cy="${endY.toFixed(1)}" r="6" />
+      <text class="chart-forecast-axis-label" x="${left}" y="${height - 14}">최근 흐름</text>
+      <text class="chart-forecast-axis-label current" x="${currentX.toFixed(1)}" y="${height - 14}" text-anchor="middle">현재</text>
+      <text class="chart-forecast-axis-label" x="${width - right}" y="${height - 14}" text-anchor="end">${forecast.days}거래일 후</text>
+    </svg>`;
+}
+
+function renderChartPatternAnalysis(analysis) {
+  const section = el("section", "chart-pattern-analysis");
+  const heading = el("div", "chart-pattern-heading");
+  heading.append(el("span", "", "가격 구조"), el("h2", "", "패턴 분석"));
+  section.appendChild(heading);
+  const patterns = Array.isArray(analysis?.patterns) ? analysis.patterns : [];
+  if (!patterns.length) {
+    section.append(el("p", "chart-pattern-empty", "현재 구간에서 기준을 충족한 고전 패턴은 없습니다."));
+    return section;
+  }
+  const primary = primaryChartPattern(analysis);
+  const top = el("div", "chart-pattern-primary");
+  const title = el("div", "chart-pattern-title");
+  title.append(
+    el("strong", "", primary.name),
+    el("span", `${chartPatternTone(primary)} status`, primary.status),
+    el("span", "confidence", `신뢰도 ${Math.round(toNumber(primary.confidence) ?? 0)}점`),
+  );
+  top.append(title, el("p", "", primary.summary));
+  const levels = el("div", "chart-pattern-levels");
+  for (const [label, value, tone] of [
+    ["전환 기준", primary.trigger, ""],
+    ["목표", primary.target, chartPatternTone(primary)],
+    ["무효화", primary.invalidation, primary.direction === "bullish" ? "negative" : "positive"],
+  ]) {
+    const cell = el("div", "");
+    cell.append(el("span", "", label), el("strong", tone, value ? `${formatNumber(value)}원` : "확인 중"));
+    levels.appendChild(cell);
+  }
+  top.appendChild(levels);
+  section.appendChild(top);
+  if (patterns.length > 1) {
+    const details = el("details", "chart-pattern-more");
+    const summary = el("summary", "", `함께 감지된 패턴 ${patterns.length - 1}개`);
+    const list = el("div", "chart-pattern-list");
+    for (const pattern of patterns.slice(1)) {
+      const row = el("div", "chart-pattern-row");
+      row.append(
+        el("strong", "", pattern.name),
+        el("span", chartPatternTone(pattern), `${pattern.status} · ${Math.round(toNumber(pattern.confidence) ?? 0)}점`),
+      );
+      list.appendChild(row);
+    }
+    details.append(summary, list);
+    section.appendChild(details);
+  }
+  return section;
+}
+
+function createChartForecastReason(label, value, tone = "") {
+  const row = el("div", "chart-forecast-reason");
+  row.append(el("span", "", label), el("strong", tone, value));
+  return row;
+}
+
+function renderChartForecastResult(result, horizon = 5) {
+  if (!result?.analysis || !result?.dashboard) {
+    renderWatchChartMessage("차트 데이터를 불러오지 못했습니다.", "잠시 후 다시 조회해주세요.");
+    return;
+  }
+  const { item, analysis, dashboard } = result;
+  attachChartPatterns(analysis, dashboard);
+  const forecast = computeChartForecast(analysis, horizon);
+  elements.chartStartGuide?.setAttribute("hidden", "");
+  elements.watchChartList.innerHTML = "";
+  const section = el("section", "chart-forecast-page");
+  section.dataset.code = item.code;
+
+  const header = el("header", "chart-forecast-header");
+  const heading = el("div", "chart-forecast-heading");
+  heading.append(
+    el("span", "chart-forecast-eyebrow", "기술적 흐름 분석"),
+    el("h1", "", item.name || dashboard.name || item.code),
+    el("p", "", [item.code, item.market || dashboard.market].filter(Boolean).join(" · ")),
+  );
+  const basis = formatDateLabel(analysis.latest?.date || dashboard?.quote?.as_of || dashboard?.as_of);
+  header.append(heading, el("time", "chart-forecast-basis", `${basis} 기준`));
+
+  const controls = el("div", "chart-forecast-controls");
+  controls.setAttribute("role", "tablist");
+  controls.setAttribute("aria-label", "예상 기간");
+  for (const days of [5, 10]) {
+    const button = el("button", days === forecast.days ? "active" : "", `${days}일`);
+    button.type = "button";
+    button.dataset.chartHorizon = String(days);
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", String(days === forecast.days));
+    controls.appendChild(button);
+  }
+
+  if (!forecast.available) {
+    const empty = el("section", "chart-forecast-insufficient");
+    empty.append(el("strong", "", "분석 데이터가 부족합니다."), el("p", "", forecast.reason));
+    section.append(header, controls, empty);
+    elements.watchChartList.appendChild(section);
+    return;
+  }
+
+  const visual = el("figure", "chart-forecast-visual");
+  visual.innerHTML = createChartForecastSvg(analysis, forecast);
+  const legend = el("figcaption", "chart-forecast-legend");
+  legend.innerHTML = '<span class="actual">실제 가격</span><span class="center">예상 중심</span><span class="range">예상 범위</span>';
+  visual.appendChild(legend);
+
+  const summary = el("section", "chart-forecast-summary");
+  const summaryHead = el("div", "chart-forecast-summary-head");
+  summaryHead.append(
+    el("span", "", `${forecast.days}거래일 시나리오`),
+    el("strong", chartForecastTone(forecast.expectedRate), forecast.direction),
+  );
+  const metrics = el("div", "chart-forecast-metrics");
+  const metricData = [
+    ["현재가", `${formatNumber(roundTradePrice(forecast.current))}원`, ""],
+    ["예상 중심", `${formatNumber(roundTradePrice(forecast.expected))}원`, chartForecastTone(forecast.expectedRate)],
+    ["예상 범위", `${formatPriceRange(forecast.points.at(-1).lower, forecast.points.at(-1).upper)}원`, ""],
+    ["흐름 신뢰도", `${forecast.confidence} · ${Math.round(forecast.confidenceScore)}점`, ""],
+  ];
+  for (const [label, value, tone] of metricData) {
+    const cell = el("div", "chart-forecast-metric");
+    cell.append(el("span", "", label), el("strong", tone, value));
+    metrics.appendChild(cell);
+  }
+  summary.append(summaryHead, metrics);
+
+  const reasons = el("section", "chart-forecast-reasons");
+  reasons.append(el("h2", "", "분석 포인트"));
+  const trendText = analysis.ma20 && forecast.current >= analysis.ma20 ? "20일 평균선 위" : "20일 평균선 아래";
+  const momentumText = analysis.rsi === null ? "모멘텀 확인 중" : `RSI ${Math.round(analysis.rsi)} · ${analysis.rsi >= 70 ? "과열 주의" : analysis.rsi <= 35 ? "약세 구간" : "중립 구간"}`;
+  const volatilityText = analysis.atr === null ? "변동성 확인 중" : `일 변동폭 약 ${analysis.atr.toFixed(1)}%`;
+  reasons.append(
+    createChartForecastReason("추세", trendText, analysis.ma20 && forecast.current >= analysis.ma20 ? "positive" : "negative"),
+    createChartForecastReason("모멘텀", momentumText),
+    createChartForecastReason("변동성", volatilityText),
+  );
+
+  const note = el("p", "chart-forecast-note", "최근 가격·거래량·이동평균·RSI·MACD·ATR을 결합한 기술적 시나리오입니다. 실제 가격은 뉴스와 수급에 따라 예상 범위를 벗어날 수 있습니다.");
+  section.append(header, controls, visual, renderChartPatternAnalysis(analysis), summary, reasons, note);
+  elements.watchChartList.appendChild(section);
 }
 
 function yScale(value, min, max, top, height) {
@@ -8308,44 +8702,12 @@ function setWatchChartMetaLoading(total = 0, done = 0) {
 function renderWatchChartList(results) {
   clearWatchChartLoadingOverlay();
   state.selectedWatchChartCode = "";
-  elements.watchChartList.innerHTML = "";
   const available = results.filter((result) => result.dashboard && result.prices?.length && result.analysis);
   if (!available.length) {
     renderWatchChartMessage("차트 데이터를 불러오지 못했습니다.", "잠시 후 다시 들어오거나 종목 카드의 새로고침을 눌러주세요.");
     return;
   }
-  const list = el("section", "watch-chart-selector-list");
-  for (const result of available) {
-    const { item, dashboard, analysis } = result;
-    const row = el("button", "watch-chart-row");
-    row.type = "button";
-    row.dataset.code = item.code;
-    const main = el("div", "watch-chart-row-main");
-    const head = el("div", "watch-chart-row-head");
-    const name = el("strong", "", item.name);
-    const market = el(
-      "span",
-      "watch-chart-row-market",
-      [item.code, item.market || dashboard?.market || "국내증시"].filter(Boolean).join(" · "),
-    );
-    const price = el("span", "watch-chart-row-price", formatNumber(analysis.latest?.close));
-    setTone(price, dashboard?.quote?.change_rate);
-    head.append(name);
-    main.append(head, market, price);
-
-    const metrics = el("div", "watch-chart-row-metrics");
-    const scoreWrap = el("div", "watch-chart-score-badge");
-    const scoreLabel = el("span", "", "AI 점수");
-    const score = el("strong", "", String(analysis.score));
-    const stance = el("em", "watch-chart-stance-badge", analysis.stance);
-    setTone(score, analysis.score - 55);
-    setTone(stance, analysis.score >= 78 ? 1 : analysis.score >= 48 ? 0 : -1);
-    scoreWrap.append(scoreLabel, score);
-    metrics.append(scoreWrap, stance);
-    row.append(main, metrics);
-    list.appendChild(row);
-  }
-  elements.watchChartList.appendChild(list);
+  renderChartForecastResult(available[0], 5);
 }
 
 async function resolveWatchChartItems() {
@@ -8397,11 +8759,14 @@ async function loadChartStock(stockOrQuery) {
   }
   if (elements.chartStockSearchInput) {
     elements.chartStockSearchInput.value = stock.name || stock.code;
+    elements.chartStockSearchInput.blur();
   }
-  renderChartWatchlistPicker(stock.code);
+  window.clearTimeout(state.chartSuggestionTimer);
+  state.chartSuggestionController?.abort();
+  hideStandaloneSuggestions(elements.chartStockSearchInput, elements.chartStockSearchSuggestions);
   await loadWatchCharts({
     items: [{ code: stock.code, name: stock.name || stock.code, market: stock.market || "" }],
-    force: true,
+    force: false,
     single: true,
   });
 }
@@ -8436,14 +8801,14 @@ async function refreshWatchChartCard(card, button) {
   button.disabled = true;
   button.textContent = "갱신 중";
   try {
-    clearCachedUrl(`/stocks/${encodeURIComponent(code)}/prices?limit=180`);
+    clearCachedUrl(`/stocks/${encodeURIComponent(code)}/prices?limit=260`);
     clearCachedUrl(`/stocks/${encodeURIComponent(code)}/dashboard?refresh=1&include_profile=0`);
     clearCachedUrl(`/stocks/${encodeURIComponent(code)}/dashboard?include_profile=0`);
     const [prices, dashboard] = await Promise.all([
-      fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/prices?limit=180`), { force: true, ttlMs: 0 }),
+      fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/prices?limit=260`), { force: true, ttlMs: 0 }),
       fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/dashboard?refresh=1&include_profile=0`), { force: true, ttlMs: 0 }),
     ]);
-    const analysis = prices.length ? computeWatchChart(prices) : null;
+    const analysis = prices.length ? attachChartPatterns(computeWatchChart(prices), dashboard) : null;
     const next = { item: current.item, prices, dashboard, analysis };
     state.watchChartResults = state.watchChartResults.map((result) => (result.item?.code === code ? next : result));
     renderWatchChartDetail(code);
@@ -8469,43 +8834,37 @@ async function loadWatchCharts(options = {}) {
   const loadSequence = ++state.watchChartLoadSequence;
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("chart");
-  const items = Array.isArray(options.items) ? normalizeWatchlistItems(options.items) : await resolveWatchChartItems();
-  const listLabel = options.single ? "선택 종목" : "관심종목";
+  const items = Array.isArray(options.items) ? normalizeWatchlistItems(options.items) : [];
   renderChartSnapshots();
   elements.watchChartList.innerHTML = "";
   state.watchChartResults = [];
   state.selectedWatchChartCode = "";
   if (!items.length) {
-    setWatchChartMetaText("관심종목 없음");
-    renderWatchChartMessage("관심 종목이 없습니다.", "종목 검색에서 관심 종목을 추가하면 이곳에 AI 차트 분석 리스트가 표시됩니다.");
+    clearWatchChartLoadingOverlay();
+    elements.chartStartGuide?.removeAttribute("hidden");
     return;
   }
-  renderWatchChartMessage("차트 데이터를 불러오는 중", "완료된 종목부터 순서대로 보여드립니다.");
-  setWatchChartMetaLoading(items.length, 0);
+  elements.chartStartGuide?.setAttribute("hidden", "");
+  renderWatchChartMessage("차트 데이터를 불러오는 중", "실제 가격과 기술 지표를 계산하고 있습니다.");
+  showWatchChartLoadingOverlay();
   if (elements.watchChartRefresh) {
     elements.watchChartRefresh.disabled = true;
     elements.watchChartRefresh.textContent = "불러오는 중";
   }
   try {
-    const completedResults = [];
     const results = await mapWithConcurrency(
       items,
-      4,
+      1,
       async (item) => {
         try {
           const [prices, dashboard] = await Promise.race([
             Promise.all([
-              fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/prices?limit=180`, { force, ttlMs: force ? 0 : ttlMs }),
+              fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/prices?limit=260`, { force, ttlMs: force ? 0 : ttlMs }),
               fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0&include_live=0`, { force, ttlMs: force ? 0 : ttlMs }),
             ]),
             rejectAfter(15_000, "watch chart timeout"),
           ]);
-          const result = { item, prices, dashboard, analysis: prices.length ? computeWatchChart(prices) : null };
-          if (loadSequence === state.watchChartLoadSequence) {
-            completedResults.push(result);
-            state.watchChartResults = [...completedResults];
-            renderWatchChartList(state.watchChartResults);
-          }
+          const result = { item, prices, dashboard, analysis: prices.length ? attachChartPatterns(computeWatchChart(prices), dashboard) : null };
           return result;
         } catch {
           return { item, prices: [], dashboard: null, analysis: null };
@@ -8518,23 +8877,18 @@ async function loadWatchCharts(options = {}) {
         if (elements.watchChartRefresh) {
           elements.watchChartRefresh.textContent = `${formatNumber(done)}/${formatNumber(total)}`;
         }
-        setWatchChartMetaLoading(total, done);
       }
     );
     if (loadSequence !== state.watchChartLoadSequence) {
       return;
     }
     state.watchChartResults = results;
-    setWatchChartMetaText(`${listLabel} ${formatNumber(items.length)}개`);
     renderWatchChartList(results);
   } finally {
     if (loadSequence !== state.watchChartLoadSequence) {
       return;
     }
     clearWatchChartLoadingOverlay();
-    if (elements.watchChartMeta?.classList.contains("is-loading")) {
-      setWatchChartMetaText(`${listLabel} ${formatNumber(items.length)}개`);
-    }
     if (elements.watchChartRefresh) {
       elements.watchChartRefresh.disabled = false;
       elements.watchChartRefresh.textContent = "새로고침";
@@ -10534,6 +10888,7 @@ function renderHomeMarketIndices(payload = {}) {
     return;
   }
   const items = Array.isArray(payload.items) ? payload.items : [];
+  state.homeMarketIndexItems = items;
   const byCode = new Map(items.map((item) => [item.code, item]));
   elements.homeMarketCarousel.replaceChildren();
   HOME_MARKET_ASSET_ORDER.forEach((code) => {
@@ -10552,6 +10907,7 @@ function renderHomeMarketIndices(payload = {}) {
       ? "기준 정보 확인 중"
       : formatDataBasis(dates[dates.length - 1]);
   }
+  renderHomeAiResponse(state.aiSignalItems, payload.updated_at || "");
 }
 
 function setHomeMarketIndicesLoading() {
@@ -11138,7 +11494,9 @@ function renderTrends(payload, activeTab = "live") {
   setTrendTab(selectedTab);
   const events = focusedTrendEvents(payload.events);
   const pastEvents = focusedTrendEvents(payload.past_events);
-  const timeline = (payload.timeline || []).filter(isFocusedTrendTimelineItem);
+  // The live feed is a chronological market-news stream. Macro-only filtering
+  // belongs to the event/impact views and can otherwise hide every fresh item.
+  const timeline = payload.timeline || [];
 
   if (events.length === 0) {
     elements.trendEvents.appendChild(el("p", "muted", "다가오는 이벤트 없음"));
@@ -11707,13 +12065,18 @@ for (const tab of elements.stockSectionTabs) {
 elements.recommendArchiveButton?.addEventListener("click", () => setView("recommend-history"));
 elements.recommendHistoryNewButton?.addEventListener("click", () => setView("recommend"));
 elements.watchChartRefresh?.addEventListener("click", () => {
-  for (const item of readWatchlist()) {
+  const item = state.watchChartResults[0]?.item;
+  if (item) {
     clearCachedUrl(`/stocks/${encodeURIComponent(item.code)}/prices?limit=180`);
     clearCachedUrl(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0`);
+    void loadWatchCharts({ items: [item], force: true, single: true });
   }
-  void loadWatchCharts();
 });
 elements.chartArchiveButton?.addEventListener("click", () => setView("chart-history"));
+elements.chartExampleSearchButton?.addEventListener("click", () => {
+  elements.chartStockSearchInput?.focus({ preventScroll: true });
+  elements.chartStockSearchForm?.scrollIntoView({ behavior: "smooth", block: "center" });
+});
 elements.chartHistoryBackButton.addEventListener("click", () => setView("chart"));
 elements.recommendHistoryList.addEventListener("click", (event) => {
   const detailButton = event.target.closest(".recommend-track-detail-toggle");
@@ -11812,7 +12175,10 @@ elements.chartStockSearchForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   const query = elements.chartStockSearchInput.value.trim();
   if (query) {
+    window.clearTimeout(state.chartSuggestionTimer);
+    state.chartSuggestionController?.abort();
     hideStandaloneSuggestions(elements.chartStockSearchInput, elements.chartStockSearchSuggestions);
+    elements.chartStockSearchInput.blur();
     void loadChartStock(query);
   }
 });
@@ -11913,6 +12279,15 @@ elements.recommendList.addEventListener("click", (event) => {
 elements.recommendDetailBack?.addEventListener("click", () => setView("search"));
 
 elements.watchChartList.addEventListener("click", (event) => {
+  const horizonButton = event.target.closest("[data-chart-horizon]");
+  if (horizonButton) {
+    const result = state.watchChartResults[0];
+    if (result) {
+      renderChartForecastResult(result, Number(horizonButton.dataset.chartHorizon));
+    }
+    return;
+  }
+
   const backButton = event.target.closest(".chart-detail-back");
   if (backButton) {
     renderWatchChartList(state.watchChartResults);

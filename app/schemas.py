@@ -379,6 +379,28 @@ class DashboardMomentumOut(BaseModel):
     baseline_trading_value: Optional[Decimal] = None
 
 
+class DashboardChartPatternPointOut(BaseModel):
+    index: int
+    date: str
+    price: int
+    kind: str
+
+
+class DashboardChartPatternOut(BaseModel):
+    key: str
+    name: str
+    family: str
+    direction: str
+    confidence: Decimal
+    status: str
+    points: list[DashboardChartPatternPointOut] = Field(default_factory=list)
+    trigger: Optional[int] = None
+    target: Optional[int] = None
+    invalidation: Optional[int] = None
+    summary: str
+    evidence: list[str] = Field(default_factory=list)
+
+
 class DashboardChartAnalysisOut(BaseModel):
     score: Decimal
     stance: str
@@ -394,6 +416,7 @@ class DashboardChartAnalysisOut(BaseModel):
     distance_to_resistance: Optional[Decimal] = None
     signals: list[str]
     risks: list[str]
+    patterns: list[DashboardChartPatternOut] = Field(default_factory=list)
 
 
 class DashboardResearchReportOut(BaseModel):
