@@ -199,6 +199,7 @@ const elements = {
   homeAiSignalsMore: $("home-ai-signals-more"),
   homeAiResponseTitle: $("home-ai-response-title"),
   homeAiResponseSummary: $("home-ai-response-summary"),
+  homeAiResponseAsOf: $("home-ai-response-asof"),
   aiSignalsBack: $("ai-signals-back"),
   aiSignalsMeta: $("ai-signals-meta"),
   aiSignalStageTabs: Array.from(document.querySelectorAll("[data-ai-signal-stage]")),
@@ -6072,7 +6073,7 @@ function compactStockNames(items = [], limit = 2) {
   return names.length > limit ? `${visible} 외 ${formatNumber(names.length - limit)}개` : visible;
 }
 
-function renderHomeAiResponse(items = []) {
+function renderHomeAiResponse(items = [], asOf = "") {
   if (!elements.homeAiResponseTitle || !elements.homeAiResponseSummary) {
     return;
   }
@@ -6084,11 +6085,11 @@ function renderHomeAiResponse(items = []) {
     }
   }
   if (grouped["recent-buy"].length) {
-    elements.homeAiResponseTitle.textContent = `${compactStockNames(grouped["recent-buy"])}에서 최근 매수 신호가 확인됐습니다.`;
+    elements.homeAiResponseTitle.textContent = `${compactStockNames(grouped["recent-buy"])}: 최근 매수 신호 확인. 손실 제한 기준을 먼저 점검하세요.`;
   } else if (grouped.holding.length) {
-    elements.homeAiResponseTitle.textContent = `${compactStockNames(grouped.holding)}은 보유 기준을 유지합니다.`;
+    elements.homeAiResponseTitle.textContent = `${compactStockNames(grouped.holding)}: 보유 기준 유지. 매도 기준 도달 여부를 확인하세요.`;
   } else if (grouped["recent-sell"].length) {
-    elements.homeAiResponseTitle.textContent = `${compactStockNames(grouped["recent-sell"])}은 재진입 신호를 기다립니다.`;
+    elements.homeAiResponseTitle.textContent = `${compactStockNames(grouped["recent-sell"])}: 재진입 신호 대기. 다음 매수 신호 전까지 관망하세요.`;
   } else {
     elements.homeAiResponseTitle.textContent = "새로운 매매신호가 확인되지 않았습니다.";
   }
@@ -6103,6 +6104,9 @@ function renderHomeAiResponse(items = []) {
     followUps.push(`최근 매수 ${formatNumber(grouped["recent-buy"].length)}개는 손실 제한 기준을 먼저 확인하세요.`);
   }
   elements.homeAiResponseSummary.textContent = followUps.slice(0, 2).join(" ") || "관심종목을 추가하면 현재 대응을 바로 정리해 드립니다.";
+  if (elements.homeAiResponseAsOf) {
+    elements.homeAiResponseAsOf.textContent = formatDataBasis(asOf, "기준 정보 확인 중");
+  }
 }
 
 function createHomeAiSignalRow(item, options = {}) {
@@ -6136,7 +6140,7 @@ function renderHomeAiSignals(payload = {}) {
   const items = normalizedAiSignalItems(Array.isArray(payload.items) ? payload.items : []);
   state.aiSignalItems = items;
   renderHomeMarketSignalTicker({ items });
-  renderHomeAiResponse(items);
+  renderHomeAiResponse(items, payload.updated_at || payload.as_of || "");
   elements.homeAiSignalsMeta.textContent = items.length ? `${formatNumber(items.length)}개 신호` : "새 신호 없음";
   elements.homeAiSignalsList.innerHTML = "";
   if (!items.length) {
@@ -6333,7 +6337,7 @@ function createHomeMarketSignalTickerRow(item) {
   const returnRate = toNumber(item.returnRate);
   row.dataset.tone = returnRate === null || returnRate === 0 ? "neutral" : returnRate > 0 ? "positive" : "negative";
   const name = el("strong", "home-market-signal-name", item.name || item.code || "-");
-  const summary = el("span", "home-market-signal-summary", item.summary || "보유 기준 확인");
+  const summary = el("span", "home-market-signal-summary", returnRate === null ? "보유 중" : formatPercent(returnRate));
   row.append(name, summary);
   return row;
 }
@@ -10432,21 +10436,32 @@ function marketIndexChartMarkup(item) {
   });
   const line = coordinates.map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
   const area = `${line} L${width} ${height} L0 ${height} Z`;
-  const gradientId = `home-index-gradient-${String(item.code || "index").toLowerCase()}`;
-  const first = coordinates[0];
-  const last = coordinates[coordinates.length - 1];
+  const key = String(item.code || "index").toLowerCase();
+  const gradientUpId = `home-index-gradient-up-${key}`;
+  const gradientDownId = `home-index-gradient-down-${key}`;
+  const clipUpId = `home-index-clip-up-${key}`;
+  const clipDownId = `home-index-clip-down-${key}`;
+  const previous = toNumber(item?.previous_close) ?? points[0];
+  const baselineY = Math.max(top, Math.min(height - bottom, top + ((maximum - previous) / range) * (height - top - bottom)));
   return `
     <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true" focusable="false">
       <defs>
-        <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="currentColor" stop-opacity="0.2"></stop>
-          <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
+        <linearGradient id="${gradientUpId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ef3e43" stop-opacity="0.18"></stop>
+          <stop offset="100%" stop-color="#ef3e43" stop-opacity="0"></stop>
         </linearGradient>
+        <linearGradient id="${gradientDownId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#2388e8" stop-opacity="0.04"></stop>
+          <stop offset="100%" stop-color="#2388e8" stop-opacity="0.16"></stop>
+        </linearGradient>
+        <clipPath id="${clipUpId}"><rect x="0" y="0" width="${width}" height="${baselineY.toFixed(2)}"></rect></clipPath>
+        <clipPath id="${clipDownId}"><rect x="0" y="${baselineY.toFixed(2)}" width="${width}" height="${(height - baselineY).toFixed(2)}"></rect></clipPath>
       </defs>
-      <path class="home-index-area" d="${area}" fill="url(#${gradientId})"></path>
-      <path class="home-index-line" d="${line}"></path>
-      <circle class="home-index-point" cx="${first[0].toFixed(2)}" cy="${first[1].toFixed(2)}" r="3.5"></circle>
-      <circle class="home-index-point" cx="${last[0].toFixed(2)}" cy="${last[1].toFixed(2)}" r="3.5"></circle>
+      <line class="home-index-baseline" x1="0" y1="${baselineY.toFixed(2)}" x2="${width}" y2="${baselineY.toFixed(2)}"></line>
+      <path class="home-index-area home-index-area-up" d="${area}" fill="url(#${gradientUpId})" clip-path="url(#${clipUpId})"></path>
+      <path class="home-index-area home-index-area-down" d="${area}" fill="url(#${gradientDownId})" clip-path="url(#${clipDownId})"></path>
+      <path class="home-index-line home-index-line-up" d="${line}" clip-path="url(#${clipUpId})"></path>
+      <path class="home-index-line home-index-line-down" d="${line}" clip-path="url(#${clipDownId})"></path>
     </svg>`;
 }
 
@@ -10454,7 +10469,6 @@ function createHomeMarketAssetCard(item = {}) {
   const card = document.createElement("article");
   const code = String(item.code || "MARKET");
   const current = toNumber(item?.current);
-  const previous = toNumber(item?.previous_close);
   const change = toNumber(item?.change);
   const changeRate = toNumber(item?.change_rate);
   const tone = change === null || change === 0 ? "neutral" : change > 0 ? "positive" : "negative";
@@ -10463,9 +10477,6 @@ function createHomeMarketAssetCard(item = {}) {
 
   const header = document.createElement("header");
   header.append(el("h2", "", item.label || code));
-  const session = el("span", "home-index-session", item.is_realtime ? "실시간" : "장마감");
-  session.classList.toggle("is-realtime", Boolean(item.is_realtime));
-  header.append(session);
 
   const value = el("strong", "home-index-current", formatMarketIndexValue(current));
   const changeText = change === null
@@ -10489,9 +10500,12 @@ function createHomeMarketAssetCard(item = {}) {
       : `${label} ${formatMarketIndexValue(current)}, 전일 대비 ${change === null ? "확인 불가" : `${formatMarketIndexValue(Math.abs(change))} ${change >= 0 ? "상승" : "하락"}`}`,
   );
 
-  const previousNode = el("p", "home-index-previous");
-  previousNode.append("전일 ", el("strong", "", formatMarketIndexValue(previous)));
-  card.append(header, value, changeNode, chartNode, previousNode);
+  const basisNode = el("p", "home-index-basis");
+  const basis = formatDataBasis(item.updated_at || item.as_of, "").replace(/ 기준$/, "");
+  const session = el("span", "home-index-session", item.is_realtime ? "실시간" : "장마감");
+  session.classList.toggle("is-realtime", Boolean(item.is_realtime));
+  basisNode.append(el("time", "", basis || "기준 정보 확인 중"), session);
+  card.append(header, value, changeNode, chartNode, basisNode);
   return card;
 }
 
