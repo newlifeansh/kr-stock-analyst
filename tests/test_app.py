@@ -493,7 +493,7 @@ def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():
     assert 'data-ai-signal-stage="recent-sell"' in shell
     assert 'history.replaceState(null, "", "/dashboard?view=ai-signals")' in source
     assert 'setView("ai-signals")' in source
-    assert "/quant-signals`" in source
+    assert 'const MARKET_AI_SIGNALS_ENDPOINT = "/market/quant-signals?universe_limit=5000&limit=5000&recent_days=7";' in source
     assert ".slice(0, 5)" in source
     assert 'limit: 30' in source
     assert 'ttlMs: pageEntryTtlMs("market")' in source

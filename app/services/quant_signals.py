@@ -37,10 +37,14 @@ TRAILING_STOP_ATR = 2.6
 MIN_EXECUTION_COST_PER_SIDE = 0.00125
 MAX_EXECUTION_COST_PER_SIDE = 0.005
 DEFAULT_EXECUTION_COST_PER_SIDE = 0.002
-MARKET_SIGNAL_UNIVERSE_LIMIT = 100
-MARKET_SIGNAL_FEED_LIMIT = 30
-MARKET_SIGNAL_RECENT_DAYS = 14
-MARKET_SIGNAL_SNAPSHOT_VERSION = "v2"
+# The market feed is a separate, all-listed-stock scan.  Keeping this wider
+# than a home-view limit prevents a user's watched stock from being omitted
+# simply because it is outside the largest market-cap names.
+MARKET_SIGNAL_UNIVERSE_LIMIT = 5_000
+MARKET_SIGNAL_FEED_LIMIT = 5_000
+MARKET_SIGNAL_RECENT_DAYS = 7
+MARKET_SIGNAL_BATCH_SIZE = 180
+MARKET_SIGNAL_SNAPSHOT_VERSION = "v3"
 
 POSITIVE_WORDS = (
     "상향",
@@ -1312,10 +1316,10 @@ def load_market_quant_signal_feed(
     recent_days: int = MARKET_SIGNAL_RECENT_DAYS,
     now: Optional[datetime] = None,
 ) -> dict[str, Any]:
-    """Build the latest buy/sell transitions for the largest listed companies."""
+    """Build recent buy/sell transitions across the active KOSPI/KOSDAQ universe."""
     current_time = now or datetime.now(KST)
     capped_universe_limit = max(1, min(int(universe_limit), MARKET_SIGNAL_UNIVERSE_LIMIT))
-    capped_limit = max(1, min(int(limit), 50))
+    capped_limit = max(1, min(int(limit), MARKET_SIGNAL_FEED_LIMIT))
     capped_recent_days = max(1, min(int(recent_days), MARKET_SIGNAL_RECENT_DAYS))
     market_cap_date = db.scalar(
         select(func.max(DailyPrice.trade_date)).where(DailyPrice.market_cap.is_not(None))
@@ -1357,60 +1361,62 @@ def load_market_quant_signal_feed(
     rank_by_code = {stock.code: index + 1 for index, stock in enumerate(stocks)}
     stock_by_code = {stock.code: stock for stock in stocks}
     # The engine evaluates only the latest BACKTEST_ROWS after warm-up. Roughly
-    # 550 calendar days keeps enough trading bars without loading years of rows
-    # for every company in the top-100 universe.
+    # 550 calendar days keeps enough trading bars without loading years of rows.
+    # Querying in batches keeps a full-market refresh bounded in memory.
     history_start = market_cap_date - timedelta(days=550)
-    price_rows = list(
-        db.scalars(
+    cutoff = current_time.date() - timedelta(days=capped_recent_days)
+    items: list[dict[str, Any]] = []
+    stock_codes = list(stock_by_code)
+    for start in range(0, len(stock_codes), MARKET_SIGNAL_BATCH_SIZE):
+        batch_codes = stock_codes[start : start + MARKET_SIGNAL_BATCH_SIZE]
+        prices_by_code: dict[str, list[DailyPrice]] = {code: [] for code in batch_codes}
+        price_rows = db.scalars(
             select(DailyPrice)
             .where(
-                DailyPrice.code.in_(tuple(stock_by_code)),
+                DailyPrice.code.in_(batch_codes),
                 DailyPrice.trade_date >= history_start,
                 DailyPrice.trade_date <= market_cap_date,
             )
             .order_by(DailyPrice.code, DailyPrice.trade_date)
         )
-    )
-    prices_by_code: dict[str, list[DailyPrice]] = {code: [] for code in stock_by_code}
-    for price_row in price_rows:
-        prices_by_code.setdefault(price_row.code, []).append(price_row)
+        for price_row in price_rows:
+            prices_by_code.setdefault(price_row.code, []).append(price_row)
 
-    cutoff = current_time.date() - timedelta(days=capped_recent_days)
-    items: list[dict[str, Any]] = []
-    for code, stock in stock_by_code.items():
-        payload = build_quant_signal_payload(
-            stock,
-            prices_by_code.get(code, []),
-            now=current_time,
-            context=None,
-        )
-        events = payload.get("events") or []
-        latest_event = next(
-            (
-                event
-                for event in reversed(events)
-                if event.get("side") in {"buy", "partial_sell", "sell"}
-                and event.get("execution_date")
-                and event["execution_date"] >= cutoff
-            ),
-            None,
-        )
-        if latest_event is None:
-            continue
-        is_buy = latest_event.get("side") == "buy"
-        items.append(
-            {
-                "code": code,
-                "name": stock.name,
-                "market": stock.market,
-                "market_cap_rank": rank_by_code[code],
-                "signal": "매수" if is_buy else "매도",
-                "side": "buy" if is_buy else "sell",
-                "signal_date": latest_event.get("signal_date"),
-                "execution_date": latest_event.get("execution_date"),
-                "price": latest_event.get("price"),
-            }
-        )
+        for code in batch_codes:
+            stock = stock_by_code[code]
+            payload = build_quant_signal_payload(
+                stock,
+                prices_by_code.get(code, []),
+                now=current_time,
+                context=None,
+            )
+            events = payload.get("events") or []
+            latest_event = next(
+                (
+                    event
+                    for event in reversed(events)
+                    if event.get("side") in {"buy", "partial_sell", "sell"}
+                    and event.get("execution_date")
+                    and event["execution_date"] >= cutoff
+                ),
+                None,
+            )
+            if latest_event is None:
+                continue
+            is_buy = latest_event.get("side") == "buy"
+            items.append(
+                {
+                    "code": code,
+                    "name": stock.name,
+                    "market": stock.market,
+                    "market_cap_rank": rank_by_code[code],
+                    "signal": "매수" if is_buy else "매도",
+                    "side": "buy" if is_buy else "sell",
+                    "signal_date": latest_event.get("signal_date"),
+                    "execution_date": latest_event.get("execution_date"),
+                    "price": latest_event.get("price"),
+                }
+            )
 
     items.sort(
         key=lambda item: (

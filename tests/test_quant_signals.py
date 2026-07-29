@@ -322,6 +322,48 @@ def test_market_quant_signal_feed_uses_market_cap_top_universe_and_normalizes_se
     db.close()
 
 
+def test_market_quant_signal_feed_includes_lower_ranked_active_stocks(monkeypatch):
+    db = _session()
+    stocks = [_stock("000001", "대형주"), _stock("000002", "중형주"), _stock("000003", "SK텔레콤")]
+    trade_date = date(2026, 7, 25)
+    db.add_all(stocks)
+    db.add_all(
+        [
+            DailyPrice(code="000001", trade_date=trade_date, close=100_000, market_cap=300_000_000),
+            DailyPrice(code="000002", trade_date=trade_date, close=50_000, market_cap=200_000_000),
+            DailyPrice(code="000003", trade_date=trade_date, close=10_000, market_cap=100_000_000),
+        ]
+    )
+    db.commit()
+
+    monkeypatch.setattr(
+        quant_signals,
+        "build_quant_signal_payload",
+        lambda stock, _rows, **_kwargs: {
+            "events": [
+                {
+                    "signal_date": trade_date,
+                    "execution_date": trade_date,
+                    "side": "buy" if stock.code == "000003" else "sell",
+                    "price": 100_000,
+                }
+            ]
+        },
+    )
+    payload = load_market_quant_signal_feed(
+        db,
+        universe_limit=3,
+        limit=10,
+        recent_days=7,
+        now=datetime(2026, 7, 26, 9, 0),
+    )
+
+    assert payload["universe_count"] == 3
+    assert {item["code"] for item in payload["items"]} == {"000001", "000002", "000003"}
+    assert next(item for item in payload["items"] if item["code"] == "000003")["market_cap_rank"] == 3
+    db.close()
+
+
 def test_market_quant_signal_endpoint_is_no_store(monkeypatch):
     db = _session()
 
@@ -345,7 +387,8 @@ def test_market_quant_signal_endpoint_is_no_store(monkeypatch):
         response = TestClient(app).get("/market/quant-signals")
         assert response.status_code == 200
         assert response.headers["cache-control"].startswith("no-store")
-        assert response.json()["universe_count"] == 100
+        assert response.json()["status"] == "preparing"
+        assert response.json()["universe_count"] == 0
     finally:
         main.market_quant_signal_cache.clear()
         app.dependency_overrides.pop(get_db, None)

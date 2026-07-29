@@ -28,7 +28,9 @@ from app.models import (
 )
 from app.services.stock_dashboard import _naver_snapshot
 from app.services.quant_signals import (
+    MARKET_SIGNAL_FEED_LIMIT,
     MARKET_SIGNAL_RECENT_DAYS,
+    MARKET_SIGNAL_UNIVERSE_LIMIT,
     load_market_quant_signal_snapshot,
     load_quant_signal_payload,
 )
@@ -491,8 +493,8 @@ class WebPushRuntime:
     def _market_ai_signal_candidates(self, db: Session) -> list[NotificationCandidate]:
         snapshot = load_market_quant_signal_snapshot(
             db,
-            universe_limit=100,
-            limit=30,
+            universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
+            limit=MARKET_SIGNAL_FEED_LIMIT,
             recent_days=MARKET_SIGNAL_RECENT_DAYS,
         )
         if not snapshot:

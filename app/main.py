@@ -137,7 +137,9 @@ from app.services.recommendations import build_recommendations
 from app.services.stock_ai_analysis import build_stock_ai_analysis
 from app.services.local_stock_ai import enrich_stock_ai_analysis
 from app.services.quant_signals import (
+    MARKET_SIGNAL_FEED_LIMIT,
     MARKET_SIGNAL_RECENT_DAYS,
+    MARKET_SIGNAL_UNIVERSE_LIMIT,
     load_market_quant_signal_feed,
     load_market_quant_signal_snapshot,
     load_quant_signal_payload,
@@ -284,8 +286,8 @@ async def _run_intraday_warmup_loop() -> None:
 
 
 def _refresh_market_quant_signal_snapshot(
-    universe_limit: int = 100,
-    limit: int = 30,
+    universe_limit: int = MARKET_SIGNAL_UNIVERSE_LIMIT,
+    limit: int = MARKET_SIGNAL_FEED_LIMIT,
     recent_days: int = MARKET_SIGNAL_RECENT_DAYS,
 ) -> Optional[dict[str, Any]]:
     if not market_quant_signal_refresh_lock.acquire(blocking=False):
@@ -309,7 +311,7 @@ def _refresh_market_quant_signal_snapshot(
             market_quant_signal_cache.set(
                 ("market_quant_signals", universe_limit, limit, recent_days),
                 stored,
-                300,
+                900,
             )
             return stored
     except Exception:  # pragma: no cover - operational safeguard
@@ -322,7 +324,7 @@ def _refresh_market_quant_signal_snapshot(
 async def _run_market_quant_signal_refresh_loop() -> None:
     while True:
         await asyncio.to_thread(_refresh_market_quant_signal_snapshot)
-        await asyncio.sleep(300)
+        await asyncio.sleep(900)
 
 
 async def _run_stock_logo_sync_loop() -> None:
@@ -882,8 +884,8 @@ def get_market_quant_signals(
     request: Request,
     response: Response,
     background_tasks: BackgroundTasks,
-    universe_limit: int = Query(default=100, ge=20, le=100),
-    limit: int = Query(default=30, ge=1, le=50),
+    universe_limit: int = Query(default=MARKET_SIGNAL_UNIVERSE_LIMIT, ge=20, le=MARKET_SIGNAL_UNIVERSE_LIMIT),
+    limit: int = Query(default=MARKET_SIGNAL_FEED_LIMIT, ge=1, le=MARKET_SIGNAL_FEED_LIMIT),
     recent_days: int = Query(default=MARKET_SIGNAL_RECENT_DAYS, ge=1, le=90),
     db: Session = Depends(get_db),
 ):
@@ -898,24 +900,6 @@ def get_market_quant_signals(
             limit=limit,
             recent_days=recent_days,
         )
-    if payload is None:
-        if market_quant_signal_refresh_lock.acquire(blocking=False):
-            try:
-                generated = load_market_quant_signal_feed(
-                    db,
-                    universe_limit=universe_limit,
-                    limit=limit,
-                    recent_days=recent_days,
-                )
-                payload = save_market_quant_signal_snapshot(
-                    db,
-                    generated,
-                    universe_limit=universe_limit,
-                    limit=limit,
-                    recent_days=recent_days,
-                )
-            finally:
-                market_quant_signal_refresh_lock.release()
     if payload is None:
         background_tasks.add_task(
             _refresh_market_quant_signal_snapshot,
@@ -932,7 +916,7 @@ def get_market_quant_signals(
             "items": [],
         }
     else:
-        market_quant_signal_cache.set(cache_key, payload, 300)
+        market_quant_signal_cache.set(cache_key, payload, 900)
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     return payload
