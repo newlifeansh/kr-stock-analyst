@@ -27819,6 +27819,25 @@ body:not([data-view="stock"]) .home-ai-response-line.is-watch {
   border-top: 1px solid #eceef2;
 }
 
+body:not([data-view="stock"]) button.home-ai-response-line.is-watch {
+  width: 100%;
+  margin: 0;
+  padding: 8px 0 0;
+  border: 0;
+  border-top: 1px solid #eceef2;
+  appearance: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+body:not([data-view="stock"]) button.home-ai-response-line.is-watch:focus-visible {
+  outline: 2px solid #266fea;
+  outline-offset: 3px;
+}
+
 body:not([data-view="stock"]) .home-ai-response-line > span {
   color: #92969c;
   font-size: 12px !important;

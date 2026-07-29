@@ -200,6 +200,7 @@ const elements = {
   homeAiResponseTitle: $("home-ai-response-title"),
   homeAiResponseSummary: $("home-ai-response-summary"),
   homeAiResponseAsOf: $("home-ai-response-asof"),
+  homeAiResponseWatch: $("home-ai-response-watch"),
   aiSignalsBack: $("ai-signals-back"),
   aiSignalsMeta: $("ai-signals-meta"),
   aiSignalStageTabs: Array.from(document.querySelectorAll("[data-ai-signal-stage]")),
@@ -634,6 +635,7 @@ const state = {
   homeAiSignalsAsOf: "",
   homeMarketIndexItems: [],
   homeTrendContext: null,
+  homeMarketImpact: null,
   marketSignalTickerItems: [],
   marketSignalTickerIndex: 0,
   marketSignalTickerTimer: null,
@@ -5723,6 +5725,7 @@ function setView(requestedViewName) {
     const activeTab = state.activeTrendTab || "live";
     void loadHomeAiSignals(pageEntryRefreshOptions("watchlist", "home-ai-signals"));
     void loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home"));
+    void loadHomeMarketImpact({ force: false, ttlMs: PAGE_ENTRY_MINUTE_MS });
     void refreshUsSectorMoves({ force: false, ttlMs: PAGE_ENTRY_MINUTE_MS });
     connectUsSectorStream();
     launchBriefPageLoading(
@@ -6313,6 +6316,36 @@ function usSectorMarketContext(payload = state.usSectorMoves || {}) {
   };
 }
 
+function marketImpactHomeContext(payload = state.homeMarketImpact || {}) {
+  const factors = Array.isArray(payload.factors) ? payload.factors : [];
+  if (!factors.length) {
+    return null;
+  }
+  const factor = [...factors]
+    .map((item) => ({
+      ...item,
+      weight: toNumber(item.percent) ?? 0,
+      confidence: toNumber(item.confidence) ?? 0,
+    }))
+    .sort((left, right) => (right.weight * Math.max(right.confidence, 1)) - (left.weight * Math.max(left.confidence, 1)))[0];
+  const label = String(factor?.label || factor?.name || "시장 변수").trim();
+  const direction = String(factor?.direction || "변동").trim();
+  const interpretation = String(factor?.interpretation || "").trim();
+  const themes = Array.isArray(factor?.affected_sectors) ? factor.affected_sectors.filter(Boolean) : [];
+  const leaderStocks = Array.isArray(factor?.leader_stocks) ? factor.leader_stocks.filter(Boolean) : [];
+  return {
+    kind: "market-impact",
+    title: `${label} ${direction}`,
+    asOf: payload.as_of,
+    themes,
+    leaderStocks,
+    sentence: interpretation ? `${label} ${direction}: ${interpretation}` : `현재 핵심 변수는 ${label} ${direction}입니다.`,
+    watchReason: themes.length
+      ? `${themes.slice(0, 3).join("·")} 업종과 연결됩니다. 거래대금과 외국인 수급을 우선 확인하세요.`
+      : "변동성 확대 가능성을 확인하세요. 거래대금과 외국인 수급을 우선 확인하세요.",
+  };
+}
+
 function selectHomeMarketContext() {
   const majorIssue = majorMarketIssueContext();
   if (majorIssue) {
@@ -6320,9 +6353,16 @@ function selectHomeMarketContext() {
   }
   const sector = usSectorMarketContext();
   const event = upcomingMarketEventContext();
+  const marketImpact = marketImpactHomeContext();
   const eventDistance = event?.timestamp ? event.timestamp - Date.now() : Infinity;
-  if (sector && (Math.abs(sector.rate) >= 1.5 || eventDistance > 12 * 60 * 60 * 1000)) {
+  if (event && event.importance === "매우 중요" && eventDistance <= 4 * 60 * 60 * 1000) {
+    return event;
+  }
+  if (sector && Math.abs(sector.rate) >= 1.5) {
     return sector;
+  }
+  if (marketImpact) {
+    return marketImpact;
   }
   if (event) {
     return event;
@@ -6381,6 +6421,7 @@ function latestHomeAiResponseAsOf(asOf = "") {
     asOf,
     state.homeAiSignalsAsOf,
     state.homeTrendContext?.as_of,
+    state.homeMarketImpact?.as_of,
     state.usSectorMoves?.as_of,
     ...homeTrendTimeline().map((item) => item.published_at),
     ...state.homeMarketIndexItems.flatMap((item) => [item?.updated_at, item?.as_of]),
@@ -6396,7 +6437,7 @@ function renderHomeAiResponse(items = state.aiSignalItems, asOf = "") {
   elements.homeAiResponseTitle.textContent = context?.sentence || homeMarketVolatilitySentence();
   elements.homeAiResponseSummary.textContent = homeContextAttentionSentence(context, items);
   if (elements.homeAiResponseAsOf) {
-    elements.homeAiResponseAsOf.textContent = formatDataBasis(latestHomeAiResponseAsOf(asOf), "기준 정보 확인 중");
+    elements.homeAiResponseAsOf.textContent = formatDataBasis(context?.asOf || latestHomeAiResponseAsOf(asOf), "기준 정보 확인 중");
   }
 }
 
@@ -11796,6 +11837,10 @@ async function loadMarketImpactAnalysis(options = {}) {
     const ttlMs = options.ttlMs ?? pageEntryTtlMs("trend-impact");
     const url = force ? liveUrl("/market/impact?refresh=true") : "/market/impact";
     const payload = await fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs });
+    state.homeMarketImpact = payload;
+    if (state.view === "home") {
+      renderHomeAiResponse();
+    }
     renderMarketImpactAnalysis(payload, target);
   } catch {
     try {
@@ -11807,6 +11852,20 @@ async function loadMarketImpactAnalysis(options = {}) {
         target.appendChild(el("p", "muted", "시장 영향도 데이터 없음"));
       }
     }
+  }
+}
+
+async function loadHomeMarketImpact(options = {}) {
+  try {
+    const force = options.force === true;
+    const ttlMs = options.ttlMs ?? PAGE_ENTRY_MINUTE_MS;
+    const payload = await fetchJsonCached("/market/impact", { force, ttlMs: force ? 0 : ttlMs });
+    state.homeMarketImpact = payload;
+    if (state.view === "home") {
+      renderHomeAiResponse();
+    }
+  } catch {
+    // The rest of the live market context remains available when impact data is delayed.
   }
 }
 
@@ -12084,6 +12143,12 @@ for (const item of elements.appNavItems) {
 elements.homeInstallButton?.addEventListener("click", handleHomeInstall);
 elements.homeAiSignalsMore?.addEventListener("click", () => {
   setView("ai-signals");
+  window.scrollTo({ top: 0, behavior: "auto" });
+});
+elements.homeAiResponseWatch?.addEventListener("click", () => {
+  state.portfolioTab = "watchlist";
+  state.watchlistContentTab = "strategy";
+  setView("portfolio");
   window.scrollTo({ top: 0, behavior: "auto" });
 });
 elements.aiSignalsBack?.addEventListener("click", () => {
