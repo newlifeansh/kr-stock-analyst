@@ -643,6 +643,8 @@ const state = {
   marketSignalTickerTimer: null,
   marketAiSignalRetryTimer: null,
   marketIndexRefreshTimer: null,
+  homeAiResponseRefreshTimer: null,
+  homeAiResponseRefreshPromise: null,
   discoverySuggestions: [],
   discoverySuggestionController: null,
   discoverySuggestionTimer: null,
@@ -5691,6 +5693,7 @@ function setView(requestedViewName) {
   if (view !== "home") {
     stopHomeMarketSignalTicker();
     stopHomeMarketIndexRefresh();
+    stopHomeAiResponseRefresh();
   }
   if (!US_SECTOR_STREAM_VIEWS.has(view)) {
     closeUsSectorStream();
@@ -5729,21 +5732,20 @@ function setView(requestedViewName) {
     const activeTab = state.activeTrendTab || "live";
     void loadHomeAiSignals(pageEntryRefreshOptions("watchlist", "home-ai-signals"));
     void loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home"));
-    void loadHomeMarketImpact({ force: false, ttlMs: PAGE_ENTRY_MINUTE_MS });
-    void refreshUsSectorMoves({ force: false, ttlMs: PAGE_ENTRY_MINUTE_MS });
+    void refreshHomeAiResponseContext({ activeTab });
     connectUsSectorStream();
     launchBriefPageLoading(
       PAGE_LOADING_LABELS.trend,
       () => loadHomeMarketIndices(pageEntryRefreshOptions("market-indices")),
       900,
     );
-    window.setTimeout(() => {
-      if (state.view !== "home") return;
-      void loadTrends(activeTab === "impact" ? "live" : activeTab, pageEntryRefreshOptions("trend", activeTab));
-      if (activeTab === "impact") {
-        void loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact"));
-      }
-    }, 80);
+    if (activeTab === "impact") {
+      window.setTimeout(() => {
+        if (state.view === "home") {
+          void loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact"));
+        }
+      }, 80);
+    }
   } else if (view === "search") {
     history.replaceState(null, "", "/dashboard?view=search");
     const entryOptions = pageEntryRefreshOptions("recommend");
@@ -6283,7 +6285,9 @@ function majorMarketIssueContext(payload = state.homeTrendContext || {}, now = D
   return {
     kind: "major-issue",
     title,
-    asOf: item.published_at,
+    // The article time is useful for the source, but the response must show
+    // when the market context itself was last refreshed.
+    asOf: payload.as_of || item.published_at,
     themes,
     leaderStocks: item.leader_stocks || [],
     sentence: `${title} 소식이 최우선 변수입니다. 관련 자산과 업종의 급격한 방향 전환에 유의하세요.`,
@@ -6321,7 +6325,7 @@ function upcomingMarketEventContext(payload = state.homeTrendContext || {}, now 
   return {
     kind: "event",
     title: event.title,
-    asOf: event.starts_at,
+    asOf: payload.as_of || event.starts_at,
     timestamp: event.timestamp,
     importance: event.importance,
     themes: event.affected_sectors || [],
@@ -6389,15 +6393,26 @@ function marketImpactHomeContext(payload = state.homeMarketImpact || {}) {
   };
 }
 
+function isFreshHomeContextPayload(payload = {}, now = Date.now()) {
+  const timestamp = Date.parse(payload?.as_of || payload?.updated_at || "");
+  return Number.isFinite(timestamp)
+    && timestamp <= now + 10 * 60 * 1000
+    && timestamp >= now - 5 * PAGE_ENTRY_MINUTE_MS;
+}
+
 function selectHomeMarketContext() {
-  const majorIssue = majorMarketIssueContext();
+  const now = Date.now();
+  const trendPayload = isFreshHomeContextPayload(state.homeTrendContext, now) ? state.homeTrendContext : {};
+  const impactPayload = isFreshHomeContextPayload(state.homeMarketImpact, now) ? state.homeMarketImpact : {};
+  const sectorPayload = isFreshHomeContextPayload(state.usSectorMoves, now) ? state.usSectorMoves : {};
+  const majorIssue = majorMarketIssueContext(trendPayload, now);
   if (majorIssue) {
     return majorIssue;
   }
-  const sector = usSectorMarketContext();
-  const event = upcomingMarketEventContext();
-  const marketImpact = marketImpactHomeContext();
-  const eventDistance = event?.timestamp ? event.timestamp - Date.now() : Infinity;
+  const sector = usSectorMarketContext(sectorPayload);
+  const event = upcomingMarketEventContext(trendPayload, now);
+  const marketImpact = marketImpactHomeContext(impactPayload);
+  const eventDistance = event?.timestamp ? event.timestamp - now : Infinity;
   if (event && event.importance === "매우 중요" && eventDistance <= 4 * 60 * 60 * 1000) {
     return event;
   }
@@ -6460,15 +6475,20 @@ function homeContextAttentionSentence(context, signalItems = []) {
 }
 
 function latestHomeAiResponseAsOf(asOf = "") {
+  const now = Date.now();
   const candidates = [
     asOf,
     state.homeAiSignalsAsOf,
     state.homeTrendContext?.as_of,
     state.homeMarketImpact?.as_of,
     state.usSectorMoves?.as_of,
-    ...homeTrendTimeline().map((item) => item.published_at),
     ...state.homeMarketIndexItems.flatMap((item) => [item?.updated_at, item?.as_of]),
-  ].map((value) => String(value || "")).filter(Boolean);
+  ].map((value) => String(value || "")).filter((value) => {
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp)
+      && timestamp <= now + 10 * 60 * 1000
+      && timestamp >= now - 5 * PAGE_ENTRY_MINUTE_MS;
+  });
   return candidates.sort((left, right) => (Date.parse(left) || 0) - (Date.parse(right) || 0)).at(-1) || "";
 }
 
@@ -7059,7 +7079,7 @@ function scheduleWatchlistStrategyRender() {
 }
 
 async function loadUsSectorMoves(options = {}) {
-  if (!options.force && state.usSectorMoves) {
+  if (!options.force && options.ttlMs !== 0 && state.usSectorMoves) {
     return state.usSectorMoves;
   }
   try {
@@ -11312,6 +11332,41 @@ function stopHomeMarketIndexRefresh() {
   state.marketIndexRefreshTimer = null;
 }
 
+function stopHomeAiResponseRefresh() {
+  window.clearTimeout(state.homeAiResponseRefreshTimer);
+  state.homeAiResponseRefreshTimer = null;
+}
+
+function scheduleHomeAiResponseRefresh() {
+  stopHomeAiResponseRefresh();
+  if (state.view !== "home" || document.hidden) {
+    return;
+  }
+  state.homeAiResponseRefreshTimer = window.setTimeout(() => {
+    void refreshHomeAiResponseContext();
+  }, PAGE_ENTRY_MINUTE_MS);
+}
+
+async function refreshHomeAiResponseContext(options = {}) {
+  if (state.view !== "home") {
+    return null;
+  }
+  if (state.homeAiResponseRefreshPromise) {
+    return state.homeAiResponseRefreshPromise;
+  }
+  const activeTab = options.activeTab || state.activeTrendTab || "live";
+  const trendTab = activeTab === "impact" ? "live" : activeTab;
+  state.homeAiResponseRefreshPromise = Promise.allSettled([
+    loadTrends(trendTab, { force: false, ttlMs: 0 }),
+    loadHomeMarketImpact({ force: false, ttlMs: 0 }),
+    refreshUsSectorMoves({ force: false, ttlMs: 0 }),
+  ]).finally(() => {
+    state.homeAiResponseRefreshPromise = null;
+    scheduleHomeAiResponseRefresh();
+  });
+  return state.homeAiResponseRefreshPromise;
+}
+
 function startHomeMarketIndexRefresh() {
   stopHomeMarketIndexRefresh();
   if (state.view !== "home") {
@@ -12773,6 +12828,7 @@ document.addEventListener("click", (event) => {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     stopHomeMarketIndexRefresh();
+    stopHomeAiResponseRefresh();
     closeQuoteStream();
     closeWatchlistQuoteStreams();
     closeMarketQuoteStreams();
@@ -12782,8 +12838,7 @@ document.addEventListener("visibilitychange", () => {
   }
   if (state.view === "home") {
     void loadHomeMarketIndices({ force: true, silent: true });
-    void loadTrends(state.activeTrendTab === "impact" ? "live" : state.activeTrendTab || "live", { force: true, ttlMs: 0 });
-    void refreshUsSectorMoves({ force: true, ttlMs: 0 });
+    void refreshHomeAiResponseContext();
     connectUsSectorStream();
   } else if (state.view === "stock" && state.currentStock) {
     connectQuoteStream(state.currentStock);

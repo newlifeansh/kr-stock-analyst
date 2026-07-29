@@ -24,7 +24,10 @@ def test_home_trend_payload_refreshes_ai_response() -> None:
 
     assert "state.homeTrendContext = payload;" in source
     assert 'if (state.view === "home") {\n      renderHomeAiResponse();' in source
-    assert 'void refreshUsSectorMoves({ force: true, ttlMs: 0 });' in source
+    assert "async function refreshHomeAiResponseContext" in source
+    assert "loadTrends(trendTab, { force: false, ttlMs: 0 })" in source
+    assert "refreshUsSectorMoves({ force: false, ttlMs: 0 })" in source
+    assert "scheduleHomeAiResponseRefresh();" in source
     assert "connectUsSectorStream();" in source
 
 
