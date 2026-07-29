@@ -77,6 +77,9 @@ def test_surge_ranking_scans_full_market_and_keeps_only_risers(monkeypatch):
 def test_ranking_preview_and_full_list_share_one_five_minute_snapshot(monkeypatch):
     from app import main
 
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
     calls: list[dict[str, object]] = []
     as_of = datetime(2026, 7, 29, 10, 0, tzinfo=main.KST)
 
@@ -107,10 +110,14 @@ def test_ranking_preview_and_full_list_share_one_five_minute_snapshot(monkeypatc
         lambda now=None: (as_of, as_of + timedelta(minutes=5)),
     )
 
-    preview = main.market_rankings(category="surge", market=None, limit=5, db=object())
-    full = main.market_rankings(category="surge", market=None, limit=30, db=object())
+    preview = main.market_rankings(category="surge", market=None, limit=5, db=session)
+
+    # A fresh in-memory cache represents another Railway worker.  It must
+    # still read exactly the same five-minute ranking from the shared store.
+    monkeypatch.setattr(main, "api_cache", TTLCache(maxsize=8))
+    full = main.market_rankings(category="surge", market=None, limit=30, db=session)
     refreshed_preview = main.market_rankings(
-        category="surge", market=None, limit=5, refresh=True, db=object()
+        category="surge", market=None, limit=5, refresh=True, db=session
     )
 
     assert len(calls) == 1
@@ -121,6 +128,9 @@ def test_ranking_preview_and_full_list_share_one_five_minute_snapshot(monkeypatc
     assert [item["code"] for item in preview["items"]] == [
         item["code"] for item in full["items"][:5]
     ]
+    stored = session.get(main.MarketQuantSignalSnapshot, "market-rank-v1:surge:ALL:202607291000")
+    assert stored is not None
+    session.close()
 
 
 def test_weekend_snapshot_uses_last_completed_weekday(monkeypatch):

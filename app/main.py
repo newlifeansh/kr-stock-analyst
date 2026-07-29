@@ -51,6 +51,7 @@ from app.models import (
     IngestionRun,
     InvestorFlow,
     MacroObservation,
+    MarketQuantSignalSnapshot,
     PushNotificationHistory,
     PushSubscription,
     StockLogo,
@@ -3077,9 +3078,34 @@ def stock_financials(
     return list(db.scalars(statement))
 
 
-def _market_ranking_snapshot_key(category: str, market: Optional[str]) -> tuple[str, str, str]:
+MARKET_RANKING_SNAPSHOT_VERSION = "market-rank-v1"
+MARKET_RANKING_SNAPSHOT_RETENTION = timedelta(days=3)
+
+
+def _market_ranking_snapshot_key(
+    category: str,
+    market: Optional[str],
+    window_start: datetime,
+) -> tuple[str, str, str, str]:
     normalized_market = (market or "ALL").strip().upper()
-    return ("market_ranking_snapshot", category, normalized_market)
+    return (
+        "market_ranking_snapshot",
+        category,
+        normalized_market,
+        window_start.strftime("%Y%m%d%H%M"),
+    )
+
+
+def _market_ranking_snapshot_store_key(
+    category: str,
+    market: Optional[str],
+    window_start: datetime,
+) -> str:
+    normalized_market = (market or "ALL").strip().upper()
+    return (
+        f"{MARKET_RANKING_SNAPSHOT_VERSION}:{category}:{normalized_market}:"
+        f"{window_start.strftime('%Y%m%d%H%M')}"
+    )
 
 
 def _market_ranking_snapshot_window(now: Optional[datetime] = None) -> tuple[datetime, datetime]:
@@ -3093,6 +3119,101 @@ def _market_ranking_snapshot_window(now: Optional[datetime] = None) -> tuple[dat
     return window_start, window_start + timedelta(seconds=MARKET_RANKING_TTL_SECONDS)
 
 
+def _market_ranking_snapshot_payload(snapshot: MarketQuantSignalSnapshot) -> Optional[dict[str, Any]]:
+    try:
+        payload = json.loads(snapshot.payload)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    for field in ("as_of", "snapshot_expires_at"):
+        value = payload.get(field)
+        if isinstance(value, str):
+            try:
+                payload[field] = datetime.fromisoformat(value)
+            except ValueError:
+                continue
+    return payload
+
+
+def _load_market_ranking_snapshot(
+    db: Session,
+    *,
+    category: str,
+    market: Optional[str],
+    window_start: datetime,
+) -> Optional[dict[str, Any]]:
+    if not hasattr(db, "get"):
+        return None
+    snapshot = db.get(
+        MarketQuantSignalSnapshot,
+        _market_ranking_snapshot_store_key(category, market, window_start),
+    )
+    if snapshot is None:
+        return None
+    return _market_ranking_snapshot_payload(snapshot)
+
+
+def _save_market_ranking_snapshot(
+    db: Session,
+    payload: dict[str, Any],
+    *,
+    category: str,
+    market: Optional[str],
+    window_start: datetime,
+) -> dict[str, Any]:
+    """Persist one ranking per five-minute KST window for every app worker."""
+    if not all(hasattr(db, attribute) for attribute in ("get", "add", "commit")):
+        return payload
+
+    cache_key = _market_ranking_snapshot_store_key(category, market, window_start)
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        default=lambda value: value.isoformat() if isinstance(value, (date, datetime)) else str(value),
+    )
+    stored_at = window_start.replace(tzinfo=None)
+    snapshot = db.get(MarketQuantSignalSnapshot, cache_key)
+    if snapshot is None:
+        snapshot = MarketQuantSignalSnapshot(
+            cache_key=cache_key,
+            payload=serialized,
+            generated_at=stored_at,
+        )
+        db.add(snapshot)
+    else:
+        snapshot.payload = serialized
+        snapshot.generated_at = stored_at
+
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two Railway workers can cross the five-minute boundary together.
+        # Keep the first committed calculation so all clients see one ranking.
+        db.rollback()
+        persisted = _load_market_ranking_snapshot(
+            db,
+            category=category,
+            market=market,
+            window_start=window_start,
+        )
+        if persisted is not None:
+            return persisted
+        raise
+
+    if window_start.minute == 0 and hasattr(db, "execute"):
+        cutoff = (window_start - MARKET_RANKING_SNAPSHOT_RETENTION).replace(tzinfo=None)
+        db.execute(
+            delete(MarketQuantSignalSnapshot).where(
+                MarketQuantSignalSnapshot.cache_key.like(f"{MARKET_RANKING_SNAPSHOT_VERSION}:%"),
+                MarketQuantSignalSnapshot.generated_at < cutoff,
+            )
+        )
+        db.commit()
+    return payload
+
+
 def _market_ranking_snapshot(
     db: Session,
     *,
@@ -3100,7 +3221,8 @@ def _market_ranking_snapshot(
     market: Optional[str],
     requested_limit: int,
 ) -> dict[str, Any]:
-    key = _market_ranking_snapshot_key(category, market)
+    window_start, window_expires_at = _market_ranking_snapshot_window()
+    key = _market_ranking_snapshot_key(category, market, window_start)
     cached_payload = api_cache.get(key)
     # A manual UI refresh must not reshuffle a ranking that is still being
     # displayed elsewhere.  The snapshot is the source of truth until its
@@ -3108,10 +3230,32 @@ def _market_ranking_snapshot(
     if cached_payload is not None:
         return cached_payload
 
+    persisted_payload = _load_market_ranking_snapshot(
+        db,
+        category=category,
+        market=market,
+        window_start=window_start,
+    )
+    if persisted_payload is not None:
+        ttl_seconds = max(1, int((window_expires_at - datetime.now(KST)).total_seconds()))
+        api_cache.set(key, persisted_payload, ttl_seconds)
+        return persisted_payload
+
     with market_ranking_snapshot_lock:
         cached_payload = api_cache.get(key)
         if cached_payload is not None:
             return cached_payload
+
+        persisted_payload = _load_market_ranking_snapshot(
+            db,
+            category=category,
+            market=market,
+            window_start=window_start,
+        )
+        if persisted_payload is not None:
+            ttl_seconds = max(1, int((window_expires_at - datetime.now(KST)).total_seconds()))
+            api_cache.set(key, persisted_payload, ttl_seconds)
+            return persisted_payload
 
         snapshot_limit = max(MARKET_RANKING_SNAPSHOT_LIMIT, requested_limit)
         payload = build_market_rankings(
@@ -3125,11 +3269,17 @@ def _market_ranking_snapshot(
         if not isinstance(snapshot_as_of, datetime):
             snapshot_as_of = datetime.now(KST)
             payload["as_of"] = snapshot_as_of
-        window_start, window_expires_at = _market_ranking_snapshot_window()
         payload["snapshot_id"] = (
             f"{category}:{(market or 'ALL').upper()}:{window_start.strftime('%Y%m%d%H%M')}"
         )
         payload["snapshot_expires_at"] = window_expires_at
+        payload = _save_market_ranking_snapshot(
+            db,
+            payload,
+            category=category,
+            market=market,
+            window_start=window_start,
+        )
         ttl_seconds = max(1, int((window_expires_at - datetime.now(KST)).total_seconds()))
         api_cache.set(key, payload, ttl_seconds)
         return payload
@@ -3150,7 +3300,8 @@ def market_rankings(
     db: Session = Depends(get_db),
 ):
     normalized_market = (market or "").strip().upper() or None
-    key = _market_ranking_snapshot_key(category, normalized_market)
+    fallback_window_start, _ = _market_ranking_snapshot_window()
+    key = _market_ranking_snapshot_key(category, normalized_market, fallback_window_start)
     cached_payload = api_cache.get(key)
     try:
         payload = _market_ranking_snapshot(
