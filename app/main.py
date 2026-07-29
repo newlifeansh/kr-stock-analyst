@@ -177,6 +177,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
+DASHBOARD_ASSET_VERSION = "20260730v137"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
@@ -666,7 +667,16 @@ def insight_shell():
 def stock_dashboard_shell():
     if not STOCK_DASHBOARD_INDEX.exists():
         raise HTTPException(status_code=404, detail="Stock dashboard UI not found")
-    return HTMLResponse(STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8"))
+    html = STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8").replace(
+        "__DASHBOARD_ASSET_VERSION__", DASHBOARD_ASSET_VERSION
+    )
+    return HTMLResponse(
+        html,
+        headers={
+            "Cache-Control": "no-store, max-age=0, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/portfolio")
@@ -702,7 +712,11 @@ def stock_dashboard_manifest():
 def stock_dashboard_service_worker():
     if not DASHBOARD_SERVICE_WORKER.exists():
         raise HTTPException(status_code=404, detail="Dashboard service worker not found")
-    return FileResponse(DASHBOARD_SERVICE_WORKER, media_type="application/javascript")
+    return FileResponse(
+        DASHBOARD_SERVICE_WORKER,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache, max-age=0, must-revalidate"},
+    )
 
 
 @app.get("/nasdaq.webmanifest")
