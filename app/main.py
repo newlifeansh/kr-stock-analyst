@@ -142,7 +142,7 @@ from app.services.quant_signals import (
     load_quant_signal_payload,
     save_market_quant_signal_snapshot,
 )
-from app.services.stock_dashboard import build_stock_dashboard, ensure_stock_price_history
+from app.services.stock_dashboard import _chart_analysis, build_stock_dashboard, ensure_stock_price_history
 from app.services.stock_data_coverage import stock_data_coverage
 from app.services.stock_logos import ensure_stock_logo, fallback_stock_logo_bytes, sync_stock_logos
 from app.services.x_feed import build_stock_x_feed
@@ -2234,7 +2234,7 @@ def _enrich_uncached_kis_quote(payload: Optional[dict[str, Any]], code: str, db:
                     select(DailyPrice)
                     .where(DailyPrice.code == code)
                     .order_by(DailyPrice.trade_date.desc())
-                    .limit(64)
+                    .limit(260)
                 )
             )
         )
@@ -2247,6 +2247,12 @@ def _enrich_uncached_kis_quote(payload: Optional[dict[str, Any]], code: str, db:
         momentum["three_month_return"] = _live_period_return(live_quote["price"], three_month_reference)
         if live_quote.get("trading_value") is not None:
             momentum["latest_trading_value"] = live_quote["trading_value"]
+    if isinstance(payload.get("chart_analysis"), dict):
+        payload["chart_analysis"] = _chart_analysis(
+            rows,
+            current_price=live_quote["price"],
+            current_volume=live_quote.get("volume"),
+        )
     return True
 
 

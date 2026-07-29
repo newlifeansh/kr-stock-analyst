@@ -789,10 +789,19 @@ def _atr_percent(prices: list[DailyPrice], window: int = 14) -> Optional[Decimal
     return _round_decimal(atr / Decimal(str(latest_close)) * Decimal("100"))
 
 
-def _chart_analysis(prices: list[DailyPrice]) -> dict[str, object]:
+def _chart_analysis(
+    prices: list[DailyPrice],
+    *,
+    current_price: Optional[int] = None,
+    current_volume: Optional[int] = None,
+) -> dict[str, object]:
     latest = prices[-1] if prices else None
-    latest_close = latest.close if latest else None
-    latest_volume = latest.volume if latest else None
+    daily_close = latest.close if latest else None
+    # Intraday KIS quotes are the decision anchor. Historical indicators stay on
+    # completed daily candles so an in-progress session cannot distort them.
+    use_live_quote = current_price is not None and current_price > 0
+    latest_close = current_price if use_live_quote else daily_close
+    latest_volume = current_volume if current_volume is not None else (latest.volume if latest else None)
     ma5 = _moving_average(prices, 5)
     ma20 = _moving_average(prices, 20)
     ma60 = _moving_average(prices, 60)
@@ -825,6 +834,9 @@ def _chart_analysis(prices: list[DailyPrice]) -> dict[str, object]:
             "trend": "판단 불가",
             "setup": "대기",
             "risk_level": "높음",
+            "reference_price": None,
+            "daily_close": daily_close,
+            "reference_price_source": "unavailable",
             "moving_averages": {"ma5": ma5, "ma20": ma20, "ma60": ma60, "ma120": ma120},
             "volume_ratio": volume_ratio,
             "atr_percent": atr,
@@ -934,6 +946,9 @@ def _chart_analysis(prices: list[DailyPrice]) -> dict[str, object]:
         "trend": trend,
         "setup": setup,
         "risk_level": risk_level,
+        "reference_price": latest_close,
+        "daily_close": daily_close,
+        "reference_price_source": "kis_live" if use_live_quote else "daily_close",
         "moving_averages": {"ma5": ma5, "ma20": ma20, "ma60": ma60, "ma120": ma120},
         "volume_ratio": volume_ratio,
         "atr_percent": atr,

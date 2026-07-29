@@ -2,6 +2,7 @@ from datetime import date, timedelta
 from types import SimpleNamespace
 
 from app.services.chart_patterns import detect_chart_patterns
+from app.services.stock_dashboard import _chart_analysis
 
 
 def _price_rows(control_points: list[tuple[int, float]]):
@@ -60,3 +61,15 @@ def test_pattern_output_is_bounded_and_excludes_invalid_candidates():
     assert len(patterns) <= 3
     assert all(pattern["status"] in {"확인", "후보"} for pattern in patterns)
     assert all(0 <= pattern["confidence"] <= 100 for pattern in patterns)
+
+
+def test_chart_analysis_uses_live_quote_as_the_decision_reference():
+    rows = _price_rows([(0, 100), (60, 120), (130, 130)])
+
+    analysis = _chart_analysis(rows, current_price=160, current_volume=9_999)
+
+    assert analysis["reference_price"] == 160
+    assert analysis["daily_close"] == 130
+    assert analysis["reference_price_source"] == "kis_live"
+    assert analysis["distance_to_resistance"] is not None
+    assert analysis["distance_to_resistance"] > 0

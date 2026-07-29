@@ -8131,11 +8131,12 @@ function chartPatternTone(pattern) {
   return "neutral";
 }
 
-function computeChartForecast(analysis, horizon = 5) {
+function computeChartForecast(analysis, horizon = 5, liveCurrentPrice = null) {
   const days = horizon === 10 ? 10 : 5;
   const rows = (analysis?.prices || []).filter((row) => toNumber(row.close) !== null);
   const closes = rows.map((row) => toNumber(row.close));
-  const current = closes.at(-1) ?? null;
+  const lastDailyClose = closes.at(-1) ?? null;
+  const current = toNumber(liveCurrentPrice) ?? lastDailyClose;
   if (current === null || closes.length < 30) {
     return { days, available: false, reason: "예상 범위를 계산하려면 최소 30거래일의 가격이 필요합니다." };
   }
@@ -8184,6 +8185,7 @@ function computeChartForecast(analysis, horizon = 5) {
     days,
     available: true,
     current,
+    dailyClose: lastDailyClose,
     expected,
     expectedRate,
     dailyDrift,
@@ -8210,6 +8212,8 @@ function createChartForecastSvg(analysis, forecast) {
   if (actual.length < 2 || !forecast?.available) {
     return "";
   }
+  // The final point is the current KIS quote; prior points remain completed candles.
+  actual[actual.length - 1] = { ...actual.at(-1), close: forecast.current };
   const width = 720;
   const height = 330;
   const left = 24;
@@ -8354,7 +8358,7 @@ function renderChartForecastResult(result, horizon = 5) {
   }
   const { item, analysis, dashboard } = result;
   attachChartPatterns(analysis, dashboard);
-  const forecast = computeChartForecast(analysis, horizon);
+  const forecast = computeChartForecast(analysis, horizon, dashboard?.quote?.price);
   elements.chartStartGuide?.setAttribute("hidden", "");
   elements.watchChartList.innerHTML = "";
   const section = el("section", "chart-forecast-page");
@@ -8367,7 +8371,7 @@ function renderChartForecastResult(result, horizon = 5) {
     el("h1", "", item.name || dashboard.name || item.code),
     el("p", "", [item.code, item.market || dashboard.market].filter(Boolean).join(" · ")),
   );
-  const basis = formatDateLabel(analysis.latest?.date || dashboard?.quote?.as_of || dashboard?.as_of);
+  const basis = formatDateLabel(dashboard?.quote?.as_of || analysis.latest?.date || dashboard?.as_of);
   header.append(heading, el("time", "chart-forecast-basis", `${basis} 기준`));
 
   const controls = el("div", "chart-forecast-controls");
@@ -9105,11 +9109,10 @@ async function refreshWatchChartCard(card, button) {
   button.textContent = "갱신 중";
   try {
     clearCachedUrl(`/stocks/${encodeURIComponent(code)}/prices?limit=260`);
-    clearCachedUrl(`/stocks/${encodeURIComponent(code)}/dashboard?refresh=1&include_profile=0`);
-    clearCachedUrl(`/stocks/${encodeURIComponent(code)}/dashboard?include_profile=0`);
+    clearCachedUrl(`/stocks/${encodeURIComponent(code)}/dashboard?include_profile=0&include_live=1`);
     const [prices, dashboard] = await Promise.all([
       fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/prices?limit=260`), { force: true, ttlMs: 0 }),
-      fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/dashboard?refresh=1&include_profile=0`), { force: true, ttlMs: 0 }),
+      fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/dashboard?include_profile=0&include_live=1`), { force: true, ttlMs: 0 }),
     ]);
     const analysis = prices.length ? attachChartPatterns(computeWatchChart(prices), dashboard) : null;
     const next = { item: current.item, prices, dashboard, analysis };
@@ -9163,7 +9166,7 @@ async function loadWatchCharts(options = {}) {
           const [prices, dashboard] = await Promise.race([
             Promise.all([
               fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/prices?limit=260`, { force, ttlMs: force ? 0 : ttlMs }),
-              fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0&include_live=0`, { force, ttlMs: force ? 0 : ttlMs }),
+              fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(item.code)}/dashboard?include_profile=0&include_live=1`), { force: true, ttlMs: 0 }),
             ]),
             rejectAfter(15_000, "watch chart timeout"),
           ]);

@@ -407,6 +407,9 @@ class DashboardChartAnalysisOut(BaseModel):
     trend: str
     setup: str
     risk_level: str
+    reference_price: Optional[int] = None
+    daily_close: Optional[int] = None
+    reference_price_source: str = "daily_close"
     moving_averages: dict[str, Optional[Decimal]]
     volume_ratio: Optional[Decimal] = None
     atr_percent: Optional[Decimal] = None
