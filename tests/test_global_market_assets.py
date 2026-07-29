@@ -87,6 +87,35 @@ def test_live_global_asset_calculates_session_and_intraday_points(monkeypatch):
     assert [point["value"] for point in item["points"]] == [7410.0, 7420.0]
 
 
+def test_live_global_asset_marks_us_premarket_as_active(monkeypatch):
+    monkeypatch.setattr(
+        global_market_assets,
+        "_fetch_yahoo_chart",
+        lambda _symbol: {
+            "meta": {
+                "regularMarketPrice": 7420.0,
+                "previousClose": 7400.0,
+                "regularMarketTime": 1785240000,
+                "currentTradingPeriod": {
+                    "pre": {"start": 1785210000, "end": 1785220000},
+                    "regular": {"start": 1785220000, "end": 1785240000},
+                    "post": {"start": 1785240000, "end": 1785250000},
+                },
+            },
+            "timestamp": [1785211000],
+            "indicators": {"quote": [{"close": [7410.0]}]},
+        },
+    )
+
+    item = global_market_assets._live_asset(
+        ("SP500", "S&P 500", "^GSPC", "index"),
+        datetime.fromtimestamp(1785215000, tz=timezone.utc),
+    )
+
+    assert item["market_session"] == "pre_market"
+    assert item["is_realtime"] is True
+
+
 def test_merge_global_market_assets_replaces_only_available_live_items():
     stored = {
         "items": [

@@ -123,10 +123,28 @@ def _fetch_yahoo_chart(symbol: str) -> dict[str, Any]:
     return {}
 
 
+def _market_session(meta: dict[str, Any], now: datetime) -> str:
+    """Return the active Yahoo market period using the provider's own schedule."""
+    periods = meta.get("currentTradingPeriod") or {}
+    now_epoch = int(now.timestamp())
+    for period_name, session_name in (
+        ("pre", "pre_market"),
+        ("regular", "open"),
+        ("post", "after_hours"),
+    ):
+        period = periods.get(period_name) or {}
+        start = _number(period.get("start"))
+        end = _number(period.get("end"))
+        if start is not None and end is not None and start <= now_epoch < end:
+            return session_name
+    return "closed"
+
+
 def _live_asset(definition: tuple[str, str, str, str], now: datetime) -> dict[str, object]:
     code, label, symbol, unit = definition
     result = _fetch_yahoo_chart(symbol)
     meta = result.get("meta") or {}
+    now_epoch = int(now.timestamp())
     timestamps = result.get("timestamp") or []
     quote = (((result.get("indicators") or {}).get("quote") or [{}])[0]) or {}
     closes = quote.get("close") or []
@@ -143,9 +161,8 @@ def _live_asset(definition: tuple[str, str, str, str], now: datetime) -> dict[st
         previous = _number(meta.get("chartPreviousClose"))
     change = current - previous if current is not None and previous is not None else None
     change_rate = change / previous * 100 if change is not None and previous not in (None, 0) else None
-    period = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
-    now_epoch = int(now.timestamp())
-    is_realtime = bool(period.get("start") and period.get("end") and int(period["start"]) <= now_epoch <= int(period["end"]))
+    market_session = _market_session(meta, now)
+    is_realtime = market_session in {"pre_market", "open", "after_hours"}
     updated_epoch = int(meta.get("regularMarketTime") or (values[-1][0] if values else now_epoch))
     updated_at = datetime.fromtimestamp(updated_epoch, tz=timezone.utc).isoformat(timespec="minutes")
     points = [
@@ -165,7 +182,7 @@ def _live_asset(definition: tuple[str, str, str, str], now: datetime) -> dict[st
         "change": change,
         "change_rate": change_rate,
         "points": points,
-        "market_session": "open" if is_realtime else "closed",
+        "market_session": market_session,
         "is_realtime": is_realtime,
     }
 

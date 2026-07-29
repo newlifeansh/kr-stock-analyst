@@ -11086,6 +11086,29 @@ function restoreTrendChrome(activeTab = "live") {
 }
 
 const HOME_MARKET_ASSET_ORDER = ["KOSDAQ", "KOSPI", "NASDAQ", "SP500", "GOLD", "OIL"];
+const US_HOME_MARKET_CODES = new Set(["NASDAQ", "SP500"]);
+const ACTIVE_US_MARKET_SESSIONS = new Set(["pre_market", "open", "after_hours"]);
+
+function homeMarketAssetOrder(items = []) {
+  const hasActiveUsSession = items.some(
+    (item) => US_HOME_MARKET_CODES.has(String(item?.code || ""))
+      && ACTIVE_US_MARKET_SESSIONS.has(String(item?.market_session || "")),
+  );
+  if (!hasActiveUsSession) {
+    return HOME_MARKET_ASSET_ORDER;
+  }
+  return ["NASDAQ", "SP500", ...HOME_MARKET_ASSET_ORDER.filter((code) => !US_HOME_MARKET_CODES.has(code))];
+}
+
+function homeMarketSessionLabel(item = {}) {
+  const labels = {
+    pre_market: "프리장",
+    open: "실시간",
+    after_hours: "애프터장",
+    closed: "장마감",
+  };
+  return labels[item.market_session] || (item.is_realtime ? "실시간" : "장마감");
+}
 
 function formatMarketIndexValue(value) {
   const number = toNumber(value);
@@ -11183,8 +11206,9 @@ function createHomeMarketAssetCard(item = {}) {
 
   const basisNode = el("p", "home-index-basis");
   const basis = formatDataBasis(item.updated_at || item.as_of, "").replace(/ 기준$/, "");
-  const session = el("span", "home-index-session", item.is_realtime ? "실시간" : "장마감");
+  const session = el("span", "home-index-session", homeMarketSessionLabel(item));
   session.classList.toggle("is-realtime", Boolean(item.is_realtime));
+  session.classList.toggle("is-premarket", item.market_session === "pre_market");
   basisNode.append(el("time", "", basis || "기준 정보 확인 중"), session);
   card.append(header, value, changeNode, chartNode, basisNode);
   return card;
@@ -11198,7 +11222,7 @@ function renderHomeMarketIndices(payload = {}) {
   state.homeMarketIndexItems = items;
   const byCode = new Map(items.map((item) => [item.code, item]));
   elements.homeMarketCarousel.replaceChildren();
-  HOME_MARKET_ASSET_ORDER.forEach((code) => {
+  homeMarketAssetOrder(items).forEach((code) => {
     const fallbackLabels = { KOSDAQ: "코스닥", KOSPI: "코스피", NASDAQ: "나스닥", SP500: "S&P 500", GOLD: "금", OIL: "원유" };
     elements.homeMarketCarousel.appendChild(createHomeMarketAssetCard(byCode.get(code) || { code, label: fallbackLabels[code] }));
   });
