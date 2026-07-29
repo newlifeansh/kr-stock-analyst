@@ -149,6 +149,19 @@ class MarketQuantSignalSnapshot(Base):
     )
 
 
+class MarketRankingSnapshot(Base):
+    __tablename__ = "market_ranking_snapshot"
+
+    snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    category: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 class WatchlistItem(Base):
     __tablename__ = "watchlist_item"
     __table_args__ = (UniqueConstraint("share_id", "code", name="uq_watchlist_item"),)

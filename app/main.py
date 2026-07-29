@@ -51,6 +51,7 @@ from app.models import (
     IngestionRun,
     InvestorFlow,
     MacroObservation,
+    MarketRankingSnapshot,
     PushNotificationHistory,
     PushSubscription,
     StockLogo,
@@ -212,6 +213,10 @@ WRITE_SESSION_COOKIE = "sn_write_session"
 WRITE_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 LOCAL_ONLY_HOSTS = {"127.0.0.1", "localhost", "::1", "testserver"}
 KST = ZoneInfo("Asia/Seoul")
+SURGE_RANKING_SNAPSHOT_REUSE_SECONDS = MARKET_RANKING_TTL_SECONDS
+SURGE_RANKING_SNAPSHOT_RETENTION = timedelta(days=1)
+SURGE_RANKING_SNAPSHOT_PER_MARKET_LIMIT = 100
+SURGE_RANKING_MARKETS = ("KOSPI", "KOSDAQ")
 PUSH_CONDITION_OPTIONS = [
     {
         "id": "ai_signal",
@@ -3037,14 +3042,187 @@ def stock_financials(
     return list(db.scalars(statement))
 
 
+def _ranking_snapshot_json_default(value: Any) -> str:
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    raise TypeError(f"{type(value).__name__} is not JSON serializable")
+
+
+def _surge_change_rate(item: dict[str, Any]) -> Decimal:
+    try:
+        return Decimal(str(item.get("change_rate") or "0"))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0")
+
+
+def _build_surge_ranking_snapshot_payload(
+    db: Session,
+    *,
+    refresh_live: bool,
+) -> dict[str, Any]:
+    captured_at = datetime.now(KST)
+    markets: dict[str, dict[str, Any]] = {}
+    all_items: list[dict[str, Any]] = []
+    source_values: list[str] = []
+
+    for target_market in SURGE_RANKING_MARKETS:
+        payload = build_market_rankings(
+            db,
+            category="surge",
+            market=target_market,
+            limit=SURGE_RANKING_SNAPSHOT_PER_MARKET_LIMIT,
+            refresh_live=refresh_live,
+        )
+        items = [dict(item) for item in list(payload.get("items") or [])]
+        markets[target_market] = {
+            "source": str(payload.get("source") or "database"),
+            "universe_count": int(payload.get("universe_count") or 0),
+            "matching_count": int(payload.get("matching_count") or len(items)),
+            "items": items,
+        }
+        source_values.append(str(payload.get("source") or "database"))
+        all_items.extend(dict(item) for item in items)
+
+    all_items.sort(key=_surge_change_rate, reverse=True)
+    for rank, item in enumerate(all_items, start=1):
+        item["rank"] = rank
+        item["category"] = "surge"
+
+    markets["ALL"] = {
+        "source": (
+            "naver_market_rise"
+            if "naver_market_rise" in source_values
+            else (source_values[0] if source_values else "database")
+        ),
+        "universe_count": sum(
+            int(markets[name]["universe_count"]) for name in SURGE_RANKING_MARKETS
+        ),
+        "matching_count": len(all_items),
+        "items": all_items,
+    }
+    return {
+        "as_of": captured_at.isoformat(),
+        "markets": markets,
+    }
+
+
+def _load_surge_ranking_snapshot(
+    db: Session,
+    *,
+    snapshot_id: Optional[str],
+    refresh: bool,
+) -> MarketRankingSnapshot:
+    now = datetime.utcnow()
+    if snapshot_id and not refresh:
+        requested = db.get(MarketRankingSnapshot, snapshot_id)
+        if (
+            requested is not None
+            and requested.category == "surge"
+            and requested.expires_at >= now
+        ):
+            return requested
+
+    if not refresh:
+        latest = db.scalar(
+            select(MarketRankingSnapshot)
+            .where(
+                MarketRankingSnapshot.category == "surge",
+                MarketRankingSnapshot.captured_at
+                >= now - timedelta(seconds=SURGE_RANKING_SNAPSHOT_REUSE_SECONDS),
+                MarketRankingSnapshot.expires_at >= now,
+            )
+            .order_by(desc(MarketRankingSnapshot.captured_at))
+            .limit(1)
+        )
+        if latest is not None:
+            return latest
+
+    db.execute(
+        delete(MarketRankingSnapshot).where(MarketRankingSnapshot.expires_at < now)
+    )
+    captured_at = datetime.utcnow()
+    snapshot = MarketRankingSnapshot(
+        snapshot_id=secrets.token_urlsafe(18),
+        category="surge",
+        payload=json.dumps(
+            _build_surge_ranking_snapshot_payload(db, refresh_live=refresh),
+            ensure_ascii=False,
+            default=_ranking_snapshot_json_default,
+        ),
+        captured_at=captured_at,
+        expires_at=captured_at + SURGE_RANKING_SNAPSHOT_RETENTION,
+    )
+    db.add(snapshot)
+    db.commit()
+    return snapshot
+
+
+def _surge_ranking_snapshot_response(
+    snapshot: MarketRankingSnapshot,
+    *,
+    market: Optional[str],
+    limit: int,
+) -> dict[str, Any]:
+    payload = json.loads(snapshot.payload)
+    normalized_market = (market or "ALL").upper()
+    if normalized_market not in {"ALL", *SURGE_RANKING_MARKETS}:
+        normalized_market = "ALL"
+    bucket = dict((payload.get("markets") or {}).get(normalized_market) or {})
+    items = [dict(item) for item in list(bucket.get("items") or [])[:limit]]
+    try:
+        as_of = datetime.fromisoformat(str(payload.get("as_of")))
+    except (TypeError, ValueError):
+        as_of = snapshot.captured_at.replace(tzinfo=KST)
+    return {
+        "category": "surge",
+        "market": None if normalized_market == "ALL" else normalized_market,
+        "as_of": as_of,
+        "source": str(bucket.get("source") or "database"),
+        "universe_count": int(bucket.get("universe_count") or 0),
+        "matching_count": int(bucket.get("matching_count") or len(items)),
+        "items": items,
+        "snapshot_id": snapshot.snapshot_id,
+        "snapshot_captured_at": as_of,
+    }
+
+
 @app.get("/market/rankings", response_model=MarketRankingOut)
 def market_rankings(
     category: str = Query(default="surge", pattern="^(surge|trading_value|valuation|momentum|sentiment)$"),
     market: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=3000),
     refresh: bool = Query(default=False),
+    snapshot_id: Optional[str] = Query(default=None, min_length=8, max_length=128),
     db: Session = Depends(get_db),
 ):
+    if category == "surge":
+        try:
+            snapshot = _load_surge_ranking_snapshot(
+                db,
+                snapshot_id=snapshot_id,
+                refresh=refresh,
+            )
+            return _surge_ranking_snapshot_response(
+                snapshot,
+                market=market,
+                limit=limit,
+            )
+        except Exception:
+            logging.getLogger(__name__).exception("Surge ranking snapshot refresh failed")
+            return {
+                "category": "surge",
+                "market": market,
+                "as_of": datetime.now(KST),
+                "source": "unavailable",
+                "universe_count": 0,
+                "matching_count": 0,
+                "items": [],
+                "snapshot_id": None,
+                "snapshot_captured_at": None,
+            }
+
     key = ("market_rankings", category, market or "", limit)
     cached_payload = api_cache.get(key)
     try:

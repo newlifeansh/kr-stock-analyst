@@ -837,6 +837,8 @@ class MarketRankingOut(BaseModel):
     universe_count: int = 0
     matching_count: int = 0
     items: list[MarketRankingItemOut]
+    snapshot_id: Optional[str] = None
+    snapshot_captured_at: Optional[datetime] = None
 
 
 class RecommendationItemOut(BaseModel):

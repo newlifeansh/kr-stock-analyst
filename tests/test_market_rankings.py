@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -5,8 +6,44 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import DailyPrice, StockMaster
+from app.main import _surge_ranking_snapshot_response
+from app.models import DailyPrice, MarketRankingSnapshot, StockMaster
 from app.services import market_rankings
+
+
+def test_surge_ranking_snapshot_keeps_home_and_more_order_identical():
+    snapshot = MarketRankingSnapshot(
+        snapshot_id="stable-surge-ranking",
+        captured_at=datetime(2026, 7, 29, 9, 0),
+        expires_at=datetime(2026, 7, 30, 9, 0),
+        payload=json.dumps(
+            {
+                "as_of": "2026-07-29T18:00:00+09:00",
+                "markets": {
+                    "ALL": {
+                        "source": "database",
+                        "universe_count": 4,
+                        "matching_count": 4,
+                        "items": [
+                            {"code": "000004", "name": "넷", "change_rate": 30},
+                            {"code": "000003", "name": "셋", "change_rate": 20},
+                            {"code": "000002", "name": "둘", "change_rate": 10},
+                            {"code": "000001", "name": "하나", "change_rate": 5},
+                        ],
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    home = _surge_ranking_snapshot_response(snapshot, market=None, limit=3)
+    more = _surge_ranking_snapshot_response(snapshot, market=None, limit=30)
+
+    assert home["snapshot_id"] == more["snapshot_id"] == "stable-surge-ranking"
+    assert [item["code"] for item in home["items"]] == [
+        item["code"] for item in more["items"][:3]
+    ]
 
 
 def test_preopen_surge_uses_last_completed_session(monkeypatch):

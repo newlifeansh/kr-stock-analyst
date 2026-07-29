@@ -592,6 +592,7 @@ const STOCK_TERM_HELP = {
 };
 
 const requestedView = new URLSearchParams(window.location.search).get("view");
+const requestedMarketRankingSnapshotId = new URLSearchParams(window.location.search).get("snapshot") || "";
 const hasStockDetailPath = window.location.pathname.split("/").filter(Boolean).length > 1;
 const LEGACY_VIEW_MAP = {
   trend: "home",
@@ -656,6 +657,8 @@ const state = {
   watchChartLoadSequence: 0,
   selectedWatchChartCode: "",
   marketRankingCache: new Map(),
+  marketRankingSnapshotId: requestedMarketRankingSnapshotId,
+  marketRankingSnapshotAsOf: "",
   marketLeaderboardItems: [],
   marketLeaderboardVisibleCount: 30,
   marketLeaderboardAsOf: "",
@@ -4006,7 +4009,9 @@ async function refreshCurrentView() {
       await loadRecommendations({ auto: true, force: true, recompute: true });
       return;
     case "movers":
-      state.marketRankingCache.delete(marketRankingKey("surge", currentMarketFilter(), 30));
+      state.marketRankingSnapshotId = "";
+      state.marketRankingSnapshotAsOf = "";
+      state.marketRankingCache.clear();
       await loadMarketRankings({ market: currentMarketFilter(), limit: 30, force: true });
       return;
     case "portfolio":
@@ -5813,7 +5818,7 @@ function setView(requestedViewName) {
     window.scrollTo(0, 0);
     launchBriefPageLoading("AI 추천 설명을 불러오는 중", () => loadRecommendationDetail(code));
   } else if (view === "movers") {
-    history.replaceState(null, "", "/dashboard?view=movers");
+    syncMarketRankingSnapshotUrl();
     const market = currentMarketFilter();
     launchBriefPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings({
       force: false,
@@ -6804,7 +6809,12 @@ async function loadHomeSurgeRankings(options = {}) {
     elements.homeSurgeList.innerHTML = '<p class="muted">급등 종목을 불러오는 중입니다.</p>';
   }
   try {
-    const payload = await requestMarketRanking("surge", "ALL", { force, ttlMs, limit: 5 });
+    const payload = await requestMarketRanking("surge", "ALL", {
+      force,
+      ttlMs,
+      limit: 5,
+      snapshotId: force ? "" : state.marketRankingSnapshotId,
+    });
     if (state.view === "home") {
       renderHomeSurgeRankings(payload);
     }
@@ -6829,8 +6839,19 @@ function setMarketFilter(market) {
   return normalized;
 }
 
-function marketRankingKey(category, market, limit = 30) {
-  return `${market}:surge:${limit}`;
+function marketRankingKey(category, market, limit = 30, snapshotId = "") {
+  return `${market}:surge:${limit}:${snapshotId || "latest"}`;
+}
+
+function syncMarketRankingSnapshotUrl() {
+  if (!state.marketRankingSnapshotId) {
+    history.replaceState(null, "", "/dashboard?view=movers");
+    return;
+  }
+  const snapshotQuery = state.marketRankingSnapshotId
+    ? `&snapshot=${encodeURIComponent(state.marketRankingSnapshotId)}`
+    : "";
+  history.replaceState(null, "", `/dashboard?view=movers${snapshotQuery}`);
 }
 
 function marketCategoryLabel(category) {
@@ -6840,8 +6861,9 @@ function marketCategoryLabel(category) {
 function requestMarketRanking(category, market, options = {}) {
   const normalizedCategory = "surge";
   const limit = Math.max(1, Math.min(3000, Number(options.limit) || 30));
-  const key = marketRankingKey(normalizedCategory, market, limit);
   const force = options.force === true;
+  const snapshotId = force ? "" : String(options.snapshotId || "").trim();
+  const key = marketRankingKey(normalizedCategory, market, limit, snapshotId);
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
   const now = Date.now();
   const cached = state.marketRankingCache.get(key);
@@ -6858,6 +6880,9 @@ function requestMarketRanking(category, market, options = {}) {
   if (force) {
     params.set("refresh", "1");
   }
+  if (snapshotId) {
+    params.set("snapshot_id", snapshotId);
+  }
   if (market !== "ALL") {
     params.set("market", market);
   }
@@ -6868,6 +6893,10 @@ function requestMarketRanking(category, market, options = {}) {
     timeoutMs: 25_000,
   })
     .then((payload) => {
+      if (payload?.snapshot_id) {
+        state.marketRankingSnapshotId = payload.snapshot_id;
+        state.marketRankingSnapshotAsOf = payload.snapshot_captured_at || payload.as_of || "";
+      }
       state.marketRankingCache.set(key, { payload, savedAt: Date.now() });
       return payload;
     })
@@ -6893,8 +6922,9 @@ async function loadMarketRankings(options = {}) {
   const limit = Math.max(1, Math.min(30, Number(options.limit) || 30));
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
+  const snapshotId = force ? "" : state.marketRankingSnapshotId;
   setMarketLeaderboardMode(category === "surge");
-  const key = marketRankingKey(category, market, limit);
+  const key = marketRankingKey(category, market, limit, snapshotId);
   const cached = state.marketRankingCache.get(key);
   if (!force && cached?.payload && Date.now() - (cached.savedAt || 0) <= ttlMs) {
     renderRankings(cached.payload);
@@ -6903,8 +6933,14 @@ async function loadMarketRankings(options = {}) {
   closeMarketQuoteStreams();
   renderRankingMessage("불러오는 중");
   try {
-    const payload = await requestMarketRanking(category, market, { force, ttlMs, limit });
+    const payload = await requestMarketRanking(category, market, {
+      force,
+      ttlMs,
+      limit,
+      snapshotId,
+    });
     if (state.view === "movers" && state.rankingCategory === category && currentMarketFilter() === market) {
+      syncMarketRankingSnapshotUrl();
       renderRankings(payload);
     }
   } catch {
@@ -12194,7 +12230,10 @@ elements.aiSignalsBack?.addEventListener("click", () => {
 for (const tab of elements.aiSignalStageTabs) {
   tab.addEventListener("click", () => setAiSignalStage(tab.dataset.aiSignalStage));
 }
-elements.homeSurgeMore?.addEventListener("click", () => {
+elements.homeSurgeMore?.addEventListener("click", async () => {
+  if (!state.marketRankingSnapshotId) {
+    await loadHomeSurgeRankings({ ttlMs: 0 });
+  }
   setMarketFilter("KOSPI");
   setView("movers");
   window.scrollTo({ top: 0, behavior: "auto" });
