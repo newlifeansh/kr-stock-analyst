@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import hashlib
 import json
 import logging
 from typing import Optional
@@ -82,6 +83,7 @@ PUSH_KIND_TO_CONDITION = {
     "ai_signal": "ai_signal",
     "market_ai_signal": "market_ai_signal",
     "price_move": "price_move",
+    "price_move_digest": "price_move",
     "report": "disclosure_report",
     "disclosure": "disclosure_report",
     "major_event": "major_event",
@@ -216,6 +218,61 @@ def _price_candidate(
         tag=f"price-{item.code}-{direction}",
         occurred_at=now,
         stock_codes=(item.code,),
+    )
+
+
+def _has_price_snapshot(snapshot: dict[str, object]) -> bool:
+    """Return whether a quote has enough data to become a price-alert baseline."""
+    raw_rate = snapshot.get("change_rate_abs")
+    if raw_rate is None:
+        return False
+    try:
+        Decimal(str(raw_rate))
+    except Exception:
+        return False
+    return True
+
+
+def _price_digest_candidate(
+    candidates: list[NotificationCandidate],
+    now: datetime,
+    threshold: Decimal,
+) -> Optional[NotificationCandidate]:
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    sorted_candidates = sorted(candidates, key=lambda item: item.event_key)
+    rising = sum(":rise:" in item.event_key for item in sorted_candidates)
+    falling = len(sorted_candidates) - rising
+    names = [item.title.rsplit(" 급", 1)[0] for item in sorted_candidates]
+    names_text = ", ".join(names[:2])
+    if len(names) > 2:
+        names_text += f" 외 {len(names) - 2}개"
+    if rising and not falling:
+        title = f"관심종목 {len(sorted_candidates)}개 급등"
+        body = f"{names_text}의 상승 폭이 {threshold:.0f}% 기준을 넘었습니다."
+    elif falling and not rising:
+        title = f"관심종목 {len(sorted_candidates)}개 급락"
+        body = f"{names_text}의 하락 폭이 {threshold:.0f}% 기준을 넘었습니다."
+    else:
+        title = f"관심종목 {len(sorted_candidates)}개 변동 알림"
+        body = f"{names_text}의 등락 폭이 {threshold:.0f}% 기준을 넘었습니다."
+    event_hash = hashlib.sha256(
+        "|".join(item.event_key for item in sorted_candidates).encode("utf-8")
+    ).hexdigest()[:16]
+    return NotificationCandidate(
+        event_key=f"price-digest:{now.date().isoformat()}:{threshold}:{event_hash}",
+        kind="price_move_digest",
+        title=title,
+        body=body,
+        url="/dashboard?view=portfolio",
+        tag=f"price-digest-{now.date().isoformat()}",
+        occurred_at=now,
+        stock_codes=tuple(
+            code for item in sorted_candidates for code in item.stock_codes
+        ),
     )
 
 
@@ -629,6 +686,77 @@ class WebPushRuntime:
             )
 
     @staticmethod
+    def _price_baseline_marker_key(subscription: PushSubscription, item: WatchlistItem) -> str:
+        subscription_epoch = subscription.created_at.isoformat(timespec="microseconds")
+        watch_epoch = item.created_at.isoformat(timespec="microseconds")
+        return f"price-baseline:{item.code}:{subscription_epoch}:{watch_epoch}"
+
+    def _initialized_price_codes(
+        self,
+        db: Session,
+        subscription: PushSubscription,
+        items: list[WatchlistItem],
+    ) -> set[str]:
+        marker_by_code = {
+            item.code: self._price_baseline_marker_key(subscription, item)
+            for item in items
+        }
+        if not marker_by_code:
+            return set()
+        existing = set(
+            db.scalars(
+                select(PushDelivery.event_key).where(
+                    PushDelivery.subscription_id == subscription.id,
+                    PushDelivery.event_key.in_(tuple(marker_by_code.values())),
+                    PushDelivery.status == "baseline",
+                )
+            )
+        )
+        return {code for code, marker in marker_by_code.items() if marker in existing}
+
+    def _mark_price_watchlist_initialized(
+        self,
+        db: Session,
+        subscription: PushSubscription,
+        items: list[WatchlistItem],
+        snapshots: dict[str, dict[str, object]],
+        initialized_codes: set[str],
+    ) -> None:
+        for item in items:
+            if item.code in initialized_codes or not _has_price_snapshot(snapshots.get(item.code, {})):
+                continue
+            db.add(
+                PushDelivery(
+                    subscription_id=subscription.id,
+                    event_key=self._price_baseline_marker_key(subscription, item),
+                    notification_kind="baseline",
+                    title=f"{item.name} 시세 알림 기준선",
+                    status="baseline",
+                    attempts=0,
+                )
+            )
+
+    @staticmethod
+    def _new_candidates(
+        db: Session,
+        subscription: PushSubscription,
+        candidates: list[NotificationCandidate],
+    ) -> list[NotificationCandidate]:
+        if not candidates:
+            return []
+        event_keys = tuple(candidate.event_key for candidate in candidates)
+        recorded = set(
+            db.scalars(
+                select(PushDelivery.event_key).where(
+                    PushDelivery.subscription_id == subscription.id,
+                    PushDelivery.event_key.in_(event_keys),
+                    PushDelivery.status.in_(("sent", "baseline")),
+                )
+            )
+        )
+        return [candidate for candidate in candidates if candidate.event_key not in recorded]
+
+    @staticmethod
     def _market_signal_baseline_marker_key(subscription: PushSubscription) -> str:
         preference_epoch = (subscription.updated_at or subscription.created_at).isoformat(
             timespec="microseconds"
@@ -722,13 +850,38 @@ class WebPushRuntime:
             for subscription in subscriptions:
                 items = watchlists.get(subscription.share_id, [])
                 initialized_codes = self._initialized_watch_codes(db, subscription, items)
+                initialized_price_codes = self._initialized_price_codes(db, subscription, items)
+                price_candidates: list[NotificationCandidate] = []
                 for candidate in candidates_by_share.get(subscription.share_id, []):
                     related_codes = set(candidate.stock_codes)
+                    if candidate.kind == "price_move":
+                        if related_codes and not (related_codes & initialized_price_codes):
+                            self._record_candidate_baseline(db, subscription, candidate)
+                        else:
+                            price_candidates.append(candidate)
+                        continue
                     if related_codes and not (related_codes & initialized_codes):
                         self._record_candidate_baseline(db, subscription, candidate)
                         continue
                     sent += int(self._send(db, subscription, candidate))
                 self._mark_watchlist_initialized(db, subscription, items, initialized_codes)
+                new_price_candidates = self._new_candidates(db, subscription, price_candidates)
+                price_digest = _price_digest_candidate(new_price_candidates, now_kst, threshold)
+                if price_digest and candidate_enabled(subscription, price_digest):
+                    if self._send(db, subscription, price_digest):
+                        for candidate in new_price_candidates:
+                            self._record_candidate_baseline(db, subscription, candidate)
+                        sent += 1
+                elif price_digest:
+                    for candidate in new_price_candidates:
+                        self._record_candidate_baseline(db, subscription, candidate)
+                self._mark_price_watchlist_initialized(
+                    db,
+                    subscription,
+                    items,
+                    snapshots,
+                    initialized_price_codes,
+                )
                 if "market_ai_signal" in subscription_conditions(subscription):
                     if self._market_signal_initialized(db, subscription):
                         for candidate in market_signal_candidates:

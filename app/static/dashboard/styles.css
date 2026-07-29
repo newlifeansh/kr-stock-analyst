@@ -1386,7 +1386,7 @@ body:not([data-view="stock"]) .home-market-signal-skeleton::after {
   background: #d89a10;
 }
 
-.notifications-page .push-history-item:is(.kind-price_move, .kind-report, .kind-disclosure)::before {
+.notifications-page .push-history-item:is(.kind-price_move, .kind-price_move_digest, .kind-report, .kind-disclosure)::before {
   background: #2776dd;
 }
 

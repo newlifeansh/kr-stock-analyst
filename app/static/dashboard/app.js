@@ -4803,13 +4803,14 @@ const PUSH_HISTORY_KIND_LABELS = {
   ai_signal: "AI 매매신호",
   market_ai_signal: "시장 AI 매매신호",
   price_move: "시세",
+  price_move_digest: "시세",
   report: "리포트",
   disclosure: "공시",
   major_event: "주요 이벤트",
   test: "테스트",
 };
 
-const PUSH_HISTORY_WATCHLIST_KINDS = new Set(["price_move", "report", "disclosure"]);
+const PUSH_HISTORY_WATCHLIST_KINDS = new Set(["price_move", "price_move_digest", "report", "disclosure"]);
 
 function pushHistoryCacheKey() {
   return scopedStorageKey(PUSH_HISTORY_CACHE_PREFIX);

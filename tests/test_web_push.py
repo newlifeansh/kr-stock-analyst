@@ -50,6 +50,77 @@ def test_price_candidate_requires_five_percent_move():
     assert candidate.event_key == "price:2026-07-22:005930:fall:5"
 
 
+def test_price_digest_groups_multiple_moves_into_one_notification():
+    now = datetime(2026, 7, 22, 10, 0)
+    candidates = [
+        web_push.NotificationCandidate(
+            event_key="price:2026-07-22:005930:fall:5",
+            kind="price_move",
+            title="삼성전자 급락 -6.25%",
+            body="기준을 넘었습니다.",
+            url="/dashboard/삼성전자",
+            tag="price-005930-fall",
+            stock_codes=("005930",),
+        ),
+        web_push.NotificationCandidate(
+            event_key="price:2026-07-22:000660:fall:5",
+            kind="price_move",
+            title="SK하이닉스 급락 -5.80%",
+            body="기준을 넘었습니다.",
+            url="/dashboard/SK하이닉스",
+            tag="price-000660-fall",
+            stock_codes=("000660",),
+        ),
+    ]
+
+    digest = web_push._price_digest_candidate(candidates, now, Decimal("5"))
+
+    assert digest is not None
+    assert digest.kind == "price_move_digest"
+    assert digest.title == "관심종목 2개 급락"
+    assert "삼성전자" in digest.body
+    assert "SK하이닉스" in digest.body
+    assert digest.url == "/dashboard?view=portfolio"
+
+
+def test_price_alert_baseline_waits_until_a_valid_quote_is_available():
+    db = _session()
+    try:
+        subscription = PushSubscription(
+            share_id="tester",
+            endpoint="https://push.example/subscription",
+            p256dh="p" * 64,
+            auth="a" * 24,
+        )
+        item = WatchlistItem(
+            share_id="tester",
+            code="005930",
+            name="삼성전자",
+            market="KOSPI",
+        )
+        db.add_all([subscription, item])
+        db.commit()
+        db.refresh(subscription)
+        db.refresh(item)
+        runtime = web_push.WebPushRuntime(_settings())
+
+        runtime._mark_price_watchlist_initialized(db, subscription, [item], {}, set())
+        db.commit()
+        assert runtime._initialized_price_codes(db, subscription, [item]) == set()
+
+        runtime._mark_price_watchlist_initialized(
+            db,
+            subscription,
+            [item],
+            {"005930": {"change_rate_abs": Decimal("1.2")}},
+            set(),
+        )
+        db.commit()
+        assert runtime._initialized_price_codes(db, subscription, [item]) == {"005930"}
+    finally:
+        db.close()
+
+
 def test_important_disclosure_filters_generic_filing():
     generic = DisclosureItem(
         source="dart",
