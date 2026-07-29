@@ -43,12 +43,12 @@ DEFAULT_EXECUTION_COST_PER_SIDE = 0.002
 MARKET_SIGNAL_UNIVERSE_LIMIT = 5_000
 MARKET_SIGNAL_FEED_LIMIT = 5_000
 MARKET_SIGNAL_RECENT_DAYS = 7
-MARKET_SIGNAL_BATCH_SIZE = 180
+MARKET_SIGNAL_BATCH_SIZE = 360
 # The daily market-cap feed can finish after the price feed. Signal coverage
 # must follow the latest complete price date so a partial cap snapshot never
 # shrinks the all-listed-stock scan.
 MARKET_SIGNAL_MIN_COVERAGE_RATIO = 0.90
-MARKET_SIGNAL_SNAPSHOT_VERSION = "v4"
+MARKET_SIGNAL_SNAPSHOT_VERSION = "v5"
 
 POSITIVE_WORDS = (
     "상향",
@@ -593,6 +593,108 @@ def _simulate(bars: list[PriceBar], indicators: list[dict[str, float]]) -> dict[
         },
         "pending": pending,
     }
+
+
+def _recent_market_signal_events(
+    bars: list[PriceBar],
+    indicators: list[dict[str, float]],
+    *,
+    cutoff: date,
+) -> list[dict[str, Any]]:
+    """Return only recent transitions for the market-wide signal feed.
+
+    The full simulator also builds equity curves and trade-performance details.
+    The market feed needs neither, so it follows the same state transitions while
+    keeping the all-listed-stock snapshot fast enough for regular refreshes.
+    """
+    if len(bars) < MIN_HISTORY_ROWS or len(bars) != len(indicators):
+        return []
+
+    start_index = max(WARMUP_ROWS, len(bars) - BACKTEST_ROWS)
+    pending: Optional[dict[str, Any]] = None
+    position: Optional[dict[str, Any]] = None
+    events: list[dict[str, Any]] = []
+
+    for index in range(start_index, len(bars)):
+        bar = bars[index]
+        indicator = indicators[index]
+
+        if pending:
+            execution_price = bar.open or bar.close
+            event: Optional[dict[str, Any]] = None
+            if pending["side"] == "buy":
+                initial_risk = max(float(pending["atr"]) * INITIAL_STOP_ATR, execution_price * 0.01)
+                position = {
+                    "entry_price": execution_price,
+                    "peak_price": execution_price,
+                    "initial_stop": max(1.0, execution_price - initial_risk),
+                    "initial_risk": initial_risk,
+                    "partial_exit_done": False,
+                }
+                event = {
+                    "signal_date": pending["signal_date"],
+                    "execution_date": bar.trade_date,
+                    "side": "buy",
+                    "price": _price(execution_price),
+                }
+            elif pending["side"] == "partial_sell" and position:
+                position["partial_exit_done"] = True
+                event = {
+                    "signal_date": pending["signal_date"],
+                    "execution_date": bar.trade_date,
+                    "side": "partial_sell",
+                    "price": _price(execution_price),
+                }
+            elif position:
+                event = {
+                    "signal_date": pending["signal_date"],
+                    "execution_date": bar.trade_date,
+                    "side": "sell",
+                    "price": _price(execution_price),
+                }
+                position = None
+            if event and event["execution_date"] >= cutoff:
+                events.append(event)
+            pending = None
+
+        if position:
+            position["peak_price"] = max(float(position["peak_price"]), bar.close)
+
+        if index >= len(bars) - 1:
+            continue
+        if position:
+            should_exit, reason, _ = _full_exit_signal(
+                bar,
+                indicator,
+                position,
+                float(position["peak_price"]),
+            )
+            should_partial, partial_reason, _ = _partial_exit_signal(
+                bar,
+                indicator,
+                position,
+                float(position["peak_price"]),
+            )
+            if should_exit:
+                pending = {
+                    "side": "sell",
+                    "signal_date": bar.trade_date,
+                    "reason": reason,
+                }
+            elif should_partial:
+                pending = {
+                    "side": "partial_sell",
+                    "signal_date": bar.trade_date,
+                    "reason": partial_reason,
+                }
+        elif _entry_signal(bar, indicator):
+            pending = {
+                "side": "buy",
+                "signal_date": bar.trade_date,
+                "atr": indicator["atr"],
+            }
+
+    return events
 
 
 def _factor_state(score: float) -> str:
@@ -1391,9 +1493,18 @@ def load_market_quant_signal_feed(
     stock_codes = list(stock_by_code)
     for start in range(0, len(stock_codes), MARKET_SIGNAL_BATCH_SIZE):
         batch_codes = stock_codes[start : start + MARKET_SIGNAL_BATCH_SIZE]
-        prices_by_code: dict[str, list[DailyPrice]] = {code: [] for code in batch_codes}
-        price_rows = db.scalars(
-            select(DailyPrice)
+        prices_by_code: dict[str, list[PriceBar]] = {code: [] for code in batch_codes}
+        price_rows = db.execute(
+            select(
+                DailyPrice.code,
+                DailyPrice.trade_date,
+                DailyPrice.open,
+                DailyPrice.high,
+                DailyPrice.low,
+                DailyPrice.close,
+                DailyPrice.volume,
+                DailyPrice.trading_value,
+            )
             .where(
                 DailyPrice.code.in_(batch_codes),
                 DailyPrice.trade_date >= history_start,
@@ -1401,18 +1512,33 @@ def load_market_quant_signal_feed(
             )
             .order_by(DailyPrice.code, DailyPrice.trade_date)
         )
-        for price_row in price_rows:
-            prices_by_code.setdefault(price_row.code, []).append(price_row)
+        for code, trade_date, open_price, high, low, close, volume, trading_value in price_rows:
+            normalized_close = _safe_number(close)
+            if normalized_close is None:
+                continue
+            normalized_open = _safe_number(open_price) or normalized_close
+            normalized_high = max(_safe_number(high) or normalized_close, normalized_close, normalized_open)
+            normalized_low = min(_safe_number(low) or normalized_close, normalized_close, normalized_open)
+            prices_by_code.setdefault(code, []).append(
+                PriceBar(
+                    trade_date=trade_date,
+                    open=normalized_open,
+                    high=normalized_high,
+                    low=normalized_low,
+                    close=normalized_close,
+                    volume=max(0.0, float(volume or 0)),
+                    trading_value=max(0.0, float(trading_value or 0)),
+                )
+            )
 
         for code in batch_codes:
             stock = stock_by_code[code]
-            payload = build_quant_signal_payload(
-                stock,
-                prices_by_code.get(code, []),
-                now=current_time,
-                context=None,
+            bars = _confirmed_bars(prices_by_code.get(code, []), current_time)
+            events = _recent_market_signal_events(
+                bars,
+                _indicator_rows(bars),
+                cutoff=cutoff,
             )
-            events = payload.get("events") or []
             latest_event = next(
                 (
                     event

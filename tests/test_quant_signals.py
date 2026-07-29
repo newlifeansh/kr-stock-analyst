@@ -112,6 +112,34 @@ def test_quant_lifecycle_keeps_half_exposure_after_partial_exit():
     assert payload["events"][-1]["label"] == "1차 분할매도"
 
 
+def test_market_feed_transition_scan_matches_the_detail_strategy():
+    rows = _price_rows("005930")
+    now = datetime(2026, 7, 25, 12, 0)
+    detail = build_quant_signal_payload(_stock(), rows, now=now)
+    bars = quant_signals._confirmed_bars(quant_signals._normalize_prices(rows), now)
+    cutoff = bars[0].trade_date
+
+    compact_events = quant_signals._recent_market_signal_events(
+        bars,
+        quant_signals._indicator_rows(bars),
+        cutoff=cutoff,
+    )
+    detail_events = [
+        event
+        for event in detail["events"]
+        if event["execution_date"] >= cutoff
+    ]
+
+    assert detail_events
+    assert [
+        (event["signal_date"], event["execution_date"], event["side"], event["price"])
+        for event in compact_events
+    ] == [
+        (event["signal_date"], event["execution_date"], event["side"], event["price"])
+        for event in detail_events
+    ]
+
+
 def test_future_price_changes_do_not_rewrite_past_signals():
     rows = _price_rows("005930")
     changed_rows = _price_rows("005930")
@@ -295,17 +323,15 @@ def test_market_quant_signal_feed_uses_market_cap_top_universe_and_normalizes_se
 
     monkeypatch.setattr(
         quant_signals,
-        "build_quant_signal_payload",
-        lambda stock, _rows, **_kwargs: {
-            "events": [
-                {
-                    "signal_date": trade_date - timedelta(days=1),
-                    "execution_date": trade_date,
-                    "side": "buy" if stock.code == "000001" else "partial_sell",
-                    "price": 100_000,
-                }
-            ]
-        },
+        "_recent_market_signal_events",
+        lambda bars, _indicators, **_kwargs: [
+            {
+                "signal_date": trade_date - timedelta(days=1),
+                "execution_date": trade_date,
+                "side": "buy" if bars[-1].close == 100_000 else "partial_sell",
+                "price": 100_000,
+            }
+        ],
     )
     payload = load_market_quant_signal_feed(
         db,
@@ -338,17 +364,15 @@ def test_market_quant_signal_feed_includes_lower_ranked_active_stocks(monkeypatc
 
     monkeypatch.setattr(
         quant_signals,
-        "build_quant_signal_payload",
-        lambda stock, _rows, **_kwargs: {
-            "events": [
-                {
-                    "signal_date": trade_date,
-                    "execution_date": trade_date,
-                    "side": "buy" if stock.code == "000003" else "sell",
-                    "price": 100_000,
-                }
-            ]
-        },
+        "_recent_market_signal_events",
+        lambda bars, _indicators, **_kwargs: [
+            {
+                "signal_date": trade_date,
+                "execution_date": trade_date,
+                "side": "buy" if bars[-1].close == 10_000 else "sell",
+                "price": 100_000,
+            }
+        ],
     )
     payload = load_market_quant_signal_feed(
         db,
@@ -382,17 +406,15 @@ def test_market_quant_signal_feed_uses_latest_complete_price_date_not_partial_ca
 
     monkeypatch.setattr(
         quant_signals,
-        "build_quant_signal_payload",
-        lambda stock, _rows, **_kwargs: {
-            "events": [
-                {
-                    "signal_date": complete_date,
-                    "execution_date": complete_date,
-                    "side": "buy",
-                    "price": 100_000,
-                }
-            ]
-        },
+        "_recent_market_signal_events",
+        lambda _bars, _indicators, **_kwargs: [
+            {
+                "signal_date": complete_date,
+                "execution_date": complete_date,
+                "side": "buy",
+                "price": 100_000,
+            }
+        ],
     )
     payload = load_market_quant_signal_feed(
         db,
