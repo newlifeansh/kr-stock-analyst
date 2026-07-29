@@ -3952,7 +3952,7 @@ async function refreshCurrentView() {
       await loadRecommendations({ auto: true, force: true, recompute: true });
       return;
     case "movers":
-      state.marketRankingCache.delete(marketRankingKey("surge", currentMarketFilter(), 30));
+      state.marketRankingCache.delete(marketRankingKey("surge", currentMarketFilter()));
       await loadMarketRankings({ market: currentMarketFilter(), limit: 30, force: true });
       return;
     case "portfolio":
@@ -6818,11 +6818,11 @@ async function loadHomeSurgeRankings(options = {}) {
 }
 
 function currentMarketFilter() {
-  return elements.marketTabs.find((tab) => tab.classList.contains("active"))?.dataset.marketFilter || "KOSPI";
+  return elements.marketTabs.find((tab) => tab.classList.contains("active"))?.dataset.marketFilter || "ALL";
 }
 
 function setMarketFilter(market) {
-  const normalized = ["KOSPI", "KOSDAQ"].includes(market) ? market : "KOSPI";
+  const normalized = ["ALL", "KOSPI", "KOSDAQ"].includes(market) ? market : "ALL";
   for (const tab of elements.marketTabs) {
     const active = tab.dataset.marketFilter === normalized;
     tab.classList.toggle("active", active);
@@ -6831,8 +6831,8 @@ function setMarketFilter(market) {
   return normalized;
 }
 
-function marketRankingKey(category, market, limit = 30) {
-  return `${market}:surge:${limit}`;
+function marketRankingKey(category, market) {
+  return `${market}:surge`;
 }
 
 function marketCategoryLabel(category) {
@@ -6841,25 +6841,23 @@ function marketCategoryLabel(category) {
 
 function requestMarketRanking(category, market, options = {}) {
   const normalizedCategory = "surge";
-  const limit = Math.max(1, Math.min(3000, Number(options.limit) || 30));
-  const key = marketRankingKey(normalizedCategory, market, limit);
+  const requestedLimit = Math.max(1, Math.min(3000, Number(options.limit) || 30));
+  const snapshotLimit = Math.max(30, requestedLimit);
+  const key = marketRankingKey(normalizedCategory, market);
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
   const now = Date.now();
   const cached = state.marketRankingCache.get(key);
   if (!force && cached?.payload && now - (cached.savedAt || 0) <= ttlMs) {
-    return Promise.resolve(cached.payload);
+    return Promise.resolve({ ...cached.payload, items: (cached.payload.items || []).slice(0, requestedLimit) });
   }
   if (!force && cached?.promise) {
     return cached.promise;
   }
   const params = new URLSearchParams({
     category: normalizedCategory,
-    limit: String(limit),
+    limit: String(snapshotLimit),
   });
-  if (force) {
-    params.set("refresh", "1");
-  }
   if (market !== "ALL") {
     params.set("market", market);
   }
@@ -6871,7 +6869,7 @@ function requestMarketRanking(category, market, options = {}) {
   })
     .then((payload) => {
       state.marketRankingCache.set(key, { payload, savedAt: Date.now() });
-      return payload;
+      return { ...payload, items: (payload.items || []).slice(0, requestedLimit) };
     })
     .catch((error) => {
       state.marketRankingCache.delete(key);
@@ -6896,10 +6894,10 @@ async function loadMarketRankings(options = {}) {
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
   setMarketLeaderboardMode(category === "surge");
-  const key = marketRankingKey(category, market, limit);
+  const key = marketRankingKey(category, market);
   const cached = state.marketRankingCache.get(key);
   if (!force && cached?.payload && Date.now() - (cached.savedAt || 0) <= ttlMs) {
-    renderRankings(cached.payload);
+    renderRankings({ ...cached.payload, items: (cached.payload.items || []).slice(0, limit) });
     return;
   }
   closeMarketQuoteStreams();
@@ -12186,7 +12184,7 @@ for (const tab of elements.aiSignalStageTabs) {
   tab.addEventListener("click", () => setAiSignalStage(tab.dataset.aiSignalStage));
 }
 elements.homeSurgeMore?.addEventListener("click", () => {
-  setMarketFilter("KOSPI");
+  setMarketFilter("ALL");
   setView("movers");
   window.scrollTo({ top: 0, behavior: "auto" });
 });

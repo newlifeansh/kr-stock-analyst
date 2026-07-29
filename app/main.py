@@ -182,6 +182,7 @@ intraday_chart_cache = TTLCache(maxsize=4096)
 market_quant_signal_cache = TTLCache(maxsize=16)
 watchlist_quant_signal_cache = TTLCache(maxsize=256)
 market_quant_signal_refresh_lock = RLock()
+market_ranking_snapshot_lock = RLock()
 kis_realtime_provider = KisRealtimeQuoteProvider(settings)
 kis_rest_provider = KisRestBriefingProvider(settings)
 mcp_server = build_insight_mcp_server(settings) if settings.mcp_enabled else None
@@ -199,7 +200,11 @@ intraday_lock_guard = RLock()
 intraday_code_locks: dict[str, RLock] = {}
 
 STOCK_DASHBOARD_TTL_SECONDS = 120
-MARKET_RANKING_TTL_SECONDS = 120
+# Market movers are calculated from one shared board snapshot.  This keeps the
+# home preview and the full ranking in the same order instead of rebuilding
+# independently for every requested list size.
+MARKET_RANKING_TTL_SECONDS = 300
+MARKET_RANKING_SNAPSHOT_LIMIT = 30
 MARKET_INDICES_TTL_SECONDS = 300
 GLOBAL_MARKET_ASSETS_TTL_SECONDS = 30
 MARKET_IMPACT_TTL_SECONDS = 300
@@ -3072,6 +3077,70 @@ def stock_financials(
     return list(db.scalars(statement))
 
 
+def _market_ranking_snapshot_key(category: str, market: Optional[str]) -> tuple[str, str, str]:
+    normalized_market = (market or "ALL").strip().upper()
+    return ("market_ranking_snapshot", category, normalized_market)
+
+
+def _market_ranking_snapshot_window(now: Optional[datetime] = None) -> tuple[datetime, datetime]:
+    """Return the KST five-minute window shared by every movers request."""
+    current = now or datetime.now(KST)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=KST)
+    else:
+        current = current.astimezone(KST)
+    window_start = current.replace(second=0, microsecond=0) - timedelta(minutes=current.minute % 5)
+    return window_start, window_start + timedelta(seconds=MARKET_RANKING_TTL_SECONDS)
+
+
+def _market_ranking_snapshot(
+    db: Session,
+    *,
+    category: str,
+    market: Optional[str],
+    requested_limit: int,
+) -> dict[str, Any]:
+    key = _market_ranking_snapshot_key(category, market)
+    cached_payload = api_cache.get(key)
+    # A manual UI refresh must not reshuffle a ranking that is still being
+    # displayed elsewhere.  The snapshot is the source of truth until its
+    # five-minute lifetime ends.
+    if cached_payload is not None:
+        return cached_payload
+
+    with market_ranking_snapshot_lock:
+        cached_payload = api_cache.get(key)
+        if cached_payload is not None:
+            return cached_payload
+
+        snapshot_limit = max(MARKET_RANKING_SNAPSHOT_LIMIT, requested_limit)
+        payload = build_market_rankings(
+            db,
+            category=category,
+            market=market,
+            limit=snapshot_limit,
+            refresh_live=True,
+        )
+        snapshot_as_of = payload.get("as_of")
+        if not isinstance(snapshot_as_of, datetime):
+            snapshot_as_of = datetime.now(KST)
+            payload["as_of"] = snapshot_as_of
+        window_start, window_expires_at = _market_ranking_snapshot_window()
+        payload["snapshot_id"] = (
+            f"{category}:{(market or 'ALL').upper()}:{window_start.strftime('%Y%m%d%H%M')}"
+        )
+        payload["snapshot_expires_at"] = window_expires_at
+        ttl_seconds = max(1, int((window_expires_at - datetime.now(KST)).total_seconds()))
+        api_cache.set(key, payload, ttl_seconds)
+        return payload
+
+
+def _market_ranking_response(payload: dict[str, Any], *, limit: int) -> dict[str, Any]:
+    response = deepcopy(payload)
+    response["items"] = list(response.get("items") or [])[:limit]
+    return response
+
+
 @app.get("/market/rankings", response_model=MarketRankingOut)
 def market_rankings(
     category: str = Query(default="surge", pattern="^(surge|trading_value|valuation|momentum|sentiment)$"),
@@ -3080,28 +3149,29 @@ def market_rankings(
     refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
-    key = ("market_rankings", category, market or "", limit)
+    normalized_market = (market or "").strip().upper() or None
+    key = _market_ranking_snapshot_key(category, normalized_market)
     cached_payload = api_cache.get(key)
     try:
-        if refresh or cached_payload is None:
-            payload = build_market_rankings(
-                db,
-                category=category,
-                market=market,
-                limit=limit,
-                refresh_live=refresh,
-            )
-            api_cache.set(key, payload, MARKET_RANKING_TTL_SECONDS)
-            return payload
-        return cached_payload
+        payload = _market_ranking_snapshot(
+            db,
+            category=category,
+            market=normalized_market,
+            requested_limit=limit,
+        )
+        return _market_ranking_response(payload, limit=limit)
     except Exception:
         logging.getLogger(__name__).exception("Market ranking refresh failed")
         if cached_payload is not None:
-            return cached_payload
+            return _market_ranking_response(cached_payload, limit=limit)
+        fallback_as_of = datetime.now(KST)
+        window_start, window_expires_at = _market_ranking_snapshot_window(fallback_as_of)
         return {
             "category": category,
-            "market": market,
-            "as_of": datetime.now(KST),
+            "market": normalized_market,
+            "as_of": fallback_as_of,
+            "snapshot_id": f"{category}:{(normalized_market or 'ALL')}:{window_start.strftime('%Y%m%d%H%M')}",
+            "snapshot_expires_at": window_expires_at,
             "source": "unavailable",
             "universe_count": 0,
             "matching_count": 0,

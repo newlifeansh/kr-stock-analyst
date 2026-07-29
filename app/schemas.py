@@ -836,6 +836,8 @@ class MarketRankingOut(BaseModel):
     category: str
     market: Optional[str] = None
     as_of: datetime
+    snapshot_id: Optional[str] = None
+    snapshot_expires_at: Optional[datetime] = None
     source: str = "database"
     universe_count: int = 0
     matching_count: int = 0

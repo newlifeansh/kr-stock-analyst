@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base
 from app.models import DailyPrice, StockMaster
 from app.services import market_rankings
+from app.services.ttl_cache import TTLCache
 
 
 def test_preopen_surge_uses_last_completed_session(monkeypatch):
@@ -71,6 +72,55 @@ def test_surge_ranking_scans_full_market_and_keeps_only_risers(monkeypatch):
         assert {item["market"] for item in payload["items"]} == {"KOSPI", "KOSDAQ"}
     finally:
         session.close()
+
+
+def test_ranking_preview_and_full_list_share_one_five_minute_snapshot(monkeypatch):
+    from app import main
+
+    calls: list[dict[str, object]] = []
+    as_of = datetime(2026, 7, 29, 10, 0, tzinfo=main.KST)
+
+    def fake_builder(_db, *, category, market, limit, refresh_live):
+        calls.append(
+            {
+                "category": category,
+                "market": market,
+                "limit": limit,
+                "refresh_live": refresh_live,
+            }
+        )
+        return {
+            "category": category,
+            "market": market,
+            "as_of": as_of,
+            "source": "naver",
+            "universe_count": 30,
+            "matching_count": 30,
+            "items": [{"code": f"{index:06d}", "rank": index} for index in range(1, 31)],
+        }
+
+    monkeypatch.setattr(main, "api_cache", TTLCache(maxsize=8))
+    monkeypatch.setattr(main, "build_market_rankings", fake_builder)
+    monkeypatch.setattr(
+        main,
+        "_market_ranking_snapshot_window",
+        lambda now=None: (as_of, as_of + timedelta(minutes=5)),
+    )
+
+    preview = main.market_rankings(category="surge", market=None, limit=5, db=object())
+    full = main.market_rankings(category="surge", market=None, limit=30, db=object())
+    refreshed_preview = main.market_rankings(
+        category="surge", market=None, limit=5, refresh=True, db=object()
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["limit"] == 30
+    assert calls[0]["refresh_live"] is True
+    assert preview["snapshot_id"] == full["snapshot_id"] == refreshed_preview["snapshot_id"]
+    assert preview["snapshot_expires_at"] == as_of + timedelta(minutes=5)
+    assert [item["code"] for item in preview["items"]] == [
+        item["code"] for item in full["items"][:5]
+    ]
 
 
 def test_weekend_snapshot_uses_last_completed_weekday(monkeypatch):
