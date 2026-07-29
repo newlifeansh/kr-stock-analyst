@@ -364,6 +364,50 @@ def test_market_quant_signal_feed_includes_lower_ranked_active_stocks(monkeypatc
     db.close()
 
 
+def test_market_quant_signal_feed_uses_latest_complete_price_date_not_partial_cap_date(monkeypatch):
+    db = _session()
+    stocks = [_stock("000001", "대형주"), _stock("000002", "중형주"), _stock("000003", "SK텔레콤")]
+    complete_date = date(2026, 7, 25)
+    partial_date = date(2026, 7, 26)
+    db.add_all(stocks)
+    db.add_all(
+        [
+            DailyPrice(code="000001", trade_date=complete_date, close=100_000, market_cap=300_000_000),
+            DailyPrice(code="000002", trade_date=complete_date, close=50_000),
+            DailyPrice(code="000003", trade_date=complete_date, close=10_000),
+            DailyPrice(code="000001", trade_date=partial_date, close=101_000, market_cap=301_000_000),
+        ]
+    )
+    db.commit()
+
+    monkeypatch.setattr(
+        quant_signals,
+        "build_quant_signal_payload",
+        lambda stock, _rows, **_kwargs: {
+            "events": [
+                {
+                    "signal_date": complete_date,
+                    "execution_date": complete_date,
+                    "side": "buy",
+                    "price": 100_000,
+                }
+            ]
+        },
+    )
+    payload = load_market_quant_signal_feed(
+        db,
+        universe_limit=3,
+        limit=10,
+        recent_days=7,
+        now=datetime(2026, 7, 26, 18, 0),
+    )
+
+    assert payload["universe_as_of"] == complete_date
+    assert payload["universe_count"] == 3
+    assert {item["code"] for item in payload["items"]} == {"000001", "000002", "000003"}
+    db.close()
+
+
 def test_market_quant_signal_endpoint_is_no_store(monkeypatch):
     db = _session()
 

@@ -44,7 +44,11 @@ MARKET_SIGNAL_UNIVERSE_LIMIT = 5_000
 MARKET_SIGNAL_FEED_LIMIT = 5_000
 MARKET_SIGNAL_RECENT_DAYS = 7
 MARKET_SIGNAL_BATCH_SIZE = 180
-MARKET_SIGNAL_SNAPSHOT_VERSION = "v3"
+# The daily market-cap feed can finish after the price feed. Signal coverage
+# must follow the latest complete price date so a partial cap snapshot never
+# shrinks the all-listed-stock scan.
+MARKET_SIGNAL_MIN_COVERAGE_RATIO = 0.90
+MARKET_SIGNAL_SNAPSHOT_VERSION = "v4"
 
 POSITIVE_WORDS = (
     "상향",
@@ -1321,8 +1325,28 @@ def load_market_quant_signal_feed(
     capped_universe_limit = max(1, min(int(universe_limit), MARKET_SIGNAL_UNIVERSE_LIMIT))
     capped_limit = max(1, min(int(limit), MARKET_SIGNAL_FEED_LIMIT))
     capped_recent_days = max(1, min(int(recent_days), MARKET_SIGNAL_RECENT_DAYS))
+    active_stock_count = int(
+        db.scalar(
+            select(func.count(StockMaster.code)).where(
+                StockMaster.is_active.is_(True),
+                StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+            )
+        )
+        or 0
+    )
+    minimum_coverage = max(1, int(active_stock_count * MARKET_SIGNAL_MIN_COVERAGE_RATIO))
     market_cap_date = db.scalar(
-        select(func.max(DailyPrice.trade_date)).where(DailyPrice.market_cap.is_not(None))
+        select(DailyPrice.trade_date)
+        .join(StockMaster, StockMaster.code == DailyPrice.code)
+        .where(
+            StockMaster.is_active.is_(True),
+            StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+            DailyPrice.close.is_not(None),
+        )
+        .group_by(DailyPrice.trade_date)
+        .having(func.count(func.distinct(DailyPrice.code)) >= minimum_coverage)
+        .order_by(DailyPrice.trade_date.desc())
+        .limit(1)
     )
     empty = {
         "status": "ready",
@@ -1346,11 +1370,9 @@ def load_market_quant_signal_feed(
             .where(
                 StockMaster.is_active.is_(True),
                 StockMaster.market.in_(("KOSPI", "KOSDAQ")),
-                DailyPrice.market_cap.is_not(None),
-                DailyPrice.market_cap > 0,
                 DailyPrice.close.is_not(None),
             )
-            .order_by(DailyPrice.market_cap.desc(), StockMaster.code)
+            .order_by(func.coalesce(DailyPrice.market_cap, 0).desc(), StockMaster.code)
             .limit(capped_universe_limit)
         )
     )
