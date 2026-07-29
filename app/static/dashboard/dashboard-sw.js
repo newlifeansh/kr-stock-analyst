@@ -1,10 +1,9 @@
-const DASHBOARD_SW_VERSION = "20260728v132";
-const DASHBOARD_BUILD_VERSION = "20260729v135";
+const DASHBOARD_SW_VERSION = "20260729v136";
+const DASHBOARD_BUILD_VERSION = "20260729v136";
 const STATIC_CACHE = `secret-note-static-${DASHBOARD_SW_VERSION}-${DASHBOARD_BUILD_VERSION}`;
 const STATIC_ASSETS = [
-  "/dashboard?view=home",
-  "/assets/dashboard/styles.css?v=20260728v132&build=20260729v135",
-  "/assets/dashboard/app.js?v=20260728v132&build=20260729v135",
+  "/assets/dashboard/styles.css?v=20260729v136&build=20260729v136",
+  "/assets/dashboard/app.js?v=20260729v136&build=20260729v136",
   "/assets/dashboard/icons/icon-192.png?v=20260620bq",
   "/assets/dashboard/icons/icon-512.png?v=20260620bq",
   "/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq"
@@ -39,7 +38,9 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).catch(() => caches.match("/dashboard?view=home")));
+    // Always request the current HTML shell. Static files are versioned and
+    // cached below, but an old shell can otherwise keep referencing old files.
+    event.respondWith(fetch(request));
     return;
   }
   if (url.pathname.startsWith("/assets/dashboard/")) {

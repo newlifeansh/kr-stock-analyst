@@ -656,7 +656,15 @@ def insight_shell():
 def stock_dashboard_shell():
     if not STOCK_DASHBOARD_INDEX.exists():
         raise HTTPException(status_code=404, detail="Stock dashboard UI not found")
-    return HTMLResponse(STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8"))
+    # The dashboard shell points at versioned assets and must not be served from
+    # an old browser document cache after a production release.
+    return HTMLResponse(
+        STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8"),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/portfolio")

@@ -5276,7 +5276,10 @@ function registerDashboardServiceWorker() {
   if (!("serviceWorker" in navigator)) {
     return;
   }
-  navigator.serviceWorker.register("/dashboard-sw.js", { scope: "/" }).catch(() => undefined);
+  navigator.serviceWorker
+    .register("/dashboard-sw.js", { scope: "/" })
+    .then((registration) => registration.update())
+    .catch(() => undefined);
 }
 
 function webPushSupported() {
