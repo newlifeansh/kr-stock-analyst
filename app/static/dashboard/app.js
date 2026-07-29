@@ -200,6 +200,7 @@ const elements = {
   homeAiResponseTitle: $("home-ai-response-title"),
   homeAiResponseSummary: $("home-ai-response-summary"),
   homeAiResponseAsOf: $("home-ai-response-asof"),
+  homeAiResponseWatch: $("home-ai-response-watch"),
   aiSignalsBack: $("ai-signals-back"),
   aiSignalsMeta: $("ai-signals-meta"),
   aiSignalStageTabs: Array.from(document.querySelectorAll("[data-ai-signal-stage]")),
@@ -968,6 +969,43 @@ function koreaMarketPhaseLabel(now = new Date()) {
   return "장 마감";
 }
 
+function newYorkClockParts(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return {
+    weekday: parts.weekday || "",
+    hour: Number(parts.hour) % 24,
+    minute: Number(parts.minute),
+  };
+}
+
+function usMarketPhase(now = new Date()) {
+  const parts = newYorkClockParts(now);
+  if (["Sat", "Sun"].includes(parts.weekday)) {
+    return "closed";
+  }
+  const minutes = parts.hour * 60 + parts.minute;
+  if (minutes >= 4 * 60 && minutes < 9 * 60 + 30) {
+    return "premarket";
+  }
+  if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) {
+    return "regular";
+  }
+  if (minutes >= 16 * 60 && minutes < 20 * 60) {
+    return "afterhours";
+  }
+  return "closed";
+}
+
 function formatPreMarketDisplay(quote, payload = null) {
   const status = quote?.pre_market_status || "장전";
   const change = formatPreMarketChange(quote);
@@ -992,6 +1030,20 @@ function stockMetaText(data, sourceLabel = "") {
 
 function stockDetailMetaText(data) {
   return [data?.code, data?.market].filter(Boolean).join(" · ");
+}
+
+function homeMarketAssetOrder(now = new Date()) {
+  const krPhase = koreaMarketPhase(now);
+  const usPhase = usMarketPhase(now);
+  const krOpen = krPhase === "preopen" || krPhase === "regular";
+  const usOpen = ["premarket", "regular", "afterhours"].includes(usPhase);
+  if (krOpen) {
+    return ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "GOLD", "OIL"];
+  }
+  if (usOpen) {
+    return ["NASDAQ", "SP500", "KOSPI", "KOSDAQ", "GOLD", "OIL"];
+  }
+  return ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "GOLD", "OIL"];
 }
 
 function previousCloseFromQuote(quote) {
@@ -3711,6 +3763,11 @@ function formatDateLabel(value) {
   return String(value).replace("T", " ").slice(0, 10);
 }
 
+function formatDateOnlyBasis(value, fallback = "기준 정보 확인 중") {
+  const label = formatDateLabel(value);
+  return label === "-" ? fallback : `${label} 기준`;
+}
+
 function formatDataBasis(value, fallback = "기준 정보 확인 중") {
   if (!value) {
     return fallback;
@@ -6373,7 +6430,15 @@ function homeContextAttentionSentence(context, signalItems = []) {
   if (!matched.length) {
     return homeAttentionSentence(signalItems);
   }
-  return `${matched.map((item) => item.name).join("·")} 유의: ${context.watchReason}`;
+  const target = matched[0];
+  return `${target.name || "관심종목"} 유의: ${context.watchReason}`;
+}
+
+function openHomeAttentionWatchlist() {
+  state.portfolioTab = "watchlist";
+  state.watchlistContentTab = "strategy";
+  setView("portfolio");
+  window.scrollTo({ top: 0, behavior: "auto" });
 }
 
 function latestHomeAiResponseAsOf(asOf = "") {
@@ -6450,7 +6515,9 @@ function renderPendingHomeAiSignals() {
   showHomeMarketSignalLoading();
   if (elements.homeAiResponseTitle && elements.homeAiResponseSummary) {
     elements.homeAiResponseTitle.textContent = "시장 변동성 데이터를 확인하고 있습니다.";
-    elements.homeAiResponseSummary.textContent = watched.length ? "우선 확인할 관심종목을 찾고 있습니다." : "관심종목을 추가하면 우선 확인할 종목과 이유를 알려드립니다.";
+    elements.homeAiResponseSummary.textContent = watched.length
+      ? `${watched[0].name || "관심종목"}를 우선 확인하는 중입니다.`
+      : "관심종목을 추가하면 우선 확인할 종목을 바로 알려드립니다.";
   }
   elements.homeAiSignalsMeta.textContent = watched.length ? `${formatNumber(watched.length)}개 종목 확인 중` : "관심종목 없음";
   elements.homeAiSignalsList.replaceChildren();
@@ -10784,6 +10851,20 @@ function marketImpactDirectionScore(text, factor, fallbackImpact = "") {
   return score;
 }
 
+function marketImpactToneClass(status = "") {
+  return String(status).includes("호재") ? "good" : "bad";
+}
+
+function marketImpactVisibleLabel(status = "") {
+  return String(status).includes("호재") ? "외부 변수 우호" : "외부 변수 리스크";
+}
+
+function marketImpactVisibleSummary(status = "") {
+  return String(status).includes("호재")
+    ? "금리·환율·원자재 흐름을 기준으로 한 외부 변수 평가입니다. 전일 지수 등락과는 별개일 수 있습니다."
+    : "금리·환율·원자재 흐름에 리스크가 남아 있습니다. 전일 지수 등락과는 별개일 수 있습니다.";
+}
+
 function buildMarketImpactModel(payload = {}) {
   const sourceEvents = [...(payload.events || []), ...(payload.past_events || [])];
   const sourceTimeline = payload.timeline || [];
@@ -10855,8 +10936,8 @@ function buildMarketImpactModel(payload = {}) {
   const marketStatus = goodWeight >= badWeight ? "호재 우위" : "리스크 우위";
   const leadFactor = enrichedFactors[0];
   const summary = marketStatus === "호재 우위"
-    ? `${leadFactor.label} 영향이 가장 크고, 현재는 호재 축이 더 우세합니다.`
-    : `${leadFactor.label} 영향이 가장 크고, 현재는 리스크 관리가 더 우선입니다.`;
+    ? `${leadFactor.label} 영향이 가장 크고, 외부 변수는 우호 흐름입니다.`
+    : `${leadFactor.label} 영향이 가장 크고, 외부 변수는 리스크 흐름입니다.`;
 
   return {
     asOf: payload.as_of,
@@ -11012,8 +11093,6 @@ function restoreTrendChrome(activeTab = "live") {
   }
 }
 
-const HOME_MARKET_ASSET_ORDER = ["KOSDAQ", "KOSPI", "NASDAQ", "SP500", "GOLD", "OIL"];
-
 function formatMarketIndexValue(value) {
   const number = toNumber(value);
   return number === null
@@ -11116,10 +11195,10 @@ function createHomeMarketAssetCard(item = {}) {
   );
 
   const basisNode = el("p", "home-index-basis");
-  const basis = formatDataBasis(item.updated_at || item.as_of, "").replace(/ 기준$/, "");
+  const basis = formatDateOnlyBasis(item.updated_at || item.as_of);
   const session = el("span", "home-index-session", item.is_realtime ? "실시간" : "장마감");
   session.classList.toggle("is-realtime", Boolean(item.is_realtime));
-  basisNode.append(el("time", "", basis || "기준 정보 확인 중"), session);
+  basisNode.append(el("time", "", basis), session);
   card.append(header, value, changeNode, chartNode, basisNode);
   return card;
 }
@@ -11132,7 +11211,7 @@ function renderHomeMarketIndices(payload = {}) {
   state.homeMarketIndexItems = items;
   const byCode = new Map(items.map((item) => [item.code, item]));
   elements.homeMarketCarousel.replaceChildren();
-  HOME_MARKET_ASSET_ORDER.forEach((code) => {
+  homeMarketAssetOrder().forEach((code) => {
     const fallbackLabels = { KOSDAQ: "코스닥", KOSPI: "코스피", NASDAQ: "나스닥", SP500: "S&P 500", GOLD: "금", OIL: "원유" };
     elements.homeMarketCarousel.appendChild(createHomeMarketAssetCard(byCode.get(code) || { code, label: fallbackLabels[code] }));
   });
@@ -11143,10 +11222,10 @@ function renderHomeMarketIndices(payload = {}) {
   const dates = [...new Set(items.map((item) => String(item?.as_of || "")).filter(Boolean))].sort();
   if (elements.homeIndexSharedAsOf) {
     elements.homeIndexSharedAsOf.textContent = timestamps.length
-      ? formatDataBasis(timestamps[timestamps.length - 1])
+      ? formatDateOnlyBasis(timestamps[timestamps.length - 1])
       : dates.length === 0
       ? "기준 정보 확인 중"
-      : formatDataBasis(dates[dates.length - 1]);
+      : formatDateOnlyBasis(dates[dates.length - 1]);
   }
   renderHomeAiResponse(state.aiSignalItems, payload.updated_at || "");
 }
@@ -11156,7 +11235,7 @@ function setHomeMarketIndicesLoading() {
     return;
   }
   elements.homeMarketCarousel.replaceChildren();
-  HOME_MARKET_ASSET_ORDER.forEach((code) => {
+  homeMarketAssetOrder().forEach((code) => {
     const card = createHomeMarketAssetCard({ code, label: "시장 확인 중" });
     card.classList.add("is-loading");
     elements.homeMarketCarousel.appendChild(card);
@@ -11422,7 +11501,10 @@ function renderMarketImpactAnalysis(payload, target = elements.trendImpactConten
   const summary = el("section", "market-five-summary");
   const summaryHead = el("div", "market-five-summary-head");
   const status = el("div", "");
-  status.append(el("span", "section-eyebrow", "국내증시"), el("strong", model.marketStatus === "호재 우위" ? "good" : "bad", model.marketStatus));
+  status.append(
+    el("span", "section-eyebrow", "외부 변수"),
+    el("strong", marketImpactToneClass(model.marketStatus), marketImpactVisibleLabel(model.marketStatus)),
+  );
   summaryHead.append(status, el("time", "", formatDataBasis(model.asOf)));
   const goodWeight = Math.max(0, Number(model.goodWeight || 0));
   const badWeight = Math.max(0, Number(model.badWeight || 0));
@@ -11435,7 +11517,12 @@ function renderMarketImpactAnalysis(payload, target = elements.trendImpactConten
   badBar.style.setProperty("--balance-width", `${(badWeight / weightTotal) * 100}%`);
   balanceTrack.append(goodBar, badBar);
   balance.append(balanceTrack, el("p", "", `호재 ${goodWeight.toFixed(1)} · 악재 ${badWeight.toFixed(1)}`));
-  summary.append(summaryHead, el("p", "market-five-summary-copy", fallback ? "외부 변수가 국내 업종으로 전달되는 구조를 확인합니다." : model.summary), balance);
+  summary.append(
+    summaryHead,
+    el("p", "market-five-summary-copy", fallback ? "외부 변수가 국내 업종으로 전달되는 구조를 확인합니다." : model.summary),
+    el("p", "market-five-summary-note", marketImpactVisibleSummary(model.marketStatus)),
+    balance,
+  );
 
   const mapSection = el("section", "market-five-map-section");
   const mapHeader = el("header", "market-five-map-head");
@@ -11469,7 +11556,11 @@ function renderMarketImpactAnalysis(payload, target = elements.trendImpactConten
     nodeButtons.push(button);
   }
   const center = el("div", "market-five-center");
-  center.append(el("span", "", "국내증시"), el("strong", model.marketStatus === "호재 우위" ? "good" : "bad", model.marketStatus), el("small", "", "변수 간 순환"));
+  center.append(
+    el("span", "", "외부 변수"),
+    el("strong", marketImpactToneClass(model.marketStatus), marketImpactVisibleLabel(model.marketStatus)),
+    el("small", "", "변수 간 순환"),
+  );
   canvas.appendChild(center);
 
   const relationPanel = el("section", "market-five-relation-panel");
@@ -12085,6 +12176,13 @@ elements.homeInstallButton?.addEventListener("click", handleHomeInstall);
 elements.homeAiSignalsMore?.addEventListener("click", () => {
   setView("ai-signals");
   window.scrollTo({ top: 0, behavior: "auto" });
+});
+elements.homeAiResponseWatch?.addEventListener("click", openHomeAttentionWatchlist);
+elements.homeAiResponseWatch?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    openHomeAttentionWatchlist();
+  }
 });
 elements.aiSignalsBack?.addEventListener("click", () => {
   setView("home");

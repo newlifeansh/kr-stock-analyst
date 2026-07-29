@@ -122,6 +122,16 @@ body:not([data-view="stock"]) #trend-impact-content .market-five-summary-copy {
   word-break: keep-all;
 }
 
+body:not([data-view="stock"]) #trend-impact-content .market-five-summary-note {
+  max-width: 760px;
+  margin: -2px 0 0;
+  color: #6f7682;
+  font-size: var(--app-type-caption);
+  font-weight: 600;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
 body:not([data-view="stock"]) #trend-impact-content .market-five-balance {
   gap: 12px;
 }
@@ -27815,8 +27825,27 @@ body:not([data-view="stock"]) .home-ai-response-line {
 }
 
 body:not([data-view="stock"]) .home-ai-response-line.is-watch {
+  border-radius: 8px;
+  cursor: pointer;
   padding-top: 8px;
   border-top: 1px solid #eceef2;
+  transition:
+    background-color 0.16s ease,
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+body:not([data-view="stock"]) .home-ai-response-line.is-watch:hover,
+body:not([data-view="stock"]) .home-ai-response-line.is-watch:focus-visible {
+  background: rgba(60, 111, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(60, 111, 255, 0.12);
+  outline: none;
+}
+
+body:not([data-view="stock"]) .home-ai-response-line.is-watch:active {
+  transform: scale(0.995);
 }
 
 body:not([data-view="stock"]) .home-ai-response-line > span {
