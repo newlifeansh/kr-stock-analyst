@@ -338,7 +338,8 @@ const elements = {
 
 const WATCHLIST_KEY = "analyst.watchlist";
 const WATCHLIST_ID_KEY = "analyst.watchlistId";
-const HOME_AI_SIGNALS_CACHE_PREFIX = "analyst.homeAiSignals";
+const HOME_AI_SIGNALS_CACHE_PREFIX = "analyst.homeAiSignals.v2";
+const AI_SIGNAL_LOOKBACK_DAYS = 14;
 const PUSH_HISTORY_CACHE_PREFIX = "analyst.pushHistory";
 const PUSH_LAST_SEEN_PREFIX = "analyst.pushLastSeen";
 const PUSH_ENABLED_PREFIX = "analyst.pushEnabled";
@@ -6097,11 +6098,40 @@ function marketRankingBasisLabel(payload = {}, options = {}) {
   return options.includeMarket === false ? basis : `${basis} · ${marketLabel}`;
 }
 
+function aiSignalDateValue(item = {}) {
+  const current = item.current || {};
+  const transition = current.lifecycle?.latest_transition || {};
+  if (item.signal_date) {
+    return item.signal_date;
+  }
+  if (current.action === "exited") {
+    return transition.transition_date || current.partial_exit_date || "";
+  }
+  return current.entry_date || "";
+}
+
+function isRecentAiSignal(item = {}) {
+  const matchedDate = String(aiSignalDateValue(item) || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!matchedDate) {
+    return false;
+  }
+  const signalDate = new Date(`${matchedDate[1]}-${matchedDate[2]}-${matchedDate[3]}T00:00:00`);
+  if (Number.isNaN(signalDate.getTime())) {
+    return false;
+  }
+  const cutoff = new Date();
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - AI_SIGNAL_LOOKBACK_DAYS);
+  return signalDate >= cutoff;
+}
+
 function homeAiSignalView(item = {}) {
+  if (!isRecentAiSignal(item)) {
+    return null;
+  }
   const current = item.current || {};
   const action = current.action || "unavailable";
-  const transition = item.current?.lifecycle?.latest_transition;
-  const signalDate = transition?.transition_date || item.price_through || item.current?.as_of || item.as_of;
+  const signalDate = aiSignalDateValue(item);
   if (action === "entered") {
     return { key: "recent-buy", label: "최근 매수", tone: "buy", signalDate };
   }

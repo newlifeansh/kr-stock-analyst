@@ -54,7 +54,11 @@ def test_recommendations_fall_back_to_close_times_volume_without_market_cap():
         _seed_prices(db, "000660", "SK하이닉스", 280000, 700_000)
         db.commit()
 
-        payload = build_recommendations(db, limit=2, candidate_limit=10, refresh_live=True)
+        # This verifies the fallback ranking from persisted close * volume data.
+        # Live refresh belongs to the endpoint integration tests and makes this
+        # unit test depend on the external market-data connection.
+        universe_cache.clear()
+        payload = build_recommendations(db, limit=2, candidate_limit=10, refresh_live=False)
 
         assert payload["universe_count"] == 2
         assert payload["candidate_count"] == 2

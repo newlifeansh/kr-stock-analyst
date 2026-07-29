@@ -28,6 +28,7 @@ from app.models import (
 )
 from app.services.stock_dashboard import _naver_snapshot
 from app.services.quant_signals import (
+    MARKET_SIGNAL_RECENT_DAYS,
     load_market_quant_signal_snapshot,
     load_quant_signal_payload,
 )
@@ -492,7 +493,7 @@ class WebPushRuntime:
             db,
             universe_limit=100,
             limit=30,
-            recent_days=30,
+            recent_days=MARKET_SIGNAL_RECENT_DAYS,
         )
         if not snapshot:
             return []

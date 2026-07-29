@@ -136,6 +136,7 @@ from app.services.recommendations import build_recommendations
 from app.services.stock_ai_analysis import build_stock_ai_analysis
 from app.services.local_stock_ai import enrich_stock_ai_analysis
 from app.services.quant_signals import (
+    MARKET_SIGNAL_RECENT_DAYS,
     load_market_quant_signal_feed,
     load_market_quant_signal_snapshot,
     load_quant_signal_payload,
@@ -279,11 +280,12 @@ async def _run_intraday_warmup_loop() -> None:
 def _refresh_market_quant_signal_snapshot(
     universe_limit: int = 100,
     limit: int = 30,
-    recent_days: int = 30,
+    recent_days: int = MARKET_SIGNAL_RECENT_DAYS,
 ) -> Optional[dict[str, Any]]:
     if not market_quant_signal_refresh_lock.acquire(blocking=False):
         return None
     try:
+        recent_days = max(1, min(int(recent_days), MARKET_SIGNAL_RECENT_DAYS))
         with SessionLocal() as db:
             payload = load_market_quant_signal_feed(
                 db,
@@ -785,6 +787,33 @@ def get_watchlist(share_id: str, db: Session = Depends(get_db)):
     return _watchlist_response(db, _normalize_watchlist_id(share_id))
 
 
+def _coerce_signal_date(value: object) -> Optional[date]:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def _watchlist_signal_date(current: object) -> Optional[date]:
+    if not isinstance(current, dict):
+        return None
+    lifecycle = current.get("lifecycle")
+    transition = lifecycle.get("latest_transition") if isinstance(lifecycle, dict) else None
+    action = str(current.get("action") or "")
+    if action == "exited":
+        transition_date = transition.get("transition_date") if isinstance(transition, dict) else None
+        return _coerce_signal_date(transition_date or current.get("partial_exit_date"))
+    if action == "entered" or current.get("position_open"):
+        return _coerce_signal_date(current.get("entry_date"))
+    return None
+
+
 @app.get("/watchlists/{share_id}/quant-signals")
 def get_watchlist_quant_signals(
     share_id: str,
@@ -794,7 +823,7 @@ def get_watchlist_quant_signals(
 ):
     _enforce_rate_limit(request, "watchlist_quant_signals", limit=30, window_seconds=60)
     normalized_id = _normalize_watchlist_id(share_id)
-    cache_key = ("watchlist_quant_signals", normalized_id)
+    cache_key = ("watchlist_quant_signals", normalized_id, MARKET_SIGNAL_RECENT_DAYS)
     cached_payload = watchlist_quant_signal_cache.get(cache_key)
     if cached_payload is not None:
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
@@ -807,9 +836,14 @@ def get_watchlist_quant_signals(
             .order_by(WatchlistItem.sort_order, WatchlistItem.created_at, WatchlistItem.code)
         )
     )
+    cutoff = datetime.now(KST).date() - timedelta(days=MARKET_SIGNAL_RECENT_DAYS)
     items: list[dict[str, object]] = []
     for watch_item in watch_items:
         payload = load_quant_signal_payload(db, watch_item.code, include_context=False)
+        current = payload.get("current") if payload else None
+        signal_date = _watchlist_signal_date(current)
+        if signal_date is None or signal_date < cutoff:
+            continue
         items.append(
             {
                 "code": watch_item.code,
@@ -819,7 +853,8 @@ def get_watchlist_quant_signals(
                 "data_message": payload.get("data_message") if payload else "가격 이력을 확인하는 중입니다.",
                 "as_of": payload.get("as_of") if payload else None,
                 "price_through": payload.get("price_through") if payload else None,
-                "current": payload.get("current") if payload else None,
+                "signal_date": signal_date,
+                "current": current,
             }
         )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
@@ -827,6 +862,7 @@ def get_watchlist_quant_signals(
     result = {
         "share_id": normalized_id,
         "as_of": datetime.now(KST),
+        "recent_days": MARKET_SIGNAL_RECENT_DAYS,
         "items": items,
     }
     # The strategy is based on daily bars. Reusing the computed state for a few
@@ -842,10 +878,11 @@ def get_market_quant_signals(
     background_tasks: BackgroundTasks,
     universe_limit: int = Query(default=100, ge=20, le=100),
     limit: int = Query(default=30, ge=1, le=50),
-    recent_days: int = Query(default=30, ge=1, le=90),
+    recent_days: int = Query(default=MARKET_SIGNAL_RECENT_DAYS, ge=1, le=90),
     db: Session = Depends(get_db),
 ):
     _enforce_rate_limit(request, "market_quant_signals", limit=30, window_seconds=60)
+    recent_days = max(1, min(recent_days, MARKET_SIGNAL_RECENT_DAYS))
     cache_key = ("market_quant_signals", universe_limit, limit, recent_days)
     payload = market_quant_signal_cache.get(cache_key)
     if payload is None:

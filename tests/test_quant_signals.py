@@ -13,6 +13,7 @@ from app.db import Base, get_db
 from app.main import app
 from app.models import DailyPrice, DisclosureItem, InvestorFlow, NewsItem, ResearchReport, StockMaster, WatchlistItem
 from app.services.quant_signals import (
+    MARKET_SIGNAL_RECENT_DAYS,
     MIN_HISTORY_ROWS,
     STRATEGY_VERSION,
     build_quant_signal_payload,
@@ -184,7 +185,7 @@ def test_quant_signal_endpoint_uses_same_engine_for_multiple_stocks(monkeypatch)
         db.close()
 
 
-def test_watchlist_quant_signal_endpoint_aggregates_the_same_strategy_without_cache():
+def test_watchlist_quant_signal_endpoint_aggregates_the_same_strategy_without_cache(monkeypatch):
     db = _session()
     db.add_all([_stock(), _stock("000660", "SK하이닉스")])
     db.add_all(_price_rows("005930") + _price_rows("000660"))
@@ -195,6 +196,24 @@ def test_watchlist_quant_signal_endpoint_aggregates_the_same_strategy_without_ca
         ]
     )
     db.commit()
+    today = datetime.now(main.KST).date()
+
+    def fake_signal_payload(_db, code, **_kwargs):
+        return {
+            "data_state": "ready",
+            "data_message": "",
+            "as_of": datetime.now(main.KST),
+            "price_through": today,
+            "current": {
+                "action": "entered",
+                "entry_date": today,
+                "position_open": True,
+                "lifecycle": {"latest_transition": {"transition_date": today}},
+            },
+        }
+
+    monkeypatch.setattr(main, "load_quant_signal_payload", fake_signal_payload)
+    main.watchlist_quant_signal_cache.clear()
 
     def override_db():
         yield db
@@ -206,11 +225,57 @@ def test_watchlist_quant_signal_endpoint_aggregates_the_same_strategy_without_ca
         assert response.headers["cache-control"].startswith("no-store")
         payload = response.json()
         assert payload["share_id"] == "tester"
+        assert payload["recent_days"] == MARKET_SIGNAL_RECENT_DAYS
         assert [item["code"] for item in payload["items"]] == ["005930", "000660"]
         assert all(item["current"] for item in payload["items"])
         assert all(item["data_state"] == "ready" for item in payload["items"])
     finally:
         app.dependency_overrides.pop(get_db, None)
+        main.watchlist_quant_signal_cache.clear()
+        db.close()
+
+
+def test_watchlist_quant_signal_endpoint_only_returns_signals_from_the_last_two_weeks(monkeypatch):
+    db = _session()
+    db.add_all([_stock(), _stock("000660", "SK하이닉스")])
+    db.add_all(
+        [
+            WatchlistItem(share_id="tester", code="005930", name="삼성전자", market="KOSPI", sort_order=0),
+            WatchlistItem(share_id="tester", code="000660", name="SK하이닉스", market="KOSPI", sort_order=1),
+        ]
+    )
+    db.commit()
+    today = datetime.now(main.KST).date()
+
+    def fake_signal_payload(_db, code, **_kwargs):
+        signal_date = today - timedelta(days=MARKET_SIGNAL_RECENT_DAYS if code == "005930" else MARKET_SIGNAL_RECENT_DAYS + 1)
+        return {
+            "data_state": "ready",
+            "data_message": "",
+            "as_of": datetime.now(main.KST),
+            "price_through": signal_date,
+            "current": {
+                "action": "entered",
+                "entry_date": signal_date,
+                "position_open": True,
+                "lifecycle": {"latest_transition": {"transition_date": signal_date}},
+            },
+        }
+
+    monkeypatch.setattr(main, "load_quant_signal_payload", fake_signal_payload)
+
+    def override_db():
+        yield db
+
+    main.watchlist_quant_signal_cache.clear()
+    app.dependency_overrides[get_db] = override_db
+    try:
+        response = TestClient(app).get("/watchlists/tester/quant-signals")
+        assert response.status_code == 200
+        assert [item["code"] for item in response.json()["items"]] == ["005930"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        main.watchlist_quant_signal_cache.clear()
         db.close()
 
 
@@ -246,7 +311,7 @@ def test_market_quant_signal_feed_uses_market_cap_top_universe_and_normalizes_se
         db,
         universe_limit=2,
         limit=10,
-        recent_days=30,
+        recent_days=MARKET_SIGNAL_RECENT_DAYS,
         now=datetime(2026, 7, 26, 9, 0),
     )
 
@@ -270,7 +335,7 @@ def test_market_quant_signal_endpoint_is_no_store(monkeypatch):
             "as_of": datetime(2026, 7, 26, 9, 0),
             "universe_as_of": date(2026, 7, 25),
             "universe_count": 100,
-            "recent_days": 30,
+            "recent_days": MARKET_SIGNAL_RECENT_DAYS,
             "items": [],
         },
     )

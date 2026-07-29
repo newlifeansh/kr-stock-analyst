@@ -39,8 +39,8 @@ MAX_EXECUTION_COST_PER_SIDE = 0.005
 DEFAULT_EXECUTION_COST_PER_SIDE = 0.002
 MARKET_SIGNAL_UNIVERSE_LIMIT = 100
 MARKET_SIGNAL_FEED_LIMIT = 30
-MARKET_SIGNAL_RECENT_DAYS = 30
-MARKET_SIGNAL_SNAPSHOT_VERSION = "v1"
+MARKET_SIGNAL_RECENT_DAYS = 14
+MARKET_SIGNAL_SNAPSHOT_VERSION = "v2"
 
 POSITIVE_WORDS = (
     "상향",
@@ -1316,7 +1316,7 @@ def load_market_quant_signal_feed(
     current_time = now or datetime.now(KST)
     capped_universe_limit = max(1, min(int(universe_limit), MARKET_SIGNAL_UNIVERSE_LIMIT))
     capped_limit = max(1, min(int(limit), 50))
-    capped_recent_days = max(1, min(int(recent_days), 90))
+    capped_recent_days = max(1, min(int(recent_days), MARKET_SIGNAL_RECENT_DAYS))
     market_cap_date = db.scalar(
         select(func.max(DailyPrice.trade_date)).where(DailyPrice.market_cap.is_not(None))
     )
@@ -1434,7 +1434,8 @@ def market_quant_signal_snapshot_key(
     limit: int,
     recent_days: int,
 ) -> str:
-    return f"{MARKET_SIGNAL_SNAPSHOT_VERSION}:{int(universe_limit)}:{int(limit)}:{int(recent_days)}"
+    capped_recent_days = max(1, min(int(recent_days), MARKET_SIGNAL_RECENT_DAYS))
+    return f"{MARKET_SIGNAL_SNAPSHOT_VERSION}:{int(universe_limit)}:{int(limit)}:{capped_recent_days}"
 
 
 def load_market_quant_signal_snapshot(
