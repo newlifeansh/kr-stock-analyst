@@ -27604,12 +27604,16 @@ body:not([data-view="stock"]) .home-index-line {
   vector-effect: non-scaling-stroke;
 }
 
-body:not([data-view="stock"]) .home-index-line-up {
+body:not([data-view="stock"]) .home-index-line-positive {
   stroke: #ef3e43;
 }
 
-body:not([data-view="stock"]) .home-index-line-down {
+body:not([data-view="stock"]) .home-index-line-negative {
   stroke: #2388e8;
+}
+
+body:not([data-view="stock"]) .home-index-line-neutral {
+  stroke: #8d97a4;
 }
 
 body:not([data-view="stock"]) .home-index-basis {

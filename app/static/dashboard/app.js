@@ -11084,31 +11084,24 @@ function marketIndexChartMarkup(item) {
   const line = coordinates.map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
   const area = `${line} L${width} ${height} L0 ${height} Z`;
   const key = String(item.code || "index").toLowerCase();
-  const gradientUpId = `home-index-gradient-up-${key}`;
-  const gradientDownId = `home-index-gradient-down-${key}`;
-  const clipUpId = `home-index-clip-up-${key}`;
-  const clipDownId = `home-index-clip-down-${key}`;
   const previous = toNumber(item?.previous_close) ?? points[0];
+  const current = toNumber(item?.current) ?? points.at(-1);
+  const change = toNumber(item?.change) ?? (current - previous);
+  const chartTone = change < 0 ? "negative" : change > 0 ? "positive" : "neutral";
+  const chartColor = chartTone === "negative" ? "#2388e8" : chartTone === "positive" ? "#ef3e43" : "#8d97a4";
+  const gradientId = `home-index-gradient-${chartTone}-${key}`;
   const baselineY = Math.max(top, Math.min(height - bottom, top + ((maximum - previous) / range) * (height - top - bottom)));
   return `
     <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true" focusable="false">
       <defs>
-        <linearGradient id="${gradientUpId}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#ef3e43" stop-opacity="0.18"></stop>
-          <stop offset="100%" stop-color="#ef3e43" stop-opacity="0"></stop>
+        <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${chartColor}" stop-opacity="0.18"></stop>
+          <stop offset="100%" stop-color="${chartColor}" stop-opacity="0.02"></stop>
         </linearGradient>
-        <linearGradient id="${gradientDownId}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#2388e8" stop-opacity="0.04"></stop>
-          <stop offset="100%" stop-color="#2388e8" stop-opacity="0.16"></stop>
-        </linearGradient>
-        <clipPath id="${clipUpId}"><rect x="0" y="0" width="${width}" height="${baselineY.toFixed(2)}"></rect></clipPath>
-        <clipPath id="${clipDownId}"><rect x="0" y="${baselineY.toFixed(2)}" width="${width}" height="${(height - baselineY).toFixed(2)}"></rect></clipPath>
       </defs>
       <line class="home-index-baseline" x1="0" y1="${baselineY.toFixed(2)}" x2="${width}" y2="${baselineY.toFixed(2)}"></line>
-      <path class="home-index-area home-index-area-up" d="${area}" fill="url(#${gradientUpId})" clip-path="url(#${clipUpId})"></path>
-      <path class="home-index-area home-index-area-down" d="${area}" fill="url(#${gradientDownId})" clip-path="url(#${clipDownId})"></path>
-      <path class="home-index-line home-index-line-up" d="${line}" clip-path="url(#${clipUpId})"></path>
-      <path class="home-index-line home-index-line-down" d="${line}" clip-path="url(#${clipDownId})"></path>
+      <path class="home-index-area home-index-area-${chartTone}" d="${area}" fill="url(#${gradientId})"></path>
+      <path class="home-index-line home-index-line-${chartTone}" d="${line}"></path>
     </svg>`;
 }
 
