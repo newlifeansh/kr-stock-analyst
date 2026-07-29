@@ -174,6 +174,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
+DASHBOARD_ASSET_VERSION = "20260730v137"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
@@ -202,12 +203,12 @@ STOCK_DASHBOARD_TTL_SECONDS = 120
 MARKET_RANKING_TTL_SECONDS = 120
 MARKET_INDICES_TTL_SECONDS = 300
 GLOBAL_MARKET_ASSETS_TTL_SECONDS = 30
-MARKET_IMPACT_TTL_SECONDS = 900
+MARKET_IMPACT_TTL_SECONDS = 60
 RECOMMENDATION_TTL_SECONDS = 600
 INTRADAY_CLOSED_TTL_SECONDS = 60 * 60 * 72
 INTRADAY_WARMUP_MAX_STOCKS = 60
 INTRADAY_WARMUP_START = time(15, 35)
-TREND_ANALYSIS_TTL_SECONDS = 120
+TREND_ANALYSIS_TTL_SECONDS = 60
 TREND_GRAPH_TTL_SECONDS = 300
 WRITE_SESSION_COOKIE = "sn_write_session"
 WRITE_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
@@ -663,8 +664,11 @@ def stock_dashboard_shell():
         raise HTTPException(status_code=404, detail="Stock dashboard UI not found")
     # The dashboard shell points at versioned assets and must not be served from
     # an old browser document cache after a production release.
+    document = STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8").replace(
+        "__DASHBOARD_ASSET_VERSION__", DASHBOARD_ASSET_VERSION
+    )
     return HTMLResponse(
-        STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8"),
+        document,
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
@@ -705,7 +709,11 @@ def stock_dashboard_manifest():
 def stock_dashboard_service_worker():
     if not DASHBOARD_SERVICE_WORKER.exists():
         raise HTTPException(status_code=404, detail="Dashboard service worker not found")
-    return FileResponse(DASHBOARD_SERVICE_WORKER, media_type="application/javascript")
+    return FileResponse(
+        DASHBOARD_SERVICE_WORKER,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
 
 
 @app.get("/nasdaq.webmanifest")
@@ -803,12 +811,13 @@ def get_watchlist_quant_signals(
     share_id: str,
     request: Request,
     response: Response,
+    refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
     _enforce_rate_limit(request, "watchlist_quant_signals", limit=30, window_seconds=60)
     normalized_id = _normalize_watchlist_id(share_id)
     cache_key = ("watchlist_quant_signals", normalized_id)
-    cached_payload = watchlist_quant_signal_cache.get(cache_key)
+    cached_payload = None if refresh else watchlist_quant_signal_cache.get(cache_key)
     if cached_payload is not None:
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         response.headers["Pragma"] = "no-cache"
@@ -842,9 +851,10 @@ def get_watchlist_quant_signals(
         "as_of": datetime.now(KST),
         "items": items,
     }
-    # The strategy is based on daily bars. Reusing the computed state for a few
-    # minutes avoids rebuilding up to 900 rows for every watch item on each view.
-    watchlist_quant_signal_cache.set(cache_key, result, 300)
+    # The strategy is based on daily bars, but the response includes live quote
+    # context. Keep the normal path short and let the home screen request a
+    # fresh calculation when the user returns to it.
+    watchlist_quant_signal_cache.set(cache_key, result, 60)
     return deepcopy(result)
 
 

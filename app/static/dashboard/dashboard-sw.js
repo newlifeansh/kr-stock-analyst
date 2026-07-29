@@ -1,9 +1,9 @@
-const DASHBOARD_SW_VERSION = "20260729v136";
-const DASHBOARD_BUILD_VERSION = "20260729v136";
+const DASHBOARD_SW_VERSION = "20260730v137";
+const DASHBOARD_BUILD_VERSION = "20260730v137";
 const STATIC_CACHE = `secret-note-static-${DASHBOARD_SW_VERSION}-${DASHBOARD_BUILD_VERSION}`;
 const STATIC_ASSETS = [
-  "/assets/dashboard/styles.css?v=20260729v136&build=20260729v136",
-  "/assets/dashboard/app.js?v=20260729v136&build=20260729v136",
+  "/assets/dashboard/styles.css?v=20260730v137&build=20260730v137",
+  "/assets/dashboard/app.js?v=20260730v137&build=20260730v137",
   "/assets/dashboard/icons/icon-192.png?v=20260620bq",
   "/assets/dashboard/icons/icon-512.png?v=20260620bq",
   "/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq"
@@ -44,12 +44,18 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (url.pathname.startsWith("/assets/dashboard/")) {
+    // The HTML shell versions every asset, but a network-first strategy also
+    // prevents a dormant service worker from masking a newly deployed bundle.
     event.respondWith(
-      caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-        const copy = response.clone();
-        caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy));
-        return response;
-      }))
+      fetch(request, { cache: "no-store" })
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached || Response.error()))
     );
   }
 });
