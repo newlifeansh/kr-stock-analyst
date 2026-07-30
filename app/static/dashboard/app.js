@@ -6524,6 +6524,15 @@ function homeAiResponseSentences(value, maxSentences = 2) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text) {
     return "시장 변동성 데이터를 확인하고 있습니다.";
+function homeAiResponseSentences(value, maxSentences = 2) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return "시장 변동성 데이터를 확인하고 있습니다.";
+  }
+  const sentences = text.match(/[^.!?。！？]+[.!?。！？]+|[^.!?。！？]+$/g) || [text];
+  return sentences.slice(0, maxSentences).join(" ").trim();
+}
+
   }
   const sentences = text.match(/[^.!?。！？]+[.!?。！？]+|[^.!?。！？]+$/g) || [text];
   return sentences.slice(0, maxSentences).join(" ").trim();
