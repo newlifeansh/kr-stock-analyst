@@ -6495,7 +6495,7 @@ function renderHomeAiResponse(items = state.aiSignalItems, asOf = "") {
   }
   const context = selectHomeMarketContext();
   const rawTitle = String(context?.sentence || homeMarketVolatilitySentence()).replace(/\s+/g, " ").trim();
-  const sentences = rawTitle.match(/[^.!?。！？]+[.!?。！？]+|[^.!?。！？]+$/g) || [rawTitle];
+  const sentences = rawTitle.match(/.+?(?:[.!?。！？]+(?=\s|$)|$)/g) || [rawTitle];
   elements.homeAiResponseTitle.textContent = sentences.slice(0, 2).join(" ").trim() || "시장 변동성 데이터를 확인하고 있습니다.";
   elements.homeAiResponseSummary.textContent = homeContextAttentionSentence(context, items);
   if (elements.homeAiResponseAsOf) {
