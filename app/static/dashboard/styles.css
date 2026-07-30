@@ -26172,6 +26172,8 @@ body[data-view="movers"] .shell[data-ui-version="3.0"] {
   font-size: 18px;
   font-weight: 800;
   line-height: 1.3;
+  transition: none;
+  animation: none;
 }
 
 #market-view.app-market-rankings .market-leaderboard-change {
@@ -26179,6 +26181,8 @@ body[data-view="movers"] .shell[data-ui-version="3.0"] {
   font-size: 14px;
   font-weight: 750;
   line-height: 1.3;
+  transition: none;
+  animation: none;
 }
 
 #market-view.app-market-rankings .market-leaderboard-change.positive,
@@ -26237,6 +26241,8 @@ body[data-view="movers"] .shell[data-ui-version="3.0"] {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: none;
+  animation: none;
 }
 
 #market-view.app-market-rankings .ranking-message-cell {

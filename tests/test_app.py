@@ -477,9 +477,9 @@ def test_home_shows_top_five_movers_and_links_to_market_top_thirty_page():
         < shell.index('id="trend-view"')
     )
     assert shell.index('id="search-view"') > shell.index('id="market-view"')
+    assert 'data-market-filter="ALL"' in shell
     assert 'data-market-filter="KOSPI"' in shell
     assert 'data-market-filter="KOSDAQ"' in shell
-    assert 'data-market-filter="ALL"' not in shell
     assert 'id="market-ranking-back"' in shell
     assert 'class="market-segment market-ranking-tabs"' in shell
     assert 'data-ui-version="5.0"' in shell

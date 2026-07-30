@@ -593,6 +593,7 @@ const STOCK_TERM_HELP = {
 
 const requestedView = new URLSearchParams(window.location.search).get("view");
 const requestedMarketRankingSnapshotId = new URLSearchParams(window.location.search).get("snapshot") || "";
+const requestedMarketRankingMarket = new URLSearchParams(window.location.search).get("market") || "ALL";
 const hasStockDetailPath = window.location.pathname.split("/").filter(Boolean).length > 1;
 const LEGACY_VIEW_MAP = {
   trend: "home",
@@ -658,6 +659,7 @@ const state = {
   selectedWatchChartCode: "",
   marketRankingCache: new Map(),
   marketRankingSnapshotId: requestedMarketRankingSnapshotId,
+  marketRankingMarket: ["ALL", "KOSPI", "KOSDAQ"].includes(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL",
   marketRankingSnapshotAsOf: "",
   marketLeaderboardItems: [],
   marketLeaderboardVisibleCount: 30,
@@ -665,6 +667,7 @@ const state = {
   marketLeaderboardTradeDate: "",
   marketQuoteSockets: new Map(),
   marketQuoteReconnectTimers: new Map(),
+  marketRankingRefreshTimer: null,
   marketPrefetchKey: "",
   usSectorMoves: null,
   usSectorRefreshTimer: null,
@@ -3695,8 +3698,34 @@ function updateMarketLeaderboardQuote(code, quote) {
   if (quote.trading_value !== null && quote.trading_value !== undefined && quote.trading_value !== "") {
     item.trading_value = quote.trading_value;
   }
-  sortMarketLeaderboardItems();
-  renderMarketSurgeLeaderboard({ live: true });
+
+  const safeCode = String(code).replace(/"/g, '\\"');
+  const card = elements.rankingBody?.querySelector(`.market-leaderboard-card[data-code="${safeCode}"]`);
+  if (!card) {
+    return;
+  }
+
+  const price = card.querySelector(".market-leaderboard-price");
+  const change = card.querySelector(".market-leaderboard-change");
+  if (price) {
+    price.textContent = formatNumber(item.price);
+  }
+  if (change) {
+    change.textContent = formatPercent(item.change_rate);
+    setTone(change, item.change_rate);
+  }
+  const metrics = card.querySelectorAll(".market-leaderboard-strip dd");
+  if (metrics[0]) {
+    metrics[0].textContent = formatMoney(item.trading_value);
+  }
+  if (metrics[1]) {
+    metrics[1].textContent = formatPercent(item.one_month_return);
+    setTone(metrics[1], item.one_month_return);
+  }
+  if (metrics[2]) {
+    metrics[2].textContent = formatPercent(item.three_month_return);
+    setTone(metrics[2], item.three_month_return);
+  }
 }
 
 function connectMarketQuoteStream(code) {
@@ -5751,6 +5780,9 @@ function setView(requestedViewName) {
     stopHomeMarketSignalTicker();
     stopHomeMarketIndexRefresh();
   }
+  if (view !== "movers") {
+    stopMarketRankingRefresh();
+  }
   if (!US_SECTOR_STREAM_VIEWS.has(view)) {
     closeUsSectorStream();
   }
@@ -6826,11 +6858,12 @@ async function loadHomeSurgeRankings(options = {}) {
 }
 
 function currentMarketFilter() {
-  return elements.marketTabs.find((tab) => tab.classList.contains("active"))?.dataset.marketFilter || "KOSPI";
+  return state.marketRankingMarket || elements.marketTabs.find((tab) => tab.classList.contains("active"))?.dataset.marketFilter || "ALL";
 }
 
 function setMarketFilter(market) {
-  const normalized = ["KOSPI", "KOSDAQ"].includes(market) ? market : "KOSPI";
+  const normalized = ["ALL", "KOSPI", "KOSDAQ"].includes(market) ? market : "ALL";
+  state.marketRankingMarket = normalized;
   for (const tab of elements.marketTabs) {
     const active = tab.dataset.marketFilter === normalized;
     tab.classList.toggle("active", active);
@@ -6839,19 +6872,47 @@ function setMarketFilter(market) {
   return normalized;
 }
 
+function stopMarketRankingRefresh() {
+  window.clearTimeout(state.marketRankingRefreshTimer);
+  state.marketRankingRefreshTimer = null;
+}
+
+function scheduleMarketRankingRefresh() {
+  stopMarketRankingRefresh();
+  if (state.view !== "movers" || state.rankingCategory !== "surge") {
+    return;
+  }
+  const phase = koreaMarketPhase();
+  if (!["preopen", "regular"].includes(phase)) {
+    return;
+  }
+  state.marketRankingRefreshTimer = window.setTimeout(() => {
+    if (state.view !== "movers" || state.rankingCategory !== "surge") {
+      return;
+    }
+    void loadMarketRankings({
+      force: true,
+      ttlMs: 0,
+      market: currentMarketFilter(),
+      limit: 30,
+    });
+  }, 30_000);
+}
+
 function marketRankingKey(category, market, limit = 30, snapshotId = "") {
   return `${market}:surge:${limit}:${snapshotId || "latest"}`;
 }
 
 function syncMarketRankingSnapshotUrl() {
+  const market = currentMarketFilter();
   if (!state.marketRankingSnapshotId) {
-    history.replaceState(null, "", "/dashboard?view=movers");
+    history.replaceState(null, "", `/dashboard?view=movers&market=${encodeURIComponent(market)}`);
     return;
   }
   const snapshotQuery = state.marketRankingSnapshotId
     ? `&snapshot=${encodeURIComponent(state.marketRankingSnapshotId)}`
     : "";
-  history.replaceState(null, "", `/dashboard?view=movers${snapshotQuery}`);
+  history.replaceState(null, "", `/dashboard?view=movers&market=${encodeURIComponent(market)}${snapshotQuery}`);
 }
 
 function marketCategoryLabel(category) {
@@ -6918,7 +6979,7 @@ async function loadMarketRankings(options = {}) {
   if (elements.rankCategorySelect) {
     elements.rankCategorySelect.value = category;
   }
-  const market = options.market || currentMarketFilter();
+  const market = setMarketFilter(options.market || currentMarketFilter());
   const limit = Math.max(1, Math.min(30, Number(options.limit) || 30));
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
@@ -6928,6 +6989,7 @@ async function loadMarketRankings(options = {}) {
   const cached = state.marketRankingCache.get(key);
   if (!force && cached?.payload && Date.now() - (cached.savedAt || 0) <= ttlMs) {
     renderRankings(cached.payload);
+    scheduleMarketRankingRefresh();
     return;
   }
   closeMarketQuoteStreams();
@@ -6942,6 +7004,7 @@ async function loadMarketRankings(options = {}) {
     if (state.view === "movers" && state.rankingCategory === category && currentMarketFilter() === market) {
       syncMarketRankingSnapshotUrl();
       renderRankings(payload);
+      scheduleMarketRankingRefresh();
     }
   } catch {
     if (state.view === "movers" && state.rankingCategory === category && currentMarketFilter() === market) {
@@ -12197,7 +12260,10 @@ async function syncViewFromLocation() {
     await load(decodeURIComponent(parts[1]));
     return;
   }
-  const routeView = new URLSearchParams(window.location.search).get("view") || "home";
+  const params = new URLSearchParams(window.location.search);
+  const routeView = params.get("view") || "home";
+  const routeMarket = params.get("market") || "ALL";
+  state.marketRankingMarket = ["ALL", "KOSPI", "KOSDAQ"].includes(routeMarket) ? routeMarket : "ALL";
   setView(routeView);
 }
 
@@ -12234,7 +12300,7 @@ elements.homeSurgeMore?.addEventListener("click", async () => {
   if (!state.marketRankingSnapshotId) {
     await loadHomeSurgeRankings({ ttlMs: 0 });
   }
-  setMarketFilter("KOSPI");
+  setMarketFilter("ALL");
   setView("movers");
   window.scrollTo({ top: 0, behavior: "auto" });
 });
