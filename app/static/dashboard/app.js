@@ -6737,7 +6737,7 @@ function compactHoldingSignalSummary(item = {}) {
 
 function compactSignalDate(value) {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return match ? `${match[1]}-${match[2]}-${match[3]}` : "날짜 확인 중";
+  return match ? `${match[2]}.${match[3]}` : "날짜 확인 중";
 }
 
 function homeMarketSignalItems(items = []) {

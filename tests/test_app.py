@@ -401,6 +401,7 @@ def test_dashboard_v3_uses_four_primary_views_and_nested_market_tabs():
     assert "function startHomeMarketSignalTicker" in source
     assert '시총 상위 100' not in shell
     assert '시총 상위 종목의 최근 신호' not in shell
+    assert 'return match ? `${match[2]}.${match[3]}` : "날짜 확인 중";' in source
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
     assert 'styles.css?v=20260730v141' in shell
