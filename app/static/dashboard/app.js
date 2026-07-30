@@ -6494,7 +6494,9 @@ function renderHomeAiResponse(items = state.aiSignalItems, asOf = "") {
     return;
   }
   const context = selectHomeMarketContext();
-  elements.homeAiResponseTitle.textContent = homeAiResponseSentences(context?.sentence || homeMarketVolatilitySentence());
+  const rawTitle = String(context?.sentence || homeMarketVolatilitySentence()).replace(/\s+/g, " ").trim();
+  const sentences = rawTitle.match(/[^.!?。！？]+[.!?。！？]+|[^.!?。！？]+$/g) || [rawTitle];
+  elements.homeAiResponseTitle.textContent = sentences.slice(0, 2).join(" ").trim() || "시장 변동성 데이터를 확인하고 있습니다.";
   elements.homeAiResponseSummary.textContent = homeContextAttentionSentence(context, items);
   if (elements.homeAiResponseAsOf) {
     elements.homeAiResponseAsOf.textContent = formatDataBasis(latestHomeAiResponseAsOf(asOf), "기준 정보 확인 중");

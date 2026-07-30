@@ -37,8 +37,8 @@ def test_home_ai_response_uses_realtime_market_context() -> None:
     assert "function usSectorMarketContext" in source
     assert "const context = selectHomeMarketContext();" in source
     assert "homeContextAttentionSentence(context, items)" in source
-    assert "function homeAiResponseSentences" in source
-    assert "homeAiResponseSentences(context?.sentence || homeMarketVolatilitySentence())" in source
+    assert "const rawTitle = String(context?.sentence || homeMarketVolatilitySentence())" in source
+    assert 'sentences.slice(0, 2).join(" ").trim()' in source
 
 
 def test_home_trend_payload_refreshes_ai_response() -> None:
