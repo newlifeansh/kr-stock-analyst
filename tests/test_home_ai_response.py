@@ -23,7 +23,9 @@ def test_home_market_volatility_copy_is_not_visually_clipped() -> None:
     assert "min-height" not in card_rule
     assert "display: block;" in title_rule
     assert "overflow: visible;" in title_rule
-    assert "-webkit-line-clamp" not in title_rule
+    assert "text-overflow: clip;" in title_rule
+    assert "-webkit-line-clamp: unset;" in title_rule
+    assert "-webkit-line-clamp: 1;" not in title_rule
 
 
 def test_home_ai_response_uses_realtime_market_context() -> None:
