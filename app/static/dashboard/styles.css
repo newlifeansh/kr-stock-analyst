@@ -25462,7 +25462,7 @@ body:not([data-view="stock"]) .market-ranking-head p {
 
 body:not([data-view="stock"]) .app-market-rankings > .market-segment {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0 0 20px;
   padding: 0;
   overflow: hidden;
@@ -26044,7 +26044,7 @@ body[data-view="movers"] .shell[data-ui-version="3.0"] {
   z-index: 8;
   min-height: 58px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0;
   padding: 0;
   overflow: visible;

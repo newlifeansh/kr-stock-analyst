@@ -241,7 +241,6 @@ const elements = {
   rankCategorySelect: $("rank-category-select"),
   marketTabs: Array.from(document.querySelectorAll("[data-market-filter]")),
   marketRankingBack: $("market-ranking-back"),
-  marketMeta: $("market-meta"),
   rankingBody: $("ranking-body"),
   name: $("stock-name"),
   meta: $("stock-meta"),
@@ -6140,9 +6139,6 @@ function renderRankings(payload) {
   elements.rankingBody.innerHTML = "";
   setMarketLeaderboardMode(category === "surge");
   if (category === "surge") {
-    if (elements.marketMeta) {
-      elements.marketMeta.textContent = `${marketRankingBasisLabel(payload, { includeMarket: false })} · 상승 ${formatNumber(payload.matching_count ?? payload.items?.length ?? 0)}개`;
-    }
     if (!payload.items || payload.items.length === 0) {
       closeMarketQuoteStreams();
       renderRankingMessage("데이터 없음");
