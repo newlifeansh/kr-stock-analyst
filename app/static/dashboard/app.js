@@ -6244,10 +6244,17 @@ function homeMarketVolatilitySentence(items = state.homeMarketIndexItems) {
     return "코스피와 코스닥 흐름이 엇갈려 종목별 변동성 차이를 확인해야 합니다.";
   }
   if (allPositive && maximumMove >= 0.7) {
+function isRecentAiSignal(item, now = Date.now()) {
+  const signalDate = homeAiSignalView(item)?.signalDate;
+  const timestamp = Date.parse(signalDate || "");
+  return Number.isFinite(timestamp) && timestamp >= now - 30 * 24 * 60 * 60 * 1000 && timestamp <= now + 24 * 60 * 60 * 1000;
+}
+
     return "코스피와 코스닥이 함께 강세지만 단기 추격보다 종목별 수급 확인이 필요합니다.";
   }
   if (allNegative && maximumMove >= 0.7) {
     return "코스피와 코스닥이 함께 약세여서 추가 하락과 수급 이탈에 유의해야 합니다.";
+    .filter((item) => isRecentAiSignal(item))
   }
   return "국내 지수 변동은 제한적이지만 종목별 움직임 차이를 확인할 구간입니다.";
 }
