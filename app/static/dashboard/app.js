@@ -6498,7 +6498,7 @@ function renderHomeAiResponse(items = state.aiSignalItems, asOf = "") {
     return;
   }
   const context = selectHomeMarketContext();
-  elements.homeAiResponseTitle.textContent = context?.sentence || homeMarketVolatilitySentence();
+  elements.homeAiResponseTitle.textContent = homeAiResponseSentences(context?.sentence || homeMarketVolatilitySentence());
   elements.homeAiResponseSummary.textContent = homeContextAttentionSentence(context, items);
   if (elements.homeAiResponseAsOf) {
     elements.homeAiResponseAsOf.textContent = formatDataBasis(latestHomeAiResponseAsOf(asOf), "기준 정보 확인 중");
@@ -6524,6 +6524,15 @@ function createHomeAiSignalRow(item, options = {}) {
   status.append(el("strong", "", view.label));
   if (options.detail && view.signalDate) {
     status.append(el("small", "", formatDataBasis(view.signalDate, "")));
+function homeAiResponseSentences(value, maxSentences = 2) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return "시장 변동성 데이터를 확인하고 있습니다.";
+  }
+  const sentences = text.match(/[^.!?。！？]+[.!?。！？]+|[^.!?。！？]+$/g) || [text];
+  return sentences.slice(0, maxSentences).join(" ").trim();
+}
+
   }
   row.append(identity, status);
   return row;
