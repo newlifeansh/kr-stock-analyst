@@ -307,7 +307,6 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
     chart = dashboard.get("chart_analysis", {})
     revisions = dashboard.get("revisions", {})
     surprise = dashboard.get("surprise", {})
-    guidance = dashboard.get("guidance", {})
     flows = dashboard.get("flows", {})
     valuation = dashboard.get("valuation", {})
     sentiment = dashboard.get("sentiment", {})

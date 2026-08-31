@@ -207,6 +207,8 @@ def fetch_dart_disclosures(
     days_back: int,
     page_count: int,
     now: Optional[datetime] = None,
+    corp_code: Optional[str] = None,
+    stock_code: Optional[str] = None,
 ) -> DisclosureFetchResult:
     requested_source = "dart_api" if settings.dart_api_key else "dart_web"
     if not settings.dart_api_key:
@@ -221,17 +223,20 @@ def fetch_dart_disclosures(
     items: list[DisclosureListItem] = []
 
     for page_no in range(1, 6):
+        params = {
+            "crtfc_key": settings.dart_api_key,
+            "bgn_de": begin_date.strftime("%Y%m%d"),
+            "end_de": now.strftime("%Y%m%d"),
+            "sort": "date",
+            "sort_mth": "desc",
+            "page_no": page_no,
+            "page_count": page_count,
+        }
+        if corp_code:
+            params["corp_code"] = corp_code
         payload = fetch_opendart_json(
             DART_LIST_URL,
-            {
-                "crtfc_key": settings.dart_api_key,
-                "bgn_de": begin_date.strftime("%Y%m%d"),
-                "end_de": now.strftime("%Y%m%d"),
-                "sort": "date",
-                "sort_mth": "desc",
-                "page_no": page_no,
-                "page_count": page_count,
-            },
+            params,
             timeout=30,
         )
         status = payload.get("status")
@@ -259,8 +264,8 @@ def fetch_dart_disclosures(
                     external_id=external_id,
                     disclosure_category=classify_disclosure_category(report_name),
                     company_name=row.get("corp_name") or "-",
-                    stock_code=row.get("stock_code") or None,
-                    corp_code=row.get("corp_code") or None,
+                    stock_code=row.get("stock_code") or stock_code or None,
+                    corp_code=row.get("corp_code") or corp_code or None,
                     corp_class=row.get("corp_cls") or None,
                     report_name=report_name,
                     filer_name=row.get("flr_nm") or None,
@@ -286,6 +291,8 @@ def collect_disclosures(
     settings: Optional[Settings] = None,
     days_back: Optional[int] = None,
     page_count: Optional[int] = None,
+    corp_code: Optional[str] = None,
+    stock_code: Optional[str] = None,
 ) -> DisclosureCollectResult:
     settings = settings or get_settings()
     days_back = days_back or settings.disclosure_days_back
@@ -298,6 +305,8 @@ def collect_disclosures(
             settings=settings,
             days_back=days_back,
             page_count=page_count,
+            corp_code=corp_code,
+            stock_code=stock_code,
         )
         if result.resolved_source == "dart_api":
             external_ids = [item.external_id for item in result.items if item.external_id]
@@ -315,6 +324,8 @@ def collect_disclosures(
             f"resolved_source={result.resolved_source}",
             f"days_back={days_back}",
         ]
+        if corp_code:
+            message_parts.append(f"corp_code={corp_code}")
         if result.message:
             message_parts.append(f"detail={result.message}")
         finish_ingestion(

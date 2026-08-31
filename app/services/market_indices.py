@@ -126,6 +126,8 @@ def korean_market_session(now: datetime | None = None) -> str:
     local = local.astimezone(KST)
     if local.weekday() >= 5:
         return "closed"
+    if time(7, 0) <= local.time() < time(9, 0):
+        return "preopen"
     return "open" if time(9, 0) <= local.time() < time(15, 30) else "closed"
 
 

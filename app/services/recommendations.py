@@ -8,10 +8,24 @@ from typing import Optional
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import SessionLocal
 from app.models import DailyPrice, StockMaster
 from app.services.market_rankings import _base_item, _row_value
-from app.services.stock_dashboard import build_stock_dashboard, _chart_analysis, _round_decimal
+from app.services.quant_signals import (
+    ENTRY_SCORE,
+    MIN_BACKTEST_HISTORY_ROWS,
+    load_market_quant_signal_snapshot,
+    load_quant_signal_payload,
+    load_reference_quant_signal_payload,
+)
+from app.services.sector_taxonomy import investment_sector_fields
+from app.services.stock_dashboard import (
+    _chart_analysis,
+    _round_decimal,
+    build_stock_dashboard,
+    ensure_stock_price_history,
+)
 from app.services.ttl_cache import TTLCache
 
 
@@ -31,7 +45,9 @@ WEIGHTS = {
 MARKET_CAP_UNIVERSE_LIMIT = 100
 KST = timezone(timedelta(hours=9))
 UNIVERSE_CACHE_TTL_SECONDS = 300
+MAX_RECOMMENDATIONS_PER_SECTOR = 2
 universe_cache = TTLCache(maxsize=16)
+settings = get_settings()
 
 
 METHODOLOGY = [
@@ -39,6 +55,8 @@ METHODOLOGY = [
     "유니버스 안에서 1개월/3개월 모멘텀, 거래대금, 거래대금 변화로 후보를 선별한다. 가격 이력이 짧으면 최신 거래대금과 단기 흐름으로 보수적으로 대체한다.",
     "선별 후보에 대해 추정치/애널리스트 변화, 실적/가이던스, 밸류에이션, 거시 민감도, 수급, 뉴스 분위기를 0~100점으로 환산한다.",
     "정밀 계산은 10개 항목 가중합을 사용한다. 빠른 후보 선별은 실제로 확인된 가격·거래대금 항목만 재가중해 계산하며, 없는 데이터에 임의 점수를 넣지 않는다.",
+    "동일 기업군은 우선 한 종목, 동일 투자 섹터는 우선 두 종목 이내로 제한해 특정 위험 팩터 쏠림을 줄인다.",
+    "추천 점수는 모니터링 후보 순위이며, 실제 진입·보유·축소 판단은 종목별 AI 시그널 상태를 별도로 따른다.",
 ]
 
 RECOMMENDATION_GROUP_PREFIXES = (
@@ -82,6 +100,63 @@ def _num(value: object) -> Optional[Decimal]:
 
 def _now_kst() -> datetime:
     return datetime.now(KST)
+
+
+def _latest_preliminary_states(
+    db: Session,
+    codes: list[str],
+) -> dict[str, dict[str, object]]:
+    """Return the latest intraday preliminary observation for selected stocks.
+
+    Recommendation cards only need the latest released/active observation, not
+    the full market feed. Reading the persisted snapshot keeps the response
+    compact and avoids triggering another market-wide signal scan.
+    """
+
+    selected_codes = {str(code).strip() for code in codes if str(code).strip()}
+    if not selected_codes:
+        return {}
+    try:
+        snapshot = load_market_quant_signal_snapshot(db)
+    except Exception:
+        return {}
+    if not isinstance(snapshot, dict):
+        return {}
+
+    latest_by_code: dict[str, dict[str, object]] = {}
+    latest_tokens: dict[str, str] = {}
+    for raw_item in snapshot.get("preliminary_history") or []:
+        if not isinstance(raw_item, dict):
+            continue
+        code = str(raw_item.get("code") or "").strip()
+        side = str(raw_item.get("side") or "").strip().lower()
+        if (
+            code not in selected_codes
+            or side not in {"buy", "sell"}
+            or "active" not in raw_item
+        ):
+            continue
+        observed_at = str(
+            raw_item.get("last_seen_at")
+            or raw_item.get("first_seen_at")
+            or raw_item.get("signal_at")
+            or raw_item.get("signal_date")
+            or ""
+        )
+        if code in latest_tokens and observed_at <= latest_tokens[code]:
+            continue
+        latest_tokens[code] = observed_at
+        latest_by_code[code] = {
+            "side": side,
+            "signal_date": raw_item.get("signal_date"),
+            "first_seen_at": raw_item.get("first_seen_at") or raw_item.get("signal_at"),
+            "last_seen_at": raw_item.get("last_seen_at") or raw_item.get("updated_at"),
+            "active": bool(raw_item.get("active")),
+            "price": raw_item.get("price"),
+            "score": raw_item.get("score"),
+            "reason": raw_item.get("reason"),
+        }
+    return latest_by_code
 
 
 def _clamp(value: Decimal, low: Decimal = Decimal("0"), high: Decimal = Decimal("100")) -> Decimal:
@@ -356,25 +431,60 @@ def _recommendation_group_key(item: dict[str, object]) -> str:
     return name
 
 
+def _recommendation_sector_key(item: dict[str, object]) -> str:
+    investment_sector = str(item.get("investment_sector") or "").strip()
+    if investment_sector:
+        return investment_sector
+    return str(item.get("sector") or item.get("industry") or "other").strip() or "other"
+
+
 def _select_diverse_recommendations(scored: list[dict[str, object]], limit: int) -> list[dict[str, object]]:
     selected: list[dict[str, object]] = []
     deferred: list[dict[str, object]] = []
     seen_groups: set[str] = set()
+    sector_counts: dict[str, int] = {}
 
     for item in scored:
         group_key = _recommendation_group_key(item)
-        if group_key in seen_groups:
+        sector_key = _recommendation_sector_key(item)
+        if (
+            group_key in seen_groups
+            or sector_counts.get(sector_key, 0) >= MAX_RECOMMENDATIONS_PER_SECTOR
+        ):
             deferred.append(item)
             continue
         selected.append(item)
         seen_groups.add(group_key)
+        sector_counts[sector_key] = sector_counts.get(sector_key, 0) + 1
         if len(selected) >= limit:
             return selected
 
     for item in deferred:
         if len(selected) >= limit:
             break
+        sector_key = _recommendation_sector_key(item)
+        if sector_counts.get(sector_key, 0) >= MAX_RECOMMENDATIONS_PER_SECTOR:
+            continue
         selected.append(item)
+        sector_counts[sector_key] = sector_counts.get(sector_key, 0) + 1
+
+    if len(selected) < limit:
+        selected_ids = {id(item) for item in selected}
+        for item in deferred:
+            if len(selected) >= limit:
+                break
+            if id(item) in selected_ids or _recommendation_group_key(item) in seen_groups:
+                continue
+            selected.append(item)
+            selected_ids.add(id(item))
+            seen_groups.add(_recommendation_group_key(item))
+        for item in deferred:
+            if len(selected) >= limit:
+                break
+            if id(item) in selected_ids:
+                continue
+            selected.append(item)
+            selected_ids.add(id(item))
     return selected[:limit]
 
 
@@ -453,20 +563,42 @@ def _score_dashboard(dashboard: dict[str, object]) -> dict[str, object]:
         "chart_analysis": chart_analysis,
         "reasons": reasons[:8],
         "risks": risks[:6],
+        "_quant_live_quote": quote,
     }
+
+
+def _score_candidate_in_session(
+    db: Session,
+    code: str,
+    refresh_live: bool = False,
+) -> Optional[dict[str, object]]:
+    try:
+        dashboard = build_stock_dashboard(db, code, refresh_live=refresh_live)
+        if not dashboard:
+            return None
+        result = _score_dashboard(dashboard)
+        stock = db.get(StockMaster, code)
+        if stock:
+            result.update(investment_sector_fields(stock.sector, stock.industry))
+        return result
+    except Exception:
+        return None
 
 
 def _score_candidate(code: str, refresh_live: bool = False) -> Optional[dict[str, object]]:
     db = SessionLocal()
     try:
-        dashboard = build_stock_dashboard(db, code, refresh_live=refresh_live)
-        if not dashboard:
-            return None
-        return _score_dashboard(dashboard)
-    except Exception:
-        return None
+        return _score_candidate_in_session(db, code, refresh_live)
     finally:
         db.close()
+
+
+def _uses_runtime_database(db: Session) -> bool:
+    """Return whether a request session can be safely reopened in worker threads."""
+
+    runtime_bind = SessionLocal.kw.get("bind")
+    request_bind = db.get_bind()
+    return request_bind is runtime_bind or getattr(request_bind, "engine", None) is runtime_bind
 
 
 def _fast_component_scores(item: dict[str, object], chart_analysis: dict[str, object]) -> dict[str, Decimal]:
@@ -532,6 +664,10 @@ def _score_fast_candidate(item: dict[str, object], prices: list[object]) -> dict
         "code": item["code"],
         "name": item["name"],
         "market": item["market"],
+        "sector": item.get("sector"),
+        "industry": item.get("industry"),
+        "investment_sector": item.get("investment_sector", "other"),
+        "investment_sector_label": item.get("investment_sector_label", "기타"),
         "score": score_value,
         "action": fast_action,
         "decision_reason": _decision_reason(fast_action, score_value, chart_score, one_month),
@@ -599,6 +735,7 @@ def _top_market_cap_universe(db: Session, refresh_live: bool = False) -> dict[st
             item = _base_item(stock, prices)
             if not item or not item.get("trading_value"):
                 continue
+            item.update(investment_sector_fields(stock.sector, stock.industry))
             base_items.append(item)
         return {"universe_count": len(selected_codes), "base_items": base_items, "price_groups": price_groups}
 
@@ -609,7 +746,13 @@ def _top_market_cap_universe(db: Session, refresh_live: bool = False) -> dict[st
     return universe_cache.get_or_set("top_market_cap_universe", UNIVERSE_CACHE_TTL_SECONDS, build)
 
 
-def build_recommendations(db: Session, limit: int = 8, candidate_limit: int = 50, refresh_live: bool = False) -> dict[str, object]:
+def build_recommendations(
+    db: Session,
+    limit: int = 8,
+    candidate_limit: int = 50,
+    refresh_live: bool = False,
+    ensure_signal_history: bool = True,
+) -> dict[str, object]:
     universe = _top_market_cap_universe(db, refresh_live=refresh_live)
     base_items = list(universe["base_items"])
 
@@ -618,23 +761,116 @@ def build_recommendations(db: Session, limit: int = 8, candidate_limit: int = 50
     candidates = base_items[: min(len(base_items), score_pool_limit)]
     scored = []
     if refresh_live:
-        with ThreadPoolExecutor(max_workers=min(8, max(len(candidates), 1))) as executor:
-            futures = [executor.submit(_score_candidate, str(item["code"]), refresh_live) for item in candidates]
-            for future in as_completed(futures):
-                item = future.result()
-                if item:
-                    scored.append(item)
+        if _uses_runtime_database(db):
+            with ThreadPoolExecutor(max_workers=min(8, max(len(candidates), 1))) as executor:
+                futures = [
+                    executor.submit(_score_candidate, str(item["code"]), refresh_live)
+                    for item in candidates
+                ]
+                for future in as_completed(futures):
+                    item = future.result()
+                    if item:
+                        scored.append(item)
+        else:
+            scored = [
+                item
+                for candidate in candidates
+                if (
+                    item := _score_candidate_in_session(
+                        db,
+                        str(candidate["code"]),
+                        refresh_live,
+                    )
+                )
+            ]
     else:
         grouped_prices = universe.get("price_groups") or {}
         scored = [_score_fast_candidate(item, grouped_prices.get(str(item["code"]), [])) for item in candidates]
 
     scored.sort(key=lambda item: item["score"], reverse=True)
     selected = _select_diverse_recommendations(scored, limit)
+    recommendation_as_of = _now_kst()
+    preliminary_states = _latest_preliminary_states(
+        db,
+        [str(item.get("code") or "") for item in selected],
+    )
     for idx, item in enumerate(selected, start=1):
         item["rank"] = idx
+        item["recommended_at"] = recommendation_as_of
+        live_quote = item.pop("_quant_live_quote", None)
+        try:
+            if ensure_signal_history:
+                ensure_stock_price_history(
+                    db,
+                    str(item["code"]),
+                    min_rows=MIN_BACKTEST_HISTORY_ROWS,
+                    lookback_days=600,
+                    require_recent_complete_ohlc=True,
+                )
+            signal_kwargs = {
+                "live_quote": live_quote if isinstance(live_quote, dict) else None,
+                "include_context": False,
+                "include_stored_intraday": live_quote is None,
+            }
+            if settings.market_quant_signal_source_url:
+                signal = load_reference_quant_signal_payload(
+                    db,
+                    str(item["code"]),
+                    source_url=settings.market_quant_signal_source_url,
+                    source_timeout_seconds=settings.market_quant_signal_source_timeout_seconds,
+                    **signal_kwargs,
+                )
+            else:
+                signal = load_quant_signal_payload(db, str(item["code"]), **signal_kwargs)
+        except Exception:
+            signal = None
+        current = signal.get("current") if isinstance(signal, dict) else None
+        item["ai_trade_signal"] = (
+            {
+                "data_state": signal.get("data_state"),
+                "data_message": signal.get("data_message"),
+                "as_of": signal.get("as_of"),
+                "price_through": signal.get("price_through"),
+                "strategy_version": signal.get("strategy_version"),
+                "signal_source": signal.get("signal_source", "local"),
+                "entry_score_threshold": signal.get("entry_score_threshold", Decimal(str(ENTRY_SCORE))),
+                "display_return_rate": signal.get("display_return_rate"),
+                "display_return_kind": signal.get("display_return_kind"),
+                "latest_preliminary": preliminary_states.get(str(item["code"])),
+                "current": {
+                    "action": current.get("action"),
+                    "label": current.get("label"),
+                    "score": current.get("score"),
+                    "price": current.get("price"),
+                    "as_of": current.get("as_of") or signal.get("as_of"),
+                    "live_observation": current.get("live_observation", False),
+                    "position_open": current.get("position_open", False),
+                    "model_exposure_percent": current.get("model_exposure_percent", Decimal("0")),
+                    "lifecycle": current.get("lifecycle"),
+                    "entry_date": current.get("entry_date"),
+                    "entry_price": current.get("entry_price"),
+                    "target_sell_price": current.get("target_sell_price"),
+                    "partial_exit_date": current.get("partial_exit_date"),
+                    "partial_exit_price": current.get("partial_exit_price"),
+                    "profit_stage": current.get("profit_stage", 0),
+                    "pending_profit_stage": current.get("pending_profit_stage"),
+                    "profit_steps_total": current.get("profit_steps_total", 3),
+                    "partial_exit_reference": current.get("partial_exit_reference"),
+                    "locked_profit_reference": current.get("locked_profit_reference"),
+                    "stop_reference": current.get("stop_reference"),
+                    "unrealized_return": current.get("unrealized_return"),
+                    "reasons": current.get("reasons") or [],
+                    "next_confirmation": current.get("next_confirmation") or "다음 종가 조건을 확인합니다.",
+                }
+                if isinstance(current, dict)
+                else None,
+            }
+            if isinstance(signal, dict)
+            else None
+        )
 
     return {
-        "as_of": _now_kst(),
+        "as_of": recommendation_as_of,
         "universe_count": universe["universe_count"],
         "candidate_count": len(candidates),
         "methodology": METHODOLOGY,

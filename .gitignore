@@ -5,6 +5,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+artifacts/
+build/
 data/
 .env
 .DS_Store
@@ -13,8 +15,12 @@ app.db
 .railway/
 .railway.env
 .railway.generated.env
+.kakao-monitor.env
+.kakao-monitor-state.json
+.deploy-backups/
 tmp-*.png
 tmp-*.jpg
 tmp-*.jpeg
 tmp-*.webp
 tmp/
+.vercel

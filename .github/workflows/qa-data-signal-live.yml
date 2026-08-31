@@ -1,0 +1,55 @@
+name: QA data-signal live
+
+on:
+  workflow_dispatch:
+  schedule:
+    # KST weekdays 08:20, 10:00 and 16:20.
+    - cron: "20 23 * * 0-4"
+    - cron: "0 1 * * 1-5"
+    - cron: "20 7 * * 1-5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-data-signal-live
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL || 'https://dark-theme-preview-staging.up.railway.app' }}
+      KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+      KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+      KIS_ENV: ${{ vars.KIS_ENV || 'real' }}
+      DART_API_KEY: ${{ secrets.DART_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install project and QA dependencies
+        run: pip install -e '.[qa,mcp]'
+      - name: Run read-only staging and source checks
+        shell: bash
+        run: |
+          kis_flag=""
+          if [[ -n "$KIS_APP_KEY" && -n "$KIS_APP_SECRET" ]]; then
+            kis_flag="--direct-kis"
+          fi
+          analyst qa data-signal \
+            --mode live \
+            --base-url "$STAGING_BASE_URL" \
+            --output artifacts/qa-data-signal/live.json \
+            $kis_flag
+      - name: Upload live evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-data-signal-live-${{ github.run_id }}
+          path: artifacts/qa-data-signal/live.json
+          if-no-files-found: error
+          retention-days: 30

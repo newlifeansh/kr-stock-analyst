@@ -1289,7 +1289,7 @@ a {
   background: #edf3f8;
 }
 
-.overview-account-card {
+.overview-watch-card {
   display: grid;
   justify-items: center;
   gap: 12px;
@@ -1300,11 +1300,11 @@ a {
   text-align: center;
 }
 
-.overview-account-card strong {
+.overview-watch-card strong {
   font-size: 16px;
 }
 
-.overview-account-card span {
+.overview-watch-card span {
   color: #536274;
   font-size: 14px;
   line-height: 1.45;
@@ -4422,6 +4422,15 @@ a.flow-node.stock:hover {
   line-height: 1.6;
 }
 
+.market-impact-copy .market-impact-clarify {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
 .market-impact-flow {
   display: grid;
   gap: 12px;
@@ -7376,7 +7385,7 @@ a.flow-node.stock:hover {
     background: var(--panel);
   }
 
-  .overview-account-card {
+  .overview-watch-card {
     min-height: auto;
     padding: 24px 18px;
   }

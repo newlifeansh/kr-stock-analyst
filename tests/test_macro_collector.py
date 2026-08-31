@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -23,6 +25,16 @@ class _Response:
         }
 
 
+class _NaverIndexResponse:
+    content = b'''<?xml version="1.0"?><chartdata>
+      <item data="20260819|6528.77|6614.39|6400.81|6471.17|305840" />
+      <item data="20260820|6680.34|6904.55|6600.09|6852.58|304468" />
+    </chartdata>'''
+
+    def raise_for_status(self):
+        return None
+
+
 def _session() -> Session:
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)
@@ -39,6 +51,32 @@ def test_fetch_yahoo_macro_rows_skips_empty_close(monkeypatch):
     assert rows[0]["series_code"] == "USDKRW=X"
     assert rows[0]["item_code"] == "close"
     assert rows[0]["value"] == 1400.5
+
+
+def test_yahoo_period_uses_exchange_timezone_instead_of_utc_date():
+    # 2026-08-19 23:00 UTC is the 2026-08-20 daily period in London.
+    assert macro._period(1787180400, "Europe/London") == "2026-08-20"
+
+
+def test_naver_index_fallback_keeps_confirmed_korea_close(monkeypatch):
+    monkeypatch.setattr(macro.requests, "get", lambda *args, **kwargs: _NaverIndexResponse())
+
+    rows = macro.fetch_naver_index_close_rows(
+        "^KS11",
+        "KOSPI Index",
+        "index",
+        range_="5d",
+    )
+
+    assert rows[-1] == {
+        "source": "naver_finance",
+        "series_code": "^KS11",
+        "item_code": "close",
+        "period": "2026-08-20",
+        "value": Decimal("6852.58"),
+        "unit": "index",
+        "name": "KOSPI Index",
+    }
 
 
 def test_collect_yahoo_macro_observations_upserts_rows(monkeypatch):

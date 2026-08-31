@@ -103,7 +103,7 @@ def test_ollama_prioritizes_grounded_evidence_without_changing_calculated_decisi
     assert result["trade_levels"] == rules["trade_levels"]
     assert captured["url"] == "http://127.0.0.1:11434/api/chat"
     assert "format" not in captured["json"]
-    assert captured["json"]["think"] is False
+    assert "think" not in captured["json"]
     assert captured["json"]["options"]["num_ctx"] == 256
     assert captured["json"]["options"]["num_predict"] == 2
     compact_evidence = captured["json"]["messages"][1]["content"]

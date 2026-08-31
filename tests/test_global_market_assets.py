@@ -45,8 +45,15 @@ def test_stored_global_market_assets_preserve_definition_order_and_history():
 
         payload = build_stored_global_market_assets(session, limit=30)
 
-        assert [item["code"] for item in payload["items"]] == ["NASDAQ", "SP500", "GOLD", "OIL"]
-        nasdaq = payload["items"][0]
+        assert [item["code"] for item in payload["items"]] == [
+            "SP500",
+            "NASDAQ",
+            "SOX",
+            "DOW",
+            "GOLD",
+            "OIL",
+        ]
+        nasdaq = next(item for item in payload["items"] if item["code"] == "NASDAQ")
         assert nasdaq["current"] == 24900.0
         assert nasdaq["previous_close"] == 25000.0
         assert nasdaq["change"] == -100.0
@@ -87,6 +94,40 @@ def test_live_global_asset_calculates_session_and_intraday_points(monkeypatch):
     assert [point["value"] for point in item["points"]] == [7410.0, 7420.0]
 
 
+def test_live_global_index_marks_only_two_hours_before_regular_open_as_preopen(monkeypatch):
+    regular_start = 1_785_230_000
+    monkeypatch.setattr(
+        global_market_assets,
+        "_fetch_yahoo_chart",
+        lambda _symbol: {
+            "meta": {
+                "regularMarketPrice": 7728.2,
+                "previousClose": 7700.0,
+                "regularMarketTime": regular_start - 16 * 60 * 60,
+                "currentTradingPeriod": {
+                    "regular": {"start": regular_start, "end": regular_start + 6 * 60 * 60 + 30 * 60}
+                },
+            },
+            "timestamp": [],
+            "indicators": {"quote": [{"close": []}]},
+        },
+    )
+
+    preopen = global_market_assets._live_asset(
+        ("SP500", "S&P 500", "^GSPC", "index"),
+        datetime.fromtimestamp(regular_start - 60 * 60, tz=timezone.utc),
+    )
+    too_early = global_market_assets._live_asset(
+        ("SP500", "S&P 500", "^GSPC", "index"),
+        datetime.fromtimestamp(regular_start - 2 * 60 * 60 - 1, tz=timezone.utc),
+    )
+
+    assert preopen["current"] == 7728.2
+    assert preopen["market_session"] == "preopen"
+    assert preopen["is_realtime"] is False
+    assert too_early["market_session"] == "closed"
+
+
 def test_merge_global_market_assets_replaces_only_available_live_items():
     stored = {
         "items": [
@@ -107,3 +148,34 @@ def test_merge_global_market_assets_replaces_only_available_live_items():
     assert payload["items"][0]["current"] == 24932.08
     assert payload["items"][1]["current"] == 7400.0
     assert payload["updated_at"] == "2026-07-28T00:00+00:00"
+
+
+def test_merge_global_market_assets_marks_stored_index_preopen_when_live_feed_is_missing():
+    stored = {
+        "items": [
+            {
+                "code": "SP500",
+                "unit": "index",
+                "current": 7728.2,
+                "market_session": "closed",
+                "is_realtime": False,
+            },
+            {
+                "code": "GOLD",
+                "unit": "USD",
+                "current": 3400.0,
+                "market_session": "closed",
+                "is_realtime": False,
+            },
+        ]
+    }
+
+    payload = merge_global_market_assets(
+        stored,
+        [],
+        now=datetime(2026, 8, 12, 8, 30, tzinfo=global_market_assets.NEW_YORK_TZ),
+    )
+
+    assert payload["items"][0]["market_session"] == "preopen"
+    assert payload["items"][0]["current"] == 7728.2
+    assert payload["items"][1]["market_session"] == "closed"

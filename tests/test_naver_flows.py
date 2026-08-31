@@ -1,9 +1,10 @@
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.collectors import naver_flows
+from app import main as main_module
 from app.db import Base
 from app.models import IngestionRun, InvestorFlow, StockMaster
 
@@ -102,3 +103,69 @@ def test_collect_naver_investor_flows_commits_batches_and_skips_failed_codes(mon
         run = db.query(IngestionRun).one()
         assert run.status == "success"
         assert run.message == "failed_codes=1"
+
+
+def test_stock_detail_refreshes_stale_flow_once_per_latest_session(monkeypatch):
+    calls = []
+    main_module.stock_investor_flow_refresh_cache.clear()
+    monkeypatch.setattr(
+        main_module,
+        "latest_completed_korea_market_session_date",
+        lambda _now=None: date(2026, 8, 11),
+    )
+
+    def collect(db, *, codes, pages, max_workers, batch_size):
+        calls.append((codes, pages, max_workers, batch_size))
+        db.add_all(
+            [
+                InvestorFlow(
+                    code="005930",
+                    trade_date=date(2026, 8, 11),
+                    investor_type="외국인",
+                    net_buy_volume=10,
+                    net_buy_value=1_000,
+                ),
+                InvestorFlow(
+                    code="005930",
+                    trade_date=date(2026, 8, 11),
+                    investor_type="기관합계",
+                    net_buy_volume=-5,
+                    net_buy_value=-500,
+                ),
+            ]
+        )
+        db.commit()
+        return 2
+
+    monkeypatch.setattr(main_module, "collect_naver_investor_flows", collect)
+
+    with _session() as db:
+        db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI"))
+        db.add(
+            InvestorFlow(
+                code="005930",
+                trade_date=date(2026, 8, 7),
+                investor_type="외국인",
+                net_buy_volume=1,
+                net_buy_value=100,
+            )
+        )
+        db.commit()
+
+        first = main_module._refresh_stock_investor_flow_if_stale(
+            db,
+            "005930",
+            now=datetime(2026, 8, 12, 9, 27),
+        )
+        second = main_module._refresh_stock_investor_flow_if_stale(
+            db,
+            "005930",
+            now=datetime(2026, 8, 12, 9, 28),
+        )
+
+        assert first["refreshed"] is True
+        assert first["latest_date"] == date(2026, 8, 11)
+        assert second["refreshed"] is False
+        assert calls == [(["005930"], 1, 1, 500)]
+
+    main_module.stock_investor_flow_refresh_cache.clear()

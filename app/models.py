@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, LargeBinary, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, LargeBinary, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -29,6 +29,18 @@ class StockMaster(Base):
     @property
     def logo_url(self) -> str:
         return f"/stock-logos/{self.code}.png"
+
+    @property
+    def investment_sector(self) -> str:
+        from app.services.sector_taxonomy import classify_investment_sector
+
+        return classify_investment_sector(self.sector, self.industry).key
+
+    @property
+    def investment_sector_label(self) -> str:
+        from app.services.sector_taxonomy import classify_investment_sector
+
+        return classify_investment_sector(self.sector, self.industry).label
 
 
 class StockLogo(Base):
@@ -149,6 +161,38 @@ class MarketQuantSignalSnapshot(Base):
     )
 
 
+class QuantSignalEvidenceSnapshot(Base):
+    """Point-in-time evidence used to approve a daily quant entry.
+
+    Fundamental, research, flow, and disclosure tables keep receiving newer
+    rows.  Rebuilding an old signal directly from those mutable tables would
+    let future information change a past buy decision.  This snapshot freezes
+    the normalized evidence available for one stock and one signal date.
+    """
+
+    __tablename__ = "quant_signal_evidence_snapshot"
+    __table_args__ = (
+        UniqueConstraint(
+            "stock_code",
+            "signal_date",
+            "strategy_version",
+            name="uq_quant_signal_evidence_stock_date_version",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    stock_code: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
+    signal_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    strategy_version: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    policy_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    quality_state: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 class MarketRankingSnapshot(Base):
     __tablename__ = "market_ranking_snapshot"
 
@@ -157,6 +201,38 @@ class MarketRankingSnapshot(Base):
     payload: Mapped[str] = mapped_column(Text, nullable=False)
     captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class CompletePayloadSnapshot(Base):
+    """Last complete API payload plus a cross-process refresh lease.
+
+    ``payload`` stays nullable so a request can enqueue the first refresh without
+    inventing an incomplete response. Publishers replace it only after the new
+    payload has been validated and serialized successfully.
+    """
+
+    __tablename__ = "complete_payload_snapshot"
+    __table_args__ = (
+        Index(
+            "ix_complete_payload_snapshot_refresh_lease",
+            "refresh_requested_at",
+            "lease_until",
+        ),
+    )
+
+    snapshot_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    payload: Mapped[Optional[str]] = mapped_column(Text)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    captured_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    fresh_until: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    refresh_requested_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    lease_owner: Mapped[Optional[str]] = mapped_column(String(160))
+    lease_until: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
@@ -172,6 +248,46 @@ class WatchlistItem(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     market: Mapped[Optional[str]] = mapped_column(String(20))
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class DashboardAccessIdentity(Base):
+    __tablename__ = "dashboard_access_identity"
+
+    share_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    admitted_host: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class DashboardAccessQuota(Base):
+    __tablename__ = "dashboard_access_quota"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    admitted_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class DesktopUserPreference(Base):
+    __tablename__ = "desktop_user_preferences"
+
+    share_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    document_title: Mapped[str] = mapped_column(String(80), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class RecommendationTrackState(Base):
+    __tablename__ = "recommendation_track_state"
+
+    share_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    payload: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
@@ -504,103 +620,30 @@ class NewsItem(Base):
     )
 
 
-class BrokerAccount(Base):
-    __tablename__ = "broker_account"
-    __table_args__ = (
-        UniqueConstraint("broker_name", "account_seq", name="uq_broker_account"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    broker_name: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
-    account_seq: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    account_no: Mapped[Optional[str]] = mapped_column(String(40), index=True)
-    account_type: Mapped[Optional[str]] = mapped_column(String(40), index=True)
-    total_purchase_amount_krw: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    total_purchase_amount_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    market_value_krw: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    market_value_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    market_value_after_cost_krw: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    market_value_after_cost_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    profit_loss_krw: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    profit_loss_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    profit_loss_after_cost_krw: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    profit_loss_after_cost_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    profit_loss_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    profit_loss_rate_after_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    daily_profit_loss_krw: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    daily_profit_loss_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    daily_profit_loss_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    raw: Mapped[Optional[str]] = mapped_column(Text)
-    synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
-
-
-class BrokerHolding(Base):
-    __tablename__ = "broker_holding"
-    __table_args__ = (
-        UniqueConstraint("broker_name", "account_seq", "symbol", name="uq_broker_holding"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    broker_name: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
-    account_seq: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    symbol: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
-    market_country: Mapped[Optional[str]] = mapped_column(String(8), index=True)
-    currency: Mapped[Optional[str]] = mapped_column(String(8), index=True)
-    quantity: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    last_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    average_purchase_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    purchase_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    market_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    market_value_after_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    profit_loss: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    profit_loss_after_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    profit_loss_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    profit_loss_rate_after_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    daily_profit_loss: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    daily_profit_loss_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    commission: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    tax: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    raw: Mapped[Optional[str]] = mapped_column(Text)
-    synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
-
-
-class BrokerOrder(Base):
-    __tablename__ = "broker_order"
-    __table_args__ = (
-        UniqueConstraint("broker_name", "account_seq", "order_id", name="uq_broker_order"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    broker_name: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
-    account_seq: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    order_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
-    symbol: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
-    side: Mapped[Optional[str]] = mapped_column(String(16), index=True)
-    order_type: Mapped[Optional[str]] = mapped_column(String(16), index=True)
-    time_in_force: Mapped[Optional[str]] = mapped_column(String(16), index=True)
-    status: Mapped[Optional[str]] = mapped_column(String(24), index=True)
-    price: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    quantity: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    order_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    currency: Mapped[Optional[str]] = mapped_column(String(8), index=True)
-    ordered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)
-    canceled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)
-    filled_quantity: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    average_filled_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    filled_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    commission: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    tax: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
-    filled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)
-    settlement_date: Mapped[Optional[date]] = mapped_column(Date, index=True)
-    raw: Mapped[Optional[str]] = mapped_column(Text)
-    synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+# Query-order indexes are declared separately so their direction is explicit on
+# both SQLite and PostgreSQL. Existing single-column and uniqueness indexes
+# remain intact and continue to enforce the current data contract.
+Index(
+    "ix_investor_flow_code_trade_date_desc_type",
+    InvestorFlow.code,
+    InvestorFlow.trade_date.desc(),
+    InvestorFlow.investor_type,
+)
+Index(
+    "ix_research_report_stock_published_id_desc",
+    ResearchReport.stock_code,
+    ResearchReport.published_at.desc(),
+    ResearchReport.id.desc(),
+)
+Index(
+    "ix_disclosure_item_stock_published_external_id_desc",
+    DisclosureItem.stock_code,
+    DisclosureItem.published_at.desc(),
+    DisclosureItem.external_id.desc(),
+    DisclosureItem.id.desc(),
+)
+Index(
+    "ix_market_ranking_snapshot_category_captured_desc",
+    MarketRankingSnapshot.category,
+    MarketRankingSnapshot.captured_at.desc(),
+)

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -50,11 +50,11 @@ def _sample_payload():
             },
             {
                 "key": "risk",
-                "label": "위험자산",
+                "label": "투자심리",
                 "percent": Decimal("18.0"),
                 "direction": "호재",
                 "confidence": Decimal("80.0"),
-                "interpretation": "나스닥 상승은 위험자산 선호를 지지합니다.",
+                "interpretation": "나스닥 상승은 투자심리를 지지합니다.",
                 "evidence": [],
                 "affected_sectors": ["반도체"],
                 "leader_stocks": ["SK하이닉스"],
@@ -72,7 +72,7 @@ def _sample_payload():
             },
             {
                 "key": "bond",
-                "label": "채권",
+                "label": "채권금리",
                 "percent": Decimal("7.5"),
                 "direction": "호재",
                 "confidence": Decimal("75.0"),
@@ -112,9 +112,23 @@ def test_market_impact_model_has_five_official_factor_axes(monkeypatch):
 
     assert {factor["key"] for factor in factors} == {"rate", "dollar", "bond", "commodity", "risk"}
     assert len(factors) == 5
-    assert all(factor["direction"] in {"호재", "악재"} for factor in factors)
+    labels = {factor["key"]: factor["label"] for factor in factors}
+    assert labels["bond"] == "채권금리"
+    assert labels["risk"] == "투자심리"
+    risk = next(factor for factor in factors if factor["key"] == "risk")
+    assert risk["interpretation"] == (
+        "미국 기술주와 가상자산은 약세이고, 시장 불안 지표는 높아 투자심리가 위축된 상태입니다."
+    )
+    assert any(item["metric"] == "미국 증시 불안지수(VIX)" for item in risk["evidence"])
+    assert all(factor["direction"] in {"호재", "악재", "혼조", "자료 부족"} for factor in factors)
     assert all(factor["evidence"] for factor in factors)
     assert abs(sum(float(factor["percent"]) for factor in factors) - 100) <= 0.5
+    assert abs(
+        float(payload["good_weight"])
+        + float(payload["bad_weight"])
+        + float(payload["neutral_weight"])
+        - 100
+    ) <= 0.1
 
 
 def test_market_impact_endpoint_returns_cached_shape(monkeypatch):
@@ -143,7 +157,9 @@ def test_market_impact_uses_low_confidence_fallback_when_source_fails(monkeypatc
     assert len(factors) == 5
     assert {factor["key"] for factor in factors} == {"rate", "dollar", "bond", "commodity", "risk"}
     assert all(factor["confidence"] == Decimal("20") for factor in factors)
-    assert all(factor["evidence"][0]["source"] == "시스템" for factor in factors)
+    assert all(factor["direction"] == "자료 부족" for factor in factors)
+    assert all(factor["data_quality"] == "자료 부족" for factor in factors)
+    assert payload["market_status"] == "자료 부족"
 
 
 def test_market_impact_uses_yahoo_when_fred_times_out(monkeypatch):
@@ -175,4 +191,49 @@ def test_market_impact_uses_yahoo_when_fred_times_out(monkeypatch):
 
     assert len(factors) == 5
     assert any(item["evidence"][0]["source"] == "Yahoo Finance" for item in factors if item["evidence"])
-    assert all("공식 지표를 일부 가져오지 못해" not in item["interpretation"] for item in factors if item["evidence"][0]["source"] != "시스템")
+    assert all(factor["data_quality"] in {"확인", "주의", "자료 부족"} for factor in factors)
+
+
+def test_investor_sentiment_marks_nasdaq_up_and_bitcoin_down_as_mixed(monkeypatch):
+    samples = {
+        "NASDAQCOM": [100, 100, 100, 100, 100, 102],
+        "CBBTCUSD": [100, 100, 100, 100, 100, 98],
+        "VIXCLS": [20, 20, 20, 20, 20, 20],
+    }
+    latest_date = datetime.now(market_impact.KST).date()
+    dates = [
+        (latest_date - timedelta(days=5 - index)).isoformat()
+        for index in range(6)
+    ]
+
+    def fake_fetch(series_id, *, limit=260):
+        return [SeriesPoint(date=day, value=value) for day, value in zip(dates, samples[series_id])]
+
+    monkeypatch.setattr(market_impact, "_fetch_fred_series", fake_fetch)
+
+    factor = market_impact._build_risk_factor()
+
+    assert factor["direction"] == "혼조"
+    assert "나스닥은 강세지만 비트코인은 약세" in factor["interpretation"]
+    assert factor["data_quality"] == "확인"
+
+
+def test_monthly_copper_is_not_presented_as_daily_or_five_day_change(monkeypatch):
+    monthly = ["2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31", "2026-06-30", "2026-07-31"]
+
+    monkeypatch.setattr(
+        market_impact,
+        "_fetch_fred_series",
+        lambda series_id, *, limit=260: [
+            SeriesPoint(date=day, value=9300 + index)
+            for index, day in enumerate(monthly)
+        ],
+    )
+
+    evidence, points = market_impact._series_snapshot("PCOPPUSDM", "구리 월간 가격")
+
+    assert points and evidence
+    assert evidence["change_1d"] is None
+    assert evidence["change_5d"] is None
+    assert evidence["data_quality"] == "주의"
+    assert "주기" in evidence["quality_note"]

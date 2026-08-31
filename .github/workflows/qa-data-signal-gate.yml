@@ -1,0 +1,46 @@
+name: QA data-signal gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install project and QA dependencies
+        run: pip install -e '.[dev,qa,mcp]'
+      - name: Run deterministic fixtures and contracts
+        id: pytest
+        continue-on-error: true
+        run: pytest -q --junitxml=artifacts/qa-data-signal/pytest.xml
+      - name: Build gate evidence report
+        id: qa
+        continue-on-error: true
+        run: >-
+          analyst qa data-signal
+          --mode gate
+          --pytest-junit artifacts/qa-data-signal/pytest.xml
+          --output artifacts/qa-data-signal/gate.json
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-data-signal-gate-${{ github.run_id }}
+          path: artifacts/qa-data-signal
+          if-no-files-found: error
+          retention-days: 30
+      - name: Enforce deployment gate
+        if: always()
+        run: |
+          test "${{ steps.pytest.outcome }}" = "success"
+          test "${{ steps.qa.outcome }}" = "success"

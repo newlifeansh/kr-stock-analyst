@@ -1,18 +1,23 @@
 import json
+import re
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
-import subprocess
 from typing import Optional
 from urllib.parse import urlparse
 
 import requests
 import typer
 from dotenv import dotenv_values
-from sqlalchemy import select
+from sqlalchemy import select, text
 
+from app.bootstrap import bootstrap_runtime_data
 from app.collectors.briefing import collect_home_briefing
+from app.collectors.dart import (
+    collect_financial_statement,
+    collect_financial_statements_for_disclosure_companies,
+)
 from app.collectors.disclosures import collect_disclosures
-from app.collectors.dart import collect_financial_statement, collect_financial_statements_for_disclosure_companies
 from app.collectors.ecos import collect_ecos_series
 from app.collectors.krx import (
     collect_investor_flows,
@@ -22,24 +27,608 @@ from app.collectors.krx import (
     collect_stocks,
 )
 from app.collectors.macro import collect_yahoo_macro_observations
-from app.collectors.news import collect_news_items
 from app.collectors.naver_flows import collect_naver_investor_flows
-from app.collectors.naver_quotes import collect_naver_price_history, collect_naver_quotes
+from app.collectors.naver_quotes import (
+    collect_naver_price_history,
+    collect_naver_quotes,
+)
+from app.collectors.news import collect_news_items
 from app.collectors.research import collect_research_reports
 from app.collectors.stock_snapshots import (
     collect_stock_company_snapshots,
     collect_stock_fundamental_snapshots,
     collect_stock_news_snapshots,
 )
-from app.bootstrap import bootstrap_runtime_data
 from app.config import get_settings
-from app.db import SessionLocal, init_db
-from app.integrations.toss import sync_toss_accounts, sync_toss_holdings, sync_toss_orders
+from app.db import SessionLocal, engine, init_db
 from app.models import StockMaster
+from app.qa.catalog import write_qa_catalog_markdown
+from app.qa.release_parity import verify_release_parity, write_release_parity_report
+from app.qa.runner import run_data_signal_qa, write_qa_report
 from app.services.company_profiles import collect_company_profiles
 from app.services.stock_logos import sync_stock_logos
 
 app = typer.Typer(no_args_is_help=True)
+qa_app = typer.Typer(no_args_is_help=True, help="Data-integration and signal-decision QA.")
+app.add_typer(qa_app, name="qa")
+
+
+@qa_app.command("data-signal")
+def qa_data_signal_command(
+    mode: str = typer.Option(
+        "gate",
+        "--mode",
+        help="QA mode: gate, live, or e2e.",
+    ),
+    base_url: str = typer.Option(
+        "https://dark-theme-preview-staging.up.railway.app",
+        "--base-url",
+        help="Read-only API and browser target.",
+    ),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        help="Optional JSON report path.",
+    ),
+    artifact_dir: Path = typer.Option(
+        Path("artifacts/qa-data-signal/e2e"),
+        "--artifact-dir",
+        help="E2E failure screenshot directory.",
+    ),
+    timeout: float = typer.Option(
+        20.0,
+        "--timeout",
+        min=1.0,
+        help="Per-request/browser timeout in seconds.",
+    ),
+    direct_kis: bool = typer.Option(
+        False,
+        "--direct-kis/--no-direct-kis",
+        help="Also call the configured KIS source directly in live mode.",
+    ),
+    pytest_junit: Optional[Path] = typer.Option(
+        None,
+        "--pytest-junit",
+        help="JUnit XML evidence from the deterministic pytest gate.",
+    ),
+) -> None:
+    normalized_mode = mode.strip().lower()
+    if normalized_mode not in {"gate", "live", "e2e"}:
+        raise typer.BadParameter("mode must be gate, live, or e2e", param_hint="--mode")
+    report = run_data_signal_qa(
+        mode=normalized_mode,  # type: ignore[arg-type]
+        base_url=base_url,
+        timeout=timeout,
+        artifact_dir=artifact_dir,
+        direct_kis=direct_kis,
+        pytest_junit=pytest_junit,
+    )
+    if output is not None:
+        write_qa_report(report, output)
+    typer.echo(json.dumps(report, ensure_ascii=False, indent=2))
+    if report["deployment_blocked"]:
+        raise typer.Exit(code=1)
+
+
+@qa_app.command("render-catalog")
+def qa_render_catalog_command(
+    output: Path = typer.Option(
+        Path("docs/qa/data-signal-qa-matrix.md"),
+        "--output",
+        help="Generated Markdown QA catalog path.",
+    ),
+) -> None:
+    destination = write_qa_catalog_markdown(output)
+    typer.echo(str(destination))
+
+
+@qa_app.command("release-parity")
+def qa_release_parity_command(
+    staging_url: str = typer.Option(..., "--staging-url"),
+    production_url: Optional[str] = typer.Option(None, "--production-url"),
+    source_sha: Optional[str] = typer.Option(None, "--source-sha"),
+    output: Path = typer.Option(
+        Path("artifacts/qa-data-signal/release-parity.json"),
+        "--output",
+    ),
+    timeout: float = typer.Option(20.0, "--timeout", min=1.0),
+    wait_seconds: float = typer.Option(0.0, "--wait-seconds", min=0.0),
+) -> None:
+    report = verify_release_parity(
+        staging_url=staging_url,
+        production_url=production_url,
+        source_sha=source_sha,
+        timeout=timeout,
+        wait_seconds=wait_seconds,
+    )
+    write_release_parity_report(report, output)
+    typer.echo(json.dumps(report, ensure_ascii=False, indent=2))
+    if report["deployment_blocked"]:
+        raise typer.Exit(code=1)
+
+
+PERFORMANCE_INDEX_DEFINITIONS = (
+    (
+        "ix_investor_flow_code_trade_date_desc_type",
+        "investor_flow",
+        '"code", "trade_date" DESC, "investor_type"',
+    ),
+    (
+        "ix_research_report_stock_published_id_desc",
+        "research_report",
+        '"stock_code", "published_at" DESC, "id" DESC',
+    ),
+    (
+        "ix_disclosure_item_stock_published_external_id_desc",
+        "disclosure_item",
+        '"stock_code", "published_at" DESC, "external_id" DESC, "id" DESC',
+    ),
+    (
+        "ix_market_ranking_snapshot_category_captured_desc",
+        "market_ranking_snapshot",
+        '"category", "captured_at" DESC',
+    ),
+)
+
+
+def performance_index_statements(dialect_name: str) -> list[str]:
+    normalized = str(dialect_name or "").strip().lower()
+    if normalized not in {"postgresql", "sqlite"}:
+        raise ValueError(
+            "Performance index migration supports only PostgreSQL and SQLite"
+        )
+    concurrently = " CONCURRENTLY" if normalized == "postgresql" else ""
+    return [
+        (f'CREATE INDEX{concurrently} "{index_name}" ON "{table_name}" ({columns})')
+        for index_name, table_name, columns in PERFORMANCE_INDEX_DEFINITIONS
+    ]
+
+
+POSTGRESQL_INDEX_STATE_SQL = """
+WITH target_table AS (
+    SELECT
+        target.oid AS table_oid,
+        target.relnamespace AS schema_oid,
+        target.relname AS table_name,
+        target_schema.nspname AS schema_name
+    FROM pg_catalog.pg_class AS target
+    JOIN pg_catalog.pg_namespace AS target_schema
+      ON target_schema.oid = target.relnamespace
+    WHERE target.oid = pg_catalog.to_regclass(:table_name)
+      AND target.relkind IN ('r', 'p')
+)
+SELECT
+    target_table.schema_name AS target_schema_name,
+    target_table.table_name AS target_table_name,
+    existing_index.relname AS index_name,
+    existing_index.relkind AS relation_kind,
+    indexed_schema.nspname AS indexed_table_schema_name,
+    indexed_table.relname AS indexed_table_name,
+    index_metadata.indisvalid AS is_valid,
+    index_metadata.indisready AS is_ready,
+    index_metadata.indisunique AS is_unique,
+    index_method.amname AS access_method,
+    (index_metadata.indpred IS NOT NULL) AS is_partial,
+    (index_metadata.indexprs IS NOT NULL) AS has_expressions,
+    index_metadata.indnkeyatts AS key_column_count,
+    index_metadata.indnatts AS total_column_count,
+    ARRAY(
+        SELECT indexed_attribute.attname
+        FROM generate_series(0, index_metadata.indnkeyatts - 1) AS key_position(position)
+        LEFT JOIN pg_catalog.pg_attribute AS indexed_attribute
+          ON indexed_attribute.attrelid = index_metadata.indrelid
+         AND indexed_attribute.attnum = index_metadata.indkey[key_position.position]
+        ORDER BY key_position.position
+    ) AS column_names,
+    ARRAY(
+        SELECT CASE
+            WHEN (index_metadata.indoption[key_position.position] & 1) = 1 THEN 'DESC'
+            ELSE 'ASC'
+        END
+        FROM generate_series(0, index_metadata.indnkeyatts - 1) AS key_position(position)
+        ORDER BY key_position.position
+    ) AS sort_directions,
+    CASE
+        WHEN existing_index.relkind IN ('i', 'I')
+        THEN pg_catalog.pg_get_indexdef(existing_index.oid)
+        ELSE NULL
+    END AS index_definition
+FROM target_table
+LEFT JOIN pg_catalog.pg_class AS existing_index
+  ON existing_index.relnamespace = target_table.schema_oid
+ AND existing_index.relname = :index_name
+LEFT JOIN pg_catalog.pg_index AS index_metadata
+  ON index_metadata.indexrelid = existing_index.oid
+LEFT JOIN pg_catalog.pg_class AS indexed_table
+  ON indexed_table.oid = index_metadata.indrelid
+LEFT JOIN pg_catalog.pg_namespace AS indexed_schema
+  ON indexed_schema.oid = indexed_table.relnamespace
+LEFT JOIN pg_catalog.pg_am AS index_method
+  ON index_method.oid = existing_index.relam
+"""
+
+
+def _quote_identifier(value: str) -> str:
+    return f'"{str(value).replace(chr(34), chr(34) * 2)}"'
+
+
+def _expected_index_columns(columns_sql: str) -> tuple[list[str], list[str]]:
+    column_names: list[str] = []
+    sort_directions: list[str] = []
+    for raw_column in columns_sql.split(","):
+        match = re.fullmatch(
+            r'\s*"((?:[^"]|"")+)"(?:\s+(ASC|DESC))?\s*',
+            raw_column,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            raise ValueError(f"Unsupported performance index column: {raw_column}")
+        column_names.append(match.group(1).replace('""', '"'))
+        sort_directions.append((match.group(2) or "ASC").upper())
+    return column_names, sort_directions
+
+
+def _normalize_catalog_sequence(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        # psycopg normally returns PostgreSQL arrays as lists. Keep this small
+        # fallback for alternate drivers and test doubles.
+        normalized = value.strip()
+        if normalized.startswith("{") and normalized.endswith("}"):
+            normalized = normalized[1:-1]
+            if not normalized:
+                return []
+            return [part.strip().strip('"') for part in normalized.split(",")]
+        return [normalized]
+    return [str(item) for item in value]
+
+
+def _index_state_errors(
+    state: dict[str, object],
+    *,
+    table_name: str,
+    columns_sql: str,
+) -> list[str]:
+    if state.get("index_name") is None:
+        return ["index is missing"]
+    if state.get("relation_kind") not in {"i", "I", "index"}:
+        return [
+            f"name is occupied by a non-index relation ({state.get('relation_kind')})"
+        ]
+
+    expected_columns, expected_directions = _expected_index_columns(columns_sql)
+    errors: list[str] = []
+    if state.get("indexed_table_name") != table_name:
+        errors.append(
+            f"indexes table {state.get('indexed_table_name')!r}, expected {table_name!r}"
+        )
+    target_schema = state.get("target_schema_name")
+    indexed_schema = state.get("indexed_table_schema_name")
+    if target_schema and indexed_schema != target_schema:
+        errors.append(f"indexes schema {indexed_schema!r}, expected {target_schema!r}")
+    if state.get("is_valid") is not True:
+        errors.append("index is not valid")
+    if state.get("is_ready") is not True:
+        errors.append("index is not ready")
+    if state.get("is_unique") is not False:
+        errors.append("index uniqueness metadata is not the expected non-unique value")
+    if state.get("access_method") != "btree":
+        errors.append(
+            f"uses access method {state.get('access_method')!r}, expected btree"
+        )
+    if state.get("is_partial") is not False:
+        errors.append("index predicate metadata is not the expected non-partial value")
+    if state.get("has_expressions") is not False:
+        errors.append(
+            "index expression metadata is not the expected simple-column value"
+        )
+
+    actual_columns = _normalize_catalog_sequence(state.get("column_names"))
+    actual_directions = [
+        direction.upper()
+        for direction in _normalize_catalog_sequence(state.get("sort_directions"))
+    ]
+    if actual_columns != expected_columns:
+        errors.append(f"columns are {actual_columns!r}, expected {expected_columns!r}")
+    if actual_directions != expected_directions:
+        errors.append(
+            f"directions are {actual_directions!r}, expected {expected_directions!r}"
+        )
+    key_column_count = state.get("key_column_count")
+    if key_column_count is None or int(key_column_count) != len(expected_columns):
+        errors.append(
+            f"has {key_column_count} key columns, expected {len(expected_columns)}"
+        )
+    total_column_count = state.get("total_column_count")
+    if total_column_count is None or int(total_column_count) != len(expected_columns):
+        errors.append("index contains unexpected included columns")
+    return errors
+
+
+def _read_postgresql_index_state(
+    connection,
+    *,
+    index_name: str,
+    table_name: str,
+) -> dict[str, object]:
+    row = (
+        connection.execute(
+            text(POSTGRESQL_INDEX_STATE_SQL),
+            {"index_name": index_name, "table_name": table_name},
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        raise RuntimeError(f'PostgreSQL target table "{table_name}" does not exist')
+    return dict(row)
+
+
+def _read_sqlite_index_state(
+    connection,
+    *,
+    index_name: str,
+    table_name: str,
+) -> dict[str, object]:
+    table_exists = connection.execute(
+        text("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :table_name"),
+        {"table_name": table_name},
+    ).first()
+    if table_exists is None:
+        raise RuntimeError(f'SQLite target table "{table_name}" does not exist')
+
+    relation = (
+        connection.execute(
+            text(
+                "SELECT type, name AS index_name, tbl_name AS table_name, sql "
+                "FROM sqlite_master WHERE name = :index_name"
+            ),
+            {"index_name": index_name},
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if relation is None:
+        return {
+            "target_schema_name": "main",
+            "target_table_name": table_name,
+            "index_name": None,
+        }
+    state = dict(relation)
+    state.update(
+        {
+            "target_schema_name": "main",
+            "target_table_name": table_name,
+            "relation_kind": "index"
+            if relation["type"] == "index"
+            else relation["type"],
+            "indexed_table_name": relation["table_name"],
+            "indexed_table_schema_name": "main",
+            "is_valid": relation["type"] == "index",
+            "is_ready": relation["type"] == "index",
+            "access_method": "btree",
+        }
+    )
+    if relation["type"] != "index":
+        return state
+
+    quoted_table = _quote_identifier(str(relation["table_name"]))
+    index_list = (
+        connection.execute(text(f"PRAGMA index_list({quoted_table})")).mappings().all()
+    )
+    index_list_row = next(
+        (item for item in index_list if item.get("name") == index_name),
+        None,
+    )
+    quoted_index = _quote_identifier(index_name)
+    index_columns = (
+        connection.execute(text(f"PRAGMA index_xinfo({quoted_index})")).mappings().all()
+    )
+    key_columns = [item for item in index_columns if int(item.get("key", 1)) == 1]
+    state.update(
+        {
+            "is_unique": bool(index_list_row and index_list_row.get("unique")),
+            "is_partial": bool(index_list_row and index_list_row.get("partial")),
+            "has_expressions": any(
+                item.get("name") is None or int(item.get("cid", -2)) < 0
+                for item in key_columns
+            ),
+            "column_names": [item.get("name") for item in key_columns],
+            "sort_directions": [
+                "DESC" if bool(item.get("desc")) else "ASC" for item in key_columns
+            ],
+            "key_column_count": len(key_columns),
+            "total_column_count": len(key_columns),
+        }
+    )
+    return state
+
+
+def _create_index_statement(
+    *,
+    dialect_name: str,
+    index_name: str,
+    table_name: str,
+    columns_sql: str,
+    schema_name: Optional[str] = None,
+) -> str:
+    concurrently = " CONCURRENTLY" if dialect_name == "postgresql" else ""
+    qualified_table = _quote_identifier(table_name)
+    if schema_name:
+        qualified_table = f"{_quote_identifier(schema_name)}.{qualified_table}"
+    return (
+        f"CREATE INDEX{concurrently} {_quote_identifier(index_name)} "
+        f"ON {qualified_table} ({columns_sql})"
+    )
+
+
+def _ensure_postgresql_performance_indexes(database_engine) -> list[dict[str, object]]:
+    actions: list[dict[str, object]] = []
+    with database_engine.connect() as connection:
+        # CREATE/DROP INDEX CONCURRENTLY are both forbidden in a transaction.
+        autocommit_connection = connection.execution_options(
+            isolation_level="AUTOCOMMIT"
+        )
+        for index_name, table_name, columns_sql in PERFORMANCE_INDEX_DEFINITIONS:
+            state = _read_postgresql_index_state(
+                autocommit_connection,
+                index_name=index_name,
+                table_name=table_name,
+            )
+            errors = _index_state_errors(
+                state,
+                table_name=table_name,
+                columns_sql=columns_sql,
+            )
+            statements: list[str] = []
+            if errors != ["index is missing"] and state.get("relation_kind") not in {
+                "i",
+                "I",
+            }:
+                raise RuntimeError(
+                    f'Cannot repair performance index "{index_name}": {"; ".join(errors)}'
+                )
+            if errors:
+                if state.get("index_name") is not None:
+                    schema_name = str(state["target_schema_name"])
+                    drop_statement = (
+                        "DROP INDEX CONCURRENTLY IF EXISTS "
+                        f"{_quote_identifier(schema_name)}.{_quote_identifier(index_name)}"
+                    )
+                    autocommit_connection.execute(text(drop_statement))
+                    statements.append(drop_statement)
+                create_statement = _create_index_statement(
+                    dialect_name="postgresql",
+                    index_name=index_name,
+                    table_name=table_name,
+                    columns_sql=columns_sql,
+                    schema_name=str(state["target_schema_name"]),
+                )
+                autocommit_connection.execute(text(create_statement))
+                statements.append(create_statement)
+            actions.append(
+                {
+                    "index": index_name,
+                    "action": (
+                        "verified"
+                        if not errors
+                        else "created"
+                        if errors == ["index is missing"]
+                        else "recreated"
+                    ),
+                    "preflight_errors": errors,
+                    "statements": statements,
+                }
+            )
+
+        for index_name, table_name, columns_sql in PERFORMANCE_INDEX_DEFINITIONS:
+            state = _read_postgresql_index_state(
+                autocommit_connection,
+                index_name=index_name,
+                table_name=table_name,
+            )
+            errors = _index_state_errors(
+                state,
+                table_name=table_name,
+                columns_sql=columns_sql,
+            )
+            if errors:
+                raise RuntimeError(
+                    f'Postflight verification failed for "{index_name}": '
+                    f"{'; '.join(errors)}"
+                )
+    return actions
+
+
+def _ensure_sqlite_performance_indexes(database_engine) -> list[dict[str, object]]:
+    actions: list[dict[str, object]] = []
+    # SQLite has no concurrent index build; keep inspection and all repairs atomic.
+    with database_engine.begin() as connection:
+        for index_name, table_name, columns_sql in PERFORMANCE_INDEX_DEFINITIONS:
+            state = _read_sqlite_index_state(
+                connection,
+                index_name=index_name,
+                table_name=table_name,
+            )
+            errors = _index_state_errors(
+                state,
+                table_name=table_name,
+                columns_sql=columns_sql,
+            )
+            statements: list[str] = []
+            if errors != ["index is missing"] and state.get("relation_kind") != "index":
+                raise RuntimeError(
+                    f'Cannot repair performance index "{index_name}": {"; ".join(errors)}'
+                )
+            if errors:
+                if state.get("index_name") is not None:
+                    drop_statement = (
+                        f"DROP INDEX IF EXISTS {_quote_identifier(index_name)}"
+                    )
+                    connection.execute(text(drop_statement))
+                    statements.append(drop_statement)
+                create_statement = _create_index_statement(
+                    dialect_name="sqlite",
+                    index_name=index_name,
+                    table_name=table_name,
+                    columns_sql=columns_sql,
+                )
+                connection.execute(text(create_statement))
+                statements.append(create_statement)
+            actions.append(
+                {
+                    "index": index_name,
+                    "action": (
+                        "verified"
+                        if not errors
+                        else "created"
+                        if errors == ["index is missing"]
+                        else "recreated"
+                    ),
+                    "preflight_errors": errors,
+                    "statements": statements,
+                }
+            )
+
+        for index_name, table_name, columns_sql in PERFORMANCE_INDEX_DEFINITIONS:
+            state = _read_sqlite_index_state(
+                connection,
+                index_name=index_name,
+                table_name=table_name,
+            )
+            errors = _index_state_errors(
+                state,
+                table_name=table_name,
+                columns_sql=columns_sql,
+            )
+            if errors:
+                raise RuntimeError(
+                    f'Postflight verification failed for "{index_name}": '
+                    f"{'; '.join(errors)}"
+                )
+    return actions
+
+
+def ensure_performance_indexes(
+    database_engine, *, dry_run: bool = False
+) -> dict[str, object]:
+    """Validate and idempotently repair query-order indexes."""
+
+    dialect_name = str(database_engine.dialect.name).strip().lower()
+    statements = performance_index_statements(dialect_name)
+    actions: list[dict[str, object]] = []
+    if not dry_run and dialect_name == "postgresql":
+        actions = _ensure_postgresql_performance_indexes(database_engine)
+    elif not dry_run:
+        actions = _ensure_sqlite_performance_indexes(database_engine)
+    return {
+        "dialect": dialect_name,
+        "dry_run": dry_run,
+        "indexes": [definition[0] for definition in PERFORMANCE_INDEX_DEFINITIONS],
+        "statements": statements,
+        "actions": actions,
+    }
 
 
 def verify_mcp_endpoint_payload(
@@ -55,11 +644,18 @@ def verify_mcp_endpoint_payload(
         "Content-Type": "application/json",
     }
 
-    def rpc(method: str, params: dict[str, object], request_id: int) -> dict[str, object]:
+    def rpc(
+        method: str, params: dict[str, object], request_id: int
+    ) -> dict[str, object]:
         response = requests.post(
             endpoint,
             headers=headers,
-            json={"jsonrpc": "2.0", "id": request_id, "method": method, "params": params},
+            json={
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": method,
+                "params": params,
+            },
             timeout=timeout,
         )
         response.raise_for_status()
@@ -104,13 +700,16 @@ def verify_mcp_endpoint_payload(
         "tool_names": [tool.get("name") for tool in tools],
         "search_query": query,
         "search_count": search.get("structuredContent", {}).get("count"),
-        "search_preview": search.get("structuredContent", {}).get("stocks", [])[: max(1, min(limit, 5))],
+        "search_preview": search.get("structuredContent", {}).get("stocks", [])[
+            : max(1, min(limit, 5))
+        ],
         "pipeline_status": pipeline.get("structuredContent"),
     }
 
 
 RAILWAY_ENV_KEYS = [
     "APP_NAME",
+    "PROCESS_ROLE",
     "DATABASE_URL",
     "DART_API_KEY",
     "ECOS_API_KEY",
@@ -186,15 +785,6 @@ RAILWAY_ENV_KEYS = [
     "MCP_ALLOWED_HOSTS",
     "MCP_ALLOWED_ORIGINS",
     "MCP_LOG_LEVEL",
-    "TOSS_ENABLED",
-    "TOSS_BASE_URL",
-    "TOSS_CLIENT_ID",
-    "TOSS_CLIENT_SECRET",
-    "TOSS_ACCOUNT_NO",
-    "TOSS_ACCOUNT_SEQ",
-    "TOSS_POLL_SECONDS",
-    "TOSS_ORDER_POLL_SECONDS",
-    "TOSS_SYNC_HOLDINGS_ENABLED",
 ]
 
 RAILWAY_SECRET_KEYS = {
@@ -202,8 +792,6 @@ RAILWAY_SECRET_KEYS = {
     "ECOS_API_KEY",
     "KIS_APP_KEY",
     "KIS_APP_SECRET",
-    "TOSS_CLIENT_ID",
-    "TOSS_CLIENT_SECRET",
 }
 
 
@@ -270,7 +858,9 @@ def export_railway_env_payload(
     return "\n".join(f"{key}={output[key]}" for key in ordered_keys) + "\n"
 
 
-def _command_status(command: list[str], *, cwd: Optional[str] = None) -> dict[str, object]:
+def _command_status(
+    command: list[str], *, cwd: Optional[str] = None
+) -> dict[str, object]:
     try:
         completed = subprocess.run(
             command,
@@ -309,8 +899,12 @@ def railway_readiness_payload(
 
     git_remote = _command_status(["git", "remote", "-v"], cwd=str(repo_root))
     gh_auth = _command_status(["gh", "auth", "status"], cwd=str(repo_root))
-    railway_version = _command_status(["npx", "-y", "@railway/cli", "--version"], cwd=str(repo_root))
-    railway_auth = _command_status(["npx", "-y", "@railway/cli", "whoami"], cwd=str(repo_root))
+    railway_version = _command_status(
+        ["npx", "-y", "@railway/cli", "--version"], cwd=str(repo_root)
+    )
+    railway_auth = _command_status(
+        ["npx", "-y", "@railway/cli", "whoami"], cwd=str(repo_root)
+    )
 
     payload: dict[str, object] = {
         "ok": True,
@@ -321,7 +915,9 @@ def railway_readiness_payload(
             "railway_json": railway_json.exists(),
             "dockerfile": dockerfile.exists(),
             "dockerignore": dockerignore.exists(),
-            "env_file": (repo_root / source_env_path).exists() if not Path(source_env_path).is_absolute() else Path(source_env_path).exists(),
+            "env_file": (repo_root / source_env_path).exists()
+            if not Path(source_env_path).is_absolute()
+            else Path(source_env_path).exists(),
         },
         "git": {
             "initialized": git_dir.exists(),
@@ -363,11 +959,15 @@ def railway_readiness_payload(
     notes: list[str] = []
     next_actions: list[str] = []
     if not payload["git"]["remote_configured"]:
-        notes.append("Git remote is not configured, but `railway up` can still deploy local source code.")
+        notes.append(
+            "Git remote is not configured, but `railway up` can still deploy local source code."
+        )
     if not payload["railway_cli"]["authenticated"]:
         next_actions.append("Run `railway login` before deploying.")
     if not payload["github_cli"]["authenticated"]:
-        next_actions.append("Authenticate GitHub CLI or connect the repo manually in Railway.")
+        next_actions.append(
+            "Authenticate GitHub CLI or connect the repo manually in Railway."
+        )
     if check_endpoint and not payload.get("endpoint_check", {}).get("ok", False):
         next_actions.append("Fix the public MCP endpoint before final registration.")
     payload["notes"] = notes
@@ -383,10 +983,18 @@ def export_railway_env_command(
         "--public-base-url",
         help="Public service URL or host, e.g. https://your-mcp-domain or your-mcp-domain",
     ),
-    source_env: str = typer.Option(".env", "--source-env", help="Source dotenv file to read secrets/defaults from"),
-    database_mode: str = typer.Option("postgres-ref", "--database-mode", help="postgres-ref or sqlite-volume"),
-    redact_secrets: bool = typer.Option(False, "--redact-secrets", help="Redact secret values for safe preview"),
-    output: Optional[str] = typer.Option(None, "--output", help="Optional file path to save the generated env block"),
+    source_env: str = typer.Option(
+        ".env", "--source-env", help="Source dotenv file to read secrets/defaults from"
+    ),
+    database_mode: str = typer.Option(
+        "postgres-ref", "--database-mode", help="postgres-ref or sqlite-volume"
+    ),
+    redact_secrets: bool = typer.Option(
+        False, "--redact-secrets", help="Redact secret values for safe preview"
+    ),
+    output: Optional[str] = typer.Option(
+        None, "--output", help="Optional file path to save the generated env block"
+    ),
 ) -> None:
     try:
         payload = export_railway_env_payload(
@@ -413,8 +1021,14 @@ def check_railway_readiness_command(
         "--public-base-url",
         help="Public service URL or host, e.g. https://your-mcp-domain or your-mcp-domain",
     ),
-    source_env: str = typer.Option(".env", "--source-env", help="Source dotenv file to read secrets/defaults from"),
-    check_endpoint: bool = typer.Option(True, "--check-endpoint/--no-check-endpoint", help="Verify the current public MCP endpoint too"),
+    source_env: str = typer.Option(
+        ".env", "--source-env", help="Source dotenv file to read secrets/defaults from"
+    ),
+    check_endpoint: bool = typer.Option(
+        True,
+        "--check-endpoint/--no-check-endpoint",
+        help="Verify the current public MCP endpoint too",
+    ),
 ) -> None:
     payload = railway_readiness_payload(
         public_base_url,
@@ -431,10 +1045,30 @@ def init_database() -> None:
     typer.echo("Database initialized.")
 
 
+@app.command("migrate-performance-indexes")
+def migrate_performance_indexes_command(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the canonical index DDL without changing the database",
+    ),
+) -> None:
+    """Validate and repair dashboard indexes as a maintenance operation."""
+
+    try:
+        payload = ensure_performance_indexes(engine, dry_run=dry_run)
+    except Exception as exc:
+        typer.echo(f"Performance index migration failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
 @app.command("collect-stocks")
 def collect_stocks_command(
     date: str = typer.Option(..., "--date", help="YYYYMMDD"),
-    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    markets: str = typer.Option(
+        "KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"
+    ),
 ) -> None:
     init_db()
     with SessionLocal() as db:
@@ -444,8 +1078,12 @@ def collect_stocks_command(
 
 @app.command("sync-stock-logos")
 def sync_stock_logos_command(
-    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
-    limit: Optional[int] = typer.Option(None, "--limit", help="Optional missing-logo limit"),
+    markets: str = typer.Option(
+        "KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"
+    ),
+    limit: Optional[int] = typer.Option(
+        None, "--limit", help="Optional missing-logo limit"
+    ),
     max_workers: int = typer.Option(4, "--max-workers", help="Concurrent workers"),
 ) -> None:
     settings = get_settings()
@@ -476,35 +1114,49 @@ def collect_prices_command(
 @app.command("collect-naver-quotes")
 def collect_naver_quotes_command(
     date: str = typer.Option(..., "--date", help="YYYYMMDD"),
-    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    markets: str = typer.Option(
+        "KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="Optional code limit"),
     max_workers: int = typer.Option(8, "--max-workers", help="Concurrent workers"),
 ) -> None:
     init_db()
     with SessionLocal() as db:
-        count = collect_naver_quotes(db, date, markets=markets, limit=limit, max_workers=max_workers)
+        count = collect_naver_quotes(
+            db, date, markets=markets, limit=limit, max_workers=max_workers
+        )
     typer.echo(f"Loaded {count} Naver quote rows.")
 
 
 @app.command("collect-naver-price-history")
 def collect_naver_price_history_command(
-    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
-    pages: int = typer.Option(10, "--pages", help="Naver daily-price pages per code; 10 rows per page"),
+    markets: str = typer.Option(
+        "KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"
+    ),
+    pages: int = typer.Option(
+        10, "--pages", help="Naver daily-price pages per code; 10 rows per page"
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="Optional code limit"),
     max_workers: int = typer.Option(8, "--max-workers", help="Concurrent workers"),
 ) -> None:
     init_db()
     with SessionLocal() as db:
-        count = collect_naver_price_history(db, markets=markets, pages=pages, limit=limit, max_workers=max_workers)
+        count = collect_naver_price_history(
+            db, markets=markets, pages=pages, limit=limit, max_workers=max_workers
+        )
     typer.echo(f"Loaded {count} Naver daily price history rows.")
 
 
 @app.command("collect-stock-fundamentals")
 def collect_stock_fundamentals_command(
-    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    markets: str = typer.Option(
+        "KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="Optional code limit"),
     max_workers: int = typer.Option(8, "--max-workers", help="Concurrent workers"),
-    refresh_days: int = typer.Option(7, "--refresh-days", help="Skip snapshots newer than N days; 0 refreshes all"),
+    refresh_days: int = typer.Option(
+        7, "--refresh-days", help="Skip snapshots newer than N days; 0 refreshes all"
+    ),
 ) -> None:
     init_db()
     with SessionLocal() as db:
@@ -520,15 +1172,21 @@ def collect_stock_fundamentals_command(
 
 @app.command("collect-company-profiles")
 def collect_company_profiles_command(
-    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    markets: str = typer.Option(
+        "KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="Optional company limit"),
-    refresh: bool = typer.Option(False, "--refresh/--skip-fresh", help="Refresh profiles already stored"),
+    refresh: bool = typer.Option(
+        False, "--refresh/--skip-fresh", help="Refresh profiles already stored"
+    ),
     include_business_reports: bool = typer.Option(
         False,
         "--include-business-reports/--company-overview-only",
         help="Download business reports too; overview-only is recommended for the first full backfill",
     ),
-    max_workers: int = typer.Option(2, "--max-workers", help="Concurrent DART overview requests"),
+    max_workers: int = typer.Option(
+        2, "--max-workers", help="Concurrent DART overview requests"
+    ),
 ) -> None:
     init_db()
     with SessionLocal() as db:
@@ -545,7 +1203,9 @@ def collect_company_profiles_command(
 
 @app.command("collect-stock-news")
 def collect_stock_news_command(
-    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    markets: str = typer.Option(
+        "KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="Optional code limit"),
     max_workers: int = typer.Option(8, "--max-workers", help="Concurrent workers"),
     refresh_hours: int = typer.Option(
@@ -568,7 +1228,9 @@ def collect_stock_news_command(
 
 @app.command("collect-stock-company-info")
 def collect_stock_company_info_command(
-    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    markets: str = typer.Option(
+        "KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="Optional code limit"),
     max_workers: int = typer.Option(8, "--max-workers", help="Concurrent workers"),
     refresh_days: int = typer.Option(
@@ -592,11 +1254,17 @@ def collect_stock_company_info_command(
 @app.command("collect-market-universe")
 def collect_market_universe_command(
     date: str = typer.Option(..., "--date", help="YYYYMMDD"),
-    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
-    max_workers: int = typer.Option(8, "--max-workers", help="Naver fallback concurrent workers"),
+    markets: str = typer.Option(
+        "KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"
+    ),
+    max_workers: int = typer.Option(
+        8, "--max-workers", help="Naver fallback concurrent workers"
+    ),
 ) -> None:
     init_db()
-    market_list = [market.strip().upper() for market in markets.split(",") if market.strip()]
+    market_list = [
+        market.strip().upper() for market in markets.split(",") if market.strip()
+    ]
     with SessionLocal() as db:
         stock_count = collect_stocks(db, date, markets)
     typer.echo(f"Loaded {stock_count} stock rows.")
@@ -610,7 +1278,9 @@ def collect_market_universe_command(
             typer.echo(f"KRX price collection failed for {market}: {exc}")
 
     with SessionLocal() as db:
-        naver_count = collect_naver_quotes(db, date, markets=markets, max_workers=max_workers)
+        naver_count = collect_naver_quotes(
+            db, date, markets=markets, max_workers=max_workers
+        )
     typer.echo(f"Loaded {naver_count} Naver fallback quote rows.")
 
 
@@ -638,12 +1308,16 @@ def collect_stock_history_universe_command(
         "--to-date",
         help="YYYYMMDD",
     ),
-    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
+    markets: str = typer.Option(
+        "KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="Optional code limit"),
     max_workers: int = typer.Option(8, "--max-workers", help="Concurrent workers"),
 ) -> None:
     init_db()
-    market_values = [value.strip().upper() for value in markets.split(",") if value.strip()]
+    market_values = [
+        value.strip().upper() for value in markets.split(",") if value.strip()
+    ]
     with SessionLocal() as db:
         statement = (
             select(StockMaster.code)
@@ -679,8 +1353,12 @@ def collect_investor_flows_command(
 
 @app.command("collect-naver-investor-flows")
 def collect_naver_investor_flows_command(
-    markets: str = typer.Option("KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"),
-    pages: int = typer.Option(1, "--pages", help="Naver investor-flow pages per code; 20 rows per page"),
+    markets: str = typer.Option(
+        "KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"
+    ),
+    pages: int = typer.Option(
+        1, "--pages", help="Naver investor-flow pages per code; 20 rows per page"
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="Optional code limit"),
     max_workers: int = typer.Option(8, "--max-workers", help="Concurrent workers"),
 ) -> None:
@@ -700,7 +1378,9 @@ def collect_naver_investor_flows_command(
 def collect_dart_financials_command(
     corp_code: str = typer.Option(..., "--corp-code", help="DART corp code"),
     year: str = typer.Option(..., "--year", help="Business year, e.g. 2025"),
-    report: str = typer.Option("annual", "--report", help="annual, q1, half, q3, or DART report code"),
+    report: str = typer.Option(
+        "annual", "--report", help="annual, q1, half, q3, or DART report code"
+    ),
     fs_div: str = typer.Option("CFS", "--fs-div", help="CFS or OFS"),
 ) -> None:
     init_db()
@@ -711,16 +1391,34 @@ def collect_dart_financials_command(
 
 @app.command("collect-dart-financials-bulk")
 def collect_dart_financials_bulk_command(
-    year: Optional[str] = typer.Option(None, "--year", help="Business year. Defaults to latest available report year."),
-    report: Optional[str] = typer.Option(None, "--report", help="annual, q1, half, q3, or DART report code"),
+    year: Optional[str] = typer.Option(
+        None, "--year", help="Business year. Defaults to latest available report year."
+    ),
+    report: Optional[str] = typer.Option(
+        None, "--report", help="annual, q1, half, q3, or DART report code"
+    ),
     fs_div: str = typer.Option("CFS", "--fs-div", help="CFS or OFS"),
-    stock_codes: Optional[str] = typer.Option(None, "--stock-codes", help="Optional comma-separated stock codes"),
+    stock_codes: Optional[str] = typer.Option(
+        None, "--stock-codes", help="Optional comma-separated stock codes"
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="Optional company limit"),
-    skip_existing: bool = typer.Option(True, "--skip-existing/--no-skip-existing", help="Skip companies already loaded for target report"),
-    fallback_previous_annual: bool = typer.Option(True, "--fallback-annual/--no-fallback-annual", help="Fallback to previous annual report when latest report is unavailable"),
+    skip_existing: bool = typer.Option(
+        True,
+        "--skip-existing/--no-skip-existing",
+        help="Skip companies already loaded for target report",
+    ),
+    fallback_previous_annual: bool = typer.Option(
+        True,
+        "--fallback-annual/--no-fallback-annual",
+        help="Fallback to previous annual report when latest report is unavailable",
+    ),
 ) -> None:
     init_db()
-    code_list = [code.strip() for code in stock_codes.split(",") if code.strip()] if stock_codes else None
+    code_list = (
+        [code.strip() for code in stock_codes.split(",") if code.strip()]
+        if stock_codes
+        else None
+    )
     with SessionLocal() as db:
         result = collect_financial_statements_for_disclosure_companies(
             db,
@@ -732,7 +1430,9 @@ def collect_dart_financials_bulk_command(
             skip_existing=skip_existing,
             fallback_previous_annual=fallback_previous_annual,
         )
-    typer.echo(f"Loaded {result['rows_loaded']} DART financial rows. {result['message']}")
+    typer.echo(
+        f"Loaded {result['rows_loaded']} DART financial rows. {result['message']}"
+    )
 
 
 @app.command("collect-ecos")
@@ -745,13 +1445,17 @@ def collect_ecos_command(
 ) -> None:
     init_db()
     with SessionLocal() as db:
-        count = collect_ecos_series(db, series_code, cycle, start_period, end_period, item_code)
+        count = collect_ecos_series(
+            db, series_code, cycle, start_period, end_period, item_code
+        )
     typer.echo(f"Loaded {count} ECOS rows.")
 
 
 @app.command("collect-yahoo-macro")
 def collect_yahoo_macro_command(
-    range_: str = typer.Option("1y", "--range", help="Yahoo chart range, e.g. 1mo, 6mo, 1y"),
+    range_: str = typer.Option(
+        "1y", "--range", help="Yahoo chart range, e.g. 1mo, 6mo, 1y"
+    ),
 ) -> None:
     init_db()
     with SessionLocal() as db:
@@ -771,7 +1475,9 @@ def collect_home_briefing_command() -> None:
 
 @app.command("bootstrap-runtime")
 def bootstrap_runtime_command(
-    force_refresh: bool = typer.Option(False, "--force-refresh", help="Force refresh even when cached rows exist."),
+    force_refresh: bool = typer.Option(
+        False, "--force-refresh", help="Force refresh even when cached rows exist."
+    ),
 ) -> None:
     result = bootstrap_runtime_data(get_settings(), force_refresh=force_refresh)
     typer.echo(
@@ -787,13 +1493,21 @@ def bootstrap_runtime_command(
 
 @app.command("verify-mcp-endpoint")
 def verify_mcp_endpoint_command(
-    url: str = typer.Option(..., "--url", help="Public MCP endpoint URL, e.g. https://your-domain/ or https://your-domain/mcp/"),
-    query: str = typer.Option("삼성전자", "--query", help="Stock search smoke-test query"),
+    url: str = typer.Option(
+        ...,
+        "--url",
+        help="Public MCP endpoint URL, e.g. https://your-domain/ or https://your-domain/mcp/",
+    ),
+    query: str = typer.Option(
+        "삼성전자", "--query", help="Stock search smoke-test query"
+    ),
     timeout: int = typer.Option(30, "--timeout", help="HTTP timeout in seconds"),
     limit: int = typer.Option(3, "--limit", help="Preview result count"),
 ) -> None:
     try:
-        payload = verify_mcp_endpoint_payload(url, query=query, timeout=timeout, limit=limit)
+        payload = verify_mcp_endpoint_payload(
+            url, query=query, timeout=timeout, limit=limit
+        )
     except Exception as exc:
         typer.echo(f"MCP endpoint verification failed: {exc}")
         raise typer.Exit(code=1) from exc
@@ -809,10 +1523,14 @@ def collect_research_reports_command(
     ),
     max_pages: int = typer.Option(2, "--max-pages", help="Pages per category"),
     days_back: int = typer.Option(3, "--days-back", help="Only keep recent N days"),
-    include_detail: bool = typer.Option(True, "--include-detail/--no-include-detail", help="Fetch company detail page"),
+    include_detail: bool = typer.Option(
+        True, "--include-detail/--no-include-detail", help="Fetch company detail page"
+    ),
 ) -> None:
     init_db()
-    category_list = [category.strip() for category in categories.split(",") if category.strip()]
+    category_list = [
+        category.strip() for category in categories.split(",") if category.strip()
+    ]
     with SessionLocal() as db:
         count = collect_research_reports(
             db,
@@ -827,7 +1545,9 @@ def collect_research_reports_command(
 @app.command("collect-disclosures")
 def collect_disclosures_command(
     days_back: int = typer.Option(7, "--days-back", help="Only keep recent N days"),
-    page_count: int = typer.Option(100, "--page-count", help="Rows requested per DART page"),
+    page_count: int = typer.Option(
+        100, "--page-count", help="Rows requested per DART page"
+    ),
 ) -> None:
     init_db()
     with SessionLocal() as db:
@@ -846,7 +1566,9 @@ def collect_news_items_command(
     days_back: int = typer.Option(3, "--days-back", help="Only keep recent N days"),
 ) -> None:
     init_db()
-    category_list = [category.strip() for category in categories.split(",") if category.strip()]
+    category_list = [
+        category.strip() for category in categories.split(",") if category.strip()
+    ]
     with SessionLocal() as db:
         count = collect_news_items(
             db,
@@ -855,36 +1577,6 @@ def collect_news_items_command(
             days_back=days_back,
         )
     typer.echo(f"Loaded {count} news rows.")
-
-
-@app.command("toss-sync-accounts")
-def toss_sync_accounts_command() -> None:
-    init_db()
-    with SessionLocal() as db:
-        count = sync_toss_accounts(db)
-    typer.echo(f"Loaded {count} Toss account rows.")
-
-
-@app.command("toss-sync-holdings")
-def toss_sync_holdings_command(
-    account_seq: Optional[int] = typer.Option(None, "--account-seq", help="Toss accountSeq header value"),
-    symbol: Optional[str] = typer.Option(None, "--symbol", help="Optional symbol filter"),
-) -> None:
-    init_db()
-    with SessionLocal() as db:
-        count = sync_toss_holdings(db, account_seq=account_seq, symbol=symbol)
-    typer.echo(f"Loaded {count} Toss holding rows.")
-
-
-@app.command("toss-sync-orders")
-def toss_sync_orders_command(
-    account_seq: Optional[int] = typer.Option(None, "--account-seq", help="Toss accountSeq header value"),
-    status: str = typer.Option("OPEN", "--status", help="OPEN recommended; CLOSED may not be supported"),
-) -> None:
-    init_db()
-    with SessionLocal() as db:
-        count = sync_toss_orders(db, account_seq=account_seq, status=status)
-    typer.echo(f"Loaded {count} Toss order rows.")
 
 
 if __name__ == "__main__":

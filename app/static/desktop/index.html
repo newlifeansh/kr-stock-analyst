@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>비밀노트 스프레드시트</title>
+    <link rel="icon" href="/assets/dashboard/icons/favicon-64.png" />
+    <link rel="stylesheet" href="/assets/desktop/styles.css?v=20260810h12" />
+  </head>
+  <body>
+    <div class="desk-app">
+      <header class="desk-header">
+        <div class="desk-titlebar">
+          <div class="desk-logo" aria-hidden="true"><span>B</span></div>
+          <div class="desk-document">
+            <div class="desk-document-line">
+              <input id="desk-document-title" class="desk-document-title" value="한국증시 비밀노트" maxlength="80" autocomplete="off" spellcheck="false" disabled aria-label="문서 제목" title="클릭하여 문서 제목 수정" />
+              <button class="desk-star" type="button" disabled aria-label="별표 추가, 사용할 수 없음">☆</button>
+              <span class="desk-cloud-status" title="문서 저장 상태">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 18.1h10.4a4 4 0 0 0 .5-8 6.2 6.2 0 0 0-11.8-1.7A4.9 4.9 0 0 0 7.2 18Z"/><path d="m9.1 13.2 2 2 4-4"/></svg>
+                <span id="desk-save-state" class="desk-save-state" role="status" aria-live="polite">사용자 확인 중</span>
+              </span>
+            </div>
+            <nav class="desk-menubar" aria-label="문서 메뉴">
+              <button type="button" disabled>파일</button><button type="button" disabled>수정</button>
+              <button type="button" disabled>보기</button><button type="button" disabled>삽입</button>
+              <button type="button" disabled>서식</button><button type="button" disabled>데이터</button>
+              <button type="button" disabled>도구</button><button type="button" disabled>확장 프로그램</button>
+              <button type="button" disabled>도움말</button>
+            </nav>
+          </div>
+          <div class="desk-title-actions">
+            <span id="desk-market-clock" class="desk-market-clock" aria-hidden="true">시장 데이터 준비 중</span>
+            <button class="desk-top-icon" type="button" disabled aria-label="모든 댓글 보기, 사용할 수 없음" title="모든 댓글 보기">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v10H9l-4 3v-13Z"/><path d="M8 9h8M8 12h5"/></svg>
+            </button>
+            <button class="desk-top-icon desk-call" type="button" disabled aria-label="통화 시작, 사용할 수 없음" title="통화 시작">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="11" height="12" rx="2"/><path d="m15 10 5-3v10l-5-3Z"/></svg><span class="desk-caret">▾</span>
+            </button>
+            <button class="desk-share" type="button" disabled aria-label="공유, 사용할 수 없음" title="공유">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="10" width="12" height="9" rx="2"/><path d="M9 10V7a3 3 0 0 1 6 0v3"/></svg><span>공유</span><span class="desk-caret">▾</span>
+            </button>
+            <button class="desk-top-icon desk-ai" type="button" disabled aria-label="AI 도우미, 사용할 수 없음" title="AI 도우미"><span aria-hidden="true">✦</span></button>
+            <button id="desk-account-button" class="desk-account" type="button" title="사용자 정보"><span>?</span></button>
+          </div>
+        </div>
+        <div class="desk-toolbar" role="toolbar" aria-label="서식 도구, 미리보기 전용">
+          <button class="desk-tool-search" type="button" disabled aria-label="메뉴 검색"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4 4"/></svg></button>
+          <button type="button" disabled aria-label="실행 취소">↶</button><button type="button" disabled aria-label="다시 실행">↷</button>
+          <button type="button" disabled aria-label="인쇄"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8V4h10v4M7 17H5V9h14v8h-2"/><path d="M7 14h10v6H7z"/></svg></button>
+          <button type="button" disabled aria-label="서식 복사"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h9v5H6zM15 7h3v8h-5v5H9v-6h4v-4"/></svg></button><span class="desk-separator"></span>
+          <button class="desk-zoom" type="button" disabled>100%<span class="desk-caret">▾</span></button><span class="desk-separator"></span>
+          <button type="button" disabled aria-label="통화 형식">₩</button><button type="button" disabled aria-label="퍼센트 형식">%</button><button type="button" disabled aria-label="소수점 자리수 감소">.0←</button><button type="button" disabled aria-label="소수점 자리수 증가">.00→</button><button type="button" disabled aria-label="표시 형식 더보기">123</button>
+          <span class="desk-separator"></span><button class="desk-font" type="button" disabled>기본값 (Arial)<span class="desk-caret">▾</span></button>
+          <button type="button" disabled aria-label="글꼴 크기 작게">−</button><span class="desk-font-size">10</span><button type="button" disabled aria-label="글꼴 크기 크게">＋</button>
+          <span class="desk-separator"></span><button type="button" disabled aria-label="굵게"><b>B</b></button><button type="button" disabled aria-label="기울임"><i>I</i></button><button type="button" disabled aria-label="취소선"><s>S</s></button>
+          <button type="button" disabled aria-label="텍스트 색상">A̲</button><span class="desk-separator"></span><button type="button" disabled aria-label="채우기 색상">◩</button><button type="button" disabled aria-label="테두리">▦</button><button type="button" disabled aria-label="더보기">⋮</button>
+          <button class="desk-toolbar-collapse" type="button" disabled aria-label="메뉴 숨기기">⌃</button>
+        </div>
+        <div class="desk-formula-bar">
+          <div id="desk-name-box" class="desk-name-box" aria-label="선택한 셀">A1</div>
+          <div class="desk-function" aria-hidden="true">fx</div>
+          <div id="desk-formula-value" class="desk-formula-value" aria-live="polite"></div>
+        </div>
+      </header>
+
+      <main class="desk-workbook" aria-label="비밀노트 워크북">
+        <div class="desk-grid-shell" id="desk-grid-shell">
+          <div class="desk-grid-corner" aria-hidden="true"></div>
+          <div class="desk-column-headers" id="desk-column-headers" aria-hidden="true"></div>
+          <div class="desk-row-headers" id="desk-row-headers" aria-hidden="true"></div>
+          <section class="desk-sheet" id="desk-sheet" aria-live="polite"></section>
+        </div>
+      </main>
+
+      <footer class="desk-sheetbar">
+        <button class="desk-add-sheet" type="button" disabled aria-label="시트 추가, 사용할 수 없음">＋</button>
+        <button class="desk-all-sheets" type="button" disabled aria-label="모든 시트">☰</button>
+        <div class="desk-tabs" id="desk-tabs" role="tablist" aria-label="워크북 시트"></div>
+        <div class="desk-status"><span id="desk-status">준비</span><span class="desk-zoom-status">100%　−━━━━●━＋</span></div>
+      </footer>
+
+      <aside id="desk-side-panel" class="desk-side-panel" aria-label="빠른 앱 사이드바">
+        <div class="desk-side-apps" role="tablist" aria-label="빠른 앱">
+          <button class="desk-side-app" type="button" role="tab" aria-selected="false" aria-disabled="true" title="캘린더">
+            <svg class="desk-side-calendar" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 9h16"/><text x="12" y="17">31</text></svg><span class="desk-tooltip">캘린더</span>
+          </button>
+          <button class="desk-side-app" type="button" role="tab" aria-selected="false" aria-disabled="true" title="메모">
+            <svg class="desk-side-note" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 0 0-4.2 12.6V19h8.4v-3.4A7 7 0 0 0 12 3Z"/><path d="M9 22h6M9 18h6"/></svg><span class="desk-tooltip">메모</span>
+          </button>
+          <button class="desk-side-app" type="button" role="tab" aria-selected="false" aria-disabled="true" title="할 일 목록">
+            <svg class="desk-side-tasks" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg><span class="desk-tooltip">할 일 목록</span>
+          </button>
+          <button class="desk-side-app" type="button" role="tab" aria-selected="false" aria-disabled="true" title="주소록">
+            <svg class="desk-side-contacts" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M6.5 19a5.5 5.5 0 0 1 11 0Z"/></svg><span class="desk-tooltip">주소록</span>
+          </button>
+          <button class="desk-side-app" type="button" role="tab" aria-selected="false" aria-disabled="true" title="지도">
+            <svg class="desk-side-map" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s6-6.2 6-11A6 6 0 1 0 6 10c0 4.8 6 11 6 11Z"/><circle cx="12" cy="10" r="2.2"/></svg><span class="desk-tooltip">지도</span>
+          </button>
+          <span class="desk-side-separator" aria-hidden="true"></span>
+          <button class="desk-side-app desk-side-add" type="button" role="tab" aria-selected="false" aria-disabled="true" title="부가기능 추가"><span aria-hidden="true">+</span><span class="desk-tooltip">부가기능 추가</span></button>
+        </div>
+        <button id="desk-side-toggle" class="desk-side-toggle" type="button" aria-controls="desk-side-panel" aria-expanded="true" title="측면 패널 숨기기" aria-label="측면 패널 숨기기">›</button>
+      </aside>
+    </div>
+
+    <section class="desk-login" id="desk-login" role="dialog" aria-modal="true" aria-labelledby="desk-login-title" hidden>
+      <div class="desk-login-card">
+        <div class="desk-login-brand"><span>B</span> 비밀노트</div>
+        <p class="desk-login-kicker">DESKTOP WORKBOOK</p>
+        <h1 id="desk-login-title">한국증시 워크북 열기</h1>
+        <p>모바일에서 사용하던 아이디로 같은 관심종목을 불러옵니다.</p>
+        <form id="desk-login-form">
+          <label for="desk-login-id">아이디</label>
+          <input id="desk-login-id" maxlength="40" autocomplete="username" placeholder="아이디를 입력하세요" required />
+          <div id="desk-invite-wrap" hidden>
+            <label for="desk-invite-code">초대 코드</label>
+            <input id="desk-invite-code" maxlength="64" autocomplete="one-time-code" placeholder="초대 코드를 입력하세요" />
+          </div>
+          <p id="desk-login-status" class="desk-login-status" role="status"></p>
+          <button class="desk-login-submit" type="submit">워크북 열기</button>
+        </form>
+      </div>
+    </section>
+
+    <script src="/assets/desktop/app.js?v=20260829h4" defer></script>
+  </body>
+</html>

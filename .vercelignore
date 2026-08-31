@@ -1,0 +1,7 @@
+# The Vercel project contains only the static portfolio. Keep local runtime
+# data, virtual environments, test fixtures, and generated files out of the upload.
+*
+!app/
+!app/static/
+!app/static/**
+!vercel.json

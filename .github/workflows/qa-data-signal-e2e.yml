@@ -1,0 +1,63 @@
+name: QA data-signal staging E2E
+
+on:
+  workflow_dispatch:
+  deployment_status:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-data-signal-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'deployment_status' &&
+       github.event.deployment_status.state == 'success' &&
+       contains(github.event.deployment.environment, 'staging'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL || 'https://dark-theme-preview-staging.up.railway.app' }}
+      QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
+      QA_DASHBOARD_SHARE_ID: qa-automation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install project and browser runtime
+        run: |
+          pip install -e '.[qa,mcp]'
+          playwright install --with-deps chromium
+      - name: Run mobile dark and light E2E
+        run: |
+          set +e
+          analyst qa data-signal \
+            --mode e2e \
+            --base-url "$STAGING_BASE_URL" \
+            --output artifacts/qa-data-signal/e2e.json \
+            --artifact-dir artifacts/qa-data-signal/screenshots
+          qa_exit=$?
+          set -e
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("artifacts/qa-data-signal/e2e.json").read_text())
+          failures = [item["id"] for item in report["checks"] if item["status"] == "fail"]
+          if failures:
+              raise SystemExit("E2E failures: " + ", ".join(failures))
+          PY
+          exit "$qa_exit"
+      - name: Upload E2E report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-data-signal-e2e-${{ github.run_id }}
+          path: artifacts/qa-data-signal
+          if-no-files-found: error
+          retention-days: 30

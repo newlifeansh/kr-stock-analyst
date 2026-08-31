@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 import struct
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from fastapi import HTTPException
+from fastapi.responses import FileResponse
 
 from app.db import Base
+from app.main import MANUAL_STOCK_LOGO_DIR, stock_logo
 from app.models import StockLogo, StockMaster
 from app.schemas import StockOut
 from app.services.stock_logos import (
@@ -117,6 +121,27 @@ def test_stock_response_exposes_internal_logo_url() -> None:
     payload = StockOut.model_validate(stock)
 
     assert payload.logo_url == "/stock-logos/005930.png"
+
+
+def test_stock_logo_endpoint_returns_404_for_missing_master() -> None:
+    db = make_session()
+
+    with pytest.raises(HTTPException) as exc_info:
+        stock_logo("999999", db=db)
+    assert exc_info.value.status_code == 404
+
+
+def test_apr_official_logo_overrides_collected_logo() -> None:
+    db = make_session()
+
+    response = stock_logo("278470", db=db)
+
+    assert isinstance(response, FileResponse)
+    assert Path(response.path) == MANUAL_STOCK_LOGO_DIR / "278470.png"
+    assert response.headers["x-stock-logo-source"] == "official-manual"
+    image_data = (MANUAL_STOCK_LOGO_DIR / "278470.png").read_bytes()
+    assert image_data.startswith(PNG_SIGNATURE)
+    assert struct.unpack(">II", image_data[16:24]) == (256, 256)
 
 
 def test_fallback_stock_logo_is_a_256_pixel_png() -> None:

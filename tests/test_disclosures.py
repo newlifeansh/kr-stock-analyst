@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from app.collectors.disclosures import classify_disclosure_category, fetch_dart_disclosures, fetch_dart_web_disclosures
 from app.config import Settings
 
@@ -139,3 +141,42 @@ def test_fetch_dart_disclosures_uses_api_when_transport_succeeds(monkeypatch):
     assert len(result.items) == 1
     assert result.items[0].source == "dart_api"
     assert result.items[0].external_id == "20260619000123"
+
+
+def test_fetch_dart_disclosures_can_scope_one_month_to_company(monkeypatch):
+    captured = {}
+
+    def fake_fetch_json(url, params, **kwargs):
+        captured.update(params)
+        return {
+            "status": "000",
+            "list": [
+                {
+                    "corp_name": "GS",
+                    "stock_code": "",
+                    "corp_cls": "Y",
+                    "report_nm": "기업설명회(IR)개최(안내공시)",
+                    "rcept_no": "20260720000336",
+                    "flr_nm": "GS",
+                    "rcept_dt": "20260720",
+                    "rm": "유",
+                }
+            ],
+        }
+
+    monkeypatch.setattr("app.collectors.disclosures.fetch_opendart_json", fake_fetch_json)
+
+    result = fetch_dart_disclosures(
+        settings=Settings(dart_api_key="valid-test-key"),
+        days_back=30,
+        page_count=100,
+        now=datetime(2026, 8, 8, 12, 0),
+        corp_code="00500254",
+        stock_code="078930",
+    )
+
+    assert captured["corp_code"] == "00500254"
+    assert captured["bgn_de"] == "20260709"
+    assert captured["end_de"] == "20260808"
+    assert result.items[0].corp_code == "00500254"
+    assert result.items[0].stock_code == "078930"

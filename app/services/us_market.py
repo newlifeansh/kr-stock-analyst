@@ -1809,7 +1809,6 @@ def build_us_rankings(category: str = "surge", limit: int = 20, market: str = "A
         quote = payload["quote"]
         momentum = payload["momentum"]
         sentiment = payload["sentiment"]
-        chart = payload["chart_analysis"]
         if category == "trading_value":
             return Decimal(str(quote.get("trading_value") or 0))
         if category == "momentum":

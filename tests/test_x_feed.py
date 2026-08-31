@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -26,6 +26,7 @@ def _session() -> Session:
 
 def test_x_recent_search_is_mapped_and_persisted(monkeypatch):
     calls = []
+    recent_time = (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0)
 
     class Response:
         @staticmethod
@@ -40,7 +41,7 @@ def test_x_recent_search_is_mapped_and_persisted(monkeypatch):
                         "id": "1900000000000000000",
                         "text": "신라젠 임상 기대감으로 주가 상승 가능성을 살펴봅니다.",
                         "author_id": "42",
-                        "created_at": "2026-07-25T01:20:00.000Z",
+                        "created_at": f"{recent_time.isoformat()}.000Z",
                         "public_metrics": {
                             "like_count": 12,
                             "retweet_count": 3,
@@ -82,7 +83,7 @@ def test_x_recent_search_is_mapped_and_persisted(monkeypatch):
         assert payload["items"][0]["username"] == "market_watcher"
         assert payload["items"][0]["like_count"] == 12
         assert payload["items"][0]["impact"] == "호재"
-        assert payload["items"][0]["created_at"] == datetime(2026, 7, 25, 1, 20)
+        assert payload["items"][0]["created_at"] == recent_time
         assert calls[0][0] == x_feed.X_RECENT_SEARCH_URL
         assert calls[0][1]["headers"] == {"Authorization": "Bearer secret-token"}
         assert '"신라젠"' in calls[0][1]["params"]["query"]
@@ -166,10 +167,18 @@ def test_stock_community_feed_endpoint_uses_naver_board_and_threads(monkeypatch)
         assert payload["code"] == "215600"
         assert payload["providers"][0]["key"] == "naver_board"
         assert payload["providers"][0]["label"] == "네이버"
+        assert (
+            payload["providers"][0]["search_url"]
+            == "https://m.stock.naver.com/domestic/stock/215600/discussion"
+        )
         assert payload["providers"][0]["items"][0]["title"] == "신라젠 다시 상승 준비"
+        assert (
+            payload["providers"][0]["items"][0]["url"]
+            == "https://m.stock.naver.com/domestic/stock/215600/discussion/426298204"
+        )
         assert payload["providers"][0]["items"][0]["view_count"] == 27
         assert payload["providers"][1]["key"] == "threads"
-        assert payload["providers"][1]["label"] == "threads"
+        assert payload["providers"][1]["label"] == "쓰레드"
         assert payload["providers"][1]["search_url"].startswith("https://www.threads.com/search?q=")
     finally:
         app.dependency_overrides.pop(get_db, None)
@@ -218,12 +227,64 @@ def test_threads_keyword_search_is_mapped_with_meta_api(monkeypatch):
     assert provider["source"] == "threads_api"
     assert provider["message"] == "최근 글 1건"
     assert provider["items"][0]["username"] == "market_note"
+
+
+def test_threads_keyword_search_tries_multiple_queries_until_it_finds_posts(monkeypatch):
+    calls = []
+
+    class EmptyResponse:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return {"data": []}
+
+    class HitResponse:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return {
+                "data": [
+                    {
+                        "id": "threads-post-2",
+                        "text": "215600 실적 기대감과 상승 모멘텀으로 관심이 다시 늘고 있습니다.",
+                        "permalink": "https://www.threads.net/@market/post/example2",
+                        "username": "market_note",
+                        "timestamp": "2026-07-25T03:10:00+0000",
+                    }
+                ]
+            }
+
+    def fake_get(url, **kwargs):
+        calls.append(kwargs["params"]["q"])
+        if len(calls) == 1:
+            return EmptyResponse()
+        return HitResponse()
+
+    monkeypatch.setattr(community_feed.requests, "get", fake_get)
+    settings = Settings(
+        threads_access_token="threads-secret",
+        threads_feed_timeout_seconds=7,
+        threads_feed_max_results=12,
+    )
+    stock = StockMaster(code="215600", name="신라젠", market="KOSDAQ", is_active=True)
+
+    payload = community_feed.build_stock_community_feed(stock, settings, limit=12)
+    provider = payload["providers"][1]
+
+    assert calls[0] == "신라젠"
+    assert "215600" in calls
+    assert provider["configured"] is True
+    assert provider["items"][0]["post_id"] == "threads-post-2"
+    assert provider["message"] == "최근 글 1건"
     assert provider["items"][0]["impact"] == "호재"
-    assert provider["items"][0]["created_at"] == datetime(2026, 7, 25, 1, 20)
-    assert calls[1][0] == "https://graph.threads.net/keyword_search"
-    assert calls[1][1]["headers"] == {"Authorization": "Bearer threads-secret"}
-    assert calls[1][1]["params"]["q"] == "신라젠"
-    assert calls[1][1]["params"]["search_type"] == "RECENT"
+    assert provider["items"][0]["created_at"] == datetime(2026, 7, 25, 3, 10)
+    assert calls[:2] == ["신라젠", "215600"]
 
 
 def test_stock_detail_contains_community_ui():
@@ -235,6 +296,7 @@ def test_stock_detail_contains_community_ui():
     assert 'id="stock-community-section"' in shell
     assert 'id="stock-community-providers"' in shell
     assert "function loadStockCommunity" in source
+    assert "/home-context?flow_limit=1500" in source
     assert "/community-feed?limit=12" in source
     assert ".stock-community-tabs" in styles
     assert '"stock-community-tabs stock-v3-segment"' in source
@@ -242,3 +304,10 @@ def test_stock_detail_contains_community_ui():
     assert ".stock-community-text" in styles
     assert "state.stockCommunityProviderKey" in source
     assert "stock-community-expand" in source
+    assert "function stockCommunityShortcutUrl" in source
+    assert 'el("a", "stock-community-shortcut", "바로가기")' in source
+    assert "stock-community-shortcut" in styles
+    assert "min-height: 44px" in styles
+    assert "stock-community-original" not in source
+    assert "stock-community-original" not in styles
+    assert '"원문 ↗"' not in source

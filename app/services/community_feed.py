@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import parse_qs, quote, quote_plus, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -11,6 +11,7 @@ from app.config import Settings
 from app.models import StockMaster
 
 NAVER_BOARD_URL = "https://finance.naver.com/item/board.naver"
+NAVER_MOBILE_STOCK_URL = "https://m.stock.naver.com/domestic/stock"
 NAVER_BOARD_SOURCE = "naver_finance_board"
 THREADS_API_SOURCE = "threads_api"
 THREADS_SEARCH_SOURCE = "threads_search"
@@ -72,12 +73,53 @@ def _parse_naver_datetime(value: str) -> Optional[datetime]:
         return None
 
 
-def _threads_query(stock: StockMaster) -> str:
-    return stock.name
+def _naver_board_post_id(href: str) -> str:
+    parsed = urlparse(str(href or "").strip())
+    query_post_ids = parse_qs(parsed.query).get("nid") or []
+    if query_post_ids:
+        return str(query_post_ids[0]).strip()
+    path_parts = [part for part in parsed.path.split("/") if part]
+    for marker in ("discussion", "discuss"):
+        if marker in path_parts:
+            marker_index = path_parts.index(marker)
+            if marker_index + 1 < len(path_parts):
+                return path_parts[marker_index + 1].strip()
+    return ""
+
+
+def naver_mobile_discussion_url(stock_code: str, href: str) -> str:
+    post_id = _naver_board_post_id(href)
+    if not post_id:
+        return ""
+    return (
+        f"{NAVER_MOBILE_STOCK_URL}/{quote(str(stock_code), safe='')}"
+        f"/discussion/{quote(post_id, safe='')}"
+    )
+
+
+def _threads_query_candidates(stock: StockMaster) -> list[str]:
+    candidates = [
+        stock.name,
+        stock.code,
+        f"{stock.name} 주식",
+        f"{stock.name} 종목",
+        f"{stock.name} 실적",
+        f"{stock.name} 공시",
+        f"#{stock.name}",
+    ]
+    unique: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        compact = " ".join(str(candidate or "").split()).strip()
+        if not compact or compact in seen:
+            continue
+        seen.add(compact)
+        unique.append(compact)
+    return unique
 
 
 def threads_search_url(stock: StockMaster) -> str:
-    return THREADS_SEARCH_URL.format(query=quote_plus(_threads_query(stock)))
+    return THREADS_SEARCH_URL.format(query=quote_plus(_threads_query_candidates(stock)[0]))
 
 
 def _parse_threads_datetime(value: object) -> Optional[datetime]:
@@ -103,16 +145,17 @@ def _threads_title(text: str) -> str:
     return f"{compact[:89].rstrip()}…"
 
 
-def _fetch_threads_rows(
-    stock: StockMaster,
+def _fetch_threads_rows_for_query(
+    query: str,
     settings: Settings,
     limit: int,
+    seen: set[str],
 ) -> list[dict[str, object]]:
     base_url = settings.threads_api_base_url.rstrip("/")
     response = requests.get(
         f"{base_url}{THREADS_SEARCH_PATH}",
         params={
-            "q": _threads_query(stock),
+            "q": query,
             "search_type": str(settings.threads_feed_search_type or "RECENT").upper(),
             "fields": THREADS_FIELDS,
             "limit": max(1, min(settings.threads_feed_max_results, limit)),
@@ -124,7 +167,6 @@ def _fetch_threads_rows(
     payload = response.json()
 
     rows: list[dict[str, object]] = []
-    seen: set[str] = set()
     for item in payload.get("data") or []:
         post_id = str(item.get("id") or "").strip()
         text = " ".join(str(item.get("text") or "").split())
@@ -156,6 +198,31 @@ def _fetch_threads_rows(
     return rows
 
 
+def _fetch_threads_rows(
+    stock: StockMaster,
+    settings: Settings,
+    limit: int,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    seen: set[str] = set()
+    last_error: Exception | None = None
+    for query in _threads_query_candidates(stock):
+        if len(rows) >= limit:
+            break
+        try:
+            query_rows = _fetch_threads_rows_for_query(query, settings, limit - len(rows), seen)
+        except Exception as exc:  # pragma: no cover - network failure path is exercised through fallback
+            last_error = exc
+            continue
+        rows.extend(query_rows)
+        seen.update(row["post_id"] for row in query_rows if row.get("post_id"))
+    if rows:
+        return rows[:limit]
+    if last_error is not None:
+        raise last_error
+    return rows
+
+
 def _build_threads_provider(
     stock: StockMaster,
     settings: Settings,
@@ -164,12 +231,12 @@ def _build_threads_provider(
     search_url = threads_search_url(stock)
     fallback = {
         "key": "threads",
-        "label": "threads",
+        "label": "쓰레드",
         "source": THREADS_SEARCH_SOURCE,
         "configured": False,
         "search_url": search_url,
-        "more_label": "Threads 원문",
-        "message": "Meta API 연결 후 게시물을 이 화면에서 바로 확인할 수 있습니다.",
+        "more_label": "쓰레드 검색 ↗",
+        "message": "Threads 연결 전에는 공개 검색 링크만 제공합니다.",
         "items": [],
     }
     if not settings.threads_feed_enabled or not settings.threads_access_token:
@@ -185,11 +252,11 @@ def _build_threads_provider(
 
     return {
         "key": "threads",
-        "label": "threads",
+        "label": "쓰레드",
         "source": THREADS_API_SOURCE,
         "configured": True,
         "search_url": search_url,
-        "more_label": "Threads 원문",
+        "more_label": "쓰레드 원문",
         "message": f"최근 글 {len(items)}건" if items else "최근 글이 없습니다.",
         "items": items,
     }
@@ -222,16 +289,17 @@ def _fetch_naver_board_rows(stock: StockMaster, limit: int, timeout_seconds: int
         author_cell = cells[2]
         author_name = author_cell.get_text(" ", strip=True)
         image = author_cell.select_one("img")
+        post_id = _naver_board_post_id(href)
         rows.append(
             {
                 "provider_key": "naver_board",
-                "post_id": href.split("nid=")[-1].split("&")[0] if "nid=" in href else href,
+                "post_id": post_id or href,
                 "title": title,
                 "text": title,
                 "author_name": author_name or "네이버 종토방",
                 "username": None,
                 "author_profile_image_url": image.get("src") if image else None,
-                "url": urljoin("https://finance.naver.com", href),
+                "url": naver_mobile_discussion_url(stock.code, href),
                 "created_at": _parse_naver_datetime(cells[0].get_text(" ", strip=True)),
                 "like_count": _to_int(cells[4].get_text(" ", strip=True)),
                 "dislike_count": _to_int(cells[5].get_text(" ", strip=True)),
@@ -247,7 +315,7 @@ def _fetch_naver_board_rows(stock: StockMaster, limit: int, timeout_seconds: int
 
 
 def _build_naver_provider(stock: StockMaster, limit: int, timeout_seconds: int) -> dict[str, object]:
-    search_url = f"{NAVER_BOARD_URL}?code={stock.code}"
+    search_url = f"{NAVER_MOBILE_STOCK_URL}/{quote(stock.code, safe='')}/discussion"
     try:
         items = _fetch_naver_board_rows(stock, limit, timeout_seconds)
         return {
@@ -256,11 +324,11 @@ def _build_naver_provider(stock: StockMaster, limit: int, timeout_seconds: int) 
             "source": NAVER_BOARD_SOURCE,
             "configured": True,
             "search_url": search_url,
-            "more_label": "종토방 더 보기 ↗",
+            "more_label": "종토방 더 보기",
             "message": (
                 f"최근 글 {len(items)}건"
                 if items
-                else "최근 글을 찾지 못했습니다. 종토방 원문에서 직접 확인해 주세요."
+                else "최근 글을 찾지 못했습니다. 종토방 바로가기에서 직접 확인해 주세요."
             ),
             "items": items,
         }
@@ -271,8 +339,8 @@ def _build_naver_provider(stock: StockMaster, limit: int, timeout_seconds: int) 
             "source": NAVER_BOARD_SOURCE,
             "configured": False,
             "search_url": search_url,
-            "more_label": "종토방 더 보기 ↗",
-            "message": "네이버 종토방을 불러오지 못했습니다. 원문 링크에서 직접 확인해 주세요.",
+            "more_label": "종토방 더 보기",
+            "message": "네이버 종토방을 불러오지 못했습니다. 종토방 바로가기에서 직접 확인해 주세요.",
             "items": [],
         }
 

@@ -888,7 +888,7 @@ function overviewTargetView(target) {
   if (target === "research") return "recommend";
   if (target === "disclosure") return "trend";
   if (target === "news") return "market";
-  if (target === "watchlist" || target === "holdings") return "watchlist";
+  if (target === "watchlist") return "watchlist";
   if (target === "indices" || target === "all-companies") return "market";
   return "stock";
 }
@@ -947,10 +947,7 @@ function createOverviewRow(row, section, index) {
   button.dataset.overviewDetailIndex = String(index);
 
   const company = el("div", "overview-row-company");
-  company.append(
-    el("strong", "", row.name || row.code || "-"),
-    el("span", "", `${row.code || "-"} · ${row.market || "-"}`),
-  );
+  company.append(el("strong", "", row.name || row.code || "-"));
 
   const price = el("div", "overview-row-price");
   price.append(
@@ -987,26 +984,6 @@ function createOverviewSection(title, rows, target, emptyText, sectionKey = targ
     list.appendChild(el("div", "overview-empty", emptyText));
   } else {
     rows.slice(0, STOCK_OVERVIEW_SECTION_LIMIT).forEach((row, index) => list.appendChild(createOverviewRow(row, sectionKey, index)));
-  }
-  section.append(head, list);
-  return section;
-}
-
-function createOverviewPortfolioBlock(rows) {
-  const section = el("section", "overview-section overview-portfolio-block");
-  const head = el("button", "overview-section-head");
-  head.type = "button";
-  head.dataset.overviewTarget = "watchlist";
-  head.append(
-    el("strong", "", "포트폴리오"),
-    el("span", "", rows.length ? "브로커 연결 보류" : "아카이빙"),
-    el("span", "", "›"),
-  );
-  const list = el("div", "overview-feed-list");
-  if (!rows.length) {
-    list.appendChild(el("div", "overview-empty", "브로커 연동은 아카이빙되어 있습니다."));
-  } else {
-    rows.slice(0, STOCK_OVERVIEW_SECTION_LIMIT).forEach((row, index) => list.appendChild(createOverviewRow(row, "portfolio", index)));
   }
   section.append(head, list);
   return section;
@@ -1082,19 +1059,18 @@ function createOverviewIndexBlock(items) {
 
 function createOverviewRightRail(payload) {
   const aside = el("aside", "overview-side-panel");
-  const account = el("div", "overview-account-card");
+  const watchCard = el("div", "overview-watch-card");
   const cta = el("button", "overview-cta", "관심기업 보기");
   cta.type = "button";
   cta.dataset.overviewTarget = "watchlist";
-  account.append(
-    el("strong", "", "자산 관리"),
-    el("span", "", "브로커 연동은 아카이빙되어 있습니다."),
+  watchCard.append(
+    el("strong", "", "관심기업"),
+    el("span", "", "별표로 저장한 기업의 브리핑만 따로 모아봅니다."),
     cta,
   );
 
   const tabs = el("div", "overview-side-tabs");
   const counters = [
-    ["holdings", payload.holdingCount || 0, "보유기업"],
     ["watchlist", payload.watchCount || 0, "관심기업"],
     ["all-companies", payload.universeCount || 0, "전체기업"],
     ["indices", (payload.indices || []).length, "주요지수"],
@@ -1106,7 +1082,7 @@ function createOverviewRightRail(payload) {
     button.append(el("strong", "", formatNumber(count)), el("span", "", label));
     tabs.appendChild(button);
   }
-  aside.append(account, tabs);
+  aside.append(watchCard, tabs);
   return aside;
 }
 
@@ -1171,7 +1147,7 @@ function buildStockOverviewPayload(recommendations, rankings, indices, dashboard
     .sort((left, right) => String(right.published_at || "").localeCompare(String(left.published_at || "")));
 
   const watchCodes = new Set(readWatchlist().map((item) => item.code));
-  const portfolio = dashboardRows
+  const watchlistBriefs = dashboardRows
     .filter((dashboard) => watchCodes.has(dashboard.code))
     .map((dashboard) => {
       const latestReportAt = dashboard.revisions?.latest_report_at || "";
@@ -1201,11 +1177,10 @@ function buildStockOverviewPayload(recommendations, rankings, indices, dashboard
     meta: `${formatNumber(recommendations?.universe_count || 0)}종목 · ${formatDate(recommendations?.as_of || rankings?.as_of || new Date().toISOString())} · 자동갱신`,
     universeCount: recommendations?.universe_count || rankings?.items?.length || 0,
     watchCount: watchCodes.size,
-    holdingCount: 0,
     indices: indices?.items || [],
     dashboardsByCode: Object.fromEntries(dashboardRows.map((dashboard) => [dashboard.code, dashboard])),
     sections: {
-      portfolio,
+      watchlistBriefs,
       reports,
       disclosures,
       news,
@@ -1521,13 +1496,13 @@ function renderStockOverview(payload) {
     return;
   }
   const filters = getViewFilters("stock");
-  const portfolioRows = stockOverviewRows(payload, "portfolio", filters);
+  const watchlistBriefRows = stockOverviewRows(payload, "watchlistBriefs", filters);
   const reportRows = stockOverviewRows(payload, "reports", filters);
   const disclosureRows = stockOverviewRows(payload, "disclosures", filters);
   const newsRows = stockOverviewRows(payload, "news", filters);
   const watchRows = (payload.sections.watchlistNews || []).filter((row) => stockOverviewRowMatches(row, filters));
   state.currentOverviewRows = {
-    portfolio: portfolioRows,
+    watchlistBriefs: watchlistBriefRows,
     reports: reportRows,
     disclosures: disclosureRows,
     news: newsRows,
@@ -1543,7 +1518,7 @@ function renderStockOverview(payload) {
   main.appendChild(createOverviewSection("지금 많이 보는 리포트", reportRows, "research", "표시할 리포트가 없습니다.", "reports"));
   main.appendChild(createOverviewSection("주요 공시", disclosureRows, "disclosure", "표시할 공시가 없습니다.", "disclosures"));
   main.appendChild(createOverviewSection("최신 뉴스", newsRows, "news", "표시할 뉴스가 없습니다.", "news"));
-  main.appendChild(createOverviewPortfolioBlock(portfolioRows));
+  main.appendChild(createOverviewSection("관심기업 브리핑", watchlistBriefRows, "watchlist", "관심기업을 저장하면 종목별 브리핑이 표시됩니다.", "watchlistBriefs"));
   main.appendChild(createOverviewSection("관심기업 주요소식", watchRows, "watchlist", "관심기업 데이터가 없습니다.", "watchlistNews"));
   main.appendChild(createOverviewGuideList());
   main.appendChild(createOverviewIndexBlock(payload.indices || []));
@@ -2130,7 +2105,7 @@ function updateQuoteStrip(quote, payload = null) {
   animateTextUpdate(elements.quoteValue, formatMoney(quote.trading_value), quote.trading_value);
   animateTextUpdate(elements.quoteCap, formatMoney(quote.market_cap), quote.market_cap);
   if (payload?.as_of && state.currentStock?.code === payload.code) {
-    elements.meta.textContent = `${payload.code} · ${payload.market || state.currentStock.market} · ${formatDate(payload.as_of)} · 실시간 갱신`;
+    elements.meta.textContent = `${formatDate(payload.as_of)} · 실시간 갱신`;
     elements.meta.hidden = true;
   }
 }
@@ -3477,10 +3452,7 @@ function renderSuggestions(items) {
     const name = document.createElement("span");
     name.className = "suggestion-name";
     name.textContent = item.name;
-    const meta = document.createElement("span");
-    meta.className = "suggestion-meta";
-    meta.textContent = `${item.code} · ${item.market}`;
-    button.append(name, meta);
+    button.append(name);
     button.addEventListener("mousedown", (event) => event.preventDefault());
     button.addEventListener("click", () => chooseSuggestion(item));
     elements.suggestions.appendChild(button);
@@ -4318,7 +4290,7 @@ function createMarketLeaderboardCard(item) {
   const name = document.createElement("a");
   name.className = "market-leaderboard-name";
   name.href = viewStockUrl(item);
-  name.append(el("strong", "", item.name), el("span", "", `${item.code} · ${item.market}`));
+  name.append(el("strong", "", item.name));
   const change = document.createElement("strong");
   change.className = "market-leaderboard-change";
   change.dataset.liveField = "change_rate";
@@ -4402,7 +4374,6 @@ function renderRankings(payload) {
       <td data-label="종목">
         <a class="rank-name" href="${viewStockUrl(item)}">
           <strong>${item.name}</strong>
-          <span>${item.code} · ${item.market}</span>
         </a>
       </td>
       <td data-label="현재가" data-live-field="price">${formatPrice(item.price)}</td>
@@ -4535,7 +4506,7 @@ function appendWatchRow(item, dashboard) {
   const link = document.createElement("a");
   link.className = "watch-stock-name";
   link.href = viewStockUrl(item);
-  link.append(el("strong", "", item.name), el("span", "", `${item.code} · ${item.market || dashboard.market}`));
+  link.append(el("strong", "", item.name));
   const removeButton = document.createElement("button");
   removeButton.className = "remove-watch";
   removeButton.type = "button";
@@ -6089,10 +6060,7 @@ function createRecommendationTrackCard(track, dashboard = null) {
 
   const head = el("div", "recommend-track-head");
   const title = el("div", "recommend-track-title");
-  title.append(
-    el("strong", "", track.name || "-"),
-    el("span", "", `${track.code || "-"} · ${track.market || "-"}`),
-  );
+  title.append(el("strong", "", track.name || "-"));
   const actions = el("div", "recommend-track-actions");
   const open = document.createElement("a");
   open.className = "snapshot-button";
@@ -6470,8 +6438,7 @@ function createRecommendationCard(item) {
   const name = el("a", "recommend-name");
   name.href = viewStockUrl(item);
   const nameStrong = el("strong", "", item.name);
-  const nameMeta = el("span", "", `${item.code} · ${item.market}`);
-  name.append(nameStrong, nameMeta);
+  name.append(nameStrong);
 
   const score = el("div", "recommend-score");
   score.append(el("strong", "", String(item.score)), el("span", "", "점"));
@@ -6730,6 +6697,20 @@ function marketImpactDirectionScore(text, factor, fallbackImpact = "") {
   return score;
 }
 
+function marketImpactToneClass(status = "") {
+  return String(status).includes("호재") ? "good" : "bad";
+}
+
+function marketImpactVisibleLabel(status = "") {
+  return String(status).includes("호재") ? "외부 변수 우호" : "외부 변수 리스크";
+}
+
+function marketImpactVisibleSummary(status = "") {
+  return String(status).includes("호재")
+    ? "금리·환율·원자재 흐름을 기준으로 한 외부 변수 평가입니다. 전일 지수 등락과는 별개일 수 있습니다."
+    : "금리·환율·원자재 흐름에 리스크가 남아 있습니다. 전일 지수 등락과는 별개일 수 있습니다.";
+}
+
 function buildMarketImpactModel(payload = {}) {
   const sourceEvents = [...(payload.events || []), ...(payload.past_events || [])];
   const sourceTimeline = payload.timeline || [];
@@ -6803,8 +6784,8 @@ function buildMarketImpactModel(payload = {}) {
   const marketStatus = goodWeight >= badWeight ? "호재 우위" : "리스크 우위";
   const leadFactor = enrichedFactors[0];
   const summary = marketStatus === "호재 우위"
-    ? `${leadFactor.label} 영향이 가장 크고, 현재는 호재 축이 더 우세합니다.`
-    : `${leadFactor.label} 영향이 가장 크고, 현재는 리스크 관리가 더 우선입니다.`;
+    ? `${leadFactor.label} 영향이 가장 크고, 외부 변수는 우호 흐름입니다.`
+    : `${leadFactor.label} 영향이 가장 크고, 외부 변수는 리스크 흐름입니다.`;
 
   return {
     asOf: payload.as_of,
@@ -7126,7 +7107,7 @@ function renderMarketImpactAnalysis(payload) {
   const centerContent = el("div", "market-impact-center-content");
   centerContent.append(
     el("span", "", "미국증시"),
-    el("strong", "", model.marketStatus),
+    el("strong", "", marketImpactVisibleLabel(model.marketStatus)),
     el("small", "", `기준 ${formatDate(model.asOf)}`),
   );
   center.append(centerContent);
@@ -7138,6 +7119,7 @@ function renderMarketImpactAnalysis(payload) {
   heroCopy.append(
     el("span", "section-eyebrow", "마켓 밸런스"),
     el("h2", "", model.summary),
+    el("p", "market-impact-clarify", marketImpactVisibleSummary(model.marketStatus)),
     el("p", "", `호재 축 ${model.goodWeight.toFixed(1)}% · 악재 축 ${model.badWeight.toFixed(1)}%`),
   );
   hero.append(orbit, heroCopy);
@@ -7410,7 +7392,7 @@ function render(data) {
   elements.name.textContent = data.name;
   updateMobilePageTitle("stock");
   setText(elements.stockCardName, data.name);
-  elements.meta.textContent = `${data.code} · ${data.market} · ${formatDate(data.as_of)}`;
+  elements.meta.textContent = formatDate(data.as_of);
   elements.meta.hidden = true;
   setText(elements.stockDetailTitle, `${data.name} 상세 브리핑`);
   setText(elements.stockDetailSource, `${data.market} · ${formatDate(data.as_of)} · 자동갱신`);

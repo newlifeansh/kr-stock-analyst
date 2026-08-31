@@ -4,15 +4,12 @@ from collections.abc import Iterable
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.orm import Session
 
 from app.models import (
-    BrokerAccount,
-    BrokerHolding,
-    BrokerOrder,
     BriefingEvent,
     BriefingMetric,
     BriefingMover,
@@ -45,27 +42,81 @@ def upsert_many(db: Session, model: type, rows: Iterable[dict[str, Any]]) -> int
         for start in range(0, len(rows), max_rows_per_statement):
             chunk = rows[start : start + max_rows_per_statement]
             statement = sqlite_insert(model).values(chunk)
-            update_cols = {
-                column.name: getattr(statement.excluded, column.name)
-                for column in model.__table__.columns
-                if not column.primary_key
-            }
+            update_cols = _upsert_update_columns(model, statement)
             db.execute(statement.on_conflict_do_update(index_elements=_conflict_columns(model), set_=update_cols))
     elif bind_name == "postgresql":
         max_rows_per_statement = max(1, 30000 // max(1, len(model.__table__.columns)))
         for start in range(0, len(rows), max_rows_per_statement):
             chunk = rows[start : start + max_rows_per_statement]
             statement = postgresql_insert(model).values(chunk)
-            update_cols = {
-                column.name: getattr(statement.excluded, column.name)
-                for column in model.__table__.columns
-                if not column.primary_key
-            }
+            update_cols = _upsert_update_columns(model, statement)
             db.execute(statement.on_conflict_do_update(index_elements=_conflict_columns(model), set_=update_cols))
     else:
         for row in rows:
             db.merge(model(**row))
     return len(rows)
+
+
+def _upsert_update_columns(model: type, statement: Any) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    incoming_complete_ohlc = None
+    stored_complete_ohlc = None
+    prefer_incoming_price = None
+    if model is DailyPrice:
+        incoming_complete_ohlc = _complete_ohlc_expression(statement.excluded)
+        stored_complete_ohlc = _complete_ohlc_expression(model.__table__.c)
+        prefer_incoming_price = or_(incoming_complete_ohlc, ~stored_complete_ohlc)
+
+    for column in model.__table__.columns:
+        if column.primary_key:
+            continue
+        incoming = getattr(statement.excluded, column.name)
+        if model is DailyPrice:
+            stored = model.__table__.c[column.name]
+            if column.name in {"open", "high", "low", "close", "volume", "trading_value"}:
+                # A close-only quote is useful while a session is forming, but
+                # it must never overwrite a confirmed OHLC row piecemeal. That
+                # can otherwise create an impossible candle and a fake
+                # next-session execution price in the signal engine.
+                updates[column.name] = case(
+                    (
+                        prefer_incoming_price,
+                        func.coalesce(incoming, stored),
+                    ),
+                    else_=stored,
+                )
+            else:
+                updates[column.name] = func.coalesce(incoming, stored)
+        elif model is StockMaster and column.name in {"sector", "industry"}:
+            # The daily exchange universe does not include these fields. Keep
+            # the richer company-snapshot classification instead of clearing
+            # it on every stock-master refresh.
+            updates[column.name] = func.coalesce(incoming, model.__table__.c[column.name])
+        else:
+            updates[column.name] = incoming
+    return updates
+
+
+def _complete_ohlc_expression(values: Any) -> Any:
+    open_price = values.open
+    high = values.high
+    low = values.low
+    close = values.close
+    return and_(
+        open_price.is_not(None),
+        high.is_not(None),
+        low.is_not(None),
+        close.is_not(None),
+        open_price > 0,
+        high > 0,
+        low > 0,
+        close > 0,
+        high >= open_price,
+        high >= close,
+        low <= open_price,
+        low <= close,
+        high >= low,
+    )
 
 
 def _deduplicate_upsert_rows(model: type, rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -117,12 +168,6 @@ def _conflict_columns(model: type) -> list[str]:
         return ["source", "external_id"]
     if model is NewsItem:
         return ["source", "source_category", "external_id"]
-    if model is BrokerAccount:
-        return ["broker_name", "account_seq"]
-    if model is BrokerHolding:
-        return ["broker_name", "account_seq", "symbol"]
-    if model is BrokerOrder:
-        return ["broker_name", "account_seq", "order_id"]
     raise ValueError(f"No conflict key configured for {model}")
 
 
@@ -317,58 +362,3 @@ def latest_prices_by_codes(db: Session, codes: list[str]) -> dict[str, DailyPric
         ),
     )
     return {row.code: row for row in db.scalars(statement)}
-
-
-def list_broker_accounts(db: Session, broker_name: str, limit: int = 50) -> list[BrokerAccount]:
-    statement = (
-        select(BrokerAccount)
-        .where(BrokerAccount.broker_name == broker_name)
-        .order_by(BrokerAccount.account_seq)
-        .limit(limit)
-    )
-    return list(db.scalars(statement))
-
-
-def list_broker_holdings(
-    db: Session,
-    broker_name: str,
-    *,
-    account_seq: Optional[int] = None,
-    symbol: Optional[str] = None,
-    limit: int = 500,
-) -> list[BrokerHolding]:
-    statement = (
-        select(BrokerHolding)
-        .where(BrokerHolding.broker_name == broker_name)
-        .order_by(BrokerHolding.market_value.is_(None), BrokerHolding.market_value.desc(), BrokerHolding.symbol)
-        .limit(limit)
-    )
-    if account_seq is not None:
-        statement = statement.where(BrokerHolding.account_seq == account_seq)
-    if symbol:
-        statement = statement.where(BrokerHolding.symbol == symbol)
-    return list(db.scalars(statement))
-
-
-def list_broker_orders(
-    db: Session,
-    broker_name: str,
-    *,
-    account_seq: Optional[int] = None,
-    status: Optional[str] = None,
-    symbol: Optional[str] = None,
-    limit: int = 200,
-) -> list[BrokerOrder]:
-    statement = (
-        select(BrokerOrder)
-        .where(BrokerOrder.broker_name == broker_name)
-        .order_by(BrokerOrder.ordered_at.is_(None), BrokerOrder.ordered_at.desc(), BrokerOrder.id.desc())
-        .limit(limit)
-    )
-    if account_seq is not None:
-        statement = statement.where(BrokerOrder.account_seq == account_seq)
-    if status:
-        statement = statement.where(BrokerOrder.status == status)
-    if symbol:
-        statement = statement.where(BrokerOrder.symbol == symbol)
-    return list(db.scalars(statement))

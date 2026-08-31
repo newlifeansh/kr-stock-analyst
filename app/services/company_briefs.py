@@ -8,6 +8,8 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.collectors.news import preferred_news_url
+from app.collectors.research import preferred_research_url
 from app.models import DisclosureItem, NewsItem, ResearchReport, StockMaster
 from app.repository import latest_prices_by_codes
 
@@ -174,7 +176,12 @@ def build_company_briefs(
         entry.touch(item.published_at)
         if item.published_at and (entry.latest_report_at is None or item.published_at > entry.latest_report_at):
             entry.latest_report_title = item.title
-            entry.latest_report_url = item.detail_url or item.pdf_url
+            entry.latest_report_url = preferred_research_url(
+                item.stock_code,
+                item.external_id,
+                item.pdf_url,
+                item.detail_url,
+            )
             entry.latest_report_at = item.published_at
             entry.latest_report_broker = item.broker_name
 
@@ -201,7 +208,7 @@ def build_company_briefs(
         entry.touch(item.published_at)
         if item.published_at and (entry.latest_news_at is None or item.published_at > entry.latest_news_at):
             entry.latest_news_title = item.title
-            entry.latest_news_url = item.detail_url
+            entry.latest_news_url = preferred_news_url(item.source, item.external_id, item.detail_url)
             entry.latest_news_at = item.published_at
             entry.latest_news_press = item.press_name
 

@@ -2,9 +2,10 @@
 name = "kr-stock-analyst-backend"
 version = "0.1.0"
 description = "Domestic stock analyst data backend for Korea equities."
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.111.0",
+    "httpx>=0.28.0",
     "uvicorn[standard]>=0.30.0",
     "sqlalchemy>=2.0.30",
     "psycopg[binary]>=3.2.9",
@@ -23,12 +24,16 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "httpx>=0.28.0",
     "pytest>=8.2.0",
     "ruff>=0.5.0",
 ]
 mcp = [
     "mcp>=1.28.1,<2",
+]
+qa = [
+    "pytest>=8.2.0",
+    "playwright>=1.49.0,<2",
+    "websockets>=13.0,<16",
 ]
 
 [project.scripts]
@@ -40,3 +45,13 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.setuptools.package-data]
+"app.qa" = ["*.json"]
+
+[tool.pytest.ini_options]
+markers = [
+    "qa_gate: deterministic data-signal deployment-gate coverage",
+    "qa_live: read-only external integration coverage",
+    "qa_e2e: browser-level data-signal coverage",
+]

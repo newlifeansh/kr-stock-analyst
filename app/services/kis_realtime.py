@@ -13,6 +13,14 @@ from app.config import Settings
 from app.services.stock_dashboard import _round_decimal
 
 
+KIS_REALTIME_STOCK_TR_ID = "H0UNCNT0"
+KIS_STOCK_TICK_MARKETS = {
+    "H0STCNT0": "KRX",
+    "H0NXCNT0": "NXT",
+    "H0UNCNT0": "INTEGRATED",
+}
+
+
 class KisRealtimeError(RuntimeError):
     pass
 
@@ -62,6 +70,13 @@ class KisRealtimeQuoteProvider:
     async def approval_key(self) -> str:
         return await asyncio.to_thread(self._fetch_approval_key_sync)
 
+    def invalidate_approval_key(self, approval_key: Optional[str] = None) -> bool:
+        if approval_key is not None and self._approval_key != approval_key:
+            return False
+        self._approval_key = None
+        self._approval_expires_at = None
+        return True
+
     async def quote_stream(self, code: str) -> AsyncIterator[dict[str, object]]:
         if not self.is_configured():
             raise KisRealtimeError("KIS realtime is not configured")
@@ -75,7 +90,7 @@ class KisRealtimeQuoteProvider:
             },
             "body": {
                 "input": {
-                    "tr_id": "H0STCNT0",
+                    "tr_id": KIS_REALTIME_STOCK_TR_ID,
                     "tr_key": code,
                 }
             },
@@ -128,7 +143,7 @@ def _int(value: str) -> Optional[int]:
 
 def parse_kis_stock_tick(raw: str) -> Optional[dict[str, object]]:
     parts = raw.split("|", 3)
-    if len(parts) < 4 or parts[1] != "H0STCNT0":
+    if len(parts) < 4 or parts[1] not in KIS_STOCK_TICK_MARKETS:
         return None
     fields = parts[3].split("^")
     if len(fields) < 15:
@@ -145,6 +160,8 @@ def parse_kis_stock_tick(raw: str) -> Optional[dict[str, object]]:
         "price": price,
         "change_value": int(change_value) if change_value is not None else None,
         "change_rate": _round_decimal(change_rate),
+        "trade_volume": _int(fields[12]),
         "volume": volume,
         "trading_value": trading_value,
+        "market_venue": KIS_STOCK_TICK_MARKETS[parts[1]],
     }

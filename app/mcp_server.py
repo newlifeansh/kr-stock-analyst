@@ -12,6 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.collectors.news import preferred_news_url
 from app.db import SessionLocal
 from app.meta import integration_payload, insight_cadence_payload, research_source_payload
 from app.models import StockMaster
@@ -164,7 +165,7 @@ def _format_reports(items: list[Any]) -> list[dict[str, object]]:
                 "opinion": item.opinion,
                 "target_price": item.target_price,
                 "published_at": item.published_at,
-                "detail_url": item.detail_url,
+                "detail_url": preferred_news_url(item.source, item.external_id, item.detail_url),
                 "pdf_url": item.pdf_url,
                 "source_category": item.source_category,
             }
@@ -251,7 +252,7 @@ def build_insight_mcp_server(settings: Settings):
         instructions=(
             "이 서버는 한국 주식 인사이트 데이터를 읽기 전용으로 제공합니다. "
             "증권사 리포트, 공시, 뉴스, 종목 브리핑, 시장 영향도를 조회할 수 있으며 "
-            "투자 실행이나 계좌 조작은 허용하지 않습니다. "
+            "투자 실행이나 실제 주문은 허용하지 않습니다. "
             "응답은 데이터 설명과 근거를 함께 제공하되 투자 자문처럼 단정하지 말고, "
             "가능하면 최신 시각과 데이터 공백 여부를 함께 언급하세요."
         ),

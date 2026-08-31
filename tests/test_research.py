@@ -1,5 +1,11 @@
 from app.collectors import research
-from app.collectors.research import parse_naver_listing_html
+from app.collectors.research import (
+    fetch_naver_company_reports_for_stock,
+    fetch_stockhub_reports_for_stock,
+    naver_mobile_research_url,
+    parse_naver_listing_html,
+    preferred_research_url,
+)
 
 
 COMPANY_HTML = """
@@ -55,6 +61,11 @@ COMPANY_DETAIL_HTML = """
 """
 
 
+STOCKHUB_HTML = r'''
+<script>\"analystReports\":[{\"id\":13793,\"ticker\":\"078930\",\"broker\":\"DB증권\",\"report_title\":\"GS 목표가 120,000원 상향\",\"target_price\":120000,\"opinion_raw\":\"매수-유지\",\"report_date\":\"2026-07-20\",\"source_url\":\"https://www.db-fi.com/bbs/board.php?bo_table=research\",\"pdf_url\":null}],\"usConsensus\":null</script>
+'''
+
+
 def test_parse_company_listing_html():
     items = parse_naver_listing_html(COMPANY_HTML, "company")
     assert len(items) == 1
@@ -85,3 +96,53 @@ def test_fetch_company_detail_fields(monkeypatch):
     assert fields["opinion"] == "매수"
     assert fields["target_price"] == 4200000
     assert fields["pdf_url"].endswith("detail.pdf")
+
+
+def test_fetch_company_reports_for_stock_uses_item_code_filter(monkeypatch):
+    calls = []
+
+    def fake_get_html(url):
+        calls.append(url)
+        return COMPANY_HTML
+
+    monkeypatch.setattr(research, "_naver_get_html", fake_get_html)
+    reports = fetch_naver_company_reports_for_stock("005930", days_back=180, max_pages=1, include_detail=False)
+
+    assert len(reports) == 1
+    assert reports[0].stock_code == "005930"
+    assert calls and "searchType=itemCode" in calls[0] and "itemCode=005930" in calls[0]
+
+
+def test_fetch_stockhub_reports_for_stock_parses_broker_metadata():
+    reports = fetch_stockhub_reports_for_stock(
+        STOCKHUB_HTML,
+        "078930",
+        days_back=180,
+        now=research.datetime(2026, 8, 8),
+    )
+
+    assert len(reports) == 1
+    assert reports[0].source == "stockhub"
+    assert reports[0].external_id == "stockhub-13793"
+    assert reports[0].broker_name == "DB증권"
+    assert reports[0].target_price == 120000
+    assert reports[0].detail_url.startswith("https://www.db-fi.com/")
+
+
+def test_naver_mobile_research_url_points_to_the_report_detail():
+    assert naver_mobile_research_url("000660", "94963") == (
+        "https://m.stock.naver.com/domestic/stock/000660/research/94963"
+    )
+    assert naver_mobile_research_url("SK하이닉스", "94963") is None
+    assert preferred_research_url(
+        "000660",
+        "94963",
+        "https://stock.pstatic.net/stock-research/company/report.pdf",
+        "https://finance.naver.com/research/company_read.naver?nid=94963",
+    ) == "https://m.stock.naver.com/domestic/stock/000660/research/94963"
+    assert preferred_research_url(
+        None,
+        None,
+        "https://stock.pstatic.net/stock-research/company/report.pdf",
+        "https://finance.naver.com/research/company_read.naver?nid=94963",
+    ) == "https://stock.pstatic.net/stock-research/company/report.pdf"

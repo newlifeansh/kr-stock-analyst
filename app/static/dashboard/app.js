@@ -1,4 +1,21 @@
 const $ = (id) => document.getElementById(id);
+const DASHBOARD_CLIENT_VERSION =
+  new URL(document.currentScript?.src || window.location.href).searchParams.get("v")
+  || new URL(window.location.href).searchParams.get("app_build")
+  || "dev";
+const PUSH_NOTIFICATION_EXAMPLE_TEXT = "알림 예시\n✅ [매수 확정] SK하이닉스\n초기 위험선과 1차 수익확정 기준을 확인하세요.";
+const STOCK_LOGO_FALLBACK_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAOdEVYdFNvZnR3YXJlAEZpZ21hnrGWYwAAAGpJREFUeAHtlEsKACAIRDW6/xU7SrVpMyFqZG184EIyPzlElDhp07rRmiUhg9/JB2sB9fCiuZFCwVTlHDtVnwQJnwBZCvHGieqSVGRdMoO/5b21A6nQfxW5VYOET5AF/hcQ9Xsr//O/KNkYaZwcs+WE9k0AAAAASUVORK5CYII=";
+const TREND_LIVE_PAGE_SIZE = 5;
+const DASHBOARD_ACCESS_MAX_ATTEMPTS = 2;
+const DASHBOARD_ACCESS_RETRY_DELAY_MS = 700;
+const DASHBOARD_ACCESS_DEFAULT_RETRY_SECONDS = 15 * 60;
+const DASHBOARD_HISTORY_MARKER = "secret-note-dashboard";
+const DASHBOARD_HISTORY_VERSION = 1;
+const MORNING_MONEY_BRIEFING_ENDPOINT = "/briefings/morning-money";
+const MORNING_MONEY_BRIEFING_TIMEZONE = "Asia/Seoul";
+const MORNING_MONEY_BRIEFING_DISMISS_PREFIX = "secret-note-morning-money-dismissed";
+const MORNING_MONEY_BRIEFING_PREVIEW_PARAM = "money_briefing_preview";
+const MORNING_MONEY_BRIEFING_CACHE_MS = 15 * 60 * 1000;
 
 if ("scrollRestoration" in history) {
   history.scrollRestoration = "manual";
@@ -10,7 +27,16 @@ const elements = {
   loginSplash: $("login-splash"),
   loginForm: $("login-form"),
   loginInput: $("login-id-input"),
+  loginDescription: $("login-description"),
+  loginInviteField: $("login-invite-field"),
+  loginInviteInput: $("login-invite-code"),
   loginStatus: $("login-status"),
+  accessCapacityModal: $("access-capacity-modal"),
+  accessCapacityBackdrop: $("access-capacity-backdrop"),
+  accessCapacityTitle: $("access-capacity-title"),
+  accessCapacityDescription: $("access-capacity-description"),
+  accessCapacityContact: $("access-capacity-contact"),
+  accessCapacityClose: $("access-capacity-close"),
   pullRefreshIndicator: $("pull-refresh-indicator"),
   pullRefreshLabel: $("pull-refresh-label"),
   pageLoading: $("page-loading"),
@@ -20,6 +46,16 @@ const elements = {
   suggestions: $("stock-suggestions"),
   stockView: $("stock-view"),
   homeView: $("home-view"),
+  newsView: $("news-view"),
+  newsBack: $("news-back"),
+  newsPageCount: $("news-page-count"),
+  newsPageAsOf: $("news-page-as-of"),
+  newsPageFilters: Array.from(document.querySelectorAll("[data-news-page-filter]")),
+  newsPageResultMeta: $("news-page-result-meta"),
+  newsPageList: $("news-page-list"),
+  eventDetailView: $("event-detail-view"),
+  eventDetailBack: $("event-detail-back"),
+  eventDetailContent: $("event-detail-content"),
   searchView: $("search-view"),
   recommendDetailPage: $("recommend-detail-page"),
   recommendDetailBack: $("recommend-detail-back"),
@@ -29,9 +65,46 @@ const elements = {
   portfolioView: $("portfolio-view"),
   marketView: $("market-view"),
   aiSignalsView: $("ai-signals-view"),
+  morningMoneyBriefingView: $("morning-money-briefing-view"),
+  morningMoneyBriefingBack: $("morning-money-briefing-back"),
+  morningMoneyBriefingDate: $("morning-money-briefing-date"),
+  morningMoneyBriefingEdition: $("morning-money-briefing-edition"),
+  morningMoneyOverviewTitle: $("morning-money-overview-title"),
+  morningMoneyOverviewIntro: $("morning-money-overview-intro"),
+  morningMoneyDigest: $("morning-money-digest"),
+  morningMoneyDigestList: $("morning-money-digest-list"),
+  morningMoneyBriefingContent: $("morning-money-briefing-content"),
+  morningMoneyPopover: $("morning-money-popover"),
+  morningMoneyPopoverOpen: $("morning-money-popover-open"),
+  morningMoneyPopoverEdition: $("morning-money-popover-edition"),
+  morningMoneyPopoverClose: $("morning-money-popover-close"),
   appNavItems: Array.from(document.querySelectorAll("[data-app-view]")),
+  stockDetailTabs: document.querySelector(".stock-detail-tabs"),
+  stockDetailTabsSentinel: $("stock-detail-tabs-sentinel"),
   stockSectionTabs: Array.from(document.querySelectorAll("[data-stock-tab]")),
   stockTabPanels: Array.from(document.querySelectorAll("[data-stock-panel]")),
+  stockCompanyTab: $("stock-company-tab"),
+  stockEtfHoldingsSection: $("stock-etf-holdings-section"),
+  stockEtfHoldingsAsOf: $("stock-etf-holdings-as-of"),
+  stockEtfHoldingsDonut: $("stock-etf-holdings-donut"),
+  stockEtfHoldingsList: $("stock-etf-holdings-list"),
+  stockEtfHoldingsSource: $("stock-etf-holdings-source"),
+  stockEtfDividendSection: $("stock-etf-dividend-section"),
+  stockEtfDividendCount: $("stock-etf-dividend-count"),
+  stockEtfDividendAmount: $("stock-etf-dividend-amount"),
+  stockEtfDividendYield: $("stock-etf-dividend-yield"),
+  stockEtfDistributionSchedule: $("stock-etf-distribution-schedule"),
+  stockEtfDividendMore: $("stock-etf-dividend-more"),
+  stockEtfDividendPage: $("stock-etf-dividend-page"),
+  stockEtfDividendBack: $("stock-etf-dividend-back"),
+  stockEtfDividendSourceLink: $("stock-etf-dividend-source-link"),
+  stockEtfDividendPageTitle: $("stock-etf-dividend-page-title"),
+  stockEtfDividendPageCount: $("stock-etf-dividend-page-count"),
+  stockEtfDividendPageAmount: $("stock-etf-dividend-page-amount"),
+  stockEtfDividendPageYield: $("stock-etf-dividend-page-yield"),
+  stockEtfDividendPageSchedule: $("stock-etf-dividend-page-schedule"),
+  stockEtfDistributionDateHead: $("stock-etf-distribution-date-head"),
+  stockEtfDistributionYears: $("stock-etf-distribution-years"),
   watchlistView: $("watchlist-view"),
   watchlistIdForm: $("watchlist-id-form"),
   watchlistIdInput: $("watchlist-id-input"),
@@ -51,19 +124,33 @@ const elements = {
   pushHistoryMeta: $("push-history-meta"),
   pushHistoryList: $("push-history-list"),
   pushNotificationSheet: $("push-notification-sheet"),
+  pushNotificationSheetCard: document.querySelector(".push-notification-sheet-card"),
   pushNotificationSheetBackdrop: $("push-notification-sheet-backdrop"),
+  pushNotificationSheetBody: $("push-notification-sheet-body"),
   pushNotificationSheetClose: $("push-notification-sheet-close"),
+  pushNotificationSheetTitle: $("push-notification-sheet-title"),
+  pushNotificationSheetSubtitle: $("push-notification-sheet-subtitle"),
   pushNotificationSheetStatus: $("push-notification-sheet-status"),
+  pushRecommendationGuide: $("push-recommendation-guide"),
   pushNotificationConditionList: $("push-notification-condition-list"),
   pushNotificationSheetTestButton: $("push-notification-sheet-test-button"),
   pushNotificationSheetDisableButton: $("push-notification-sheet-disable-button"),
   pushNotificationSheetSaveButton: $("push-notification-sheet-save-button"),
+  pushNotificationSheetSnoozeButton: $("push-notification-sheet-snooze-button"),
+  appExitDialog: $("app-exit-dialog"),
+  appExitDialogCard: document.querySelector(".app-exit-dialog-card"),
+  appExitDialogBackdrop: $("app-exit-dialog-backdrop"),
+  appExitDialogCancel: $("app-exit-dialog-cancel"),
+  appExitDialogConfirm: $("app-exit-dialog-confirm"),
   recommendView: $("recommend-view"),
   recommendHistoryView: $("recommend-history-view"),
   trendView: $("trend-view"),
   chartView: $("chart-view"),
+  chartStudyView: $("chart-study-view"),
   chartHistoryView: $("chart-history-view"),
   watchToggle: $("watch-toggle"),
+  stockShare: $("stock-share"),
+  stockShareStatus: $("stock-share-status"),
   aiAnalysisButton: $("ai-analysis-button"),
   aiAnalysisPanel: $("ai-analysis-panel"),
   aiAnalysisMeta: $("ai-analysis-meta"),
@@ -104,7 +191,6 @@ const elements = {
   stockSummaryScoreRing: $("stock-summary-score-ring"),
   stockSummaryScore: $("stock-summary-score"),
   stockSummaryConfidence: $("stock-summary-confidence"),
-  stockSummaryAIBadge: $("stock-summary-ai-badge"),
   stockSummaryStance: $("stock-summary-stance"),
   stockSummaryLine: $("stock-summary-line"),
   stockAISayProbability: $("stock-ai-say-probability"),
@@ -113,6 +199,10 @@ const elements = {
   stockInlineAIRefresh: $("stock-inline-ai-refresh"),
   stockMiniChart: $("stock-mini-chart"),
   stockDetailBack: $("stock-detail-back"),
+  stockCommandbar: document.querySelector(".stock-v3-commandbar"),
+  stockCommandQuote: $("stock-command-quote"),
+  stockCommandPrice: $("stock-command-price"),
+  stockCommandChange: $("stock-command-change"),
   stockV2PricePeriods: Array.from(document.querySelectorAll("[data-price-period]")),
   stockV2MarketCode: $("stock-v2-market-code"),
   stockV2AsOf: $("stock-v2-as-of"),
@@ -126,7 +216,12 @@ const elements = {
   stockV2SentimentChart: $("stock-v2-sentiment-chart"),
   stockHomeTodayDate: $("stock-home-today-date"),
   stockHomeSummaryList: $("stock-home-summary-list"),
+  stockHomeChartAnalysis: $("stock-home-chart-analysis"),
   stockHomeUpdates: $("stock-home-updates"),
+  stockHomeDisclosures: $("stock-home-disclosures"),
+  stockHomeDisclosuresSummary: $("stock-home-disclosures-summary"),
+  stockHomeDisclosuresAll: $("stock-home-disclosures-all"),
+  stockHomeDisclosuresToggle: $("stock-home-disclosures-toggle"),
   stockHomeCheckpoints: $("stock-home-checkpoints"),
   stockHomeKeywords: $("stock-home-keywords"),
   stockHomeIssueTabs: $("stock-home-issue-tabs"),
@@ -136,6 +231,26 @@ const elements = {
   stockFinancialChart: $("stock-financial-chart"),
   stockFinancialSummary: $("stock-financial-summary"),
   stockFinancialSource: $("stock-financial-source"),
+  stockRevenueBreakdownTitle: $("stock-revenue-breakdown-title"),
+  stockRevenueBreakdownLead: $("stock-revenue-breakdown-lead"),
+  stockRevenueBreakdown: $("stock-revenue-breakdown"),
+  stockRevenueBreakdownSummary: $("stock-revenue-breakdown-summary"),
+  stockSectorMarginComparison: $("stock-sector-margin-comparison"),
+  stockSectorMarginSource: $("stock-sector-margin-source"),
+  stockSectorMarginSummary: $("stock-sector-margin-summary"),
+  stockSgaAnalysis: $("stock-sga-analysis"),
+  stockSgaSource: $("stock-sga-source"),
+  stockFinancialHealth: $("stock-financial-health"),
+  stockFinancialHealthSource: $("stock-financial-health-source"),
+  stockCashflowWaterfall: $("stock-cashflow-waterfall"),
+  stockCashflowWaterfallSource: $("stock-cashflow-waterfall-source"),
+  stockCompanyAnalysisAsOf: $("stock-company-analysis-as-of"),
+  stockInvestmentSnapshot: $("stock-investment-snapshot"),
+  stockCompanyMetricGroups: $("stock-company-metric-groups"),
+  stockCompanyDataStatus: $("stock-company-data-status"),
+  stockCompanyValuation: $("stock-company-valuation"),
+  stockCompanyStrengths: $("stock-company-strengths"),
+  stockCompanyRisks: $("stock-company-risks"),
   stockFlowModeTabs: Array.from(document.querySelectorAll("[data-flow-mode]")),
   stockFlowPeriodTabs: Array.from(document.querySelectorAll("[data-flow-period]")),
   stockFlowSummary: $("stock-flow-summary"),
@@ -143,7 +258,6 @@ const elements = {
   stockReportModeTabs: Array.from(document.querySelectorAll("[data-report-mode]")),
   stockReportHistoryChart: $("stock-report-history-chart"),
   stockReportSummary: $("stock-report-summary"),
-  stockNewsModeTabs: Array.from(document.querySelectorAll("[data-news-mode]")),
   stockNewsTemperature: $("stock-news-temperature"),
   stockNewsTemperatureChart: $("stock-news-temperature-chart"),
   stockCommunityStatus: $("stock-community-status"),
@@ -183,7 +297,13 @@ const elements = {
   trendPastPanel: $("trend-past-panel"),
   trendEvents: $("trend-events"),
   trendPastEvents: $("trend-past-events"),
+  trendCalendarDays: $("trend-calendar-days"),
+  trendCalendarWindow: $("trend-calendar-window"),
+  trendCalendarEventCount: $("trend-calendar-event-count"),
   trendThread: $("trend-thread"),
+  trendLiveFilters: Array.from(document.querySelectorAll("[data-trend-news-filter]")),
+  trendLiveResultMeta: $("trend-live-result-meta"),
+  trendLiveToggle: $("trend-live-toggle"),
   trendWatchlistMeta: $("trend-watchlist-meta"),
   trendWatchStockRail: $("trend-watch-stock-rail"),
   trendWatchlistStatus: $("trend-watchlist-status"),
@@ -197,19 +317,39 @@ const elements = {
   homeAiSignalsMeta: $("home-ai-signals-meta"),
   homeAiSignalsList: $("home-ai-signals-list"),
   homeAiSignalsMore: $("home-ai-signals-more"),
-  homeAiResponseTitle: $("home-ai-response-title"),
-  homeAiResponseSummary: $("home-ai-response-summary"),
   homeAiResponseAsOf: $("home-ai-response-asof"),
+  homeAiResponseSummary: $("home-ai-response-summary"),
+  homeAiResponsePersonalList: $("home-ai-response-personal-list"),
   homeAiResponseWatch: $("home-ai-response-watch"),
+  homeAiResponseWatchLabel: $("home-ai-response-watch-label"),
   aiSignalsBack: $("ai-signals-back"),
-  aiSignalsMeta: $("ai-signals-meta"),
+  aiSignalModeTabs: Array.from(document.querySelectorAll("[data-ai-signal-mode]")),
+  aiSignalStageTabsContainer: $("ai-signal-stage-tabs"),
   aiSignalStageTabs: Array.from(document.querySelectorAll("[data-ai-signal-stage]")),
+  aiSignalHistoryFilters: $("ai-signal-history-filters"),
+  aiSignalHistorySideButtons: Array.from(document.querySelectorAll("[data-ai-signal-history-side]")),
+  aiSignalSellDisclaimer: $("ai-signal-sell-disclaimer"),
+  aiSignalsLiveStatus: $("ai-signals-live-status"),
+  aiSignalsLiveStatusLabel: $("ai-signals-live-status-label"),
+  aiSignalsLiveStatusDetail: $("ai-signals-live-status-detail"),
+  aiSignalsLiveStatusTime: $("ai-signals-live-status-time"),
   aiSignalsPageList: $("ai-signals-page-list"),
   homeSurge: $("home-surge"),
   homeSurgeMeta: $("home-surge-meta"),
+  homeRankingCategoryTabs: Array.from(document.querySelectorAll("[data-home-ranking-category]")),
+  homeRankingColumnLabel: $("home-ranking-column-label"),
+  homeSurgeSectorFilters: $("home-surge-sector-filters"),
   homeSurgeList: $("home-surge-list"),
   homeSurgeMore: $("home-surge-more"),
+  homeRankingMarketTrigger: $("home-ranking-market-trigger"),
+  homeRankingMarketTriggerLabel: $("home-ranking-market-trigger-label"),
+  homeRankingMarketSheet: $("home-ranking-market-sheet"),
+  homeRankingMarketSheetCard: document.querySelector(".home-ranking-market-sheet-card"),
+  homeRankingMarketSheetBackdrop: $("home-ranking-market-sheet-backdrop"),
+  homeRankingMarketOptions: Array.from(document.querySelectorAll("[data-home-ranking-market]")),
   homePastToggle: $("home-past-toggle"),
+  homePastToggleLabel: $("home-past-toggle-label"),
+  homePastToggleIcon: $("home-past-toggle-icon"),
   discoverySearchForm: $("discovery-search-form"),
   discoverySearchInput: $("discovery-search-input"),
   discoverySearchSuggestions: $("discovery-search-suggestions"),
@@ -222,6 +362,8 @@ const elements = {
   watchChartMeta: $("watch-chart-meta"),
   watchChartRefresh: $("watch-chart-refresh"),
   chartHistoryBackButton: $("chart-history-back-button"),
+  chartStudyBackButton: $("chart-study-back"),
+  chartStudyContent: $("chart-study-content"),
   watchChartList: $("watch-chart-list"),
   watchChartSnapshotMeta: $("watch-chart-snapshot-meta"),
   watchChartSnapshots: $("watch-chart-snapshots"),
@@ -232,6 +374,7 @@ const elements = {
   chartWatchlistPicker: $("chart-watchlist-picker"),
   homeInstallButton: $("home-install-button"),
   installSheet: $("install-sheet"),
+  installSheetCard: document.querySelector(".install-sheet-card"),
   installSheetBackdrop: $("install-sheet-backdrop"),
   installSheetClose: $("install-sheet-close"),
   installSteps: $("install-steps"),
@@ -241,11 +384,22 @@ const elements = {
   rankCategorySelect: $("rank-category-select"),
   marketTabs: Array.from(document.querySelectorAll("[data-market-filter]")),
   marketRankingBack: $("market-ranking-back"),
+  marketRankingCommandTitle: $("market-ranking-command-title"),
+  marketRankingMeta: $("market-ranking-meta"),
+  marketRankingTitle: $("market-ranking-title"),
+  marketRankingDescription: $("market-ranking-description"),
+  marketRankingModeTabs: $("market-ranking-mode-tabs"),
+  marketRankingColumnHead: $("market-ranking-column-head"),
   rankingBody: $("ranking-body"),
   name: $("stock-name"),
   meta: $("stock-meta"),
   stockLiveBadge: $("stock-live-badge"),
   stockPreMarket: $("stock-pre-market"),
+  stockMarketStatusLabel: $("stock-market-status-label"),
+  stockTradingHoursSheet: $("stock-trading-hours-sheet"),
+  stockTradingHoursCard: document.querySelector(".stock-trading-hours-card"),
+  stockTradingHoursBackdrop: $("stock-trading-hours-backdrop"),
+  stockTradingHoursConfirm: $("stock-trading-hours-confirm"),
   stockChangeValue: $("stock-change-value"),
   stockVolume: $("stock-volume"),
   stockPrevCloseSummary: $("stock-prev-close-summary"),
@@ -337,27 +491,67 @@ const elements = {
 
 const WATCHLIST_KEY = "analyst.watchlist";
 const WATCHLIST_ID_KEY = "analyst.watchlistId";
-const HOME_AI_SIGNALS_CACHE_PREFIX = "analyst.homeAiSignals";
+const HOME_AI_SIGNALS_MARKET_CACHE_KEY = "analyst.homeAiSignals.market.v2";
+const HOME_AI_SIGNALS_WATCHLIST_CACHE_PREFIX = "analyst.homeAiSignals.watchlist.v2";
+const HOME_AI_SIGNALS_CACHE_MAX_AGE_MS = 2 * 60 * 1000;
 const PUSH_HISTORY_CACHE_PREFIX = "analyst.pushHistory";
 const PUSH_LAST_SEEN_PREFIX = "analyst.pushLastSeen";
 const PUSH_ENABLED_PREFIX = "analyst.pushEnabled";
+const PUSH_ENTRY_PROMPT_SNOOZE_PREFIX = "analyst.pushEntryPromptSnoozedDate";
+const RECOMMENDATION_PUSH_PROMPT_DECISION_PREFIX = "analyst.recommendationPushPromptDecision.v1";
 const RECOMMENDATION_HISTORY_KEY = "analyst.recommendationSnapshots";
 const RECOMMENDATION_TRACK_KEY = "analyst.recommendationTracks";
 const CHART_SNAPSHOT_KEY = "analyst.chartSnapshots";
 const UI_CACHE_TTL_MS = 60_000;
 const PAGE_ENTRY_MINUTE_MS = 60_000;
+const STOCK_DASHBOARD_WARMING_SOURCE = "stored_database_warming";
+const STOCK_DASHBOARD_WARM_RETRY_BASE_MS = 2_000;
 const LOGIN_SPLASH_DURATION_MS = 700;
+const HOME_MARKET_SIGNAL_RECENT_DAYS = 30;
+const AI_SIGNAL_HISTORY_DAYS = 30;
+const AI_SIGNAL_RECONCILE_TICK_MS = 30_000;
+const AI_SIGNAL_ACTIVE_REFRESH_MS = 2 * 60_000;
+const AI_SIGNAL_CLOSED_REFRESH_MS = 10 * 60_000;
+const AI_SIGNAL_ACTIVE_STALE_MS = 6 * 60_000;
+const AI_SIGNAL_CLOSED_STALE_MS = 12 * 60 * 60_000;
+const AI_SIGNAL_REALTIME_QUOTE_MAX_AGE_MS = 5_000;
+const AI_SIGNAL_DELAYED_QUOTE_MAX_AGE_MS = 30_000;
+const QUOTE_STREAM_DEFAULT_CODE_LIMIT = 64;
+const QUOTE_STREAM_DETAIL_STALE_MS = 4_000;
+const QUOTE_STREAM_OTHER_STALE_MS = 15_000;
+const QUOTE_STREAM_CLOSED_STALE_MS = 60_000;
+const QUOTE_STREAM_WATCHDOG_MS = 2_000;
+const QUOTE_STREAM_CLOSED_WATCHDOG_MS = 10_000;
+const HOME_MARKET_NEWS_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const HOME_DEESCALATION_NEWS_MAX_AGE_MS = 4 * 60 * 60 * 1000;
+const HOME_COMPANY_NEWS_MAX_AGE_MS = 36 * 60 * 60 * 1000;
 const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
   {
+    id: "morning_briefing",
+    label: "돈이 되는 소식",
+    description: "매일 오전 8시·낮 12시·오후 4시에 새 소식을 알려드립니다.",
+    required: true,
+  },
+  {
+    id: "market_session",
+    label: "국내장 시작·마감",
+    description: "국내 정규장 시작과 마감 5분 전에 알려드립니다.",
+  },
+  {
     id: "ai_signal",
-    label: "AI 매매신호",
-    description: "관심종목의 매수·매도 신호 변화는 항상 알려드립니다.",
+    label: "AI 시그널",
+    description: "관심종목의 장중 예비·장 마감 확정 신호를 알려드립니다.",
     required: true,
   },
   {
     id: "market_ai_signal",
-    label: "시장 AI 매매신호",
-    description: "관심종목 밖에서 새 매수·매도 신호가 발생하면 알려드립니다.",
+    label: "시장 AI 시그널",
+    description: "시장 종목의 장중 예비·장 마감 확정 신호를 알려드립니다.",
+  },
+  {
+    id: "recommendation_update",
+    label: "추천 업데이트",
+    description: "상위 10 신규 진입과 추천 종목의 매수·매도 단계 변경을 알려드립니다.",
   },
   {
     id: "price_move",
@@ -375,11 +569,27 @@ const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
     description: "관심종목에 영향이 큰 일정이 가까워지면 알려드립니다.",
   },
 ];
+const PUSH_NOTIFICATION_COMPACT_DESCRIPTIONS = Object.freeze({
+  market_session: "장 시작·마감 5분 전",
+  market_ai_signal: "시장 전체 예비·확정 신호",
+  recommendation_update: "상위 10 진입·매매 단계 변경",
+  disclosure_report: "중요한 공시·리포트만",
+  major_event: "영향 큰 일정이 가까워질 때",
+});
 const RECOMMENDATION_LIMIT = 10;
 const STOCK_PRICE_PERIOD_COUNTS = { "1M": 22, "3M": 66, "6M": 132, "1Y": 260 };
 const PULL_REFRESH_TRIGGER_DISTANCE = 72;
 const PULL_REFRESH_MAX_DISTANCE = 104;
 const PULL_REFRESH_DRAG_OFFSET = 10;
+let pushNotificationSheetReturnFocus = null;
+let installSheetReturnFocus = null;
+let appExitDialogReturnFocus = null;
+let homeRankingMarketSheetReturnFocus = null;
+let stockTradingHoursReturnFocus = null;
+let currentDashboardHistorySnapshot = null;
+let androidRootExitConfirmed = false;
+let historyScrollRestoreSequence = 0;
+let historyForwardAfterModalClose = false;
 const COMPONENT_LABELS = {
   estimate_revision: "추정치",
   analyst_revision_ratio: "상향비율",
@@ -395,14 +605,19 @@ const COMPONENT_LABELS = {
 
 const TREND_FOCUS_EVENT_AXES = {
   "미국 EIA 주간 원유재고": ["원유"],
+  "한국 BSI·ESI": ["경기심리"],
+  "미국 CPI 소비자물가지수": ["물가", "금리(고용)", "환율"],
   "미국 PCE 물가·개인소득/지출": ["환율"],
   "미국 주간 신규실업수당청구건수": ["금리(고용)"],
+  "한국 금융기관 가중평균금리": ["국내금리", "부동산"],
 };
 
 const TREND_AXIS_CLASS = {
   원유: "axis-oil",
+  물가: "axis-rate",
   환율: "axis-fx",
   "금리(고용)": "axis-rate",
+  국내금리: "axis-rate",
 };
 
 const MARKET_IMPACT_FACTORS = [
@@ -411,11 +626,11 @@ const MARKET_IMPACT_FACTORS = [
     label: "금리",
     symbol: "금리",
     className: "rate",
-    keywords: ["금리", "FOMC", "연준", "Fed", "PCE", "물가", "고용", "실업", "신규실업수당", "국채금리", "10년물"],
+    keywords: ["금리", "FOMC", "연준", "Fed", "CPI", "소비자물가", "PCE", "물가", "고용", "실업", "신규실업수당", "국채금리", "10년물"],
     goodWords: ["인하", "하락", "둔화", "완화", "실업 증가", "예상 하회", "비둘기"],
     badWords: ["인상", "상승", "고금리", "예상 상회", "물가 압력", "긴축", "매파"],
-    goodText: "금리 부담이 낮아지면 성장주와 코스닥 심리에 우호적입니다.",
-    badText: "금리 부담이 커지면 성장주 밸류와 시장 PER에 압박이 생깁니다.",
+    goodText: "명목·실질금리가 함께 내려 성장주 할인율 부담이 완화되는 흐름입니다.",
+    badText: "명목·실질금리가 함께 올라 성장주 할인율 부담이 커지는 흐름입니다.",
     defaultStocks: ["NAVER", "카카오", "삼성전자", "KB금융"],
   },
   {
@@ -426,20 +641,20 @@ const MARKET_IMPACT_FACTORS = [
     keywords: ["달러", "환율", "원달러", "원/달러", "DXY", "원화", "외국인", "고환율"],
     goodWords: ["약세", "하락", "원화 강세", "외국인 매수", "수급 개선"],
     badWords: ["강세", "상승", "고환율", "원화 약세", "외국인 매도", "수급 부담"],
-    goodText: "달러 부담이 낮아지면 외국인 수급과 대형주 심리가 좋아질 수 있습니다.",
-    badText: "달러가 강하면 외국인 수급과 원화 약세 부담이 커질 수 있습니다.",
+    goodText: "원/달러와 광의 달러지수가 함께 내려 달러 부담이 낮아지는 흐름입니다.",
+    badText: "원/달러와 광의 달러지수가 함께 올라 달러 강세 부담이 커지는 흐름입니다.",
     defaultStocks: ["삼성전자", "SK하이닉스", "현대차", "기아"],
   },
   {
     key: "bond",
-    label: "채권",
+    label: "채권금리",
     symbol: "채권",
     className: "bond",
     keywords: ["채권", "국채", "10년물", "장기금리", "금리 경로", "수익률", "안전자산"],
     goodWords: ["금리 하락", "수익률 하락", "채권가격 상승", "완화", "안정"],
     badWords: ["금리 상승", "수익률 상승", "채권가격 하락", "급등", "불안"],
-    goodText: "채권금리 안정은 주식의 상대 매력을 회복시키는 신호입니다.",
-    badText: "채권금리 상승은 주식보다 채권 매력을 키워 성장주에 부담입니다.",
+    goodText: "10년물 금리 부담이 낮아지고 수익률곡선도 개선되는 흐름입니다.",
+    badText: "10년물 금리 부담이 커지거나 수익률곡선이 악화되는 흐름입니다.",
     defaultStocks: ["삼성생명", "KB금융", "신한지주", "NAVER"],
   },
   {
@@ -450,58 +665,149 @@ const MARKET_IMPACT_FACTORS = [
     keywords: ["원유", "유가", "WTI", "브렌트", "EIA", "재고", "금", "구리", "원자재", "정제마진"],
     goodWords: ["유가 하락", "재고 증가", "물가 완화", "비용 완화", "원자재 하락"],
     badWords: ["유가 상승", "재고 감소", "물가 부담", "원자재 상승", "비용 부담", "금 급등"],
-    goodText: "원자재 부담이 낮아지면 항공·화학·운송 비용 압력이 줄어듭니다.",
-    badText: "원자재가 강하면 물가와 비용 부담이 커져 마진이 흔들릴 수 있습니다.",
+    goodText: "유가 중심 원자재 가격이 내려 비용 민감 업종 부담이 완화되는 흐름입니다.",
+    badText: "유가 중심 원자재 가격이 올라 물가·운송비 부담이 커지는 흐름입니다.",
     defaultStocks: ["S-Oil", "대한항공", "LG화학", "POSCO홀딩스"],
   },
   {
     key: "risk",
-    label: "위험자산",
+    label: "투자심리",
     symbol: "위험",
     className: "risk",
     keywords: ["나스닥", "기술주", "반도체", "비트코인", "코인", "위험자산", "성장주", "AI", "레버리지"],
     goodWords: ["상승", "강세", "반등", "위험선호", "랠리", "호황", "기대"],
     badWords: ["하락", "급락", "약세", "위험회피", "조정", "폭락", "부담"],
-    goodText: "위험자산 선호가 강하면 반도체·인터넷·성장주에 수급이 붙기 쉽습니다.",
-    badText: "위험자산 심리가 식으면 나스닥과 국내 성장주가 같이 눌릴 수 있습니다.",
+    goodText: "미국 기술주와 가상자산은 강세이고, 시장 불안 지표는 낮아 투자심리가 비교적 안정적입니다.",
+    badText: "미국 기술주와 가상자산은 약세이고, 시장 불안 지표는 높아 투자심리가 위축된 상태입니다.",
     defaultStocks: ["SK하이닉스", "삼성전자", "NAVER", "한미반도체"],
   },
 ];
 
 const MARKET_IMPACT_LEARNING_GUIDES = {
   rate: {
-    lesson: "금리 상승은 미래 이익의 할인율을 높여 성장주 밸류에이션에 부담을 줍니다.",
+    lesson: "금리가 오르면 예금·채권의 매력이 커져 성장주 가격에는 부담이 될 수 있습니다.",
     metrics: "미국 10년물 국채금리 · 미국 10년 실질금리",
   },
   dollar: {
-    lesson: "달러 강세는 원화와 외국인 수급에 부담이지만, 수출주는 환산 이익과 원가 구조를 함께 봐야 합니다.",
+    lesson: "달러가 오르면 원화가 약해지고 외국인 자금 이탈 부담이 커집니다. 수출주는 환산 이익도 함께 봅니다.",
     metrics: "원/달러 환율 · 광의 달러지수",
   },
   bond: {
-    lesson: "국채금리 상승은 채권의 상대 매력을 높여 주식 위험 프리미엄과 성장주 부담을 키울 수 있습니다.",
-    metrics: "미국 10년-2년 금리차 · 미국 10년물 · VIX",
+    lesson: "채권 가격이 오르면 채권금리는 내려갑니다. 채권금리가 안정되면 성장주와 리츠의 금리 부담도 줄어듭니다.",
+    metrics: "미국 10년-2년 금리차",
   },
   commodity: {
-    lesson: "원자재 상승은 정유·소재에는 기회가 될 수 있지만 항공·화학·운송에는 비용 부담으로 전달됩니다.",
+    lesson: "유가가 오르면 물가와 운송비가 올라 항공·화학에는 부담입니다. 정유는 수혜 가능성을 함께 봅니다.",
     metrics: "WTI 원유 · 구리 가격 · EIA 원유재고",
   },
   risk: {
-    lesson: "위험자산 선호가 약해지면 미국 기술주와 국내 반도체·인터넷의 수급이 함께 위축될 수 있습니다.",
-    metrics: "나스닥 · VIX · 비트코인",
+    lesson: "미국 기술주와 가상자산의 방향, 미국 증시 불안지수를 함께 보면 투자심리의 강약을 알 수 있습니다.",
+    metrics: "나스닥 · 미국 증시 불안지수(VIX) · 비트코인",
   },
 };
 
-const MARKET_FIVE_ELEMENTS = [
-  { key: "risk", element: "목", className: "wood", role: "성장·위험선호" },
-  { key: "commodity", element: "화", className: "fire", role: "원자재·물가" },
-  { key: "rate", element: "토", className: "earth", role: "금리·자금비용" },
-  { key: "bond", element: "금", className: "metal", role: "채권·할인율" },
-  { key: "dollar", element: "수", className: "water", role: "달러·유동성" },
-];
-
-const MARKET_FIVE_RELATIONS = {
-  generate: { risk: "commodity", commodity: "rate", rate: "bond", bond: "dollar", dollar: "risk" },
-  control: { risk: "rate", rate: "dollar", dollar: "commodity", commodity: "bond", bond: "risk" },
+// Beginner market view: keep the five financial signals, but remove the
+// five-element metaphor from the first scan. Each row answers what changed,
+// whether it is helpful or a warning, and why it matters domestically.
+const MARKET_BEGINNER_FACTOR_ORDER = ["risk", "rate", "dollar", "commodity", "bond"];
+const MARKET_BEGINNER_FACTOR_GLYPHS = {
+  risk: "심",
+  rate: "%",
+  dollar: "$",
+  commodity: "원",
+  bond: "채",
+};
+const MARKET_BEGINNER_COPY = {
+  rate: {
+    good: {
+      title: "금리가 내려 성장주 부담이 줄어듭니다",
+      description: "금리가 내려가면 미래 이익을 기대하는 성장주를 평가할 때 부담이 줄어들 수 있습니다.",
+    },
+    bad: {
+      title: "금리가 올라 성장주 부담이 커집니다",
+      description: "금리가 오르면 예금·채권 이자가 매력적으로 보여 성장주에 부담이 될 수 있습니다.",
+    },
+    mixed: {
+      title: "명목금리와 실질금리 방향이 엇갈립니다",
+      description: "금리 신호가 한 방향이 아니어서 성장주에 좋다·나쁘다고 단정하기 어렵습니다.",
+    },
+    missing: {
+      title: "금리 자료가 부족합니다",
+      description: "필요한 금리 자료가 부족해 국내 업종 영향을 판단하지 않습니다.",
+    },
+  },
+  dollar: {
+    good: {
+      title: "달러 부담이 낮아집니다",
+      description: "달러가 약해지면 원화 자산과 외국인 수급에 비교적 우호적일 수 있습니다.",
+    },
+    bad: {
+      title: "달러 강세가 외국인 수급에 부담입니다",
+      description: "달러가 강해지면 원화가 약해지고 외국인 자금이 국내 주식에서 빠질 부담이 커질 수 있습니다.",
+    },
+    mixed: {
+      title: "원/달러와 달러지수 방향이 엇갈립니다",
+      description: "환율 신호가 서로 달라 외국인 수급 방향을 한쪽으로 단정하기 어렵습니다.",
+    },
+    missing: {
+      title: "환율 자료가 부족합니다",
+      description: "원/달러와 달러지수 자료가 충분하지 않아 환율 영향을 판단하지 않습니다.",
+    },
+  },
+  bond: {
+    good: {
+      title: "장기금리와 단기금리 차이가 개선됩니다",
+      description: "장기금리와 단기금리 차이가 넓어지면 경기 불안이 조금 줄어드는 신호로 볼 수 있습니다.",
+    },
+    bad: {
+      title: "장기금리와 단기금리 차이가 더 뒤집힙니다",
+      description: "장기금리가 단기금리보다 낮아지는 현상이 심해지면 경기 불안 신호가 될 수 있습니다.",
+    },
+    mixed: {
+      title: "장기금리와 단기금리 차이 변화가 작습니다",
+      description: "채권금리만으로 경기나 주식시장 방향을 판단하기 어렵습니다.",
+    },
+    missing: {
+      title: "채권금리 자료가 부족합니다",
+      description: "장기금리와 단기금리 차이 자료가 부족해 방향을 판단하지 않습니다.",
+    },
+  },
+  commodity: {
+    good: {
+      title: "유가가 내려 비용 부담이 줄어듭니다",
+      description: "유가가 내려가면 항공·화학·운송업의 비용 부담이 줄 수 있습니다. 정유는 별도로 봅니다.",
+    },
+    bad: {
+      title: "유가가 올라 비용 부담이 커집니다",
+      description: "유가가 오르면 물가와 운송비가 올라 항공·화학·운송업에 부담이 될 수 있습니다.",
+    },
+    mixed: {
+      title: "유가와 구리 방향이 서로 다릅니다",
+      description: "비용을 쓰는 업종과 원자재를 파는 업종의 영향이 달라 업종별로 따로 봐야 합니다.",
+    },
+    missing: {
+      title: "원자재 자료가 부족합니다",
+      description: "원자재 가격 자료가 충분하지 않아 비용과 수요 방향을 판단하지 않습니다.",
+    },
+  },
+  risk: {
+    good: {
+      title: "미국 기술주·가상자산 강세, 시장 불안은 낮음",
+      description: "미국 기술주와 가상자산이 강하고 시장 불안 지수(VIX)가 낮아 투자심리가 비교적 안정적입니다.",
+    },
+    bad: {
+      title: "주식·코인이 약하고 시장 불안이 커집니다",
+      description: "미국 기술주와 가상자산이 약하고 시장 불안 지수(VIX)가 높아 투자심리가 위축된 상태입니다.",
+    },
+    mixed: {
+      title: "주식과 코인의 방향이 엇갈립니다",
+      description: "미국 기술주·가상자산·시장 불안 지표의 방향이 엇갈려 투자심리를 한쪽으로 판단하기 어렵습니다.",
+    },
+    missing: {
+      title: "투자심리 자료가 부족합니다",
+      description: "미국 기술주·가상자산·시장 불안 지표 자료가 충분하지 않아 투자심리를 판단하지 않습니다.",
+    },
+  },
 };
 
 const MARKET_IMPACT_IMPORTANCE_WEIGHT = {
@@ -538,10 +844,8 @@ const RECOMMEND_TERM_HELP = {
 
 const RECOMMEND_SCORE_HELP = [
   "100점 만점의 추천 우선순위 점수입니다.",
-  "1차 후보는 가격 흐름·거래대금·차트를 중심으로 계산하고, 정밀 분석에서는 리포트·실적·밸류·수급·뉴스·거시 데이터를 추가로 반영합니다.",
-  "기준은 70점 이상 우수, 55~69점 관찰, 55점 미만 신중입니다.",
-  "1차 후보는 55점 이상이면서 차트 50점 이상이어야 합니다.",
-  "수익률 확률이나 매수 확정 신호는 아닙니다.",
+  "70점 이상은 우수, 55~69점은 관찰, 55점 미만은 신중 구간입니다.",
+  "매수 확정이나 수익률 보장을 뜻하지 않습니다.",
 ].join(" ");
 
 const STOCK_TERM_HELP = {
@@ -590,14 +894,21 @@ const STOCK_TERM_HELP = {
   "수출 프록시": "수출 경기와 글로벌 수요 변화에 얼마나 민감한지 보는 대리 지표입니다.",
 };
 
-const requestedView = new URLSearchParams(window.location.search).get("view");
-const requestedMarketRankingSnapshotId = new URLSearchParams(window.location.search).get("snapshot") || "";
-const requestedMarketRankingMarket = new URLSearchParams(window.location.search).get("market") || "ALL";
+const dashboardQueryParams = new URLSearchParams(window.location.search);
+const requestedView = dashboardQueryParams.get("view");
+const requestedMarketRankingSnapshotId = dashboardQueryParams.get("snapshot") || "";
+const requestedMarketRankingMarket = dashboardQueryParams.get("market") || "ALL";
+const requestedMarketRankingCategory = dashboardQueryParams.get("category") || "volume";
+const requestedMarketRankingMode = dashboardQueryParams.get("mode") || "";
+const requestedNewsFilter = dashboardQueryParams.get("filter") || "all";
+const requestedTrendEventId = dashboardQueryParams.get("event_id") || "";
 const hasStockDetailPath = window.location.pathname.split("/").filter(Boolean).length > 1;
 const LEGACY_VIEW_MAP = {
   trend: "home",
   "trend-past": "home",
   "trend-impact": "home",
+  news: "news",
+  "event-detail": "event-detail",
   market: "movers",
   movers: "movers",
   recommend: "search",
@@ -609,37 +920,187 @@ const LEGACY_VIEW_MAP = {
   "recommend-detail": "recommend-detail",
   notifications: "notifications",
   "ai-signals": "ai-signals",
+  "morning-briefing": "morning-briefing",
   movers: "movers",
   portfolio: "portfolio",
   chart: "chart",
+  "chart-study": "chart-study",
   "chart-history": "chart-history",
 };
 const initialView = hasStockDetailPath ? "stock" : (LEGACY_VIEW_MAP[requestedView] || "home");
 const US_SECTOR_STREAM_VIEWS = new Set(["home", "search", "portfolio"]);
+const INVESTMENT_SECTOR_DEFINITIONS = Object.freeze([
+  { key: "semiconductor", label: "반도체" },
+  { key: "it-software", label: "IT·소프트웨어" },
+  { key: "electronics", label: "전기전자" },
+  { key: "healthcare", label: "바이오·헬스케어" },
+  { key: "consumer", label: "소비재" },
+  { key: "automotive", label: "자동차" },
+  { key: "shipbuilding-defense", label: "조선·방산" },
+  { key: "industrials", label: "산업재·기계" },
+  { key: "materials", label: "소재·화학" },
+  { key: "energy-utilities", label: "에너지·유틸리티" },
+  { key: "financials", label: "금융" },
+  { key: "construction-real-estate", label: "건설·부동산" },
+  { key: "transportation", label: "운송·물류" },
+  { key: "media-content", label: "미디어·콘텐츠" },
+  { key: "telecom", label: "통신" },
+  { key: "other", label: "기타" },
+]);
+const INVESTMENT_SECTOR_LABELS = Object.freeze(Object.fromEntries(
+  INVESTMENT_SECTOR_DEFINITIONS.map((item) => [item.key, item.label]),
+));
+const MARKET_RANKING_CONFIG = Object.freeze({
+  volume: Object.freeze({
+    label: "거래량",
+    title: "거래량",
+    description: "오늘 거래가 가장 활발한 종목 순위예요.",
+    column: "거래량 · 현재 시세",
+    loading: "거래량 상위 종목을 불러오는 중입니다.",
+    modes: Object.freeze([]),
+  }),
+  surge: Object.freeze({
+    label: "수익률",
+    title: "수익률",
+    description: "선택한 기간에 가장 많이 오른 종목 순위예요.",
+    column: "현재가 · 수익률",
+    loading: "수익률 상위 종목을 불러오는 중입니다.",
+    modes: Object.freeze([
+      Object.freeze({ key: "daily", label: "일간" }),
+      Object.freeze({ key: "week", label: "주간" }),
+      Object.freeze({ key: "month", label: "월간" }),
+    ]),
+  }),
+  market_cap: Object.freeze({
+    label: "시가총액",
+    title: "시가총액",
+    description: "주가와 발행주식 수를 곱한 기업가치가 높은 순위예요.",
+    column: "시가총액 · 현재 시세",
+    loading: "시가총액 상위 종목을 불러오는 중입니다.",
+    modes: Object.freeze([]),
+  }),
+  etf: Object.freeze({
+    label: "ETF",
+    title: "ETF",
+    description: "ETF를 시가총액 또는 거래량 기준으로 비교해요.",
+    column: "시가총액 · 현재 시세",
+    loading: "ETF 순위를 불러오는 중입니다.",
+    modes: Object.freeze([
+      Object.freeze({ key: "market_cap", label: "시가총액" }),
+      Object.freeze({ key: "volume", label: "거래량" }),
+    ]),
+  }),
+  dividend: Object.freeze({
+    label: "배당",
+    title: "배당",
+    description: "현재 주가 대비 배당 또는 주당배당금이 높은 순위예요.",
+    column: "배당수익률 · 현재 시세",
+    loading: "배당 상위 종목을 불러오는 중입니다.",
+    modes: Object.freeze([
+      Object.freeze({ key: "yield", label: "배당수익률" }),
+      Object.freeze({ key: "amount", label: "주당배당금" }),
+    ]),
+  }),
+  per: Object.freeze({
+    label: "PER",
+    title: "저PER",
+    description: "시가총액 상위 종목 중 이익 대비 주가가 낮은 순위예요.",
+    column: "PER · 현재 시세",
+    loading: "저PER 종목을 불러오는 중입니다.",
+    modes: Object.freeze([]),
+  }),
+  low52: Object.freeze({
+    label: "52주 최저",
+    title: "52주 최저",
+    description: "최근 52주 최저가에 도달한 종목 순위예요.",
+    column: "현재가 · 오늘 등락",
+    loading: "52주 최저 종목을 불러오는 중입니다.",
+    modes: Object.freeze([]),
+  }),
+  high52: Object.freeze({
+    label: "52주 최고",
+    title: "52주 최고",
+    description: "최근 52주 최고가에 도달한 종목 순위예요.",
+    column: "현재가 · 오늘 등락",
+    loading: "52주 최고 종목을 불러오는 중입니다.",
+    modes: Object.freeze([]),
+  }),
+});
+const DEFAULT_MARKET_RANKING_CATEGORY = "volume";
+const STOCK_ETF_NAME_PREFIXES = Object.freeze([
+  "1Q", "ACE", "ARIRANG", "BNK", "DAISHIN", "DS", "FOCUS", "HANARO", "HEROES", "HK",
+  "IBK", "KCGI", "KBSTAR", "KINDEX", "KIWOOM", "KOACT", "KODEX", "KOSEF", "MIGHTY",
+  "MIDAS", "PLUS", "RISE", "SOL", "TIGER", "TIME", "TIMEFOLIO", "TREX", "TRUSTON",
+  "UNICORN", "WON", "WOORI", "더제이", "마이다스", "마이티", "아이엠에셋", "에셋플러스", "파워", "히어로즈",
+]);
 
 const state = {
   view: initialView,
-  rankingCategory: "surge",
+  rankingCategory: MARKET_RANKING_CONFIG[requestedMarketRankingCategory]
+    ? requestedMarketRankingCategory
+    : DEFAULT_MARKET_RANKING_CATEGORY,
   currentStock: null,
   currentDashboard: null,
+  stockShareStatusTimer: null,
   suggestions: [],
   suggestionIndex: -1,
   suggestionTimer: null,
   suggestionController: null,
   activeTrendGraph: null,
-  activeTrendTab: requestedView === "trend-impact" ? "impact" : requestedView === "trend-past" ? "events" : "live",
+  activeTrendTab: requestedView === "trend-past" ? "events" : "live",
+  activeTrendEventId: requestedTrendEventId,
+  selectedTrendEvent: null,
   showPastEvents: requestedView === "trend-past",
+  trendNewsFilter: ["all", "positive", "negative"].includes(requestedNewsFilter) ? requestedNewsFilter : "all",
+  trendTimelineItems: [],
+  trendEventsItems: [],
+  trendPastEventsItems: [],
+  trendCalendarDate: "",
   portfolioTab: requestedView === "recommend-history" ? "tracking" : "watchlist",
   watchlistContentTab: "strategy",
-  aiSignalStage: "recent-buy",
+  aiSignalMode: "current",
+  aiSignalStage: "all",
+  aiSignalHistorySide: "all",
   aiSignalItems: [],
+  aiSignalMarketStatus: "loading",
+  aiSignalsPageRetryTimer: null,
+  aiSignalLoadSequence: 0,
+  aiSignalRevision: null,
+  aiSignalPendingRevision: null,
+  aiSignalSnapshotReceivedAt: 0,
+  aiSignalSnapshotAsOf: "",
+  aiSignalReconcilePending: false,
+  aiSignalReconcileTimer: null,
+  aiSignalRevisionTimer: null,
+  aiSignalRevisionRetryCount: 0,
+  aiSignalLiveQuotes: new Map(),
+  aiSignalQuoteStatuses: new Map(),
+  aiSignalLastStaleState: null,
+  aiSignalLiveAsOf: "",
   homeAiSignalsAsOf: "",
+  homeAiSignalsRequestId: 0,
+  homeAiSignalsRetryTimer: null,
+  homeSurgeSector: "all",
+  homeRankingCategory: DEFAULT_MARKET_RANKING_CATEGORY,
+  homeRankingMode: "",
+  homeRankingMarket: "ALL",
+  homeRankingRequestId: 0,
+  homeSurgeItems: [],
   homeMarketIndexItems: [],
   homeTrendContext: null,
+  homeMarketImpact: null,
   marketSignalTickerItems: [],
   marketSignalTickerIndex: 0,
   marketSignalTickerTimer: null,
   marketIndexRefreshTimer: null,
+  homeMarketCarouselAnimation: null,
+  homeMarketCarouselSetupFrame: null,
+  homeMarketCarouselResumeTimer: null,
+  homeMarketCarouselLoopWidth: 0,
+  homeMarketCarouselPosition: 0,
+  homeMarketCarouselUsesNativeScroll: false,
+  homeMarketCarouselPointerActive: false,
+  homeMarketCarouselHoldUntil: 0,
   discoverySuggestions: [],
   discoverySuggestionController: null,
   discoverySuggestionTimer: null,
@@ -649,8 +1110,14 @@ const state = {
   selectedTrendWatchCode: "",
   trendWatchRequestId: 0,
   watchlistId: "",
+  inviteRequired: true,
+  inviteAuthorized: false,
   watchlistSyncTimer: null,
   watchlistSyncing: false,
+  watchlistSyncPending: false,
+  recommendationTrackSyncTimer: null,
+  recommendationTrackSyncing: false,
+  recommendationTrackSyncPending: false,
   writeToken: "",
   writeTokenShareId: "",
   watchChartResults: [],
@@ -660,12 +1127,11 @@ const state = {
   marketRankingSnapshotId: requestedMarketRankingSnapshotId,
   marketRankingMarket: ["ALL", "KOSPI", "KOSDAQ"].includes(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL",
   marketRankingSnapshotAsOf: "",
+  marketRankingMode: requestedMarketRankingMode,
   marketLeaderboardItems: [],
-  marketLeaderboardVisibleCount: 30,
+  marketLeaderboardVisibleCount: 50,
   marketLeaderboardAsOf: "",
   marketLeaderboardTradeDate: "",
-  marketQuoteSockets: new Map(),
-  marketQuoteReconnectTimers: new Map(),
   marketRankingRefreshTimer: null,
   marketPrefetchKey: "",
   usSectorMoves: null,
@@ -674,43 +1140,77 @@ const state = {
   usSectorRefreshPromise: null,
   usSectorSocket: null,
   usSectorReconnectTimer: null,
-  recommendationQuoteSockets: new Map(),
-  recommendationQuoteReconnectTimers: new Map(),
   responseCache: new Map(),
   pendingRequests: new Map(),
   pageEntryRefreshAt: new Map(),
-  quoteSocket: null,
-  quoteSocketCode: "",
-  quoteReconnectTimer: null,
-  watchlistQuoteSockets: new Map(),
-  watchlistQuoteReconnectTimers: new Map(),
+  quoteStreamSocket: null,
+  quoteStreamScopes: new Map(),
+  quoteStreamSignalControlActive: false,
+  quoteStreamCodeLimit: QUOTE_STREAM_DEFAULT_CODE_LIMIT,
+  quoteStreamRequestedCodes: [],
+  quoteStreamSubscribedCodes: new Set(),
+  quoteStreamRejectedCodes: new Set(),
+  quoteStreamOverflowCodes: new Set(),
+  quoteStreamLatestByCode: new Map(),
+  quoteStreamConnectionState: "checking",
+  quoteStreamLastControlAt: 0,
+  quoteStreamRequestSignature: "",
+  quoteStreamAckRetryCount: 0,
+  quoteStreamSubscriptionRetryTimer: null,
+  quoteStreamReconnectTimer: null,
+  quoteStreamFallbackTimer: null,
+  quoteStreamReconnectAttempt: 0,
+  quoteStreamEpoch: 0,
   watchlistLoadSequence: 0,
   watchlistResults: [],
   watchlistMarketContext: null,
   watchlistStrategyRenderTimer: null,
   watchlistFilter: "all",
   stockActiveTab: "summary",
+  stockLoadSequence: 0,
+  stockLoadRetryTimer: null,
   stockPriceRows: [],
+  stockHomeChartResult: null,
+  stockHomeChartHorizon: 10,
   stockPricePeriod: "1D",
   stockIntradayRows: [],
   stockIntradayMeta: null,
+  stockIntradayPending: new Map(),
   stockFlowRows: [],
   stockResearchRows: [],
   stockDisclosureRows: [],
+  stockHomeDisclosuresExpanded: false,
   stockNewsRows: [],
   stockCommunity: null,
   stockCommunityProviderKey: "naver_board",
+  stockEtfProfile: null,
+  stockEtfProfileStatus: "idle",
+  stockEtfProfileRequestId: 0,
+  stockEtfDividendPageOpen: false,
+  stockEtfDividendReturnScrollY: 0,
+  stockFinancialLines: null,
+  stockFinancialLinesStatus: "idle",
+  stockFinancialLinesRequestId: 0,
+  stockSectorMargins: null,
+  stockSectorMarginsStatus: "idle",
+  stockSgaAnalysis: null,
+  stockSgaAnalysisStatus: "idle",
   stockFinancialMetric: "revenue",
   stockFinancialScope: "quarterly",
   stockFlowMode: "cumulative",
   stockFlowPeriod: "3M",
+  stockFlowHistoryLoading: false,
+  stockFlowHistoryTargetCount: 0,
+  stockFlowHistoryError: "",
   stockReportMode: "target",
-  stockNewsMode: "company",
   stockHomeDetailsRequestId: 0,
+  stockHomeDetailsRetryTimer: null,
   stockIssueKeyword: "",
   stockAIAnalysis: null,
   stockAIRequestedCode: "",
   stockAILoading: false,
+  stockAILoadingCode: "",
+  stockAIRequestSequence: 0,
   stockQuantSignals: null,
   stockQuantRequestedCode: "",
   stockQuantLoading: false,
@@ -724,15 +1224,23 @@ const state = {
   pullRefreshDistance: 0,
   pullRefreshStartX: 0,
   pullRefreshStartY: 0,
+  pullRefreshAxis: "",
   pullRefreshHideTimer: null,
   recommendTrackRequestId: 0,
   recommendationLoading: false,
   currentRecommendationDetailItem: null,
+  morningMoneyBriefing: null,
+  morningMoneyBriefingSelection: null,
+  morningMoneyBriefingLoading: false,
+  morningMoneyBriefingError: "",
+  morningMoneyBriefingRefreshTimer: null,
   loginGateTimer: null,
   loginSplashSeen: false,
   pushConfig: null,
   pushNotificationBusy: false,
   pushNotificationEnabled: false,
+  pushNotificationSheetMode: "settings",
+  pushNotificationEntryPromptChecked: false,
   pushNotificationConditions: PUSH_NOTIFICATION_FALLBACK_OPTIONS.map((item) => item.id),
   pushNotificationHistory: [],
   pushNotificationHistoryBusy: false,
@@ -741,9 +1249,15 @@ const state = {
   pushNotificationUnread: false,
   pushNotificationUnreadTimer: null,
   notificationReturnView: "home",
+  loginSubmitting: false,
   pageLoadingSequence: 0,
   pageLoadingTokens: new Map(),
+  pageLoadingFrameId: null,
+  pageLoadingHideTimer: null,
 };
+
+const dashboardLiveQuoteTimes = new WeakMap();
+const dashboardLiveQuoteDeltas = new WeakMap();
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -776,15 +1290,61 @@ function writeStoredJson(key, value) {
   }
 }
 
-function readCachedHomeAiSignals() {
-  const cached = readStoredJson(scopedStorageKey(HOME_AI_SIGNALS_CACHE_PREFIX), null);
-  return cached && Array.isArray(cached.items) ? cached : null;
+function readCachedHomeAiSignals(recentDays = HOME_MARKET_SIGNAL_RECENT_DAYS) {
+  const market = readStoredJson(HOME_AI_SIGNALS_MARKET_CACHE_KEY, null);
+  const marketAge = Date.now() - Number(market?.savedAt || 0);
+  if (
+    !market
+    || market.recent_days !== recentDays
+    || !Array.isArray(market.items)
+    || marketAge < 0
+    || marketAge > HOME_AI_SIGNALS_CACHE_MAX_AGE_MS
+  ) {
+    return null;
+  }
+  const watchlist = readStoredJson(
+    scopedStorageKey(HOME_AI_SIGNALS_WATCHLIST_CACHE_PREFIX),
+    null,
+  );
+  const watchlistAge = Date.now() - Number(watchlist?.savedAt || 0);
+  return {
+    ...market,
+    watchlist_items: watchlist
+      && Array.isArray(watchlist.items)
+      && watchlistAge >= 0
+      && watchlistAge <= HOME_AI_SIGNALS_CACHE_MAX_AGE_MS
+      ? watchlist.items
+      : [],
+  };
 }
 
-function writeCachedHomeAiSignals(payload = {}) {
-  writeStoredJson(scopedStorageKey(HOME_AI_SIGNALS_CACHE_PREFIX), {
-    savedAt: Date.now(),
-    items: Array.isArray(payload.items) ? payload.items : [],
+function writeCachedHomeAiSignals(payload = {}, recentDays = HOME_MARKET_SIGNAL_RECENT_DAYS) {
+  const savedAt = Date.now();
+  const rawRevision = Number(payload.signal_revision);
+  const signalRevision = Number.isSafeInteger(rawRevision) && rawRevision >= 0 ? rawRevision : null;
+  const marketItems = Array.isArray(payload.market_items)
+    ? payload.market_items
+    : (Array.isArray(payload.items) ? payload.items : []);
+  writeStoredJson(HOME_AI_SIGNALS_MARKET_CACHE_KEY, {
+    savedAt,
+    recent_days: recentDays,
+    market_status: payload.market_status || "ready",
+    universe_count: payload.universe_count || 0,
+    confirmed_count: payload.confirmed_count || 0,
+    preliminary_count: payload.preliminary_count || 0,
+    preliminary_history: Array.isArray(payload.preliminary_history)
+      ? payload.preliminary_history
+      : [],
+    items: marketItems,
+    market_items: marketItems,
+    as_of: payload.as_of || payload.updated_at || null,
+    snapshot_generated_at: payload.snapshot_generated_at || null,
+    signal_revision: signalRevision,
+    signal_revision_as_of: payload.signal_revision_as_of || null,
+  });
+  writeStoredJson(scopedStorageKey(HOME_AI_SIGNALS_WATCHLIST_CACHE_PREFIX), {
+    savedAt,
+    items: Array.isArray(payload.watchlist_items) ? payload.watchlist_items : [],
   });
 }
 
@@ -801,6 +1361,43 @@ function writeCachedPushEnabled(enabled) {
   if (key) {
     localStorage.setItem(key, String(enabled === true));
   }
+}
+
+function localCalendarDate(value = new Date()) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function pushEntryPromptSnoozeStorageKey() {
+  return scopedStorageKey(PUSH_ENTRY_PROMPT_SNOOZE_PREFIX);
+}
+
+function pushEntryPromptSnoozedToday() {
+  const key = pushEntryPromptSnoozeStorageKey();
+  return Boolean(key) && localStorage.getItem(key) === localCalendarDate();
+}
+
+function recommendationPushPromptDecisionStorageKey() {
+  return scopedStorageKey(RECOMMENDATION_PUSH_PROMPT_DECISION_PREFIX);
+}
+
+function recommendationPushPromptHandled() {
+  const key = recommendationPushPromptDecisionStorageKey();
+  return Boolean(key) && Boolean(localStorage.getItem(key));
+}
+
+function recordRecommendationPushPromptDecision(decision) {
+  const key = recommendationPushPromptDecisionStorageKey();
+  if (key) {
+    localStorage.setItem(key, decision);
+  }
+}
+
+function recommendationPushNotificationEnabled() {
+  return state.pushNotificationEnabled
+    && state.pushNotificationConditions.includes("recommendation_update");
 }
 
 function rejectAfter(ms, message) {
@@ -937,32 +1534,6 @@ function formatPreMarketChange(quote, includePrice = true) {
   return `${rate} · ${formatNumber(quote.pre_market_price)}`;
 }
 
-function formatQuoteTime(value) {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return date.toLocaleTimeString("ko-KR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-}
-
-function quoteSourceLabel(payload = null) {
-  if (!payload) {
-    return "";
-  }
-  if (["kis_realtime", "kis_rest"].includes(payload.source)) {
-    return "KIS 실시간";
-  }
-  return "보조 갱신";
-}
-
 function koreaMarketPhaseLabel(now = new Date()) {
   const phase = koreaMarketPhase(now);
   if (phase === "preopen") {
@@ -999,7 +1570,7 @@ function usMarketPhase(now = new Date()) {
     return "closed";
   }
   const minutes = parts.hour * 60 + parts.minute;
-  if (minutes >= 4 * 60 && minutes < 9 * 60 + 30) {
+  if (minutes >= 7 * 60 + 30 && minutes < 9 * 60 + 30) {
     return "premarket";
   }
   if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) {
@@ -1011,18 +1582,104 @@ function usMarketPhase(now = new Date()) {
   return "closed";
 }
 
-function formatPreMarketDisplay(quote, payload = null) {
+function formatPreMarketDisplay(quote) {
+  const session = quote?.market_session || "";
+  const sessionLabel = quote?.market_session_label || "";
+  if (session === "nxt_pre_market") {
+    return quote?.pre_market_status || "NXT 프리마켓 실시간";
+  }
+  if (["pre_market_reference", "after_market_reference"].includes(session)) {
+    return sessionLabel || "KRX 기준가";
+  }
+  if (session === "nxt_after_market") {
+    return `${sessionLabel || "NXT 애프터마켓"} 실시간`;
+  }
+  if (session === "nxt_after_market_wait") {
+    return sessionLabel || "NXT 애프터마켓 준비";
+  }
   const status = quote?.pre_market_status || "장전";
   const change = formatPreMarketChange(quote);
-  const source = quoteSourceLabel(payload);
   if (change === "-") {
-    return source ? `${status} · ${source}` : status;
+    return status;
   }
-  return source ? `${status} ${change} · ${source}` : `${status} ${change}`;
+  return `${status} ${change}`;
+}
+
+function koreaMarketStatusByClock(now = new Date()) {
+  const clock = koreaClockParts(now);
+  const weekday = new Date(Date.UTC(clock.year, clock.month - 1, clock.day)).getUTCDay();
+  if (weekday === 0 || weekday === 6) {
+    return "정규장 마감";
+  }
+  const minutes = clock.hour * 60 + clock.minute;
+  if (minutes < 8 * 60) {
+    return "프리장 대기";
+  }
+  if (minutes < 8 * 60 + 50) {
+    return "프리장 진행중";
+  }
+  if (minutes < 9 * 60) {
+    return "정규장 대기";
+  }
+  if (minutes < 15 * 60 + 30) {
+    return "정규장 진행중";
+  }
+  if (minutes < 15 * 60 + 40) {
+    return "애프터장 대기";
+  }
+  if (minutes < 20 * 60) {
+    return "애프터장 진행중";
+  }
+  return "정규장 마감";
+}
+
+function koreaMarketStatusLabel(quote = null, now = new Date()) {
+  const clockStatus = koreaMarketStatusByClock(now);
+  const session = quote?.market_session || "";
+  const statusBySession = {
+    nxt_pre_market: "프리장 진행중",
+    pre_market_reference: "프리장 진행중",
+    krx_opening_auction: "정규장 대기",
+    krx_regular: "정규장 진행중",
+    integrated_regular: "정규장 진행중",
+    nxt_after_market_wait: "애프터장 대기",
+    nxt_after_market: "애프터장 진행중",
+  };
+  if (["closed", "krx_reference", "after_market_reference"].includes(session)) {
+    return clockStatus;
+  }
+  return statusBySession[session] || clockStatus;
+}
+
+function koreaMarketStatusDisplayLabel(quote = null, now = new Date()) {
+  const status = koreaMarketStatusLabel(quote, now);
+  const sessionLabel = String(quote?.market_session_label || "").trim();
+  if (!sessionLabel || status.includes(sessionLabel)) {
+    return status;
+  }
+  return `${sessionLabel} · ${status}`;
+}
+
+function renderKoreaQuoteSession(quote = null) {
+  if (!quote) {
+    return;
+  }
+  setText(elements.stockLiveBadge, quote.market_session_label || koreaMarketPhaseLabel());
+  if (!elements.stockPreMarket) {
+    return;
+  }
+  const status = koreaMarketStatusLabel(quote);
+  const displayStatus = koreaMarketStatusDisplayLabel(quote);
+  const tone = status.includes("진행중") ? "live" : status.includes("대기") ? "waiting" : "closed";
+  elements.stockPreMarket.hidden = false;
+  elements.stockPreMarket.dataset.session = quote.market_session || "";
+  elements.stockPreMarket.dataset.statusTone = tone;
+  elements.stockPreMarket.setAttribute("aria-label", `${displayStatus}, 국내주식 거래시간 안내 열기`);
+  setText(elements.stockMarketStatusLabel, displayStatus);
 }
 
 function stockMetaText(data, sourceLabel = "") {
-  const parts = [data.code, data.market, formatDataBasis(data.as_of)];
+  const parts = [formatDataBasis(data.as_of)];
   const preMarket = formatPreMarketChange(data.quote, false);
   if (preMarket !== "-") {
     parts.push(`장전 ${preMarket}`);
@@ -1034,7 +1691,11 @@ function stockMetaText(data, sourceLabel = "") {
 }
 
 function stockDetailMetaText(data) {
-  return [data?.code, data?.market].filter(Boolean).join(" · ");
+  const parts = [];
+  if (data?.source === STOCK_DASHBOARD_WARMING_SOURCE) {
+    parts.push("기본 데이터 표시 · 정밀 데이터 준비 중");
+  }
+  return parts.filter(Boolean).join(" · ");
 }
 
 function homeMarketAssetOrder(now = new Date()) {
@@ -1043,12 +1704,12 @@ function homeMarketAssetOrder(now = new Date()) {
   const krOpen = krPhase === "preopen" || krPhase === "regular";
   const usOpen = ["premarket", "regular", "afterhours"].includes(usPhase);
   if (krOpen) {
-    return ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "GOLD", "OIL"];
+    return ["KOSPI", "KOSDAQ", "SP500", "NASDAQ", "SOX", "DOW", "GOLD", "OIL"];
   }
   if (usOpen) {
-    return ["NASDAQ", "SP500", "KOSPI", "KOSDAQ", "GOLD", "OIL"];
+    return ["SP500", "NASDAQ", "SOX", "DOW", "KOSPI", "KOSDAQ", "GOLD", "OIL"];
   }
-  return ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "GOLD", "OIL"];
+  return ["KOSPI", "KOSDAQ", "SP500", "NASDAQ", "SOX", "DOW", "GOLD", "OIL"];
 }
 
 function previousCloseFromQuote(quote) {
@@ -1079,10 +1740,18 @@ function rebasePeriodReturn(periodReturn, previousPrice, livePrice) {
 
 function applyLiveQuoteToDashboard(dashboard, quote, payload = null) {
   if (!dashboard || !quote) {
-    return dashboard;
+    return false;
   }
+  const observedAt = payload?.as_of ? Date.parse(payload.as_of) : Number.NaN;
+  const previousObservedAt = dashboardLiveQuoteTimes.get(dashboard);
+  if (Number.isFinite(observedAt) && Number.isFinite(previousObservedAt) && observedAt < previousObservedAt) {
+    return false;
+  }
+  const quoteDelta = Object.fromEntries(
+    Object.entries(quote).filter(([, value]) => value !== null && value !== undefined && value !== ""),
+  );
   const previousPrice = toNumber(dashboard.quote?.price);
-  const livePrice = toNumber(quote.price);
+  const livePrice = toNumber(quoteDelta.price);
   if (dashboard.momentum && previousPrice !== null && livePrice !== null && previousPrice !== livePrice) {
     dashboard.momentum.one_month_return = rebasePeriodReturn(
       dashboard.momentum.one_month_return,
@@ -1095,14 +1764,45 @@ function applyLiveQuoteToDashboard(dashboard, quote, payload = null) {
       livePrice,
     );
   }
-  dashboard.quote = { ...(dashboard.quote || {}), ...quote };
+  if (dashboard.momentum && quoteDelta.trading_value !== undefined) {
+    dashboard.momentum.latest_trading_value = quoteDelta.trading_value;
+  }
+  const mergedQuote = dashboard.quote || {};
+  Object.assign(mergedQuote, quoteDelta);
+  dashboard.quote = mergedQuote;
+  if (Number.isFinite(observedAt)) {
+    dashboardLiveQuoteTimes.set(dashboard, observedAt);
+  }
+  const previousLiveDelta = dashboardLiveQuoteDeltas.get(dashboard) || {};
+  dashboardLiveQuoteDeltas.set(dashboard, {
+    quote: { ...(previousLiveDelta.quote || {}), ...quoteDelta },
+    as_of: payload?.as_of || previousLiveDelta.as_of || null,
+    source: payload?.source || previousLiveDelta.source || null,
+  });
   if (payload?.as_of) {
     dashboard.as_of = payload.as_of;
   }
   if (payload?.source) {
     dashboard.source = payload.source;
   }
-  return dashboard;
+  return true;
+}
+
+function carryForwardLiveQuoteToDashboard(targetDashboard, sourceDashboard) {
+  if (!targetDashboard || !sourceDashboard) {
+    return false;
+  }
+  const liveDelta = dashboardLiveQuoteDeltas.get(sourceDashboard);
+  if (!liveDelta?.quote) {
+    return false;
+  }
+  return applyLiveQuoteToDashboard(targetDashboard, liveDelta.quote, {
+    type: "quote",
+    code: targetDashboard.code,
+    market: targetDashboard.market,
+    as_of: liveDelta.as_of,
+    source: liveDelta.source,
+  });
 }
 
 function formatChangeValue(value) {
@@ -1142,6 +1842,54 @@ function stockTabsDocumentTop(tabs) {
   return top;
 }
 
+let stockTabsFixedFrame = 0;
+
+function syncStockDetailCommandbarState() {
+  const commandbar = elements.stockCommandbar;
+  const isMobileStockView = window.innerWidth <= 980
+    && document.body.dataset.view === "stock"
+    && !elements.stockView?.hidden
+    && !state.stockEtfDividendPageOpen;
+  if (!commandbar || !isMobileStockView) {
+    commandbar?.classList.remove("is-scrolled");
+    return;
+  }
+  const stockTop = elements.stockView.getBoundingClientRect().top;
+  const shouldShowCompactQuote = stockTop <= -24 && !elements.form?.classList.contains("expanded");
+  commandbar.classList.toggle("is-scrolled", shouldShowCompactQuote);
+}
+
+function syncStockDetailTabsFixedState() {
+  const tabs = elements.stockDetailTabs;
+  const sentinel = elements.stockDetailTabsSentinel;
+  const isMobileStockView = window.innerWidth <= 980
+    && document.body.dataset.view === "stock"
+    && !elements.stockView?.hidden;
+  if (!tabs || !sentinel || !isMobileStockView) {
+    tabs?.classList.remove("is-fixed");
+    tabs?.style.removeProperty("--stock-tabs-fixed-top");
+    return;
+  }
+  const fixedTop = stockTabsStickyTop();
+  tabs.style.setProperty("--stock-tabs-fixed-top", `${fixedTop}px`);
+  const sentinelTop = sentinel.getBoundingClientRect().top;
+  const stockBottom = elements.stockView?.getBoundingClientRect().bottom ?? Number.POSITIVE_INFINITY;
+  const tabsHeight = tabs.offsetHeight || tabs.getBoundingClientRect().height || 0;
+  const withinStockBoundary = stockBottom > fixedTop + tabsHeight;
+  tabs.classList.toggle("is-fixed", sentinelTop <= fixedTop && withinStockBoundary);
+}
+
+function scheduleStockDetailTabsFixedState() {
+  if (stockTabsFixedFrame) {
+    return;
+  }
+  stockTabsFixedFrame = window.requestAnimationFrame(() => {
+    stockTabsFixedFrame = 0;
+    syncStockDetailCommandbarState();
+    syncStockDetailTabsFixedState();
+  });
+}
+
 function scrollStockTabsToTop(options = {}) {
   const tabs = document.querySelector(".stock-detail-tabs") || document.querySelector(".stock-section-tabs");
   if (!tabs) {
@@ -1161,11 +1909,29 @@ function shouldAutoLoadStockAI(tabName = state.stockActiveTab) {
 }
 
 function shouldAutoLoadStockQuantSignals(tabName = state.stockActiveTab) {
-  return Boolean(state.currentStock?.code);
+  return tabName === "strategy" && Boolean(state.currentStock?.code);
+}
+
+function ensureStockCompanyAnalysis() {
+  if (state.stockActiveTab !== "company" || !state.currentDashboard?.code || currentStockIsEtf()) {
+    return;
+  }
+  const statuses = [
+    state.stockFinancialLinesStatus,
+    state.stockSectorMarginsStatus,
+    state.stockSgaAnalysisStatus,
+  ];
+  if (!statuses.some((status) => status === "idle" || status === "error")) {
+    return;
+  }
+  void loadStockCompanyAnalysis(state.currentDashboard);
 }
 
 function ensureStockAIAnalysis() {
-  if (!shouldAutoLoadStockAI() || state.stockAILoading) {
+  if (!shouldAutoLoadStockAI()) {
+    return;
+  }
+  if (state.stockAILoading && state.stockAILoadingCode === state.currentStock?.code) {
     return;
   }
   if (state.stockAIAnalysis && state.stockAIRequestedCode === state.currentStock?.code) {
@@ -1185,7 +1951,10 @@ function ensureStockQuantSignals() {
 }
 
 function setActiveStockTab(tabName, options = {}) {
-  state.stockActiveTab = tabName || "summary";
+  const requestedTab = tabName || "summary";
+  state.stockActiveTab = requestedTab === "company" && currentStockIsEtf()
+    ? "summary"
+    : requestedTab;
   for (const tab of elements.stockSectionTabs) {
     const active = tab.dataset.stockTab === state.stockActiveTab;
     tab.classList.toggle("active", active);
@@ -1197,8 +1966,12 @@ function setActiveStockTab(tabName, options = {}) {
   if (!options.preserveScroll) {
     window.requestAnimationFrame(() => scrollStockTabsToTop({ instant: options.instant }));
   }
-  ensureStockAIAnalysis();
-  ensureStockQuantSignals();
+  if (options.deferDataLoads !== true) {
+    ensureStockAIAnalysis();
+    ensureStockQuantSignals();
+    ensureStockCompanyAnalysis();
+  }
+  scheduleStockDetailTabsFixedState();
 }
 
 function scrollToStockSection(hash, options = {}) {
@@ -1211,20 +1984,20 @@ function scrollToStockSection(hash, options = {}) {
     "#stock-research-section": "summary",
     "#stock-consensus-section": "summary",
     "#stock-momentum-section": "summary",
-    "#stock-finance-section": "summary",
+    "#stock-company-section": "company",
+    "#stock-company-profile": "company",
+    "#stock-finance-section": "company",
     "#stock-news-section": "summary",
     "#stock-macro-section": "summary",
   };
   setActiveStockTab(map[hash] || "summary", { preserveScroll: options.instant });
 }
 
-function renderStockLiveSummary(data, sourceLabel = "") {
+function renderStockLiveSummary(data) {
   if (!data) {
     return;
   }
-  setText(elements.stockLiveBadge, koreaMarketPhaseLabel());
-  const preMarketText = formatPreMarketDisplay(data.quote);
-  setText(elements.stockPreMarket, sourceLabel ? `${preMarketText} · ${sourceLabel}` : preMarketText);
+  renderKoreaQuoteSession(data.quote);
   setText(elements.stockChangeValue, formatChangeValue(data.quote?.change_value));
   setTone(elements.stockChangeValue, data.quote?.change_value);
   setText(elements.stockVolume, formatCompactCount(data.quote?.volume));
@@ -1535,6 +2308,7 @@ function stockPriceRowsWithLiveQuote(prices, quote = null) {
         low: livePrice,
         close: livePrice,
         volume: toNumber(quote?.volume),
+        is_live_quote: true,
       });
     }
   }
@@ -1718,7 +2492,7 @@ function quantSignalMarkers(rows, points, options = {}) {
     const triangle = side === "buy"
       ? `${point.x - 5},${stemEnd + 5} ${point.x + 5},${stemEnd + 5} ${point.x},${stemEnd - 3}`
       : `${point.x - 5},${stemEnd - 5} ${point.x + 5},${stemEnd - 5} ${point.x},${stemEnd + 3}`;
-    const compactLabel = side === "buy" ? "진입" : side === "partial" ? "분할" : "청산";
+    const compactLabel = side === "buy" ? "매수" : side === "partial" ? "수익확정" : "전량매도";
     const label = compact ? compactLabel : (event.label || compactLabel);
     return `
       <g class="quant-chart-marker ${side}">
@@ -1865,8 +2639,33 @@ function renderStockIntradayChart(intradayRows, quote = null, meta = null) {
     }))
     .filter((row) => row.date && row.time && row.price !== null)
     .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+  const livePrice = toNumber(quote?.price);
+  const liveDate = String(quote?.trade_date || "");
+  const liveTime = String(quote?.trade_time || "").replace(/\D/g, "").padStart(6, "0").slice(-6);
+  if (quote?.is_live === true && livePrice !== null && liveDate && /^\d{6}$/.test(liveTime) && liveTime !== "000000") {
+    const liveMinute = liveTime.slice(0, 4);
+    const existing = rows.find((row) => row.date === liveDate && row.time.slice(0, 4) === liveMinute);
+    if (existing) {
+      existing.time = liveTime;
+      existing.price = livePrice;
+    } else {
+      rows.push({
+        date: liveDate,
+        time: liveTime,
+        price: livePrice,
+        volume: toNumber(quote?.trade_volume) || 0,
+      });
+      rows.sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+    }
+  }
   if (rows.length < 2) {
-    elements.stockMiniChart.innerHTML = '<p class="stock-v3-chart-empty">당일 분봉을 불러오는 중입니다.</p>';
+    let emptyLabel = "당일 분봉을 불러오는 중입니다.";
+    if (meta?.source === "unavailable") {
+      emptyLabel = "당일 분봉을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.";
+    } else if (meta) {
+      emptyLabel = "표시할 당일 분봉 데이터가 없습니다.";
+    }
+    elements.stockMiniChart.replaceChildren(el("p", "stock-v3-chart-empty", emptyLabel));
     return;
   }
 
@@ -1915,14 +2714,15 @@ function renderStockIntradayChart(intradayRows, quote = null, meta = null) {
   })();
   const labelIndexes = [0, Math.floor((rows.length - 1) / 4), Math.floor((rows.length - 1) / 2), Math.floor((rows.length - 1) * 0.75), rows.length - 1];
   const timeLabels = [...new Set(labelIndexes)].map((index) => `<text class="stock-v3-chart-date" x="${points[index].x.toFixed(2)}" y="285" text-anchor="${index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle"}">${formatIntradayTime(rows[index].time)}</text>`).join("");
+  const sessionLabel = meta?.market_session_label || quote?.market_session_label || "";
   const extrema = [
     { label: "고가", value: highPrice, point: points[highIndex], className: "high" },
     { label: "저가", value: lowPrice, point: points[lowIndex], className: "low" },
   ].map((item) => `<g class="stock-v3-extrema ${item.className}"><circle cx="${item.point.x.toFixed(2)}" cy="${item.point.y.toFixed(2)}" r="3"></circle><text x="${item.point.x.toFixed(2)}" y="${(item.point.y + (item.className === "high" ? -10 : 20)).toFixed(2)}" text-anchor="middle">${item.label} ${formatNumber(item.value)}</text></g>`).join("");
 
   elements.stockMiniChart.innerHTML = `
-    <div class="stock-v3-chart-badge ${toneClass}"><strong>${formatPercent(change)}</strong><span>${formatNumber(rows.length)}분</span></div>
-    <svg class="stock-v3-price-svg ${toneClass}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${formatDateLabel(rows[0].date)} 당일 분봉 차트">
+    <div class="stock-v3-chart-badge ${toneClass}"><strong>${formatPercent(change)}</strong><span>${sessionLabel ? `${sessionLabel} · ` : ""}${formatNumber(rows.length)}분</span></div>
+    <svg class="stock-v3-price-svg ${toneClass}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${formatDateLabel(rows[0].date)} ${sessionLabel || "당일"} 분봉 차트">
       ${grid}${previousLine}
       <path class="stock-v3-chart-area" d="${areaPath}"></path>
       <path class="stock-v3-chart-line" d="${linePath}"></path>
@@ -1973,6 +2773,111 @@ function formatFinancialAmount(value) {
   return `${formatNumber(Math.round(number))}억`;
 }
 
+let activeStockBarTooltip = null;
+let stockBarTooltipSequence = 0;
+
+function dismissStockBarTooltip(container = null) {
+  if (!activeStockBarTooltip || (container && activeStockBarTooltip.container !== container)) {
+    return;
+  }
+  const { target, tooltip } = activeStockBarTooltip;
+  target?.classList.remove("is-tooltip-active");
+  target?.removeAttribute("aria-describedby");
+  if (tooltip) {
+    tooltip.hidden = true;
+    tooltip.style.removeProperty("left");
+    tooltip.style.removeProperty("top");
+  }
+  activeStockBarTooltip = null;
+}
+
+function positionStockBarTooltip(container, target, tooltip) {
+  const hostRect = container.getBoundingClientRect();
+  const anchor = target.__stockBarTooltipAnchor || target;
+  const anchorRect = anchor.getBoundingClientRect();
+  tooltip.hidden = false;
+  const safeInset = 8;
+  const halfWidth = tooltip.offsetWidth / 2;
+  const halfHeight = tooltip.offsetHeight / 2;
+  const naturalX = anchorRect.left - hostRect.left + anchorRect.width / 2;
+  const naturalY = anchorRect.top - hostRect.top + anchorRect.height / 2;
+  const minimumX = Math.min(hostRect.width / 2, halfWidth + safeInset);
+  const maximumX = Math.max(hostRect.width / 2, hostRect.width - halfWidth - safeInset);
+  const minimumY = Math.min(hostRect.height / 2, halfHeight + safeInset);
+  const maximumY = Math.max(hostRect.height / 2, hostRect.height - halfHeight - safeInset);
+  tooltip.style.left = `${clampNumber(naturalX, minimumX, maximumX).toFixed(1)}px`;
+  tooltip.style.top = `${clampNumber(naturalY, minimumY, maximumY).toFixed(1)}px`;
+}
+
+function showStockBarTooltip(container, target) {
+  if (activeStockBarTooltip?.target === target) {
+    dismissStockBarTooltip();
+    return;
+  }
+  dismissStockBarTooltip();
+  const tooltip = Array.from(container.children).find((child) => child.classList?.contains("stock-bar-value-tooltip"));
+  if (!tooltip) return;
+  tooltip.textContent = target.dataset.stockBarTooltip || "";
+  target.classList.add("is-tooltip-active");
+  target.setAttribute("aria-describedby", tooltip.id);
+  activeStockBarTooltip = { container, target, tooltip };
+  positionStockBarTooltip(container, target, tooltip);
+}
+
+function setStockBarTooltipTarget(target, text, options = {}) {
+  if (!target || !text) return;
+  target.classList.add("stock-bar-tooltip-target");
+  target.dataset.stockBarTooltip = text;
+  target.__stockBarTooltipAnchor = options.anchor || target;
+  if (!target.matches("button, a, summary, input, select, textarea")) {
+    target.setAttribute("role", "button");
+    target.setAttribute("tabindex", "0");
+  }
+  target.setAttribute("aria-label", `${text}. 눌러서 값 보기`);
+}
+
+function installStockBarTooltips(container) {
+  if (!container || !container.querySelector("[data-stock-bar-tooltip]")) return;
+  dismissStockBarTooltip(container);
+  container.classList.add("stock-bar-tooltip-host");
+  let tooltip = Array.from(container.children).find((child) => child.classList?.contains("stock-bar-value-tooltip"));
+  if (!tooltip) {
+    tooltip = el("div", "stock-bar-value-tooltip");
+    tooltip.id = `stock-bar-value-tooltip-${++stockBarTooltipSequence}`;
+    tooltip.setAttribute("role", "tooltip");
+    tooltip.setAttribute("aria-live", "polite");
+    tooltip.hidden = true;
+    container.appendChild(tooltip);
+  }
+  if (container.dataset.stockBarTooltipBound === "true") return;
+  container.dataset.stockBarTooltipBound = "true";
+  container.addEventListener("click", (event) => {
+    const target = event.target.closest?.("[data-stock-bar-tooltip]");
+    if (!target || !container.contains(target)) return;
+    showStockBarTooltip(container, target);
+  });
+  container.addEventListener("keydown", (event) => {
+    const target = event.target.closest?.("[data-stock-bar-tooltip]");
+    if (!target || !container.contains(target) || target.tagName === "SUMMARY") return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      showStockBarTooltip(container, target);
+    }
+  });
+}
+
+document.addEventListener("pointerdown", (event) => {
+  if (!activeStockBarTooltip || event.target.closest?.("[data-stock-bar-tooltip]")) return;
+  dismissStockBarTooltip();
+}, { passive: true });
+
+window.addEventListener("scroll", () => {
+  dismissStockBarTooltip();
+  scheduleStockDetailTabsFixedState();
+}, { passive: true, capture: true });
+window.addEventListener("resize", scheduleStockDetailTabsFixedState, { passive: true });
+window.addEventListener("orientationchange", scheduleStockDetailTabsFixedState, { passive: true });
+
 function periodEndDate(period) {
   const match = String(period || "").match(/(\d{4})\.(\d{2})/);
   return match ? `${match[1]}-${match[2]}-31` : "";
@@ -1998,6 +2903,7 @@ function renderStockFinancialChart() {
   if (!elements.stockFinancialChart || !state.currentDashboard) {
     return;
   }
+  dismissStockBarTooltip(elements.stockFinancialChart);
   const metric = state.stockFinancialMetric || "revenue";
   const scope = state.stockFinancialScope || "quarterly";
   for (const button of elements.stockFinancialMetricTabs) {
@@ -2063,12 +2969,22 @@ function renderStockFinancialChart() {
     return `<g class="stock-v3-chart-grid"><line x1="${left}" y1="${gridY.toFixed(2)}" x2="${width - right}" y2="${gridY.toFixed(2)}"></line><text x="${left - 8}" y="${(gridY + 4).toFixed(2)}" text-anchor="end">${formatFinancialAmount(value)}</text></g>`;
   }).join("");
   elements.stockFinancialChart.innerHTML = `
-    <svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${metricLabels[metric]} ${scope === "annual" ? "연간" : "분기"} 추이">
+    <svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="group" aria-label="${metricLabels[metric]} ${scope === "annual" ? "연간" : "분기"} 추이">
       ${grid}<line class="stock-v3-baseline" x1="${left}" y1="${baseline.toFixed(2)}" x2="${width - right}" y2="${baseline.toFixed(2)}"></line>
       ${bars}${pricePath}${priceDots}
     </svg>
     <div class="stock-v3-legend"><span class="bar">${metricLabels[metric]}</span><span class="line">주가</span><span class="estimate">E 추정치</span></div>
   `;
+  Array.from(elements.stockFinancialChart.querySelectorAll(".stock-v3-financial-bar")).forEach((target, index) => {
+    const row = series[index];
+    const periodLabel = String(row.period || "").replace(" (E)", "E");
+    setStockBarTooltipTarget(
+      target,
+      `${periodLabel} ${metricLabels[metric]} ${formatFinancialAmount(row.value)}${row.estimated ? " · 추정" : ""}`,
+      { anchor: target.querySelector("rect") },
+    );
+  });
+  installStockBarTooltips(elements.stockFinancialChart);
   const latest = series[series.length - 1];
   const comparisonIndex = scope === "quarterly" && series.length > 4 ? series.length - 5 : series.length - 2;
   const previous = comparisonIndex >= 0 ? series[comparisonIndex] : null;
@@ -2081,7 +2997,1630 @@ function renderStockFinancialChart() {
   setText(elements.stockFinancialSource, `${state.currentDashboard.financial_series?.source || "네이버 금융"} · 단위 ${state.currentDashboard.financial_series?.unit || "억원"}`);
 }
 
-function stockFlowSeries() {
+function companyRevenueBreakdownRows(data) {
+  return (data?.financial_series?.annual || [])
+    .map((row) => {
+      const revenue = toNumber(row?.revenue);
+      const operatingProfit = toNumber(row?.operating_profit);
+      const suppliedMargin = toNumber(row?.operating_margin);
+      const operatingMargin = suppliedMargin !== null
+        ? suppliedMargin
+        : companyRatio(operatingProfit, revenue);
+      if (revenue === null || revenue <= 0 || operatingProfit === null || operatingMargin === null) {
+        return null;
+      }
+      return {
+        ...row,
+        revenue,
+        operatingProfit,
+        operatingMargin,
+        operatingCostRate: 100 - operatingMargin,
+      };
+    })
+    .filter(Boolean)
+    .slice(-4);
+}
+
+function formatRevenueShare(value) {
+  const number = toNumber(value);
+  if (number === null) return "-";
+  return `${Number(number.toFixed(1))}%`;
+}
+
+function renderCompanyRevenueBreakdown(data) {
+  if (!elements.stockRevenueBreakdown) return;
+  dismissStockBarTooltip();
+  const dashboardCode = String(data?.code || "").trim();
+  const selectedCode = String(state.currentStock?.code || "").trim();
+  if (dashboardCode && selectedCode && dashboardCode !== selectedCode) {
+    const selectedName = String(state.currentStock?.name || selectedCode).trim();
+    setText(elements.stockRevenueBreakdownTitle, `${selectedName} 매출 심층 분석`);
+    elements.stockRevenueBreakdown.innerHTML = '<p class="stock-company-analysis-empty">선택 종목의 수익구조를 불러오는 중입니다.</p>';
+    if (elements.stockRevenueBreakdownSummary) {
+      elements.stockRevenueBreakdownSummary.innerHTML = "<p>선택 종목의 최신 실제 실적을 확인하는 중입니다.</p>";
+    }
+    return;
+  }
+  const stockName = String(data?.name || state.currentStock?.name || "선택 종목").trim();
+  const stockIdentity = [stockName, dashboardCode].filter(Boolean).join(" · ");
+  const breakdownSection = elements.stockRevenueBreakdown.closest(".stock-revenue-breakdown-section");
+  if (breakdownSection) breakdownSection.dataset.stockCode = dashboardCode;
+  const rows = companyRevenueBreakdownRows(data);
+  elements.stockRevenueBreakdown.innerHTML = "";
+  if (elements.stockRevenueBreakdownSummary) elements.stockRevenueBreakdownSummary.innerHTML = "";
+  setText(elements.stockRevenueBreakdownTitle, `${stockName} 매출 심층 분석`);
+  setText(
+    elements.stockRevenueBreakdownLead,
+    `${stockName}의 매출을 100%로 놓고 영업비용과 영업이익이 차지하는 비중을 연도별로 비교합니다.`,
+  );
+  if (!rows.length) {
+    elements.stockRevenueBreakdown.appendChild(el("p", "stock-company-analysis-empty", "표시할 연간 매출·영업이익 자료가 없습니다."));
+    if (elements.stockRevenueBreakdownSummary) {
+      elements.stockRevenueBreakdownSummary.appendChild(el("p", "", "요약할 연간 수익구조가 없습니다."));
+    }
+    return;
+  }
+
+  const highestCostRate = Math.max(100, ...rows.map((row) => Math.max(0, row.operatingCostRate)));
+  const scaleMax = clampNumber(Math.ceil(highestCostRate / 10) * 10, 100, 160);
+  const chart = el("figure", "stock-revenue-chart");
+  chart.setAttribute("role", "group");
+  chart.setAttribute("aria-label", `${stockIdentity} 수익구조. ${rows.map((row) => {
+    const year = String(row.period || "").match(/(\d{4})/)?.[1] || String(row.period || "연간");
+    return `${year}년 ${row.estimated ? "추정" : "실제"}, 매출 ${formatFinancialAmount(row.revenue)}, 영업비용 ${formatRevenueShare(row.operatingCostRate)}, 영업이익률 ${formatCompanyPercent(row.operatingMargin)}`;
+  }).join(". ")}`);
+
+  const plot = el("div", "stock-revenue-chart-plot");
+  const axis = el("div", "stock-revenue-chart-axis");
+  for (const tick of [
+    { value: 0, label: "0%" },
+    { value: 50, label: "50%" },
+    { value: 100, label: "100%" },
+    ...(scaleMax > 100 ? [{ value: scaleMax, label: `${scaleMax}%` }] : []),
+  ]) {
+    const label = el("span", tick.value === 100 ? "is-reference" : "", tick.label);
+    label.style.bottom = `${(tick.value / scaleMax) * 100}%`;
+    axis.appendChild(label);
+  }
+
+  const grid = el("div", "stock-revenue-chart-grid");
+  for (const tick of [50, 100, ...(scaleMax > 100 ? [scaleMax] : [])]) {
+    const line = el("span", tick === 100 ? "is-reference" : "");
+    line.style.bottom = `${(tick / scaleMax) * 100}%`;
+    grid.appendChild(line);
+  }
+
+  const columns = el("div", "stock-revenue-chart-columns");
+  rows.forEach((row) => {
+    const isLoss = row.operatingMargin < 0;
+    const costRate = Math.max(0, row.operatingCostRate);
+    const profitRate = Math.max(0, row.operatingMargin);
+    const lossRate = Math.max(0, -row.operatingMargin);
+    const yearMatch = String(row.period || "").match(/(\d{4})/);
+    const yearLabel = yearMatch ? yearMatch[1] : String(row.period || "연간");
+    const column = el("div", `stock-revenue-chart-column ${isLoss ? "is-loss" : "is-profit"}${row.estimated ? " is-estimated" : ""}`);
+    const barSlot = el("div", "stock-revenue-chart-bar-slot");
+    const marginLabel = el("strong", "stock-revenue-chart-margin", formatCompanyPercent(row.operatingMargin));
+    const costSegmentRate = Math.min(isLoss ? 100 : costRate, scaleMax);
+    const resultSegmentRate = Math.min(
+      isLoss ? lossRate : profitRate,
+      Math.max(0, scaleMax - costSegmentRate),
+    );
+    const stackRate = Math.max(0.01, costSegmentRate + resultSegmentRate);
+    const labelLevelRate = Math.max(100, stackRate);
+    marginLabel.style.bottom = `calc(${clampNumber((labelLevelRate / scaleMax) * 100, 8, 100)}% + 9px)`;
+    const bar = el("div", "stock-revenue-chart-bar");
+    bar.style.height = `${(stackRate / scaleMax) * 100}%`;
+    const cost = el("span", "cost");
+    cost.style.flexBasis = `${(costSegmentRate / stackRate) * 100}%`;
+    const result = el("span", isLoss ? "loss" : "profit");
+    result.style.flexBasis = `${(resultSegmentRate / stackRate) * 100}%`;
+    bar.append(cost, result);
+    setStockBarTooltipTarget(
+      bar,
+      `${yearLabel} 영업비용 ${formatRevenueShare(costRate)} · ${isLoss ? "영업손실률" : "영업이익률"} ${formatCompanyPercent(row.operatingMargin)}`,
+    );
+    if (costRate > scaleMax) bar.appendChild(el("i", "stock-revenue-chart-cap", `${scaleMax}%+`));
+    barSlot.append(marginLabel, bar);
+
+    const period = el("div", "stock-revenue-chart-period");
+    period.append(
+      el("strong", "", yearMatch ? yearMatch[1] : String(row.period || "연간")),
+      el("span", row.estimated ? "is-estimated" : "", row.estimated ? "E 추정" : "실제"),
+      el("small", "", formatFinancialAmount(row.revenue)),
+    );
+    column.append(barSlot, period);
+    columns.appendChild(column);
+  });
+  plot.append(axis, grid, columns);
+  chart.appendChild(plot);
+  installStockBarTooltips(chart);
+  elements.stockRevenueBreakdown.appendChild(chart);
+
+  if (!elements.stockRevenueBreakdownSummary) return;
+  const actualRows = rows.filter((row) => !row.estimated);
+  const latest = actualRows.at(-1) || rows.at(-1);
+  const previous = actualRows.length >= 2 ? actualRows.at(-2) : null;
+  const estimate = rows.find((row) => row.estimated && row !== latest) || null;
+  const latestYear = String(latest?.period || "").match(/(\d{4})/)?.[1] || "최신";
+  const latestBasis = latest.estimated ? "추정" : "실제";
+  const latestIsLoss = latest.operatingMargin < 0;
+  const summaryHead = el("header", "");
+  summaryHead.append(el("span", "", `${stockName} 핵심 요약`), el("strong", "", `${latestYear}년 ${latestBasis}`));
+  const summaryText = latestIsLoss
+    ? `영업비용이 매출의 ${formatRevenueShare(latest.operatingCostRate)}로, 매출 100%를 넘어 영업손실이 발생했습니다.`
+    : `매출 100% 중 영업비용 ${formatRevenueShare(latest.operatingCostRate)}, 영업이익 ${formatRevenueShare(latest.operatingMargin)} 구조입니다.`;
+  const summaryList = el("ul", "");
+  summaryList.appendChild(el("li", "", `연간 매출 ${formatFinancialAmount(latest.revenue)} · 영업이익률 ${formatCompanyPercent(latest.operatingMargin)}`));
+  if (previous) {
+    const change = latest.operatingMargin - previous.operatingMargin;
+    summaryList.appendChild(el("li", change >= 0 ? "is-positive" : "is-negative", `직전 실제 연도보다 영업이익률이 ${formatCompanyPoint(change)} ${change >= 0 ? "개선됐습니다." : "낮아졌습니다."}`));
+  }
+  if (estimate) {
+    const estimateChange = estimate.operatingMargin - latest.operatingMargin;
+    const estimateYear = String(estimate.period || "").match(/(\d{4})/)?.[1] || "다음 해";
+    summaryList.appendChild(el("li", "is-estimate", `${estimateYear}년 추정 영업이익률 ${formatCompanyPercent(estimate.operatingMargin)} · ${estimateChange >= 0 ? "+" : ""}${estimateChange.toFixed(2)}%p`));
+  }
+  elements.stockRevenueBreakdownSummary.append(summaryHead, el("p", "", summaryText), summaryList);
+}
+
+const SECTOR_MARGIN_COLORS = ["#3567d6", "#c45a17", "#2f8a68", "#7250d8", "#61758e", "#a3437f", "#16839a"];
+
+function installCompanySectorMarginScrubber({
+  figure,
+  plot,
+  svg,
+  target,
+  periods,
+  points,
+  width,
+  height,
+  left,
+  right,
+}) {
+  const hitArea = svg?.querySelector(".stock-sector-margin-scrub-hit");
+  const focus = svg?.querySelector(".stock-sector-margin-focus");
+  const focusLine = focus?.querySelector("line");
+  const focusHalo = focus?.querySelector(".stock-sector-margin-focus-halo");
+  const focusPoint = focus?.querySelector(".stock-sector-margin-focus-point");
+  if (!hitArea || !focus || !focusLine || !focusHalo || !focusPoint || !points.length) return;
+
+  const targetName = String(target?.name || target?.code || "선택 종목");
+  const focusCard = el("div", "stock-sector-margin-focus-card");
+  focusCard.setAttribute("role", "status");
+  focusCard.setAttribute("aria-live", "polite");
+  const focusMeta = el("span", "", "");
+  const focusValue = el("strong", "", "");
+  focusCard.append(focusMeta, focusValue);
+  plot.appendChild(focusCard);
+
+  hitArea.setAttribute("tabindex", "0");
+  hitArea.setAttribute("role", "slider");
+  hitArea.setAttribute("aria-label", `${targetName} 연도별 영업이익률 탐색`);
+  hitArea.setAttribute("aria-valuemin", "0");
+  hitArea.setAttribute("aria-valuemax", String(Math.max(0, periods.length - 1)));
+
+  let activeIndex = periods.length - 1;
+  let dragging = false;
+  const nearestPoint = (requestedIndex) => points.reduce((nearest, point) => (
+    Math.abs(point.periodIndex - requestedIndex) < Math.abs(nearest.periodIndex - requestedIndex) ? point : nearest
+  ), points[0]);
+  const updateFocus = (requestedIndex) => {
+    const boundedIndex = clampNumber(Math.round(requestedIndex), 0, Math.max(0, periods.length - 1));
+    const point = nearestPoint(boundedIndex);
+    activeIndex = point.periodIndex;
+    focusLine.setAttribute("x1", point.x.toFixed(2));
+    focusLine.setAttribute("x2", point.x.toFixed(2));
+    for (const node of [focusHalo, focusPoint]) {
+      node.setAttribute("cx", point.x.toFixed(2));
+      node.setAttribute("cy", point.y.toFixed(2));
+    }
+    plot.style.setProperty("--stock-sector-focus-x", `${(point.x / width) * 100}%`);
+    plot.style.setProperty(
+      "--stock-sector-focus-y",
+      `${(clampNumber(point.y - 64, 8, height - 58) / height) * 100}%`,
+    );
+    focusMeta.textContent = `${targetName} · ${point.year}년`;
+    focusValue.textContent = formatCompanyPercent(point.value);
+    hitArea.setAttribute("aria-valuenow", String(point.periodIndex));
+    hitArea.setAttribute("aria-valuetext", `${point.year}년 ${targetName} 영업이익률 ${formatCompanyPercent(point.value)}`);
+    svg.querySelectorAll(".stock-sector-margin-series.is-target [data-sector-period-index]").forEach((node) => {
+      node.classList.toggle("is-active", Number(node.dataset.sectorPeriodIndex) === point.periodIndex);
+    });
+  };
+  const pointerIndex = (event) => {
+    const bounds = svg.getBoundingClientRect();
+    const localX = bounds.width ? ((event.clientX - bounds.left) / bounds.width) * width : left;
+    const ratio = clampNumber((localX - left) / Math.max(1, width - left - right), 0, 1);
+    return Math.round(ratio * Math.max(0, periods.length - 1));
+  };
+  const endDrag = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    figure.classList.remove("is-scrubbing");
+    if (typeof hitArea.hasPointerCapture === "function" && hitArea.hasPointerCapture(event.pointerId)) {
+      try {
+        hitArea.releasePointerCapture(event.pointerId);
+      } catch {
+        // The pointer can be released by the browser before the cancel event arrives.
+      }
+    }
+  };
+
+  hitArea.addEventListener("pointerdown", (event) => {
+    dragging = true;
+    figure.classList.add("is-scrubbing");
+    figure.classList.remove("is-scrubber-focused");
+    hitArea.focus({ preventScroll: true });
+    if (typeof hitArea.setPointerCapture === "function") {
+      try {
+        hitArea.setPointerCapture(event.pointerId);
+      } catch {
+        // Synthetic or already-ended pointers can still update the selected year.
+      }
+    }
+    updateFocus(pointerIndex(event));
+    event.preventDefault();
+  });
+  hitArea.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    updateFocus(pointerIndex(event));
+  });
+  hitArea.addEventListener("pointerup", endDrag);
+  hitArea.addEventListener("pointercancel", endDrag);
+  hitArea.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    figure.classList.add("is-scrubber-focused");
+    if (event.key === "Home") updateFocus(0);
+    else if (event.key === "End") updateFocus(periods.length - 1);
+    else updateFocus(activeIndex + (event.key === "ArrowRight" ? 1 : -1));
+  });
+  hitArea.addEventListener("blur", () => figure.classList.remove("is-scrubber-focused"));
+  updateFocus(activeIndex);
+}
+
+function renderCompanySectorMargins() {
+  if (!elements.stockSectorMarginComparison) return;
+  const payload = state.stockSectorMargins;
+  const status = state.stockSectorMarginsStatus;
+  elements.stockSectorMarginComparison.innerHTML = "";
+  if (elements.stockSectorMarginSummary) elements.stockSectorMarginSummary.innerHTML = "";
+  setText(elements.stockSectorMarginSource, payload?.basis || "동일 업종 · 매출 상위 5개사");
+
+  if (status === "loading") {
+    elements.stockSectorMarginComparison.appendChild(el("p", "stock-company-analysis-empty", "동종 업계 실적을 비교하는 중입니다."));
+    if (elements.stockSectorMarginSummary) elements.stockSectorMarginSummary.appendChild(el("p", "", "업계 중앙값과 선택 종목의 격차를 계산하는 중입니다."));
+    return;
+  }
+  if (status === "error") {
+    elements.stockSectorMarginComparison.appendChild(el("p", "stock-company-analysis-empty", "동종 업계 비교 자료를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요."));
+    if (elements.stockSectorMarginSummary) elements.stockSectorMarginSummary.appendChild(el("p", "", "현재 업계 비교 요약을 표시할 수 없습니다."));
+    return;
+  }
+
+  const periods = Array.isArray(payload?.periods) ? payload.periods : [];
+  const companies = Array.isArray(payload?.companies)
+    ? [...payload.companies].sort((a, b) => Number(Boolean(b?.is_target)) - Number(Boolean(a?.is_target)))
+    : [];
+  if (companies.length < 2 || periods.length < 2) {
+    elements.stockSectorMarginComparison.appendChild(el("p", "stock-company-analysis-empty", "같은 업종에서 비교 가능한 실제 연간 실적이 부족합니다."));
+    if (elements.stockSectorMarginSummary) elements.stockSectorMarginSummary.appendChild(el("p", "", "비교 기업이 2개 이상 쌓이면 업계 중앙값과 순위를 보여드립니다."));
+    return;
+  }
+
+  const width = 760;
+  const height = 354;
+  const left = 58;
+  const right = 42;
+  const top = 34;
+  const bottom = 278;
+  const plotWidth = width - left - right;
+  const plotHeight = bottom - top;
+  const pointsByCompany = companies.map((company) => ({
+    ...company,
+    points: (company.points || [])
+      .map((point) => ({ year: String(point.year || ""), value: toNumber(point.operating_margin) }))
+      .filter((point) => periods.includes(point.year) && point.value !== null),
+  }));
+  const values = pointsByCompany.flatMap((company) => company.points.map((point) => point.value));
+  if (!values.length) {
+    elements.stockSectorMarginComparison.appendChild(el("p", "stock-company-analysis-empty", "표시할 영업이익률 자료가 없습니다."));
+    return;
+  }
+  const rawMin = Math.min(0, ...values);
+  const rawMax = Math.max(0, ...values);
+  const tickStep = Math.max(5, Math.ceil(Math.max(10, rawMax - rawMin) / 5 / 5) * 5);
+  const minValue = Math.floor((rawMin - tickStep * 0.35) / tickStep) * tickStep;
+  const maxValue = Math.ceil((rawMax + tickStep * 0.35) / tickStep) * tickStep;
+  const valueSpan = maxValue - minValue || 1;
+  const x = (period) => left + (periods.indexOf(String(period)) / Math.max(1, periods.length - 1)) * plotWidth;
+  const y = (value) => top + ((maxValue - value) / valueSpan) * plotHeight;
+  const ticks = Array.from({ length: Math.round((maxValue - minValue) / tickStep) + 1 }, (_, index) => minValue + index * tickStep);
+  const grid = ticks.map((tick) => {
+    const tickY = y(tick);
+    return `<g class="stock-sector-margin-grid${tick === 0 ? " is-zero" : ""}"><line x1="${left}" y1="${tickY.toFixed(2)}" x2="${width - right}" y2="${tickY.toFixed(2)}"></line><text x="${left - 10}" y="${(tickY + 4).toFixed(2)}" text-anchor="end">${tick}%</text></g>`;
+  }).join("");
+  const xLabels = periods.map((period) => `<text class="stock-sector-margin-period" x="${x(period).toFixed(2)}" y="312" text-anchor="middle">${period}</text>`).join("");
+
+  let peerColorIndex = 0;
+  const colorByCode = new Map();
+  const currentCode = String(state.currentStock?.code || "");
+  const targetCompany = pointsByCompany.find((company) => String(company.code || "") === currentCode)
+    || pointsByCompany.find((company) => company.is_target)
+    || pointsByCompany[0];
+  const isTargetCompany = (company) => String(company?.code || "") === String(targetCompany?.code || "");
+  let targetCoordinates = [];
+  const series = pointsByCompany.map((company) => {
+    const isTarget = isTargetCompany(company);
+    const color = isTarget ? "#d62943" : SECTOR_MARGIN_COLORS[peerColorIndex++ % SECTOR_MARGIN_COLORS.length];
+    colorByCode.set(company.code, color);
+    const coordinates = company.points.map((point) => ({
+      ...point,
+      periodIndex: periods.indexOf(point.year),
+      x: x(point.year),
+      y: y(point.value),
+    }));
+    if (isTarget) targetCoordinates = coordinates;
+    const path = coordinates.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
+    const dots = coordinates.map((point) => `<circle${isTarget ? ` data-sector-period-index="${point.periodIndex}"` : ""} cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${isTarget ? 5.5 : 3.8}"></circle>`).join("");
+    const labels = isTarget
+      ? coordinates.map((point) => `<text class="stock-sector-margin-value" data-sector-period-index="${point.periodIndex}" x="${point.x.toFixed(2)}" y="${(point.y - 12).toFixed(2)}" text-anchor="middle">${Number(point.value.toFixed(1))}%</text>`).join("")
+      : "";
+    return `<g class="stock-sector-margin-series${isTarget ? " is-target" : " is-peer"}" style="--series-color:${color}"><path d="${path}"></path>${dots}${labels}</g>`;
+  }).join("");
+
+  const figure = el("figure", "stock-sector-margin-chart");
+  const classification = payload?.classification || "동종 업계";
+  figure.setAttribute("role", "group");
+  figure.setAttribute("aria-label", `${classification} 기업 ${companies.length}개사의 ${periods[0]}년부터 ${periods.at(-1)}년까지 영업이익률 추이. ${targetCompany.name || targetCompany.code} 선을 좌우로 움직여 연도별 값을 확인할 수 있습니다.`);
+  const plot = el("div", "stock-sector-margin-plot");
+  plot.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="group"><g aria-hidden="true">${grid}${xLabels}${series}<g class="stock-sector-margin-focus"><line y1="${top}" y2="${bottom}"></line><circle class="stock-sector-margin-focus-halo" r="13"></circle><circle class="stock-sector-margin-focus-point" r="6.5"></circle></g></g><rect class="stock-sector-margin-scrub-hit" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}"></rect></svg>`;
+  const sectorMarginSvg = plot.querySelector("svg");
+  sectorMarginSvg.setAttribute("aria-label", `${targetCompany.name || targetCompany.code} 영업이익률 추이`);
+  const hint = el("p", "stock-sector-margin-scrub-hint", `↔ ${targetCompany.name || targetCompany.code} 선을 좌우로 밀어 연도별 숫자를 크게 확인하세요.`);
+  const legend = el("div", "stock-sector-margin-legend");
+  for (const company of pointsByCompany) {
+    const item = el("div", isTargetCompany(company) ? "is-target" : "");
+    const name = el("span", "", company.name || company.code);
+    name.style.setProperty("--series-color", colorByCode.get(company.code));
+    item.append(name, el("strong", "", formatCompanyPercent(company.latest_operating_margin)));
+    legend.appendChild(item);
+  }
+  figure.append(plot, hint, legend);
+  elements.stockSectorMarginComparison.appendChild(figure);
+  installCompanySectorMarginScrubber({
+    figure,
+    plot,
+    svg: sectorMarginSvg,
+    target: targetCompany,
+    periods,
+    points: targetCoordinates,
+    width,
+    height,
+    left,
+    right,
+  });
+
+  if (!elements.stockSectorMarginSummary) return;
+  const target = targetCompany;
+  const gap = toNumber(payload?.target_margin_gap);
+  const medianMargin = toNumber(payload?.peer_median_margin);
+  const rank = Number(payload?.target_margin_rank || 0);
+  const summaryHead = el("header", "");
+  summaryHead.append(el("span", "", "업계 비교 요약"), el("strong", "", `${payload.latest_period || periods.at(-1)}년 실제`));
+  const summaryText = target && medianMargin !== null && gap !== null
+    ? `${target.name}의 영업이익률은 ${formatCompanyPercent(target.latest_operating_margin)}로, 비교 기업 중앙값 ${formatCompanyPercent(medianMargin)}보다 ${formatCompanyPoint(Math.abs(gap))} ${gap >= 0 ? "높습니다." : "낮습니다."}`
+    : "선택 종목과 비교 기업의 최신 영업이익률을 함께 확인하세요.";
+  const facts = el("ul", "");
+  if (rank && target) facts.appendChild(el("li", rank === 1 ? "is-positive" : "", `비교 ${companies.length}개사 중 영업이익률 ${rank}위`));
+  if (target?.revenue_rank) facts.appendChild(el("li", "", `${payload.latest_period || periods.at(-1)}년 업종 매출 ${target.revenue_rank}위`));
+  facts.appendChild(el("li", "", `${payload.classification || "업종"} 기준 · ${payload.source || "금융 데이터"}`));
+  elements.stockSectorMarginSummary.append(summaryHead, el("p", "", summaryText), facts);
+}
+
+function renderCompanySgaAnalysis() {
+  if (!elements.stockSgaAnalysis) return;
+  dismissStockBarTooltip(elements.stockSgaAnalysis);
+  const payload = state.stockSgaAnalysis;
+  const status = state.stockSgaAnalysisStatus;
+  elements.stockSgaAnalysis.innerHTML = "";
+  if (elements.stockSgaSource) {
+    elements.stockSgaSource.textContent = payload?.source || "DART 사업보고서 주석";
+    elements.stockSgaSource.hidden = !payload?.source_url;
+    if (payload?.source_url) elements.stockSgaSource.href = payload.source_url;
+    else elements.stockSgaSource.removeAttribute("href");
+  }
+  if (status === "loading") {
+    elements.stockSgaAnalysis.appendChild(el("p", "stock-company-analysis-empty", "판관비 세부 주석을 분류하는 중입니다."));
+    return;
+  }
+  if (status === "error") {
+    elements.stockSgaAnalysis.appendChild(el("p", "stock-company-analysis-empty", "판관비 세부 자료를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요."));
+    return;
+  }
+  const categories = Array.isArray(payload?.categories) ? payload.categories : [];
+  if (!payload?.available || !categories.length) {
+    elements.stockSgaAnalysis.appendChild(el("p", "stock-company-analysis-empty", payload?.message || "사업보고서에 자동 분류 가능한 판관비 세부 주석이 없습니다."));
+    return;
+  }
+
+  const overview = el("section", "stock-sga-overview");
+  const overviewHead = el("div", "stock-sga-overview-head");
+  overviewHead.append(
+    el("span", "", `${payload.period || "최신"}년 · ${payload.consolidated ? "연결" : "별도"}`),
+    el("strong", "", `판관비 ${formatFinancialAmount(payload.total_amount)}`),
+  );
+  const largest = categories[0];
+  overview.append(
+    overviewHead,
+    el("p", "", `매출 대비 ${formatCompanyPercent(payload.sales_ratio)} · 가장 큰 항목은 ${largest.label} ${formatCompanyPercent(largest.sales_ratio)}입니다.`),
+  );
+
+  const maximumRatio = Math.max(0.01, ...categories.map((category) => toNumber(category.sales_ratio) || 0));
+  const list = el("div", "stock-sga-categories");
+  categories.forEach((category, index) => {
+    const row = document.createElement("details");
+    row.className = `stock-sga-category${index === 0 ? " is-largest" : ""}`;
+    if (index === 0) row.open = true;
+    const summary = document.createElement("summary");
+    const label = el("span", "stock-sga-category-label", category.label || "기타판관비");
+    const meter = el("span", "stock-sga-category-meter");
+    const fill = el("i", "");
+    fill.style.width = `${Math.max(1.5, Math.min(100, ((toNumber(category.sales_ratio) || 0) / maximumRatio) * 100))}%`;
+    meter.appendChild(fill);
+    summary.append(
+      label,
+      meter,
+      el("strong", "", formatCompanyPercent(category.sales_ratio)),
+      el("span", "stock-sga-category-amount", formatFinancialAmount(category.amount)),
+    );
+    const details = el("div", "stock-sga-category-details");
+    for (const item of category.details || []) {
+      const detailRow = el("div", "");
+      detailRow.append(
+        el("span", "", item.name || "세부 계정"),
+        el("strong", "", formatFinancialAmount(item.amount)),
+        el("small", "", `매출 대비 ${formatCompanyPercent(item.sales_ratio)}`),
+      );
+      details.appendChild(detailRow);
+    }
+    if (!details.children.length) details.appendChild(el("p", "", "세부 계정은 별도로 공시되지 않았습니다."));
+    row.append(summary, details);
+    list.appendChild(row);
+  });
+  const foot = el("p", "stock-sga-coverage", `카테고리 분류 일치 ${formatCompanyPercent(payload.coverage_ratio)} · 금액 단위 억원`);
+  elements.stockSgaAnalysis.append(overview, list, foot);
+}
+
+const COMPANY_REPORT_LABELS = {
+  "11013": "1분기",
+  "11012": "반기",
+  "11014": "3분기",
+  "11011": "연간",
+};
+const COMPANY_REPORT_RANKS = { "11013": 1, "11012": 2, "11014": 3, "11011": 4 };
+
+function companyGrowthRate(current, previous) {
+  const currentValue = toNumber(current);
+  const previousValue = toNumber(previous);
+  if (currentValue === null || previousValue === null || previousValue <= 0) {
+    return null;
+  }
+  return ((currentValue / previousValue) - 1) * 100;
+}
+
+function latestCompanyPerformance(data) {
+  const quarterly = (data?.financial_series?.quarterly || []).filter((row) => !row?.estimated);
+  const annual = (data?.financial_series?.annual || []).filter((row) => !row?.estimated);
+  let scope = "quarterly";
+  let rows = quarterly;
+  let latest = rows.at(-1) || null;
+  let previous = rows.length >= 5 ? rows.at(-5) : null;
+  if (!latest || !previous) {
+    scope = "annual";
+    rows = annual;
+    latest = rows.at(-1) || latest;
+    previous = rows.length >= 2 ? rows.at(-2) : previous;
+  }
+  return {
+    scope,
+    latest,
+    previous,
+    revenueGrowth: companyGrowthRate(latest?.revenue, previous?.revenue),
+    operatingProfitGrowth: companyGrowthRate(latest?.operating_profit, previous?.operating_profit),
+    netIncomeGrowth: companyGrowthRate(latest?.net_income, previous?.net_income),
+    epsGrowth: companyGrowthRate(latest?.eps, previous?.eps),
+    operatingMarginChange: toNumber(latest?.operating_margin) !== null && toNumber(previous?.operating_margin) !== null
+      ? toNumber(latest.operating_margin) - toNumber(previous.operating_margin)
+      : null,
+    netMarginChange: toNumber(latest?.net_margin) !== null && toNumber(previous?.net_margin) !== null
+      ? toNumber(latest.net_margin) - toNumber(previous.net_margin)
+      : null,
+  };
+}
+
+function selectLatestCompanyStatement(lines) {
+  const groups = new Map();
+  for (const row of Array.isArray(lines) ? lines : []) {
+    if (toNumber(row?.current_amount) === null) {
+      continue;
+    }
+    const key = [row.bsns_year, row.reprt_code, row.fs_div || ""].join(":");
+    const group = groups.get(key) || {
+      year: String(row.bsns_year || ""),
+      report: String(row.reprt_code || ""),
+      fs: String(row.fs_div || ""),
+      rows: [],
+    };
+    group.rows.push(row);
+    groups.set(key, group);
+  }
+  return Array.from(groups.values()).sort((a, b) => {
+    const yearDifference = Number(b.year || 0) - Number(a.year || 0);
+    if (yearDifference) return yearDifference;
+    const reportDifference = (COMPANY_REPORT_RANKS[b.report] || 0) - (COMPANY_REPORT_RANKS[a.report] || 0);
+    if (reportDifference) return reportDifference;
+    return (b.fs === "CFS" ? 1 : 0) - (a.fs === "CFS" ? 1 : 0);
+  })[0] || null;
+}
+
+function companyStatementLine(group, options = {}) {
+  const rows = group?.rows || [];
+  const statements = Array.isArray(options.statement) ? options.statement : [options.statement];
+  const statementRows = options.statement
+    ? rows.filter((row) => statements.includes(String(row.sj_div || "").toUpperCase()))
+    : rows;
+  for (const id of options.ids || []) {
+    const matched = statementRows.find((row) => String(row.account_id || "") === id);
+    if (matched) return matched;
+  }
+  for (const name of options.names || []) {
+    const matched = statementRows.find((row) => String(row.account_name || "").replace(/\s/g, "") === String(name).replace(/\s/g, ""));
+    if (matched) return matched;
+  }
+  if (options.pattern) {
+    return statementRows.find((row) => options.pattern.test(String(row.account_name || ""))) || null;
+  }
+  return null;
+}
+
+function companyStatementValue(group, options = {}, amountKey = "current_amount") {
+  return toNumber(companyStatementLine(group, options)?.[amountKey]);
+}
+
+function companyStatementSum(group, entries, amountKey = "current_amount") {
+  const seen = new Set();
+  let total = 0;
+  let found = false;
+  for (const options of entries) {
+    const row = companyStatementLine(group, options);
+    if (!row) continue;
+    const rowKey = `${row.sj_div || ""}:${row.account_id || ""}:${row.account_name || ""}`;
+    if (seen.has(rowKey)) continue;
+    const value = toNumber(row[amountKey]);
+    if (value === null) continue;
+    seen.add(rowKey);
+    total += Math.abs(value);
+    found = true;
+  }
+  return found ? total : null;
+}
+
+function companyRatio(numerator, denominator, multiplier = 100) {
+  const top = toNumber(numerator);
+  const bottom = toNumber(denominator);
+  if (top === null || bottom === null || bottom === 0) {
+    return null;
+  }
+  return (top / bottom) * multiplier;
+}
+
+function companyAnnualizationFactor(report) {
+  return { "11013": 4, "11012": 2, "11014": 4 / 3, "11011": 1 }[report] || 1;
+}
+
+function companyStatementMetrics(data, lines = state.stockFinancialLines) {
+  const group = selectLatestCompanyStatement(lines);
+  if (!group) {
+    return {
+      group: null,
+      operatingCashFlow: null,
+      investingCashFlow: null,
+      financingCashFlow: null,
+      cashChange: null,
+      cashFlowResidual: null,
+      freeCashFlow: null,
+      grossMargin: null,
+      cashConversion: null,
+      freeCashFlowYield: null,
+      debtRatio: null,
+      currentRatio: null,
+      netCash: null,
+      netDebtRatio: null,
+      interestCoverage: null,
+      roe: null,
+      assetTurnover: null,
+      receivablesGrowth: null,
+      inventoryGrowth: null,
+      inventoryDays: null,
+      liabilityShare: null,
+      equityShare: null,
+    };
+  }
+  const balance = {
+    assets: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_Assets"], names: ["자산총계"] }),
+    currentAssets: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_CurrentAssets"], names: ["유동자산"] }),
+    cash: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_CashAndCashEquivalents"], names: ["현금및현금성자산"] }),
+    shortDeposits: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_ShorttermDepositsNotClassifiedAsCashEquivalents"], names: ["단기금융상품"] }),
+    receivables: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_CurrentTradeReceivables", "ifrs-full_TradeAndOtherCurrentReceivables"], names: ["매출채권", "매출채권및기타채권"] }),
+    inventory: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_Inventories"], names: ["재고자산"] }),
+    liabilities: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_Liabilities"], names: ["부채총계"] }),
+    currentLiabilities: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_CurrentLiabilities"], names: ["유동부채"] }),
+    equity: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_Equity"], names: ["자본총계"] }),
+  };
+  const previousBalance = {
+    assets: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_Assets"], names: ["자산총계"] }, "previous_amount"),
+    equity: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_Equity"], names: ["자본총계"] }, "previous_amount"),
+    receivables: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_CurrentTradeReceivables", "ifrs-full_TradeAndOtherCurrentReceivables"], names: ["매출채권", "매출채권및기타채권"] }, "previous_amount"),
+    inventory: companyStatementValue(group, { statement: "BS", ids: ["ifrs-full_Inventories"], names: ["재고자산"] }, "previous_amount"),
+  };
+  const combinedCurrentBorrowings = companyStatementValue(group, {
+    statement: "BS",
+    ids: ["ifrs-full_CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings"],
+    names: ["유동성차입금", "단기및유동성장기차입금"],
+  });
+  const currentBorrowings = combinedCurrentBorrowings !== null
+    ? Math.abs(combinedCurrentBorrowings)
+    : companyStatementSum(group, [
+      { statement: "BS", ids: ["ifrs-full_ShorttermBorrowings"], names: ["단기차입금"] },
+      { statement: "BS", ids: ["ifrs-full_CurrentPortionOfLongtermBorrowings"], names: ["유동성장기부채", "유동성장기차입금"] },
+      { statement: "BS", ids: ["ifrs-full_CurrentPortionOfNoncurrentBondsIssued"], names: ["유동성사채"] },
+    ]);
+  const noncurrentBorrowings = companyStatementSum(group, [
+    { statement: "BS", ids: ["ifrs-full_LongtermBorrowings", "ifrs-full_NoncurrentPortionOfNoncurrentLoansReceived"], names: ["장기차입금"] },
+    { statement: "BS", ids: ["ifrs-full_NoncurrentPortionOfNoncurrentBondsIssued"], names: ["사채"] },
+  ]);
+  const debt = currentBorrowings === null && noncurrentBorrowings === null
+    ? null
+    : (currentBorrowings || 0) + (noncurrentBorrowings || 0);
+  const operatingCashFlow = companyStatementValue(group, {
+    statement: "CF",
+    ids: ["ifrs-full_CashFlowsFromUsedInOperatingActivities"],
+    names: ["영업활동현금흐름"],
+  });
+  const investingCashFlow = companyStatementValue(group, {
+    statement: "CF",
+    ids: ["ifrs-full_CashFlowsFromUsedInInvestingActivities"],
+    names: ["투자활동현금흐름"],
+  });
+  const financingCashFlow = companyStatementValue(group, {
+    statement: "CF",
+    ids: ["ifrs-full_CashFlowsFromUsedInFinancingActivities"],
+    names: ["재무활동현금흐름"],
+  });
+  const reportedCashChange = companyStatementValue(group, {
+    statement: "CF",
+    ids: ["ifrs-full_IncreaseDecreaseInCashAndCashEquivalents"],
+    names: ["현금및현금성자산의순증감", "현금및현금성자산의증가(감소)"],
+  });
+  const exchangeEffect = companyStatementValue(group, {
+    statement: "CF",
+    ids: ["ifrs-full_EffectOfExchangeRateChangesOnCashAndCashEquivalents"],
+    names: ["현금및현금성자산의환율변동효과"],
+  });
+  const capex = companyStatementSum(group, [
+    { statement: "CF", ids: ["ifrs-full_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"], names: ["유형자산의취득"] },
+    { statement: "CF", ids: ["ifrs-full_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities"], names: ["무형자산의취득"] },
+  ]);
+  const incomeStatements = ["IS", "CIS"];
+  const revenue = companyStatementValue(group, { statement: incomeStatements, ids: ["ifrs-full_Revenue"], names: ["매출액", "영업수익"] });
+  const operatingProfit = companyStatementValue(group, { statement: incomeStatements, ids: ["dart_OperatingIncomeLoss", "ifrs-full_ProfitLossFromOperatingActivities"], names: ["영업이익", "영업이익(손실)"] });
+  const netIncome = companyStatementValue(group, { statement: incomeStatements, ids: ["ifrs-full_ProfitLoss"], names: ["당기순이익", "분기순이익", "반기순이익", "당기순이익(손실)"] });
+  const grossProfit = companyStatementValue(group, { statement: incomeStatements, ids: ["ifrs-full_GrossProfit"], names: ["매출총이익"] });
+  const costOfSales = companyStatementValue(group, { statement: incomeStatements, ids: ["ifrs-full_CostOfSales"], names: ["매출원가"] });
+  const financeCosts = companyStatementValue(group, { statement: incomeStatements, ids: ["ifrs-full_FinanceCosts"], names: ["금융비용", "이자비용"] });
+  const liquidFunds = balance.cash === null && balance.shortDeposits === null
+    ? null
+    : (balance.cash || 0) + (balance.shortDeposits || 0);
+  const freeCashFlow = operatingCashFlow === null
+    ? null
+    : operatingCashFlow - (capex || 0);
+  const annualization = companyAnnualizationFactor(group.report);
+  const marketCap = toNumber(data?.quote?.market_cap);
+  const averageEquity = balance.equity !== null && previousBalance.equity !== null
+    ? (balance.equity + previousBalance.equity) / 2
+    : balance.equity;
+  const averageAssets = balance.assets !== null && previousBalance.assets !== null
+    ? (balance.assets + previousBalance.assets) / 2
+    : balance.assets;
+  const averageInventory = balance.inventory !== null && previousBalance.inventory !== null
+    ? (balance.inventory + previousBalance.inventory) / 2
+    : balance.inventory;
+  const annualizedCostOfSales = costOfSales === null ? null : Math.abs(costOfSales) * annualization;
+  const netDebt = liquidFunds === null || debt === null ? null : debt - liquidFunds;
+  const coreCashFlowValues = [operatingCashFlow, investingCashFlow, financingCashFlow];
+  const coreCashFlow = coreCashFlowValues.every((value) => value !== null)
+    ? coreCashFlowValues.reduce((sum, value) => sum + value, 0)
+    : null;
+  const calculatedCashChange = coreCashFlow === null
+    ? null
+    : coreCashFlow + (exchangeEffect || 0);
+  const cashChange = reportedCashChange === null ? calculatedCashChange : reportedCashChange;
+  return {
+    group,
+    ...balance,
+    debt,
+    liquidFunds,
+    netCash: netDebt === null ? null : -netDebt,
+    netDebtRatio: companyRatio(netDebt, balance.equity),
+    operatingCashFlow,
+    investingCashFlow,
+    financingCashFlow,
+    cashChange,
+    cashFlowResidual: cashChange === null || coreCashFlow === null ? null : cashChange - coreCashFlow,
+    capex,
+    freeCashFlow,
+    revenue,
+    operatingProfit,
+    netIncome,
+    grossMargin: companyRatio(grossProfit, revenue),
+    cashConversion: companyRatio(operatingCashFlow, netIncome),
+    freeCashFlowMargin: companyRatio(freeCashFlow, revenue),
+    freeCashFlowYield: freeCashFlow === null || marketCap === null
+      ? null
+      : companyRatio(freeCashFlow * annualization, marketCap),
+    debtRatio: companyRatio(balance.liabilities, balance.equity),
+    currentRatio: companyRatio(balance.currentAssets, balance.currentLiabilities),
+    interestCoverage: companyRatio(operatingProfit, Math.abs(financeCosts || 0), 1),
+    roe: companyRatio((netIncome === null ? null : netIncome * annualization), averageEquity),
+    assetTurnover: companyRatio((revenue === null ? null : revenue * annualization), averageAssets, 1),
+    receivablesGrowth: companyGrowthRate(balance.receivables, previousBalance.receivables),
+    inventoryGrowth: companyGrowthRate(balance.inventory, previousBalance.inventory),
+    inventoryDays: companyRatio(averageInventory, annualizedCostOfSales, 365),
+    liabilityShare: companyRatio(balance.liabilities, balance.assets),
+    equityShare: companyRatio(balance.equity, balance.assets),
+  };
+}
+
+function formatCompanyStatementAmount(value) {
+  const number = toNumber(value);
+  return number === null ? "-" : formatFinancialAmount(number / 100_000_000);
+}
+
+function formatCompanyMultiple(value) {
+  const number = toNumber(value);
+  return number === null ? "-" : `${number.toFixed(2)}배`;
+}
+
+function formatCompanyPercent(value, options = {}) {
+  const number = toNumber(value);
+  if (number === null) return "-";
+  return `${options.signed && number > 0 ? "+" : ""}${number.toFixed(2)}%`;
+}
+
+function formatCompanyPoint(value) {
+  const number = toNumber(value);
+  return number === null ? "-" : `${Math.abs(number).toFixed(2)}%p`;
+}
+
+function companyFinancialInstitution(data) {
+  return /은행|금융|증권|보험|카드|캐피탈/.test(`${data?.company_profile?.industry || ""} ${data?.company_profile?.sector || ""}`);
+}
+
+function companySignalTone(status) {
+  if (["개선", "성장", "양호", "현금 유입", "업종 대비 낮음"].includes(status)) return "is-positive";
+  if (["둔화", "감소", "적자", "현금 유출", "부담", "업종 대비 높음"].includes(status)) return "is-negative";
+  if (["주의", "비교 주의"].includes(status)) return "is-caution";
+  return "is-neutral";
+}
+
+function formatCompanyHealthPercent(value) {
+  const number = toNumber(value);
+  return number === null ? "-" : `${number.toFixed(1)}%`;
+}
+
+function companyFinancialHealthCard(label, value, status, tone) {
+  const card = el("article", `stock-financial-health-card ${tone || "is-neutral"}`);
+  card.append(
+    el("strong", "", value),
+    el("span", "", label),
+    el("em", "", status),
+  );
+  return card;
+}
+
+function renderCompanyFinancialHealth(data, metrics, statementLabel) {
+  if (!elements.stockFinancialHealth) return;
+  dismissStockBarTooltip(elements.stockFinancialHealth);
+  setText(elements.stockFinancialHealthSource, metrics.group ? statementLabel : "최신 DART 재무제표");
+  elements.stockFinancialHealth.innerHTML = "";
+  if (!metrics.group) {
+    elements.stockFinancialHealth.appendChild(el(
+      "p",
+      "stock-company-analysis-empty",
+      state.stockFinancialLinesStatus === "loading"
+        ? "현금과 재무상태를 계산하는 중입니다."
+        : "표시할 최신 재무상태표와 현금흐름표가 없습니다.",
+    ));
+    return;
+  }
+
+  const financialCompany = companyFinancialInstitution(data);
+  const netDebtRatio = financialCompany ? null : metrics.netDebtRatio;
+  const netDebtStatus = financialCompany
+    ? "업종 별도 기준"
+    : netDebtRatio === null
+      ? "계산 자료 부족"
+      : netDebtRatio <= 0
+        ? "순현금 구조"
+        : netDebtRatio <= 50 ? "안정권" : netDebtRatio <= 100 ? "점검 필요" : "부담 높음";
+  const netDebtTone = financialCompany || netDebtRatio === null
+    ? "is-neutral"
+    : netDebtRatio <= 50 ? "is-positive" : netDebtRatio > 100 ? "is-negative" : "is-caution";
+  const roeStatus = metrics.roe === null
+    ? "계산 자료 부족"
+    : metrics.roe < 0 ? "손실 구간" : metrics.roe >= 15 ? "자본 효율 높음" : metrics.roe >= 8 ? "자본 효율 양호" : "효율 점검";
+  const roeTone = metrics.roe === null ? "is-neutral" : metrics.roe >= 8 ? "is-positive" : metrics.roe < 0 ? "is-negative" : "is-caution";
+  const cashStatus = metrics.operatingCashFlow === null
+    ? "계산 자료 부족"
+    : metrics.operatingCashFlow >= 0 ? "현금 유입" : "현금 유출";
+  const cashTone = metrics.operatingCashFlow === null ? "is-neutral" : metrics.operatingCashFlow >= 0 ? "is-positive" : "is-negative";
+  const inventoryStatus = metrics.inventoryDays === null
+    ? "재고 자료 없음"
+    : metrics.inventoryDays <= 90 ? "회전 속도 빠름" : metrics.inventoryDays <= 120 ? "회전 속도 보통" : "회전 속도 점검";
+  const inventoryTone = metrics.inventoryDays === null
+    ? "is-neutral"
+    : metrics.inventoryDays <= 90 ? "is-positive" : metrics.inventoryDays > 120 ? "is-negative" : "is-caution";
+
+  const cards = el("div", "stock-financial-health-kpis");
+  cards.append(
+    companyFinancialHealthCard("순차입금비율", formatCompanyHealthPercent(netDebtRatio), netDebtStatus, netDebtTone),
+    companyFinancialHealthCard("ROE(자기자본이익률)", formatCompanyHealthPercent(metrics.roe), roeStatus, roeTone),
+    companyFinancialHealthCard("영업활동 현금흐름", formatCompanyStatementAmount(metrics.operatingCashFlow), cashStatus, cashTone),
+    companyFinancialHealthCard("재고보유일수", metrics.inventoryDays === null ? "-" : `${Math.round(metrics.inventoryDays)}일`, inventoryStatus, inventoryTone),
+  );
+  elements.stockFinancialHealth.appendChild(cards);
+
+  if (metrics.assets === null || metrics.liabilities === null || metrics.equity === null) {
+    elements.stockFinancialHealth.appendChild(el("p", "stock-company-analysis-empty", "자산·부채·자본 구성 자료가 부족합니다."));
+    return;
+  }
+
+  const liabilityShare = clampNumber(metrics.liabilityShare || 0, 0, 100);
+  const equityShare = clampNumber(metrics.equityShare || 0, 0, 100);
+  const composition = el("section", "stock-balance-composition");
+  const compositionHeader = el("header", "");
+  const compositionTitle = el("div", "");
+  compositionTitle.append(
+    el("span", "", "재무상태 한눈에"),
+    el("h3", "", "자산은 누구 돈으로 만들어졌나"),
+  );
+  compositionHeader.append(compositionTitle, el("b", "", statementLabel));
+
+  const assetRow = el("div", "stock-balance-row");
+  assetRow.append(el("strong", "", "자산"));
+  const assetBar = el("div", "stock-balance-bar stock-balance-assets");
+  setStockBarTooltipTarget(assetBar, `자산 ${formatCompanyStatementAmount(metrics.assets)} · 100%`);
+  assetBar.appendChild(el("span", "", `${formatCompanyStatementAmount(metrics.assets)} (100%)`));
+  assetRow.appendChild(assetBar);
+
+  const fundingRow = el("div", "stock-balance-row");
+  fundingRow.append(el("strong", "", "부채 + 자본"));
+  const fundingBar = el("div", "stock-balance-bar stock-balance-funding");
+  fundingBar.setAttribute("role", "group");
+  fundingBar.setAttribute("aria-label", `부채 ${formatCompanyStatementAmount(metrics.liabilities)} ${formatCompanyHealthPercent(metrics.liabilityShare)}, 자본 ${formatCompanyStatementAmount(metrics.equity)} ${formatCompanyHealthPercent(metrics.equityShare)}`);
+  const liabilitySegment = el("span", "liability", `부채 ${formatCompanyStatementAmount(metrics.liabilities)} (${Math.round(liabilityShare)}%)`);
+  liabilitySegment.style.flexBasis = `${liabilityShare.toFixed(2)}%`;
+  const equitySegment = el("span", "equity", `자본 ${formatCompanyStatementAmount(metrics.equity)} (${Math.round(equityShare)}%)`);
+  equitySegment.style.flexBasis = `${equityShare.toFixed(2)}%`;
+  setStockBarTooltipTarget(liabilitySegment, `부채 ${formatCompanyStatementAmount(metrics.liabilities)} · ${formatCompanyHealthPercent(metrics.liabilityShare)}`);
+  setStockBarTooltipTarget(equitySegment, `자본 ${formatCompanyStatementAmount(metrics.equity)} · ${formatCompanyHealthPercent(metrics.equityShare)}`);
+  fundingBar.append(liabilitySegment, equitySegment);
+  fundingRow.appendChild(fundingBar);
+
+  const footer = el("footer", "stock-balance-footer");
+  const legend = el("div", "stock-balance-legend");
+  legend.append(el("span", "liability", `부채 ${formatCompanyStatementAmount(metrics.liabilities)}`), el("span", "equity", `자본 ${formatCompanyStatementAmount(metrics.equity)}`));
+  footer.append(legend, el("strong", "", `부채비율 ${formatCompanyHealthPercent(metrics.debtRatio)}`));
+
+  const summary = el("p", "stock-financial-health-summary");
+  const fundingSummary = `자산의 ${formatCompanyHealthPercent(metrics.equityShare)}를 자기자본으로, ${formatCompanyHealthPercent(metrics.liabilityShare)}를 부채로 조달했습니다.`;
+  const cashSummary = metrics.netCash === null
+    ? " 순차입 구조는 계산 자료를 더 확인해야 합니다."
+    : metrics.netCash >= 0
+      ? ` 현금성자산이 이자성 부채보다 ${formatCompanyStatementAmount(metrics.netCash)} 많습니다.`
+      : ` 이자성 부채가 현금성자산보다 ${formatCompanyStatementAmount(Math.abs(metrics.netCash))} 많습니다.`;
+  summary.textContent = `${fundingSummary}${cashSummary}`;
+
+  composition.append(compositionHeader, assetRow, fundingRow, footer, summary);
+  installStockBarTooltips(composition);
+  elements.stockFinancialHealth.appendChild(composition);
+}
+
+function formatCompanySignedStatementAmount(value) {
+  const number = toNumber(value);
+  if (number === null) return "-";
+  return `${number > 0 ? "+" : ""}${formatCompanyStatementAmount(number)}`;
+}
+
+function companyCashflowNiceExtent(value) {
+  const absolute = Math.abs(toNumber(value) || 0);
+  if (!absolute) return 1;
+  const roughStep = absolute / 3;
+  const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+  const fraction = roughStep / magnitude;
+  const niceFraction = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+  const step = niceFraction * magnitude;
+  return Math.ceil(absolute / step) * step;
+}
+
+function renderCompanyCashflowWaterfall(metrics, statementLabel) {
+  if (!elements.stockCashflowWaterfall) return;
+  dismissStockBarTooltip(elements.stockCashflowWaterfall);
+  setText(elements.stockCashflowWaterfallSource, metrics.group ? statementLabel : "최신 DART 현금흐름표");
+  elements.stockCashflowWaterfall.innerHTML = "";
+  const activityValues = [metrics.operatingCashFlow, metrics.investingCashFlow, metrics.financingCashFlow];
+  if (!metrics.group || activityValues.some((value) => value === null)) {
+    elements.stockCashflowWaterfall.appendChild(el(
+      "p",
+      "stock-company-analysis-empty",
+      state.stockFinancialLinesStatus === "loading"
+        ? "현금의 유입과 사용처를 계산하는 중입니다."
+        : "영업·투자·재무활동 현금흐름 자료가 모두 있어야 폭포수를 표시할 수 있습니다.",
+    ));
+    return;
+  }
+
+  const coreCashFlow = activityValues.reduce((sum, value) => sum + value, 0);
+  const cashChange = metrics.cashChange === null ? coreCashFlow : metrics.cashChange;
+  let running = 0;
+  const activities = [
+    { key: "operating", label: "영업활동", detail: "본업", value: metrics.operatingCashFlow },
+    { key: "investing", label: "투자활동", detail: "설비·투자", value: metrics.investingCashFlow },
+    { key: "financing", label: "재무활동", detail: "차입·상환", value: metrics.financingCashFlow },
+  ].map((row) => {
+    const start = running;
+    const end = start + row.value;
+    running = end;
+    return { ...row, start, end };
+  });
+  activities.push({ key: "change", label: "현금 증감", detail: "최종 변화", value: cashChange, start: 0, end: cashChange, total: true });
+
+  const scaleValues = [0, cashChange];
+  for (const row of activities.slice(0, 3)) scaleValues.push(row.start, row.end);
+  const rawMaximum = Math.max(...scaleValues);
+  const rawMinimum = Math.min(...scaleValues);
+  const axisMaximum = rawMaximum > 0 ? companyCashflowNiceExtent(rawMaximum * 1.08) : 0;
+  const axisMinimum = rawMinimum < 0 ? -companyCashflowNiceExtent(Math.abs(rawMinimum) * 1.08) : 0;
+  const safeMaximum = axisMaximum === axisMinimum ? axisMinimum + 1 : axisMaximum;
+  const axisRange = safeMaximum - axisMinimum;
+  const position = (value) => clampNumber(((value - axisMinimum) / axisRange) * 100, 0, 100);
+
+  const holdings = el("dl", "stock-cashflow-holdings");
+  for (const row of [
+    { label: "기말 보유 현금", value: metrics.cash },
+    { label: "단기금융상품 포함 유동성", value: metrics.liquidFunds },
+  ]) {
+    const item = el("div", "");
+    item.append(el("dt", "", row.label), el("dd", "", formatCompanyStatementAmount(row.value)));
+    holdings.appendChild(item);
+  }
+
+  const visual = el("div", "stock-cashflow-waterfall-visual");
+  visual.setAttribute("role", "group");
+  visual.setAttribute("aria-label", `영업활동 ${formatCompanySignedStatementAmount(metrics.operatingCashFlow)}, 투자활동 ${formatCompanySignedStatementAmount(metrics.investingCashFlow)}, 재무활동 ${formatCompanySignedStatementAmount(metrics.financingCashFlow)}, 최종 현금 증감 ${formatCompanySignedStatementAmount(cashChange)}`);
+  const plot = el("div", "stock-cashflow-waterfall-plot");
+  const axis = el("div", "stock-cashflow-waterfall-axis");
+  const gridlines = el("div", "stock-cashflow-waterfall-gridlines");
+  const tickValues = axisMinimum < 0
+    ? [axisMinimum, 0, safeMaximum]
+    : [0, safeMaximum / 2, safeMaximum];
+  for (const tickValue of Array.from(new Set(tickValues))) {
+    const tick = el("span", tickValue === 0 ? "is-zero" : "", formatCompanyStatementAmount(tickValue));
+    tick.style.bottom = `${position(tickValue).toFixed(2)}%`;
+    axis.appendChild(tick);
+    const grid = el("i", tickValue === 0 ? "stock-cashflow-gridline is-zero" : "stock-cashflow-gridline");
+    grid.style.bottom = `${position(tickValue).toFixed(2)}%`;
+    gridlines.appendChild(grid);
+  }
+
+  const columns = el("div", "stock-cashflow-waterfall-columns");
+  for (const row of activities) {
+    const column = el("div", `stock-cashflow-waterfall-column is-${row.key}${row.total ? " is-total" : ""}`);
+    const track = el("div", "stock-cashflow-waterfall-track");
+    const lowerPosition = position(Math.min(row.start, row.end));
+    const upperPosition = position(Math.max(row.start, row.end));
+    const bar = el("span", `stock-cashflow-waterfall-bar ${row.value >= 0 ? "is-inflow" : "is-outflow"}`);
+    bar.style.bottom = `${lowerPosition.toFixed(2)}%`;
+    bar.style.height = `${Math.max(upperPosition - lowerPosition, 1.8).toFixed(2)}%`;
+    setStockBarTooltipTarget(bar, `${row.label} ${formatCompanySignedStatementAmount(row.value)}`);
+    const value = el("strong", "stock-cashflow-waterfall-value", formatCompanySignedStatementAmount(row.value));
+    value.style.bottom = `calc(${upperPosition.toFixed(2)}% + 6px)`;
+    track.append(bar, value);
+    const label = el("div", "stock-cashflow-waterfall-label");
+    label.append(el("b", "", row.label), el("span", "", row.detail));
+    column.append(track, label);
+    columns.appendChild(column);
+  }
+  plot.append(gridlines, axis, columns);
+  visual.appendChild(plot);
+  installStockBarTooltips(visual);
+
+  const residual = metrics.cashFlowResidual;
+  const investmentCoverage = metrics.operatingCashFlow > 0 && metrics.investingCashFlow < 0
+    ? companyRatio(metrics.operatingCashFlow, Math.abs(metrics.investingCashFlow))
+    : null;
+  const summary = el("section", "stock-cashflow-waterfall-summary");
+  const summaryHead = el("header", "");
+  summaryHead.append(el("span", "", "현금흐름 요약"), el("strong", cashChange >= 0 ? "is-positive" : "is-negative", `현금 ${formatCompanySignedStatementAmount(cashChange)}`));
+  const operatingText = metrics.operatingCashFlow >= 0
+    ? `본업에서 ${formatCompanyStatementAmount(metrics.operatingCashFlow)}를 벌었고`
+    : `본업에서 ${formatCompanyStatementAmount(Math.abs(metrics.operatingCashFlow))}가 유출됐고`;
+  const investingText = metrics.investingCashFlow < 0
+    ? `투자활동에 ${formatCompanyStatementAmount(Math.abs(metrics.investingCashFlow))}를 사용했으며`
+    : `투자활동에서 ${formatCompanyStatementAmount(metrics.investingCashFlow)}를 회수했으며`;
+  const financingText = metrics.financingCashFlow < 0
+    ? `재무활동에서 ${formatCompanyStatementAmount(Math.abs(metrics.financingCashFlow))}가 유출됐습니다.`
+    : `재무활동에서 ${formatCompanyStatementAmount(metrics.financingCashFlow)}가 유입됐습니다.`;
+  const summaryList = el("ul", "");
+  if (investmentCoverage !== null) {
+    summaryList.appendChild(el("li", investmentCoverage >= 100 ? "is-positive" : "is-caution", `영업현금으로 투자활동 유출의 ${formatCompanyHealthPercent(investmentCoverage)}를 충당했습니다.`));
+  }
+  summaryList.appendChild(el("li", coreCashFlow >= 0 ? "is-positive" : "is-negative", `세 활동 합계 ${formatCompanySignedStatementAmount(coreCashFlow)}`));
+  if (residual !== null && Math.abs(residual) >= 50_000_000) {
+    summaryList.appendChild(el("li", "is-neutral", `환율·연결범위 등 기타 효과 ${formatCompanySignedStatementAmount(residual)}`));
+  }
+  summary.append(summaryHead, el("p", "", `${operatingText}, ${investingText}, ${financingText}`), summaryList);
+
+  elements.stockCashflowWaterfall.append(holdings, visual, summary);
+}
+
+function renderCompanySnapshot(data, performance, metrics) {
+  if (!elements.stockInvestmentSnapshot) return;
+  const valuation = data?.valuation || {};
+  const revenueGrowth = performance.revenueGrowth;
+  const profitGrowth = performance.operatingProfitGrowth;
+  const margin = toNumber(performance.latest?.operating_margin);
+  const marginChange = performance.operatingMarginChange;
+  let growthStatus = "정보 부족";
+  if (revenueGrowth !== null && profitGrowth !== null) {
+    growthStatus = revenueGrowth > 0 && profitGrowth > 0 ? "성장" : revenueGrowth < 0 && profitGrowth < 0 ? "감소" : "엇갈림";
+  }
+  const profitabilityStatus = margin === null
+    ? "정보 부족"
+    : margin < 0 ? "적자" : marginChange === null ? "확인" : marginChange >= 0 ? "개선" : "둔화";
+  const cashStatus = metrics.operatingCashFlow === null
+    ? (state.stockFinancialLinesStatus === "loading" ? "확인 중" : "정보 부족")
+    : metrics.operatingCashFlow > 0 ? "현금 유입" : "현금 유출";
+  const financialCompany = companyFinancialInstitution(data);
+  const stabilityStatus = financialCompany
+    ? "비교 주의"
+    : metrics.debtRatio === null || metrics.currentRatio === null
+      ? (state.stockFinancialLinesStatus === "loading" ? "확인 중" : "정보 부족")
+      : metrics.debtRatio <= 100 && metrics.currentRatio >= 100 ? "양호" : metrics.debtRatio >= 200 || metrics.currentRatio < 80 ? "주의" : "확인";
+  const efficiencyStatus = metrics.roe === null
+    ? (state.stockFinancialLinesStatus === "loading" ? "확인 중" : "정보 부족")
+    : metrics.roe >= 10 ? "양호" : metrics.roe < 5 ? "주의" : "확인";
+  const per = toNumber(valuation.per);
+  const industryPer = toNumber(valuation.industry_per);
+  const valuationStatus = per === null || industryPer === null || per <= 0 || industryPer <= 0
+    ? "비교 제한"
+    : per <= industryPer * 0.9 ? "업종 대비 낮음" : per >= industryPer * 1.1 ? "업종 대비 높음" : "업종과 비슷";
+  const rows = [
+    {
+      label: "성장",
+      status: growthStatus,
+      value: revenueGrowth === null ? "-" : formatPercent(revenueGrowth),
+      detail: revenueGrowth === null ? "매출의 전년 비교 자료가 부족합니다." : `매출 ${formatPercent(revenueGrowth)} · 영업이익 ${profitGrowth === null ? "비교 불가" : formatPercent(profitGrowth)}`,
+    },
+    {
+      label: "수익성",
+      status: profitabilityStatus,
+      value: margin === null ? "-" : formatCompanyPercent(margin),
+      detail: marginChange === null ? "영업이익률 추이를 확인하세요." : `영업이익률이 비교 기간보다 ${formatCompanyPoint(marginChange)} ${marginChange >= 0 ? "높아졌습니다." : "낮아졌습니다."}`,
+    },
+    {
+      label: "현금",
+      status: cashStatus,
+      value: formatCompanyStatementAmount(metrics.operatingCashFlow),
+      detail: metrics.cashConversion === null ? "순이익이 실제 현금으로 들어오는지 확인 중입니다." : `현금이익비율 ${formatCompanyPercent(metrics.cashConversion)}`,
+    },
+    {
+      label: "안정성",
+      status: stabilityStatus,
+      value: financialCompany ? "업종 별도 기준" : metrics.debtRatio === null ? "-" : formatCompanyPercent(metrics.debtRatio),
+      detail: financialCompany ? "금융업은 일반 기업의 부채비율 기준으로 판단하기 어렵습니다." : `부채비율 ${metrics.debtRatio === null ? "-" : formatCompanyPercent(metrics.debtRatio)} · 유동비율 ${metrics.currentRatio === null ? "-" : formatCompanyPercent(metrics.currentRatio)}`,
+    },
+    {
+      label: "효율",
+      status: efficiencyStatus,
+      value: metrics.roe === null ? "-" : formatCompanyPercent(metrics.roe),
+      detail: metrics.roe === null ? "자본이익률 계산 자료가 부족합니다." : `단순 연환산 ROE · 자산회전율 ${metrics.assetTurnover === null ? "-" : `${metrics.assetTurnover.toFixed(2)}회`}`,
+    },
+    {
+      label: "가격",
+      status: valuationStatus,
+      value: per === null ? "-" : formatCompanyMultiple(per),
+      detail: industryPer === null ? "업종 PER 비교 자료가 없습니다." : `동일업종 PER ${formatCompanyMultiple(industryPer)}`,
+    },
+  ];
+  elements.stockInvestmentSnapshot.innerHTML = "";
+  for (const row of rows) {
+    const item = el("article", `stock-investment-snapshot-row ${companySignalTone(row.status)}`);
+    const head = el("div", "stock-investment-snapshot-head");
+    head.append(el("strong", "", row.label), el("span", "", row.status));
+    item.append(head, el("b", "", row.value), el("p", "", row.detail));
+    elements.stockInvestmentSnapshot.appendChild(item);
+  }
+}
+
+function companyMetricTone(value, thresholds = {}) {
+  const number = toNumber(value);
+  if (number === null) return "is-neutral";
+  if (thresholds.positive !== undefined && number >= thresholds.positive) return "is-positive";
+  if (thresholds.negative !== undefined && number <= thresholds.negative) return "is-negative";
+  return "is-neutral";
+}
+
+function companyLowerIsBetterTone(value, goodMaximum, riskMinimum) {
+  const number = toNumber(value);
+  if (number === null) return "is-neutral";
+  if (number <= goodMaximum) return "is-positive";
+  if (number >= riskMinimum) return "is-negative";
+  return "is-neutral";
+}
+
+function appendCompanyMetricGroup(title, helper, rows) {
+  if (!elements.stockCompanyMetricGroups) return;
+  const section = el("section", "stock-company-metric-group");
+  const head = el("header", "");
+  head.append(el("h3", "", title), el("p", "", helper));
+  const list = el("dl", "stock-company-metric-list");
+  for (const row of rows) {
+    const item = el("div", row.tone || "is-neutral");
+    const label = el("dt", "");
+    label.append(el("strong", "", row.label), el("span", "", row.note));
+    const value = el("dd", "", row.value);
+    if (row.subvalue) value.appendChild(el("small", "", row.subvalue));
+    item.append(label, value);
+    list.appendChild(item);
+  }
+  section.append(head, list);
+  elements.stockCompanyMetricGroups.appendChild(section);
+}
+
+function renderCompanyMetricGroups(data, performance, metrics) {
+  if (!elements.stockCompanyMetricGroups) return;
+  elements.stockCompanyMetricGroups.innerHTML = "";
+  const operatingMargin = toNumber(performance.latest?.operating_margin);
+  const netMargin = toNumber(performance.latest?.net_margin);
+  appendCompanyMetricGroup("수익성 구조", "매출이 각 단계에서 얼마나 이익으로 남는지 비교합니다.", [
+    { label: "매출총이익률", note: "매출총이익 ÷ 매출", value: formatCompanyPercent(metrics.grossMargin), tone: "is-neutral" },
+    { label: "영업이익률", note: "본업의 수익성", value: formatCompanyPercent(operatingMargin), subvalue: performance.operatingMarginChange === null ? "" : `비교 기간보다 ${formatCompanyPoint(performance.operatingMarginChange)} ${performance.operatingMarginChange >= 0 ? "개선" : "하락"}`, tone: companyMetricTone(operatingMargin, { positive: 10, negative: 0 }) },
+    { label: "순이익률", note: "최종적으로 남은 이익", value: formatCompanyPercent(netMargin), subvalue: performance.netMarginChange === null ? "" : `비교 기간보다 ${formatCompanyPoint(performance.netMarginChange)} ${performance.netMarginChange >= 0 ? "개선" : "하락"}`, tone: companyMetricTone(netMargin, { positive: 8, negative: 0 }) },
+    { label: "EPS 성장률", note: "주당순이익 전년 동기/전년 대비", value: formatCompanyPercent(performance.epsGrowth, { signed: true }), tone: companyMetricTone(performance.epsGrowth, { positive: 0, negative: -0.01 }) },
+  ]);
+  if (!metrics.group) {
+    elements.stockCompanyMetricGroups.appendChild(el("p", "stock-company-analysis-empty", state.stockFinancialLinesStatus === "loading"
+      ? "재무상태표와 현금흐름표를 확인하는 중입니다."
+      : "표시할 최신 DART 재무제표가 없습니다."));
+    return;
+  }
+  appendCompanyMetricGroup("이익의 질", "순이익과 실제 현금 유입을 같이 봅니다.", [
+    { label: "영업현금흐름", note: "본업에서 들어온 현금", value: formatCompanyStatementAmount(metrics.operatingCashFlow), tone: companyMetricTone(metrics.operatingCashFlow, { positive: 0, negative: -1 }) },
+    { label: "잉여현금흐름 FCF", note: "영업현금 - 설비·무형자산 투자", value: formatCompanyStatementAmount(metrics.freeCashFlow), tone: companyMetricTone(metrics.freeCashFlow, { positive: 0, negative: -1 }) },
+    { label: "현금이익비율", note: "영업현금 ÷ 순이익", value: metrics.cashConversion === null ? "-" : formatCompanyPercent(metrics.cashConversion), subvalue: metrics.cashConversion === null ? "" : metrics.cashConversion >= 100 ? "순이익 이상 현금 유입" : "순이익보다 현금 유입이 적음", tone: companyMetricTone(metrics.cashConversion, { positive: 100, negative: 60 }) },
+    { label: "FCF 수익률", note: "연환산 FCF ÷ 시가총액", value: formatCompanyPercent(metrics.freeCashFlowYield), subvalue: metrics.freeCashFlowYield === null ? "" : "분기 수치를 단순 연환산한 참고값", tone: companyMetricTone(metrics.freeCashFlowYield, { positive: 5, negative: 0 }) },
+  ]);
+  appendCompanyMetricGroup("재무 안정성", "빚을 감당할 여력과 단기 지급 능력을 봅니다.", [
+    { label: "부채비율", note: "부채 ÷ 자본", value: metrics.debtRatio === null ? "-" : formatCompanyPercent(metrics.debtRatio), subvalue: companyFinancialInstitution(data) ? "금융업은 별도 기준 필요" : "", tone: companyFinancialInstitution(data) ? "is-neutral" : companyLowerIsBetterTone(metrics.debtRatio, 100, 200) },
+    { label: "유동비율", note: "유동자산 ÷ 유동부채", value: metrics.currentRatio === null ? "-" : formatCompanyPercent(metrics.currentRatio), subvalue: metrics.currentRatio === null ? "" : metrics.currentRatio >= 100 ? "단기부채보다 유동자산이 많음" : "단기 상환 여력 확인 필요", tone: companyMetricTone(metrics.currentRatio, { positive: 100, negative: 80 }) },
+    { label: "순현금", note: "현금성자산 - 차입금·사채", value: formatCompanyStatementAmount(metrics.netCash), subvalue: metrics.netCash === null ? "" : metrics.netCash >= 0 ? "현금성자산이 이자성 부채보다 많음" : "순차입 상태", tone: companyMetricTone(metrics.netCash, { positive: 0, negative: -1 }) },
+    { label: "이자보상배율", note: "영업이익 ÷ 금융비용", value: metrics.interestCoverage === null ? "-" : `${metrics.interestCoverage.toFixed(1)}배`, tone: companyMetricTone(metrics.interestCoverage, { positive: 3, negative: 1 }) },
+  ]);
+  appendCompanyMetricGroup("운영 효율", "자본과 자산을 얼마나 효율적으로 쓰는지 봅니다.", [
+    { label: "ROE", note: "순이익 ÷ 평균자본 · 단순 연환산", value: metrics.roe === null ? "-" : formatCompanyPercent(metrics.roe), tone: companyMetricTone(metrics.roe, { positive: 10, negative: 5 }) },
+    { label: "자산회전율", note: "연환산 매출 ÷ 평균자산", value: metrics.assetTurnover === null ? "-" : `${metrics.assetTurnover.toFixed(2)}회`, tone: companyMetricTone(metrics.assetTurnover, { positive: 1, negative: 0.4 }) },
+    { label: "매출채권 증감", note: "외상매출이 빠르게 늘면 현금화 점검", value: metrics.receivablesGrowth === null ? "-" : formatPercent(metrics.receivablesGrowth), tone: "is-neutral" },
+    { label: "재고 증감", note: "매출보다 빠르게 늘면 재고 부담 점검", value: metrics.inventoryGrowth === null ? "-" : formatPercent(metrics.inventoryGrowth), tone: "is-neutral" },
+  ]);
+}
+
+function positiveCompanyMultiple(value) {
+  const number = toNumber(value);
+  return number !== null && number > 0 ? number : null;
+}
+
+function companyPerAxisMaximum(values) {
+  const largest = Math.max(...values, 1);
+  const step = largest <= 20 ? 5 : largest <= 50 ? 10 : largest <= 100 ? 20 : Math.ceil(largest / 50) * 10;
+  return Math.max(step, Math.ceil((largest * 1.16) / step) * step);
+}
+
+function companyPerComparisonSentence(target, peer, key, label) {
+  const targetValue = positiveCompanyMultiple(target?.[key]);
+  const peerValue = positiveCompanyMultiple(peer?.[key]);
+  if (targetValue === null || peerValue === null) return "";
+  const difference = Math.abs((targetValue / peerValue - 1) * 100);
+  const relation = Math.abs(targetValue - peerValue) < 0.005
+    ? "같습니다"
+    : `${formatCompanyPercent(difference)} ${targetValue < peerValue ? "낮습니다" : "높습니다"}`;
+  return `${label}은 ${target.name} ${formatCompanyMultiple(targetValue)}, ${peer.name} ${formatCompanyMultiple(peerValue)}로 ${target.name}가 ${relation}.`;
+}
+
+function renderCompanyPerComparison(data, valuation) {
+  const status = state.stockSectorMarginsStatus;
+  const comparison = state.stockSectorMargins?.valuation_comparison;
+  if (status === "loading") {
+    elements.stockCompanyValuation.appendChild(el("p", "stock-per-comparison-state", "동종업계에서 가장 가까운 경쟁사의 PER을 찾고 있습니다."));
+    return;
+  }
+  if (!comparison?.target || !comparison?.peer) {
+    const message = status === "error"
+      ? "경쟁사 PER 비교 자료를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요."
+      : "같은 업종에서 현재·예상 PER을 비교할 경쟁사 자료가 부족합니다.";
+    elements.stockCompanyValuation.appendChild(el("p", "stock-per-comparison-state", message));
+    return;
+  }
+
+  const target = {
+    ...comparison.target,
+    name: data?.name || comparison.target.name,
+    current_per: toNumber(valuation.per) ?? comparison.target.current_per,
+    forward_per: toNumber(valuation.estimated_per) ?? comparison.target.forward_per,
+  };
+  const peer = comparison.peer;
+  const companies = [target, peer];
+  const values = companies.flatMap((company) => [
+    positiveCompanyMultiple(company.current_per),
+    positiveCompanyMultiple(company.forward_per),
+  ]).filter((value) => value !== null);
+
+  const card = el("section", "stock-per-comparison");
+  const heading = el("header", "stock-per-comparison-head");
+  const headingCopy = el("div", "");
+  headingCopy.append(
+    el("strong", "", "기업별 PER 한눈에"),
+    el("p", "", comparison.basis || "동일 업종 · PER 자료 · 매출 규모 기준")
+  );
+  heading.append(headingCopy, el("span", "", comparison.classification || data?.company_profile?.industry || "동종업계"));
+  card.appendChild(heading);
+
+  if (!values.length) {
+    card.appendChild(el("p", "stock-company-analysis-empty", "두 기업 모두 이익 기준 PER을 계산할 수 없습니다."));
+    elements.stockCompanyValuation.appendChild(card);
+    return;
+  }
+
+  const axisMaximum = companyPerAxisMaximum(values);
+  const chart = el("div", "stock-per-chart");
+  chart.setAttribute("aria-label", `${target.name}와 ${peer.name}의 현재 PER 및 예상 PER 비교 차트`);
+  const legend = el("div", "stock-per-legend");
+  for (const item of [
+    { className: "is-current", label: "현재 PER" },
+    { className: "is-forward", label: "예상 PER" },
+  ]) {
+    const row = el("span", item.className);
+    row.append(el("i", ""), document.createTextNode(item.label));
+    legend.appendChild(row);
+  }
+  chart.appendChild(legend);
+
+  const body = el("div", "stock-per-chart-body");
+  const axis = el("div", "stock-per-axis");
+  for (const tick of [axisMaximum, axisMaximum / 2, 0]) {
+    const label = el("span", "", `${Number.isInteger(tick) ? tick : tick.toFixed(1)}배`);
+    label.style.bottom = `${tick / axisMaximum * 100}%`;
+    axis.appendChild(label);
+  }
+  const plot = el("div", "stock-per-plot");
+  const gridlines = el("div", "stock-per-gridlines");
+  for (const position of [0, 50, 100]) {
+    const line = el("i", "");
+    line.style.bottom = `${position}%`;
+    gridlines.appendChild(line);
+  }
+  plot.appendChild(gridlines);
+  const groups = el("div", "stock-per-groups");
+
+  for (const company of companies) {
+    const group = el("div", `stock-per-company${company.is_target ? " is-target" : " is-peer"}`);
+    const bars = el("div", "stock-per-bars");
+    for (const item of [
+      { key: "current_per", label: "현재 PER", className: "is-current" },
+      { key: "forward_per", label: "예상 PER", className: "is-forward" },
+    ]) {
+      const rawValue = toNumber(company[item.key]);
+      const value = positiveCompanyMultiple(rawValue);
+      const barItem = el("div", `stock-per-bar-item ${item.className}${value === null ? " is-missing" : ""}`);
+      const valueLabel = el("strong", "stock-per-value", value === null ? (rawValue !== null && rawValue <= 0 ? "적자" : "자료 없음") : formatCompanyMultiple(value));
+      const bar = el("span", "stock-per-bar");
+      const height = value === null ? 0 : clampNumber(value / axisMaximum * 100, 1, 100);
+      barItem.style.setProperty("--stock-per-height", `${height}%`);
+      barItem.append(valueLabel, bar);
+      if (value !== null) {
+        setStockBarTooltipTarget(barItem, `${company.name} ${item.label} ${formatCompanyMultiple(value)}`, { anchor: bar });
+      }
+      bars.appendChild(barItem);
+    }
+    group.appendChild(bars);
+    groups.appendChild(group);
+  }
+  plot.appendChild(groups);
+  body.append(axis, plot);
+  chart.appendChild(body);
+
+  const captions = el("div", "stock-per-company-captions");
+  for (const company of companies) {
+    const caption = el("div", company.is_target ? "is-target" : "is-peer");
+    caption.append(
+      el("span", "", company.is_target ? "선택 종목" : "동종 경쟁사"),
+      el("strong", "", company.name),
+      el("small", "", `최근 연간 매출 ${formatFinancialAmount(company.latest_revenue)}`)
+    );
+    captions.appendChild(caption);
+  }
+  chart.appendChild(captions);
+  installStockBarTooltips(chart);
+  card.append(chart, el("p", "stock-per-selection-note", comparison.selection_reason || "같은 업종에서 실제 연간 매출 규모가 가장 가까운 비교 기업을 선정했습니다."));
+  elements.stockCompanyValuation.appendChild(card);
+
+  const comparisonNotes = [
+    companyPerComparisonSentence(target, peer, "current_per", "현재 PER"),
+    companyPerComparisonSentence(target, peer, "forward_per", "예상 PER"),
+  ].filter(Boolean);
+  elements.stockCompanyValuation.appendChild(el(
+    "p",
+    "stock-company-valuation-note is-comparison",
+    `${comparisonNotes.join(" ") || "비교 가능한 양수 PER이 충분하지 않습니다."} PER이 낮다는 이유만으로 저평가를 뜻하지 않으므로 성장률과 현금흐름을 함께 확인하세요.`
+  ));
+}
+
+function renderCompanyValuation(data) {
+  if (!elements.stockCompanyValuation) return;
+  dismissStockBarTooltip(elements.stockCompanyValuation);
+  const valuation = data?.valuation || {};
+  elements.stockCompanyValuation.innerHTML = "";
+  renderCompanyPerComparison(data, valuation);
+  const grid = el("dl", "stock-company-valuation-grid");
+  for (const row of [
+    ["PBR", formatCompanyMultiple(valuation.pbr), "주가 ÷ 주당순자산"],
+    ["EPS", toNumber(valuation.eps) === null ? "-" : `${formatNumber(Math.round(toNumber(valuation.eps)))}원`, "주당순이익"],
+    ["BPS", toNumber(valuation.bps) === null ? "-" : `${formatNumber(Math.round(toNumber(valuation.bps)))}원`, "주당순자산"],
+    ["배당수익률", toNumber(valuation.dividend_yield) === null ? "-" : formatCompanyPercent(valuation.dividend_yield), "최근 배당 기준"],
+  ]) {
+    const item = el("div", "");
+    const label = el("dt", "", row[0]);
+    label.appendChild(el("small", "", row[2]));
+    item.append(label, el("dd", "", row[1]));
+    grid.appendChild(item);
+  }
+  elements.stockCompanyValuation.appendChild(grid);
+}
+
+function renderCompanyCheckpoints(data, performance, metrics) {
+  const strengths = [];
+  const risks = [];
+  if (performance.revenueGrowth !== null && performance.operatingProfitGrowth !== null) {
+    if (performance.revenueGrowth > 0 && performance.operatingProfitGrowth > 0) {
+      strengths.push(`매출 ${formatPercent(performance.revenueGrowth)}, 영업이익 ${formatPercent(performance.operatingProfitGrowth)}로 함께 성장했습니다.`);
+    }
+    if (performance.revenueGrowth < 0) risks.push(`매출이 비교 기간보다 ${formatPercent(Math.abs(performance.revenueGrowth))} 감소했습니다.`);
+    if (performance.operatingProfitGrowth < 0) risks.push(`영업이익이 비교 기간보다 ${formatPercent(Math.abs(performance.operatingProfitGrowth))} 감소했습니다.`);
+  }
+  if (performance.operatingMarginChange !== null) {
+    if (performance.operatingMarginChange >= 1) strengths.push(`영업이익률이 ${formatCompanyPoint(performance.operatingMarginChange)} 개선돼 이익 체력이 좋아졌습니다.`);
+    if (performance.operatingMarginChange <= -1) risks.push(`영업이익률이 ${formatCompanyPoint(performance.operatingMarginChange)} 낮아져 원가·판가를 확인해야 합니다.`);
+  }
+  if (metrics.operatingCashFlow !== null) {
+    if (metrics.operatingCashFlow > 0) strengths.push(`본업에서 ${formatCompanyStatementAmount(metrics.operatingCashFlow)}의 현금이 들어왔습니다.`);
+    else risks.push(`영업현금흐름이 ${formatCompanyStatementAmount(metrics.operatingCashFlow)}로 유출 상태입니다.`);
+  }
+  if (metrics.freeCashFlow !== null) {
+    if (metrics.freeCashFlow > 0) strengths.push(`투자 지출 후 잉여현금흐름이 ${formatCompanyStatementAmount(metrics.freeCashFlow)} 남았습니다.`);
+    else risks.push(`투자 지출 후 잉여현금흐름이 ${formatCompanyStatementAmount(metrics.freeCashFlow)}로 음수입니다.`);
+  }
+  if (metrics.netCash !== null) {
+    if (metrics.netCash > 0) strengths.push(`현금성자산이 이자성 부채보다 ${formatCompanyStatementAmount(metrics.netCash)} 많습니다.`);
+    else risks.push(`이자성 부채가 현금성자산보다 ${formatCompanyStatementAmount(Math.abs(metrics.netCash))} 많습니다.`);
+  }
+  if (!companyFinancialInstitution(data)) {
+    if (metrics.currentRatio !== null && metrics.currentRatio < 80) risks.push(`유동비율이 ${formatCompanyPercent(metrics.currentRatio)}로 단기 지급 여력을 점검해야 합니다.`);
+    if (metrics.debtRatio !== null && metrics.debtRatio > 200) risks.push(`부채비율이 ${formatCompanyPercent(metrics.debtRatio)}로 재무 부담이 높습니다.`);
+  }
+  if (metrics.receivablesGrowth !== null && performance.revenueGrowth !== null && metrics.receivablesGrowth > performance.revenueGrowth + 10) {
+    risks.push(`매출채권 증가율 ${formatPercent(metrics.receivablesGrowth)}가 매출 증가율보다 빨라 현금 회수를 확인해야 합니다.`);
+  }
+  if (metrics.inventoryGrowth !== null && performance.revenueGrowth !== null && metrics.inventoryGrowth > performance.revenueGrowth + 10) {
+    risks.push(`재고 증가율 ${formatPercent(metrics.inventoryGrowth)}가 매출 증가율보다 빨라 재고 부담을 확인해야 합니다.`);
+  }
+  const per = toNumber(data?.valuation?.per);
+  const industryPer = toNumber(data?.valuation?.industry_per);
+  if (per !== null && industryPer !== null && per > industryPer * 1.2) {
+    risks.push(`현재 PER(${formatCompanyMultiple(per)})은 동일업종(${formatCompanyMultiple(industryPer)})보다 높아 성장 기대의 지속성을 확인해야 합니다.`);
+  }
+  const renderList = (node, rows, emptyText) => {
+    if (!node) return;
+    node.innerHTML = "";
+    for (const text of (rows.length ? rows.slice(0, 4) : [emptyText])) {
+      node.appendChild(el("li", rows.length ? "" : "is-empty", text));
+    }
+  };
+  renderList(elements.stockCompanyStrengths, strengths, "현재 자료만으로 확정할 강점이 부족합니다. 다음 공시의 추세를 확인하세요.");
+  renderList(elements.stockCompanyRisks, risks, "현재 수치에서 뚜렷한 경고는 제한적이지만 업종·경쟁사 비교가 필요합니다.");
+}
+
+function renderStockCompanyAnalysis(data = state.currentDashboard) {
+  if (!data) return;
+  renderStockFinancialChart();
+  renderCompanyRevenueBreakdown(data);
+  renderCompanySectorMargins();
+  renderCompanySgaAnalysis();
+  const performance = latestCompanyPerformance(data);
+  const metrics = companyStatementMetrics(data);
+  const statementLabel = metrics.group
+    ? `${metrics.group.year} ${COMPANY_REPORT_LABELS[metrics.group.report] || metrics.group.report} · ${metrics.group.fs === "CFS" ? "연결" : "별도"}`
+    : performance.latest?.period || "자료 확인 중";
+  setText(elements.stockCompanyAnalysisAsOf, statementLabel);
+  renderCompanySnapshot(data, performance, metrics);
+  renderCompanyFinancialHealth(data, metrics, statementLabel);
+  renderCompanyCashflowWaterfall(metrics, statementLabel);
+  renderCompanyMetricGroups(data, performance, metrics);
+  renderCompanyValuation(data);
+  renderCompanyCheckpoints(data, performance, metrics);
+  if (elements.stockCompanyDataStatus) {
+    elements.stockCompanyDataStatus.dataset.state = state.stockFinancialLinesStatus;
+    elements.stockCompanyDataStatus.textContent = state.stockFinancialLinesStatus === "loading"
+      ? "최신 DART 재무제표를 확인하고 있습니다. 실적·밸류에이션은 먼저 볼 수 있습니다."
+      : state.stockFinancialLinesStatus === "error"
+        ? "DART 재무제표를 불러오지 못했습니다. 실적·밸류에이션 정보만 표시합니다."
+        : metrics.group
+          ? `${statementLabel} 재무제표 기준 · 금액은 이해를 돕기 위해 억원/조원으로 환산했습니다.`
+          : "최신 DART 재무제표가 없어 실적·밸류에이션 정보만 표시합니다.";
+  }
+}
+
+function resetStockCompanyAnalysis() {
+  dismissStockBarTooltip();
+  state.stockFinancialLinesRequestId += 1;
+  state.stockFinancialLines = null;
+  state.stockFinancialLinesStatus = "idle";
+  state.stockSectorMargins = null;
+  state.stockSectorMarginsStatus = "idle";
+  state.stockSgaAnalysis = null;
+  state.stockSgaAnalysisStatus = "idle";
+  if (elements.stockFinancialChart) {
+    elements.stockFinancialChart.innerHTML = '<p class="stock-v3-chart-empty">실적을 불러오는 중입니다.</p>';
+  }
+  if (elements.stockFinancialSummary) elements.stockFinancialSummary.innerHTML = "";
+  setText(elements.stockFinancialSource, "실제 공시·금융 데이터");
+  setText(elements.stockRevenueBreakdownTitle, "매출 심층 분석");
+  setText(
+    elements.stockRevenueBreakdownLead,
+    "선택 종목의 매출을 100%로 놓고 영업비용과 영업이익이 차지하는 비중을 연도별로 비교합니다.",
+  );
+  if (elements.stockRevenueBreakdown) {
+    elements.stockRevenueBreakdown.innerHTML = '<p class="stock-company-analysis-empty">연간 수익구조를 계산하는 중입니다.</p>';
+    const breakdownSection = elements.stockRevenueBreakdown.closest(".stock-revenue-breakdown-section");
+    if (breakdownSection) delete breakdownSection.dataset.stockCode;
+  }
+  if (elements.stockRevenueBreakdownSummary) {
+    elements.stockRevenueBreakdownSummary.innerHTML = "<p>최신 실제 실적을 요약하는 중입니다.</p>";
+  }
+  if (elements.stockSectorMarginComparison) {
+    elements.stockSectorMarginComparison.innerHTML = '<p class="stock-company-analysis-empty">동종 업계 실적을 비교하는 중입니다.</p>';
+  }
+  setText(elements.stockSectorMarginSource, "동일 업종 · 매출 상위 5개사");
+  if (elements.stockSectorMarginSummary) {
+    elements.stockSectorMarginSummary.innerHTML = "<p>업계 중앙값과 선택 종목의 격차를 계산하는 중입니다.</p>";
+  }
+  if (elements.stockSgaAnalysis) {
+    elements.stockSgaAnalysis.innerHTML = '<p class="stock-company-analysis-empty">판관비 세부 주석을 분류하는 중입니다.</p>';
+  }
+  if (elements.stockSgaSource) {
+    elements.stockSgaSource.hidden = true;
+    elements.stockSgaSource.removeAttribute("href");
+  }
+  if (elements.stockFinancialHealth) {
+    elements.stockFinancialHealth.innerHTML = '<p class="stock-company-analysis-empty">현금과 재무상태를 계산하는 중입니다.</p>';
+  }
+  if (elements.stockCashflowWaterfall) {
+    elements.stockCashflowWaterfall.innerHTML = '<p class="stock-company-analysis-empty">현금의 유입과 사용처를 계산하는 중입니다.</p>';
+  }
+  if (elements.stockInvestmentSnapshot) {
+    elements.stockInvestmentSnapshot.innerHTML = '<p class="stock-company-analysis-empty">기업 분석 지표를 계산하는 중입니다.</p>';
+  }
+  if (elements.stockCompanyMetricGroups) {
+    elements.stockCompanyMetricGroups.innerHTML = '<p class="stock-company-analysis-empty">재무상태표와 현금흐름표를 확인하는 중입니다.</p>';
+  }
+  if (elements.stockCompanyValuation) elements.stockCompanyValuation.innerHTML = "";
+  if (elements.stockCompanyStrengths) elements.stockCompanyStrengths.innerHTML = "<li>데이터를 확인하는 중입니다.</li>";
+  if (elements.stockCompanyRisks) elements.stockCompanyRisks.innerHTML = "<li>데이터를 확인하는 중입니다.</li>";
+  setText(elements.stockCompanyAnalysisAsOf, "자료 확인 중");
+  setText(elements.stockFinancialHealthSource, "최신 DART 재무제표");
+  setText(elements.stockCashflowWaterfallSource, "최신 DART 현금흐름표");
+  setText(elements.stockCompanyDataStatus, "최신 공시를 확인하고 있습니다.");
+}
+
+async function loadStockCompanyAnalysis(data) {
+  const code = data?.code;
+  if (!code) return;
+  const requestId = state.stockFinancialLinesRequestId;
+  const isCurrentRequest = () => (
+    requestId === state.stockFinancialLinesRequestId
+    && state.currentStock?.code === code
+  );
+  const tasks = [];
+
+  if (["idle", "error"].includes(state.stockFinancialLinesStatus)) {
+    state.stockFinancialLines = null;
+    state.stockFinancialLinesStatus = "loading";
+    tasks.push(
+      fetchJsonCached(`/stocks/${encodeURIComponent(code)}/financials?limit=500`, {
+        ttlMs: 30 * PAGE_ENTRY_MINUTE_MS,
+      }).then((payload) => {
+        if (!isCurrentRequest()) return;
+        state.stockFinancialLines = Array.isArray(payload) ? payload : [];
+        state.stockFinancialLinesStatus = state.stockFinancialLines.length ? "ready" : "empty";
+        renderStockCompanyAnalysis(data);
+      }).catch(() => {
+        if (!isCurrentRequest()) return;
+        state.stockFinancialLines = [];
+        state.stockFinancialLinesStatus = "error";
+        renderStockCompanyAnalysis(data);
+      }),
+    );
+  }
+  if (["idle", "error"].includes(state.stockSectorMarginsStatus)) {
+    state.stockSectorMargins = null;
+    state.stockSectorMarginsStatus = "loading";
+    tasks.push(
+      fetchJsonCached(`/stocks/${encodeURIComponent(code)}/sector-operating-margins?limit=5&per_pair=1`, {
+        ttlMs: 6 * 60 * PAGE_ENTRY_MINUTE_MS,
+      }).then((payload) => {
+        if (!isCurrentRequest()) return;
+        state.stockSectorMargins = payload || null;
+        state.stockSectorMarginsStatus = (payload?.companies || []).length >= 2 ? "ready" : "empty";
+        renderStockCompanyAnalysis(data);
+      }).catch(() => {
+        if (!isCurrentRequest()) return;
+        state.stockSectorMargins = null;
+        state.stockSectorMarginsStatus = "error";
+        renderStockCompanyAnalysis(data);
+      }),
+    );
+  }
+  if (["idle", "error"].includes(state.stockSgaAnalysisStatus)) {
+    state.stockSgaAnalysis = null;
+    state.stockSgaAnalysisStatus = "loading";
+    tasks.push(
+      fetchJsonCached(`/stocks/${encodeURIComponent(code)}/sga-analysis`, {
+        ttlMs: 12 * 60 * PAGE_ENTRY_MINUTE_MS,
+      }).then((payload) => {
+        if (!isCurrentRequest()) return;
+        state.stockSgaAnalysis = payload || null;
+        state.stockSgaAnalysisStatus = payload?.available ? "ready" : "empty";
+        renderStockCompanyAnalysis(data);
+      }).catch(() => {
+        if (!isCurrentRequest()) return;
+        state.stockSgaAnalysis = null;
+        state.stockSgaAnalysisStatus = "error";
+        renderStockCompanyAnalysis(data);
+      }),
+    );
+  }
+  renderStockCompanyAnalysis(data);
+  await Promise.all(tasks);
+}
+
+const STOCK_FLOW_PERIODS = {
+  "3M": { count: 66, months: 3, label: "3개월" },
+  "6M": { count: 132, months: 6, label: "6개월" },
+  "1Y": { count: 264, months: 12, label: "1년" },
+};
+
+function stockFlowGroupedRows() {
   const grouped = new Map();
   for (const row of state.stockFlowRows || []) {
     const date = String(row.trade_date || "");
@@ -2098,9 +4637,19 @@ function stockFlowSeries() {
     }
     grouped.set(date, item);
   }
-  const periodCounts = { "3M": 66, "6M": 132, "1Y": 264 };
-  const count = periodCounts[state.stockFlowPeriod] || periodCounts["3M"];
-  const rows = [...grouped.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-count);
+  return [...grouped.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function stockFlowSeries() {
+  const period = STOCK_FLOW_PERIODS[state.stockFlowPeriod] || STOCK_FLOW_PERIODS["3M"];
+  const groupedRows = stockFlowGroupedRows();
+  const latestDate = groupedRows.at(-1)?.date;
+  const cutoff = latestDate ? new Date(`${latestDate}T00:00:00Z`) : null;
+  if (cutoff) {
+    cutoff.setUTCMonth(cutoff.getUTCMonth() - period.months);
+  }
+  const cutoffDate = cutoff?.toISOString().slice(0, 10) || "";
+  const rows = groupedRows.filter((row) => !cutoffDate || row.date >= cutoffDate);
   if (state.stockFlowMode === "cumulative") {
     let foreign = 0;
     let institution = 0;
@@ -2113,6 +4662,133 @@ function stockFlowSeries() {
   return rows;
 }
 
+function mergeStockFlowRows(currentRows, incomingRows) {
+  const merged = new Map();
+  for (const row of [...(currentRows || []), ...(incomingRows || [])]) {
+    const date = String(row?.trade_date || "");
+    const investorType = String(row?.investor_type || "");
+    if (!date || !investorType) {
+      continue;
+    }
+    merged.set(`${date}:${investorType}`, row);
+  }
+  return [...merged.values()];
+}
+
+function applyStockFlowRowsToDashboard(data, flowRows = state.stockFlowRows) {
+  if (!data || !Array.isArray(flowRows) || !flowRows.length) {
+    return data;
+  }
+  const rowsByDate = new Map();
+  for (const row of flowRows) {
+    const date = String(row?.trade_date || "");
+    const value = toNumber(row?.net_buy_value);
+    if (!date || value === null) {
+      continue;
+    }
+    const rows = rowsByDate.get(date) || [];
+    rows.push({ investorType: String(row?.investor_type || ""), value });
+    rowsByDate.set(date, rows);
+  }
+  const recentDates = [...rowsByDate.keys()].sort().slice(-20);
+  if (!recentDates.length) {
+    return data;
+  }
+  let foreign = 0;
+  let institution = 0;
+  for (const date of recentDates) {
+    const rows = rowsByDate.get(date) || [];
+    foreign += rows
+      .filter((row) => ["외국인", "외국인합계"].includes(row.investorType))
+      .reduce((sum, row) => sum + row.value, 0);
+    const institutionTotal = rows.find((row) => row.investorType === "기관합계");
+    institution += institutionTotal
+      ? institutionTotal.value
+      : rows
+        .filter((row) => ["금융투자", "보험", "투신", "사모", "은행", "연기금"].includes(row.investorType))
+        .reduce((sum, row) => sum + row.value, 0);
+  }
+  data.flows = {
+    ...(data.flows || {}),
+    foreign_net_buy_20d: foreign,
+    institution_net_buy_20d: institution,
+    latest_trade_date: recentDates.at(-1),
+  };
+  return data;
+}
+
+function renderLatestStockFlowRows(data = state.currentDashboard) {
+  if (data) {
+    applyStockFlowRowsToDashboard(data);
+    renderStockTodaySummary(data);
+    renderStockV2Flow(data);
+    renderStockHomeCheckpoints(data);
+  }
+  renderStockFlowHistoryChart();
+}
+
+async function ensureStockFlowHistory(code, periodKey = state.stockFlowPeriod, requestId = state.stockHomeDetailsRequestId) {
+  const requestedPeriod = STOCK_FLOW_PERIODS[periodKey] || STOCK_FLOW_PERIODS["3M"];
+  state.stockFlowHistoryTargetCount = Math.max(state.stockFlowHistoryTargetCount || 0, requestedPeriod.count);
+  state.stockFlowHistoryError = "";
+  if (!code) {
+    renderStockFlowHistoryChart();
+    return;
+  }
+  if (state.stockFlowHistoryLoading) {
+    renderStockFlowHistoryChart();
+    return;
+  }
+
+  state.stockFlowHistoryLoading = true;
+  renderStockFlowHistoryChart();
+  try {
+    const storedEndpoint = `/stocks/${encodeURIComponent(code)}/flows?limit=1500`;
+    const storedPayload = await fetchJsonCached(liveUrl(storedEndpoint), {
+      force: true,
+      ttlMs: 0,
+      timeoutMs: 15_000,
+    });
+    if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
+      return;
+    }
+    state.stockFlowRows = mergeStockFlowRows(state.stockFlowRows, Array.isArray(storedPayload) ? storedPayload : []);
+    renderLatestStockFlowRows();
+    while (requestId === state.stockHomeDetailsRequestId && state.currentStock?.code === code) {
+      const availableBefore = stockFlowGroupedRows().length;
+      const targetCount = Math.max(state.stockFlowHistoryTargetCount || requestedPeriod.count, requestedPeriod.count);
+      if (availableBefore >= targetCount) {
+        break;
+      }
+      const pages = Math.min(20, Math.max(4, Math.ceil(targetCount / 20)));
+      const endpoint = `/stocks/${encodeURIComponent(code)}/flows?limit=1500&refresh=true&pages=${pages}`;
+      const payload = await fetchJsonCached(liveUrl(endpoint), {
+        force: true,
+        ttlMs: 0,
+        timeoutMs: 60_000,
+      });
+      if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
+        return;
+      }
+      state.stockFlowRows = mergeStockFlowRows(state.stockFlowRows, Array.isArray(payload) ? payload : []);
+      renderLatestStockFlowRows();
+      const availableAfter = stockFlowGroupedRows().length;
+      if (availableAfter <= availableBefore || availableAfter >= state.stockFlowHistoryTargetCount) {
+        break;
+      }
+    }
+  } catch {
+    if (requestId === state.stockHomeDetailsRequestId && state.currentStock?.code === code) {
+      state.stockFlowHistoryError = "과거 수급 이력을 모두 불러오지 못했습니다.";
+    }
+  } finally {
+    if (requestId === state.stockHomeDetailsRequestId && state.currentStock?.code === code) {
+      state.stockFlowHistoryLoading = false;
+      renderLatestStockFlowRows();
+    }
+  }
+}
+
 function formatSignedShares(value) {
   const number = toNumber(value);
   if (number === null) {
@@ -2121,20 +4797,174 @@ function formatSignedShares(value) {
   return `${number > 0 ? "+" : ""}${formatCompactCount(number)}`;
 }
 
+function formatFlowPrice(value) {
+  const number = toNumber(value);
+  return number === null ? "-" : `${formatNumber(number)}원`;
+}
+
+function installStockFlowScrubber({
+  plot,
+  svg,
+  rows,
+  width,
+  height,
+  left,
+  right,
+  top,
+  bottom,
+  pointX,
+  flowY,
+  priceY,
+  modeLabel,
+}) {
+  const hitArea = svg?.querySelector(".stock-v3-flow-scrub-hit");
+  const focus = svg?.querySelector(".stock-v3-flow-focus");
+  const focusLine = focus?.querySelector(".stock-v3-flow-focus-line");
+  const focusForeign = focus?.querySelector(".stock-v3-flow-focus-point.foreign");
+  const focusInstitution = focus?.querySelector(".stock-v3-flow-focus-point.institution");
+  const focusPrice = focus?.querySelector(".stock-v3-flow-focus-point.price");
+  if (!plot || !svg || !hitArea || !focus || !focusLine || !focusForeign || !focusInstitution || !focusPrice || !rows.length) {
+    return;
+  }
+
+  const focusCard = el("div", "stock-v3-flow-focus-card");
+  focusCard.setAttribute("role", "status");
+  focusCard.setAttribute("aria-live", "polite");
+  const focusMeta = el("span", "stock-v3-flow-focus-meta");
+  const focusValues = el("div", "stock-v3-flow-focus-values");
+  const focusEntries = [
+    ["foreign", "외국인"],
+    ["institution", "기관"],
+    ["price", "주가"],
+  ].map(([key, label]) => {
+    const entry = el("span", `is-${key}`);
+    const value = el("strong", "");
+    entry.append(el("i", "", label), value);
+    focusValues.appendChild(entry);
+    return { key, value };
+  });
+  focusCard.append(focusMeta, focusValues);
+  plot.appendChild(focusCard);
+
+  hitArea.setAttribute("tabindex", "0");
+  hitArea.setAttribute("role", "slider");
+  hitArea.setAttribute("aria-label", `${state.currentStock?.name || "선택 종목"} 수급·주가 날짜별 탐색`);
+  hitArea.setAttribute("aria-valuemin", "0");
+  hitArea.setAttribute("aria-valuemax", String(Math.max(0, rows.length - 1)));
+
+  let activeIndex = rows.length - 1;
+  let dragging = false;
+  const updateFocus = (requestedIndex) => {
+    const index = clampNumber(Math.round(requestedIndex), 0, Math.max(0, rows.length - 1));
+    const row = rows[index];
+    const x = pointX(index);
+    focusLine.setAttribute("x1", x.toFixed(2));
+    focusLine.setAttribute("x2", x.toFixed(2));
+    focusForeign.setAttribute("cx", x.toFixed(2));
+    focusForeign.setAttribute("cy", flowY(row.foreign).toFixed(2));
+    focusInstitution.setAttribute("cx", x.toFixed(2));
+    focusInstitution.setAttribute("cy", flowY(row.institution).toFixed(2));
+    if (row.price === null || priceY(row.price) === null) {
+      focusPrice.setAttribute("hidden", "");
+    } else {
+      focusPrice.removeAttribute("hidden");
+      focusPrice.setAttribute("cx", x.toFixed(2));
+      focusPrice.setAttribute("cy", priceY(row.price).toFixed(2));
+    }
+    focus.removeAttribute("hidden");
+    focusCard.hidden = false;
+    plot.style.setProperty("--stock-flow-focus-x", `${(x / width) * 100}%`);
+    plot.style.setProperty("--stock-flow-focus-y", `${(clampNumber(top + 6, 8, height - 60) / height) * 100}%`);
+    plot.classList.toggle("is-focus-left", x < width * 0.22);
+    plot.classList.toggle("is-focus-right", x > width * 0.78);
+    focusMeta.textContent = `${row.date.replaceAll("-", ".")} · ${modeLabel}`;
+    for (const entry of focusEntries) {
+      const value = entry.key === "foreign"
+        ? formatSignedShares(row.foreign)
+        : entry.key === "institution"
+          ? formatSignedShares(row.institution)
+          : formatFlowPrice(row.price);
+      entry.value.textContent = value;
+    }
+    activeIndex = index;
+    hitArea.setAttribute("aria-valuenow", String(index));
+    hitArea.setAttribute(
+      "aria-valuetext",
+      `${row.date} 외국인 ${formatSignedShares(row.foreign)}, 기관 ${formatSignedShares(row.institution)}, 주가 ${formatFlowPrice(row.price)}`,
+    );
+  };
+  const pointerIndex = (event) => {
+    const bounds = svg.getBoundingClientRect();
+    const localX = bounds.width ? ((event.clientX - bounds.left) / bounds.width) * width : left;
+    const ratio = clampNumber((localX - left) / Math.max(1, width - left - right), 0, 1);
+    return Math.round(ratio * Math.max(0, rows.length - 1));
+  };
+  const endDrag = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    plot.classList.remove("is-scrubbing");
+    if (typeof hitArea.hasPointerCapture === "function" && hitArea.hasPointerCapture(event.pointerId)) {
+      try {
+        hitArea.releasePointerCapture(event.pointerId);
+      } catch {
+        // The pointer can be released by the browser before the cancel event arrives.
+      }
+    }
+  };
+
+  hitArea.addEventListener("pointerdown", (event) => {
+    dragging = true;
+    plot.classList.add("is-scrubbing");
+    hitArea.focus({ preventScroll: true });
+    if (typeof hitArea.setPointerCapture === "function") {
+      try {
+        hitArea.setPointerCapture(event.pointerId);
+      } catch {
+        // Synthetic or already-ended pointers can still update the selected date.
+      }
+    }
+    updateFocus(pointerIndex(event));
+    event.preventDefault();
+  });
+  hitArea.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    updateFocus(pointerIndex(event));
+  });
+  hitArea.addEventListener("pointerup", endDrag);
+  hitArea.addEventListener("pointercancel", endDrag);
+  hitArea.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === "Home") updateFocus(0);
+    else if (event.key === "End") updateFocus(rows.length - 1);
+    else updateFocus(activeIndex + (event.key === "ArrowRight" ? 1 : -1));
+  });
+  updateFocus(activeIndex);
+}
+
 function renderStockFlowHistoryChart() {
   if (!elements.stockFlowHistoryChart) {
     return;
   }
   for (const button of elements.stockFlowModeTabs) {
-    button.classList.toggle("active", button.dataset.flowMode === state.stockFlowMode);
+    const active = button.dataset.flowMode === state.stockFlowMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
   }
   for (const button of elements.stockFlowPeriodTabs) {
-    button.classList.toggle("active", button.dataset.flowPeriod === state.stockFlowPeriod);
+    const active = button.dataset.flowPeriod === state.stockFlowPeriod;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
   }
+  const period = STOCK_FLOW_PERIODS[state.stockFlowPeriod] || STOCK_FLOW_PERIODS["3M"];
+  const availableCount = stockFlowGroupedRows().length;
+  const isExpanding = state.stockFlowHistoryLoading && availableCount < period.count;
+  elements.stockFlowHistoryChart.dataset.mode = state.stockFlowMode;
+  elements.stockFlowHistoryChart.setAttribute("aria-busy", isExpanding ? "true" : "false");
   const rows = stockFlowSeries();
   if (rows.length < 2) {
     elements.stockFlowHistoryChart.innerHTML = '<p class="stock-v3-chart-empty">투자자 수급 이력을 불러오는 중입니다.</p>';
-    setText(elements.stockFlowSummary, "수급 이력 준비 중");
+    setText(elements.stockFlowSummary, isExpanding ? `${period.label} 수급 이력을 불러오는 중` : "수급 이력 준비 중");
     return;
   }
   const priceByDate = new Map(stockPriceRowsWithLiveQuote(state.stockPriceRows, state.currentDashboard?.quote).map((row) => [row.date, row.close]));
@@ -2154,11 +4984,15 @@ function renderStockFlowHistoryChart() {
   const pathFor = (key, yScale) => chartRows.map((row, index) => `${index ? "L" : "M"}${pointX(index).toFixed(2)} ${yScale(row[key]).toFixed(2)}`).join(" ");
   const validPrices = chartRows.map((row) => row.price).filter((value) => value !== null);
   let pricePath = "";
+  let priceY = () => null;
   if (validPrices.length >= 2) {
     const minPrice = Math.min(...validPrices);
     const maxPrice = Math.max(...validPrices);
     const priceSpan = maxPrice - minPrice || 1;
-    const priceY = (value) => top + ((maxPrice - value) / priceSpan) * plotHeight;
+    priceY = (value) => {
+      const number = toNumber(value);
+      return number === null ? null : top + ((maxPrice - number) / priceSpan) * plotHeight;
+    };
     const points = chartRows.map((row, index) => row.price === null ? null : `${pointX(index).toFixed(2)} ${priceY(row.price).toFixed(2)}`).filter(Boolean);
     pricePath = `<path class="stock-v3-flow-line price" d="${points.map((point, index) => `${index ? "L" : "M"}${point}`).join(" ")}"></path>`;
   }
@@ -2169,12 +5003,47 @@ function renderStockFlowHistoryChart() {
   }).join("");
   const labelIndexes = [0, Math.floor((chartRows.length - 1) / 2), chartRows.length - 1];
   const labels = labelIndexes.map((index) => `<text class="stock-v3-chart-date" x="${pointX(index).toFixed(2)}" y="306" text-anchor="${index === 0 ? "start" : index === chartRows.length - 1 ? "end" : "middle"}">${formatChartDate(chartRows[index].date)}</text>`).join("");
+  const modeLabel = state.stockFlowMode === "cumulative" ? "누적매매" : "일별매매";
+  const coverageStatus = isExpanding
+    ? " · 과거 이력 확장 중"
+    : state.stockFlowHistoryError
+      ? " · 현재 확보 범위"
+      : "";
   elements.stockFlowHistoryChart.innerHTML = `
-    <svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="외국인과 기관 수급 및 주가 추이">
-      ${grid}<path class="stock-v3-flow-line foreign" d="${pathFor("foreign", flowY)}"></path><path class="stock-v3-flow-line institution" d="${pathFor("institution", flowY)}"></path>${pricePath}${labels}
-    </svg>
+    <div class="stock-v3-flow-plot">
+      <svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="group" aria-label="외국인과 기관 수급 및 주가 추이">
+        ${grid}<path class="stock-v3-flow-line foreign" d="${pathFor("foreign", flowY)}"></path><path class="stock-v3-flow-line institution" d="${pathFor("institution", flowY)}"></path>${pricePath}${labels}
+        <g class="stock-v3-flow-focus" hidden aria-hidden="true">
+          <line class="stock-v3-flow-focus-line" y1="${top}" y2="${bottom}"></line>
+          <circle class="stock-v3-flow-focus-point foreign" r="6"></circle>
+          <circle class="stock-v3-flow-focus-point institution" r="6"></circle>
+          <circle class="stock-v3-flow-focus-point price" r="6"></circle>
+        </g>
+        <rect class="stock-v3-flow-scrub-hit" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="${Math.max(0, chartRows.length - 1)}" aria-label="수급·주가 날짜별 탐색"></rect>
+      </svg>
+    </div>
     <div class="stock-v3-legend"><span class="foreign">외국인</span><span class="institution">기관</span><span class="line">주가</span></div>
+    <p class="stock-v3-flow-scrub-hint">⌕ 그래프를 누른 뒤 좌우로 밀면 같은 날짜의 외국인·기관·주가를 함께 확인합니다.${coverageStatus}</p>
   `;
+  const flowPlot = elements.stockFlowHistoryChart.querySelector(".stock-v3-flow-plot");
+  const flowSvg = flowPlot?.querySelector("svg");
+  if (flowPlot && flowSvg) {
+    installStockFlowScrubber({
+      plot: flowPlot,
+      svg: flowSvg,
+      rows: chartRows,
+      width,
+      height,
+      left,
+      right,
+      top,
+      bottom,
+      pointX,
+      flowY,
+      priceY,
+      modeLabel,
+    });
+  }
   const latest = chartRows[chartRows.length - 1];
   elements.stockFlowSummary.innerHTML = `
     <span>외국인 <strong class="${latest.foreign >= 0 ? "positive" : "negative"}">${formatSignedShares(latest.foreign)}</strong></span>
@@ -2219,6 +5088,7 @@ function setStockReportSummary(items) {
 }
 
 function renderStockReportIssuance(reports) {
+  dismissStockBarTooltip(elements.stockReportHistoryChart);
   const monthly = new Map();
   for (const report of reports) {
     const month = report.date.slice(0, 7);
@@ -2245,7 +5115,12 @@ function renderStockReportIssuance(reports) {
     const y = bottom - barHeight;
     return `<g class="stock-v3-report-issuance"><rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${barHeight.toFixed(2)}" rx="4"></rect><text x="${(x + barWidth / 2).toFixed(2)}" y="${Math.max(36, y - 8).toFixed(2)}" text-anchor="middle">${row.count}건</text><text class="stock-v3-chart-date" x="${(x + barWidth / 2).toFixed(2)}" y="214" text-anchor="middle">${row.month.replace("-", ".")}</text></g>`;
   }).join("");
-  elements.stockReportHistoryChart.innerHTML = `<svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 월별 리포트 발행 건수"><line class="stock-v3-report-baseline" x1="${left}" y1="${bottom}" x2="${width - right}" y2="${bottom}"></line>${bars}</svg>`;
+  elements.stockReportHistoryChart.innerHTML = `<svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="group" aria-label="최근 월별 리포트 발행 건수"><line class="stock-v3-report-baseline" x1="${left}" y1="${bottom}" x2="${width - right}" y2="${bottom}"></line>${bars}</svg>`;
+  Array.from(elements.stockReportHistoryChart.querySelectorAll(".stock-v3-report-issuance")).forEach((target, index) => {
+    const row = rows[index];
+    setStockBarTooltipTarget(target, `${row.month.replace("-", ".")} 리포트 ${formatNumber(row.count)}건`, { anchor: target.querySelector("rect") });
+  });
+  installStockBarTooltips(elements.stockReportHistoryChart);
   const recentCutoff = new Date();
   recentCutoff.setDate(recentCutoff.getDate() - 30);
   const recentCount = reports.filter((row) => new Date(`${row.date}T00:00:00`) >= recentCutoff).length;
@@ -2257,6 +5132,7 @@ function renderStockReportIssuance(reports) {
 }
 
 function renderStockReportBrokers(reports) {
+  dismissStockBarTooltip(elements.stockReportHistoryChart);
   const brokerCounts = new Map();
   for (const report of reports) {
     brokerCounts.set(report.broker, (brokerCounts.get(report.broker) || 0) + 1);
@@ -2282,9 +5158,11 @@ function renderStockReportBrokers(reports) {
       meter,
       el("b", "", `${formatNumber(row.count)}건`)
     );
+    setStockBarTooltipTarget(item, `${row.broker} 리포트 ${formatNumber(row.count)}건`, { anchor: meter });
     list.appendChild(item);
   });
   elements.stockReportHistoryChart.replaceChildren(list);
+  installStockBarTooltips(elements.stockReportHistoryChart);
   setStockReportSummary([
     ["발행 증권사", `${formatNumber(rows.length)}곳`],
     ["최다 발행", rows[0].broker],
@@ -2296,6 +5174,7 @@ function renderStockReportHistoryChart() {
   if (!elements.stockReportHistoryChart || !state.currentDashboard) {
     return;
   }
+  dismissStockBarTooltip(elements.stockReportHistoryChart);
   setStockReportModeTabs();
   elements.stockReportHistoryChart.dataset.mode = state.stockReportMode || "target";
   const reports = stockResearchReports();
@@ -2345,6 +5224,18 @@ function renderStockReportHistoryChart() {
     }
   }
   const targetPath = targetPoints.length ? targetPoints.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ") : "";
+  const targetMarkerPoints = [];
+  let lastMarkerTarget = null;
+  for (let index = 0; index < priceRows.length; index += 1) {
+    const row = priceRows[index];
+    const reportsOnOrBeforeDate = targets.filter((report) => report.date <= row.date);
+    const markerTarget = reportsOnOrBeforeDate.length ? reportsOnOrBeforeDate[reportsOnOrBeforeDate.length - 1].target : null;
+    if (markerTarget !== null && markerTarget !== lastMarkerTarget) {
+      targetMarkerPoints.push({ x: x(index), y: y(markerTarget) });
+      lastMarkerTarget = markerTarget;
+    }
+  }
+  const targetMarkers = targetMarkerPoints.map((point) => `<circle class="stock-v3-report-target-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4"></circle>`).join("");
   const grid = Array.from({ length: 5 }, (_, index) => {
     const ratio = index / 4;
     const gridY = top + ratio * plotHeight;
@@ -2354,7 +5245,7 @@ function renderStockReportHistoryChart() {
   const labels = [0, Math.floor((priceRows.length - 1) / 2), priceRows.length - 1].map((index) => `<text class="stock-v3-chart-date" x="${x(index).toFixed(2)}" y="306" text-anchor="${index === 0 ? "start" : index === priceRows.length - 1 ? "end" : "middle"}">${formatChartDate(priceRows[index].date)}</text>`).join("");
   elements.stockReportHistoryChart.innerHTML = `
     <svg class="stock-v3-data-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 6개월 목표가와 주가 비교">
-      ${grid}<path class="stock-v3-report-price" d="${pricePath}"></path>${targetPath ? `<path class="stock-v3-report-target" d="${targetPath}"></path>` : ""}${labels}
+      ${grid}<path class="stock-v3-report-price" d="${pricePath}"></path>${targetPath ? `<path class="stock-v3-report-target" d="${targetPath}"></path>${targetMarkers}` : ""}${labels}
     </svg>
     <div class="stock-v3-legend"><span class="target">목표가</span><span class="line">주가</span></div>
   `;
@@ -2378,8 +5269,31 @@ function stockHomeContentItems(data = state.currentDashboard) {
   return { reports, disclosures, news };
 }
 
+function naverResearchDetailUrl(row) {
+  if (row?.source !== "naver_finance" || row?.source_category !== "company") {
+    return null;
+  }
+  const stockCode = String(row?.stock_code || "").trim();
+  const researchId = String(row?.external_id || "").trim();
+  if (!/^\d{6}$/.test(stockCode) || !/^\d+$/.test(researchId)) {
+    return null;
+  }
+  return `https://m.stock.naver.com/domestic/stock/${encodeURIComponent(stockCode)}/research/${encodeURIComponent(researchId)}`;
+}
+
+function naverNewsArticleUrl(row) {
+  if (row?.source !== "naver_finance") {
+    return null;
+  }
+  const match = String(row?.external_id || "").trim().match(/^(\d+):(\d+)$/);
+  if (!match) {
+    return null;
+  }
+  return `https://n.news.naver.com/mnews/article/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}`;
+}
+
 function updateItemLink(row) {
-  return row?.detail_url || row?.pdf_url || row?.url || null;
+  return naverResearchDetailUrl(row) || naverNewsArticleUrl(row) || row?.pdf_url || row?.detail_url || row?.url || null;
 }
 
 function updateItemDate(row) {
@@ -2415,6 +5329,144 @@ function renderStockHomeUpdates(data) {
   }
 }
 
+function stockDisclosureDate(row) {
+  const date = String(updateItemDate(row) || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
+}
+
+function stockDisclosureReferenceDate(data) {
+  const source = String(data?.quote?.trade_date || data?.as_of || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(source) ? source : localCalendarDate();
+}
+
+function stockDisclosureCutoffDate(referenceDate) {
+  const match = String(referenceDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return "";
+  }
+  const cutoff = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  cutoff.setDate(cutoff.getDate() - 30);
+  return localCalendarDate(cutoff);
+}
+
+function stockOneMonthDisclosureRows(data) {
+  const { disclosures } = stockHomeContentItems(data);
+  const referenceDate = stockDisclosureReferenceDate(data);
+  const cutoffDate = stockDisclosureCutoffDate(referenceDate);
+  const seen = new Set();
+  return disclosures
+    .map((row) => ({ row, date: stockDisclosureDate(row) }))
+    .filter(({ date }) => date && date >= cutoffDate && date <= referenceDate)
+    .sort((a, b) => b.date.localeCompare(a.date) || String(b.row?.external_id || "").localeCompare(String(a.row?.external_id || "")))
+    .filter(({ row }) => {
+      const key = String(row?.external_id || row?.detail_url || row?.id || "").trim();
+      if (!key || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .map(({ row }) => row);
+}
+
+function stockDisclosureCategoryLabel(row) {
+  const labels = {
+    ir: "IR",
+    earnings_flash: "실적",
+    insider_trade: "임원·주주",
+    major_holder: "지분",
+    dividend: "배당",
+    treasury_stock: "자사주",
+    supply_contract: "수주",
+    facility_investment: "투자",
+    rights_offering: "증자",
+    business_report: "정기보고",
+    filings: "공시",
+  };
+  return labels[String(row?.disclosure_category || "").trim()] || "공시";
+}
+
+function stockDartCompanyUrl(data, disclosures = []) {
+  const companyName = String(data?.name || state.currentStock?.name || data?.code || "").trim();
+  const corpCode = String(disclosures.find((row) => row?.corp_code)?.corp_code || "").trim();
+  const params = new URLSearchParams({
+    textCrpNm: companyName,
+    autoSearch: "Y",
+  });
+  if (corpCode) {
+    params.set("textCrpCik", corpCode);
+  }
+  return `https://dart.fss.or.kr/dsab001/main.do?${params.toString()}`;
+}
+
+function renderStockHomeDisclosures(data) {
+  if (!elements.stockHomeDisclosures) {
+    return;
+  }
+  const { disclosures } = stockHomeContentItems(data);
+  const rows = stockOneMonthDisclosureRows(data);
+  const companyName = String(data?.name || state.currentStock?.name || "선택 종목").trim();
+  if (elements.stockHomeDisclosuresAll) {
+    elements.stockHomeDisclosuresAll.href = stockDartCompanyUrl(data, disclosures);
+    elements.stockHomeDisclosuresAll.setAttribute("aria-label", `${companyName} DART 전체 공시 보기`);
+  }
+  setText(
+    elements.stockHomeDisclosuresSummary,
+    rows.length ? `최근 30일 · 총 ${formatNumber(rows.length)}건` : "최근 30일 내 수집된 공시가 없습니다."
+  );
+  elements.stockHomeDisclosures.innerHTML = "";
+  if (!rows.length) {
+    state.stockHomeDisclosuresExpanded = false;
+    if (elements.stockHomeDisclosuresToggle) {
+      elements.stockHomeDisclosuresToggle.hidden = true;
+      elements.stockHomeDisclosuresToggle.setAttribute("aria-expanded", "false");
+    }
+    elements.stockHomeDisclosures.appendChild(el("p", "stock-v3-chart-empty", "최근 30일 내 공시가 없습니다. DART 전체 보기에서 과거 공시를 확인할 수 있습니다."));
+    return;
+  }
+  const disclosureLimit = 5;
+  const hasMore = rows.length > disclosureLimit;
+  if (!hasMore) {
+    state.stockHomeDisclosuresExpanded = false;
+  }
+  const visibleRows = state.stockHomeDisclosuresExpanded ? rows : rows.slice(0, disclosureLimit);
+  if (elements.stockHomeDisclosuresToggle) {
+    elements.stockHomeDisclosuresToggle.hidden = !hasMore;
+    elements.stockHomeDisclosuresToggle.setAttribute("aria-expanded", state.stockHomeDisclosuresExpanded ? "true" : "false");
+    elements.stockHomeDisclosuresToggle.setAttribute(
+      "aria-label",
+      `${companyName} 공시 ${state.stockHomeDisclosuresExpanded ? "접기" : "더보기"}`,
+    );
+    elements.stockHomeDisclosuresToggle.replaceChildren(
+      el("span", "", state.stockHomeDisclosuresExpanded ? "접기" : "더보기"),
+      el("span", "stock-home-disclosure-toggle-icon", state.stockHomeDisclosuresExpanded ? "⌃" : "⌄"),
+    );
+  }
+  for (const row of visibleRows) {
+    const title = String(row?.report_name || row?.title || "공시").replace(/\s+/g, " ").trim();
+    const href = updateItemLink(row);
+    const node = href ? el("a", "stock-home-disclosure-row") : el("div", "stock-home-disclosure-row is-empty");
+    if (href) {
+      node.href = href;
+      node.target = "_blank";
+      node.rel = "noopener noreferrer";
+      node.setAttribute("aria-label", `${title} DART 원문 보기`);
+    }
+    const copy = el("span", "stock-home-disclosure-copy");
+    const meta = el("span", "stock-home-disclosure-meta");
+    meta.append(
+      el("span", `stock-home-disclosure-category is-${String(row?.disclosure_category || "filings").replace(/[^a-z0-9_-]/gi, "")}`, stockDisclosureCategoryLabel(row)),
+      el("time", "", stockDisclosureDate(row))
+    );
+    copy.append(meta, el("strong", "", title));
+    if (row?.filer_name) {
+      copy.appendChild(el("small", "", `제출인 ${String(row.filer_name).trim()}`));
+    }
+    node.append(el("i", "", "D"), copy, el("span", "stock-home-disclosure-arrow", href ? "↗" : ""));
+    elements.stockHomeDisclosures.appendChild(node);
+  }
+}
+
 function renderStockTodaySummary(data) {
   if (!elements.stockHomeSummaryList) {
     return;
@@ -2446,24 +5498,232 @@ function renderStockTodaySummary(data) {
   setText(elements.stockHomeTodayDate, formatDataBasis(summaryDate));
 }
 
+function formatSignedFlowMoney(value) {
+  const number = toNumber(value);
+  if (number === null) {
+    return "-";
+  }
+  return `${number > 0 ? "+" : ""}${formatMoney(number)}`;
+}
+
+function stockHomeSevenDayFlowRows() {
+  const grouped = new Map();
+  for (const row of state.stockFlowRows || []) {
+    const date = String(row?.trade_date || "");
+    const value = toNumber(row?.net_buy_value);
+    if (!date || value === null) {
+      continue;
+    }
+    const item = grouped.get(date) || { date, foreign: 0, institution: 0 };
+    const investorType = String(row?.investor_type || "");
+    if (investorType.includes("외국")) {
+      item.foreign += value;
+    }
+    if (investorType.includes("기관")) {
+      item.institution += value;
+    }
+    grouped.set(date, item);
+  }
+  return [...grouped.values()]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-7)
+    .map((row) => ({ ...row, personal: -(row.foreign + row.institution) }));
+}
+
+function installStockHomeFlowScrubber({ plot, svg, rows, series, width, left, right, top, bottom, pointX, valueY }) {
+  const hitArea = svg?.querySelector(".stock-v3-flow-scrub-hit");
+  const focus = svg?.querySelector(".stock-v3-flow-focus");
+  const focusLine = focus?.querySelector(".stock-v3-flow-focus-line");
+  const focusPoints = new Map(series.map(({ key }) => [
+    key,
+    focus?.querySelector(`.stock-v3-flow-focus-point.${key}`),
+  ]));
+  if (!plot || !svg || !hitArea || !focus || !focusLine || !rows.length || [...focusPoints.values()].some((point) => !point)) {
+    return;
+  }
+
+  const focusCard = el("div", "stock-v3-flow-focus-card stock-home-flow-focus-card");
+  focusCard.setAttribute("role", "status");
+  focusCard.setAttribute("aria-live", "polite");
+  const focusMeta = el("span", "stock-v3-flow-focus-meta");
+  const focusValues = el("div", "stock-v3-flow-focus-values");
+  const focusEntries = series.map(({ key, label }) => {
+    const entry = el("span", `is-${key}`);
+    const value = el("strong", "");
+    entry.append(el("i", "", label), value);
+    focusValues.appendChild(entry);
+    return { key, value };
+  });
+  focusCard.append(focusMeta, focusValues);
+  plot.appendChild(focusCard);
+
+  hitArea.setAttribute("tabindex", "0");
+  hitArea.setAttribute("role", "slider");
+  hitArea.setAttribute("aria-label", `${state.currentStock?.name || "선택 종목"} 최근 7거래일 투자자 수급 탐색`);
+  hitArea.setAttribute("aria-valuemin", "0");
+  hitArea.setAttribute("aria-valuemax", String(Math.max(0, rows.length - 1)));
+
+  let activeIndex = rows.length - 1;
+  let dragging = false;
+  const updateFocus = (requestedIndex) => {
+    const index = clampNumber(Math.round(requestedIndex), 0, Math.max(0, rows.length - 1));
+    const row = rows[index];
+    const focusX = pointX(index);
+    focusLine.setAttribute("x1", focusX.toFixed(2));
+    focusLine.setAttribute("x2", focusX.toFixed(2));
+    for (const { key } of series) {
+      const point = focusPoints.get(key);
+      point.setAttribute("cx", focusX.toFixed(2));
+      point.setAttribute("cy", valueY(row[key]).toFixed(2));
+    }
+    focus.removeAttribute("hidden");
+    focusCard.hidden = false;
+    plot.style.setProperty("--stock-flow-focus-x", `${(focusX / width) * 100}%`);
+    plot.classList.toggle("is-focus-left", focusX < width * 0.28);
+    plot.classList.toggle("is-focus-right", focusX > width * 0.72);
+    focusMeta.textContent = `${row.date.replaceAll("-", ".")} · 일별 순매수`;
+    for (const entry of focusEntries) {
+      entry.value.textContent = formatSignedFlowMoney(row[entry.key]);
+    }
+    activeIndex = index;
+    hitArea.setAttribute("aria-valuenow", String(index));
+    hitArea.setAttribute(
+      "aria-valuetext",
+      `${row.date} ${series.map(({ key, label }) => `${label} ${formatSignedFlowMoney(row[key])}`).join(", ")}`,
+    );
+  };
+  const pointerIndex = (event) => {
+    const bounds = svg.getBoundingClientRect();
+    const localX = bounds.width ? ((event.clientX - bounds.left) / bounds.width) * width : left;
+    const ratio = clampNumber((localX - left) / Math.max(1, width - left - right), 0, 1);
+    return Math.round(ratio * Math.max(0, rows.length - 1));
+  };
+  const endDrag = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    plot.classList.remove("is-scrubbing");
+    if (typeof hitArea.hasPointerCapture === "function" && hitArea.hasPointerCapture(event.pointerId)) {
+      try {
+        hitArea.releasePointerCapture(event.pointerId);
+      } catch {
+        // The pointer can be released before the browser dispatches pointercancel.
+      }
+    }
+  };
+
+  hitArea.addEventListener("pointerdown", (event) => {
+    dragging = true;
+    plot.classList.add("is-scrubbing");
+    hitArea.focus({ preventScroll: true });
+    if (typeof hitArea.setPointerCapture === "function") {
+      try {
+        hitArea.setPointerCapture(event.pointerId);
+      } catch {
+        // Synthetic pointer events may not support capture.
+      }
+    }
+    updateFocus(pointerIndex(event));
+  });
+  hitArea.addEventListener("pointermove", (event) => {
+    if (!dragging && event.pointerType !== "mouse") return;
+    updateFocus(pointerIndex(event));
+  });
+  hitArea.addEventListener("pointerup", endDrag);
+  hitArea.addEventListener("pointercancel", endDrag);
+  hitArea.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === "Home") updateFocus(0);
+    else if (event.key === "End") updateFocus(rows.length - 1);
+    else updateFocus(activeIndex + (event.key === "ArrowRight" ? 1 : -1));
+  });
+  updateFocus(activeIndex);
+}
+
 function renderStockHomeCheckpoints(data) {
   if (!elements.stockHomeCheckpoints) {
     return;
   }
-  const flows = data?.flows || {};
-  const items = [
-    { label: "외국인 20일", value: toNumber(flows.foreign_net_buy_20d) },
-    { label: "기관 20일", value: toNumber(flows.institution_net_buy_20d) },
-  ];
+  dismissStockBarTooltip(elements.stockHomeCheckpoints);
+  const rows = stockHomeSevenDayFlowRows();
   elements.stockHomeCheckpoints.innerHTML = "";
-  for (const item of items) {
-    const card = el("article", `stock-v3-checkpoint ${item.value === null ? "neutral" : item.value >= 0 ? "positive" : "negative"}`);
-    card.append(
-      el("span", "", item.label),
-      el("strong", "", item.value === null ? "자료 없음" : item.value >= 0 ? "순매수" : "순매도"),
-      el("small", "", formatMoney(item.value))
-    );
-    elements.stockHomeCheckpoints.appendChild(card);
+  if (rows.length < 2) {
+    elements.stockHomeCheckpoints.appendChild(el("p", "stock-v3-chart-empty", "최근 7거래일 수급을 불러오는 중입니다."));
+    return;
+  }
+
+  const series = [
+    { key: "personal", label: "개인(추정)" },
+    { key: "foreign", label: "외국인" },
+    { key: "institution", label: "기관" },
+  ];
+  const totals = Object.fromEntries(series.map(({ key }) => [
+    key,
+    rows.reduce((sum, row) => sum + row[key], 0),
+  ]));
+  const width = 640;
+  const height = 236;
+  const left = 58;
+  const right = 18;
+  const top = 18;
+  const bottom = 184;
+  const plotWidth = width - left - right;
+  const plotHeight = bottom - top;
+  const maxAbs = Math.max(
+    ...rows.flatMap((row) => series.map(({ key }) => Math.abs(row[key]))),
+    100_000_000,
+  );
+  const axisMax = companyCashflowNiceExtent(maxAbs);
+  const x = (index) => left + (index / Math.max(1, rows.length - 1)) * plotWidth;
+  const y = (value) => top + ((axisMax - value) / (axisMax * 2)) * plotHeight;
+  const grid = [1, 0.5, 0, -0.5, -1].map((ratio) => {
+    const value = axisMax * ratio;
+    const gridY = y(value);
+    return `<g class="stock-home-flow-grid${ratio === 0 ? " is-zero" : ""}"><line x1="${left}" y1="${gridY.toFixed(2)}" x2="${width - right}" y2="${gridY.toFixed(2)}"></line><text x="${left - 8}" y="${(gridY + 4).toFixed(2)}" text-anchor="end">${formatMoney(value)}</text></g>`;
+  }).join("");
+  const lines = series.map(({ key }) => {
+    const path = rows.map((row, index) => `${index ? "L" : "M"}${x(index).toFixed(2)} ${y(row[key]).toFixed(2)}`).join(" ");
+    const points = rows.map((row, index) => `<circle class="stock-home-flow-point ${key}" cx="${x(index).toFixed(2)}" cy="${y(row[key]).toFixed(2)}" r="4"></circle>`).join("");
+    return `<path class="stock-home-flow-line ${key}" d="${path}"></path>${points}`;
+  }).join("");
+  const dates = rows.map((row, index) => `<text class="stock-home-flow-date" x="${x(index).toFixed(2)}" y="218" text-anchor="middle">${formatChartDate(row.date)}</text>`).join("");
+  const summary = series.map(({ key, label }) => {
+    const value = totals[key];
+    return `<div class="stock-home-flow-total ${key}" role="listitem"><span>${label}<small>7일 합계</small></span><strong class="${value >= 0 ? "positive" : "negative"}">${formatSignedFlowMoney(value)}</strong></div>`;
+  }).join("");
+
+  elements.stockHomeCheckpoints.innerHTML = `
+    <p class="stock-home-flow-period">최근 7거래일 · 일별 순매수 금액</p>
+    <div class="stock-home-flow-totals" role="list" aria-label="최근 7거래일 투자자별 순매수 합계">${summary}</div>
+    <div class="stock-home-flow-chart stock-v3-flow-plot">
+      <svg viewBox="0 0 ${width} ${height}" role="group" aria-label="최근 7거래일 개인 추정, 외국인, 기관 일별 순매수 금액 비교">
+        ${grid}${lines}${dates}
+        <g class="stock-v3-flow-focus stock-home-flow-focus" hidden aria-hidden="true">
+          <line class="stock-v3-flow-focus-line" y1="${top}" y2="${bottom}"></line>
+          ${series.map(({ key }) => `<circle class="stock-v3-flow-focus-point ${key}" r="6"></circle>`).join("")}
+        </g>
+        <rect class="stock-v3-flow-scrub-hit" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="${Math.max(0, rows.length - 1)}" aria-label="최근 7거래일 투자자 수급 탐색"></rect>
+      </svg>
+    </div>
+    <p class="stock-v3-flow-scrub-hint stock-home-flow-scrub-hint">그래프를 누른 뒤 좌우로 밀면 같은 날짜의 개인·외국인·기관 수급을 함께 확인합니다.</p>
+    <p class="stock-home-flow-caption">개인은 외국인·기관 일별 순매수 합계의 반대값으로 추정합니다.</p>
+  `;
+  const flowPlot = elements.stockHomeCheckpoints.querySelector(".stock-home-flow-chart");
+  const flowSvg = flowPlot?.querySelector("svg");
+  if (flowPlot && flowSvg) {
+    installStockHomeFlowScrubber({
+      plot: flowPlot,
+      svg: flowSvg,
+      rows,
+      series,
+      width,
+      left,
+      right,
+      top,
+      bottom,
+      pointX: x,
+      valueY: y,
+    });
   }
 }
 
@@ -2622,19 +5882,8 @@ function renderStockNewsRows(rows) {
   if (!elements.newsList) {
     return;
   }
-  const mode = state.stockNewsMode || "company";
-  for (const button of elements.stockNewsModeTabs) {
-    const active = button.dataset.newsMode === mode;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", String(active));
-  }
   const sourceRows = Array.isArray(rows) ? rows : [];
-  let filteredRows = sourceRows.filter((row) => mode === "breaking"
-    ? row.source_category === "breaking"
-    : row.source_category !== "breaking");
-  if (mode === "company" && !filteredRows.length) {
-    filteredRows = sourceRows;
-  }
+  let filteredRows = sourceRows.filter((row) => row.source_category !== "breaking");
   const seen = new Set();
   filteredRows = filteredRows.filter((row) => {
     const key = row.external_id || updateItemLink(row) || row.title;
@@ -2646,7 +5895,7 @@ function renderStockNewsRows(rows) {
   });
   elements.newsList.innerHTML = "";
   if (!filteredRows.length) {
-    elements.newsList.appendChild(el("li", "stock-v3-news-empty", mode === "breaking" ? "최근 AI 속보가 없습니다." : "최근 종목뉴스가 없습니다."));
+    elements.newsList.appendChild(el("li", "stock-v3-news-empty", "최근 종목뉴스가 없습니다."));
     return;
   }
   for (const row of filteredRows.slice(0, 8)) {
@@ -2716,11 +5965,29 @@ function stockCommunityMeta(providerKey, row) {
   return `${stockCommunityDate(row.created_at)} · 좋아요 ${formatCompactCount(row.like_count || 0)} · 답글 ${formatCompactCount(row.reply_count || 0)}`;
 }
 
+function stockCommunityShortcutUrl(providerKey, row, stockCode) {
+  const rawUrl = String(row?.url || "").trim();
+  if (providerKey !== "naver_board" || !rawUrl) {
+    return rawUrl;
+  }
+  const resolvedStockCode = String(stockCode || state.currentStock?.code || "").trim();
+  const postId = rawUrl.match(/[?&]nid=(\d+)/)?.[1]
+    || rawUrl.match(/\/(?:discussion|discuss)\/(\d+)(?:[/?#]|$)/)?.[1]
+    || String(row?.post_id || "").trim();
+  if (!resolvedStockCode || !/^\d+$/.test(postId)) {
+    return rawUrl;
+  }
+  return `https://m.stock.naver.com/domestic/stock/${encodeURIComponent(resolvedStockCode)}/discussion/${encodeURIComponent(postId)}`;
+}
+
 function renderStockCommunity(payload) {
   if (!elements.stockCommunityProviders || !elements.stockCommunityStatus) {
     return;
   }
-  const providers = Array.isArray(payload?.providers) ? payload.providers : [];
+  // 종목 상세에서는 네이버 종토방만 보여 준다. Threads는 검색 결과가 안정적으로
+  // 제공되지 않아 출처 탭과 게시물 목록에서 제외한다.
+  const providers = (Array.isArray(payload?.providers) ? payload.providers : [])
+    .filter((provider) => provider?.key !== "threads");
   const totalItems = providers.reduce((sum, provider) => sum + (Array.isArray(provider?.items) ? provider.items.length : 0), 0);
   elements.stockCommunityProviders.innerHTML = "";
   elements.stockCommunityStatus.hidden = totalItems > 0;
@@ -2736,22 +6003,24 @@ function renderStockCommunity(payload) {
   state.stockCommunityProviderKey = selected.key;
 
   const board = el("section", "stock-community-board");
-  const tabs = el("div", "stock-community-tabs stock-v3-segment");
-  tabs.setAttribute("role", "tablist");
-  tabs.setAttribute("aria-label", "커뮤니티 출처");
-  for (const provider of providers) {
-    const button = el("button", provider.key === selected.key ? "active" : "", provider.label || "커뮤니티");
-    button.type = "button";
-    button.setAttribute("role", "tab");
-    button.setAttribute("aria-selected", provider.key === selected.key ? "true" : "false");
-    button.addEventListener("click", () => {
-      if (state.stockCommunityProviderKey === provider.key) return;
-      state.stockCommunityProviderKey = provider.key;
-      renderStockCommunity(payload);
-    });
-    tabs.appendChild(button);
+  if (providers.length > 1) {
+    const tabs = el("div", "stock-community-tabs stock-v3-segment");
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "커뮤니티 출처");
+    for (const provider of providers) {
+      const button = el("button", provider.key === selected.key ? "active" : "", provider.label || "커뮤니티");
+      button.type = "button";
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-selected", provider.key === selected.key ? "true" : "false");
+      button.addEventListener("click", () => {
+        if (state.stockCommunityProviderKey === provider.key) return;
+        state.stockCommunityProviderKey = provider.key;
+        renderStockCommunity(payload);
+      });
+      tabs.appendChild(button);
+    }
+    board.appendChild(tabs);
   }
-  board.appendChild(tabs);
 
   const items = Array.isArray(selected.items) ? selected.items : [];
   const summary = el("div", "stock-community-board-summary");
@@ -2800,13 +6069,14 @@ function renderStockCommunity(payload) {
       });
       actions.appendChild(expand);
     }
-    if (row.url) {
-      const original = el("a", "stock-community-original", "원문 ↗");
-      original.href = row.url;
-      original.target = "_blank";
-      original.rel = "noopener noreferrer";
-      original.setAttribute("aria-label", `${selected.label || "커뮤니티"} 게시물 원문 보기`);
-      actions.appendChild(original);
+    const shortcutUrl = stockCommunityShortcutUrl(selected.key, row, payload?.code);
+    if (shortcutUrl) {
+      const shortcut = el("a", "stock-community-shortcut", "바로가기");
+      shortcut.href = shortcutUrl;
+      shortcut.target = "_blank";
+      shortcut.rel = "noopener noreferrer";
+      shortcut.setAttribute("aria-label", `${selected.label || "커뮤니티"} 게시물 바로가기`);
+      actions.appendChild(shortcut);
     }
     footer.appendChild(actions);
     body.append(line, text, footer);
@@ -2824,15 +6094,398 @@ function renderStockCommunity(payload) {
   elements.stockCommunityProviders.appendChild(board);
 }
 
+function isLikelyStockEtfName(name) {
+  const normalized = String(name || "").trim().replace(/\s+/g, " ").toUpperCase();
+  return Boolean(normalized) && (
+    normalized.replace(/\s/g, "").includes("ETF")
+    || STOCK_ETF_NAME_PREFIXES.some((prefix) => (
+      normalized === prefix || normalized.startsWith(`${prefix} `)
+    ))
+  );
+}
+
+function currentStockIsEtf() {
+  if (
+    state.stockEtfProfile?.code === state.currentStock?.code
+    && typeof state.stockEtfProfile?.is_etf === "boolean"
+  ) {
+    return state.stockEtfProfile.is_etf;
+  }
+  return isLikelyStockEtfName(state.currentStock?.name);
+}
+
+function applyStockInstrumentState(isEtf) {
+  const etf = Boolean(isEtf);
+  if (elements.stockView) {
+    elements.stockView.dataset.instrumentType = etf ? "etf" : "stock";
+  }
+  if (elements.stockCompanyTab) {
+    elements.stockCompanyTab.disabled = etf;
+    elements.stockCompanyTab.setAttribute("aria-disabled", etf ? "true" : "false");
+    if (etf) {
+      elements.stockCompanyTab.setAttribute("aria-label", "기업분석 · ETF에서는 제공되지 않음");
+      elements.stockCompanyTab.title = "ETF는 기업 재무제표 대신 구성자산과 분배금 정보를 제공해요.";
+    } else {
+      elements.stockCompanyTab.removeAttribute("aria-label");
+      elements.stockCompanyTab.removeAttribute("title");
+    }
+  }
+  if (elements.stockEtfHoldingsSection) {
+    elements.stockEtfHoldingsSection.hidden = !etf;
+  }
+  if (elements.stockEtfDividendSection) {
+    elements.stockEtfDividendSection.hidden = !etf;
+  }
+  if (etf && state.stockActiveTab === "company") {
+    setActiveStockTab("summary", { preserveScroll: true, deferDataLoads: true });
+  }
+  if (!etf) {
+    closeStockEtfDividendPage({ restoreFocus: false, restoreScroll: false });
+  }
+}
+
+function resetStockEtfProfile(data = null) {
+  state.stockEtfProfile = null;
+  state.stockEtfProfileStatus = data ? "loading" : "idle";
+  applyStockInstrumentState(isLikelyStockEtfName(data?.name));
+  setText(elements.stockEtfHoldingsAsOf, data ? "구성자산 확인 중" : "기준일 확인 중");
+  if (elements.stockEtfHoldingsDonut) {
+    elements.stockEtfHoldingsDonut.replaceChildren(
+      el("p", "stock-etf-loading", data ? "구성자산을 확인하는 중입니다." : "ETF 구성자산 정보가 없습니다."),
+    );
+  }
+  elements.stockEtfHoldingsList?.replaceChildren();
+  elements.stockEtfHoldingsSource?.replaceChildren();
+  setText(elements.stockEtfDividendCount, "-");
+  setText(elements.stockEtfDividendAmount, "-");
+  setText(elements.stockEtfDividendYield, "-");
+  setText(elements.stockEtfDividendPageCount, "-");
+  setText(elements.stockEtfDividendPageAmount, "-");
+  setText(elements.stockEtfDividendPageYield, "-");
+  setText(elements.stockEtfDividendPageTitle, data?.name || "ETF 분배금");
+  setText(elements.stockEtfDistributionDateHead, "분배금 기준일");
+  for (const schedule of [elements.stockEtfDistributionSchedule, elements.stockEtfDividendPageSchedule]) {
+    if (schedule) {
+      schedule.hidden = true;
+      schedule.textContent = "";
+    }
+  }
+  if (elements.stockEtfDistributionYears) {
+    elements.stockEtfDistributionYears.replaceChildren(
+      el("p", "stock-etf-distribution-empty", "분배 내역을 확인하는 중입니다."),
+    );
+  }
+  if (elements.stockEtfDividendSourceLink) {
+    elements.stockEtfDividendSourceLink.hidden = true;
+    elements.stockEtfDividendSourceLink.removeAttribute("href");
+  }
+  closeStockEtfDividendPage({ restoreFocus: false, restoreScroll: false });
+}
+
+function stockEtfPercent(value, maximumFractionDigits = 2) {
+  const number = toNumber(value);
+  if (number === null) {
+    return "-";
+  }
+  return `${number.toLocaleString("ko-KR", { maximumFractionDigits })}%`;
+}
+
+function createStockEtfDonut(holdings) {
+  const host = elements.stockEtfHoldingsDonut;
+  if (!host) {
+    return;
+  }
+  const rows = (Array.isArray(holdings) ? holdings : [])
+    .map((item) => ({ ...item, weightNumber: Math.max(0, toNumber(item?.weight) || 0) }))
+    .filter((item) => item.name && item.weightNumber > 0)
+    .slice(0, 10);
+  if (!rows.length) {
+    host.replaceChildren(el("p", "stock-etf-empty", "표시할 구성자산 비중이 없습니다."));
+    host.setAttribute("aria-label", "표시할 ETF 구성자산 비중이 없습니다.");
+    return;
+  }
+
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.setAttribute("viewBox", "0 0 180 180");
+  svg.setAttribute("aria-hidden", "true");
+  const radius = 64;
+  const circumference = 2 * Math.PI * radius;
+  const track = document.createElementNS(namespace, "circle");
+  track.setAttribute("class", "stock-etf-donut-track");
+  track.setAttribute("cx", "90");
+  track.setAttribute("cy", "90");
+  track.setAttribute("r", String(radius));
+  svg.appendChild(track);
+
+  let cumulativeWeight = 0;
+  rows.forEach((item, index) => {
+    const visibleWeight = Math.min(item.weightNumber, Math.max(0, 100 - cumulativeWeight));
+    if (visibleWeight <= 0) {
+      return;
+    }
+    const segment = document.createElementNS(namespace, "circle");
+    const segmentLength = (visibleWeight / 100) * circumference;
+    segment.setAttribute("class", `stock-etf-donut-segment tone-${(index % 10) + 1}`);
+    segment.setAttribute("cx", "90");
+    segment.setAttribute("cy", "90");
+    segment.setAttribute("r", String(radius));
+    segment.setAttribute("stroke-dasharray", `${segmentLength} ${circumference - segmentLength}`);
+    segment.setAttribute("stroke-dashoffset", String(-(cumulativeWeight / 100) * circumference));
+    svg.appendChild(segment);
+    cumulativeWeight += visibleWeight;
+  });
+
+  const center = el("div", "stock-etf-donut-center");
+  center.append(el("strong", "", "TOP 10"), el("span", "", stockEtfPercent(cumulativeWeight, 1)));
+  host.replaceChildren(svg, center);
+  host.setAttribute(
+    "aria-label",
+    `상위 10개 구성자산 합계 ${stockEtfPercent(cumulativeWeight, 1)}. ${rows
+      .map((item) => `${item.name} ${stockEtfPercent(item.weightNumber)}`)
+      .join(", ")}`,
+  );
+}
+
+function renderStockEtfHoldings(profile) {
+  const holdings = Array.isArray(profile?.holdings) ? profile.holdings.slice(0, 10) : [];
+  createStockEtfDonut(holdings);
+  if (elements.stockEtfHoldingsList) {
+    elements.stockEtfHoldingsList.replaceChildren();
+    holdings.forEach((holding, index) => {
+      const item = el("li", "stock-etf-holding-row");
+      const swatch = el("i", `tone-${(index % 10) + 1}`);
+      swatch.setAttribute("aria-hidden", "true");
+      item.append(
+        swatch,
+        el("strong", "", String(holding?.name || "구성자산")),
+        el("span", "", stockEtfPercent(holding?.weight)),
+      );
+      elements.stockEtfHoldingsList.appendChild(item);
+    });
+    if (!holdings.length) {
+      elements.stockEtfHoldingsList.appendChild(
+        el("li", "stock-etf-holding-empty", profile?.message || "구성자산 비중을 확인할 수 없습니다."),
+      );
+    }
+  }
+  setText(
+    elements.stockEtfHoldingsAsOf,
+    profile?.as_of ? `${formatDateLabel(profile.as_of)} 기준` : "기준일 확인 중",
+  );
+  if (elements.stockEtfHoldingsSource) {
+    elements.stockEtfHoldingsSource.replaceChildren();
+    if (profile?.source_url) {
+      const link = el("a", "", `${profile?.source_label || "ETF 자료"} 원문 보기 ↗`);
+      link.href = profile.source_url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      elements.stockEtfHoldingsSource.appendChild(link);
+    } else {
+      elements.stockEtfHoldingsSource.textContent = profile?.source_label || "ETF 구성자산 자료";
+    }
+  }
+}
+
+function recentStockEtfDistributions(profile, now = new Date()) {
+  const cutoff = new Date(now);
+  cutoff.setFullYear(cutoff.getFullYear() - 1);
+  return (Array.isArray(profile?.distributions) ? profile.distributions : []).filter((item) => {
+    const recordDate = String(item?.record_date || "").slice(0, 10);
+    const timestamp = Date.parse(`${recordDate}T23:59:59+09:00`);
+    return Number.isFinite(timestamp) && timestamp >= cutoff.getTime() && timestamp <= now.getTime();
+  });
+}
+
+function stockEtfDividendSummary(profile) {
+  const distributions = recentStockEtfDistributions(profile);
+  const historyAmount = distributions.reduce(
+    (total, item) => total + Math.max(0, toNumber(item?.amount_per_share) || 0),
+    0,
+  );
+  const fallbackAmount = Math.max(0, toNumber(profile?.trailing_distribution_amount) || 0);
+  const amount = distributions.length ? historyAmount : fallbackAmount;
+  const price = toNumber(state.currentDashboard?.quote?.price);
+  const trailingYield = toNumber(profile?.trailing_distribution_yield)
+    ?? toNumber(state.currentDashboard?.valuation?.dividend_yield);
+  return {
+    count: distributions.length,
+    amount,
+    hasAmount: distributions.length > 0 || fallbackAmount > 0,
+    yield: price && amount ? (amount / price) * 100 : trailingYield,
+  };
+}
+
+function renderStockEtfDividendMetrics(profile) {
+  const summary = stockEtfDividendSummary(profile);
+  const countLabel = summary.count ? `${formatNumber(summary.count)}회` : "내역 없음";
+  const amountLabel = summary.hasAmount ? `연 ${formatNumber(Math.round(summary.amount))}원` : "-";
+  const yieldLabel = summary.yield === null ? "-" : `연 ${stockEtfPercent(summary.yield)}`;
+  setText(elements.stockEtfDividendCount, countLabel);
+  setText(elements.stockEtfDividendAmount, amountLabel);
+  setText(elements.stockEtfDividendYield, yieldLabel);
+  setText(elements.stockEtfDividendPageCount, countLabel);
+  setText(elements.stockEtfDividendPageAmount, amountLabel);
+  setText(elements.stockEtfDividendPageYield, yieldLabel);
+  const scheduleText = profile?.distribution_schedule
+    ? `분배 기준 · ${profile.distribution_schedule}`
+    : "";
+  for (const schedule of [elements.stockEtfDistributionSchedule, elements.stockEtfDividendPageSchedule]) {
+    if (schedule) {
+      schedule.textContent = scheduleText;
+      schedule.hidden = !scheduleText;
+    }
+  }
+}
+
+function formatStockEtfMonthDay(value) {
+  const match = String(value || "").match(/^\d{4}-(\d{2})-(\d{2})/);
+  return match ? `${Number(match[1])}월 ${Number(match[2])}일` : "-";
+}
+
+function renderStockEtfDistributionHistory(profile) {
+  const host = elements.stockEtfDistributionYears;
+  if (!host) {
+    return;
+  }
+  host.replaceChildren();
+  const distributions = (Array.isArray(profile?.distributions) ? profile.distributions : [])
+    .filter((item) => /^\d{4}-\d{2}-\d{2}/.test(String(item?.record_date || "")))
+    .sort((left, right) => String(right.record_date).localeCompare(String(left.record_date)));
+  const datesAreExDividend = distributions.length > 0
+    && distributions.every((item) => item?.date_type === "ex_dividend_date");
+  setText(elements.stockEtfDistributionDateHead, datesAreExDividend ? "배당락일" : "분배금 기준일");
+  if (!distributions.length) {
+    host.appendChild(
+      el("p", "stock-etf-distribution-empty", profile?.message || "공개된 분배 내역이 아직 없습니다."),
+    );
+  } else {
+    const byYear = new Map();
+    distributions.forEach((item) => {
+      const year = String(item.record_date).slice(0, 4);
+      if (!byYear.has(year)) {
+        byYear.set(year, []);
+      }
+      byYear.get(year).push(item);
+    });
+    byYear.forEach((items, year) => {
+      const section = el("section", "stock-etf-distribution-year");
+      section.appendChild(el("h3", "", `${year}년`));
+      const rows = el("div", "stock-etf-distribution-rows");
+      items.forEach((item) => {
+        const row = el("div", "stock-etf-distribution-row");
+        row.append(
+          el("time", "", formatStockEtfMonthDay(item.record_date)),
+          el("time", "", formatStockEtfMonthDay(item.payment_date)),
+          el("strong", "", `${formatNumber(Math.round(toNumber(item.amount_per_share) || 0))}원`),
+        );
+        rows.appendChild(row);
+      });
+      section.appendChild(rows);
+      host.appendChild(section);
+    });
+  }
+
+  if (elements.stockEtfDividendSourceLink) {
+    const sourceUrl = profile?.distribution_source_url || profile?.source_url || "";
+    elements.stockEtfDividendSourceLink.hidden = !sourceUrl;
+    if (sourceUrl) {
+      elements.stockEtfDividendSourceLink.href = sourceUrl;
+      elements.stockEtfDividendSourceLink.textContent = profile?.distribution_source_label || "공식 자료";
+    } else {
+      elements.stockEtfDividendSourceLink.removeAttribute("href");
+    }
+  }
+}
+
+function renderStockEtfProfile(profile = state.stockEtfProfile) {
+  const isEtf = Boolean(profile?.is_etf);
+  applyStockInstrumentState(isEtf);
+  if (!isEtf) {
+    return;
+  }
+  renderStockEtfHoldings(profile);
+  renderStockEtfDividendMetrics(profile);
+  renderStockEtfDistributionHistory(profile);
+  setText(elements.stockEtfDividendPageTitle, profile?.name || state.currentStock?.name || "ETF 분배금");
+}
+
+async function loadStockEtfProfile(data) {
+  const code = data?.code;
+  if (!code) {
+    return;
+  }
+  const requestId = ++state.stockEtfProfileRequestId;
+  state.stockEtfProfileStatus = "loading";
+  try {
+    const payload = await fetchJsonCached(`/stocks/${encodeURIComponent(code)}/etf-profile`, {
+      ttlMs: 30 * UI_CACHE_TTL_MS,
+    });
+    if (requestId !== state.stockEtfProfileRequestId || state.currentStock?.code !== code) {
+      return;
+    }
+    state.stockEtfProfile = payload;
+    state.stockEtfProfileStatus = "ready";
+    renderStockEtfProfile(payload);
+  } catch {
+    if (requestId !== state.stockEtfProfileRequestId || state.currentStock?.code !== code) {
+      return;
+    }
+    state.stockEtfProfileStatus = "error";
+    state.stockEtfProfile = {
+      code,
+      name: data?.name || code,
+      is_etf: isLikelyStockEtfName(data?.name),
+      holdings: [],
+      distributions: [],
+      message: "ETF 상세 정보를 일시적으로 불러오지 못했습니다.",
+    };
+    renderStockEtfProfile(state.stockEtfProfile);
+  }
+}
+
+function openStockEtfDividendPage() {
+  if (!currentStockIsEtf() || !elements.stockEtfDividendPage) {
+    return;
+  }
+  state.stockEtfDividendPageOpen = true;
+  state.stockEtfDividendReturnScrollY = window.scrollY;
+  elements.stockView?.classList.add("is-etf-dividend-open");
+  elements.stockEtfDividendPage.hidden = false;
+  window.scrollTo({ top: 0, behavior: "auto" });
+  window.requestAnimationFrame(() => elements.stockEtfDividendBack?.focus());
+}
+
+function closeStockEtfDividendPage(options = {}) {
+  if (!state.stockEtfDividendPageOpen && elements.stockEtfDividendPage?.hidden) {
+    return;
+  }
+  state.stockEtfDividendPageOpen = false;
+  elements.stockView?.classList.remove("is-etf-dividend-open");
+  if (elements.stockEtfDividendPage) {
+    elements.stockEtfDividendPage.hidden = true;
+  }
+  if (options.restoreScroll !== false) {
+    const returnScrollY = state.stockEtfDividendReturnScrollY;
+    window.requestAnimationFrame(() => window.scrollTo({ top: returnScrollY, behavior: "auto" }));
+  }
+  if (options.restoreFocus !== false) {
+    window.requestAnimationFrame(() => elements.stockEtfDividendMore?.focus());
+  }
+}
+
 function renderStockHome(data = state.currentDashboard) {
   if (!data) {
     return;
   }
+  if (state.stockEtfProfile?.code === data.code) {
+    renderStockEtfProfile(state.stockEtfProfile);
+  }
   renderStockTodaySummary(data);
   renderStockHomeUpdates(data);
+  renderStockHomeDisclosures(data);
   renderStockHomeCheckpoints(data);
   renderStockHomeKeywords(data);
-  renderStockFinancialChart();
   renderStockFlowHistoryChart();
   renderStockReportHistoryChart();
   renderStockNewsTemperature(data);
@@ -3046,6 +6699,24 @@ function renderStockCompanyProfile(data) {
   setCompanyProfileLink(elements.stockCompanySourceLink, profile.source_url);
 }
 
+function resetStockCompanyProfile() {
+  setText(elements.stockCompanySummary, "기업 정보를 불러오는 중입니다.");
+  if (elements.stockCompanyIndustry) {
+    elements.stockCompanyIndustry.textContent = "";
+    elements.stockCompanyIndustry.hidden = true;
+  }
+  setCompanyProfileRow(elements.stockCompanyCeoRow, elements.stockCompanyCeo, "");
+  setCompanyProfileRow(elements.stockCompanyEstablishedRow, elements.stockCompanyEstablished, "");
+  setCompanyProfileRow(elements.stockCompanyFiscalRow, elements.stockCompanyFiscal, "");
+  setCompanyProfileRow(elements.stockCompanyAddressRow, elements.stockCompanyAddress, "");
+  setCompanyProfileLink(elements.stockCompanyHomepage, "");
+  setCompanyProfileLink(elements.stockCompanyIr, "");
+  setText(elements.stockCompanySourceLabel, "출처 확인 중");
+  setCompanyProfileLink(elements.stockCompanySourceLink, "");
+  const details = elements.stockCompanyProfile?.querySelector("details");
+  if (details) details.open = false;
+}
+
 function renderStockDerivedIndicators(data) {
   const quotePrice = toNumber(data?.quote?.price);
   const pbr = toNumber(data?.valuation?.pbr);
@@ -3059,6 +6730,32 @@ function renderStockDerivedIndicators(data) {
 }
 
 function resetStockPriceSummary() {
+  for (const node of [
+    elements.quotePrice,
+    elements.stockChangeValue,
+    elements.quoteChange,
+    elements.stockVolume,
+    elements.quoteValue,
+    elements.quoteCap,
+  ]) {
+    if (!node) continue;
+    node.dataset.quoteAnimationSequence = String(Number(node.dataset.quoteAnimationSequence || 0) + 1);
+    delete node.dataset.rawValue;
+    node.classList.remove("quote-updated", "quote-count-up", "quote-count-down");
+    setText(node, "-");
+  }
+  setTone(elements.stockChangeValue, null);
+  setTone(elements.quoteChange, null);
+  for (const node of [elements.stockCommandPrice, elements.stockCommandChange]) {
+    if (!node) continue;
+    node.dataset.quoteAnimationSequence = String(Number(node.dataset.quoteAnimationSequence || 0) + 1);
+    delete node.dataset.rawValue;
+    node.classList.remove("quote-updated", "quote-count-up", "quote-count-down");
+  }
+  setText(elements.stockCommandPrice, "시세 확인 중");
+  setText(elements.stockCommandChange, "");
+  elements.stockCommandQuote.setAttribute("aria-label", "실시간 시세 확인 중");
+  setTone(elements.stockCommandQuote, null);
   for (const node of [
     elements.stockOpen,
     elements.stockHigh,
@@ -3083,23 +6780,110 @@ function resetStockPriceSummary() {
   if (elements.stockV2SentimentChart) elements.stockV2SentimentChart.innerHTML = '<p class="stock-v2-empty">뉴스 분류를 확인하는 중입니다.</p>';
 }
 
+function renderStockHomeChartMessage(title, message = "") {
+  if (!elements.stockHomeChartAnalysis) {
+    return;
+  }
+  elements.stockHomeChartAnalysis.innerHTML = "";
+  const status = el("div", "stock-home-chart-status");
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  status.appendChild(el("strong", "", title));
+  if (message) {
+    status.appendChild(el("p", "", message));
+  }
+  elements.stockHomeChartAnalysis.appendChild(status);
+}
+
+function resetStockHomeChartAnalysis() {
+  state.stockHomeChartResult = null;
+  state.stockHomeChartHorizon = 10;
+  renderStockHomeChartMessage("차트분석을 준비하는 중입니다.", "최근 가격 흐름을 확인하고 있습니다.");
+}
+
+function renderStockHomeChartAnalysis(horizon = state.stockHomeChartHorizon || 10) {
+  if (!elements.stockHomeChartAnalysis || !state.currentStock || !state.currentDashboard) {
+    return;
+  }
+  const normalizedHorizon = Number(horizon) === 10 ? 10 : 5;
+  if (!Array.isArray(state.stockPriceRows) || state.stockPriceRows.length < 30) {
+    renderStockHomeChartMessage(
+      "차트분석에 필요한 가격 데이터가 부족합니다.",
+      "최소 30거래일 데이터가 쌓이면 5일·10일 예상 범위를 보여드립니다.",
+    );
+    return;
+  }
+  try {
+    const analysis = attachChartPatterns(
+      computeWatchChart(state.stockPriceRows, state.currentDashboard?.quote),
+      state.currentDashboard,
+    );
+    const result = {
+      item: state.currentStock,
+      prices: state.stockPriceRows,
+      dashboard: state.currentDashboard,
+      analysis,
+    };
+    state.stockHomeChartResult = result;
+    state.stockHomeChartHorizon = normalizedHorizon;
+    renderChartForecastResult(result, normalizedHorizon, {
+      target: elements.stockHomeChartAnalysis,
+      embedded: true,
+    });
+  } catch {
+    renderStockHomeChartMessage("차트분석을 불러오지 못했습니다.", "잠시 후 새로고침해 다시 확인해주세요.");
+  }
+}
+
 function resetStockHomeDetails() {
+  dismissStockBarTooltip();
+  window.clearTimeout(state.stockHomeDetailsRetryTimer);
+  state.stockHomeDetailsRetryTimer = null;
   state.stockIntradayRows = [];
   state.stockIntradayMeta = null;
   state.stockFlowRows = [];
   state.stockResearchRows = [];
   state.stockDisclosureRows = [];
+  state.stockHomeDisclosuresExpanded = false;
   state.stockNewsRows = [];
   state.stockCommunity = null;
   state.stockIssueKeyword = "";
+  state.stockFlowHistoryLoading = false;
+  state.stockFlowHistoryTargetCount = 0;
+  state.stockFlowHistoryError = "";
+  setText(elements.stockHomeTodayDate, "-");
+  if (elements.stockHomeSummaryList) {
+    elements.stockHomeSummaryList.innerHTML = "<li>새 종목의 시세와 수급을 확인하는 중입니다.</li>";
+  }
   if (elements.stockHomeUpdates) elements.stockHomeUpdates.innerHTML = '<p>리포트·공시·뉴스를 확인하는 중입니다.</p>';
+  if (elements.stockHomeDisclosures) elements.stockHomeDisclosures.innerHTML = '<p class="stock-v3-chart-empty">공시를 확인하는 중입니다.</p>';
+  if (elements.stockHomeDisclosuresToggle) {
+    elements.stockHomeDisclosuresToggle.hidden = true;
+    elements.stockHomeDisclosuresToggle.setAttribute("aria-expanded", "false");
+    elements.stockHomeDisclosuresToggle.setAttribute("aria-label", "공시 더보기");
+  }
+  setText(elements.stockHomeDisclosuresSummary, "최근 30일 공시를 확인하는 중입니다.");
+  if (elements.stockHomeDisclosuresAll) {
+    elements.stockHomeDisclosuresAll.href = "https://dart.fss.or.kr";
+    elements.stockHomeDisclosuresAll.setAttribute("aria-label", "DART 전체 공시 보기");
+  }
   if (elements.stockHomeCheckpoints) elements.stockHomeCheckpoints.innerHTML = '<p class="stock-v3-chart-empty">수급을 확인하는 중입니다.</p>';
   if (elements.stockHomeKeywords) elements.stockHomeKeywords.innerHTML = '<p class="stock-v3-chart-empty">키워드를 정리하는 중입니다.</p>';
   if (elements.stockHomeIssueTabs) elements.stockHomeIssueTabs.innerHTML = "";
   if (elements.stockHomeIssueCard) elements.stockHomeIssueCard.innerHTML = '<p class="stock-v3-chart-empty">이슈를 연결하는 중입니다.</p>';
-  if (elements.stockFinancialChart) elements.stockFinancialChart.innerHTML = '<p class="stock-v3-chart-empty">실적을 불러오는 중입니다.</p>';
   if (elements.stockFlowHistoryChart) elements.stockFlowHistoryChart.innerHTML = '<p class="stock-v3-chart-empty">수급 이력을 불러오는 중입니다.</p>';
+  setText(elements.stockFlowSummary, "수급 이력 준비 중");
   if (elements.stockReportHistoryChart) elements.stockReportHistoryChart.innerHTML = '<p class="stock-v3-chart-empty">목표가 이력을 불러오는 중입니다.</p>';
+  if (elements.stockReportSummary) elements.stockReportSummary.innerHTML = "";
+  if (elements.stockResearchList) {
+    elements.stockResearchList.innerHTML = '<li class="research-report-empty">리포트를 확인하는 중입니다.</li>';
+  }
+  if (elements.newsList) {
+    elements.newsList.innerHTML = '<li class="stock-v3-news-empty">종목뉴스를 확인하는 중입니다.</li>';
+  }
+  if (elements.stockNewsTemperature) {
+    elements.stockNewsTemperature.innerHTML = '<p class="stock-v3-chart-empty">뉴스 분류를 확인하는 중입니다.</p>';
+  }
   if (elements.stockNewsTemperatureChart) elements.stockNewsTemperatureChart.innerHTML = '<p class="stock-v3-chart-empty">뉴스 온도를 계산하는 중입니다.</p>';
   if (elements.stockCommunityStatus) {
     elements.stockCommunityStatus.hidden = false;
@@ -3130,8 +6914,6 @@ async function loadStockPriceSummary(code, quote) {
   if (!code) {
     return;
   }
-  resetStockPriceSummary();
-  state.stockPriceRows = [];
   try {
     const marketOpen = koreaMarketPhase() === "regular";
     const prices = await fetchJsonCached(`/stocks/${encodeURIComponent(code)}/prices?limit=1000`, {
@@ -3141,27 +6923,48 @@ async function loadStockPriceSummary(code, quote) {
       return;
     }
     state.stockPriceRows = prices || [];
-    renderStockPriceSummaryFromPrices(prices, quote);
-    renderStockMiniChart(prices, quote);
+    const currentQuote = state.currentDashboard?.quote || quote;
+    renderStockPriceSummaryFromPrices(prices, currentQuote);
+    renderStockMiniChart(prices, currentQuote);
     renderQuantSignalChart();
-    renderStockV2Range(prices, quote);
+    renderStockV2Range(prices, currentQuote);
     renderStockHome(state.currentDashboard);
+    renderStockHomeChartAnalysis();
   } catch {
-    renderStockPriceSummaryFromPrices([], quote);
-    renderStockMiniChart([], quote);
-    renderStockV2Range([], quote);
+    if (state.currentStock?.code !== code) {
+      return;
+    }
+    const currentQuote = state.currentDashboard?.quote || quote;
+    const previousPrices = Array.isArray(state.stockPriceRows) ? state.stockPriceRows : [];
+    renderStockPriceSummaryFromPrices(previousPrices, currentQuote);
+    renderStockMiniChart(previousPrices, currentQuote);
+    renderStockV2Range(previousPrices, currentQuote);
+    if (previousPrices.length) {
+      renderStockHomeChartAnalysis();
+      return;
+    }
+    renderStockHomeChartMessage("차트분석을 불러오지 못했습니다.", "잠시 후 새로고침해 다시 확인해주세요.");
   }
 }
 
 async function loadStockIntraday(code, requestId) {
   try {
-    const marketOpen = koreaMarketPhase() === "regular";
+    const marketOpen = koreaExtendedQuoteLive();
     const endpoint = `/stocks/${encodeURIComponent(code)}/intraday?limit=390`;
     const requestUrl = marketOpen ? liveUrl(endpoint) : endpoint;
-    const payload = await fetchJsonCached(requestUrl, {
-      force: marketOpen,
-      ttlMs: marketOpen ? 0 : 30 * PAGE_ENTRY_MINUTE_MS,
-    });
+    let pending = state.stockIntradayPending.get(code);
+    if (!pending) {
+      pending = fetchJsonCached(requestUrl, {
+        force: marketOpen,
+        ttlMs: marketOpen ? 0 : 30 * PAGE_ENTRY_MINUTE_MS,
+      }).finally(() => {
+        if (state.stockIntradayPending.get(code) === pending) {
+          state.stockIntradayPending.delete(code);
+        }
+      });
+      state.stockIntradayPending.set(code, pending);
+    }
+    const payload = await pending;
     if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
       return;
     }
@@ -3207,32 +7010,102 @@ async function loadStockCommunity(data, requestId) {
   }
 }
 
-async function loadStockHomeDetails(data) {
+async function loadStockHomeDetailsLegacy(data, requestId) {
   const code = data?.code;
   if (!code) {
     return;
   }
-  const requestId = ++state.stockHomeDetailsRequestId;
-  resetStockHomeDetails();
-  renderStockHome(data);
-  const intradayPromise = loadStockIntraday(code, requestId);
   void loadStockCommunity(data, requestId);
   const [flowsResult, researchResult, disclosuresResult, newsResult] = await Promise.allSettled([
-    fetchJsonCached(`/stocks/${encodeURIComponent(code)}/flows?limit=5000&pages=7`, { ttlMs: 5 * PAGE_ENTRY_MINUTE_MS }),
+    fetchJsonCached(`/stocks/${encodeURIComponent(code)}/flows?limit=1500&pages=7`, { ttlMs: 5 * PAGE_ENTRY_MINUTE_MS }),
     fetchJsonCached(`/research-reports?stock_code=${encodeURIComponent(code)}&limit=100`, { ttlMs: 5 * UI_CACHE_TTL_MS }),
-    fetchJsonCached(`/disclosures?stock_code=${encodeURIComponent(code)}&limit=30`, { ttlMs: 5 * UI_CACHE_TTL_MS }),
-    fetchJsonCached(`/news-items?query=${encodeURIComponent(data.name || code)}&limit=60`, { ttlMs: 2 * UI_CACHE_TTL_MS }),
+    fetchJsonCached(`/disclosures?stock_code=${encodeURIComponent(code)}&limit=100`, { ttlMs: 5 * UI_CACHE_TTL_MS }),
+    fetchJsonCached(`/stocks/${encodeURIComponent(code)}/news-items?limit=30`, { ttlMs: 2 * UI_CACHE_TTL_MS }),
   ]);
   if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
     return;
   }
   state.stockFlowRows = flowsResult.status === "fulfilled" && Array.isArray(flowsResult.value) ? flowsResult.value : [];
+  applyStockFlowRowsToDashboard(data);
   state.stockResearchRows = researchResult.status === "fulfilled" && Array.isArray(researchResult.value) ? researchResult.value : [];
   state.stockDisclosureRows = disclosuresResult.status === "fulfilled" && Array.isArray(disclosuresResult.value) ? disclosuresResult.value : [];
   state.stockNewsRows = newsResult.status === "fulfilled" && Array.isArray(newsResult.value) ? newsResult.value : [];
   renderStockResearchSummary(data);
+  renderStockV2Flow(data);
+  renderEvidenceSummary(data);
   renderStockHome(data);
-  await intradayPromise;
+  void ensureStockFlowHistory(code, state.stockFlowPeriod, requestId);
+}
+
+async function loadStockHomeDetails(data, options = {}) {
+  const code = data?.code;
+  if (!code) {
+    return;
+  }
+  const contextRetry = options.contextRetry === true;
+  const requestId = contextRetry
+    ? state.stockHomeDetailsRequestId
+    : ++state.stockHomeDetailsRequestId;
+  if (!contextRetry) {
+    // A previous same-stock flow expansion may finish after its request id is
+    // superseded and therefore cannot release this flag in its own finally.
+    state.stockFlowHistoryLoading = false;
+    state.stockFlowHistoryError = "";
+    renderStockHome(data);
+  }
+  const intradayPromise = contextRetry
+    ? Promise.resolve()
+    : loadStockIntraday(code, requestId);
+  const stockNewsPromise = contextRetry
+    ? Promise.resolve(null)
+    : fetchJsonCached(`/stocks/${encodeURIComponent(code)}/news-items?limit=30`, {
+      ttlMs: 2 * UI_CACHE_TTL_MS,
+    }).catch(() => null);
+  try {
+    const payload = await fetchJsonCached(
+      `/stocks/${encodeURIComponent(code)}/home-context?flow_limit=1500&research_limit=100&disclosure_limit=100&news_limit=60&community_limit=12`,
+      { ttlMs: 2 * UI_CACHE_TTL_MS }
+    );
+    if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
+      return;
+    }
+    state.stockFlowRows = Array.isArray(payload.flows) ? payload.flows : [];
+    applyStockFlowRowsToDashboard(data);
+    state.stockResearchRows = Array.isArray(payload.research_reports) ? payload.research_reports : [];
+    state.stockDisclosureRows = Array.isArray(payload.disclosures) ? payload.disclosures : [];
+    state.stockNewsRows = Array.isArray(payload.news_items) ? payload.news_items : [];
+    state.stockCommunity = payload.community || null;
+    renderStockCommunity(state.stockCommunity);
+    renderStockResearchSummary(data);
+    renderStockV2Flow(data);
+    renderEvidenceSummary(data);
+    renderStockHome(data);
+    void ensureStockFlowHistory(code, state.stockFlowPeriod, requestId);
+  } catch (error) {
+    if (error?.status === 503) {
+      if (requestId === state.stockHomeDetailsRequestId && state.currentStock?.code === code) {
+        const retryDelayMs = Math.max(1000, Number(error.retryAfterMs) || 2000);
+        state.stockHomeDetailsRetryTimer = window.setTimeout(() => {
+          if (requestId === state.stockHomeDetailsRequestId && state.currentStock?.code === code) {
+            void loadStockHomeDetails(data, { contextRetry: true });
+          }
+        }, retryDelayMs);
+      }
+    } else {
+      await loadStockHomeDetailsLegacy(data, requestId);
+    }
+  } finally {
+    await intradayPromise;
+    const stockNewsRows = await stockNewsPromise;
+    if (
+      Array.isArray(stockNewsRows)
+      && requestId === state.stockHomeDetailsRequestId
+      && state.currentStock?.code === code
+    ) {
+      state.stockNewsRows = stockNewsRows;
+      renderStockHome(data);
+    }
+  }
 }
 
 function formatMultiple(value) {
@@ -3247,6 +7120,21 @@ function formatMultiple(value) {
 }
 
 function socketUrl(path) {
+  if (path === "/ws/quotes") {
+    const configured = document.querySelector(
+      'meta[name="secret-note-quote-stream-url"]',
+    )?.content?.trim();
+    if (configured) {
+      try {
+        const upstream = new URL(configured, window.location.href);
+        if (upstream.protocol === "ws:" || upstream.protocol === "wss:") {
+          return upstream.href;
+        }
+      } catch {
+        // Invalid staging metadata falls back to the same-origin stream.
+      }
+    }
+  }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}${path}`;
 }
@@ -3269,6 +7157,8 @@ function animateQuoteNumber(node, nextValue, formatter) {
   }
   const previousRaw = node.dataset.rawValue;
   const previous = previousRaw === undefined || previousRaw === "" ? null : Number(previousRaw);
+  const animationSequence = Number(node.dataset.quoteAnimationSequence || 0) + 1;
+  node.dataset.quoteAnimationSequence = String(animationSequence);
   node.dataset.rawValue = String(next);
   node.classList.remove("quote-updated", "quote-count-up", "quote-count-down");
   void node.offsetWidth;
@@ -3281,6 +7171,9 @@ function animateQuoteNumber(node, nextValue, formatter) {
   const startedAt = performance.now();
   const duration = 620;
   const tick = (now) => {
+    if (node.dataset.quoteAnimationSequence !== String(animationSequence)) {
+      return;
+    }
     const progress = Math.min(1, (now - startedAt) / duration);
     const eased = 1 - Math.pow(1 - progress, 3);
     node.textContent = formatter(previous + (next - previous) * eased);
@@ -3294,39 +7187,61 @@ function animateQuoteNumber(node, nextValue, formatter) {
   requestAnimationFrame(tick);
 }
 
-function updateQuoteStrip(quote, payload = null) {
+function updateQuoteStrip(quote, payload = null, options = {}) {
   if (!quote) {
-    return;
+    return false;
   }
-  if (state.currentDashboard?.quote) {
-    applyLiveQuoteToDashboard(state.currentDashboard, quote, payload);
+  if (state.currentDashboard?.quote && options.merge !== false) {
+    const accepted = applyLiveQuoteToDashboard(state.currentDashboard, quote, payload);
+    if (!accepted) {
+      return false;
+    }
     elements.momentum1m.textContent = formatPercent(state.currentDashboard.momentum?.one_month_return);
     elements.momentum3m.textContent = formatPercent(state.currentDashboard.momentum?.three_month_return);
     setTone(elements.momentum1m, state.currentDashboard.momentum?.one_month_return);
     setTone(elements.momentum3m, state.currentDashboard.momentum?.three_month_return);
     renderStockTrendScore(state.currentDashboard);
   }
-  animateQuoteNumber(elements.quotePrice, quote.price, (value) => formatNumber(Math.round(Number(value))));
-  animateQuoteNumber(elements.stockChangeValue, quote.change_value, formatChangeValue);
-  animateQuoteNumber(elements.quoteChange, quote.change_rate, formatPercent);
-  setTone(elements.stockChangeValue, quote.change_value);
-  setTone(elements.quoteChange, quote.change_rate);
-  setText(elements.stockPreMarket, formatPreMarketDisplay(quote, payload));
-  setText(elements.stockVolume, formatCompactCount(quote.volume));
-  setText(elements.stockVolumeDetail, formatNumber(quote.volume));
-  flashTextUpdate(elements.quoteValue, formatMoney(quote.trading_value), quote.trading_value);
-  setText(elements.stockTradingValueDetail, formatMoney(quote.trading_value));
-  if (quote.market_cap !== null && quote.market_cap !== undefined && quote.market_cap !== "") {
-    animateQuoteNumber(elements.quoteCap, quote.market_cap, (value) => formatMoney(Math.round(Number(value))));
-    setText(elements.stockMarketCapDetail, formatMoney(quote.market_cap));
+  const displayQuote = state.currentDashboard?.quote || quote;
+  animateQuoteNumber(elements.quotePrice, displayQuote.price, (value) => formatNumber(Math.round(Number(value))));
+  animateQuoteNumber(elements.stockChangeValue, displayQuote.change_value, formatChangeValue);
+  animateQuoteNumber(elements.quoteChange, displayQuote.change_rate, formatPercent);
+  animateQuoteNumber(
+    elements.stockCommandPrice,
+    displayQuote.price,
+    (value) => `${formatNumber(Math.round(Number(value)))}원`,
+  );
+  animateQuoteNumber(
+    elements.stockCommandChange,
+    displayQuote.change_rate,
+    (value) => `(${formatPercent(value)})`,
+  );
+  const commandPrice = toNumber(displayQuote.price);
+  const commandChangeRate = toNumber(displayQuote.change_rate);
+  elements.stockCommandQuote.setAttribute(
+    "aria-label",
+    commandPrice === null
+      ? "실시간 시세 확인 중"
+      : `${state.currentStock?.name || "현재 종목"} 현재가 ${formatNumber(Math.round(commandPrice))}원, 등락률 ${formatPercent(commandChangeRate)}`,
+  );
+  setTone(elements.stockChangeValue, displayQuote.change_value);
+  setTone(elements.quoteChange, displayQuote.change_rate);
+  setTone(elements.stockCommandQuote, displayQuote.change_rate);
+  renderKoreaQuoteSession(displayQuote);
+  setText(elements.stockVolume, formatCompactCount(displayQuote.volume));
+  setText(elements.stockVolumeDetail, formatNumber(displayQuote.volume));
+  flashTextUpdate(elements.quoteValue, formatMoney(displayQuote.trading_value), displayQuote.trading_value);
+  setText(elements.stockTradingValueDetail, formatMoney(displayQuote.trading_value));
+  if (displayQuote.market_cap !== null && displayQuote.market_cap !== undefined && displayQuote.market_cap !== "") {
+    animateQuoteNumber(elements.quoteCap, displayQuote.market_cap, (value) => formatMoney(Math.round(Number(value))));
+    setText(elements.stockMarketCapDetail, formatMoney(displayQuote.market_cap));
   }
-  const previousClose = previousCloseFromQuote(quote);
+  const previousClose = previousCloseFromQuote(displayQuote);
   setText(elements.stockPrevCloseSummary, previousClose === null ? "-" : formatNumber(Math.round(previousClose)));
   setText(elements.stockPrevClose, previousClose === null ? "-" : formatNumber(Math.round(previousClose)));
   if (payload?.as_of && state.currentStock?.code === payload.code && payload.market) {
-    const sourceLabel = quoteSourceLabel(payload);
     elements.meta.textContent = stockDetailMetaText({ code: payload.code, market: payload.market });
-    renderStockLiveSummary({ code: payload.code, market: payload.market, as_of: payload.as_of, quote }, sourceLabel);
+    renderStockLiveSummary({ code: payload.code, market: payload.market, as_of: payload.as_of, quote: displayQuote });
   }
   if (state.stockAIAnalysis) {
     renderStockStrategyVisual(state.stockAIAnalysis);
@@ -3335,7 +7250,11 @@ function updateQuoteStrip(quote, payload = null) {
     renderStockV2Dashboard(state.currentDashboard);
     renderStockMiniChart(state.stockPriceRows, state.currentDashboard.quote);
     renderStockTodaySummary(state.currentDashboard);
+    if (state.stockEtfProfile?.code === state.currentDashboard.code) {
+      renderStockEtfDividendMetrics(state.stockEtfProfile);
+    }
   }
+  applyStockQuantSignalLiveQuote(quote, payload || {});
   if (
     state.stockActiveTab === "strategy"
     && state.stockQuantSignals
@@ -3345,71 +7264,418 @@ function updateQuoteStrip(quote, payload = null) {
     state.stockQuantLastLiveRefreshAt = Date.now();
     void loadQuantSignals({ auto: true });
   }
+  return true;
+}
+
+const QUOTE_STREAM_SCOPE_PRIORITIES = {
+  detail: 1000,
+  "ai-signals": 900,
+  "home-ranking": 800,
+  watchlist: 700,
+  recommendation: 500,
+  market: 400,
+};
+
+function quoteStreamScopePriority(scope) {
+  return QUOTE_STREAM_SCOPE_PRIORITIES[scope] || 100;
+}
+
+function buildQuoteStreamSelection(scopes, limit = QUOTE_STREAM_DEFAULT_CODE_LIMIT) {
+  const rankedByCode = new Map();
+  let order = 0;
+  for (const [scope, handlersByCode] of scopes || []) {
+    for (const [rawCode, handlers] of handlersByCode || []) {
+      const code = String(rawCode || "");
+      if (!code) continue;
+      const candidate = {
+        code,
+        priority: Number(handlers?.streamPriority) || quoteStreamScopePriority(scope),
+        order: order++,
+      };
+      const existing = rankedByCode.get(code);
+      if (!existing || candidate.priority > existing.priority) {
+        rankedByCode.set(code, candidate);
+      }
+    }
+  }
+  const ranked = [...rankedByCode.values()].sort(
+    (left, right) => right.priority - left.priority || left.order - right.order || left.code.localeCompare(right.code),
+  );
+  const normalizedLimit = Math.max(1, Number(limit) || QUOTE_STREAM_DEFAULT_CODE_LIMIT);
+  return {
+    selected: ranked.slice(0, normalizedLimit).map((entry) => entry.code),
+    overflow: ranked.slice(normalizedLimit).map((entry) => entry.code),
+  };
+}
+
+function quoteStreamSelection() {
+  const selection = buildQuoteStreamSelection(state.quoteStreamScopes, state.quoteStreamCodeLimit);
+  state.quoteStreamRequestedCodes = selection.selected;
+  state.quoteStreamOverflowCodes = new Set(selection.overflow);
+  return selection;
+}
+
+function quoteStreamCodes() {
+  return quoteStreamSelection().selected;
+}
+
+function quoteStreamConnectionDesired() {
+  return state.quoteStreamSignalControlActive || quoteStreamCodes().length > 0;
+}
+
+function quoteFrameTimestamp(payload = {}) {
+  const candidates = [
+    payload.observed_at,
+    payload.as_of,
+    payload.published_at,
+    payload.quote?.observed_at,
+  ];
+  for (const value of candidates) {
+    const timestamp = Date.parse(value || "");
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+  return null;
+}
+
+function quoteStreamPayloadHasUsablePrice(payload = {}) {
+  if (payload.type !== "quote" || !String(payload.code || "")) return false;
+  const rawPrice = payload.quote?.price;
+  if (rawPrice === null || rawPrice === undefined || rawPrice === "") return false;
+  const price = Number(rawPrice);
+  return Number.isFinite(price) && price > 0;
+}
+
+function quoteFrameSequence(payload = {}) {
+  const sequence = Number(payload.sequence);
+  return Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : null;
+}
+
+function quoteFrameSourcePriority(payload = {}) {
+  const source = String(payload.source || "").toLowerCase();
+  if (source === "kis_realtime") return 4;
+  if (source === "kis_rest") return 3;
+  if (source === "naver_finance") return 2;
+  if (source === "stored_daily_price") return 1;
+  return 0;
+}
+
+function quoteFrameOrder(payload = {}) {
+  return {
+    timestamp: quoteFrameTimestamp(payload),
+    sequence: quoteFrameSequence(payload),
+    tradeDate: String(payload.quote?.trade_date || "").slice(0, 10),
+    sourcePriority: quoteFrameSourcePriority(payload),
+  };
+}
+
+function shouldAcceptQuoteStreamPayload(previous = null, payload = {}, epoch = null) {
+  if (!previous) return true;
+  const before = previous.order || quoteFrameOrder(previous.payload || previous);
+  const next = quoteFrameOrder(payload);
+  const sameEpoch = previous.epoch == null || epoch == null || previous.epoch === epoch;
+  // A newer unsequenced HTTP fallback may fill a socket gap, but it must not
+  // erase the socket sequence watermark. Only a new WebSocket epoch permits
+  // the backend process sequence to restart from a lower value.
+  const sequenceWatermark = Number.isSafeInteger(previous.sequenceWatermark)
+    ? previous.sequenceWatermark
+    : before.sequence;
+  if (before.tradeDate && next.tradeDate && next.tradeDate < before.tradeDate) return false;
+  if (
+    sameEpoch
+    && sequenceWatermark !== null
+    && next.sequence !== null
+    && next.sequence <= sequenceWatermark
+  ) return false;
+  if (before.timestamp !== null) {
+    if (next.timestamp === null || next.timestamp < before.timestamp) return false;
+    if (next.timestamp > before.timestamp) return true;
+  } else if (next.timestamp !== null) {
+    return true;
+  }
+  if (sameEpoch && sequenceWatermark !== null) {
+    if (next.sequence === null || next.sequence <= sequenceWatermark) return false;
+    return true;
+  }
+  if (sameEpoch && next.sequence !== null) return true;
+  return next.sourcePriority > before.sourcePriority;
+}
+
+function recordQuoteStreamPayload(payload = {}, receivedAt = Date.now(), epoch = state.quoteStreamEpoch) {
+  const code = String(payload.code || "");
+  if (!code || !quoteStreamPayloadHasUsablePrice(payload)) return false;
+  const previous = state.quoteStreamLatestByCode.get(code);
+  if (!shouldAcceptQuoteStreamPayload(previous, payload, epoch)) return false;
+  const previousWatermark = previous?.epoch === epoch && Number.isSafeInteger(previous.sequenceWatermark)
+    ? previous.sequenceWatermark
+    : (previous?.epoch === epoch ? previous.order?.sequence : null);
+  const nextSequence = quoteFrameSequence(payload);
+  state.quoteStreamLatestByCode.set(code, {
+    payload,
+    order: quoteFrameOrder(payload),
+    receivedAt,
+    epoch,
+    sequenceWatermark: nextSequence === null
+      ? previousWatermark
+      : Math.max(nextSequence, previousWatermark ?? nextSequence),
+  });
+  return true;
+}
+
+function pauseQuoteStreamConnection(connectionState = navigator.onLine === false ? "offline" : "checking") {
+  window.clearTimeout(state.quoteStreamReconnectTimer);
+  window.clearTimeout(state.quoteStreamFallbackTimer);
+  window.clearTimeout(state.quoteStreamSubscriptionRetryTimer);
+  state.quoteStreamReconnectTimer = null;
+  state.quoteStreamFallbackTimer = null;
+  state.quoteStreamSubscriptionRetryTimer = null;
+  state.quoteStreamConnectionState = connectionState;
+  state.quoteStreamSubscribedCodes = new Set();
+  state.quoteStreamRequestSignature = "";
+  if (state.quoteStreamSocket) {
+    state.quoteStreamSocket.onclose = null;
+    state.quoteStreamSocket.close();
+    state.quoteStreamSocket = null;
+  }
+  renderAiSignalLiveStatus();
+}
+
+function dispatchQuoteStreamPayload(payload) {
+  if (!payload || typeof payload !== "object") return;
+  state.quoteStreamLastControlAt = Date.now();
+  if (payload.type === "ready") {
+    const negotiatedLimit = Number(payload.max_codes);
+    if (Number.isInteger(negotiatedLimit) && negotiatedLimit > 0) {
+      state.quoteStreamCodeLimit = negotiatedLimit;
+    }
+    state.quoteStreamConnectionState = "checking";
+    sendQuoteStreamSubscriptions();
+    renderAiSignalLiveStatus();
+    return;
+  }
+  if (payload.type === "subscribed") {
+    state.quoteStreamSubscribedCodes = new Set(Array.isArray(payload.codes) ? payload.codes.map(String) : []);
+    state.quoteStreamRejectedCodes = new Set(Array.isArray(payload.rejected_codes) ? payload.rejected_codes.map(String) : []);
+    state.quoteStreamConnectionState = "connected";
+    const rejected = state.quoteStreamRejectedCodes;
+    const missing = state.quoteStreamRequestedCodes.filter(
+      (code) => !state.quoteStreamSubscribedCodes.has(code) && !rejected.has(code),
+    );
+    window.clearTimeout(state.quoteStreamSubscriptionRetryTimer);
+    state.quoteStreamSubscriptionRetryTimer = null;
+    if (missing.length && state.quoteStreamAckRetryCount < 2) {
+      state.quoteStreamAckRetryCount += 1;
+      state.quoteStreamSubscriptionRetryTimer = window.setTimeout(
+        () => sendQuoteStreamSubscriptions({ force: true }),
+        500 * state.quoteStreamAckRetryCount,
+      );
+    } else if (!missing.length) {
+      state.quoteStreamAckRetryCount = 0;
+    }
+    renderAiSignalLiveStatus();
+    return;
+  }
+  if (payload.type === "signal_revision") {
+    handleAiSignalRevisionFrame(payload);
+    return;
+  }
+  if (payload.type === "heartbeat" || payload.type === "pong") {
+    renderAiSignalLiveStatus();
+    return;
+  }
+  if (payload.type === "error" && payload.code === "subscription_rate_limited") {
+    state.quoteStreamConnectionState = "checking";
+    window.clearTimeout(state.quoteStreamSubscriptionRetryTimer);
+    state.quoteStreamSubscriptionRetryTimer = window.setTimeout(
+      () => sendQuoteStreamSubscriptions({ force: true }),
+      Math.max(250, Number(payload.retry_after_ms) || 1000),
+    );
+    renderAiSignalLiveStatus();
+    return;
+  }
+  const code = String(payload?.code || "");
+  if (!code) return;
+  if (payload.type === "quote") {
+    if (!quoteStreamPayloadHasUsablePrice(payload)) {
+      scheduleQuoteStreamFallback(100);
+      return;
+    }
+    if (!recordQuoteStreamPayload(payload)) return;
+    if (!state.quoteStreamFallbackTimer) {
+      scheduleQuoteStreamFallback(QUOTE_STREAM_WATCHDOG_MS);
+    }
+  } else if (payload.type === "status" && payload.status === "fallback") {
+    scheduleQuoteStreamFallback(100);
+  }
+  for (const handlersByCode of state.quoteStreamScopes.values()) {
+    const handlers = handlersByCode.get(code);
+    if (!handlers) continue;
+    if (payload.type === "quote") handlers.onQuote?.(payload);
+    else if (payload.type === "status") handlers.onStatus?.(payload);
+  }
+}
+
+function sendQuoteStreamSubscriptions(options = {}) {
+  if (state.quoteStreamSocket?.readyState !== WebSocket.OPEN) return;
+  const codes = quoteStreamCodes();
+  const signature = codes.join(",");
+  if (options.force !== true && signature === state.quoteStreamRequestSignature) {
+    if (!state.quoteStreamFallbackTimer) scheduleQuoteStreamFallback(700);
+    return;
+  }
+  if (signature !== state.quoteStreamRequestSignature) state.quoteStreamAckRetryCount = 0;
+  state.quoteStreamRequestSignature = signature;
+  state.quoteStreamSocket.send(JSON.stringify({ type: "set", codes }));
+  scheduleQuoteStreamFallback(700);
+  renderAiSignalLiveStatus();
+}
+
+function quoteStreamFallbackCodes(now = Date.now()) {
+  const live = koreaExtendedQuoteLive();
+  const detailScope = state.quoteStreamScopes?.get?.("detail");
+  return quoteStreamCodes().filter((code) => {
+    const latest = state.quoteStreamLatestByCode.get(code);
+    if (!latest || !quoteStreamPayloadHasUsablePrice(latest.payload)) return true;
+    const staleAfter = live
+      ? (detailScope?.has(code) ? QUOTE_STREAM_DETAIL_STALE_MS : QUOTE_STREAM_OTHER_STALE_MS)
+      : QUOTE_STREAM_CLOSED_STALE_MS;
+    return now - Number(latest.receivedAt || 0) >= staleAfter;
+  });
+}
+
+function scheduleQuoteStreamFallback(delay = 700) {
+  window.clearTimeout(state.quoteStreamFallbackTimer);
+  if (!quoteStreamCodes().length || navigator.onLine === false) return;
+  state.quoteStreamFallbackTimer = window.setTimeout(async () => {
+    state.quoteStreamFallbackTimer = null;
+    const codes = quoteStreamFallbackCodes();
+    try {
+      if (codes.length) {
+        const path = `/stocks/quotes?codes=${encodeURIComponent(codes.join(","))}`;
+        const payload = await fetchJsonCached(liveUrl(path), { force: true, ttlMs: 0, timeoutMs: 10000 });
+        (payload.items || []).forEach(dispatchQuoteStreamPayload);
+      }
+    } catch {
+      // Existing values remain visible while the stream or REST source recovers.
+    }
+    if (quoteStreamCodes().length) {
+      const nextDelay = koreaExtendedQuoteLive()
+        ? QUOTE_STREAM_WATCHDOG_MS
+        : QUOTE_STREAM_CLOSED_WATCHDOG_MS;
+      scheduleQuoteStreamFallback(nextDelay + Math.floor(Math.random() * 500));
+    }
+  }, delay);
+}
+
+function scheduleQuoteStreamReconnect() {
+  window.clearTimeout(state.quoteStreamReconnectTimer);
+  if (!quoteStreamConnectionDesired() || document.hidden || navigator.onLine === false) return;
+  const attempt = state.quoteStreamReconnectAttempt++;
+  const delay = Math.min(30000, 1000 * (2 ** Math.min(attempt, 5))) + Math.floor(Math.random() * 750);
+  state.quoteStreamReconnectTimer = window.setTimeout(ensureQuoteStreamConnection, delay);
+  scheduleQuoteStreamFallback();
+}
+
+function ensureQuoteStreamConnection() {
+  if (!("WebSocket" in window) || !quoteStreamConnectionDesired() || document.hidden || navigator.onLine === false) return;
+  if (state.quoteStreamSocket && state.quoteStreamSocket.readyState <= WebSocket.OPEN) {
+    if (state.quoteStreamSocket.readyState === WebSocket.OPEN) sendQuoteStreamSubscriptions();
+    return;
+  }
+  state.quoteStreamConnectionState = "checking";
+  renderAiSignalLiveStatus();
+  const socket = new WebSocket(socketUrl("/ws/quotes"));
+  state.quoteStreamEpoch += 1;
+  state.quoteStreamSocket = socket;
+  socket.onopen = () => {
+    if (state.quoteStreamSocket !== socket) return;
+    state.quoteStreamReconnectAttempt = 0;
+    state.quoteStreamRequestSignature = "";
+    sendQuoteStreamSubscriptions({ force: true });
+  };
+  socket.onmessage = (event) => {
+    let payload = null;
+    try { payload = JSON.parse(event.data); } catch { return; }
+    dispatchQuoteStreamPayload(payload);
+  };
+  socket.onclose = () => {
+    if (state.quoteStreamSocket === socket) state.quoteStreamSocket = null;
+    state.quoteStreamConnectionState = navigator.onLine === false ? "offline" : "checking";
+    state.quoteStreamSubscribedCodes = new Set();
+    state.quoteStreamRequestSignature = "";
+    renderAiSignalLiveStatus();
+    scheduleQuoteStreamReconnect();
+  };
+  socket.onerror = () => socket.close();
+}
+
+function syncQuoteStreamSubscriptions() {
+  if (!quoteStreamConnectionDesired()) {
+    pauseQuoteStreamConnection();
+    return;
+  }
+  ensureQuoteStreamConnection();
+  sendQuoteStreamSubscriptions();
+}
+
+function setQuoteStreamHandler(scope, code, handlers) {
+  const normalized = String(code || "");
+  if (!normalized) return;
+  const handlersByCode = state.quoteStreamScopes.get(scope) || new Map();
+  handlersByCode.set(normalized, handlers || {});
+  state.quoteStreamScopes.set(scope, handlersByCode);
+  syncQuoteStreamSubscriptions();
+}
+
+function replaceQuoteStreamScope(scope, entries = []) {
+  const handlersByCode = new Map(entries.filter((entry) => entry?.code).map((entry) => [
+    String(entry.code),
+    {
+      ...(entry.handlers || {}),
+      streamPriority: Number(entry.priority) || Number(entry.handlers?.streamPriority) || quoteStreamScopePriority(scope),
+    },
+  ]));
+  if (handlersByCode.size) state.quoteStreamScopes.set(scope, handlersByCode);
+  else state.quoteStreamScopes.delete(scope);
+  syncQuoteStreamSubscriptions();
+}
+
+function clearQuoteStreamScope(scope) {
+  state.quoteStreamScopes.delete(scope);
+  syncQuoteStreamSubscriptions();
+}
+
+function setQuoteStreamSignalControlActive(active) {
+  state.quoteStreamSignalControlActive = active === true;
+  syncQuoteStreamSubscriptions();
 }
 
 function closeQuoteStream() {
-  window.clearTimeout(state.quoteReconnectTimer);
-  state.quoteReconnectTimer = null;
-  state.quoteSocketCode = "";
-  if (state.quoteSocket) {
-    state.quoteSocket.onclose = null;
-    state.quoteSocket.close();
-    state.quoteSocket = null;
-  }
+  clearQuoteStreamScope("detail");
 }
 
 function connectQuoteStream(stock) {
-  if (!stock?.code || !("WebSocket" in window)) {
-    return;
-  }
-  if (state.quoteSocket && state.quoteSocketCode === stock.code && state.quoteSocket.readyState <= WebSocket.OPEN) {
-    return;
-  }
-  closeQuoteStream();
-  const code = stock.code;
-  const socket = new WebSocket(socketUrl(`/ws/stocks/${encodeURIComponent(code)}/quote`));
-  state.quoteSocket = socket;
-  state.quoteSocketCode = code;
-  socket.onmessage = (event) => {
-    let payload = null;
-    try {
-      payload = JSON.parse(event.data);
-    } catch {
-      return;
-    }
-    if (payload?.type === "status" && payload.code === state.currentStock?.code) {
-      elements.meta.textContent = stockDetailMetaText(state.currentStock);
-      setText(elements.stockLiveBadge, koreaMarketPhaseLabel());
-      return;
-    }
-    if (payload?.type !== "quote" || payload.code !== state.currentStock?.code) {
-      return;
-    }
-    payload.market = payload.market || state.currentStock.market;
-    payload.name = payload.name || state.currentStock.name;
-    updateQuoteStrip(payload.quote, payload);
-  };
-  socket.onclose = () => {
-    if (state.view !== "stock" || state.currentStock?.code !== code) {
-      return;
-    }
-    state.quoteReconnectTimer = window.setTimeout(() => connectQuoteStream(state.currentStock), 5000);
-  };
-  socket.onerror = () => {
-    socket.close();
-  };
+  if (!stock?.code) return;
+  const code = String(stock.code);
+  replaceQuoteStreamScope("detail", [{
+    code,
+    handlers: {
+      onStatus: () => {
+        if (state.currentStock?.code !== code) return;
+        elements.meta.textContent = stockDetailMetaText(state.currentStock);
+        setText(elements.stockLiveBadge, koreaMarketPhaseLabel());
+      },
+      onQuote: (payload) => {
+        if (payload.code !== state.currentStock?.code) return;
+        payload.market = payload.market || state.currentStock.market;
+        payload.name = payload.name || state.currentStock.name;
+        updateQuoteStrip(payload.quote, payload);
+      },
+    },
+  }]);
 }
 
 function closeWatchlistQuoteStreams() {
-  for (const timer of state.watchlistQuoteReconnectTimers.values()) {
-    window.clearTimeout(timer);
-  }
-  state.watchlistQuoteReconnectTimers.clear();
-  for (const socket of state.watchlistQuoteSockets.values()) {
-    socket.onclose = null;
-    socket.close();
-  }
-  state.watchlistQuoteSockets.clear();
+  clearQuoteStreamScope("watchlist");
 }
 
 function setLiveCellTone(cell, value) {
@@ -3427,6 +7693,7 @@ function flashTextUpdate(node, nextText, value = null) {
   const previousRaw = node.dataset.rawValue;
   const previous = previousRaw === undefined || previousRaw === "" ? null : Number(previousRaw);
   const next = value === null || value === undefined || value === "" ? null : Number(value);
+  node.dataset.quoteAnimationSequence = String(Number(node.dataset.quoteAnimationSequence || 0) + 1);
   node.textContent = nextText;
   if (Number.isFinite(next)) {
     node.dataset.rawValue = String(next);
@@ -3463,7 +7730,10 @@ function updateWatchlistRowQuote(code, quote, payload = null) {
   const threeMonthCell = card.querySelector('[data-field="three_month"]');
 
   if (card.watchDashboard) {
-    applyLiveQuoteToDashboard(card.watchDashboard, quote, payload);
+    const accepted = applyLiveQuoteToDashboard(card.watchDashboard, quote, payload);
+    if (!accepted) {
+      return false;
+    }
     quote = card.watchDashboard.quote;
     if (oneMonthCell) {
       flashTextUpdate(oneMonthCell, formatPercent(card.watchDashboard.momentum?.one_month_return), card.watchDashboard.momentum?.one_month_return);
@@ -3506,76 +7776,23 @@ function updateWatchlistRowQuote(code, quote, payload = null) {
     applyWatchlistFilter();
     scheduleWatchlistStrategyRender();
   }
+  return true;
 }
 
 function connectWatchlistQuoteStream(code) {
-  if (!code || !("WebSocket" in window)) {
-    return;
-  }
-  const existing = state.watchlistQuoteSockets.get(code);
-  if (existing && existing.readyState <= WebSocket.OPEN) {
-    return;
-  }
-  const timer = state.watchlistQuoteReconnectTimers.get(code);
-  if (timer) {
-    window.clearTimeout(timer);
-    state.watchlistQuoteReconnectTimers.delete(code);
-  }
-  const socket = new WebSocket(socketUrl(`/ws/stocks/${encodeURIComponent(code)}/quote`));
-  state.watchlistQuoteSockets.set(code, socket);
-  socket.onmessage = (event) => {
-    let payload = null;
-    try {
-      payload = JSON.parse(event.data);
-    } catch {
-      return;
-    }
-    if (payload?.type === "status" && payload.code === code) {
-      updateWatchlistStreamStatus(code, payload);
-      return;
-    }
-    if (payload?.type !== "quote" || payload.code !== code) {
-      return;
-    }
-    updateWatchlistRowQuote(code, payload.quote, payload);
-  };
-  socket.onclose = () => {
-    if (state.watchlistQuoteSockets.get(code) === socket) {
-      state.watchlistQuoteSockets.delete(code);
-    }
-    if (state.view !== "portfolio" || state.portfolioTab !== "watchlist" || !elements.watchlistBody.querySelector(`[data-watch-card][data-code="${selectorEscape(code)}"]`)) {
-      return;
-    }
-    const reconnectTimer = window.setTimeout(() => connectWatchlistQuoteStream(code), 5000);
-    state.watchlistQuoteReconnectTimers.set(code, reconnectTimer);
-  };
-  socket.onerror = () => {
-    socket.close();
-  };
+  if (!code) return;
+  setQuoteStreamHandler("watchlist", code, {
+    onStatus: (payload) => updateWatchlistStreamStatus(code, payload),
+    onQuote: (payload) => updateWatchlistRowQuote(code, payload.quote, payload),
+  });
 }
 
 function closeMarketQuoteStreams() {
-  for (const timer of state.marketQuoteReconnectTimers.values()) {
-    window.clearTimeout(timer);
-  }
-  state.marketQuoteReconnectTimers.clear();
-  for (const socket of state.marketQuoteSockets.values()) {
-    socket.onclose = null;
-    socket.close();
-  }
-  state.marketQuoteSockets.clear();
+  clearQuoteStreamScope("market");
 }
 
 function closeRecommendationQuoteStreams() {
-  for (const timer of state.recommendationQuoteReconnectTimers.values()) {
-    window.clearTimeout(timer);
-  }
-  state.recommendationQuoteReconnectTimers.clear();
-  for (const socket of state.recommendationQuoteSockets.values()) {
-    socket.onclose = null;
-    socket.close();
-  }
-  state.recommendationQuoteSockets.clear();
+  clearQuoteStreamScope("recommendation");
 }
 
 function updateRecommendationCardQuote(code, quote) {
@@ -3588,20 +7805,12 @@ function updateRecommendationCardQuote(code, quote) {
   }
   const item = card.recommendationItem || {};
   if (quote.price !== null && quote.price !== undefined && quote.price !== "") {
-    item.one_month_return = rebasePeriodReturn(item.one_month_return, item.price, quote.price);
-    item.three_month_return = rebasePeriodReturn(item.three_month_return, item.price, quote.price);
     item.price = quote.price;
     const priceNode = card.querySelector('[data-field="recommend_price"]');
     if (priceNode) {
       animateQuoteNumber(priceNode, quote.price, (value) => formatNumber(Math.round(Number(value))));
     }
   }
-  const oneMonthNode = card.querySelector('[data-field="recommend_one_month"]');
-  const threeMonthNode = card.querySelector('[data-field="recommend_three_month"]');
-  flashTextUpdate(oneMonthNode, formatPercent(item.one_month_return), item.one_month_return);
-  flashTextUpdate(threeMonthNode, formatPercent(item.three_month_return), item.three_month_return);
-  setLiveCellTone(oneMonthNode, item.one_month_return);
-  setLiveCellTone(threeMonthNode, item.three_month_return);
   if (quote.change_rate !== null && quote.change_rate !== undefined && quote.change_rate !== "") {
     item.change_rate = quote.change_rate;
     const changeNode = card.querySelector('[data-field="recommend_change_rate"]');
@@ -3618,59 +7827,16 @@ function updateRecommendationCardQuote(code, quote) {
 }
 
 function connectRecommendationQuoteStream(code) {
-  if (!code || !("WebSocket" in window)) {
-    return;
-  }
-  const existing = state.recommendationQuoteSockets.get(code);
-  if (existing && existing.readyState <= WebSocket.OPEN) {
-    return;
-  }
-  const timer = state.recommendationQuoteReconnectTimers.get(code);
-  if (timer) {
-    window.clearTimeout(timer);
-    state.recommendationQuoteReconnectTimers.delete(code);
-  }
-  const socket = new WebSocket(socketUrl(`/ws/stocks/${encodeURIComponent(code)}/quote`));
-  state.recommendationQuoteSockets.set(code, socket);
-  socket.onmessage = (event) => {
-    let payload = null;
-    try {
-      payload = JSON.parse(event.data);
-    } catch {
-      return;
-    }
-    if (payload?.type !== "quote" || payload.code !== code) {
-      return;
-    }
-    updateRecommendationCardQuote(code, payload.quote);
-    updateTrackedRecommendationQuote(code, payload.quote);
-  };
-  socket.onclose = () => {
-    if (state.recommendationQuoteSockets.get(code) === socket) {
-      state.recommendationQuoteSockets.delete(code);
-    }
-    const hasTarget =
-      Boolean(elements.recommendList.querySelector(`.recommend-card[data-code="${selectorEscape(code)}"]`))
-      || Boolean(elements.recommendHistoryList.querySelector(`.recommend-track-card[data-code="${selectorEscape(code)}"]`));
-    if (!["search", "portfolio"].includes(state.view) || !hasTarget) {
-      return;
-    }
-    const reconnectTimer = window.setTimeout(() => connectRecommendationQuoteStream(code), 5000);
-    state.recommendationQuoteReconnectTimers.set(code, reconnectTimer);
-  };
-  socket.onerror = () => {
-    socket.close();
-  };
+  if (!code) return;
+  setQuoteStreamHandler("recommendation", code, {
+    onQuote: (payload) => {
+      updateRecommendationCardQuote(code, payload.quote);
+      updateTrackedRecommendationQuote(code, payload.quote);
+    },
+  });
 }
 
 function sortMarketLeaderboardItems() {
-  state.marketLeaderboardItems.sort((a, b) => {
-    const changeDiff = (toNumber(b.change_rate) ?? -Infinity) - (toNumber(a.change_rate) ?? -Infinity);
-    if (changeDiff !== 0) {
-      return changeDiff;
-    }
-    return (toNumber(b.trading_value) ?? 0) - (toNumber(a.trading_value) ?? 0);
-  });
   state.marketLeaderboardItems = state.marketLeaderboardItems.map((item, index) => ({
     ...item,
     rank: index + 1,
@@ -3686,16 +7852,28 @@ function updateMarketLeaderboardQuote(code, quote) {
     return;
   }
   if (quote.price !== null && quote.price !== undefined && quote.price !== "") {
-    item.one_month_return = rebasePeriodReturn(item.one_month_return, item.price, quote.price);
-    item.three_month_return = rebasePeriodReturn(item.three_month_return, item.price, quote.price);
     item.price = quote.price;
   }
   if (quote.change_rate !== null && quote.change_rate !== undefined && quote.change_rate !== "") {
     item.change_rate = quote.change_rate;
-    item.metric_value = quote.change_rate;
+    if (state.rankingCategory === "surge" && normalizeMarketRankingMode("surge", state.marketRankingMode) === "daily") {
+      item.metric_value = quote.change_rate;
+    }
+  }
+  if (quote.volume !== null && quote.volume !== undefined && quote.volume !== "") {
+    item.volume = quote.volume;
+    if (state.rankingCategory === "volume" || (state.rankingCategory === "etf" && state.marketRankingMode === "volume")) {
+      item.metric_value = quote.volume;
+    }
   }
   if (quote.trading_value !== null && quote.trading_value !== undefined && quote.trading_value !== "") {
     item.trading_value = quote.trading_value;
+  }
+  if (quote.market_cap !== null && quote.market_cap !== undefined && quote.market_cap !== "") {
+    item.market_cap = quote.market_cap;
+    if (state.rankingCategory === "market_cap" || (state.rankingCategory === "etf" && state.marketRankingMode === "market_cap")) {
+      item.metric_value = quote.market_cap;
+    }
   }
 
   const safeCode = String(code).replace(/"/g, '\\"');
@@ -3704,69 +7882,17 @@ function updateMarketLeaderboardQuote(code, quote) {
     return;
   }
 
-  const price = card.querySelector(".market-leaderboard-price");
-  const change = card.querySelector(".market-leaderboard-change");
-  if (price) {
-    price.textContent = formatNumber(item.price);
-  }
-  if (change) {
-    change.textContent = formatPercent(item.change_rate);
-    setTone(change, item.change_rate);
-  }
-  const metrics = card.querySelectorAll(".market-leaderboard-strip dd");
-  if (metrics[0]) {
-    metrics[0].textContent = formatMoney(item.trading_value);
-  }
-  if (metrics[1]) {
-    metrics[1].textContent = formatPercent(item.one_month_return);
-    setTone(metrics[1], item.one_month_return);
-  }
-  if (metrics[2]) {
-    metrics[2].textContent = formatPercent(item.three_month_return);
-    setTone(metrics[2], item.three_month_return);
+  const metricBlock = card.querySelector(".ranking-metric-block");
+  if (metricBlock) {
+    renderRankingMetricBlock(metricBlock, item, state.rankingCategory, state.marketRankingMode);
   }
 }
 
 function connectMarketQuoteStream(code) {
-  if (!code || !("WebSocket" in window)) {
-    return;
-  }
-  const existing = state.marketQuoteSockets.get(code);
-  if (existing && existing.readyState <= WebSocket.OPEN) {
-    return;
-  }
-  const timer = state.marketQuoteReconnectTimers.get(code);
-  if (timer) {
-    window.clearTimeout(timer);
-    state.marketQuoteReconnectTimers.delete(code);
-  }
-  const socket = new WebSocket(socketUrl(`/ws/stocks/${encodeURIComponent(code)}/quote`));
-  state.marketQuoteSockets.set(code, socket);
-  socket.onmessage = (event) => {
-    let payload = null;
-    try {
-      payload = JSON.parse(event.data);
-    } catch {
-      return;
-    }
-    if (payload?.type !== "quote" || payload.code !== code) {
-      return;
-    }
-    updateMarketLeaderboardQuote(code, payload.quote);
-  };
-  socket.onclose = () => {
-    if (state.marketQuoteSockets.get(code) === socket) {
-      state.marketQuoteSockets.delete(code);
-    }
-    if (state.view !== "search" || state.rankingCategory !== "surge") {
-      return;
-    }
-    const reconnectTimer = window.setTimeout(() => connectMarketQuoteStream(code), 5000);
-    state.marketQuoteReconnectTimers.set(code, reconnectTimer);
-  };
-  socket.onerror = () => {
-    socket.close();
-  };
+  if (!code) return;
+  setQuoteStreamHandler("market", code, {
+    onQuote: (payload) => updateMarketLeaderboardQuote(code, payload.quote),
+  });
 }
 
 function formatRatio(value) {
@@ -3794,6 +7920,19 @@ function formatDateLabel(value) {
   return String(value).replace("T", " ").slice(0, 10);
 }
 
+function formatDottedDate(value, fallback = "-") {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}.${match[2]}.${match[3]}` : fallback;
+}
+
+function formatDottedMoment(value, fallback = "-") {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}:\d{2}))?/);
+  if (!match) {
+    return fallback;
+  }
+  return `${match[1]}.${match[2]}.${match[3]}${match[4] ? ` ${match[4]}` : ""}`;
+}
+
 function formatDateOnlyBasis(value, fallback = "기준 정보 확인 중") {
   const label = formatDateLabel(value);
   return label === "-" ? fallback : `${label} 기준`;
@@ -3811,6 +7950,32 @@ function formatDataBasis(value, fallback = "기준 정보 확인 중") {
   return `${dateMatch[1]}${dateMatch[2] ? ` ${dateMatch[2]}` : ""} 기준`;
 }
 
+function formatElapsedUpdate(value, now = Date.now()) {
+  const updatedAt = new Date(value).getTime();
+  const currentTime = Number(now);
+  if (!Number.isFinite(updatedAt) || !Number.isFinite(currentTime)) {
+    return "업데이트 시간 확인 중";
+  }
+  const elapsedMinutes = Math.floor(Math.max(0, currentTime - updatedAt) / 60_000);
+  if (elapsedMinutes < 1) {
+    return "방금 전 업데이트";
+  }
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}분 전 업데이트`;
+  }
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) {
+    return `${elapsedHours}시간 전 업데이트`;
+  }
+  return `${Math.floor(elapsedHours / 24)}일 전 업데이트`;
+}
+
+function refreshMarketThreadElapsedTimes(root = document, now = Date.now()) {
+  root.querySelectorAll(".market-thread-updated[data-updated-at]").forEach((node) => {
+    node.textContent = formatElapsedUpdate(node.dataset.updatedAt, now);
+  });
+}
+
 function el(tag, className = "", text = "") {
   const node = document.createElement(tag);
   if (className) {
@@ -3826,25 +7991,39 @@ function createStockListLogo(code) {
   const normalizedCode = String(code || "").trim().toUpperCase();
   const frame = el("span", "stock-list-logo");
   frame.setAttribute("aria-hidden", "true");
+  const fallback = el("span", "stock-list-logo-fallback");
+  const fallbackIcon = document.createElement("img");
+  fallbackIcon.src = STOCK_LOGO_FALLBACK_DATA_URL;
+  fallbackIcon.alt = "";
+  fallbackIcon.className = "stock-list-logo-fallback-icon";
+  fallback.appendChild(fallbackIcon);
+  frame.appendChild(fallback);
   if (!normalizedCode) {
     frame.classList.add("is-empty");
     return frame;
   }
   const image = document.createElement("img");
-  image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png`;
   image.alt = "";
-  image.loading = "lazy";
+  // iOS can leave lazy images pending when this dynamically rendered view was
+  // hidden during startup, so list logos must begin loading immediately.
+  image.loading = "eager";
   image.decoding = "async";
+  image.className = "stock-list-logo-image";
+  image.addEventListener("load", () => {
+    frame.classList.add("has-stock-logo");
+  }, { once: true });
+  image.addEventListener("error", () => {
+    frame.classList.add("is-fallback");
+    image.remove();
+  }, { once: true });
+  image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=${encodeURIComponent(DASHBOARD_CLIENT_VERSION)}`;
   frame.appendChild(image);
   return frame;
 }
 
-function createStockListCopy(name, code, market) {
+function createStockListCopy(name, code) {
   const copy = el("span", "stock-list-copy");
-  copy.append(
-    el("strong", "", name || code || "-"),
-    el("small", "", `${code || "-"} · ${market || "-"}`)
-  );
+  copy.append(el("strong", "", name || code || "-"));
   return copy;
 }
 
@@ -3857,10 +8036,33 @@ function liveUrl(url) {
   return `${url}${separator}_=${Date.now()}`;
 }
 
+async function fetchHomeJsonWithRetry(url, options = {}) {
+  const attempts = Math.max(1, Number(options.attempts) || 2);
+  const retryDelayMs = Math.max(0, Number(options.retryDelayMs) || 650);
+  const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 12000);
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0 && retryDelayMs > 0) {
+      await delay(retryDelayMs * attempt);
+    }
+    try {
+      return await fetchJsonCached(attempt > 0 ? liveUrl(url) : url, {
+        force: options.force === true || attempt > 0,
+        ttlMs: attempt > 0 ? 0 : options.ttlMs,
+        timeoutMs,
+      });
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error(`request failed: ${url}`);
+}
+
 function isUncachedKoreaMarketDataUrl(url) {
   try {
     const parsed = new URL(url, window.location.origin);
-    return /^\/stocks\/(?:search|resolve)$/.test(parsed.pathname)
+    return parsed.pathname === "/stocks/search"
+      || parsed.pathname === "/stocks/quotes"
       || /^\/stocks\/[^/]+\/quote$/.test(parsed.pathname)
       || (/^\/stocks\/[^/]+\/dashboard$/.test(parsed.pathname) && parsed.searchParams.get("include_live") !== "0");
   } catch {
@@ -3891,7 +8093,13 @@ async function fetchJsonCached(url, options = {}) {
   })
     .then(async (response) => {
       if (!response.ok) {
-        throw new Error(`request failed: ${url}`);
+        const error = new Error(`request failed: ${url}`);
+        error.status = response.status;
+        const retryAfter = Number(response.headers.get("Retry-After"));
+        error.retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : 0;
+        throw error;
       }
       const payload = await response.json();
       if (!bypassCache) {
@@ -3915,6 +8123,434 @@ async function fetchJsonCached(url, options = {}) {
     }
   }
 }
+
+function koreaClockParts(value = new Date()) {
+  const dateValue = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: MORNING_MONEY_BRIEFING_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(dateValue);
+  const values = Object.fromEntries(
+    parts.filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]),
+  );
+  return {
+    year: values.year,
+    month: values.month,
+    day: values.day,
+    hour: values.hour,
+    minute: values.minute,
+  };
+}
+
+function morningMoneyEdition(now = new Date()) {
+  const clock = koreaClockParts(now);
+  const day = new Date(Date.UTC(clock.year, clock.month - 1, clock.day));
+  let edition = "morning";
+  let publicationHour = "06";
+  if (clock.hour < 6) {
+    day.setUTCDate(day.getUTCDate() - 1);
+    edition = "afternoon";
+    publicationHour = "16";
+  } else if (clock.hour >= 16) {
+    edition = "afternoon";
+    publicationHour = "16";
+  } else if (clock.hour >= 12) {
+    edition = "midday";
+    publicationHour = "12";
+  }
+  const publicationDate = day.toISOString().slice(0, 10);
+  return {
+    edition,
+    editionKey: `${publicationDate}:${publicationHour}`,
+    publicationDate,
+  };
+}
+
+function syncMorningMoneyPopoverCopy(now = new Date()) {
+  const edition = morningMoneyEdition(now).edition;
+  const lead = {
+    morning: "아침에 보는",
+    midday: "점심에 보는",
+    afternoon: "오후에 보는",
+  }[edition] || "지금 보는";
+  const accessibleLabel = `${lead} 돈이 되는 소식`;
+  if (elements.morningMoneyPopoverEdition) {
+    elements.morningMoneyPopoverEdition.textContent = lead;
+  }
+  elements.morningMoneyPopover?.setAttribute("aria-label", accessibleLabel);
+  elements.morningMoneyPopoverOpen?.setAttribute("aria-label", `${accessibleLabel} 열기`);
+}
+
+function shouldShowMorningMoneyBriefing(now = new Date()) {
+  return Boolean(morningMoneyEdition(now).editionKey);
+}
+
+function isMorningMoneyBriefingPreview() {
+  return new URLSearchParams(window.location.search).get(MORNING_MONEY_BRIEFING_PREVIEW_PARAM) === "1";
+}
+
+function morningMoneyDismissKey(now = new Date()) {
+  return `${MORNING_MONEY_BRIEFING_DISMISS_PREFIX}.${morningMoneyEdition(now).editionKey}`;
+}
+
+function morningMoneyBriefingDismissed(now = new Date()) {
+  try {
+    return localStorage.getItem(morningMoneyDismissKey(now)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function dismissMorningMoneyBriefing(now = new Date()) {
+  try {
+    localStorage.setItem(morningMoneyDismissKey(now), "1");
+  } catch {
+    // Restricted storage should not prevent the popup from being closed for this render.
+  }
+  if (elements.morningMoneyPopover) {
+    elements.morningMoneyPopover.hidden = true;
+  }
+}
+
+function morningMoneyPayloadEditionKey(payload = {}) {
+  if (payload.edition_key) {
+    return String(payload.edition_key);
+  }
+  if (!payload.publication_date || !payload.window_end) {
+    return "";
+  }
+  const windowEnd = koreaClockParts(payload.window_end);
+  const editionHour = windowEnd.hour === 12 ? "12" : windowEnd.hour === 16 ? "16" : "06";
+  return `${payload.publication_date}:${editionHour}`;
+}
+
+function isCurrentMorningMoneyBriefing(payload, now = new Date()) {
+  return morningMoneyPayloadEditionKey(payload) === morningMoneyEdition(now).editionKey;
+}
+
+function clearMorningMoneyBriefingCache() {
+  state.morningMoneyBriefing = null;
+  state.responseCache.delete(MORNING_MONEY_BRIEFING_ENDPOINT);
+  state.pendingRequests.delete(MORNING_MONEY_BRIEFING_ENDPOINT);
+}
+
+function scheduleMorningMoneyBriefingRefresh(payload = {}) {
+  if (state.morningMoneyBriefingRefreshTimer !== null) {
+    window.clearTimeout(state.morningMoneyBriefingRefreshTimer);
+    state.morningMoneyBriefingRefreshTimer = null;
+  }
+  const nextPublicationAt = new Date(payload.next_publication_at || "");
+  const delayMs = nextPublicationAt.getTime() - Date.now() + 250;
+  if (!Number.isFinite(delayMs) || delayMs <= 0) {
+    return;
+  }
+  state.morningMoneyBriefingRefreshTimer = window.setTimeout(() => {
+    state.morningMoneyBriefingRefreshTimer = null;
+    clearMorningMoneyBriefingCache();
+    refreshMorningMoneyBriefingVisibility();
+  }, delayMs);
+}
+
+function refreshMorningMoneyBriefingVisibility(now = new Date()) {
+  if (!elements.morningMoneyPopover) {
+    return false;
+  }
+  syncMorningMoneyPopoverCopy(now);
+  const preview = isMorningMoneyBriefingPreview();
+  const isPrimaryView = ["home", "search", "portfolio"].includes(state.view);
+  const visible = isPrimaryView
+    && (preview || shouldShowMorningMoneyBriefing(now))
+    && (preview || !morningMoneyBriefingDismissed(now));
+  elements.morningMoneyPopover.hidden = !visible;
+  const shouldLoad = visible || state.view === "morning-briefing";
+  if (state.morningMoneyBriefing && !isCurrentMorningMoneyBriefing(state.morningMoneyBriefing, now)) {
+    clearMorningMoneyBriefingCache();
+  }
+  if (shouldLoad && !state.morningMoneyBriefing && !state.morningMoneyBriefingLoading) {
+    void loadMorningMoneyBriefing({ render: state.view === "morning-briefing", force: true });
+  }
+  return visible;
+}
+
+function formatMorningMoneyDate(value, options = {}) {
+  if (!value) {
+    return options.fallback || "날짜 확인 중";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return options.fallback || "날짜 확인 중";
+  }
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: MORNING_MONEY_BRIEFING_TIMEZONE,
+    month: options.timeOnly ? undefined : "long",
+    day: options.timeOnly ? undefined : "numeric",
+    weekday: options.weekday ? "short" : undefined,
+    hour: options.dateOnly ? undefined : "2-digit",
+    minute: options.dateOnly ? undefined : "2-digit",
+    hourCycle: "h23",
+  }).format(parsed);
+}
+
+function safeMorningMoneyNewsUrl(value) {
+  if (!value) {
+    return "";
+  }
+  try {
+    const url = new URL(value, window.location.origin);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function createMorningMoneyHeadline(item, className = "") {
+  const title = el("strong", className);
+  const url = safeMorningMoneyNewsUrl(item?.detail_url);
+  if (!url) {
+    title.textContent = item?.title || "제목 확인 중";
+    return title;
+  }
+  const link = el("a", "", item?.title || "제목 확인 중");
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.setAttribute("aria-label", `${item?.title || "뉴스"} 원문 보기, 새 창`);
+  title.appendChild(link);
+  return title;
+}
+
+function createMorningMoneyNewsItem(item = {}) {
+  const row = el("li", "morning-money-news-item");
+  const titleText = String(item.title || "").trim();
+  const summary = String(item.summary || "").trim();
+  let displaySummary = summary;
+  const safeFallbackLead = `‘${titleText}’`;
+  if (titleText && summary.startsWith(safeFallbackLead)) {
+    const fallbackEnd = summary.indexOf("전해졌어요.", safeFallbackLead.length);
+    if (fallbackEnd >= 0) {
+      displaySummary = summary.slice(fallbackEnd + "전해졌어요.".length).trim();
+    }
+  }
+  const letter = el("p", "morning-money-news-letter", displaySummary);
+  const headline = createMorningMoneyHeadline(item, "morning-money-news-title");
+  if (displaySummary) {
+    letter.prepend(headline, document.createTextNode(" "));
+  } else {
+    letter.appendChild(headline);
+  }
+  row.appendChild(letter);
+  return row;
+}
+
+function renderMorningMoneyDigest(highlights = [], categories = []) {
+  const digest = elements.morningMoneyDigest;
+  const list = elements.morningMoneyDigestList;
+  if (!digest || !list) {
+    return;
+  }
+  const rows = (Array.isArray(highlights) ? highlights : [])
+    .filter((item) => String(item?.title || "").trim())
+    .slice(0, 3);
+  const renderedCategoryKeys = new Set(
+    (Array.isArray(categories) ? categories : [])
+      .map((category) => String(category?.key || ""))
+      .filter(Boolean),
+  );
+  list.replaceChildren();
+  digest.hidden = rows.length === 0;
+  for (const item of rows) {
+    const row = el("li", "");
+    const title = String(item.title || "").trim();
+    const categoryKey = String(item.category_key || "").replace(/[^a-z0-9_-]/gi, "");
+    if (categoryKey && renderedCategoryKeys.has(categoryKey)) {
+      const link = el("a", "", title);
+      link.href = `#morning-money-category-${categoryKey}`;
+      link.setAttribute("aria-label", `${title}, 관련 카테고리로 이동`);
+      row.appendChild(link);
+    } else {
+      row.textContent = title;
+    }
+    list.appendChild(row);
+  }
+}
+
+function renderMorningMoneyCategories(categories = [], emptyMessage = "", editionLabel = "") {
+  const content = elements.morningMoneyBriefingContent;
+  if (!content) {
+    return;
+  }
+  content.replaceChildren();
+  content.setAttribute("aria-busy", "false");
+  if (!categories.length) {
+    const empty = el("section", "morning-money-empty-state");
+    empty.append(
+      el("span", "", editionLabel || "최신판"),
+      el("strong", "", "아직 모인 소식이 없어요"),
+      el("p", "", emptyMessage || "뉴스 수집이 완료되면 이 화면에 자동으로 반영됩니다."),
+    );
+    content.appendChild(empty);
+    return;
+  }
+  for (const category of categories) {
+    const section = el("section", "morning-money-category-section");
+    section.id = `morning-money-category-${category.key}`;
+    section.dataset.category = category.key;
+    const header = el("header", "morning-money-category-head");
+    const identity = el("div", "morning-money-category-identity");
+    const icon = el("span", "morning-money-category-icon", category.icon || "📰");
+    icon.setAttribute("aria-hidden", "true");
+    identity.append(icon, el("h2", "", category.label || "주요 소식"));
+    header.appendChild(identity);
+    const list = el("ul", "morning-money-news-list");
+    for (const item of category.items || []) {
+      list.appendChild(createMorningMoneyNewsItem(item));
+    }
+    section.append(header, list);
+    content.appendChild(section);
+  }
+}
+
+function morningMoneyEditionPresentation(payload = {}) {
+  const presentations = {
+    morning: {
+      navTitle: "아침에 보는 돈이 되는 소식",
+      kicker: "아침판 · 06:00 발행",
+      title: "밤사이 핵심만 빠르게",
+      intro: "밤사이 쌓인 소식 가운데 오늘 시장과 내 돈의 흐름에 영향을 줄 만한 내용만 골랐어요. 일정부터 시장 흐름, 기업과 정책 변화까지 차례로 살펴보세요.",
+    },
+    midday: {
+      navTitle: "점심에 보는 돈이 되는 소식",
+      kicker: "점심판 · 12:00 발행",
+      title: "오전 핵심을 새로 정리했어요",
+      intro: "오전에 새로 나온 소식 가운데 돈의 흐름을 바꿀 만한 내용을 다시 골랐어요. 장중 변화를 확인하며 오후에 볼 포인트를 함께 짚어보세요.",
+    },
+    afternoon: {
+      navTitle: "장 마감 후 보는 돈이 되는 소식",
+      kicker: "장 마감판 · 16:00 발행",
+      title: "오후 핵심을 새로 정리했어요",
+      intro: "오후까지 이어진 시장 흐름과 새로 나온 소식을 한데 모았어요. 장 마감 뒤에도 이어질 변수와 다음 일정까지 차분히 확인해보세요.",
+    },
+  };
+  return presentations[payload.edition] || {
+    navTitle: "돈이 되는 소식",
+    kicker: payload.edition_label || "최신판",
+    title: "핵심 소식을 새로 정리했어요",
+    intro: "시장과 내 돈의 흐름에 영향을 줄 만한 소식을 골라 편지처럼 차근차근 정리했어요.",
+  };
+}
+
+function renderMorningMoneyBriefing(payload = {}) {
+  const categories = Array.isArray(payload.categories) ? payload.categories : [];
+  const presentation = morningMoneyEditionPresentation(payload);
+  const commandTitle = document.querySelector("#morning-money-briefing-view .morning-money-command-title h1");
+  if (commandTitle) {
+    commandTitle.textContent = presentation.navTitle;
+  }
+  if (elements.morningMoneyBriefingDate) {
+    elements.morningMoneyBriefingDate.textContent = formatMorningMoneyDate(
+      payload.published_at || `${payload.publication_date || ""}T06:00:00+09:00`,
+      { dateOnly: true, weekday: true },
+    );
+  }
+  if (elements.morningMoneyBriefingEdition) {
+    elements.morningMoneyBriefingEdition.textContent = presentation.kicker;
+  }
+  if (elements.morningMoneyOverviewTitle) {
+    elements.morningMoneyOverviewTitle.textContent = presentation.title;
+  }
+  if (elements.morningMoneyOverviewIntro) {
+    elements.morningMoneyOverviewIntro.textContent = presentation.intro;
+  }
+  renderMorningMoneyCategories(
+    categories,
+    payload.empty_message || "",
+    payload.edition_label || presentation.kicker.split(" · ")[0],
+  );
+  renderMorningMoneyDigest(payload.highlights || [], categories);
+}
+
+function renderMorningMoneyBriefingError() {
+  const content = elements.morningMoneyBriefingContent;
+  if (!content) {
+    return;
+  }
+  content.replaceChildren();
+  content.setAttribute("aria-busy", "false");
+  const error = el("section", "morning-money-error-state");
+  error.append(
+    el("span", "", "!"),
+    el("strong", "", "브리핑을 불러오지 못했어요"),
+    el("p", "", "네트워크 상태를 확인한 뒤 다시 시도해주세요."),
+  );
+  const retry = el("button", "", "다시 불러오기");
+  retry.type = "button";
+  retry.addEventListener("click", () => void loadMorningMoneyBriefing({ force: true }));
+  error.appendChild(retry);
+  content.appendChild(error);
+}
+
+async function loadMorningMoneyBriefing(options = {}) {
+  if (state.morningMoneyBriefingLoading) {
+    return state.morningMoneyBriefing;
+  }
+  state.morningMoneyBriefingLoading = true;
+  state.morningMoneyBriefingError = "";
+  try {
+    let payload = await fetchJsonCached(MORNING_MONEY_BRIEFING_ENDPOINT, {
+      force: options.force === true,
+      ttlMs: MORNING_MONEY_BRIEFING_CACHE_MS,
+      timeoutMs: 12_000,
+    });
+    if (!isMorningMoneyBriefingPreview() && !isCurrentMorningMoneyBriefing(payload)) {
+      state.responseCache.delete(MORNING_MONEY_BRIEFING_ENDPOINT);
+      payload = await fetchJsonCached(MORNING_MONEY_BRIEFING_ENDPOINT, {
+        force: true,
+        ttlMs: 0,
+        timeoutMs: 12_000,
+      });
+    }
+    if (!isMorningMoneyBriefingPreview() && !isCurrentMorningMoneyBriefing(payload)) {
+      throw new Error("stale money briefing edition");
+    }
+    state.morningMoneyBriefing = payload;
+    scheduleMorningMoneyBriefingRefresh(payload);
+    if (options.render !== false || state.view === "morning-briefing") {
+      renderMorningMoneyBriefing(payload);
+    }
+    return payload;
+  } catch (error) {
+    state.morningMoneyBriefingError = String(error?.message || error || "briefing unavailable");
+    if (options.render !== false || state.view === "morning-briefing") {
+      renderMorningMoneyBriefingError();
+    }
+    return null;
+  } finally {
+    state.morningMoneyBriefingLoading = false;
+  }
+}
+
+function openMorningMoneyBriefing() {
+  state.morningMoneyBriefingSelection = null;
+  setView("morning-briefing");
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+function openMorningMoneyBriefingEdition(payload = null) {
+  if (!payload || typeof payload !== "object" || !payload.edition_key) {
+    openMorningMoneyBriefing();
+    return;
+  }
+  state.morningMoneyBriefingSelection = clonePayload(payload);
+  setView("morning-briefing");
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+window.openMorningMoneyBriefingEdition = openMorningMoneyBriefingEdition;
 
 async function mapWithConcurrency(items, limit, mapper, onProgress = null) {
   const results = new Array(items.length);
@@ -3958,30 +8594,34 @@ function setPullRefreshIndicator(distance = 0, options = {}) {
   const nextDistance = Math.max(0, Math.min(PULL_REFRESH_MAX_DISTANCE, distance));
   const refreshing = options.refreshing === true;
   const ready = options.ready === true;
+  const status = ["complete", "error"].includes(options.status) ? options.status : "";
   state.pullRefreshDistance = nextDistance;
   elements.pullRefreshIndicator.hidden = false;
-  elements.pullRefreshIndicator.classList.toggle("visible", nextDistance > 0 || refreshing);
+  elements.pullRefreshIndicator.classList.toggle("visible", nextDistance > 0 || refreshing || Boolean(status));
   elements.pullRefreshIndicator.classList.toggle("ready", ready);
   elements.pullRefreshIndicator.classList.toggle("refreshing", refreshing);
-  elements.pullRefreshLabel.textContent = refreshing
-    ? "새로고침 중..."
-    : ready
-      ? "손을 떼면 새로고침"
-      : "아래로 당겨서 새로고침";
-  document.documentElement.style.setProperty("--pull-refresh-distance", `${refreshing ? PULL_REFRESH_TRIGGER_DISTANCE : nextDistance}px`);
-  elements.appFrame?.classList.toggle("pull-refresh-active", nextDistance > 0 || refreshing);
+  elements.pullRefreshIndicator.classList.toggle("complete", status === "complete");
+  elements.pullRefreshIndicator.classList.toggle("error", status === "error");
+  elements.pullRefreshLabel.textContent = status === "complete"
+    ? "최신 정보로 새로고침 완료"
+    : status === "error"
+      ? "새로고침하지 못했어요"
+      : refreshing
+        ? "새로고침 중..."
+        : ready
+          ? "손을 떼면 새로고침"
+          : "아래로 당겨서 새로고침";
 }
 
 function resetPullRefreshIndicator(options = {}) {
   state.pullRefreshTracking = false;
   state.pullRefreshReady = false;
   state.pullRefreshDistance = 0;
-  document.documentElement.style.setProperty("--pull-refresh-distance", "0px");
-  elements.appFrame?.classList.remove("pull-refresh-active");
+  state.pullRefreshAxis = "";
   if (!elements.pullRefreshIndicator) {
     return;
   }
-  elements.pullRefreshIndicator.classList.remove("ready", "refreshing", "visible");
+  elements.pullRefreshIndicator.classList.remove("ready", "refreshing", "complete", "error", "visible");
   const immediate = options.immediate === true;
   window.clearTimeout(state.pullRefreshHideTimer);
   state.pullRefreshHideTimer = window.setTimeout(() => {
@@ -3995,6 +8635,9 @@ function canStartPullRefresh(target) {
   if (!isMobileViewport() || state.pullRefreshRefreshing) {
     return false;
   }
+  if (document.body.classList.contains("modal-open")) {
+    return false;
+  }
   if (elements.loginGate && !elements.loginGate.hidden) {
     return false;
   }
@@ -4005,7 +8648,7 @@ function canStartPullRefresh(target) {
     return true;
   }
   return !target.closest(
-    "a, button, [role='button'], [role='link'], input, textarea, select, .suggestions, .loading-modal-card, .install-sheet-card",
+    "a, button, [role='button'], [role='link'], input, textarea, select, .bottom-nav, .side-nav, .suggestions, .loading-modal-card, .install-sheet-card, .push-notification-sheet-card, [data-no-pull-refresh]",
   );
 }
 
@@ -4015,7 +8658,7 @@ async function refreshCurrentView() {
       const query = state.currentStock?.name || pathQuery();
       const shouldRefreshAI = state.stockAIAnalysis !== null || elements.aiAnalysisPanel?.hidden === false;
       const shouldRefreshQuant = state.stockQuantSignals !== null || state.stockActiveTab === "strategy";
-      await load(query);
+      await load(query, { force: true, historyMode: "none" });
       if (shouldRefreshAI && state.currentStock?.code) {
         await loadAIAnalysis({ auto: false, force: true });
       }
@@ -4026,21 +8669,51 @@ async function refreshCurrentView() {
     }
     case "home":
       await Promise.all([
-        loadTrends(state.activeTrendTab === "impact" ? "live" : state.activeTrendTab || "live", { force: true }),
-        loadMarketImpactAnalysis({ force: true, embedded: true }),
+        loadTrends(state.activeTrendTab || "live", { force: true }),
+        loadHomeMarketImpact({ force: true }),
         loadHomeMarketIndices({ force: true }),
         loadHomeAiSignals({ force: true, ttlMs: 0 }),
         loadHomeSurgeRankings({ force: true, ttlMs: 0 }),
       ]);
       return;
-    case "search":
-      await loadRecommendations({ auto: true, force: true, recompute: true });
+    case "news":
+      await loadTrends("live", { force: true, ttlMs: 0 });
+      renderNewsPage();
       return;
+    case "event-detail":
+      await loadTrendEventDetail(state.activeTrendEventId, { force: true, ttlMs: 0 });
+      return;
+    case "notifications":
+      await loadPushNotificationHistory({ silent: true });
+      return;
+    case "ai-signals":
+      await loadAiSignalsPage({ force: true, ttlMs: 0 });
+      return;
+    case "morning-briefing":
+      await loadMorningMoneyBriefing({ force: true });
+      return;
+    case "search":
+      // Pull-to-refresh must preserve the published recommendation snapshot.
+      // A live recomputation uses a different, heavier scoring path and can
+      // unexpectedly replace the entire ranked list while the user is reading it.
+      await loadRecommendations({ auto: true, force: true, recompute: false });
+      return;
+    case "recommend-detail": {
+      const code = state.currentRecommendationDetailItem?.code || new URLSearchParams(window.location.search).get("code") || "";
+      await loadRecommendationDetail(code);
+      return;
+    }
     case "movers":
       state.marketRankingSnapshotId = "";
       state.marketRankingSnapshotAsOf = "";
       state.marketRankingCache.clear();
-      await loadMarketRankings({ market: currentMarketFilter(), limit: 30, force: true });
+      await loadMarketRankings({
+        category: state.rankingCategory,
+        mode: state.marketRankingMode,
+        market: currentMarketFilter(),
+        limit: 50,
+        force: true,
+      });
       return;
     case "portfolio":
       if (state.portfolioTab === "tracking") {
@@ -4069,7 +8742,12 @@ async function triggerPullRefresh() {
   state.pullRefreshRefreshing = true;
   setPullRefreshIndicator(PULL_REFRESH_TRIGGER_DISTANCE, { ready: true, refreshing: true });
   try {
-    await refreshCurrentView().catch(() => null);
+    await refreshCurrentView();
+    setPullRefreshIndicator(0, { status: "complete" });
+    await delay(650);
+  } catch {
+    setPullRefreshIndicator(0, { status: "error" });
+    await delay(1100);
   } finally {
     state.pullRefreshRefreshing = false;
     resetPullRefreshIndicator();
@@ -4086,6 +8764,7 @@ function handlePullRefreshStart(event) {
   state.pullRefreshDistance = 0;
   state.pullRefreshStartX = touch.clientX;
   state.pullRefreshStartY = touch.clientY;
+  state.pullRefreshAxis = "pending";
 }
 
 function handlePullRefreshMove(event) {
@@ -4099,12 +8778,27 @@ function handlePullRefreshMove(event) {
   const touch = event.touches[0];
   const deltaX = touch.clientX - state.pullRefreshStartX;
   const deltaY = touch.clientY - state.pullRefreshStartY;
+  const absoluteX = Math.abs(deltaX);
+  const absoluteY = Math.abs(deltaY);
+  if (state.pullRefreshAxis === "pending" && Math.max(absoluteX, absoluteY) > 0) {
+    state.pullRefreshAxis = absoluteY >= absoluteX ? "vertical" : "horizontal";
+  }
+  if (state.pullRefreshAxis === "horizontal") {
+    resetPullRefreshIndicator({ immediate: true });
+    return;
+  }
   if (deltaY <= 0) {
     resetPullRefreshIndicator({ immediate: true });
     return;
   }
-  if (Math.abs(deltaX) > deltaY) {
+  if (state.pullRefreshAxis !== "vertical") {
     return;
+  }
+  // Cancel iOS rubber-band scrolling on the first vertical move. Waiting until
+  // the visual drag offset is crossed lets Safari start native overscroll,
+  // which opens a blank band below the sticky header and can steal touchend.
+  if (event.cancelable) {
+    event.preventDefault();
   }
   const distance = Math.min(PULL_REFRESH_MAX_DISTANCE, Math.max(0, (deltaY - PULL_REFRESH_DRAG_OFFSET) * 0.55));
   if (distance <= 0) {
@@ -4112,9 +8806,6 @@ function handlePullRefreshMove(event) {
   }
   state.pullRefreshReady = distance >= PULL_REFRESH_TRIGGER_DISTANCE;
   setPullRefreshIndicator(distance, { ready: state.pullRefreshReady });
-  if (event.cancelable) {
-    event.preventDefault();
-  }
 }
 
 function handlePullRefreshEnd() {
@@ -4136,6 +8827,15 @@ function hideSuggestions() {
   elements.input.setAttribute("aria-expanded", "false");
 }
 
+function collapseStockSearch({ blur = false } = {}) {
+  hideSuggestions();
+  elements.form?.classList.remove("expanded");
+  if (blur) {
+    elements.input?.blur();
+  }
+  scheduleStockDetailTabsFixedState();
+}
+
 function setActiveSuggestion(index) {
   const buttons = Array.from(elements.suggestions.querySelectorAll(".suggestion-item"));
   if (!buttons.length) {
@@ -4152,8 +8852,8 @@ function setActiveSuggestion(index) {
 
 function chooseSuggestion(item) {
   elements.input.value = item.name;
-  hideSuggestions();
-  load(item.name);
+  collapseStockSearch({ blur: isMobileViewport() });
+  load(item.name, { resolvedStock: item });
 }
 
 function renderSuggestions(items) {
@@ -4173,10 +8873,7 @@ function renderSuggestions(items) {
     const name = document.createElement("span");
     name.className = "suggestion-name";
     name.textContent = item.name;
-    const meta = document.createElement("span");
-    meta.className = "suggestion-meta";
-    meta.textContent = `${item.code} · ${item.market}`;
-    button.append(name, meta);
+    button.append(name);
     button.addEventListener("mousedown", (event) => event.preventDefault());
     button.addEventListener("click", () => chooseSuggestion(item));
     elements.suggestions.appendChild(button);
@@ -4242,7 +8939,6 @@ function renderStandaloneSuggestions(input, container, items, onChoose) {
     button.setAttribute("role", "option");
     button.append(
       el("strong", "", item.name || item.code),
-      el("span", "", `${item.code || ""}${item.market ? ` · ${item.market}` : ""}`),
     );
     button.addEventListener("mousedown", (event) => event.preventDefault());
     button.addEventListener("click", () => {
@@ -4288,7 +8984,12 @@ async function fetchStandaloneSuggestions(kind, query) {
       renderStandaloneSuggestions(input, container, items, (item) => void loadChartStock(item));
     } else {
       state.discoverySuggestions = items;
-      renderStandaloneSuggestions(input, container, items, (item) => void load(item.name || item.code));
+      renderStandaloneSuggestions(
+        input,
+        container,
+        items,
+        (item) => void load(item.name || item.code, { resolvedStock: item }),
+      );
     }
   } catch (error) {
     if (error.name !== "AbortError") {
@@ -4342,6 +9043,74 @@ function viewStockUrl(name) {
   return `/dashboard/${encodeURIComponent(name)}`;
 }
 
+function showStockShareStatus(message) {
+  if (!elements.stockShareStatus) {
+    return;
+  }
+  window.clearTimeout(state.stockShareStatusTimer);
+  elements.stockShareStatus.textContent = message;
+  elements.stockShareStatus.hidden = false;
+  window.requestAnimationFrame(() => elements.stockShareStatus.classList.add("visible"));
+  state.stockShareStatusTimer = window.setTimeout(() => {
+    elements.stockShareStatus.classList.remove("visible");
+    window.setTimeout(() => {
+      if (!elements.stockShareStatus.classList.contains("visible")) {
+        elements.stockShareStatus.hidden = true;
+      }
+    }, 180);
+  }, 2400);
+}
+
+async function copyStockShareUrl(url) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    await navigator.clipboard.writeText(url);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = url;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.append(input);
+  input.select();
+  const copied = document.execCommand("copy");
+  input.remove();
+  if (!copied) {
+    throw new Error("copy_failed");
+  }
+}
+
+async function shareCurrentStock() {
+  const stock = state.currentStock;
+  if (!stock?.code) {
+    return;
+  }
+  const name = stock.name || stock.code;
+  const url = new URL(viewStockUrl(name), window.location.origin).href;
+  const shareData = {
+    title: `${name} 종목 분석 | 비밀노트`,
+    text: `비밀노트에서 ${name}(${stock.code}) 종목 정보를 확인해보세요.`,
+    url,
+  };
+  if (typeof navigator.share === "function") {
+    try {
+      await navigator.share(shareData);
+      showStockShareStatus("공유를 완료했습니다.");
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return;
+      }
+    }
+  }
+  try {
+    await copyStockShareUrl(url);
+    showStockShareStatus("종목 상세 링크를 복사했습니다.");
+  } catch {
+    showStockShareStatus("공유할 수 없습니다. 잠시 후 다시 시도해주세요.");
+  }
+}
+
 function stockRouteQuery(href) {
   try {
     const url = new URL(href, window.location.origin);
@@ -4360,12 +9129,13 @@ function navigateToStock(query, href = viewStockUrl(query)) {
   if (!normalized) {
     return Promise.resolve();
   }
+  collapseStockSearch({ blur: isMobileViewport() });
   const url = new URL(href, window.location.origin);
   const nextPath = `${url.pathname}${url.search}${url.hash}`;
   if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextPath) {
-    history.pushState({ view: "stock" }, "", nextPath);
+    writeDashboardHistory("stock", nextPath, "push", { stockQuery: normalized });
   }
-  setView("stock");
+  setView("stock", { historyMode: "none" });
   window.scrollTo({ top: 0, behavior: "auto" });
   return load(normalized, { historyMode: "none" });
 }
@@ -4439,6 +9209,252 @@ function setLoginGatePhase(phase) {
   elements.loginGate.dataset.phase = phase;
 }
 
+function updateInviteField() {
+  if (!elements.loginInviteField || !elements.loginInviteInput) {
+    return;
+  }
+  const needsInvite = state.inviteRequired && !state.inviteAuthorized;
+  elements.loginInviteField.hidden = !needsInvite;
+  elements.loginInviteInput.required = needsInvite;
+  if (elements.loginDescription) {
+    elements.loginDescription.textContent = state.inviteRequired
+      ? "아이디를 입력해 시작하세요."
+      : "아이디만 입력하면 바로 시작됩니다.";
+  }
+  if (!needsInvite) {
+    elements.loginInviteInput.value = "";
+  }
+}
+
+async function refreshInviteAccess() {
+  try {
+    const response = await fetch("/session/invite-status", {
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    const payload = response.ok ? await response.json() : {};
+    state.inviteRequired = payload.required !== false;
+    state.inviteAuthorized = payload.authorized === true || !state.inviteRequired;
+  } catch {
+    state.inviteRequired = true;
+    state.inviteAuthorized = false;
+  }
+  updateInviteField();
+  return state.inviteAuthorized;
+}
+
+async function authorizeInviteCode(inviteCode) {
+  const normalizedCode = String(inviteCode || "").trim().toUpperCase();
+  if (!normalizedCode) {
+    return { ok: false, message: "초대 코드를 입력해주세요." };
+  }
+  try {
+    const response = await fetch("/session/invite-access", {
+      method: "POST",
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invite_code: normalizedCode }),
+    });
+    if (response.status === 429) {
+      return { ok: false, message: "입력 횟수가 많습니다. 15분 후 다시 시도해주세요." };
+    }
+    if (!response.ok) {
+      return { ok: false, message: "초대 코드를 확인해주세요." };
+    }
+    state.inviteAuthorized = true;
+    updateInviteField();
+    return { ok: true, message: "" };
+  } catch {
+    return { ok: false, message: "초대 코드를 확인하지 못했습니다. 잠시 후 다시 시도해주세요." };
+  }
+}
+
+function dashboardAccessRequestId(response) {
+  const raw = String(
+    response?.headers?.get("x-request-id")
+    || response?.headers?.get("x-railway-request-id")
+    || ""
+  ).trim();
+  return raw.replace(/[^0-9A-Za-z._:-]/g, "").slice(0, 128);
+}
+
+function dashboardAccessMessageWithRequestId(message, response) {
+  const requestId = dashboardAccessRequestId(response);
+  return requestId ? `${message} · 문의 코드 ${requestId}` : message;
+}
+
+function dashboardAccessRetryAfterSeconds(response) {
+  const raw = String(response?.headers?.get("retry-after") || "").trim();
+  if (!raw) {
+    return null;
+  }
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds)) {
+    return Math.max(1, Math.ceil(seconds));
+  }
+  const retryAt = Date.parse(raw);
+  if (Number.isNaN(retryAt)) {
+    return null;
+  }
+  return Math.max(1, Math.ceil((retryAt - Date.now()) / 1000));
+}
+
+function dashboardAccessRetryLabel(seconds) {
+  if (seconds < 60) {
+    return `${seconds}초`;
+  }
+  return `${Math.ceil(seconds / 60)}분`;
+}
+
+function dashboardAccessRetryDelay(response) {
+  const retryAfterSeconds = dashboardAccessRetryAfterSeconds(response);
+  if (!retryAfterSeconds) {
+    return DASHBOARD_ACCESS_RETRY_DELAY_MS;
+  }
+  return Math.min(3000, Math.max(500, retryAfterSeconds * 1000));
+}
+
+async function authorizeDashboardIdentity(shareId) {
+  if (!state.inviteRequired) {
+    return { ok: true, capacityFull: false };
+  }
+  const normalizedId = normalizeWatchlistId(shareId);
+  let attempt = 0;
+  while (attempt < DASHBOARD_ACCESS_MAX_ATTEMPTS) {
+    try {
+      const response = await fetch("/session/dashboard-access", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ share_id: normalizedId }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.status === 409 && payload?.detail?.code === "capacity_full") {
+        return {
+          ok: false,
+          capacityFull: true,
+          limit: Number(payload.detail.limit) || 100,
+          message: payload.detail.message || "초기 이용 인원이 모두 찼습니다.",
+        };
+      }
+      if (response.status === 403) {
+        state.inviteAuthorized = false;
+        updateInviteField();
+        return { ok: false, capacityFull: false, message: "초대 코드를 다시 확인해주세요." };
+      }
+      if (response.status === 429) {
+        const retrySeconds = dashboardAccessRetryAfterSeconds(response) || DASHBOARD_ACCESS_DEFAULT_RETRY_SECONDS;
+        return {
+          ok: false,
+          capacityFull: false,
+          rateLimited: true,
+          retryAfterSeconds: retrySeconds,
+          message: `로그인 요청이 많습니다. ${dashboardAccessRetryLabel(retrySeconds)} 후 다시 시도해주세요.`,
+        };
+      }
+      if (response.ok) {
+        return { ok: true, capacityFull: false };
+      }
+      const retryable = response.status === 408 || response.status >= 500;
+      if (retryable && attempt + 1 < DASHBOARD_ACCESS_MAX_ATTEMPTS) {
+        attempt += 1;
+        setLoginStatus("서버 연결이 불안정해 다시 확인하는 중");
+        await delay(dashboardAccessRetryDelay(response));
+        continue;
+      }
+      if (response.status >= 500) {
+        return {
+          ok: false,
+          capacityFull: false,
+          message: dashboardAccessMessageWithRequestId(
+            "서버 연결이 잠시 불안정합니다. 잠시 후 다시 시도해주세요.",
+            response
+          ),
+        };
+      }
+      return {
+        ok: false,
+        capacityFull: false,
+        message: dashboardAccessMessageWithRequestId(
+          "로그인 요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.",
+          response
+        ),
+      };
+    } catch {
+      if (attempt + 1 < DASHBOARD_ACCESS_MAX_ATTEMPTS) {
+        attempt += 1;
+        setLoginStatus("네트워크 연결을 다시 확인하는 중");
+        await delay(DASHBOARD_ACCESS_RETRY_DELAY_MS);
+        continue;
+      }
+      return {
+        ok: false,
+        capacityFull: false,
+        message: "인터넷 연결을 확인한 뒤 다시 시도해주세요.",
+      };
+    }
+  }
+  return { ok: false, capacityFull: false, message: "인터넷 연결을 확인한 뒤 다시 시도해주세요." };
+}
+
+function accessCapacityFocusableElements() {
+  if (!elements.accessCapacityModal || elements.accessCapacityModal.hidden) {
+    return [];
+  }
+  return Array.from(
+    elements.accessCapacityModal.querySelectorAll(
+      'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => !element.closest("[hidden]"));
+}
+
+function trapAccessCapacityFocus(event) {
+  const focusable = accessCapacityFocusableElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (!focusable.includes(active)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function showAccessCapacityModal() {
+  if (!elements.accessCapacityModal) {
+    return;
+  }
+  if (elements.accessCapacityTitle) {
+    elements.accessCapacityTitle.textContent = "현재 이용 가능 인원을 초과했어요";
+  }
+  if (elements.accessCapacityDescription) {
+    elements.accessCapacityDescription.textContent = "안정적인 서비스 운영을 위해 초기 이용 인원을 제한하고 있습니다. 추가 이용이 필요하시면 LinkedIn 메시지로 문의해주세요.";
+  }
+  elements.accessCapacityModal.hidden = false;
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => elements.accessCapacityContact?.focus(), 40);
+}
+
+function closeAccessCapacityModal() {
+  if (!elements.accessCapacityModal || elements.accessCapacityModal.hidden) {
+    return;
+  }
+  elements.accessCapacityModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  elements.loginInput?.focus();
+}
+
 function showLoginGate(message = "", options = {}) {
   if (!elements.loginGate) {
     return;
@@ -4447,7 +9463,7 @@ function showLoginGate(message = "", options = {}) {
   const skipSplash = options.skipSplash ?? state.loginSplashSeen;
   window.clearTimeout(state.loginGateTimer);
   elements.loginGate.hidden = false;
-  setLoginStatus(message);
+  setLoginStatus(message, options.tone || "");
   if (skipSplash) {
     setLoginGatePhase("form");
     window.setTimeout(() => {
@@ -4473,10 +9489,14 @@ function hideLoginGate() {
   state.loginGateTimer = null;
   elements.loginGate.hidden = true;
   document.documentElement.classList.add("has-saved-watchlist-id");
+  void maybeShowPushNotificationEntryPrompt();
 }
 
 async function fetchRemoteWatchlist(shareId) {
-  const response = await fetch(`/watchlists/${encodeURIComponent(shareId)}`);
+  const response = await fetch(`/watchlists/${encodeURIComponent(shareId)}`, {
+    cache: "no-store",
+    credentials: "same-origin",
+  });
   if (!response.ok) {
     throw new Error("watchlist load failed");
   }
@@ -4503,23 +9523,26 @@ async function ensureWriteToken(shareId = state.watchlistId, options = {}) {
   return state.writeToken;
 }
 
-async function saveRemoteWatchlist(items) {
-  if (!state.watchlistId) {
+async function saveRemoteWatchlist(items, shareId = state.watchlistId) {
+  const normalizedId = normalizeWatchlistId(shareId);
+  if (!normalizedId) {
     return null;
   }
   const requestPayload = JSON.stringify({ items: normalizeWatchlistItems(items) });
   const requestOnce = async (writeToken) =>
-    fetch(`/watchlists/${encodeURIComponent(state.watchlistId)}`, {
+    fetch(`/watchlists/${encodeURIComponent(normalizedId)}`, {
       method: "PUT",
+      cache: "no-store",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
         "X-Write-Token": writeToken,
       },
       body: requestPayload,
     });
-  let response = await requestOnce(await ensureWriteToken(state.watchlistId));
+  let response = await requestOnce(await ensureWriteToken(normalizedId));
   if (response.status === 403) {
-    response = await requestOnce(await ensureWriteToken(state.watchlistId, { force: true }));
+    response = await requestOnce(await ensureWriteToken(normalizedId, { force: true }));
   }
   if (!response.ok) {
     throw new Error("watchlist save failed");
@@ -4532,23 +9555,44 @@ function queueRemoteWatchlistSync() {
     setWatchlistIdStatus("로컬 저장 중");
     return;
   }
+  if (state.watchlistSyncing) {
+    state.watchlistSyncPending = true;
+    return;
+  }
   window.clearTimeout(state.watchlistSyncTimer);
   state.watchlistSyncTimer = window.setTimeout(syncLocalWatchlistToRemote, 450);
 }
 
 async function syncLocalWatchlistToRemote() {
-  if (!state.watchlistId || state.watchlistSyncing) {
+  if (!state.watchlistId) {
     return;
   }
+  if (state.watchlistSyncing) {
+    state.watchlistSyncPending = true;
+    return;
+  }
+  const syncShareId = state.watchlistId;
+  const items = readWatchlist();
+  const snapshot = JSON.stringify(items);
   state.watchlistSyncing = true;
+  state.watchlistSyncPending = false;
   setWatchlistIdStatus("서버 저장 중");
   try {
-    const payload = await saveRemoteWatchlist(readWatchlist());
-    setWatchlistIdStatus(`${state.watchlistId} · ${formatNumber(payload.items.length)}개 동기화`, "success");
+    const payload = await saveRemoteWatchlist(items, syncShareId);
+    if (state.watchlistId === syncShareId) {
+      setWatchlistIdStatus(`${syncShareId} · ${formatNumber(payload.items.length)}개 동기화`, "success");
+    }
   } catch {
-    setWatchlistIdStatus("동기화 실패 · ID를 확인해주세요", "error");
+    if (state.watchlistId === syncShareId) {
+      setWatchlistIdStatus("동기화 실패 · ID를 확인해주세요", "error");
+    }
   } finally {
     state.watchlistSyncing = false;
+    const changedWhileSaving = state.watchlistId === syncShareId && JSON.stringify(readWatchlist()) !== snapshot;
+    if (state.watchlistId && (state.watchlistSyncPending || changedWhileSaving)) {
+      state.watchlistSyncPending = false;
+      queueRemoteWatchlistSync();
+    }
   }
 }
 
@@ -4570,7 +9614,11 @@ async function applyWatchlistId(shareId, options = {}) {
     setWatchlistIdStatus("2~40자 한글/영문/숫자/._-만 가능", "error");
     return false;
   }
+  const previousWatchlistId = state.watchlistId;
   state.watchlistId = normalizedId;
+  if (previousWatchlistId !== normalizedId) {
+    state.pushNotificationEntryPromptChecked = false;
+  }
   state.writeToken = "";
   state.writeTokenShareId = "";
   localStorage.setItem(WATCHLIST_ID_KEY, normalizedId);
@@ -4587,32 +9635,38 @@ async function applyWatchlistId(shareId, options = {}) {
   updateWatchlistIdentityDisplay();
   setWatchlistIdStatus("서버 목록 불러오는 중");
   const syncIdentity = async () => {
-    const localItems = readWatchlist();
-    const remotePayload = await fetchRemoteWatchlist(normalizedId);
+    const localTrackItems = readRecommendationTracks({ shareId: normalizedId });
+    const [remotePayload, remoteTrackPayload] = await Promise.all([
+      fetchRemoteWatchlist(normalizedId),
+      fetchRemoteRecommendationTracks(normalizedId),
+    ]);
     const remoteItems = normalizeWatchlistItems(remotePayload.items || []);
-    const merged = options.merge === false ? remoteItems : normalizeWatchlistItems([...localItems, ...remoteItems]);
-    writeWatchlist(merged, { sync: false });
-    setWatchlistIdStatus(`${normalizedId} · ${formatNumber(merged.length)}개 동기화`, "success");
-    if (JSON.stringify(merged) !== JSON.stringify(remoteItems)) {
-      queueRemoteWatchlistSync();
+    writeWatchlist(remoteItems, { sync: false });
+
+    let remoteTrackItems = normalizeRecommendationTracks(remoteTrackPayload.items || []);
+    if (remoteTrackPayload.initialized !== true) {
+      const migratedPayload = await saveRemoteRecommendationTracks(localTrackItems, normalizedId);
+      remoteTrackItems = normalizeRecommendationTracks(migratedPayload?.items || localTrackItems);
     }
-    if (options.backgroundSync !== true) {
+    writeRecommendationTracks(remoteTrackItems, { sync: false, shareId: normalizedId });
+    setWatchlistIdStatus(
+      `${normalizedId} · 관심 ${formatNumber(remoteItems.length)}개 · 핀 ${formatNumber(remoteTrackItems.length)}개`,
+      "success"
+    );
+    if (!elements.loginGate || elements.loginGate.hidden) {
       void refreshPushNotificationState({ syncServer: false });
     }
     updateWatchButton();
+    updateRecommendationWatchButtons();
+    updateRecommendationTrackButtons();
     if (options.refreshView !== false) {
       if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
-        void loadWatchlist();
+        void loadWatchlist({ force: true, ttlMs: 0 });
+      } else if (state.view === "portfolio" && state.portfolioTab === "tracking") {
+        void loadRecommendationHistory({ force: true, ttlMs: 0 });
       }
     }
   };
-  if (options.backgroundSync === true) {
-    void refreshPushNotificationState({ syncServer: false });
-    void syncIdentity().catch(() => {
-      setWatchlistIdStatus(`${normalizedId} · 저장된 목록 사용 중`, "error");
-    });
-    return true;
-  }
   try {
     await syncIdentity();
     return true;
@@ -4628,9 +9682,14 @@ async function logoutWatchlistIdentity() {
     await disablePushNotifications(currentId).catch(() => undefined);
   }
   window.clearTimeout(state.watchlistSyncTimer);
+  window.clearTimeout(state.recommendationTrackSyncTimer);
   stopPushNotificationUnreadRefresh();
   state.watchlistSyncTimer = null;
   state.watchlistSyncing = false;
+  state.watchlistSyncPending = false;
+  state.recommendationTrackSyncTimer = null;
+  state.recommendationTrackSyncing = false;
+  state.recommendationTrackSyncPending = false;
   state.watchlistId = "";
   state.writeToken = "";
   state.writeTokenShareId = "";
@@ -4638,7 +9697,10 @@ async function logoutWatchlistIdentity() {
   state.pushNotificationUnread = false;
   localStorage.removeItem(WATCHLIST_ID_KEY);
   localStorage.removeItem(WATCHLIST_KEY);
+  localStorage.removeItem(recommendationTrackStorageKey(currentId));
+  localStorage.removeItem(RECOMMENDATION_TRACK_KEY);
   localStorage.removeItem("analyst.watchlistActivity");
+  resetHomeAiSignalsForIdentity();
   closeQuoteStream();
   closeWatchlistQuoteStreams();
   if (elements.watchlistIdInput) {
@@ -4650,6 +9712,8 @@ async function logoutWatchlistIdentity() {
   updateWatchlistIdentityDisplay();
   updateWatchButton();
   updateRecommendationWatchButtons();
+  updateRecommendationTrackButtons();
+  updateRecommendationTrackMeta();
   if (elements.watchlistBody) {
     elements.watchlistBody.innerHTML = '<p class="muted">로그인 후 관심 종목을 불러옵니다.</p>';
   }
@@ -4666,27 +9730,34 @@ async function logoutWatchlistIdentity() {
 
 async function initializeWatchlistIdentity() {
   const savedId = normalizeWatchlistId(localStorage.getItem(WATCHLIST_ID_KEY));
+  const inviteAuthorized = await refreshInviteAccess();
   if (elements.watchlistIdInput) {
     elements.watchlistIdInput.value = savedId;
   }
   updateWatchlistIdentityDisplay();
-  if (savedId) {
+  if (savedId && inviteAuthorized) {
     if (elements.loginInput) {
       elements.loginInput.value = savedId;
     }
     setLoginStatus("저장된 ID로 불러오는 중");
-    const [ok] = await Promise.all([
-      applyWatchlistId(savedId, { merge: true, refreshView: false, backgroundSync: true }),
-      delay(LOGIN_SPLASH_DURATION_MS),
-    ]);
+    const accessResult = await authorizeDashboardIdentity(savedId);
+    if (!accessResult.ok) {
+      showLoginGate(accessResult.message, { skipSplash: true, tone: "error" });
+      if (accessResult.capacityFull) {
+        showAccessCapacityModal(accessResult.limit);
+      }
+      return;
+    }
+    const ok = await applyWatchlistId(savedId, { refreshView: false });
     if (ok) {
+      refreshHomeAiSignalsAfterLogin();
       hideLoginGate();
     } else {
-      showLoginGate("저장된 아이디를 불러오지 못했습니다. 다시 입력해주세요.", { skipSplash: true });
+      showLoginGate("저장된 아이디를 불러오지 못했습니다. 다시 입력해주세요.", { skipSplash: true, tone: "error" });
     }
   } else {
     setWatchlistIdStatus("로컬 저장 중");
-    showLoginGate();
+    showLoginGate(savedId ? "서비스 이용을 위해 초대 코드를 입력해주세요." : "");
   }
 }
 
@@ -4776,6 +9847,353 @@ function isIOSDevice() {
   return /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
 
+function isAndroidDevice() {
+  return /Android/i.test(navigator.userAgent);
+}
+
+function isDashboardHistoryState(value) {
+  return Boolean(
+    value
+    && value.dashboard === DASHBOARD_HISTORY_MARKER
+    && value.version === DASHBOARD_HISTORY_VERSION,
+  );
+}
+
+function dashboardLocationRoute() {
+  const parts = window.location.pathname.split("/").filter(Boolean);
+  if (parts[0] === "dashboard" && parts[1]) {
+    return {
+      route: "stock",
+      stockQuery: decodeURIComponent(parts[1]),
+      url: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+    };
+  }
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get("view") || "home";
+  const route = ["trend", "trend-past", "trend-impact"].includes(requested) ? "home" : requested;
+  return {
+    route,
+    url: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+  };
+}
+
+function dashboardRouteUrl(routeName) {
+  const route = String(routeName || "home");
+  if (route === "stock" && state.currentStock?.name) {
+    return viewStockUrl(state.currentStock.name);
+  }
+  if (route === "recommend-detail") {
+    const code = state.currentRecommendationDetailItem?.code
+      || new URLSearchParams(window.location.search).get("code")
+      || "";
+    return `/dashboard?view=recommend-detail${code ? `&code=${encodeURIComponent(code)}` : ""}`;
+  }
+  if (route === "movers") {
+    const market = currentMarketFilter();
+    const snapshot = state.marketRankingSnapshotId
+      ? `&snapshot=${encodeURIComponent(state.marketRankingSnapshotId)}`
+      : "";
+    return `/dashboard?view=movers&market=${encodeURIComponent(market)}${snapshot}`;
+  }
+  if (route === "news") {
+    return `/dashboard?view=news&filter=${encodeURIComponent(state.trendNewsFilter || "all")}`;
+  }
+  if (route === "event-detail") {
+    const eventId = state.activeTrendEventId || state.selectedTrendEvent?.id || "";
+    return `/dashboard?view=event-detail${eventId ? `&event_id=${encodeURIComponent(eventId)}` : ""}`;
+  }
+  const safeRoute = [
+    "home",
+    "news",
+    "event-detail",
+    "search",
+    "portfolio",
+    "recommend-history",
+    "recommend",
+    "notifications",
+    "ai-signals",
+    "morning-briefing",
+    "chart",
+    "chart-study",
+    "chart-history",
+  ].includes(route) ? route : "home";
+  return `/dashboard?view=${encodeURIComponent(safeRoute)}`;
+}
+
+function createDashboardHistoryState(route, index, options = {}) {
+  return {
+    dashboard: DASHBOARD_HISTORY_MARKER,
+    version: DASHBOARD_HISTORY_VERSION,
+    route,
+    index,
+    scrollY: Math.max(0, Number(options.scrollY) || 0),
+    stockQuery: options.stockQuery || "",
+    returnView: options.returnView || "",
+    rootBase: options.rootBase === true,
+    rootGuard: options.rootGuard === true,
+  };
+}
+
+function rememberCurrentDashboardScroll() {
+  const current = isDashboardHistoryState(window.history.state)
+    ? window.history.state
+    : currentDashboardHistorySnapshot;
+  if (!isDashboardHistoryState(current)) {
+    return;
+  }
+  const updated = { ...current, scrollY: currentScrollTop() };
+  window.history.replaceState(
+    updated,
+    "",
+    `${window.location.pathname}${window.location.search}${window.location.hash}`,
+  );
+  currentDashboardHistorySnapshot = updated;
+}
+
+function writeDashboardHistory(route, url, mode = "push", options = {}) {
+  const current = isDashboardHistoryState(window.history.state)
+    ? window.history.state
+    : currentDashboardHistorySnapshot;
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (mode === "push" && current?.route === route && currentUrl === url) {
+    rememberCurrentDashboardScroll();
+    return currentDashboardHistorySnapshot;
+  }
+  if (mode === "push") {
+    rememberCurrentDashboardScroll();
+  }
+  const currentIndex = Number.isInteger(current?.index) ? current.index : 0;
+  const nextIndex = mode === "push" ? currentIndex + 1 : currentIndex;
+  const next = createDashboardHistoryState(route, nextIndex, {
+    ...options,
+    scrollY: mode === "push" ? 0 : options.scrollY ?? current?.scrollY ?? currentScrollTop(),
+  });
+  if (mode === "push") {
+    window.history.pushState(next, "", url);
+  } else {
+    window.history.replaceState(next, "", url);
+  }
+  currentDashboardHistorySnapshot = next;
+  return next;
+}
+
+function pushAndroidRootGuard(baseState = window.history.state) {
+  if (!isAndroidDevice() || !isDashboardHistoryState(baseState) || !baseState.rootBase) {
+    return;
+  }
+  const guard = createDashboardHistoryState("home", 0, {
+    scrollY: Math.max(0, Number(baseState.scrollY) || 0),
+    rootGuard: true,
+  });
+  window.history.pushState(guard, "", "/dashboard?view=home");
+  currentDashboardHistorySnapshot = guard;
+}
+
+function initializeDashboardHistory() {
+  const existing = window.history.state;
+  if (isDashboardHistoryState(existing)) {
+    currentDashboardHistorySnapshot = existing;
+    if (isAndroidDevice() && existing.rootBase) {
+      pushAndroidRootGuard(existing);
+    }
+    return;
+  }
+  const initial = dashboardLocationRoute();
+  const canonicalInitial = initial.route === "stock" ? "stock" : (LEGACY_VIEW_MAP[initial.route] || "home");
+  if (!isAndroidDevice()) {
+    const entry = createDashboardHistoryState(initial.route, 0, {
+      stockQuery: initial.stockQuery,
+      scrollY: currentScrollTop(),
+    });
+    window.history.replaceState(entry, "", initial.url);
+    currentDashboardHistorySnapshot = entry;
+    return;
+  }
+  const base = createDashboardHistoryState("home", 0, { rootBase: true });
+  window.history.replaceState(base, "", "/dashboard?view=home");
+  currentDashboardHistorySnapshot = base;
+  if (canonicalInitial === "home") {
+    pushAndroidRootGuard(base);
+    return;
+  }
+  const entry = createDashboardHistoryState(initial.route, 1, {
+    stockQuery: initial.stockQuery,
+  });
+  window.history.pushState(entry, "", initial.url);
+  currentDashboardHistorySnapshot = entry;
+}
+
+function restoreDashboardScroll(historyState) {
+  const top = Math.max(0, Number(historyState?.scrollY) || 0);
+  const sequence = ++historyScrollRestoreSequence;
+  const restore = () => {
+    if (sequence === historyScrollRestoreSequence) {
+      window.scrollTo({ top, behavior: "auto" });
+    }
+  };
+  window.requestAnimationFrame(() => window.requestAnimationFrame(restore));
+  window.setTimeout(restore, 120);
+  window.setTimeout(restore, 420);
+}
+
+function appExitDialogFocusableElements() {
+  if (!elements.appExitDialog || elements.appExitDialog.hidden) {
+    return [];
+  }
+  return Array.from(
+    elements.appExitDialog.querySelectorAll('button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+  ).filter((element) => !element.closest("[hidden]"));
+}
+
+function trapAppExitDialogFocus(event) {
+  const focusable = appExitDialogFocusableElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    elements.appExitDialogCard?.focus();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (!focusable.includes(active)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function showAppExitDialog() {
+  if (!elements.appExitDialog || !elements.appExitDialog.hidden) {
+    return;
+  }
+  if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+    appExitDialogReturnFocus = document.activeElement;
+  }
+  elements.appExitDialog.hidden = false;
+  elements.appExitDialog.setAttribute("aria-hidden", "false");
+  if (typeof elements.appExitDialog.showModal === "function" && !elements.appExitDialog.open) {
+    elements.appExitDialog.showModal();
+  }
+  document.body.classList.add("modal-open");
+  window.requestAnimationFrame(() => elements.appExitDialogCancel?.focus());
+}
+
+function hideAppExitDialog(options = {}) {
+  if (!elements.appExitDialog || elements.appExitDialog.hidden) {
+    return;
+  }
+  if (typeof elements.appExitDialog.close === "function" && elements.appExitDialog.open) {
+    elements.appExitDialog.close();
+  }
+  elements.appExitDialog.hidden = true;
+  elements.appExitDialog.setAttribute("aria-hidden", "true");
+  if (
+    elements.pushNotificationSheet?.hidden !== false
+    && elements.installSheet?.hidden !== false
+    && elements.accessCapacityModal?.hidden !== false
+  ) {
+    document.body.classList.remove("modal-open");
+  }
+  const returnFocus = appExitDialogReturnFocus;
+  appExitDialogReturnFocus = null;
+  if (options.restoreRootGuard === true) {
+    pushAndroidRootGuard(window.history.state);
+  }
+  if (returnFocus?.isConnected && !returnFocus.closest("[hidden]")) {
+    window.requestAnimationFrame(() => returnFocus.focus());
+  }
+}
+
+function cancelAppExit() {
+  hideAppExitDialog({ restoreRootGuard: true });
+}
+
+function requestNativeAppExit() {
+  hideAppExitDialog();
+  const exitEvent = new CustomEvent("secret-note:exit-requested", {
+    bubbles: false,
+    cancelable: true,
+    detail: { source: "android-back" },
+  });
+  const handledByListener = !window.dispatchEvent(exitEvent);
+  const bridge = window.SecretNoteAndroid || window.Android;
+  if (typeof bridge?.exitApp === "function") {
+    bridge.exitApp();
+    return;
+  }
+  if (handledByListener) {
+    return;
+  }
+  androidRootExitConfirmed = true;
+  window.history.back();
+  window.setTimeout(() => window.close(), 160);
+}
+
+function canNavigateBackWithinDashboard() {
+  const current = window.history.state;
+  return isDashboardHistoryState(current) && Number(current.index) > 0;
+}
+
+function navigateBackOrFallback(fallbackView = "home") {
+  if (
+    canNavigateBackWithinDashboard()
+    || (window.history.length > 1 && document.referrer.startsWith(window.location.origin))
+  ) {
+    window.history.back();
+    return;
+  }
+  setView(fallbackView, { historyMode: "replace" });
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+function openChartStudyPage(pattern, analysis, item) {
+  const returnView = state.view === "stock" ? "stock" : "chart";
+  renderChartStudyPage(pattern, analysis, item);
+  setView("chart-study", { historyState: { returnView } });
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+function closeChartStudyPage() {
+  const current = isDashboardHistoryState(window.history.state)
+    ? window.history.state
+    : currentDashboardHistorySnapshot;
+  const returnView = ["stock", "chart"].includes(current?.returnView)
+    ? current.returnView
+    : "chart";
+  if (current?.returnView && canNavigateBackWithinDashboard()) {
+    window.history.back();
+    return;
+  }
+  const safeReturnView = returnView === "stock" && !state.currentStock ? "chart" : returnView;
+  setView(safeReturnView, { historyMode: "replace" });
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+function closeTopDashboardOverlayForBack() {
+  if (elements.homeRankingMarketSheet?.hidden === false) {
+    closeHomeRankingMarketSheet();
+    return true;
+  }
+  if (elements.pushNotificationSheet?.hidden === false) {
+    closePushNotificationSheet();
+    return true;
+  }
+  if (elements.installSheet?.hidden === false) {
+    closeInstallSheet();
+    return true;
+  }
+  if (elements.accessCapacityModal?.hidden === false) {
+    closeAccessCapacityModal();
+    return true;
+  }
+  return false;
+}
+
 function updateHomeInstallButton() {
   if (!elements.homeInstallButton) {
     return;
@@ -4788,7 +10206,7 @@ function renderInstallSteps() {
     return;
   }
   const steps = isIOSDevice()
-    ? ["Safari 하단 또는 상단의 공유 버튼을 누릅니다.", "목록에서 홈 화면에 추가를 선택합니다.", "추가를 누르면 비밀노트 아이콘이 홈 화면에 생깁니다."]
+    ? ["Safari의 공유 버튼을 누릅니다.", "홈 화면에 추가를 선택하고 추가를 누릅니다.", "홈 화면의 비밀노트 앱을 열어 알림 받기를 누릅니다."]
     : ["Chrome에서 이 페이지를 연 상태로 우측 상단 메뉴를 누릅니다.", "앱 설치 또는 홈 화면에 추가를 선택합니다.", "추가를 누르면 비밀노트 아이콘이 홈 화면에 생깁니다."];
   elements.installSteps.innerHTML = "";
   for (const step of steps) {
@@ -4796,26 +10214,97 @@ function renderInstallSteps() {
   }
   if (elements.installSheetSubtitle) {
     elements.installSheetSubtitle.textContent = isIOSDevice()
-      ? "iPhone은 브라우저 보안 정책상 안내에 따라 직접 추가해야 합니다."
+      ? "iPhone에서는 비밀노트를 홈 화면에 추가한 뒤 알림을 켤 수 있어요."
       : "설치 버튼이 바로 뜨지 않으면 아래 순서로 홈 화면에 추가할 수 있습니다.";
+  }
+}
+
+function installSheetFocusableElements() {
+  if (!elements.installSheet || elements.installSheet.hidden) {
+    return [];
+  }
+  return Array.from(
+    elements.installSheet.querySelectorAll(
+      'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => !element.closest("[hidden]"));
+}
+
+function trapInstallSheetFocus(event) {
+  const focusable = installSheetFocusableElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    elements.installSheetCard?.focus();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (!focusable.includes(active)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
   }
 }
 
 function showInstallSheet() {
   renderInstallSteps();
-  if (elements.installSheet) {
-    elements.installSheet.hidden = false;
+  if (!elements.installSheet) {
+    return;
+  }
+  const wasHidden = elements.installSheet.hidden;
+  const activeElement = document.activeElement;
+  if (
+    wasHidden
+    && activeElement instanceof HTMLElement
+    && activeElement !== document.body
+    && !activeElement.closest("[hidden]")
+  ) {
+    installSheetReturnFocus = activeElement;
+  }
+  elements.installSheet.hidden = false;
+  elements.installSheet.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  if (wasHidden) {
+    window.requestAnimationFrame(() => elements.installSheetCard?.focus());
   }
 }
 
 function closeInstallSheet() {
-  if (elements.installSheet) {
-    elements.installSheet.hidden = true;
+  if (!elements.installSheet || elements.installSheet.hidden) {
+    return;
+  }
+  elements.installSheet.hidden = true;
+  elements.installSheet.setAttribute("aria-hidden", "true");
+  if (elements.pushNotificationSheet?.hidden !== false) {
+    document.body.classList.remove("modal-open");
+  }
+  const returnFocus = installSheetReturnFocus;
+  installSheetReturnFocus = null;
+  if (returnFocus?.isConnected && !returnFocus.closest("[hidden]")) {
+    window.requestAnimationFrame(() => returnFocus.focus());
   }
 }
 
 function pushNotificationOptions() {
-  return state.pushConfig?.condition_options || PUSH_NOTIFICATION_FALLBACK_OPTIONS;
+  const options = state.pushConfig?.condition_options || PUSH_NOTIFICATION_FALLBACK_OPTIONS;
+  if (state.pushNotificationSheetMode !== "entry") {
+    return options;
+  }
+  const entryOrder = new Map([
+    ["morning_briefing", 0],
+    ["ai_signal", 1],
+    ["market_ai_signal", 2],
+    ["market_session", 3],
+  ]);
+  return [...options].sort(
+    (left, right) => (entryOrder.get(left.id) ?? 10) - (entryOrder.get(right.id) ?? 10),
+  );
 }
 
 function normalizePushNotificationConditions(values) {
@@ -4836,6 +10325,40 @@ function selectedPushNotificationConditions() {
   return Array.from(elements.pushNotificationConditionList.querySelectorAll("input[data-push-condition]:checked")).map((input) => input.value);
 }
 
+function pushNotificationOptionSignature() {
+  return JSON.stringify(
+    pushNotificationOptions().map((option) => [
+      option.id,
+      option.label,
+      option.description,
+      option.required === true,
+    ]),
+  );
+}
+
+function compactPushNotificationDescription(option) {
+  if (option.id === "price_move") {
+    const threshold = String(option.description || "").match(/\d+(?:\.\d+)?%/)?.[0];
+    return threshold ? `관심종목 ±${threshold} 이상` : "관심종목 기준 이상 등락";
+  }
+  return PUSH_NOTIFICATION_COMPACT_DESCRIPTIONS[option.id] || option.description;
+}
+
+function updatePushNotificationSelectionSummary() {
+  const summary = elements.pushNotificationConditionList?.querySelector("[data-push-optional-summary]");
+  if (!summary) {
+    return;
+  }
+  const optionalInputs = Array.from(
+    elements.pushNotificationConditionList.querySelectorAll(
+      ".push-notification-condition input[data-push-condition]",
+    ),
+  );
+  const selectedCount = optionalInputs.filter((input) => input.checked).length;
+  summary.textContent = `${selectedCount}/${optionalInputs.length} 선택`;
+  summary.setAttribute("aria-label", `추가 알림 ${optionalInputs.length}개 중 ${selectedCount}개 선택`);
+}
+
 function renderPushNotificationConditionOptions() {
   const list = elements.pushNotificationConditionList;
   if (!list) {
@@ -4843,53 +10366,306 @@ function renderPushNotificationConditionOptions() {
   }
   const selected = new Set(state.pushNotificationConditions);
   const disabled = state.pushNotificationBusy;
+  const options = pushNotificationOptions();
+  const requiredOptions = options.filter((option) => option.required);
+  const optionalOptions = options.filter((option) => !option.required);
   list.innerHTML = "";
-  for (const option of pushNotificationOptions()) {
-    const row = el("label", "push-notification-condition");
-    const copy = el("span", "push-notification-condition-copy");
-    copy.append(el("strong", "", option.label));
-    copy.append(el("span", "", option.description));
-    const control = el("span", "push-notification-condition-control");
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.value = option.id;
-    input.dataset.pushCondition = option.id;
-    input.checked = option.required || selected.has(option.id);
-    input.disabled = disabled || option.required;
-    input.addEventListener("change", () => {
-      state.pushNotificationConditions = selectedPushNotificationConditions();
-      updatePushNotificationSheet();
-    });
-    const switchTrack = el("span", "push-notification-condition-switch");
-    if (option.required) {
-      copy.append(el("em", "push-notification-required", "항상 받기"));
-      row.classList.add("is-required");
+
+  if (requiredOptions.length) {
+    const core = el("section", "push-notification-core");
+    const coreCopy = el("span", "push-notification-core-copy");
+    coreCopy.append(
+      el("span", "push-notification-core-kicker", "기본 알림"),
+      el("strong", "", requiredOptions.map((option) => option.label).join(" · ")),
+    );
+    core.append(coreCopy, el("span", "push-notification-core-state", "항상 켜짐"));
+    core.setAttribute(
+      "aria-label",
+      `기본 알림, ${requiredOptions.map((option) => option.label).join(", ")}, 항상 켜짐`,
+    );
+    for (const option of requiredOptions) {
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = option.id;
+      input.dataset.pushCondition = option.id;
+      input.checked = true;
+      input.disabled = true;
+      input.hidden = true;
+      core.append(input);
     }
-    control.append(input, switchTrack);
-    row.append(copy, control);
-    list.append(row);
+    list.append(core);
+  }
+
+  if (optionalOptions.length) {
+    const optionalGroup = el("section", "push-notification-optional");
+    const optionalHeading = el("header", "push-notification-optional-head");
+    const optionalTitle = el("strong", "", "추가 알림");
+    optionalTitle.id = "push-notification-optional-title";
+    const optionalSummary = el("span", "", "0/0 선택");
+    optionalSummary.dataset.pushOptionalSummary = "true";
+    optionalSummary.setAttribute("aria-live", "polite");
+    optionalHeading.append(optionalTitle, optionalSummary);
+    optionalGroup.setAttribute("aria-labelledby", optionalTitle.id);
+    optionalGroup.append(optionalHeading);
+
+    for (const option of optionalOptions) {
+      const row = el("label", "push-notification-condition");
+      const copy = el("span", "push-notification-condition-copy");
+      const optionKey = String(option.id || "option").replace(/[^a-z0-9_-]+/gi, "-");
+      const title = el("strong", "", option.label);
+      const description = el("span", "", compactPushNotificationDescription(option));
+      title.id = `push-notification-${optionKey}-title`;
+      description.id = `push-notification-${optionKey}-description`;
+      copy.append(title, description);
+      const control = el("span", "push-notification-condition-control");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.setAttribute("role", "switch");
+      input.setAttribute("aria-labelledby", title.id);
+      input.setAttribute("aria-describedby", description.id);
+      input.value = option.id;
+      input.dataset.pushCondition = option.id;
+      input.checked = selected.has(option.id);
+      input.disabled = disabled;
+      input.addEventListener("change", () => {
+        state.pushNotificationConditions = selectedPushNotificationConditions();
+        updatePushNotificationSheet();
+      });
+      const switchTrack = el("span", "push-notification-condition-switch");
+      switchTrack.setAttribute("aria-hidden", "true");
+      row.classList.toggle("is-selected", input.checked);
+      control.append(input, switchTrack);
+      row.append(copy, control);
+      optionalGroup.append(row);
+    }
+    list.append(optionalGroup);
+  }
+  updatePushNotificationSelectionSummary();
+  list.dataset.optionSignature = pushNotificationOptionSignature();
+}
+
+function syncPushNotificationConditionOptions() {
+  const list = elements.pushNotificationConditionList;
+  if (!list) {
+    return;
+  }
+  const options = pushNotificationOptions();
+  const inputs = new Map(
+    Array.from(list.querySelectorAll("input[data-push-condition]")).map((input) => [input.value, input]),
+  );
+  if (list.dataset.optionSignature !== pushNotificationOptionSignature() || inputs.size !== options.length) {
+    renderPushNotificationConditionOptions();
+    return;
+  }
+  const selected = new Set(state.pushNotificationConditions);
+  for (const option of options) {
+    const input = inputs.get(option.id);
+    if (!input) {
+      continue;
+    }
+    input.checked = option.required || selected.has(option.id);
+    input.disabled = state.pushNotificationBusy || option.required;
+    input.closest(".push-notification-condition")?.classList.toggle("is-selected", input.checked);
+  }
+  updatePushNotificationSelectionSummary();
+}
+
+function pushNotificationSheetFocusableElements() {
+  if (!elements.pushNotificationSheet || elements.pushNotificationSheet.hidden) {
+    return [];
+  }
+  return Array.from(
+    elements.pushNotificationSheet.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => !element.closest("[hidden]"));
+}
+
+function trapPushNotificationSheetFocus(event) {
+  const focusable = pushNotificationSheetFocusableElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    elements.pushNotificationSheetCard?.focus();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (!focusable.includes(active)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
   }
 }
 
-function showPushNotificationSheet() {
-  renderPushNotificationConditionOptions();
-  updatePushNotificationSheet();
+function setPushNotificationSheetMode(mode = "settings") {
+  const nextMode = ["entry", "recommendation-entry"].includes(mode) ? mode : "settings";
+  const isEntryPrompt = nextMode === "entry";
+  const isRecommendationEntryPrompt = nextMode === "recommendation-entry";
+  const isExistingPushCustomer = isRecommendationEntryPrompt && state.pushNotificationEnabled;
+  state.pushNotificationSheetMode = nextMode;
   if (elements.pushNotificationSheet) {
-    elements.pushNotificationSheet.hidden = false;
+    elements.pushNotificationSheet.dataset.mode = nextMode;
+  }
+  if (elements.pushNotificationSheetTitle) {
+    elements.pushNotificationSheetTitle.textContent = isRecommendationEntryPrompt
+      ? "추천 업데이트 알림"
+      : isEntryPrompt
+        ? "알림 받기"
+        : "알림 설정";
+  }
+  if (elements.pushNotificationSheetSubtitle) {
+    elements.pushNotificationSheetSubtitle.textContent = isRecommendationEntryPrompt
+      ? isExistingPushCustomer
+        ? "기존 설정은 유지하고 추천 업데이트만 추가해요."
+        : "새 종목과 매매 단계 변경을 놓치지 않게 알려드려요."
+      : "필요한 소식만 골라 받아보세요.";
+  }
+  if (elements.pushRecommendationGuide) {
+    elements.pushRecommendationGuide.hidden = !isRecommendationEntryPrompt;
+  }
+  if (elements.pushNotificationSheetSnoozeButton) {
+    elements.pushNotificationSheetSnoozeButton.hidden = !isEntryPrompt && !isRecommendationEntryPrompt;
+    elements.pushNotificationSheetSnoozeButton.textContent = isRecommendationEntryPrompt
+      ? "다시 보지 않기"
+      : "오늘 하루 보지 않기";
+  }
+  if (elements.pushNotificationSheetClose) {
+    elements.pushNotificationSheetClose.setAttribute(
+      "aria-label",
+      isRecommendationEntryPrompt ? "추천 알림 안내 닫기" : "알림 설정 닫기",
+    );
+  }
+}
+
+function showPushNotificationSheet(options = {}) {
+  if (!elements.pushNotificationSheet) {
+    return;
+  }
+  setPushNotificationSheetMode(options.mode || "settings");
+  const wasHidden = elements.pushNotificationSheet.hidden;
+  if (wasHidden && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+    pushNotificationSheetReturnFocus = document.activeElement;
+  }
+  updatePushNotificationSheet();
+  elements.pushNotificationSheet.hidden = false;
+  elements.pushNotificationSheet.setAttribute("aria-hidden", "false");
+  if (wasHidden && elements.pushNotificationSheetBody) {
+    elements.pushNotificationSheetBody.scrollTop = 0;
   }
   document.body.classList.add("modal-open");
+  if (wasHidden) {
+    window.requestAnimationFrame(() => elements.pushNotificationSheetCard?.focus());
+  }
+}
+
+function snoozePushNotificationEntryPromptForToday() {
+  const key = pushEntryPromptSnoozeStorageKey();
+  if (key) {
+    localStorage.setItem(key, localCalendarDate());
+  }
+  closePushNotificationSheet();
+  setPushNotificationStatus("오늘은 AI 시그널 알림 안내를 다시 보여드리지 않습니다.");
+}
+
+function dismissPushNotificationEntryPrompt() {
+  if (state.pushNotificationSheetMode !== "recommendation-entry") {
+    snoozePushNotificationEntryPromptForToday();
+    return;
+  }
+  recordRecommendationPushPromptDecision("dismissed");
+  closePushNotificationSheet();
+  setPushNotificationStatus("이 기기에서는 추천 알림 안내를 다시 보여드리지 않습니다.");
 }
 
 function closePushNotificationSheet() {
-  if (elements.pushNotificationSheet) {
-    elements.pushNotificationSheet.hidden = true;
+  if (!elements.pushNotificationSheet || elements.pushNotificationSheet.hidden) {
+    return;
   }
+  elements.pushNotificationSheet.hidden = true;
+  elements.pushNotificationSheet.setAttribute("aria-hidden", "true");
   document.body.classList.remove("modal-open");
+  const returnFocus = pushNotificationSheetReturnFocus;
+  pushNotificationSheetReturnFocus = null;
+  if (returnFocus?.isConnected) {
+    window.requestAnimationFrame(() => returnFocus.focus());
+  }
+}
+
+function stockTradingHoursFocusableElements() {
+  if (!elements.stockTradingHoursSheet || elements.stockTradingHoursSheet.hidden) {
+    return [];
+  }
+  return Array.from(
+    elements.stockTradingHoursSheet.querySelectorAll(
+      'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => !element.closest("[hidden]"));
+}
+
+function trapStockTradingHoursFocus(event) {
+  const focusable = stockTradingHoursFocusableElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    elements.stockTradingHoursCard?.focus();
+    return;
+  }
+  const active = document.activeElement;
+  const currentIndex = focusable.includes(active) ? focusable.indexOf(active) : event.shiftKey ? 0 : -1;
+  const direction = event.shiftKey ? -1 : 1;
+  const nextIndex = (currentIndex + direction + focusable.length) % focusable.length;
+  event.preventDefault();
+  focusable[nextIndex].focus();
+}
+
+function openStockTradingHoursSheet() {
+  if (!elements.stockTradingHoursSheet) {
+    return;
+  }
+  const wasHidden = elements.stockTradingHoursSheet.hidden;
+  if (wasHidden && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+    stockTradingHoursReturnFocus = document.activeElement;
+  }
+  elements.stockTradingHoursSheet.hidden = false;
+  elements.stockTradingHoursSheet.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  if (wasHidden) {
+    window.requestAnimationFrame(() => elements.stockTradingHoursCard?.focus());
+  }
+}
+
+function closeStockTradingHoursSheet(options = {}) {
+  if (!elements.stockTradingHoursSheet || elements.stockTradingHoursSheet.hidden) {
+    return;
+  }
+  elements.stockTradingHoursSheet.hidden = true;
+  elements.stockTradingHoursSheet.setAttribute("aria-hidden", "true");
+  const anotherModalOpen = [
+    elements.pushNotificationSheet,
+    elements.installSheet,
+    elements.accessCapacityModal,
+    elements.appExitDialog,
+    elements.homeRankingMarketSheet,
+  ].some((modal) => modal && !modal.hidden);
+  document.body.classList.toggle("modal-open", anotherModalOpen);
+  const returnFocus = stockTradingHoursReturnFocus;
+  stockTradingHoursReturnFocus = null;
+  if (options.restoreFocus !== false && returnFocus?.isConnected && !returnFocus.closest("[hidden]")) {
+    window.requestAnimationFrame(() => returnFocus.focus());
+  }
 }
 
 const PUSH_HISTORY_KIND_LABELS = {
-  ai_signal: "AI 매매신호",
-  market_ai_signal: "시장 AI 매매신호",
+  morning_briefing: "돈이 되는 소식",
+  market_session: "국내장",
+  ai_signal: "AI 시그널",
+  market_ai_signal: "시장 AI 시그널",
+  recommendation_update: "추천 업데이트",
   price_move: "시세",
   report: "리포트",
   disclosure: "공시",
@@ -4898,6 +10674,7 @@ const PUSH_HISTORY_KIND_LABELS = {
 };
 
 const PUSH_HISTORY_WATCHLIST_KINDS = new Set(["price_move", "report", "disclosure"]);
+const PUSH_HISTORY_SIGNAL_KINDS = new Set(["ai_signal", "market_ai_signal"]);
 
 function pushHistoryCacheKey() {
   return scopedStorageKey(PUSH_HISTORY_CACHE_PREFIX);
@@ -4911,7 +10688,15 @@ function recentPushHistoryItems(items = []) {
   const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000;
   return items.filter((item) => {
     const timestamp = Date.parse(item?.created_at || "");
-    return Number.isFinite(timestamp) && timestamp >= cutoff;
+    if (!Number.isFinite(timestamp) || timestamp < cutoff) {
+      return false;
+    }
+    if (!PUSH_HISTORY_SIGNAL_KINDS.has(item?.kind)) {
+      return true;
+    }
+    const eventDate = String(item?.event_date || "").trim();
+    const receivedKstDate = new Date(timestamp + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(eventDate) && eventDate === receivedKstDate;
   });
 }
 
@@ -4954,6 +10739,11 @@ function formatPushHistoryTime(value) {
   }
   const pad = (number) => String(number).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function pushHistoryEventDate(item, formattedTime = "") {
+  const eventDate = String(item?.event_date || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(eventDate) ? eventDate : formattedTime.slice(0, 10);
 }
 
 function pushHistoryItemsForActiveTab() {
@@ -5004,9 +10794,14 @@ function renderPushNotificationHistory(options = {}) {
     return;
   }
   updatePushHistoryTabs();
-  const items = pushHistoryItemsForActiveTab();
+  const items = [...pushHistoryItemsForActiveTab()].sort((left, right) => {
+    const leftTime = formatPushHistoryTime(left?.created_at);
+    const rightTime = formatPushHistoryTime(right?.created_at);
+    const dateOrder = pushHistoryEventDate(right, rightTime).localeCompare(pushHistoryEventDate(left, leftTime));
+    return dateOrder || ((Date.parse(right?.created_at || "") || 0) - (Date.parse(left?.created_at || "") || 0));
+  });
   if (elements.pushHistoryMeta) {
-    elements.pushHistoryMeta.textContent = `${items.length}건 · 최근 3일`;
+    elements.pushHistoryMeta.textContent = `${items.length}건 · 최근 3일 수신`;
   }
   if (!items.length) {
     const empty = el("div", "push-history-state");
@@ -5021,7 +10816,8 @@ function renderPushNotificationHistory(options = {}) {
   let previousDate = "";
   for (const item of items) {
     const formattedTime = formatPushHistoryTime(item.created_at);
-    const itemDate = formattedTime.slice(0, 10);
+    const receivedDate = formattedTime.slice(0, 10);
+    const itemDate = pushHistoryEventDate(item, formattedTime);
     if (itemDate && itemDate !== previousDate) {
       const dateHeading = el("h2", "notifications-date", itemDate);
       list.append(dateHeading);
@@ -5035,7 +10831,8 @@ function renderPushNotificationHistory(options = {}) {
     kind.textContent = PUSH_HISTORY_KIND_LABELS[item.kind] || "알림";
     const time = el("time");
     time.dateTime = item.created_at || "";
-    time.textContent = formattedTime.slice(11) || formattedTime;
+    const receivedTime = formattedTime.slice(11) || formattedTime;
+    time.textContent = itemDate && receivedDate && itemDate !== receivedDate ? `수신 ${receivedTime}` : receivedTime;
     meta.append(kind, time);
     const title = el("strong", "push-history-item-title");
     title.textContent = item.title || "알림";
@@ -5110,6 +10907,7 @@ function setPushNotificationSheetStatus(text = "", tone = "") {
   }
   elements.pushNotificationSheetStatus.textContent = text;
   elements.pushNotificationSheetStatus.dataset.tone = tone;
+  elements.pushNotificationSheetStatus.hidden = !text;
 }
 
 function updatePushNotificationDisableButton(options = {}) {
@@ -5122,7 +10920,7 @@ function updatePushNotificationDisableButton(options = {}) {
 }
 
 function updatePushNotificationSheet() {
-  renderPushNotificationConditionOptions();
+  syncPushNotificationConditionOptions();
   const saveButton = elements.pushNotificationSheetSaveButton;
   const testButton = elements.pushNotificationSheetTestButton;
   const disableButton = elements.pushNotificationSheetDisableButton;
@@ -5131,21 +10929,53 @@ function updatePushNotificationSheet() {
   const supported = webPushSupported();
   const permissionDenied = supported && Notification.permission === "denied";
   const busy = state.pushNotificationBusy;
+  const isRecommendationEntryPrompt = state.pushNotificationSheetMode === "recommendation-entry";
+  const isEntryPrompt = state.pushNotificationSheetMode === "entry" || isRecommendationEntryPrompt;
+  const isExistingPushCustomer = isRecommendationEntryPrompt && state.pushNotificationEnabled;
+  const needsIOSHomeInstall = isIOSDevice() && !isStandaloneApp();
+  elements.pushNotificationSheetCard?.setAttribute("aria-busy", String(busy));
+  if (elements.pushNotificationConditionList) {
+    elements.pushNotificationConditionList.hidden = needsIOSHomeInstall || isRecommendationEntryPrompt;
+  }
   if (saveButton) {
-    saveButton.textContent = busy ? "저장 중" : state.pushNotificationEnabled ? "설정 저장" : "알림 켜기";
+    let label = state.pushNotificationEnabled ? "저장하기" : "알림 켜기";
+    if (isEntryPrompt) {
+      label = isExistingPushCustomer
+        ? "확인했어요"
+        : isRecommendationEntryPrompt
+          ? "추천 알림 받기"
+          : "알림 받기";
+    }
+    if (busy) {
+      label = isExistingPushCustomer
+        ? "확인 중"
+        : isRecommendationEntryPrompt
+          ? "추천 알림 설정 중"
+          : isEntryPrompt
+            ? "알림 설정 중"
+            : "저장 중";
+    }
+    if (needsIOSHomeInstall) {
+      label = "홈 화면 추가 방법 보기";
+    }
+    saveButton.textContent = label;
   }
   if (disableButton) {
-    disableButton.hidden = !state.pushNotificationEnabled;
+    disableButton.hidden = !state.pushNotificationEnabled || isRecommendationEntryPrompt;
     disableButton.disabled = busy;
   }
   if (testButton) {
-    testButton.hidden = !state.pushNotificationEnabled;
+    testButton.hidden = !state.pushNotificationEnabled || isRecommendationEntryPrompt;
     testButton.disabled = busy;
   }
-  if (isIOSDevice() && !isStandaloneApp()) {
-    saveButton && (saveButton.disabled = true);
+  if (needsIOSHomeInstall) {
+    saveButton && (saveButton.disabled = false);
     testButton && (testButton.disabled = true);
-    setPushNotificationSheetStatus("iPhone은 홈 화면에 설치한 비밀노트 앱에서만 알림을 받을 수 있습니다.", "error");
+    setPushNotificationSheetStatus(
+      isRecommendationEntryPrompt
+        ? "홈 화면에 추가하면 추천 업데이트를 별도 알림으로 받을 수 있어요."
+        : PUSH_NOTIFICATION_EXAMPLE_TEXT,
+    );
     return;
   }
   if (!supported) {
@@ -5163,28 +10993,121 @@ function updatePushNotificationSheet() {
     setPushNotificationSheetStatus("브라우저 설정에서 알림 권한을 허용한 뒤 다시 열어주세요.", "error");
     return;
   }
-  if (!selected.length) {
+  if (!selected.length && !isRecommendationEntryPrompt) {
     saveButton && (saveButton.disabled = true);
     setPushNotificationSheetStatus("최소 한 가지 알림은 선택해주세요.", "error");
     return;
   }
   saveButton && (saveButton.disabled = busy);
-  setPushNotificationSheetStatus(
-    state.pushNotificationEnabled ? "받고 싶은 알림만 남기고 저장할 수 있어요." : "받고 싶은 알림을 고른 뒤 알림을 켜주세요.",
-    state.pushNotificationEnabled ? "success" : ""
+  if (isRecommendationEntryPrompt) {
+    setPushNotificationSheetStatus("");
+    return;
+  }
+  setPushNotificationSheetStatus("");
+}
+
+function serviceUpdateBlocksPushNotificationPrompt() {
+  try {
+    return window.secretNoteServiceUpdateGate?.blocksNotificationPrompt?.() === true;
+  } catch {
+    return false;
+  }
+}
+
+async function maybeShowPushNotificationEntryPrompt() {
+  if (
+    state.pushNotificationEntryPromptChecked
+    || !state.watchlistId
+    || serviceUpdateBlocksPushNotificationPrompt()
+  ) {
+    return;
+  }
+  state.pushNotificationEntryPromptChecked = true;
+  await refreshPushNotificationState({ syncServer: false });
+  if (serviceUpdateBlocksPushNotificationPrompt()) {
+    state.pushNotificationEntryPromptChecked = false;
+    return;
+  }
+  const needsIOSHomeInstall = isIOSDevice() && !isStandaloneApp();
+  const canPrompt = needsIOSHomeInstall || (
+    webPushSupported()
+    && Boolean(state.pushConfig?.enabled && state.pushConfig?.public_key)
   );
+  if (
+    !elements.pushNotificationSheet?.hidden
+    || (elements.loginGate && !elements.loginGate.hidden)
+    || (elements.installSheet && !elements.installSheet.hidden)
+    || (elements.accessCapacityModal && !elements.accessCapacityModal.hidden)
+  ) {
+    return;
+  }
+  if (!recommendationPushPromptHandled()) {
+    showPushNotificationSheet({ mode: "recommendation-entry" });
+    return;
+  }
+  if (!canPrompt || state.pushNotificationEnabled || pushEntryPromptSnoozedToday()) {
+    return;
+  }
+  showPushNotificationSheet({ mode: "entry" });
+}
+
+window.addEventListener("secret-note:service-update-priority", () => {
+  state.pushNotificationEntryPromptChecked = false;
+  closePushNotificationSheet();
+});
+
+window.addEventListener("secret-note:service-update-home-reentry", () => {
+  window.requestAnimationFrame(() => {
+    void maybeShowPushNotificationEntryPrompt();
+  });
+});
+
+function recommendationPushNotificationConditions() {
+  const options = state.pushConfig?.condition_options || PUSH_NOTIFICATION_FALLBACK_OPTIONS;
+  const requiredConditions = options.filter((item) => item.required).map((item) => item.id);
+  const existingConditions = state.pushNotificationEnabled
+    ? state.pushNotificationConditions
+    : requiredConditions;
+  return normalizePushNotificationConditions([...existingConditions, "recommendation_update"]);
+}
+
+function confirmRecommendationPushAnnouncement() {
+  recordRecommendationPushPromptDecision("confirmed");
+  closePushNotificationSheet();
+  setPushNotificationStatus("추천 알림 안내를 확인했습니다.", "success");
+}
+
+function handlePushNotificationPrimaryAction() {
+  const isRecommendationEntryPrompt = state.pushNotificationSheetMode === "recommendation-entry";
+  if (isRecommendationEntryPrompt && recommendationPushNotificationEnabled()) {
+    confirmRecommendationPushAnnouncement();
+    return;
+  }
+  if (isIOSDevice() && !isStandaloneApp()) {
+    closePushNotificationSheet();
+    showInstallSheet();
+    return;
+  }
+  const conditions = isRecommendationEntryPrompt
+    ? recommendationPushNotificationConditions()
+    : undefined;
+  void savePushNotificationSettings({ conditions });
 }
 
 async function openPushNotificationSheet() {
-  if (!state.watchlistId || state.pushNotificationBusy) {
+  if (!state.watchlistId) {
+    return;
+  }
+  showPushNotificationSheet();
+  if (state.pushNotificationBusy) {
     return;
   }
   await refreshPushNotificationState();
-  showPushNotificationSheet();
+  updatePushNotificationSheet();
 }
 
 async function openPushNotificationCenter() {
-  if (!state.watchlistId || state.pushNotificationBusy) {
+  if (!state.watchlistId) {
     return;
   }
   const likelyEnabled = state.pushNotificationEnabled
@@ -5192,7 +11115,9 @@ async function openPushNotificationCenter() {
     || (webPushSupported() && Notification.permission === "granted");
   if (!likelyEnabled) {
     showPushNotificationSheet();
-    void refreshPushNotificationState().then(updatePushNotificationSheet);
+    if (!state.pushNotificationBusy) {
+      void refreshPushNotificationState().then(updatePushNotificationSheet);
+    }
     return;
   }
   state.pushNotificationEnabled = true;
@@ -5202,7 +11127,9 @@ async function openPushNotificationCenter() {
   setView("notifications");
   markPushNotificationsSeen();
   window.scrollTo({ top: 0, behavior: "auto" });
-  void refreshPushNotificationState();
+  if (!state.pushNotificationBusy) {
+    void refreshPushNotificationState();
+  }
 }
 
 async function openPushSettingsFromHistory() {
@@ -5228,31 +11155,54 @@ const PAGE_LOADING_LABELS = {
   "trend-impact": "시장 영향도를 계산하는 중",
   chart: "차트 분석을 불러오는 중",
   market: "급상승 종목을 불러오는 중",
-  ai: "AI 매매신호를 계산하는 중",
+  ai: "AI 시그널을 계산하는 중",
 };
 
 function refreshPageLoading() {
   if (!elements.pageLoading) {
     return;
   }
+  if (state.pageLoadingFrameId !== null) {
+    window.cancelAnimationFrame(state.pageLoadingFrameId);
+    state.pageLoadingFrameId = null;
+  }
+  if (state.pageLoadingHideTimer !== null) {
+    window.clearTimeout(state.pageLoadingHideTimer);
+    state.pageLoadingHideTimer = null;
+  }
   const entries = Array.from(state.pageLoadingTokens.values());
   if (entries.length) {
     elements.pageLoadingLabel.textContent = entries[entries.length - 1].label;
     elements.pageLoading.hidden = false;
     document.body.setAttribute("aria-busy", "true");
-    window.requestAnimationFrame(() => elements.pageLoading?.classList.add("visible"));
+    state.pageLoadingFrameId = window.requestAnimationFrame(() => {
+      state.pageLoadingFrameId = null;
+      if (state.pageLoadingTokens.size > 0 && elements.pageLoading && !elements.pageLoading.hidden) {
+        elements.pageLoading.classList.add("visible");
+      }
+    });
     return;
   }
   elements.pageLoading.classList.remove("visible");
   document.body.removeAttribute("aria-busy");
-  window.setTimeout(() => {
+  state.pageLoadingHideTimer = window.setTimeout(() => {
+    state.pageLoadingHideTimer = null;
     if (state.pageLoadingTokens.size === 0 && elements.pageLoading) {
+      elements.pageLoading.classList.remove("visible");
       elements.pageLoading.hidden = true;
     }
   }, 150);
 }
 
 function clearPageLoading() {
+  if (state.pageLoadingFrameId !== null) {
+    window.cancelAnimationFrame(state.pageLoadingFrameId);
+    state.pageLoadingFrameId = null;
+  }
+  if (state.pageLoadingHideTimer !== null) {
+    window.clearTimeout(state.pageLoadingHideTimer);
+    state.pageLoadingHideTimer = null;
+  }
   state.pageLoadingTokens.clear();
   if (!elements.pageLoading) {
     return;
@@ -5309,10 +11259,77 @@ function registerDashboardServiceWorker() {
   if (!("serviceWorker" in navigator)) {
     return;
   }
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing) {
+      return;
+    }
+    refreshing = true;
+    window.setTimeout(() => {
+      const url = new URL(window.location.href);
+      const currentBuild = url.searchParams.get("app_build");
+      if (!currentBuild || currentBuild === DASHBOARD_CLIENT_VERSION) {
+        return;
+      }
+      url.searchParams.set("app_build", DASHBOARD_CLIENT_VERSION);
+      window.location.replace(url.href);
+    }, 750);
+  });
   navigator.serviceWorker
-    .register("/dashboard-sw.js", { scope: "/" })
-    .then((registration) => registration.update())
+    .register(`/dashboard-sw.js?v=${DASHBOARD_CLIENT_VERSION}`, { scope: "/" })
+    .then((registration) => {
+      const checkForUpdate = () => registration.update().catch(() => undefined);
+      checkForUpdate();
+      window.setInterval(checkForUpdate, 60000);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) {
+          checkForUpdate();
+        }
+      });
+    })
     .catch(() => undefined);
+}
+
+let dashboardVersionCheckPromise = null;
+
+function dashboardRefreshUrl() {
+  const url = new URL("/dashboard-refresh", window.location.origin);
+  const code = pathQuery();
+  if (code) {
+    url.searchParams.set("code", code);
+  } else {
+    url.searchParams.set("view", state.view || "home");
+  }
+  return url.href;
+}
+
+function checkDashboardClientVersion() {
+  if (dashboardVersionCheckPromise) {
+    return dashboardVersionCheckPromise;
+  }
+  dashboardVersionCheckPromise = fetch("/dashboard-version", { cache: "no-store" })
+    .then((response) => response.ok ? response.json() : null)
+    .then((payload) => {
+      const latestVersion = String(payload?.version || "").trim();
+      if (latestVersion && latestVersion !== DASHBOARD_CLIENT_VERSION) {
+        window.location.replace(dashboardRefreshUrl());
+      }
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      dashboardVersionCheckPromise = null;
+    });
+  return dashboardVersionCheckPromise;
+}
+
+function registerDashboardVersionWatchdog() {
+  void checkDashboardClientVersion();
+  window.setInterval(() => void checkDashboardClientVersion(), 60000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      void checkDashboardClientVersion();
+    }
+  });
 }
 
 function webPushSupported() {
@@ -5324,6 +11341,47 @@ function pushApplicationServerKey(value) {
   const base64 = `${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
   const raw = window.atob(base64);
   return Uint8Array.from([...raw].map((character) => character.charCodeAt(0)));
+}
+
+function pushSubscriptionUsesKey(subscription, publicKey) {
+  const actualBuffer = subscription?.options?.applicationServerKey;
+  if (!actualBuffer || !publicKey) {
+    return true;
+  }
+  const actual = new Uint8Array(actualBuffer);
+  const expected = pushApplicationServerKey(publicKey);
+  return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
+}
+
+async function ensureCurrentPushSubscription(config, options = {}) {
+  if (!webPushSupported()) {
+    return null;
+  }
+  if (Notification.permission === "denied") {
+    return null;
+  }
+  if (Notification.permission !== "granted") {
+    if (!options.requestPermission) {
+      return null;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      return null;
+    }
+  }
+  const registration = await navigator.serviceWorker.ready;
+  let subscription = await registration.pushManager.getSubscription();
+  if (subscription && !pushSubscriptionUsesKey(subscription, config.public_key)) {
+    await subscription.unsubscribe();
+    subscription = null;
+  }
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: pushApplicationServerKey(config.public_key),
+    });
+  }
+  return subscription;
 }
 
 function setPushNotificationStatus(text = "", tone = "") {
@@ -5475,9 +11533,13 @@ async function refreshPushNotificationState(options = {}) {
     state.pushNotificationEnabled = false;
     writeCachedPushEnabled(false);
     stopPushNotificationUnreadRefresh();
-    updatePushNotificationButton({ label: "알림 미지원", buttonText: "미지원", disabled: true });
+    updatePushNotificationButton({ label: "알림 안내", buttonText: "알림", disabled: false });
     updatePushNotificationDisableButton({ hidden: true });
-    setPushNotificationStatus("이 브라우저에서는 알림을 지원하지 않습니다.");
+    setPushNotificationStatus(
+      isIOSDevice() && !isStandaloneApp()
+        ? "iPhone에서는 비밀노트를 홈 화면에 추가한 뒤 알림을 켤 수 있어요."
+        : "이 브라우저에서는 알림 수신을 지원하지 않습니다."
+    );
     return;
   }
   try {
@@ -5501,35 +11563,39 @@ async function refreshPushNotificationState(options = {}) {
       setPushNotificationStatus("브라우저 설정에서 알림 권한을 허용해주세요.", "error");
       return;
     }
-    const subscription = await currentPushSubscription();
+    let subscription = await currentPushSubscription();
+    if (
+      Notification.permission === "granted"
+      && (!subscription || !pushSubscriptionUsesKey(subscription, config.public_key))
+    ) {
+      subscription = await ensureCurrentPushSubscription(config);
+    }
     if (subscription) {
-      const status = await fetchPushSubscriptionStatus(state.watchlistId, subscription.endpoint).catch(() => null);
-      state.pushNotificationEnabled = Boolean(status?.enabled ?? true);
+      let status = await fetchPushSubscriptionStatus(state.watchlistId, subscription.endpoint).catch(() => null);
+      if (!status?.enabled || options.syncServer) {
+        status = await savePushSubscription(state.watchlistId, subscription);
+      }
+      state.pushNotificationEnabled = status?.enabled === true;
       writeCachedPushEnabled(state.pushNotificationEnabled);
       state.pushNotificationConditions = normalizePushNotificationConditions(status?.conditions || state.pushNotificationConditions);
-      updatePushNotificationButton({ label: "알림 내역", buttonText: "알림", active: true });
-      updatePushNotificationDisableButton({ hidden: false });
-      setPushNotificationStatus("급등락, 공시, 리포트만 바로 알려드려요.", "success");
-      startPushNotificationUnreadRefresh();
-      void loadPushNotificationHistory({ silent: true, render: false });
-      if (options.syncServer) {
-        await savePushSubscription(state.watchlistId, subscription);
+      if (state.pushNotificationEnabled) {
+        updatePushNotificationButton({ label: "알림 내역", buttonText: "알림", active: true });
+        updatePushNotificationDisableButton({ hidden: false });
+        setPushNotificationStatus("이 기기의 서버 등록을 확인했습니다.", "success");
+        startPushNotificationUnreadRefresh();
+        void loadPushNotificationHistory({ silent: true, render: false });
+        return;
       }
-      return;
     }
     state.pushNotificationEnabled = false;
     writeCachedPushEnabled(false);
     stopPushNotificationUnreadRefresh();
     updatePushNotificationButton({ label: "알림 켜기", buttonText: "알림 켜기" });
     updatePushNotificationDisableButton({ hidden: true });
-    setPushNotificationStatus("관심종목의 급등락, 공시, 리포트를 알려드려요.");
+    setPushNotificationStatus("추천 업데이트와 관심종목의 급등락, 공시, 리포트를 알려드려요.");
   } catch {
-    state.pushNotificationEnabled = readCachedPushEnabled();
-    if (state.pushNotificationEnabled) {
-      updatePushNotificationButton({ label: "알림 내역", buttonText: "알림", active: true });
-      startPushNotificationUnreadRefresh();
-      return;
-    }
+    state.pushNotificationEnabled = false;
+    writeCachedPushEnabled(false);
     stopPushNotificationUnreadRefresh();
     updatePushNotificationButton({ label: "알림 다시 시도", buttonText: "재시도" });
     updatePushNotificationDisableButton({ hidden: true });
@@ -5537,55 +11603,71 @@ async function refreshPushNotificationState(options = {}) {
   }
 }
 
-async function savePushNotificationSettings() {
+async function savePushNotificationSettings(options = {}) {
   if (state.pushNotificationBusy || !state.watchlistId) {
     return;
   }
-  const conditions = selectedPushNotificationConditions();
-  if (!conditions.length) {
+  const requestedConditions = Array.isArray(options.conditions)
+    ? options.conditions
+    : selectedPushNotificationConditions();
+  if (!requestedConditions.length) {
     state.pushNotificationConditions = [];
     updatePushNotificationSheet();
     return;
   }
+  const conditions = normalizePushNotificationConditions(requestedConditions);
+  const sourceMode = state.pushNotificationSheetMode;
+  const wasPushNotificationEnabled = state.pushNotificationEnabled;
   state.pushNotificationConditions = conditions;
   state.pushNotificationBusy = true;
+  let saveFailed = false;
   updatePushNotificationSheet();
   try {
     const config = await loadPushConfig();
     if (!config.enabled || !config.public_key) {
       throw new Error("push is not configured");
     }
-    let subscription = await currentPushSubscription();
+    const subscription = await ensureCurrentPushSubscription(config, { requestPermission: true });
     if (!subscription) {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        await refreshPushNotificationState();
-        updatePushNotificationSheet();
-        return;
-      }
-      const registration = await navigator.serviceWorker.ready;
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: pushApplicationServerKey(config.public_key),
-      });
+      await refreshPushNotificationState();
+      updatePushNotificationSheet();
+      return;
     }
     const result = await savePushSubscription(state.watchlistId, subscription);
+    if (result.enabled !== true) {
+      throw new Error("push subscription was not verified");
+    }
     state.pushNotificationEnabled = true;
+    writeCachedPushEnabled(true);
     state.pushNotificationConditions = normalizePushNotificationConditions(result.conditions || conditions);
+    if (sourceMode === "recommendation-entry") {
+      recordRecommendationPushPromptDecision(wasPushNotificationEnabled ? "confirmed" : "enabled");
+    }
     closePushNotificationSheet();
     updatePushNotificationButton({ label: "알림 내역", buttonText: "알림", active: true });
     updatePushNotificationDisableButton({ hidden: false });
     setPushNotificationStatus(
-      result.test_sent ? "알림 설정 완료. 테스트 알림을 보냈어요." : "알림 설정 완료. 중요한 변화만 알려드릴게요.",
-      "success"
+      sourceMode === "recommendation-entry"
+        ? wasPushNotificationEnabled
+          ? "추천 알림 안내를 확인했습니다. 기존 설정에 추천 업데이트를 추가했어요."
+          : "추천 알림을 켰습니다. 상위 10 신규 진입과 AI 시그널 단계 변화를 알려드릴게요."
+        : result.test_sent === true
+          ? "알림 설정 완료. 테스트 알림을 보냈어요."
+          : "알림 설정 완료. 이 기기의 서버 등록을 확인했어요.",
+      "success",
     );
+    startPushNotificationUnreadRefresh();
+    void loadPushNotificationHistory({ silent: true, render: false });
   } catch {
+    saveFailed = true;
     updatePushNotificationButton({ label: "알림 다시 시도", buttonText: "재시도" });
     setPushNotificationStatus("알림을 설정하지 못했습니다. 잠시 후 다시 시도해주세요.", "error");
-    setPushNotificationSheetStatus("알림을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.", "error");
   } finally {
     state.pushNotificationBusy = false;
     updatePushNotificationSheet();
+    if (saveFailed) {
+      setPushNotificationSheetStatus("알림을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.", "error");
+    }
   }
 }
 
@@ -5636,6 +11718,7 @@ async function disablePushNotificationsFromUi() {
   try {
     await disablePushNotifications(state.watchlistId);
     state.pushNotificationEnabled = false;
+    writeCachedPushEnabled(false);
     closePushNotificationSheet();
     updatePushNotificationButton({ label: "알림 켜기", buttonText: "알림 켜기" });
     updatePushNotificationDisableButton({ hidden: true });
@@ -5682,13 +11765,14 @@ function pageEntryTtlMs(view) {
   }
 }
 
-function pageEntryRefreshOptions(view, key = "") {
+function pageEntryRefreshOptions(view, key = "", options = {}) {
   const ttlMs = pageEntryTtlMs(view);
   const cacheKey = `${view}:${state.watchlistId || "local"}:${key}`;
   const now = Date.now();
   const lastRefreshAt = state.pageEntryRefreshAt.get(cacheKey) || 0;
-  const force = now - lastRefreshAt >= ttlMs;
-  if (force) {
+  const firstEntry = lastRefreshAt === 0;
+  const force = (!firstEntry || options.forceOnFirst !== false) && now - lastRefreshAt >= ttlMs;
+  if (firstEntry || force) {
     state.pageEntryRefreshAt.set(cacheKey, now);
   }
   return { force, ttlMs };
@@ -5696,12 +11780,14 @@ function pageEntryRefreshOptions(view, key = "") {
 
 function canonicalAppView(requested) {
   if (requested === "trend-impact") {
-    state.activeTrendTab = "impact";
+    state.activeTrendTab = "live";
   } else if (requested === "trend-past") {
     state.activeTrendTab = "events";
     state.showPastEvents = true;
   } else if (requested === "trend") {
     state.activeTrendTab = state.activeTrendTab || "live";
+  } else if (requested === "event-detail") {
+    state.activeTrendTab = "events";
   } else if (requested === "recommend-history") {
     state.portfolioTab = "tracking";
   } else if (requested === "watchlist") {
@@ -5754,12 +11840,38 @@ function setPortfolioTab(tabName, options = {}) {
   return active;
 }
 
-function setView(requestedViewName) {
-  const view = canonicalAppView(requestedViewName);
+function setView(requestedViewName, options = {}) {
+  const requestedRoute = String(requestedViewName || "home");
+  const view = canonicalAppView(requestedRoute);
+  const previousView = state.view;
+  const historyMode = options.historyMode || "push";
+  if (historyMode !== "none") {
+    writeDashboardHistory(
+      requestedRoute,
+      options.historyUrl || dashboardRouteUrl(requestedRoute),
+      historyMode,
+      options.historyState || {},
+    );
+  }
   if (state.view !== view) {
     clearPageLoading();
   }
+  if (view !== "stock") {
+    window.clearTimeout(state.stockLoadRetryTimer);
+    state.stockLoadRetryTimer = null;
+    state.stockLoadSequence += 1;
+    state.stockAIRequestSequence += 1;
+    state.stockAILoading = false;
+    state.stockAILoadingCode = "";
+    state.stockQuantRequestSequence += 1;
+    state.stockQuantLoading = false;
+    state.stockQuantLoadingCode = "";
+    setAIAnalysisButtonsLoading(false);
+  }
   state.view = view;
+  if (view !== "morning-briefing") {
+    state.morningMoneyBriefingSelection = null;
+  }
   document.body.dataset.view = view;
   setFlowLoading(false);
   hideSuggestions();
@@ -5772,12 +11884,19 @@ function setView(requestedViewName) {
   if (view !== "movers") {
     closeMarketQuoteStreams();
   }
+  if (view !== "home") {
+    closeHomeRankingQuoteStreams();
+  }
+  if (!["home", "ai-signals"].includes(view)) {
+    closeAiSignalQuoteStreams();
+  }
   if (!["search", "portfolio"].includes(view)) {
     closeRecommendationQuoteStreams();
   }
   if (view !== "home") {
     stopHomeMarketSignalTicker();
     stopHomeMarketIndexRefresh();
+    stopHomeMarketCarouselMotion();
   }
   if (view !== "movers") {
     stopMarketRankingRefresh();
@@ -5788,18 +11907,35 @@ function setView(requestedViewName) {
   elements.stockView.hidden = view !== "stock";
   elements.notificationsView.hidden = view !== "notifications";
   elements.homeView.hidden = view !== "home";
+  elements.newsView.hidden = view !== "news";
+  elements.eventDetailView.hidden = view !== "event-detail";
   elements.searchView.hidden = view !== "search";
   elements.recommendDetailPage.hidden = view !== "recommend-detail";
   elements.portfolioView.hidden = view !== "portfolio";
   elements.marketView.hidden = view !== "movers";
   elements.aiSignalsView.hidden = view !== "ai-signals";
+  elements.morningMoneyBriefingView.hidden = view !== "morning-briefing";
   elements.trendView.hidden = false;
   elements.watchlistView.hidden = false;
   elements.recommendView.hidden = false;
   elements.recommendHistoryView.hidden = false;
   elements.chartView.hidden = view !== "chart";
+  elements.chartStudyView.hidden = view !== "chart-study";
   elements.chartHistoryView.hidden = view !== "chart-history";
-  const activeView = view === "chart-history" ? "chart" : ["movers", "ai-signals"].includes(view) ? "home" : view === "recommend-detail" ? "search" : view;
+  if (["home", "ai-signals"].includes(view)) {
+    connectAiSignalQuoteStreams(state.aiSignalItems);
+    startAiSignalReconcileTimer();
+  } else {
+    if (["home", "ai-signals"].includes(previousView)) state.aiSignalLoadSequence += 1;
+    stopAiSignalReconcileTimer();
+  }
+  const activeView = ["chart-study", "chart-history"].includes(view)
+    ? "chart"
+    : ["movers", "ai-signals", "morning-briefing", "event-detail"].includes(view)
+      ? "home"
+      : view === "recommend-detail"
+        ? "search"
+        : view;
   for (const item of elements.appNavItems) {
     const active = item.dataset.appView === activeView;
     item.classList.toggle("active", active);
@@ -5810,15 +11946,26 @@ function setView(requestedViewName) {
     }
   }
   if (view === "notifications") {
-    history.replaceState(null, "", "/dashboard?view=notifications");
     hydratePushNotificationHistory();
     renderPushNotificationHistory(state.pushNotificationHistory.length ? {} : { loading: true });
     void loadPushNotificationHistory();
+  } else if (view === "morning-briefing") {
+    if (state.morningMoneyBriefingSelection) {
+      renderMorningMoneyBriefing(state.morningMoneyBriefingSelection);
+    } else if (state.morningMoneyBriefing && isCurrentMorningMoneyBriefing(state.morningMoneyBriefing)) {
+      renderMorningMoneyBriefing(state.morningMoneyBriefing);
+    } else {
+      clearMorningMoneyBriefingCache();
+      void loadMorningMoneyBriefing({ force: true });
+    }
   } else if (view === "home") {
-    history.replaceState(null, "", "/dashboard?view=home");
     const activeTab = state.activeTrendTab || "live";
-    void loadHomeAiSignals(pageEntryRefreshOptions("watchlist", "home-ai-signals"));
-    void loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home"));
+    startHomeMarketCarouselMotion();
+    if (options.deferIdentityData !== true) {
+      void loadHomeAiSignals(pageEntryRefreshOptions("watchlist", "home-ai-signals"));
+    }
+    void loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home", { forceOnFirst: false }));
+    void loadHomeMarketImpact(pageEntryRefreshOptions("trend-impact", "home-impact"));
     void refreshUsSectorMoves({ force: false, ttlMs: PAGE_ENTRY_MINUTE_MS });
     connectUsSectorStream();
     launchBriefPageLoading(
@@ -5828,13 +11975,21 @@ function setView(requestedViewName) {
     );
     window.setTimeout(() => {
       if (state.view !== "home") return;
-      void loadTrends(activeTab === "impact" ? "live" : activeTab, pageEntryRefreshOptions("trend", activeTab));
-      if (activeTab === "impact") {
-        void loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact"));
-      }
+      void loadTrends(activeTab, pageEntryRefreshOptions("trend", activeTab));
     }, 80);
+  } else if (view === "news") {
+    window.scrollTo(0, 0);
+    launchBriefPageLoading("뉴스 전체 목록을 불러오는 중", async () => {
+      await loadTrends("live", pageEntryRefreshOptions("trend", `news-${state.trendNewsFilter}`));
+      renderNewsPage();
+    });
+  } else if (view === "event-detail") {
+    window.scrollTo(0, 0);
+    launchBriefPageLoading("이벤트 영향도를 분석하는 중", () => loadTrendEventDetail(
+      state.activeTrendEventId,
+      pageEntryRefreshOptions("trend", "event-detail"),
+    ));
   } else if (view === "search") {
-    history.replaceState(null, "", "/dashboard?view=search");
     const entryOptions = pageEntryRefreshOptions("recommend");
     if (!state.recommendationLoading) {
       launchBriefPageLoading(
@@ -5845,7 +12000,6 @@ function setView(requestedViewName) {
     connectUsSectorStream();
   } else if (view === "recommend-detail") {
     const code = state.currentRecommendationDetailItem?.code || new URLSearchParams(window.location.search).get("code") || "";
-    history.replaceState(null, "", `/dashboard?view=recommend-detail${code ? `&code=${encodeURIComponent(code)}` : ""}`);
     window.scrollTo(0, 0);
     launchBriefPageLoading("AI 추천 설명을 불러오는 중", () => loadRecommendationDetail(code));
   } else if (view === "movers") {
@@ -5855,24 +12009,33 @@ function setView(requestedViewName) {
       force: false,
       ttlMs: pageEntryTtlMs("market"),
       market,
-      limit: 30,
+      category: state.rankingCategory,
+      mode: state.marketRankingMode,
+      limit: 50,
     }));
   } else if (view === "ai-signals") {
-    history.replaceState(null, "", "/dashboard?view=ai-signals");
-    launchBriefPageLoading("AI 매매신호를 불러오는 중", () => loadAiSignalsPage(pageEntryRefreshOptions("watchlist", "ai-signals")));
+    launchBriefPageLoading("AI 시그널을 불러오는 중", () => loadAiSignalsPage(pageEntryRefreshOptions("watchlist", "ai-signals")));
   } else if (view === "portfolio") {
-    history.replaceState(null, "", "/dashboard?view=portfolio");
     setPortfolioTab(state.portfolioTab, { load: true });
   } else if (view === "chart") {
-    history.replaceState(null, "", "/dashboard?view=chart");
     clearWatchChartLoadingOverlay();
     if (!state.watchChartResults.length) {
       elements.chartStartGuide?.removeAttribute("hidden");
       elements.watchChartList.innerHTML = "";
     }
+  } else if (view === "chart-study") {
+    if (!elements.chartStudyContent.hasChildNodes()) {
+      renderChartStudyPage(null, null, null);
+    }
   } else if (view === "chart-history") {
-    history.replaceState(null, "", "/dashboard?view=chart-history");
     renderChartSnapshots();
+  }
+  scheduleStockDetailTabsFixedState();
+  refreshMorningMoneyBriefingVisibility();
+  if (view === "home" && previousView && previousView !== "home") {
+    window.requestAnimationFrame(() => {
+      void maybeShowPushNotificationEntryPrompt();
+    });
   }
 }
 
@@ -5918,13 +12081,110 @@ function renderEvents(listNode, items) {
   }
 }
 
+function marketRankingConfig(category = state.rankingCategory) {
+  return MARKET_RANKING_CONFIG[category] || MARKET_RANKING_CONFIG[DEFAULT_MARKET_RANKING_CATEGORY];
+}
+
+function defaultMarketRankingMode(category) {
+  return marketRankingConfig(category).modes[0]?.key || "";
+}
+
+function normalizeMarketRankingMode(category, mode) {
+  const modes = marketRankingConfig(category).modes;
+  if (!modes.length) {
+    return "";
+  }
+  return modes.some((item) => item.key === mode) ? mode : modes[0].key;
+}
+
+function formatRankingMarketCap(value) {
+  const number = toNumber(value);
+  if (number === null) {
+    return "-";
+  }
+  return Math.abs(number) >= 100_000_000
+    ? formatMoney(number)
+    : `${formatNumber(Math.round(number))}원`;
+}
+
+function formatRankingVolume(value) {
+  const number = toNumber(value);
+  return number === null ? "-" : `${formatCompactCount(number)}주`;
+}
+
+function rankingPeriodReturn(item, mode) {
+  if (mode === "week") return item.one_week_return;
+  if (mode === "month") return item.one_month_return;
+  return item.change_rate;
+}
+
+function rankingMetricPresentation(item, category = state.rankingCategory, mode = state.marketRankingMode) {
+  const normalizedMode = normalizeMarketRankingMode(category, mode);
+  const quoteText = item.price == null
+    ? "현재 시세 확인 중"
+    : `${formatNumber(item.price)} · ${formatPercent(item.change_rate)}`;
+  if (category === "volume") {
+    return { primary: formatRankingVolume(item.volume), secondary: quoteText, tone: null };
+  }
+  if (category === "surge") {
+    const periodReturn = rankingPeriodReturn(item, normalizedMode);
+    if (normalizedMode === "daily") {
+      return { primary: formatNumber(item.price), secondary: formatPercent(periodReturn), tone: periodReturn };
+    }
+    return { primary: formatPercent(periodReturn), secondary: `현재 ${formatNumber(item.price)} · ${formatPercent(item.change_rate)}`, tone: periodReturn };
+  }
+  if (category === "market_cap") {
+    return { primary: formatRankingMarketCap(item.market_cap), secondary: quoteText, tone: null };
+  }
+  if (category === "etf") {
+    const primary = normalizedMode === "volume"
+      ? formatRankingVolume(item.volume)
+      : formatRankingMarketCap(item.market_cap);
+    return { primary, secondary: quoteText, tone: null };
+  }
+  if (category === "dividend") {
+    const primary = normalizedMode === "amount"
+      ? `${formatNumber(item.dividend_per_share)}원`
+      : formatPercent(item.dividend_yield);
+    return { primary, secondary: quoteText, tone: item.dividend_yield };
+  }
+  if (category === "per") {
+    return { primary: item.per == null ? "-" : formatMultiple(item.per), secondary: quoteText, tone: null };
+  }
+  if (["low52", "high52"].includes(category)) {
+    return { primary: formatNumber(item.price), secondary: formatPercent(item.change_rate), tone: item.change_rate };
+  }
+  if (category === "trading_value") return { primary: formatMoney(item.trading_value), secondary: quoteText, tone: null };
+  if (category === "momentum") return { primary: formatPercent(item.metric_value), secondary: quoteText, tone: item.metric_value };
+  if (category === "valuation") return { primary: item.per ? formatMultiple(item.per) : formatPercent(item.metric_value), secondary: quoteText, tone: null };
+  if (category === "sentiment") return { primary: formatPercent(item.sentiment_score), secondary: quoteText, tone: item.sentiment_score };
+  return { primary: item.metric_value ?? "-", secondary: quoteText, tone: null };
+}
+
+function renderRankingMetricBlock(node, item, category = state.rankingCategory, mode = state.marketRankingMode) {
+  const metric = rankingMetricPresentation(item, category, mode);
+  const primary = el("strong", "ranking-metric-primary", String(metric.primary));
+  const secondary = el("small", "ranking-metric-secondary");
+  const secondaryText = String(metric.secondary);
+  const changeText = formatPercent(item.change_rate);
+  const changeIndex = changeText === "-" ? -1 : secondaryText.lastIndexOf(changeText);
+  if (changeIndex >= 0) {
+    secondary.append(secondaryText.slice(0, changeIndex));
+    const change = el("span", "ranking-metric-change", changeText);
+    setTone(change, item.change_rate);
+    secondary.append(change, secondaryText.slice(changeIndex + changeText.length));
+  } else {
+    secondary.textContent = secondaryText;
+  }
+  if (["surge", "low52", "high52"].includes(category)) {
+    setTone(category === "surge" && normalizeMarketRankingMode(category, mode) !== "daily" ? primary : secondary, metric.tone);
+  }
+  node.replaceChildren(primary, secondary);
+  return node;
+}
+
 function rankingMetricLabel(category, item) {
-  if (category === "surge") return formatPercent(item.change_rate);
-  if (category === "trading_value") return formatMoney(item.trading_value);
-  if (category === "momentum") return formatPercent(item.metric_value);
-  if (category === "valuation") return item.per ? `PER ${formatMultiple(item.per)}` : `시총대비 거래 ${formatPercent(item.metric_value)}`;
-  if (category === "sentiment") return formatPercent(item.sentiment_score);
-  return item.metric_value ?? "-";
+  return rankingMetricPresentation(item, category, state.marketRankingMode).primary;
 }
 
 function setMarketLeaderboardMode(enabled) {
@@ -5941,51 +12201,38 @@ function renderRankingMessage(text) {
 
 function createMarketLeaderboardCard(item) {
   const card = document.createElement("article");
-  card.className = "market-leaderboard-card";
+  card.className = "market-leaderboard-card market-ranking-row";
   card.dataset.code = item.code;
 
   const main = document.createElement("a");
   main.className = "market-leaderboard-main";
-  main.href = viewStockUrl(item.name);
+  main.href = viewStockUrl(item.code || item.name);
 
   const rank = document.createElement("span");
   rank.className = "market-rank-badge";
   rank.textContent = String(item.rank || "-");
 
+  const identity = document.createElement("span");
+  identity.className = "market-ranking-identity";
   const name = document.createElement("span");
   name.className = "market-leaderboard-name";
 
   const strong = document.createElement("strong");
   strong.textContent = item.name;
 
-  const meta = document.createElement("span");
-  meta.textContent = `${item.code} · ${item.market}`;
-  name.append(strong, meta);
+  name.append(strong);
+  identity.append(createStockListLogo(item.code), name);
 
-  const price = document.createElement("strong");
-  price.className = "market-leaderboard-price";
-  price.textContent = formatNumber(item.price);
-
-  const change = document.createElement("strong");
-  change.className = "market-leaderboard-change";
-  change.textContent = formatPercent(item.change_rate);
-  setTone(change, item.change_rate);
-
-  const quoteBlock = document.createElement("span");
-  quoteBlock.className = "market-leaderboard-quote-block";
-  quoteBlock.append(price, change);
-
-  main.append(rank, createStockListLogo(item.code), name, quoteBlock);
-
-  const strip = document.createElement("dl");
-  strip.className = "market-leaderboard-strip";
-  strip.append(
-    createMarketLeaderboardMetric("거래대금", formatMoney(item.trading_value)),
-    createMarketLeaderboardMetric("1개월", formatPercent(item.one_month_return), item.one_month_return),
-    createMarketLeaderboardMetric("3개월", formatPercent(item.three_month_return), item.three_month_return)
+  const quoteBlock = renderRankingMetricBlock(
+    document.createElement("span"),
+    item,
+    state.rankingCategory,
+    state.marketRankingMode,
   );
+  quoteBlock.className = "market-leaderboard-quote-block ranking-metric-block";
 
-  card.append(main, strip);
+  main.append(rank, identity, quoteBlock);
+  card.append(main);
   return card;
 }
 
@@ -6038,7 +12285,7 @@ async function hydrateMarketPeriodReturns(items) {
 
 function startMarketSurgeLeaderboard(payload) {
   closeMarketQuoteStreams();
-  state.marketLeaderboardVisibleCount = 30;
+  state.marketLeaderboardVisibleCount = 50;
   state.marketLeaderboardItems = (payload.items || []).map((item, index) => ({
     ...item,
     rank: index + 1,
@@ -6046,9 +12293,9 @@ function startMarketSurgeLeaderboard(payload) {
   }));
   state.marketLeaderboardAsOf = payload.as_of || "";
   state.marketLeaderboardTradeDate = state.marketLeaderboardItems.find((item) => item.trade_date)?.trade_date || "";
-  sortMarketLeaderboardItems();
+  state.marketLeaderboardItems = state.marketLeaderboardItems.map((item, index) => ({ ...item, rank: index + 1 }));
   renderMarketSurgeLeaderboard();
-  for (const item of state.marketLeaderboardItems.slice(0, 20)) {
+  for (const item of state.marketLeaderboardItems.slice(0, 50)) {
     connectMarketQuoteStream(item.code);
   }
 }
@@ -6137,86 +12384,1452 @@ function createCell(value, className = "") {
 function renderRankings(payload) {
   const category = payload.category;
   elements.rankingBody.innerHTML = "";
-  setMarketLeaderboardMode(category === "surge");
-  if (category === "surge") {
-    if (!payload.items || payload.items.length === 0) {
-      closeMarketQuoteStreams();
-      renderRankingMessage("데이터 없음");
-      return;
-    }
-    startMarketSurgeLeaderboard(payload);
-    return;
-  }
-  closeMarketQuoteStreams();
+  setMarketLeaderboardMode(true);
   if (!payload.items || payload.items.length === 0) {
-    renderRankingMessage("데이터 없음");
+    closeMarketQuoteStreams();
+    renderRankingMessage("조건에 맞는 종목이 없습니다.");
     return;
   }
-  for (const item of payload.items) {
-    const row = document.createElement("tr");
-    const metric = rankingMetricLabel(category, item);
-    row.innerHTML = `
-      <td data-label="순위">${item.rank}</td>
-      <td data-label="종목">
-        <a class="rank-name" href="${viewStockUrl(item.name)}">
-          <strong>${item.name}</strong>
-          <span>${item.code} · ${item.market}</span>
-        </a>
-      </td>
-      <td data-label="현재가">${formatNumber(item.price)}</td>
-      <td data-label="핵심값">${metric}</td>
-      <td data-label="1개월" class="${Number(item.one_month_return) > 0 ? "positive" : "negative"}">${formatPercent(item.one_month_return)}</td>
-      <td data-label="3개월" class="${Number(item.three_month_return) > 0 ? "positive" : "negative"}">${formatPercent(item.three_month_return)}</td>
-      <td data-label="거래대금">${formatMoney(item.trading_value)}</td>
-    `;
-    elements.rankingBody.appendChild(row);
-  }
+  startMarketSurgeLeaderboard(payload);
+}
+
+function isDomesticMarketClosed(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    hour12: false,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const weekday = values.weekday;
+  const minutes = Number(values.hour || 0) * 60 + Number(values.minute || 0);
+  return weekday === "Sat" || weekday === "Sun" || minutes < 9 * 60 || minutes > 15 * 60 + 30;
 }
 
 function marketRankingBasisLabel(payload = {}, options = {}) {
   const firstTradeDate = (payload.items || []).find((item) => item.trade_date)?.trade_date;
   const marketLabel = payload.market === "KOSDAQ" ? "KOSDAQ" : payload.market === "KOSPI" ? "KOSPI" : "전체 시장";
-  const basisValue = payload.source === "naver_market_rise"
+  if (firstTradeDate && isDomesticMarketClosed()) {
+    const closeDate = formatDateLabel(firstTradeDate);
+    if (closeDate !== "-") {
+      const basis = `${closeDate} 15:30 장 마감 기준`;
+      return options.includeMarket === false ? basis : `${basis} · ${marketLabel}`;
+    }
+  }
+  const isLiveRankingSource = String(payload.source || "").startsWith("naver_");
+  const basisValue = isLiveRankingSource
     ? payload.as_of || firstTradeDate
     : firstTradeDate || payload.as_of;
   const formattedBasis = formatDataBasis(basisValue, "기준 정보 확인 중");
-  const basis = payload.source === "naver_market_rise"
+  const basis = isLiveRankingSource
     ? formattedBasis
     : formattedBasis.replace(/ 기준$/, " 장 마감 기준");
   return options.includeMarket === false ? basis : `${basis} · ${marketLabel}`;
 }
 
+function isPreliminaryAiSignal(item = {}) {
+  const current = item?.current || {};
+  const action = String(current.action || item?.action || "");
+  return item?.is_preliminary === true
+    || item?.status === "preliminary"
+    || ["entry_watch", "entry_pending", "partial_exit_pending", "full_exit_pending"].includes(action);
+}
+
+function isSignalReconciliation(item = {}) {
+  const current = item?.current || {};
+  const transition = current.lifecycle?.latest_transition || {};
+  return Boolean(
+    item.signal_origin === "legacy_reconciliation"
+      || current.signal_origin === "legacy_reconciliation"
+      || transition.signal_origin === "legacy_reconciliation"
+      || item.reconciliation_id
+      || current.reconciliation_id
+      || transition.reconciliation_id,
+  );
+}
+
 function homeAiSignalView(item = {}) {
+  item = item && typeof item === "object" ? item : {};
   const current = item.current || {};
   const action = current.action || "unavailable";
   const transition = item.current?.lifecycle?.latest_transition;
-  const signalDate = transition?.transition_date || item.price_through || item.current?.as_of || item.as_of;
+  const transitionLabel = String(transition?.label || "");
+  const latestTransitionWasSell = /매도|청산/.test(transitionLabel);
+  const preliminary = isPreliminaryAiSignal(item);
+  const canonicalPendingState = preliminary
+    && item.is_preliminary !== true
+    && item.status !== "preliminary";
+  const signalDate = canonicalPendingState
+    ? current.live_observation === true
+      ? current.as_of || item.updated_at || item.as_of || item.signal_date || transition?.signal_date
+      : item.price_through || current.signal_date || current.as_of || item.updated_at || item.as_of || item.signal_date
+    : preliminary
+      ? item.signal_date || item.price_through || current.as_of || item.updated_at || item.as_of || transition?.signal_date
+      : item.signal_date || transition?.signal_date || transition?.transition_date || item.price_through || item.signal_at;
+  const signalDateToken = String(signalDate || "").slice(0, 10);
+  const signalAt = preliminary
+    ? [item.signal_at, item.first_seen_at, current.as_of, item.updated_at, item.as_of, signalDate]
+      .find((value) => String(value || "").slice(0, 10) === signalDateToken) || signalDate
+    : transition?.signal_at || item.signal_at || item.current?.as_of || item.as_of;
+  const updatedAt = item.updated_at || current.as_of || item.as_of || signalAt || signalDate;
+  if (action === "entry_watch") {
+    return { key: "recent-buy", label: "예비 포착", tone: "buy", signalDate, signalAt, updatedAt, preliminary: true };
+  }
+  if (action === "entry_pending") {
+    return { key: "recent-buy", label: "예비 매수", tone: "buy", signalDate, signalAt, updatedAt, preliminary };
+  }
+  if (action === "partial_exit_pending") {
+    const profitStage = Number(current.pending_profit_stage || (Number(current.profit_stage || 0) + 1));
+    return { key: "recent-sell", label: `${profitStage}차 수익확정 대기`, tone: "sell", signalDate, signalAt, updatedAt, preliminary };
+  }
+  if (action === "full_exit_pending") {
+    return { key: "recent-sell", label: "전량 매도 대기", tone: "sell", signalDate, signalAt, updatedAt, preliminary };
+  }
+  if (action === "partially_exited" && current.position_open) {
+    const profitStage = Number(current.profit_stage || transition?.profit_stage || 1);
+    const remaining = toNumber(current.model_exposure_percent);
+    const label = remaining === null
+      ? `${profitStage}차 수익확정·보유`
+      : `${profitStage}차 수익확정·잔여 ${formatNumber(remaining)}% 보유`;
+    return { key: "recent-sell", label, tone: "sell", signalDate, signalAt, updatedAt, preliminary: false };
+  }
+  if (action === "exited" || latestTransitionWasSell) {
+    return {
+      key: "recent-sell",
+      label: isSignalReconciliation(item) ? "전량 매도 · 전략 버전 통일" : "전량 매도",
+      tone: "sell",
+      signalDate,
+      signalAt,
+      updatedAt,
+      preliminary: false,
+    };
+  }
   if (action === "entered") {
-    return { key: "recent-buy", label: "최근 매수", tone: "buy", signalDate };
+    return { key: "recent-buy", label: "확정 매수", tone: "buy", signalDate, signalAt, updatedAt, preliminary: false };
   }
   if (current.position_open) {
-    return { key: "holding", label: "보유 중", tone: "hold", signalDate };
-  }
-  if (action === "exited") {
-    return { key: "recent-sell", label: "최근 매도", tone: "sell", signalDate };
+    return { key: "recent-buy", label: "확정 매수", tone: "buy", signalDate, signalAt, updatedAt, preliminary: false };
   }
   return null;
 }
 
-function aiSignalSortValue(item) {
-  const view = homeAiSignalView(item);
-  const stageOrder = { "recent-buy": 0, holding: 1, "recent-sell": 2 };
-  const timestamp = Date.parse(view?.signalDate || "") || 0;
-  return [(stageOrder[view?.key] ?? 9), -timestamp];
+function aiSignalTransitionKey(item = {}) {
+  const current = item.current || {};
+  const transition = current.lifecycle?.latest_transition || {};
+  const action = String(current.action || "");
+  const preliminary = isPreliminaryAiSignal(item);
+  const actionSide = ["entry_watch", "entry_pending", "entered", "holding"].includes(action)
+    ? "buy"
+    : (["partial_exit_pending", "partially_exited", "full_exit_pending", "exited"].includes(action) ? "sell" : "");
+  const side = String(
+    (preliminary ? actionSide : "")
+      || item.side
+      || transition.side
+      || actionSide,
+  ).toLowerCase();
+  const eventDate = preliminary
+    ? item.signal_date || transition.signal_date || current.as_of || item.as_of
+    : item.execution_date || transition.transition_date || current.entry_date || item.signal_date || transition.signal_date;
+  const normalizedDate = String(eventDate || "").slice(0, 10);
+  const code = String(item.code || "").trim();
+  if (!code || !["buy", "sell"].includes(side) || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+    return "";
+  }
+  return `${code}:${preliminary ? "preliminary" : "confirmed"}:${side}:${normalizedDate}`;
 }
 
-function normalizedAiSignalItems(items = []) {
+function isCurrentAiSignalHolding(item = {}) {
+  return item.is_current_holding === true || item.current?.position_open === true;
+}
+
+function marketAiSignalItems(payload = {}) {
+  return (Array.isArray(payload.items) ? payload.items : [])
+    .map((item) => {
+      const canonicalCurrent = item?.current && typeof item.current === "object"
+        ? item.current
+        : null;
+      const canonicalAction = String(canonicalCurrent?.action || "");
+      const canonicalPendingSide = ["entry_watch", "entry_pending"].includes(canonicalAction)
+        ? "buy"
+        : (["partial_exit_pending", "full_exit_pending"].includes(canonicalAction) ? "sell" : "");
+      const canonicalPending = Boolean(canonicalPendingSide);
+      const side = canonicalPendingSide || String(item?.side || "").toLowerCase();
+      const preliminary = canonicalPending
+        || item?.is_preliminary === true
+        || item?.status === "preliminary";
+      const explicitPreliminary = item?.is_preliminary === true
+        || item?.status === "preliminary";
+      const signalDate = canonicalPending
+        ? String(
+          explicitPreliminary
+            ? item?.signal_date || item?.price_through || canonicalCurrent?.as_of || payload.as_of
+            : canonicalCurrent?.live_observation === true
+              ? canonicalCurrent?.as_of || item?.price_through || item?.signal_date || payload.as_of
+              : item?.price_through || canonicalCurrent?.signal_date || canonicalCurrent?.as_of || item?.signal_date || payload.as_of,
+        ).slice(0, 10)
+        : preliminary
+          ? item?.signal_date || item?.updated_at || payload.as_of
+          : item?.execution_date || item?.signal_date || payload.as_of;
+      if (!item?.code || !["buy", "sell"].includes(side) || !signalDate) {
+        return null;
+      }
+      const signalDateToken = String(signalDate).slice(0, 10);
+      const signalAt = (canonicalPending
+        ? [item?.signal_at, item?.updated_at, canonicalCurrent?.as_of, payload.as_of, signalDate]
+        : [item?.signal_at, item?.signal_date, item?.updated_at, payload.as_of, signalDate]
+      ).find((value) => String(value || "").slice(0, 10) === signalDateToken) || signalDate;
+      const isBuy = side === "buy";
+      const eventSide = String(item?.event_side || "").toLowerCase();
+      const effectiveEventSide = canonicalPending
+        ? (canonicalAction === "partial_exit_pending" ? "partial_sell" : side)
+        : eventSide || side;
+      const partialProfit = effectiveEventSide === "partial_sell" || item?.state_after === "partially_exited";
+      const pendingEntry = canonicalPending && isBuy;
+      const currentReasons = Array.isArray(canonicalCurrent?.reasons) ? canonicalCurrent.reasons : [];
+      const entryPrice = pendingEntry
+        ? null
+        : canonicalPending
+          ? canonicalCurrent?.entry_price ?? item.entry_price ?? null
+          : item.entry_price ?? canonicalCurrent?.entry_price ?? null;
+      const targetSellPrice = pendingEntry
+        ? null
+        : canonicalPending
+          ? canonicalCurrent?.target_sell_price ?? canonicalCurrent?.partial_exit_reference ?? item.target_sell_price ?? null
+          : item.target_sell_price ?? null;
+      const targetSellStatus = pendingEntry
+        ? null
+        : canonicalPending
+          ? canonicalCurrent?.target_sell_status || item.target_sell_status || null
+          : item.target_sell_status || null;
+      const targetSellDelta = pendingEntry
+        ? null
+        : canonicalPending
+          ? canonicalCurrent?.target_sell_delta ?? item.target_sell_delta ?? null
+          : item.target_sell_delta ?? null;
+      const returnRate = pendingEntry
+        ? null
+        : canonicalPending
+          ? canonicalCurrent?.unrealized_return ?? item.display_return_rate ?? item.return_rate ?? null
+          : item.return_rate ?? null;
+      const displayReturnRate = pendingEntry
+        ? null
+        : canonicalPending
+          ? canonicalCurrent?.unrealized_return ?? item.display_return_rate ?? item.return_rate ?? null
+          : item.display_return_rate ?? null;
+      const displayReturnKind = pendingEntry
+        ? null
+        : canonicalPending && canonicalCurrent?.position_open && displayReturnRate !== null
+          ? "open_position"
+          : item.display_return_kind || null;
+      const holdingContext = item?.holding_context && typeof item.holding_context === "object"
+        ? item.holding_context
+        : null;
+      const mapped = {
+        code: item.code,
+        name: item.name || item.code,
+        market: item.market || null,
+        sector: item.sector || null,
+        industry: item.industry || null,
+        investment_sector: item.investment_sector || "other",
+        investment_sector_label: item.investment_sector_label || "기타",
+        signal_scope: "market",
+        signal_origin: canonicalCurrent?.signal_origin || item.signal_origin || null,
+        reconciliation_id: canonicalCurrent?.reconciliation_id || item.reconciliation_id || null,
+        source_strategy_version: item.source_strategy_version || null,
+        target_strategy_version: item.target_strategy_version || null,
+        side,
+        event_side: effectiveEventSide,
+        signal: canonicalPending ? canonicalCurrent?.label || item.signal || null : item.signal || null,
+        signal_at: signalAt,
+        signal_date: signalDate,
+        execution_date: preliminary ? null : item.execution_date || null,
+        price: canonicalPending ? canonicalCurrent?.price ?? item.price ?? null : item.price ?? null,
+        entry_price: entryPrice,
+        target_sell_price: targetSellPrice,
+        target_sell_status: targetSellStatus,
+        target_sell_delta: targetSellDelta,
+        score: canonicalPending ? canonicalCurrent?.score ?? item.score ?? null : item.score ?? null,
+        reason: canonicalPending ? currentReasons[0] || item.reason || null : item.reason || null,
+        return_rate: returnRate,
+        display_return_rate: displayReturnRate,
+        display_return_kind: displayReturnKind,
+        display_return_event_date: canonicalPending ? null : item.display_return_event_date || null,
+        display_return_event_side: canonicalPending ? null : item.display_return_event_side || null,
+        holding_days: canonicalPending ? canonicalCurrent?.holding_days ?? null : item.holding_days ?? null,
+        position_percent: canonicalPending
+          ? canonicalCurrent?.model_exposure_percent ?? null
+          : item.position_percent ?? null,
+        profit_stage: canonicalPending ? canonicalCurrent?.profit_stage ?? null : item.profit_stage ?? null,
+        sold_percent: item.sold_percent ?? null,
+        state_after: canonicalPending ? null : item.state_after || null,
+        status: preliminary ? "preliminary" : "confirmed",
+        is_preliminary: preliminary,
+        updated_at: canonicalPending ? canonicalCurrent?.as_of || signalAt : item.updated_at || payload.as_of || signalDate,
+        price_through: signalDate,
+        as_of: payload.as_of || signalDate,
+        is_current_holding: canonicalCurrent?.position_open === true || item.is_current_holding === true,
+        holding_context: holdingContext,
+        current: canonicalCurrent || {
+          action: preliminary
+            ? (isBuy ? "entry_pending" : "full_exit_pending")
+            : partialProfit ? "partially_exited" : (isBuy ? "entered" : "exited"),
+          position_open: preliminary ? !isBuy : (isBuy || partialProfit),
+          model_exposure_percent: partialProfit ? item.position_percent ?? 0 : isBuy ? 100 : 0,
+          profit_stage: partialProfit ? item.profit_stage ?? 1 : 0,
+          live_observation: preliminary,
+          score: item.score ?? null,
+          price: item.price ?? null,
+          as_of: item.updated_at || payload.as_of || signalDate,
+          entry_date: isBuy && !preliminary ? signalDate : null,
+          entry_price: item.entry_price ?? (isBuy && !preliminary ? item.price ?? null : null),
+          target_sell_price: item.target_sell_price ?? null,
+          target_sell_status: item.target_sell_status || null,
+          target_sell_delta: item.target_sell_delta ?? null,
+          return_rate: item.return_rate ?? null,
+          reasons: item.reason ? [item.reason] : [],
+          lifecycle: {
+            latest_transition: {
+              label: item.signal || (preliminary ? (isBuy ? "예비 매수" : "예비 매도") : (isBuy ? "확정 매수" : "전량 매도")),
+              side: effectiveEventSide,
+              signal_at: signalAt,
+              signal_date: signalDate,
+              transition_date: signalDate,
+              price: item.price ?? null,
+              entry_price: item.entry_price ?? null,
+              target_sell_price: item.target_sell_price ?? null,
+              target_sell_status: item.target_sell_status || null,
+              target_sell_delta: item.target_sell_delta ?? null,
+              return_rate: item.return_rate ?? null,
+              profit_stage: item.profit_stage ?? null,
+              sold_percent: item.sold_percent ?? null,
+            },
+          },
+        },
+      };
+      return sanitizePendingEntryAiSignal(mapped);
+    })
+    .filter(Boolean);
+}
+
+function sanitizePendingEntryAiSignal(item = {}) {
+  const current = item.current || {};
+  const action = String(current.action || item.action || "");
+  if (!["entry_watch", "entry_pending"].includes(action) || current.position_open === true) {
+    return item;
+  }
+  return {
+    ...item,
+    entry_price: null,
+    target_sell_price: null,
+    target_sell_status: null,
+    target_sell_delta: null,
+    return_rate: null,
+    display_return_rate: null,
+    display_return_kind: null,
+    display_return_event_date: null,
+    display_return_event_side: null,
+    live_return_rate: null,
+    current: {
+      ...current,
+      entry_date: null,
+      entry_price: null,
+      target_sell_price: null,
+      target_sell_status: null,
+      target_sell_delta: null,
+      partial_exit_date: null,
+      partial_exit_price: null,
+      partial_exits: [],
+      profit_stage: 0,
+      holding_days: null,
+      unrealized_return: null,
+      return_basis: null,
+      stop_reference: null,
+      locked_profit_reference: null,
+      partial_exit_reference: null,
+    },
+  };
+}
+
+function combineAiSignalPayloads(watchlistPayload = {}, marketPayload = {}) {
+  const watchlistItems = Array.isArray(watchlistPayload.items) ? watchlistPayload.items : [];
+  const allMarketItems = marketAiSignalItems(marketPayload);
+  const marketRefreshing = marketPayload.status === "refreshing";
+  const marketItems = marketRefreshing
+    ? allMarketItems.filter((item) => !isPreliminaryAiSignal(item))
+    : allMarketItems;
+  // Public AI signals are one canonical market feed for every account.
+  // Watchlist rows remain available only to the personalized home response.
+  const items = marketItems;
+  const rawRevision = Number(marketPayload.signal_revision);
+  const signalRevision = Number.isSafeInteger(rawRevision) && rawRevision >= 0 ? rawRevision : null;
+  return {
+    as_of: marketPayload.as_of || watchlistPayload.as_of || null,
+    snapshot_generated_at: marketPayload.snapshot_generated_at || null,
+    signal_revision: signalRevision,
+    signal_revision_as_of: marketPayload.signal_revision_as_of || null,
+    recent_days: marketPayload.recent_days || null,
+    market_status: marketPayload.status || "ready",
+    universe_count: marketPayload.universe_count || 0,
+    confirmed_count: marketRefreshing ? marketItems.length : (marketPayload.confirmed_count || 0),
+    preliminary_count: marketRefreshing ? 0 : (marketPayload.preliminary_count || 0),
+    preliminary_history: Array.isArray(marketPayload.preliminary_history)
+      ? marketPayload.preliminary_history
+      : [],
+    items,
+    watchlist_items: watchlistItems,
+    market_items: marketItems,
+  };
+}
+
+function preliminaryHistoryAiSignalItems(historyItems = [], referenceItems = []) {
+  const referencesByCode = new Map();
+  for (const item of Array.isArray(referenceItems) ? referenceItems : []) {
+    const code = String(item?.code || "").trim();
+    if (code && !referencesByCode.has(code)) {
+      referencesByCode.set(code, item);
+    }
+  }
+  return (Array.isArray(historyItems) ? historyItems : [])
+    .map((item) => {
+      const code = String(item?.code || "").trim();
+      const side = String(item?.side || "").toLowerCase();
+      const signalDate = String(item?.signal_date || "").slice(0, 10);
+      if (!code || !["buy", "sell"].includes(side) || !/^\d{4}-\d{2}-\d{2}$/.test(signalDate)) {
+        return null;
+      }
+      const isBuy = side === "buy";
+      const reference = referencesByCode.get(code) || {};
+      const referenceCurrent = reference.current || {};
+      const firstSeenAt = item.first_seen_at || item.signal_at || signalDate;
+      const lastSeenAt = item.last_seen_at || item.updated_at || firstSeenAt;
+      const entryPrice = item.entry_price
+        ?? (!isBuy ? reference.entry_price ?? referenceCurrent.entry_price : null);
+      const targetSellPrice = item.target_sell_price
+        ?? (!isBuy ? reference.target_sell_price ?? referenceCurrent.target_sell_price : null);
+      const active = item.active === true;
+      return {
+        code,
+        name: item.name || reference.name || code,
+        market: item.market || reference.market || null,
+        sector: item.sector || reference.sector || null,
+        industry: item.industry || reference.industry || null,
+        investment_sector: item.investment_sector || reference.investment_sector || "other",
+        investment_sector_label: item.investment_sector_label || reference.investment_sector_label || "기타",
+        signal_scope: "market",
+        side,
+        signal_at: item.signal_at || firstSeenAt,
+        signal_date: signalDate,
+        execution_date: null,
+        price: item.price ?? null,
+        entry_price: entryPrice ?? null,
+        target_sell_price: targetSellPrice ?? null,
+        target_sell_status: item.target_sell_status || null,
+        target_sell_delta: item.target_sell_delta ?? null,
+        score: item.score ?? null,
+        reason: item.reason || (active
+          ? "장중 예비 조건이 유지 중이에요."
+          : "장중에 포착됐지만 현재 조건은 해제됐어요."),
+        return_rate: item.return_rate ?? null,
+        display_return_rate: item.display_return_rate ?? null,
+        display_return_kind: item.display_return_kind || null,
+        status: "preliminary",
+        is_preliminary: true,
+        preliminary_active: active,
+        first_seen_at: firstSeenAt,
+        last_seen_at: lastSeenAt,
+        updated_at: lastSeenAt,
+        price_through: signalDate,
+        as_of: lastSeenAt,
+        is_current_holding: false,
+        current: {
+          action: isBuy ? "entry_pending" : "full_exit_pending",
+          position_open: false,
+          live_observation: true,
+          score: item.score ?? null,
+          price: item.price ?? null,
+          as_of: lastSeenAt,
+          entry_date: null,
+          entry_price: entryPrice ?? null,
+          target_sell_price: targetSellPrice ?? null,
+          target_sell_status: item.target_sell_status || null,
+          target_sell_delta: item.target_sell_delta ?? null,
+          return_rate: item.return_rate ?? null,
+          reasons: item.reason ? [item.reason] : [],
+          lifecycle: {
+            latest_transition: {
+              label: isBuy ? "예비 매수" : "예비 매도",
+              side,
+              signal_at: item.signal_at || firstSeenAt,
+              signal_date: signalDate,
+              transition_date: signalDate,
+              price: item.price ?? null,
+              entry_price: entryPrice ?? null,
+              target_sell_price: targetSellPrice ?? null,
+              target_sell_status: item.target_sell_status || null,
+              target_sell_delta: item.target_sell_delta ?? null,
+              return_rate: item.return_rate ?? null,
+            },
+          },
+        },
+      };
+    })
+    .filter(Boolean);
+}
+
+function mergeAiSignalArchiveItems(items = [], preliminaryHistory = []) {
+  const currentItems = Array.isArray(items) ? items : [];
+  const historyItems = preliminaryHistoryAiSignalItems(preliminaryHistory, currentItems);
+  const keyed = new Map();
+  const unkeyed = [];
+  const addItem = (item, preferCurrent = false) => {
+    const key = aiSignalTransitionKey(item);
+    if (!key) {
+      unkeyed.push(item);
+      return;
+    }
+    const existing = keyed.get(key);
+    if (!existing || !preferCurrent) {
+      keyed.set(key, item);
+      return;
+    }
+    keyed.set(key, {
+      ...existing,
+      ...item,
+      first_seen_at: existing.first_seen_at || item.first_seen_at || item.signal_at,
+      last_seen_at: existing.last_seen_at || item.last_seen_at || item.updated_at,
+      preliminary_active: existing.preliminary_active,
+    });
+  };
+  historyItems.forEach((item) => addItem(item));
+  currentItems.forEach((item) => addItem(item, true));
+  return [...keyed.values(), ...unkeyed];
+}
+
+function aiSignalSortValue(item) {
+  const view = homeAiSignalView(item);
+  const stageOrder = { "recent-buy": 0, "recent-sell": 1 };
+  const timestamp = Date.parse(view?.signalDate || "") || 0;
+  return [-timestamp, view?.preliminary ? 0 : 1, (stageOrder[view?.key] ?? 9)];
+}
+
+function isAiSignalWithinDays(item, days = AI_SIGNAL_HISTORY_DAYS, now = Date.now()) {
+  const view = homeAiSignalView(item);
+  const signalDate = view?.preliminary
+    ? item.signal_date || view.signalDate || view.signalAt
+    : item.execution_date || view?.signalDate;
+  const candidate = new Date(signalDate || "");
+  const normalizedDays = Math.max(1, Number(days) || AI_SIGNAL_HISTORY_DAYS);
+  if (!Number.isFinite(candidate.getTime())) {
+    return false;
+  }
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  candidate.setHours(0, 0, 0, 0);
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() - normalizedDays);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return candidate >= cutoff && candidate < tomorrow;
+}
+
+function isRecentAiSignal(item, now = Date.now()) {
+  return isAiSignalWithinDays(item, AI_SIGNAL_HISTORY_DAYS, now);
+}
+
+function formatAiSignalTimestamp(value, fallback = "시각 확인 중") {
+  const formatted = formatDate(value);
+  return formatted === "-" ? fallback : `${formatted} 발생`;
+}
+
+function aiSignalTradeContext(item = {}, view = homeAiSignalView(item) || {}) {
+  const current = item.current || {};
+  const transition = current.lifecycle?.latest_transition || {};
+  const events = Array.isArray(item.events) ? item.events : [];
+  const latestEvent = events.length ? events[events.length - 1] : {};
+  const action = String(current.action || "");
+  const actionSide = ["entry_watch", "entry_pending", "entered", "holding"].includes(action)
+    ? "buy"
+    : (["partial_exit_pending", "partially_exited", "full_exit_pending", "exited"].includes(action) ? "sell" : "");
+  const side = String(
+    (view.preliminary ? actionSide : "")
+      || item.side
+      || transition.side
+      || latestEvent.side
+      || (/매도/.test(transition.label || "") ? "sell" : "buy"),
+  ).toLowerCase();
+  if (side === "buy" && view.preliminary) {
+    return { side, price: null };
+  }
+  const entryPrice = item.entry_price
+    ?? current.entry_price
+    ?? transition.entry_price
+    ?? latestEvent.entry_price;
+  if (side === "sell") {
+    return { side, price: entryPrice };
+  }
+  const price = entryPrice
+    ?? (view.preliminary ? item.live_price ?? current.price ?? item.price : null)
+    ?? item.price
+    ?? transition.price
+    ?? latestEvent.price;
+  return { side, price };
+}
+
+function aiSignalPriceLine(item, view) {
+  const metric = aiSignalPriceMetric(item, view);
+  return `${metric.label} ${metric.value}`;
+}
+
+function aiSignalPriceMetric(item, view) {
+  const trade = aiSignalTradeContext(item, view);
+  if (trade.price === null || trade.price === undefined || trade.price === "") {
+    return {
+      key: "price",
+      label: trade.side === "sell" ? "매수가" : (view.preliminary ? "예상 매수가" : "매수가"),
+      value: "확인 중",
+    };
+  }
+  const label = trade.side === "sell" ? "매수가" : (view.preliminary ? "예상 매수가" : "매수가");
+  return {
+    key: "price",
+    label,
+    value: `${formatNumber(trade.price)}원`,
+    numericValue: trade.price,
+  };
+}
+
+function formatAiSignalHistoryTime(value) {
+  const raw = String(value || "");
+  if (!/[T ]\d{2}:\d{2}/.test(raw)) {
+    return "";
+  }
+  const candidate = new Date(value);
+  if (!Number.isFinite(candidate.getTime())) {
+    return "";
+  }
+  return candidate.toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function aiSignalDateLine(item = {}, view = {}) {
+  const signalDate = compactSignalDate(item.signal_date || view.signalDate || view.signalAt);
+  if (isSignalReconciliation(item)) {
+    return `전략 통일 정산 ${signalDate}`;
+  }
+  if (view.preliminary) {
+    const basis = item.current?.live_observation === true ? "장중 기준" : "장 마감 기준";
+    return `${signalDate} ${basis}`;
+  }
+  const executionDate = item.execution_date ? compactSignalDate(item.execution_date) : "";
+  return executionDate && executionDate !== signalDate
+    ? `신호 ${signalDate} · 체결 ${executionDate}`
+    : `신호 ${signalDate}`;
+}
+
+function isReleasedPreliminaryAiSignal(item = {}) {
+  return homeAiSignalView(item)?.preliminary === true && item.preliminary_active === false;
+}
+
+function aiSignalReleasedSide(item = {}, view = homeAiSignalView(item) || {}) {
+  const side = String(item.side || "").toLowerCase();
+  if (["buy", "sell"].includes(side)) {
+    return side;
+  }
+  return view.key === "recent-sell" ? "sell" : "buy";
+}
+
+function aiSignalReleasedDateLine(item = {}, view = {}) {
+  const signalDate = compactSignalDate(item.signal_date || view.signalDate || view.signalAt);
+  const firstSeen = formatAiSignalHistoryTime(item.first_seen_at || item.signal_at || view.signalAt);
+  const lastSeen = formatAiSignalHistoryTime(item.last_seen_at || item.updated_at);
+  if (firstSeen && lastSeen && firstSeen !== lastSeen) {
+    return `${signalDate} · ${firstSeen} 발생 · ${lastSeen} 해제`;
+  }
+  if (firstSeen) {
+    return `${signalDate} · ${firstSeen} 발생 · 조건 해제`;
+  }
+  return `${signalDate} · 조건 해제`;
+}
+
+function aiSignalReleasedMetrics(item = {}, view = {}) {
+  const side = aiSignalReleasedSide(item, view);
+  const price = toNumber(item.price);
+  const score = toNumber(item.score ?? item.current?.score);
+  const metrics = [];
+  if (price !== null) {
+    metrics.push({
+      key: "capture-price",
+      label: "포착가",
+      value: `${formatNumber(price)}원`,
+      numericValue: price,
+    });
+  }
+  if (score !== null) {
+    metrics.push({ key: "capture-score", label: "점수", value: `${formatNumber(score)}점` });
+  }
+  metrics.push({
+    key: "release-result",
+    label: "전환 결과",
+    value: side === "buy" ? "확정 매수 미전환" : "확정 매도 미전환",
+  });
+  return metrics;
+}
+
+function aiSignalReleasedOutcomeLine(item = {}, view = {}) {
+  return aiSignalReleasedMetrics(item, view)
+    .map((metric) => `${metric.label} ${metric.value}`)
+    .join(" · ");
+}
+
+const AI_SIGNAL_FRESHNESS_LABELS = {
+  realtime: "실시간",
+  delayed: "약 10초 지연",
+  offline: "오프라인",
+  closed: "장 마감",
+  checking: "상태 확인 중",
+  confirmed: "확정",
+};
+
+const AI_SIGNAL_FRESHNESS_SUMMARY_ORDER = ["realtime", "delayed", "checking", "offline", "closed"];
+
+function aiSignalFreshnessSummary(states = []) {
+  const normalized = (Array.isArray(states) ? states : [])
+    .map((value) => String(value || ""))
+    .filter((value) => AI_SIGNAL_FRESHNESS_SUMMARY_ORDER.includes(value));
+  const counts = Object.fromEntries(AI_SIGNAL_FRESHNESS_SUMMARY_ORDER.map((key) => [key, 0]));
+  normalized.forEach((value) => { counts[value] += 1; });
+  const occupied = AI_SIGNAL_FRESHNESS_SUMMARY_ORDER.filter((key) => counts[key] > 0);
+  const total = normalized.length;
+  let stateName = "checking";
+  if (counts.checking > 0) stateName = "checking";
+  else if (counts.offline > 0) stateName = "offline";
+  else if (total > 0 && counts.closed === total) stateName = "closed";
+  else if (counts.delayed > 0) stateName = "delayed";
+  else if (total > 0 && counts.realtime === total) stateName = "realtime";
+  return {
+    state: stateName,
+    counts,
+    heldCount: total,
+    mixed: occupied.length > 1,
+  };
+}
+
+function aiSignalFreshnessSummaryLabel(summary = {}) {
+  const total = Number(summary.heldCount || 0);
+  const counts = summary.counts || {};
+  if (!total) return "시그널 상태 확인 중";
+  if (summary.mixed === true) {
+    const labels = {
+      realtime: "실시간",
+      delayed: "약 10초 지연",
+      checking: "확인 중",
+      offline: "오프라인",
+      closed: "장 마감",
+    };
+    return AI_SIGNAL_FRESHNESS_SUMMARY_ORDER
+      .filter((key) => Number(counts[key] || 0) > 0)
+      .map((key) => `${labels[key]} ${Number(counts[key])}`)
+      .join(" · ");
+  }
+  if (summary.state === "realtime") return `보유 ${total}개 모두 실시간`;
+  if (summary.state === "delayed") return `보유 ${total}개 현재가 약 10초 지연`;
+  if (summary.state === "offline") return `보유 ${total}개 오프라인`;
+  if (summary.state === "closed") return `장 마감 · 보유 ${total}개`;
+  return `보유 ${total}개 시세 확인 중`;
+}
+
+function aiSignalLifecycleIsActive(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    hour12: false,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  if (["Sat", "Sun"].includes(values.weekday)) return false;
+  const minutes = Number(values.hour || 0) * 60 + Number(values.minute || 0);
+  return minutes >= 9 * 60 && minutes <= 15 * 60 + 40;
+}
+
+function aiSignalSnapshotRefreshAge(now = new Date()) {
+  return aiSignalLifecycleIsActive(now) ? AI_SIGNAL_ACTIVE_REFRESH_MS : AI_SIGNAL_CLOSED_REFRESH_MS;
+}
+
+function aiSignalSnapshotStaleAge(now = new Date()) {
+  return aiSignalLifecycleIsActive(now) ? AI_SIGNAL_ACTIVE_STALE_MS : AI_SIGNAL_CLOSED_STALE_MS;
+}
+
+function isAiSignalSnapshotStale(now = Date.now()) {
+  if (
+    state.aiSignalReconcilePending
+    || ["loading", "preparing", "refreshing"].includes(String(state.aiSignalMarketStatus || ""))
+    || !Number.isFinite(state.aiSignalSnapshotReceivedAt)
+    || state.aiSignalSnapshotReceivedAt <= 0
+  ) {
+    return true;
+  }
+  return now - state.aiSignalSnapshotReceivedAt > aiSignalSnapshotStaleAge(new Date(now));
+}
+
+function aiSignalRevisionFromPayload(payload = {}) {
+  const candidates = [payload.signal_revision, payload.revision, payload.snapshot_revision];
+  for (const value of candidates) {
+    const revision = Number(value);
+    if (Number.isSafeInteger(revision) && revision >= 0) return revision;
+  }
+  return null;
+}
+
+function freezeAiSignalSnapshot(value, seen = new WeakSet()) {
+  if (!value || typeof value !== "object" || seen.has(value)) return value;
+  seen.add(value);
+  for (const nested of Object.values(value)) freezeAiSignalSnapshot(nested, seen);
+  return Object.freeze(value);
+}
+
+function commitAiSignalSnapshot(items, payload = {}, options = {}) {
+  const responseRevision = aiSignalRevisionFromPayload(payload);
+  const expectedRevision = Number.isSafeInteger(Number(options.expectedRevision))
+    ? Number(options.expectedRevision)
+    : null;
+  if (
+    expectedRevision !== null
+    && expectedRevision > 0
+    && (responseRevision === null || responseRevision === 0)
+  ) {
+    return false;
+  }
+  const frozenItems = Object.freeze(
+    (Array.isArray(items) ? items : []).map((item) => freezeAiSignalSnapshot(item)),
+  );
+  state.aiSignalItems = frozenItems;
+  state.aiSignalMarketStatus = payload.market_status || payload.status || "ready";
+  state.aiSignalRevision = responseRevision ?? expectedRevision ?? state.aiSignalRevision;
+  state.aiSignalPendingRevision = null;
+  state.aiSignalReconcilePending = false;
+  if (typeof window !== "undefined") window.clearTimeout(state.aiSignalRevisionTimer);
+  state.aiSignalRevisionTimer = null;
+  const receivedAt = Number(options.receivedAt);
+  state.aiSignalSnapshotReceivedAt = Number.isFinite(receivedAt) && receivedAt > 0 ? receivedAt : Date.now();
+  state.aiSignalSnapshotAsOf = payload.snapshot_generated_at || payload.as_of || payload.updated_at || "";
+  const heldCodes = new Set(
+    currentAiSignalItems(frozenItems)
+      .filter((item) => isCurrentAiSignalHolding(item))
+      .map((item) => String(item.code || ""))
+      .filter(Boolean),
+  );
+  for (const code of state.aiSignalLiveQuotes.keys()) {
+    if (!heldCodes.has(code)) state.aiSignalLiveQuotes.delete(code);
+  }
+  for (const code of state.aiSignalQuoteStatuses.keys()) {
+    if (!heldCodes.has(code)) state.aiSignalQuoteStatuses.delete(code);
+  }
+  state.aiSignalRevisionRetryCount = 0;
+  state.aiSignalLastStaleState = false;
+  renderAiSignalLiveStatus();
+  return true;
+}
+
+function aiSignalQuoteUsesActiveSession(quote = {}) {
+  return [
+    "nxt_pre_market",
+    "krx_opening_auction",
+    "krx_regular",
+    "integrated_regular",
+    "nxt_after_market",
+  ].includes(String(quote.market_session || ""));
+}
+
+function aiSignalLiveFreshnessState(item = {}, overlay = null, now = Date.now()) {
+  if (isAiSignalSnapshotStale(now)) return "checking";
+  if (!isCurrentAiSignalHolding(item)) return "confirmed";
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return "offline";
+  const code = String(item.code || "");
+  if (
+    state.quoteStreamOverflowCodes.has(code)
+    || state.quoteStreamRejectedCodes.has(code)
+    || (
+      state.quoteStreamConnectionState === "connected"
+      && !state.quoteStreamSubscribedCodes.has(code)
+    )
+  ) {
+    return "checking";
+  }
+  if (state.aiSignalQuoteStatuses.get(code)?.status === "fallback") {
+    return isDomesticMarketClosed(new Date(now)) ? "closed" : "delayed";
+  }
+  if (!overlay?.payload) return isDomesticMarketClosed(new Date(now)) ? "closed" : "checking";
+  const payload = overlay.payload;
+  const quote = payload.quote || {};
+  const age = Math.max(0, now - (quoteFrameTimestamp(payload) ?? overlay.receivedAt ?? now));
+  const source = String(payload.source || "").toLowerCase();
+  if (source === "kis_realtime" && age <= AI_SIGNAL_REALTIME_QUOTE_MAX_AGE_MS) return "realtime";
+  if (
+    source === "stored_daily_price"
+    || ["closed", "krx_reference", "after_market_reference"].includes(String(quote.market_session || ""))
+  ) {
+    return age <= AI_SIGNAL_CLOSED_STALE_MS ? "closed" : "checking";
+  }
+  if (age <= AI_SIGNAL_DELAYED_QUOTE_MAX_AGE_MS) return "delayed";
+  if (isDomesticMarketClosed(new Date(now)) && age <= AI_SIGNAL_CLOSED_STALE_MS) return "closed";
+  return "checking";
+}
+
+function aiSignalItemWithLiveOverlay(item = {}, now = Date.now()) {
+  const code = String(item.code || "");
+  const overlay = code ? state.aiSignalLiveQuotes.get(code) : null;
+  const freshnessState = aiSignalLiveFreshnessState(item, overlay, now);
+  if (!isCurrentAiSignalHolding(item)) {
+    return { ...item, live_freshness_state: freshnessState };
+  }
+  if (["checking", "offline"].includes(freshnessState) || !overlay?.payload?.quote) {
+    return {
+      ...item,
+      live_return_rate: null,
+      live_freshness_state: freshnessState,
+      display_return_kind: "stale_open_position",
+    };
+  }
+  const quote = overlay.payload.quote;
+  const livePrice = toNumber(quote.price);
+  const returnRate = aiSignalLiveReturnRate(item, quote);
+  if (livePrice === null || returnRate === null) {
+    return {
+      ...item,
+      live_return_rate: null,
+      live_freshness_state: "checking",
+      display_return_kind: "stale_open_position",
+    };
+  }
+  const liveUpdatedAt = overlay.payload.observed_at || overlay.payload.as_of || overlay.payload.published_at || "";
+  return {
+    ...item,
+    live_price: livePrice,
+    live_return_rate: returnRate,
+    live_updated_at: liveUpdatedAt,
+    live_source: overlay.payload.source || "",
+    live_freshness_state: freshnessState,
+    display_return_rate: returnRate,
+    display_return_kind: "live_open_position",
+    current: item.current ? {
+      ...item.current,
+      price: livePrice,
+      unrealized_return: returnRate,
+      as_of: liveUpdatedAt || item.current.as_of,
+    } : item.current,
+    holding_context: item.holding_context ? {
+      ...item.holding_context,
+      price: livePrice,
+      unrealized_return: returnRate,
+    } : item.holding_context,
+  };
+}
+
+function formatAiSignalLiveTime(value) {
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) return "";
+  return new Date(timestamp).toLocaleTimeString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function aiSignalFreshnessView(item = {}) {
+  const stateName = String(item.live_freshness_state || "");
+  if (isCurrentAiSignalHolding(item)) {
+    return {
+      state: AI_SIGNAL_FRESHNESS_LABELS[stateName] ? stateName : "checking",
+      label: AI_SIGNAL_FRESHNESS_LABELS[stateName] || AI_SIGNAL_FRESHNESS_LABELS.checking,
+      time: formatAiSignalLiveTime(item.live_updated_at),
+    };
+  }
+  if (item.display_return_kind === "closed_trade" && item.display_return_rate !== null && item.display_return_rate !== undefined) {
+    return { state: "confirmed", label: AI_SIGNAL_FRESHNESS_LABELS.confirmed, time: "" };
+  }
+  return null;
+}
+
+function aiSignalOutcomeMetrics(item = {}, view = {}) {
+  const current = item.current || {};
+  const action = String(current.action || item.action || "");
+  const pendingEntry = view.preliminary === true
+    && (view.key === "recent-buy" || ["entry_watch", "entry_pending"].includes(action));
+  const openPosition = current.position_open === true;
+  const target = pendingEntry
+    ? null
+    : openPosition
+      ? (current.partial_exit_reference ?? current.target_sell_price ?? item.target_sell_price)
+      : (item.target_sell_price ?? current.target_sell_price ?? current.partial_exit_reference);
+  const targetStatus = pendingEntry ? null : (item.target_sell_status || current.target_sell_status);
+  const score = toNumber(item.score ?? current.score);
+  const returnRate = pendingEntry
+    ? null
+    : toNumber(
+      item.live_return_rate
+        ?? item.display_return_rate
+        ?? current.unrealized_return
+        ?? item.return_rate
+        ?? current.return_rate,
+    );
+  const returnKind = item.live_return_rate !== null && item.live_return_rate !== undefined
+    ? "live_open_position"
+    : (item.display_return_kind || (current.position_open ? "open_position" : "closed_trade"));
+  const freshnessState = String(item.live_freshness_state || "");
+  const closedSell = view.preliminary !== true
+    && view.key === "recent-sell"
+    && returnKind === "closed_trade";
+  const exitPrice = closedSell ? toNumber(item.price) : null;
+  const metrics = [];
+  if (isSignalReconciliation(item)) {
+    metrics.push({ key: "source", label: "구분", value: "전략 버전 통일 정산" });
+  }
+  if (score !== null) {
+    metrics.push({ key: "score", label: "점수", value: `${formatNumber(score)}점` });
+  }
+  const pendingSell = view.preliminary === true
+    && ["partial_exit_pending", "full_exit_pending"].includes(action);
+  if (pendingSell) {
+    const pendingSellPercent = toNumber(current.pending_sell_percent);
+    const expectedRemainingPercent = toNumber(current.expected_remaining_percent);
+    if (pendingSellPercent !== null) {
+      metrics.push({
+        key: "pending-sell",
+        label: "예정 매도비중",
+        value: `${formatNumber(pendingSellPercent)}%`,
+      });
+    }
+    if (expectedRemainingPercent !== null) {
+      metrics.push({
+        key: "remaining",
+        label: "체결 후 잔여비중",
+        value: `${formatNumber(expectedRemainingPercent)}%`,
+      });
+    }
+  }
+  if (exitPrice !== null) {
+    metrics.push({ key: "sell-price", label: "매도가", value: `${formatNumber(exitPrice)}원`, numericValue: exitPrice });
+  } else if (target !== null && target !== undefined && target !== "") {
+    metrics.push({
+      key: "target",
+      label: openPosition ? "다음 수익확정가" : "목표가",
+      value: `${formatNumber(target)}원`,
+    });
+  }
+  if (returnRate !== null) {
+    const returnLabel = returnKind === "closed_trade"
+      ? "확정 수익률"
+      : returnKind === "stale_open_position"
+        ? "최근 확인 수익률"
+        : freshnessState === "realtime"
+          ? "실시간 평가수익률"
+          : "보유 평가수익률";
+    metrics.push({
+      key: "return",
+      label: returnLabel,
+      value: formatPercent(returnRate),
+      numericValue: returnRate,
+      returnKind,
+      freshnessState,
+    });
+  } else if (targetStatus) {
+    const statusLabel = { planned: "목표 매도 예정", hit: "목표 도달", missed: "목표 미달", pending: "목표 확인 중" }[targetStatus] || targetStatus;
+    metrics.push({ key: "target-status", label: "목표 상태", value: statusLabel });
+  }
+  if (view.preliminary && typeof item.preliminary_active === "boolean") {
+    metrics.push({
+      key: "condition-status",
+      label: "예비 상태",
+      value: item.preliminary_active ? "조건 유지" : "조건 해제",
+    });
+  }
+  if (pendingEntry) {
+    metrics.push({ key: "execution", label: "체결 기준", value: "다음 거래일 시가" });
+  } else if (view.preliminary && returnRate === null && !targetStatus) {
+    metrics.push({ key: "confirmation", label: "확정 기준", value: "15:40 전" });
+  }
+  if (!metrics.length) {
+    metrics.push({
+      key: "reason",
+      label: "판단",
+      value: String(item.reason || current.reasons?.[0] || "근거 확인 중"),
+    });
+  }
+  return metrics;
+}
+
+function aiSignalOutcomeLine(item = {}, view = {}) {
+  return aiSignalOutcomeMetrics(item, view)
+    .map((metric) => `${metric.label} ${metric.value}`)
+    .join(" · ");
+}
+
+function aiSignalDetailAriaLabel(item = {}, view = {}) {
+  return `${item.name || item.code || "종목"} ${view.label || "AI 시그널"}, ${aiSignalPriceLine(item, view)}, ${aiSignalOutcomeLine(item, view)}, 상세 분석 보기`;
+}
+
+function aiSignalDetailMetrics(item = {}, view = {}) {
+  return [aiSignalPriceMetric(item, view), ...aiSignalOutcomeMetrics(item, view)];
+}
+
+function createAiSignalMetricRow(metric = {}) {
+  const metricRow = el("span", `home-ai-signal-metric is-${metric.key || "info"}`);
+  metricRow.dataset.metric = metric.key || "info";
+  const labelClass = metric.key === "release-result"
+    ? "home-ai-signal-metric-label sr-only"
+    : "home-ai-signal-metric-label";
+  const label = el("span", labelClass, metric.label || "항목");
+  const value = el("b", "home-ai-signal-metric-value", metric.value || "-");
+  if (metric.key === "price") {
+    value.dataset.field = "ai_signal_price";
+    value.dataset.rawValue = metric.numericValue ?? "";
+  }
+  if (metric.key === "return") {
+    value.dataset.field = "ai_signal_return";
+    value.dataset.rawValue = metric.numericValue ?? "";
+    value.dataset.returnKind = metric.returnKind || "";
+    value.dataset.freshnessState = metric.freshnessState || "";
+    setTone(value, metric.numericValue);
+  }
+  metricRow.append(label, value);
+  return metricRow;
+}
+
+function renderAiSignalMetrics(container, item = {}, view = {}) {
+  container.replaceChildren(...aiSignalDetailMetrics(item, view).map(createAiSignalMetricRow));
+  container.setAttribute("aria-label", `${aiSignalPriceLine(item, view)} · ${aiSignalOutcomeLine(item, view)}`);
+  return container;
+}
+
+function renderAiSignalReleasedMetrics(container, item = {}, view = {}) {
+  container.replaceChildren(...aiSignalReleasedMetrics(item, view).map(createAiSignalMetricRow));
+  container.setAttribute("aria-label", aiSignalReleasedOutcomeLine(item, view));
+  return container;
+}
+
+function createAiSignalFreshnessBadge(item = {}) {
+  const freshness = aiSignalFreshnessView(item);
+  if (!freshness) return null;
+  const badge = el("span", `home-ai-signal-freshness is-${freshness.state}`);
+  badge.dataset.field = "ai_signal_freshness";
+  badge.dataset.state = freshness.state;
+  badge.append(el("i", "", ""), el("span", "", freshness.label));
+  if (freshness.time) {
+    const time = el("time", "", freshness.time);
+    time.dateTime = item.live_updated_at || "";
+    time.setAttribute("aria-hidden", "true");
+    badge.append(time);
+  }
+  badge.setAttribute(
+    "aria-label",
+    freshness.time ? `${freshness.label}, ${freshness.time} 기준` : freshness.label,
+  );
+  return badge;
+}
+
+function aiSignalLiveReturnRate(item = {}, quote = {}) {
+  if (!isCurrentAiSignalHolding(item)) {
+    return null;
+  }
+  return quantSignalLiveReturnRate(
+    item.holding_context || item.current || {},
+    quote.price,
+    item.display_return_rate ?? item.return_rate,
+  );
+}
+
+function quantSignalLiveReturnRate(current = {}, price = null, fallbackReturn = null) {
+  const livePrice = toNumber(price);
+  if (livePrice === null || livePrice <= 0) {
+    return null;
+  }
+  const basis = current.return_basis || {};
+  const basisPrice = toNumber(basis.price);
+  const basisReturn = toNumber(basis.return_rate);
+  const returnPerPrice = toNumber(basis.return_rate_per_price);
+  if (basisPrice !== null && basisPrice > 0 && basisReturn !== null && returnPerPrice !== null) {
+    return basisReturn + ((livePrice - basisPrice) * returnPerPrice);
+  }
+
+  // Older canonical signal servers do not expose the exact cost-adjusted
+  // slope. Keep their return as the base and move only the live price delta.
+  const basePrice = toNumber(current.price);
+  const baseReturn = toNumber(current.unrealized_return ?? fallbackReturn);
+  const entryPrice = toNumber(current.entry_price);
+  const exposurePercent = toNumber(current.model_exposure_percent) ?? 100;
+  if (basePrice === null || basePrice <= 0 || baseReturn === null || entryPrice === null || entryPrice <= 0) {
+    return null;
+  }
+  return baseReturn + ((livePrice - basePrice) / entryPrice * (exposurePercent / 100) * 100);
+}
+
+function applyStockQuantSignalLiveQuote(quote = {}, quotePayload = {}) {
+  const payload = state.stockQuantSignals;
+  const current = payload?.current;
+  if (!payload || !current?.position_open || state.stockQuantRequestedCode !== state.currentStock?.code) {
+    return false;
+  }
+  const livePrice = toNumber(quote.price);
+  const returnRate = quantSignalLiveReturnRate(current, livePrice, payload.display_return_rate);
+  if (livePrice === null || returnRate === null) {
+    return false;
+  }
+  current.price = livePrice;
+  current.unrealized_return = returnRate;
+  current.as_of = quotePayload.as_of || new Date().toISOString();
+  payload.as_of = current.as_of;
+  payload.display_return_rate = returnRate;
+  payload.display_return_kind = "open_position";
+  renderQuantCurrentStatus(payload);
+  return true;
+}
+
+function activeAiSignalList() {
+  return state.view === "home"
+    ? elements.homeAiSignalsList
+    : (state.view === "ai-signals" ? elements.aiSignalsPageList : null);
+}
+
+function visibleAiSignalSnapshotItems() {
+  const list = activeAiSignalList();
+  if (!list) return [];
+  const seen = new Set();
+  return Array.from(list.querySelectorAll(".home-ai-signal-row[data-code]"))
+    .map((row) => row.aiSignalSnapshotItem || null)
+    .filter((item) => {
+      const code = String(item?.code || "");
+      if (!code || seen.has(code)) return false;
+      seen.add(code);
+      return true;
+    });
+}
+
+function aiSignalPageFreshnessView(now = Date.now()) {
+  const visibleItems = visibleAiSignalSnapshotItems();
+  const heldItems = visibleItems.filter((item) => isCurrentAiSignalHolding(item));
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    const summary = aiSignalFreshnessSummary(heldItems.map(() => "offline"));
+    return {
+      ...summary,
+      label: heldItems.length ? aiSignalFreshnessSummaryLabel(summary) : "시세 연결 오프라인",
+      detail: "연결이 복구되면 시그널과 현재가를 다시 확인해요.",
+      time: formatAiSignalLiveTime(state.aiSignalLiveAsOf || state.aiSignalSnapshotAsOf),
+    };
+  }
+  if (isAiSignalSnapshotStale(now)) {
+    const summary = aiSignalFreshnessSummary(heldItems.map(() => "checking"));
+    return {
+      ...summary,
+      label: heldItems.length ? aiSignalFreshnessSummaryLabel(summary) : "시그널 상태 확인 중",
+      detail: "시그널 상태를 다시 확인하는 동안 실시간 수익률 계산을 멈췄어요.",
+      time: formatAiSignalLiveTime(state.aiSignalSnapshotAsOf),
+    };
+  }
+  if (!heldItems.length) {
+    const closed = isDomesticMarketClosed(new Date(now));
+    return {
+      state: closed ? "closed" : (state.quoteStreamConnectionState === "connected" ? "realtime" : "checking"),
+      counts: {},
+      heldCount: 0,
+      mixed: false,
+      label: closed ? "현재 목록 · 장 마감" : "시그널 변경 실시간 확인 중",
+      detail: closed
+        ? "확정 수익률은 유지되고 다음 장의 시그널 변경을 기다려요."
+        : "시그널 변경을 실시간으로 확인하고 있어요.",
+      time: formatAiSignalLiveTime(state.aiSignalSnapshotAsOf),
+    };
+  }
+  const displayItems = heldItems.map((item) => aiSignalItemWithLiveOverlay(item, now));
+  const states = displayItems.map((item) => item.live_freshness_state || "checking");
+  const summary = aiSignalFreshnessSummary(states);
+  const stateName = summary.state;
+  const detail = {
+    realtime: "평가수익률 반영 중",
+    delayed: "실시간 연결을 보완해 약 10초 간격의 현재가로 계산해요.",
+    offline: "연결이 복구되면 시그널과 현재가를 다시 확인해요.",
+    closed: "마지막 확인 가격 기준이며 확정 수익률은 바뀌지 않아요.",
+    checking: "현재가 출처를 확인하는 동안 실시간 수익률 계산을 멈췄어요.",
+  }[stateName];
+  const latestTimestamp = displayItems.reduce((latest, item) => {
+    const timestamp = Date.parse(item.live_updated_at || "");
+    return Number.isFinite(timestamp) && timestamp > latest ? timestamp : latest;
+  }, 0);
+  return {
+    ...summary,
+    label: aiSignalFreshnessSummaryLabel(summary),
+    detail: summary.mixed ? "지연·확인 종목만 아래에 따로 표시해요." : detail,
+    time: latestTimestamp ? formatAiSignalLiveTime(new Date(latestTimestamp).toISOString()) : "",
+  };
+}
+
+function syncAiSignalFreshnessBadgeVisibility(view = {}) {
+  if (!elements.aiSignalsPageList) return;
+  const hideAll = state.aiSignalMode !== "current" || view.mixed !== true;
+  elements.aiSignalsPageList.querySelectorAll('[data-field="ai_signal_freshness"]').forEach((badge) => {
+    const stateName = String(badge.dataset.state || "");
+    badge.hidden = hideAll || ["realtime", "confirmed"].includes(stateName);
+  });
+}
+
+function renderAiSignalLiveStatus() {
+  if (!elements.aiSignalsLiveStatus) return;
+  const showStatus = state.aiSignalMode === "current";
+  elements.aiSignalsLiveStatus.hidden = !showStatus;
+  if (!showStatus) {
+    syncAiSignalFreshnessBadgeVisibility({ mixed: false });
+    return;
+  }
+  const view = aiSignalPageFreshnessView();
+  const label = view.label || AI_SIGNAL_FRESHNESS_LABELS[view.state] || AI_SIGNAL_FRESHNESS_LABELS.checking;
+  elements.aiSignalsLiveStatus.dataset.state = view.state;
+  elements.aiSignalsLiveStatus.dataset.mixed = String(view.mixed === true);
+  if (elements.aiSignalsLiveStatusLabel.textContent !== label) {
+    elements.aiSignalsLiveStatusLabel.textContent = label;
+  }
+  if (elements.aiSignalsLiveStatusDetail.textContent !== view.detail) {
+    elements.aiSignalsLiveStatusDetail.textContent = view.detail;
+  }
+  elements.aiSignalsLiveStatusTime.textContent = view.time || "";
+  elements.aiSignalsLiveStatusTime.hidden = !view.time;
+  elements.aiSignalsLiveStatus.setAttribute(
+    "aria-label",
+    `현재 목록. ${label}. ${view.detail}${view.time ? `. ${view.time} 기준` : ""}`,
+  );
+  syncAiSignalFreshnessBadgeVisibility(view);
+}
+
+function refreshAiSignalLiveRows(code = "") {
+  const list = activeAiSignalList();
+  if (!list) {
+    renderAiSignalLiveStatus();
+    return;
+  }
+  const selector = code
+    ? `.home-ai-signal-row[data-code="${selectorEscape(String(code))}"]`
+    : ".home-ai-signal-row[data-code]";
+  list.querySelectorAll(selector).forEach((row) => {
+    const snapshotItem = row.aiSignalSnapshotItem;
+    if (!snapshotItem || isReleasedPreliminaryAiSignal(snapshotItem)) return;
+    const item = aiSignalItemWithLiveOverlay(snapshotItem);
+    const view = homeAiSignalView(item);
+    if (!view) return;
+    row.aiSignalItem = item;
+    const metrics = row.querySelector('[data-field="ai_signal_metrics"]');
+    if (metrics) {
+      const returnMetric = aiSignalOutcomeMetrics(item, view).find((metric) => metric.key === "return");
+      const returnRow = metrics.querySelector('[data-metric="return"]');
+      const returnLabel = returnRow?.querySelector(".home-ai-signal-metric-label");
+      const returnValue = returnRow?.querySelector('[data-field="ai_signal_return"]');
+      if (!returnMetric || !returnLabel || !returnValue) {
+        renderAiSignalMetrics(metrics, item, view);
+      } else {
+        returnLabel.textContent = returnMetric.label;
+        flashTextUpdate(returnValue, returnMetric.value, returnMetric.numericValue);
+        returnValue.dataset.returnKind = returnMetric.returnKind || "";
+        returnValue.dataset.freshnessState = returnMetric.freshnessState || "";
+        setLiveCellTone(returnValue, returnMetric.numericValue);
+      }
+      metrics.dataset.live = String(["realtime", "delayed"].includes(item.live_freshness_state));
+      metrics.setAttribute("aria-label", `${aiSignalPriceLine(item, view)} · ${aiSignalOutcomeLine(item, view)}`);
+      if (item.live_price !== null && item.live_price !== undefined) {
+        metrics.title = `${AI_SIGNAL_FRESHNESS_LABELS[item.live_freshness_state] || "최근"} 현재가 ${formatNumber(item.live_price)}원 기준`;
+      } else {
+        metrics.removeAttribute("title");
+      }
+      const currentBadge = row.querySelector('[data-field="ai_signal_freshness"]');
+      const nextBadge = createAiSignalFreshnessBadge(item);
+      if (currentBadge && nextBadge) currentBadge.replaceWith(nextBadge);
+      else if (currentBadge) currentBadge.remove();
+      else if (nextBadge) metrics.before(nextBadge);
+      if (!row.dataset.aiSignalListLink) {
+        row.setAttribute("aria-label", aiSignalDetailAriaLabel(item, view));
+      }
+    }
+  });
+  renderAiSignalLiveStatus();
+}
+
+function updateAiSignalLiveQuote(code, quote, payload = {}) {
+  const normalizedCode = String(code || "");
+  if (!normalizedCode || !quote) {
+    return false;
+  }
+  const item = currentAiSignalItems(state.aiSignalItems).find(
+    (candidate) => String(candidate.code || "") === normalizedCode && isCurrentAiSignalHolding(candidate),
+  );
+  if (!item || aiSignalLiveReturnRate(item, quote) === null) return false;
+  const accepted = state.quoteStreamLatestByCode.get(normalizedCode);
+  const receivedAt = accepted?.payload === payload ? accepted.receivedAt : Date.now();
+  state.aiSignalLiveQuotes.set(normalizedCode, {
+    payload: { ...payload, code: normalizedCode, quote: { ...quote } },
+    receivedAt,
+  });
+  if (String(payload.source || "").toLowerCase() === "kis_realtime") {
+    state.aiSignalQuoteStatuses.delete(normalizedCode);
+  }
+  state.aiSignalLiveAsOf = payload.observed_at || payload.as_of || payload.published_at || "";
+  refreshAiSignalLiveRows(normalizedCode);
+  return true;
+}
+
+function updateAiSignalQuoteStatus(code, payload = {}) {
+  const normalizedCode = String(code || "");
+  if (!normalizedCode) return false;
+  if (String(payload.status || "").toLowerCase() === "fallback") {
+    state.aiSignalQuoteStatuses.set(normalizedCode, {
+      status: "fallback",
+      message: String(payload.message || ""),
+      receivedAt: Date.now(),
+    });
+  } else {
+    state.aiSignalQuoteStatuses.delete(normalizedCode);
+  }
+  refreshAiSignalLiveRows(normalizedCode);
+  return true;
+}
+
+function closeAiSignalQuoteStreams() {
+  state.quoteStreamSignalControlActive = false;
+  clearQuoteStreamScope("ai-signals");
+  renderAiSignalLiveStatus();
+}
+
+function connectAiSignalQuoteStreams(_items = state.aiSignalItems) {
+  state.quoteStreamSignalControlActive = true;
+  const codes = visibleAiSignalSnapshotItems()
+    .filter((item) => isCurrentAiSignalHolding(item))
+    .map((item) => String(item.code || ""))
+    .filter(Boolean);
+  replaceQuoteStreamScope("ai-signals", codes.map((code, index) => ({
+    code,
+    priority: quoteStreamScopePriority("ai-signals") - index,
+    handlers: {
+      onQuote: (payload) => updateAiSignalLiveQuote(code, payload.quote, payload),
+      onStatus: (payload) => updateAiSignalQuoteStatus(code, payload),
+    },
+  })));
+  renderAiSignalLiveStatus();
+}
+
+function normalizedAiSignalItems(items = [], options = {}) {
+  const includeHistorical = options.includeHistorical === true;
   return items
     .filter((item) => homeAiSignalView(item))
+    // A held stock needs its current strategy state even when its last
+    // transition is older than 30 days. The market feed remains recent-only.
+    .filter((item) => includeHistorical || isCurrentAiSignalHolding(item) || isRecentAiSignal(item))
     .sort((left, right) => {
       const leftSort = aiSignalSortValue(left);
       const rightSort = aiSignalSortValue(right);
-      return leftSort[0] - rightSort[0] || leftSort[1] - rightSort[1];
+      return leftSort[0] - rightSort[0]
+        || leftSort[1] - rightSort[1]
+        || leftSort[2] - rightSort[2];
     });
 }
 
@@ -6244,26 +13857,19 @@ function homeMarketVolatilitySentence(items = state.homeMarketIndexItems) {
     return "코스피와 코스닥 흐름이 엇갈려 종목별 변동성 차이를 확인해야 합니다.";
   }
   if (allPositive && maximumMove >= 0.7) {
-function isRecentAiSignal(item, now = Date.now()) {
-  const signalDate = homeAiSignalView(item)?.signalDate;
-  const timestamp = Date.parse(signalDate || "");
-  return Number.isFinite(timestamp) && timestamp >= now - 30 * 24 * 60 * 60 * 1000 && timestamp <= now + 24 * 60 * 60 * 1000;
-}
-
     return "코스피와 코스닥이 함께 강세지만 단기 추격보다 종목별 수급 확인이 필요합니다.";
   }
   if (allNegative && maximumMove >= 0.7) {
     return "코스피와 코스닥이 함께 약세여서 추가 하락과 수급 이탈에 유의해야 합니다.";
-    .filter((item) => isRecentAiSignal(item))
   }
   return "국내 지수 변동은 제한적이지만 종목별 움직임 차이를 확인할 구간입니다.";
 }
 
 function homeAttentionSignal(items = []) {
-  const normalized = normalizedAiSignalItems(items);
+  const normalized = currentAiSignalItems(normalizedAiSignalItems(items));
   const score = (item) => toNumber(item?.current?.score) ?? -Infinity;
   const pickHighest = (candidates) => [...candidates].sort((left, right) => score(right) - score(left))[0] || null;
-  const holding = normalized.filter((item) => homeAiSignalView(item)?.key === "holding");
+  const holding = normalized.filter((item) => isCurrentAiSignalHolding(item));
   const recentBuy = normalized.filter((item) => homeAiSignalView(item)?.key === "recent-buy");
   const recentSell = normalized.filter((item) => homeAiSignalView(item)?.key === "recent-sell");
   return pickHighest(holding) || pickHighest(recentBuy) || recentSell[0] || null;
@@ -6272,19 +13878,32 @@ function homeAttentionSignal(items = []) {
 function homeAttentionSentence(items = []) {
   const item = homeAttentionSignal(items);
   if (!item) {
+    if (state.homeAiSignalsAsOf) {
+      return readWatchlist().length
+        ? "관심종목의 최근 30일 확정 AI 시그널은 없습니다. 가격과 거래대금 변화를 먼저 확인하세요."
+        : "최근 30일 확정 AI 시그널은 없습니다. 시장 핵심 요인을 먼저 확인하세요.";
+    }
     return readWatchlist().length
       ? "관심종목 분석을 불러오는 중이므로 현재가와 수급 변화를 먼저 확인하세요."
       : "관심종목을 추가하면 우선 확인할 종목과 이유를 알려드립니다.";
   }
   const name = item.name || item.code || "관심종목";
   const view = homeAiSignalView(item);
-  if (view?.key === "holding") {
+  if (isCurrentAiSignalHolding(item)) {
     return `${name} 유의: 보유 신호가 유지 중이므로 변동성 확대 시 매도 기준 도달 여부를 확인하세요.`;
   }
   if (view?.key === "recent-buy") {
-    return `${name} 유의: 최근 매수 신호 이후 변동성이 커질 수 있어 손실 제한 기준을 확인하세요.`;
+    if (view.preliminary) {
+      return view.label === "예비 포착"
+        ? `${name}: 조기 추세 후보가 포착됐으며 다음 매수 확정 조건을 확인하고 있습니다.`
+        : `${name}: AI 예비 매수 상태이며 15:40 확정 전까지 결과가 바뀔 수 있습니다.`;
+    }
+    return `${name}: AI 매수 신호 이후 가격과 거래대금 변화를 추적 중입니다.`;
   }
-  return `${name} 유의: 최근 매도 신호가 있어 가격이 안정되기 전 재진입을 서두르지 마세요.`;
+  if (view?.preliminary) {
+    return `${name}: AI 예비 매도 상태이며 15:40 확정 전까지 결과가 바뀔 수 있습니다.`;
+  }
+  return `${name}: AI 확정 매도 상태이며 이후 가격과 거래대금 변화를 추적 중입니다.`;
 }
 
 function compactMarketHeadline(value, maxLength = 42) {
@@ -6299,9 +13918,10 @@ function compactMarketHeadline(value, maxLength = 42) {
 }
 
 function homeTrendTimeline(payload = state.homeTrendContext || {}) {
+  const context = payload || {};
   const entries = [
-    ...(Array.isArray(payload.timeline) ? payload.timeline : []),
-    ...(Array.isArray(payload.events) ? payload.events.flatMap((event) => event.timeline || []) : []),
+    ...(Array.isArray(context.timeline) ? context.timeline : []),
+    ...(Array.isArray(context.events) ? context.events.flatMap((event) => event.timeline || []) : []),
   ];
   const seen = new Set();
   return entries.filter((item) => {
@@ -6314,127 +13934,679 @@ function homeTrendTimeline(payload = state.homeTrendContext || {}) {
   });
 }
 
-function majorMarketIssueContext(payload = state.homeTrendContext || {}, now = Date.now()) {
-  const majorIssuePattern = /전쟁|공습|미사일|침공|무력\s*충돌|군사\s*충돌|교전|휴전\s*파기|테러|핵실험|비상계엄|대규모\s*제재|지진|쓰나미|태풍|허리케인|홍수|산불|대형\s*재난|비상사태|무역전쟁|수출\s*규제|금수/;
-  const candidates = homeTrendTimeline(payload)
-    .map((item) => ({ ...item, timestamp: Date.parse(item.published_at || "") }))
-    .filter((item) => Number.isFinite(item.timestamp)
-      && item.timestamp <= now + 10 * 60 * 1000
-      && item.timestamp >= now - 36 * 60 * 60 * 1000
-      && majorIssuePattern.test(item.title));
-  if (!candidates.length) {
-    return null;
+function homeNewsRelevanceScore(item = {}) {
+  const title = String(item?.title || "");
+  const category = String(item?.category || "");
+  let score = 0;
+  if (/증시|코스피|코스닥|주식|시장|ETF|채권|환율|원\/?달러|금리|달러|유가|원유|반도체|미국|나스닥|연준|FOMC|관세|수출|실적|공시|배당|금융/.test(title)) {
+    score += 3;
   }
-  const item = candidates.sort((left, right) => right.timestamp - left.timestamp)[0];
-  const title = compactMarketHeadline(item.title);
-  const isWar = /전쟁|공습|미사일|침공|충돌|교전|테러|핵실험|제재/.test(item.title);
-  const isDisaster = /지진|쓰나미|태풍|허리케인|홍수|산불|재난|비상사태/.test(item.title);
-  const themes = isWar
-    ? ["방산", "정유", "항공", "해운"]
-    : isDisaster
-      ? ["보험", "운송", "건설"]
-      : ["자동차", "반도체", "수출"];
-  return {
-    kind: "major-issue",
-    title,
-    asOf: item.published_at,
-    themes,
-    leaderStocks: item.leader_stocks || [],
-    sentence: `${title} 소식이 최우선 변수입니다. 관련 자산과 업종의 급격한 방향 전환에 유의하세요.`,
-    watchReason: "대형 이슈 영향권이므로 관련 속보와 장중 수급 변화를 함께 확인하세요.",
-  };
+  if (/시장|매크로|원자재|반도체|금융|대형주/.test(category)) {
+    score += 2;
+  }
+  return score;
 }
 
-function upcomingMarketEventContext(payload = state.homeTrendContext || {}, now = Date.now()) {
+function marketFactText(value = "") {
+  return String(value || "")
+    .replace(/\.{3,}|…+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isMarketReactionHeadline(value = "") {
+  const headline = marketFactText(value);
+  const marketSubject = /뉴욕\s*증시|증시|코스피|코스닥|다우|나스닥|S&P|주가|유가|원유|환율|채권/;
+  const marketReaction = /상승|하락|급등|급락|반등|약세|강세|혼조|보합|마감|출발|최고치|최저치|폭등|폭락/;
+  return marketSubject.test(headline) && marketReaction.test(headline);
+}
+
+function isFinancialConflictMetaphorHeadline(value = "") {
+  const headline = marketFactText(value);
+  const financialSubject = /환율|통화|외환|달러|엔화|원화|채권|금리/;
+  const conflictMetaphor = /전쟁|전선|참전/;
+  return new RegExp(`(?:${financialSubject.source}).{0,12}(?:${conflictMetaphor.source})`).test(headline)
+    || new RegExp(`(?:${conflictMetaphor.source}).{0,12}(?:${financialSubject.source})`).test(headline);
+}
+
+function isMilitaryDeescalationHeadline(value = "") {
+  const headline = marketFactText(value);
+  if (!headline || /가능성|검토|촉구|요구|제안|전망/.test(headline)) {
+    return false;
+  }
+  const conflictAction = /공격|공습|폭격|군사\s*작전|미사일\s*발사|전쟁|무력\s*충돌|군사\s*충돌|교전/;
+  const stopAction = /중단|취소|철회|종료|유예|보류|휴전|종전/;
+  const conflictThenStop = new RegExp(`(?:${conflictAction.source}).{0,24}(?:${stopAction.source})`);
+  const stopThenConflict = new RegExp(`(?:${stopAction.source}).{0,24}(?:${conflictAction.source})`);
+  const confirmedCeasefire = /(?:휴전|종전).{0,18}(?:합의|선언|발효|타결)|(?:합의|선언|발효|타결).{0,18}(?:휴전|종전)/;
+  return conflictThenStop.test(headline) || stopThenConflict.test(headline) || confirmedCeasefire.test(headline);
+}
+
+function isMilitaryThreatHeadline(value = "") {
+  const headline = marketFactText(value);
+  const conflictAction = /공격|공습|폭격|군사\s*작전|미사일\s*발사|전쟁|무력\s*충돌|군사\s*충돌|교전/;
+  const threatLanguage = /가능성|검토|시사|경고|압박|위협|불응|요구|촉구|최후통첩|마지막\s*기회/;
+  return conflictAction.test(headline)
+    && threatLanguage.test(headline)
+    && !isMilitaryDeescalationHeadline(headline);
+}
+
+function homeMarketFactScore(item = {}) {
+  const title = marketFactText(item?.title || "");
+  const isDeescalation = isMilitaryDeescalationHeadline(title);
+  const isFinancialConflictMetaphor = isFinancialConflictMetaphorHeadline(title);
+  if (!title
+    || (isMarketReactionHeadline(title) && !isDeescalation)
+    || isRetrospectiveMajorIssueReference(title)) {
+    return -100;
+  }
+
+  let score = 0;
+  if (isDeescalation) {
+    score += 18;
+  }
+  if (/트럼프.*(?:전쟁.*(?:중단|휴전|종전)|(?:휴전|종전).*(?:선언|합의|중단))/.test(title)) {
+    score += 16;
+  }
+  if (/(?:연준|Fed|FOMC|한국은행|ECB|BOJ|일본은행).{0,32}?(?:기준금리|금리).{0,24}?(?:인상|인하|동결)|(?:기준금리|금리).{0,24}?(?:인상|인하|동결).{0,32}?(?:연준|Fed|FOMC|한국은행|ECB|BOJ|일본은행)/i.test(title)) {
+    score += 15;
+  }
+  if (/금융위.*증시\s*긴급조치권.*도입\s*추진/.test(title)) {
+    score += 12;
+  }
+  if (/(?:미국|美).{0,20}(?:일본|日).{0,24}(?:공조|환율)|(?:환율|엔저).{0,24}(?:공조|개입)/.test(title)) {
+    score += 11;
+  }
+  if (isFinancialConflictMetaphor) {
+    score += 7;
+  }
+  if (isMilitaryThreatHeadline(title)) {
+    score += 8;
+  } else if (!isDeescalation
+    && !isFinancialConflictMetaphor
+    && /전쟁|공습|미사일\s*발사|침공|무력\s*충돌|군사\s*충돌|교전|테러|핵실험|대규모\s*제재|무역전쟁|수출\s*규제|금수/.test(title)) {
+    score += 10;
+  }
+  if (/지진|쓰나미|태풍|허리케인|홍수|산불|대형\s*재난|비상사태/.test(title)) {
+    score += 10;
+  }
+  if (/(나흘간|최근\s*\d+일)\s*[\d,]+p\s*요동.*?코스피/.test(title)) {
+    score += 6;
+  }
+  return score;
+}
+
+function homeNewsThemes(item = {}) {
+  const text = `${item?.title || ""} ${item?.category || ""}`;
+  const themeMap = [
+    ["반도체", /반도체|삼성전자|SK하이닉스|HBM|AI 서버/],
+    ["인터넷", /NAVER|카카오|인터넷|플랫폼|게임/],
+    ["2차전지", /2차전지|배터리|LG에너지|삼성SDI|에코프로/],
+    ["자동차", /현대차|기아|자동차/],
+    ["금융", /은행|증권|보험|금리|예탁금/],
+    ["정유", /정유|원유|유가|석유|중동/],
+    ["화학", /화학|소재|철강/],
+    ["항공", /항공|여행/],
+    ["해운", /해운|운송|물류/],
+    ["건설", /건설|부동산|리츠/],
+  ];
+  return themeMap.filter(([, pattern]) => pattern.test(text)).map(([theme]) => theme);
+}
+
+function marketNewsHeadlineSentence(title = "") {
+  const headline = marketFactText(title);
+  const isDeescalation = isMilitaryDeescalationHeadline(headline);
+  if (isMarketReactionHeadline(headline) && !isDeescalation) {
+    return "";
+  }
+  const kospiSwing = headline.match(/(나흘간|최근\s*\d+일)\s*([\d,]+)p\s*요동.*?코스피/);
+  if (kospiSwing) {
+    const period = kospiSwing[1] === "나흘간" ? "나흘 동안" : kospiSwing[1];
+    const points = Number(kospiSwing[2].replace(/,/g, "")).toLocaleString("ko-KR");
+    return `코스피가 ${period} ${points}p 크게 움직였다는 보도가 나왔습니다.`;
+  }
+  if (/금융위.*증시\s*긴급조치권.*도입\s*추진/.test(headline)) {
+    return "금융위원회가 증시 긴급조치권 도입을 추진한다는 보도가 나왔습니다.";
+  }
+  if (/(?:미국|美).{0,20}(?:일본|日).{0,24}(?:공조|환율)|(?:환율|엔저).{0,24}(?:공조|개입)/.test(headline)) {
+    return "미국과 일본이 환율 대응 공조에 나섰다는 보도가 나왔습니다.";
+  }
+  if (isFinancialConflictMetaphorHeadline(headline)) {
+    return "환율·통화정책을 둘러싼 정책 변화 가능성이 보도됐습니다.";
+  }
+  if (/트럼프.*(?:전쟁.*(?:중단|휴전|종전)|(?:휴전|종전).*(?:선언|합의|중단))/.test(headline)) {
+    return "트럼프가 전쟁 중단을 선언했다는 보도가 나왔습니다.";
+  }
+  if (isDeescalation) {
+    const isUsIran = /(?:트럼프|미국|美).{0,24}(?:이란|대이란)|(?:이란|대이란).{0,24}(?:트럼프|미국|美)/.test(headline);
+    if (isUsIran && /공습|공격|폭격/.test(headline)) {
+      if (/취소|철회/.test(headline)) {
+        return "미국이 이란 공습을 취소했다는 보도가 나왔습니다.";
+      }
+      return "미국이 이란에 대한 군사 공격을 중단했다는 보도가 나왔습니다.";
+    }
+    if (/휴전|종전/.test(headline)) {
+      return "군사 충돌 중단 또는 휴전이 확정됐다는 보도가 나왔습니다.";
+    }
+    return "군사 공격이 중단 또는 취소됐다는 보도가 나왔습니다.";
+  }
+  const rateDecision = headline.match(/(?:기준금리|금리).{0,24}?(인상|인하|동결)/);
+  if (rateDecision && /연준|Fed|FOMC|한국은행|ECB|BOJ|일본은행/i.test(headline)) {
+    const bank = /연준|Fed|FOMC/i.test(headline)
+      ? "미 연준"
+      : /한국은행/.test(headline)
+        ? "한국은행"
+        : /일본은행|BOJ/i.test(headline)
+          ? "일본은행"
+          : "유럽중앙은행";
+    return `${bank}이 기준금리를 ${rateDecision[1]}했다는 발표가 나왔습니다.`;
+  }
+  if (isMilitaryThreatHeadline(headline)) {
+    return "군사 공격 가능성 또는 경고 관련 보도가 나왔습니다.";
+  }
+  if (/전쟁|공습|미사일\s*발사|침공|무력\s*충돌|군사\s*충돌|교전|테러|핵실험|대규모\s*제재|무역전쟁|수출\s*규제|금수/.test(headline)) {
+    return "전쟁 또는 군사 충돌 관련 속보가 나왔습니다.";
+  }
+  if (/지진|쓰나미|태풍|허리케인|홍수|산불|대형\s*재난|비상사태/.test(headline)) {
+    return "대형 재난 관련 속보가 나왔습니다.";
+  }
+  return "";
+}
+
+function isFreshHomeMarketNews(item = {}, now = Date.now()) {
+  const timestamp = Number.isFinite(item?.timestamp)
+    ? item.timestamp
+    : Date.parse(item?.published_at || "");
+  if (!Number.isFinite(timestamp) || timestamp > now + 10 * 60 * 1000) {
+    return false;
+  }
+  const maxAge = isMilitaryDeescalationHeadline(item?.title)
+    ? HOME_DEESCALATION_NEWS_MAX_AGE_MS
+    : HOME_MARKET_NEWS_MAX_AGE_MS;
+  return timestamp >= now - maxAge;
+}
+
+function homeMarketNewsSentence(item = {}, now = Date.now()) {
+  const sentence = marketNewsHeadlineSentence(item?.title);
+  const timestamp = Number.isFinite(item?.timestamp)
+    ? item.timestamp
+    : Date.parse(item?.published_at || "");
+  if (!sentence || !Number.isFinite(timestamp)) {
+    return sentence;
+  }
+  const ageHours = Math.max(0, Math.floor((now - timestamp) / (60 * 60 * 1000)));
+  return ageHours >= 1 ? `${ageHours}시간 전 보도 기준입니다. ${sentence}` : sentence;
+}
+
+function homeMarketEventKey(item = {}) {
+  const headline = marketFactText(item?.title || "");
+  if (isFinancialConflictMetaphorHeadline(headline)) {
+    return "fx:policy";
+  }
+  const conflictAction = /공격|공습|폭격|미사일|침공|전쟁|무력\s*충돌|군사\s*충돌|교전|휴전|종전/;
+  if (conflictAction.test(headline)) {
+    const actors = [
+      ["us", /미국|美|트럼프|(?:^|[\s,·])미(?=[\s,·])/],
+      ["iran", /이란/],
+      ["israel", /이스라엘/],
+      ["russia", /러시아/],
+      ["ukraine", /우크라이나/],
+      ["china", /중국|中/],
+      ["taiwan", /대만/],
+      ["north-korea", /북한/],
+      ["korea", /한국|韓/],
+      ["japan", /일본|日/],
+    ].filter(([, pattern]) => pattern.test(headline)).map(([key]) => key);
+    return `military:${actors.sort().join("-") || compactMarketHeadline(headline, 28)}`;
+  }
+  if (/연준|Fed|FOMC|한국은행|ECB|BOJ|일본은행|기준금리/i.test(headline)) {
+    const bank = /한국은행/.test(headline) ? "bok" : /ECB/i.test(headline) ? "ecb" : /BOJ|일본은행/i.test(headline) ? "boj" : "fed";
+    return `rates:${bank}`;
+  }
+  if (/EIA|원유\s*재고|유가/.test(headline)) {
+    return "energy:oil";
+  }
+  if (/지진|쓰나미|태풍|허리케인|홍수|산불|대형\s*재난/.test(headline)) {
+    return `disaster:${headline.match(/지진|쓰나미|태풍|허리케인|홍수|산불|대형\s*재난/)?.[0] || "global"}`;
+  }
+  const normalized = headline
+    .replace(/^\[[^\]]+\]\s*/, "")
+    .replace(/상승|하락|급등|급락|강세|약세|마감|출발|속보/g, "")
+    .replace(/[^가-힣A-Za-z0-9]/g, "")
+    .slice(0, 36);
+  return `headline:${normalized || item?.id || "unknown"}`;
+}
+
+function homeMarketEventState(item = {}) {
+  const headline = marketFactText(item?.title || "");
+  if (isMilitaryDeescalationHeadline(headline)) {
+    return "resolved";
+  }
+  if (isMilitaryThreatHeadline(headline)) {
+    return "threat";
+  }
+  if (/공격\s*(?:개시|단행|감행)|공습\s*(?:개시|단행|감행)|폭격\s*(?:개시|단행)|미사일\s*(?:발사|공격)|침공\s*(?:개시|단행)|교전\s*(?:발생|격화)/.test(headline)) {
+    return "active";
+  }
+  return "update";
+}
+
+function consolidatedHomeMarketNews(payload = state.homeTrendContext || {}, now = Date.now()) {
+  const grouped = new Map();
+  for (const sourceItem of homeTrendTimeline(payload)) {
+    const item = { ...sourceItem, timestamp: Date.parse(sourceItem?.published_at || "") };
+    if (!isFreshHomeMarketNews(item, now)) {
+      continue;
+    }
+    const eventKey = homeMarketEventKey(item);
+    const current = grouped.get(eventKey);
+    const sourceCount = (current?.sourceCount || 0) + 1;
+    if (!current || item.timestamp > current.timestamp) {
+      grouped.set(eventKey, {
+        ...item,
+        eventKey,
+        eventState: homeMarketEventState(item),
+        sourceCount,
+      });
+    } else {
+      current.sourceCount = sourceCount;
+    }
+  }
+  return [...grouped.values()];
+}
+
+function recentMarketNewsContexts(payload = state.homeTrendContext || {}, now = Date.now()) {
+  const candidates = consolidatedHomeMarketNews(payload, now)
+    .map((item) => ({
+      ...item,
+      factScore: homeMarketFactScore(item),
+      sentence: homeMarketNewsSentence(item, now),
+    }))
+    .filter((item) => item.factScore >= 6 && item.sentence)
+    .sort((left, right) => right.factScore - left.factScore || right.timestamp - left.timestamp);
+  return candidates.map((item) => {
+    const isDeescalation = isMilitaryDeescalationHeadline(item.title);
+    const isConflict = /전쟁|공습|미사일|침공|무력\s*충돌|군사\s*충돌|교전|테러|핵실험|제재/.test(item.title);
+    return {
+      kind: "market-news",
+      id: item.id,
+      title: marketFactText(item.title) || "시장 변동 뉴스",
+      asOf: item.published_at,
+      eventKey: item.eventKey,
+      eventState: item.eventState,
+      sourceCount: item.sourceCount,
+      themes: homeNewsThemes(item),
+      leaderStocks: item.leader_stocks || [],
+      sentence: item.sentence,
+      responseTone: isDeescalation ? "relief" : isConflict ? "risk" : "news",
+      watchReason: "시장 핵심 뉴스 영향권입니다. 관련 종목의 거래대금과 수급 변화를 함께 확인하세요.",
+    };
+  });
+}
+
+function recentMarketNewsContext(payload = state.homeTrendContext || {}, now = Date.now()) {
+  return recentMarketNewsContexts(payload, now)[0] || null;
+}
+
+function isRetrospectiveMajorIssueReference(title = "") {
+  return /때나\s*보던|때를\s*떠올리게|당시처럼|이후\s*(?:처음|최대)|수준의|비유/.test(String(title || ""));
+}
+
+function majorMarketIssueSentence(title = "") {
+  return marketNewsHeadlineSentence(title)
+    || "시장에 영향을 줄 수 있는 대형 돌발 이슈가 확인됐습니다.";
+}
+
+function majorMarketIssueContexts(payload = state.homeTrendContext || {}, now = Date.now()) {
+  const majorIssuePattern = /전쟁|공습|미사일|침공|무력\s*충돌|군사\s*충돌|교전|휴전\s*파기|테러|핵실험|비상계엄|대규모\s*제재|지진|쓰나미|태풍|허리케인|홍수|산불|대형\s*재난|비상사태|무역전쟁|수출\s*규제|금수/;
+  const candidates = consolidatedHomeMarketNews(payload, now)
+    .filter((item) => isFreshHomeMarketNews(item, now)
+      && (majorIssuePattern.test(item.title) || isMilitaryDeescalationHeadline(item.title))
+      && !isFinancialConflictMetaphorHeadline(item.title)
+      && (!isMarketReactionHeadline(item.title) || isMilitaryDeescalationHeadline(item.title))
+      && !isRetrospectiveMajorIssueReference(item.title));
+  return candidates
+    .sort((left, right) => right.timestamp - left.timestamp)
+    .map((item) => {
+      const title = marketFactText(item.title);
+      const isDeescalation = isMilitaryDeescalationHeadline(item.title);
+      const isWar = !isFinancialConflictMetaphorHeadline(item.title)
+        && /전쟁|공격|공습|폭격|미사일|침공|충돌|교전|테러|핵실험|제재/.test(item.title);
+      const isDisaster = /지진|쓰나미|태풍|허리케인|홍수|산불|재난|비상사태/.test(item.title);
+      const themes = isWar
+        ? ["방산", "정유", "항공", "해운"]
+        : isDisaster
+          ? ["보험", "운송", "건설"]
+          : ["자동차", "반도체", "수출"];
+      return {
+        kind: "major-issue",
+        id: item.id,
+        title,
+        asOf: item.published_at,
+        eventKey: item.eventKey,
+        eventState: item.eventState,
+        sourceCount: item.sourceCount,
+        themes,
+        leaderStocks: item.leader_stocks || [],
+        sentence: homeMarketNewsSentence(item, now) || majorMarketIssueSentence(item.title),
+        responseTone: isDeescalation ? "relief" : "risk",
+        watchReason: isDeescalation
+          ? "긴장 완화 뉴스가 확인됐습니다. 유가와 방산·항공·해운 업종의 장중 반응을 함께 확인하세요."
+          : "대형 이슈 영향권이므로 관련 속보와 장중 수급 변화를 함께 확인하세요.",
+      };
+    });
+}
+
+function majorMarketIssueContext(payload = state.homeTrendContext || {}, now = Date.now()) {
+  return majorMarketIssueContexts(payload, now)[0] || null;
+}
+
+function upcomingMarketEventContexts(payload = state.homeTrendContext || {}, now = Date.now()) {
   const importanceScore = { "매우 중요": 3, 중요: 2, 보통: 1 };
   const candidates = (Array.isArray(payload.events) ? payload.events : [])
     .map((event) => ({ ...event, timestamp: Date.parse(event.starts_at || "") }))
     .filter((event) => Number.isFinite(event.timestamp)
       && event.timestamp >= now - 15 * 60 * 1000
-      && event.timestamp <= now + 36 * 60 * 60 * 1000)
+      && event.timestamp <= now + 7 * 24 * 60 * 60 * 1000
+      && (importanceScore[event.importance] || 0) >= 2)
     .sort((left, right) => {
       const importanceGap = (importanceScore[right.importance] || 0) - (importanceScore[left.importance] || 0);
       return importanceGap || left.timestamp - right.timestamp;
     });
-  if (!candidates.length) {
-    return null;
-  }
-  const event = candidates[0];
-  const eventDate = new Date(event.timestamp);
-  const today = new Date(now);
-  const sameDay = eventDate.getFullYear() === today.getFullYear()
-    && eventDate.getMonth() === today.getMonth()
-    && eventDate.getDate() === today.getDate();
-  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-  const isTomorrow = eventDate.getFullYear() === tomorrow.getFullYear()
-    && eventDate.getMonth() === tomorrow.getMonth()
-    && eventDate.getDate() === tomorrow.getDate();
-  const timeLabel = eventDate.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
-  const dayLabel = sameDay ? "오늘" : isTomorrow ? "내일" : `${eventDate.getMonth() + 1}월 ${eventDate.getDate()}일`;
-  const focus = [...(event.affected_variables || []), ...(event.affected_sectors || [])].slice(0, 3).join("·");
-  return {
-    kind: "event",
-    title: event.title,
-    asOf: event.starts_at,
-    timestamp: event.timestamp,
-    importance: event.importance,
-    themes: event.affected_sectors || [],
-    leaderStocks: (event.timeline || []).flatMap((item) => item.leader_stocks || []),
-    sentence: `${dayLabel} ${timeLabel} ${event.title} 발표가 예정돼 ${focus || "국내증시"} 변동성이 커질 수 있습니다.`,
-    watchReason: `${event.title} 민감 종목입니다. 발표 전후 가격보다 거래대금과 외국인 수급 변화를 먼저 확인하세요.`,
-  };
+  return candidates.map((event) => {
+    const eventDate = new Date(event.timestamp);
+    const today = new Date(now);
+    const sameDay = eventDate.getFullYear() === today.getFullYear()
+      && eventDate.getMonth() === today.getMonth()
+      && eventDate.getDate() === today.getDate();
+    const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    const isTomorrow = eventDate.getFullYear() === tomorrow.getFullYear()
+      && eventDate.getMonth() === tomorrow.getMonth()
+      && eventDate.getDate() === tomorrow.getDate();
+    const timeLabel = eventDate.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const dayLabel = sameDay ? "오늘" : isTomorrow ? "내일" : `${eventDate.getMonth() + 1}월 ${eventDate.getDate()}일`;
+    const title = marketFactText(event.title);
+    return {
+      kind: "event",
+      title,
+      asOf: event.starts_at,
+      timestamp: event.timestamp,
+      importance: event.importance,
+      themes: event.affected_sectors || [],
+      leaderStocks: (event.timeline || []).flatMap((item) => item.leader_stocks || []),
+      sentence: `${dayLabel} ${timeLabel} ${title} 발표가 예정돼 있습니다.`,
+      responseTone: "event",
+      watchReason: `${title} 민감 종목입니다. 발표 전후 가격보다 거래대금과 외국인 수급 변화를 먼저 확인하세요.`,
+    };
+  });
 }
 
-function usSectorMarketContext(payload = state.usSectorMoves || {}) {
-  if (!["premarket", "regular", "afterhours"].includes(payload.market_session)) {
-    return null;
-  }
+function upcomingMarketEventContext(payload = state.homeTrendContext || {}, now = Date.now()) {
+  return upcomingMarketEventContexts(payload, now)[0] || null;
+}
+
+function usSectorMarketContexts(payload = state.usSectorMoves || {}) {
   const broadSymbols = new Set(["QQQ", "SPY", "IWM"]);
   const candidates = (payload.items || [])
     .filter((item) => !broadSymbols.has(item.symbol))
     .map((item) => ({ ...item, rate: toNumber(item.change_rate) }))
     .filter((item) => item.rate !== null)
     .sort((left, right) => Math.abs(right.rate) - Math.abs(left.rate));
+  return candidates.map((item) => {
+    const direction = item.rate >= 2.5 ? "급등" : item.rate > 0 ? "상승" : item.rate <= -2.5 ? "급락" : "하락";
+    const basisLabel = homeUsMarketSessionLabel(payload);
+    return {
+      kind: "us-sector",
+      id: `us-sector:${item.symbol || item.label}`,
+      title: `${item.label} ${direction}`,
+      asOf: payload.updated_at || payload.as_of || usSectorDataAsOf(payload),
+      rate: item.rate,
+      sector: item.sector || item.label,
+      basisLabel,
+      themes: [item.sector, item.label].filter(Boolean),
+      leaderStocks: [],
+      sentence: `${basisLabel} · ${item.label} 섹터는 ${formatPercent(item.rate)} ${direction}했습니다.`,
+      responseTone: item.rate >= 0 ? "positive" : "negative",
+      watchReason: `${item.label} 흐름과 직접 연결됩니다. 현재가보다 거래대금과 외국인 수급 변화를 먼저 확인하세요.`,
+    };
+  });
+}
+
+function usSectorMarketContext(payload = state.usSectorMoves || {}) {
+  return usSectorMarketContexts(payload)[0] || null;
+}
+
+function commodityMarketContexts(items = state.homeMarketIndexItems || []) {
+  const definitions = {
+    OIL: { label: "국제유가", themes: ["정유", "항공", "해운", "화학"] },
+    GOLD: { label: "금 가격", themes: ["귀금속"] },
+  };
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => definitions[String(item?.code || "").toUpperCase()])
+    .map((item) => ({ ...item, rate: toNumber(item.change_rate) }))
+    .filter((item) => item.rate !== null)
+    .sort((left, right) => Math.abs(right.rate) - Math.abs(left.rate))
+    .map((item) => {
+      const code = String(item.code || "").toUpperCase();
+      const definition = definitions[code];
+      const direction = item.rate > 0 ? "상승" : item.rate < 0 ? "하락" : "보합";
+      return {
+        kind: "commodity",
+        id: `commodity:${code}`,
+        code,
+        title: `${definition.label} ${direction}`,
+        asOf: item.updated_at || item.as_of || "",
+        rate: item.rate,
+        themes: definition.themes,
+        leaderStocks: [],
+        sentence: `${definition.label}는 ${formatPercent(item.rate)} ${direction}했습니다.`,
+        responseTone: item.rate > 0 ? "positive" : item.rate < 0 ? "negative" : "neutral",
+      };
+    });
+}
+
+function homeUsMarketSessionLabel(payload = state.usSectorMoves || {}) {
+  const session = String(payload?.market_session || "").toLowerCase();
+  const dataMode = String(payload?.data_mode || "").toLowerCase();
+  if (dataMode === "latest_regular_close" || session === "closed") {
+    return "지난 미국장 기준";
+  }
+  if (session === "premarket") {
+    return "현재 미국 프리마켓 기준";
+  }
+  if (session === "regular") {
+    return "현재 미국장 기준";
+  }
+  if (session === "afterhours") {
+    return "현재 미국 애프터장 기준";
+  }
+  return "지난 미국장 기준";
+}
+
+function usSectorDataAsOf(payload = state.usSectorMoves || {}) {
+  const values = (Array.isArray(payload?.items) ? payload.items : [])
+    .map((item) => item?.trade_date)
+    .filter(Boolean)
+    .map((value) => String(value));
+  values.sort((left, right) => (Date.parse(left) || 0) - (Date.parse(right) || 0));
+  return values[values.length - 1] || "";
+}
+
+function globalUsMarketContext(items = state.homeMarketIndexItems || []) {
+  const candidates = (Array.isArray(items) ? items : [])
+    .filter((item) => ["NASDAQ", "SP500"].includes(String(item?.code || "").toUpperCase()))
+    .map((item) => ({ ...item, rate: toNumber(item?.change_rate) }))
+    .filter((item) => item.rate !== null)
+    .sort((left, right) => Math.abs(right.rate) - Math.abs(left.rate));
   if (!candidates.length) {
     return null;
   }
   const item = candidates[0];
-  const direction = item.rate >= 2.5 ? "급등" : item.rate > 0 ? "강세" : item.rate <= -2.5 ? "급락" : "약세";
+  const direction = item.rate > 0 ? "상승" : item.rate < 0 ? "하락" : "보합";
+  const basisLabel = item.is_realtime ? "현재 미국장 기준" : "지난 미국장 기준";
   return {
-    kind: "us-sector",
-    title: `${item.label} ${direction}`,
-    asOf: payload.as_of,
+    kind: "us-index",
+    title: `${item.label || item.code} ${direction}`,
+    marketLabel: item.label || item.code,
+    basisLabel,
+    asOf: item.as_of || item.trade_date || "",
     rate: item.rate,
-    sector: item.sector || item.label,
-    themes: [item.sector, item.label].filter(Boolean),
+    themes: ["반도체", "인터넷"],
     leaderStocks: [],
-    sentence: `${usSectorSessionLabel(payload)} ${item.label} 섹터가 ${formatPercent(item.rate)}로 ${direction}입니다. 국내 연관 종목의 장중 수급 변화를 확인하세요.`,
-    watchReason: `${item.label} 흐름과 직접 연결됩니다. 현재가보다 거래대금과 외국인 수급 변화를 먼저 확인하세요.`,
+    sentence: `${basisLabel} · ${item.label || item.code}은 ${formatPercent(item.rate)} ${direction}했습니다.`,
+    responseTone: item.rate > 0 ? "positive" : item.rate < 0 ? "negative" : "neutral",
+    watchReason: "미국 시장과 연관된 종목입니다. 국내 장중 수급 변화를 먼저 확인하세요.",
   };
 }
 
-function selectHomeMarketContext() {
-  const majorIssue = majorMarketIssueContext();
-  if (majorIssue) {
-    return majorIssue;
+function homeUsSectorMove(symbol) {
+  const item = (state.usSectorMoves?.items || []).find((entry) => entry.symbol === symbol);
+  const rate = toNumber(item?.change_rate);
+  return item && rate !== null ? { ...item, rate } : null;
+}
+
+function homeAiEventEvidence(context = {}) {
+  const sentence = String(context?.sentence || "");
+  const match = sentence.match(/^(오늘|내일|\d+월\s*\d+일)\s+(\d{2}:\d{2})\s+(.+?)\s+발표가 예정돼 있습니다\.$/);
+  if (!match) {
+    return compactMarketHeadline(context?.title || sentence, 30);
   }
-  const sector = usSectorMarketContext();
-  const event = upcomingMarketEventContext();
-  const eventDistance = event?.timestamp ? event.timestamp - Date.now() : Infinity;
-  if (sector && (Math.abs(sector.rate) >= 1.5 || eventDistance > 12 * 60 * 60 * 1000)) {
-    return sector;
+  const eventTitle = match[3]
+    .replace(/^미국\s+/, "")
+    .replace(/주간\s+/, "");
+  return `${eventTitle} ${match[1]} ${match[2]}`;
+}
+
+function homeAiEvidenceParts(contexts = []) {
+  const parts = [];
+  const add = (value) => {
+    const normalized = String(value || "").trim();
+    if (normalized && !parts.includes(normalized)) {
+      parts.push(normalized);
+    }
+  };
+  const broad = globalUsMarketContext();
+  const leadingSector = usSectorMarketContext();
+  const energy = homeUsSectorMove("XLE");
+  const airline = homeUsSectorMove("JETS");
+  const event = contexts.find((context) => context.kind === "event");
+  const news = contexts.find((context) => ["major-issue", "market-news"].includes(context.kind));
+
+  if ((news?.sourceCount || 0) >= 2) {
+    add(`보도 ${news.sourceCount}건 최신 상태 통합`);
+  }
+  if (broad) {
+    add(`${broad.title.replace(/\s+(?:상승|하락|보합)$/, "")} ${formatPercent(broad.rate)}`);
+  }
+  if (leadingSector) {
+    add(`${leadingSector.sector || leadingSector.title} ${formatPercent(leadingSector.rate)}`);
+  }
+  if (airline && leadingSector?.sector !== airline.sector) {
+    add(`${airline.sector || airline.label} ${formatPercent(airline.rate)}`);
+  }
+  if (energy && leadingSector?.sector !== energy.sector) {
+    add(`${energy.sector || energy.label} ${formatPercent(energy.rate)}`);
   }
   if (event) {
-    return event;
+    add(homeAiEventEvidence(event));
   }
-  return sector;
+  return parts.slice(0, 5);
+}
+
+function homeAiMarketJudgment(contexts = []) {
+  const news = contexts.find((context) => ["major-issue", "market-news"].includes(context.kind));
+  const event = contexts.find((context) => context.kind === "event");
+  const broad = globalUsMarketContext();
+  const sectorRates = (state.usSectorMoves?.items || [])
+    .filter((item) => !["QQQ", "SPY", "IWM"].includes(item.symbol))
+    .map((item) => toNumber(item.change_rate))
+    .filter((rate) => rate !== null);
+  const positiveShare = sectorRates.length
+    ? sectorRates.filter((rate) => rate > 0).length / sectorRates.length
+    : 0;
+  const negativeShare = sectorRates.length
+    ? sectorRates.filter((rate) => rate < 0).length / sectorRates.length
+    : 0;
+  const broadRate = broad?.rate ?? null;
+  const hasOilEvent = /EIA|원유\s*재고/.test(event?.title || "");
+
+  if (news?.responseTone === "relief") {
+    const subject = /이란/.test(`${news.title || ""} ${news.sentence || ""}`) ? "이란 공습 취소" : "군사 긴장 완화";
+    const confirmed = broadRate !== null && broadRate >= 0.7 && positiveShare >= 0.5;
+    const base = confirmed
+      ? `${subject} 뒤 위험선호가 미국 지수·업종 전반에서 확인됐습니다.`
+      : `${subject} 뉴스는 나왔지만 가격 반응은 아직 확인 단계입니다.`;
+    return hasOilEvent
+      ? `${base} EIA 전까지 정유·항공 변동성은 열어두세요.`
+      : base;
+  }
+  if (news?.eventState === "threat") {
+    if (broadRate !== null && broadRate > 0.5 && positiveShare >= 0.5) {
+      return "군사 경고는 나왔지만 미국 가격은 아직 위험회피를 확인하지 않습니다. 헤드라인보다 지수·유가 반응을 우선 보세요.";
+    }
+    return "군사 충돌은 확정되지 않은 경고 단계입니다. 실제 공격과 지수·유가의 동반 반응 전까지 과도한 추격 대응은 피하세요.";
+  }
+  if (news?.responseTone === "risk") {
+    const confirmed = (broadRate !== null && broadRate <= -0.7) || negativeShare >= 0.6;
+    return confirmed
+      ? "돌발 위험이 미국 가격에도 반영돼 방어 우선 구간입니다. 반등 추격보다 손실 제한 기준을 먼저 점검하세요."
+      : "돌발 뉴스와 시장 가격이 아직 엇갈립니다. 실제 지수·유가 확인 전에는 뉴스만으로 비중을 바꾸지 마세요.";
+  }
+  if (event) {
+    const eventName = /EIA|원유\s*재고/.test(event.title) ? "EIA 원유재고" : compactMarketHeadline(event.title, 24);
+    const marketBias = broadRate !== null && broadRate >= 0.7
+      ? "미국 위험선호는 우세하지만"
+      : broadRate !== null && broadRate <= -0.7
+        ? "미국 위험회피가 우세해"
+        : "시장 방향성이 뚜렷하지 않아";
+    return `${marketBias} ${eventName} 발표 전후 변동성을 따로 관리해야 합니다.`;
+  }
+  if (broadRate !== null) {
+    if (broadRate >= 1 && positiveShare >= 0.6) {
+      return "미국 지수와 다수 업종이 함께 올라 위험선호가 우세합니다. 국내장은 갭 상승보다 거래대금 지속 여부를 확인하세요.";
+    }
+    if (broadRate <= -1 && negativeShare >= 0.6) {
+      return "미국 지수와 다수 업종이 함께 밀려 위험회피가 우세합니다. 국내장은 지지선과 외국인 수급을 먼저 확인하세요.";
+    }
+    return "미국 지수와 업종 방향이 엇갈려 선택적 대응이 필요한 구간입니다. 종목별 거래대금 차이를 우선 보세요.";
+  }
+  return homeMarketVolatilitySentence();
+}
+
+function selectHomeMarketContexts() {
+  const majorIssue = majorMarketIssueContext();
+  const marketNews = recentMarketNewsContext();
+  const sector = usSectorMarketContext();
+  const globalIndex = globalUsMarketContext();
+  const event = upcomingMarketEventContext();
+  const candidates = [majorIssue, marketNews, event, sector || globalIndex].filter(Boolean);
+  const seen = new Set();
+  return candidates.filter((context) => {
+    const key = context.eventKey || context.id || `${context.kind}:${context.title}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  }).slice(0, 3);
 }
 
 function normalizedHomeThemes(context = {}) {
   const aliases = {
     기술주: ["인터넷", "반도체"],
     성장주: ["인터넷", "반도체", "2차전지"],
-    "자동차/소비": ["자동차"],
+    "자동차/소비": ["자동차", "소비재"],
+    경기소비재: ["자동차", "소비재"],
+    필수소비재: ["소비재"],
+    소비: ["소비재"],
+    화장품: ["소비재"],
+    은행: ["금융"],
+    보험: ["금융"],
+    "은행/보험": ["금융"],
+    바이오: ["헬스케어"],
+    AI: ["반도체", "인터넷"],
+    게임: ["인터넷"],
+    수입소비재: ["소비재"],
     에너지: ["정유"],
     "소재/화학": ["화학"],
     산업재: ["산업재", "방산"],
@@ -6449,14 +14621,11 @@ function normalizedHomeThemes(context = {}) {
   return [...new Set(values)];
 }
 
-function homeContextWatchItems(context = {}, signalItems = []) {
+function homeContextWatchItems(context = {}) {
   const watchlist = readWatchlist();
-  const pool = watchlist.length
-    ? watchlist
-    : normalizedAiSignalItems(signalItems).map((item) => ({ code: item.code, name: item.name, market: item.market }));
   const leaders = new Set(context.leaderStocks || []);
   const themes = normalizedHomeThemes(context);
-  return pool.filter((item) => {
+  return watchlist.filter((item) => {
     if (leaders.has(item.name)) {
       return true;
     }
@@ -6465,16 +14634,138 @@ function homeContextWatchItems(context = {}, signalItems = []) {
   }).slice(0, 2);
 }
 
-function homeContextAttentionSentence(context, signalItems = []) {
-  if (!context) {
-    return homeAttentionSentence(signalItems);
+function homeContextResponseAction(context = {}) {
+  if (context.responseTone === "relief") {
+    return "긴장 완화 반영을 확인하고, 장 초반 추격보다 유가·외국인 수급을 먼저 보세요.";
   }
-  const matched = homeContextWatchItems(context, signalItems);
-  if (!matched.length) {
-    return homeAttentionSentence(signalItems);
+  if (context.responseTone === "risk") {
+    return "변동성 확대에 대비해 추격매수는 피하고 손실 제한 기준을 점검하세요.";
   }
-  const target = matched[0];
-  return `${target.name || "관심종목"} 유의: ${context.watchReason}`;
+  if (context.responseTone === "event") {
+    return "발표 전 비중 확대는 미루고 거래대금·외국인 수급을 확인하세요.";
+  }
+  if (context.responseTone === "positive") {
+    return "강세 연동을 확인하되 갭 상승 추격보다 외국인 수급을 먼저 보세요.";
+  }
+  if (context.responseTone === "negative") {
+    return "약세 전이를 확인하고 지지선 이탈 시 비중 축소 기준을 점검하세요.";
+  }
+  return "뉴스 반영 뒤 거래대금과 외국인 수급이 함께 움직이는지 확인하세요.";
+}
+
+function homeSignalForWatchItem(item = {}, signalItems = []) {
+  return currentAiSignalItems(normalizedAiSignalItems(signalItems, { includeHistorical: true }))
+    .find((signal) => (item.code && signal.code === item.code)
+      || (item.name && signal.name === item.name)) || null;
+}
+
+function homeWatchItemAction(item = {}, context = {}, signalItems = [], contexts = []) {
+  const signal = homeSignalForWatchItem(item, signalItems);
+  const signalView = homeAiSignalView(signal);
+  const theme = watchlistTheme(item);
+  const hasOilEvent = contexts.some((entry) => entry.kind === "event" && /EIA|원유\s*재고/.test(entry.title || ""));
+  const oilMarketContext = contexts.find((entry) => entry.kind === "commodity" && entry.code === "OIL");
+  const hasOilVariable = hasOilEvent || Boolean(oilMarketContext);
+
+  if (signalView?.key === "recent-sell") {
+    return signalView.preliminary
+      ? "AI 예비 매도 상태 · 15:40 확정 전까지 결과가 바뀔 수 있습니다."
+      : "AI 확정 매도 상태 · 신호 발생 이후 가격과 거래대금 변화를 추적 중입니다.";
+  }
+  if (signalView?.key === "recent-buy" && signalView.preliminary) {
+    return "AI 예비 매수 상태 · 15:40 확정 전까지 결과가 바뀔 수 있습니다.";
+  }
+  if (context.kind === "company-news") {
+    if (context.responseTone === "negative") {
+      return "기업 악재가 가격과 거래대금에 실제 반영되는지 확인하고 지지선 이탈 시 비중 기준을 먼저 점검하세요.";
+    }
+    if (context.responseTone === "positive") {
+      return "기업 호재만으로 추격하지 말고 거래대금과 외국인·기관 수급이 함께 이어지는지 확인하세요.";
+    }
+    return "기업 이슈의 사실관계와 장중 수급 반응을 확인한 뒤 대응하세요.";
+  }
+  if (context.kind === "macro-factor") {
+    if (context.key === "risk") {
+      return context.responseTone === "positive"
+        ? "미국 기술주 강세와 시장 불안 완화가 국내 장중 거래대금으로 이어지는지가 핵심입니다."
+        : context.responseTone === "negative"
+          ? "미국 투자심리 위축이 국내 종목의 지지선과 거래대금에 반영되는지가 핵심입니다."
+          : "미국 기술주·가상자산·시장 불안 지표가 엇갈려 종목별 거래대금 반응이 중요합니다.";
+    }
+    if (["rate", "bond"].includes(context.key)) {
+      return theme === "금융"
+        ? "미국 금리 방향과 국내 은행 수급·예대마진 기대가 같은 방향인지 확인하세요."
+        : "미국 명목·실질금리 변화가 성장주 밸류와 외국인 수급에 반영되는지 확인하세요.";
+    }
+    if (context.key === "dollar") {
+      return ["소비재", "항공", "화학"].includes(theme)
+        ? "원화 방향이 수입 원가 완화와 종목 수급 개선으로 이어지는지 함께 확인하세요."
+        : "원/달러 방향과 외국인 수급이 동시에 우호적인지 확인한 뒤 비중을 조정하세요.";
+    }
+    if (context.key === "commodity") {
+      if (theme === "정유") return "유가와 정제마진이 같은 방향인지 확인해 정유주 수혜를 따로 판단하세요.";
+      if (["항공", "해운", "화학"].includes(theme)) return "유가 변화가 실제 원가 부담과 거래대금에 반영되는지 확인하세요.";
+      return "유가·구리 방향이 엇갈리므로 업종별 가격 반응을 따로 확인하세요.";
+    }
+  }
+  if (context.responseTone === "relief") {
+    if (["정유", "방산"].includes(theme)) {
+      return "긴장 완화로 위험 프리미엄이 줄 수 있어 반등 시 비중과 손실 제한선을 다시 점검하세요.";
+    }
+    if (["항공", "해운", "화학"].includes(theme)) {
+      return hasOilVariable
+        ? "유가 하락 수혜는 열려 있지만 EIA 전 갭 상승 추격은 피하고 거래대금 유지를 확인하세요."
+        : "유가 부담 완화가 가격에 반영되는지 확인하되 갭 상승 추격은 피하세요.";
+    }
+    if (["반도체", "인터넷", "2차전지", "자동차"].includes(theme)) {
+      return "위험선호 수혜 구간이지만 시초가 갭보다 외국인 수급과 거래대금 지속 여부를 먼저 보세요.";
+    }
+  }
+  if (context.responseTone === "risk") {
+    return signalView?.key === "holding"
+      ? "보유 신호보다 위험선 이탈 여부를 우선하고 신규 비중 확대는 미루세요."
+      : "뉴스 확인 전 추격매수는 피하고 지지선·손실 제한 기준을 먼저 정하세요.";
+  }
+  if (hasOilVariable && ["정유", "항공", "해운", "화학"].includes(theme)) {
+    if (!hasOilEvent && oilMarketContext) {
+      const oilUp = (toNumber(oilMarketContext.rate) || 0) > 0;
+      if (theme === "정유") {
+        return oilUp
+          ? "국제유가 상승이 정제마진과 거래대금 개선으로 이어지는지 확인하세요."
+          : "국제유가 하락이 정유주 실적 기대를 낮추는지 거래대금과 수급을 확인하세요.";
+      }
+      if (theme === "항공") {
+        return oilUp
+          ? "국제유가 상승에 따른 연료비 부담을 확인하고 신규 비중 확대는 미루세요."
+          : "국제유가 하락이 연료비 완화와 항공주 수급 개선으로 이어지는지 확인하세요.";
+      }
+      if (theme === "해운") {
+        return "국제유가 변화와 함께 운임·거래대금이 같은 방향으로 움직이는지 확인하세요.";
+      }
+      return oilUp
+        ? "국제유가 상승이 원가 부담으로 이어지는지 제품 스프레드를 확인하세요."
+        : "국제유가 하락이 원가 완화로 이어지는지 제품 스프레드를 확인하세요.";
+    }
+    if (theme === "정유") {
+      return "EIA 재고 결과 뒤 WTI와 에너지 업종이 같은 방향인지 확인하고, 유가 급변 구간에서는 신규 비중 확대를 미루세요.";
+    }
+    if (theme === "항공") {
+      return "EIA 발표 뒤 WTI 하락이 이어지고 항공주 거래대금이 유지되는지 확인한 다음 대응하세요.";
+    }
+    if (theme === "해운") {
+      return `${item.name || "해운주"}: 유가보다 운임과 거래대금이 함께 버티는지를 우선 확인하세요.`;
+    }
+    return "EIA 발표 뒤 유가 하락이 원가 완화로 이어지는지 제품 스프레드와 거래대금 반응을 함께 확인하세요.";
+  }
+  if (context.responseTone === "positive") {
+    return "미국 강세 연동을 확인하되 시초가 갭을 추격하지 말고 외국인 수급 유지를 보세요.";
+  }
+  if (context.responseTone === "negative") {
+    return "미국 약세 전이를 확인하고 지지선 이탈 시 비중 축소 기준을 점검하세요.";
+  }
+  return signalView?.key === "holding"
+    ? "보유 신호는 유지하되 현재가보다 손실 제한선과 거래대금 변화를 먼저 확인하세요."
+    : homeContextResponseAction(context);
 }
 
 function openHomeAttentionWatchlist() {
@@ -6484,114 +14775,597 @@ function openHomeAttentionWatchlist() {
   window.scrollTo({ top: 0, behavior: "auto" });
 }
 
-function latestHomeAiResponseAsOf(asOf = "") {
+function homeDirectInterestNewsContexts(
+  payload = state.homeTrendContext || {},
+  watchlist = readWatchlist(),
+  now = Date.now(),
+) {
+  if (!watchlist.length) return [];
+  return homeTrendTimeline(payload)
+    .map((item) => ({ ...item, timestamp: Date.parse(item?.published_at || "") }))
+    .filter((item) => Number.isFinite(item.timestamp)
+      && item.timestamp <= now + 10 * 60 * 1000
+      && item.timestamp >= now - HOME_COMPANY_NEWS_MAX_AGE_MS)
+    .map((item) => {
+      const title = marketFactText(item.title);
+      const directItems = watchlist.filter((watchItem) => {
+        const name = String(watchItem.name || "").trim();
+        return name && title.includes(name);
+      });
+      const sourceType = String(item.id || "").startsWith("disclosure-")
+        ? "공시"
+        : String(item.id || "").startsWith("research-")
+          ? "리포트"
+          : "기업";
+      return {
+        kind: "company-news",
+        id: item.id,
+        title,
+        asOf: item.published_at,
+        timestamp: item.timestamp,
+        sourceType,
+        themes: [],
+        leaderStocks: directItems.map((watchItem) => watchItem.name).filter(Boolean),
+        directStockNames: directItems.map((watchItem) => watchItem.name).filter(Boolean),
+        sentence: title,
+        responseTone: item.impact === "호재" ? "positive" : item.impact === "악재" ? "negative" : "neutral",
+      };
+    })
+    .filter((context) => context.directStockNames.length)
+    .sort((left, right) => right.timestamp - left.timestamp)
+    .slice(0, 8);
+}
+
+function macroMarketContexts(payload = state.homeMarketImpact || {}) {
+  return (Array.isArray(payload?.factors) ? payload.factors : [])
+    .filter((factor) => factor?.direction !== "자료 부족" && (toNumber(factor?.confidence) || 0) >= 40)
+    .map((factor) => ({
+      kind: "macro-factor",
+      id: `macro:${factor.key || factor.label}`,
+      key: factor.key,
+      label: factor.key === "dollar" ? "환율" : factor.label,
+      title: `${factor.key === "dollar" ? "환율" : factor.label} ${factor.direction}`,
+      asOf: payload.as_of || payload.data_as_of || "",
+      direction: factor.direction,
+      percent: toNumber(factor.percent) || 0,
+      confidence: toNumber(factor.confidence) || 0,
+      themes: factor.affected_sectors || [],
+      leaderStocks: factor.leader_stocks || [],
+      sentence: factor.interpretation || `${factor.label} 영향을 확인해야 합니다.`,
+      responseTone: factor.direction === "호재" ? "positive" : factor.direction === "악재" ? "negative" : "neutral",
+      dataQuality: factor.data_quality || payload.data_quality || "주의",
+    }))
+    .sort((left, right) => right.percent - left.percent);
+}
+
+function homeInterestMarketContextCandidates(watchlist = readWatchlist()) {
   const candidates = [
-    asOf,
-    state.homeAiSignalsAsOf,
-    state.homeTrendContext?.as_of,
-    state.usSectorMoves?.as_of,
-    ...homeTrendTimeline().map((item) => item.published_at),
-    ...state.homeMarketIndexItems.flatMap((item) => [item?.updated_at, item?.as_of]),
-  ].map((value) => String(value || "")).filter(Boolean);
-  return candidates.sort((left, right) => (Date.parse(left) || 0) - (Date.parse(right) || 0)).at(-1) || "";
+    ...homeDirectInterestNewsContexts(state.homeTrendContext, watchlist),
+    ...majorMarketIssueContexts().slice(0, 10),
+    ...recentMarketNewsContexts().slice(0, 12),
+    ...upcomingMarketEventContexts().slice(0, 10),
+    ...macroMarketContexts(),
+    ...usSectorMarketContexts().slice(0, 12),
+    ...commodityMarketContexts(),
+    globalUsMarketContext(),
+  ].filter(Boolean);
+  const seen = new Set();
+  return candidates.filter((context) => {
+      const key = context.eventKey || context.id || `${context.kind}:${context.title}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
+function homeInterestItemContextScore(item = {}, context = {}) {
+  const name = String(item.name || "");
+  const contextText = `${context.title || ""} ${context.sentence || ""}`;
+  if (name && contextText.includes(name)) {
+    return context.kind === "company-news" ? 150 : 130;
+  }
+  const theme = watchlistTheme(item);
+  const themes = normalizedHomeThemes(context);
+  const themeMatches = theme !== "기타"
+    && themes.some((value) => value.includes(theme) || theme.includes(value));
+  const leaders = (context.leaderStocks || []).map((value) => String(value || ""));
+  if (context.kind !== "market-news"
+    && themeMatches
+    && leaders.some((leader) => leader && (leader === name || name.includes(leader) || leader.includes(name)))) {
+    return 120;
+  }
+  if (themeMatches) {
+    if (context.kind === "macro-factor") return 108;
+    if (context.kind === "event") return 100;
+    if (context.kind === "major-issue") return 95;
+    if (context.kind === "us-sector") return 105;
+    if (context.kind === "commodity") return 98;
+    if (context.kind === "market-news") return 70;
+    return 60;
+  }
+  if (context.kind === "us-index" && ["반도체", "인터넷"].includes(theme)) {
+    return 25;
+  }
+  return 0;
+}
+
+function homeInterestContextUrgency(context = {}, now = Date.now()) {
+  if (context.kind === "company-news") {
+    const ageHours = Number.isFinite(context.timestamp) ? Math.max(0, (now - context.timestamp) / (60 * 60 * 1000)) : 36;
+    return Math.max(16, 46 - ageHours);
+  }
+  if (context.kind === "major-issue") {
+    return context.responseTone === "risk" ? 45 : 38;
+  }
+  if (context.kind === "market-news") {
+    return 34;
+  }
+  if (context.kind === "event") {
+    const importance = context.importance === "매우 중요" ? 30 : 22;
+    const hoursUntil = Number.isFinite(context.timestamp) ? (context.timestamp - now) / (60 * 60 * 1000) : Infinity;
+    return importance + (hoursUntil <= 24 ? 15 : hoursUntil <= 72 ? 8 : 3);
+  }
+  if (context.kind === "us-sector") {
+    return Math.min(35, Math.abs(toNumber(context.rate) || 0) * 8);
+  }
+  if (context.kind === "commodity") {
+    return Math.min(30, Math.abs(toNumber(context.rate) || 0) * 7);
+  }
+  if (context.kind === "macro-factor") {
+    return Math.min(38, (toNumber(context.percent) || 0) * 0.7 + (toNumber(context.confidence) || 0) * 0.08);
+  }
+  if (context.kind === "us-index") {
+    return Math.min(20, Math.abs(toNumber(context.rate) || 0) * 6);
+  }
+  return 0;
+}
+
+function selectHomeInterestMarketContexts(
+  contexts = homeInterestMarketContextCandidates(),
+  watchlist = readWatchlist(),
+  limit = 3,
+) {
+  if (!watchlist.length) {
+    return [];
+  }
+  const normalizedLimit = Math.max(1, Math.min(3, Math.floor(toNumber(limit) || 3)));
+  const ranked = contexts
+    .map((context, index) => {
+      const matches = watchlist
+        .map((item, itemIndex) => ({ item, itemIndex, relation: homeInterestItemContextScore(item, context) }))
+        .filter((match) => match.relation > 0)
+        .sort((left, right) => right.relation - left.relation || left.itemIndex - right.itemIndex);
+      const strongestRelation = matches[0]?.relation || 0;
+      const directCoverage = matches.filter((match) => match.relation >= 60).length;
+      return {
+        context,
+        matches,
+        score: strongestRelation + Math.min(36, directCoverage * 12) + homeInterestContextUrgency(context),
+        index,
+      };
+    })
+    .filter((selection) => selection.matches.some((match) => match.relation >= 60))
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+  const selected = [];
+  const seenExposure = new Set();
+  const seenFamilies = new Set();
+  const addSelection = (selection, requireNewFamily = false) => {
+    const affectedKeys = selection.matches
+      .filter((match) => match.relation >= 60)
+      .map((match) => match.item.code || match.item.name)
+      .filter(Boolean)
+      .sort()
+      .join("|");
+    const exposureKey = `${homeInterestVariableType(selection.context)}:${affectedKeys}`;
+    const family = homeInterestVariableFamily(selection.context);
+    if (!affectedKeys || seenExposure.has(exposureKey) || (requireNewFamily && seenFamilies.has(family))) return;
+    seenExposure.add(exposureKey);
+    seenFamilies.add(family);
+    selected.push(selection);
+  };
+  for (const selection of ranked) {
+    addSelection(selection, true);
+    if (selected.length >= normalizedLimit) break;
+  }
+  for (const selection of ranked) {
+    if (selected.length >= normalizedLimit) break;
+    addSelection(selection);
+  }
+  return selected;
+}
+
+function homeInterestVariableFamily(context = {}) {
+  if (context.kind === "company-news") return "company";
+  if (["major-issue", "market-news"].includes(context.kind)) return "news";
+  if (["us-sector", "us-index"].includes(context.kind)) return "us-market";
+  if (context.kind === "macro-factor") return "macro";
+  if (context.kind === "commodity") return "commodity";
+  if (context.kind === "event") return "event";
+  return "other";
+}
+
+function homeInterestVariableType(context = {}) {
+  if (context.kind === "company-news") return context.sourceType || "기업";
+  if (["major-issue", "market-news"].includes(context.kind)) return "뉴스";
+  if (context.kind === "us-sector") return "업종";
+  if (context.kind === "us-index") return "미장";
+  if (context.kind === "macro-factor") return context.label || "거시";
+  if (context.kind === "commodity") return "원자재";
+  if (context.kind === "event") return "일정";
+  return "핵심";
+}
+
+function homeInterestContextLabel(context = null) {
+  if (!context) {
+    return "직접 연관 이벤트 없음";
+  }
+  if (context.kind === "event") {
+    return homeAiEventEvidence(context);
+  }
+  if (["major-issue", "market-news"].includes(context.kind)) {
+    return compactMarketHeadline(context.title || context.sentence, 30);
+  }
+  if (context.kind === "company-news") {
+    return compactMarketHeadline(context.title, 42);
+  }
+  if (context.kind === "macro-factor") {
+    return String(context.sentence || context.title || "투자심리 변화를 확인 중입니다.").trim();
+  }
+  if (context.kind === "us-sector") {
+    const sector = String(context.sector || context.title || "기술주").replace(/^미국\s+/, "");
+    return `${context.basisLabel || "지난 미국장 기준"} · 미국 ${sector} ${formatPercent(context.rate)}`;
+  }
+  if (context.kind === "commodity") {
+    const label = context.code === "OIL" ? "국제유가" : context.code === "GOLD" ? "금 가격" : context.title;
+    return `${label} ${formatPercent(context.rate)}`;
+  }
+  if (context.kind === "us-index") {
+    return `${context.basisLabel || "지난 미국장 기준"} · ${context.marketLabel || "미국 지수"} ${formatPercent(context.rate)}`;
+  }
+  return `${context.title || "시장 지표"} ${formatPercent(context.rate)}`;
+}
+
+function homeInterestImpactStatus(match = {}, context = {}) {
+  const name = String(match?.item?.name || "");
+  const contextText = `${context.title || ""} ${context.sentence || ""}`;
+  const isDirect = context.kind === "company-news" || (name && contextText.includes(name));
+  const label = isDirect ? "직접 영향" : match.relation >= 60 ? "민감 업종" : "참고";
+  const tone = ["risk", "negative"].includes(context.responseTone)
+    ? "negative"
+    : ["relief", "positive"].includes(context.responseTone)
+      ? "positive"
+      : context.kind === "event" ? "event" : "neutral";
+  return { label, tone };
+}
+
+function homeInterestResponseItems(selections = [], signalItems = []) {
+  const candidates = [];
+  const seenItems = new Set();
+  const responseLimit = 2;
+  const addMatch = (selection, match) => {
+    const key = match.item.code || match.item.name;
+    if (!key || seenItems.has(key) || candidates.length >= responseLimit) return;
+    seenItems.add(key);
+    candidates.push({ selection, match });
+  };
+  for (const selection of selections) {
+    const directMatches = selection.matches.filter((match) => match.relation >= 60);
+    if (directMatches[0]) addMatch(selection, directMatches[0]);
+  }
+  for (const selection of selections) {
+    for (const match of selection.matches.filter((item) => item.relation >= 60)) {
+      addMatch(selection, match);
+    }
+  }
+  return candidates.map(({ selection, match }) => {
+    const signal = homeSignalForWatchItem(match.item, signalItems);
+    const signalView = homeAiSignalView(signal);
+    return {
+      item: match.item,
+      relation: match.relation,
+      status: homeInterestImpactStatus(match, selection.context),
+      action: homeWatchItemAction(match.item, selection.context, signalItems, [selection.context]),
+      basis: `${homeInterestContextLabel(selection.context)} · ${watchlistTheme(match.item)} 연관${signalView ? ` · AI ${signalView.label}` : ""}`,
+    };
+  });
+}
+
+function renderHomeInterestResponses(selections = [], signalItems = []) {
+  const list = elements.homeAiResponsePersonalList;
+  const status = elements.homeAiResponseSummary;
+  if (!list || !status) {
+    return;
+  }
+  const responses = homeInterestResponseItems(selections, signalItems);
+  list.replaceChildren();
+  list.hidden = responses.length === 0;
+  status.hidden = responses.length > 0;
+
+  if (!responses.length) {
+    status.textContent = readWatchlist().length
+      ? "현재 관심종목과 직접 연결되는 주요 이벤트가 없습니다. 새로운 뉴스·일정이 확인되면 바로 반영합니다."
+      : "관심종목을 추가하면 종목별 주요 이벤트와 대응을 알려드립니다.";
+  }
+  for (const response of responses) {
+    const { item } = response;
+    const row = document.createElement("a");
+    row.className = `home-ai-interest-row is-${response.status.tone}`;
+    row.href = viewStockUrl(item.code || item.name || "");
+    row.setAttribute("aria-label", `${item.name || item.code || "관심종목"} 시장 대응 상세 보기`);
+    const head = el("span", "home-ai-interest-head");
+    head.append(
+      el("strong", "", item.name || item.code || "관심종목"),
+      el("em", "", response.status.label),
+    );
+    row.append(
+      head,
+      el("p", "home-ai-interest-action", response.action),
+      el("small", "home-ai-interest-basis", response.basis),
+    );
+    list.appendChild(row);
+  }
+  if (elements.homeAiResponseWatchLabel) {
+    elements.homeAiResponseWatchLabel.textContent = responses.length
+      ? `관심종목 영향도 · ${formatNumber(responses.length)}개 우선`
+      : "관심종목 영향도";
+  }
+}
+
+function homeAiResponseUpdatedAt(contexts = [], fallback = "") {
+  const contextCandidates = contexts
+    .filter((context) => context?.kind !== "event")
+    .map((context) => context?.asOf)
+    .map((value) => ({ value, timestamp: Date.parse(value || "") }))
+    .filter((item) => Number.isFinite(item.timestamp) && item.timestamp <= Date.now() + 10 * 60 * 1000)
+    .sort((left, right) => right.timestamp - left.timestamp);
+  if (contextCandidates.length) {
+    return contextCandidates[0];
+  }
+  return [state.homeTrendContext?.as_of, state.homeAiSignalsAsOf, fallback]
+    .map((value) => ({ value, timestamp: Date.parse(value || "") }))
+    .filter((item) => Number.isFinite(item.timestamp) && item.timestamp <= Date.now() + 10 * 60 * 1000)
+    .sort((left, right) => right.timestamp - left.timestamp)[0] || null;
+}
+
+function formatHomeAiResponseUpdatedAt(value, now = Date.now()) {
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) {
+    return "업데이트 확인 중";
+  }
+  const date = new Date(timestamp);
+  const today = new Date(now);
+  const sameDay = date.getFullYear() === today.getFullYear()
+    && date.getMonth() === today.getMonth()
+    && date.getDate() === today.getDate();
+  const time = date.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const datePrefix = sameDay ? "" : `${date.getMonth() + 1}.${date.getDate()} `;
+  return `업데이트 ${datePrefix}${time}`;
 }
 
 function renderHomeAiResponse(items = state.aiSignalItems, asOf = "") {
-  if (!elements.homeAiResponseTitle || !elements.homeAiResponseSummary) {
+  if (!elements.homeAiResponseSummary) {
     return;
   }
-  const context = selectHomeMarketContext();
-  const rawTitle = String(context?.sentence || homeMarketVolatilitySentence()).replace(/\s+/g, " ").trim();
-  const sentences = rawTitle.match(/.+?(?:[.!?。！？]+(?=\s|$)|$)/g) || [rawTitle];
-  elements.homeAiResponseTitle.textContent = sentences.slice(0, 2).join(" ").trim() || "시장 변동성 데이터를 확인하고 있습니다.";
-  elements.homeAiResponseSummary.textContent = homeContextAttentionSentence(context, items);
+  const contexts = homeInterestMarketContextCandidates();
+  const selections = selectHomeInterestMarketContexts(contexts, readWatchlist(), 3);
+  renderHomeInterestResponses(selections, items);
+  const selectedContexts = selections.map((selection) => selection.context);
+  const updatedAt = homeAiResponseUpdatedAt(selectedContexts.length ? selectedContexts : contexts, asOf);
   if (elements.homeAiResponseAsOf) {
-    elements.homeAiResponseAsOf.textContent = formatDataBasis(latestHomeAiResponseAsOf(asOf), "기준 정보 확인 중");
+    elements.homeAiResponseAsOf.textContent = formatHomeAiResponseUpdatedAt(updatedAt?.value);
+    if (updatedAt?.value) {
+      elements.homeAiResponseAsOf.dateTime = new Date(updatedAt.timestamp).toISOString();
+    } else {
+      elements.homeAiResponseAsOf.removeAttribute("datetime");
+    }
   }
+  if (elements.homeAiResponseWatch) {
+    elements.homeAiResponseWatch.setAttribute("aria-label", "관심종목 영향도 전체보기");
+  }
+}
+
+function seoulDateKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const byType = new Map(parts.map((part) => [part.type, part.value]));
+  return `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}`;
+}
+
+function aiSignalActivityBadge(item = {}, view = homeAiSignalView(item) || {}) {
+  const current = item.current || {};
+  const transition = current.lifecycle?.latest_transition || {};
+  const action = String(current.action || item.action || "");
+  const activityValues = view.preliminary
+    ? [item.signal_date, view.signalDate, item.first_seen_at, item.signal_at, current.as_of, item.last_seen_at]
+    : [item.execution_date, transition.transition_date, transition.signal_at, item.signal_at, item.signal_date];
+  const activityDate = activityValues
+    .map((value) => String(value || "").slice(0, 10))
+    .find((value) => /^\d{4}-\d{2}-\d{2}$/.test(value));
+  if (!activityDate || activityDate !== seoulDateKey()) return "";
+  return ["entry_watch", "entry_pending", "entered"].includes(action) ? "NEW" : "UPDATE";
 }
 
 function createHomeAiSignalRow(item, options = {}) {
-  const view = homeAiSignalView(item);
-  if (!view) {
+  const snapshotItem = item;
+  item = aiSignalItemWithLiveOverlay(item);
+  const baseView = homeAiSignalView(item);
+  if (!baseView) {
     return null;
   }
+  const released = options.released === true || isReleasedPreliminaryAiSignal(item);
+  const releasedSide = released ? aiSignalReleasedSide(item, baseView) : "";
+  const view = released
+    ? {
+      ...baseView,
+      label: releasedSide === "buy" ? "매수 조건 해제" : "매도 조건 해제",
+      tone: "neutral",
+    }
+    : baseView;
+  const livePreliminary = view.preliminary
+    && !released
+    && item.current?.live_observation === true;
   const row = document.createElement("a");
-  row.className = `home-ai-signal-row is-${view.tone}`;
-  row.href = viewStockUrl(item.name || item.code || "");
+  row.className = `home-ai-signal-row is-${view.tone}${view.preliminary && !released ? " is-preliminary" : ""}${livePreliminary ? " is-live-preliminary" : ""}${released ? " is-released" : ""}`;
+  row.href = options.linkToList ? "/dashboard?view=ai-signals" : viewStockUrl(item.code || item.name || "");
   row.dataset.code = item.code || "";
+  row.aiSignalItem = item;
+  row.aiSignalSnapshotItem = snapshotItem;
+  if (options.linkToList) {
+    row.dataset.aiSignalListLink = "true";
+    row.setAttribute("aria-label", "AI 시그널 전체 목록 보기");
+  } else if (options.detail) {
+    if (released) {
+      row.setAttribute(
+        "aria-label",
+        `${item.name || item.code || "종목"} ${view.label}, 해제된 예비 신호, ${aiSignalReleasedOutcomeLine(item, view)}, 상세 분석 보기`,
+      );
+    } else {
+      row.setAttribute("aria-label", aiSignalDetailAriaLabel(item, view));
+    }
+  } else {
+    row.setAttribute("aria-label", `${item.name || item.code || "종목"} 상세 분석 보기`);
+  }
 
   const identity = el("span", "home-ai-signal-identity");
-  identity.append(el("strong", "", item.name || item.code || "-"));
-  if (options.detail) {
-    identity.append(el("small", "", `${item.code || "-"} · ${item.market || "-"}`));
+  const nameLine = el("span", "home-ai-signal-name-line");
+  nameLine.append(el("strong", "home-ai-signal-name", item.name || item.code || "-"));
+  const activityBadge = aiSignalActivityBadge(item, view);
+  if (activityBadge) {
+    nameLine.append(el(
+      "small",
+      `home-ai-signal-activity-badge is-${activityBadge.toLowerCase()}`,
+      activityBadge,
+    ));
+  }
+  identity.append(nameLine);
+  const universeTier = String(item.universe_tier || "").toLowerCase();
+  const trackingState = String(item.universe_tracking_state || "").toLowerCase();
+  const universeBadge = universeTier === "extended"
+    ? (trackingState === "retained" ? "확장 · 진행 유지" : "확장 유니버스")
+    : trackingState === "retained" ? "진행 시그널 유지" : "";
+  if (universeBadge) {
+    identity.append(el(
+      "small",
+      `home-ai-signal-universe-badge is-${universeTier || "core"}`,
+      universeBadge,
+    ));
   }
   const status = el("span", "home-ai-signal-status");
-  status.append(el("strong", "", view.label));
-  if (options.detail && view.signalDate) {
-    status.append(el("small", "", formatDataBasis(view.signalDate, "")));
-function homeAiResponseSentences(value, maxSentences = 2) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (!text) {
-    return "시장 변동성 데이터를 확인하고 있습니다.";
-function homeAiResponseSentences(value, maxSentences = 2) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (!text) {
-    return "시장 변동성 데이터를 확인하고 있습니다.";
+  status.append(el("strong", "home-ai-signal-state", view.label));
+  if (options.detail) {
+    const headline = el("span", "home-ai-signal-headline");
+    headline.append(identity, status);
+    const supporting = el("span", "home-ai-signal-supporting");
+    const signalMeta = el("small", "home-ai-signal-meta", released
+      ? aiSignalReleasedDateLine(item, view)
+      : aiSignalDateLine(item, view));
+    signalMeta.dataset.field = "ai_signal_date";
+    supporting.append(signalMeta);
+    if (!released) {
+      const freshnessBadge = createAiSignalFreshnessBadge(item);
+      if (freshnessBadge) supporting.append(freshnessBadge);
+    }
+    const metrics = el("span", "home-ai-signal-metrics");
+    metrics.dataset.field = "ai_signal_metrics";
+    supporting.append(released
+      ? renderAiSignalReleasedMetrics(metrics, item, view)
+      : renderAiSignalMetrics(metrics, item, view));
+    row.append(headline, supporting);
+  } else if (item.signal_scope === "market") {
+    identity.append(el("small", "", "시장 신호"));
+    row.append(identity, status);
+  } else {
+    row.append(identity, status);
   }
-  const sentences = text.match(/[^.!?。！？]+[.!?。！？]+|[^.!?。！？]+$/g) || [text];
-  return sentences.slice(0, maxSentences).join(" ").trim();
-}
-
-  }
-  const sentences = text.match(/[^.!?。！？]+[.!?。！？]+|[^.!?。！？]+$/g) || [text];
-  return sentences.slice(0, maxSentences).join(" ").trim();
-}
-
-  }
-  row.append(identity, status);
   return row;
 }
 
-function renderHomeAiSignals(payload = {}) {
+function renderHomeAiSignals(payload = {}, options = {}) {
   if (!elements.homeAiSignalsList) {
-    return;
+    return false;
   }
-  const items = normalizedAiSignalItems(Array.isArray(payload.items) ? payload.items : []);
-  state.aiSignalItems = items;
+  const watchlistItems = normalizedAiSignalItems(
+    Array.isArray(payload.watchlist_items)
+      ? payload.watchlist_items
+      : (payload.items || []).filter((item) => item.signal_scope !== "market"),
+    { includeHistorical: true },
+  );
+  const marketItems = currentAiSignalItems(normalizedAiSignalItems(
+    Array.isArray(payload.market_items)
+      ? payload.market_items
+      : (payload.items || []).filter((item) => item.signal_scope === "market"),
+  ));
+  const items = marketItems;
+  const preliminaryCount = items.filter((item) => homeAiSignalView(item)?.preliminary).length;
+  if (!commitAiSignalSnapshot(items, payload, {
+    expectedRevision: options.expectedRevision,
+    receivedAt: options.receivedAt ?? payload.savedAt,
+  })) return false;
   state.homeAiSignalsAsOf = payload.updated_at || payload.as_of || "";
-  renderHomeMarketSignalTicker({ items });
-  renderHomeAiResponse(items, state.homeAiSignalsAsOf);
-  elements.homeAiSignalsMeta.textContent = items.length ? `${formatNumber(items.length)}개 신호` : "새 신호 없음";
+  elements.homeAiSignals?.classList.remove("show-public-history");
+  renderHomeMarketSignalTicker({
+    items: marketItems.filter((item) => isAiSignalWithinDays(item, HOME_MARKET_SIGNAL_RECENT_DAYS)),
+  });
+  renderHomeAiResponse(watchlistItems, state.homeAiSignalsAsOf);
+  elements.homeAiSignalsMeta.textContent = payload.market_status === "refreshing"
+    ? `시장 신호 업데이트 중 · 확정 ${formatNumber(items.length)}개`
+    : items.length
+      ? `${formatNumber(items.length)}개 신호${preliminaryCount ? ` · 예비 ${formatNumber(preliminaryCount)}` : ""}`
+    : "새 신호 없음";
   elements.homeAiSignalsList.innerHTML = "";
   if (!items.length) {
-    elements.homeAiSignalsList.append(el("p", "muted", "최근 매수·보유·매도 신호가 없습니다."));
-    return;
+    elements.homeAiSignalsList.append(el("p", "muted", "최근 AI 매수·보유·매도 신호가 없습니다."));
+    if (state.view === "home") connectAiSignalQuoteStreams(items);
+    return true;
   }
-  items.slice(0, 5).forEach((item) => elements.homeAiSignalsList.appendChild(createHomeAiSignalRow(item)));
+  items.slice(0, 5).forEach((item) => elements.homeAiSignalsList.appendChild(createHomeAiSignalRow(item, { linkToList: true })));
+  if (state.view === "home") connectAiSignalQuoteStreams(items);
+  return true;
 }
 
-function renderPendingHomeAiSignals() {
+function renderPendingHomeAiSignals(options = {}) {
   if (!elements.homeAiSignalsList) {
     return;
   }
   const watched = readWatchlist().slice(0, 5);
+  elements.homeAiSignals?.classList.remove("show-public-history");
   showHomeMarketSignalLoading();
-  if (elements.homeAiResponseTitle && elements.homeAiResponseSummary) {
-    elements.homeAiResponseTitle.textContent = "시장 변동성 데이터를 확인하고 있습니다.";
+  if (elements.homeAiResponseSummary) {
+    if (elements.homeAiResponsePersonalList) {
+      elements.homeAiResponsePersonalList.replaceChildren();
+      elements.homeAiResponsePersonalList.hidden = true;
+    }
+    elements.homeAiResponseSummary.hidden = false;
     elements.homeAiResponseSummary.textContent = watched.length
-      ? `${watched[0].name || "관심종목"}를 우선 확인하는 중입니다.`
-      : "관심종목을 추가하면 우선 확인할 종목을 바로 알려드립니다.";
+      ? "관심종목과 주요 이벤트의 연결을 확인하고 있습니다."
+      : "관심종목을 추가하면 주가에 영향을 줄 핵심 이벤트를 알려드립니다.";
   }
-  elements.homeAiSignalsMeta.textContent = watched.length ? `${formatNumber(watched.length)}개 종목 확인 중` : "관심종목 없음";
+  elements.homeAiSignalsMeta.textContent = options.marketPreparing
+    ? "최근 30일 시장 신호 준비 중"
+    : watched.length
+      ? `${formatNumber(watched.length)}개 종목 확인 중`
+      : "최근 30일 시장 신호 확인 중";
   elements.homeAiSignalsList.replaceChildren();
   if (!watched.length) {
-    elements.homeAiSignalsList.append(el("p", "muted", "관심종목을 추가하면 매매신호를 확인할 수 있습니다."));
+    elements.homeAiSignalsList.append(el("p", "muted", options.marketPreparing
+      ? "시장 AI 시그널을 준비하고 있습니다. 잠시 후 자동으로 다시 확인합니다."
+      : "최근 30일 시장 전체 AI 시그널을 불러오고 있습니다."));
     return;
   }
   for (const item of watched) {
     const row = document.createElement("a");
     row.className = "home-ai-signal-row is-pending";
-    row.href = viewStockUrl(item.name || item.code || "");
+    row.href = "/dashboard?view=ai-signals";
+    row.dataset.aiSignalListLink = "true";
+    row.setAttribute("aria-label", "AI 시그널 전체 목록 보기");
     const identity = el("span", "home-ai-signal-identity");
     identity.append(el("strong", "", item.name || item.code || "-"));
     const status = el("span", "home-ai-signal-status");
@@ -6601,24 +15375,249 @@ function renderPendingHomeAiSignals() {
   }
 }
 
+function aiSignalStageKey(item = {}) {
+  const view = homeAiSignalView(item);
+  if (!view) {
+    return "";
+  }
+  if (view.preliminary) {
+    return view.key === "recent-sell" ? "preliminary-sell" : "preliminary-buy";
+  }
+  return view.key === "recent-sell" ? "recent-sell" : "buy-holding";
+}
+
+function aiSignalCurrentTimestamp(item = {}) {
+  const view = homeAiSignalView(item);
+  const current = item.current || {};
+  const transition = current.lifecycle?.latest_transition || {};
+  const values = view?.preliminary
+    ? [
+      item.last_seen_at,
+      item.updated_at,
+      item.signal_at,
+      item.signal_date,
+      current.as_of,
+      view.signalAt,
+      view.signalDate,
+    ]
+    : [
+      item.execution_date,
+      transition.transition_date,
+      item.signal_at,
+      item.signal_date,
+      transition.signal_at,
+      view?.signalAt,
+      view?.signalDate,
+    ];
+  return values.reduce((latest, value) => {
+    const timestamp = Date.parse(value || "");
+    return Number.isFinite(timestamp) ? Math.max(latest, timestamp) : latest;
+  }, 0);
+}
+
+function aiSignalCurrentPriority(item = {}) {
+  const view = homeAiSignalView(item);
+  if (view?.preliminary) {
+    return 4;
+  }
+  if (item.is_current_holding === true) {
+    return 3;
+  }
+  return view?.key === "recent-sell" ? 2 : 1;
+}
+
+function currentAiSignalItems(items = []) {
+  const selectedByStock = new Map();
+  const unkeyed = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!homeAiSignalView(item) || isReleasedPreliminaryAiSignal(item)) {
+      continue;
+    }
+    const identity = String(item.code || item.name || "").trim();
+    if (!identity) {
+      unkeyed.push(item);
+      continue;
+    }
+    const existing = selectedByStock.get(identity);
+    const candidateTimestamp = aiSignalCurrentTimestamp(item);
+    const existingTimestamp = existing ? aiSignalCurrentTimestamp(existing) : -1;
+    if (
+      !existing
+      || candidateTimestamp > existingTimestamp
+      || (
+        candidateTimestamp === existingTimestamp
+        && aiSignalCurrentPriority(item) > aiSignalCurrentPriority(existing)
+      )
+    ) {
+      selectedByStock.set(identity, item);
+    }
+  }
+  return [...selectedByStock.values(), ...unkeyed].sort((left, right) => {
+    const leftSort = aiSignalSortValue(left);
+    const rightSort = aiSignalSortValue(right);
+    return leftSort[0] - rightSort[0]
+      || leftSort[1] - rightSort[1]
+      || leftSort[2] - rightSort[2];
+  });
+}
+
+function aiSignalItemsForMode(items = state.aiSignalItems, modeName = state.aiSignalMode) {
+  const normalized = Array.isArray(items) ? items : [];
+  return modeName === "history"
+    ? normalized.filter((item) => isReleasedPreliminaryAiSignal(item))
+    : currentAiSignalItems(normalized);
+}
+
+function aiSignalModeCounts(items = state.aiSignalItems) {
+  const normalized = Array.isArray(items) ? items : [];
+  return {
+    current: currentAiSignalItems(normalized).length,
+    history: normalized.filter((item) => isReleasedPreliminaryAiSignal(item)).length,
+  };
+}
+
 function aiSignalStageCounts(items = state.aiSignalItems) {
   return items.reduce((counts, item) => {
-    const view = homeAiSignalView(item);
-    if (view) {
-      counts[view.key] = (counts[view.key] || 0) + 1;
+    const stageKey = aiSignalStageKey(item);
+    if (stageKey) {
+      counts.all += 1;
+      counts[stageKey] += 1;
     }
     return counts;
-  }, { "recent-buy": 0, holding: 0, "recent-sell": 0 });
+  }, {
+    all: 0,
+    "buy-holding": 0,
+    "recent-sell": 0,
+    "preliminary-buy": 0,
+    "preliminary-sell": 0,
+  });
+}
+
+function aiSignalMatchesStage(item, stageName) {
+  return stageName === "all" ? Boolean(homeAiSignalView(item)) : aiSignalStageKey(item) === stageName;
+}
+
+function aiSignalHistorySideCounts(items = []) {
+  return (Array.isArray(items) ? items : []).reduce((counts, item) => {
+    if (!isReleasedPreliminaryAiSignal(item)) {
+      return counts;
+    }
+    const side = aiSignalReleasedSide(item);
+    counts.all += 1;
+    counts[side] += 1;
+    return counts;
+  }, { all: 0, buy: 0, sell: 0 });
+}
+
+function aiSignalMatchesHistorySide(item, sideName) {
+  return sideName === "all" || aiSignalReleasedSide(item) === sideName;
+}
+
+function isAiSignalMarketUpdating(status = state.aiSignalMarketStatus) {
+  return ["preparing", "refreshing"].includes(String(status || ""));
+}
+
+function aiSignalScrollBehavior() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
+function syncAiSignalSellDisclaimer() {
+  const visible = state.aiSignalMode === "current" && state.aiSignalStage === "recent-sell";
+  if (elements.aiSignalSellDisclaimer) {
+    elements.aiSignalSellDisclaimer.hidden = !visible;
+  }
+  if (elements.aiSignalsPageList) {
+    if (visible) {
+      elements.aiSignalsPageList.setAttribute("aria-describedby", "ai-signal-sell-disclaimer");
+    } else {
+      elements.aiSignalsPageList.removeAttribute("aria-describedby");
+    }
+  }
+}
+
+function setAiSignalMode(modeName, options = {}) {
+  const allowed = new Set(["current", "history"]);
+  state.aiSignalMode = allowed.has(modeName) ? modeName : "current";
+  let selectedTab = null;
+  for (const tab of elements.aiSignalModeTabs) {
+    const selected = tab.dataset.aiSignalMode === state.aiSignalMode;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected) {
+      selectedTab = tab;
+    }
+  }
+  const showHistory = state.aiSignalMode === "history";
+  if (elements.aiSignalStageTabsContainer) {
+    elements.aiSignalStageTabsContainer.hidden = showHistory;
+  }
+  if (elements.aiSignalHistoryFilters) {
+    elements.aiSignalHistoryFilters.hidden = !showHistory;
+  }
+  syncAiSignalSellDisclaimer();
+  if (elements.aiSignalsPageList) {
+    if (showHistory) {
+      const selectedHistory = elements.aiSignalHistorySideButtons.find(
+        (button) => button.dataset.aiSignalHistorySide === state.aiSignalHistorySide,
+      );
+      elements.aiSignalsPageList.setAttribute("aria-labelledby", selectedHistory?.id || "ai-signal-history-all");
+    } else {
+      const selectedStage = elements.aiSignalStageTabs.find((tab) => tab.dataset.aiSignalStage === state.aiSignalStage);
+      elements.aiSignalsPageList.setAttribute("aria-labelledby", selectedStage?.id || "ai-signal-stage-all");
+    }
+  }
+  if (selectedTab && options.reveal === true) {
+    selectedTab.scrollIntoView({ behavior: aiSignalScrollBehavior(), block: "nearest", inline: "center" });
+  }
+  if (options.render !== false) {
+    renderAiSignalsPage();
+  }
 }
 
 function setAiSignalStage(stageName, options = {}) {
-  const allowed = new Set(["recent-buy", "holding", "recent-sell"]);
-  state.aiSignalStage = allowed.has(stageName) ? stageName : "recent-buy";
+  const allowed = new Set(["all", "buy-holding", "recent-sell", "preliminary-buy", "preliminary-sell"]);
+  state.aiSignalStage = allowed.has(stageName) ? stageName : "all";
+  let selectedTab = null;
   for (const tab of elements.aiSignalStageTabs) {
     const selected = tab.dataset.aiSignalStage === state.aiSignalStage;
     tab.classList.toggle("active", selected);
     tab.setAttribute("aria-selected", String(selected));
     tab.tabIndex = selected ? 0 : -1;
+    if (selected) {
+      selectedTab = tab;
+    }
+  }
+  syncAiSignalSellDisclaimer();
+  if (selectedTab && elements.aiSignalsPageList && state.aiSignalMode === "current") {
+    elements.aiSignalsPageList.setAttribute("aria-labelledby", selectedTab.id);
+  }
+  if (selectedTab && options.reveal === true) {
+    selectedTab.scrollIntoView({ behavior: aiSignalScrollBehavior(), block: "nearest", inline: "center" });
+  }
+  if (options.render !== false) {
+    renderAiSignalsPage();
+  }
+}
+
+function setAiSignalHistorySide(sideName, options = {}) {
+  const allowed = new Set(["all", "buy", "sell"]);
+  state.aiSignalHistorySide = allowed.has(sideName) ? sideName : "all";
+  let selectedButton = null;
+  for (const button of elements.aiSignalHistorySideButtons) {
+    const selected = button.dataset.aiSignalHistorySide === state.aiSignalHistorySide;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    if (selected) {
+      selectedButton = button;
+    }
+  }
+  if (selectedButton && elements.aiSignalsPageList && state.aiSignalMode === "history") {
+    elements.aiSignalsPageList.setAttribute("aria-labelledby", selectedButton.id);
+  }
+  if (selectedButton && options.reveal === true) {
+    selectedButton.scrollIntoView({ behavior: aiSignalScrollBehavior(), block: "nearest", inline: "center" });
   }
   if (options.render !== false) {
     renderAiSignalsPage();
@@ -6630,8 +15629,46 @@ function renderAiSignalsPage() {
     return;
   }
   const items = normalizedAiSignalItems(state.aiSignalItems);
-  const counts = aiSignalStageCounts(items);
-  elements.aiSignalsMeta.textContent = items.length ? `${formatNumber(items.length)}개 신호` : "새 신호 없음";
+  const modeCounts = aiSignalModeCounts(items);
+  for (const tab of elements.aiSignalModeTabs) {
+    const countNode = tab.querySelector("span");
+    if (countNode) {
+      countNode.textContent = formatNumber(modeCounts[tab.dataset.aiSignalMode] || 0);
+    }
+  }
+  const modeItems = aiSignalItemsForMode(items, state.aiSignalMode);
+  const counts = aiSignalStageCounts(modeItems);
+  if (state.aiSignalMode === "history") {
+    const historyCounts = aiSignalHistorySideCounts(modeItems);
+    for (const button of elements.aiSignalHistorySideButtons) {
+      const selected = button.dataset.aiSignalHistorySide === state.aiSignalHistorySide;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+      const countNode = button.querySelector("span");
+      if (countNode) {
+        countNode.textContent = formatNumber(historyCounts[button.dataset.aiSignalHistorySide] || 0);
+      }
+    }
+    const visibleHistory = modeItems.filter((item) => aiSignalMatchesHistorySide(item, state.aiSignalHistorySide));
+    elements.aiSignalsPageList.innerHTML = "";
+    if (!visibleHistory.length) {
+      const sideLabel = { all: "", buy: "매수 ", sell: "매도 " }[state.aiSignalHistorySide] || "";
+      const message = isAiSignalMarketUpdating()
+        ? "오늘 해제된 예비 신호 이력을 준비하고 있습니다. 잠시 후 자동으로 다시 확인합니다."
+        : `오늘 ${sideLabel}조건 해제 이력이 없습니다.`;
+      const emptyState = el("p", "muted", message);
+      emptyState.setAttribute("role", "status");
+      elements.aiSignalsPageList.append(emptyState);
+      if (state.view === "ai-signals") connectAiSignalQuoteStreams(state.aiSignalItems);
+      return;
+    }
+    visibleHistory.forEach((item) => elements.aiSignalsPageList.appendChild(
+      createHomeAiSignalRow(item, { detail: true, released: true }),
+    ));
+    if (state.view === "ai-signals") connectAiSignalQuoteStreams(state.aiSignalItems);
+    return;
+  }
   for (const tab of elements.aiSignalStageTabs) {
     const count = counts[tab.dataset.aiSignalStage] || 0;
     const countNode = tab.querySelector("span");
@@ -6639,71 +15676,340 @@ function renderAiSignalsPage() {
       countNode.textContent = formatNumber(count);
     }
   }
-  const visible = items.filter((item) => homeAiSignalView(item)?.key === state.aiSignalStage);
+  const visible = modeItems.filter((item) => aiSignalMatchesStage(item, state.aiSignalStage));
   elements.aiSignalsPageList.innerHTML = "";
+  if (state.aiSignalMarketStatus === "refreshing") {
+    const notice = el(
+      "p",
+      "muted ai-signal-refreshing",
+      "장중 시장 신호를 최신 시세로 다시 계산하고 있습니다. 확정된 이력만 먼저 표시합니다.",
+    );
+    notice.setAttribute("role", "status");
+    elements.aiSignalsPageList.append(notice);
+  }
   if (!visible.length) {
-    const labels = { "recent-buy": "최근 매수", holding: "보유 중", "recent-sell": "최근 매도" };
-    elements.aiSignalsPageList.append(el("p", "muted", `${labels[state.aiSignalStage]} 종목이 없습니다.`));
+    const labels = {
+      all: "전체",
+      "buy-holding": "확정 매수·보유",
+      "recent-sell": "수익확정·전량 매도",
+      "preliminary-buy": "예비 매수",
+      "preliminary-sell": "매도 대기",
+    };
+    const message = isAiSignalMarketUpdating()
+      ? "최근 30일 시장 AI 시그널을 준비하고 있습니다. 잠시 후 자동으로 다시 확인합니다."
+      : state.aiSignalStage.startsWith("preliminary-")
+        ? `현재 ${labels[state.aiSignalStage]} 활성 신호가 없습니다.`
+        : `최근 30일 ${labels[state.aiSignalStage]} 신호가 없습니다.`;
+    const emptyState = el("p", "muted", message);
+    emptyState.setAttribute("role", "status");
+    elements.aiSignalsPageList.append(emptyState);
+    if (state.view === "ai-signals") connectAiSignalQuoteStreams(state.aiSignalItems);
     return;
   }
   visible.forEach((item) => elements.aiSignalsPageList.appendChild(createHomeAiSignalRow(item, { detail: true })));
+  if (state.view === "ai-signals") connectAiSignalQuoteStreams(state.aiSignalItems);
 }
 
 async function loadAiSignalsPage(options = {}) {
-  if (!state.watchlistId) {
-    state.aiSignalItems = [];
-    renderAiSignalsPage();
-    return;
+  const requestSequence = ++state.aiSignalLoadSequence;
+  window.clearTimeout(state.aiSignalsPageRetryTimer);
+  state.aiSignalsPageRetryTimer = null;
+  if (options.silent !== true) {
+    elements.aiSignalsPageList.innerHTML = '<p class="muted">최근 30일 시장 AI 시그널을 불러오는 중입니다.</p>';
   }
-  elements.aiSignalsPageList.innerHTML = '<p class="muted">관심종목의 AI 매매신호를 불러오는 중입니다.</p>';
   try {
-    const payload = await fetchJsonCached(
-      `/watchlists/${encodeURIComponent(state.watchlistId)}/quant-signals`,
-      { force: options.force === true, ttlMs: options.force ? 0 : (options.ttlMs ?? PAGE_ENTRY_MINUTE_MS) },
-    );
-    state.aiSignalItems = normalizedAiSignalItems(payload.items || []);
-    const counts = aiSignalStageCounts(state.aiSignalItems);
-    if (!counts[state.aiSignalStage]) {
-      state.aiSignalStage = ["recent-buy", "holding", "recent-sell"].find((stage) => counts[stage]) || "recent-buy";
+    const payload = await fetchCombinedAiSignals(options);
+    if (requestSequence !== state.aiSignalLoadSequence || state.view !== "ai-signals") return false;
+    const items = normalizedAiSignalItems(mergeAiSignalArchiveItems(
+      payload.items || [],
+      payload.preliminary_history || [],
+    ));
+    if (!commitAiSignalSnapshot(items, payload, { expectedRevision: options.expectedRevision })) {
+      scheduleAiSignalRevisionReconcile(options.expectedRevision);
+      return false;
     }
-    setAiSignalStage(state.aiSignalStage);
+    setAiSignalMode(state.aiSignalMode);
+    if (isAiSignalMarketUpdating() && Number(options.preparingRetry || 0) < 3) {
+      state.aiSignalsPageRetryTimer = window.setTimeout(() => {
+        if (state.view === "ai-signals") {
+          void loadAiSignalsPage({
+            force: true,
+            ttlMs: 0,
+            silent: options.silent === true,
+            expectedRevision: options.expectedRevision,
+            preparingRetry: Number(options.preparingRetry || 0) + 1,
+          });
+        }
+      }, 3000);
+    }
+    return true;
   } catch {
-    elements.aiSignalsPageList.innerHTML = '<p class="muted">AI 매매신호를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>';
+    if (requestSequence !== state.aiSignalLoadSequence || state.view !== "ai-signals") return false;
+    if (options.expectedRevision !== undefined && options.expectedRevision !== null) {
+      scheduleAiSignalRevisionReconcile(options.expectedRevision);
+    }
+    refreshAiSignalLiveRows();
+    if (options.silent !== true) {
+      elements.aiSignalsPageList.innerHTML = '<p class="muted">AI 시그널을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>';
+    }
+    return false;
   }
+}
+
+async function fetchMarketAiSignals(options = {}) {
+  const recentDays = Number(options.recentDays) || AI_SIGNAL_HISTORY_DAYS;
+  const url = `/market/quant-signals?universe_limit=150&limit=0&recent_days=${recentDays}`;
+  const retryDelays = [0, 1200, 2500];
+  let payload = null;
+  for (let index = 0; index < retryDelays.length; index += 1) {
+    if (retryDelays[index]) {
+      await delay(retryDelays[index]);
+    }
+    payload = await fetchJsonCached(url, {
+      force: options.force === true || index > 0,
+      ttlMs: index > 0 ? 0 : (options.ttlMs ?? PAGE_ENTRY_MINUTE_MS),
+    });
+    if (!isAiSignalMarketUpdating(payload?.status)) {
+      return payload;
+    }
+  }
+  return payload || { status: "preparing", recent_days: recentDays, items: [] };
+}
+
+async function fetchCombinedAiSignals(options = {}) {
+  const force = options.force === true;
+  const ttlMs = options.ttlMs ?? PAGE_ENTRY_MINUTE_MS;
+  const recentDays = Number(options.recentDays) || AI_SIGNAL_HISTORY_DAYS;
+  const watchlistRequest = state.watchlistId
+    ? fetchJsonCached(
+      `/watchlists/${encodeURIComponent(state.watchlistId)}/quant-signals`,
+      { force, ttlMs: force ? 0 : ttlMs },
+    )
+    : Promise.resolve({ items: [] });
+  const marketRequest = fetchMarketAiSignals({ force, ttlMs: force ? 0 : ttlMs, recentDays });
+  const [watchlistResult, marketResult] = await Promise.all([
+    watchlistRequest.then((value) => ({ ok: true, value })).catch((error) => ({ ok: false, error })),
+    marketRequest.then((value) => ({ ok: true, value })).catch((error) => ({ ok: false, error })),
+  ]);
+  if (!marketResult.ok) {
+    throw marketResult.error || new Error("market signal request failed");
+  }
+  return combineAiSignalPayloads(
+    watchlistResult.ok ? watchlistResult.value : { items: [] },
+    marketResult.ok ? marketResult.value : { items: [] },
+  );
 }
 
 async function loadHomeAiSignals(options = {}) {
   if (!elements.homeAiSignalsList) {
     return;
   }
-  if (!state.watchlistId) {
-    renderHomeAiSignals({ items: [] });
-    return;
-  }
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? PAGE_ENTRY_MINUTE_MS;
-  if (!elements.homeAiSignalsList.querySelector(".home-ai-signal-row")) {
-    const cached = readCachedHomeAiSignals();
+  const recentDays = AI_SIGNAL_HISTORY_DAYS;
+  const requestId = ++state.homeAiSignalsRequestId;
+  const requestSequence = ++state.aiSignalLoadSequence;
+  window.clearTimeout(state.homeAiSignalsRetryTimer);
+  state.homeAiSignalsRetryTimer = null;
+  if (options.restartTicker === true) {
+    stopHomeMarketSignalTicker();
+    showHomeMarketSignalLoading();
+  }
+  if (!elements.homeAiSignalsList.querySelector(".home-ai-signal-row") && options.expectedRevision == null) {
+    const cached = readCachedHomeAiSignals(recentDays);
     if (cached) {
-      renderHomeAiSignals(cached);
+      renderHomeAiSignals(cached, { receivedAt: cached.savedAt });
     } else {
       renderPendingHomeAiSignals();
     }
   }
   try {
-    const payload = await fetchJsonCached(
-      `/watchlists/${encodeURIComponent(state.watchlistId)}/quant-signals`,
-      { force, ttlMs: force ? 0 : ttlMs },
-    );
-    writeCachedHomeAiSignals(payload);
+    const payload = await fetchCombinedAiSignals({ force, ttlMs, recentDays });
+    if (requestId !== state.homeAiSignalsRequestId || requestSequence !== state.aiSignalLoadSequence) {
+      return false;
+    }
+    state.aiSignalMarketStatus = payload.market_status || "ready";
+    if (!isAiSignalMarketUpdating()) {
+      writeCachedHomeAiSignals(payload, recentDays);
+    }
     if (state.view === "home") {
-      renderHomeAiSignals(payload);
+      if (isAiSignalMarketUpdating() && !(payload.items || []).length) {
+        state.aiSignalReconcilePending = true;
+        renderPendingHomeAiSignals({ marketPreparing: true });
+        refreshAiSignalLiveRows();
+      } else {
+        if (!renderHomeAiSignals(payload, { expectedRevision: options.expectedRevision })) {
+          scheduleAiSignalRevisionReconcile(options.expectedRevision);
+          return false;
+        }
+      }
     }
+    if (isAiSignalMarketUpdating() && Number(options.preparingRetry || 0) < 3) {
+      state.homeAiSignalsRetryTimer = window.setTimeout(() => {
+        if (state.view === "home") {
+          void loadHomeAiSignals({
+            force: true,
+            ttlMs: 0,
+            silent: options.silent === true,
+            expectedRevision: options.expectedRevision,
+            restartTicker: options.silent !== true,
+            preparingRetry: Number(options.preparingRetry || 0) + 1,
+          });
+        }
+      }, 3000);
+    }
+    return true;
   } catch {
-    if (state.view === "home" && !elements.homeAiSignalsList.querySelector(".home-ai-signal-row")) {
-      elements.homeAiSignalsList.innerHTML = '<p class="muted">AI 매매신호를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>';
+    if (requestId !== state.homeAiSignalsRequestId || requestSequence !== state.aiSignalLoadSequence) {
+      return false;
     }
+    if (options.expectedRevision !== undefined && options.expectedRevision !== null) {
+      scheduleAiSignalRevisionReconcile(options.expectedRevision);
+    }
+    refreshAiSignalLiveRows();
+    if (state.view === "home" && !elements.homeAiSignalsList.querySelector(".home-ai-signal-row")) {
+      elements.homeAiSignalsList.innerHTML = '<p class="muted">AI 시그널을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>';
+    }
+    if (options.restartTicker === true && state.view === "home") {
+      elements.homeMarketSignalWindow?.classList.remove("is-loading");
+      if (elements.homeMarketSignalWindow) {
+        elements.homeMarketSignalWindow.setAttribute("aria-label", "AI 시그널을 불러오지 못함");
+        elements.homeMarketSignalWindow.innerHTML = '<p class="muted">신호를 다시 확인해주세요.</p>';
+      }
+    }
+    return false;
   }
+}
+
+function scheduleAiSignalRevisionReconcile(expectedRevision, delayMs = 1000) {
+  state.aiSignalReconcilePending = true;
+  const revision = Number(expectedRevision);
+  if (Number.isSafeInteger(revision) && revision >= 0) state.aiSignalPendingRevision = revision;
+  refreshAiSignalLiveRows();
+  if (state.aiSignalRevisionRetryCount >= 3 || !["home", "ai-signals"].includes(state.view)) return;
+  state.aiSignalRevisionRetryCount += 1;
+  window.clearTimeout(state.aiSignalRevisionTimer);
+  state.aiSignalRevisionTimer = window.setTimeout(() => {
+    state.aiSignalRevisionTimer = null;
+    void reconcileAiSignals({
+      expectedRevision: state.aiSignalPendingRevision,
+      force: true,
+      ttlMs: 0,
+      silent: true,
+      reason: "signal_revision_retry",
+    });
+  }, Math.max(100, Number(delayMs) || 1000));
+}
+
+function handleAiSignalRevisionFrame(payload = {}) {
+  const revision = aiSignalRevisionFromPayload(payload);
+  if (revision === null) return false;
+  if (revision === state.aiSignalRevision && !isAiSignalSnapshotStale()) return false;
+  if (revision === state.aiSignalPendingRevision && state.aiSignalReconcilePending) return false;
+  state.aiSignalLoadSequence += 1;
+  state.aiSignalPendingRevision = revision;
+  state.aiSignalReconcilePending = true;
+  state.aiSignalRevisionRetryCount = 0;
+  refreshAiSignalLiveRows();
+  window.clearTimeout(state.aiSignalRevisionTimer);
+  state.aiSignalRevisionTimer = window.setTimeout(() => {
+    state.aiSignalRevisionTimer = null;
+    void reconcileAiSignals({
+      expectedRevision: revision > 0 ? revision : null,
+      force: true,
+      ttlMs: 0,
+      silent: true,
+      reason: payload.initial === true ? "signal_revision_initial" : "signal_revision",
+    });
+  }, 120);
+  return true;
+}
+
+async function reconcileAiSignals(options = {}) {
+  if (!["home", "ai-signals"].includes(state.view) || document.hidden) return false;
+  const failClosedRefresh = ["visibility", "online"].includes(String(options.reason || ""));
+  if (options.expectedRevision != null || failClosedRefresh || isAiSignalSnapshotStale()) {
+    state.aiSignalReconcilePending = true;
+    refreshAiSignalLiveRows();
+  }
+  const loadOptions = {
+    ...options,
+    force: true,
+    ttlMs: 0,
+    silent: true,
+  };
+  return state.view === "ai-signals"
+    ? loadAiSignalsPage(loadOptions)
+    : loadHomeAiSignals(loadOptions);
+}
+
+function scheduleAiSignalReconcileTick() {
+  window.clearTimeout(state.aiSignalReconcileTimer);
+  state.aiSignalReconcileTimer = null;
+  if (!["home", "ai-signals"].includes(state.view) || document.hidden) return;
+  state.aiSignalReconcileTimer = window.setTimeout(() => {
+    state.aiSignalReconcileTimer = null;
+    const now = Date.now();
+    const stale = isAiSignalSnapshotStale(now);
+    if (stale !== state.aiSignalLastStaleState) {
+      state.aiSignalLastStaleState = stale;
+      refreshAiSignalLiveRows();
+    } else {
+      renderAiSignalLiveStatus();
+    }
+    const age = now - Number(state.aiSignalSnapshotReceivedAt || 0);
+    if (stale || age >= aiSignalSnapshotRefreshAge(new Date(now))) {
+      void reconcileAiSignals({
+        expectedRevision: state.aiSignalPendingRevision,
+        reason: stale ? "stale_snapshot" : "periodic",
+      });
+    }
+    scheduleAiSignalReconcileTick();
+  }, AI_SIGNAL_RECONCILE_TICK_MS);
+}
+
+function startAiSignalReconcileTimer() {
+  scheduleAiSignalReconcileTick();
+  renderAiSignalLiveStatus();
+}
+
+function stopAiSignalReconcileTimer() {
+  window.clearTimeout(state.aiSignalReconcileTimer);
+  window.clearTimeout(state.aiSignalRevisionTimer);
+  state.aiSignalReconcileTimer = null;
+  state.aiSignalRevisionTimer = null;
+}
+
+function refreshHomeAiSignalsAfterLogin() {
+  if (state.view !== "home") {
+    return;
+  }
+  // The first home request can begin behind the login gate without a watchlist ID.
+  // Clear another identity's rows synchronously, then hydrate this identity's cache
+  // before the login gate is hidden and the forced refresh continues in parallel.
+  resetHomeAiSignalsForIdentity();
+  void loadHomeAiSignals({ force: true, ttlMs: 0, restartTicker: true });
+}
+
+function resetHomeAiSignalsForIdentity() {
+  state.homeAiSignalsRequestId += 1;
+  state.aiSignalLoadSequence += 1;
+  state.aiSignalItems = [];
+  state.aiSignalMarketStatus = "loading";
+  state.homeAiSignalsAsOf = "";
+  state.aiSignalLiveAsOf = "";
+  state.aiSignalRevision = null;
+  state.aiSignalPendingRevision = null;
+  state.aiSignalSnapshotReceivedAt = 0;
+  state.aiSignalSnapshotAsOf = "";
+  state.aiSignalReconcilePending = false;
+  state.aiSignalRevisionRetryCount = 0;
+  state.aiSignalLiveQuotes.clear();
+  state.aiSignalQuoteStatuses.clear();
+  window.clearTimeout(state.homeAiSignalsRetryTimer);
+  state.homeAiSignalsRetryTimer = null;
+  closeAiSignalQuoteStreams();
+  renderPendingHomeAiSignals();
 }
 
 function stopHomeMarketSignalTicker() {
@@ -6716,7 +16022,7 @@ function showHomeMarketSignalLoading() {
     return;
   }
   elements.homeMarketSignalWindow.classList.add("is-loading");
-  elements.homeMarketSignalWindow.setAttribute("aria-label", "보유종목 대응을 불러오는 중");
+  elements.homeMarketSignalWindow.setAttribute("aria-label", "최근 30일 시장 AI 시그널을 불러오는 중");
   elements.homeMarketSignalWindow.innerHTML = '<span class="home-market-signal-skeleton" aria-hidden="true"></span>';
 }
 
@@ -6724,45 +16030,58 @@ function compactHoldingSignalSummary(item = {}) {
   const current = item.current || {};
   const action = String(current.action || "");
   if (action === "entered") {
-    return "최근 매수 · 초기 위험선 확인";
+    return "매수 · 초기 위험선 확인";
   }
   if (["partial_exit_pending", "partially_exited"].includes(action)) {
-    return "분할 매도 구간 · 남은 비중 위험선 확인";
+    const stage = action === "partial_exit_pending"
+      ? Number(current.pending_profit_stage || (Number(current.profit_stage || 0) + 1))
+      : Number(current.profit_stage || 0);
+    return action === "partial_exit_pending"
+      ? `${stage}차 수익확정 대기 · 보호선 확인`
+      : `${stage}차 수익확정 · 잔여 ${formatNumber(current.model_exposure_percent || 0)}% 추적`;
   }
   if (action === "full_exit_pending") {
-    return "매도 기준 접근 · 위험선 우선 확인";
+    return "전량 매도 기준 접근 · 수익 보호선 우선 확인";
   }
   const reason = String((current.reasons || []).find((value) => value && !String(value).startsWith("종합 신호")) || "").trim();
   if (reason.includes("추세가 유지") && reason.includes("기준은 미도달")) {
-    return "추세 유지 · 분할매도·청산 기준 미도달";
+    return "추세 유지 · 수익확정·전량 매도 기준 미도달";
   }
   if (reason) {
-    return reason.replace(/ 판단으로 모델 포지션.*$/, "").replace(/함$/, "");
+    return reason.replace(/ 판단으로 (?:모델|전략) 포지션.*$/, "").replace(/함$/, "");
   }
   return String(current.next_confirmation || "보유 기준 유지 · 위험선 확인").trim();
 }
 
 function compactSignalDate(value) {
-  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return match ? `${match[2]}.${match[3]}` : "날짜 확인 중";
+  return formatDottedDate(value, "날짜 확인 중");
 }
 
-function homeMarketSignalItems(items = []) {
-  return normalizedAiSignalItems(items)
+function homeMarketSignalItems(items = [], options = {}) {
+  return currentAiSignalItems(normalizedAiSignalItems(
+    items,
+    { includeHistorical: options.includeHistorical === true },
+  ))
     .map((item) => ({
       ...item,
       tickerSignal: (() => {
         const current = item.current || {};
         const transition = current.lifecycle?.latest_transition || {};
-        const isSell = ["partial_exit_pending", "partially_exited", "full_exit_pending", "exited"].includes(current.action)
-          || /매도|청산/.test(String(transition.label || ""));
-        const signalDate = isSell
-          ? current.partial_exit_date || transition.transition_date || current.as_of || item.as_of
-          : current.entry_date || transition.transition_date || current.as_of || item.as_of;
+        const view = homeAiSignalView(item);
+        const isSell = view
+          ? view.key === "recent-sell"
+          : ["partial_exit_pending", "partially_exited", "full_exit_pending", "exited"].includes(current.action)
+            || /매도|청산/.test(String(transition.label || ""));
+        const signalDate = view?.preliminary
+          ? item.signal_date || view.signalDate || view.signalAt || current.as_of || item.as_of
+          : isSell
+            ? current.partial_exit_date || transition.transition_date || current.as_of || item.as_of
+            : current.entry_date || transition.transition_date || current.as_of || item.as_of;
         return {
-          label: isSell ? "매도" : "매수",
+          label: view?.label || (isSell ? "확정 매도" : "확정 매수"),
           side: isSell ? "sell" : "buy",
           date: compactSignalDate(signalDate),
+          preliminary: view?.preliminary === true,
         };
       })(),
     }));
@@ -6775,8 +16094,11 @@ function homeHoldingSignalItems(items = []) {
 function createHomeMarketSignalTickerRow(item) {
   const row = document.createElement("a");
   row.className = "home-market-signal-row";
-  row.href = viewStockUrl(item.name || item.code || "");
+  row.href = "/dashboard?view=ai-signals";
+  row.dataset.aiSignalListLink = "true";
+  row.setAttribute("aria-label", "AI 시그널 전체 목록 보기");
   const signal = item.tickerSignal || { label: "매수", side: "buy", date: "날짜 확인 중" };
+  row.classList.toggle("is-preliminary", signal.preliminary === true);
   row.dataset.side = signal.side;
   const name = el("strong", "home-market-signal-name", item.name || item.code || "-");
   const summary = el("span", "home-market-signal-action", `${signal.label} (${signal.date})`);
@@ -6791,8 +16113,8 @@ function showHomeMarketSignalTickerItem() {
   const items = state.marketSignalTickerItems;
   if (!items.length) {
     elements.homeMarketSignalWindow.classList.remove("is-loading");
-    elements.homeMarketSignalWindow.setAttribute("aria-label", "현재 보유 신호 종목 없음");
-    elements.homeMarketSignalWindow.innerHTML = '<p class="muted">현재 보유 신호 종목이 없습니다.</p>';
+    elements.homeMarketSignalWindow.setAttribute("aria-label", "최근 30일 시장 AI 시그널 없음");
+    elements.homeMarketSignalWindow.innerHTML = '<p class="muted">최근 30일 시장 AI 시그널이 없습니다.</p>';
     return;
   }
   const itemIndex = state.marketSignalTickerIndex % items.length;
@@ -6815,7 +16137,10 @@ function startHomeMarketSignalTicker() {
 }
 
 function renderHomeMarketSignalTicker(payload = {}) {
-  state.marketSignalTickerItems = homeMarketSignalItems(Array.isArray(payload.items) ? payload.items : []);
+  state.marketSignalTickerItems = homeMarketSignalItems(
+    Array.isArray(payload.items) ? payload.items : [],
+    { includeHistorical: payload.includeHistorical === true },
+  );
   state.marketSignalTickerIndex = 0;
   showHomeMarketSignalTickerItem();
   startHomeMarketSignalTicker();
@@ -6823,35 +16148,149 @@ function renderHomeMarketSignalTicker(payload = {}) {
 
 function createHomeSurgeRow(item, index) {
   const row = document.createElement("a");
-  row.className = "home-surge-row";
-  row.href = viewStockUrl(item.name);
+  row.className = "home-surge-row home-ranking-row";
+  row.href = viewStockUrl(item.code || item.name);
   row.dataset.code = item.code || "";
 
-  const rank = el("span", "home-surge-rank", String(index + 1));
+  const rank = el("span", "home-surge-rank", String(Number(item.rank) || index + 1));
   const identity = el("span", "home-surge-identity");
   identity.append(
     createStockListLogo(item.code),
-    createStockListCopy(item.name, item.code, item.market)
+    createStockListCopy(item.name, item.code)
   );
-  const quote = el("span", "home-surge-quote");
-  quote.append(el("strong", "", formatNumber(item.price)), el("small", "", formatPercent(item.change_rate)));
-  setTone(quote, item.change_rate);
+  const quote = renderRankingMetricBlock(
+    el("span", "home-surge-quote ranking-metric-block"),
+    item,
+    state.homeRankingCategory,
+    state.homeRankingMode,
+  );
   row.append(rank, identity, quote);
   return row;
+}
+
+function marketRankingColumnLabel(category, mode) {
+  const normalizedMode = normalizeMarketRankingMode(category, mode);
+  if (category === "surge" && normalizedMode !== "daily") {
+    return `${normalizedMode === "week" ? "주간" : "월간"} 수익률 · 현재 시세`;
+  }
+  if (category === "etf" && normalizedMode === "volume") {
+    return "거래량 · 현재 시세";
+  }
+  if (category === "dividend" && normalizedMode === "amount") {
+    return "주당배당금 · 현재 시세";
+  }
+  return marketRankingConfig(category).column;
+}
+
+function syncHomeRankingCategoryTabs() {
+  for (const tab of elements.homeRankingCategoryTabs) {
+    const selected = tab.dataset.homeRankingCategory === state.homeRankingCategory;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
+}
+
+function renderHomeSurgeSectorFilters() {
+  if (!elements.homeSurgeSectorFilters) {
+    return;
+  }
+  const modes = marketRankingConfig(state.homeRankingCategory).modes;
+  state.homeRankingMode = normalizeMarketRankingMode(state.homeRankingCategory, state.homeRankingMode);
+  const previousScrollLeft = elements.homeSurgeSectorFilters.scrollLeft;
+  const fragment = document.createDocumentFragment();
+  for (const option of modes) {
+    const selected = state.homeRankingMode === option.key;
+    const button = el("button", selected ? "active" : "");
+    button.type = "button";
+    button.dataset.homeRankingMode = option.key;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    button.textContent = option.label;
+    fragment.append(button);
+  }
+  elements.homeSurgeSectorFilters.replaceChildren(fragment);
+  elements.homeSurgeSectorFilters.hidden = modes.length === 0;
+  elements.homeSurgeSectorFilters.scrollLeft = previousScrollLeft;
+}
+
+function renderHomeSurgeList() {
+  if (!elements.homeSurgeList) {
+    return;
+  }
+  const items = state.homeSurgeItems.slice(0, 5);
+  elements.homeSurgeList.innerHTML = "";
+  if (!items.length) {
+    elements.homeSurgeList.append(el("p", "muted", "조건에 맞는 종목이 없습니다."));
+    return;
+  }
+  items.forEach((item, index) => elements.homeSurgeList.appendChild(createHomeSurgeRow(item, index)));
+}
+
+function setHomeSurgeSector(mode, options = {}) {
+  state.homeRankingMode = normalizeMarketRankingMode(state.homeRankingCategory, mode);
+  for (const button of elements.homeSurgeSectorFilters?.querySelectorAll("button[data-home-ranking-mode]") || []) {
+    const selected = button.dataset.homeRankingMode === state.homeRankingMode;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  }
+  if (elements.homeRankingColumnLabel) {
+    elements.homeRankingColumnLabel.textContent = marketRankingColumnLabel(state.homeRankingCategory, state.homeRankingMode);
+  }
+  if (options.load !== false) {
+    void loadHomeSurgeRankings({ force: true, ttlMs: 0 });
+  }
+}
+
+function closeHomeRankingQuoteStreams() {
+  clearQuoteStreamScope("home-ranking");
+}
+
+function updateHomeRankingQuote(code, quote) {
+  const item = state.homeSurgeItems.find((entry) => entry.code === code);
+  if (!item || !quote) {
+    return;
+  }
+  if (quote.price != null) {
+    item.price = quote.price;
+  }
+  for (const field of ["change_rate", "volume", "trading_value", "market_cap"]) {
+    if (quote[field] != null) {
+      item[field] = quote[field];
+    }
+  }
+  const row = elements.homeSurgeList?.querySelector(`.home-ranking-row[data-code="${selectorEscape(code)}"]`);
+  const metricBlock = row?.querySelector(".ranking-metric-block");
+  if (metricBlock) {
+    renderRankingMetricBlock(metricBlock, item, state.homeRankingCategory, state.homeRankingMode);
+  }
+}
+
+function connectHomeRankingQuoteStreams(items = state.homeSurgeItems.slice(0, 5)) {
+  replaceQuoteStreamScope("home-ranking", items.slice(0, 5).map((item) => ({
+    code: item.code,
+    handlers: {
+      onQuote: (payload) => updateHomeRankingQuote(item.code, payload.quote),
+    },
+  })));
 }
 
 function renderHomeSurgeRankings(payload = {}) {
   if (!elements.homeSurgeList) {
     return;
   }
-  const items = (payload.items || []).slice(0, 5);
+  state.homeSurgeItems = Array.isArray(payload.items) ? payload.items : [];
   elements.homeSurgeMeta.textContent = marketRankingBasisLabel(payload, { includeMarket: false });
-  elements.homeSurgeList.innerHTML = "";
-  if (!items.length) {
-    elements.homeSurgeList.append(el("p", "muted", "상승 종목이 없습니다."));
-    return;
+  syncHomeRankingCategoryTabs();
+  syncHomeRankingMarketControls();
+  renderHomeSurgeSectorFilters();
+  if (elements.homeRankingColumnLabel) {
+    elements.homeRankingColumnLabel.textContent = marketRankingColumnLabel(state.homeRankingCategory, state.homeRankingMode);
   }
-  items.forEach((item, index) => elements.homeSurgeList.appendChild(createHomeSurgeRow(item, index)));
+  renderHomeSurgeList();
+  connectHomeRankingQuoteStreams();
 }
 
 async function loadHomeSurgeRankings(options = {}) {
@@ -6860,24 +16299,176 @@ async function loadHomeSurgeRankings(options = {}) {
   }
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
+  const category = MARKET_RANKING_CONFIG[state.homeRankingCategory]
+    ? state.homeRankingCategory
+    : DEFAULT_MARKET_RANKING_CATEGORY;
+  const mode = normalizeMarketRankingMode(category, state.homeRankingMode);
+  const market = homeRankingRequestMarket(category);
+  state.homeRankingMode = mode;
+  const requestId = ++state.homeRankingRequestId;
+  const config = marketRankingConfig(category);
   if (!elements.homeSurgeList.querySelector(".home-surge-row")) {
-    elements.homeSurgeList.innerHTML = '<p class="muted">급등 종목을 불러오는 중입니다.</p>';
+    elements.homeSurgeList.innerHTML = `<p class="muted">${config.loading}</p>`;
   }
   try {
-    const payload = await requestMarketRanking("surge", "ALL", {
+    const payload = await requestMarketRanking(category, market, {
       force,
       ttlMs,
       limit: 5,
-      snapshotId: force ? "" : state.marketRankingSnapshotId,
+      mode,
+      snapshotId: category === "surge" && mode === "daily" && !force ? state.marketRankingSnapshotId : "",
     });
-    if (state.view === "home") {
+    if (state.view === "home" && requestId === state.homeRankingRequestId && category === state.homeRankingCategory) {
       renderHomeSurgeRankings(payload);
     }
   } catch {
-    if (state.view === "home") {
-      elements.homeSurgeList.innerHTML = '<p class="muted">급등 종목을 불러오지 못했습니다.</p>';
+    if (state.view === "home" && requestId === state.homeRankingRequestId && !elements.homeSurgeList.querySelector(".home-surge-row")) {
+      elements.homeSurgeList.innerHTML = '<p class="muted">순위를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.</p>';
     }
   }
+}
+
+function setHomeRankingCategory(category, options = {}) {
+  const normalized = MARKET_RANKING_CONFIG[category] ? category : DEFAULT_MARKET_RANKING_CATEGORY;
+  state.homeRankingCategory = normalized;
+  state.homeRankingMode = defaultMarketRankingMode(normalized);
+  state.homeSurgeItems = [];
+  syncHomeRankingCategoryTabs();
+  syncHomeRankingMarketControls();
+  renderHomeSurgeSectorFilters();
+  if (elements.homeRankingColumnLabel) {
+    elements.homeRankingColumnLabel.textContent = marketRankingColumnLabel(normalized, state.homeRankingMode);
+  }
+  if (elements.homeSurgeList) {
+    elements.homeSurgeList.innerHTML = `<p class="muted">${marketRankingConfig(normalized).loading}</p>`;
+  }
+  closeHomeRankingQuoteStreams();
+  if (options.load !== false) {
+    void loadHomeSurgeRankings({ force: options.force !== false, ttlMs: 0 });
+  }
+}
+
+function normalizeHomeRankingMarket(market) {
+  return ["ALL", "KOSPI", "KOSDAQ"].includes(market) ? market : "ALL";
+}
+
+function homeRankingRequestMarket(category = state.homeRankingCategory) {
+  return category === "etf" ? "ALL" : normalizeHomeRankingMarket(state.homeRankingMarket);
+}
+
+function homeRankingMarketLabel(market) {
+  return ({ ALL: "전체", KOSPI: "코스피", KOSDAQ: "코스닥" })[market] || "전체";
+}
+
+function syncHomeRankingMarketControls() {
+  const isEtf = state.homeRankingCategory === "etf";
+  const selectedMarket = isEtf ? "KOSPI" : normalizeHomeRankingMarket(state.homeRankingMarket);
+  if (elements.homeRankingMarketTriggerLabel) {
+    elements.homeRankingMarketTriggerLabel.textContent = homeRankingMarketLabel(selectedMarket);
+  }
+  if (elements.homeRankingMarketTrigger) {
+    elements.homeRankingMarketTrigger.disabled = isEtf;
+    elements.homeRankingMarketTrigger.classList.toggle("is-static", isEtf);
+    elements.homeRankingMarketTrigger.setAttribute("aria-disabled", String(isEtf));
+    elements.homeRankingMarketTrigger.setAttribute(
+      "aria-label",
+      isEtf ? "ETF 거래소 코스피" : `거래소 필터, 현재 ${homeRankingMarketLabel(selectedMarket)}`,
+    );
+  }
+  for (const option of elements.homeRankingMarketOptions) {
+    const selected = option.dataset.homeRankingMarket === selectedMarket;
+    option.classList.toggle("active", selected);
+    option.setAttribute("aria-checked", String(selected));
+    option.tabIndex = selected ? 0 : -1;
+  }
+}
+
+function homeRankingMarketSheetFocusableElements() {
+  if (!elements.homeRankingMarketSheet || elements.homeRankingMarketSheet.hidden) {
+    return [];
+  }
+  return elements.homeRankingMarketOptions.filter((option) => !option.disabled && !option.closest("[hidden]"));
+}
+
+function trapHomeRankingMarketSheetFocus(event) {
+  const focusable = homeRankingMarketSheetFocusableElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    elements.homeRankingMarketSheetCard?.focus();
+    return;
+  }
+  const active = document.activeElement;
+  if (!focusable.includes(active)) {
+    event.preventDefault();
+    (event.shiftKey ? focusable[focusable.length - 1] : focusable[0]).focus();
+    return;
+  }
+  event.preventDefault();
+  const currentIndex = focusable.indexOf(active);
+  const nextIndex = event.shiftKey
+    ? (currentIndex - 1 + focusable.length) % focusable.length
+    : (currentIndex + 1) % focusable.length;
+  focusable[nextIndex].focus();
+}
+
+function showHomeRankingMarketSheet() {
+  if (
+    !elements.homeRankingMarketSheet
+    || elements.homeRankingMarketTrigger?.disabled
+    || !elements.homeRankingMarketSheet.hidden
+  ) {
+    return;
+  }
+  if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+    homeRankingMarketSheetReturnFocus = document.activeElement;
+  }
+  syncHomeRankingMarketControls();
+  elements.homeRankingMarketSheet.hidden = false;
+  elements.homeRankingMarketSheet.setAttribute("aria-hidden", "false");
+  elements.homeRankingMarketTrigger?.setAttribute("aria-expanded", "true");
+  document.body.classList.add("modal-open");
+  window.requestAnimationFrame(() => {
+    elements.homeRankingMarketOptions.find((option) => option.classList.contains("active"))?.focus();
+  });
+}
+
+function closeHomeRankingMarketSheet(options = {}) {
+  if (!elements.homeRankingMarketSheet || elements.homeRankingMarketSheet.hidden) {
+    return;
+  }
+  elements.homeRankingMarketSheet.hidden = true;
+  elements.homeRankingMarketSheet.setAttribute("aria-hidden", "true");
+  elements.homeRankingMarketTrigger?.setAttribute("aria-expanded", "false");
+  if (
+    elements.pushNotificationSheet?.hidden !== false
+    && elements.installSheet?.hidden !== false
+    && elements.accessCapacityModal?.hidden !== false
+    && elements.appExitDialog?.hidden !== false
+  ) {
+    document.body.classList.remove("modal-open");
+  }
+  const returnFocus = homeRankingMarketSheetReturnFocus;
+  homeRankingMarketSheetReturnFocus = null;
+  if (options.restoreFocus !== false && returnFocus?.isConnected && !returnFocus.closest("[hidden]")) {
+    window.requestAnimationFrame(() => returnFocus.focus());
+  }
+}
+
+function setHomeRankingMarket(market, options = {}) {
+  const normalized = normalizeHomeRankingMarket(market);
+  const changed = state.homeRankingMarket !== normalized;
+  state.homeRankingMarket = normalized;
+  syncHomeRankingMarketControls();
+  closeHomeRankingMarketSheet();
+  if (!changed || options.load === false) {
+    return;
+  }
+  state.homeSurgeItems = [];
+  closeHomeRankingQuoteStreams();
+  if (elements.homeSurgeList) {
+    elements.homeSurgeList.innerHTML = `<p class="muted">${marketRankingConfig(state.homeRankingCategory).loading}</p>`;
+  }
+  void loadHomeSurgeRankings({ force: true, ttlMs: 0 });
 }
 
 function currentMarketFilter() {
@@ -6902,7 +16493,7 @@ function stopMarketRankingRefresh() {
 
 function scheduleMarketRankingRefresh() {
   stopMarketRankingRefresh();
-  if (state.view !== "movers" || state.rankingCategory !== "surge") {
+  if (state.view !== "movers") {
     return;
   }
   const phase = koreaMarketPhase();
@@ -6910,44 +16501,110 @@ function scheduleMarketRankingRefresh() {
     return;
   }
   state.marketRankingRefreshTimer = window.setTimeout(() => {
-    if (state.view !== "movers" || state.rankingCategory !== "surge") {
+    if (state.view !== "movers") {
       return;
     }
     void loadMarketRankings({
       force: true,
       ttlMs: 0,
       market: currentMarketFilter(),
-      limit: 30,
+      category: state.rankingCategory,
+      mode: state.marketRankingMode,
+      limit: 50,
     });
   }, 30_000);
 }
 
-function marketRankingKey(category, market, limit = 30, snapshotId = "") {
-  return `${market}:surge:${limit}:${snapshotId || "latest"}`;
+function marketRankingKey(category, market, limit = 50, snapshotId = "", mode = "") {
+  return `${market}:${category}:${normalizeMarketRankingMode(category, mode)}:${limit}:${snapshotId || "latest"}`;
 }
 
 function syncMarketRankingSnapshotUrl() {
   const market = currentMarketFilter();
-  if (!state.marketRankingSnapshotId) {
-    history.replaceState(null, "", `/dashboard?view=movers&market=${encodeURIComponent(market)}`);
-    return;
+  const params = new URLSearchParams({
+    view: "movers",
+    category: state.rankingCategory,
+    market,
+  });
+  if (state.marketRankingMode) {
+    params.set("mode", state.marketRankingMode);
   }
-  const snapshotQuery = state.marketRankingSnapshotId
-    ? `&snapshot=${encodeURIComponent(state.marketRankingSnapshotId)}`
-    : "";
-  history.replaceState(null, "", `/dashboard?view=movers&market=${encodeURIComponent(market)}${snapshotQuery}`);
+  if (state.rankingCategory === "surge" && state.marketRankingMode === "daily" && state.marketRankingSnapshotId) {
+    params.set("snapshot", state.marketRankingSnapshotId);
+  }
+  writeDashboardHistory(
+    "movers",
+    `/dashboard?${params.toString()}`,
+    "replace",
+  );
 }
 
 function marketCategoryLabel(category) {
-  return category === "surge" ? "급상승" : elements.rankTabs.find((tab) => tab.dataset.category === category)?.textContent?.trim() || category;
+  return marketRankingConfig(category).label;
+}
+
+function renderMarketRankingModeTabs() {
+  if (!elements.marketRankingModeTabs) {
+    return;
+  }
+  const modes = marketRankingConfig(state.rankingCategory).modes;
+  state.marketRankingMode = normalizeMarketRankingMode(state.rankingCategory, state.marketRankingMode);
+  const fragment = document.createDocumentFragment();
+  for (const mode of modes) {
+    const selected = mode.key === state.marketRankingMode;
+    const button = el("button", selected ? "active" : "", mode.label);
+    button.type = "button";
+    button.dataset.marketRankingMode = mode.key;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    fragment.append(button);
+  }
+  elements.marketRankingModeTabs.replaceChildren(fragment);
+  elements.marketRankingModeTabs.hidden = modes.length === 0;
+}
+
+function renderMarketRankingHeader(payload = null) {
+  const config = marketRankingConfig(state.rankingCategory);
+  if (elements.marketRankingCommandTitle) elements.marketRankingCommandTitle.textContent = "TOP 50";
+  if (elements.marketRankingTitle) elements.marketRankingTitle.textContent = config.title;
+  if (elements.marketRankingDescription) elements.marketRankingDescription.textContent = config.description;
+  if (elements.marketRankingMeta) {
+    elements.marketRankingMeta.textContent = payload
+      ? marketRankingBasisLabel(payload, { includeMarket: false })
+      : "실시간 순위 확인 중";
+  }
+  const columnLabel = marketRankingColumnLabel(state.rankingCategory, state.marketRankingMode);
+  const columnNodes = elements.marketRankingColumnHead?.querySelectorAll("span") || [];
+  if (columnNodes[1]) columnNodes[1].textContent = columnLabel;
+  const marketTabs = elements.marketTabs[0]?.parentElement;
+  if (marketTabs) marketTabs.hidden = state.rankingCategory === "etf";
+  renderMarketRankingModeTabs();
+}
+
+function setMarketRankingMode(mode, options = {}) {
+  state.marketRankingMode = normalizeMarketRankingMode(state.rankingCategory, mode);
+  renderMarketRankingHeader();
+  if (options.load !== false) {
+    void loadMarketRankings({
+      category: state.rankingCategory,
+      mode: state.marketRankingMode,
+      market: currentMarketFilter(),
+      limit: 50,
+      force: true,
+    });
+  }
 }
 
 function requestMarketRanking(category, market, options = {}) {
-  const normalizedCategory = "surge";
-  const limit = Math.max(1, Math.min(3000, Number(options.limit) || 30));
+  const normalizedCategory = MARKET_RANKING_CONFIG[category] ? category : DEFAULT_MARKET_RANKING_CATEGORY;
+  const mode = normalizeMarketRankingMode(normalizedCategory, options.mode);
+  const limit = Math.max(1, Math.min(3000, Number(options.limit) || 50));
   const force = options.force === true;
-  const snapshotId = force ? "" : String(options.snapshotId || "").trim();
-  const key = marketRankingKey(normalizedCategory, market, limit, snapshotId);
+  const snapshotId = normalizedCategory === "surge" && mode === "daily" && !force
+    ? String(options.snapshotId || "").trim()
+    : "";
+  const key = marketRankingKey(normalizedCategory, market, limit, snapshotId, mode);
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
   const now = Date.now();
   const cached = state.marketRankingCache.get(key);
@@ -6961,6 +16618,9 @@ function requestMarketRanking(category, market, options = {}) {
     category: normalizedCategory,
     limit: String(limit),
   });
+  if (mode) {
+    params.set("mode", mode);
+  }
   if (force) {
     params.set("refresh", "1");
   }
@@ -6977,7 +16637,7 @@ function requestMarketRanking(category, market, options = {}) {
     timeoutMs: 25_000,
   })
     .then((payload) => {
-      if (payload?.snapshot_id) {
+      if (normalizedCategory === "surge" && mode === "daily" && payload?.snapshot_id) {
         state.marketRankingSnapshotId = payload.snapshot_id;
         state.marketRankingSnapshotAsOf = payload.snapshot_captured_at || payload.as_of || "";
       }
@@ -6993,25 +16653,37 @@ function requestMarketRanking(category, market, options = {}) {
 }
 
 async function prefetchMarketRankings(market = currentMarketFilter()) {
-  state.marketPrefetchKey = `${market}:surge:${Date.now()}`;
+  state.marketPrefetchKey = `${market}:${state.rankingCategory}:${state.marketRankingMode}:${Date.now()}`;
 }
 
 async function loadMarketRankings(options = {}) {
-  const category = "surge";
+  const category = MARKET_RANKING_CONFIG[options.category]
+    ? options.category
+    : MARKET_RANKING_CONFIG[state.rankingCategory]
+      ? state.rankingCategory
+      : DEFAULT_MARKET_RANKING_CATEGORY;
   state.rankingCategory = category;
+  state.marketRankingMode = normalizeMarketRankingMode(category, options.mode ?? state.marketRankingMode);
   if (elements.rankCategorySelect) {
     elements.rankCategorySelect.value = category;
   }
-  const market = setMarketFilter(options.market || currentMarketFilter());
-  const limit = Math.max(1, Math.min(30, Number(options.limit) || 30));
+  const market = setMarketFilter(category === "etf" ? "ALL" : options.market || currentMarketFilter());
+  const limit = Math.max(1, Math.min(50, Number(options.limit) || 50));
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
-  const snapshotId = force ? "" : state.marketRankingSnapshotId;
-  setMarketLeaderboardMode(category === "surge");
-  const key = marketRankingKey(category, market, limit, snapshotId);
+  const snapshotId = category === "surge" && state.marketRankingMode === "daily" && !force
+    ? state.marketRankingSnapshotId
+    : "";
+  setMarketLeaderboardMode(true);
+  renderMarketRankingHeader();
+  const key = marketRankingKey(category, market, limit, snapshotId, state.marketRankingMode);
   const cached = state.marketRankingCache.get(key);
   if (!force && cached?.payload && Date.now() - (cached.savedAt || 0) <= ttlMs) {
+    // Keep the route query aligned with the selected market even when the
+    // ranking data is served from the in-memory cache.
+    syncMarketRankingSnapshotUrl();
     renderRankings(cached.payload);
+    renderMarketRankingHeader(cached.payload);
     scheduleMarketRankingRefresh();
     return;
   }
@@ -7023,10 +16695,12 @@ async function loadMarketRankings(options = {}) {
       ttlMs,
       limit,
       snapshotId,
+      mode: state.marketRankingMode,
     });
     if (state.view === "movers" && state.rankingCategory === category && currentMarketFilter() === market) {
       syncMarketRankingSnapshotUrl();
       renderRankings(payload);
+      renderMarketRankingHeader(payload);
       scheduleMarketRankingRefresh();
     }
   } catch {
@@ -7172,7 +16846,7 @@ async function loadUsSectorMoves(options = {}) {
     state.usSectorMoves = payload;
     return payload;
   } catch {
-    return state.usSectorMoves || { items: [] };
+    return state.usSectorMoves || null;
   }
 }
 
@@ -7350,13 +17024,26 @@ function koreaMarketPhase(now = new Date()) {
   if (day === 0 || day === 6) {
     return "closed";
   }
-  if (8 * 60 <= minutes && minutes < 9 * 60) {
+  if (7 * 60 <= minutes && minutes < 9 * 60) {
     return "preopen";
   }
   if (9 * 60 <= minutes && minutes < 15 * 60 + 30) {
     return "regular";
   }
   return "closed";
+}
+
+function koreaExtendedQuoteLive(now = new Date()) {
+  const day = now.getDay();
+  if (day === 0 || day === 6) {
+    return false;
+  }
+  const seconds = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  return (
+    (8 * 3600 <= seconds && seconds < 8 * 3600 + 50 * 60)
+    || (9 * 3600 <= seconds && seconds <= 15 * 3600 + 30 * 60)
+    || (15 * 3600 + 40 * 60 <= seconds && seconds < 20 * 3600)
+  );
 }
 
 function usSectorSessionLabel(usSectorMoves = state.usSectorMoves) {
@@ -7432,7 +17119,9 @@ function watchlistTheme(item = {}) {
   if (/삼성전자|SK하이닉스|DB하이텍|한미반도체|리노공업|HPSP|ISC|이오테크닉스/.test(text)) return "반도체";
   if (/LG에너지|삼성SDI|에코프로|엘앤에프|포스코퓨처|2차전지|배터리/.test(text)) return "2차전지";
   if (/현대차|기아|모비스|만도/.test(text)) return "자동차";
-  if (/KB금융|신한|하나금융|우리금융|은행|증권|보험|미래에셋|삼성생명|메리츠|키움/.test(text)) return "금융";
+  if (/아모레|LG생활건강|코스맥스|한국콜마|화장품|뷰티|소비재/.test(text)) return "소비재";
+  if (/고려아연|영풍|풍산|금광|귀금속/.test(text)) return "귀금속";
+  if (/KB금융|신한|하나금융|우리금융|JB금융|BNK금융|DGB금융|은행|증권|보험|미래에셋|삼성생명|메리츠|키움/.test(text)) return "금융";
   if (/SK이노|S-Oil|에쓰오일|GS|HD현대|한국가스|정유|에너지/.test(text)) return "정유";
   if (/LG화학|롯데케미칼|금호석유|한화솔루션|효성첨단소재|화학|소재|철강|POSCO|포스코|고려아연/.test(text)) return "화학";
   if (/한화에어로|LIG넥스원|현대로템|한국항공우주|풍산|한화시스템|방산/.test(text)) return "방산";
@@ -7791,7 +17480,7 @@ function renderWatchlistMessage(text) {
     const action = document.createElement("button");
     action.type = "button";
     action.textContent = "종목 검색 열기";
-    action.addEventListener("click", () => setView("stock"));
+    action.addEventListener("click", () => setView("search"));
     message.appendChild(action);
   }
   elements.watchlistBody.appendChild(message);
@@ -7841,7 +17530,7 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
   header.className = "watch-stock-head watch-v2-stock-head";
   const link = document.createElement("a");
   link.className = "watch-stock-name";
-  link.href = viewStockUrl(item.name);
+  link.href = viewStockUrl(item.code || item.name);
   const nameRow = document.createElement("span");
   nameRow.className = "watch-v2-stock-name-row";
   const strong = document.createElement("strong");
@@ -7889,7 +17578,7 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
   const footer = document.createElement("footer");
   footer.className = "watch-v2-row-footer";
   const detailLink = document.createElement("a");
-  detailLink.href = viewStockUrl(item.name);
+  detailLink.href = viewStockUrl(item.code || item.name);
   detailLink.append(el("span", "", "종목 상세"), el("span", "", "›"));
   footer.appendChild(detailLink);
 
@@ -8136,11 +17825,11 @@ function bollingerBands(closes, window = 20) {
   };
 }
 
-function computeWatchChart(prices) {
-  const ordered = (prices || [])
-    .filter((row) => row.close)
-    .slice()
-    .reverse();
+function computeWatchChart(prices, quote = null) {
+  // Daily history is the base series. When a newer quote exists, append it as
+  // today's provisional daily point so the short-term forecast does not stop
+  // at an older stored close.
+  const ordered = stockPriceRowsWithLiveQuote(prices, quote);
   const latest = ordered.at(-1) || {};
   const closes = ordered.map((row) => row.close);
   const volumes = ordered.map((row) => row.volume);
@@ -8240,9 +17929,54 @@ function attachChartPatterns(analysis, dashboard) {
   return analysis;
 }
 
-function primaryChartPattern(analysis) {
+const CHART_PATTERN_RECENT_DAYS = 10;
+const CHART_FORECAST_TREND_DAYS = 20;
+// Keep the historical side of the analysis chart on the exact same daily
+// window as the stock home's 1-month chart. A separate value here previously
+// showed 45 sessions and made the two lines look like different price data.
+const CHART_FORECAST_VISIBLE_DAYS = STOCK_PRICE_PERIOD_COUNTS["1M"];
+
+function chartPatternAgeDays(pattern, analysis) {
+  const signalDate = String(pattern?.signal_date || "").slice(0, 10);
+  const prices = Array.isArray(analysis?.prices) ? analysis.prices : [];
+  if (signalDate && prices.length) {
+    const signalIndex = prices.findIndex(
+      (row) => String(row?.trade_date || row?.date || "").slice(0, 10) === signalDate,
+    );
+    if (signalIndex >= 0) {
+      return Math.max(0, prices.length - 1 - signalIndex);
+    }
+  }
+  const annotatedAge = toNumber(pattern?.age_days);
+  if (annotatedAge !== null && annotatedAge >= 0) {
+    return Math.round(annotatedAge);
+  }
+  const latestIndex = Math.max(0, (analysis?.prices?.length || 1) - 1);
+  const pointIndexes = (pattern?.points || [])
+    .map((point) => toNumber(point?.index))
+    .filter((index) => index !== null);
+  return pointIndexes.length ? Math.max(0, latestIndex - Math.max(...pointIndexes)) : Number.POSITIVE_INFINITY;
+}
+
+function recentChartPatterns(analysis, maxAge = CHART_PATTERN_RECENT_DAYS) {
   const patterns = Array.isArray(analysis?.patterns) ? analysis.patterns : [];
-  return patterns.find((item) => item.status === "확인") || patterns[0] || null;
+  return patterns
+    .filter((pattern) => chartPatternAgeDays(pattern, analysis) <= maxAge)
+    .slice()
+    .sort((left, right) => {
+      const leftAge = chartPatternAgeDays(left, analysis);
+      const rightAge = chartPatternAgeDays(right, analysis);
+      const leftScore = (toNumber(left.confidence) ?? 0) + (left.status === "확인" ? 8 : 0) - leftAge * 2.5;
+      const rightScore = (toNumber(right.confidence) ?? 0) + (right.status === "확인" ? 8 : 0) - rightAge * 2.5;
+      return rightScore - leftScore || leftAge - rightAge;
+    });
+}
+
+function chartPatternRecencyLabel(pattern, analysis) {
+  const age = chartPatternAgeDays(pattern, analysis);
+  if (!Number.isFinite(age)) return "시점 확인 중";
+  if (age === 0) return "최신 거래일";
+  return `${age}거래일 전`;
 }
 
 function chartPatternTone(pattern) {
@@ -8272,14 +18006,27 @@ function computeChartForecast(analysis, horizon = 5) {
   const mediumDrift = average(recentReturns) ?? 0;
   const trendGap = analysis.ma5 && analysis.ma20 ? (analysis.ma5 - analysis.ma20) / analysis.ma20 : 0;
   const momentumBoost = analysis.macd?.histogram && current ? clampNumber(analysis.macd.histogram / current, -0.01, 0.01) : 0;
-  const primaryPattern = primaryChartPattern(analysis);
+  const priceDailyDrift = clampNumber(shortDrift * 0.42 + mediumDrift * 0.38 + trendGap * 0.014 + momentumBoost * 0.2, -0.025, 0.025);
+  const recentPatterns = recentChartPatterns(analysis);
+  const primaryPattern = recentPatterns[0] || null;
+  const patternAge = primaryPattern ? chartPatternAgeDays(primaryPattern, analysis) : null;
+  const recencyWeight = patternAge === null ? 0 : clampNumber(1 - patternAge / (CHART_PATTERN_RECENT_DAYS + 5), 0.35, 1);
   const patternWeight = primaryPattern
-    ? (primaryPattern.status === "확인" ? 0.0015 : 0.00045) * ((toNumber(primaryPattern.confidence) ?? 50) / 100)
+    ? (primaryPattern.status === "확인" ? 0.0015 : 0.00045)
+      * ((toNumber(primaryPattern.confidence) ?? 50) / 100)
+      * recencyWeight
     : 0;
   const patternDrift = primaryPattern?.direction === "bullish"
     ? patternWeight
     : primaryPattern?.direction === "bearish" ? -patternWeight : 0;
-  const dailyDrift = clampNumber(shortDrift * 0.42 + mediumDrift * 0.38 + trendGap * 0.014 + momentumBoost * 0.2 + patternDrift, -0.025, 0.025);
+  const priceDirectionSign = priceDailyDrift > 0.0008 ? 1 : priceDailyDrift < -0.0008 ? -1 : 0;
+  const patternDirectionSign = primaryPattern?.direction === "bullish" ? 1 : primaryPattern?.direction === "bearish" ? -1 : 0;
+  const signalAlignment = !primaryPattern
+    ? "price-only"
+    : !priceDirectionSign || !patternDirectionSign
+      ? "neutral"
+      : priceDirectionSign === patternDirectionSign ? "aligned" : "mixed";
+  const dailyDrift = clampNumber(priceDailyDrift + patternDrift, -0.025, 0.025);
   const returnVolatility = standardDeviation(recentReturns) ?? 0;
   const atrVolatility = (analysis.atr ?? 0) / 100;
   const dailyVolatility = clampNumber(returnVolatility * 0.68 + atrVolatility * 0.32, 0.005, 0.06);
@@ -8293,25 +18040,37 @@ function computeChartForecast(analysis, horizon = 5) {
   const expectedRate = ((expected - current) / current) * 100;
   const trendAligned = (dailyDrift >= 0 && analysis.ma20 && current >= analysis.ma20)
     || (dailyDrift < 0 && analysis.ma20 && current < analysis.ma20);
+  const patternConfidenceAdjustment = signalAlignment === "aligned"
+    ? (primaryPattern?.status === "확인" ? 6 : 3)
+    : signalAlignment === "mixed" ? -14 : 0;
   const confidenceScore = clampNumber(
-    48 + Math.min(18, rows.length / 10) + (trendAligned ? 10 : 0) + (primaryPattern?.status === "확인" ? 5 : 0) - Math.max(0, dailyVolatility * 240),
+    48
+      + Math.min(18, rows.length / 10)
+      + (trendAligned ? 10 : 0)
+      + patternConfidenceAdjustment
+      - Math.max(0, dailyVolatility * 240),
     35,
     82,
   );
   const confidence = confidenceScore >= 68 ? "높음" : confidenceScore >= 52 ? "보통" : "낮음";
-  const direction = expectedRate > 1 ? "상승 우위" : expectedRate < -1 ? "하락 우위" : "횡보 가능성";
+  const direction = signalAlignment === "mixed"
+    ? "신호 엇갈림"
+    : expectedRate > 1 ? "상승 우위" : expectedRate < -1 ? "하락 우위" : "횡보 가능성";
   return {
     days,
     available: true,
     current,
     expected,
     expectedRate,
+    priceDailyDrift,
     dailyDrift,
     dailyVolatility,
     confidence,
     confidenceScore,
     direction,
     points,
+    signalAlignment,
+    recentPatterns,
     primaryPattern,
   };
 }
@@ -8321,8 +18080,67 @@ function chartForecastTone(value) {
   return number > 0.1 ? "positive" : number < -0.1 ? "negative" : "neutral";
 }
 
+function chartForecastResultTone(forecast) {
+  return forecast?.signalAlignment === "mixed" ? "neutral" : chartForecastTone(forecast?.expectedRate);
+}
+
+function escapeChartSvgText(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
+}
+
+const CHART_BOUNDARY_PATTERN_KEYS = new Set([
+  "ascending-triangle",
+  "descending-triangle",
+  "symmetrical-triangle",
+  "rising-wedge",
+  "falling-wedge",
+  "rectangle",
+  "rising-channel",
+  "falling-channel",
+]);
+
+function chartPatternHasBoundaries(pattern) {
+  return CHART_BOUNDARY_PATTERN_KEYS.has(String(pattern?.key || ""))
+    && pattern?.boundaries?.upper
+    && pattern?.boundaries?.lower;
+}
+
+function chartPatternBoundaryMarkup(pattern, rows, x, y, className) {
+  if (!chartPatternHasBoundaries(pattern) || !Array.isArray(rows) || rows.length < 2) {
+    return "";
+  }
+  const dateIndex = new Map(rows.map((row, index) => [String(row.date || "").slice(0, 10), index]));
+  const segments = ["upper", "lower"].map((side) => {
+    const boundary = pattern.boundaries?.[side];
+    const endDate = String(boundary?.end_date || "").slice(0, 10);
+    const startDate = String(boundary?.start_date || "").slice(0, 10);
+    const endIndex = dateIndex.get(endDate) ?? rows.length - 1;
+    const startIndex = dateIndex.get(startDate) ?? 0;
+    const slope = toNumber(boundary?.slope_per_day);
+    const rawEndPrice = toNumber(boundary?.end_price);
+    const rawStartPrice = toNumber(boundary?.start_price);
+    if (slope === null || rawEndPrice === null || rawStartPrice === null || endIndex <= startIndex) {
+      return "";
+    }
+    const endPrice = dateIndex.has(endDate)
+      ? rawEndPrice
+      : rawStartPrice + slope * (endIndex - startIndex);
+    const startPrice = dateIndex.has(startDate)
+      ? rawStartPrice
+      : endPrice - slope * (endIndex - startIndex);
+    return `<line class="${className} ${side}" x1="${x(startIndex).toFixed(1)}" y1="${y(startPrice).toFixed(1)}" x2="${x(endIndex).toFixed(1)}" y2="${y(endPrice).toFixed(1)}" />`;
+  }).join("");
+  return segments ? `<g class="${String(className).split(" ")[0]}-group">${segments}</g>` : "";
+}
+
 function createChartForecastSvg(analysis, forecast) {
-  const actual = analysis.prices.slice(-90).map((row) => ({
+  const actual = analysis.prices.slice(-CHART_FORECAST_VISIBLE_DAYS).map((row) => ({
     date: String(row.trade_date || row.date || "").slice(0, 10),
     close: toNumber(row.close),
     volume: toNumber(row.volume) ?? 0,
@@ -8339,9 +18157,19 @@ function createChartForecastSvg(analysis, forecast) {
   const plotWidth = width - left - right;
   const plotHeight = height - top - bottom;
   const future = forecast.points;
+  const pattern = forecast.primaryPattern;
+  const boundaryValues = chartPatternHasBoundaries(pattern)
+    ? [
+        pattern.boundaries.upper.start_price,
+        pattern.boundaries.upper.end_price,
+        pattern.boundaries.lower.start_price,
+        pattern.boundaries.lower.end_price,
+      ].map(toNumber).filter((value) => value !== null)
+    : [];
   const values = [
     ...actual.map((row) => row.close),
     ...future.flatMap((point) => [point.lower, point.center, point.upper]),
+    ...boundaryValues,
   ];
   let min = Math.min(...values);
   let max = Math.max(...values);
@@ -8355,6 +18183,8 @@ function createChartForecastSvg(analysis, forecast) {
   const path = (points) => points.map((point, index) => `${index ? "L" : "M"}${point[0].toFixed(1)},${point[1].toFixed(1)}`).join(" ");
   const actualPoints = actual.map((row, index) => [x(index), y(row.close)]);
   const currentIndex = actual.length - 1;
+  const focusStartIndex = Math.max(0, currentIndex - (CHART_FORECAST_TREND_DAYS - 1));
+  const focusStartX = x(focusStartIndex);
   const centerPoints = [[x(currentIndex), y(actual.at(-1).close)], ...future.map((point) => [x(currentIndex + point.day), y(point.center)])];
   const upperPoints = [[x(currentIndex), y(actual.at(-1).close)], ...future.map((point) => [x(currentIndex + point.day), y(point.upper)])];
   const lowerPoints = [[x(currentIndex), y(actual.at(-1).close)], ...future.map((point) => [x(currentIndex + point.day), y(point.lower)])];
@@ -8373,68 +18203,443 @@ function createChartForecastSvg(analysis, forecast) {
   const end = future.at(-1);
   const endX = x(totalSteps);
   const endY = y(end.center);
-  const pattern = forecast.primaryPattern;
   const dateIndex = new Map(actual.map((row, index) => [row.date, index]));
   const patternPoints = (pattern?.points || [])
     .map((point) => {
       const index = dateIndex.get(String(point.date || "").slice(0, 10));
       const price = toNumber(point.price);
-      return index === undefined || price === null ? null : [x(index), y(price)];
+      return index === undefined || price === null ? null : { index, x: x(index), y: y(price) };
     })
     .filter(Boolean);
-  const patternLine = patternPoints.length >= 2
-    ? `<polyline class="chart-pattern-shape ${chartPatternTone(pattern)}" points="${patternPoints.map((point) => `${point[0].toFixed(1)},${point[1].toFixed(1)}`).join(" ")}" />`
+  const patternFormationIsInFocus = patternPoints.length >= 2
+    && patternPoints.every((point) => point.index >= focusStartIndex);
+  const boundaryLines = chartPatternBoundaryMarkup(pattern, actual, x, y, `chart-pattern-boundary ${chartPatternTone(pattern)}`);
+  const patternLine = !boundaryLines && patternFormationIsInFocus
+    ? `<polyline class="chart-pattern-shape ${chartPatternTone(pattern)}" points="${patternPoints.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ")}" />`
     : "";
   const trigger = toNumber(pattern?.trigger);
-  const triggerLine = trigger !== null && trigger >= min && trigger <= max && patternPoints.length
-    ? `<line class="chart-pattern-trigger" x1="${patternPoints[0][0].toFixed(1)}" y1="${y(trigger).toFixed(1)}" x2="${currentX.toFixed(1)}" y2="${y(trigger).toFixed(1)}" />`
+  const triggerLine = !boundaryLines && trigger !== null && trigger >= min && trigger <= max && patternFormationIsInFocus
+    ? `<line class="chart-pattern-trigger" x1="${patternPoints[0].x.toFixed(1)}" y1="${y(trigger).toFixed(1)}" x2="${currentX.toFixed(1)}" y2="${y(trigger).toFixed(1)}" />`
     : "";
-  const patternLabel = patternLine
-    ? `<text class="chart-pattern-label ${chartPatternTone(pattern)}" x="${patternPoints[0][0].toFixed(1)}" y="${Math.max(top + 14, patternPoints[0][1] - 12).toFixed(1)}">${pattern.name} · ${pattern.status}</text>`
+  const signalIndex = dateIndex.get(String(pattern?.signal_date || "").slice(0, 10));
+  const signalRow = signalIndex === undefined ? null : actual[signalIndex];
+  const signalX = signalIndex === undefined ? null : x(signalIndex);
+  const signalY = signalRow ? y(signalRow.close) : null;
+  const signalDot = signalX === null || signalY === null
+    ? ""
+    : `<circle class="chart-pattern-signal-dot ${chartPatternTone(pattern)}" cx="${signalX.toFixed(1)}" cy="${signalY.toFixed(1)}" r="5" />`;
+  const labelAnchor = signalX !== null && signalX > width - right - 150 ? "end" : "start";
+  // Keep the annotation on the actionable signal date. Falling back to an old
+  // formation point made the chart look as though it analysed the middle.
+  const labelX = signalX;
+  const labelY = signalY;
+  const patternLabel = pattern && labelX !== null && labelY !== null
+    ? `<text class="chart-pattern-label ${chartPatternTone(pattern)}" x="${labelX.toFixed(1)}" y="${Math.max(top + 16, labelY - 12).toFixed(1)}" text-anchor="${labelAnchor}">${escapeChartSvgText(pattern.name)} · ${escapeChartSvgText(chartPatternRecencyLabel(pattern, analysis))}</text>`
     : "";
   return `
-    <svg class="chart-forecast-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="실제 가격과 ${forecast.days}거래일 예상 범위">
+    <svg class="chart-forecast-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="상단 1개월 차트와 같은 일봉 가격 및 ${forecast.days}거래일 예상 범위">
       <g class="chart-forecast-grid">${grids}</g>
+      <rect class="chart-forecast-recent-zone" x="${focusStartX.toFixed(1)}" y="${top}" width="${Math.max(0, currentX - focusStartX).toFixed(1)}" height="${plotHeight}" />
       <rect class="chart-forecast-future-zone" x="${currentX.toFixed(1)}" y="${top}" width="${(width - right - currentX).toFixed(1)}" height="${plotHeight}" />
+      <line class="chart-forecast-focus-start" x1="${focusStartX.toFixed(1)}" y1="${top}" x2="${focusStartX.toFixed(1)}" y2="${top + plotHeight}" />
+      <text class="chart-forecast-focus-label" x="${(focusStartX + 7).toFixed(1)}" y="${top + 17}">최근 ${CHART_FORECAST_TREND_DAYS}일 추세 분석</text>
       <g class="chart-forecast-volume">${volumeBars}</g>
       <path class="chart-forecast-band" d="${path(bandPoints)} Z" />
       <path class="chart-forecast-actual" d="${path(actualPoints)}" />
-      ${patternLine}${triggerLine}${patternLabel}
+      ${boundaryLines}${patternLine}${triggerLine}${signalDot}${patternLabel}
       <path class="chart-forecast-bound" d="${path(upperPoints)}" />
       <path class="chart-forecast-bound" d="${path(lowerPoints)}" />
-      <path class="chart-forecast-center ${chartForecastTone(forecast.expectedRate)}" d="${path(centerPoints)}" />
+      <path class="chart-forecast-center ${chartForecastResultTone(forecast)}" d="${path(centerPoints)}" />
       <line class="chart-forecast-now" x1="${currentX.toFixed(1)}" y1="${top}" x2="${currentX.toFixed(1)}" y2="${top + plotHeight}" />
       <circle class="chart-forecast-current-dot" cx="${currentX.toFixed(1)}" cy="${y(actual.at(-1).close).toFixed(1)}" r="5" />
-      <circle class="chart-forecast-end-dot ${chartForecastTone(forecast.expectedRate)}" cx="${endX.toFixed(1)}" cy="${endY.toFixed(1)}" r="6" />
-      <text class="chart-forecast-axis-label" x="${left}" y="${height - 14}">최근 흐름</text>
-      <text class="chart-forecast-axis-label current" x="${currentX.toFixed(1)}" y="${height - 14}" text-anchor="middle">현재</text>
+      <circle class="chart-forecast-end-dot ${chartForecastResultTone(forecast)}" cx="${endX.toFixed(1)}" cy="${endY.toFixed(1)}" r="6" />
+      <text class="chart-forecast-axis-label" x="${left}" y="${height - 14}">1개월 일봉 · ${actual.length}거래일</text>
+      <text class="chart-forecast-axis-label current" x="${currentX.toFixed(1)}" y="${height - 14}" text-anchor="middle">최신</text>
       <text class="chart-forecast-axis-label" x="${width - right}" y="${height - 14}" text-anchor="end">${forecast.days}거래일 후</text>
     </svg>`;
 }
 
-function renderChartPatternAnalysis(analysis) {
+function chartStudyGuide(name, family, direction, concept, checkpoints, mistakes, confirmation) {
+  return Object.freeze({ name, family, direction, concept, checkpoints, mistakes, confirmation });
+}
+
+// Keep the study library aligned with every key emitted by chart_patterns.py.
+// A detected result and a library-only lesson therefore use the same copy and illustration.
+const CHART_STUDY_GUIDES = Object.freeze({
+  "double-bottom": chartStudyGuide("W형 이중바닥", "반전", "bullish", "비슷한 가격대에서 두 번 지지를 받고 중간 고점을 다시 넘는 상승 반전 패턴입니다.", ["두 저점의 가격 차이가 과도하지 않은지", "두 저점 사이 반등 고점인 넥라인이 분명한지", "넥라인을 거래량과 종가로 돌파했는지"], ["두 번째 저점만 보고 W형으로 단정하기", "넥라인 돌파 전에 반전을 확정하기"], "중간 고점 돌파와 지지 전환"),
+  "double-top": chartStudyGuide("M형 이중천장", "반전", "bearish", "비슷한 가격대에서 두 번 상승이 막히고 중간 저점을 이탈하는 하락 반전 패턴입니다.", ["두 고점이 유사한 저항대에서 막혔는지", "두 고점 사이 저점인 넥라인이 분명한지", "넥라인을 종가로 이탈했는지"], ["두 번째 고점만 보고 하락을 단정하기", "넥라인 이탈 없이 목표가부터 계산하기"], "중간 저점 이탈과 저항 전환"),
+  "head-shoulders": chartStudyGuide("헤드앤숄더", "반전", "bearish", "가운데 고점이 가장 높고 양쪽 어깨가 비슷한 높이에서 형성되는 대표적인 하락 반전 구조입니다.", ["머리가 양쪽 어깨보다 충분히 높은지", "두 저점을 연결한 넥라인이 일관적인지", "넥라인 이탈 때 거래량이 늘었는지"], ["어깨 높이가 크게 다른 모양을 억지로 맞추기", "오른쪽 어깨가 끝나기 전에 확정하기"], "넥라인 이탈과 되돌림 저항"),
+  "inverse-head-shoulders": chartStudyGuide("역헤드앤숄더", "반전", "bullish", "가운데 저점이 가장 낮고 양쪽 어깨가 비슷한 가격에서 지지되는 상승 반전 구조입니다.", ["머리 저점이 양쪽 어깨보다 충분히 낮은지", "두 고점을 연결한 넥라인이 분명한지", "넥라인 돌파 뒤 지지가 확인되는지"], ["오른쪽 어깨 형성 전에 진입하기", "돌파 거래량과 종가를 확인하지 않기"], "넥라인 돌파와 눌림 지지"),
+  "triple-top": chartStudyGuide("삼중천장", "반전", "bearish", "비슷한 저항대에서 세 번 상승이 막혀 매수 힘이 약해지는 하락 반전 후보입니다.", ["세 고점의 가격대가 유사한지", "고점 사이 저점대가 지지선으로 기능했는지", "지지선을 종가로 이탈했는지"], ["세 고점만 세고 지지선은 보지 않기", "횡보 박스권과 구분하지 않기"], "공통 지지선 이탈"),
+  "triple-bottom": chartStudyGuide("삼중바닥", "반전", "bullish", "비슷한 지지대에서 세 번 반등해 매도 압력이 약해지는 상승 반전 후보입니다.", ["세 저점의 가격대가 유사한지", "저점 사이 고점대가 저항선으로 기능했는지", "저항선을 종가로 돌파했는지"], ["세 저점만 세고 저항선은 보지 않기", "돌파 전 박스권을 상승 추세로 해석하기"], "공통 저항선 돌파"),
+  "ascending-triangle": chartStudyGuide("상승 삼각수렴", "수렴·추세", "bullish", "고점은 비슷하지만 저점이 높아져 매수 압력이 누적되는 수렴 패턴입니다.", ["상단 저항이 수평에 가까운지", "저점이 차례로 높아지는지", "상단 돌파 때 거래량이 함께 늘었는지"], ["저점 상승 없이 삼각형 모양만 보기", "상단을 장중에 잠깐 넘은 것을 돌파로 보기"], "수평 저항 돌파"),
+  "descending-triangle": chartStudyGuide("하락 삼각수렴", "수렴·추세", "bearish", "저점은 비슷하지만 고점이 낮아져 매도 압력이 누적되는 수렴 패턴입니다.", ["하단 지지가 수평에 가까운지", "고점이 차례로 낮아지는지", "하단 이탈 때 거래량이 함께 늘었는지"], ["고점 하락 없이 삼각형 모양만 보기", "하단을 장중에 잠깐 밑돈 것을 이탈로 보기"], "수평 지지 이탈"),
+  "symmetrical-triangle": chartStudyGuide("대칭 삼각수렴", "수렴·추세", "neutral", "고점은 낮아지고 저점은 높아지며 매수·매도 힘이 한 점으로 수렴하는 중립 패턴입니다.", ["상단과 하단 추세선이 함께 수렴하는지", "수렴 폭과 거래량이 줄어드는지", "어느 방향으로 종가가 이탈하는지"], ["수렴 전에 방향을 미리 정하기", "기존 추세만 보고 반대 방향 이탈을 무시하기"], "수렴 구간 종가 이탈"),
+  "rising-wedge": chartStudyGuide("상승 쐐기", "수렴·추세", "bearish", "고점과 저점은 함께 높아지지만 상승 폭이 좁아져 매수 힘이 둔화되는 약세 반전 후보입니다.", ["두 추세선이 모두 위를 향하는지", "상단보다 하단의 기울기가 더 가파른지", "하단 추세선을 종가로 이탈했는지"], ["상승 중이라는 이유로 계속 강세로만 보기", "하단 이탈 전 조정을 확정하기"], "하단 추세선 이탈"),
+  "falling-wedge": chartStudyGuide("하락 쐐기", "수렴·추세", "bullish", "고점과 저점은 함께 낮아지지만 하락 폭이 좁아져 매도 힘이 둔화되는 강세 반전 후보입니다.", ["두 추세선이 모두 아래를 향하는지", "하단보다 상단의 기울기가 더 가파른지", "상단 추세선을 종가로 돌파했는지"], ["수렴만 보고 돌파 전에 매수하기", "하단 추세선 이탈 뒤에도 패턴이 유지된다고 보기"], "상단 추세선 돌파와 지지"),
+  "rectangle": chartStudyGuide("박스권", "수렴·추세", "neutral", "일정한 지지와 저항 사이에서 가격이 반복되는 균형 구간입니다.", ["상단 저항과 하단 지지가 여러 번 확인됐는지", "박스 안 거래량과 변동성이 줄어드는지", "상단·하단 중 어느 쪽을 종가로 이탈하는지"], ["박스 중앙에서 방향을 단정하기", "가짜 돌파 뒤 박스 복귀를 무시하기"], "박스 상단·하단 종가 이탈"),
+  "rising-channel": chartStudyGuide("상승 채널", "수렴·추세", "bullish", "고점과 저점이 비슷한 기울기로 높아지는 평행 추세 구간입니다.", ["상단과 하단 추세선이 평행에 가까운지", "하단선에서 반복적으로 지지되는지", "채널 하단 이탈 여부를 종가로 확인했는지"], ["상단 도달을 무조건 돌파로 보기", "채널 하단 이탈 뒤에도 상승 추세로 보기"], "채널 하단 지지 유지"),
+  "falling-channel": chartStudyGuide("하락 채널", "수렴·추세", "bearish", "고점과 저점이 비슷한 기울기로 낮아지는 평행 하락 추세 구간입니다.", ["상단과 하단 추세선이 평행에 가까운지", "상단선에서 반복적으로 저항받는지", "채널 상단 돌파 여부를 종가로 확인했는지"], ["하단 도달만으로 반전을 확정하기", "채널 상단 돌파 뒤에도 하락 추세로 보기"], "채널 상단 돌파 여부"),
+  "bull-flag": chartStudyGuide("상승 깃발", "지속", "bullish", "강한 상승 뒤 짧고 완만한 하락 조정이 나타나는 상승 지속 후보입니다.", ["깃대가 될 선행 상승이 충분히 강한지", "조정 폭과 거래량이 줄어드는지", "깃발 상단을 종가로 돌파했는지"], ["선행 상승이 없는 횡보를 깃발로 보기", "조정이 너무 깊은데도 지속 패턴으로 보기"], "조정 상단 돌파"),
+  "bear-flag": chartStudyGuide("하락 깃발", "지속", "bearish", "강한 하락 뒤 짧고 완만한 반등이 나타나는 하락 지속 후보입니다.", ["깃대가 될 선행 하락이 충분히 강한지", "반등 폭과 거래량이 제한적인지", "깃발 하단을 종가로 이탈했는지"], ["선행 하락이 없는 횡보를 깃발로 보기", "반등이 이전 하락을 대부분 회복했는데도 지속으로 보기"], "반등 하단 이탈"),
+  "pennant": chartStudyGuide("페넌트", "지속", "neutral", "강한 선행 움직임 뒤 작은 삼각수렴이 나타나는 단기 지속 패턴입니다.", ["수렴 전에 뚜렷한 깃대가 있는지", "짧은 기간에 고점과 저점이 함께 모이는지", "기존 추세 방향으로 이탈하는지"], ["장기간 삼각수렴을 페넌트로 보기", "선행 추세 반대 이탈을 무시하기"], "작은 수렴 구간 이탈"),
+  "cup-handle": chartStudyGuide("컵앤핸들", "지속", "bullish", "완만한 U자형 회복 뒤 고점 부근에서 짧은 손잡이 조정이 생기는 상승 지속 패턴입니다.", ["컵 바닥이 급한 V자보다 완만한지", "양쪽 림의 높이가 비슷한지", "손잡이 조정 후 림을 돌파했는지"], ["손잡이 없는 U자만 보고 완성으로 보기", "손잡이가 컵 절반 아래까지 깊어져도 유효하다고 보기"], "림 저항 돌파"),
+  "rounding-bottom": chartStudyGuide("라운딩 바닥", "반전", "bullish", "가격 평균이 완만한 U자형으로 돌아서며 매도 우위가 매수 우위로 바뀌는 장기 반전 구조입니다.", ["중앙부로 갈수록 하락 속도가 둔화되는지", "오른쪽 구간의 저점과 고점이 높아지는지", "이전 평균 가격대를 회복했는지"], ["짧은 V자 반등을 라운딩 바닥으로 보기", "시간 축을 너무 짧게 잡기"], "이전 평균 가격 회복"),
+  "rounding-top": chartStudyGuide("라운딩 천장", "반전", "bearish", "가격 평균이 완만한 역U자형으로 꺾이며 매수 우위가 매도 우위로 바뀌는 장기 반전 구조입니다.", ["중앙부로 갈수록 상승 속도가 둔화되는지", "오른쪽 구간의 고점과 저점이 낮아지는지", "이전 평균 가격대를 이탈했는지"], ["짧은 급락을 라운딩 천장으로 보기", "거래량과 장기 추세를 보지 않기"], "이전 평균 가격 이탈"),
+  "doji": chartStudyGuide("도지", "캔들", "neutral", "시가와 종가가 거의 같아 매수와 매도 힘이 균형을 이룬 한 개의 캔들입니다.", ["몸통이 전체 고저 폭에 비해 충분히 작은지", "상승·하락 추세 끝에서 나타났는지", "다음 봉이 어느 방향으로 확인하는지"], ["도지 하나만으로 반전을 확정하기", "횡보 구간의 흔한 도지에 큰 의미를 부여하기"], "다음 봉의 방향 확인"),
+  "hammer": chartStudyGuide("망치형", "캔들", "bullish", "짧은 몸통과 긴 아래꼬리가 저가 매수 유입을 보여주는 상승 반전 후보 캔들입니다.", ["아래꼬리가 몸통보다 충분히 긴지", "하락 추세 또는 지지대에서 나왔는지", "다음 봉이 망치형 고점을 넘는지"], ["상승 추세 중 같은 모양을 무조건 반전으로 보기", "다음 봉 확인 없이 진입하기"], "망치형 고점 돌파"),
+  "shooting-star": chartStudyGuide("유성형", "캔들", "bearish", "짧은 몸통과 긴 위꼬리가 고가 매도 압력을 보여주는 하락 반전 후보 캔들입니다.", ["위꼬리가 몸통보다 충분히 긴지", "상승 추세 또는 저항대에서 나왔는지", "다음 봉이 유성형 저점을 이탈하는지"], ["하락 추세 중 같은 모양을 무조건 반전으로 보기", "다음 봉 확인 없이 매도하기"], "유성형 저점 이탈"),
+  "bullish-engulfing": chartStudyGuide("상승 장악형", "캔들", "bullish", "큰 양봉 몸통이 직전 음봉 몸통을 감싸 매수 힘이 우위로 바뀌는 두 개의 캔들 패턴입니다.", ["첫 봉은 음봉, 둘째 봉은 양봉인지", "둘째 몸통이 첫 몸통을 충분히 감싸는지", "지지대와 거래량이 함께 확인되는지"], ["꼬리까지 반드시 감싸야 한다고 오해하기", "상승 추세 중 장악형을 반전 신호로 과대평가하기"], "둘째 양봉 고점 돌파"),
+  "bearish-engulfing": chartStudyGuide("하락 장악형", "캔들", "bearish", "큰 음봉 몸통이 직전 양봉 몸통을 감싸 매도 힘이 우위로 바뀌는 두 개의 캔들 패턴입니다.", ["첫 봉은 양봉, 둘째 봉은 음봉인지", "둘째 몸통이 첫 몸통을 충분히 감싸는지", "저항대와 거래량이 함께 확인되는지"], ["꼬리까지 반드시 감싸야 한다고 오해하기", "하락 추세 중 장악형을 반전 신호로 과대평가하기"], "둘째 음봉 저점 이탈"),
+  "bullish-harami": chartStudyGuide("상승 하라미", "캔들", "bullish", "큰 음봉 안에 작은 양봉 몸통이 들어와 하락 힘의 둔화를 보여주는 두 개의 캔들 패턴입니다.", ["첫 음봉 몸통이 충분히 큰지", "둘째 양봉 몸통이 첫 몸통 안에 있는지", "다음 봉이 둘째 고점을 넘는지"], ["하라미만으로 상승 전환을 확정하기", "횡보 중 작은 몸통 조합을 모두 하라미로 보기"], "작은 양봉 고점 돌파"),
+  "bearish-harami": chartStudyGuide("하락 하라미", "캔들", "bearish", "큰 양봉 안에 작은 음봉 몸통이 들어와 상승 힘의 둔화를 보여주는 두 개의 캔들 패턴입니다.", ["첫 양봉 몸통이 충분히 큰지", "둘째 음봉 몸통이 첫 몸통 안에 있는지", "다음 봉이 둘째 저점을 이탈하는지"], ["하라미만으로 하락 전환을 확정하기", "횡보 중 작은 몸통 조합을 모두 하라미로 보기"], "작은 음봉 저점 이탈"),
+  "piercing-line": chartStudyGuide("관통형", "캔들", "bullish", "하락 뒤 나온 양봉이 직전 음봉 몸통의 절반 이상을 회복하는 상승 반전 후보입니다.", ["첫 봉이 뚜렷한 음봉인지", "둘째 양봉이 첫 음봉 중간값을 넘는지", "다음 봉에서 회복이 이어지는지"], ["중간값을 회복하지 못한 반등도 관통형으로 보기", "하락 맥락 없이 두 봉 모양만 보기"], "직전 음봉 중간값 회복"),
+  "dark-cloud-cover": chartStudyGuide("흑운형", "캔들", "bearish", "상승 뒤 나온 음봉이 직전 양봉 몸통의 절반 아래로 밀리는 하락 반전 후보입니다.", ["첫 봉이 뚜렷한 양봉인지", "둘째 음봉이 첫 양봉 중간값 아래로 내려왔는지", "다음 봉에서 약세가 이어지는지"], ["중간값을 이탈하지 않은 조정도 흑운형으로 보기", "상승 맥락 없이 두 봉 모양만 보기"], "직전 양봉 중간값 이탈"),
+  "morning-star": chartStudyGuide("샛별형", "캔들", "bullish", "큰 음봉, 작은 몸통, 회복 양봉이 차례로 나타나는 세 개의 상승 반전 캔들입니다.", ["첫 봉이 뚜렷한 음봉인지", "가운데 봉의 몸통이 충분히 작은지", "셋째 양봉이 첫 음봉 중간 이상을 회복했는지"], ["가운데 봉의 위치만 보고 샛별형으로 보기", "셋째 봉 회복 강도를 무시하기"], "셋째 양봉의 회복 유지"),
+  "evening-star": chartStudyGuide("석별형", "캔들", "bearish", "큰 양봉, 작은 몸통, 하락 음봉이 차례로 나타나는 세 개의 하락 반전 캔들입니다.", ["첫 봉이 뚜렷한 양봉인지", "가운데 봉의 몸통이 충분히 작은지", "셋째 음봉이 첫 양봉 중간 아래로 내려왔는지"], ["가운데 봉의 위치만 보고 석별형으로 보기", "셋째 봉 하락 강도를 무시하기"], "셋째 음봉의 약세 유지"),
+  "spinning-top": chartStudyGuide("팽이형", "캔들", "neutral", "작은 몸통과 위아래 꼬리가 함께 있어 단기 방향성이 약해진 한 개의 캔들입니다.", ["몸통이 고저 폭보다 충분히 작은지", "위아래 꼬리가 모두 존재하는지", "다음 봉이 균형을 어느 방향으로 깨는지"], ["팽이형 하나로 반전을 확정하기", "변동성 작은 횡보장에서 과대해석하기"], "다음 봉의 방향 확인"),
+  "bullish-marubozu": chartStudyGuide("상승 장대봉", "캔들", "bullish", "꼬리가 거의 없고 긴 양봉 몸통이 형성돼 매수 압력이 강한 한 개의 캔들입니다.", ["몸통이 전체 고저 폭의 대부분인지", "거래량이 평소보다 늘었는지", "다음 봉이 장대봉 중간값 위를 지키는지"], ["과열 구간의 마지막 장대봉을 무조건 추세 시작으로 보기", "갭과 거래량 맥락을 무시하기"], "장대봉 중간값 지지"),
+  "bearish-marubozu": chartStudyGuide("하락 장대봉", "캔들", "bearish", "꼬리가 거의 없고 긴 음봉 몸통이 형성돼 매도 압력이 강한 한 개의 캔들입니다.", ["몸통이 전체 고저 폭의 대부분인지", "거래량이 평소보다 늘었는지", "다음 봉이 장대봉 중간값 아래에 머무는지"], ["과매도 구간의 마지막 장대봉을 무조건 하락 시작으로 보기", "갭과 거래량 맥락을 무시하기"], "장대봉 중간값 저항"),
+});
+
+const CHART_STUDY_LINE_SHAPES = Object.freeze({
+  "double-bottom": [[8, 30], [22, 72], [38, 34], [54, 74], [70, 32], [86, 18], [98, 12]],
+  "double-top": [[8, 70], [24, 28], [40, 66], [56, 26], [72, 68], [88, 82], [98, 88]],
+  "head-shoulders": [[5, 72], [20, 42], [32, 68], [48, 12], [62, 66], [76, 40], [88, 70], [98, 86]],
+  "inverse-head-shoulders": [[5, 28], [20, 58], [32, 32], [48, 88], [62, 34], [76, 60], [88, 30], [98, 14]],
+  "triple-top": [[4, 72], [18, 28], [30, 66], [44, 30], [56, 68], [70, 26], [82, 70], [98, 86]],
+  "triple-bottom": [[4, 28], [18, 74], [30, 34], [44, 70], [56, 32], [70, 76], [82, 30], [98, 14]],
+  "ascending-triangle": [[5, 76], [18, 26], [32, 64], [45, 26], [58, 53], [71, 26], [82, 43], [92, 24], [99, 10]],
+  "descending-triangle": [[5, 22], [18, 74], [32, 35], [45, 74], [58, 46], [71, 74], [82, 57], [92, 76], [99, 90]],
+  "symmetrical-triangle": [[5, 18], [18, 82], [32, 30], [45, 70], [58, 40], [70, 62], [82, 49], [92, 54], [99, 38]],
+  "rising-wedge": [[5, 78], [18, 38], [30, 67], [43, 28], [56, 56], [69, 21], [81, 46], [91, 28], [99, 72]],
+  "falling-wedge": [[5, 22], [18, 62], [30, 34], [43, 72], [56, 45], [69, 78], [81, 56], [91, 70], [99, 30]],
+  rectangle: [[4, 30], [16, 72], [29, 28], [42, 74], [55, 30], [68, 72], [81, 29], [91, 70], [99, 16]],
+  "rising-channel": [[4, 76], [17, 48], [29, 66], [42, 36], [55, 54], [68, 24], [81, 42], [93, 14], [99, 8]],
+  "falling-channel": [[4, 24], [17, 52], [29, 34], [42, 64], [55, 46], [68, 76], [81, 58], [93, 86], [99, 92]],
+  "bull-flag": [[4, 82], [28, 12], [39, 34], [51, 24], [63, 45], [76, 34], [88, 52], [98, 18]],
+  "bear-flag": [[4, 18], [28, 88], [39, 66], [51, 76], [63, 55], [76, 66], [88, 48], [98, 82]],
+  pennant: [[4, 82], [28, 14], [40, 34], [52, 64], [64, 42], [76, 58], [87, 49], [98, 26]],
+  "cup-handle": [[4, 28], [17, 46], [30, 70], [44, 82], [58, 68], [72, 42], [82, 28], [89, 46], [95, 34], [99, 18]],
+  "rounding-bottom": [[4, 24], [17, 38], [30, 60], [43, 76], [56, 82], [69, 70], [82, 48], [94, 25], [99, 16]],
+  "rounding-top": [[4, 76], [17, 62], [30, 40], [43, 24], [56, 18], [69, 30], [82, 52], [94, 75], [99, 84]],
+});
+
+const CHART_STUDY_GUIDE_LINES = Object.freeze({
+  "ascending-triangle": [[4, 26, 92, 26], [4, 82, 92, 40]],
+  "descending-triangle": [[4, 22, 92, 66], [4, 74, 92, 74]],
+  "symmetrical-triangle": [[4, 16, 92, 52], [4, 84, 92, 52]],
+  "rising-wedge": [[4, 42, 92, 22], [4, 82, 92, 44]],
+  "falling-wedge": [[4, 18, 92, 66], [4, 64, 92, 74]],
+  rectangle: [[4, 28, 92, 28], [4, 74, 92, 74]],
+  "rising-channel": [[4, 44, 92, 10], [4, 84, 92, 50]],
+  "falling-channel": [[4, 18, 92, 58], [4, 56, 92, 94]],
+  "bull-flag": [[30, 24, 90, 48], [30, 46, 90, 70]],
+  "bear-flag": [[30, 54, 90, 30], [30, 78, 90, 54]],
+  pennant: [[30, 26, 92, 49], [30, 72, 92, 49]],
+});
+
+const CHART_STUDY_CANDLE_SHAPES = Object.freeze({
+  doji: [{ o: 50, c: 52, h: 14, l: 88 }],
+  hammer: [{ o: 38, c: 28, h: 16, l: 92 }],
+  "shooting-star": [{ o: 66, c: 76, h: 8, l: 88 }],
+  "bullish-engulfing": [{ o: 24, c: 67, h: 16, l: 78 }, { o: 74, c: 14, h: 8, l: 82 }],
+  "bearish-engulfing": [{ o: 68, c: 24, h: 16, l: 78 }, { o: 14, c: 74, h: 8, l: 82 }],
+  "bullish-harami": [{ o: 20, c: 78, h: 12, l: 86 }, { o: 62, c: 40, h: 33, l: 70 }],
+  "bearish-harami": [{ o: 78, c: 20, h: 12, l: 86 }, { o: 40, c: 62, h: 33, l: 70 }],
+  "piercing-line": [{ o: 18, c: 76, h: 12, l: 84 }, { o: 82, c: 40, h: 32, l: 90 }],
+  "dark-cloud-cover": [{ o: 78, c: 18, h: 10, l: 86 }, { o: 12, c: 56, h: 6, l: 64 }],
+  "morning-star": [{ o: 18, c: 72, h: 10, l: 80 }, { o: 72, c: 66, h: 58, l: 84 }, { o: 70, c: 24, h: 16, l: 78 }],
+  "evening-star": [{ o: 76, c: 20, h: 12, l: 84 }, { o: 20, c: 26, h: 10, l: 36 }, { o: 24, c: 72, h: 16, l: 80 }],
+  "spinning-top": [{ o: 46, c: 56, h: 12, l: 90 }],
+  "bullish-marubozu": [{ o: 84, c: 12, h: 8, l: 88 }],
+  "bearish-marubozu": [{ o: 12, c: 84, h: 8, l: 88 }],
+});
+
+function chartStudyLesson(pattern = {}) {
+  const key = String(pattern.key || "");
+  const guide = CHART_STUDY_GUIDES[key];
+  if (guide) return guide;
+  const name = String(pattern.name || "차트 패턴");
+  return {
+    name,
+    family: String(pattern.family || "기술적 패턴"),
+    direction: String(pattern.direction || "neutral"),
+    concept: `${name}은 가격의 반복 구조를 통해 매수·매도 힘의 변화를 읽는 기술적 패턴입니다. 모양만 보지 말고 완성 조건과 무효화 기준을 함께 확인해야 합니다.`,
+    checkpoints: ["패턴의 고점·저점 연결이 일관적인지", "확인 기준을 종가로 통과했는지", "거래량과 최근 추세가 같은 방향인지"],
+    mistakes: ["비슷한 모양을 모두 같은 패턴으로 단정하기", "확인 기준 전에 결과를 예측하기", "무효화 가격 없이 목표가만 보기"],
+    confirmation: "확인 기준 돌파와 종가 유지",
+  };
+}
+
+function chartStudyConceptSvg(pattern = {}, lesson = {}) {
+  const key = String(pattern.key || "falling-wedge");
+  const name = escapeChartSvgText(lesson.name || pattern.name || "차트 패턴");
+  const candles = CHART_STUDY_CANDLE_SHAPES[key];
+  const grid = '<g class="chart-study-grid"><line x1="36" y1="62" x2="604" y2="62"/><line x1="36" y1="142" x2="604" y2="142"/><line x1="36" y1="222" x2="604" y2="222"/></g>';
+  if (candles) {
+    const gap = 112;
+    const start = 320 - ((candles.length - 1) * gap) / 2;
+    const candleMarkup = candles.map((candle, index) => {
+      const x = start + index * gap;
+      const y = (value) => 34 + (value / 100) * 188;
+      const bullish = candle.c < candle.o;
+      const bearish = candle.c > candle.o;
+      const tone = bullish ? "bullish" : bearish ? "bearish" : "neutral";
+      const bodyTop = Math.min(y(candle.o), y(candle.c));
+      const bodyHeight = Math.max(4, Math.abs(y(candle.o) - y(candle.c)));
+      return `<g class="chart-study-candle ${tone}"><line x1="${x}" y1="${y(candle.h).toFixed(1)}" x2="${x}" y2="${y(candle.l).toFixed(1)}"/><rect x="${x - 27}" y="${bodyTop.toFixed(1)}" width="54" height="${bodyHeight.toFixed(1)}" rx="4"/></g>`;
+    }).join("");
+    return `<svg viewBox="0 0 640 280" role="img" aria-label="${name} 캔들 구조를 설명하는 학습 그림">${grid}<text x="40" y="34">${name}</text>${candleMarkup}<text class="accent" x="600" y="252" text-anchor="end">${escapeChartSvgText(lesson.confirmation || "다음 봉 확인")}</text></svg>`;
+  }
+  const points = CHART_STUDY_LINE_SHAPES[key] || CHART_STUDY_LINE_SHAPES["falling-wedge"];
+  const sx = (value) => 48 + (value / 100) * 548;
+  const sy = (value) => 42 + (value / 100) * 180;
+  const polyline = points.map(([x, y]) => `${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(" ");
+  const guides = (CHART_STUDY_GUIDE_LINES[key] || []).map(([x1, y1, x2, y2]) => `<line class="chart-study-guide" x1="${sx(x1).toFixed(1)}" y1="${sy(y1).toFixed(1)}" x2="${sx(x2).toFixed(1)}" y2="${sy(y2).toFixed(1)}"/>`).join("");
+  const signal = points.slice(-2).map(([x, y]) => `${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(" ");
+  const last = points.at(-1);
+  return `<svg viewBox="0 0 640 280" role="img" aria-label="${name} 가격 구조를 설명하는 학습 그림">${grid}<text x="40" y="34">${name}</text>${guides}<polyline class="chart-study-price" points="${polyline}"/><polyline class="chart-study-breakout" points="${signal}"/><circle class="chart-study-breakout-dot" cx="${sx(last[0]).toFixed(1)}" cy="${sy(last[1]).toFixed(1)}" r="7"/><text class="accent" x="600" y="252" text-anchor="end">${escapeChartSvgText(lesson.confirmation || "종가 확인")}</text></svg>`;
+}
+
+function createChartStudyConceptFigure(pattern = {}, lesson = {}) {
+  const figure = el("figure", "chart-study-figure");
+  figure.innerHTML = `${chartStudyConceptSvg(pattern, lesson)}<figcaption>모양을 외우기보다 ‘형성 조건 → 확인 기준 → 무효화’ 순서로 읽으세요.</figcaption>`;
+  return figure;
+}
+
+function createChartStudyActualFigure(analysis = {}, pattern = {}, stockName = "현재 종목") {
+  const rows = (Array.isArray(analysis.prices) ? analysis.prices : [])
+    .map((row) => ({ ...row, close: toNumber(row.close), date: String(row.date || row.trade_date || "").slice(0, 10) }))
+    .filter((row) => row.close !== null && row.date)
+    .slice(-30);
+  if (rows.length < 2) return null;
+  const width = 640;
+  const height = 260;
+  const left = 24;
+  const right = 24;
+  const top = 28;
+  const bottom = 38;
+  const trigger = toNumber(pattern.trigger);
+  const invalidation = toNumber(pattern.invalidation);
+  const closes = rows.map((row) => row.close);
+  const rawMin = Math.min(...closes);
+  const rawMax = Math.max(...closes);
+  const rawSpan = Math.max(1, rawMax - rawMin);
+  const boundaryValues = chartPatternHasBoundaries(pattern)
+    ? [
+        pattern.boundaries.upper.start_price,
+        pattern.boundaries.upper.end_price,
+        pattern.boundaries.lower.start_price,
+        pattern.boundaries.lower.end_price,
+      ].map(toNumber).filter((value) => value !== null)
+    : [];
+  const referenceValues = [trigger, invalidation, ...boundaryValues]
+    .filter((value) => value !== null && value >= rawMin - rawSpan * 0.35 && value <= rawMax + rawSpan * 0.35);
+  const minValue = Math.min(rawMin, ...referenceValues) - rawSpan * 0.08;
+  const maxValue = Math.max(rawMax, ...referenceValues) + rawSpan * 0.08;
+  const span = Math.max(1, maxValue - minValue);
+  const x = (index) => left + (index / Math.max(1, rows.length - 1)) * (width - left - right);
+  const y = (value) => top + ((maxValue - value) / span) * (height - top - bottom);
+  const linePoints = rows.map((row, index) => `${x(index).toFixed(1)},${y(row.close).toFixed(1)}`).join(" ");
+  const dateIndex = new Map(rows.map((row, index) => [row.date, index]));
+  const patternPoints = (Array.isArray(pattern.points) ? pattern.points : [])
+    .map((point) => {
+      const index = dateIndex.get(String(point.date || "").slice(0, 10));
+      const price = toNumber(point.price);
+      return index === undefined || price === null
+        ? null
+        : { x: x(index), y: y(price) };
+    })
+    .filter(Boolean);
+  const boundaryLines = chartPatternBoundaryMarkup(pattern, rows, x, y, "chart-study-actual-boundary");
+  const patternLine = !boundaryLines && patternPoints.length >= 2
+    ? `<polyline class="chart-study-actual-pattern" points="${patternPoints.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ")}"/>`
+    : "";
+  const patternDots = patternPoints.map((point) => `<circle class="chart-study-actual-pattern-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4"/>`).join("");
+  const lineFor = (value, className, label) => value !== null && value >= minValue && value <= maxValue
+    ? `<line class="${className}" x1="${left}" y1="${y(value).toFixed(1)}" x2="${width - right}" y2="${y(value).toFixed(1)}"/><text class="${className}" x="${width - right}" y="${Math.max(16, y(value) - 7).toFixed(1)}" text-anchor="end">${label} ${escapeChartSvgText(formatNumber(value))}원</text>`
+    : "";
+  const firstDate = compactSignalDate(rows[0].date);
+  const lastDate = compactSignalDate(rows.at(-1).date);
+  const latest = rows.at(-1).close;
+  const figure = el("figure", "chart-study-actual");
+  figure.innerHTML = `
+    <header><div><span>실제 차트로 확인</span><strong>${escapeChartSvgText(stockName)} 최근 1개월</strong></div><small>일봉 · ${rows.length}거래일</small></header>
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeChartSvgText(stockName)} 실제 최근 1개월 일봉과 감지된 ${escapeChartSvgText(pattern.name || "차트 패턴")}">
+      <g class="chart-study-actual-grid"><line x1="${left}" y1="${top}" x2="${width - right}" y2="${top}"/><line x1="${left}" y1="${(top + (height - bottom)) / 2}" x2="${width - right}" y2="${(top + (height - bottom)) / 2}"/><line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}"/></g>
+      <polyline class="chart-study-actual-price" points="${linePoints}"/>
+      ${boundaryLines}${patternLine}${patternDots}
+      ${lineFor(trigger, "chart-study-actual-trigger", "확인")}
+      ${lineFor(invalidation, "chart-study-actual-invalidation", "무효화")}
+      <circle class="chart-study-actual-latest" cx="${x(rows.length - 1).toFixed(1)}" cy="${y(latest).toFixed(1)}" r="6"/>
+      <text class="chart-study-actual-date" x="${left}" y="${height - 12}">${escapeChartSvgText(firstDate)}</text><text class="chart-study-actual-date" x="${width - right}" y="${height - 12}" text-anchor="end">${escapeChartSvgText(lastDate)}</text>
+    </svg>
+    <figcaption><span class="price">실제 종가</span><span class="pattern">${boundaryLines ? "패턴 상·하단" : "감지 패턴"}</span><span class="trigger">확인 기준</span></figcaption>`;
+  return figure;
+}
+
+function createChartStudyLibrary(currentKey, analysis, item) {
+  const section = el("section", "chart-study-library");
+  const details = el("details", "chart-study-library-details");
+  const summary = el("summary", "", `전체 차트 기법 ${Object.keys(CHART_STUDY_GUIDES).length}개`);
+  const intro = el("p", "", "반전·수렴·추세·지속·캔들 패턴을 같은 기준으로 비교해 공부할 수 있습니다.");
+  const groups = el("div", "chart-study-library-groups");
+  for (const family of ["반전", "수렴·추세", "지속", "캔들"]) {
+    const group = el("section", "chart-study-library-group");
+    group.append(el("h4", "", family));
+    const buttons = el("div", "chart-study-library-buttons");
+    for (const [key, guide] of Object.entries(CHART_STUDY_GUIDES).filter(([, value]) => value.family === family)) {
+      const button = el("button", key === currentKey ? "active" : "", guide.name);
+      button.type = "button";
+      button.setAttribute("aria-label", `${guide.name} 공부 페이지 열기`);
+      if (key === currentKey) button.setAttribute("aria-current", "page");
+      button.addEventListener("click", () => {
+        renderChartStudyPage({
+          key,
+          name: guide.name,
+          family: guide.family,
+          direction: guide.direction,
+          libraryOnly: true,
+        }, analysis, item);
+        window.scrollTo({ top: 0, behavior: "auto" });
+      });
+      buttons.append(button);
+    }
+    group.append(buttons);
+    groups.append(group);
+  }
+  details.append(summary, intro, groups);
+  section.append(details);
+  return section;
+}
+
+function renderChartStudyPage(pattern, analysis, item) {
+  const target = elements.chartStudyContent;
+  if (!target) return;
+  const effectivePattern = pattern?.key
+    ? pattern
+    : { key: "falling-wedge", name: CHART_STUDY_GUIDES["falling-wedge"].name, libraryOnly: true };
+  const lesson = chartStudyLesson(effectivePattern);
+  const name = lesson.name || effectivePattern.name || "차트 패턴 기초";
+  const isDetectedPattern = !effectivePattern.libraryOnly && Array.isArray(analysis?.prices);
+  const confidence = Math.round(toNumber(effectivePattern.confidence) ?? 0);
+  const trigger = toNumber(effectivePattern.trigger);
+  const invalidation = toNumber(effectivePattern.invalidation);
+  const stockName = item?.name || item?.code || "현재 종목";
+  target.replaceChildren();
+
+  const hero = el("header", "chart-study-hero");
+  hero.append(
+    el("span", "chart-study-eyebrow", isDetectedPattern ? "현재 차트에서 감지된 패턴으로 배우기" : "차트 패턴 학습 라이브러리"),
+    el("h2", "", name),
+    el("p", "", isDetectedPattern
+      ? `${stockName} 실제 차트와 함께 개념, 판별 순서, 확인 기준을 공부합니다.`
+      : "대표 구조를 예시로 개념과 확인 순서를 공부합니다. 실제 종목에서 감지되면 같은 화면에 실제 차트도 함께 표시됩니다."),
+  );
+  if (isDetectedPattern) hero.append(el("strong", `chart-study-confidence ${chartPatternTone(effectivePattern)}`, `패턴 적합도 ${confidence}점 · 학습용`));
+
+  const figure = createChartStudyConceptFigure(effectivePattern, lesson);
+  const actualFigure = isDetectedPattern
+    ? createChartStudyActualFigure(analysis || {}, effectivePattern, stockName)
+    : null;
+
+  const concept = el("section", "chart-study-section");
+  concept.append(el("span", "chart-study-step", "01 · 개념"), el("h3", "", "어떤 패턴인가요?"), el("p", "", lesson.concept));
+
+  const checklist = el("section", "chart-study-section");
+  checklist.append(el("span", "chart-study-step", "02 · 판별"), el("h3", "", "차트에서 이렇게 찾으세요"));
+  const checkList = el("ol", "chart-study-checklist");
+  lesson.checkpoints.forEach((text, index) => {
+    const row = el("li", "");
+    row.append(el("strong", "", String(index + 1).padStart(2, "0")), el("span", "", text));
+    checkList.append(row);
+  });
+  checklist.append(checkList);
+
+  let current = null;
+  if (isDetectedPattern) {
+    current = el("section", "chart-study-section chart-study-current");
+    current.append(el("span", "chart-study-step", "03 · 현재 차트"), el("h3", "", "지금 무엇을 확인해야 하나요?"));
+    const metrics = el("dl", "chart-study-metrics");
+    const confirmation = effectivePattern.confirmation;
+    const volumeRatio = toNumber(confirmation?.volume_ratio);
+    const volumeState = !confirmation
+      ? "다음 봉 확인 전"
+      : confirmation?.volume_confirmed
+      ? `${volumeRatio?.toFixed(2) || "-"}배 · 충족`
+      : confirmation?.price_crossed
+        ? `${volumeRatio?.toFixed(2) || "확인 불가"}배 · 대기`
+        : "가격 돌파 전";
+    for (const [label, value, tone] of [
+      ["확인 순서", lesson.confirmation, ""],
+      ["확인 기준", trigger === null ? "가격 확인 중" : `${formatNumber(trigger)}원`, "positive"],
+      ["돌파 거래량", volumeState, confirmation?.volume_confirmed ? "positive" : ""],
+      ["무효화", invalidation === null ? "가격 확인 중" : `${formatNumber(invalidation)}원`, "negative"],
+    ]) {
+      const cell = el("div", "");
+      cell.append(el("dt", "", label), el("dd", tone, value));
+      metrics.append(cell);
+    }
+    current.append(metrics, el("p", "chart-study-note", "패턴 적합도는 과거 적중 확률이 아니라 모양·접점·추세 맥락을 규칙으로 평가한 점수입니다. ‘확인’은 종가 돌파와 평소 대비 1.15배 이상의 거래량을 모두 충족한 경우에만 표시합니다."));
+  }
+
+  const mistakes = el("section", "chart-study-section");
+  mistakes.append(el("span", "chart-study-step", `${isDetectedPattern ? "04" : "03"} · 오답 노트`), el("h3", "", "이렇게 해석하면 위험해요"));
+  const mistakeList = el("ul", "chart-study-mistakes");
+  lesson.mistakes.forEach((text) => mistakeList.append(el("li", "", text)));
+  mistakes.append(mistakeList);
+
+  target.append(hero, figure);
+  if (actualFigure) target.append(actualFigure);
+  target.append(concept, checklist);
+  if (current) target.append(current);
+  target.append(mistakes, createChartStudyLibrary(effectivePattern.key, analysis, item));
+}
+
+function renderChartPatternAnalysis(analysis, forecast, item) {
   const section = el("section", "chart-pattern-analysis");
   const heading = el("div", "chart-pattern-heading");
-  heading.append(el("span", "", "가격 구조"), el("h2", "", "패턴 분석"));
+  heading.append(el("span", "", `최근 ${CHART_PATTERN_RECENT_DAYS}거래일`), el("h2", "", "최근 패턴 분석"));
   section.appendChild(heading);
-  const patterns = Array.isArray(analysis?.patterns) ? analysis.patterns : [];
+  const patterns = Array.isArray(forecast?.recentPatterns)
+    ? forecast.recentPatterns
+    : recentChartPatterns(analysis);
   if (!patterns.length) {
-    section.append(el("p", "chart-pattern-empty", "현재 구간에서 기준을 충족한 고전 패턴은 없습니다."));
+    section.append(
+      el(
+        "p",
+        "chart-pattern-empty",
+        `최근 ${CHART_PATTERN_RECENT_DAYS}거래일 안에 새로 형성되거나 확인된 패턴은 없습니다. 단기 전망은 최신 가격·추세를 기준으로 계산했습니다.`,
+      ),
+    );
     return section;
   }
-  const primary = primaryChartPattern(analysis);
+  const primary = forecast?.primaryPattern || patterns[0];
   const top = el("div", "chart-pattern-primary");
   const title = el("div", "chart-pattern-title");
   title.append(
     el("strong", "", primary.name),
     el("span", `${chartPatternTone(primary)} status`, primary.status),
-    el("span", "confidence", `신뢰도 ${Math.round(toNumber(primary.confidence) ?? 0)}점`),
+    el("span", "recency", chartPatternRecencyLabel(primary, analysis)),
+    el("span", "confidence", `패턴 적합도 ${Math.round(toNumber(primary.confidence) ?? 0)}점`),
   );
   top.append(title, el("p", "", primary.summary));
+  const studyButton = el("button", "chart-pattern-study-button", "이 패턴 공부하기");
+  studyButton.type = "button";
+  studyButton.setAttribute("aria-label", `${primary.name} 차트 공부 열기`);
+  studyButton.addEventListener("click", () => {
+    openChartStudyPage(primary, analysis, item);
+  });
+  if (forecast?.signalAlignment === "mixed") {
+    top.appendChild(el("p", "chart-pattern-alignment mixed", "최신 가격 흐름과 반대 방향이라 최종 판단은 ‘신호 엇갈림’으로 낮췄습니다."));
+  } else if (forecast?.signalAlignment === "aligned") {
+    top.appendChild(el("p", "chart-pattern-alignment aligned", "최신 가격 흐름과 같은 방향이라 단기 시나리오의 보조 근거로 반영했습니다."));
+  }
   const levels = el("div", "chart-pattern-levels");
   for (const [label, value, tone] of [
-    ["전환 기준", primary.trigger, ""],
-    ["목표", primary.target, chartPatternTone(primary)],
+    ["확인 기준", primary.trigger, ""],
+    ["중기 목표", primary.target, chartPatternTone(primary)],
     ["무효화", primary.invalidation, primary.direction === "bullish" ? "negative" : "positive"],
   ]) {
     const cell = el("div", "");
@@ -8442,16 +18647,35 @@ function renderChartPatternAnalysis(analysis) {
     levels.appendChild(cell);
   }
   top.appendChild(levels);
+  top.appendChild(
+    el(
+      "p",
+      "chart-pattern-definition",
+      "패턴 적합도는 예측 확률이 아닙니다. 중기 목표는 패턴 완성 시의 기술적 참고값이며 5·10거래일 예상가가 아닙니다. 대표 패턴은 최신 신호만 사용합니다.",
+    ),
+  );
+  top.appendChild(studyButton);
   section.appendChild(top);
   if (patterns.length > 1) {
     const details = el("details", "chart-pattern-more");
-    const summary = el("summary", "", `함께 감지된 패턴 ${patterns.length - 1}개`);
+    const summary = el("summary", "", `같은 최근 구간에서 감지된 패턴 ${patterns.length - 1}개`);
     const list = el("div", "chart-pattern-list");
     for (const pattern of patterns.slice(1)) {
       const row = el("div", "chart-pattern-row");
-      row.append(
+      const rowCopy = el("div", "chart-pattern-row-copy");
+      rowCopy.append(
         el("strong", "", pattern.name),
-        el("span", chartPatternTone(pattern), `${pattern.status} · ${Math.round(toNumber(pattern.confidence) ?? 0)}점`),
+        el("span", chartPatternTone(pattern), `${chartPatternRecencyLabel(pattern, analysis)} · ${pattern.status} · 적합도 ${Math.round(toNumber(pattern.confidence) ?? 0)}점`),
+      );
+      const rowStudyButton = el("button", "chart-pattern-row-study", "공부하기");
+      rowStudyButton.type = "button";
+      rowStudyButton.setAttribute("aria-label", `${pattern.name} 차트 공부 열기`);
+      rowStudyButton.addEventListener("click", () => {
+        openChartStudyPage(pattern, analysis, item);
+      });
+      row.append(
+        rowCopy,
+        rowStudyButton,
       );
       list.appendChild(row);
     }
@@ -8467,28 +18691,47 @@ function createChartForecastReason(label, value, tone = "") {
   return row;
 }
 
-function renderChartForecastResult(result, horizon = 5) {
+function renderChartForecastResult(result, horizon = 5, options = {}) {
+  const target = options.target || elements.watchChartList;
+  const embedded = options.embedded === true;
+  if (!target) {
+    return;
+  }
   if (!result?.analysis || !result?.dashboard) {
-    renderWatchChartMessage("차트 데이터를 불러오지 못했습니다.", "잠시 후 다시 조회해주세요.");
+    if (target === elements.watchChartList) {
+      renderWatchChartMessage("차트 데이터를 불러오지 못했습니다.", "잠시 후 다시 조회해주세요.");
+    } else {
+      renderStockHomeChartMessage("차트분석을 불러오지 못했습니다.", "잠시 후 다시 확인해주세요.");
+    }
     return;
   }
   const { item, analysis, dashboard } = result;
   attachChartPatterns(analysis, dashboard);
   const forecast = computeChartForecast(analysis, horizon);
-  elements.chartStartGuide?.setAttribute("hidden", "");
-  elements.watchChartList.innerHTML = "";
+  if (!embedded) {
+    elements.chartStartGuide?.setAttribute("hidden", "");
+  }
+  target.innerHTML = "";
   const section = el("section", "chart-forecast-page");
   section.dataset.code = item.code;
+  if (embedded) {
+    section.classList.add("is-embedded");
+  }
 
   const header = el("header", "chart-forecast-header");
   const heading = el("div", "chart-forecast-heading");
   heading.append(
-    el("span", "chart-forecast-eyebrow", "기술적 흐름 분석"),
-    el("h1", "", item.name || dashboard.name || item.code),
-    el("p", "", [item.code, item.market || dashboard.market].filter(Boolean).join(" · ")),
+    el("span", "chart-forecast-eyebrow", embedded ? "종목홈 차트분석" : "기술적 흐름 분석"),
+    el("h1", "", embedded ? "차트분석" : item.name || dashboard.name || item.code),
   );
-  const basis = formatDateLabel(analysis.latest?.date || dashboard?.quote?.as_of || dashboard?.as_of);
-  header.append(heading, el("time", "chart-forecast-basis", `${basis} 기준`));
+  const basis = formatDateLabel(
+    analysis.latest?.trade_date
+      || analysis.latest?.date
+      || dashboard?.quote?.as_of
+      || dashboard?.as_of,
+  );
+  const basisPriceType = analysis.latest?.is_live_quote ? "현재가" : "종가";
+  header.append(heading, el("time", "chart-forecast-basis", `1개월 일봉 · ${basis} ${basisPriceType}`));
 
   const controls = el("div", "chart-forecast-controls");
   controls.setAttribute("role", "tablist");
@@ -8506,27 +18749,51 @@ function renderChartForecastResult(result, horizon = 5) {
     const empty = el("section", "chart-forecast-insufficient");
     empty.append(el("strong", "", "분석 데이터가 부족합니다."), el("p", "", forecast.reason));
     section.append(header, controls, empty);
-    elements.watchChartList.appendChild(section);
+    target.appendChild(section);
     return;
   }
 
   const visual = el("figure", "chart-forecast-visual");
-  visual.innerHTML = createChartForecastSvg(analysis, forecast);
+  const visiblePriceCount = analysis.prices
+    .slice(-CHART_FORECAST_VISIBLE_DAYS)
+    .filter((row) => toNumber(row.close) !== null)
+    .length;
+  const visualHead = el("div", "chart-forecast-visual-head");
+  const patternStatus = forecast.primaryPattern
+    ? `최근 패턴 ${forecast.primaryPattern.name} · ${chartPatternRecencyLabel(forecast.primaryPattern, analysis)}`
+    : `최근 ${CHART_PATTERN_RECENT_DAYS}거래일 새 패턴 없음`;
+  const visualWindowNote = analysis.latest?.is_live_quote
+    ? "상단 1개월 차트와 같은 일봉 구간이며 당일 현재가도 동일하게 반영했습니다. 예상 범위를 함께 표시해 세로축은 다를 수 있습니다."
+    : "상단 1개월 차트와 같은 일봉 구간입니다. 예상 범위를 함께 표시해 세로축은 다를 수 있습니다.";
+  visualHead.append(
+    el("strong", "", `1개월 일봉 · ${visiblePriceCount}거래일`),
+    el("span", forecast.primaryPattern ? chartPatternTone(forecast.primaryPattern) : "", patternStatus),
+  );
+  visual.appendChild(visualHead);
+  visual.insertAdjacentHTML("beforeend", createChartForecastSvg(analysis, forecast));
   const legend = el("figcaption", "chart-forecast-legend");
-  legend.innerHTML = '<span class="actual">실제 가격</span><span class="center">예상 중심</span><span class="range">예상 범위</span>';
-  visual.appendChild(legend);
+  legend.innerHTML = `<span class="actual">실제 가격</span><span class="center ${chartForecastResultTone(forecast)}">${forecast.days}일 예상 중심</span><span class="range">${forecast.days}일 예상 범위</span>`;
+  visual.append(
+    legend,
+    el(
+      "p",
+      "chart-forecast-window-note",
+      visualWindowNote,
+    ),
+  );
 
   const summary = el("section", "chart-forecast-summary");
   const summaryHead = el("div", "chart-forecast-summary-head");
+  const summaryTone = chartForecastResultTone(forecast);
   summaryHead.append(
-    el("span", "", `${forecast.days}거래일 시나리오`),
-    el("strong", chartForecastTone(forecast.expectedRate), forecast.direction),
+    el("span", "", `${forecast.days}거래일 단기 시나리오`),
+    el("strong", summaryTone, forecast.direction),
   );
   const metrics = el("div", "chart-forecast-metrics");
   const metricData = [
     ["현재가", `${formatNumber(roundTradePrice(forecast.current))}원`, ""],
-    ["예상 중심", `${formatNumber(roundTradePrice(forecast.expected))}원`, chartForecastTone(forecast.expectedRate)],
-    ["예상 범위", `${formatPriceRange(forecast.points.at(-1).lower, forecast.points.at(-1).upper)}원`, ""],
+    [`${forecast.days}거래일 예상 중심`, `${formatNumber(roundTradePrice(forecast.expected))}원`, chartForecastResultTone(forecast)],
+    [`${forecast.days}거래일 예상 범위`, `${formatPriceRange(forecast.points.at(-1).lower, forecast.points.at(-1).upper)}원`, ""],
     ["흐름 신뢰도", `${forecast.confidence} · ${Math.round(forecast.confidenceScore)}점`, ""],
   ];
   for (const [label, value, tone] of metricData) {
@@ -8536,20 +18803,49 @@ function renderChartForecastResult(result, horizon = 5) {
   }
   summary.append(summaryHead, metrics);
 
+  const clarification = el("aside", "chart-forecast-clarifier");
+  const priceDirection = forecast.priceDailyDrift > 0.0008
+    ? "상승"
+    : forecast.priceDailyDrift < -0.0008 ? "하락" : "중립";
+  const patternDirection = forecast.primaryPattern?.direction === "bullish"
+    ? "상승"
+    : forecast.primaryPattern?.direction === "bearish" ? "하락" : "중립";
+  const patternStateCopy = forecast.primaryPattern?.status === "확인" ? "확인된" : "후보인";
+  let alignmentCopy = `최근 ${CHART_PATTERN_RECENT_DAYS}거래일 안에 유효한 새 패턴이 없어 최신 ${basisPriceType}와 최근 5·20일 가격 흐름을 기준으로 계산했습니다.`;
+  if (forecast.signalAlignment === "aligned") {
+    alignmentCopy = `${chartPatternRecencyLabel(forecast.primaryPattern, analysis)} ${patternStateCopy} ${forecast.primaryPattern.name}의 ${patternDirection} 방향과 최신 가격 흐름이 같습니다. 5·10일 전망은 모두 ${basis} ${basisPriceType}를 기준으로 계산했습니다.`;
+  } else if (forecast.signalAlignment === "mixed") {
+    alignmentCopy = `${chartPatternRecencyLabel(forecast.primaryPattern, analysis)} ${patternStateCopy} ${forecast.primaryPattern.name}은 ${patternDirection}, 최신 가격 흐름은 ${priceDirection}으로 서로 반대입니다. 최종 방향은 ‘신호 엇갈림’으로 표시하고 흐름 신뢰도를 낮췄습니다.`;
+  } else if (forecast.signalAlignment === "neutral") {
+    alignmentCopy = `최근 패턴 또는 최신 가격 흐름의 방향이 아직 중립입니다. ${basis} ${basisPriceType}를 기준으로 방향 확인 시나리오를 표시합니다.`;
+  }
+  const intervalBasisCopy = analysis.latest?.is_live_quote
+    ? "가격 흐름은 일봉 기준이며 당일 현재가는 최신 임시 지점에 반영합니다. 캔들 패턴은 완성된 일봉까지만 판정합니다."
+    : "가격 흐름과 캔들 패턴은 거래일별 완성 일봉을 기준으로 판정합니다.";
+  clarification.append(
+    el("strong", "", "통합 판단 기준"),
+    el("p", "", alignmentCopy),
+    el("p", "chart-forecast-interval-note", intervalBasisCopy),
+  );
+
   const reasons = el("section", "chart-forecast-reasons");
   reasons.append(el("h2", "", "분석 포인트"));
-  const trendText = analysis.ma20 && forecast.current >= analysis.ma20 ? "20일 평균선 위" : "20일 평균선 아래";
+  const averagePosition = analysis.ma20 && forecast.current >= analysis.ma20 ? "20일 평균선 위" : "20일 평균선 아래";
+  const trendText = `최근 가격 흐름 ${priceDirection} · ${averagePosition}`;
   const momentumText = analysis.rsi === null ? "모멘텀 확인 중" : `RSI ${Math.round(analysis.rsi)} · ${analysis.rsi >= 70 ? "과열 주의" : analysis.rsi <= 35 ? "약세 구간" : "중립 구간"}`;
   const volatilityText = analysis.atr === null ? "변동성 확인 중" : `일 변동폭 약 ${analysis.atr.toFixed(1)}%`;
+  const patternText = forecast.primaryPattern
+    ? `${forecast.primaryPattern.name} · ${chartPatternRecencyLabel(forecast.primaryPattern, analysis)} · ${forecast.signalAlignment === "mixed" ? "가격 흐름과 반대" : forecast.signalAlignment === "aligned" ? "가격 흐름과 일치" : "방향 확인 중"}`
+    : `최근 ${CHART_PATTERN_RECENT_DAYS}거래일 새 패턴 없음`;
   reasons.append(
-    createChartForecastReason("추세", trendText, analysis.ma20 && forecast.current >= analysis.ma20 ? "positive" : "negative"),
+    createChartForecastReason("추세", trendText, priceDirection === "상승" ? "positive" : priceDirection === "하락" ? "negative" : ""),
+    createChartForecastReason("최근 패턴", patternText),
     createChartForecastReason("모멘텀", momentumText),
     createChartForecastReason("변동성", volatilityText),
   );
 
-  const note = el("p", "chart-forecast-note", "최근 가격·거래량·이동평균·RSI·MACD·ATR을 결합한 기술적 시나리오입니다. 실제 가격은 뉴스와 수급에 따라 예상 범위를 벗어날 수 있습니다.");
-  section.append(header, controls, visual, renderChartPatternAnalysis(analysis), summary, reasons, note);
-  elements.watchChartList.appendChild(section);
+  section.append(header, controls, visual, summary, clarification, renderChartPatternAnalysis(analysis, forecast, item), reasons);
+  target.appendChild(section);
 }
 
 function yScale(value, min, max, top, height) {
@@ -8940,12 +19236,12 @@ function renderWatchChartAI(card) {
 }
 
 function createWatchChartCard(item, prices, dashboard, chartAnalysis = null) {
-  const analysis = chartAnalysis || computeWatchChart(prices);
+  const analysis = chartAnalysis || computeWatchChart(prices, dashboard?.quote);
   const card = el("article", "watch-chart-card");
   const head = el("div", "watch-chart-head");
   const title = el("div");
   const link = el("a", "watch-chart-name", item.name);
-  link.href = viewStockUrl(item.name);
+  link.href = viewStockUrl(item.code || item.name);
   title.append(link, el("span", "", `${item.market || dashboard.market || "국내증시"} · 선택 종목 AI 차트`));
   const score = el("div", "watch-chart-score");
   score.append(el("strong", "", String(analysis.score)), el("span", "", analysis.stance));
@@ -9231,7 +19527,9 @@ async function refreshWatchChartCard(card, button) {
       fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/prices?limit=260`), { force: true, ttlMs: 0 }),
       fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(code)}/dashboard?refresh=1&include_profile=0`), { force: true, ttlMs: 0 }),
     ]);
-    const analysis = prices.length ? attachChartPatterns(computeWatchChart(prices), dashboard) : null;
+    const analysis = prices.length
+      ? attachChartPatterns(computeWatchChart(prices, dashboard?.quote), dashboard)
+      : null;
     const next = { item: current.item, prices, dashboard, analysis };
     state.watchChartResults = state.watchChartResults.map((result) => (result.item?.code === code ? next : result));
     renderWatchChartDetail(code);
@@ -9287,7 +19585,14 @@ async function loadWatchCharts(options = {}) {
             ]),
             rejectAfter(15_000, "watch chart timeout"),
           ]);
-          const result = { item, prices, dashboard, analysis: prices.length ? attachChartPatterns(computeWatchChart(prices), dashboard) : null };
+          const result = {
+            item,
+            prices,
+            dashboard,
+            analysis: prices.length
+              ? attachChartPatterns(computeWatchChart(prices, dashboard?.quote), dashboard)
+              : null,
+          };
           return result;
         } catch {
           return { item, prices: [], dashboard: null, analysis: null };
@@ -9394,9 +19699,9 @@ function recommendationScoreDisplay(value) {
   help.type = "button";
   help.setAttribute("aria-label", "추천 점수 설명");
   help.setAttribute("data-tooltip", RECOMMEND_SCORE_HELP);
-  valueRow.append(el("strong", "", formatNumber(value)), el("span", "", "/ 100"), help);
+  valueRow.append(el("strong", "", formatNumber(value)), el("span", "", "/ 100"));
   const levelRow = el("div", `recommend-score-level ${level.className}`);
-  levelRow.append(el("b", "", level.label), el("span", "", `· ${level.guide}`));
+  levelRow.append(el("b", "", level.label), el("span", "", `· ${level.guide}`), help);
   wrapper.append(valueRow, levelRow);
   return wrapper;
 }
@@ -9433,7 +19738,6 @@ function applyStockTermTooltips() {
 function resetAIAnalysis() {
   elements.aiAnalysisPanel.hidden = true;
   elements.aiAnalysisProviderBadge.hidden = true;
-  elements.stockSummaryAIBadge.hidden = true;
   elements.aiAnalysisMeta.textContent = "";
   elements.aiAnalysisStance.textContent = "-";
   elements.aiAnalysisSummary.textContent = "";
@@ -9454,7 +19758,7 @@ function resetAIAnalysis() {
   }
 }
 
-function resetQuantSignals(message = "AI 매매신호를 계산하는 중입니다.") {
+function resetQuantSignals(message = "AI 시그널을 계산하는 중입니다.") {
   state.stockQuantSignals = null;
   state.stockQuantRequestedCode = "";
   if (elements.quantSignalStatus) {
@@ -9484,11 +19788,70 @@ function quantToneClass(value) {
 }
 
 function formatQuantActionDate(value) {
-  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) {
-    return formatDateLabel(value);
+  return formatDottedDate(value, formatDateLabel(value));
+}
+
+function quantSignalCurrentState(payload = {}) {
+  const current = payload.current || {};
+  const events = Array.isArray(payload.events) ? payload.events : [];
+  const latestEvent = events.length ? events[events.length - 1] : null;
+  const action = String(current.action || "waiting");
+  const profitStage = Number(current.profit_stage || 0);
+  if (action === "entry_watch") {
+    return { key: "pre_watch", headline: "예비 매수 포착", latestEvent };
   }
-  return `${Number(match[2])}월 ${Number(match[3])}일`;
+  if (action === "entry_pending") {
+    return { key: "buy_wait", headline: "매수 대기중", latestEvent };
+  }
+  if (action === "partial_exit_pending") {
+    const pendingStage = Number(current.pending_profit_stage || (profitStage + 1));
+    return { key: "sell_wait", headline: `${pendingStage}차 수익확정 대기중`, latestEvent };
+  }
+  if (action === "full_exit_pending") {
+    return { key: "sell_wait", headline: "전량 매도 대기중", latestEvent };
+  }
+  if (latestEvent?.side === "sell") {
+    return { key: "sold", headline: "전량 매도 후 대기중", latestEvent };
+  }
+  if (current.position_open
+    || ["entered", "holding", "partially_exited"].includes(action)
+    || ["buy", "partial_sell"].includes(latestEvent?.side)) {
+    const partial = action === "partially_exited" || latestEvent?.side === "partial_sell";
+    return {
+      key: "holding",
+      headline: partial ? `${profitStage || latestEvent?.profit_stage || 1}차 수익확정 후 보유중` : "매수 후 보유중",
+      latestEvent,
+      partial,
+    };
+  }
+  if (action === "exited") {
+    return { key: "sold", headline: "전량 매도 후 대기중", latestEvent };
+  }
+  return { key: "waiting", headline: "관망 중", latestEvent };
+}
+
+function quantTargetOutcomeLabel(event = {}, current = {}) {
+  const status = event.target_sell_status || current.target_sell_status;
+  const delta = event.target_sell_delta ?? current.target_sell_delta;
+  if (status === "hit" || (delta !== null && delta !== undefined && Number(delta) >= 0)) {
+    return Number(delta) > 0 ? `목표 대비 +${formatNumber(delta)}원 초과` : "목표가 일치";
+  }
+  if (status === "missed" || (delta !== null && delta !== undefined)) {
+    return `목표 대비 ${formatNumber(Math.abs(Number(delta)))}원 미달`;
+  }
+  return "목표 대비 확인 중";
+}
+
+function quantTargetOutcomeTone(event = {}, current = {}) {
+  const status = event.target_sell_status || current.target_sell_status;
+  const delta = event.target_sell_delta ?? current.target_sell_delta;
+  if (status === "hit" || (delta !== null && delta !== undefined && Number(delta) >= 0)) {
+    return "positive";
+  }
+  if (status === "missed" || (delta !== null && delta !== undefined)) {
+    return "negative";
+  }
+  return "neutral";
 }
 
 function quantCurrentStatusView(payload) {
@@ -9497,84 +19860,113 @@ function quantCurrentStatusView(payload) {
   const trades = Array.isArray(payload.trades) ? payload.trades : [];
   const latestEvent = events.length ? events[events.length - 1] : null;
   const latestTrade = trades[0] || null;
+  const displayState = quantSignalCurrentState(payload);
   const currentPrice = current.price ? `${formatNumber(current.price)}원` : "-";
-  const exposure = `${formatNumber(current.model_exposure_percent || 0)}%`;
+  const lifecycleExposure = `${formatNumber(current.model_exposure_percent || 0)}%`;
+  const signalScore = current.score === null || current.score === undefined
+    ? "-"
+    : `${formatNumber(current.score)}점`;
   const base = {
     tone: "waiting",
     headline: "관망 중",
     next: "현재는 새 매수 신호를 기다리고 있어요.",
     rows: [
       ["현재가", currentPrice, "neutral"],
-      ["보유 비중", exposure, "neutral"],
-      ["최근 신호", "없음", "neutral"],
+      ["종합 신호", signalScore, "neutral"],
+      ["전략 잔여비중", lifecycleExposure, "neutral"],
     ],
   };
 
-  if (current.action === "entry_pending") {
+  if (displayState.key === "pre_watch") {
+    return {
+      ...base,
+      tone: "entry_watch",
+      headline: displayState.headline,
+      next: current.next_confirmation || "매수 확정에 필요한 다음 조건을 확인하고 있어요.",
+    };
+  }
+  if (displayState.key === "buy_wait") {
     return {
       ...base,
       tone: "entry_pending",
-      headline: "매수 대기",
-      next: "다음 거래일 시가에 AI 전략의 매수로 반영할 예정이에요.",
+      headline: displayState.headline,
+      next: "다음 거래일 시가의 갭을 확인한 뒤 매수 신호로 반영할 예정이에요.",
     };
   }
-  if (current.action === "partial_exit_pending") {
+  if (displayState.key === "sell_wait") {
+    const partial = current.action === "partial_exit_pending";
+    const decisionPrice = partial
+      ? current.partial_exit_reference || current.target_sell_price
+      : current.stop_reference || current.locked_profit_reference || current.target_sell_price;
     return {
       ...base,
-      tone: "partial_exit_pending",
-      headline: "일부 매도 대기",
-      next: "다음 거래일 시가에 일부 매도로 반영할 예정이에요.",
+      tone: partial ? "partial_exit_pending" : "full_exit_pending",
+      headline: displayState.headline,
+      next: partial
+        ? current.next_confirmation || "다음 거래일 시가에 해당 단계 수익확정으로 반영할 예정이에요."
+        : current.next_confirmation || "다음 거래일 시가에 남은 비중 전량 매도로 반영할 예정이에요.",
       rows: [
         ["현재가", currentPrice, "neutral"],
-        ["현재 보유", exposure, "neutral"],
-        ["보유 수익률", formatPercent(current.unrealized_return), quantToneClass(current.unrealized_return)],
+        [partial ? "다음 수익확정가" : "수익 보호선", decisionPrice ? `${formatNumber(decisionPrice)}원` : "-", "neutral"],
+        ["현재 전략비중", lifecycleExposure, "neutral"],
+        ["예정 매도비중", current.pending_sell_percent === null || current.pending_sell_percent === undefined ? "-" : `${formatNumber(current.pending_sell_percent)}%`, "neutral"],
+        ["체결 후 잔여비중", current.expected_remaining_percent === null || current.expected_remaining_percent === undefined ? "-" : `${formatNumber(current.expected_remaining_percent)}%`, "neutral"],
+        ["매수 후 수익률", formatPercent(payload.display_return_rate ?? current.unrealized_return), quantToneClass(payload.display_return_rate ?? current.unrealized_return)],
       ],
     };
   }
-  if (current.action === "full_exit_pending") {
-    return {
-      ...base,
-      tone: "full_exit_pending",
-      headline: "매도 대기",
-      next: "다음 거래일 시가에 모두 매도로 반영할 예정이에요.",
-      rows: [
-        ["현재가", currentPrice, "neutral"],
-        ["현재 보유", exposure, "neutral"],
-        ["보유 수익률", formatPercent(current.unrealized_return), quantToneClass(current.unrealized_return)],
-      ],
-    };
-  }
-  if (current.position_open) {
-    const partial = current.action === "partially_exited" || latestEvent?.side === "partial_sell";
+  if (displayState.key === "holding") {
+    const partial = displayState.partial === true;
     const actionDate = current.partial_exit_date || current.entry_date || latestEvent?.execution_date;
     const actionPrice = current.partial_exit_price || current.entry_price || latestEvent?.price;
+    const nextProfitTarget = current.partial_exit_reference || current.target_sell_price;
+    const protectionLine = current.stop_reference || current.locked_profit_reference;
     return {
       ...base,
       tone: partial ? "partially_exited" : "holding",
-      headline: partial ? "일부 매도" : "보유 중",
+      headline: displayState.headline,
       next: current.next_confirmation || "다음 매도 신호를 확인하고 있어요.",
       rows: [
-        [partial ? "일부 매도일" : "매수일", formatDateLabel(actionDate), "neutral"],
-        [partial ? "일부 매도가" : "매수가", actionPrice ? `${formatNumber(actionPrice)}원` : "-", "neutral"],
-        ["현재 수익률", formatPercent(current.unrealized_return), quantToneClass(current.unrealized_return)],
+        [partial ? "최근 수익확정일" : "매수일", formatDateLabel(actionDate), "neutral"],
+        [partial ? `${formatNumber(current.profit_stage || 1)}차 확정가` : "매수가", actionPrice ? `${formatNumber(actionPrice)}원` : "-", "neutral"],
+        ["전략 잔여비중", lifecycleExposure, "neutral"],
+        [nextProfitTarget ? "다음 수익확정가" : "수익확정 단계", nextProfitTarget ? `${formatNumber(nextProfitTarget)}원` : `${formatNumber(current.profit_stage || 0)} / ${formatNumber(current.profit_steps_total || 3)}단계`, "neutral"],
+        ["수익 보호선", protectionLine ? `${formatNumber(protectionLine)}원` : "-", "neutral"],
+        [partial ? "이번 매매 수익률" : "매수 후 수익률", formatPercent(payload.display_return_rate ?? current.unrealized_return), quantToneClass(payload.display_return_rate ?? current.unrealized_return)],
       ],
     };
   }
-  if (latestEvent?.side === "sell") {
-    const tradeReturn = latestEvent.return_rate ?? latestTrade?.net_return;
+  if (displayState.key === "sold") {
+    const sellEvent = latestEvent || {};
+    const tradeReturn = payload.display_return_rate ?? sellEvent.return_rate ?? latestTrade?.net_return;
     return {
       ...base,
       tone: "exited",
-      headline: "매도 완료",
+      headline: displayState.headline,
       next: "현재 보유 비중은 0%이며, 다음 매수 신호를 기다리고 있어요.",
       rows: [
-        ["매도일", formatDateLabel(latestEvent.execution_date), "neutral"],
-        ["매도 가격", `${formatNumber(latestEvent.price)}원`, "neutral"],
-        ["해당 매매", formatPercent(tradeReturn), quantToneClass(tradeReturn)],
+        ["매도일", formatDateLabel(sellEvent.execution_date || current.exit_date), "neutral"],
+        ["매도 가격", sellEvent.price || current.exit_price ? `${formatNumber(sellEvent.price || current.exit_price)}원` : "-", "neutral"],
+        ["전량 매도 기준가", sellEvent.target_sell_price || current.target_sell_price ? `${formatNumber(sellEvent.target_sell_price || current.target_sell_price)}원` : "-", "neutral"],
+        ["매도 판단", sellEvent.reason || current.reasons?.[0] || "전량 매도 기준 충족", "neutral"],
+        ["해당 매매 수익률", formatPercent(tradeReturn), quantToneClass(tradeReturn)],
       ],
     };
   }
   return base;
+}
+
+function renderQuantCurrentStatus(payload = state.stockQuantSignals) {
+  if (!payload) {
+    return;
+  }
+  const statusView = quantCurrentStatusView(payload);
+  setText(elements.quantCurrentLabel, statusView.headline);
+  elements.quantCurrentLabel.className = `quant-current-message quant-action-${statusView.tone}`;
+  elements.quantCurrentPosition.innerHTML = statusView.rows
+    .map(([label, value, tone]) => `<div><dt>${label}</dt><dd class="${tone || "neutral"}">${value}</dd></div>`)
+    .join("");
+  setText(elements.quantNextConfirmation, statusView.next);
 }
 
 function renderQuantSignalChart() {
@@ -9620,7 +20012,7 @@ function renderQuantSignalChart() {
   const markers = quantSignalMarkers(rows, points);
   const current = payload.current || {};
   const lastPoint = points[points.length - 1];
-  const watchMarker = ["entry_pending", "partial_exit_pending", "full_exit_pending"].includes(current.action)
+  const watchMarker = ["entry_watch", "entry_pending", "partial_exit_pending", "full_exit_pending"].includes(current.action)
     ? `<g class="quant-chart-marker watch"><circle cx="${lastPoint.x.toFixed(2)}" cy="${lastPoint.y.toFixed(2)}" r="9"></circle><text x="${(lastPoint.x - 5).toFixed(2)}" y="${Math.max(16, lastPoint.y - 16).toFixed(2)}" text-anchor="end">${current.label}</text></g>`
     : "";
   const start = closes[0];
@@ -9640,11 +20032,14 @@ function renderQuantSignalChart() {
 }
 
 function renderQuantSignals(payload) {
+  payload = sanitizePendingEntryAiSignal(payload);
   state.stockQuantSignals = payload;
   state.stockQuantRequestedCode = payload.code;
   if (elements.quantSignalStatus) {
-    elements.quantSignalStatus.hidden = payload.data_state === "ready";
+    const nonTrading = payload.trading_state === "non_trading";
+    elements.quantSignalStatus.hidden = payload.data_state === "ready" && !nonTrading;
     elements.quantSignalStatus.textContent = payload.data_message || "신호 데이터가 부족합니다.";
+    elements.quantSignalStatus.classList.toggle("is-non-trading", nonTrading);
   }
   if (!elements.quantSignalContent) {
     return;
@@ -9657,22 +20052,22 @@ function renderQuantSignals(payload) {
   }
 
   const performance = payload.performance || {};
-  const statusView = quantCurrentStatusView(payload);
-  setText(elements.quantCurrentLabel, statusView.headline);
-  elements.quantCurrentLabel.className = `quant-current-message quant-action-${statusView.tone}`;
-  elements.quantCurrentPosition.innerHTML = statusView.rows
-    .map(([label, value, tone]) => `<div><dt>${label}</dt><dd class="${tone || "neutral"}">${value}</dd></div>`)
-    .join("");
-  setText(elements.quantNextConfirmation, statusView.next);
+  renderQuantCurrentStatus(payload);
 
   setText(
     elements.quantPerformancePeriod,
     performance.period_start && performance.period_end
-      ? formatDataBasis(performance.period_end)
-      : "최근 1년 기준",
+      ? `${formatQuantActionDate(performance.period_start)}~${formatQuantActionDate(performance.period_end)}`
+      : "검증 기간 확인 중",
   );
+  const performancePeriodLabel = performance.history_complete
+    ? "1년 모의 누적수익률"
+    : `${formatNumber(performance.trading_days || 0)}일 모의 누적수익률`;
   const performanceRows = [
-    ["모의 누적수익률", formatPercent(performance.strategy_return), quantToneClass(performance.strategy_return)],
+    [performancePeriodLabel, formatPercent(performance.strategy_return), quantToneClass(performance.strategy_return)],
+    ["최대 낙폭", formatPercent(performance.max_drawdown), "negative"],
+    ["연환산 변동성", formatPercent(performance.annualized_volatility), "neutral"],
+    ["평균 전략 보유비중", formatPercent(performance.average_model_exposure_percent), "neutral"],
     ["매매 적중률", performance.win_rate === null || performance.win_rate === undefined ? "-" : `${Number(performance.win_rate).toFixed(1)}%`, "neutral"],
     ["완료 매매", `${formatNumber(performance.completed_trades)}회`, "neutral"],
   ];
@@ -9686,9 +20081,19 @@ function renderQuantSignals(payload) {
   } else {
     for (const event of events) {
       const row = el("article", "quant-trade-row");
-      const actionLabel = event.side === "buy" ? "매수" : event.side === "partial_sell" ? "일부 매도" : "모두 매도";
+      const actionLabel = event.side === "buy"
+        ? "확정 매수"
+        : event.side === "partial_sell"
+          ? event.label || `${formatNumber(event.profit_stage || 1)}차 수익확정`
+          : "전량 매도";
       const result = event.return_rate === null || event.return_rate === undefined ? "" : formatPercent(event.return_rate);
-      const remaining = event.side === "partial_sell" ? "절반 보유" : event.side === "sell" ? "보유 종료" : "보유 시작";
+      const remaining = event.side === "sell"
+        ? "보유 종료"
+        : event.side === "partial_sell"
+          ? event.position_percent === null || event.position_percent === undefined
+            ? "잔여 비중 보유"
+            : `잔여 ${formatNumber(event.position_percent)}%`
+          : "보유 100%";
       row.innerHTML = `
         <div><strong>${formatQuantActionDate(event.execution_date)} ${actionLabel}</strong><span>${formatNumber(event.price)}원</span></div>
         <div>${result ? `<strong class="${quantToneClass(event.return_rate)}">${result}</strong>` : ""}<span>${remaining}</span></div>
@@ -9696,7 +20101,7 @@ function renderQuantSignals(payload) {
       elements.quantTradeList.appendChild(row);
     }
   }
-  setText(elements.quantDisclaimer, "AI 전략의 모의 매매 결과이며 실제 계좌 주문이 아닙니다.");
+  setText(elements.quantDisclaimer, "AI가 과거 데이터로 계산한 교육·연구용 참고 신호이며, 투자 권유·자문·수익 보장 또는 실제 주문이 아닙니다. 수익률은 종목별 매수·계단형 수익확정·전량 매도 가격과 거래비용을 반영한 모의 결과입니다.");
   renderQuantSignalChart();
   renderStockMiniChart(state.stockPriceRows, state.currentDashboard?.quote);
   if (revealingSignalContent && state.stockActiveTab === "strategy") {
@@ -9723,7 +20128,7 @@ async function loadQuantSignals(options = {}) {
   }
   if (elements.quantSignalStatus) {
     elements.quantSignalStatus.hidden = false;
-    elements.quantSignalStatus.textContent = forceRefresh ? "최신 가격으로 AI 매매신호를 다시 계산하는 중입니다." : "AI 매매신호를 계산하는 중입니다.";
+    elements.quantSignalStatus.textContent = forceRefresh ? "최신 가격으로 AI 시그널을 다시 계산하는 중입니다." : "AI 시그널을 계산하는 중입니다.";
   }
   if (elements.quantSignalContent && state.stockQuantRequestedCode !== code) {
     elements.quantSignalContent.hidden = true;
@@ -9734,14 +20139,21 @@ async function loadQuantSignals(options = {}) {
       liveUrl(`/stocks/${encodeURIComponent(code)}/quant-signals${suffix}`),
       { force: true, ttlMs: 0 },
     );
-    if (state.currentStock?.code === code) {
+    if (
+      requestSequence === state.stockQuantRequestSequence
+      && state.currentStock?.code === code
+    ) {
       renderQuantSignals(payload);
       state.stockQuantLastLiveRefreshAt = Date.now();
     }
   } catch {
-    if (state.currentStock?.code === code && elements.quantSignalStatus) {
+    if (
+      requestSequence === state.stockQuantRequestSequence
+      && state.currentStock?.code === code
+      && elements.quantSignalStatus
+    ) {
       elements.quantSignalStatus.hidden = false;
-      elements.quantSignalStatus.textContent = "AI 매매신호를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+      elements.quantSignalStatus.textContent = "AI 시그널을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
     }
   } finally {
     if (state.stockQuantLoadingCode === code && state.stockQuantRequestSequence === requestSequence) {
@@ -9765,14 +20177,12 @@ function renderAIAnalysis(payload) {
   const providerTitle = isOllamaAnalysis
     ? `Ollama ${payload.model_name || "로컬 모델"}로 생성된 요약입니다.`
     : "실시간 시세와 정형 데이터 계산 엔진으로 생성된 분석입니다.";
-  for (const badge of [elements.aiAnalysisProviderBadge, elements.stockSummaryAIBadge]) {
-    badge.hidden = false;
-    badge.textContent = generationLabel;
-    badge.title = providerTitle;
-    badge.classList.toggle("is-ollama", isOllamaAnalysis);
-    badge.classList.remove("is-loading");
-  }
-  elements.stockSummaryAIBadge.textContent = `${generationLabel} 분석 완료`;
+  const badge = elements.aiAnalysisProviderBadge;
+  badge.hidden = false;
+  badge.textContent = generationLabel;
+  badge.title = providerTitle;
+  badge.classList.toggle("is-ollama", isOllamaAnalysis);
+  badge.classList.remove("is-loading");
   elements.aiAnalysisMeta.textContent = "";
   elements.aiAnalysisMeta.title = payload.generation_note || "";
   elements.aiAnalysisStance.textContent = payload.stance || "-";
@@ -9822,20 +20232,21 @@ async function loadAIAnalysis(options = {}) {
   if (!state.currentStock || !state.currentStock.code) {
     return;
   }
-  if (state.stockAILoading) {
+  const code = state.currentStock.code;
+  if (state.stockAILoading && state.stockAILoadingCode === code) {
     return;
   }
-  const code = state.currentStock.code;
   const forceRefresh = options.force === true;
+  const requestSequence = ++state.stockAIRequestSequence;
   const originalMainText = elements.aiAnalysisButton?.textContent || "AI 분석하기";
   const originalInlineText = elements.stockInlineAIRefresh?.textContent || "AI 분석 갱신하기";
   state.stockAILoading = true;
-  for (const badge of [elements.aiAnalysisProviderBadge, elements.stockSummaryAIBadge]) {
-    badge.hidden = false;
-    badge.textContent = "Ollama AI 분석 중";
-    badge.title = "Railway의 Ollama 모델로 핵심 근거를 분석하고 있습니다.";
-    badge.classList.add("is-ollama", "is-loading");
-  }
+  state.stockAILoadingCode = code;
+  const badge = elements.aiAnalysisProviderBadge;
+  badge.hidden = false;
+  badge.textContent = "Ollama AI 분석 중";
+  badge.title = "Railway의 Ollama 모델로 핵심 근거를 분석하고 있습니다.";
+  badge.classList.add("is-ollama", "is-loading");
   setAIAnalysisButtonsLoading(true);
   elements.aiAnalysisPanel.hidden = false;
   elements.aiAnalysisMeta.textContent = "";
@@ -9852,18 +20263,36 @@ async function loadAIAnalysis(options = {}) {
     clearCachedUrl(url);
   }
   try {
-    renderAIAnalysis(await fetchJsonCached(url, { force: forceRefresh, ttlMs: forceRefresh ? 0 : UI_CACHE_TTL_MS }));
-  } catch {
-    elements.aiAnalysisSummary.textContent = "AI 분석을 생성하지 못했습니다.";
-    for (const badge of [elements.aiAnalysisProviderBadge, elements.stockSummaryAIBadge]) {
-      badge.hidden = false;
-      badge.textContent = "AI 분석 확인 실패";
-      badge.title = "분석 서버의 응답을 확인하지 못했습니다.";
-      badge.classList.remove("is-loading", "is-ollama");
+    const payload = await fetchJsonCached(url, { force: forceRefresh, ttlMs: forceRefresh ? 0 : UI_CACHE_TTL_MS });
+    if (
+      requestSequence !== state.stockAIRequestSequence
+      || state.currentStock?.code !== code
+    ) {
+      return;
     }
+    renderAIAnalysis(payload);
+  } catch {
+    if (
+      requestSequence !== state.stockAIRequestSequence
+      || state.currentStock?.code !== code
+    ) {
+      return;
+    }
+    elements.aiAnalysisSummary.textContent = "AI 분석을 생성하지 못했습니다.";
+    const badge = elements.aiAnalysisProviderBadge;
+    badge.hidden = false;
+    badge.textContent = "AI 분석 확인 실패";
+    badge.title = "분석 서버의 응답을 확인하지 못했습니다.";
+    badge.classList.remove("is-loading", "is-ollama");
   } finally {
-    state.stockAILoading = false;
-    setAIAnalysisButtonsLoading(false, { main: originalMainText, inline: originalInlineText });
+    if (
+      requestSequence === state.stockAIRequestSequence
+      && state.stockAILoadingCode === code
+    ) {
+      state.stockAILoading = false;
+      state.stockAILoadingCode = "";
+      setAIAnalysisButtonsLoading(false, { main: originalMainText, inline: originalInlineText });
+    }
   }
 }
 
@@ -9951,28 +20380,130 @@ function rerankRecommendationItems(items) {
     }));
 }
 
-function readRecommendationTracks() {
+function recommendationTrackStorageKey(shareId = state.watchlistId) {
+  return scopedStorageKey(RECOMMENDATION_TRACK_KEY, shareId) || RECOMMENDATION_TRACK_KEY;
+}
+
+function normalizeRecommendationTracks(items) {
+  const seen = new Set();
+  const normalized = [];
+  for (const item of items || []) {
+    const code = String(item?.code || "").trim();
+    const name = String(item?.name || "").trim();
+    if (!code || !name || seen.has(code)) {
+      continue;
+    }
+    seen.add(code);
+    normalized.push({ ...item, code, name });
+  }
+  return normalized.slice(0, 50);
+}
+
+function readRecommendationTracks(options = {}) {
+  const storageKey = recommendationTrackStorageKey(options.shareId);
   try {
-    const parsed = JSON.parse(localStorage.getItem(RECOMMENDATION_TRACK_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed.filter((item) => item && item.code && item.name) : [];
+    let serialized = localStorage.getItem(storageKey);
+    if (serialized === null && storageKey !== RECOMMENDATION_TRACK_KEY && options.includeLegacy !== false) {
+      serialized = localStorage.getItem(RECOMMENDATION_TRACK_KEY);
+    }
+    const parsed = JSON.parse(serialized || "[]");
+    return Array.isArray(parsed) ? normalizeRecommendationTracks(parsed) : [];
   } catch {
     return [];
   }
 }
 
-function writeRecommendationTracks(items) {
-  const seen = new Set();
-  const normalized = [];
-  for (const item of items || []) {
-    const code = String(item?.code || "").trim();
-    if (!code || seen.has(code)) {
-      continue;
-    }
-    seen.add(code);
-    normalized.push(item);
+function writeRecommendationTracks(items, options = {}) {
+  const normalized = normalizeRecommendationTracks(items);
+  const storageKey = recommendationTrackStorageKey(options.shareId);
+  localStorage.setItem(storageKey, JSON.stringify(normalized));
+  if (storageKey !== RECOMMENDATION_TRACK_KEY) {
+    localStorage.removeItem(RECOMMENDATION_TRACK_KEY);
   }
-  localStorage.setItem(RECOMMENDATION_TRACK_KEY, JSON.stringify(normalized.slice(0, 50)));
+  if (options.sync !== false) {
+    queueRemoteRecommendationTrackSync();
+  }
   updateRecommendationTrackMeta();
+}
+
+async function fetchRemoteRecommendationTracks(shareId) {
+  const response = await fetch(`/watchlists/${encodeURIComponent(shareId)}/recommendation-tracks`, {
+    cache: "no-store",
+    credentials: "same-origin",
+  });
+  if (!response.ok) {
+    throw new Error("recommendation tracks load failed");
+  }
+  return response.json();
+}
+
+async function saveRemoteRecommendationTracks(items, shareId = state.watchlistId) {
+  const normalizedId = normalizeWatchlistId(shareId);
+  if (!normalizedId) {
+    return null;
+  }
+  const requestPayload = JSON.stringify({ items: normalizeRecommendationTracks(items) });
+  const requestOnce = async (writeToken) =>
+    fetch(`/watchlists/${encodeURIComponent(normalizedId)}/recommendation-tracks`, {
+      method: "PUT",
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Write-Token": writeToken,
+      },
+      body: requestPayload,
+    });
+  let response = await requestOnce(await ensureWriteToken(normalizedId));
+  if (response.status === 403) {
+    response = await requestOnce(await ensureWriteToken(normalizedId, { force: true }));
+  }
+  if (!response.ok) {
+    throw new Error("recommendation tracks save failed");
+  }
+  return response.json();
+}
+
+function queueRemoteRecommendationTrackSync() {
+  if (!state.watchlistId) {
+    return;
+  }
+  if (state.recommendationTrackSyncing) {
+    state.recommendationTrackSyncPending = true;
+    return;
+  }
+  window.clearTimeout(state.recommendationTrackSyncTimer);
+  state.recommendationTrackSyncTimer = window.setTimeout(syncLocalRecommendationTracksToRemote, 450);
+}
+
+async function syncLocalRecommendationTracksToRemote() {
+  if (!state.watchlistId) {
+    return;
+  }
+  if (state.recommendationTrackSyncing) {
+    state.recommendationTrackSyncPending = true;
+    return;
+  }
+  const syncShareId = state.watchlistId;
+  const items = readRecommendationTracks({ shareId: syncShareId, includeLegacy: false });
+  const snapshot = JSON.stringify(items);
+  state.recommendationTrackSyncing = true;
+  state.recommendationTrackSyncPending = false;
+  try {
+    await saveRemoteRecommendationTracks(items, syncShareId);
+  } catch {
+    if (state.watchlistId === syncShareId) {
+      setWatchlistIdStatus("핀 종목 동기화 실패", "error");
+    }
+  } finally {
+    state.recommendationTrackSyncing = false;
+    const changedWhileSaving = state.watchlistId === syncShareId
+      && JSON.stringify(readRecommendationTracks({ shareId: syncShareId, includeLegacy: false })) !== snapshot;
+    if (state.watchlistId && (state.recommendationTrackSyncPending || changedWhileSaving)) {
+      state.recommendationTrackSyncPending = false;
+      queueRemoteRecommendationTrackSync();
+    }
+  }
 }
 
 function isTrackedRecommendation(code) {
@@ -10186,10 +20717,7 @@ function createRecommendationTrackCard(track, dashboard = null) {
   open.href = viewStockUrl(track.name || track.code || "");
   open.setAttribute("aria-label", `${track.name || "종목"} 종목 상세 보기`);
   const title = el("span", "recommend-track-title");
-  title.append(
-    el("strong", "", track.name || "-"),
-    el("span", "", `${track.code || "-"} · ${track.market || "-"}`)
-  );
+  title.append(el("strong", "", track.name || "-"));
   open.append(title);
   const pinState = el("span", "recommend-track-pin-state", "핀 설정됨");
   pinState.setAttribute("aria-label", `${track.name || "종목"} 핀 설정됨`);
@@ -10439,6 +20967,457 @@ function buildRecommendationAIExplanation(item) {
   };
 }
 
+function recommendationReasonFacts(item = {}) {
+  const facts = [];
+  const oneMonth = toNumber(item.one_month_return);
+  const threeMonth = toNumber(item.three_month_return);
+  const chartScore = toNumber(item.chart_analysis?.score);
+  const chartTrend = String(item.chart_analysis?.trend || "").trim();
+  if (oneMonth !== null) {
+    facts.push(`1개월 ${formatPercent(oneMonth)}`);
+  }
+  if (threeMonth !== null) {
+    facts.push(`3개월 ${formatPercent(threeMonth)}`);
+  }
+  if (chartScore !== null) {
+    facts.push(`차트 ${formatNumber(chartScore)}점`);
+  }
+  if (chartTrend && !/부족|확인 중/.test(chartTrend)) {
+    facts.push(chartTrend);
+  }
+  if (facts.length < 2) {
+    const supportingReason = (Array.isArray(item.reasons) ? item.reasons : [])
+      .map((value) => String(value || "").trim())
+      .find(Boolean);
+    if (supportingReason) {
+      facts.push(supportingReason);
+    }
+  }
+  return [...new Set(facts)].slice(0, 4);
+}
+
+function recommendationReasonSummary(item = {}) {
+  const facts = recommendationReasonFacts(item);
+  if (facts.length) {
+    return facts.join(" · ");
+  }
+  return String(item.decision_reason || "추천 점수와 가격·차트 조건을 종합해 선별했습니다.").trim();
+}
+
+function recommendationCandidateStageView(item = {}) {
+  const action = item.action || "관찰";
+  const score = toNumber(item.score);
+  const headline = action === "분할 접근"
+    ? "추천 강도 높음"
+    : action === "매수 우선검토"
+      ? "조건 근접"
+      : action === "신중"
+        ? "신중 검토"
+        : "관찰 후보";
+  const tone = action.includes("매수") || action.includes("분할")
+    ? "positive"
+    : action === "신중"
+      ? "cautious"
+      : "watching";
+  return {
+    headline,
+    tone,
+    detail: `추천 ${score === null ? "-" : formatNumber(score)}점 · 시장 후보 #${item.rank || "-"}`,
+  };
+}
+
+function recommendationTimestampValue(value) {
+  const timestamp = Date.parse(value || "");
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function recommendationMoment(value, fallback = "확인 중") {
+  return formatDottedMoment(value, fallback);
+}
+
+function recommendationReleasedPreliminary(signal = {}) {
+  const preliminary = signal?.latest_preliminary;
+  if (!preliminary || preliminary.active !== false) {
+    return null;
+  }
+  const current = signal.current || {};
+  const action = String(current.action || "waiting");
+  if (current.position_open === true || [
+    "entry_watch",
+    "entry_pending",
+    "entered",
+    "holding",
+    "partial_exit_pending",
+    "partially_exited",
+    "full_exit_pending",
+  ].includes(action)) {
+    return null;
+  }
+  const releasedAt = recommendationTimestampValue(
+    preliminary.last_seen_at || preliminary.first_seen_at || preliminary.signal_date,
+  );
+  const transition = current.lifecycle?.latest_transition || {};
+  const transitionAt = recommendationTimestampValue(
+    transition.signal_at || transition.transition_date || transition.signal_date,
+  );
+  if (releasedAt !== null && transitionAt !== null && releasedAt < transitionAt) {
+    return null;
+  }
+  return preliminary;
+}
+
+function recommendationShouldCollectSignal(item = {}, signal = {}) {
+  const recommendedAt = item.recommended_at || item.recommendation_as_of;
+  const recommendedTimestamp = recommendationTimestampValue(recommendedAt);
+  const current = signal.current || {};
+  const action = String(current.action || "waiting");
+  if (recommendedTimestamp === null || current.position_open === true || [
+    "entry_watch",
+    "entry_pending",
+    "entered",
+    "holding",
+    "partial_exit_pending",
+    "partially_exited",
+    "full_exit_pending",
+  ].includes(action)) {
+    return false;
+  }
+  const preliminary = signal.latest_preliminary;
+  if (preliminary?.active === true) {
+    return false;
+  }
+  const transition = current.lifecycle?.latest_transition || {};
+  const relevantTimestamps = [
+    transition.signal_at || transition.transition_date || transition.signal_date,
+    preliminary?.last_seen_at || preliminary?.first_seen_at || preliminary?.signal_date,
+  ]
+    .map(recommendationTimestampValue)
+    .filter((value) => value !== null);
+  const latestSignalTimestamp = relevantTimestamps.length ? Math.max(...relevantTimestamps) : null;
+  return latestSignalTimestamp === null || latestSignalTimestamp < recommendedTimestamp;
+}
+
+function recommendationSignalStageView(signal = null, item = {}) {
+  if (!signal) {
+    return {
+      key: "loading",
+      headline: "신호 확인 중",
+      tone: "loading",
+      changedAt: null,
+      next: "AI 매매조건을 계산하고 있습니다.",
+    };
+  }
+  if (signal.data_state !== "ready" || !signal.current) {
+    return {
+      key: "unavailable",
+      headline: "계산 준비 중",
+      tone: "unavailable",
+      changedAt: null,
+      next: signal.data_message || "가격 이력이 확보되면 매매신호를 계산합니다.",
+    };
+  }
+  const current = signal.current;
+  if (recommendationShouldCollectSignal(item, signal)) {
+    const recommendedAt = item.recommended_at || item.recommendation_as_of;
+    return {
+      key: "collecting",
+      headline: "시그널 수집 중",
+      tone: "collecting",
+      changedAt: recommendedAt,
+      changedLabel: "수집 시작",
+      next: current.next_confirmation || "종가에서 진입 조건이 완성되는지 확인합니다.",
+    };
+  }
+  const released = recommendationReleasedPreliminary(signal);
+  if (released) {
+    const sideLabel = released.side === "sell" ? "매도" : "매수";
+    return {
+      key: "released",
+      headline: "조건 해제",
+      tone: "released",
+      changedAt: released.last_seen_at || released.first_seen_at || released.signal_date,
+      next: `${sideLabel} 조건이 다시 충족되면 예비 신호로 표시합니다.`,
+      released,
+    };
+  }
+  const action = String(current.action || "waiting");
+  const transition = current.lifecycle?.latest_transition || {};
+  const transitionAt = transition.signal_at || transition.transition_date || transition.signal_date;
+  const next = current.next_confirmation || "다음 종가 조건을 확인합니다.";
+  if (action === "entry_watch") {
+    return {
+      key: "preliminary",
+      headline: "예비 포착",
+      tone: "preliminary",
+      changedAt: current.as_of || signal.as_of,
+      next,
+    };
+  }
+  if (action === "entry_pending") {
+    return {
+      key: "buy_wait",
+      headline: "매수 대기",
+      tone: "buy",
+      changedAt: current.as_of || signal.as_of,
+      next,
+    };
+  }
+  if (["partial_exit_pending", "full_exit_pending"].includes(action)) {
+    const partial = action === "partial_exit_pending";
+    return {
+      key: "sell_wait",
+      headline: partial
+        ? `${Number(current.pending_profit_stage || (Number(current.profit_stage || 0) + 1))}차 수익확정 대기`
+        : "전량 매도 대기",
+      tone: "sell",
+      changedAt: current.as_of || signal.as_of,
+      next,
+    };
+  }
+  if (current.position_open === true || ["entered", "holding", "partially_exited"].includes(action)) {
+    const profitStage = Number(current.profit_stage || 0);
+    return {
+      key: "holding",
+      headline: action === "partially_exited" ? `${profitStage || 1}차 수익확정 후 보유` : "보유",
+      tone: "holding",
+      changedAt: transitionAt || current.entry_date || current.as_of,
+      next,
+    };
+  }
+  if (action === "exited" || /매도|청산/.test(String(transition.label || ""))) {
+    return {
+      key: "sold",
+      headline: "전량 매도",
+      tone: "sold",
+      changedAt: transitionAt || current.as_of,
+      next: current.next_confirmation || "다음 매수 조건을 기다립니다.",
+    };
+  }
+  return {
+    key: "watching",
+    headline: "관찰",
+    tone: "watching",
+    changedAt: null,
+    next,
+  };
+}
+
+function recommendationAiSignalStageView(signal = null, item = {}) {
+  const view = recommendationSignalStageView(signal, item);
+  const current = signal?.current || {};
+  const score = toNumber(current.score);
+  const threshold = toNumber(signal?.entry_score_threshold);
+  const scoreText = score === null
+    ? "신호 점수 확인 중"
+    : threshold === null
+      ? `신호 ${formatNumber(score)}점`
+      : `신호 ${formatNumber(score)} / ${formatNumber(threshold)}점`;
+  return {
+    ...view,
+    detail: [scoreText, view.next].filter(Boolean).join(" · "),
+  };
+}
+
+function recommendationSignalMetricRows(signal = {}, stage = recommendationSignalStageView(signal)) {
+  const current = signal.current || {};
+  const events = Array.isArray(signal.events) ? signal.events : [];
+  const latestEvent = events.length ? events[events.length - 1] : {};
+  const displayReturn = signal.display_return_rate ?? current.unrealized_return ?? latestEvent.return_rate;
+  if (stage.key === "holding") {
+    return [
+      ["체결 매수가", current.entry_price ? `${formatNumber(current.entry_price)}원` : "확인 중", "neutral"],
+      ["현재가", current.price ? `${formatNumber(current.price)}원` : "확인 중", "neutral"],
+      ["보유 수익률", displayReturn === null || displayReturn === undefined ? "확인 중" : formatPercent(displayReturn), quantToneClass(displayReturn)],
+    ];
+  }
+  if (stage.key === "sold") {
+    return [
+      ["체결 매수가", latestEvent.entry_price ? `${formatNumber(latestEvent.entry_price)}원` : "확인 중", "neutral"],
+      ["최근 매도가", latestEvent.price ? `${formatNumber(latestEvent.price)}원` : "확인 중", "neutral"],
+      ["확정 수익률", displayReturn === null || displayReturn === undefined ? "확인 중" : formatPercent(displayReturn), quantToneClass(displayReturn)],
+    ];
+  }
+  return [];
+}
+
+function recommendationSignalEventLabel(event = {}) {
+  if (event.side === "buy") {
+    return "확정 매수";
+  }
+  if (event.side === "partial_sell") {
+    return event.label || `${formatNumber(event.profit_stage || 1)}차 수익확정`;
+  }
+  return "전량 매도";
+}
+
+function recommendationSignalTimelineItems(item = {}, signal = {}) {
+  const recommendedAt = item.recommended_at || item.recommendation_as_of;
+  const recommendedTimestamp = recommendationTimestampValue(recommendedAt);
+  const candidate = recommendationCandidateStageView(item);
+  const rows = [{
+    kind: "recommendation",
+    label: "추천 후보 평가",
+    at: recommendedAt,
+    tone: "recommendation",
+    relation: "추천 기준",
+    detail: `추천 ${formatNumber(item.score)}점 · ${candidate.headline}`,
+  }];
+  const events = Array.isArray(signal.events) ? signal.events : [];
+  for (const event of events) {
+    const at = event.signal_at || event.execution_date || event.signal_date;
+    const eventTimestamp = recommendationTimestampValue(at);
+    const priceLabel = event.side === "buy" ? "체결가" : "매도가";
+    const facts = [];
+    if (event.price !== null && event.price !== undefined) {
+      facts.push(`${priceLabel} ${formatNumber(event.price)}원`);
+    }
+    if (event.return_rate !== null && event.return_rate !== undefined) {
+      facts.push(`수익률 ${formatPercent(event.return_rate)}`);
+    }
+    if (event.reason) {
+      facts.push(event.reason);
+    }
+    rows.push({
+      kind: "signal",
+      label: recommendationSignalEventLabel(event),
+      at,
+      tone: event.side === "buy" ? "buy" : "sell",
+      relation: recommendedTimestamp !== null && eventTimestamp !== null && eventTimestamp < recommendedTimestamp
+        ? "추천 전 이력"
+        : "추천 이후",
+      detail: facts.join(" · ") || "체결 정보를 확인하고 있습니다.",
+    });
+  }
+  const stage = recommendationSignalStageView(signal, item);
+  if (["preliminary", "buy_wait", "sell_wait", "released"].includes(stage.key)) {
+    const stageTimestamp = recommendationTimestampValue(stage.changedAt);
+    const preliminaryPrice = stage.released?.price;
+    rows.push({
+      kind: "signal",
+      label: stage.key === "released"
+        ? `${stage.released?.side === "sell" ? "매도" : "매수"} 조건 해제`
+        : stage.headline,
+      at: stage.changedAt,
+      tone: stage.tone,
+      relation: recommendedTimestamp !== null && stageTimestamp !== null && stageTimestamp < recommendedTimestamp
+        ? "추천 전 이력"
+        : "추천 이후",
+      detail: [
+        preliminaryPrice ? `포착가 ${formatNumber(preliminaryPrice)}원` : "",
+        stage.next,
+      ].filter(Boolean).join(" · "),
+    });
+  }
+  return rows.sort((left, right) => (
+    (recommendationTimestampValue(right.at) ?? -Infinity)
+    - (recommendationTimestampValue(left.at) ?? -Infinity)
+  ));
+}
+
+function createRecommendationSignalTimeline(item, signal, options = {}) {
+  const wrapper = el("section", "recommend-signal-history");
+  wrapper.appendChild(el("h3", "", "AI 시그널 이력"));
+  if (options.signalState === "loading") {
+    const loading = el("p", "recommend-signal-history-state is-loading", "매수·매도 이력을 불러오는 중입니다.");
+    loading.setAttribute("role", "status");
+    wrapper.appendChild(loading);
+    return wrapper;
+  }
+  if (options.signalState === "error") {
+    const error = el("div", "recommend-signal-history-state is-error");
+    error.append(
+      el("p", "", "상세 이력을 불러오지 못했습니다. 현재 단계는 마지막 요약 데이터로 표시합니다."),
+      el("button", "recommend-signal-retry", "시그널 다시 불러오기"),
+    );
+    error.querySelector("button").type = "button";
+    wrapper.appendChild(error);
+    return wrapper;
+  }
+  const rows = recommendationSignalTimelineItems(item, signal);
+  const signalRows = rows.filter((row) => row.kind === "signal");
+  if (!signalRows.length) {
+    wrapper.appendChild(el("p", "recommend-signal-history-state", "아직 체결된 매매 이력이 없습니다. 조건이 포착되면 이곳에 순서대로 기록됩니다."));
+  }
+  const list = el("ol", "recommend-signal-timeline");
+  for (const row of rows) {
+    const entry = el("li", `recommend-signal-timeline-item is-${row.tone}`);
+    const marker = el("span", "recommend-signal-timeline-marker");
+    const content = el("div", "recommend-signal-timeline-content");
+    const head = el("div", "recommend-signal-timeline-head");
+    head.append(el("strong", "", row.label), el("span", "", row.relation));
+    const time = el("time", "", recommendationMoment(row.at, "시각 확인 중"));
+    if (row.at) {
+      time.dateTime = String(row.at);
+    }
+    content.append(head, time, el("p", "", row.detail));
+    entry.append(marker, content);
+    list.appendChild(entry);
+  }
+  wrapper.appendChild(list);
+  return wrapper;
+}
+
+function createRecommendationDecisionFlow(item = {}, options = {}) {
+  const signal = options.signal || item.ai_trade_signal;
+  const stage = recommendationSignalStageView(signal, item);
+  const section = el("section", `recommend-decision-flow${options.detail ? " is-detail" : ""}`);
+  section.setAttribute("aria-label", `${item.name || "추천 종목"} AI 시그널 현재 단계`);
+  if (options.signalState === "loading") {
+    section.setAttribute("aria-busy", "true");
+  }
+  const heading = el("div", "recommend-decision-flow-head");
+  const badge = el("strong", `recommend-signal-stage is-${stage.tone}`, stage.headline);
+  heading.append(
+    el("span", "", options.detail ? "AI 시그널 여정" : "현재 단계"),
+    badge,
+  );
+  const facts = document.createElement("dl");
+  facts.className = "recommend-signal-facts";
+  const changed = el("div");
+  const changedValue = document.createElement("dd");
+  const changedTime = el("time", "", stage.changedAt ? recommendationMoment(stage.changedAt) : "변경 이력 없음");
+  if (stage.changedAt) {
+    changedTime.dateTime = String(stage.changedAt);
+  }
+  changedValue.appendChild(changedTime);
+  changed.append(el("dt", "", stage.changedLabel || "마지막 변경"), changedValue);
+  facts.append(changed);
+  if (options.detail) {
+    const next = el("div");
+    const nextValue = el("dd", "", stage.next || "다음 조건을 확인하고 있습니다.");
+    nextValue.title = stage.next || "";
+    next.append(el("dt", "", "다음 조건"), nextValue);
+    facts.append(next);
+  }
+  section.append(heading, facts);
+
+  if (options.detail) {
+    section.appendChild(el(
+      "p",
+      "recommend-signal-independence",
+      "추천 점수는 후보 평가이며, 아래 AI 시그널은 매수·매도 시점을 독립적으로 계산한 기록입니다.",
+    ));
+    const metricRows = recommendationSignalMetricRows(signal || {}, stage);
+    if (metricRows.length) {
+      const metrics = document.createElement("dl");
+      metrics.className = "recommend-signal-metrics";
+      for (const [label, value, tone] of metricRows) {
+        const row = el("div");
+        row.append(el("dt", "", label), el("dd", tone || "neutral", value));
+        metrics.appendChild(row);
+      }
+      section.appendChild(metrics);
+    }
+    section.appendChild(createRecommendationSignalTimeline(item, signal || {}, options));
+    const stockLink = document.createElement("a");
+    stockLink.className = "recommend-signal-stock-link";
+    stockLink.href = viewStockUrl(item.code || item.name || "");
+    stockLink.textContent = "종목 상세에서 차트와 전략 보기";
+    section.appendChild(stockLink);
+  }
+  return section;
+}
+
 function saveRecommendationDetailItem(item) {
   state.currentRecommendationDetailItem = item;
   try {
@@ -10470,7 +21449,13 @@ function recommendationDetailMetric(label, value, rawValue = null) {
   return row;
 }
 
-function renderRecommendationDetail(item, aiAnalysis = null, loading = false) {
+function renderRecommendationDetail(
+  item,
+  aiAnalysis = null,
+  loading = false,
+  signal = null,
+  signalState = "ready",
+) {
   if (!elements.recommendDetailContent || !item) {
     return;
   }
@@ -10486,36 +21471,56 @@ function renderRecommendationDetail(item, aiAnalysis = null, loading = false) {
         : "Ollama AI 대기";
   const providerClass = generationMode === "local_llm" ? "local" : generationMode === "rules" ? "rules" : "loading";
   const aiSummary = aiAnalysis?.summary || explanation.summary;
+  const effectiveSignal = signal || item.ai_trade_signal;
+  const signalStage = recommendationSignalStageView(effectiveSignal, item);
 
   elements.recommendDetailName.textContent = item.name || "추천 종목";
-  elements.recommendDetailCode.textContent = [item.code, item.market].filter(Boolean).join(" · ");
+  elements.recommendDetailCode.textContent = "";
+  elements.recommendDetailCode.hidden = true;
   elements.recommendDetailContent.innerHTML = "";
 
   const hero = el("section", "recommend-detail-hero");
   const heroHead = el("div", "recommend-detail-hero-head");
   const titleWrap = el("div");
-  titleWrap.append(el("span", "recommend-detail-eyebrow", "추천 결과"), el("h1", "", explanation.decision));
+  const rankLabel = Number(item.rank) === 1 ? "현재 1위 근거" : `추천 #${item.rank || "-"} 근거`;
+  titleWrap.append(el("span", "recommend-detail-eyebrow", rankLabel), el("h1", "", "추천한 핵심 이유"));
   const scoreWrap = el("div", `recommend-detail-score ${level.className}`);
   scoreWrap.append(el("strong", "", formatNumber(item.score)), el("span", "", "/ 100"), el("em", "", level.label));
   heroHead.append(titleWrap, scoreWrap);
-  hero.append(heroHead, el("p", "recommend-detail-lead", explanation.summary));
+  hero.append(
+    heroHead,
+    el("p", "recommend-detail-lead", recommendationReasonSummary(item)),
+    el("p", "recommend-detail-verdict", explanation.summary),
+  );
 
   const action = el("section", "recommend-detail-section recommend-detail-action");
   const actionHead = el("div", "recommend-detail-section-head");
-  actionHead.append(el("div", "", "지금 할 일"), el("span", `recommend-detail-ai-badge ${providerClass}`, providerText));
+  actionHead.append(el("div", "", "AI 대응 · 지금 할 일"), el("span", `recommend-detail-ai-badge ${providerClass}`, providerText));
   action.append(actionHead);
-  const actionText =
-    explanation.decision === "분할 접근"
-      ? `${formatPriceRange(explanation.entryLow, explanation.entryHigh)}에서 2~3회로 나눠 접근합니다.`
-      : explanation.decision === "매수 우선검토"
-        ? `${formatPriceRange(explanation.entryLow, explanation.entryHigh)}에서 가격이 버티는지 먼저 확인합니다.`
-        : explanation.decision === "신중"
-          ? "신규 진입은 미루고 차트와 수급이 회복되는지 확인합니다."
-          : "현재 가격을 따라가지 말고 전환 신호를 기다립니다.";
-  action.append(el("h2", "", actionText), el("p", "", aiSummary));
+  const actionText = signalStage.key === "collecting"
+    ? "추천 이후 신규 매수 시그널을 수집하고 있습니다."
+    : signalStage.key === "preliminary"
+    ? "조기 추세 후보의 매수 확정 조건을 확인 중입니다."
+    : signalStage.key === "buy_wait"
+      ? "종가 조건이 확정돼 다음 시가 체결을 기다립니다."
+      : signalStage.key === "holding"
+        ? "현재 보유 상태이므로 새 매수보다 보유·매도 조건을 확인합니다."
+        : signalStage.key === "sell_wait"
+          ? "매도 조건이 확인돼 다음 체결을 기다립니다."
+          : signalStage.key === "sold"
+            ? "전량 매도가 완료돼 새 매수 신호를 기다립니다."
+            : signalStage.key === "released"
+              ? `예비 ${signalStage.released?.side === "sell" ? "매도" : "매수"} 조건이 해제돼 확정 신호로 전환되지 않았습니다.`
+              : signalStage.key === "watching"
+                ? "추천 후보이지만 아직 매수 신호는 없습니다."
+                : "AI 시그널 계산 결과를 기다리고 있습니다.";
+  action.append(
+    el("h2", "", actionText),
+    el("p", "", signalStage.next || aiSummary),
+  );
 
   const levels = el("section", "recommend-detail-section");
-  levels.appendChild(el("h2", "", "가격 기준"));
+  levels.appendChild(el("h2", "", "추천 후보 가격 기준"));
   const levelGrid = el("div", "recommend-detail-table");
   levelGrid.append(
     recommendationDetailMetric("현재가", formatNumber(item.price)),
@@ -10556,7 +21561,19 @@ function renderRecommendationDetail(item, aiAnalysis = null, loading = false) {
     ? `${aiAnalysis.model_name || "Ollama"}가 핵심 근거를 선택했고, 점수와 가격 기준은 데이터 규칙으로 계산했습니다.`
     : aiAnalysis?.generation_note || "점수와 가격 기준은 수집된 시장 데이터 규칙으로 계산합니다.");
 
-  elements.recommendDetailContent.append(hero, action, levels, snapshot, evidence, source);
+  elements.recommendDetailContent.append(
+    hero,
+    createRecommendationDecisionFlow(item, {
+      detail: true,
+      signal: effectiveSignal,
+      signalState,
+    }),
+    action,
+    levels,
+    snapshot,
+    evidence,
+    source,
+  );
 }
 
 async function loadRecommendationDetail(code = "") {
@@ -10575,14 +21592,40 @@ async function loadRecommendationDetail(code = "") {
     return;
   }
   saveRecommendationDetailItem(item);
-  renderRecommendationDetail(item, null, true);
+  renderRecommendationDetail(item, null, true, item.ai_trade_signal, "loading");
   window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.scrollTo(0, 0)));
-  try {
-    const aiAnalysis = await fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/ai-analysis`, { force: true, ttlMs: 0 });
-    renderRecommendationDetail(item, aiAnalysis, false);
-  } catch {
-    renderRecommendationDetail(item, { generation_mode: "rules", generation_note: "Ollama 연결을 확인하지 못해 데이터 분석으로 표시합니다." }, false);
+  const [aiResult, signalResult] = await Promise.all([
+    fetchJsonCached(`/stocks/${encodeURIComponent(item.code)}/ai-analysis`, { force: true, ttlMs: 0 })
+      .then((value) => ({ status: "fulfilled", value }))
+      .catch(() => ({ status: "rejected", value: null })),
+    fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(item.code)}/quant-signals`), { force: true, ttlMs: 0 })
+      .then((value) => ({ status: "fulfilled", value }))
+      .catch(() => ({ status: "rejected", value: null })),
+  ]);
+  if (
+    state.view !== "recommend-detail"
+    || state.currentRecommendationDetailItem?.code !== item.code
+  ) {
+    return;
   }
+  const aiAnalysis = aiResult.status === "fulfilled"
+    ? aiResult.value
+    : { generation_mode: "rules", generation_note: "Ollama 연결을 확인하지 못해 데이터 분석으로 표시합니다." };
+  const fullSignal = signalResult.status === "fulfilled"
+    ? {
+      ...sanitizePendingEntryAiSignal(signalResult.value),
+      latest_preliminary: signalResult.value.latest_preliminary
+        || item.ai_trade_signal?.latest_preliminary
+        || null,
+    }
+    : item.ai_trade_signal;
+  renderRecommendationDetail(
+    item,
+    aiAnalysis,
+    false,
+    fullSignal,
+    signalResult.status === "fulfilled" ? "ready" : "error",
+  );
 }
 
 function openRecommendationDetail(item) {
@@ -10614,21 +21657,9 @@ function createRecommendationUsSectorSummary(item, usSectorMoves = state.usSecto
 }
 
 function updateRecommendationUsSectorCards(usSectorMoves = state.usSectorMoves) {
+  void usSectorMoves;
   for (const card of elements.recommendList.querySelectorAll(".recommend-card")) {
-    const item = card.recommendationItem;
-    if (!item) {
-      continue;
-    }
-    const next = createRecommendationUsSectorSummary(item, usSectorMoves);
-    const current = card.querySelector("[data-field='us_sector']");
-    if (current) {
-      current.replaceWith(next);
-    } else {
-      const actions = card.querySelector(".recommend-card-actions");
-      if (actions) {
-        actions.parentElement.insertBefore(next, actions);
-      }
-    }
+    card.querySelector("[data-field='us_sector']")?.remove();
   }
 }
 
@@ -10638,7 +21669,8 @@ function createRecommendationCard(item) {
   card.recommendationItem = item;
   const head = el("div", "recommend-head");
   const actionText = item.action || "관찰";
-  const rank = el("div", "recommend-rank", `#${item.rank} · ${actionText}`);
+  const candidate = recommendationCandidateStageView(item);
+  const rank = el("div", "recommend-rank", `#${item.rank} · ${candidate.headline}`);
   rank.classList.add(actionText.includes("매수") || actionText.includes("분할") ? "buy" : "watch");
   const rankLine = el("div", "recommend-rank-line");
   const trackButton = el("button", "recommend-track-button", isTrackedRecommendation(item.code) ? "핀 종목 보기" : "핀 설정하기");
@@ -10649,44 +21681,34 @@ function createRecommendationCard(item) {
   watchButton.type = "button";
   watchButton.dataset.code = item.code || "";
   watchButton.classList.toggle("active", isWatched(item.code));
-  const explainButton = el("button", "recommend-ai-button", "AI 상세 보기");
+  const explainButton = el("button", "recommend-ai-button", "AI 시그널 보기");
   explainButton.type = "button";
-  rankLine.appendChild(rank);
+  explainButton.setAttribute("aria-label", `${item.name || "추천 종목"} AI 시그널 이력 보기`);
+  rankLine.append(rank);
   const name = el("a", "recommend-name");
-  name.href = viewStockUrl(item.name);
+  name.href = viewStockUrl(item.code || item.name);
   name.append(
     createStockListLogo(item.code),
-    createStockListCopy(item.name, item.code, item.market)
+    createStockListCopy(item.name, item.code)
   );
 
   const score = recommendationScoreDisplay(item.score);
+  const reason = el("section", "recommend-card-reason");
+  reason.append(
+    el("span", "recommend-card-reason-label", Number(item.rank) === 1 ? "현재 1위 근거" : "추천 이유"),
+    el("p", "", recommendationReasonSummary(item)),
+  );
 
-  const metrics = el("div", "recommend-metrics");
-  const metricRows = [
-    ["현재가", formatNumber(item.price), "recommend_price", item.price],
-    ["등락률", formatPercent(item.change_rate), "recommend_change_rate", item.change_rate],
-    ["1개월", formatPercent(item.one_month_return), "recommend_one_month", item.one_month_return],
-    ["3개월", formatPercent(item.three_month_return), "recommend_three_month", item.three_month_return],
-    ["거래대금", formatMoney(item.trading_value), "recommend_trading_value", item.trading_value],
-  ];
-  for (const [label, value, field, rawValue] of metricRows) {
-    const row = el("div");
-    const valueNode = el("strong", "", value);
-    if (field) {
-      valueNode.dataset.field = field;
-    }
-    if (rawValue !== null && rawValue !== undefined && rawValue !== "") {
-      valueNode.dataset.rawValue = String(rawValue);
-    }
-    if (label === "등락률") {
-      setTone(valueNode, rawValue);
-    }
-    row.append(recommendTermLabel(label), valueNode);
-    metrics.appendChild(row);
-  }
   const actions = el("div", "recommend-card-actions");
   actions.append(watchButton, trackButton, explainButton);
-  head.append(rankLine, name, score, metrics, createRecommendationUsSectorSummary(item), actions);
+  head.append(
+    rankLine,
+    name,
+    score,
+    reason,
+    createRecommendationDecisionFlow(item),
+    actions,
+  );
   card.append(head);
   return card;
 }
@@ -10700,7 +21722,10 @@ function renderRecommendations(payload, options = {}) {
   if (options.usSectorMoves) {
     state.usSectorMoves = options.usSectorMoves;
   }
-  const rankedItems = rerankRecommendationItems(payload.items || []);
+  const rankedItems = rerankRecommendationItems(payload.items || []).map((item) => ({
+    ...item,
+    recommended_at: item.recommended_at || payload.as_of || null,
+  }));
   const normalizedPayload = {
     ...payload,
     items: rankedItems,
@@ -10711,6 +21736,7 @@ function renderRecommendations(payload, options = {}) {
   updateRecommendationTrackMeta();
   const recommendMetaText = payload.as_of ? formatDataBasis(payload.as_of) : "";
   elements.recommendMeta.textContent = recommendMetaText;
+  elements.recommendMeta.dateTime = payload.as_of || "";
   elements.recommendMeta.hidden = !recommendMetaText;
   setRecommendStatus("");
   elements.recommendList.innerHTML = "";
@@ -10726,51 +21752,59 @@ function renderRecommendations(payload, options = {}) {
   scheduleUsSectorRefresh(state.usSectorMoves);
 }
 
-function appendTags(parent, items) {
-  for (const item of items || []) {
-    parent.appendChild(el("span", "tag", item));
-  }
-}
-
 function setTrendTab(tabName) {
-  const active = ["live", "events", "impact"].includes(tabName) ? tabName : "live";
+  const active = ["live", "events"].includes(tabName) ? tabName : "live";
   state.activeTrendTab = active;
   if (elements.trendTabsWrap) {
-    elements.trendTabsWrap.hidden = false;
+    elements.trendTabsWrap.hidden = true;
+    elements.trendTabsWrap.setAttribute("aria-hidden", "true");
   }
   for (const tab of elements.trendTabs) {
-    const selected = tab.dataset.trendTab === active;
-    tab.classList.toggle("active", selected);
-    tab.setAttribute("aria-selected", String(selected));
+    tab.classList.remove("active");
+    tab.setAttribute("aria-selected", "false");
+    tab.tabIndex = -1;
   }
-  elements.trendEventsPanel.hidden = active !== "events";
-  elements.trendLivePanel.hidden = active !== "live";
-  elements.trendImpactPanel.hidden = active !== "impact";
-  elements.trendPastPanel.hidden = active !== "events" || !state.showPastEvents;
+  elements.trendEventsPanel.hidden = false;
+  elements.trendLivePanel.hidden = false;
+  elements.trendImpactPanel.hidden = true;
+  const pastEventsExpanded = state.showPastEvents;
+  elements.trendPastPanel.hidden = !pastEventsExpanded;
   if (elements.homePastToggle) {
-    elements.homePastToggle.setAttribute("aria-expanded", String(active === "events" && state.showPastEvents));
-    elements.homePastToggle.textContent = state.showPastEvents ? "지난 이벤트 닫기" : "지난 이벤트";
+    elements.homePastToggle.setAttribute("aria-expanded", String(pastEventsExpanded));
+  }
+  if (elements.homePastToggleLabel) {
+    elements.homePastToggleLabel.textContent = pastEventsExpanded ? "지난 이벤트 접기" : "지난 이벤트 펼치기";
+  }
+  if (elements.homePastToggleIcon) {
+    elements.homePastToggleIcon.textContent = pastEventsExpanded ? "−" : "+";
   }
   return active;
 }
 
 function appendThreadItem(parent, item) {
-  const node = el("a", "thread-item");
-  node.href = item.url || "#";
+  const node = el("article", "thread-item");
+  const story = el(item.url ? "a" : "div", "thread-item-story");
   if (item.url) {
-    node.target = "_blank";
-    node.rel = "noreferrer";
+    story.href = item.url;
+    story.target = "_blank";
+    story.rel = "noreferrer";
+    story.setAttribute("aria-label", `${item.title} 기사 원문 보기`);
   }
   const meta = el("div", "thread-meta", `${formatDate(item.published_at)} · ${item.source}`);
   const title = el("strong", "", item.title);
   const tags = el("div", "thread-tags");
   tags.append(el("span", "thread-tag", item.category), el("span", `thread-tag impact-${item.impact}`, item.impact));
+  story.append(meta, title, tags);
+
   const leaderStocks = (item.leader_stocks || []).slice(0, 4);
   const leaders = el("div", "thread-leader-stocks");
   for (const stock of leaderStocks) {
-    leaders.appendChild(el("span", "thread-tag leader-stock-tag", stock));
+    const stockLink = el("a", "thread-tag leader-stock-tag", `#${stock}`);
+    stockLink.href = viewStockUrl(stock);
+    stockLink.setAttribute("aria-label", `${stock} 종목 상세 보기`);
+    leaders.appendChild(stockLink);
   }
-  node.append(meta, title, tags);
+  node.appendChild(story);
   if (leaderStocks.length) {
     node.appendChild(leaders);
   }
@@ -10788,6 +21822,121 @@ function appendThreadGroup(parent, label, items, tone) {
     }
   }
   parent.appendChild(group);
+}
+
+function trendTimelineImpact(item = {}) {
+  if (item.impact === "호재") {
+    return "positive";
+  }
+  if (item.impact === "악재") {
+    return "negative";
+  }
+  return "neutral";
+}
+
+function filteredTrendTimelineItems(filter = state.trendNewsFilter) {
+  const items = Array.isArray(state.trendTimelineItems) ? state.trendTimelineItems : [];
+  if (filter === "positive" || filter === "negative") {
+    return items.filter((item) => trendTimelineImpact(item) === filter);
+  }
+  return items;
+}
+
+function trendNewsCounts() {
+  const timeline = Array.isArray(state.trendTimelineItems) ? state.trendTimelineItems : [];
+  return timeline.reduce((result, item) => {
+    const impact = trendTimelineImpact(item);
+    result.all += 1;
+    if (impact === "positive" || impact === "negative") {
+      result[impact] += 1;
+    }
+    return result;
+  }, { all: 0, positive: 0, negative: 0 });
+}
+
+function trendNewsFilterLabel(filter = state.trendNewsFilter) {
+  if (filter === "positive") return "호재";
+  if (filter === "negative") return "악재";
+  return "전체";
+}
+
+function updateTrendNewsFilterButtons(buttons, counts, dataKey) {
+  for (const button of buttons) {
+    const filter = button.dataset[dataKey] || "all";
+    const selected = filter === state.trendNewsFilter;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    const count = button.querySelector("span");
+    if (count) {
+      count.textContent = formatNumber(counts[filter] || 0);
+    }
+  }
+}
+
+function setTrendNewsFilter(filter, options = {}) {
+  state.trendNewsFilter = ["positive", "negative"].includes(filter) ? filter : "all";
+  renderTrendTimeline();
+  if (state.view === "news" || options.renderPage === true) {
+    renderNewsPage();
+  }
+  if (state.view === "news" && options.updateHistory !== false) {
+    writeDashboardHistory("news", dashboardRouteUrl("news"), "replace");
+  }
+  return state.trendNewsFilter;
+}
+
+function renderTrendTimeline() {
+  const counts = trendNewsCounts();
+
+  updateTrendNewsFilterButtons(elements.trendLiveFilters, counts, "trendNewsFilter");
+
+  const filteredItems = filteredTrendTimelineItems();
+  const visibleItems = filteredItems.slice(0, TREND_LIVE_PAGE_SIZE);
+  const filterLabel = trendNewsFilterLabel();
+
+  elements.trendThread.replaceChildren();
+  if (visibleItems.length === 0) {
+    elements.trendThread.appendChild(el("p", "muted trend-live-empty", `${filterLabel} 뉴스가 없습니다.`));
+  } else {
+    for (const item of visibleItems) {
+      appendThreadItem(elements.trendThread, item);
+    }
+  }
+
+  if (elements.trendLiveResultMeta) {
+    elements.trendLiveResultMeta.textContent = `${filterLabel} 뉴스 ${formatNumber(filteredItems.length)}개 · 최신순`;
+  }
+  if (elements.trendLiveToggle) {
+    elements.trendLiveToggle.hidden = filteredItems.length <= TREND_LIVE_PAGE_SIZE;
+    elements.trendLiveToggle.textContent = "더보기";
+    elements.trendLiveToggle.setAttribute("aria-label", `${filterLabel} 뉴스 전체보기`);
+  }
+}
+
+function renderNewsPage() {
+  if (!elements.newsPageList) return;
+  const counts = trendNewsCounts();
+  const filteredItems = filteredTrendTimelineItems();
+  const filterLabel = trendNewsFilterLabel();
+  updateTrendNewsFilterButtons(elements.newsPageFilters, counts, "newsPageFilter");
+  elements.newsPageList.replaceChildren();
+  if (filteredItems.length === 0) {
+    elements.newsPageList.appendChild(el("p", "muted news-page-empty", `${filterLabel} 뉴스가 없습니다.`));
+  } else {
+    for (const item of filteredItems) {
+      appendThreadItem(elements.newsPageList, item);
+    }
+  }
+  if (elements.newsPageCount) {
+    elements.newsPageCount.textContent = `${filterLabel} ${formatNumber(filteredItems.length)}개`;
+  }
+  if (elements.newsPageAsOf) {
+    elements.newsPageAsOf.textContent = formatDataBasis(state.homeTrendContext?.as_of, "최신 뉴스 기준");
+  }
+  if (elements.newsPageResultMeta) {
+    elements.newsPageResultMeta.textContent = `${filterLabel} 뉴스 ${formatNumber(filteredItems.length)}개 · 최신순`;
+  }
 }
 
 function trendWatchNewsImpact(item = {}) {
@@ -10922,7 +22071,7 @@ function focusedTrendEvents(items) {
 
 function isFocusedTrendTimelineItem(item) {
   const text = `${item.title || ""} ${item.category || ""} ${item.related_event || ""}`;
-  return /(원유|유가|WTI|브렌트|정제마진|환율|원달러|원\/달러|고환율|원화|달러\s*(강세|약세)|금리|고용|실업|신규실업수당|PCE|FOMC|연준)/i.test(text);
+  return /(원유|유가|WTI|브렌트|정제마진|환율|원달러|원\/달러|고환율|원화|달러\s*(강세|약세)|금리|물가|소비자물가|CPI|고용|실업|신규실업수당|PCE|FOMC|연준)/i.test(text);
 }
 
 function hasAnyKeyword(text, keywords = []) {
@@ -10977,17 +22126,36 @@ function marketImpactDirectionScore(text, factor, fallbackImpact = "") {
 }
 
 function marketImpactToneClass(status = "") {
-  return String(status).includes("호재") ? "good" : "bad";
+  if (String(status).includes("호재")) {
+    return "good";
+  }
+  if (String(status).includes("리스크") || String(status).includes("악재")) {
+    return "bad";
+  }
+  return "neutral";
 }
 
 function marketImpactVisibleLabel(status = "") {
-  return String(status).includes("호재") ? "외부 변수 우호" : "외부 변수 리스크";
+  if (String(status).includes("호재")) {
+    return "외부 변수 우호";
+  }
+  if (String(status).includes("리스크") || String(status).includes("악재")) {
+    return "외부 변수 리스크";
+  }
+  if (String(status).includes("자료")) {
+    return "데이터 부족";
+  }
+  return "외부 변수 혼조";
 }
 
 function marketImpactVisibleSummary(status = "") {
-  return String(status).includes("호재")
-    ? "금리·환율·원자재 흐름을 기준으로 한 외부 변수 평가입니다. 전일 지수 등락과는 별개일 수 있습니다."
-    : "금리·환율·원자재 흐름에 리스크가 남아 있습니다. 전일 지수 등락과는 별개일 수 있습니다.";
+  if (String(status).includes("자료")) {
+    return "자료가 부족한 변수는 호재·악재 방향을 표시하지 않고 판단을 보류합니다.";
+  }
+  if (String(status).includes("혼조")) {
+    return "지표 방향이 엇갈리면 혼조로 표시하며, 한 방향의 투자심리로 단정하지 않습니다.";
+  }
+  return "아래 변수를 눌러 무엇이 오르거나 내릴 때 다음 변수와 업종이 어떻게 움직이는지 확인하세요.";
 }
 
 function buildMarketImpactModel(payload = {}) {
@@ -11040,11 +22208,13 @@ function buildMarketImpactModel(payload = {}) {
   const enrichedFactors = factors
     .map((factor) => {
       const percent = Math.max(4, Math.round((factor.raw / rawTotal) * 1000) / 10);
-      const status = factor.directionScore >= 0 ? "호재" : "악재";
+      const status = factor.directionScore > 0 ? "호재" : factor.directionScore < 0 ? "악재" : "혼조";
       return {
         ...factor,
         percent,
         status,
+        data_quality: "주의",
+        quality_note: "실시간 공식 지표 대신 이벤트 키워드로 계산한 임시 상태입니다.",
         summary: status === "호재" ? factor.goodText : factor.badText,
         reasons: uniqueLimited(factor.reasons, 3),
         stocks: uniqueLimited(factor.stocks, 6),
@@ -11058,17 +22228,30 @@ function buildMarketImpactModel(payload = {}) {
   const badWeight = enrichedFactors
     .filter((factor) => factor.status === "악재")
     .reduce((sum, factor) => sum + factor.percent, 0);
-  const marketStatus = goodWeight >= badWeight ? "호재 우위" : "리스크 우위";
+  const neutralWeight = enrichedFactors
+    .filter((factor) => factor.status === "혼조")
+    .reduce((sum, factor) => sum + factor.percent, 0);
+  const marketStatus = Math.abs(goodWeight - badWeight) <= Math.max(8, neutralWeight * 0.35)
+    ? "혼조"
+    : goodWeight > badWeight
+    ? "호재 우위"
+    : "리스크 우위";
   const leadFactor = enrichedFactors[0];
-  const summary = marketStatus === "호재 우위"
+  const summary = marketStatus === "혼조"
+    ? `${leadFactor.label} 영향이 가장 크지만 이벤트 방향이 엇갈려 한 방향으로 보기 어렵습니다.`
+    : marketStatus === "호재 우위"
     ? `${leadFactor.label} 영향이 가장 크고, 외부 변수는 우호 흐름입니다.`
     : `${leadFactor.label} 영향이 가장 크고, 외부 변수는 리스크 흐름입니다.`;
 
   return {
     asOf: payload.as_of,
+    dataAsOf: payload.as_of,
+    dataQuality: "주의",
+    dataQualityNote: "실시간 공식 지표 대신 이벤트 키워드로 계산한 임시 상태입니다.",
     factors: enrichedFactors,
     goodWeight,
     badWeight,
+    neutralWeight,
     marketStatus,
     summary,
   };
@@ -11076,10 +22259,11 @@ function buildMarketImpactModel(payload = {}) {
 
 function appendMarketImpactFactorRow(parent, factor, index) {
   const direction = factor.direction || factor.status || "악재";
+  const tone = marketImpactDirectionTone(direction);
   const percent = Math.max(0, Math.min(100, Number(factor.percent || 0)));
   const row = el(
     "article",
-    `market-impact-factor-row ${direction === "호재" ? "good" : "bad"}${index === 0 ? " is-leading" : ""}`,
+    `market-impact-factor-row ${tone}${index === 0 ? " is-leading" : ""}`,
   );
   row.setAttribute("aria-label", `${factor.label} 영향도 ${percent.toFixed(1)}%, ${direction}`);
 
@@ -11087,7 +22271,7 @@ function appendMarketImpactFactorRow(parent, factor, index) {
   const name = el("div", "market-impact-factor-name");
   name.append(el("span", "market-impact-factor-rank", String(index + 1).padStart(2, "0")), el("strong", "", factor.label));
   const value = el("div", "market-impact-factor-value");
-  value.append(el("strong", "", `${percent.toFixed(1)}%`), el("span", direction === "호재" ? "good" : "bad", direction));
+  value.append(el("strong", "", `${percent.toFixed(1)}%`), el("span", tone, direction));
   head.append(name, value);
 
   const track = el("div", "market-impact-factor-track");
@@ -11101,7 +22285,11 @@ function appendMarketImpactFactorRow(parent, factor, index) {
 
 function isMarketImpactFactorFallback(factor) {
   const evidence = Array.isArray(factor?.evidence) ? factor.evidence : [];
-  return evidence.some((item) => item?.source === "시스템") || Number(factor?.confidence || 0) <= 20;
+  return evidence.length === 0
+    || evidence.some((item) => item?.source === "시스템")
+    || factor?.data_quality === "자료 부족"
+    || (factor?.data_quality === "주의" && evidence.length === 0)
+    || Number(factor?.confidence || 0) <= 20;
 }
 
 function marketImpactLearningGuide(factor) {
@@ -11113,15 +22301,21 @@ function marketImpactLearningGuide(factor) {
 
 function appendMarketImpactDetail(parent, factor) {
   const direction = factor.direction || factor.status || "악재";
+  const beginnerStatus = marketImpactBeginnerStatus(direction);
+  const tone = beginnerStatus.tone;
   const fallback = isMarketImpactFactorFallback(factor);
   const guide = marketImpactLearningGuide(factor);
-  const card = el("article", `market-impact-detail ${direction === "호재" ? "good" : "bad"}`);
+  const copy = marketImpactBeginnerCopy(factor);
+  const card = el("article", `market-impact-detail ${tone}`);
   const head = el("div", "market-impact-detail-head");
   head.append(
     el("strong", "", factor.label),
-    el("em", direction === "호재" ? "good" : "bad", `${direction} ${factor.percent.toFixed(1)}%`),
+    el("em", tone, beginnerStatus.label),
   );
-  const summary = el("p", "", fallback ? guide.lesson : (factor.interpretation || factor.summary || "현재 공식 지표 기준으로 영향 방향을 계산했습니다."));
+  const summary = el("p", "", fallback ? guide.lesson : (copy.description || factor.interpretation || factor.summary || "현재 공식 지표 기준으로 영향 방향을 계산했습니다."));
+  const quality = factor.data_quality || "확인";
+  const qualityNote = factor.quality_note || "";
+  const qualityLine = el("small", "market-impact-quality", `데이터 ${quality}${qualityNote ? ` · ${qualityNote}` : ""}`);
   const evidenceList = el("div", "market-impact-source-list");
   if (fallback) {
     const learning = el("div", "market-impact-source market-impact-learning-note");
@@ -11172,7 +22366,7 @@ function appendMarketImpactDetail(parent, factor) {
   if (stocks.childElementCount) {
     keywordGroups.appendChild(stockWrap);
   }
-  card.append(head, summary, evidenceList, keywordGroups);
+  card.append(head, summary, qualityLine, evidenceList, keywordGroups);
   parent.appendChild(card);
 }
 
@@ -11185,9 +22379,13 @@ function normalizeMarketImpactModel(payload = {}) {
     }));
     return {
       asOf: payload.as_of,
+      dataAsOf: payload.data_as_of || payload.as_of,
+      dataQuality: payload.data_quality || "확인",
+      dataQualityNote: payload.data_quality_note || "",
       factors,
       goodWeight: Number(payload.good_weight || 0),
       badWeight: Number(payload.bad_weight || 0),
+      neutralWeight: Number(payload.neutral_weight || 0),
       marketStatus: payload.market_status || "리스크 우위",
       summary: payload.summary || "외부 요인의 국내증시 영향도를 계산했습니다.",
     };
@@ -11210,11 +22408,12 @@ function restoreTrendChrome(activeTab = "live") {
     elements.trendTitle.textContent = "시장 홈";
   }
   if (elements.trendTabsWrap) {
-    elements.trendTabsWrap.hidden = false;
+    elements.trendTabsWrap.hidden = true;
+    elements.trendTabsWrap.setAttribute("aria-hidden", "true");
   }
   if (elements.trendEventsTitle) {
     elements.trendEventsTitle.hidden = false;
-    elements.trendEventsTitle.textContent = "이벤트 캘린더";
+    elements.trendEventsTitle.textContent = "증시 캘린더";
   }
 }
 
@@ -11275,15 +22474,49 @@ function marketIndexChartMarkup(item) {
     </svg>`;
 }
 
-function createHomeMarketAssetCard(item = {}) {
+const HOME_MARKET_INDEX_CODES = new Set(["KOSPI", "KOSDAQ", "SP500", "NASDAQ", "SOX", "DOW"]);
+
+function homeMarketIndexDisplayPhase(item = {}, now = new Date()) {
+  const code = String(item.code || "").toUpperCase();
+  if (!HOME_MARKET_INDEX_CODES.has(code)) {
+    return item.is_realtime ? "regular" : "closed";
+  }
+  if (item.market_session === "preopen") {
+    return "preopen";
+  }
+  if (item.is_realtime || item.market_session === "open") {
+    return "regular";
+  }
+  if (item.market_session === "closed") {
+    return "closed";
+  }
+  if (["KOSPI", "KOSDAQ"].includes(code)) {
+    return koreaMarketPhase(now);
+  }
+  return usMarketPhase(now) === "premarket" ? "preopen" : "closed";
+}
+
+function formatHomeMarketCardDate(value, fallback = "날짜 확인 중") {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) {
+    return fallback;
+  }
+  return `${Number(match[2])}. ${Number(match[3])}.`;
+}
+
+function createHomeMarketAssetCard(item = {}, now = new Date()) {
   const card = document.createElement("article");
   const code = String(item.code || "MARKET");
   const current = toNumber(item?.current);
+  const phase = homeMarketIndexDisplayPhase(item, now);
+  const isPreopen = phase === "preopen";
   const change = toNumber(item?.change);
   const changeRate = toNumber(item?.change_rate);
   const tone = change === null || change === 0 ? "neutral" : change > 0 ? "positive" : "negative";
   card.className = `home-index-card ${tone}${current === null ? " is-empty" : ""}`;
+  card.classList.toggle("is-preopen", isPreopen);
   card.dataset.code = code;
+  card.dataset.session = phase;
 
   const header = document.createElement("header");
   header.append(el("h2", "", item.label || code));
@@ -11304,28 +22537,274 @@ function createHomeMarketAssetCard(item = {}) {
   }
 
   const chartNode = el("div", "home-index-chart");
-  const chart = marketIndexChartMarkup(item);
-  if (chart) {
-    chartNode.innerHTML = chart;
-  } else {
-    chartNode.append(el("span", "", "시세 확인 중"));
-  }
   const label = item?.label || code;
-  chartNode.setAttribute("role", "img");
-  chartNode.setAttribute(
-    "aria-label",
-    current === null
-      ? `${label} 시세 데이터 없음`
-      : `${label} ${formatMarketIndexValue(current)}, 전일 대비 ${change === null ? "확인 불가" : `${formatMarketIndexValue(Math.abs(change))} ${change >= 0 ? "상승" : "하락"}`}`,
-  );
+  if (isPreopen) {
+    chartNode.setAttribute("aria-hidden", "true");
+  } else {
+    const chart = marketIndexChartMarkup(item);
+    if (chart) {
+      chartNode.innerHTML = chart;
+    } else {
+      chartNode.append(el("span", "", "시세 확인 중"));
+    }
+    chartNode.setAttribute("role", "img");
+    chartNode.setAttribute(
+      "aria-label",
+      current === null
+        ? `${label} 시세 데이터 없음`
+        : `${label} ${formatMarketIndexValue(current)}, 전일 대비 ${change === null ? "확인 불가" : `${formatMarketIndexValue(Math.abs(change))} ${change >= 0 ? "상승" : "하락"}`}`,
+    );
+  }
 
   const basisNode = el("p", "home-index-basis");
-  const basis = formatDateOnlyBasis(item.updated_at || item.as_of);
-  const session = el("span", "home-index-session", item.is_realtime ? "실시간" : "장마감");
-  session.classList.toggle("is-realtime", Boolean(item.is_realtime));
+  const basisValue = item.is_realtime
+    ? item.updated_at || item.as_of
+    : item.as_of || item.updated_at;
+  const basis = formatHomeMarketCardDate(basisValue);
+  const sessionLabel = isPreopen ? "개장전" : phase === "regular" ? "실시간" : "장마감";
+  const session = el("span", "home-index-session", sessionLabel);
+  session.classList.toggle("is-realtime", phase === "regular");
+  session.classList.toggle("is-preopen", isPreopen);
   basisNode.append(el("time", "", basis), session);
   card.append(header, value, changeNode, chartNode, basisNode);
   return card;
+}
+
+const HOME_MARKET_CAROUSEL_SPEED_PX_PER_SECOND = 10;
+const HOME_MARKET_CAROUSEL_INTERACTION_HOLD_MS = 4_000;
+
+function homeMarketCarouselTrack(carousel = elements.homeMarketCarousel) {
+  return carousel?.querySelector(":scope > .home-market-track") || null;
+}
+
+function normalizeHomeMarketCarouselPosition(position, loopWidth = state.homeMarketCarouselLoopWidth) {
+  const width = Number(loopWidth) || 0;
+  const value = Math.max(0, Number(position) || 0);
+  return width > 0 ? value % width : value;
+}
+
+function homeMarketCarouselReducedMotion() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+}
+
+function homeMarketCarouselProgress() {
+  const carousel = elements.homeMarketCarousel;
+  if (!carousel) {
+    return 0;
+  }
+  const loopWidth = Number(state.homeMarketCarouselLoopWidth) || 0;
+  if (state.homeMarketCarouselUsesNativeScroll || loopWidth <= 0) {
+    return normalizeHomeMarketCarouselPosition(carousel.scrollLeft, loopWidth);
+  }
+  const animationTime = Number(state.homeMarketCarouselAnimation?.currentTime);
+  if (Number.isFinite(animationTime)) {
+    return normalizeHomeMarketCarouselPosition(
+      (animationTime * HOME_MARKET_CAROUSEL_SPEED_PX_PER_SECOND) / 1_000,
+      loopWidth,
+    );
+  }
+  return normalizeHomeMarketCarouselPosition(state.homeMarketCarouselPosition, loopWidth);
+}
+
+function stopHomeMarketCarouselMotion() {
+  window.cancelAnimationFrame(state.homeMarketCarouselSetupFrame);
+  window.clearTimeout(state.homeMarketCarouselResumeTimer);
+  state.homeMarketCarouselSetupFrame = null;
+  state.homeMarketCarouselResumeTimer = null;
+  const position = homeMarketCarouselProgress();
+  state.homeMarketCarouselPosition = position;
+  state.homeMarketCarouselAnimation?.cancel();
+  state.homeMarketCarouselAnimation = null;
+  const track = homeMarketCarouselTrack();
+  if (track && !state.homeMarketCarouselUsesNativeScroll) {
+    track.style.transform = `translate3d(${-position}px, 0, 0)`;
+  }
+}
+
+function holdHomeMarketCarouselMotion(durationMs = HOME_MARKET_CAROUSEL_INTERACTION_HOLD_MS) {
+  state.homeMarketCarouselHoldUntil = Math.max(
+    state.homeMarketCarouselHoldUntil,
+    performance.now() + durationMs,
+  );
+  window.clearTimeout(state.homeMarketCarouselResumeTimer);
+  state.homeMarketCarouselResumeTimer = window.setTimeout(() => {
+    state.homeMarketCarouselResumeTimer = null;
+    startHomeMarketCarouselMotion();
+  }, Math.max(0, state.homeMarketCarouselHoldUntil - performance.now()) + 24);
+}
+
+function useNativeHomeMarketCarouselScroll() {
+  const carousel = elements.homeMarketCarousel;
+  const track = homeMarketCarouselTrack(carousel);
+  if (!carousel || !track || state.homeMarketCarouselUsesNativeScroll) {
+    return;
+  }
+  const position = homeMarketCarouselProgress();
+  state.homeMarketCarouselPosition = position;
+  state.homeMarketCarouselAnimation?.cancel();
+  state.homeMarketCarouselAnimation = null;
+  state.homeMarketCarouselUsesNativeScroll = true;
+  track.style.transform = "none";
+  carousel.scrollLeft = position;
+  carousel.classList.add("is-user-scrolling");
+}
+
+function startHomeMarketCarouselMotion() {
+  const carousel = elements.homeMarketCarousel;
+  const track = homeMarketCarouselTrack(carousel);
+  const loopWidth = Number(state.homeMarketCarouselLoopWidth) || 0;
+  if (
+    !carousel
+    || !track
+    || state.homeMarketCarouselAnimation
+    || state.view !== "home"
+    || document.hidden
+    || loopWidth <= 0
+  ) {
+    return;
+  }
+  if (homeMarketCarouselReducedMotion()) {
+    useNativeHomeMarketCarouselScroll();
+    return;
+  }
+  const remainingHoldMs = state.homeMarketCarouselHoldUntil - performance.now();
+  if (state.homeMarketCarouselPointerActive || remainingHoldMs > 0) {
+    if (!state.homeMarketCarouselPointerActive) {
+      window.clearTimeout(state.homeMarketCarouselResumeTimer);
+      state.homeMarketCarouselResumeTimer = window.setTimeout(() => {
+        state.homeMarketCarouselResumeTimer = null;
+        startHomeMarketCarouselMotion();
+      }, remainingHoldMs + 24);
+    }
+    return;
+  }
+
+  const position = state.homeMarketCarouselUsesNativeScroll
+    ? normalizeHomeMarketCarouselPosition(carousel.scrollLeft, loopWidth)
+    : normalizeHomeMarketCarouselPosition(state.homeMarketCarouselPosition, loopWidth);
+  state.homeMarketCarouselPosition = position;
+  state.homeMarketCarouselUsesNativeScroll = false;
+  carousel.scrollLeft = 0;
+  carousel.classList.remove("is-user-scrolling");
+  track.style.transform = "translate3d(0, 0, 0)";
+  const duration = (loopWidth / HOME_MARKET_CAROUSEL_SPEED_PX_PER_SECOND) * 1_000;
+  const animation = track.animate(
+    [
+      { transform: "translate3d(0, 0, 0)" },
+      { transform: `translate3d(${-loopWidth}px, 0, 0)` },
+    ],
+    {
+      duration,
+      iterations: Infinity,
+      easing: "linear",
+      fill: "both",
+    },
+  );
+  animation.currentTime = (position / HOME_MARKET_CAROUSEL_SPEED_PX_PER_SECOND) * 1_000;
+  state.homeMarketCarouselAnimation = animation;
+}
+
+function bindHomeMarketCarouselInteractions() {
+  const carousel = elements.homeMarketCarousel;
+  if (!carousel || carousel.dataset.motionBound === "true") {
+    return;
+  }
+  carousel.dataset.motionBound = "true";
+  const beginInteraction = () => {
+    useNativeHomeMarketCarouselScroll();
+    state.homeMarketCarouselPointerActive = true;
+  };
+  const endInteraction = () => {
+    state.homeMarketCarouselPointerActive = false;
+    state.homeMarketCarouselPosition = normalizeHomeMarketCarouselPosition(carousel.scrollLeft);
+    holdHomeMarketCarouselMotion();
+  };
+  carousel.addEventListener("pointerdown", beginInteraction, { passive: true });
+  carousel.addEventListener("pointerup", endInteraction, { passive: true });
+  carousel.addEventListener("pointercancel", endInteraction, { passive: true });
+  carousel.addEventListener("touchstart", beginInteraction, { passive: true });
+  carousel.addEventListener("touchend", endInteraction, { passive: true });
+  carousel.addEventListener("touchcancel", endInteraction, { passive: true });
+  carousel.addEventListener("wheel", () => {
+    useNativeHomeMarketCarouselScroll();
+    holdHomeMarketCarouselMotion();
+  }, { passive: true });
+  carousel.addEventListener("focusin", () => {
+    useNativeHomeMarketCarouselScroll();
+    holdHomeMarketCarouselMotion(8_000);
+  });
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+  reducedMotion?.addEventListener?.("change", () => {
+    if (reducedMotion.matches) {
+      useNativeHomeMarketCarouselScroll();
+      window.clearTimeout(state.homeMarketCarouselResumeTimer);
+      state.homeMarketCarouselResumeTimer = null;
+    } else {
+      state.homeMarketCarouselHoldUntil = 0;
+      if (state.homeMarketCarouselLoopWidth > 0) {
+        startHomeMarketCarouselMotion();
+      } else {
+        prepareHomeMarketCarouselMotion(homeMarketCarouselProgress());
+      }
+    }
+  });
+}
+
+function prepareHomeMarketCarouselMotion(previousProgress = 0) {
+  const carousel = elements.homeMarketCarousel;
+  if (!carousel) {
+    return;
+  }
+  stopHomeMarketCarouselMotion();
+  state.homeMarketCarouselLoopWidth = 0;
+  state.homeMarketCarouselUsesNativeScroll = false;
+  carousel.classList.remove("is-auto-scrolling", "is-user-scrolling");
+  let track = homeMarketCarouselTrack(carousel);
+  if (!track) {
+    track = el("div", "home-market-track");
+    track.append(...Array.from(carousel.children));
+    carousel.append(track);
+  }
+  Array.from(track.children)
+    .filter((child) => (
+      child.dataset.marketCarouselClone === "true"
+      || child.dataset.marqueeClone === "true"
+    ))
+    .forEach((child) => child.remove());
+
+  const cards = Array.from(track.children).filter((child) => child.classList.contains("home-index-card"));
+  bindHomeMarketCarouselInteractions();
+  if (cards.length < 2 || homeMarketCarouselReducedMotion()) {
+    track.style.transform = "none";
+    state.homeMarketCarouselUsesNativeScroll = true;
+    carousel.scrollLeft = Math.max(0, previousProgress);
+    state.homeMarketCarouselPosition = carousel.scrollLeft;
+    return;
+  }
+
+  const clones = cards.map((card) => {
+    const clone = card.cloneNode(true);
+    clone.dataset.marketCarouselClone = "true";
+    clone.setAttribute("aria-hidden", "true");
+    clone.inert = true;
+    return clone;
+  });
+  track.append(...clones);
+  carousel.classList.add("is-auto-scrolling");
+
+  state.homeMarketCarouselSetupFrame = window.requestAnimationFrame(() => {
+    state.homeMarketCarouselSetupFrame = null;
+    const loopWidth = clones[0].offsetLeft - cards[0].offsetLeft;
+    if (!(loopWidth > 0)) {
+      carousel.classList.remove("is-auto-scrolling");
+      return;
+    }
+    state.homeMarketCarouselLoopWidth = loopWidth;
+    state.homeMarketCarouselPosition = Math.max(0, previousProgress) % loopWidth;
+    track.style.transform = `translate3d(${-state.homeMarketCarouselPosition}px, 0, 0)`;
+    carousel.scrollLeft = 0;
+    startHomeMarketCarouselMotion();
+  });
 }
 
 function renderHomeMarketIndices(payload = {}) {
@@ -11335,11 +22814,26 @@ function renderHomeMarketIndices(payload = {}) {
   const items = Array.isArray(payload.items) ? payload.items : [];
   state.homeMarketIndexItems = items;
   const byCode = new Map(items.map((item) => [item.code, item]));
-  elements.homeMarketCarousel.replaceChildren();
-  homeMarketAssetOrder().forEach((code) => {
-    const fallbackLabels = { KOSDAQ: "코스닥", KOSPI: "코스피", NASDAQ: "나스닥", SP500: "S&P 500", GOLD: "금", OIL: "원유" };
-    elements.homeMarketCarousel.appendChild(createHomeMarketAssetCard(byCode.get(code) || { code, label: fallbackLabels[code] }));
+  const renderNow = new Date();
+  const previousProgress = homeMarketCarouselProgress();
+  const track = el("div", "home-market-track");
+  elements.homeMarketCarousel.replaceChildren(track);
+  homeMarketAssetOrder(renderNow).forEach((code) => {
+    const fallbackLabels = {
+      KOSDAQ: "코스닥",
+      KOSPI: "코스피",
+      SP500: "S&P 500",
+      NASDAQ: "나스닥 종합",
+      SOX: "필라델피아 반도체",
+      DOW: "다우존스",
+      GOLD: "금",
+      OIL: "원유",
+    };
+    track.appendChild(
+      createHomeMarketAssetCard(byCode.get(code) || { code, label: fallbackLabels[code] }, renderNow),
+    );
   });
+  prepareHomeMarketCarouselMotion(previousProgress);
   const timestamps = [
     payload.updated_at,
     ...items.map((item) => item?.updated_at),
@@ -11352,18 +22846,29 @@ function renderHomeMarketIndices(payload = {}) {
       ? "기준 정보 확인 중"
       : formatDateOnlyBasis(dates[dates.length - 1]);
   }
-  renderHomeAiResponse(state.aiSignalItems, payload.updated_at || "");
+  try {
+    renderHomeAiResponse(state.aiSignalItems, payload.updated_at || "");
+  } catch (error) {
+    console.warn("home AI response render skipped after market index update", error);
+  }
 }
 
 function setHomeMarketIndicesLoading() {
   if (!elements.homeMarketCarousel) {
     return;
   }
-  elements.homeMarketCarousel.replaceChildren();
-  homeMarketAssetOrder().forEach((code) => {
-    const card = createHomeMarketAssetCard({ code, label: "시장 확인 중" });
+  stopHomeMarketCarouselMotion();
+  state.homeMarketCarouselLoopWidth = 0;
+  state.homeMarketCarouselPosition = 0;
+  state.homeMarketCarouselUsesNativeScroll = true;
+  elements.homeMarketCarousel.classList.remove("is-auto-scrolling", "is-user-scrolling");
+  const track = el("div", "home-market-track");
+  elements.homeMarketCarousel.replaceChildren(track);
+  const renderNow = new Date();
+  homeMarketAssetOrder(renderNow).forEach((code) => {
+    const card = createHomeMarketAssetCard({ code, label: "시장 확인 중" }, renderNow);
     card.classList.add("is-loading");
-    elements.homeMarketCarousel.appendChild(card);
+    track.appendChild(card);
   });
 }
 
@@ -11371,25 +22876,44 @@ async function loadHomeMarketIndices(options = {}) {
   if (!elements.homeMarketIndices) {
     return;
   }
-  if (!options.silent) {
+  const expectedCodes = new Set(["KOSPI", "KOSDAQ", "SP500", "NASDAQ", "SOX", "DOW", "GOLD", "OIL"]);
+  const previousItems = Array.isArray(state.homeMarketIndexItems)
+    ? state.homeMarketIndexItems.filter((item) => expectedCodes.has(item?.code))
+    : [];
+  if (!options.silent && !previousItems.length) {
     setHomeMarketIndicesLoading();
   }
   try {
     const refreshHistory = options.refreshHistory === true;
     const domesticEndpoint = `/market/indices?limit=30${refreshHistory ? "&refresh=true" : ""}`;
-    const [domesticResult, globalResult] = await Promise.allSettled([
-      fetchJsonCached(liveUrl(domesticEndpoint), { force: true, ttlMs: 0 }),
-      fetchJsonCached(liveUrl("/market/global-assets?limit=30"), { force: true, ttlMs: 0 }),
+    // Some mobile WebViews support async/await but not Promise.allSettled or
+    // Array.prototype.at. Keep each request independently recoverable without
+    // relying on those newer APIs so one failed feed cannot blank every card.
+    const [domesticPayload, globalPayload] = await Promise.all([
+      fetchHomeJsonWithRetry(liveUrl(domesticEndpoint), { force: true, ttlMs: 0 }).catch(() => null),
+      fetchHomeJsonWithRetry(liveUrl("/market/global-assets?limit=30"), { force: true, ttlMs: 0 }).catch(() => null),
     ]);
-    const domesticPayload = domesticResult.status === "fulfilled" ? domesticResult.value : {};
-    const globalPayload = globalResult.status === "fulfilled" ? globalResult.value : {};
-    const mergedItems = [
-      ...(Array.isArray(domesticPayload.items) ? domesticPayload.items : []),
-      ...(Array.isArray(globalPayload.items) ? globalPayload.items : []),
+    const previousByCode = new Map(previousItems.map((item) => [item.code, item]));
+    const incomingItems = [
+      ...(Array.isArray(domesticPayload?.items) ? domesticPayload.items : []),
+      ...(Array.isArray(globalPayload?.items) ? globalPayload.items : []),
     ];
+    const incomingByCode = new Map(incomingItems.map((item) => [item.code, item]));
+    const mergedItems = [...expectedCodes]
+      .map((code) => incomingByCode.get(code) || previousByCode.get(code))
+      .filter(Boolean);
+    if (mergedItems.length !== expectedCodes.size) {
+      if (state.view === "home") {
+        startHomeMarketIndexRefresh();
+      }
+      return;
+    }
+    const updatedAtCandidates = [domesticPayload?.updated_at, globalPayload?.updated_at]
+      .filter(Boolean)
+      .sort();
     renderHomeMarketIndices({
       items: mergedItems,
-      updated_at: [domesticPayload.updated_at, globalPayload.updated_at].filter(Boolean).sort().at(-1) || null,
+      updated_at: updatedAtCandidates[updatedAtCandidates.length - 1] || null,
     });
     if (state.view === "home") {
       startHomeMarketIndexRefresh();
@@ -11421,192 +22945,299 @@ function startHomeMarketIndexRefresh() {
   }, intervalMs);
 }
 
-function marketFiveMeta(key) {
-  return MARKET_FIVE_ELEMENTS.find((item) => item.key === key) || MARKET_FIVE_ELEMENTS[0];
-}
-
 function marketImpactDirection(factor = {}) {
   return factor.direction || factor.status || "악재";
 }
 
-function marketFiveFactorMap(model = {}) {
-  return new Map((model.factors || []).map((factor) => [factor.key, factor]));
+function marketImpactDirectionTone(direction = "") {
+  if (direction === "호재") {
+    return "good";
+  }
+  if (direction === "악재") {
+    return "bad";
+  }
+  return "neutral";
 }
 
-function createMarketFiveRelationSvg() {
-  const namespace = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(namespace, "svg");
-  svg.setAttribute("class", "market-five-lines");
-  svg.setAttribute("viewBox", "0 0 1000 900");
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("focusable", "false");
-
-  const defs = document.createElementNS(namespace, "defs");
-  for (const [id, className] of [["market-five-generate-arrow", "generate"], ["market-five-control-arrow", "control"]]) {
-    const marker = document.createElementNS(namespace, "marker");
-    marker.setAttribute("id", id);
-    marker.setAttribute("viewBox", "0 0 10 10");
-    marker.setAttribute("refX", "8");
-    marker.setAttribute("refY", "5");
-    marker.setAttribute("markerWidth", "6");
-    marker.setAttribute("markerHeight", "6");
-    marker.setAttribute("orient", "auto-start-reverse");
-    const arrow = document.createElementNS(namespace, "path");
-    arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
-    arrow.setAttribute("class", className);
-    marker.appendChild(arrow);
-    defs.appendChild(marker);
+function marketImpactBeginnerStatus(direction = "") {
+  if (direction === "호재") {
+    return { tone: "good", label: "좋은 신호", copyKey: "good" };
   }
-  svg.appendChild(defs);
-
-  const generatePaths = [
-    "M540 105 C690 115 805 220 835 340",
-    "M855 420 C850 575 795 700 710 755",
-    "M655 810 C520 850 390 850 285 790",
-    "M230 745 C135 645 110 505 145 405",
-    "M170 330 C225 205 330 125 460 105",
-  ];
-  for (const data of generatePaths) {
-    const path = document.createElementNS(namespace, "path");
-    path.setAttribute("d", data);
-    path.setAttribute("class", "market-five-generate-line");
-    path.setAttribute("marker-end", "url(#market-five-generate-arrow)");
-    svg.appendChild(path);
+  if (direction === "악재") {
+    return { tone: "bad", label: "주의 신호", copyKey: "bad" };
   }
-
-  const controlLines = [
-    [500, 190, 685, 690],
-    [675, 720, 215, 405],
-    [210, 375, 790, 375],
-    [790, 405, 325, 720],
-    [315, 690, 490, 190],
-  ];
-  for (const [x1, y1, x2, y2] of controlLines) {
-    const line = document.createElementNS(namespace, "line");
-    line.setAttribute("x1", String(x1));
-    line.setAttribute("y1", String(y1));
-    line.setAttribute("x2", String(x2));
-    line.setAttribute("y2", String(y2));
-    line.setAttribute("class", "market-five-control-line");
-    line.setAttribute("marker-end", "url(#market-five-control-arrow)");
-    svg.appendChild(line);
+  if (direction === "혼조") {
+    return { tone: "neutral", label: "엇갈린 신호", copyKey: "mixed" };
   }
-  return svg;
+  return { tone: "neutral", label: "판단 보류", copyKey: "missing" };
 }
 
-function buildMarketSectorCorrelations(model = {}) {
-  const sectors = new Map();
-  for (const factor of model.factors || []) {
-    const direction = marketImpactDirection(factor);
-    const signedImpact = Number(factor.percent || 0) * (direction === "호재" ? 1 : -1);
-    for (const sector of factor.affected_sectors || []) {
-      if (!sectors.has(sector)) {
-        sectors.set(sector, { name: sector, score: 0, factors: [] });
+function marketImpactBeginnerGlyph(direction = "") {
+  if (direction === "호재") {
+    return "↑";
+  }
+  if (direction === "악재") {
+    return "!";
+  }
+  if (direction === "혼조") {
+    return "↔";
+  }
+  return "?";
+}
+
+function marketImpactBeginnerShortStatus(direction = "") {
+  const status = marketImpactBeginnerStatus(direction);
+  return {
+    "좋은 신호": "좋음",
+    "주의 신호": "주의",
+    "엇갈린 신호": "엇갈림",
+    "판단 보류": "보류",
+  }[status.label] || status.label;
+}
+
+function marketImpactEvidenceChange(factor, matcher) {
+  const evidence = (factor?.evidence || []).find((item) => matcher(String(item?.metric || "")));
+  const value = Number(evidence?.change_5d);
+  return Number.isFinite(value) ? value : null;
+}
+
+function marketImpactBeginnerCopy(factor) {
+  const direction = marketImpactDirection(factor);
+  const status = marketImpactBeginnerStatus(direction);
+  const base = MARKET_BEGINNER_COPY[factor?.key]?.[status.copyKey]
+    || { title: status.label, description: factor?.interpretation || "현재 자료로 방향을 확인합니다." };
+  if (factor?.key === "risk" && direction === "혼조") {
+    const nasdaqChange = marketImpactEvidenceChange(factor, (metric) => metric.includes("나스닥"));
+    const bitcoinChange = marketImpactEvidenceChange(factor, (metric) => metric.includes("비트코인"));
+    if (nasdaqChange !== null && bitcoinChange !== null && nasdaqChange > 0 && bitcoinChange < 0) {
+      return {
+        title: "나스닥은 오르고 비트코인은 내리는 엇갈린 신호",
+        description: "주식과 코인의 방향이 달라 국내 성장주에 강한 위험선호가 이어진다고 단정하기 어렵습니다.",
+      };
+    }
+    if (nasdaqChange !== null && bitcoinChange !== null && nasdaqChange < 0 && bitcoinChange > 0) {
+      return {
+        title: "비트코인은 오르고 나스닥은 내리는 엇갈린 신호",
+        description: "위험자산 안에서도 방향이 갈려 투자심리를 한쪽으로 해석하기 어렵습니다.",
+      };
+    }
+  }
+  return base;
+}
+
+const MARKET_BEGINNER_METRIC_LABELS = {
+  "미국 10년물 국채금리": "미 10년 금리",
+  "미국 10년 실질금리": "미 10년 실질금리",
+  "원/달러 환율": "원/달러",
+  "광의 달러지수": "달러지수",
+  "미국 10년-2년 금리차": "미 10년-2년 금리차",
+  "WTI 원유": "WTI 유가",
+  "구리 월간 가격": "구리(월간)",
+  "나스닥 종합": "나스닥",
+  비트코인: "비트코인",
+  "VIX 변동성 지수": "미국 증시 불안지수(VIX)",
+  "미국 증시 불안지수(VIX)": "미국 증시 불안지수(VIX)",
+};
+
+function marketImpactShortMetric(metric = "") {
+  return MARKET_BEGINNER_METRIC_LABELS[metric] || metric || "공식 지표";
+}
+
+function marketImpactEvidenceItems(factor) {
+  return (factor?.evidence || [])
+    .filter((item) => item?.metric && item.metric !== "주간 원유재고 발표" && item.source !== "EIA")
+    .slice(0, 3)
+    .map((item) => {
+      if (item.change_5d_text && item.change_5d_text !== "-") {
+        return { label: marketImpactShortMetric(item.metric), period: "5일", value: item.change_5d_text };
       }
-      const item = sectors.get(sector);
-      item.score += signedImpact;
-      item.factors.push({
-        key: factor.key,
-        label: factor.label,
-        element: marketFiveMeta(factor.key).element,
-        direction,
-        impact: Number(factor.percent || 0),
-      });
-    }
-  }
-  return [...sectors.values()]
-    .map((sector) => ({ ...sector, score: Math.max(-100, Math.min(100, sector.score)) }))
-    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score) || a.name.localeCompare(b.name, "ko"))
-    .slice(0, 8);
+      if (item.change_1d_text && item.change_1d_text !== "-") {
+        return { label: marketImpactShortMetric(item.metric), period: "1일", value: item.change_1d_text };
+      }
+      return { label: marketImpactShortMetric(item.metric), period: "현재", value: item.value_text || "자료 없음" };
+    });
 }
 
-function marketRelationText(source, target, kind) {
-  const sameDirection = marketImpactDirection(source) === marketImpactDirection(target);
-  const strength = ((Number(source.percent || 0) + Number(target.percent || 0)) / 2).toFixed(1);
-  if (kind === "generate") {
-    return `${sameDirection ? "같은 방향 강화" : "반대 방향 상쇄"} · 관계 강도 ${strength}`;
+function marketImpactEvidenceSummary(factor) {
+  const items = marketImpactEvidenceItems(factor);
+  if (!items.length) {
+    return "공식 지표 확인 중";
   }
-  return `${sameDirection ? "동시 압력" : "서로 견제"} · 관계 강도 ${strength}`;
+  return items.map((item) => `${item.label} ${item.period} ${item.value}`).join(" · ");
 }
 
-function renderMarketFiveRelation(panel, selectedKey, factorMap, sectorRows) {
-  const factor = factorMap.get(selectedKey);
-  if (!factor) {
-    return;
+function marketImpactBeginnerQuality(factor) {
+  const quality = factor?.data_quality || "확인";
+  if (quality === "확인") {
+    return "자료 확인됨";
   }
-  const meta = marketFiveMeta(selectedKey);
-  const generateFactor = factorMap.get(MARKET_FIVE_RELATIONS.generate[selectedKey]);
-  const controlFactor = factorMap.get(MARKET_FIVE_RELATIONS.control[selectedKey]);
-  panel.replaceChildren();
-
-  const head = el("div", "market-five-relation-head");
-  const title = el("div", "");
-  title.append(el("span", `market-five-element-mark ${meta.className}`, meta.element), el("strong", "", `${factor.label} 영향 경로`));
-  head.append(title, el("em", marketImpactDirection(factor) === "호재" ? "good" : "bad", `${marketImpactDirection(factor)} ${Number(factor.percent || 0).toFixed(1)}%`));
-
-  const relations = el("div", "market-five-relation-grid");
-  for (const [kind, label, targetFactor] of [
-    ["generate", "상생 · 이어지는 변수", generateFactor],
-    ["control", "상극 · 견제하는 변수", controlFactor],
-  ]) {
-    if (!targetFactor) {
-      continue;
-    }
-    const item = el("div", `market-five-relation-item ${kind}`);
-    item.append(
-      el("span", "", label),
-      el("strong", "", `${factor.label} → ${targetFactor.label}`),
-      el("small", "", marketRelationText(factor, targetFactor, kind)),
-    );
-    relations.appendChild(item);
+  if (quality === "주의") {
+    return "자료 확인 필요";
   }
-  const interpretation = el("p", "market-five-interpretation", factor.interpretation || factor.summary || marketImpactLearningGuide(factor).lesson);
-  const sectors = el("p", "market-five-linked-sectors", `주요 영향 업종 · ${(factor.affected_sectors || []).join(" · ") || "확인 중"}`);
-  panel.append(head, relations, interpretation, sectors);
-
-  for (const row of sectorRows) {
-    const linked = String(row.dataset.factorKeys || "").split(" ").includes(selectedKey);
-    row.classList.toggle("is-linked", linked);
-    row.classList.toggle("is-muted", !linked);
-  }
+  return "자료 부족";
 }
 
-function appendMarketSectorCorrelation(parent, sector) {
-  const tone = sector.score > 0.5 ? "good" : sector.score < -0.5 ? "bad" : "neutral";
-  const row = el("article", `market-sector-row ${tone}`);
-  row.dataset.factorKeys = sector.factors.map((factor) => factor.key).join(" ");
-  const head = el("div", "market-sector-row-head");
-  const identity = el("div", "");
+function marketImpactBeginnerOverallLabel(status = "") {
+  if (String(status).includes("자료")) {
+    return "자료가 부족해 판단을 보류합니다";
+  }
+  if (String(status).includes("호재")) {
+    return "좋은 신호가 더 많습니다";
+  }
+  if (String(status).includes("리스크")) {
+    return "주의 신호가 더 많습니다";
+  }
+  return "좋은 신호와 주의 신호가 엇갈립니다";
+}
+
+function marketImpactBeginnerSummary(model = {}) {
+  const factors = model.factors || [];
+  const names = (direction, limit = 2) => factors
+    .filter((factor) => marketImpactDirection(factor) === direction)
+    .slice(0, limit)
+    .map((factor) => factor.label)
+    .join(" · ");
+  const parts = [];
+  const bad = names("악재");
+  const good = names("호재");
+  const mixed = names("혼조");
+  if (bad) {
+    parts.push(`주의할 신호는 ${bad}입니다.`);
+  }
+  if (good) {
+    parts.push(`좋은 신호는 ${good}입니다.`);
+  }
+  if (mixed) {
+    parts.push(`방향이 엇갈린 신호는 ${mixed}입니다.`);
+  }
+  return parts.join(" ") || "다섯 가지 시장 신호를 확인하는 중입니다.";
+}
+
+function marketImpactBeginnerFactorOrder(model = {}) {
+  const factorMap = new Map((model.factors || []).map((factor) => [factor.key, factor]));
+  const known = MARKET_BEGINNER_FACTOR_ORDER.map((key) => factorMap.get(key)).filter(Boolean);
+  const rest = (model.factors || []).filter((factor) => !MARKET_BEGINNER_FACTOR_ORDER.includes(factor.key));
+  return [...known, ...rest];
+}
+
+function appendMarketBeginnerThreadItem(parent, factor, index, total, leadKey = "") {
+  const direction = marketImpactDirection(factor);
+  const status = marketImpactBeginnerStatus(direction);
+  const copy = marketImpactBeginnerCopy(factor);
+  const item = el("article", `market-thread-item ${status.tone}${factor.key === leadKey ? " is-leading" : ""}`);
+  item.setAttribute("role", "listitem");
+  item.setAttribute("aria-label", `${factor.label}, ${status.label}: ${copy.title}`);
+
+  const rail = el("div", "market-thread-rail");
+  const avatar = el("span", "market-thread-avatar", MARKET_BEGINNER_FACTOR_GLYPHS[factor.key] || String(index + 1));
+  avatar.setAttribute("aria-hidden", "true");
+  rail.appendChild(avatar);
+  if (index < total - 1) {
+    rail.appendChild(el("span", "market-thread-line"));
+  }
+
+  const post = el("div", "market-thread-post");
+  const postHead = el("header", "market-thread-post-head");
+  const identity = el("div", "market-thread-identity");
   identity.append(
-    el("strong", "", sector.name),
-    el("span", "", sector.factors.map((factor) => `${factor.element} · ${factor.label}`).join(" / ")),
+    el("strong", "", factor.label),
+    el("span", "market-thread-impact-badge", `영향 ${Math.round(Number(factor.percent || 0))}%`),
   );
-  const result = el("div", "market-sector-result");
-  result.append(
-    el("span", "", tone === "good" ? "우호" : tone === "bad" ? "부담" : "중립"),
-    el("strong", "", `${sector.score > 0 ? "+" : ""}${sector.score.toFixed(1)}`),
-  );
-  head.append(identity, result);
-
-  const scale = el("div", "market-sector-scale");
-  scale.setAttribute("aria-label", `${sector.name} 순영향 ${sector.score.toFixed(1)}점`);
-  const axis = el("span", "market-sector-axis");
-  const bar = el("span", "market-sector-bar");
-  bar.style.setProperty("--sector-impact", `${Math.min(50, Math.abs(sector.score) / 2)}%`);
-  scale.append(axis, bar);
-
-  const matrix = el("div", "market-sector-matrix");
-  for (const meta of MARKET_FIVE_ELEMENTS) {
-    const factor = sector.factors.find((item) => item.key === meta.key);
-    const cell = el("span", factor ? (factor.direction === "호재" ? "good" : "bad") : "neutral");
-    cell.title = factor ? `${factor.label} ${factor.direction} ${factor.impact.toFixed(1)}%` : `${meta.role} 직접 영향 없음`;
-    cell.setAttribute("aria-label", cell.title);
-    cell.append(el("b", "", meta.element), document.createTextNode(factor ? (factor.direction === "호재" ? "+" : "−") : "·"));
-    matrix.appendChild(cell);
+  if (factor.key === leadKey) {
+    identity.appendChild(el("span", "market-thread-lead-badge", "오늘 영향 1위"));
   }
-  row.append(head, scale, matrix);
-  parent.appendChild(row);
-  return row;
+  const statusNode = el("span", `market-beginner-status ${status.tone}`);
+  statusNode.append(
+    el("span", "market-beginner-status-mark", marketImpactBeginnerGlyph(direction)),
+    document.createTextNode(status.label),
+  );
+  postHead.append(identity, statusNode);
+
+  const body = el("div", "market-thread-body");
+  body.append(
+    el("h3", "", copy.title),
+    el("p", "", copy.description),
+  );
+
+  const metrics = el("div", "market-thread-metrics");
+  metrics.setAttribute("aria-label", "최근 지표 변화");
+  const evidenceItems = marketImpactEvidenceItems(factor);
+  if (evidenceItems.length) {
+    for (const evidence of evidenceItems) {
+      const metric = el("span", "market-thread-metric");
+      metric.append(
+        el("span", "", `${evidence.label} ${evidence.period}`),
+        el("strong", "", evidence.value),
+      );
+      metrics.appendChild(metric);
+    }
+  } else {
+    metrics.appendChild(el("span", "market-thread-metric is-empty", "공식 지표 확인 중"));
+  }
+
+  const sectors = el("div", "market-thread-sectors");
+  sectors.appendChild(el("span", "market-thread-meta-label", "관련 업종"));
+  const affectedSectors = (factor.affected_sectors || []).slice(0, 4);
+  if (affectedSectors.length) {
+    for (const sector of affectedSectors) {
+      sectors.appendChild(el("span", "market-thread-sector", sector));
+    }
+  } else {
+    sectors.appendChild(el("span", "market-thread-sector", "확인 중"));
+  }
+
+  const quality = el("footer", "market-thread-quality");
+  quality.append(
+    el("span", "market-thread-quality-dot", ""),
+    document.createTextNode(`${marketImpactBeginnerQuality(factor)} · ${factor.quality_note || "기준일과 변화율을 확인했습니다."}`),
+  );
+
+  post.append(postHead, body, metrics, sectors, quality);
+  item.append(rail, post);
+  parent.appendChild(item);
+  return item;
+}
+
+function createMarketBeginnerImpactChart(factors = []) {
+  const visual = el("figure", "market-beginner-visual");
+  const visualHead = el("div", "market-beginner-visual-head");
+  const visualTitle = el("div", "");
+  visualTitle.append(
+    el("span", "section-eyebrow", "한눈에 보기"),
+    el("strong", "", "변수별 영향도"),
+  );
+  visualHead.append(
+    visualTitle,
+    el("span", "market-beginner-visual-hint", "막대가 높을수록 영향이 큽니다"),
+  );
+
+  const chart = el("div", "market-beginner-impact-chart");
+  chart.setAttribute("aria-hidden", "true");
+  const maximum = Math.max(...factors.map((factor) => Number(factor.percent || 0)), 1);
+  for (const factor of factors) {
+    const direction = marketImpactDirection(factor);
+    const status = marketImpactBeginnerStatus(direction);
+    const value = Math.max(0, Number(factor.percent || 0));
+    const bar = el("div", `market-beginner-impact-bar ${status.tone}`);
+    const fillHeight = Math.max(18, Math.round((value / maximum) * 70));
+    const track = el("div", "market-beginner-impact-bar-track");
+    const fill = el("span", "market-beginner-impact-bar-fill");
+    fill.style.setProperty("--bar-height", `${fillHeight}px`);
+    track.appendChild(fill);
+    bar.append(
+      el("strong", "", `${Math.round(value)}%`),
+      track,
+      el("span", "market-beginner-impact-bar-label", factor.label),
+      el("small", "", `${marketImpactBeginnerGlyph(direction)} ${marketImpactBeginnerShortStatus(direction)}`),
+    );
+    chart.appendChild(bar);
+  }
+  visual.append(
+    visualHead,
+    chart,
+    el("figcaption", "market-beginner-visual-note", "영향도는 다섯 변수 중 오늘 시장에 작용하는 상대적인 크기입니다."),
+  );
+  return visual;
 }
 
 function renderMarketImpactAnalysis(payload, target = elements.trendImpactContent) {
@@ -11617,172 +23248,240 @@ function renderMarketImpactAnalysis(payload, target = elements.trendImpactConten
   }
   target.innerHTML = "";
 
-  const factorMap = marketFiveFactorMap(model);
-  const orderedFactors = MARKET_FIVE_ELEMENTS.map((meta) => factorMap.get(meta.key)).filter(Boolean);
+  const orderedFactors = marketImpactBeginnerFactorOrder(model);
   const leadFactor = [...orderedFactors].sort((a, b) => Number(b.percent || 0) - Number(a.percent || 0))[0];
-  const initialKey = leadFactor?.key || MARKET_FIVE_ELEMENTS[0].key;
-  const shell = el("section", "market-impact-dashboard market-five-dashboard");
+  const shell = el("section", "market-impact-dashboard market-beginner-dashboard");
 
-  const summary = el("section", "market-five-summary");
-  const summaryHead = el("div", "market-five-summary-head");
-  const status = el("div", "");
-  status.append(
-    el("span", "section-eyebrow", "외부 변수"),
-    el("strong", marketImpactToneClass(model.marketStatus), marketImpactVisibleLabel(model.marketStatus)),
+  const summary = el("section", "market-beginner-summary");
+  const summaryHead = el("div", "market-beginner-summary-head");
+  const summaryTitle = el("div", "market-beginner-summary-title");
+  summaryTitle.append(
+    el("span", "section-eyebrow", "오늘의 시장"),
+    el("h2", "", marketImpactBeginnerOverallLabel(model.marketStatus)),
   );
-  summaryHead.append(status, el("time", "", formatDataBasis(model.asOf)));
-  const goodWeight = Math.max(0, Number(model.goodWeight || 0));
-  const badWeight = Math.max(0, Number(model.badWeight || 0));
-  const weightTotal = goodWeight + badWeight || 1;
-  const balance = el("div", "market-five-balance");
-  const balanceTrack = el("div", "market-five-balance-track");
-  const goodBar = el("span", "good");
-  const badBar = el("span", "bad");
-  goodBar.style.setProperty("--balance-width", `${(goodWeight / weightTotal) * 100}%`);
-  badBar.style.setProperty("--balance-width", `${(badWeight / weightTotal) * 100}%`);
-  balanceTrack.append(goodBar, badBar);
-  balance.append(balanceTrack, el("p", "", `호재 ${goodWeight.toFixed(1)} · 악재 ${badWeight.toFixed(1)}`));
+  summaryHead.append(summaryTitle, el("time", "", formatDataBasis(model.dataAsOf || model.asOf)));
+
+  const counts = orderedFactors.reduce((result, factor) => {
+    const direction = marketImpactDirection(factor);
+    if (direction === "호재") {
+      result.good += 1;
+    } else if (direction === "악재") {
+      result.bad += 1;
+    } else {
+      result.neutral += 1;
+    }
+    return result;
+  }, { good: 0, bad: 0, neutral: 0 });
+  const tally = el("div", "market-beginner-tally");
+  tally.append(
+    el("span", "good", `좋은 신호 ${counts.good}`),
+    el("span", "bad", `주의 신호 ${counts.bad}`),
+    el("span", "neutral", `엇갈림·보류 ${counts.neutral}`),
+  );
+
+  const leadCopy = leadFactor ? marketImpactBeginnerCopy(leadFactor) : null;
+  const leadStatus = leadFactor ? marketImpactBeginnerStatus(marketImpactDirection(leadFactor)) : null;
+  const impactChart = createMarketBeginnerImpactChart(orderedFactors);
   summary.append(
     summaryHead,
-    el("p", "market-five-summary-copy", fallback ? "외부 변수가 국내 업종으로 전달되는 구조를 확인합니다." : model.summary),
-    el("p", "market-five-summary-note", marketImpactVisibleSummary(model.marketStatus)),
-    balance,
+    el("p", "market-beginner-summary-copy", fallback ? "실시간 공식 지표를 받지 못해 임시로 표시하고 있습니다." : marketImpactBeginnerSummary(model)),
+    tally,
+    impactChart,
+    leadFactor && leadCopy
+      ? el("p", "market-beginner-lead", `가장 크게 작용하는 변수 · ${leadFactor.label} (${leadStatus.label}) — ${leadCopy.title}`)
+      : el("p", "market-beginner-lead", "가장 크게 작용하는 변수를 계산하는 중입니다."),
   );
 
-  const mapSection = el("section", "market-five-map-section");
-  const mapHeader = el("header", "market-five-map-head");
-  const mapTitle = el("div", "");
-  mapTitle.append(el("span", "section-eyebrow", "상생·상극 시장 구조"), el("h2", "", "시장 오행 관계도"));
-  const legend = el("div", "market-five-legend");
-  legend.append(el("span", "generate", "상생 · 전달"), el("span", "control", "상극 · 견제"));
-  mapHeader.append(mapTitle, legend);
-
-  const canvas = el("div", "market-five-canvas");
-  canvas.appendChild(createMarketFiveRelationSvg());
-  const nodeButtons = [];
-  for (const meta of MARKET_FIVE_ELEMENTS) {
-    const factor = factorMap.get(meta.key);
-    if (!factor) {
-      continue;
-    }
-    const direction = marketImpactDirection(factor);
-    const button = el("button", `market-five-node ${meta.className} ${direction === "호재" ? "good" : "bad"}`);
-    button.type = "button";
-    button.dataset.factorKey = meta.key;
-    button.setAttribute("aria-pressed", "false");
-    button.setAttribute("aria-label", `${meta.element} ${factor.label}, 영향도 ${Number(factor.percent || 0).toFixed(1)}%, ${direction}`);
-    button.append(
-      el("span", "market-five-node-role", meta.role),
-      el("strong", "", `${Number(factor.percent || 0).toFixed(1)}%`),
-      el("span", "market-five-node-factor", factor.label),
-      el("b", "market-five-node-element", meta.element),
-    );
-    canvas.appendChild(button);
-    nodeButtons.push(button);
-  }
-  const center = el("div", "market-five-center");
-  center.append(
-    el("span", "", "외부 변수"),
-    el("strong", marketImpactToneClass(model.marketStatus), marketImpactVisibleLabel(model.marketStatus)),
-    el("small", "", "변수 간 순환"),
+  const signalSection = el("section", "market-beginner-signals");
+  const signalHeader = el("header", "market-beginner-signals-head");
+  const signalTitle = el("div", "");
+  signalTitle.append(
+    el("span", "section-eyebrow", "오늘 시장 쓰레드"),
+    el("h2", "", "5개 변수를 한 줄씩 읽어보세요"),
   );
-  canvas.appendChild(center);
-
-  const relationPanel = el("section", "market-five-relation-panel");
-  relationPanel.setAttribute("aria-live", "polite");
-  mapSection.append(mapHeader, canvas, relationPanel);
-
-  const sectorSection = el("section", "market-sector-section");
-  const sectorHeader = el("header", "market-sector-head");
-  const sectorTitle = el("div", "");
-  sectorTitle.append(el("span", "section-eyebrow", "주요 업종 연결"), el("h2", "", "섹터 상관 영향도"));
-  sectorHeader.append(sectorTitle, el("p", "", "오행별 + 호재 · − 악재"));
-  const sectorList = el("div", "market-sector-list");
-  const sectorRows = buildMarketSectorCorrelations(model).map((sector) => appendMarketSectorCorrelation(sectorList, sector));
-  sectorSection.append(sectorHeader, sectorList);
-
-  const selectFactor = (key) => {
-    for (const button of nodeButtons) {
-      const active = button.dataset.factorKey === key;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", active ? "true" : "false");
-    }
-    renderMarketFiveRelation(relationPanel, key, factorMap, sectorRows);
-  };
-  for (const button of nodeButtons) {
-    button.addEventListener("click", () => selectFactor(button.dataset.factorKey));
+  const updatedAt = String(model.asOf || "").trim();
+  const threadUpdated = el("time", "market-thread-updated", formatElapsedUpdate(updatedAt));
+  if (Number.isFinite(new Date(updatedAt).getTime())) {
+    threadUpdated.dateTime = updatedAt;
+    threadUpdated.dataset.updatedAt = updatedAt;
+    threadUpdated.title = formatDataBasis(updatedAt);
   }
-  selectFactor(initialKey);
+  signalHeader.append(signalTitle, threadUpdated);
+  const signalList = el("div", "market-thread-list");
+  signalList.setAttribute("role", "list");
+  for (const [index, factor] of orderedFactors.entries()) {
+    appendMarketBeginnerThreadItem(signalList, factor, index, orderedFactors.length, leadFactor?.key || "");
+  }
+  signalSection.append(signalHeader, signalList);
 
   const detailGrid = el("section", "market-impact-details");
   for (const factor of orderedFactors) {
     appendMarketImpactDetail(detailGrid, factor);
   }
-  const details = el("details", "market-impact-disclosure");
+  const details = el("details", "market-impact-disclosure market-beginner-disclosure");
   const detailsSummary = document.createElement("summary");
-  detailsSummary.textContent = "공식 지표와 종목 근거 보기";
+  detailsSummary.textContent = "숫자와 공식 출처 확인";
   details.append(detailsSummary, detailGrid);
 
-  shell.append(summary, mapSection, sectorSection, details);
+  shell.append(summary, signalSection, details);
   target.appendChild(shell);
 }
 
-function appendTrendEvent(item, parent = elements.trendEvents) {
+function trendKstDateKey(value) {
+  const date = value instanceof Date ? value : new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date).reduce((result, part) => {
+    result[part.type] = part.value;
+    return result;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function trendDateParts(dateKey) {
+  const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    weekday: weekdays[date.getUTCDay()],
+    weekend: [0, 6].includes(date.getUTCDay()),
+  };
+}
+
+function addTrendCalendarDays(dateKey, amount) {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return "";
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function trendCalendarDateKeys(payload = state.homeTrendContext || {}) {
+  const anchorKey = trendKstDateKey(payload.window_start || new Date());
+  const startKey = document.body.dataset.stagingIa === "tds-video"
+    ? addTrendCalendarDays(anchorKey, -1)
+    : anchorKey;
+  return Array.from({ length: 7 }, (_, index) => addTrendCalendarDays(startKey, index)).filter(Boolean);
+}
+
+function formatTrendEventTime(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "시간 미정";
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
+function trendEventRelativeLabel(value) {
+  const dateKey = trendKstDateKey(value);
+  const todayKey = trendKstDateKey(new Date());
+  if (!dateKey || !todayKey) return "일정";
+  const difference = Math.round((new Date(`${dateKey}T00:00:00Z`) - new Date(`${todayKey}T00:00:00Z`)) / 86_400_000);
+  if (difference === 0) return "오늘";
+  if (difference > 0) return `${difference}일 후`;
+  return `${Math.abs(difference)}일 전`;
+}
+
+function trendEventFlag(item = {}) {
+  const text = `${item.title || ""} ${item.category || ""}`;
+  if (/한국|국내|원달러|원\/달러/.test(text)) return "🇰🇷";
+  if (/미국|연준|FOMC|EIA|CPI|PCE/.test(text)) return "🇺🇸";
+  return "🌐";
+}
+
+function trendEventImportanceClass(item = {}) {
   const importance = String(item.importance || "일반").trim();
-  const importanceClass = importance.includes("매우") ? "critical" : importance.includes("중요") ? "important" : "standard";
-  const card = el("article", `trend-event event-importance-${importanceClass}`);
-  card.dataset.eventId = item.id;
-  const head = el("div", "trend-event-head");
-  const title = el("div", "trend-event-title");
-  const schedule = el("div", "event-schedule");
-  const dateLabel = formatDate(item.starts_at);
-  const date = el("time", "", dateLabel);
-  date.dateTime = item.starts_at || "";
-  schedule.append(el("span", "event-stage", "발표 예정"), date);
-  const importanceLabel = el("span", `event-importance event-importance-${importanceClass}`, importance);
-  head.append(schedule, importanceLabel);
-  title.append(el("h3", "", item.title));
+  if (importance.includes("매우")) return "critical";
+  if (importance.includes("중요")) return "important";
+  return "standard";
+}
 
-  const facts = el("dl", "event-facts");
-  const axisFact = el("div", "event-fact event-axis-fact");
-  axisFact.appendChild(el("dt", "", "영향 분야"));
-  const axisBadges = el("dd", "event-axis-badges");
-  for (const axis of trendEventAxes(item)) {
-    axisBadges.appendChild(el("span", `event-axis-badge ${TREND_AXIS_CLASS[axis] || ""}`, axis));
+function appendTrendEvent(item, parent = elements.trendEvents) {
+  const row = el("article", `trend-event event-importance-${trendEventImportanceClass(item)}`);
+  row.dataset.eventId = item.id || "";
+  const button = el("button", "trend-calendar-event");
+  button.type = "button";
+  button.dataset.trendEventOpen = item.id || "";
+  button.setAttribute("aria-label", `${item.title} 이벤트 분석 보기`);
+  const flag = el("span", "trend-calendar-event-flag", trendEventFlag(item));
+  flag.setAttribute("aria-hidden", "true");
+  const copy = el("span", "trend-calendar-event-copy");
+  const meta = el("span", "trend-calendar-event-meta");
+  const time = el("time", "", formatTrendEventTime(item.starts_at));
+  time.dateTime = item.starts_at || "";
+  meta.append(
+    time,
+    el("span", `event-importance event-importance-${trendEventImportanceClass(item)}`, item.importance || "일반"),
+    el("span", "event-relative", trendEventRelativeLabel(item.starts_at)),
+  );
+  copy.append(
+    meta,
+    el("strong", "", item.title || "주요 이벤트"),
+    el("small", "", item.expected_impact || "영향 분석을 확인하세요."),
+  );
+  button.append(flag, copy, el("span", "trend-calendar-event-chevron", "›"));
+  row.appendChild(button);
+  parent.appendChild(row);
+}
+
+function renderTrendCalendar(payload = state.homeTrendContext || {}) {
+  const dateKeys = trendCalendarDateKeys(payload);
+  const events = Array.isArray(state.trendEventsItems) ? state.trendEventsItems : [];
+  const eventCounts = events.reduce((counts, item) => {
+    const key = trendKstDateKey(item.starts_at);
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+  const firstEventDate = dateKeys.find((key) => eventCounts[key] > 0) || dateKeys[0] || "";
+  if (!dateKeys.includes(state.trendCalendarDate)) {
+    state.trendCalendarDate = firstEventDate;
   }
-  if (axisBadges.children.length > 0) {
-    axisFact.appendChild(axisBadges);
+  elements.trendCalendarDays?.replaceChildren();
+  for (const dateKey of dateKeys) {
+    const parts = trendDateParts(dateKey);
+    if (!parts) continue;
+    const selected = dateKey === state.trendCalendarDate;
+    const button = el("button", `trend-calendar-day${parts.weekend ? " is-weekend" : ""}${selected ? " active" : ""}`);
+    button.type = "button";
+    button.setAttribute("role", "tab");
+    button.dataset.trendCalendarDate = dateKey;
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    button.setAttribute("aria-label", `${parts.month}월 ${parts.day}일 ${parts.weekday}요일, ${eventCounts[dateKey] || 0}개 일정`);
+    button.append(
+      el("span", "trend-calendar-weekday", parts.weekday),
+      el("strong", "", String(parts.day)),
+      el("i", eventCounts[dateKey] ? "has-event" : "", ""),
+    );
+    elements.trendCalendarDays?.appendChild(button);
+  }
+
+  const selectedEvents = events.filter((item) => trendKstDateKey(item.starts_at) === state.trendCalendarDate);
+  if (elements.trendCalendarWindow && dateKeys.length) {
+    const first = trendDateParts(dateKeys[0]);
+    const last = trendDateParts(dateKeys.at(-1));
+    elements.trendCalendarWindow.textContent = `${first.month}.${String(first.day).padStart(2, "0")}–${last.month}.${String(last.day).padStart(2, "0")}`;
+  }
+  if (elements.trendCalendarEventCount) {
+    elements.trendCalendarEventCount.textContent = `${formatNumber(selectedEvents.length)}개 일정`;
+  }
+  elements.trendEvents.replaceChildren();
+  if (selectedEvents.length === 0) {
+    elements.trendEvents.appendChild(el("p", "trend-calendar-empty", "선택한 날짜에는 예정된 주요 이벤트가 없습니다."));
   } else {
-    axisFact.appendChild(el("dd", "event-axis-badges", item.category));
+    for (const item of selectedEvents) appendTrendEvent(item);
   }
-
-  const impactFact = el("div", "event-fact event-impact-fact");
-  impactFact.append(el("dt", "", "예상 영향"), el("dd", "trend-impact", item.expected_impact));
-  facts.append(axisFact, impactFact);
-
-  const actionRow = el("div", "event-actions");
-  const flowButton = el("button", "flow-button", "영향 흐름");
-  flowButton.type = "button";
-  flowButton.setAttribute("aria-label", `${item.title} 영향 흐름 보기`);
-  actionRow.appendChild(flowButton);
-
-  const tags = el("div", "tag-row event-detail-tags");
-  appendTags(tags, [...(item.affected_variables || []), ...(item.affected_sectors || [])]);
-
-  const points = el("ul", "watch-points");
-  appendListItems(points, item.watch_points, "추가 확인 포인트 없음");
-
-  const source = el("a", "event-source", item.source_name);
-  source.href = item.source_url;
-  source.target = "_blank";
-  source.rel = "noreferrer";
-
-  const details = el("details", "trend-event-disclosure");
-  const detailsSummary = document.createElement("summary");
-  detailsSummary.textContent = "근거와 출처";
-  details.append(detailsSummary, tags, points, source);
-  card.append(head, title, facts, actionRow, details);
-  parent.appendChild(card);
 }
 
 function appendGraphNode(parent, node, stockMap = {}) {
@@ -11824,14 +23523,15 @@ function appendStockImpact(parent, stock) {
   const title = el("a", "impact-stock-title", stock.name);
   title.href = viewStockUrl(stock.name);
   const score = el("span", "impact-stock-score", `${stock.impact_score}점 · ${stock.impact_direction}`);
-  const watchButton = el("button", "impact-watch-button", "+");
+  const watched = isWatched(stock.code);
+  const watchButton = el("button", "impact-watch-button", watched ? "✓" : "+");
   watchButton.type = "button";
   watchButton.dataset.code = stock.code || "";
   watchButton.dataset.name = stock.name || "";
   watchButton.dataset.market = stock.market || "";
-  watchButton.classList.toggle("active", isWatched(stock.code));
-  watchButton.setAttribute("aria-label", isWatched(stock.code) ? "관심 해제" : "관심 추가");
-  watchButton.title = isWatched(stock.code) ? "관심 해제" : "관심 추가";
+  watchButton.classList.toggle("active", watched);
+  watchButton.setAttribute("aria-label", watched ? "관심 해제" : "관심 추가");
+  watchButton.title = watched ? "관심 해제" : "관심 추가";
   const summary = el("p", "impact-stock-summary", summarizeImpactReason(stock));
   summary.title = Array.isArray(stock.reasons) ? stock.reasons.join(" / ") : "";
   identity.append(title, score);
@@ -11845,56 +23545,53 @@ function renderTrendGraph(card, graph) {
   if (existing) {
     existing.remove();
   }
-  const flow = el("section", "event-flow");
-  flow.append(el("h3", "", "이벤트 영향 흐름도"));
-  flow.append(el("p", "trend-impact", graph.scenario));
-  const layers = el("div", "flow-layers");
-  const mobileLayers = el("div", "flow-mobile");
+  const flow = el("section", "event-flow event-flow-v2");
+  const flowHead = el("header", "event-flow-head");
+  const flowTitle = el("div", "");
+  flowTitle.append(el("span", "event-detail-eyebrow", "발표 결과별"), el("h3", "", "시장은 이렇게 반응할 수 있어요"));
+  flowHead.append(flowTitle, el("time", "", formatDataBasis(graph.as_of, "최신 분석 기준")));
+  flow.append(
+    flowHead,
+    el("p", "event-flow-summary", graph.scenario || graph.summary || "이벤트 결과에 따른 시장 반응을 확인합니다."),
+  );
+
+  const scenarios = el("div", "event-scenario-grid");
+  appendTrendScenario(
+    scenarios,
+    graph.negative_label || "재고 증가/유가 하락",
+    graph.negative_stocks || [],
+    "cool",
+  );
+  appendTrendScenario(
+    scenarios,
+    graph.positive_label || "재고 감소/유가 상승",
+    graph.positive_stocks || [],
+    "warm",
+  );
+  flow.appendChild(scenarios);
+
+  const pathDisclosure = el("details", "event-impact-path");
+  pathDisclosure.appendChild(el("summary", "", "영향 경로 자세히 보기"));
+  const pathBody = el("div", "event-impact-path-body");
   const stockMap = {};
   for (const stock of [...(graph.negative_stocks || []), ...(graph.positive_stocks || [])]) {
     stockMap[stock.code] = stock;
   }
-  for (const layer of graph.layers) {
-    const column = el("div", "flow-layer");
-    column.appendChild(el("h4", "", layer.title));
+  const detailLayers = (graph.layers || []).filter((layer) => !["이벤트", "결과 종목"].includes(layer.title));
+  for (const [index, layer] of detailLayers.entries()) {
+    const group = el("section", "event-impact-path-group");
+    const groupHead = el("header", "");
+    groupHead.append(el("span", "", String(index + 1).padStart(2, "0")), el("h4", "", layer.title));
+    group.appendChild(groupHead);
+    const nodes = el("div", "event-impact-path-nodes");
     for (const node of layer.nodes) {
-      appendGraphNode(column, node, stockMap);
+      appendGraphNode(nodes, node, stockMap);
     }
-    layers.appendChild(column);
-    const mobileGroup = el("section", "flow-mobile-group");
-    mobileGroup.appendChild(el("h4", "", layer.title));
-    for (const node of layer.nodes) {
-      appendGraphNode(mobileGroup, node, stockMap);
-    }
-    mobileLayers.appendChild(mobileGroup);
+    group.appendChild(nodes);
+    pathBody.appendChild(group);
   }
-  const columns = el("div", "impact-columns");
-  const negativeColumn = el("section", "impact-column negative-case");
-  negativeColumn.appendChild(el("h3", "", graph.negative_label || "부정 시나리오 수혜"));
-  const negativeStocks = el("div", "impact-stocks");
-  for (const stock of graph.negative_stocks || []) {
-    appendStockImpact(negativeStocks, stock);
-  }
-  if (!graph.negative_stocks || graph.negative_stocks.length === 0) {
-    negativeStocks.appendChild(el("p", "muted", "매칭 종목 없음"));
-  }
-  negativeColumn.appendChild(negativeStocks);
-
-  const positiveColumn = el("section", "impact-column positive-case");
-  positiveColumn.appendChild(el("h3", "", graph.positive_label || "긍정 시나리오 수혜"));
-  const positiveStocks = el("div", "impact-stocks");
-  for (const stock of graph.positive_stocks || []) {
-    appendStockImpact(positiveStocks, stock);
-  }
-  if (!graph.positive_stocks || graph.positive_stocks.length === 0) {
-    positiveStocks.appendChild(el("p", "muted", "매칭 종목 없음"));
-  }
-  positiveColumn.appendChild(positiveStocks);
-  columns.append(negativeColumn, positiveColumn);
-
-  const scroll = el("div", "flow-scroll");
-  scroll.appendChild(layers);
-  flow.append(el("p", "scroll-hint", "좌우로 밀어서 흐름도를 볼 수 있습니다."), scroll, mobileLayers, el("h3", "", "결과 종목 영향도"), columns);
+  pathDisclosure.appendChild(pathBody);
+  flow.appendChild(pathDisclosure);
   card.appendChild(flow);
 }
 
@@ -11904,19 +23601,22 @@ async function loadTrendGraph(card) {
     return;
   }
   const existing = card.querySelector(".event-flow");
-  if (existing && state.activeTrendGraph === eventId) {
+  if (existing && state.activeTrendGraph === eventId && card.querySelector(".flow-button")) {
     existing.remove();
     state.activeTrendGraph = null;
     return;
   }
   state.activeTrendGraph = eventId;
-  const placeholder = el("section", "event-flow");
-  placeholder.appendChild(el("p", "muted", "영향 흐름을 계산하는 중입니다."));
+  const placeholder = createEventGraphSkeleton();
   const old = card.querySelector(".event-flow");
   if (old) {
     old.remove();
   }
-  card.appendChild(placeholder);
+  if (card.classList.contains("event-detail-graph")) {
+    card.replaceChildren(placeholder);
+  } else {
+    card.appendChild(placeholder);
+  }
   const button = card.querySelector(".flow-button");
   if (button) {
     button.disabled = true;
@@ -11925,14 +23625,17 @@ async function loadTrendGraph(card) {
   setFlowLoading(true);
   try {
     const graphUrl = `/market/trends/${encodeURIComponent(eventId)}/graph`;
-    placeholder.remove();
     const graph = await Promise.race([
       fetchJsonCached(graphUrl, { ttlMs: 5 * 60 * 1000 }),
       rejectAfter(120_000, "trend graph timeout"),
     ]);
+    placeholder.remove();
     renderTrendGraph(card, graph);
   } catch {
-    placeholder.textContent = "영향 흐름을 불러오지 못했습니다.";
+    placeholder.replaceChildren(
+      el("strong", "", "영향 흐름을 불러오지 못했습니다."),
+      el("span", "", "잠시 후 다시 열어주세요."),
+    );
   } finally {
     setFlowLoading(false);
     if (button) {
@@ -11942,26 +23645,247 @@ async function loadTrendGraph(card) {
   }
 }
 
+function allTrendEventItems() {
+  return [
+    ...(Array.isArray(state.trendEventsItems) ? state.trendEventsItems : []),
+    ...(Array.isArray(state.trendPastEventsItems) ? state.trendPastEventsItems : []),
+  ];
+}
+
+function trendEventById(eventId) {
+  const normalized = String(eventId || "");
+  return allTrendEventItems().find((item) => String(item.id || "") === normalized) || null;
+}
+
+function trendEventImpactLevel(item = {}) {
+  const importance = String(item.importance || "");
+  if (importance.includes("매우")) return "높음";
+  if (importance.includes("중요")) return "중간 이상";
+  return "보통";
+}
+
+function trendEventExplanation(item = {}) {
+  const axes = trendEventAxes(item);
+  const subject = axes.length ? axes.join("·") : item.category || "시장";
+  return `${item.title || "이 이벤트"}는 ${subject}의 방향을 확인하는 일정입니다. 발표 결과가 시장 예상과 다르면 관련 변수와 업종을 거쳐 종목 가격에 반영될 수 있습니다.`;
+}
+
+function appendEventDetailTags(parent, items, className = "") {
+  const values = Array.from(new Set((items || []).filter(Boolean)));
+  if (values.length === 0) {
+    parent.appendChild(el("span", "event-detail-tag is-empty", "확인 중"));
+    return;
+  }
+  for (const value of values) {
+    parent.appendChild(el("span", `event-detail-tag ${className}`.trim(), value));
+  }
+}
+
+function trendEventRegionLabel(item = {}) {
+  const flag = trendEventFlag(item);
+  if (flag === "🇰🇷") return "한국 · 주요 경제 일정";
+  if (flag === "🇺🇸") return "미국 · 주요 경제 일정";
+  return "글로벌 · 주요 경제 일정";
+}
+
+function trendScenarioSignals(label = "") {
+  const normalized = String(label);
+  if (/증가|하락/.test(normalized)) {
+    return ["WTI·브렌트유 하락 압력", "정유·에너지주 부담", "항공·화학 원가 부담 완화"];
+  }
+  if (/감소|상승/.test(normalized)) {
+    return ["WTI·브렌트유 상승 압력", "정유·에너지주 수혜", "항공·화학 원가 부담 확대"];
+  }
+  return ["원유 가격 방향 확인", "업종별 비용 변화 확인", "관련 종목 수급 확인"];
+}
+
+function appendTrendScenario(parent, label, stocks = [], tone = "neutral") {
+  const card = el("article", `event-scenario is-${tone}`);
+  const [condition, direction] = String(label || "결과 확인").split("/").map((value) => value.trim()).filter(Boolean);
+  const head = el("header", "event-scenario-head");
+  const title = el("div", "event-scenario-title");
+  title.append(
+    el("span", "", condition || "발표 결과"),
+    el("h4", "", direction || "시장 반응 확인"),
+  );
+  head.append(title, el("span", "event-scenario-arrow", tone === "cool" ? "↓" : tone === "warm" ? "↑" : "→"));
+
+  const signals = el("ul", "event-scenario-signals");
+  for (const signal of trendScenarioSignals(label)) {
+    signals.appendChild(el("li", "", signal));
+  }
+  card.append(head, signals);
+
+  if (stocks.length) {
+    const preview = el("div", "event-scenario-stock-preview");
+    preview.appendChild(el("span", "", "주요 영향 종목"));
+    for (const stock of stocks.slice(0, 3)) {
+      const link = el("a", "", stock.name || "종목");
+      link.href = viewStockUrl(stock.name);
+      preview.appendChild(link);
+    }
+    card.appendChild(preview);
+
+    const disclosure = el("details", "event-scenario-stocks");
+    disclosure.appendChild(el("summary", "", `영향 종목 ${formatNumber(stocks.length)}개 전체 보기`));
+    const stockList = el("div", "impact-stocks");
+    for (const stock of stocks) appendStockImpact(stockList, stock);
+    disclosure.appendChild(stockList);
+    card.appendChild(disclosure);
+  }
+  parent.appendChild(card);
+}
+
+function createEventGraphSkeleton() {
+  const skeleton = el("section", "event-flow event-flow-loading");
+  skeleton.setAttribute("aria-label", "결과별 시장 반응을 불러오는 중입니다.");
+  skeleton.append(
+    el("span", "event-detail-eyebrow", "결과별 시장 반응"),
+    el("span", "event-loading-line is-title", ""),
+    el("span", "event-loading-line", ""),
+  );
+  const cards = el("div", "event-loading-cards");
+  cards.append(el("span", "", ""), el("span", "", ""));
+  skeleton.appendChild(cards);
+  return skeleton;
+}
+
+function renderTrendEventDetail(item) {
+  state.selectedTrendEvent = item;
+  state.activeTrendEventId = item.id || "";
+  const content = elements.eventDetailContent;
+  content.replaceChildren();
+
+  const hero = el("header", "event-detail-hero event-detail-hero-v2");
+  const heroMeta = el("div", "event-detail-hero-meta");
+  const context = el("span", "event-detail-context");
+  context.append(el("span", "event-detail-flag", trendEventFlag(item)), el("span", "", trendEventRegionLabel(item)));
+  heroMeta.append(
+    context,
+    el("span", `event-detail-importance is-${trendEventImportanceClass(item)}`, item.importance || "일반"),
+  );
+  const scheduleCard = el("div", "event-detail-schedule");
+  const scheduleCopy = el("div", "event-detail-schedule-copy");
+  const schedule = el("time", "", formatMorningMoneyDate(item.starts_at, { weekday: true }));
+  schedule.dateTime = item.starts_at || "";
+  scheduleCopy.append(el("span", "", "발표 예정"), schedule);
+  scheduleCard.append(scheduleCopy, el("span", "event-detail-relative", trendEventRelativeLabel(item.starts_at)));
+  hero.append(
+    heroMeta,
+    el("h2", "", item.title || "주요 이벤트"),
+    scheduleCard,
+    el("p", "event-detail-lead", trendEventExplanation(item)),
+  );
+
+  const analysis = el("section", "event-detail-section event-detail-analysis");
+  const analysisHead = el("header", "event-detail-section-head");
+  const analysisTitle = el("div", "");
+  analysisTitle.append(el("span", "event-detail-eyebrow", "한눈에 보기"), el("h3", "", "이번 발표에서 볼 것"));
+  analysisHead.append(analysisTitle, el("span", `event-detail-impact-level is-${trendEventImportanceClass(item)}`, `영향 ${trendEventImpactLevel(item)}`));
+  analysis.append(analysisHead, el("p", "event-detail-impact-copy", item.expected_impact || "발표 결과에 따른 시장 반응을 확인합니다."));
+  const impactFacts = el("dl", "event-detail-facts");
+  const variableFact = el("div", "event-detail-fact");
+  variableFact.appendChild(el("dt", "", "먼저 볼 지표"));
+  const variableTags = el("dd", "event-detail-tags");
+  appendEventDetailTags(variableTags, item.affected_variables || trendEventAxes(item), "is-variable");
+  variableFact.appendChild(variableTags);
+  const sectorFact = el("div", "event-detail-fact");
+  sectorFact.appendChild(el("dt", "", "민감 업종"));
+  const sectorTags = el("dd", "event-detail-tags");
+  appendEventDetailTags(sectorTags, item.affected_sectors, "is-sector");
+  sectorFact.appendChild(sectorTags);
+  impactFacts.append(variableFact, sectorFact);
+  analysis.appendChild(impactFacts);
+
+  const graphHost = el("section", "event-detail-graph");
+  graphHost.id = "event-detail-graph";
+  graphHost.dataset.eventId = item.id || "";
+  graphHost.setAttribute("aria-live", "polite");
+  graphHost.appendChild(createEventGraphSkeleton());
+
+  const watch = el("section", "event-detail-section event-detail-watch");
+  watch.append(el("span", "event-detail-eyebrow", "발표 직후"), el("h3", "", "3단계로 확인하세요"));
+  const watchList = el("ol", "event-detail-watch-list");
+  const points = (item.watch_points || []).filter(Boolean);
+  for (const [index, point] of points.entries()) {
+    const row = el("li", "");
+    row.append(el("span", "", String(index + 1).padStart(2, "0")), el("p", "", point));
+    watchList.appendChild(row);
+  }
+  if (!points.length) {
+    watchList.appendChild(el("li", "is-empty", "공식 발표 수치와 시장 예상의 차이를 먼저 확인하세요."));
+  }
+  watch.appendChild(watchList);
+
+  const sourcePanel = el("section", "event-detail-source-panel");
+  sourcePanel.append(el("span", "event-detail-source-icon", "↗"));
+  const sourceCopy = el("div", "");
+  sourceCopy.append(el("strong", "", "공식 발표에서 최종 확인"), el("small", "", "발표 시각과 수정 여부는 공식 자료를 기준으로 확인하세요."));
+  sourcePanel.appendChild(sourceCopy);
+  if (item.source_url) {
+    const source = el("a", "event-detail-source", `${item.source_name || "공식 출처"} 열기`);
+    source.href = item.source_url;
+    source.target = "_blank";
+    source.rel = "noreferrer";
+    sourcePanel.appendChild(source);
+  }
+  content.append(hero, analysis, graphHost, watch, sourcePanel);
+  return graphHost;
+}
+
+function openTrendEventDetail(item) {
+  if (!item?.id) return;
+  state.selectedTrendEvent = item;
+  state.activeTrendEventId = item.id;
+  state.activeTrendGraph = null;
+  state.activeTrendTab = "events";
+  setView("event-detail");
+}
+
+async function loadTrendEventDetail(eventId, options = {}) {
+  let item = trendEventById(eventId) || state.selectedTrendEvent;
+  if (!item || String(item.id || "") !== String(eventId || item.id || "")) {
+    try {
+      const force = options.force === true;
+      const payload = await fetchHomeJsonWithRetry("/market/trends?days=7", {
+        force,
+        ttlMs: force ? 0 : options.ttlMs ?? pageEntryTtlMs("trend"),
+      });
+      state.homeTrendContext = payload;
+      renderTrends(payload, "events");
+      item = trendEventById(eventId);
+    } catch {
+      item = null;
+    }
+  }
+  if (!item) {
+    elements.eventDetailContent.replaceChildren(
+      el("h2", "event-detail-error-title", "이벤트를 찾지 못했습니다."),
+      el("p", "muted", "일정이 갱신되었을 수 있습니다. 증시 캘린더에서 다시 선택해 주세요."),
+    );
+    return;
+  }
+  const graphHost = renderTrendEventDetail(item);
+  await loadTrendGraph(graphHost);
+}
+
 function renderTrends(payload, activeTab = "live") {
   restoreTrendChrome(activeTab);
   elements.trendEvents.innerHTML = "";
   elements.trendPastEvents.innerHTML = "";
   elements.trendThread.innerHTML = "";
-  const selectedTab = ["live", "events", "impact"].includes(state.activeTrendTab) ? state.activeTrendTab : activeTab;
+  const selectedTab = ["live", "events"].includes(state.activeTrendTab) ? state.activeTrendTab : activeTab;
   setTrendTab(selectedTab);
   const events = focusedTrendEvents(payload.events);
   const pastEvents = focusedTrendEvents(payload.past_events);
+  state.trendEventsItems = events;
+  state.trendPastEventsItems = pastEvents;
   // The live feed is a chronological market-news stream. Macro-only filtering
   // belongs to the event/impact views and can otherwise hide every fresh item.
   const timeline = payload.timeline || [];
+  state.trendTimelineItems = timeline;
 
-  if (events.length === 0) {
-    elements.trendEvents.appendChild(el("p", "muted", "다가오는 이벤트 없음"));
-  } else {
-    for (const item of events) {
-      appendTrendEvent(item);
-    }
-  }
+  renderTrendCalendar(payload);
 
   if (pastEvents.length === 0) {
     elements.trendPastEvents.appendChild(el("p", "muted", "지난 이벤트 없음"));
@@ -11971,13 +23895,9 @@ function renderTrends(payload, activeTab = "live") {
     }
   }
 
-  if (timeline.length === 0) {
-    elements.trendThread.appendChild(el("p", "muted", "타임라인 데이터 없음"));
-  } else {
-    const positiveItems = timeline.filter((item) => item.impact === "호재");
-    const negativeItems = timeline.filter((item) => item.impact !== "호재");
-    appendThreadGroup(elements.trendThread, "호재", positiveItems, "positive");
-    appendThreadGroup(elements.trendThread, "악재", negativeItems, "negative");
+  renderTrendTimeline();
+  if (state.view === "news") {
+    renderNewsPage();
   }
 }
 
@@ -11987,17 +23907,40 @@ async function loadTrends(activeTab = state.activeTrendTab || "live", options = 
     const force = options.force === true;
     const ttlMs = options.ttlMs ?? pageEntryTtlMs(activeTab === "past" ? "trend-past" : "trend");
     const url = "/market/trends?days=7";
-    const payload = await fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs });
+    const payload = await fetchHomeJsonWithRetry(url, { force, ttlMs: force ? 0 : ttlMs });
     state.homeTrendContext = payload;
-    if (state.view === "home") {
-      renderHomeAiResponse();
-    }
     renderTrends(payload, activeTab);
+    if (state.view === "home") {
+      try {
+        renderHomeAiResponse();
+      } catch (error) {
+        console.warn("home AI response render skipped after trend update", error);
+      }
+    }
   } catch {
+    if (state.homeTrendContext) {
+      renderTrends(state.homeTrendContext, activeTab);
+      return;
+    }
     const target = activeTab === "events" ? elements.trendEvents : elements.trendThread;
     if (target) {
       target.replaceChildren(el("p", "muted", "트렌드 데이터를 불러오지 못했습니다."));
     }
+  }
+}
+
+async function loadHomeMarketImpact(options = {}) {
+  try {
+    const force = options.force === true;
+    const ttlMs = options.ttlMs ?? pageEntryTtlMs("trend-impact");
+    const payload = await fetchJsonCached("/market/impact", { force, ttlMs: force ? 0 : ttlMs });
+    state.homeMarketImpact = payload;
+    if (state.view === "home") {
+      renderHomeAiResponse();
+    }
+    return payload;
+  } catch {
+    return state.homeMarketImpact;
   }
 }
 
@@ -12012,6 +23955,10 @@ async function loadMarketImpactAnalysis(options = {}) {
     const ttlMs = options.ttlMs ?? pageEntryTtlMs("trend-impact");
     const url = force ? liveUrl("/market/impact?refresh=true") : "/market/impact";
     const payload = await fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs });
+    state.homeMarketImpact = payload;
+    if (state.view === "home") {
+      renderHomeAiResponse();
+    }
     renderMarketImpactAnalysis(payload, target);
   } catch {
     try {
@@ -12073,6 +24020,16 @@ async function loadRecommendations(options = {}) {
 }
 
 function setLoading(code) {
+  closeQuoteStream();
+  closeStockTradingHoursSheet({ restoreFocus: false });
+  state.stockAIRequestSequence += 1;
+  state.stockAILoading = false;
+  state.stockAILoadingCode = "";
+  state.stockQuantRequestSequence += 1;
+  state.stockQuantLoading = false;
+  state.stockQuantLoadingCode = "";
+  state.stockHomeDetailsRequestId += 1;
+  state.stockEtfProfileRequestId += 1;
   state.currentStock = null;
   state.currentDashboard = null;
   state.stockAIAnalysis = null;
@@ -12085,11 +24042,33 @@ function setLoading(code) {
   elements.meta.textContent = `${code} · 불러오는 중`;
   setText(elements.stockV2MarketCode, code);
   setText(elements.stockV2AsOf, "기준 정보 확인 중");
-  setText(elements.stockPreMarket, "장전 -");
+  setText(elements.stockLiveBadge, "시세 확인 중");
+  setText(elements.stockMarketStatusLabel, "장 상태 확인 중");
+  if (elements.stockPreMarket) {
+    elements.stockPreMarket.hidden = true;
+    elements.stockPreMarket.dataset.session = "";
+    elements.stockPreMarket.dataset.statusTone = "";
+    elements.stockPreMarket.setAttribute("aria-label", "국내주식 장 상태와 거래시간 안내 열기");
+  }
+  window.clearTimeout(state.stockShareStatusTimer);
+  state.stockShareStatusTimer = null;
+  if (elements.stockShareStatus) {
+    elements.stockShareStatus.hidden = true;
+    elements.stockShareStatus.textContent = "";
+  }
+  if (elements.stockShare) {
+    elements.stockShare.disabled = true;
+    elements.stockShare.setAttribute("aria-label", "종목 공유하기");
+  }
   resetAIAnalysis();
   resetQuantSignals();
   resetStockPriceSummary();
+  resetStockHomeChartAnalysis();
   resetStockHomeDetails();
+  resetStockEtfProfile();
+  resetStockCompanyProfile();
+  resetStockCompanyAnalysis();
+  updateWatchButton();
 }
 
 function render(data, options = {}) {
@@ -12098,27 +24077,41 @@ function render(data, options = {}) {
     && state.stockQuantRequestedCode === data.code;
   state.currentStock = { code: data.code, name: data.name, market: data.market };
   state.currentDashboard = data;
+  resetStockEtfProfile(data);
+  state.stockAIRequestSequence += 1;
+  state.stockAILoading = false;
+  state.stockAILoadingCode = "";
   state.stockAIAnalysis = null;
   state.stockAIRequestedCode = "";
   resetAIAnalysis();
   if (!preserveQuantRequest) {
+    state.stockQuantRequestSequence += 1;
+    state.stockQuantLoading = false;
+    state.stockQuantLoadingCode = "";
     state.stockQuantSignals = null;
     state.stockQuantRequestedCode = "";
     state.stockQuantLastLiveRefreshAt = 0;
     resetQuantSignals();
   }
-  setActiveStockTab(state.stockActiveTab || "summary", { preserveScroll: true });
+  setActiveStockTab(state.stockActiveTab || "summary", {
+    preserveScroll: true,
+    deferDataLoads: true,
+  });
   elements.name.textContent = data.name;
   elements.meta.textContent = stockDetailMetaText(data);
   elements.input.value = data.name;
+  if (elements.stockShare) {
+    elements.stockShare.disabled = false;
+    elements.stockShare.setAttribute("aria-label", `${data.name} 종목 공유하기`);
+  }
   if (previousCode !== data.code) {
     for (const node of [elements.quotePrice, elements.stockChangeValue, elements.quoteChange, elements.quoteValue, elements.quoteCap]) {
       delete node.dataset.rawValue;
     }
   }
 
-  renderStockLiveSummary(data, quoteSourceLabel(data));
-  updateQuoteStrip(data.quote, data);
+  renderStockLiveSummary(data);
+  updateQuoteStrip(data.quote, data, { merge: false });
   renderStockCompanyProfile(data);
   renderStockResearchSummary(data);
   renderStockDerivedIndicators(data);
@@ -12127,6 +24120,7 @@ function render(data, options = {}) {
   renderStockV2Dashboard(data);
   loadStockPriceSummary(data.code, data.quote);
   void loadStockHomeDetails(data);
+  void loadStockEtfProfile(data);
   connectQuoteStream(state.currentStock);
 
   const chart = data.chart_analysis || {};
@@ -12209,6 +24203,11 @@ function render(data, options = {}) {
   setTone(elements.macroExport, data.macro_sensitivity.exports);
   renderStockHome(data);
   updateWatchButton();
+  // Dispatch the price, context, and quote requests above before optional
+  // analysis work so the first useful stock view wins the cold-start race.
+  ensureStockAIAnalysis();
+  ensureStockQuantSignals();
+  ensureStockCompanyAnalysis();
 }
 
 async function resolveStock(query) {
@@ -12223,53 +24222,144 @@ async function resolveStock(query) {
   }
 }
 
+function scheduleStockDashboardWarmRefresh(stock, attempt = 0) {
+  const code = String(stock?.code || "");
+  if (!code) {
+    return;
+  }
+  const expectedSequence = state.stockLoadSequence;
+  const dashboardUrl = `/stocks/${encodeURIComponent(code)}/dashboard?include_profile=0&include_live=0`;
+  const delayMs = Math.min(
+    15_000,
+    STOCK_DASHBOARD_WARM_RETRY_BASE_MS * (2 ** Math.min(Math.max(0, attempt), 3)),
+  );
+  window.clearTimeout(state.stockLoadRetryTimer);
+  state.stockLoadRetryTimer = window.setTimeout(async () => {
+    state.stockLoadRetryTimer = null;
+    if (expectedSequence !== state.stockLoadSequence || state.currentStock?.code !== code) {
+      return;
+    }
+    try {
+      const dashboard = await fetchJsonCached(dashboardUrl, {
+        force: true,
+        ttlMs: 0,
+        timeoutMs: 15_000,
+      });
+      if (expectedSequence !== state.stockLoadSequence || state.currentStock?.code !== code) {
+        return;
+      }
+      if (dashboard?.source === STOCK_DASHBOARD_WARMING_SOURCE) {
+        state.responseCache.delete(dashboardUrl);
+        scheduleStockDashboardWarmRefresh(stock, attempt + 1);
+        return;
+      }
+      carryForwardLiveQuoteToDashboard(dashboard, state.currentDashboard);
+      render(dashboard, { previousCode: code });
+    } catch {
+      if (expectedSequence === state.stockLoadSequence && state.currentStock?.code === code) {
+        scheduleStockDashboardWarmRefresh(stock, attempt + 1);
+      }
+    }
+  }, delayMs);
+}
+
 async function loadStockRequest(query, options = {}) {
   const normalized = String(query || "").trim();
   if (!normalized) {
     return;
   }
+  const loadSequence = ++state.stockLoadSequence;
+  window.clearTimeout(state.stockLoadRetryTimer);
+  state.stockLoadRetryTimer = null;
   const previousStock = state.currentStock;
-  hideSuggestions();
-  elements.form?.classList.remove("expanded");
-  setLoading(normalized);
-  const stock = await resolveStock(normalized);
+  const previousDashboard = state.currentDashboard;
+  const sameQueryAsCurrent = Boolean(
+    previousStock
+    && [previousStock.code, previousStock.name].includes(normalized),
+  );
+  if (!sameQueryAsCurrent) {
+    setLoading(normalized);
+  }
+  const resolvedCandidate = options.resolvedStock;
+  const candidateMatches = Boolean(
+    resolvedCandidate?.code
+    && resolvedCandidate?.name
+    && [String(resolvedCandidate.code), String(resolvedCandidate.name)].includes(normalized),
+  );
+  const stock = candidateMatches ? resolvedCandidate : await resolveStock(normalized);
+  if (loadSequence !== state.stockLoadSequence) {
+    return;
+  }
   if (!stock) {
+    if (sameQueryAsCurrent) {
+      return;
+    }
+    setLoading(normalized);
     elements.name.textContent = "종목 분석";
     elements.meta.textContent = `${normalized} · 데이터 없음`;
     closeQuoteStream();
     resetAIAnalysis();
     return;
   }
-  if (previousStock?.code && previousStock.code !== stock.code) {
+  const sameStock = previousStock?.code === stock.code;
+  if (!sameStock) {
+    setLoading(stock.code);
+  }
+  if (previousStock?.code && !sameStock) {
     setActiveStockTab("summary", { preserveScroll: true });
   }
   state.currentStock = { code: stock.code, name: stock.name, market: stock.market };
-  const quantSignalPrefetch = loadQuantSignals({ auto: true });
   try {
-    render(
-      await fetchJsonCached(`/stocks/${encodeURIComponent(stock.code)}/dashboard?include_profile=0&include_live=0`, {
+    const dashboardUrl = `/stocks/${encodeURIComponent(stock.code)}/dashboard?include_profile=0&include_live=0`;
+    const dashboard = await fetchJsonCached(dashboardUrl, {
         force: options.force === true,
         ttlMs: pageEntryTtlMs("stock"),
-      }),
-      { previousCode: previousStock?.code, preserveQuantRequest: true },
-    );
-  } catch {
-    elements.name.textContent = stock.name;
-    elements.meta.textContent = `${stock.code} · 데이터 없음`;
-    closeQuoteStream();
-    resetAIAnalysis();
+      });
+    if (loadSequence !== state.stockLoadSequence) {
+      return;
+    }
+    if (sameStock && previousDashboard) {
+      carryForwardLiveQuoteToDashboard(dashboard, previousDashboard);
+    }
+    render(dashboard, { previousCode: previousStock?.code });
+    if (dashboard?.source === STOCK_DASHBOARD_WARMING_SOURCE) {
+      state.responseCache.delete(dashboardUrl);
+      scheduleStockDashboardWarmRefresh(stock);
+    }
+  } catch (error) {
+    if (loadSequence !== state.stockLoadSequence) {
+      return;
+    }
+    if (error?.status === 503) {
+      const retryDelayMs = Math.max(1000, Number(error.retryAfterMs) || 2000);
+      state.stockLoadRetryTimer = window.setTimeout(() => {
+        if (loadSequence === state.stockLoadSequence && state.currentStock?.code === stock.code) {
+          void loadStockRequest(stock.code, options);
+        }
+      }, retryDelayMs);
+      return;
+    }
+    if (!sameStock || !state.currentDashboard) {
+      elements.name.textContent = stock.name;
+      elements.meta.textContent = `${stock.code} · 데이터 없음`;
+      closeQuoteStream();
+      resetAIAnalysis();
+    }
     return;
   }
-  void quantSignalPrefetch;
+  if (loadSequence !== state.stockLoadSequence) {
+    return;
+  }
   const stockUrl = `/dashboard/${encodeURIComponent(stock.name)}`;
   if (options.historyMode !== "none") {
-    if (state.view === "stock") {
-      history.replaceState(null, "", stockUrl);
-    } else {
-      history.pushState(null, "", stockUrl);
-    }
+    writeDashboardHistory(
+      "stock",
+      stockUrl,
+      state.view === "stock" ? "replace" : "push",
+      { stockQuery: stock.name },
+    );
   }
-  setView("stock");
+  setView("stock", { historyMode: "none" });
 }
 
 function load(query, options = {}) {
@@ -12279,19 +24369,62 @@ function load(query, options = {}) {
 async function syncViewFromLocation() {
   const parts = window.location.pathname.split("/").filter(Boolean);
   if (parts[0] === "dashboard" && parts[1]) {
-    setView("stock");
-    await load(decodeURIComponent(parts[1]));
+    setView("stock", { historyMode: "none" });
+    await load(decodeURIComponent(parts[1]), { historyMode: "none" });
     return;
   }
   const params = new URLSearchParams(window.location.search);
   const routeView = params.get("view") || "home";
   const routeMarket = params.get("market") || "ALL";
+  const routeCategory = params.get("category") || DEFAULT_MARKET_RANKING_CATEGORY;
+  const routeNewsFilter = params.get("filter") || "all";
   state.marketRankingMarket = ["ALL", "KOSPI", "KOSDAQ"].includes(routeMarket) ? routeMarket : "ALL";
-  setView(routeView);
+  state.rankingCategory = MARKET_RANKING_CONFIG[routeCategory] ? routeCategory : DEFAULT_MARKET_RANKING_CATEGORY;
+  state.marketRankingMode = normalizeMarketRankingMode(state.rankingCategory, params.get("mode") || "");
+  state.marketRankingSnapshotId = params.get("snapshot") || "";
+  if (routeView === "news") {
+    state.trendNewsFilter = ["all", "positive", "negative"].includes(routeNewsFilter) ? routeNewsFilter : "all";
+  }
+  state.activeTrendEventId = params.get("event_id") || "";
+  setView(routeView, { historyMode: "none" });
 }
 
-window.addEventListener("popstate", () => {
-  void syncViewFromLocation();
+async function handleDashboardPopState(event) {
+  const previous = currentDashboardHistorySnapshot;
+  const locationRoute = dashboardLocationRoute();
+  const target = isDashboardHistoryState(event.state)
+    ? event.state
+    : createDashboardHistoryState(locationRoute.route, 0, {
+      stockQuery: locationRoute.stockQuery,
+      scrollY: 0,
+    });
+  currentDashboardHistorySnapshot = target;
+  if (historyForwardAfterModalClose) {
+    historyForwardAfterModalClose = false;
+    return;
+  }
+  if (androidRootExitConfirmed) {
+    androidRootExitConfirmed = false;
+    return;
+  }
+  if (closeTopDashboardOverlayForBack()) {
+    historyForwardAfterModalClose = true;
+    window.history.forward();
+    return;
+  }
+  if (isAndroidDevice() && target.rootBase && previous?.rootGuard) {
+    showAppExitDialog();
+    return;
+  }
+  await syncViewFromLocation();
+  restoreDashboardScroll(target);
+  if (isAndroidDevice() && target.rootBase) {
+    pushAndroidRootGuard(target);
+  }
+}
+
+window.addEventListener("popstate", (event) => {
+  void handleDashboardPopState(event);
 });
 
 for (const item of elements.appNavItems) {
@@ -12300,52 +24433,233 @@ for (const item of elements.appNavItems) {
     window.scrollTo({ top: 0, behavior: "auto" });
   });
 }
+elements.morningMoneyBriefingBack?.addEventListener("click", () => {
+  state.morningMoneyBriefingSelection = null;
+  navigateBackOrFallback("home");
+});
+elements.morningMoneyPopoverOpen?.addEventListener("click", openMorningMoneyBriefing);
+elements.morningMoneyPopoverClose?.addEventListener("click", () => dismissMorningMoneyBriefing());
 elements.homeInstallButton?.addEventListener("click", handleHomeInstall);
-elements.homeAiSignalsMore?.addEventListener("click", () => {
+function openAiSignalsPage() {
+  setAiSignalMode("current", { render: false });
+  setAiSignalStage("all", { render: false });
+  setAiSignalHistorySide("all", { render: false });
   setView("ai-signals");
   window.scrollTo({ top: 0, behavior: "auto" });
-});
-elements.homeAiResponseWatch?.addEventListener("click", openHomeAttentionWatchlist);
-elements.homeAiResponseWatch?.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    openHomeAttentionWatchlist();
-  }
-});
-elements.aiSignalsBack?.addEventListener("click", () => {
-  setView("home");
-  window.scrollTo({ top: 0, behavior: "auto" });
-});
-for (const tab of elements.aiSignalStageTabs) {
-  tab.addEventListener("click", () => setAiSignalStage(tab.dataset.aiSignalStage));
 }
-elements.homeSurgeMore?.addEventListener("click", async () => {
-  if (!state.marketRankingSnapshotId) {
-    await loadHomeSurgeRankings({ ttlMs: 0 });
+
+elements.homeAiSignalsMore?.addEventListener("click", openAiSignalsPage);
+elements.homeAiResponseWatch?.addEventListener("click", openHomeAttentionWatchlist);
+elements.aiSignalsBack?.addEventListener("click", () => {
+  navigateBackOrFallback("home");
+});
+for (const tab of elements.aiSignalModeTabs) {
+  tab.addEventListener("click", () => setAiSignalMode(tab.dataset.aiSignalMode, { reveal: true }));
+  tab.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    const currentIndex = elements.aiSignalModeTabs.indexOf(tab);
+    const lastIndex = elements.aiSignalModeTabs.length - 1;
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? lastIndex
+        : event.key === "ArrowRight"
+          ? (currentIndex + 1) % elements.aiSignalModeTabs.length
+          : (currentIndex - 1 + elements.aiSignalModeTabs.length) % elements.aiSignalModeTabs.length;
+    const nextTab = elements.aiSignalModeTabs[nextIndex];
+    setAiSignalMode(nextTab.dataset.aiSignalMode, { reveal: true });
+    nextTab.focus();
+  });
+}
+for (const tab of elements.aiSignalStageTabs) {
+  tab.addEventListener("click", () => setAiSignalStage(tab.dataset.aiSignalStage, { reveal: true }));
+  tab.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    const currentIndex = elements.aiSignalStageTabs.indexOf(tab);
+    const lastIndex = elements.aiSignalStageTabs.length - 1;
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? lastIndex
+        : event.key === "ArrowRight"
+          ? (currentIndex + 1) % elements.aiSignalStageTabs.length
+          : (currentIndex - 1 + elements.aiSignalStageTabs.length) % elements.aiSignalStageTabs.length;
+    const nextTab = elements.aiSignalStageTabs[nextIndex];
+    setAiSignalStage(nextTab.dataset.aiSignalStage, { reveal: true });
+    nextTab.focus();
+  });
+}
+for (const tab of elements.aiSignalHistorySideButtons) {
+  tab.addEventListener("click", () => setAiSignalHistorySide(tab.dataset.aiSignalHistorySide, { reveal: true }));
+  tab.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    const currentIndex = elements.aiSignalHistorySideButtons.indexOf(tab);
+    const lastIndex = elements.aiSignalHistorySideButtons.length - 1;
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? lastIndex
+        : event.key === "ArrowRight"
+          ? (currentIndex + 1) % elements.aiSignalHistorySideButtons.length
+          : (currentIndex - 1 + elements.aiSignalHistorySideButtons.length) % elements.aiSignalHistorySideButtons.length;
+    const nextTab = elements.aiSignalHistorySideButtons[nextIndex];
+    setAiSignalHistorySide(nextTab.dataset.aiSignalHistorySide, { reveal: true });
+    nextTab.focus();
+  });
+}
+function moveRovingTabFocus(event, tabs, currentTab = event.currentTarget) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || !tabs.length) {
+    return false;
   }
-  setMarketFilter("ALL");
+  event.preventDefault();
+  const currentIndex = Math.max(0, tabs.indexOf(currentTab));
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? tabs.length - 1
+      : event.key === "ArrowRight"
+        ? (currentIndex + 1) % tabs.length
+        : (currentIndex - 1 + tabs.length) % tabs.length;
+  tabs[nextIndex].focus();
+  tabs[nextIndex].click();
+  return true;
+}
+
+for (const tab of elements.homeRankingCategoryTabs) {
+  tab.addEventListener("click", () => setHomeRankingCategory(tab.dataset.homeRankingCategory));
+  tab.addEventListener("keydown", (event) => moveRovingTabFocus(event, elements.homeRankingCategoryTabs));
+}
+
+elements.homeSurgeSectorFilters?.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-home-ranking-mode]");
+  if (button) {
+    setHomeSurgeSector(button.dataset.homeRankingMode);
+  }
+});
+elements.homeSurgeSectorFilters?.addEventListener("keydown", (event) => {
+  const tabs = Array.from(elements.homeSurgeSectorFilters.querySelectorAll("button[data-home-ranking-mode]"));
+  if (tabs.includes(event.target)) {
+    moveRovingTabFocus(event, tabs, event.target);
+  }
+});
+elements.homeSurgeMore?.addEventListener("click", () => {
+  state.rankingCategory = state.homeRankingCategory;
+  state.marketRankingMode = normalizeMarketRankingMode(state.rankingCategory, state.homeRankingMode);
+  if (state.rankingCategory !== "surge" || state.marketRankingMode !== "daily") {
+    state.marketRankingSnapshotId = "";
+  }
+  setMarketFilter(homeRankingRequestMarket(state.rankingCategory));
+  closeHomeRankingQuoteStreams();
   setView("movers");
   window.scrollTo({ top: 0, behavior: "auto" });
 });
+elements.homeRankingMarketTrigger?.addEventListener("click", showHomeRankingMarketSheet);
+elements.homeRankingMarketSheetBackdrop?.addEventListener("click", closeHomeRankingMarketSheet);
+for (const option of elements.homeRankingMarketOptions) {
+  option.addEventListener("click", () => setHomeRankingMarket(option.dataset.homeRankingMarket));
+  option.addEventListener("keydown", (event) => {
+    if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    const currentIndex = Math.max(0, elements.homeRankingMarketOptions.indexOf(option));
+    const lastIndex = elements.homeRankingMarketOptions.length - 1;
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? lastIndex
+        : event.key === "ArrowDown"
+          ? (currentIndex + 1) % elements.homeRankingMarketOptions.length
+          : (currentIndex - 1 + elements.homeRankingMarketOptions.length) % elements.homeRankingMarketOptions.length;
+    elements.homeRankingMarketOptions[nextIndex]?.focus();
+  });
+}
 elements.marketRankingBack?.addEventListener("click", () => {
-  if (window.history.length > 1 && document.referrer.startsWith(window.location.origin)) {
-    window.history.back();
-    return;
-  }
-  setView("home");
-  window.scrollTo({ top: 0, behavior: "auto" });
+  navigateBackOrFallback("home");
 });
 elements.installSheetBackdrop?.addEventListener("click", closeInstallSheet);
 elements.installSheetClose?.addEventListener("click", closeInstallSheet);
+elements.accessCapacityBackdrop?.addEventListener("click", closeAccessCapacityModal);
+elements.accessCapacityClose?.addEventListener("click", closeAccessCapacityModal);
+elements.appExitDialogBackdrop?.addEventListener("click", cancelAppExit);
+elements.appExitDialogCancel?.addEventListener("click", cancelAppExit);
+elements.appExitDialogConfirm?.addEventListener("click", requestNativeAppExit);
+elements.appExitDialog?.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  cancelAppExit();
+});
+elements.stockPreMarket?.addEventListener("click", openStockTradingHoursSheet);
+elements.stockTradingHoursBackdrop?.addEventListener("click", closeStockTradingHoursSheet);
+elements.stockTradingHoursConfirm?.addEventListener("click", closeStockTradingHoursSheet);
 
 window.addEventListener("keydown", (event) => {
+  if (!elements.stockTradingHoursSheet?.hidden && event.key === "Tab") {
+    trapStockTradingHoursFocus(event);
+    return;
+  }
+  if (!elements.stockTradingHoursSheet?.hidden && event.key === "Escape") {
+    event.preventDefault();
+    closeStockTradingHoursSheet();
+    return;
+  }
+  if (!elements.homeRankingMarketSheet?.hidden && event.key === "Tab") {
+    trapHomeRankingMarketSheetFocus(event);
+    return;
+  }
+  if (!elements.homeRankingMarketSheet?.hidden && event.key === "Escape") {
+    event.preventDefault();
+    closeHomeRankingMarketSheet();
+    return;
+  }
+  if (!elements.appExitDialog?.hidden && event.key === "Tab") {
+    trapAppExitDialogFocus(event);
+    return;
+  }
+  if (!elements.appExitDialog?.hidden && event.key === "Escape") {
+    event.preventDefault();
+    cancelAppExit();
+    return;
+  }
+  if (!elements.accessCapacityModal?.hidden && event.key === "Tab") {
+    trapAccessCapacityFocus(event);
+    return;
+  }
+  if (!elements.pushNotificationSheet?.hidden && event.key === "Tab") {
+    trapPushNotificationSheetFocus(event);
+    return;
+  }
+  if (!elements.installSheet?.hidden && event.key === "Tab") {
+    trapInstallSheetFocus(event);
+    return;
+  }
   if (event.key === "Escape") {
+    if (!elements.pushNotificationSheet?.hidden) {
+      event.preventDefault();
+      closePushNotificationSheet();
+      return;
+    }
+    if (activeStockBarTooltip) {
+      event.preventDefault();
+      dismissStockBarTooltip();
+      return;
+    }
     closeInstallSheet();
+    closeAccessCapacityModal();
     document.querySelectorAll(".term-help.open").forEach((item) => item.classList.remove("open"));
   }
 });
 
 window.addEventListener("resize", () => {
+  dismissStockBarTooltip();
   if (window.innerWidth > 980) {
     resetPullRefreshIndicator({ immediate: true });
   }
@@ -12386,45 +24700,122 @@ elements.rankCategorySelect?.addEventListener("change", () => {
 for (const tab of elements.marketTabs) {
   tab.addEventListener("click", () => {
     const market = setMarketFilter(tab.dataset.marketFilter);
-    launchPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings({ market, limit: 30 }));
+    launchPageLoading(PAGE_LOADING_LABELS.market, () => loadMarketRankings({
+      category: state.rankingCategory,
+      mode: state.marketRankingMode,
+      market,
+      limit: 50,
+    }));
   });
+  tab.addEventListener("keydown", (event) => moveRovingTabFocus(event, elements.marketTabs));
 }
+elements.marketRankingModeTabs?.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-market-ranking-mode]");
+  if (button) setMarketRankingMode(button.dataset.marketRankingMode);
+});
+elements.marketRankingModeTabs?.addEventListener("keydown", (event) => {
+  const tabs = Array.from(elements.marketRankingModeTabs.querySelectorAll("button[data-market-ranking-mode]"));
+  if (tabs.includes(event.target)) {
+    const currentIndex = tabs.indexOf(event.target);
+    if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      const nextIndex = event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? tabs.length - 1
+          : event.key === "ArrowRight"
+            ? (currentIndex + 1) % tabs.length
+            : (currentIndex - 1 + tabs.length) % tabs.length;
+      tabs[nextIndex].focus();
+      tabs[nextIndex].click();
+    }
+  }
+});
 elements.watchToggle.addEventListener("click", toggleWatchCurrent);
+elements.stockShare?.addEventListener("click", shareCurrentStock);
+elements.stockHomeDisclosuresToggle?.addEventListener("click", () => {
+  state.stockHomeDisclosuresExpanded = !state.stockHomeDisclosuresExpanded;
+  renderStockHomeDisclosures(state.currentDashboard);
+});
 elements.loginForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (state.loginSubmitting) {
+    return;
+  }
   const button = elements.loginForm.querySelector("button");
   const originalText = button?.textContent || "시작하기";
+  state.loginSubmitting = true;
+  elements.loginForm.setAttribute("aria-busy", "true");
   if (button) {
     button.disabled = true;
     button.textContent = "불러오는 중";
   }
-  setLoginStatus("접속 ID로 들어가는 중");
-  const ok = await applyWatchlistId(elements.loginInput.value, { merge: true });
-  if (ok) {
-    setLoginStatus("입장 완료", "success");
-    hideLoginGate();
-  } else {
-    showLoginGate("아이디를 확인해주세요. 2~40자 한글/영문/숫자/._-만 가능합니다.", { skipSplash: true });
-  }
-  if (button) {
-    button.disabled = false;
-    button.textContent = originalText;
+  try {
+    const normalizedId = normalizeWatchlistId(elements.loginInput.value);
+    if (!/^[0-9A-Za-z가-힣_.-]{2,40}$/.test(normalizedId)) {
+      showLoginGate(
+        "아이디를 확인해주세요. 2~40자 한글/영문/숫자/._-만 가능합니다.",
+        { skipSplash: true, tone: "error" }
+      );
+      return;
+    }
+    if (state.inviteRequired && !state.inviteAuthorized) {
+      setLoginStatus("초대 코드를 확인하는 중");
+      const inviteResult = await authorizeInviteCode(elements.loginInviteInput?.value);
+      if (!inviteResult.ok) {
+        showLoginGate(inviteResult.message, { skipSplash: true, tone: "error" });
+        elements.loginInviteInput?.focus();
+        return;
+      }
+    }
+    setLoginStatus("이용 가능 인원을 확인하는 중");
+    const accessResult = await authorizeDashboardIdentity(normalizedId);
+    if (!accessResult.ok) {
+      showLoginGate(accessResult.message, { skipSplash: true, tone: "error" });
+      if (accessResult.capacityFull) {
+        showAccessCapacityModal();
+      }
+      return;
+    }
+    setLoginStatus("접속 ID로 들어가는 중");
+    const ok = await applyWatchlistId(normalizedId);
+    if (ok) {
+      setLoginStatus("입장 완료", "success");
+      refreshHomeAiSignalsAfterLogin();
+      hideLoginGate();
+    } else {
+      showLoginGate(
+        "아이디를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
+        { skipSplash: true, tone: "error" }
+      );
+    }
+  } catch (error) {
+    console.error("Login flow failed", error);
+    showLoginGate("로그인 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.", {
+      skipSplash: true,
+      tone: "error",
+    });
+  } finally {
+    state.loginSubmitting = false;
+    elements.loginForm.removeAttribute("aria-busy");
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 });
 elements.watchlistIdForm?.addEventListener("submit", (event) => {
   event.preventDefault();
-  applyWatchlistId(elements.watchlistIdInput.value, { merge: true });
+  applyWatchlistId(elements.watchlistIdInput.value);
 });
 elements.logoutButton?.addEventListener("click", logoutWatchlistIdentity);
 elements.pushNotificationButton?.addEventListener("click", openPushNotificationCenter);
 elements.pushHistoryBack?.addEventListener("click", () => {
   const returnView = state.notificationReturnView || "home";
-  if (returnView === "stock" && state.currentStock?.name) {
-    window.location.assign(viewStockUrl(state.currentStock.name));
-    return;
-  }
-  setView(["home", "search", "portfolio", "chart", "movers"].includes(returnView) ? returnView : "home");
-  window.scrollTo({ top: 0, behavior: "auto" });
+  const fallback = ["home", "search", "portfolio", "chart", "movers", "stock"].includes(returnView)
+    ? returnView
+    : "home";
+  navigateBackOrFallback(fallback);
 });
 elements.pushHistorySettings?.addEventListener("click", openPushSettingsFromHistory);
 for (const tab of elements.pushHistoryTabs) {
@@ -12446,7 +24837,8 @@ for (const tab of elements.pushHistoryTabs) {
 elements.pushNotificationDisableButton?.addEventListener("click", disablePushNotificationsFromUi);
 elements.pushNotificationSheetBackdrop?.addEventListener("click", closePushNotificationSheet);
 elements.pushNotificationSheetClose?.addEventListener("click", closePushNotificationSheet);
-elements.pushNotificationSheetSaveButton?.addEventListener("click", savePushNotificationSettings);
+elements.pushNotificationSheetSaveButton?.addEventListener("click", handlePushNotificationPrimaryAction);
+elements.pushNotificationSheetSnoozeButton?.addEventListener("click", dismissPushNotificationEntryPrompt);
 elements.pushNotificationSheetTestButton?.addEventListener("click", sendPushTestNotification);
 elements.pushNotificationSheetDisableButton?.addEventListener("click", disablePushNotificationsFromUi);
 for (const button of elements.stockV2PricePeriods) {
@@ -12467,16 +24859,19 @@ stockSearchSubmitButton?.addEventListener("click", (event) => {
 });
 elements.input?.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
-    elements.form.classList.remove("expanded");
-    elements.input.blur();
+    collapseStockSearch({ blur: true });
   }
 });
 elements.stockDetailBack?.addEventListener("click", () => {
-  if (window.history.length > 1 && document.referrer.startsWith(window.location.origin)) {
-    window.history.back();
-    return;
+  navigateBackOrFallback("home");
+});
+elements.stockEtfDividendMore?.addEventListener("click", openStockEtfDividendPage);
+elements.stockEtfDividendBack?.addEventListener("click", () => closeStockEtfDividendPage());
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.stockEtfDividendPageOpen) {
+    event.preventDefault();
+    closeStockEtfDividendPage();
   }
-  setView("trend");
 });
 for (const button of elements.stockFinancialMetricTabs) {
   button.addEventListener("click", () => {
@@ -12499,21 +24894,15 @@ for (const button of elements.stockFlowModeTabs) {
 for (const button of elements.stockFlowPeriodTabs) {
   button.addEventListener("click", () => {
     state.stockFlowPeriod = button.dataset.flowPeriod || "3M";
+    state.stockFlowHistoryError = "";
     renderStockFlowHistoryChart();
+    void ensureStockFlowHistory(state.currentStock?.code, state.stockFlowPeriod, state.stockHomeDetailsRequestId);
   });
 }
 for (const button of elements.stockReportModeTabs) {
   button.addEventListener("click", () => {
     state.stockReportMode = button.dataset.reportMode || "target";
     renderStockReportHistoryChart();
-  });
-}
-for (const button of elements.stockNewsModeTabs) {
-  button.addEventListener("click", () => {
-    state.stockNewsMode = button.dataset.newsMode || "company";
-    renderStockNewsRows(state.stockNewsRows.length
-      ? state.stockNewsRows
-      : state.currentDashboard?.sentiment?.latest_items || []);
   });
 }
 elements.quantSignalRefresh?.addEventListener("click", (event) => {
@@ -12547,7 +24936,8 @@ elements.watchChartRefresh?.addEventListener("click", () => {
     void loadWatchCharts({ items: [item], force: true, single: true });
   }
 });
-elements.chartHistoryBackButton.addEventListener("click", () => setView("chart"));
+elements.chartHistoryBackButton.addEventListener("click", () => navigateBackOrFallback("chart"));
+elements.chartStudyBackButton.addEventListener("click", closeChartStudyPage);
 elements.recommendHistoryList.addEventListener("click", (event) => {
   const detailButton = event.target.closest(".recommend-track-detail-toggle");
   if (detailButton) {
@@ -12569,12 +24959,43 @@ elements.recommendHistoryList.addEventListener("click", (event) => {
 });
 for (const tab of elements.trendTabs) {
   tab.addEventListener("click", () => {
-    const active = setTrendTab(tab.dataset.trendTab);
-    if (active === "impact" && !elements.trendImpactContent.querySelector(".market-impact-dashboard")) {
-      void loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact"));
-    }
+    if (tab.hidden || tab.dataset.archived === "true") return;
+    setTrendTab(tab.dataset.trendTab);
+  });
+  tab.addEventListener("keydown", (event) => {
+    const visibleTabs = elements.trendTabs.filter((item) => !item.hidden && item.dataset.archived !== "true");
+    moveRovingTabFocus(event, visibleTabs, tab);
   });
 }
+for (const button of elements.trendLiveFilters) {
+  button.addEventListener("click", () => {
+    setTrendNewsFilter(button.dataset.trendNewsFilter || "all", { updateHistory: false });
+  });
+  button.addEventListener("keydown", (event) => moveRovingTabFocus(event, elements.trendLiveFilters, button));
+}
+elements.trendLiveToggle?.addEventListener("click", () => {
+  setView("news");
+  window.scrollTo({ top: 0, behavior: "auto" });
+});
+elements.newsBack?.addEventListener("click", () => navigateBackOrFallback("home"));
+for (const button of elements.newsPageFilters) {
+  button.addEventListener("click", () => setTrendNewsFilter(button.dataset.newsPageFilter || "all"));
+  button.addEventListener("keydown", (event) => moveRovingTabFocus(event, elements.newsPageFilters, button));
+}
+elements.eventDetailBack?.addEventListener("click", () => {
+  state.activeTrendTab = "events";
+  navigateBackOrFallback("home");
+});
+elements.trendCalendarDays?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-trend-calendar-date]");
+  if (!button) return;
+  state.trendCalendarDate = button.dataset.trendCalendarDate || state.trendCalendarDate;
+  renderTrendCalendar();
+});
+elements.trendCalendarDays?.addEventListener("keydown", (event) => {
+  const buttons = Array.from(elements.trendCalendarDays.querySelectorAll("[data-trend-calendar-date]"));
+  if (buttons.includes(event.target)) moveRovingTabFocus(event, buttons, event.target);
+});
 elements.homePastToggle?.addEventListener("click", () => {
   state.showPastEvents = !state.showPastEvents;
   setTrendTab("events");
@@ -12602,10 +25023,18 @@ function handleTrendEventClick(event) {
       market: impactWatchButton.dataset.market,
     });
     impactWatchButton.classList.toggle("active", added);
-    impactWatchButton.textContent = added ? "관심 해제" : "관심 추가";
+    impactWatchButton.textContent = added ? "✓" : "+";
+    impactWatchButton.setAttribute("aria-label", added ? "관심 해제" : "관심 추가");
+    impactWatchButton.title = added ? "관심 해제" : "관심 추가";
     updateWatchButton();
     updateRecommendationWatchButtons();
     updateImpactWatchButtons();
+    return;
+  }
+  const eventButton = event.target.closest("[data-trend-event-open]");
+  if (eventButton) {
+    const item = trendEventById(eventButton.dataset.trendEventOpen);
+    if (item) openTrendEventDetail(item);
     return;
   }
   if (event.target.closest("a")) {
@@ -12614,11 +25043,8 @@ function handleTrendEventClick(event) {
   if (event.target.closest(".event-flow")) {
     return;
   }
-  if (event.target.closest(".trend-event-disclosure")) {
-    return;
-  }
   const card = event.target.closest(".trend-event");
-  if (card) {
+  if (card && event.target.closest(".flow-button")) {
     loadTrendGraph(card);
   }
 }
@@ -12626,6 +25052,7 @@ function handleTrendEventClick(event) {
 elements.trendEvents.addEventListener("click", handleTrendEventClick);
 elements.trendPastEvents.addEventListener("click", handleTrendEventClick);
 elements.trendImpactContent?.addEventListener("click", handleTrendEventClick);
+elements.eventDetailContent?.addEventListener("click", handleTrendEventClick);
 
 elements.discoverySearchForm?.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -12707,7 +25134,7 @@ elements.recommendList.addEventListener("click", (event) => {
     if (item) {
       const added = toggleWatchlistItem({ code: item.code, name: item.name, market: item.market });
       watchButton.classList.toggle("active", added);
-      watchButton.textContent = added ? "관심 해제" : "관심 추가하기";
+      watchButton.textContent = added ? "관심 해제" : "관심 추가";
       updateWatchButton();
       updateRecommendationWatchButtons();
     }
@@ -12746,7 +25173,39 @@ elements.recommendList.addEventListener("click", (event) => {
   }
 });
 
-elements.recommendDetailBack?.addEventListener("click", () => setView("search"));
+elements.recommendDetailBack?.addEventListener("click", () => navigateBackOrFallback("search"));
+elements.recommendDetailContent?.addEventListener("click", (event) => {
+  const retry = event.target.closest(".recommend-signal-retry");
+  if (!retry) {
+    return;
+  }
+  retry.disabled = true;
+  retry.textContent = "다시 불러오는 중";
+  void loadRecommendationDetail(state.currentRecommendationDetailItem?.code || "");
+});
+
+elements.stockHomeChartAnalysis?.addEventListener("click", (event) => {
+  const horizonButton = event.target.closest("[data-chart-horizon]");
+  if (!horizonButton || !elements.stockHomeChartAnalysis.contains(horizonButton)) {
+    return;
+  }
+  renderStockHomeChartAnalysis(Number(horizonButton.dataset.chartHorizon));
+});
+
+elements.stockHomeChartAnalysis?.addEventListener("keydown", (event) => {
+  const horizonButton = event.target.closest("[data-chart-horizon]");
+  if (!horizonButton || !["ArrowLeft", "ArrowRight"].includes(event.key)) {
+    return;
+  }
+  event.preventDefault();
+  const nextHorizon = event.key === "ArrowRight" ? 10 : 5;
+  renderStockHomeChartAnalysis(nextHorizon);
+  requestAnimationFrame(() => {
+    elements.stockHomeChartAnalysis
+      ?.querySelector(`[data-chart-horizon="${nextHorizon}"]`)
+      ?.focus();
+  });
+});
 
 elements.watchChartList.addEventListener("click", (event) => {
   const horizonButton = event.target.closest("[data-chart-horizon]");
@@ -12822,10 +25281,25 @@ elements.form.addEventListener("submit", (event) => {
   if (!query) {
     return;
   }
+  collapseStockSearch({ blur: isMobileViewport() });
   load(query);
 });
 
 document.addEventListener("click", (event) => {
+  const aiSignalListLink = event.target.closest("a[data-ai-signal-list-link]");
+  if (
+    aiSignalListLink
+    && !event.defaultPrevented
+    && event.button === 0
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.shiftKey
+    && !event.altKey
+  ) {
+    event.preventDefault();
+    openAiSignalsPage();
+    return;
+  }
   const stockLink = event.target.closest('a[href^="/dashboard/"]');
   if (
     stockLink
@@ -12854,8 +25328,7 @@ document.addEventListener("click", (event) => {
   }
   document.querySelectorAll(".term-help.open").forEach((item) => item.classList.remove("open"));
   if (!elements.form.contains(event.target)) {
-    hideSuggestions();
-    elements.form.classList.remove("expanded");
+    collapseStockSearch();
   }
   if (elements.discoverySearchForm && !elements.discoverySearchForm.contains(event.target)) {
     hideStandaloneSuggestions(elements.discoverySearchInput, elements.discoverySearchSuggestions);
@@ -12866,20 +25339,39 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("visibilitychange", () => {
+  refreshMorningMoneyBriefingVisibility();
   if (document.hidden) {
     stopHomeMarketIndexRefresh();
+    stopHomeMarketCarouselMotion();
     closeQuoteStream();
     closeWatchlistQuoteStreams();
     closeMarketQuoteStreams();
+    closeHomeRankingQuoteStreams();
+    closeAiSignalQuoteStreams();
+    stopAiSignalReconcileTimer();
     closeRecommendationQuoteStreams();
     closeUsSectorStream();
     return;
   }
+  refreshMarketThreadElapsedTimes();
+  if (["home", "ai-signals"].includes(state.view)) {
+    connectAiSignalQuoteStreams(state.aiSignalItems);
+    startAiSignalReconcileTimer();
+    void reconcileAiSignals({ force: true, ttlMs: 0, silent: true, reason: "visibility" });
+  }
   if (state.view === "home") {
+    startHomeMarketCarouselMotion();
+    void loadHomeSurgeRankings({ force: true, ttlMs: 0 });
     void loadHomeMarketIndices({ force: true, silent: true });
-    void loadTrends(state.activeTrendTab === "impact" ? "live" : state.activeTrendTab || "live", { force: true, ttlMs: 0 });
+    void loadTrends(state.activeTrendTab || "live", { force: true, ttlMs: 0 });
+    void loadHomeMarketImpact({ force: true, ttlMs: 0 });
     void refreshUsSectorMoves({ force: true, ttlMs: 0 });
     connectUsSectorStream();
+  } else if (state.view === "news") {
+    void loadTrends("live", { force: true, ttlMs: 0 });
+  } else if (state.view === "movers") {
+    state.marketLeaderboardItems.slice(0, 50).forEach((item) => connectMarketQuoteStream(item.code));
+    scheduleMarketRankingRefresh();
   } else if (state.view === "stock" && state.currentStock) {
     connectQuoteStream(state.currentStock);
   } else if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
@@ -12888,9 +25380,6 @@ document.addEventListener("visibilitychange", () => {
     });
     connectUsSectorStream();
   } else if (state.view === "search") {
-    if (state.rankingCategory === "surge") {
-      state.marketLeaderboardItems.slice(0, 30).forEach((item) => connectMarketQuoteStream(item.code));
-    }
     elements.recommendList.querySelectorAll(".recommend-card[data-code]").forEach((card) => {
       connectRecommendationQuoteStream(card.dataset.code);
     });
@@ -12898,17 +25387,46 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+window.addEventListener("online", () => {
+  state.quoteStreamConnectionState = "checking";
+  ensureQuoteStreamConnection();
+  if (["home", "ai-signals"].includes(state.view)) {
+    connectAiSignalQuoteStreams(state.aiSignalItems);
+    startAiSignalReconcileTimer();
+    void reconcileAiSignals({ force: true, ttlMs: 0, silent: true, reason: "online" });
+  }
+  refreshAiSignalLiveRows();
+});
+window.addEventListener("offline", () => {
+  pauseQuoteStreamConnection("offline");
+  refreshAiSignalLiveRows();
+});
+
 registerDashboardServiceWorker();
+registerDashboardVersionWatchdog();
+window.setInterval(refreshMarketThreadElapsedTimes, 60_000);
+window.setInterval(refreshMorningMoneyBriefingVisibility, 60_000);
 updateHomeInstallButton();
 applyStockTermTooltips();
 
 async function initializeDashboard() {
-  await initializeWatchlistIdentity();
+  initializeDashboardHistory();
+  const canLoadPublicDataInParallel = state.view === "home" || state.view === "stock";
+  if (!canLoadPublicDataInParallel) {
+    await initializeWatchlistIdentity();
+    setView(state.view, { historyMode: "none" });
+    return;
+  }
+  const identityPromise = initializeWatchlistIdentity();
   if (state.view === "stock") {
-    setView("stock");
-    await load(pathQuery());
+    setView("stock", { historyMode: "none" });
+    await Promise.all([
+      identityPromise,
+      load(pathQuery(), { historyMode: "none" }),
+    ]);
   } else {
-    setView(state.view);
+    setView(state.view, { historyMode: "none", deferIdentityData: true });
+    await identityPromise;
   }
 }
 

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 from sqlalchemy import desc, select
@@ -22,11 +23,14 @@ YAHOO_HEADERS = {
 }
 
 GLOBAL_MARKET_DEFINITIONS = (
-    ("NASDAQ", "나스닥", "^IXIC", "index"),
     ("SP500", "S&P 500", "^GSPC", "index"),
+    ("NASDAQ", "나스닥 종합", "^IXIC", "index"),
+    ("SOX", "필라델피아 반도체", "^SOX", "index"),
+    ("DOW", "다우존스", "^DJI", "index"),
     ("GOLD", "금", "GC=F", "USD"),
     ("OIL", "원유", "CL=F", "USD"),
 )
+NEW_YORK_TZ = ZoneInfo("America/New_York")
 
 
 def _number(value: Any) -> float | None:
@@ -145,7 +149,19 @@ def _live_asset(definition: tuple[str, str, str, str], now: datetime) -> dict[st
     change_rate = change / previous * 100 if change is not None and previous not in (None, 0) else None
     period = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
     now_epoch = int(now.timestamp())
-    is_realtime = bool(period.get("start") and period.get("end") and int(period["start"]) <= now_epoch <= int(period["end"]))
+    regular_start = int(period["start"]) if period.get("start") else None
+    regular_end = int(period["end"]) if period.get("end") else None
+    is_realtime = bool(
+        regular_start is not None
+        and regular_end is not None
+        and regular_start <= now_epoch <= regular_end
+    )
+    is_preopen = bool(
+        unit == "index"
+        and regular_start is not None
+        and regular_start - 2 * 60 * 60 <= now_epoch < regular_start
+    )
+    market_session = "open" if is_realtime else "preopen" if is_preopen else "closed"
     updated_epoch = int(meta.get("regularMarketTime") or (values[-1][0] if values else now_epoch))
     updated_at = datetime.fromtimestamp(updated_epoch, tz=timezone.utc).isoformat(timespec="minutes")
     points = [
@@ -165,7 +181,7 @@ def _live_asset(definition: tuple[str, str, str, str], now: datetime) -> dict[st
         "change": change,
         "change_rate": change_rate,
         "points": points,
-        "market_session": "open" if is_realtime else "closed",
+        "market_session": market_session,
         "is_realtime": is_realtime,
     }
 
@@ -189,11 +205,28 @@ def fetch_live_global_market_assets(*, now: datetime | None = None) -> list[dict
 def merge_global_market_assets(
     stored_payload: dict[str, object],
     live_items: list[dict[str, object]],
+    *,
+    now: datetime | None = None,
 ) -> dict[str, object]:
+    observed_at = now or datetime.now(timezone.utc)
+    if observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=timezone.utc)
+    new_york_now = observed_at.astimezone(NEW_YORK_TZ)
+    fallback_preopen = (
+        new_york_now.weekday() < 5
+        and time(7, 30) <= new_york_now.time() < time(9, 30)
+    )
     live_by_code = {str(item.get("code")): item for item in live_items}
-    merged = [
-        live_by_code.get(str(item.get("code")), item)
-        for item in stored_payload.get("items", [])
-    ]
+    merged: list[dict[str, object]] = []
+    for stored_item in stored_payload.get("items", []):
+        live_item = live_by_code.get(str(stored_item.get("code")))
+        if live_item:
+            merged.append(live_item)
+            continue
+        item = dict(stored_item)
+        if fallback_preopen and item.get("unit") == "index":
+            item["market_session"] = "preopen"
+            item["is_realtime"] = False
+        merged.append(item)
     timestamps = [str(item.get("updated_at")) for item in merged if item.get("updated_at")]
     return {"items": merged, "updated_at": max(timestamps) if timestamps else None}

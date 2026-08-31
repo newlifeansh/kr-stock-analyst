@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>비밀노트 · 안드로이드 백키 목업</title>
+  <style>
+    :root { color-scheme: light; --ink:#17181b; --muted:#777b84; --line:#e8e9ec; --surface:#fff; --bg:#f4f5f7; --accent:#ff6b35; }
+    * { box-sizing:border-box; }
+    [hidden] { display:none !important; }
+    body { margin:0; min-height:100vh; background:var(--bg); color:var(--ink); font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    button { font:inherit; }
+    .page { width:min(1100px,100%); margin:auto; padding:48px 24px 72px; }
+    header { max-width:760px; }
+    .eyebrow { margin:0 0 10px; color:var(--accent); font-size:12px; font-weight:800; letter-spacing:.08em; }
+    h1 { margin:0; font-size:clamp(28px,4vw,46px); letter-spacing:-.045em; }
+    .lead { margin:14px 0 0; color:#5e626b; line-height:1.65; }
+    .workspace { display:grid; grid-template-columns:340px minmax(0,1fr); gap:42px; align-items:start; margin-top:34px; }
+    .phone { position:relative; width:340px; height:706px; overflow:hidden; border:9px solid #202124; border-radius:38px; background:#fff; box-shadow:0 24px 65px rgba(33,35,40,.16); }
+    .status { height:35px; display:flex; align-items:center; justify-content:space-between; padding:0 17px; font-size:11px; font-weight:800; }
+    .screen { position:absolute; inset:35px 0 0; display:flex; flex-direction:column; background:#fff; }
+    .topbar { height:54px; display:flex; align-items:center; gap:12px; padding:0 18px; border-bottom:1px solid var(--line); }
+    .back { width:34px; height:34px; border:0; background:none; font-size:24px; cursor:pointer; }
+    .topbar strong { font-size:17px; }
+    .home-head { padding:18px 20px 14px; }
+    .home-head small { color:var(--muted); }
+    .home-head h2 { margin:4px 0 0; font-size:25px; letter-spacing:-.04em; }
+    .content { flex:1; overflow:hidden; padding:0 18px 88px; }
+    .index-card { padding:16px; border-radius:18px; background:#17181b; color:#fff; }
+    .index-row { display:flex; justify-content:space-between; align-items:end; }
+    .index-row b { font-size:27px; }
+    .rise { color:#ff735e; }
+    .section-title { display:flex; justify-content:space-between; margin:22px 2px 10px; font-size:14px; }
+    .signal { display:flex; gap:12px; padding:14px 2px; border-bottom:1px solid var(--line); cursor:pointer; }
+    .logo { display:grid; width:42px; height:42px; place-items:center; border-radius:13px; background:#eaf0ff; color:#3561b8; font-weight:900; }
+    .signal p { margin:2px 0 0; color:var(--muted); font-size:12px; }
+    .stock-hero { padding:22px 20px 18px; }
+    .stock-hero h2 { margin:0; font-size:24px; }
+    .stock-hero .price { margin-top:12px; font-size:30px; font-weight:850; }
+    .chart { height:150px; margin:0 18px; border-radius:16px; background:linear-gradient(180deg,#fff2ee,#fff); position:relative; overflow:hidden; }
+    .chart::after { content:""; position:absolute; inset:28px 8px 28px; border-bottom:3px solid var(--accent); transform:skewY(-8deg); }
+    .summary { margin:18px; padding:17px; border:1px solid var(--line); border-radius:16px; }
+    .summary h3 { margin:0 0 8px; font-size:15px; }
+    .summary p { margin:0; color:#62666f; font-size:13px; line-height:1.55; }
+    .bottom-nav { position:absolute; right:0; bottom:0; left:0; display:grid; grid-template-columns:repeat(3,1fr); height:72px; border-top:1px solid var(--line); background:rgba(255,255,255,.96); }
+    .bottom-nav button { border:0; background:none; color:#858991; font-size:11px; }
+    .bottom-nav button.active { color:#17181b; font-weight:800; }
+    .bottom-nav span { display:block; margin-bottom:3px; font-size:19px; }
+    .scrim { position:absolute; inset:0; z-index:4; display:grid; place-items:center; padding:26px; background:rgba(0,0,0,.46); opacity:0; pointer-events:none; transition:opacity .16s ease; }
+    .scrim.open { opacity:1; pointer-events:auto; }
+    .dialog { width:100%; padding:23px 20px 16px; border-radius:20px; background:#fff; box-shadow:0 18px 50px rgba(0,0,0,.24); transform:translateY(8px); transition:transform .16s ease; }
+    .scrim.open .dialog { transform:none; }
+    .dialog h2 { margin:0; font-size:19px; letter-spacing:-.025em; }
+    .dialog p { margin:9px 0 22px; color:#666a72; font-size:14px; line-height:1.5; }
+    .actions { display:flex; justify-content:flex-end; gap:8px; }
+    .actions button { min-width:72px; min-height:44px; padding:0 15px; border:0; border-radius:12px; background:#f0f1f3; font-weight:750; cursor:pointer; }
+    .actions .confirm { background:#17181b; color:#fff; }
+    .android-back { position:absolute; z-index:3; right:16px; bottom:80px; width:48px; height:48px; border:0; border-radius:50%; background:#222; color:#fff; box-shadow:0 7px 20px rgba(0,0,0,.28); cursor:pointer; }
+    .panel { padding:4px 0; }
+    .panel h2 { margin:0; font-size:20px; }
+    .steps { display:grid; gap:12px; margin-top:18px; }
+    .step { padding:16px 17px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+    .step.active { border-color:#17181b; box-shadow:0 7px 22px rgba(33,35,40,.07); }
+    .step small { color:var(--accent); font-weight:800; }
+    .step strong { display:block; margin-top:4px; }
+    .step p { margin:6px 0 0; color:var(--muted); font-size:13px; line-height:1.5; }
+    .controls { display:flex; flex-wrap:wrap; gap:9px; margin-top:22px; }
+    .controls button { min-height:46px; padding:0 16px; border:1px solid #d9dbe0; border-radius:13px; background:#fff; font-weight:750; cursor:pointer; }
+    .controls button.primary { border-color:#17181b; background:#17181b; color:#fff; }
+    .note { margin-top:22px; padding:15px 16px; border-left:3px solid var(--accent); background:#fff; color:#60646c; font-size:13px; line-height:1.6; }
+    @media (max-width:760px) { .page{padding-top:28px}.workspace{grid-template-columns:1fr}.phone{margin:auto}.panel{max-width:520px;margin:auto}.lead br{display:none} }
+    @media (prefers-reduced-motion:reduce) { *{transition:none!important} }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <p class="eyebrow">ANDROID BACK NAVIGATION · MOCKUP</p>
+      <h1>백키는 이전 화면으로,<br>홈에서는 종료 확인으로</h1>
+      <p class="lead">화면 반영 전 인터랙션 목업입니다. 종목 상세에 들어간 뒤 우측 하단의 물리 백키 버튼을 누르면 홈으로 돌아가고, 홈에서 다시 누르면 종료 확인 팝업이 표시됩니다.</p>
+    </header>
+    <section class="workspace">
+      <div class="phone" aria-label="안드로이드 백키 동작 목업">
+        <div class="status"><span>9:41</span><span>● 5G  ▰</span></div>
+        <section class="screen" id="home-screen">
+          <div class="home-head"><small>8월 12일 수요일</small><h2>오늘의 시장</h2></div>
+          <div class="content">
+            <div class="index-card"><small>KOSPI</small><div class="index-row"><b>3,214.52</b><span class="rise">+0.82%</span></div></div>
+            <div class="section-title"><b>AI 시그널</b><small>전체보기</small></div>
+            <div class="signal" id="open-stock"><span class="logo">삼</span><div><b>삼성전자</b><p>외국인 수급 개선 · 관심 신호</p></div></div>
+            <div class="signal"><span class="logo">하</span><div><b>SK하이닉스</b><p>반도체 업종 강세 · 추세 유지</p></div></div>
+          </div>
+          <nav class="bottom-nav"><button class="active"><span>⌂</span>홈</button><button><span>⌕</span>종목찾기</button><button><span>☆</span>내 종목</button></nav>
+        </section>
+        <section class="screen" id="stock-screen" hidden>
+          <div class="topbar"><button class="back" id="ui-back" aria-label="이전 화면">‹</button><strong>종목홈</strong></div>
+          <div class="stock-hero"><h2>삼성전자</h2><div class="price">91,200원 <span class="rise">+1.22%</span></div></div>
+          <div class="chart" aria-label="주가 차트 목업"></div>
+          <div class="summary"><h3>오늘의 AI 요약</h3><p>외국인 순매수가 이어지고 있습니다. 단기 상승 이후 거래량 유지 여부를 함께 확인하세요.</p></div>
+        </section>
+        <button class="android-back" id="android-back" aria-label="안드로이드 물리 백키 시뮬레이션">◁</button>
+        <div class="scrim" id="exit-scrim" role="dialog" aria-modal="true" aria-labelledby="exit-title">
+          <div class="dialog">
+            <h2 id="exit-title">서비스를 종료할까요?</h2>
+            <p>종료하면 현재 보고 있던 화면이 닫힙니다.</p>
+            <div class="actions"><button id="cancel-exit">취소</button><button class="confirm" id="confirm-exit">종료</button></div>
+          </div>
+        </div>
+      </div>
+      <aside class="panel">
+        <h2>동작 시나리오</h2>
+        <div class="steps">
+          <div class="step active" data-step="home"><small>01 · 홈</small><strong>앱의 최상위 화면</strong><p>이전 히스토리가 없는 상태입니다. 백키 입력 시 바로 종료하지 않고 확인 팝업을 엽니다.</p></div>
+          <div class="step" data-step="stock"><small>02 · 종목 상세</small><strong>히스토리에 화면 추가</strong><p>종목 진입 시 홈을 보존합니다. 백키 입력 시 홈의 이전 스크롤/탭 상태로 복귀합니다.</p></div>
+          <div class="step" data-step="dialog"><small>03 · 종료 확인</small><strong>취소 가능한 안전장치</strong><p>취소는 홈 유지, 종료는 앱 컨테이너의 종료 동작과 연결합니다.</p></div>
+        </div>
+        <div class="controls"><button class="primary" id="demo-stock">종목 상세 열기</button><button id="demo-back">물리 백키 누르기</button><button id="reset">처음부터</button></div>
+        <p class="note">권장 문구는 “서비스를 종료할까요?”입니다. 브라우저/PWA는 웹 표준만으로 프로세스를 강제 종료할 수 없으므로, 실제 안드로이드 앱(WebView/TWA)에서는 네이티브 브리지의 종료 이벤트에 연결해야 합니다.</p>
+      </aside>
+    </section>
+  </main>
+  <script>
+    const home = document.querySelector('#home-screen');
+    const stock = document.querySelector('#stock-screen');
+    const scrim = document.querySelector('#exit-scrim');
+    const steps = [...document.querySelectorAll('[data-step]')];
+    let view = 'home';
+    const mark = (name) => steps.forEach((step) => step.classList.toggle('active', step.dataset.step === name));
+    function openStock() { view='stock'; home.hidden=true; stock.hidden=false; scrim.classList.remove('open'); mark('stock'); }
+    function goHome() { view='home'; stock.hidden=true; home.hidden=false; scrim.classList.remove('open'); mark('home'); }
+    function pressBack() { if (scrim.classList.contains('open')) { scrim.classList.remove('open'); mark('home'); return; } if (view==='stock') { goHome(); } else { scrim.classList.add('open'); mark('dialog'); document.querySelector('#cancel-exit').focus(); } }
+    document.querySelector('#open-stock').onclick=openStock;
+    document.querySelector('#demo-stock').onclick=openStock;
+    document.querySelector('#ui-back').onclick=goHome;
+    document.querySelector('#android-back').onclick=pressBack;
+    document.querySelector('#demo-back').onclick=pressBack;
+    document.querySelector('#cancel-exit').onclick=()=>{scrim.classList.remove('open');mark('home')};
+    document.querySelector('#confirm-exit').onclick=()=>{scrim.classList.remove('open');mark('home');alert('목업: 네이티브 앱 종료 이벤트가 호출됩니다.')};
+    document.querySelector('#reset').onclick=goHome;
+    scrim.addEventListener('click',e=>{if(e.target===scrim){scrim.classList.remove('open');mark('home')}});
+    document.addEventListener('keydown',e=>{if(e.key==='Escape') pressBack()});
+  </script>
+</body>
+</html>

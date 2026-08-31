@@ -9,15 +9,6 @@ const SECTION_CONFIG = {
       ["news", "뉴스 포함"],
     ],
   },
-  portfolio: {
-    label: "토스증권",
-    defaultCategory: "holdings",
-    categories: [
-      ["holdings", "보유종목"],
-      ["orders", "주문내역"],
-      ["accounts", "계좌요약"],
-    ],
-  },
   research: {
     label: "증권사리포트",
     defaultCategory: "company",
@@ -65,7 +56,6 @@ const SECTION_CONFIG = {
   },
 };
 
-const ARCHIVED_SECTIONS = new Set(["portfolio"]);
 const DEFAULT_SECTION = "company_brief";
 
 const state = {
@@ -91,10 +81,6 @@ const store = {
   researchReports: [],
   disclosures: [],
   newsItems: [],
-  tossStatus: null,
-  tossAccounts: [],
-  tossHoldings: [],
-  tossOrders: [],
   watchCodes: [],
   userWatchCodes: [],
   latestPrices: {},
@@ -107,15 +93,15 @@ let autoRefreshHandle = null;
 let overlayObserver = null;
 
 function fallbackSection() {
-  return ARCHIVED_SECTIONS.has(DEFAULT_SECTION) ? "company_brief" : DEFAULT_SECTION;
+  return DEFAULT_SECTION;
 }
 
 function visibleSectionEntries() {
-  return Object.entries(SECTION_CONFIG).filter(([sectionKey]) => !ARCHIVED_SECTIONS.has(sectionKey));
+  return Object.entries(SECTION_CONFIG);
 }
 
 function normalizeSection(sectionKey) {
-  if (!sectionKey || ARCHIVED_SECTIONS.has(sectionKey) || !SECTION_CONFIG[sectionKey]) {
+  if (!sectionKey || !SECTION_CONFIG[sectionKey]) {
     return fallbackSection();
   }
   return sectionKey;
@@ -141,7 +127,6 @@ const elements = {
   mobileBoard: document.getElementById("mobile-board"),
   refreshButton: document.getElementById("refresh-button"),
   resetFilters: document.getElementById("reset-filters"),
-  portfolioSubnav: document.getElementById("portfolio-subnav"),
   disclosureSubnav: document.getElementById("disclosure-subnav"),
   newsSubnav: document.getElementById("news-subnav"),
 };
@@ -174,7 +159,7 @@ function detectViewMode() {
     }
   }
 
-  if (requestedGroup && ["all", "holdings", "watchlist"].includes(requestedGroup)) {
+  if (requestedGroup && ["all", "watchlist"].includes(requestedGroup)) {
     state.companyBriefGroup = requestedGroup;
   }
 
@@ -341,13 +326,6 @@ function formatPercent(value) {
   return `${Number(value).toFixed(1)}%`;
 }
 
-function formatRatioPercent(value) {
-  if (value === null || value === undefined || value === "" || Number.isNaN(Number(value))) {
-    return "-";
-  }
-  return `${(Number(value) * 100).toFixed(1)}%`;
-}
-
 function toneClass(value) {
   const numeric = Number(value);
   if (Number.isNaN(numeric)) {
@@ -360,46 +338,6 @@ function toneClass(value) {
     return "negative";
   }
   return "neutral";
-}
-
-function formatWon(value) {
-  if (value === null || value === undefined || value === "" || Number.isNaN(Number(value))) {
-    return "-";
-  }
-  return `${Number(value).toLocaleString("ko-KR")}원`;
-}
-
-function formatDollar(value) {
-  if (value === null || value === undefined || value === "" || Number.isNaN(Number(value))) {
-    return "-";
-  }
-  return `$${Number(value).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-}
-
-function formatMoneyByCurrency(value, currency) {
-  if (currency === "USD") {
-    return formatDollar(value);
-  }
-  return formatWon(value);
-}
-
-function formatTossAccountMoney(krwValue, usdValue) {
-  if (krwValue !== null && krwValue !== undefined && krwValue !== "") {
-    return formatWon(krwValue);
-  }
-  if (usdValue !== null && usdValue !== undefined && usdValue !== "") {
-    return formatDollar(usdValue);
-  }
-  return "-";
-}
-
-function latestPortfolioSync() {
-  return (
-    store.tossAccounts.map((item) => item.synced_at).filter(Boolean).sort().at(-1) ||
-    store.tossHoldings.map((item) => item.synced_at).filter(Boolean).sort().at(-1) ||
-    store.tossOrders.map((item) => item.synced_at).filter(Boolean).sort().at(-1) ||
-    null
-  );
 }
 
 function cadenceLabel(seconds) {
@@ -422,9 +360,6 @@ function insightCadenceSummary() {
     return "";
   }
   const parts = [];
-  if (!ARCHIVED_SECTIONS.has("portfolio") && runtime.toss_enabled && runtime.toss_sync_holdings_enabled) {
-    parts.push(`보유 ${cadenceLabel(runtime.toss_poll_seconds)}`);
-  }
   if (runtime.research_enabled) {
     parts.push(`리포트 ${cadenceLabel(runtime.research_poll_seconds)}`);
   }
@@ -438,10 +373,6 @@ function insightCadenceSummary() {
     parts.push(`시세 ${cadenceLabel(runtime.price_poll_seconds)}`);
   }
   return parts.join(" · ");
-}
-
-function primaryAccount() {
-  return store.tossAccounts[0] || null;
 }
 
 function priceInfo(stockCode) {
@@ -459,33 +390,24 @@ function briefingQuoteInfo(stockCode) {
   return store.briefingQuotes.find((item) => normalizeStockCode(item.code) === normalized) || null;
 }
 
-function holdingCodeSet() {
-  return new Set(store.tossHoldings.map((item) => normalizeStockCode(item.symbol)).filter(Boolean));
-}
-
 function watchCodeSet() {
   return new Set(uniqueStockCodes(store.userWatchCodes));
 }
 
 function companyBriefMembership(item) {
   const code = normalizeStockCode(item.stock_code);
-  const holdings = holdingCodeSet();
   const watchlist = watchCodeSet();
   return {
-    holding: Boolean(code) && holdings.has(code),
     watchlist: Boolean(code) && watchlist.has(code),
   };
 }
 
 function companyBriefGroupOptions() {
-  const holdings = holdingCodeSet();
   const watchlist = watchCodeSet();
-  const holdingCount = store.companyBriefs.filter((item) => holdings.has(normalizeStockCode(item.stock_code))).length;
   const watchlistCount = store.companyBriefs.filter((item) => watchlist.has(normalizeStockCode(item.stock_code))).length;
 
   return [
     ["all", "전체", store.companyBriefs.length],
-    ["holdings", "보유", holdingCount],
     ["watchlist", "관심", watchlistCount],
   ];
 }
@@ -527,15 +449,6 @@ function escapeHtml(value) {
 function currentSectionItems() {
   if (state.section === "company_brief") {
     return store.companyBriefs;
-  }
-  if (state.section === "portfolio") {
-    if (state.category === "accounts") {
-      return store.tossAccounts;
-    }
-    if (state.category === "orders") {
-      return store.tossOrders;
-    }
-    return store.tossHoldings;
   }
   if (state.section === "research") {
     return store.researchReports;
@@ -587,7 +500,6 @@ function filteredItems() {
         .toLowerCase();
       return (
         (state.companyBriefGroup === "all" ||
-          (state.companyBriefGroup === "holdings" && membership.holding) ||
           (state.companyBriefGroup === "watchlist" && membership.watchlist)) &&
         (state.category === "all" ||
           (state.category === "reports" && item.report_count > 0) ||
@@ -596,38 +508,6 @@ function filteredItems() {
         (!keyword || haystack.includes(keyword)) &&
         matchesDateRange(item.latest_published_at) &&
         (state.auxOne === "all" || item.market === state.auxOne)
-      );
-    }
-
-    if (state.section === "portfolio") {
-      if (state.category === "accounts") {
-        const haystack = [item.account_no, item.account_type, item.broker_name].filter(Boolean).join(" ").toLowerCase();
-        return (
-          (!keyword || haystack.includes(keyword)) &&
-          matchesDateRange(item.synced_at) &&
-          (state.auxOne === "all" || item.account_type === state.auxOne)
-        );
-      }
-
-      if (state.category === "orders") {
-        const haystack = [item.symbol, item.status, item.side, item.order_type, item.currency]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return (
-          (!keyword || haystack.includes(keyword)) &&
-          matchesDateRange(item.ordered_at || item.synced_at) &&
-          (state.auxOne === "all" || item.status === state.auxOne) &&
-          (state.auxTwo === "all" || item.side === state.auxTwo)
-        );
-      }
-
-      const haystack = [item.name, item.symbol, item.currency, item.market_country].filter(Boolean).join(" ").toLowerCase();
-      return (
-        (!keyword || haystack.includes(keyword)) &&
-        matchesDateRange(item.synced_at) &&
-        (state.auxOne === "all" || item.currency === state.auxOne) &&
-        (state.auxTwo === "all" || item.market_country === state.auxTwo)
       );
     }
 
@@ -696,15 +576,6 @@ function renderSidebar() {
         `<button class="subnav-item ${state.section === "news" && state.category === value ? "active" : ""}" data-section="news" data-category="${escapeHtml(value)}">${escapeHtml(label)}</button>`
     )
     .join("");
-  const portfolioItems = SECTION_CONFIG.portfolio.categories
-    .map(
-      ([value, label]) =>
-        `<button class="subnav-item ${state.section === "portfolio" && state.category === value ? "active" : ""}" data-section="portfolio" data-category="${escapeHtml(value)}">${escapeHtml(label)}</button>`
-    )
-    .join("");
-  if (elements.portfolioSubnav) {
-    elements.portfolioSubnav.innerHTML = ARCHIVED_SECTIONS.has("portfolio") ? "" : portfolioItems;
-  }
   if (elements.disclosureSubnav) {
     elements.disclosureSubnav.innerHTML = disclosureItems;
   }
@@ -777,38 +648,6 @@ function renderFilters() {
     elements.auxTwo.innerHTML = corpClassOptions
       .map((value) => optionMarkup(value, value === "all" ? "시장구분" : value, state.auxTwo))
       .join("");
-  } else if (state.section === "portfolio") {
-    if (state.category === "holdings") {
-      const currencyOptions = ["all", ...uniqueSorted(store.tossHoldings.map((item) => item.currency))];
-      const marketOptions = ["all", ...uniqueSorted(store.tossHoldings.map((item) => item.market_country))];
-      elements.auxOne.disabled = false;
-      elements.auxTwo.disabled = false;
-      elements.auxOne.innerHTML = currencyOptions
-        .map((value) => optionMarkup(value, value === "all" ? "통화" : value, state.auxOne))
-        .join("");
-      elements.auxTwo.innerHTML = marketOptions
-        .map((value) => optionMarkup(value, value === "all" ? "시장" : value, state.auxTwo))
-        .join("");
-    } else if (state.category === "orders") {
-      const statusOptions = ["all", ...uniqueSorted(store.tossOrders.map((item) => item.status))];
-      const sideOptions = ["all", ...uniqueSorted(store.tossOrders.map((item) => item.side))];
-      elements.auxOne.disabled = false;
-      elements.auxTwo.disabled = false;
-      elements.auxOne.innerHTML = statusOptions
-        .map((value) => optionMarkup(value, value === "all" ? "주문상태" : value, state.auxOne))
-        .join("");
-      elements.auxTwo.innerHTML = sideOptions
-        .map((value) => optionMarkup(value, value === "all" ? "매수/매도" : value, state.auxTwo))
-        .join("");
-    } else {
-      const accountTypeOptions = ["all", ...uniqueSorted(store.tossAccounts.map((item) => item.account_type))];
-      elements.auxOne.disabled = false;
-      elements.auxTwo.disabled = true;
-      elements.auxOne.innerHTML = accountTypeOptions
-        .map((value) => optionMarkup(value, value === "all" ? "계좌유형" : value, state.auxOne))
-        .join("");
-      elements.auxTwo.innerHTML = optionMarkup("all", "추가필터", "all");
-    }
   } else {
     const pressOptions = ["all", ...uniqueSorted(store.newsItems.map((item) => item.press_name))];
     elements.auxOne.disabled = false;
@@ -831,17 +670,7 @@ function renderMeta(count) {
     runtime?.last_disclosure_source === "dart_web" && runtime?.last_disclosure_message
       ? " · 공시 web"
       : "";
-  const tossRetryLabel = runtime?.next_toss_retry_at
-    ? ` · 재시도 ${formatDateTime(runtime.next_toss_retry_at)}`
-    : "";
-  if (state.section === "portfolio") {
-    elements.sectionMeta.textContent = `${count.toLocaleString("ko-KR")}건 · ${
-      latestPortfolioSync() ? formatDateTime(latestPortfolioSync()) : "토스 동기화 대기"
-    }`;
-    elements.sidebarStatus.textContent = store.tossStatus?.configured
-      ? `계좌 ${store.tossStatus.account_seq || "-"} 연결${tossRetryLabel}`
-      : "토스 미설정";
-  } else if (state.section === "company_brief") {
+  if (state.section === "company_brief") {
     elements.sectionMeta.textContent = `${count.toLocaleString("ko-KR")}종목 · ${
       briefing?.as_of ? formatDateTime(briefing.as_of) : "브리핑 없음"
     } · 자동갱신`;
@@ -863,6 +692,22 @@ function linkOrText(url, label) {
     return `<span>${escapeHtml(label)}</span>`;
   }
   return `<a class="text-link" href="${escapeHtml(url)}" rel="noreferrer">${escapeHtml(label)}</a>`;
+}
+
+function naverResearchDetailUrl(item) {
+  if (item?.source !== "naver_finance" || item?.source_category !== "company") {
+    return null;
+  }
+  const stockCode = String(item?.stock_code || "").trim();
+  const researchId = String(item?.external_id || "").trim();
+  if (!/^\d{6}$/.test(stockCode) || !/^\d+$/.test(researchId)) {
+    return null;
+  }
+  return `https://m.stock.naver.com/domestic/stock/${encodeURIComponent(stockCode)}/research/${encodeURIComponent(researchId)}`;
+}
+
+function researchItemUrl(item) {
+  return naverResearchDetailUrl(item) || item?.pdf_url || item?.detail_url || item?.url || null;
 }
 
 function companyBriefStreamRow(label, count, title, url, meta) {
@@ -893,9 +738,6 @@ function companyBriefStat(label, value) {
 function companyBriefBadges(item) {
   const membership = companyBriefMembership(item);
   const badges = [];
-  if (membership.holding) {
-    badges.push('<span class="pill pill-dark">보유</span>');
-  }
   if (membership.watchlist) {
     badges.push('<span class="pill pill-accent">관심</span>');
   }
@@ -904,9 +746,6 @@ function companyBriefBadges(item) {
 }
 
 function companyBriefPanelTitle() {
-  if (state.companyBriefGroup === "holdings") {
-    return "보유 기업";
-  }
   if (state.companyBriefGroup === "watchlist") {
     return "관심 기업";
   }
@@ -1015,7 +854,6 @@ function companyBriefOverviewRow(item, index) {
       <div class="company-brief-row-main">
         <div class="company-brief-row-title">
           <strong>${escapeHtml(item.company_name)}</strong>
-          ${membership.holding ? '<span class="mini-badge">보유</span>' : ""}
           ${membership.watchlist ? '<span class="mini-badge accent">관심</span>' : ""}
         </div>
         <div class="company-brief-row-meta">
@@ -1176,13 +1014,6 @@ function overviewNewsRows(limit = 5) {
   return (matched.length ? matched : sorted).slice(0, limit);
 }
 
-function overviewHoldingRows(limit = 5) {
-  const holdings = holdingCodeSet();
-  return companyBriefSortedItems(store.companyBriefs)
-    .filter((item) => holdings.has(normalizeStockCode(item.stock_code)))
-    .slice(0, limit);
-}
-
 function overviewReportRow(item) {
   const companyName = entityCompanyName(item);
   const broker = [item.broker_name, item.opinion].filter(Boolean).join(" · ") || "증권사 리포트";
@@ -1264,26 +1095,6 @@ function newsCompanyGuess(newsItem) {
   );
 }
 
-function overviewBriefRow(item) {
-  const latest = companyBriefLatestSignal(item);
-  return `
-    <article class="overview-feed-row">
-      ${overviewWatchButton(item.stock_code, item.company_name)}
-      <button class="overview-row-button" data-company-drill="${escapeHtml(item.stock_code || item.company_name)}" type="button">
-        <div class="overview-row-company">
-          <strong>${escapeHtml(item.company_name)}</strong>
-          <span>${escapeHtml(item.stock_code || item.market || "-")}</span>
-        </div>
-        ${overviewPriceBlock(item)}
-        <div class="overview-row-copy">
-          <span>${escapeHtml(latest?.label || "브리핑")} · 신호 ${escapeHtml(formatNumber(item.total_count))}건</span>
-          <strong>${escapeHtml(latest?.title || "연결된 최신 신호가 없습니다.")}</strong>
-        </div>
-      </button>
-    </article>
-  `;
-}
-
 function overviewSection(title, count, target, rows, emptyText) {
   return `
     <section class="overview-section">
@@ -1315,25 +1126,6 @@ function overviewUpdateCards() {
       `
     )
     .join("");
-}
-
-function overviewPortfolioBlock() {
-  const account = primaryAccount();
-  const holdings = overviewHoldingRows(3);
-  return `
-    <section class="overview-section overview-portfolio-block">
-      <button class="overview-section-head" data-overview-target="portfolio" type="button">
-        <strong>포트폴리오</strong>
-        <span>${account ? "계좌 연결됨" : "보류"}</span>
-        <span aria-hidden="true">›</span>
-      </button>
-      ${
-        holdings.length
-          ? `<div class="overview-feed-list">${holdings.map((item) => overviewBriefRow(item)).join("")}</div>`
-          : `<div class="overview-empty">토스증권 연동은 보류되어 있습니다.</div>`
-      }
-    </section>
-  `;
 }
 
 function overviewHelpBlock() {
@@ -1398,16 +1190,14 @@ function overviewIndexBlock() {
 
 function overviewRightRail() {
   const watchCount = watchCodeSet().size;
-  const holdingCount = holdingCodeSet().size;
   return `
     <aside class="overview-side-panel">
-      <div class="overview-account-card">
-        <strong>자산 관리</strong>
-        <span>계좌 연동은 아카이빙되어 있습니다.</span>
+      <div class="overview-watch-card">
+        <strong>관심기업</strong>
+        <span>별표로 저장한 기업의 브리핑만 따로 모아봅니다.</span>
         <button class="overview-cta" data-overview-target="watchlist" type="button">관심기업 보기</button>
       </div>
       <div class="overview-side-tabs">
-        <button data-overview-target="holdings" type="button"><strong>${escapeHtml(formatNumber(holdingCount))}</strong><span>보유기업</span></button>
         <button data-overview-target="watchlist" type="button"><strong>${escapeHtml(formatNumber(watchCount))}</strong><span>관심기업</span></button>
         <button data-overview-target="all-companies" type="button"><strong>${escapeHtml(formatNumber(store.companyBriefs.length))}</strong><span>전체기업</span></button>
         <button data-overview-target="indices" type="button"><strong>${escapeHtml(formatNumber(store.briefingQuotes.length))}</strong><span>주요지수</span></button>
@@ -1420,7 +1210,6 @@ function butlerOverviewShell() {
   const reportRows = overviewReportRows().map((item) => overviewReportRow(item));
   const disclosureRows = overviewDisclosureRows().map((item) => overviewDisclosureRow(item));
   const newsRows = overviewNewsRows().map((item) => overviewNewsRow(item));
-  const holdingRows = overviewHoldingRows().map((item) => overviewBriefRow(item));
   return `
     <div class="butler-overview-shell">
       <main class="overview-main-card">
@@ -1431,8 +1220,6 @@ function butlerOverviewShell() {
         ${overviewSection("지금 많이 보는 리포트", store.researchReports.length, "research", reportRows, "표시할 리포트가 없습니다.")}
         ${overviewSection("주요 공시", store.disclosures.length, "disclosure", disclosureRows, "표시할 공시가 없습니다.")}
         ${overviewSection("최신 뉴스", store.newsItems.length, "news", newsRows, "표시할 뉴스가 없습니다.")}
-        ${overviewPortfolioBlock()}
-        ${overviewSection("보유기업 주요소식", holdingRows.length, "holdings", holdingRows, "보유기업 연동 데이터가 없습니다.")}
         ${overviewHelpBlock()}
         ${overviewIndexBlock()}
       </main>
@@ -1442,7 +1229,6 @@ function butlerOverviewShell() {
 }
 
 function companyBriefDesktopCard(item) {
-  const marketLabel = [item.stock_code || "-", item.market || "-"].filter(Boolean).join(" · ");
   const priceView = companyBriefPriceView(item);
   return `
     <article class="company-brief-card">
@@ -1453,7 +1239,6 @@ function companyBriefDesktopCard(item) {
             ${companyBriefBadges(item)}
           </div>
           <div class="company-brief-subline">
-            <span>${escapeHtml(marketLabel)}</span>
             <span>총 신호 ${escapeHtml(String(item.total_count || 0))}건</span>
             <span>${formatDateTime(item.latest_published_at)}</span>
           </div>
@@ -1506,120 +1291,7 @@ function renderDesktop(items) {
   }
 
   if (!items.length) {
-    const message =
-      state.section === "company_brief" && state.companyBriefGroup === "holdings"
-        ? "토스 보유 종목이 아직 동기화되지 않았습니다."
-        : state.section === "company_brief" && state.companyBriefGroup === "watchlist"
-          ? "관심 종목과 연결된 브리핑 카드가 아직 없습니다."
-          : "표시할 데이터가 없습니다.";
-    elements.desktopBoard.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
-    return;
-  }
-
-  if (state.section === "portfolio") {
-    if (state.category === "accounts") {
-      const rows = items
-        .map(
-          (item) => `
-            <tr>
-              <td><strong>${escapeHtml(item.account_no || "-")}</strong><span class="muted">${escapeHtml(item.account_type || "-")}</span></td>
-              <td class="number">${formatTossAccountMoney(item.total_purchase_amount_krw, item.total_purchase_amount_usd)}</td>
-              <td class="number">${formatTossAccountMoney(item.market_value_krw, item.market_value_usd)}</td>
-              <td class="number ${toneClass(item.profit_loss_rate)}">${formatRatioPercent(item.profit_loss_rate)}</td>
-              <td class="number ${toneClass(item.daily_profit_loss_rate)}">${formatRatioPercent(item.daily_profit_loss_rate)}</td>
-              <td class="number">${formatDateTime(item.synced_at)}</td>
-            </tr>
-          `
-        )
-        .join("");
-      elements.desktopBoard.innerHTML = `
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>계좌</th>
-              <th>투자원금</th>
-              <th>평가금액</th>
-              <th>누적수익률</th>
-              <th>일간수익률</th>
-              <th>동기화</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      `;
-      return;
-    }
-
-    if (state.category === "orders") {
-      const rows = items
-        .map(
-          (item) => `
-            <tr>
-              <td><strong>${escapeHtml(item.symbol)}</strong><span class="muted">${escapeHtml(item.currency || "-")}</span></td>
-              <td><span class="pill">${escapeHtml(item.side || "-")}</span></td>
-              <td>${escapeHtml(item.order_type || "-")} / ${escapeHtml(item.time_in_force || "-")}</td>
-              <td><span class="pill">${escapeHtml(item.status || "-")}</span></td>
-              <td class="number">${formatMoneyByCurrency(item.price, item.currency)}</td>
-              <td class="number">${formatNumber(item.quantity)}</td>
-              <td class="number">${formatNumber(item.filled_quantity)}</td>
-              <td class="number">${formatDateTime(item.ordered_at)}</td>
-            </tr>
-          `
-        )
-        .join("");
-      elements.desktopBoard.innerHTML = `
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>종목</th>
-              <th>방향</th>
-              <th>주문조건</th>
-              <th>상태</th>
-              <th>가격</th>
-              <th>주문수량</th>
-              <th>체결수량</th>
-              <th>주문시각</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      `;
-      return;
-    }
-
-    const rows = items
-      .map(
-        (item) => `
-          <tr>
-            <td><strong>${escapeHtml(item.name)}</strong><span class="muted">${escapeHtml(item.symbol)}</span></td>
-            <td>${escapeHtml(item.currency || "-")} / ${escapeHtml(item.market_country || "-")}</td>
-            <td class="number">${formatNumber(item.quantity)}</td>
-            <td class="number">${formatMoneyByCurrency(item.last_price, item.currency)}</td>
-            <td class="number">${formatMoneyByCurrency(item.average_purchase_price, item.currency)}</td>
-            <td class="number">${formatMoneyByCurrency(item.market_value, item.currency)}</td>
-            <td class="number ${toneClass(item.profit_loss_rate)}">${formatRatioPercent(item.profit_loss_rate)}</td>
-            <td class="number ${toneClass(item.daily_profit_loss_rate)}">${formatRatioPercent(item.daily_profit_loss_rate)}</td>
-          </tr>
-        `
-      )
-      .join("");
-    elements.desktopBoard.innerHTML = `
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>종목</th>
-            <th>시장</th>
-            <th>보유수량</th>
-            <th>현재가</th>
-            <th>평균단가</th>
-            <th>평가금액</th>
-            <th>누적수익률</th>
-            <th>일간수익률</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    `;
+    elements.desktopBoard.innerHTML = '<div class="empty-state">표시할 데이터가 없습니다.</div>';
     return;
   }
 
@@ -1631,7 +1303,7 @@ function renderDesktop(items) {
         return `
           <tr>
             <td><strong>${escapeHtml(item.company_name || item.subject_name || "-")}</strong><span class="muted">${escapeHtml(item.stock_code || item.source_category || "-")}</span></td>
-            <td>${linkOrText(item.detail_url || item.pdf_url, item.title)}</td>
+            <td>${linkOrText(researchItemUrl(item), item.title)}</td>
             <td class="number">${latest?.close ? formatNumber(latest.close) : "-"}</td>
             <td class="number">${item.target_price ? formatNumber(item.target_price) : "-"}</td>
             <td class="number ${returnRate > 0 ? "positive" : returnRate < 0 ? "negative" : "neutral"}">${formatPercent(returnRate)}</td>
@@ -1734,82 +1406,11 @@ function renderMobile(items) {
   }
 
   if (!items.length) {
-    const message =
-      state.section === "company_brief" && state.companyBriefGroup === "holdings"
-        ? "토스 보유 종목이 아직 동기화되지 않았습니다."
-        : state.section === "company_brief" && state.companyBriefGroup === "watchlist"
-          ? "관심 종목과 연결된 브리핑 카드가 아직 없습니다."
-          : "표시할 데이터가 없습니다.";
-    elements.mobileBoard.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
+    elements.mobileBoard.innerHTML = '<div class="empty-state">표시할 데이터가 없습니다.</div>';
     return;
   }
 
   const cards = items.map((item) => {
-    if (state.section === "portfolio") {
-      if (state.category === "accounts") {
-        return `
-          <article class="mobile-card">
-            <div class="mobile-card-header">
-              <div class="mobile-card-title">
-                <strong>${escapeHtml(item.account_no || "-")}</strong>
-                <span class="muted">${escapeHtml(item.account_type || "-")}</span>
-              </div>
-              <span class="pill">${escapeHtml(item.broker_name || "toss")}</span>
-            </div>
-            <div class="mobile-card-grid">
-              <div class="mobile-kv"><label>투자원금</label><span>${formatTossAccountMoney(item.total_purchase_amount_krw, item.total_purchase_amount_usd)}</span></div>
-              <div class="mobile-kv"><label>평가금액</label><span>${formatTossAccountMoney(item.market_value_krw, item.market_value_usd)}</span></div>
-              <div class="mobile-kv"><label>누적수익률</label><span class="${toneClass(item.profit_loss_rate)}">${formatRatioPercent(item.profit_loss_rate)}</span></div>
-              <div class="mobile-kv"><label>일간수익률</label><span class="${toneClass(item.daily_profit_loss_rate)}">${formatRatioPercent(item.daily_profit_loss_rate)}</span></div>
-            </div>
-            <div class="mobile-card-meta"><span>${formatDateTime(item.synced_at)}</span></div>
-          </article>
-        `;
-      }
-
-      if (state.category === "orders") {
-        return `
-          <article class="mobile-card">
-            <div class="mobile-card-header">
-              <div class="mobile-card-title">
-                <strong>${escapeHtml(item.symbol)}</strong>
-                <span class="muted">${escapeHtml(item.currency || "-")}</span>
-              </div>
-              <span class="pill">${escapeHtml(item.status || "-")}</span>
-            </div>
-            <div class="mobile-card-grid">
-              <div class="mobile-kv"><label>방향</label><span>${escapeHtml(item.side || "-")}</span></div>
-              <div class="mobile-kv"><label>주문조건</label><span>${escapeHtml(item.order_type || "-")}</span></div>
-              <div class="mobile-kv"><label>가격</label><span>${formatMoneyByCurrency(item.price, item.currency)}</span></div>
-              <div class="mobile-kv"><label>주문수량</label><span>${formatNumber(item.quantity)}</span></div>
-              <div class="mobile-kv"><label>체결수량</label><span>${formatNumber(item.filled_quantity)}</span></div>
-              <div class="mobile-kv"><label>시간</label><span>${formatDateTime(item.ordered_at)}</span></div>
-            </div>
-          </article>
-        `;
-      }
-
-      return `
-        <article class="mobile-card">
-          <div class="mobile-card-header">
-            <div class="mobile-card-title">
-              <strong>${escapeHtml(item.name)}</strong>
-              <span class="muted">${escapeHtml(item.symbol)}</span>
-            </div>
-            <span class="pill">${escapeHtml(item.currency || "-")}</span>
-          </div>
-          <div class="mobile-card-grid">
-            <div class="mobile-kv"><label>보유수량</label><span>${formatNumber(item.quantity)}</span></div>
-            <div class="mobile-kv"><label>현재가</label><span>${formatMoneyByCurrency(item.last_price, item.currency)}</span></div>
-            <div class="mobile-kv"><label>평균단가</label><span>${formatMoneyByCurrency(item.average_purchase_price, item.currency)}</span></div>
-            <div class="mobile-kv"><label>평가금액</label><span>${formatMoneyByCurrency(item.market_value, item.currency)}</span></div>
-            <div class="mobile-kv"><label>누적수익률</label><span class="${toneClass(item.profit_loss_rate)}">${formatRatioPercent(item.profit_loss_rate)}</span></div>
-            <div class="mobile-kv"><label>일간수익률</label><span class="${toneClass(item.daily_profit_loss_rate)}">${formatRatioPercent(item.daily_profit_loss_rate)}</span></div>
-          </div>
-        </article>
-      `;
-    }
-
     if (state.section === "research") {
       const latest = priceInfo(item.stock_code);
       const returnRate = impliedReturn(item.target_price, item.stock_code);
@@ -1822,7 +1423,7 @@ function renderMobile(items) {
             </div>
             <span class="pill">${escapeHtml(item.opinion || "-")}</span>
           </div>
-          <div>${linkOrText(item.detail_url || item.pdf_url, item.title)}</div>
+          <div>${linkOrText(researchItemUrl(item), item.title)}</div>
           <div class="mobile-card-grid">
             <div class="mobile-kv"><label>현재가</label><span>${latest?.close ? formatNumber(latest.close) : "-"}</span></div>
             <div class="mobile-kv"><label>목표주가</label><span>${item.target_price ? formatNumber(item.target_price) : "-"}</span></div>
@@ -1908,17 +1509,12 @@ function openOverviewTarget(target) {
     renderAll();
     return;
   }
-  if (target === "holdings") {
-    state.companyBriefGroup = "holdings";
-    renderAll();
-    return;
-  }
   if (target === "all-companies") {
     state.companyBriefGroup = "all";
     renderAll();
     return;
   }
-  if (target === "indices" || target === "help" || target === "portfolio") {
+  if (target === "indices" || target === "help") {
     renderAll();
   }
 }
@@ -2185,6 +1781,7 @@ function reportSummaryBullets(payload) {
 function reportDetailModal(payload) {
   const { report, brief, move, returnRate, previousId, nextId } = payload;
   const companyName = entityCompanyName(report);
+  const reportUrl = researchItemUrl(report);
   const price = move.price ? `${formatNumber(move.price)}원` : "-";
   const change = move.hasMove
     ? `${Number(move.changeValue) > 0 ? "+" : ""}${formatNumber(move.changeValue)}원 · ${formatPercent(move.changeRate)}`
@@ -2219,7 +1816,7 @@ function reportDetailModal(payload) {
             ${detailMetric("목표주가", report.target_price ? `${formatNumber(report.target_price)}원` : "-")}
             ${detailMetric("현재가", price)}
             ${detailMetric("브리핑 갱신", formatDateTime(brief?.latest_published_at))}
-            ${report.detail_url || report.pdf_url ? `<a class="detail-source-link" href="${escapeHtml(report.detail_url || report.pdf_url)}" rel="noreferrer">원문 보기</a>` : ""}
+            ${reportUrl ? `<a class="detail-source-link" href="${escapeHtml(reportUrl)}" rel="noreferrer">원문 보기</a>` : ""}
           </aside>
         </div>
         <div class="detail-summary">${reportSummaryBullets(payload)}</div>
@@ -2315,10 +1912,6 @@ async function loadData(options = {}) {
       store.researchReports = feed.research_reports || [];
       store.disclosures = feed.disclosures || [];
       store.newsItems = feed.news_items || [];
-      store.tossStatus = feed.toss_status || null;
-      store.tossAccounts = feed.toss_accounts || [];
-      store.tossHoldings = feed.toss_holdings || [];
-      store.tossOrders = feed.toss_orders || [];
       store.watchCodes = feed.watch_codes || [];
       initializeUserWatchCodes(store.watchCodes);
       store.latestPrices = feed.latest_prices || {};
@@ -2414,7 +2007,7 @@ function bindEvents() {
     if (nav instanceof HTMLElement && nav.dataset.section) {
       state.section = normalizeSection(nav.dataset.section);
       resetSectionFilters();
-      if (nav.dataset.category && !ARCHIVED_SECTIONS.has(nav.dataset.section)) {
+      if (nav.dataset.category) {
         state.category = nav.dataset.category;
       }
       renderAll();

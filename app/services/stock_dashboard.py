@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 import json
 import re
 from statistics import mean
 from threading import RLock
 from typing import Optional
+from urllib.parse import parse_qs, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.collectors.news import preferred_news_url
+from app.collectors.research import fetch_company_detail_fields, preferred_research_url
 from app.models import (
     DailyPrice,
     DisclosureItem,
@@ -25,7 +28,7 @@ from app.models import (
     StockMaster,
 )
 from app.repository import upsert_many
-from app.services.chart_patterns import detect_chart_patterns
+from app.services.chart_patterns import CHART_PATTERN_SCHEMA_VERSION, detect_chart_patterns
 from app.services.company_profiles import company_profile_payload
 from app.services.ttl_cache import TTLCache
 
@@ -74,12 +77,15 @@ NAVER_ITEM_URL = "https://finance.naver.com/item/main.naver"
 NAVER_COMPANY_INFO_URL = "https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx"
 NAVER_CACHE = TTLCache(maxsize=2048)
 PRICE_HISTORY_BACKFILL_CACHE = TTLCache(maxsize=2048)
+PRICE_HISTORY_QUALITY_CACHE = TTLCache(maxsize=2048)
 PRICE_HISTORY_BACKFILL_LOCK = RLock()
 NAVER_SNAPSHOT_TTL_SECONDS = 120
 NAVER_ITEM_NEWS_TTL_SECONDS = 180
+STOCK_NEWS_SNAPSHOT_MAX_AGE_SECONDS = 15 * 60
 PRICE_HISTORY_MIN_ROWS = 760
 PRICE_HISTORY_LOOKBACK_DAYS = 1200
 PRICE_HISTORY_BACKFILL_TTL_SECONDS = 60 * 60 * 6
+PRICE_HISTORY_QUALITY_RETRY_SECONDS = 60 * 10
 KST = timezone(timedelta(hours=9))
 FUNDAMENTAL_SNAPSHOT_KEYS = {
     "data_status",
@@ -526,6 +532,69 @@ def _resolve_trade_date(value: Optional[str]) -> Optional[datetime]:
     return None
 
 
+def _stock_news_datetime(value: object) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return _resolve_trade_date(raw)
+    return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+
+
+def _stock_news_external_id(value: object) -> str:
+    parsed = urlparse(str(value or ""))
+    params = parse_qs(parsed.query)
+    article_id = (params.get("article_id") or [""])[0]
+    office_id = (params.get("office_id") or [""])[0]
+    if article_id and office_id:
+        return f"{office_id}:{article_id}"
+    path_match = re.fullmatch(r"/(?:mnews/)?article/(\d+)/(\d+)/?", parsed.path)
+    if path_match:
+        return f"{path_match.group(1)}:{path_match.group(2)}"
+    return ""
+
+
+def _deduplicate_stock_news_rows(
+    rows: list[dict[str, object]],
+    *,
+    limit: int = 20,
+) -> list[dict[str, object]]:
+    normalized: list[dict[str, object]] = []
+    seen: set[str] = set()
+    ordered = sorted(
+        (row for row in rows if isinstance(row, dict) and str(row.get("title") or "").strip()),
+        key=lambda row: _stock_news_datetime(row.get("published_at")) or datetime.min,
+        reverse=True,
+    )
+    for row in ordered:
+        title = re.sub(r"\s+", " ", str(row.get("title") or "")).strip()
+        external_id = _stock_news_external_id(row.get("url") or row.get("detail_url"))
+        fallback_key = re.sub(r"[^0-9A-Z가-힣]", "", title.upper())
+        key = external_id or fallback_key
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        source = str(row.get("source") or row.get("press_name") or "네이버 금융").strip()
+        raw_url = row.get("url") or row.get("detail_url")
+        normalized.append(
+            {
+                **row,
+                "title": title,
+                "source": source,
+                "url": preferred_news_url("naver_finance", external_id, raw_url),
+                "published_at": _stock_news_datetime(row.get("published_at")),
+                "external_id": external_id,
+            }
+        )
+        if len(normalized) >= limit:
+            break
+    return normalized
+
+
 def _fetch_naver_item_news(code: str, *, strict: bool = False) -> list[dict[str, object]]:
     try:
         response = requests.get(
@@ -547,6 +616,13 @@ def _fetch_naver_item_news(code: str, *, strict: bool = False) -> list[dict[str,
     soup = BeautifulSoup(response.text, "html.parser")
     rows: list[dict[str, object]] = []
     for tr in soup.select("table.type5 tr"):
+        row_classes = set(tr.get("class") or [])
+        related_parent = tr.find_parent(
+            "tr",
+            class_=lambda value: value and "relation_lst" in str(value).split(),
+        )
+        if "relation_lst" in row_classes or related_parent is not None:
+            continue
         title_cell = tr.select_one("td.title")
         if not title_cell:
             continue
@@ -568,7 +644,7 @@ def _fetch_naver_item_news(code: str, *, strict: bool = False) -> list[dict[str,
                 _resolve_trade_date(date_cell.get_text(" ", strip=True) if date_cell else None),
             )
         )
-    return rows[:10]
+    return _deduplicate_stock_news_rows(rows, limit=20)
 
 
 def _naver_item_news(code: str) -> list[dict[str, object]]:
@@ -588,6 +664,55 @@ def _stored_stock_news(db: Session, code: str) -> Optional[list[dict[str, object
     except (TypeError, ValueError):
         return None
     return payload if isinstance(payload, list) else None
+
+
+def recent_stock_news_rows(
+    db: Session,
+    code: str,
+    *,
+    limit: int = 20,
+    refresh_if_stale: bool = True,
+    force_refresh: bool = False,
+) -> list[dict[str, object]]:
+    snapshot = db.get(StockNewsSnapshot, code)
+    stored_news = _stored_stock_news(db, code) or []
+    fetched_at = snapshot.fetched_at if snapshot else None
+    stale = fetched_at is None or fetched_at < (
+        datetime.utcnow() - timedelta(seconds=STOCK_NEWS_SNAPSHOT_MAX_AGE_SECONDS)
+    )
+    if force_refresh or (refresh_if_stale and stale):
+        live_news = _naver_item_news(code)
+        if live_news:
+            stored_news = live_news
+            try:
+                store_stock_news(db, code, live_news)
+            except Exception:
+                db.rollback()
+    return _deduplicate_stock_news_rows(stored_news, limit=limit)
+
+
+def stock_news_item_payloads(
+    db: Session,
+    code: str,
+    *,
+    limit: int = 20,
+) -> list[dict[str, object]]:
+    rows = recent_stock_news_rows(db, code, limit=limit, refresh_if_stale=True)
+    return [
+        {
+            "id": -(index + 1),
+            "source": "naver_finance",
+            "source_category": "company",
+            "external_id": str(row.get("external_id") or f"{code}:{index}"),
+            "title": str(row.get("title") or ""),
+            "summary": None,
+            "press_name": str(row.get("source") or "네이버 금융"),
+            "image_url": None,
+            "detail_url": row.get("url"),
+            "published_at": row.get("published_at"),
+        }
+        for index, row in enumerate(rows)
+    ]
 
 
 def store_stock_news(
@@ -614,7 +739,7 @@ def store_stock_news(
     db.commit()
 
 
-def _prices(db: Session, code: str, limit: int = 800) -> list[DailyPrice]:
+def _prices(db: Session, code: str, limit: int = 260) -> list[DailyPrice]:
     statement = (
         select(DailyPrice)
         .where(DailyPrice.code == code)
@@ -624,11 +749,45 @@ def _prices(db: Session, code: str, limit: int = 800) -> list[DailyPrice]:
     return list(reversed(list(db.scalars(statement))))
 
 
+def _daily_price_has_complete_ohlc(row: DailyPrice) -> bool:
+    values = (row.open, row.high, row.low, row.close)
+    if any(value is None or value <= 0 for value in values):
+        return False
+    open_price = int(row.open)
+    high = int(row.high)
+    low = int(row.low)
+    close = int(row.close)
+    return high >= max(open_price, close) and low <= min(open_price, close) and high >= low
+
+
+def _recent_incomplete_ohlc_dates(
+    db: Session,
+    code: str,
+    *,
+    limit: int = 20,
+) -> list[date]:
+    rows = list(
+        db.scalars(
+            select(DailyPrice)
+            .where(DailyPrice.code == code)
+            .order_by(DailyPrice.trade_date.desc())
+            .limit(max(1, limit))
+        )
+    )
+    return [
+        row.trade_date
+        for row in rows
+        if row.trade_date.weekday() < 5 and not _daily_price_has_complete_ohlc(row)
+    ]
+
+
 def ensure_stock_price_history(
     db: Session,
     code: str,
     min_rows: int = PRICE_HISTORY_MIN_ROWS,
     lookback_days: int = PRICE_HISTORY_LOOKBACK_DAYS,
+    *,
+    require_recent_complete_ohlc: bool = False,
 ) -> int:
     def count_rows() -> int:
         return int(
@@ -641,6 +800,35 @@ def ensure_stock_price_history(
         )
 
     current_count = count_rows()
+    if require_recent_complete_ohlc and current_count:
+        incomplete_dates = _recent_incomplete_ohlc_dates(db, code)
+        if incomplete_dates:
+            quality_key = ("price_history_ohlc", code, tuple(incomplete_dates))
+            if PRICE_HISTORY_QUALITY_CACHE.get(quality_key) is None:
+                with PRICE_HISTORY_BACKFILL_LOCK:
+                    incomplete_dates = _recent_incomplete_ohlc_dates(db, code)
+                    if incomplete_dates:
+                        quality_key = ("price_history_ohlc", code, tuple(incomplete_dates))
+                        if PRICE_HISTORY_QUALITY_CACHE.get(quality_key) is None:
+                            try:
+                                from app.collectors.naver_quotes import (
+                                    collect_naver_price_history_for_code,
+                                )
+
+                                collect_naver_price_history_for_code(db, code, pages=3)
+                            except Exception:
+                                db.rollback()
+                            finally:
+                                # Avoid a retry storm when the upstream source
+                                # is temporarily unavailable. A repaired row no
+                                # longer appears in the incomplete-date query.
+                                PRICE_HISTORY_QUALITY_CACHE.set(
+                                    quality_key,
+                                    True,
+                                    PRICE_HISTORY_QUALITY_RETRY_SECONDS,
+                                )
+                current_count = count_rows()
+
     if current_count >= min_rows:
         return current_count
 
@@ -835,6 +1023,7 @@ def _chart_analysis(prices: list[DailyPrice]) -> dict[str, object]:
             "signals": ["종가 데이터가 부족합니다."],
             "risks": ["차트 판단 불가"],
             "patterns": patterns,
+            "pattern_schema_version": CHART_PATTERN_SCHEMA_VERSION,
         }
 
     if ma20 is not None and latest_close > ma20:
@@ -944,10 +1133,17 @@ def _chart_analysis(prices: list[DailyPrice]) -> dict[str, object]:
         "signals": signals[:6] or ["뚜렷한 차트 신호가 아직 약합니다."],
         "risks": risks[:5] or ["주요 차트 리스크 신호는 제한적입니다."],
         "patterns": patterns,
+        "pattern_schema_version": CHART_PATTERN_SCHEMA_VERSION,
     }
 
 
-def _research_revision(db: Session, code: str, naver: dict[str, object]) -> dict[str, object]:
+def _research_revision(
+    db: Session,
+    code: str,
+    naver: dict[str, object],
+    *,
+    allow_external: bool = True,
+) -> dict[str, object]:
     since = datetime.utcnow() - timedelta(days=180)
     reports = list(
         db.scalars(
@@ -976,10 +1172,8 @@ def _research_revision(db: Session, code: str, naver: dict[str, object]) -> dict
             previous_target = report.target_price
 
     latest = reports[-1] if reports else None
-    if latest and latest.detail_url and (latest.target_price is None or not latest.opinion):
+    if allow_external and latest and latest.detail_url and (latest.target_price is None or not latest.opinion):
         try:
-            from app.collectors.research import fetch_company_detail_fields
-
             fields = fetch_company_detail_fields(latest.detail_url)
             if fields.get("target_price") is not None:
                 latest.target_price = fields["target_price"]
@@ -1013,7 +1207,16 @@ def _research_revision(db: Session, code: str, naver: dict[str, object]) -> dict
                 "broker_name": report.broker_name,
                 "opinion": report.opinion,
                 "target_price": report.target_price,
-                "url": report.detail_url or report.pdf_url,
+                "url": preferred_research_url(
+                    report.stock_code,
+                    report.external_id,
+                    report.pdf_url,
+                    report.detail_url,
+                ),
+                "source": report.source,
+                "source_category": report.source_category,
+                "stock_code": report.stock_code,
+                "external_id": report.external_id,
                 "published_at": report.published_at,
             }
             for report in reversed(reports[-5:])
@@ -1027,17 +1230,21 @@ def _disclosure_events(
     words: tuple[str, ...],
     naver: Optional[dict[str, object]] = None,
     fallback_to_recent: bool = False,
+    items: Optional[list[DisclosureItem]] = None,
 ) -> dict[str, object]:
-    since = datetime.utcnow() - timedelta(days=180)
-    items = list(
-        db.scalars(
-            select(DisclosureItem)
-            .where(DisclosureItem.stock_code == code)
-            .where(DisclosureItem.published_at >= since)
-            .order_by(DisclosureItem.published_at.desc(), DisclosureItem.id.desc())
-            .limit(80)
+    if items is None:
+        since = datetime.utcnow() - timedelta(days=180)
+        items = list(
+            db.scalars(
+                select(DisclosureItem)
+                .where(DisclosureItem.stock_code == code)
+                .where(DisclosureItem.published_at >= since)
+                .order_by(DisclosureItem.published_at.desc(), DisclosureItem.id.desc())
+                .limit(80)
+            )
         )
-    )
+    else:
+        items = list(items)
     matched = [item for item in items if any(word in item.report_name for word in words)]
     if fallback_to_recent and not matched:
         matched = items[:5]
@@ -1220,64 +1427,82 @@ def _sentiment(
     disclosures: dict[str, object],
     *,
     refresh_live: bool = False,
+    allow_external: bool = True,
 ) -> dict[str, object]:
-    since = datetime.utcnow() - timedelta(days=30)
-    query = stock.name
-    items = list(
-        db.scalars(
-            select(NewsItem)
-            .where(NewsItem.published_at >= since)
-            .where((NewsItem.title.contains(query)) | (NewsItem.summary.contains(query)))
-            .order_by(NewsItem.published_at.desc(), NewsItem.id.desc())
-            .limit(80)
+    # The request-time stable dashboard is a latency-sensitive DB-only shell.
+    # A broad title/summary search can dominate a cold read on a large database,
+    # while the per-stock news snapshot already gives it an indexed fast path.
+    # The complete background build still performs the broader search.
+    if allow_external:
+        since = datetime.utcnow() - timedelta(days=30)
+        query = stock.name
+        items = list(
+            db.scalars(
+                select(NewsItem)
+                .where(NewsItem.published_at >= since)
+                .where((NewsItem.title.contains(query)) | (NewsItem.summary.contains(query)))
+                .order_by(NewsItem.published_at.desc(), NewsItem.id.desc())
+                .limit(80)
+            )
         )
+    else:
+        items = []
+    naver_news = recent_stock_news_rows(
+        db,
+        stock.code,
+        limit=20,
+        refresh_if_stale=allow_external,
+        force_refresh=allow_external and refresh_live,
     )
-    stored_news = _stored_stock_news(db, stock.code)
-    naver_news = _naver_item_news(stock.code) if refresh_live or stored_news is None else stored_news
-    if refresh_live or stored_news is None:
-        try:
-            store_stock_news(db, stock.code, naver_news)
-        except Exception:
-            db.rollback()
-    if not items and naver_news:
-        positive = 0
-        negative = 0
-        neutral = 0
-        latest_items: list[dict[str, object]] = []
-        for item in naver_news:
-            score = _keyword_score(str(item["title"]))
-            if score > 0:
-                positive += 1
-            elif score < 0:
-                negative += 1
-            else:
-                neutral += 1
-            latest_items.append({**item, "impact": _keyword_impact(score)})
-        total = positive + negative + neutral
-        score_value = _round_decimal((Decimal(positive - negative) / Decimal(total)) * 100) if total else None
+    if not allow_external and not naver_news:
+        # The warming shell intentionally skips the unindexed broad-news scan.
+        # Represent that as unavailable coverage instead of manufacturing a
+        # "no news" event from price/disclosure movement.
         return {
-            "score": score_value,
-            "positive_count": positive,
-            "negative_count": negative,
-            "neutral_count": neutral,
-            "latest_items": latest_items[:10],
+            "score": None,
+            "positive_count": 0,
+            "negative_count": 0,
+            "neutral_count": 0,
+            "latest_items": [],
         }
-
-    positive = 0
-    negative = 0
-    neutral = 0
-    scored_items: list[tuple[NewsItem, int]] = []
+    scored_events: list[tuple[dict[str, object], int]] = []
+    for item in naver_news:
+        score = _keyword_score(str(item.get("title") or ""))
+        scored_events.append(({**item, "impact": _keyword_impact(score)}, score))
     for item in items:
         score = _keyword_score(f"{item.title} {item.summary or ''}")
-        if score > 0:
-            positive += 1
-        elif score < 0:
-            negative += 1
-        else:
-            neutral += 1
-        scored_items.append((item, score))
+        scored_events.append((
+            _event_row(
+                item.title,
+                item.press_name or item.source,
+                preferred_news_url(item.source, item.external_id, item.detail_url),
+                item.published_at,
+                _keyword_impact(score),
+            ),
+            score,
+        ))
+    deduplicated_events: list[tuple[dict[str, object], int]] = []
+    seen_events: set[str] = set()
+    for event, score in sorted(
+        scored_events,
+        key=lambda pair: _stock_news_datetime(pair[0].get("published_at")) or datetime.min,
+        reverse=True,
+    ):
+        event_key = _stock_news_external_id(event.get("url")) or re.sub(
+            r"[^0-9A-Z가-힣]",
+            "",
+            str(event.get("title") or "").upper(),
+        )
+        if not event_key or event_key in seen_events:
+            continue
+        seen_events.add(event_key)
+        deduplicated_events.append((event, score))
 
-    if not scored_items:
+    positive = sum(1 for _event, score in deduplicated_events if score > 0)
+    negative = sum(1 for _event, score in deduplicated_events if score < 0)
+    neutral = sum(1 for _event, score in deduplicated_events if score == 0)
+
+    if not deduplicated_events:
         latest = prices[-1] if prices else None
         previous = _nth_from_end(prices, 1)
         change_rate = _rate(latest.close if latest else None, previous.close if previous else None)
@@ -1314,41 +1539,61 @@ def _sentiment(
         "positive_count": positive,
         "negative_count": negative,
         "neutral_count": neutral,
-        "latest_items": [
-            _event_row(
-                item.title,
-                item.press_name or item.source,
-                item.detail_url,
-                item.published_at,
-                _keyword_impact(score),
-            )
-            for item, score in scored_items[:10]
-        ],
+        "latest_items": [event for event, _score in deduplicated_events[:10]],
     }
 
 
-def build_stock_dashboard(db: Session, code: str, refresh_live: bool = False) -> Optional[dict[str, object]]:
+def build_stock_dashboard(
+    db: Session,
+    code: str,
+    refresh_live: bool = False,
+    *,
+    allow_external: bool = True,
+) -> Optional[dict[str, object]]:
     stock = db.get(StockMaster, code)
     if not stock:
         return None
 
     price_rows = _prices(db, code)
     stored_fundamentals = _stored_fundamental_snapshot(db, code)
-    live_naver = _naver_snapshot(code, refresh=refresh_live)
+    live_naver = _naver_snapshot(code, refresh=refresh_live) if allow_external else {}
     naver = {**stored_fundamentals, **live_naver}
     if live_naver and (refresh_live or not stored_fundamentals):
         try:
             store_fundamental_snapshot(db, code, live_naver)
         except Exception:
             db.rollback()
-    revisions = _research_revision(db, code, naver)
-    surprise = _disclosure_events(db, code, SURPRISE_WORDS, naver)
-    guidance = _disclosure_events(db, code, GUIDANCE_WORDS, fallback_to_recent=True)
+    revisions = _research_revision(db, code, naver, allow_external=allow_external)
+    since = datetime.utcnow() - timedelta(days=180)
+    disclosure_items = list(
+        db.scalars(
+            select(DisclosureItem)
+            .where(DisclosureItem.stock_code == code)
+            .where(DisclosureItem.published_at >= since)
+            .order_by(DisclosureItem.published_at.desc(), DisclosureItem.id.desc())
+            .limit(80)
+        )
+    )
+    surprise = _disclosure_events(db, code, SURPRISE_WORDS, naver, items=disclosure_items)
+    guidance = _disclosure_events(
+        db,
+        code,
+        GUIDANCE_WORDS,
+        fallback_to_recent=True,
+        items=disclosure_items,
+    )
     momentum = _momentum(price_rows)
     chart_analysis = _chart_analysis(price_rows)
     flows = _flows(db, code, price_rows, naver)
     valuation = _valuation(naver)
-    sentiment = _sentiment(db, stock, price_rows, surprise, refresh_live=refresh_live)
+    sentiment = _sentiment(
+        db,
+        stock,
+        price_rows,
+        surprise,
+        refresh_live=refresh_live,
+        allow_external=allow_external,
+    )
     macro_sensitivity = _macro_sensitivity(momentum, flows, valuation)
 
     return {

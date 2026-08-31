@@ -14,7 +14,6 @@ def test_export_railway_env_payload_uses_postgres_reference_and_public_host(tmp_
                 "KIS_APP_KEY=test-key",
                 "KIS_APP_SECRET=test-secret",
                 "MCP_SERVER_NAME=한국증시 비밀노트",
-                "TOSS_ENABLED=false",
             ]
         ),
         encoding="utf-8",

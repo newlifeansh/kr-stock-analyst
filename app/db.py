@@ -39,9 +39,10 @@ engine = create_engine(
     connect_args={"check_same_thread": False, "timeout": 30}
     if database_url.startswith("sqlite")
     else {},
-    pool_size=10,
-    max_overflow=20,
-    pool_timeout=10,
+    pool_size=settings.database_pool_size,
+    max_overflow=settings.database_max_overflow,
+    pool_timeout=settings.database_pool_timeout,
+    pool_recycle=settings.database_pool_recycle_seconds,
     pool_pre_ping=True,
 )
 
@@ -73,6 +74,19 @@ def init_db() -> None:
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                'INSERT INTO "dashboard_access_quota" ("id", "admitted_count", "updated_at") '
+                "VALUES (1, 0, CURRENT_TIMESTAMP) ON CONFLICT (id) DO NOTHING"
+            )
+        )
+        connection.execute(
+            text(
+                'UPDATE "dashboard_access_quota" SET "admitted_count" = '
+                '(SELECT COUNT(*) FROM "dashboard_access_identity") WHERE "id" = 1'
+            )
+        )
     inspector = inspect(engine)
     stock_master_columns = {column["name"] for column in inspector.get_columns("stock_master")}
     if "is_active" not in stock_master_columns:
@@ -89,6 +103,18 @@ def init_db() -> None:
     if "notification_preferences" not in push_subscription_columns:
         with engine.begin() as connection:
             connection.execute(text('ALTER TABLE "push_subscription" ADD COLUMN "notification_preferences" TEXT'))
+    # The 2026-07-08 Kumho E&C row arrived with zero-valued OHLC placeholders
+    # while still carrying a valid close. Treat those fields as missing; the
+    # chart layer also applies the same fallback for future malformed rows.
+    with engine.begin() as connection:
+        for column_name in ("open", "high", "low"):
+            connection.execute(
+                text(
+                    f'UPDATE "daily_price" SET "{column_name}" = NULL '
+                    f'WHERE "code" = \'002990\' AND "trade_date" = \'2026-07-08\' '
+                    f'AND "{column_name}" <= 0'
+                )
+            )
     if engine.dialect.name == "postgresql":
         inspector = inspect(engine)
         bigint_columns = {

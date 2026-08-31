@@ -18,6 +18,7 @@ from app.services.stock_dashboard import _market_cap_from_korean, _to_int
 
 NAVER_MAIN_URL = "https://finance.naver.com/item/main.naver"
 NAVER_DAILY_URL = "https://finance.naver.com/item/sise_day.naver"
+NAVER_KRX_CHART_URL = "https://api.stock.naver.com/chart/domestic/item/{code}"
 REQUEST_HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
@@ -163,6 +164,230 @@ def _history_rows_for_page(code: str, page: int) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def _krx_chart_price_row_from_payload(
+    code: str,
+    target_date,
+    payload: object,
+) -> Optional[dict[str, Any]]:
+    if not isinstance(payload, dict) or payload.get("stockExchangeType") != "KRX":
+        return None
+    target_token = target_date.strftime("%Y%m%d")
+    price_infos = payload.get("priceInfos")
+    if not isinstance(price_infos, list):
+        return None
+    for item in reversed(price_infos):
+        if not isinstance(item, dict) or str(item.get("localDate") or "") != target_token:
+            continue
+        try:
+            open_price = int(float(item["openPrice"]))
+            high = int(float(item["highPrice"]))
+            low = int(float(item["lowPrice"]))
+            close = int(float(item["closePrice"]))
+            volume = int(float(item["accumulatedTradingVolume"]))
+        except (KeyError, TypeError, ValueError):
+            return None
+        if (
+            any(value <= 0 for value in (open_price, high, low, close))
+            or high < max(open_price, close)
+            or low > min(open_price, close)
+            or high < low
+        ):
+            return None
+        return {
+            "code": code,
+            "trade_date": target_date,
+            "open": open_price,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+            "trading_value": close * volume,
+            "market_cap": None,
+            "listed_shares": None,
+        }
+    return None
+
+
+def _krx_chart_price_row(code: str, target_date) -> Optional[dict[str, Any]]:
+    last_error: Optional[Exception] = None
+    for attempt in range(3):
+        try:
+            response = requests.get(
+                NAVER_KRX_CHART_URL.format(code=code),
+                params={
+                    "periodType": "dayCandle",
+                    "startTime": target_date.strftime("%Y%m%d"),
+                    "endTime": target_date.strftime("%Y%m%d"),
+                },
+                headers=REQUEST_HEADERS,
+                timeout=10,
+            )
+            response.raise_for_status()
+            return _krx_chart_price_row_from_payload(
+                code,
+                target_date,
+                response.json(),
+            )
+        except Exception as exc:
+            last_error = exc
+            time.sleep(0.5 * (attempt + 1))
+    if last_error:
+        raise last_error
+    return None
+
+
+def collect_naver_krx_price_rows_for_codes(
+    db: Session,
+    codes: list[str],
+    target_date,
+    *,
+    max_workers: int = 12,
+) -> int:
+    """Finalize one session from Naver's exchange-specific KRX chart feed."""
+
+    normalized_codes = list(
+        dict.fromkeys(
+            normalized
+            for code in codes
+            if re.fullmatch(r"[0-9A-Z]{6}", normalized := str(code or "").strip().upper())
+        )
+    )
+    if not normalized_codes:
+        return 0
+    run = start_ingestion(
+        db,
+        "naver_finance",
+        f"krx_chart_finalize:codes={len(normalized_codes)}:date={target_date.isoformat()}",
+    )
+    try:
+        rows: list[dict[str, Any]] = []
+        failed_codes: dict[str, str] = {}
+        worker_count = max(1, min(int(max_workers), 16, len(normalized_codes)))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(_krx_chart_price_row, code, target_date): code
+                for code in normalized_codes
+            }
+            for future in as_completed(futures):
+                code = futures[future]
+                try:
+                    row = future.result()
+                except Exception as exc:
+                    failed_codes[code] = str(exc)
+                    continue
+                if row:
+                    rows.append(row)
+                else:
+                    failed_codes[code] = "missing_target_krx_candle"
+        count = upsert_many(db, DailyPrice, rows)
+        db.commit()
+        message = f"failed_codes={len(failed_codes)}" if failed_codes else None
+        finish_ingestion(db, run, "success", count, message)
+        return count
+    except Exception as exc:
+        db.rollback()
+        finish_ingestion(db, run, "failed", 0, str(exc))
+        raise
+
+
+def collect_naver_price_history_for_code(
+    db: Session,
+    code: str,
+    *,
+    pages: int = 2,
+) -> int:
+    """Repair one stock's recent OHLC rows from Naver's daily-price table.
+
+    This is intentionally separate from the universe history collector so a
+    stock-detail request can repair a partial close-only row without launching
+    thousands of network requests.
+    """
+    normalized_code = str(code or "").strip().upper()
+    if not re.fullmatch(r"[0-9A-Z]{6}", normalized_code):
+        return 0
+
+    page_count = max(1, min(int(pages), 10))
+    run = start_ingestion(
+        db,
+        "naver_finance",
+        f"daily_price_repair:{normalized_code}:pages={page_count}",
+    )
+    try:
+        rows: list[dict[str, Any]] = []
+        failed_pages: list[int] = []
+        for page in range(1, page_count + 1):
+            try:
+                rows.extend(_history_rows_for_page(normalized_code, page))
+            except Exception:
+                failed_pages.append(page)
+
+        count = upsert_many(db, DailyPrice, rows)
+        db.commit()
+        message = f"failed_pages={failed_pages}" if failed_pages else None
+        finish_ingestion(db, run, "success", count, message)
+        return count
+    except Exception as exc:
+        db.rollback()
+        finish_ingestion(db, run, "failed", 0, str(exc))
+        raise
+
+
+def collect_naver_price_history_for_codes(
+    db: Session,
+    codes: list[str],
+    *,
+    pages: int = 3,
+    max_workers: int = 12,
+) -> int:
+    """Repair recent OHLC candles for an explicit stock universe in parallel."""
+    normalized_codes = list(
+        dict.fromkeys(
+            normalized
+            for code in codes
+            if re.fullmatch(r"[0-9A-Z]{6}", normalized := str(code or "").strip().upper())
+        )
+    )
+    if not normalized_codes:
+        return 0
+
+    page_count = max(1, min(int(pages), 10))
+    worker_count = max(1, min(int(max_workers), 16, len(normalized_codes) * page_count))
+    run = start_ingestion(
+        db,
+        "naver_finance",
+        f"daily_price_repair_batch:codes={len(normalized_codes)}:pages={page_count}",
+    )
+    try:
+        rows: list[dict[str, Any]] = []
+        failed_jobs: list[tuple[str, int]] = []
+        jobs = [
+            (code, page)
+            for code in normalized_codes
+            for page in range(1, page_count + 1)
+        ]
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(_history_rows_for_page, code, page): (code, page)
+                for code, page in jobs
+            }
+            for future in as_completed(futures):
+                code, page = futures[future]
+                try:
+                    rows.extend(future.result())
+                except Exception:
+                    failed_jobs.append((code, page))
+
+        count = upsert_many(db, DailyPrice, rows)
+        db.commit()
+        message = f"failed_jobs={len(failed_jobs)}" if failed_jobs else None
+        finish_ingestion(db, run, "success", count, message)
+        return count
+    except Exception as exc:
+        db.rollback()
+        finish_ingestion(db, run, "failed", 0, str(exc))
+        raise
 
 
 def collect_naver_price_history(

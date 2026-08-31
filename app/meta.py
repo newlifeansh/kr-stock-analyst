@@ -297,8 +297,6 @@ def research_source_payload(active_only: bool = False) -> list[dict[str, Any]]:
 
 
 def integration_payload(settings: Settings) -> list[dict[str, Any]]:
-    toss_configured = bool(settings.toss_client_id and settings.toss_client_secret)
-    toss_enabled = settings.toss_enabled
     items = [
         {
             "key": "kis_market_data",
@@ -309,11 +307,16 @@ def integration_payload(settings: Settings) -> list[dict[str, Any]]:
             "enabled": settings.briefing_realtime_enabled,
             "default_poll_seconds": settings.briefing_poll_seconds,
             "base_url": None,
-            "purpose": "real-time home briefing snapshots, quotes, movers, and trading value scans",
-            "capabilities": ["quotes", "movers", "watchlist polling"],
+            "purpose": "integrated KRX/NXT real-time quotes, home briefing snapshots, movers, and trading value scans",
+            "capabilities": [
+                "KRX/NXT integrated quotes",
+                "NXT pre-market from 08:00 KST",
+                "movers",
+                "watchlist streaming",
+            ],
             "not_for": ["research reports", "news", "public disclosures"],
             "required_settings": ["KIS_APP_KEY", "KIS_APP_SECRET", "BRIEFING_REALTIME_ENABLED"],
-            "note": "This is the live market data backbone for the current home briefing runtime.",
+            "note": "Display quotes use the integrated WebSocket feed; signal confirmation remains KRX-session based.",
         },
         {
             "key": "open_dart",
@@ -326,7 +329,7 @@ def integration_payload(settings: Settings) -> list[dict[str, Any]]:
             "base_url": "https://opendart.fss.or.kr/api",
             "purpose": "public disclosure, IR, and financial statement ingestion",
             "capabilities": ["disclosures", "financial statements", "IR events"],
-            "not_for": ["live quotes", "broker research", "portfolio sync"],
+            "not_for": ["live quotes", "broker research"],
             "required_settings": ["DART_API_KEY"],
             "note": "Current disclosure collector source.",
         },
@@ -341,31 +344,9 @@ def integration_payload(settings: Settings) -> list[dict[str, Any]]:
             "base_url": "https://finance.naver.com",
             "purpose": "public research report metadata and public market news collection",
             "capabilities": ["research metadata", "news", "report links"],
-            "not_for": ["broker account sync", "order execution", "official consensus API"],
+            "not_for": ["order execution", "official consensus API"],
             "required_settings": [],
             "note": "Current backend collector for public report and news surfaces.",
-        },
-        {
-            "key": "toss_securities",
-            "display_name": "Toss Securities Open API",
-            "integration_type": "broker_api",
-            "status": "scaffolded",
-            "configured": toss_configured,
-            "enabled": toss_enabled,
-            "default_poll_seconds": settings.toss_poll_seconds,
-            "base_url": settings.toss_base_url,
-            "purpose": "connect account context, holdings, orderability, and execution-aware portfolio workflows",
-            "capabilities": [
-                "domestic and US quotes",
-                "stock master data",
-                "exchange rate",
-                "market calendar",
-                "accounts and holdings",
-                "orders and order status",
-            ],
-            "not_for": ["broker research reports", "public news ingestion", "consensus history"],
-            "required_settings": ["TOSS_CLIENT_ID", "TOSS_CLIENT_SECRET", "TOSS_ACCOUNT_SEQ or TOSS_ACCOUNT_NO"],
-            "note": "Official OAuth client, account, holdings, order, buying-power, and stock lookup integration is wired in. Live execution still requires valid credentials and account permissions.",
         },
     ]
     return items

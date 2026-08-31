@@ -1,20 +1,43 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Optional
+from typing import Literal, Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     app_name: str = "KR Stock Analyst Backend"
+    process_role: Literal["all", "web", "collector"] = "all"
     database_url: str = "sqlite:///./data/analyst.db"
+    database_pool_size: int = 10
+    database_max_overflow: int = 20
+    database_pool_timeout: int = 10
+    database_pool_recycle_seconds: int = 1800
     dart_api_key: Optional[str] = None
     ecos_api_key: Optional[str] = None
     kis_app_key: Optional[str] = None
     kis_app_secret: Optional[str] = None
     kis_env: str = "real"
+    kis_rest_min_interval_ms: int = 120
     kis_realtime_enabled: bool = True
+    kis_realtime_max_codes: int = 40
+    kis_realtime_subscription_delay_ms: int = 120
+    kis_realtime_idle_grace_seconds: int = 60
+    kis_realtime_contention_backoff_seconds: int = 30
+    quote_stream_max_codes_per_client: int = 64
+    quote_stream_queue_size: int = 256
+    quote_stream_fetch_concurrency: int = 12
+    quote_stream_fallback_poll_seconds: int = 10
+    quote_stream_realtime_stale_seconds: int = 15
+    quote_stream_fallback_max_codes_per_cycle: int = 64
+    quote_stream_min_broadcast_interval_ms: int = 1000
+    quote_stream_send_timeout_seconds: int = 5
+    quote_stream_max_unique_codes: int = 512
+    quote_stream_command_window_seconds: int = 2
+    quote_stream_max_commands_per_window: int = 8
+    quote_stream_control_queue_size: int = 1
     briefing_realtime_enabled: bool = True
     briefing_poll_seconds: int = 30
     briefing_snapshot_seconds: int = 300
@@ -49,6 +72,8 @@ class Settings(BaseSettings):
     stock_universe_enabled: bool = True
     stock_universe_poll_seconds: int = 86400
     stock_universe_markets: str = "KOSPI,KOSDAQ"
+    etf_holdings_snapshot_enabled: bool = True
+    etf_holdings_snapshot_max_workers: int = 8
     stock_logo_enabled: bool = True
     stock_logo_poll_seconds: int = 86400
     stock_logo_initial_delay_seconds: int = 30
@@ -68,7 +93,7 @@ class Settings(BaseSettings):
     financials_company_limit: Optional[int] = None
     fundamental_snapshot_enabled: bool = True
     fundamental_snapshot_poll_seconds: int = 86400
-    fundamental_snapshot_refresh_days: int = 7
+    fundamental_snapshot_refresh_days: int = 2
     fundamental_snapshot_max_workers: int = 8
     stock_news_snapshot_enabled: bool = True
     stock_news_snapshot_poll_seconds: int = 21600
@@ -92,29 +117,31 @@ class Settings(BaseSettings):
     threads_feed_max_results: int = 20
     threads_feed_search_type: str = "RECENT"
     macro_enabled: bool = True
-    macro_poll_seconds: int = 21600
+    macro_poll_seconds: int = 1800
     macro_range: str = "1y"
     web_push_enabled: bool = True
     web_push_poll_seconds: int = 60
+    web_push_recommendation_poll_seconds: int = 600
     web_push_price_threshold: float = 5.0
     web_push_event_lead_hours: int = 24
     web_push_vapid_private_key: Optional[str] = None
     web_push_vapid_public_key: Optional[str] = None
     web_push_vapid_subject: str = "mailto:admin@secret-note.app"
+    market_quant_signal_source_url: Optional[str] = None
+    market_quant_signal_source_timeout_seconds: int = 12
+    canonical_public_base_url: str = "https://secretnote.cloud"
+    canonical_redirect_hosts: str = (
+        "insight-mcp-production-945f.up.railway.app,"
+        "insight-mcp-production-b297.up.railway.app"
+    )
+    dashboard_invite_code: Optional[str] = None
+    dashboard_invite_hosts: str = "secretnote.cloud,www.secretnote.cloud"
+    dashboard_identity_limit: int = 100
     stock_ai_provider: str = "rules"
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:0.5b"
     ollama_timeout_seconds: int = 60
     ollama_cache_seconds: int = 900
-    toss_enabled: bool = False
-    toss_base_url: str = "https://openapi.tossinvest.com"
-    toss_client_id: Optional[str] = None
-    toss_client_secret: Optional[str] = None
-    toss_account_no: Optional[str] = None
-    toss_account_seq: Optional[int] = None
-    toss_poll_seconds: int = 60
-    toss_order_poll_seconds: int = 300
-    toss_sync_holdings_enabled: bool = False
     bootstrap_on_start: bool = True
     bootstrap_force_refresh: bool = False
     mcp_enabled: bool = True
@@ -130,6 +157,11 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
+    @field_validator("process_role", mode="before")
+    @classmethod
+    def normalize_process_role(cls, value: object) -> object:
+        return str(value or "").strip().lower()
+
     def briefing_watch_code_list(self) -> list[str]:
         return [code.strip() for code in self.briefing_watch_codes.split(",") if code.strip()]
 
@@ -138,6 +170,12 @@ class Settings(BaseSettings):
 
     def news_category_list(self) -> list[str]:
         return [category.strip() for category in self.news_categories.split(",") if category.strip()]
+
+    def runs_web_services(self) -> bool:
+        return self.process_role in {"all", "web"}
+
+    def runs_collectors(self) -> bool:
+        return self.process_role in {"all", "collector"}
 
 
 @lru_cache

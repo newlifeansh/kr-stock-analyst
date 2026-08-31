@@ -1,9 +1,14 @@
-const DASHBOARD_SW_VERSION = "20260730v144";
-const DASHBOARD_BUILD_VERSION = "20260729v136";
+const DASHBOARD_SW_VERSION = "20260831v453";
+const DASHBOARD_BUILD_VERSION = "20260831v453";
 const STATIC_CACHE = `secret-note-static-${DASHBOARD_SW_VERSION}-${DASHBOARD_BUILD_VERSION}`;
 const STATIC_ASSETS = [
-  "/assets/dashboard/styles.css?v=20260730v144&build=20260730v144",
-  "/assets/dashboard/app.js?v=20260730v144&build=20260730v144",
+  "/assets/dashboard/styles.css?v=20260831v453&build=20260831v453",
+  "/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts",
+  "/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143",
+  "/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143",
+  "/assets/staging/ai-stock-response-logic.js?v=20260831-header-action-icons-signal-copy-v61",
+  "/assets/staging/stock-change-copy-logic.js?v=20260831-header-action-icons-signal-copy-v61",
+  "/assets/staging/toss-ia.js?v=20260831-header-action-icons-signal-copy-v61",
   "/assets/dashboard/icons/icon-192.png?v=20260620bq",
   "/assets/dashboard/icons/icon-512.png?v=20260620bq",
   "/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq"
@@ -22,6 +27,21 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((keys) => Promise.all(keys.filter((key) => key.startsWith("secret-note-static-") && key !== STATIC_CACHE).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
+      // Installed dashboard pages can keep an old script in memory even after
+      // this worker takes control. Reload them once to activate the new shell.
+      .then(() => self.clients.matchAll({ type: "window", includeUncontrolled: true }))
+      .then((clients) => Promise.all(clients.map((client) => {
+        const url = new URL(client.url);
+        if (url.origin !== self.location.origin || !url.pathname.startsWith("/dashboard")) {
+          return undefined;
+        }
+        const currentBuild = url.searchParams.get("app_build");
+        if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION) {
+          return undefined;
+        }
+        url.searchParams.set("app_build", DASHBOARD_BUILD_VERSION);
+        return client.navigate(url.href).catch(() => undefined);
+      })))
   );
 });
 
@@ -43,7 +63,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(fetch(request));
     return;
   }
-  if (url.pathname.startsWith("/assets/dashboard/")) {
+  if (url.pathname.startsWith("/assets/dashboard/") || url.pathname.startsWith("/assets/staging/")) {
     event.respondWith(
       caches.match(request).then((cached) => cached || fetch(request).then((response) => {
         const copy = response.clone();

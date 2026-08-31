@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 import certifi
 import pandas as pd
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models import DailyPrice, InvestorFlow, StockMaster
@@ -151,6 +151,25 @@ def collect_stocks(db: Session, yyyymmdd: str, markets: str) -> int:
             rows = []
         if not rows:
             rows = _stock_rows_from_fdr(market_names, seen_date)
+        evidence_date = db.scalar(
+            select(func.max(DailyPrice.trade_date)).where(
+                DailyPrice.trade_date <= seen_date,
+            )
+        )
+        preserved_codes: list[str] = []
+        if rows and evidence_date is not None:
+            preserved_codes = list(
+                db.scalars(
+                    select(StockMaster.code)
+                    .join(DailyPrice, DailyPrice.code == StockMaster.code)
+                    .where(
+                        StockMaster.market.in_(market_names),
+                        StockMaster.is_active.is_(True),
+                        DailyPrice.trade_date == evidence_date,
+                    )
+                    .distinct()
+                )
+            )
         if rows:
             db.execute(
                 update(StockMaster)
@@ -158,6 +177,20 @@ def collect_stocks(db: Session, yyyymmdd: str, markets: str) -> int:
                 .values(is_active=False)
             )
         count = upsert_many(db, StockMaster, rows)
+        if preserved_codes:
+            # Exchange fallbacks can omit newly listed or alphanumeric ETF/ETN
+            # codes even while their daily candles are current. Preserve only
+            # rows that were already active before this refresh and traded in
+            # the latest evidenced session. This keeps valid omissions active
+            # without reviving inactive legacy rows that still have price data.
+            db.execute(
+                update(StockMaster)
+                .where(
+                    StockMaster.market.in_(market_names),
+                    StockMaster.code.in_(preserved_codes),
+                )
+                .values(is_active=True)
+            )
         db.commit()
         finish_ingestion(db, run, "success", count)
         return count

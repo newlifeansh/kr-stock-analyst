@@ -4,8 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>비밀노트 | 국내증시</title>
-    <meta name="theme-color" content="#111827" />
+    <meta id="staging-theme-color" name="theme-color" content="#17161b" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="secret-note-service-update" content="20260829-chart-analysis-v1" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="application-version" content="5.6" />
@@ -20,8 +23,14 @@
         window.location.replace(serverUrl.toString());
       }
     </script>
+    <script src="/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts" data-staging-theme-bootstrap></script>
+    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
+    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143" />
+    <script src="/assets/staging/ai-stock-response-logic.js?v=20260831-header-action-icons-signal-copy-v61" defer></script>
+    <script src="/assets/staging/stock-change-copy-logic.js?v=20260831-header-action-icons-signal-copy-v61" defer></script>
+    <script src="/assets/staging/toss-ia.js?v=20260831-header-action-icons-signal-copy-v61" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260730v144&amp;build=20260730v144" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260831v453&amp;build=20260831v453" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -31,14 +40,49 @@
       <form class="login-card" id="login-form" autocomplete="off">
         <div class="login-copy">
           <h1 id="login-title">한국증시 비밀노트</h1>
-          <p>아이디만 입력하면 바로 시작됩니다.</p>
+          <p id="login-description">아이디를 입력해 시작하세요.</p>
         </div>
         <div class="login-search-shell">
-          <input id="login-id-input" type="text" placeholder="아이디를 입력하세요" maxlength="40" />
+          <input id="login-id-input" type="text" placeholder="아이디를 입력하세요" maxlength="40" autocomplete="username" />
+          <div class="login-invite-field" id="login-invite-field">
+            <input
+              id="login-invite-code"
+              type="text"
+              placeholder="초대 코드를 입력하세요"
+              maxlength="64"
+              autocomplete="one-time-code"
+              autocapitalize="characters"
+              spellcheck="false"
+            />
+            <p class="login-invite-hint">초대 코드는 첫 접속 시 한 번만 확인합니다.</p>
+          </div>
           <button type="submit">시작하기</button>
         </div>
-        <p id="login-status" class="login-status"></p>
+        <p id="login-status" class="login-status" role="status" aria-live="polite"></p>
+        <aside class="login-caution-notice" aria-label="서비스 유의사항">
+          <strong>서비스 유의사항</strong>
+          <p>화면의 매수·보유·매도 표시는 공개 데이터를 바탕으로 AI가 계산한 참고 신호이며, 투자 권유·자문 또는 수익 보장이 아닙니다.</p>
+          <p>데이터는 지연되거나 오류가 발생할 수 있으며, 최종 투자 판단과 그 결과에 대한 책임은 이용자 본인에게 있습니다.</p>
+        </aside>
+        <p class="login-support-contact">
+          로그인 및 서비스 문의 :
+          <a href="https://www.linkedin.com/in/connor-sh" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+        </p>
       </form>
+    </section>
+    <section class="access-capacity-modal" id="access-capacity-modal" hidden>
+      <div class="access-capacity-backdrop" id="access-capacity-backdrop"></div>
+      <article class="access-capacity-card" role="alertdialog" aria-modal="true" aria-labelledby="access-capacity-title" aria-describedby="access-capacity-description access-capacity-note">
+        <span class="access-capacity-icon" aria-hidden="true">!</span>
+        <span class="access-capacity-eyebrow">초기 운영 안내</span>
+        <h2 id="access-capacity-title">현재 이용 가능 인원을 초과했어요</h2>
+        <p id="access-capacity-description">안정적인 서비스 운영을 위해 초기 이용 인원을 제한하고 있습니다. 추가 이용이 필요하시면 LinkedIn 메시지로 문의해주세요.</p>
+        <span class="access-capacity-note" id="access-capacity-note">문의 버튼을 누르면 새 탭에서 LinkedIn 프로필이 열립니다.</span>
+        <div class="access-capacity-actions">
+          <a id="access-capacity-contact" href="https://www.linkedin.com/in/connor-sh" target="_blank" rel="noopener noreferrer">LinkedIn으로 문의하기</a>
+          <button id="access-capacity-close" type="button">닫기</button>
+        </div>
+      </article>
     </section>
     <div class="app-frame dashboard-detail-system">
       <header class="app-topbar">
@@ -90,9 +134,16 @@
           <p>관련 종목 영향도를 함께 계산하고 있어 최대 2분까지 소요될 수 있습니다. 잠시만 기다려주세요.</p>
         </article>
       </section>
-      <section class="install-sheet" id="install-sheet" hidden>
+      <section class="install-sheet" id="install-sheet" aria-hidden="true" hidden>
         <div class="install-sheet-backdrop" id="install-sheet-backdrop"></div>
-        <article class="install-sheet-card" role="dialog" aria-modal="true" aria-labelledby="install-sheet-title">
+        <article
+          class="install-sheet-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="install-sheet-title"
+          aria-describedby="install-sheet-subtitle"
+          tabindex="-1"
+        >
           <div class="install-sheet-head">
             <img src="/assets/dashboard/icons/icon-192.png" alt="" />
             <div>
@@ -104,25 +155,183 @@
           <ol class="install-steps" id="install-steps"></ol>
         </article>
       </section>
-      <section class="push-notification-sheet" id="push-notification-sheet" hidden>
-        <div class="push-notification-sheet-backdrop" id="push-notification-sheet-backdrop"></div>
-        <article class="push-notification-sheet-card" role="dialog" aria-modal="true" aria-labelledby="push-notification-sheet-title">
-          <div class="push-notification-sheet-head">
-            <div>
-              <h2 id="push-notification-sheet-title">알림 설정</h2>
-              <p>받고 싶은 알림만 골라서 받아보세요.</p>
-            </div>
-            <button id="push-notification-sheet-close" type="button" aria-label="닫기">×</button>
-          </div>
-          <p class="push-notification-sheet-status" id="push-notification-sheet-status">관심종목에 필요한 알림만 선택할 수 있습니다.</p>
-          <div class="push-notification-condition-list" id="push-notification-condition-list"></div>
-          <button class="push-notification-sheet-test" id="push-notification-sheet-test-button" type="button" hidden>테스트 알림 보내기</button>
-          <div class="push-notification-sheet-actions">
-            <button class="push-notification-sheet-disable" id="push-notification-sheet-disable-button" type="button" hidden>알림 오프</button>
-            <button class="push-notification-sheet-save" id="push-notification-sheet-save-button" type="button">알림 켜기</button>
+      <section class="home-ranking-market-sheet" id="home-ranking-market-sheet" aria-hidden="true" hidden>
+        <div class="home-ranking-market-sheet-backdrop" id="home-ranking-market-sheet-backdrop"></div>
+        <article
+          class="home-ranking-market-sheet-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="home-ranking-market-sheet-title"
+          tabindex="-1"
+        >
+          <div class="home-ranking-market-sheet-handle" aria-hidden="true"></div>
+          <h2 id="home-ranking-market-sheet-title">거래소</h2>
+          <div class="home-ranking-market-options" role="radiogroup" aria-label="TOP 50 거래소 선택">
+            <button class="active" type="button" role="radio" aria-checked="true" data-home-ranking-market="ALL">
+              <span>전체</span>
+              <span class="home-ranking-market-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false"><path d="m7 12 3.2 3.2L17 8.5"></path></svg>
+              </span>
+            </button>
+            <button type="button" role="radio" aria-checked="false" data-home-ranking-market="KOSPI">
+              <span>코스피</span>
+              <span class="home-ranking-market-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false"><path d="m7 12 3.2 3.2L17 8.5"></path></svg>
+              </span>
+            </button>
+            <button type="button" role="radio" aria-checked="false" data-home-ranking-market="KOSDAQ">
+              <span>코스닥</span>
+              <span class="home-ranking-market-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false"><path d="m7 12 3.2 3.2L17 8.5"></path></svg>
+              </span>
+            </button>
           </div>
         </article>
       </section>
+      <section class="push-notification-sheet" id="push-notification-sheet" aria-hidden="true" hidden>
+        <div class="push-notification-sheet-backdrop" id="push-notification-sheet-backdrop"></div>
+        <article
+          class="push-notification-sheet-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="push-notification-sheet-title"
+          aria-describedby="push-notification-sheet-subtitle push-notification-sheet-status"
+          tabindex="-1"
+        >
+          <div class="push-notification-sheet-handle" aria-hidden="true"></div>
+          <header class="push-notification-sheet-head">
+            <div>
+              <h2 id="push-notification-sheet-title">알림 설정</h2>
+              <p id="push-notification-sheet-subtitle">받고 싶은 알림만 골라서 받아보세요.</p>
+            </div>
+            <button id="push-notification-sheet-close" type="button" aria-label="알림 설정 닫기">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M6 6l12 12M18 6 6 18"></path>
+              </svg>
+            </button>
+          </header>
+          <div class="push-notification-sheet-body" id="push-notification-sheet-body">
+            <section
+              class="push-recommendation-guide"
+              id="push-recommendation-guide"
+              aria-label="추천 업데이트 알림 안내"
+              hidden
+            >
+              <div class="push-recommendation-feature">
+                <span class="push-recommendation-feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
+                    <path d="M10 21h4"></path>
+                  </svg>
+                </span>
+                <span class="push-recommendation-copy">
+                  <strong>추천 업데이트</strong>
+                  <span>상위 10 신규 진입과 매매 단계 변경만 알려드려요.</span>
+                </span>
+              </div>
+              <p class="push-recommendation-note" id="push-recommendation-note">
+                추천 후보와 AI 매매 신호는 별도로 판단합니다.
+              </p>
+            </section>
+            <p class="push-notification-sheet-status" id="push-notification-sheet-status" role="status" aria-live="polite" hidden></p>
+            <div class="push-notification-condition-list" id="push-notification-condition-list" aria-label="받을 알림 선택"></div>
+            <button class="push-notification-sheet-test" id="push-notification-sheet-test-button" type="button" hidden>테스트 알림 보내기</button>
+          </div>
+          <footer class="push-notification-sheet-actions">
+            <button class="push-notification-sheet-disable" id="push-notification-sheet-disable-button" type="button" hidden>알림 오프</button>
+            <button class="push-notification-sheet-save" id="push-notification-sheet-save-button" type="button">알림 켜기</button>
+            <button class="push-notification-sheet-snooze" id="push-notification-sheet-snooze-button" type="button" hidden>오늘 하루 보지 않기</button>
+          </footer>
+        </article>
+      </section>
+      <section class="stock-trading-hours-sheet" id="stock-trading-hours-sheet" aria-hidden="true" hidden>
+        <div class="stock-trading-hours-backdrop" id="stock-trading-hours-backdrop"></div>
+        <article
+          class="stock-trading-hours-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="stock-trading-hours-title"
+          aria-describedby="stock-trading-hours-summary stock-trading-hours-note"
+          tabindex="-1"
+        >
+          <div class="stock-trading-hours-handle" aria-hidden="true"></div>
+          <header class="stock-trading-hours-head">
+            <h2 id="stock-trading-hours-title">국내주식 거래 시간 안내</h2>
+          </header>
+          <div class="stock-trading-hours-body">
+            <p id="stock-trading-hours-summary">장 상태는 한국시간 기준으로 표시됩니다.</p>
+            <div class="stock-trading-hours-table-wrap" tabindex="0" aria-label="국내주식 거래시간 표">
+              <table class="stock-trading-hours-table">
+                <caption class="sr-only">국내주식 시장별 거래 시간과 지원 종목</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">시장</th>
+                    <th scope="col">거래 시간</th>
+                    <th scope="col">지원 종목</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row">프리장</th>
+                    <td>08:00–08:50</td>
+                    <td>일부 종목</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">정규장</th>
+                    <td>09:00–15:30</td>
+                    <td>모든 종목</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">애프터장</th>
+                    <td>15:40–20:00</td>
+                    <td>일부 종목</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="stock-trading-hours-note" id="stock-trading-hours-note">
+              NXT 메인마켓은 09:00:30–15:20에 운영됩니다.
+            </p>
+            <section class="stock-trading-hours-guide" aria-labelledby="stock-trading-hours-guide-title">
+              <h3 id="stock-trading-hours-guide-title">알아두세요</h3>
+              <ul>
+                <li>프리장과 애프터장은 넥스트레이드(NXT) 지원 종목만 시세가 제공됩니다.</li>
+                <li>휴장일이나 시장 운영 상황에 따라 거래 시간이 달라질 수 있습니다.</li>
+                <li>실제 주문 가능 여부는 이용 중인 증권사에서 확인해 주세요.</li>
+              </ul>
+            </section>
+          </div>
+          <footer class="stock-trading-hours-actions">
+            <button id="stock-trading-hours-confirm" type="button">확인</button>
+          </footer>
+        </article>
+      </section>
+      <dialog class="app-exit-dialog" id="app-exit-dialog" aria-hidden="true" hidden>
+        <div class="app-exit-dialog-backdrop" id="app-exit-dialog-backdrop"></div>
+        <article
+          class="app-exit-dialog-card"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="app-exit-dialog-title"
+          aria-describedby="app-exit-dialog-description"
+          tabindex="-1"
+        >
+          <span class="app-exit-dialog-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M10 5H6.8A1.8 1.8 0 0 0 5 6.8v10.4A1.8 1.8 0 0 0 6.8 19H10"></path>
+              <path d="m14 8 4 4-4 4M9 12h9"></path>
+            </svg>
+          </span>
+          <div class="app-exit-dialog-copy">
+            <h2 id="app-exit-dialog-title">서비스를 종료할까요?</h2>
+            <p id="app-exit-dialog-description">종료하면 비밀노트 앱이 닫힙니다.</p>
+          </div>
+          <div class="app-exit-dialog-actions">
+            <button class="app-exit-dialog-cancel" id="app-exit-dialog-cancel" type="button">취소</button>
+            <button class="app-exit-dialog-confirm" id="app-exit-dialog-confirm" type="button">종료</button>
+          </div>
+        </article>
+      </dialog>
       <main class="shell" data-ui-version="3.0">
       <section id="notifications-view" class="app-page notifications-page" data-ui-version="3.0" hidden>
         <header class="secondary-commandbar notifications-commandbar">
@@ -132,7 +341,8 @@
         </header>
         <nav class="notifications-tabs" id="push-history-tabs" role="tablist" aria-label="알림 유형">
           <button class="active" type="button" role="tab" aria-selected="true" data-notification-tab="all">전체</button>
-          <button type="button" role="tab" aria-selected="false" data-notification-tab="ai_signal">AI 매매신호</button>
+          <button type="button" role="tab" aria-selected="false" data-notification-tab="ai_signal">AI 시그널</button>
+          <button type="button" role="tab" aria-selected="false" data-notification-tab="recommendation_update">추천</button>
           <button type="button" role="tab" aria-selected="false" data-notification-tab="watchlist">관심종목</button>
           <button type="button" role="tab" aria-selected="false" data-notification-tab="major_event">주요 이벤트</button>
         </nav>
@@ -145,6 +355,10 @@
           <div class="stock-v3-command-title">
             <span id="stock-v2-market-code">시장 · 종목코드</span>
             <h1 id="stock-name">종목 분석</h1>
+            <p class="stock-v3-command-quote" id="stock-command-quote" aria-label="상단 실시간 시세">
+              <span id="stock-command-price">시세 확인 중</span>
+              <span id="stock-command-change"></span>
+            </p>
             <p id="stock-meta" hidden>-</p>
           </div>
           <button class="stock-v3-star watch-button" id="watch-toggle" type="button" aria-label="관심종목 추가">☆</button>
@@ -155,13 +369,53 @@
             </div>
             <button type="submit">조회</button>
           </form>
+          <button class="stock-v3-share" id="stock-share" type="button" aria-label="종목 공유하기" title="종목 공유하기" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m8.2 10.8 7-4.1M8.2 13.2l7 4.1"></path>
+              <circle cx="6" cy="12" r="2.25"></circle>
+              <circle cx="17.2" cy="5.6" r="2.25"></circle>
+              <circle cx="17.2" cy="18.4" r="2.25"></circle>
+            </svg>
+          </button>
         </header>
+        <p class="stock-share-status" id="stock-share-status" role="status" aria-live="polite" hidden></p>
+
+        <section class="stock-etf-dividend-page" id="stock-etf-dividend-page" aria-labelledby="stock-etf-dividend-page-title" hidden>
+          <header class="stock-etf-dividend-commandbar">
+            <button id="stock-etf-dividend-back" type="button" aria-label="종목 홈으로 돌아가기">←</button>
+            <span aria-hidden="true"></span>
+            <a id="stock-etf-dividend-source-link" href="#" target="_blank" rel="noopener noreferrer" hidden>공식 자료</a>
+          </header>
+          <div class="stock-etf-dividend-page-body">
+            <section class="stock-etf-dividend-overview">
+              <h1 id="stock-etf-dividend-page-title">ETF 분배금</h1>
+              <p>최근 12개월</p>
+              <dl class="stock-etf-dividend-page-metrics">
+                <div><dt>지급한 횟수</dt><dd id="stock-etf-dividend-page-count">-</dd></div>
+                <div><dt>1좌당 분배금</dt><dd id="stock-etf-dividend-page-amount">-</dd></div>
+                <div><dt>분배 수익률</dt><dd id="stock-etf-dividend-page-yield">-</dd></div>
+              </dl>
+              <p class="stock-etf-dividend-page-schedule" id="stock-etf-dividend-page-schedule" hidden></p>
+            </section>
+            <section class="stock-etf-distribution-history" aria-labelledby="stock-etf-distribution-history-title">
+              <header>
+                <div><h2 id="stock-etf-distribution-history-title">분배 내역</h2><p>한국시간 기준</p></div>
+              </header>
+              <div class="stock-etf-distribution-table-head" aria-hidden="true">
+                <span id="stock-etf-distribution-date-head">분배금 기준일</span><span>실제 지급일</span><span>1좌당 분배금</span>
+              </div>
+              <div class="stock-etf-distribution-years" id="stock-etf-distribution-years" aria-live="polite">
+                <p class="stock-etf-distribution-empty">분배 내역을 확인하는 중입니다.</p>
+              </div>
+            </section>
+          </div>
+        </section>
 
         <div class="stock-v3-layout">
           <article class="stock-v3-quote-card">
-            <div class="stock-v3-quote-head">
+            <div class="stock-v3-quote-head" hidden aria-hidden="true">
               <span class="market-chip" id="stock-live-badge">실시간</span>
-              <span id="stock-v2-as-of">기준 정보 확인 중</span>
+              <span id="stock-v2-as-of" hidden>기준 정보 확인 중</span>
             </div>
             <div class="stock-v3-price-line">
               <strong id="quote-price">-</strong>
@@ -170,7 +424,18 @@
                 <span id="quote-change">-</span>
               </div>
             </div>
-            <p class="stock-pre-market" id="stock-pre-market" hidden>장전 -</p>
+            <button
+              class="stock-pre-market"
+              id="stock-pre-market"
+              type="button"
+              aria-haspopup="dialog"
+              aria-controls="stock-trading-hours-sheet"
+              aria-label="국내주식 장 상태와 거래시간 안내 열기"
+              hidden
+            >
+              <span id="stock-market-status-label">장 상태 확인 중</span>
+              <span class="stock-market-status-help" aria-hidden="true">?</span>
+            </button>
             <div class="stock-v3-chart-pane">
               <div class="stock-mini-chart" id="stock-mini-chart" aria-label="실제 가격과 거래량 흐름"></div>
               <div class="stock-v3-price-periods" id="stock-v2-price-periods" role="group" aria-label="가격 차트 기간">
@@ -189,17 +454,48 @@
             </dl>
           </article>
 
+          <div id="stock-detail-tabs-sentinel" class="stock-detail-tabs-sentinel" aria-hidden="true"></div>
           <nav class="stock-section-tabs stock-detail-tabs" aria-label="종목 상세 탭" role="tablist">
             <button class="active" type="button" role="tab" data-stock-tab="summary" aria-controls="stock-summary-section" aria-selected="true">종목홈</button>
-            <button type="button" role="tab" data-stock-tab="strategy" aria-controls="stock-strategy-section" aria-selected="false">AI 매매신호</button>
+            <button id="stock-company-tab" type="button" role="tab" data-stock-tab="company" aria-controls="stock-company-section" aria-selected="false">기업분석</button>
+            <button type="button" role="tab" data-stock-tab="strategy" aria-controls="stock-strategy-section" aria-selected="false">AI 시그널</button>
           </nav>
 
           <section class="stock-tab-panel stock-v3-home" id="stock-summary-section" data-stock-panel="summary" role="tabpanel">
+            <article class="stock-v3-section stock-etf-holdings" id="stock-etf-holdings-section" hidden>
+              <header class="stock-v3-section-head">
+                <div><span>구성자산</span><h2>보유 비중 Top10</h2></div>
+                <time id="stock-etf-holdings-as-of">기준일 확인 중</time>
+              </header>
+              <div class="stock-etf-holdings-layout">
+                <div class="stock-etf-donut" id="stock-etf-holdings-donut" role="img" aria-label="ETF 보유 비중 도넛 차트">
+                  <p>구성자산을 확인하는 중입니다.</p>
+                </div>
+                <ol class="stock-etf-holdings-list" id="stock-etf-holdings-list" aria-live="polite"></ol>
+              </div>
+              <p class="stock-etf-source" id="stock-etf-holdings-source"></p>
+            </article>
+
+            <article class="stock-v3-section stock-etf-dividend-summary" id="stock-etf-dividend-section" hidden>
+              <header class="stock-v3-section-head stock-etf-dividend-head">
+                <div><span>ETF 분배금</span><h2>배당 소식</h2></div>
+                <time>최근 12개월</time>
+              </header>
+              <dl class="stock-etf-dividend-metrics" id="stock-etf-dividend-metrics">
+                <div><dt>지급한 횟수</dt><dd id="stock-etf-dividend-count">-</dd></div>
+                <div><dt>1좌당 분배금</dt><dd id="stock-etf-dividend-amount">-</dd></div>
+                <div><dt>분배 수익률</dt><dd id="stock-etf-dividend-yield">-</dd></div>
+              </dl>
+              <p class="stock-etf-distribution-schedule" id="stock-etf-distribution-schedule" hidden></p>
+              <button class="stock-etf-dividend-more" id="stock-etf-dividend-more" type="button" aria-controls="stock-etf-dividend-page">
+                지난 분배금 보기 <span aria-hidden="true">›</span>
+              </button>
+            </article>
+
             <article class="stock-v3-section stock-v3-today">
               <header class="stock-v3-section-head">
                 <div><span>오늘 브리핑</span><h2>오늘의 요약</h2></div>
                 <div class="stock-v3-today-meta">
-                  <span class="ollama-ai-badge stock-home-ai-status" id="stock-summary-ai-badge" role="status" aria-live="polite" hidden></span>
                   <time id="stock-home-today-date">-</time>
                 </div>
               </header>
@@ -208,43 +504,42 @@
               </ul>
             </article>
 
-            <section class="stock-v3-two-column">
-              <article class="stock-v3-section stock-company-profile" id="stock-company-profile" aria-labelledby="stock-company-profile-title">
-                <header class="stock-v3-section-head">
-                  <div><span>기업 정보</span><h2 id="stock-company-profile-title">이 회사는</h2></div>
-                </header>
-                <p class="stock-company-summary" id="stock-company-summary">기업 정보를 불러오는 중입니다.</p>
-                <p class="stock-company-industry" id="stock-company-industry" hidden></p>
-                <details class="stock-company-details">
-                  <summary>기업 기본정보</summary>
-                  <dl>
-                    <div id="stock-company-ceo-row"><dt>대표자</dt><dd id="stock-company-ceo">-</dd></div>
-                    <div id="stock-company-established-row"><dt>설립일</dt><dd id="stock-company-established">-</dd></div>
-                    <div id="stock-company-fiscal-row"><dt>결산월</dt><dd id="stock-company-fiscal">-</dd></div>
-                    <div id="stock-company-address-row"><dt>본사</dt><dd id="stock-company-address">-</dd></div>
-                  </dl>
-                  <div class="stock-company-links">
-                    <a id="stock-company-homepage" href="#" target="_blank" rel="noreferrer" hidden>회사 홈페이지</a>
-                    <a id="stock-company-ir" href="#" target="_blank" rel="noreferrer" hidden>IR 홈페이지</a>
-                  </div>
-                </details>
-                <p class="stock-company-source">
-                  <span id="stock-company-source-label">출처 확인 중</span>
-                  <a id="stock-company-source-link" href="#" target="_blank" rel="noreferrer" hidden>원문 보기</a>
-                </p>
-              </article>
+            <article
+              class="stock-v3-section stock-home-chart-analysis chart-forecast-host"
+              id="stock-home-chart-analysis"
+              aria-label="차트분석"
+            >
+              <div class="stock-home-chart-status" role="status" aria-live="polite">
+                차트분석을 준비하는 중입니다.
+              </div>
+            </article>
 
-              <article class="stock-v3-section">
-                <header class="stock-v3-section-head"><div><span>최근 정보</span><h2>종목 소식</h2></div></header>
-                <div class="stock-v3-update-list" id="stock-home-updates">
-                  <p>리포트·공시·뉴스를 확인하는 중입니다.</p>
-                </div>
-              </article>
-            </section>
+            <article class="stock-v3-section">
+              <header class="stock-v3-section-head"><div><span>최근 정보</span><h2>종목 소식</h2></div></header>
+              <div class="stock-v3-update-list" id="stock-home-updates">
+                <p>리포트·공시·뉴스를 확인하는 중입니다.</p>
+              </div>
+            </article>
+
+            <article class="stock-v3-section stock-home-disclosure-section">
+              <header class="stock-v3-section-head stock-home-disclosure-head">
+                <div><span>DART 공시</span><h2>최근 1개월 공시</h2></div>
+                <a class="stock-home-disclosure-all" id="stock-home-disclosures-all" href="https://dart.fss.or.kr" target="_blank" rel="noopener noreferrer" aria-label="DART 전체 공시 보기">
+                  전체 보기 <span aria-hidden="true">↗</span>
+                </a>
+              </header>
+              <p class="stock-v3-section-description stock-home-disclosure-description" id="stock-home-disclosures-summary">최근 30일 공시를 확인하는 중입니다.</p>
+              <div class="stock-home-disclosure-list" id="stock-home-disclosures" aria-live="polite">
+                <p class="stock-v3-chart-empty">공시를 확인하는 중입니다.</p>
+              </div>
+              <button type="button" class="stock-home-disclosure-toggle" id="stock-home-disclosures-toggle" aria-controls="stock-home-disclosures" aria-expanded="false" hidden>
+                <span>더보기</span><span aria-hidden="true">⌄</span>
+              </button>
+            </article>
 
             <section class="stock-v3-two-column">
               <article class="stock-v3-section">
-                <header class="stock-v3-section-head"><div><span>수급 확인</span><h2>체크 포인트</h2></div></header>
+                <header class="stock-v3-section-head"><div><span>수급 확인</span><h2>최근 7일 수급</h2></div></header>
                 <div class="stock-v3-checkpoints" id="stock-home-checkpoints"></div>
               </article>
               <article class="stock-v3-section">
@@ -260,38 +555,20 @@
               <div class="stock-v3-topic-card" id="stock-home-issue-card"></div>
             </article>
 
-            <article class="stock-v3-section stock-v3-chart-section" id="stock-finance-section">
-              <header class="stock-v3-section-head">
-                <div><span>실적</span><h2>실적 분석</h2></div>
-                <span class="stock-v3-source" id="stock-financial-source">실제 공시·금융 데이터</span>
-              </header>
-              <div class="stock-v3-segment" id="stock-financial-metric-tabs" role="group" aria-label="실적 항목">
-                <button class="active" type="button" data-financial-metric="revenue">매출액</button>
-                <button type="button" data-financial-metric="operating_profit">영업이익</button>
-                <button type="button" data-financial-metric="net_income">순이익</button>
-              </div>
-              <div class="stock-v3-text-tabs" id="stock-financial-scope-tabs" role="group" aria-label="실적 기간">
-                <button class="active" type="button" data-financial-scope="quarterly">분기</button>
-                <button type="button" data-financial-scope="annual">연간</button>
-              </div>
-              <div class="stock-v3-main-chart" id="stock-financial-chart" aria-label="실제 실적 추이 차트"></div>
-              <div class="stock-v3-chart-summary" id="stock-financial-summary"></div>
-            </article>
-
             <article class="stock-v3-section stock-v3-chart-section" id="stock-flow-section">
               <header class="stock-v3-section-head">
                 <div><span>수급</span><h2>투자자별 매매동향</h2></div>
               </header>
               <div class="stock-v3-segment" id="stock-flow-mode-tabs" role="group" aria-label="수급 집계 방식">
-                <button class="active" type="button" data-flow-mode="cumulative">누적매매</button>
-                <button type="button" data-flow-mode="daily">일별매매</button>
+                <button class="active" type="button" data-flow-mode="cumulative" aria-pressed="true">누적매매</button>
+                <button type="button" data-flow-mode="daily" aria-pressed="false">일별매매</button>
               </div>
               <div class="stock-v3-text-tabs" id="stock-flow-period-tabs" role="group" aria-label="수급 기간">
-                <button class="active" type="button" data-flow-period="3M">3개월</button>
-                <button type="button" data-flow-period="6M">6개월</button>
-                <button type="button" data-flow-period="1Y">1년</button>
+                <button class="active" type="button" data-flow-period="3M" aria-pressed="true">3개월</button>
+                <button type="button" data-flow-period="6M" aria-pressed="false">6개월</button>
+                <button type="button" data-flow-period="1Y" aria-pressed="false">1년</button>
               </div>
-              <div class="stock-v3-flow-total" id="stock-flow-summary"></div>
+              <div class="stock-v3-flow-total" id="stock-flow-summary" aria-live="polite"></div>
               <div class="stock-v3-main-chart" id="stock-flow-history-chart" aria-label="외국인 기관 수급과 주가 추이"></div>
             </article>
 
@@ -311,12 +588,8 @@
             </article>
 
             <article class="stock-v3-section" id="stock-news-section">
-              <header class="stock-v3-section-head"><div><span>최근 기사</span><h2>뉴스</h2></div></header>
-              <div class="stock-v3-segment" role="tablist" aria-label="뉴스 분류">
-                <button class="active" type="button" role="tab" aria-selected="true" data-news-mode="company">종목뉴스</button>
-                <button type="button" role="tab" aria-selected="false" data-news-mode="breaking">AI 속보</button>
-              </div>
-              <ul class="event-list stock-v3-news-list" id="news-list"></ul>
+              <header class="stock-v3-section-head"><div><span>최근 기사</span><h2>종목뉴스</h2></div></header>
+              <ul class="event-list stock-v3-news-list" id="news-list" aria-live="polite"></ul>
             </article>
 
             <article class="stock-v3-section stock-v3-chart-section stock-v3-news-temperature-section">
@@ -337,12 +610,174 @@
             </article>
           </section>
 
+          <section class="stock-tab-panel stock-v3-company" id="stock-company-section" data-stock-panel="company" role="tabpanel" hidden>
+            <article class="stock-v3-section stock-v3-company-overview" aria-labelledby="stock-company-overview-title">
+              <header class="stock-v3-section-head">
+                <div><span>투자자 관점</span><h2 id="stock-company-overview-title">기업 체력 한눈에 보기</h2></div>
+                <time id="stock-company-analysis-as-of">자료 확인 중</time>
+              </header>
+              <p class="stock-company-analysis-lead">성장, 수익성, 현금, 부채, 효율, 가격을 함께 비교해 숫자의 의미를 빠르게 읽을 수 있습니다.</p>
+              <div class="stock-investment-snapshot" id="stock-investment-snapshot" role="status" aria-live="polite">
+                <p class="stock-company-analysis-empty">기업 분석 지표를 계산하는 중입니다.</p>
+              </div>
+            </article>
+
+            <article class="stock-v3-section stock-company-profile" id="stock-company-profile" aria-labelledby="stock-company-profile-title">
+              <header class="stock-v3-section-head">
+                <div><span>사업 이해</span><h2 id="stock-company-profile-title">이 회사는</h2></div>
+              </header>
+              <p class="stock-company-summary" id="stock-company-summary">기업 정보를 불러오는 중입니다.</p>
+              <p class="stock-company-industry" id="stock-company-industry" hidden></p>
+              <details class="stock-company-details">
+                <summary>기업 기본정보</summary>
+                <dl>
+                  <div id="stock-company-ceo-row"><dt>대표자</dt><dd id="stock-company-ceo">-</dd></div>
+                  <div id="stock-company-established-row"><dt>설립일</dt><dd id="stock-company-established">-</dd></div>
+                  <div id="stock-company-fiscal-row"><dt>결산월</dt><dd id="stock-company-fiscal">-</dd></div>
+                  <div id="stock-company-address-row"><dt>본사</dt><dd id="stock-company-address">-</dd></div>
+                </dl>
+                <div class="stock-company-links">
+                  <a id="stock-company-homepage" href="#" target="_blank" rel="noreferrer" hidden>회사 홈페이지</a>
+                  <a id="stock-company-ir" href="#" target="_blank" rel="noreferrer" hidden>IR 홈페이지</a>
+                </div>
+              </details>
+              <p class="stock-company-source">
+                <span id="stock-company-source-label">출처 확인 중</span>
+                <a id="stock-company-source-link" href="#" target="_blank" rel="noreferrer" hidden>원문 보기</a>
+              </p>
+            </article>
+
+            <article class="stock-v3-section stock-v3-chart-section" id="stock-finance-section">
+              <header class="stock-v3-section-head">
+                <div><span>성장과 수익성</span><h2>실적 분석</h2></div>
+                <span class="stock-v3-source" id="stock-financial-source">실제 공시·금융 데이터</span>
+              </header>
+              <div class="stock-v3-segment" id="stock-financial-metric-tabs" role="group" aria-label="실적 항목">
+                <button class="active" type="button" data-financial-metric="revenue">매출액</button>
+                <button type="button" data-financial-metric="operating_profit">영업이익</button>
+                <button type="button" data-financial-metric="net_income">순이익</button>
+              </div>
+              <div class="stock-v3-text-tabs" id="stock-financial-scope-tabs" role="group" aria-label="실적 기간">
+                <button class="active" type="button" data-financial-scope="quarterly">분기</button>
+                <button type="button" data-financial-scope="annual">연간</button>
+              </div>
+              <div class="stock-v3-main-chart" id="stock-financial-chart" aria-label="실제 실적 추이 차트"></div>
+              <div class="stock-v3-chart-summary" id="stock-financial-summary"></div>
+            </article>
+
+            <article class="stock-v3-section stock-revenue-breakdown-section" aria-labelledby="stock-revenue-breakdown-title">
+              <header class="stock-v3-section-head">
+                <div><span>수익구조 변화</span><h2 id="stock-revenue-breakdown-title">매출 심층 분석</h2></div>
+              </header>
+              <p class="stock-revenue-breakdown-lead" id="stock-revenue-breakdown-lead">매출을 100%로 놓고 영업비용과 영업이익이 차지하는 비중을 연도별로 비교합니다.</p>
+              <div class="stock-revenue-breakdown" id="stock-revenue-breakdown" aria-live="polite">
+                <p class="stock-company-analysis-empty">연간 수익구조를 계산하는 중입니다.</p>
+              </div>
+              <div class="stock-revenue-breakdown-legend" aria-label="수익구조 범례">
+                <span class="cost">영업비용</span><span class="profit">영업이익</span><span class="loss">영업손실</span>
+              </div>
+              <section class="stock-revenue-breakdown-summary" id="stock-revenue-breakdown-summary" aria-label="수익구조 핵심 요약">
+                <p>최신 실제 실적을 요약하는 중입니다.</p>
+              </section>
+            </article>
+
+            <article class="stock-v3-section stock-sector-margin-section" aria-labelledby="stock-sector-margin-title">
+              <header class="stock-v3-section-head">
+                <div><span>업계 수익성 비교</span><h2 id="stock-sector-margin-title">동종 업계 영업이익률 추이</h2></div>
+                <span class="stock-v3-source" id="stock-sector-margin-source">동일 업종 · 매출 상위 5개사</span>
+              </header>
+              <p class="stock-sector-margin-lead">같은 업종에서 최근 실제 연간 매출이 큰 기업들과 본업 수익성이 어떻게 달라졌는지 비교합니다.</p>
+              <div class="stock-sector-margin-comparison" id="stock-sector-margin-comparison" aria-live="polite">
+                <p class="stock-company-analysis-empty">동종 업계 실적을 비교하는 중입니다.</p>
+              </div>
+              <section class="stock-sector-margin-summary" id="stock-sector-margin-summary" aria-label="동종 업계 영업이익률 요약">
+                <p>업계 중앙값과 선택 종목의 격차를 계산하는 중입니다.</p>
+              </section>
+              <p class="stock-company-analysis-note">우선주와 금융·지주 성격 기업의 중복을 제외하고 실제 연간 실적만 비교합니다. 업종 분류가 넓거나 기업별 사업구조가 다르면 추가 확인이 필요합니다.</p>
+            </article>
+
+            <article class="stock-v3-section stock-sga-section" aria-labelledby="stock-sga-title">
+              <header class="stock-v3-section-head">
+                <div><span>판관비 구조</span><h2 id="stock-sga-title">판관비 심층분석</h2></div>
+                <a class="stock-v3-source" id="stock-sga-source" href="#" target="_blank" rel="noreferrer" hidden>DART 사업보고서 주석</a>
+              </header>
+              <p class="stock-sga-lead">판매비와관리비를 투자 관점의 비용 카테고리로 묶어 금액과 매출 대비 비율을 함께 봅니다.</p>
+              <div class="stock-sga-analysis" id="stock-sga-analysis" aria-live="polite">
+                <p class="stock-company-analysis-empty">판관비 세부 주석을 분류하는 중입니다.</p>
+              </div>
+              <p class="stock-company-analysis-note">연결 사업보고서 주석을 우선하며, 중간합계와 연구개발 총지출·자산화의 중복은 제외합니다. 회사별 공시 양식에 따라 카테고리 수는 달라질 수 있습니다.</p>
+            </article>
+
+            <article class="stock-v3-section stock-financial-health-section" aria-labelledby="stock-financial-health-title">
+              <header class="stock-v3-section-head">
+                <div><span>현금과 재무체력</span><h2 id="stock-financial-health-title">현금 흐름 심층 분석</h2></div>
+                <span class="stock-v3-source" id="stock-financial-health-source">최신 DART 재무제표</span>
+              </header>
+              <p class="stock-financial-health-lead">이익이 현금으로 이어지는지, 자산을 빚과 자기자본 중 무엇으로 만들었는지 함께 봅니다.</p>
+              <div class="stock-financial-health" id="stock-financial-health" aria-live="polite">
+                <p class="stock-company-analysis-empty">현금과 재무상태를 계산하는 중입니다.</p>
+              </div>
+              <p class="stock-company-analysis-note">순차입금비율은 (차입금·사채 - 현금성자산) ÷ 자본, 부채비율은 부채 ÷ 자본입니다. 재고보유일수는 평균 재고 ÷ 연환산 매출원가 × 365로 계산한 참고값입니다.</p>
+            </article>
+
+            <article class="stock-v3-section stock-cashflow-waterfall-section" aria-labelledby="stock-cashflow-waterfall-title">
+              <header class="stock-v3-section-head">
+                <div><span>보유 현금의 변화</span><h2 id="stock-cashflow-waterfall-title">현금 사용 추적</h2></div>
+                <span class="stock-v3-source" id="stock-cashflow-waterfall-source">최신 DART 현금흐름표</span>
+              </header>
+              <p class="stock-cashflow-waterfall-lead">본업에서 번 현금이 투자와 자금 조달을 거쳐 실제 보유 현금으로 얼마나 남았는지 연결해서 봅니다.</p>
+              <div class="stock-cashflow-waterfall" id="stock-cashflow-waterfall" aria-live="polite">
+                <p class="stock-company-analysis-empty">현금의 유입과 사용처를 계산하는 중입니다.</p>
+              </div>
+              <p class="stock-company-analysis-note">금액은 해당 공시기간 누계입니다. 플러스는 현금 유입, 마이너스는 현금 유출이며 환율변동·연결범위 변동 등으로 세 활동의 합계와 최종 현금 증감이 다를 수 있습니다.</p>
+            </article>
+
+            <article class="stock-v3-section" aria-labelledby="stock-company-fundamentals-title">
+              <header class="stock-v3-section-head">
+                <div><span>재무제표 비교</span><h2 id="stock-company-fundamentals-title">현금·안정성·효율</h2></div>
+                <span class="stock-v3-source">DART 연결 우선</span>
+              </header>
+              <div class="stock-company-metric-groups" id="stock-company-metric-groups">
+                <p class="stock-company-analysis-empty">재무상태표와 현금흐름표를 확인하는 중입니다.</p>
+              </div>
+              <p class="stock-company-data-status" id="stock-company-data-status" role="status">최신 공시를 확인하고 있습니다.</p>
+            </article>
+
+            <article class="stock-v3-section" aria-labelledby="stock-company-valuation-title">
+              <header class="stock-v3-section-head">
+                <div><span>이익 대비 주가</span><h2 id="stock-company-valuation-title">밸류에이션 비교</h2></div>
+                <span class="stock-v3-source">현재 · 예상 PER</span>
+              </header>
+              <div class="stock-company-valuation" id="stock-company-valuation"></div>
+            </article>
+
+            <article class="stock-v3-section" aria-labelledby="stock-company-check-title">
+              <header class="stock-v3-section-head">
+                <div><span>숫자 해석</span><h2 id="stock-company-check-title">투자 체크포인트</h2></div>
+              </header>
+              <div class="stock-company-check-columns">
+                <section aria-labelledby="stock-company-strength-title">
+                  <h3 id="stock-company-strength-title">확인된 강점</h3>
+                  <ul id="stock-company-strengths"><li>데이터를 확인하는 중입니다.</li></ul>
+                </section>
+                <section aria-labelledby="stock-company-risk-title">
+                  <h3 id="stock-company-risk-title">추가 확인할 점</h3>
+                  <ul id="stock-company-risks"><li>데이터를 확인하는 중입니다.</li></ul>
+                </section>
+              </div>
+              <p class="stock-company-analysis-note">지표는 업종 특성과 일회성 손익에 따라 달라질 수 있습니다. 한 분기보다 최근 추세와 동종업계 비교를 함께 확인하세요.</p>
+            </article>
+          </section>
+
           <section class="stock-tab-panel stock-v3-ai" id="stock-strategy-section" data-stock-panel="strategy" role="tabpanel" hidden>
-            <p class="quant-signal-status" id="quant-signal-status" role="status">AI 매매신호를 계산하는 중입니다.</p>
+            <p class="quant-signal-status" id="quant-signal-status" role="status">AI 시그널을 계산하는 중입니다.</p>
             <section class="quant-signal-stack" id="quant-signal-content" hidden>
               <article class="stock-v3-section quant-current-card">
                 <header class="quant-current-head">
-                  <h2 class="quant-current-message" id="quant-current-label">현재 상태를 확인하는 중이에요.</h2>
+                  <div>
+                    <span>AI 지금 이렇게 판단해요</span>
+                    <h2 class="quant-current-message" id="quant-current-label">현재 상태를 확인하는 중이에요.</h2>
+                  </div>
                   <button class="quant-signal-refresh" id="quant-signal-refresh" type="button">새로고침</button>
                 </header>
                 <dl class="quant-current-position" id="quant-current-position"></dl>
@@ -351,12 +786,12 @@
 
               <article class="stock-v3-section quant-chart-card">
                 <header class="stock-v3-section-head">
-                  <div><span>매수·매도 시점</span><h2>최근 1년 AI 매매신호</h2></div>
+                  <div><span>신호 판단 시점</span><h2>최근 1년 AI 시그널</h2></div>
                   <span class="stock-v3-source" id="quant-chart-source">-</span>
                 </header>
-                <div class="quant-signal-chart" id="quant-signal-chart" aria-label="최근 1년 가격과 AI 전략의 매수 매도 시점"></div>
+                <div class="quant-signal-chart" id="quant-signal-chart" aria-label="최근 1년 가격과 AI 매매 시점"></div>
                 <div class="quant-chart-legend" aria-label="차트 범례">
-                  <span class="buy">매수</span><span class="partial">일부 매도</span><span class="sell">모두 매도</span>
+                  <span class="buy">매수</span><span class="partial">일부 매도</span><span class="sell">매도</span>
                 </div>
               </article>
 
@@ -455,67 +890,126 @@
           </div>
         </section>
 
-        <section class="home-ai-signals" id="home-ai-signals" aria-labelledby="home-ai-signals-title">
+        <section class="home-ai-signals" id="home-ai-signals" aria-labelledby="home-market-signal-title">
           <header class="home-ai-signals-head">
-            <div><span id="home-ai-signals-meta">관심종목 신호 확인 중</span><h2 id="home-ai-signals-title">AI 매매신호</h2></div>
+            <div>
+              <a class="home-ai-signals-title-link" href="/dashboard?view=ai-signals" data-ai-signal-list-link="true" aria-label="AI 시그널 전체 목록 보기">
+                <span id="home-ai-signals-meta">최근 30일 시장 신호 확인 중</span><h2 id="home-ai-signals-title">AI 시그널</h2>
+              </a>
+            </div>
             <button class="text-action" id="home-ai-signals-more" type="button">더보기</button>
           </header>
-          <section class="home-market-signal-ticker" id="home-market-signal-ticker" aria-label="내 보유종목 AI 대응 요약">
-            <span class="home-market-signal-kicker">AI 매매신호</span>
-            <div class="home-market-signal-window is-loading" id="home-market-signal-window" aria-live="polite" aria-label="보유종목 대응을 불러오는 중">
+          <h2 class="home-market-signal-title" id="home-market-signal-title">AI는 무엇을 사고팔까?</h2>
+          <section class="home-market-signal-ticker" id="home-market-signal-ticker" aria-label="최근 30일 시장 AI 시그널">
+            <span class="home-market-signal-kicker">AI 시그널</span>
+            <div class="home-market-signal-window is-loading" id="home-market-signal-window" aria-live="polite" aria-label="최근 30일 시장 AI 시그널을 불러오는 중">
               <span class="home-market-signal-skeleton" aria-hidden="true"></span>
             </div>
           </section>
-          <section class="home-ai-response" id="home-ai-response" aria-labelledby="home-ai-response-title">
-            <header><span>AI 대응</span><time id="home-ai-response-asof">기준 정보 확인 중</time></header>
-            <div class="home-ai-response-line">
-              <span>시장 변동성</span>
-              <h3 id="home-ai-response-title">시장 흐름을 확인하고 있습니다.</h3>
-            </div>
-            <div class="home-ai-response-line is-watch" id="home-ai-response-watch" role="button" tabindex="0" aria-label="관심종목 유의 상세 보기">
-              <span>관심종목 유의</span>
-              <p id="home-ai-response-summary">우선 확인할 관심종목을 찾고 있습니다.</p>
-            </div>
+          <section class="home-ai-response" id="home-ai-response" aria-labelledby="home-ai-response-heading">
+            <header>
+              <span id="home-ai-response-heading">AI 관심종목 대응</span>
+              <time id="home-ai-response-asof">업데이트 확인 중</time>
+            </header>
+            <section class="home-ai-response-personal" aria-labelledby="home-ai-response-watch-label">
+              <header>
+                <span id="home-ai-response-watch-label">관심종목 영향도</span>
+                <button id="home-ai-response-watch" type="button">관심종목 전체보기</button>
+              </header>
+              <p id="home-ai-response-summary" class="home-ai-response-personal-status">관심종목과 주요 이벤트의 연결을 확인하고 있습니다.</p>
+              <div id="home-ai-response-personal-list" class="home-ai-response-personal-list" aria-live="polite" hidden></div>
+            </section>
           </section>
           <div class="home-ai-signals-list" id="home-ai-signals-list">
-            <p class="muted">관심종목의 AI 매매신호를 불러오는 중입니다.</p>
+            <p class="muted">최근 30일 시장 전체 AI 시그널을 불러오는 중입니다.</p>
           </div>
         </section>
 
-        <section class="home-surge" id="home-surge" aria-labelledby="home-surge-title" aria-live="polite">
+        <section class="home-surge home-top50" id="home-surge" data-ui-version="6.0" aria-labelledby="home-surge-title">
           <header class="home-surge-head">
-            <div><span id="home-surge-meta">기준 정보 확인 중</span><h2 id="home-surge-title">급등주</h2></div>
-            <button class="text-action" id="home-surge-more" type="button">더보기</button>
+            <div><span id="home-surge-meta">실시간 순위 확인 중</span><h2 id="home-surge-title">TOP 50</h2></div>
+            <button
+              class="home-ranking-market-trigger"
+              id="home-ranking-market-trigger"
+              type="button"
+              aria-haspopup="dialog"
+              aria-controls="home-ranking-market-sheet"
+              aria-expanded="false"
+            >
+              <span id="home-ranking-market-trigger-label">전체</span>
+              <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m6 8 4 4 4-4"></path></svg>
+            </button>
           </header>
-          <div class="home-surge-list" id="home-surge-list"><p class="muted">급등 종목을 불러오는 중입니다.</p></div>
+          <nav class="home-ranking-category-tabs" id="home-ranking-category-tabs" role="tablist" aria-label="TOP 50 순위 기준">
+            <button class="active" type="button" role="tab" aria-selected="true" aria-controls="home-surge-list" data-home-ranking-category="volume">거래량</button>
+            <button type="button" role="tab" aria-selected="false" aria-controls="home-surge-list" tabindex="-1" data-home-ranking-category="surge">수익률</button>
+            <button type="button" role="tab" aria-selected="false" aria-controls="home-surge-list" tabindex="-1" data-home-ranking-category="market_cap">시가총액</button>
+            <button type="button" role="tab" aria-selected="false" aria-controls="home-surge-list" tabindex="-1" data-home-ranking-category="etf">ETF</button>
+            <button type="button" role="tab" aria-selected="false" aria-controls="home-surge-list" tabindex="-1" data-home-ranking-category="dividend">배당</button>
+            <button type="button" role="tab" aria-selected="false" aria-controls="home-surge-list" tabindex="-1" data-home-ranking-category="per">PER</button>
+            <button type="button" role="tab" aria-selected="false" aria-controls="home-surge-list" tabindex="-1" data-home-ranking-category="low52">52주 최저</button>
+            <button type="button" role="tab" aria-selected="false" aria-controls="home-surge-list" tabindex="-1" data-home-ranking-category="high52">52주 최고</button>
+          </nav>
+          <nav class="home-ranking-subfilters home-surge-sector-filters" id="home-surge-sector-filters" role="tablist" aria-label="TOP 50 세부 기준" hidden></nav>
+          <div class="home-ranking-column-label" id="home-ranking-column-label" aria-hidden="true">거래량 · 현재 시세</div>
+          <div class="home-surge-list" id="home-surge-list" role="tabpanel" aria-live="polite"><p class="muted">거래량 상위 종목을 불러오는 중입니다.</p></div>
+          <button class="home-ranking-more" id="home-surge-more" type="button">더보기</button>
         </section>
 
-        <section id="trend-view" class="home-market-content">
+        <section id="trend-view" class="home-market-sections" aria-label="증시 캘린더와 뉴스">
           <header class="topbar" id="trend-topbar" hidden>
             <div class="identity"><div><h1 id="trend-title">시장 홈</h1></div></div>
           </header>
-          <section class="trend-tabs app-segment-tabs" id="trend-tabs" role="tablist" aria-label="시장 정보 보기">
-            <button class="trend-tab active" type="button" role="tab" aria-selected="true" aria-controls="trend-live-panel" data-trend-tab="live">실시간</button>
+          <section class="trend-tabs app-segment-tabs" id="trend-tabs" role="tablist" aria-label="시장 정보 보기" data-archived="section-switcher" aria-hidden="true" hidden>
+            <button class="trend-tab active" type="button" role="tab" aria-selected="true" aria-controls="trend-live-panel" data-trend-tab="live">뉴스</button>
             <button class="trend-tab" type="button" role="tab" aria-selected="false" aria-controls="trend-events-panel" data-trend-tab="events">주요 이벤트</button>
-            <button class="trend-tab" type="button" role="tab" aria-selected="false" aria-controls="trend-impact-panel" data-trend-tab="impact">시장 영향</button>
+            <button class="trend-tab" type="button" role="tab" aria-selected="false" aria-controls="trend-impact-panel" data-trend-tab="impact" data-archived="true" aria-hidden="true" tabindex="-1" hidden>시장 영향</button>
           </section>
-          <section class="trend-panel" id="trend-live-panel" role="tabpanel">
-            <div class="app-section-heading"><div><span>실시간 이슈</span><h2>시장 타임라인</h2></div></div>
-            <div class="trend-thread" id="trend-thread"></div>
-          </section>
-          <section class="trend-panel" id="trend-events-panel" role="tabpanel" hidden>
-            <div class="app-section-heading">
-              <div><span>앞으로 7일</span><h2 id="trend-events-title">이벤트 캘린더</h2></div>
-              <button class="text-action" id="home-past-toggle" type="button" aria-expanded="false">지난 이벤트</button>
-            </div>
-            <div class="trend-events" id="trend-events"></div>
-            <section class="trend-past-inline" id="trend-past-panel" hidden>
-              <div class="app-section-heading"><div><span>기록</span><h2>지난 이벤트</h2></div></div>
+          <section class="trend-panel home-market-card home-events-card" id="trend-events-panel" role="region" aria-labelledby="trend-events-title">
+            <section class="trend-calendar" aria-labelledby="trend-events-title">
+              <header class="trend-calendar-head">
+                <div><span>앞으로 7일</span><h2 id="trend-events-title">증시 캘린더</h2></div>
+                <p id="trend-calendar-window">일정을 확인하는 중입니다.</p>
+              </header>
+              <div class="trend-calendar-days" id="trend-calendar-days" role="tablist" aria-label="이벤트 날짜 선택"></div>
+              <div class="trend-calendar-date-head">
+                <span id="trend-calendar-event-count" aria-live="polite">0개 일정</span>
+              </div>
+              <div class="trend-events" id="trend-events" role="tabpanel" aria-live="polite"></div>
+            </section>
+            <button
+              class="trend-past-toggle"
+              id="home-past-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="trend-past-panel"
+            >
+              <span class="trend-past-toggle-copy">
+                <strong id="home-past-toggle-label">지난 이벤트 펼치기</strong>
+                <small>최근 2주</small>
+              </span>
+              <span class="trend-past-toggle-icon" id="home-past-toggle-icon" aria-hidden="true">+</span>
+            </button>
+            <section class="trend-past-inline" id="trend-past-panel" aria-label="최근 2주 지난 이벤트" hidden>
+              <div class="app-section-heading"><div><span>최근 2주</span><h2>지난 이벤트</h2></div></div>
               <div class="trend-events" id="trend-past-events"></div>
             </section>
           </section>
-          <section class="trend-panel" id="trend-impact-panel" role="tabpanel" hidden>
-            <div class="app-section-heading"><div><span>상생·상극으로 읽는 시장 변수</span><h2>시장 영향 분석</h2></div></div>
+          <section class="trend-panel home-market-card home-news-card" id="trend-live-panel" role="region" aria-labelledby="trend-live-title">
+            <div class="app-section-heading"><div><span>실시간 이슈</span><h2 id="trend-live-title">시장 뉴스</h2></div></div>
+            <div class="trend-live-controls">
+              <div class="trend-live-filters" id="trend-live-filters" role="tablist" aria-label="실시간 뉴스 필터">
+                <button class="trend-live-filter active" type="button" role="tab" data-trend-news-filter="all" aria-selected="true" aria-controls="trend-thread">전체 <span class="trend-live-filter-count">0</span></button>
+                <button class="trend-live-filter is-positive" type="button" role="tab" data-trend-news-filter="positive" aria-selected="false" aria-controls="trend-thread" tabindex="-1">호재 <span class="trend-live-filter-count">0</span></button>
+                <button class="trend-live-filter is-negative" type="button" role="tab" data-trend-news-filter="negative" aria-selected="false" aria-controls="trend-thread" tabindex="-1">악재 <span class="trend-live-filter-count">0</span></button>
+              </div>
+              <p class="trend-live-result-meta" id="trend-live-result-meta" aria-live="polite">실시간 뉴스를 불러오는 중입니다.</p>
+            </div>
+            <div class="trend-thread" id="trend-thread" role="tabpanel" aria-live="polite"></div>
+            <button class="trend-live-toggle" id="trend-live-toggle" type="button" aria-label="뉴스 전체보기" hidden>더보기</button>
+          </section>
+          <section class="trend-panel" id="trend-impact-panel" role="tabpanel" data-archived="true" aria-hidden="true" hidden>
+            <div class="app-section-heading"><div><span>오늘 좋은 신호와 주의 신호</span><h2>시장 영향 분석</h2></div></div>
             <div class="trend-events market-impact-content" id="trend-impact-content">
               <p class="muted">시장 변수를 계산하는 중입니다.</p>
             </div>
@@ -523,35 +1017,145 @@
         </section>
       </section>
 
-      <section id="ai-signals-view" class="app-page app-ai-signals" data-ui-version="1.0" hidden>
-        <header class="secondary-commandbar ai-signals-commandbar">
-          <button class="secondary-commandbar-back" id="ai-signals-back" type="button" aria-label="홈으로 돌아가기">←</button>
-          <h1>AI 매매신호</h1>
+      <section id="news-view" class="app-page news-page" data-ui-version="1.0" hidden>
+        <header class="secondary-commandbar news-commandbar">
+          <button class="secondary-commandbar-back" id="news-back" type="button" aria-label="홈으로 돌아가기">←</button>
+          <div class="secondary-commandbar-title">
+            <h1>뉴스</h1>
+            <span id="news-page-count">전체</span>
+          </div>
           <span class="secondary-commandbar-spacer" aria-hidden="true"></span>
         </header>
-        <p class="secondary-view-meta" id="ai-signals-meta">관심종목 신호 확인 중</p>
-        <nav class="ai-signal-stage-tabs" id="ai-signal-stage-tabs" role="tablist" aria-label="AI 매매신호 상태">
-          <button class="active" type="button" role="tab" aria-selected="true" data-ai-signal-stage="recent-buy">최근 매수 <span>0</span></button>
-          <button type="button" role="tab" aria-selected="false" data-ai-signal-stage="holding">보유 중 <span>0</span></button>
-          <button type="button" role="tab" aria-selected="false" data-ai-signal-stage="recent-sell">최근 매도 <span>0</span></button>
+        <section class="news-page-hero" aria-labelledby="news-page-title">
+          <time id="news-page-as-of">최신 뉴스 확인 중</time>
+          <h2 id="news-page-title">시장 뉴스</h2>
+          <p>호재와 악재를 나눠 최신순으로 확인하세요.</p>
+        </section>
+        <nav class="news-page-filters" id="news-page-filters" role="tablist" aria-label="뉴스 영향 필터">
+          <button class="active" type="button" role="tab" data-news-page-filter="all" aria-selected="true" aria-controls="news-page-list">전체 <span>0</span></button>
+          <button class="is-positive" type="button" role="tab" data-news-page-filter="positive" aria-selected="false" aria-controls="news-page-list" tabindex="-1">호재 <span>0</span></button>
+          <button class="is-negative" type="button" role="tab" data-news-page-filter="negative" aria-selected="false" aria-controls="news-page-list" tabindex="-1">악재 <span>0</span></button>
         </nav>
-        <section class="ai-signals-page-list" id="ai-signals-page-list" aria-live="polite">
-          <p class="muted">관심종목의 AI 매매신호를 불러오는 중입니다.</p>
+        <p class="news-page-result-meta" id="news-page-result-meta" aria-live="polite">뉴스를 불러오는 중입니다.</p>
+        <section class="news-page-list" id="news-page-list" role="tabpanel" aria-live="polite">
+          <p class="muted">뉴스를 불러오는 중입니다.</p>
         </section>
       </section>
 
-      <section id="market-view" class="app-page app-market-rankings" data-ui-version="5.0" hidden>
-        <header class="secondary-commandbar market-ranking-commandbar">
-          <button class="secondary-commandbar-back market-ranking-back" id="market-ranking-back" type="button" aria-label="홈으로 돌아가기">←</button>
-          <h1>급등주</h1>
+      <section id="event-detail-view" class="app-page event-detail-page" data-ui-version="1.0" hidden>
+        <header class="secondary-commandbar event-detail-commandbar">
+          <button class="secondary-commandbar-back" id="event-detail-back" type="button" aria-label="증시 캘린더로 돌아가기">←</button>
+          <h1>이벤트 분석</h1>
           <span class="secondary-commandbar-spacer" aria-hidden="true"></span>
         </header>
+        <article class="event-detail-content" id="event-detail-content" aria-live="polite">
+          <p class="muted">이벤트 분석을 불러오는 중입니다.</p>
+        </article>
+      </section>
+
+      <section id="morning-money-briefing-view" class="app-page morning-money-briefing-page" data-ui-version="3.0" hidden>
+        <header class="morning-money-commandbar">
+          <button class="morning-money-back" id="morning-money-briefing-back" type="button" aria-label="이전 화면으로 돌아가기">←</button>
+          <div class="morning-money-command-title">
+            <h1>오늘의 돈이 되는 소식</h1>
+          </div>
+          <time id="morning-money-briefing-date">날짜 확인 중</time>
+        </header>
+
+        <article class="morning-money-overview" aria-labelledby="morning-money-overview-title">
+          <header class="morning-money-overview-head">
+            <div>
+              <span class="morning-money-kicker" id="morning-money-briefing-edition">최신판 확인 중</span>
+              <h2 id="morning-money-overview-title">밤사이 핵심만 빠르게</h2>
+            </div>
+          </header>
+          <p class="morning-money-overview-intro" id="morning-money-overview-intro">
+            시장과 내 돈의 흐름에 영향을 줄 만한 소식을 골라 편지처럼 차근차근 정리했어요.
+          </p>
+          <section class="morning-money-digest" id="morning-money-digest" aria-labelledby="morning-money-digest-title" hidden>
+            <header class="morning-money-digest-head">
+              <span aria-hidden="true">⏰</span>
+              <h3 id="morning-money-digest-title">오늘 돈의 흐름 세 줄 요약</h3>
+            </header>
+            <ol id="morning-money-digest-list"></ol>
+          </section>
+        </article>
+
+        <div class="morning-money-briefing-divider" role="separator" aria-label="경제뉴스 브리핑">
+          <span aria-hidden="true">경제뉴스 브리핑</span>
+        </div>
+
+        <section class="morning-money-content" id="morning-money-briefing-content" aria-busy="true">
+          <section class="morning-money-loading-state" role="status">
+            <span aria-hidden="true"></span>
+            <strong>돈이 되는 소식을 정리하고 있어요</strong>
+            <p>카테고리별 핵심 소식을 불러오고 있어요.</p>
+          </section>
+        </section>
+
+        <aside class="morning-money-disclaimer" aria-label="브리핑 이용 안내">
+          <strong>참고 정보</strong>
+          <p>공개 뉴스를 빠르게 훑기 위한 요약입니다. 거래 전 원문·공시와 최신 시세를 확인하세요.</p>
+        </aside>
+      </section>
+
+      <section id="ai-signals-view" class="app-page app-ai-signals" data-ui-version="2.0" hidden>
+        <header class="secondary-commandbar ai-signals-commandbar">
+          <button class="secondary-commandbar-back" id="ai-signals-back" type="button" aria-label="홈으로 돌아가기">←</button>
+          <h1>AI 시그널</h1>
+          <span class="secondary-commandbar-spacer" aria-hidden="true"></span>
+        </header>
+        <nav class="ai-signal-mode-tabs" id="ai-signal-mode-tabs" role="tablist" aria-label="AI 시그널 보기">
+          <button class="active" id="ai-signal-mode-current" type="button" role="tab" aria-selected="true" aria-controls="ai-signals-page-list" data-ai-signal-mode="current">현재 신호 <span>0</span></button>
+          <button id="ai-signal-mode-history" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-mode="history">해제 이력 <span>0</span></button>
+        </nav>
+        <nav class="ai-signal-stage-tabs" id="ai-signal-stage-tabs" role="tablist" aria-label="AI 시그널 상태" aria-orientation="horizontal">
+          <button class="active" id="ai-signal-stage-all" type="button" role="tab" aria-selected="true" aria-controls="ai-signals-page-list" data-ai-signal-stage="all">전체 <span>0</span></button>
+          <button id="ai-signal-stage-buy-holding" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-stage="buy-holding">확정 매수·보유 <span>0</span></button>
+          <button id="ai-signal-stage-recent-sell" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-stage="recent-sell">수익확정·전량 매도 <span>0</span></button>
+          <button id="ai-signal-stage-preliminary-buy" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-stage="preliminary-buy">예비 매수 <span>0</span></button>
+          <button id="ai-signal-stage-preliminary-sell" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-stage="preliminary-sell">매도 대기 <span>0</span></button>
+        </nav>
+        <nav class="ai-signal-history-filters" id="ai-signal-history-filters" role="tablist" aria-label="해제 이력 상태" aria-orientation="horizontal" hidden>
+          <button class="active" id="ai-signal-history-all" type="button" role="tab" aria-selected="true" aria-controls="ai-signals-page-list" data-ai-signal-history-side="all">전체 <span>0</span></button>
+          <button id="ai-signal-history-buy" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-history-side="buy">매수 조건 해제 <span>0</span></button>
+          <button id="ai-signal-history-sell" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-history-side="sell">매도 조건 해제 <span>0</span></button>
+        </nav>
+        <section class="ai-signals-live-status" id="ai-signals-live-status" data-state="checking" data-mixed="false" role="status" aria-live="polite" aria-atomic="false">
+          <span class="ai-signals-live-status-dot" aria-hidden="true"></span>
+          <span class="ai-signals-live-status-copy">
+            <strong id="ai-signals-live-status-label">시그널 상태 확인 중</strong>
+            <small id="ai-signals-live-status-detail">시그널과 현재가를 확인하고 있어요.</small>
+          </span>
+          <time id="ai-signals-live-status-time" aria-hidden="true" hidden></time>
+        </section>
+        <aside class="ai-signal-sell-disclaimer" id="ai-signal-sell-disclaimer" role="note" aria-label="AI 매도 시그널 주의사항" hidden>
+          <strong>주의:</strong> AI의 매도 타이밍을 무조건 따라가지마세요!
+        </aside>
+        <section class="ai-signals-page-list" id="ai-signals-page-list" role="tabpanel" aria-labelledby="ai-signal-stage-all">
+          <p class="muted">최근 30일 시장 AI 시그널을 불러오는 중입니다.</p>
+        </section>
+      </section>
+
+      <section id="market-view" class="app-page app-market-rankings" data-ui-version="6.0" hidden>
+        <header class="secondary-commandbar market-ranking-commandbar">
+          <button class="secondary-commandbar-back market-ranking-back" id="market-ranking-back" type="button" aria-label="홈으로 돌아가기">←</button>
+          <h1 id="market-ranking-command-title">TOP 50</h1>
+          <span class="secondary-commandbar-spacer" aria-hidden="true"></span>
+        </header>
+        <header class="market-ranking-hero">
+          <h2 id="market-ranking-title">거래량</h2>
+          <p id="market-ranking-description">오늘 거래가 가장 활발한 종목 순위예요.</p>
+          <time id="market-ranking-meta">실시간 순위 확인 중</time>
+        </header>
+        <nav class="market-ranking-mode-tabs" id="market-ranking-mode-tabs" role="tablist" aria-label="순위 기간 및 기준" hidden></nav>
         <nav class="market-segment market-ranking-tabs" role="tablist" aria-label="시장 선택">
           <button class="market-segment-button active" type="button" data-market-filter="ALL" role="tab" aria-selected="true">전체</button>
           <button class="market-segment-button" type="button" data-market-filter="KOSPI" role="tab" aria-selected="false">KOSPI</button>
           <button class="market-segment-button" type="button" data-market-filter="KOSDAQ" role="tab" aria-selected="false">KOSDAQ</button>
         </nav>
-        <section class="market-ranking-list" id="ranking-body" aria-live="polite"><p class="muted">급등 종목을 불러오는 중입니다.</p></section>
+        <div class="market-ranking-column-head" id="market-ranking-column-head" aria-hidden="true"><span>종목</span><span>거래량 · 현재 시세</span></div>
+        <section class="market-ranking-list" id="ranking-body" aria-live="polite"><p class="muted">거래량 상위 종목을 불러오는 중입니다.</p></section>
       </section>
 
       <section id="search-view" class="app-page app-search" data-ui-version="3.0" hidden>
@@ -564,7 +1168,7 @@
 
         <section id="recommend-view" class="discovery-module">
           <header class="app-section-heading discovery-module-head">
-            <div><span>데이터 선별</span><h2>추천 종목</h2><p id="recommend-meta" hidden></p></div>
+            <div><h2 id="recommend-stage-title">지금 추천 종목</h2><time id="recommend-meta" hidden></time></div>
           </header>
           <section class="recommend-summary" hidden><p id="recommend-status"></p></section>
           <section class="recommend-list" id="recommend-list"></section>
@@ -628,7 +1232,7 @@
         </section>
       </section>
 
-      <section id="chart-view" class="app-page app-chart" data-ui-version="4.0" hidden>
+      <section id="chart-view" class="app-page app-chart chart-forecast-host" data-ui-version="4.0" hidden>
         <form class="discovery-search chart-stock-search" id="chart-stock-search-form" autocomplete="off">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path></svg>
           <input id="chart-stock-search-input" type="search" placeholder="궁금한 종목의 흐름 분석하기" aria-label="차트 분석 종목 검색" aria-autocomplete="list" aria-expanded="false" aria-controls="chart-stock-search-suggestions" />
@@ -706,6 +1310,15 @@
         <section class="watch-chart-list chart-forecast-result" id="watch-chart-list" aria-live="polite"></section>
       </section>
 
+      <section id="chart-study-view" class="app-page chart-study-view" hidden>
+        <header class="secondary-commandbar chart-study-commandbar">
+          <button class="secondary-commandbar-back" id="chart-study-back" type="button" aria-label="차트 분석으로 돌아가기">←</button>
+          <h1>차트 공부</h1>
+          <span class="secondary-commandbar-spacer" aria-hidden="true"></span>
+        </header>
+        <article class="chart-study-content" id="chart-study-content" aria-live="polite"></article>
+      </section>
+
       <section id="chart-history-view" class="app-page" hidden>
         <header class="secondary-commandbar chart-history-commandbar">
           <button class="secondary-commandbar-back" id="chart-history-back-button" type="button" aria-label="차트분석으로 돌아가기">←</button>
@@ -716,21 +1329,78 @@
         <section class="chart-snapshot-panel archive-page"><div class="history-head"><strong>차트 스냅샷</strong><span>저장 기록 관리</span></div><div class="chart-snapshot-list" id="watch-chart-snapshots"></div></section>
       </section>
 
-      <footer class="service-footer" aria-label="서비스 정보">
-        <dl>
-          <div>
-            <dt>서비스 담당자</dt>
-            <dd>안석환</dd>
+      <footer class="service-footer" aria-labelledby="service-guide-title">
+        <header class="service-footer-header">
+          <span>서비스 이용 안내</span>
+          <h2 id="service-guide-title">꼭 알아두세요</h2>
+        </header>
+
+        <section class="service-footer-intro" aria-labelledby="service-intro-title">
+          <h3 id="service-intro-title">‘비밀노트’ 서비스</h3>
+          <ul>
+            <li>비밀노트는 별도의 개인정보 입력 없이 아이디만으로 이용할 수 있습니다.</li>
+            <li>AI 분석과 공개 데이터를 활용해 국내 주식시장 정보를 이해하기 쉽게 정리합니다.</li>
+            <li>본 서비스는 투자 권유·투자자문·수익 보장 또는 실제 주문을 제공하지 않습니다.</li>
+            <li>서비스와 제공 정보는 운영 상황에 따라 사전 안내 없이 변경·중단될 수 있습니다.</li>
+          </ul>
+        </section>
+
+        <details class="service-footer-disclosure" open>
+          <summary>AI 시그널 안내</summary>
+          <div class="service-footer-disclosure-body">
+            <ul>
+              <li>모든 매수·보유·매도 표시는 과거 가격·거래량과 공개 정보를 바탕으로 AI가 계산한 참고 신호입니다.</li>
+              <li>AI 계산 결과는 실제 수익이나 미래 가격을 보장하지 않으며, 사전적 투자 의견이 아닙니다.</li>
+              <li>최종 투자 판단과 거래 결과에 대한 책임은 이용자 본인에게 있습니다.</li>
+            </ul>
           </div>
-          <div>
-            <dt>서비스 문의</dt>
-            <dd>
-              <a href="https://www.linkedin.com/in/connor-sh" target="_blank" rel="noopener noreferrer">LinkedIn</a>
-            </dd>
+        </details>
+
+        <details class="service-footer-disclosure" open>
+          <summary>데이터 출처</summary>
+          <div class="service-footer-disclosure-body">
+            <ul>
+              <li>한국거래소(KRX), 한국투자증권 Open API, OpenDART, 네이버 금융 및 국내 증권사 공개 리서치 자료를 활용합니다.</li>
+              <li>본 서비스는 현재 광고, 유료 결제 및 제휴 수익 없이 비상업적으로 운영됩니다.</li>
+              <li>제공되는 데이터는 정보 제공과 분석 참고를 위해 가공하여 표시하며, 원문 또는 원시데이터의 재판매나 대량 재배포를 목적으로 하지 않습니다.</li>
+              <li>데이터 이용은 각 제공처의 이용조건과 관련 법령을 따르며, 권리자의 정당한 요청이 있는 경우 관련 데이터의 표시 또는 제공을 중단할 수 있습니다.</li>
+              <li>데이터는 지연되거나 오류가 발생할 수 있으므로 거래 전 증권사와 공식 공시에서 최신 정보를 다시 확인해야 합니다.</li>
+              <li>각 데이터와 상표의 권리는 해당 제공처에 있으며, 제공처 사정에 따라 지연·변경·중단될 수 있습니다.</li>
+            </ul>
           </div>
-        </dl>
+        </details>
+
+        <details class="service-footer-disclosure" open>
+          <summary>서비스 및 문의</summary>
+          <div class="service-footer-disclosure-body">
+            <dl>
+              <div>
+                <dt>서비스 담당자</dt>
+                <dd>안석환</dd>
+              </div>
+              <div>
+                <dt>서비스 문의</dt>
+                <dd><a href="https://www.linkedin.com/in/connor-sh" target="_blank" rel="noopener noreferrer">LinkedIn</a></dd>
+              </div>
+            </dl>
+          </div>
+        </details>
+
       </footer>
       </main>
+
+      <aside class="morning-money-popover" id="morning-money-popover" aria-label="아침에 보는 돈이 되는 소식" hidden>
+        <button class="morning-money-popover-open" id="morning-money-popover-open" type="button">
+          <span class="morning-money-popover-coin" role="img" aria-label="동전">🪙</span>
+          <span class="morning-money-popover-copy">
+            <strong class="morning-money-popover-title">
+              <span id="morning-money-popover-edition">아침에 보는</span>
+              <span>돈이 되는 소식</span>
+            </strong>
+          </span>
+        </button>
+        <button class="morning-money-popover-close" id="morning-money-popover-close" type="button" aria-label="현재 브리핑 팝업 닫기">×</button>
+      </aside>
 
       <nav class="bottom-nav" id="bottom-nav" aria-label="주요 메뉴">
         <button class="bottom-nav-item active" type="button" data-app-view="home" aria-current="page">
@@ -742,12 +1412,9 @@
         <button class="bottom-nav-item" type="button" data-app-view="portfolio">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"></path></svg><span>내 종목</span>
         </button>
-        <button class="bottom-nav-item" type="button" data-app-view="chart">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M22 20V7"></path></svg><span>차트분석</span>
-        </button>
       </nav>
     </div>
 
-    <script src="/assets/dashboard/app.js?v=20260730v144&amp;build=20260730v144" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260831v453" defer></script>
   </body>
 </html>

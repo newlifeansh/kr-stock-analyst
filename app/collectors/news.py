@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
@@ -17,6 +18,7 @@ from app.repository import finish_ingestion, latest_news_items, start_ingestion,
 
 KST = ZoneInfo("Asia/Seoul")
 NAVER_FINANCE_BASE = "https://finance.naver.com"
+NAVER_NEWS_ARTICLE_BASE = "https://n.news.naver.com/mnews/article"
 
 NEWS_CATEGORY_URLS = {
     "breaking": "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258",
@@ -51,7 +53,7 @@ class NewsListItem:
             "summary": self.summary,
             "press_name": self.press_name,
             "image_url": self.image_url,
-            "detail_url": self.detail_url,
+            "detail_url": preferred_news_url(self.source, self.external_id, self.detail_url),
             "published_at": self.published_at,
             "raw": self.raw,
         }
@@ -95,58 +97,133 @@ def normalize_naver_news_url(href: Optional[str]) -> Optional[str]:
     return urljoin(NAVER_FINANCE_BASE, normalized)
 
 
+def _clean_news_title(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _preferred_news_title(link: object) -> str:
+    """Prefer visible copy when a malformed title attribute is clipped at a quote."""
+    visible_title = _clean_news_title(link.get_text(" ", strip=True))
+    attribute_title = _clean_news_title(link.get("title"))
+    candidates = [candidate for candidate in (visible_title, attribute_title) if candidate]
+    return max(candidates, key=lambda candidate: (len(candidate), candidate == visible_title), default="")
+
+
+def naver_news_detail_url(external_id: object) -> Optional[str]:
+    """Build a stable Naver article URL from the stored press/article key."""
+    raw = str(external_id or "").strip()
+    if ":" not in raw:
+        return None
+    office_id, article_id = (part.strip() for part in raw.split(":", 1))
+    if not re.fullmatch(r"\d+", office_id) or not re.fullmatch(r"\d+", article_id):
+        return None
+    return f"{NAVER_NEWS_ARTICLE_BASE}/{office_id}/{article_id}"
+
+
+def _naver_article_url_from_candidate(candidate: str) -> Optional[str]:
+    parsed = urlparse(candidate)
+    path_match = re.fullmatch(r"/(?:mnews/)?article/(\d+)/(\d+)/?", parsed.path)
+    if parsed.hostname in {"n.news.naver.com", "news.naver.com"} and path_match:
+        office_id, article_id = path_match.groups()
+        return f"{NAVER_NEWS_ARTICLE_BASE}/{office_id}/{article_id}"
+    params = parse_qs(parsed.query)
+    article_id = (params.get("article_id") or [""])[0]
+    office_id = (params.get("office_id") or [""])[0]
+    if re.fullmatch(r"\d+", office_id) and re.fullmatch(r"\d+", article_id):
+        return f"{NAVER_NEWS_ARTICLE_BASE}/{office_id}/{article_id}"
+    return None
+
+
+def preferred_news_url(
+    source: object,
+    external_id: object,
+    detail_url: object,
+) -> Optional[str]:
+    """Prefer a Naver article detail URL over a section or home URL."""
+    candidate = str(detail_url or "").strip()
+    if str(source or "").strip() == "naver_finance":
+        normalized = normalize_naver_news_url(candidate) if candidate else None
+        if normalized:
+            article_url = _naver_article_url_from_candidate(normalized)
+            if article_url:
+                return article_url
+        canonical = naver_news_detail_url(external_id)
+        if canonical:
+            return canonical
+    return candidate or None
+
+
 def parse_naver_news_list_html(html: str, category: str) -> list[NewsListItem]:
     soup = BeautifulSoup(html, "html.parser")
     items: list[NewsListItem] = []
 
     for li in soup.select("ul.realtimeNewsList > li.newsList"):
-        link = li.select_one("dd.articleSubject a[href]")
-        if not link:
-            continue
+        # Naver groups several articles inside one ``li.newsList``. Text-only
+        # stories use ``dt.articleSubject`` while thumbnail stories use
+        # ``dd.articleSubject``. Pair every subject with its own next summary;
+        # selecting the first nodes from the whole list item mixes articles.
+        for subject_node in li.select("dt.articleSubject, dd.articleSubject"):
+            link = subject_node.select_one("a[href]")
+            if not link:
+                continue
 
-        summary_node = li.select_one("dd.articleSummary")
-        summary_text = None
-        press_name = None
-        published_at = None
-
-        if summary_node:
-            summary_copy = BeautifulSoup(str(summary_node), "html.parser")
-            press = summary_copy.select_one("span.press")
-            wdate = summary_copy.select_one("span.wdate")
-            if press:
-                press_name = press.get_text(strip=True)
-                press.extract()
-            if wdate:
-                published_at = _parse_news_datetime(wdate.get_text(strip=True))
-                wdate.extract()
-            for node in summary_copy.select("span.bar"):
-                node.extract()
-            summary_text = summary_copy.get_text(" ", strip=True) or None
-
-        image = li.select_one("dt.thumb img")
-        href = link.get("href")
-        detail_url = normalize_naver_news_url(href)
-        items.append(
-            NewsListItem(
-                source="naver_finance",
-                source_category=category,
-                external_id=_extract_news_external_id(detail_url or href),
-                title=link.get("title") or link.get_text(strip=True),
-                summary=summary_text,
-                press_name=press_name,
-                image_url=image.get("src") if image else None,
-                detail_url=detail_url,
-                published_at=published_at,
-                raw=json.dumps(
-                    {
-                        "category": category,
-                        "href": href,
-                        "image_url": image.get("src") if image else None,
-                    },
-                    ensure_ascii=False,
-                ),
+            next_node = subject_node.find_next_sibling()
+            summary_node = (
+                next_node
+                if next_node
+                and next_node.name == "dd"
+                and "articleSummary" in (next_node.get("class") or [])
+                else None
             )
-        )
+            summary_text = None
+            press_name = None
+            published_at = None
+            if summary_node:
+                summary_copy = BeautifulSoup(str(summary_node), "html.parser")
+                press = summary_copy.select_one("span.press")
+                wdate = summary_copy.select_one("span.wdate")
+                if press:
+                    press_name = press.get_text(strip=True)
+                    press.extract()
+                if wdate:
+                    published_at = _parse_news_datetime(wdate.get_text(strip=True))
+                    wdate.extract()
+                for node in summary_copy.select("span.bar"):
+                    node.extract()
+                summary_text = summary_copy.get_text(" ", strip=True) or None
+
+            image = None
+            previous_node = subject_node.find_previous_sibling()
+            if (
+                previous_node
+                and previous_node.name == "dt"
+                and "thumb" in (previous_node.get("class") or [])
+            ):
+                image = previous_node.select_one("img")
+
+            href = link.get("href")
+            detail_url = normalize_naver_news_url(href)
+            items.append(
+                NewsListItem(
+                    source="naver_finance",
+                    source_category=category,
+                    external_id=_extract_news_external_id(detail_url or href),
+                    title=_preferred_news_title(link),
+                    summary=summary_text,
+                    press_name=press_name,
+                    image_url=image.get("src") if image else None,
+                    detail_url=detail_url,
+                    published_at=published_at,
+                    raw=json.dumps(
+                        {
+                            "category": category,
+                            "href": href,
+                            "image_url": image.get("src") if image else None,
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            )
 
     return items
 
@@ -223,7 +300,7 @@ def latest_news_events(db: Session, limit: int = 10) -> list[dict[str, object]]:
             "title": item.title,
             "company_name": item.press_name,
             "stock_code": None,
-            "url": item.detail_url,
+            "url": preferred_news_url(item.source, item.external_id, item.detail_url),
             "published_at": item.published_at,
             "raw": item.raw,
         }

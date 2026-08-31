@@ -1109,7 +1109,7 @@ select {
   background: #edf3f8;
 }
 
-.overview-account-card {
+.overview-watch-card {
   display: grid;
   justify-items: center;
   gap: 12px;
@@ -1120,11 +1120,11 @@ select {
   text-align: center;
 }
 
-.overview-account-card strong {
+.overview-watch-card strong {
   font-size: 16px;
 }
 
-.overview-account-card span {
+.overview-watch-card span {
   color: #536274;
   font-size: 14px;
   line-height: 1.45;
@@ -1596,7 +1596,7 @@ body.force-mobile .overview-side-panel {
   background: var(--panel);
 }
 
-body.force-mobile .overview-account-card {
+body.force-mobile .overview-watch-card {
   min-height: auto;
   padding: 24px 18px;
 }

@@ -151,7 +151,6 @@ def enrich_stock_ai_analysis(
                     "model": config.ollama_model,
                     "messages": _prompt_messages(bundle),
                     "stream": False,
-                    "think": False,
                     "options": {"temperature": 0, "num_ctx": 256, "num_predict": 2},
                     "keep_alive": "15m",
                 },

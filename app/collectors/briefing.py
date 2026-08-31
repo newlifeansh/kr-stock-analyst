@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import time as time_module
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
+from threading import Lock
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -28,6 +30,8 @@ from app.collectors.research import latest_report_events
 from app.repository import finish_ingestion, start_ingestion, upsert_many
 
 KST = ZoneInfo("Asia/Seoul")
+KIS_TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
+KIS_TRANSIENT_RETRY_DELAYS = (0.25, 0.75)
 
 
 @dataclass
@@ -149,6 +153,9 @@ class KisRestBriefingProvider:
         self.settings = settings
         self._token: Optional[str] = None
         self._token_expires_at: Optional[datetime] = None
+        self._token_lock = Lock()
+        self._request_slot_lock = Lock()
+        self._next_request_at = 0.0
 
     @property
     def transport(self) -> str:
@@ -183,6 +190,53 @@ class KisRestBriefingProvider:
                 )
             )
         return quotes
+
+    def fetch_daily_price_rows(
+        self,
+        codes: list[str],
+        trade_date: date,
+    ) -> list[dict[str, Any]]:
+        """Return finalized KIS candles for a completed session.
+
+        Naver's daily table can remain cached with an intraday candle after
+        the close. KIS exposes the final open, high, low, close, volume and
+        trading value, so it becomes the last writer for the signal universe.
+        """
+
+        rows: list[dict[str, Any]] = []
+        for code in dict.fromkeys(str(value or "").strip() for value in codes):
+            if not code:
+                continue
+            try:
+                raw = self._request_current_price(code)
+            except Exception:
+                continue
+            open_price = _int(raw.get("stck_oprc"))
+            high = _int(raw.get("stck_hgpr"))
+            low = _int(raw.get("stck_lwpr"))
+            close = _int(raw.get("stck_prpr"))
+            if (
+                any(value is None or value <= 0 for value in (open_price, high, low, close))
+                or high < max(open_price, close)
+                or low > min(open_price, close)
+                or high < low
+            ):
+                continue
+            rows.append(
+                {
+                    "code": code,
+                    "trade_date": trade_date,
+                    "open": open_price,
+                    "high": high,
+                    "low": low,
+                    "close": close,
+                    "volume": _int(raw.get("acml_vol")),
+                    "trading_value": _int(raw.get("acml_tr_pbmn")),
+                    "market_cap": None,
+                    "listed_shares": None,
+                }
+            )
+        return rows
 
     def fetch_movers(self, limit: int = 10) -> list[BriefingMoverPayload]:
         movers: list[BriefingMoverPayload] = []
@@ -236,26 +290,39 @@ class KisRestBriefingProvider:
         return "https://openapi.koreainvestment.com:9443"
 
     def _ensure_token(self) -> str:
-        now = datetime.utcnow()
-        if self._token and self._token_expires_at and self._token_expires_at > now + timedelta(minutes=1):
+        with self._token_lock:
+            now = datetime.utcnow()
+            if self._token and self._token_expires_at and self._token_expires_at > now + timedelta(minutes=1):
+                return self._token
+
+            response = requests.post(
+                f"{self._base_url()}/oauth2/tokenP",
+                json={
+                    "grant_type": "client_credentials",
+                    "appkey": self.settings.kis_app_key,
+                    "appsecret": self.settings.kis_app_secret,
+                },
+                headers={"content-type": "application/json"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            self._token = payload["access_token"]
+            expires_in = int(payload.get("expires_in", 86400))
+            self._token_expires_at = now + timedelta(seconds=expires_in)
             return self._token
 
-        response = requests.post(
-            f"{self._base_url()}/oauth2/tokenP",
-            json={
-                "grant_type": "client_credentials",
-                "appkey": self.settings.kis_app_key,
-                "appsecret": self.settings.kis_app_secret,
-            },
-            headers={"content-type": "application/json"},
-            timeout=30,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        self._token = payload["access_token"]
-        expires_in = int(payload.get("expires_in", 86400))
-        self._token_expires_at = now + timedelta(seconds=expires_in)
-        return self._token
+    def _wait_for_request_slot(self) -> None:
+        interval = max(0, int(self.settings.kis_rest_min_interval_ms)) / 1000
+        if not interval:
+            return
+        with self._request_slot_lock:
+            now = time_module.monotonic()
+            scheduled = max(now, self._next_request_at)
+            self._next_request_at = scheduled + interval
+        delay = scheduled - now
+        if delay > 0:
+            time_module.sleep(delay)
 
     def _headers(self, tr_id: str) -> dict[str, str]:
         return {
@@ -268,38 +335,86 @@ class KisRestBriefingProvider:
         }
 
     def _get(self, path: str, tr_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        response = requests.get(
-            f"{self._base_url()}{path}",
-            headers=self._headers(tr_id),
-            params=params,
-            timeout=30,
-        )
+        response = None
+        for attempt in range(len(KIS_TRANSIENT_RETRY_DELAYS) + 1):
+            self._wait_for_request_slot()
+            response = requests.get(
+                f"{self._base_url()}{path}",
+                headers=self._headers(tr_id),
+                params=params,
+                timeout=30,
+            )
+            if (
+                response.status_code in KIS_TRANSIENT_HTTP_STATUSES
+                and attempt < len(KIS_TRANSIENT_RETRY_DELAYS)
+            ):
+                time_module.sleep(KIS_TRANSIENT_RETRY_DELAYS[attempt])
+                continue
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("rt_cd") not in (None, "0"):
+                raise RuntimeError(payload.get("msg1") or payload.get("msg_cd") or "KIS request failed")
+            return payload
+        assert response is not None
         response.raise_for_status()
-        payload = response.json()
-        if payload.get("rt_cd") not in (None, "0"):
-            raise RuntimeError(payload.get("msg1") or payload.get("msg_cd") or "KIS request failed")
-        return payload
+        raise RuntimeError("KIS request failed")
 
-    def _request_current_price(self, code: str) -> dict[str, Any]:
+    def _request_current_price(self, code: str, market_division: str = "J") -> dict[str, Any]:
+        market_division = str(market_division or "J").strip().upper()
+        if market_division not in {"J", "NX", "UN"}:
+            raise ValueError("market_division must be one of J, NX, or UN")
         payload = self._get(
             "/uapi/domestic-stock/v1/quotations/inquire-price",
             "FHKST01010100",
             {
-                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_COND_MRKT_DIV_CODE": market_division,
                 "FID_INPUT_ISCD": code,
             },
         )
         return payload.get("output", {})
 
-    def fetch_intraday_chart(self, code: str, *, max_points: int = 390) -> list[dict[str, object]]:
+    def fetch_intraday_chart(
+        self,
+        code: str,
+        *,
+        max_points: int = 390,
+        market_division: str = "J",
+        now: Optional[datetime] = None,
+    ) -> list[dict[str, object]]:
         """Fetch today's one-minute chart without retaining a quote cache."""
-        now = datetime.now(KST)
-        if now.time() < time(9, 0):
+        now = now or datetime.now(KST)
+        market_division = str(market_division or "J").strip().upper()
+        if market_division not in {"J", "NX", "UN"}:
+            raise ValueError("market_division must be one of J, NX, or UN")
+        extended_market = market_division in {"NX", "UN"}
+        session_start = "080000" if extended_market else "090000"
+        if extended_market:
+            if now.time() < time(8, 0):
+                cursor = "200000"
+            elif now.time() > time(20, 0):
+                cursor = "200000"
+            else:
+                cursor = now.strftime("%H%M%S")
+        elif now.time() < time(9, 0):
             cursor = "153000"
         elif now.time() > time(15, 30):
             cursor = "153000"
         else:
             cursor = now.strftime("%H%M%S")
+
+        current_time = now.time()
+        nxt_live = (
+            time(8, 0) <= current_time < time(8, 50)
+            or time(9, 0, 30) <= current_time < time(15, 20)
+            or time(15, 40) <= current_time < time(20, 0)
+        )
+        integrated_live = nxt_live or time(9, 0) <= current_time <= time(15, 30)
+        if market_division == "J":
+            market_live = current_market_status(now) == "open"
+        elif market_division == "NX":
+            market_live = nxt_live
+        else:
+            market_live = integrated_live
 
         points: dict[tuple[str, str], dict[str, object]] = {}
         latest_trade_date: Optional[str] = None
@@ -310,7 +425,7 @@ class KisRestBriefingProvider:
                 "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
                 "FHKST03010200",
                 {
-                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_COND_MRKT_DIV_CODE": market_division,
                     "FID_INPUT_ISCD": code,
                     "FID_INPUT_HOUR_1": chunk_cursor,
                     "FID_PW_DATA_INCU_YN": "Y",
@@ -345,9 +460,10 @@ class KisRestBriefingProvider:
                 }
             return valid_times
 
-        if current_market_status(now) != "open" and max_chunks > 1:
+        if not market_live and max_chunks > 1:
             self._ensure_token()
-            closing_cursor = datetime.combine(now.date(), time(15, 30))
+            closing_time = time(20, 0) if extended_market else time(15, 30)
+            closing_cursor = datetime.combine(now.date(), closing_time)
             cursors = [
                 (closing_cursor - timedelta(minutes=30 * index)).strftime("%H%M%S")
                 for index in range(max_chunks)
@@ -369,7 +485,16 @@ class KisRestBriefingProvider:
 
         previous_cursor = ""
         for _ in range(max_chunks):
-            payload = request_chunk(cursor)
+            try:
+                payload = request_chunk(cursor)
+            except Exception:
+                # A one-day chart is collected in 30-minute windows. If a
+                # later window fails after the transport retries, preserve
+                # the already collected current-day points instead of making
+                # the entire chart unavailable.
+                if points:
+                    break
+                raise
             rows = payload.get("output2", []) or []
             if not rows:
                 break
@@ -378,7 +503,7 @@ class KisRestBriefingProvider:
             if not valid_times:
                 break
             earliest = min(valid_times)
-            if earliest <= "090000" or len(points) >= max_points:
+            if earliest <= session_start or len(points) >= max_points:
                 break
             cursor_time = datetime.strptime(earliest, "%H%M%S") - timedelta(minutes=1)
             next_cursor = cursor_time.strftime("%H%M%S")
@@ -393,29 +518,37 @@ class KisRestBriefingProvider:
             "/uapi/domestic-stock/v1/ranking/fluctuation",
             "FHPST01700000",
             {
-                "fid_cond_mrkt_div_code": "J",
-                "fid_cond_scr_div_code": "20170",
-                "fid_input_iscd": "0000",
-                "fid_rank_sort_cls_code": "0000",
-                "fid_input_cnt_1": str(limit),
-                "fid_prc_cls_code": "0",
-                "fid_input_price_1": "0",
-                "fid_input_price_2": "9999999",
-                "fid_vol_cnt": "0",
-                "fid_trgt_cls_code": "0",
-                "fid_trgt_exls_cls_code": "0",
-                "fid_div_cls_code": "0",
-                "fid_rsfl_rate1": min_rate,
-                "fid_rsfl_rate2": max_rate,
+                # KIS treats these query keys as case-sensitive. Keep the
+                # canonical uppercase contract used by the official sample;
+                # lowercase keys return an empty/failed fluctuation ranking
+                # while the sibling volume ranking still succeeds.
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_COND_SCR_DIV_CODE": "20170",
+                "FID_INPUT_ISCD": "0000",
+                # The live endpoint accepts a one-character rank code even
+                # though an older field description shows ``0000``. The
+                # official executable sample also sends ``0``; four
+                # characters fail with INVALID INPUT_FILED_SIZE.
+                "FID_RANK_SORT_CLS_CODE": "0",
+                "FID_INPUT_CNT_1": "0",
+                "FID_PRC_CLS_CODE": "0",
+                "FID_INPUT_PRICE_1": "",
+                "FID_INPUT_PRICE_2": "",
+                "FID_VOL_CNT": "",
+                "FID_TRGT_CLS_CODE": "0",
+                "FID_TRGT_EXLS_CLS_CODE": "0",
+                "FID_DIV_CLS_CODE": "0",
+                "FID_RSFL_RATE1": min_rate,
+                "FID_RSFL_RATE2": max_rate,
             },
         )
         output = payload.get("output", []) or []
         rows: list[BriefingMoverPayload] = []
-        for rank, row in enumerate(output[:limit], start=1):
+        for row in output:
             rows.append(
                 BriefingMoverPayload(
                     list_type=list_type,
-                    rank=rank,
+                    rank=0,
                     code=self._pick(row, "mksc_shrn_iscd", "stck_shrn_iscd", "stck_cd") or "",
                     name=self._pick(row, "hts_kor_isnm", "stck_shrn_iscd") or "",
                     market=self._pick(row, "stck_avls", "bstp_kor_isnm"),
@@ -426,7 +559,16 @@ class KisRestBriefingProvider:
                     trading_value=_int(self._pick(row, "acml_tr_pbmn")),
                 )
             )
-        return [row for row in rows if row.code]
+        rows = [row for row in rows if row.code and row.change_rate is not None]
+        if list_type == "gainers":
+            rows = [row for row in rows if row.change_rate > 0]
+            rows.sort(key=lambda row: (row.change_rate, row.trading_value or 0), reverse=True)
+        elif list_type == "losers":
+            rows = [row for row in rows if row.change_rate < 0]
+            rows.sort(key=lambda row: (row.change_rate, -(row.trading_value or 0)))
+        for rank, row in enumerate(rows[:limit], start=1):
+            row.rank = rank
+        return rows[:limit]
 
     def _fetch_turnover(self, limit: int) -> list[BriefingMoverPayload]:
         payload = self._get(

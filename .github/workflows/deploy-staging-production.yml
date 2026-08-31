@@ -1,0 +1,208 @@
+name: Deploy Railway staging to production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railway-staging-production
+  cancel-in-progress: false
+
+env:
+  STAGING_RAILWAY_PROJECT_ID: ${{ vars.STAGING_RAILWAY_PROJECT_ID }}
+  STAGING_RAILWAY_SERVICE: ${{ vars.STAGING_RAILWAY_SERVICE }}
+  PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}
+  PRODUCTION_RAILWAY_SERVICE: ${{ vars.PRODUCTION_RAILWAY_SERVICE }}
+  STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL || 'https://dark-theme-preview-staging.up.railway.app' }}
+  PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install project and QA dependencies
+        run: pip install -e '.[dev,qa,mcp]'
+      - name: Run deterministic fixtures and contracts
+        run: pytest -q --junitxml=artifacts/qa-data-signal/pytest.xml
+      - name: Build and enforce gate report
+        run: >-
+          analyst qa data-signal
+          --mode gate
+          --pytest-junit artifacts/qa-data-signal/pytest.xml
+          --output artifacts/qa-data-signal/gate.json
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-gate-${{ github.sha }}
+          path: artifacts/qa-data-signal
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy_staging:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_BASE_URL || 'https://dark-theme-preview-staging.up.railway.app' }}
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate Railway staging configuration
+        run: |
+          test -n "$RAILWAY_TOKEN"
+          test -n "$STAGING_RAILWAY_PROJECT_ID"
+          test -n "$STAGING_RAILWAY_SERVICE"
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.45.7
+      - name: Deploy the checked-out SHA to staging
+        run: >-
+          railway up --ci
+          --project "$STAGING_RAILWAY_PROJECT_ID"
+          --environment staging
+          --service "$STAGING_RAILWAY_SERVICE"
+
+  staging_qa:
+    needs: deploy_staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_BASE_URL || 'https://dark-theme-preview-staging.up.railway.app' }}
+    env:
+      QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
+      QA_DASHBOARD_SHARE_ID: qa-automation
+      KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+      KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+      KIS_ENV: ${{ vars.KIS_ENV || 'real' }}
+      DART_API_KEY: ${{ secrets.DART_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install project and browser runtime
+        run: |
+          pip install -e '.[qa,mcp]'
+          playwright install --with-deps chromium
+      - name: Wait for the staging release and verify current assets
+        run: >-
+          analyst qa release-parity
+          --staging-url "$STAGING_BASE_URL"
+          --source-sha "${{ github.sha }}"
+          --wait-seconds 600
+          --output artifacts/qa-data-signal/staging-parity.json
+      - name: Run read-only staging and source checks
+        shell: bash
+        run: |
+          kis_flag=""
+          if [[ -n "$KIS_APP_KEY" && -n "$KIS_APP_SECRET" ]]; then
+            kis_flag="--direct-kis"
+          fi
+          analyst qa data-signal \
+            --mode live \
+            --base-url "$STAGING_BASE_URL" \
+            --output artifacts/qa-data-signal/live.json \
+            $kis_flag
+      - name: Run mobile dark and light staging E2E
+        run: >-
+          analyst qa data-signal
+          --mode e2e
+          --base-url "$STAGING_BASE_URL"
+          --output artifacts/qa-data-signal/e2e.json
+          --artifact-dir artifacts/qa-data-signal/screenshots
+      - name: Upload staging QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-qa-${{ github.sha }}
+          path: artifacts/qa-data-signal
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy_production:
+    needs: staging_qa
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_BASE_URL }}
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate Railway production configuration
+        run: |
+          test -n "$RAILWAY_TOKEN"
+          test -n "$PRODUCTION_RAILWAY_PROJECT_ID"
+          test -n "$PRODUCTION_RAILWAY_SERVICE"
+          test -n "$PRODUCTION_BASE_URL"
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.45.7
+      - name: Promote the same checked-out SHA to production
+        run: >-
+          railway up --ci
+          --project "$PRODUCTION_RAILWAY_PROJECT_ID"
+          --environment production
+          --service "$PRODUCTION_RAILWAY_SERVICE"
+
+  verify_production:
+    needs: deploy_production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install project and QA dependencies
+        run: pip install -e '.[qa,mcp]'
+      - name: Verify staging and production release parity
+        run: >-
+          analyst qa release-parity
+          --staging-url "$STAGING_BASE_URL"
+          --production-url "$PRODUCTION_BASE_URL"
+          --source-sha "${{ github.sha }}"
+          --wait-seconds 600
+          --output artifacts/qa-data-signal/production-parity.json
+      - name: Run production read-only smoke checks
+        run: >-
+          analyst qa data-signal
+          --mode live
+          --base-url "$PRODUCTION_BASE_URL"
+          --output artifacts/qa-data-signal/production-live.json
+      - name: Upload production verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-verification-${{ github.sha }}
+          path: artifacts/qa-data-signal
+          if-no-files-found: error
+          retention-days: 30

@@ -8,7 +8,12 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.models import MacroObservation
-from app.services.market_indices import build_market_indices, empty_market_indices, merge_live_market_indices
+from app.services.market_indices import (
+    build_market_indices,
+    empty_market_indices,
+    korean_market_session,
+    merge_live_market_indices,
+)
 
 
 def test_market_indices_use_latest_real_observations_and_history():
@@ -142,3 +147,19 @@ def test_empty_market_indices_preserves_live_merge_shape():
     assert [item["code"] for item in payload["items"]] == ["KOSPI", "KOSDAQ"]
     assert all(item["current"] is None for item in payload["items"])
     assert all(item["points"] == [] for item in payload["items"])
+
+
+@pytest.mark.parametrize(
+    ("hour", "minute", "expected"),
+    [
+        (6, 59, "closed"),
+        (7, 0, "preopen"),
+        (8, 59, "preopen"),
+        (9, 0, "open"),
+        (15, 30, "closed"),
+    ],
+)
+def test_korean_market_session_uses_two_hour_preopen_window(hour, minute, expected):
+    observed_at = datetime(2026, 7, 27, hour, minute, tzinfo=ZoneInfo("Asia/Seoul"))
+
+    assert korean_market_session(observed_at) == expected

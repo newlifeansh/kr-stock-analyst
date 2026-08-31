@@ -10,8 +10,8 @@ if sys.version_info < (3, 10):
 
 mcp = pytest.importorskip("mcp")
 
-from app.config import get_settings
-from app.mcp_server import build_insight_mcp_server, mcp_sdk_available
+from app.config import get_settings  # noqa: E402
+from app.mcp_server import build_insight_mcp_server, mcp_sdk_available  # noqa: E402
 
 
 def test_mcp_server_lists_expected_tools():

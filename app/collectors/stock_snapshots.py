@@ -1,28 +1,40 @@
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-import json
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 
-from app.models import StockCompanySnapshot, StockFundamentalSnapshot, StockMaster, StockNewsSnapshot
+from app.models import (
+    DailyPrice,
+    StockCompanySnapshot,
+    StockFundamentalSnapshot,
+    StockMaster,
+    StockNewsSnapshot,
+)
 from app.repository import finish_ingestion, start_ingestion, upsert_many
 from app.services.stock_dashboard import (
-    _fetch_naver_item_news,
     _fetch_naver_company_snapshot,
+    _fetch_naver_item_news,
     _fetch_naver_snapshot,
     _json_default,
     fundamental_snapshot_payload,
 )
-
+from app.services.etf_profiles import is_likely_etf_name
 
 NON_OPERATING_INSTRUMENT_WORDS = ("리츠", "인프라", "리얼티", "코크렙")
 
 
 def _not_applicable_payload(name: str) -> Optional[dict[str, object]]:
+    if is_likely_etf_name(name):
+        return {
+            "data_status": "not_applicable",
+            "instrument_type": "exchange_traded_fund",
+            "unavailable_reason": "ETF는 일반 상장기업용 재무·밸류에이션 표 적용 대상이 아닙니다.",
+        }
     if not any(word in name for word in NON_OPERATING_INSTRUMENT_WORDS):
         return None
     return {
@@ -42,11 +54,43 @@ def collect_stock_fundamental_snapshots(
     batch_size: int = 200,
 ) -> dict[str, object]:
     market_values = [value.strip().upper() for value in markets.split(",") if value.strip()]
-    statement = (
-        select(StockMaster.code, StockMaster.name)
-        .where(StockMaster.is_active.is_(True))
-        .order_by(StockMaster.market, StockMaster.code)
+    latest_price_statement = (
+        select(func.max(DailyPrice.trade_date))
+        .join(StockMaster, StockMaster.code == DailyPrice.code)
+        .where(
+            StockMaster.is_active.is_(True),
+            DailyPrice.close.is_not(None),
+        )
     )
+    if market_values:
+        latest_price_statement = latest_price_statement.where(
+            StockMaster.market.in_(market_values)
+        )
+    latest_price_date = db.scalar(latest_price_statement)
+    statement = select(StockMaster.code, StockMaster.name).where(
+        StockMaster.is_active.is_(True)
+    )
+    if latest_price_date is not None:
+        price_join = and_(
+            DailyPrice.code == StockMaster.code,
+            DailyPrice.trade_date == latest_price_date,
+        )
+        if limit:
+            # Match signal_data_quality._top_codes exactly: a bounded run is
+            # the point-in-time market-cap signal universe, not an arbitrary
+            # alphabetical slice of the full stock master.
+            statement = statement.join(DailyPrice, price_join).where(
+                DailyPrice.market_cap.is_not(None),
+                DailyPrice.market_cap > 0,
+            ).order_by(desc(DailyPrice.market_cap), StockMaster.code)
+        else:
+            statement = statement.outerjoin(DailyPrice, price_join).order_by(
+                desc(func.coalesce(DailyPrice.market_cap, 0)),
+                StockMaster.market,
+                StockMaster.code,
+            )
+    else:
+        statement = statement.order_by(StockMaster.market, StockMaster.code)
     if market_values:
         statement = statement.where(StockMaster.market.in_(market_values))
     if limit:
@@ -111,7 +155,13 @@ def collect_stock_fundamental_snapshots(
             f"target={len(codes)} refreshed={rows_loaded} skipped={len(fresh_codes)} "
             f"unavailable={len(failures)}"
         )
-        finish_ingestion(db, run, "success", rows_loaded, message)
+        finish_ingestion(
+            db,
+            run,
+            "success" if not failures else "partial",
+            rows_loaded,
+            message,
+        )
         return {
             "target": len(codes),
             "rows_loaded": rows_loaded,

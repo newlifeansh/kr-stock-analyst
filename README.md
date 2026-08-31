@@ -38,10 +38,6 @@ API 확인:
 - `GET http://127.0.0.1:8000/meta/insight-cadence`
 - `GET http://127.0.0.1:8000/meta/research-sources`
 - `GET http://127.0.0.1:8000/meta/integrations`
-- `GET http://127.0.0.1:8000/toss/status`
-- `GET http://127.0.0.1:8000/toss/accounts`
-- `GET http://127.0.0.1:8000/toss/holdings`
-- `GET http://127.0.0.1:8000/toss/orders`
 - `GET http://127.0.0.1:8000/research-reports`
 - `GET http://127.0.0.1:8000/disclosures`
 - `GET http://127.0.0.1:8000/news-items`
@@ -162,6 +158,22 @@ Railway에 바로 올릴 계획이면 저장소 루트의 [railway.json](/Users/
 - 재시작 정책: `ON_FAILURE`
 - 권장 DB: Railway Postgres (`DATABASE_URL=${{Postgres.DATABASE_URL}}`)
 
+대시보드 요청과 외부 데이터 수집을 분리하려면 같은 소스와 같은 Postgres를 쓰는 서비스 두 개를 둡니다.
+
+- 두 서비스 공통: `APP_MODULE=app.main:app`
+- 공개 웹 서비스: `PROCESS_ROLE=web` (도메인과 healthcheck 연결)
+- 비공개 수집 서비스: `PROCESS_ROLE=collector` (외부 수집, 완성 스냅샷 갱신, 알림 담당)
+- 로컬 단일 프로세스: `PROCESS_ROLE=all` (기존 동작 유지)
+
+두 서비스를 전환하기 전에 조회 순서 인덱스를 한 번 적용합니다. 명령은 재실행해도 안전합니다.
+
+```bash
+analyst migrate-performance-indexes --dry-run
+analyst migrate-performance-indexes
+```
+
+웹 프로세스는 마지막으로 검증된 완성 스냅샷을 우선 읽고, 오래된 스냅샷은 DB 큐에 갱신 요청을 남깁니다. 단, 처음 보는 종목의 안정 상세 요청(`include_profile=0&include_live=0`)은 외부 호출 없이 DB 자료로 화면을 먼저 만들고 완성본 수집을 큐에 맡깁니다. 이 준비 중 응답은 캐시하지 않으며 클라이언트가 완성본을 백그라운드에서 다시 받아 화면을 갱신합니다. 수집 프로세스가 갱신에 실패해도 기존 완전본은 지워지지 않습니다.
+
 또한 원격 Docker 빌드에 로컬 DB와 스크린샷 파일이 섞이지 않도록 [.dockerignore](/Users/sukhwan/Documents/주식애널리스트%20보고서/.dockerignore) 도 포함했습니다.
 
 Railway 변수 붙여넣기용 env 블록은 현재 `.env` 를 바탕으로 바로 생성할 수 있습니다.
@@ -257,11 +269,67 @@ analyst collect-disclosures --days-back 7 --page-count 100
 # 뉴스 수집
 analyst collect-news-items --categories breaking,market,company --max-pages 2 --days-back 3
 
-# 토스 계좌/보유/주문 캐시 동기화
-analyst toss-sync-accounts
-analyst toss-sync-holdings
-analyst toss-sync-orders --status OPEN
 ```
+
+## 데이터 연동·시그널 QA
+
+기계 판독 가능한 원본은 `app/qa/data_signal_cases.json`, 사람이 읽는 생성 문서는
+`docs/qa/data-signal-qa-matrix.md`입니다. 현재 기준 전략은
+`position-lifecycle-v7.3`입니다.
+
+```bash
+# PR/배포용 고정 픽스처·계약·경계값 검사
+pytest -q --junitxml=artifacts/qa-data-signal/pytest.xml
+analyst qa data-signal --mode gate \
+  --pytest-junit artifacts/qa-data-signal/pytest.xml \
+  --output artifacts/qa-data-signal/gate.json
+
+# 스테이징 API와 외부 원천의 읽기 전용 실연동 검사
+analyst qa data-signal --mode live \
+  --base-url https://dark-theme-preview-staging.up.railway.app \
+  --output artifacts/qa-data-signal/live.json
+
+# KIS 자격증명이 있는 환경에서 원천 REST/OAuth도 직접 검사
+analyst qa data-signal --mode live --direct-kis \
+  --base-url https://dark-theme-preview-staging.up.railway.app
+
+# 모바일 다크·라이트 브라우저 검사와 실패 스크린샷
+playwright install chromium
+analyst qa data-signal --mode e2e \
+  --base-url https://dark-theme-preview-staging.up.railway.app \
+  --output artifacts/qa-data-signal/e2e.json
+
+# 카탈로그에서 Markdown 명세 재생성
+analyst qa render-catalog --output docs/qa/data-signal-qa-matrix.md
+```
+
+보고서에는 실행 환경·장 상태·기준 시각, 각 QA ID의 상태와 증거, P0 실패 및
+`deployment_blocked`가 포함됩니다. 인증정보는 보고서에 기록하지 않습니다. GitHub
+Actions는 PR마다 `gate`, 평일 KST 08:20·10:00·16:20에 `live`, 스테이징
+배포 성공 뒤 `e2e`를 실행합니다.
+
+### Railway 스테이징 → 프로덕션 승격
+
+`main` 푸시 또는 수동 실행은 `.github/workflows/deploy-staging-production.yml`의
+단일 파이프라인을 사용합니다. 실행 순서는 `gate → staging 배포 → staging
+release-parity/live/e2e → production 승인·배포 → staging-production parity`이며,
+어느 단계든 실패하면 뒤 단계는 실행되지 않습니다. 모든 배포 job은 명시적으로
+`${{ github.sha }}`를 checkout하므로 같은 커밋만 승격합니다.
+
+GitHub 저장소에는 다음 설정이 필요합니다.
+
+- Repository variables: `STAGING_RAILWAY_PROJECT_ID`, `STAGING_RAILWAY_SERVICE`,
+  `PRODUCTION_RAILWAY_PROJECT_ID`, `PRODUCTION_RAILWAY_SERVICE`,
+  `STAGING_BASE_URL`, `PRODUCTION_BASE_URL`
+- GitHub environments: `staging`, `production`
+- 각 environment secret: 해당 Railway 환경에 제한된 `RAILWAY_TOKEN`
+- `production` environment: required reviewer를 지정해 사람 승인 후에만 승격
+- 선택적 staging QA secret: `DASHBOARD_INVITE_CODE`, `KIS_APP_KEY`,
+  `KIS_APP_SECRET`, `DART_API_KEY`
+
+프로덕션 배포 전에는 현재 체크아웃과 스테이징의 `/dashboard-version` 및 버전 지정
+CSS·JavaScript URL이 일치해야 합니다. 배포 후에는 같은 검사를 스테이징과
+프로덕션에 다시 적용합니다.
 
 ## API 키
 
@@ -269,7 +337,7 @@ Open DART와 ECOS는 API 키가 필요합니다. `.env`에 값을 넣으면 수�
 
 공시는 `DART_API_KEY`가 없어도 DART 공식 웹의 `오늘의 공시`를 fallback으로 수집합니다. API 키가 있으면 Open DART API를 우선 사용하고, 키가 비어 있거나 아직 활성화되지 않아 API가 실패하면 웹 fallback으로 최신 공시를 계속 누적합니다.
 
-실시간 홈 브리핑은 한국투자 Open API 키가 있으면 현재가/상승하락/거래대금 브리핑을 폴링으로 수집합니다.
+실시간 시세는 한국투자 Open API 키가 있으면 통합 WebSocket으로 수신합니다. NXT 대상 종목은 오전 8시부터 프리마켓 체결가가 현재가·관심종목·랭킹·1일 차트에 반영되며, AI 시그널 확정 기준은 기존 KRX 정규장을 유지합니다.
 
 ```dotenv
 DART_API_KEY=...
@@ -282,6 +350,11 @@ RESEARCH_ENABLED=true
 RESEARCH_POLL_SECONDS=600
 DISCLOSURE_ENABLED=true
 DISCLOSURE_POLL_SECONDS=300
+FUNDAMENTAL_SNAPSHOT_ENABLED=true
+FUNDAMENTAL_SNAPSHOT_REFRESH_DAYS=2
+MACRO_ENABLED=true
+MACRO_POLL_SECONDS=1800
+MACRO_RANGE=1y
 NEWS_ENABLED=true
 NEWS_POLL_SECONDS=300
 THREADS_FEED_ENABLED=true
@@ -296,14 +369,6 @@ MCP_ENABLED=true
 MCP_PUBLIC_BASE_URL=https://your-domain
 MCP_ALLOWED_HOSTS=your-domain,127.0.0.1:*,localhost:*
 MCP_ALLOWED_ORIGINS=https://playmcp.kakao.com
-TOSS_ENABLED=false
-TOSS_BASE_URL=https://openapi.tossinvest.com
-TOSS_CLIENT_ID=...
-TOSS_CLIENT_SECRET=...
-TOSS_ACCOUNT_NO=...
-TOSS_ACCOUNT_SEQ=...
-TOSS_POLL_SECONDS=60
-TOSS_ORDER_POLL_SECONDS=300
 ```
 
 Threads 종목 검색은 Meta 앱의 Threads 사용 사례와 `threads_basic`,
@@ -323,25 +388,16 @@ Threads 종목 검색은 Meta 앱의 Threads 사용 사례와 `threads_basic`,
 - `disclosure_item`: DART 공시·IR 원장
 - `news_item`: 뉴스 원장
 
-현재는 실시간 공급자를 `KIS REST polling`으로 두었고, 공시·IR은 `DART`, 리포트와 뉴스는 `네이버 금융` 공개 페이지를 기준으로 누적합니다.
+현재 실시간 공급자는 `KIS 통합 WebSocket(H0UNCNT0)`이고 REST 조회를 장애 시 보조 경로로 사용합니다. 공시·IR은 `DART`, 리포트와 뉴스는 `네이버 금융` 공개 페이지를 기준으로 누적합니다.
 
 이와 별도로, `/meta/*` 엔드포인트에는 현재 백엔드가 따르는 인사이트 운영 기준과 소스 레지스트리를 담았습니다.
 
 - `/meta/insight-cadence`: 단기/중기/장기 인사이트 시간축과 장중/일간/주간/월간/분기 루프
 - `/meta/research-sources`: 무료 공개 리포트 소스와 현재 수집기 연결 여부
-- `/meta/integrations`: KIS, DART, Naver Finance, Toss Securities 연동 역할과 설정 상태
+- `/meta/integrations`: KIS, DART, Naver Finance 연동 역할과 설정 상태
+- `/meta/signal-data-quality`: v7 매수 판단에 쓰는 가격·수급·시장지수·실적·리포트·공시의 기준일, 커버리지, 시점 일관성. `probe=true`로 원천 API 읽기 전용 상태 점검을 추가
 
-토스증권 연동은 이제 단순 메타 정보가 아니라 실제 백엔드 기능으로 연결되어 있습니다.
-
-- OAuth2 client credentials 인증
-- 계좌 목록 조회 및 캐시
-- 보유 종목 조회 및 캐시
-- OPEN 주문 목록 조회 및 캐시
-- 주문 상세 조회
-- 주문 생성 / 정정 / 취소
-- 매수 가능 금액 조회
-- 매도 가능 수량 조회
-- 종목 기본 정보 조회
+AI 시그널 매수 판단은 `position-lifecycle-v7.0`부터 가격 조건 뒤에 실적·컨센서스, 시장·섹터 상대강도, 거래대금 정규화 수급을 독립 확인합니다. `position-lifecycle-v7.2`는 2026-08-25부터 1R·1.6R·2.5R에서 30%·25%·15%를 수익확정하고, 0.75R부터 손익분기 보호를 시작하며, 잔여 30%만 추세를 추적합니다. 기존 보유 종목의 전환 매도는 하루 최대 30%로 제한하고, 부분매도 예정 다음 시가가 보호선 아래면 잔여비중을 전량 매도합니다. 한국 시장지수는 Yahoo 종가가 늦을 때 네이버 확정 종가를 출처 구분하여 보완하며, OpenDART 중대 위험 공시와 시장 패닉은 신규매수 차단 조건입니다. 자세한 계약은 `docs/ai-signal-strategy-audit.md`를 참고하세요.
 
 ## 증권사 리포트
 
@@ -375,12 +431,14 @@ Threads 종목 검색은 Meta 앱의 Threads 사용 사례와 `threads_basic`,
 
 이번 구조에서는 `조회 주기`와 `판단 주기`를 분리해서 운용합니다.
 
-- `1분`: 보유 종목, 급등락, 거래대금 상위, 공시/뉴스 경보
+- `1분`: 관심 종목, 급등락, 거래대금 상위, 공시/뉴스 경보
 - `5분`: 관심 종목 묶음 스캔과 재정렬
 - `일간`: 장 마감 후 요약
 - `주간`: 단기 시그널 재계산
 - `월간`: 거시/업종/컨센서스 점검
 - `분기`: 실적 시즌 기준 투자 논리 재검증
+
+웹 푸시의 `추천 업데이트`를 켜면 `WEB_PUSH_RECOMMENDATION_POLL_SECONDS` 주기(기본 600초)로 상위 10 추천을 확인합니다. 최초 확인은 현재 목록을 기준선으로만 저장하고, 이후 상위 10에 새 종목이 들어오거나 기존 추천 종목의 AI 판단이 예비 매수·매수 확정·수익확정·전량 매도 단계로 바뀔 때만 알립니다. 점수와 순위만 달라진 경우에는 알리지 않으며, 알림을 누르면 해당 추천 종목 상세 화면으로 이동합니다.
 
 예측 시간축은 아래처럼 나눕니다.
 
@@ -398,29 +456,6 @@ Threads 종목 검색은 Meta 앱의 Threads 사용 사례와 `threads_basic`,
 - 후보 소스: `Hankyung Korea Market Consensus`, `Hana`, `Korea Investment`, `Samsung`, `Mirae Asset`, `Kiwoom`, `Daishin`, `Eugene`, `Hanwha`, `IBK`, `Hyundai Motor`, `iM Securities`
 
 핵심은 `공개 페이지`와 `안정적인 수집기`를 같은 것으로 보지 않는 것입니다. 그래서 소스 레지스트리에는 `is_active_collector`를 따로 두었습니다.
-
-## 토스증권 연동 방향
-
-토스증권은 이 프로젝트에서 `리포트/뉴스/공시 수집원`이 아니라 `브로커 연동 레이어`입니다.
-
-- 잘 맞는 역할: 계좌, 보유 종목, 주문 가능 수량, 주문, 주문 상태, 시세, 환율, 시장 캘린더
-- 잘 맞지 않는 역할: 증권사 리포트, 뉴스, 컨센서스 히스토리, DART 공시 대체
-
-현재 구현 범위는 `계좌/보유/주문/매수가능금액/매도가능수량/종목조회`까지입니다. 다만 실거래 호출 검증은 실제 `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`, 그리고 계좌 식별용 `TOSS_ACCOUNT_SEQ` 또는 `TOSS_ACCOUNT_NO`가 있어야 합니다.
-
-자주 쓰는 엔드포인트 예시는 이렇습니다.
-
-- `GET /toss/accounts/live`
-- `POST /toss/sync/accounts`
-- `GET /toss/holdings/live?account_seq=1`
-- `POST /toss/sync/holdings?account_seq=1`
-- `GET /toss/orders/live?account_seq=1&status=OPEN`
-- `POST /toss/orders`
-- `POST /toss/orders/{order_id}/modify`
-- `POST /toss/orders/{order_id}/cancel`
-- `GET /toss/buying-power?account_seq=1&currency=KRW`
-- `GET /toss/sellable-quantity?account_seq=1&symbol=005930`
-- `GET /toss/stocks?symbols=005930,000660`
 
 ## 데이터 설계 방향
 

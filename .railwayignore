@@ -11,7 +11,11 @@ __pycache__
 .env
 app.db
 data
+.deploy-backups
 tests
+artifacts
+build
+output
 tmp-*.png
 tmp-*.jpg
 tmp-*.jpeg

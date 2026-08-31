@@ -10,7 +10,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.6"' in shell.text
-    assert "20260729v136" in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260831v453"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -81,7 +81,7 @@ def test_recommendation_cards_use_one_compact_action_row():
         'actions.append(watchButton, trackButton, explainButton);',
         'isWatched(item.code) ? "관심 해제" : "관심 추가"',
         'isTrackedRecommendation(item.code) ? "핀 종목 보기" : "핀 설정하기"',
-        'el("button", "recommend-ai-button", "AI 상세 보기")',
+        'el("button", "recommend-ai-button", "AI 시그널 보기")',
         "grid-template-columns: repeat(3, minmax(0, 1fr));",
     ):
         assert expected in source or expected in styles
@@ -108,6 +108,75 @@ def test_recommendation_ai_explanation_opens_on_a_dedicated_page():
     assert ".recommend-detail-page" in styles
 
 
+def test_recommendation_detail_is_single_column_and_action_first_on_mobile():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    detail_render = source.split("function renderRecommendationDetail", 1)[1].split("async function loadRecommendationDetail", 1)[0]
+    signal_flow = detail_render.index("createRecommendationDecisionFlow(item, {")
+    assert detail_render.index("hero,") < signal_flow
+    assert signal_flow < detail_render.index("action,")
+    assert 'options.detail ? "AI 시그널 여정" : "현재 단계"' in source
+    assert '"AI 대응 · 지금 할 일"' in source
+
+    assert ".recommend-detail-content {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);" in styles
+    assert ".recommend-detail-content > .recommend-decision-flow.is-detail {\n  grid-area: auto;" in styles
+    assert "overflow-wrap: break-word;\n  word-break: keep-all;" in styles
+
+
+def test_recommendation_cards_show_linked_signal_status_and_load_full_history_on_demand():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    for expected in (
+        "function recommendationSignalStageView",
+        "function recommendationShouldCollectSignal",
+        'headline: "시그널 수집 중"',
+        'if (action === "entry_watch")',
+        'headline: "예비 포착"',
+        '`${profitStage || 1}차 수익확정 후 보유`',
+        'headline: "전량 매도"',
+        'headline: "조건 해제"',
+        'stage.changedLabel || "마지막 변경"',
+        'el("dt", "", "다음 조건")',
+        'function recommendationSignalTimelineItems',
+        '"추천 전 이력"',
+        'const [aiResult, signalResult] = await Promise.all([',
+        'liveUrl(`/stocks/${encodeURIComponent(item.code)}/quant-signals`)',
+        '"시그널 다시 불러오기"',
+    ):
+        assert expected in source
+
+    card_render = source.split("function createRecommendationCard", 1)[1].split("function appendRecommendationCard", 1)[0]
+    assert "createRecommendationDecisionFlow(item)" in card_render
+    assert 'el("section", "recommend-card-reason")' in card_render
+    assert 'recommendationReasonSummary(item)' in card_render
+    assert card_render.index('const reason = el("section", "recommend-card-reason")') < card_render.index("createRecommendationDecisionFlow(item)")
+    assert "createRecommendationUsSectorSummary(item)" not in card_render
+    assert 'const metrics = el("div", "recommend-metrics")' not in card_render
+
+    for expected in (
+        "/* Recommendation lifecycle 5.4",
+        ".recommend-signal-stage",
+        ".recommend-signal-facts",
+        ".recommend-signal-timeline",
+        ".recommend-signal-retry:focus-visible",
+        "/* Recommendation context 5.5",
+        ".recommend-card-reason",
+        ".recommend-signal-stage.is-collecting",
+        "font-size: var(--app-type-button) !important;",
+        "@media (prefers-reduced-motion: reduce)",
+    ):
+        assert expected in styles
+
+    detail_render = source.split("function renderRecommendationDetail", 1)[1].split("async function loadRecommendationDetail", 1)[0]
+    assert 'el("h1", "", "추천한 핵심 이유")' in detail_render
+    assert 'recommendationReasonSummary(item)' in detail_render
+    assert '"추천 이후 신규 매수 시그널을 수집하고 있습니다."' in detail_render
+
+
 def test_recommendation_score_explains_scale_and_interpretation():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text
@@ -116,13 +185,16 @@ def test_recommendation_score_explains_scale_and_interpretation():
     for expected in (
         'el("span", "", "/ 100")',
         'help.setAttribute("aria-label", "추천 점수 설명")',
-        '"기준은 70점 이상 우수, 55~69점 관찰, 55점 미만 신중입니다."',
-        '"수익률 확률이나 매수 확정 신호는 아닙니다."',
+        '"70점 이상은 우수, 55~69점은 관찰, 55점 미만은 신중 구간입니다."',
+        '"매수 확정이나 수익률 보장을 뜻하지 않습니다."',
         'return { label: "우수", guide: "70점 이상", className: "high" };',
         'return { label: "관찰", guide: "55~69점", className: "watch" };',
         'return { label: "신중", guide: "55점 미만", className: "cautious" };',
     ):
         assert expected in source
+
+    assert '"recommend-as-of"' not in source
+    assert '`추천 기준 ${recommendationMoment(recommendedAt)}`' not in source
 
     for expected in (
         "#recommend-view .recommend-score-value",
@@ -235,86 +307,117 @@ def test_watchlist_v15_is_responsive_and_matches_stock_detail_tokens():
     assert "#watchlist-view.watchlist-v3 .watchlist-empty-card" in styles
 
 
-def test_event_calendar_uses_compact_stock_detail_hierarchy():
+def test_event_calendar_uses_week_strip_and_dedicated_impact_detail():
     client = TestClient(app)
+    shell = client.get("/dashboard?view=trend").text
     source = client.get("/assets/dashboard/app.js").text
     styles = client.get("/assets/dashboard/styles.css").text
 
     for expected in (
-        'schedule.append(el("span", "event-stage", "발표 예정"), date)',
-        'el("h3", "", item.title)',
-        'el("dl", "event-facts")',
-        'el("dt", "", "영향 분야")',
-        'el("dt", "", "예상 영향")',
-        'el("button", "flow-button", "영향 흐름")',
-        'detailsSummary.textContent = "근거와 출처"',
-        'button.textContent = "영향 흐름"',
+        "function renderTrendCalendar(payload = state.homeTrendContext || {})",
+        "function appendTrendEvent(item, parent = elements.trendEvents)",
+        'button.dataset.trendEventOpen = item.id || "";',
+        "function renderTrendEventDetail(item)",
+        'el("span", "event-detail-eyebrow", "한눈에 보기")',
+        'el("h3", "", "이번 발표에서 볼 것")',
+        'el("h3", "", "3단계로 확인하세요")',
+        "function appendTrendScenario(parent, label, stocks = [], tone = \"neutral\")",
+        'el("summary", "", "영향 경로 자세히 보기")',
+        "function renderTrendGraph(card, graph)",
+        'el("h3", "", "시장은 이렇게 반응할 수 있어요")',
+        'setView("event-detail");',
+        'elements.homePastToggleLabel.textContent = pastEventsExpanded ? "지난 이벤트 접기" : "지난 이벤트 펼치기"',
     ):
         assert expected in source
 
     for expected in (
-        "/* Event calendar 6.0: compact stock-detail table hierarchy. */",
-        "#trend-events-panel .event-facts",
-        "#trend-events-panel .event-schedule time",
-        "#trend-events-panel .event-importance-critical",
-        "#trend-events-panel .event-axis-badges",
-        "#trend-events-panel .flow-button",
+        "/* News preview, trading calendar, and event analysis 7.0. */",
+        ".trend-calendar-days",
+        ".trend-calendar-day.active",
+        ".trend-calendar-event",
+        ".event-detail-hero",
+        ".event-detail-watch-list",
+        ".event-detail-graph > .event-flow",
+        ".event-detail-graph .impact-columns",
+        "#trend-events-panel .trend-past-toggle",
     ):
         assert expected in styles
 
-    assert 'schedule.append(el("span", "", "발표")' not in source
+    assert 'id="trend-calendar-days" role="tablist"' in shell
+    assert 'id="trend-calendar-selected-date"' not in shell
+    assert 'id="trend-calendar-event-count" aria-live="polite">0개 일정</span>' in shell
+    assert "trendCalendarSelectedDate" not in source
+    assert 'id="event-detail-view" class="app-page event-detail-page"' in shell
+    assert 'id="event-detail-back"' in shell
+    assert 'id="home-past-toggle"' in shell
+    assert 'aria-controls="trend-past-panel"' in shell
+    assert 'id="home-past-toggle-label">지난 이벤트 펼치기</strong>' in shell
+    assert '<small>최근 2주</small>' in shell
+    assert 'aria-label="최근 2주 지난 이벤트"' in shell
+    assert 'data-trend-tab="impact" data-archived="true"' in shell
+    assert '#trend-view [data-archived="true"]' in styles
+    assert 'class="trend-panel home-market-card home-news-card"' in shell
+    assert 'class="trend-panel home-market-card home-events-card"' in shell
+    assert '#trend-view.home-market-sections' in styles
+    assert '#trend-view .home-market-card' in styles
 
 
-def test_market_impact_uses_five_element_relationship_and_sector_correlations():
+def test_market_impact_uses_beginner_signal_summary_without_five_element_metaphor():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text
     styles = client.get("/assets/dashboard/styles.css").text
 
     for expected in (
-        "const MARKET_FIVE_ELEMENTS",
-        "const MARKET_FIVE_RELATIONS",
-        "function createMarketFiveRelationSvg",
-        "function buildMarketSectorCorrelations",
-        'el("section", "market-five-map-section")',
-        'el("section", "market-sector-section")',
-        'el("h2", "", "시장 오행 관계도")',
-        'el("h2", "", "섹터 상관 영향도")',
-        'detailsSummary.textContent = "공식 지표와 종목 근거 보기"',
+        "const MARKET_BEGINNER_FACTOR_ORDER",
+        "const MARKET_BEGINNER_COPY",
+        "function marketImpactBeginnerStatus",
+        "function marketImpactBeginnerShortStatus",
+        "function marketImpactBeginnerSummary",
+        "function marketImpactEvidenceItems",
+        "function appendMarketBeginnerThreadItem",
+        "function createMarketBeginnerImpactChart",
+        'el("section", "market-beginner-signals")',
+        'el("h2", "", "5개 변수를 한 줄씩 읽어보세요")',
+        'detailsSummary.textContent = "숫자와 공식 출처 확인"',
         'el("div", "market-impact-source-list")',
-        'el("div", "market-impact-keyword-rail")',
+        'el("div", "market-thread-list")',
+        'el("article", `market-thread-item',
+        'el("div", "market-beginner-impact-chart")',
+        'period: "5일", value: item.change_5d_text',
+        'period: "현재", value: item.value_text || "자료 없음"',
     ):
         assert expected in source
 
     for expected in (
-        "/* Market impact 5.0: five-element relationship and sector correlation map. */",
-        "#trend-impact-content .market-five-canvas",
-        ".market-five-generate-line",
-        ".market-five-control-line",
-        ".market-five-node.wood",
-        ".market-five-node.fire",
-        ".market-five-node.earth",
-        ".market-five-node.metal",
-        ".market-five-node.water",
-        ".market-sector-matrix",
-        "/* Market impact evidence 5.4: compact analyst notes and keyword rails. */",
-        ".market-impact-source-list",
-        ".market-impact-keyword-groups",
-        ".market-impact-keyword-rail",
+        "/* Market impact beginner mode: answer",
+        ".market-beginner-dashboard",
+        ".market-beginner-summary",
+        ".market-beginner-signal-row",
+        ".market-beginner-status",
+        ".market-beginner-impact-chart",
+        ".market-beginner-impact-bar-fill",
+        ".market-beginner-signal-evidence",
+        ".market-beginner-disclosure",
+        "/* Market impact thread 3.0:",
+        ".market-thread-list",
+        ".market-thread-item",
+        ".market-thread-avatar",
+        ".market-thread-metric",
+        ".market-thread-sector",
     ):
         assert expected in styles
 
     assert 'label: "금리", percent:' not in source
     assert "외부 변수 → 국내증시 → 영향 종목" not in source
+    assert "채권 가격이 오르면 채권금리는 내려갑니다." in source
+    assert "나스닥은 오르고 비트코인은 내리는 엇갈린 신호" in source
+    assert "좋은 신호" in source
+    assert "주의 신호" in source
+    assert "function appendMarketBeginnerSignalRow" not in source
+    assert "시장 변수 연결도" not in source
+    assert "오행별" not in source
     assert 'el("span", `market-impact-icon ${factor.key || factor.className || ""}`, factor.label)' not in source
     assert source.count("appendMarketImpactDetail(detailGrid, factor)") == 1
-
-    for expected in (
-        "/* Market impact flow 5.3: restrained research-table treatment for legacy views. */",
-        "#trend-impact-content .market-impact-flow-title span",
-        "display: none !important;",
-        "grid-template-columns: minmax(112px, 0.32fr) minmax(0, 1.4fr) minmax(180px, 0.7fr);",
-    ):
-        assert expected in styles
 
 
 def test_dashboard_v32_uses_stock_detail_typography_on_every_page():
@@ -350,17 +453,30 @@ def test_market_lists_share_stock_logo_identity():
 
     for expected in (
         "function createStockListLogo(code)",
-        "`/stock-logos/${encodeURIComponent(normalizedCode)}.png`",
-        "main.append(rank, createStockListLogo(item.code), name, quoteBlock)",
-        "createStockListCopy(item.name, item.code, item.market)",
+        "`/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=${encodeURIComponent(DASHBOARD_CLIENT_VERSION)}`",
+        "fallbackIcon.src = STOCK_LOGO_FALLBACK_DATA_URL;",
+        'image.loading = "eager";',
+        'image.addEventListener("error", () => {',
+        "identity.append(\n    createStockListLogo(item.code),\n    createStockListCopy(item.name, item.code)",
+        "createStockListCopy(item.name, item.code)",
     ):
         assert expected in source
 
     for expected in (
         ".stock-list-logo {",
-        ".stock-list-logo img {",
+        ".stock-list-logo-image {",
         "object-fit: contain;",
         ".home-surge-identity {",
         ".recommend-name .stock-list-copy",
     ):
         assert expected in styles
+
+
+def test_market_ranking_tabs_reserve_their_full_mobile_grid_row():
+    client = TestClient(app)
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    assert "/* Market movers 5.1: reserve the tabs' full mobile height before the stock list. */" in styles
+    assert "grid-template-rows: auto auto minmax(0, 1fr);" in styles
+    assert "#market-view.app-market-rankings .market-ranking-commandbar,\n#market-view.app-market-rankings .market-ranking-tabs {\n  box-sizing: border-box;" in styles
+    assert "#market-view.app-market-rankings .market-ranking-tabs {\n  align-self: start;" in styles

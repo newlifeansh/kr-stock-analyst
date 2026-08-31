@@ -6,7 +6,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.collectors import krx, naver_quotes
 from app.db import Base
 from app.models import DailyPrice, IngestionRun, StockMaster
-from app.services.stock_dashboard import PRICE_HISTORY_BACKFILL_CACHE, _momentum, _prices, ensure_stock_price_history
+from app.repository import upsert_many
+from app.services.stock_dashboard import (
+    PRICE_HISTORY_BACKFILL_CACHE,
+    PRICE_HISTORY_QUALITY_CACHE,
+    _momentum,
+    _prices,
+    ensure_stock_price_history,
+)
 
 
 def _session() -> Session:
@@ -56,6 +63,205 @@ def test_is_supported_price_code():
     assert krx.is_supported_price_code("0039P0")
     assert not krx.is_supported_price_code("BADCODE")
     assert not krx.is_supported_price_code("삼성전자")
+
+
+def test_partial_quote_upsert_preserves_existing_daily_ohlc():
+    trade_date = date(2026, 6, 19)
+    with _session() as db:
+        upsert_many(db, DailyPrice, [{
+            "code": "005930",
+            "trade_date": trade_date,
+            "open": 1000,
+            "high": 1100,
+            "low": 900,
+            "close": 1050,
+            "volume": 100,
+        }])
+        db.commit()
+        upsert_many(db, DailyPrice, [{
+            "code": "005930",
+            "trade_date": trade_date,
+            "open": None,
+            "high": None,
+            "low": None,
+            "close": 1070,
+            "volume": 200,
+        }])
+        db.commit()
+
+        row = db.query(DailyPrice).one()
+        assert (row.open, row.high, row.low) == (1000, 1100, 900)
+        assert (row.close, row.volume) == (1050, 100)
+
+
+def test_complete_daily_candle_replaces_a_partial_quote_atomically():
+    trade_date = date(2026, 6, 19)
+    with _session() as db:
+        upsert_many(db, DailyPrice, [{
+            "code": "005930",
+            "trade_date": trade_date,
+            "open": None,
+            "high": None,
+            "low": None,
+            "close": 1070,
+            "volume": 200,
+        }])
+        db.commit()
+        upsert_many(db, DailyPrice, [{
+            "code": "005930",
+            "trade_date": trade_date,
+            "open": 1000,
+            "high": 1100,
+            "low": 900,
+            "close": 1050,
+            "volume": 150,
+        }])
+        db.commit()
+
+        row = db.query(DailyPrice).one()
+        assert (row.open, row.high, row.low, row.close, row.volume) == (
+            1000,
+            1100,
+            900,
+            1050,
+            150,
+        )
+
+
+def test_signal_history_repairs_recent_close_only_rows_even_when_count_is_sufficient(monkeypatch):
+    PRICE_HISTORY_BACKFILL_CACHE.clear()
+    PRICE_HISTORY_QUALITY_CACHE.clear()
+    trade_date = date(2026, 8, 11)
+    calls = []
+
+    def fake_repair(db, code: str, *, pages: int):
+        calls.append((code, pages))
+        upsert_many(db, DailyPrice, [{
+            "code": code,
+            "trade_date": trade_date,
+            "open": 124_700,
+            "high": 129_500,
+            "low": 123_000,
+            "close": 124_100,
+            "volume": 758_130,
+        }])
+        db.commit()
+        return 1
+
+    monkeypatch.setattr(
+        naver_quotes,
+        "collect_naver_price_history_for_code",
+        fake_repair,
+    )
+
+    with _session() as db:
+        db.add(
+            DailyPrice(
+                code="096770",
+                trade_date=trade_date,
+                close=128_700,
+                volume=190_638,
+            )
+        )
+        db.commit()
+
+        count = ensure_stock_price_history(
+            db,
+            "096770",
+            min_rows=1,
+            require_recent_complete_ohlc=True,
+        )
+
+        row = db.query(DailyPrice).one()
+        assert count == 1
+        assert calls == [("096770", 3)]
+        assert (row.open, row.high, row.low, row.close) == (
+            124_700,
+            129_500,
+            123_000,
+            124_100,
+        )
+
+
+def test_batch_signal_history_repair_fetches_only_requested_codes(monkeypatch):
+    calls = []
+
+    def fake_history_page(code: str, page: int):
+        calls.append((code, page))
+        return [
+            {
+                "code": code,
+                "trade_date": date(2026, 8, 11),
+                "open": 100,
+                "high": 110,
+                "low": 95,
+                "close": 105,
+                "volume": 1_000,
+                "trading_value": 105_000,
+                "market_cap": None,
+                "listed_shares": None,
+            }
+        ]
+
+    monkeypatch.setattr(naver_quotes, "_history_rows_for_page", fake_history_page)
+
+    with _session() as db:
+        count = naver_quotes.collect_naver_price_history_for_codes(
+            db,
+            ["005930", "000660", "005930", "invalid"],
+            pages=2,
+            max_workers=2,
+        )
+
+        assert count == 2
+        assert sorted(calls) == [
+            ("000660", 1),
+            ("000660", 2),
+            ("005930", 1),
+            ("005930", 2),
+        ]
+        assert db.query(DailyPrice).count() == 2
+
+
+def test_naver_krx_chart_parser_keeps_exchange_specific_final_candle():
+    target = date(2026, 8, 21)
+    payload = {
+        "stockExchangeType": "KRX",
+        "priceInfos": [
+            {
+                "localDate": "20260821",
+                "openPrice": 280_500.0,
+                "highPrice": 283_500.0,
+                "lowPrice": 259_500.0,
+                "closePrice": 265_000.0,
+                "accumulatedTradingVolume": 276_693,
+            }
+        ],
+    }
+
+    row = naver_quotes._krx_chart_price_row_from_payload(
+        "010060",
+        target,
+        payload,
+    )
+
+    assert row == {
+        "code": "010060",
+        "trade_date": target,
+        "open": 280_500,
+        "high": 283_500,
+        "low": 259_500,
+        "close": 265_000,
+        "volume": 276_693,
+        "trading_value": 73_323_645_000,
+        "market_cap": None,
+        "listed_shares": None,
+    }
+    assert naver_quotes._krx_chart_price_row_from_payload(
+        "010060",
+        target,
+        {**payload, "stockExchangeType": "NXT"},
+    ) is None
 
 
 def test_ensure_stock_price_history_backfills_missing_momentum(monkeypatch):

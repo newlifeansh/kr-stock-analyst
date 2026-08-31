@@ -370,6 +370,92 @@ img { display: block; max-width: 100%; }
   font-weight: 750;
 }
 
+.ai-journey-section {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: clamp(38px, 6vw, 92px);
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 110px 24px 120px;
+  border-top: 1px solid var(--line);
+}
+
+.ai-journey-intro {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+}
+
+.ai-journey-intro > p {
+  max-width: 520px;
+  margin: 0;
+  color: #39404a;
+  font-size: 17px;
+  line-height: 1.75;
+}
+
+.ai-journey-callout {
+  max-width: 520px;
+  padding: 24px 24px 22px;
+  border: 1px solid #d7dbe0;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #ffffff 0%, #f4f6f8 100%);
+  box-shadow: 0 20px 40px rgba(17, 17, 17, 0.05);
+}
+
+.ai-journey-callout strong {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+.ai-journey-callout p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.ai-touchpoint-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.ai-touchpoint-grid li {
+  min-height: 232px;
+  padding: 24px 24px 26px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.ai-touchpoint-grid span {
+  display: block;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ai-touchpoint-grid strong {
+  display: block;
+  margin-top: 30px;
+  font-size: 23px;
+  line-height: 1.35;
+}
+
+.ai-touchpoint-grid p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
 .feature-index {
   max-width: var(--max);
   margin: 0 auto;
@@ -461,6 +547,13 @@ img { display: block; max-width: 100%; }
   object-fit: cover;
   object-position: top;
 }
+
+.phone-shot.phone-shot-production {
+  height: auto;
+  aspect-ratio: 390 / 844;
+}
+
+.phone-shot-production img { object-fit: contain; }
 
 .phone-shot span {
   position: absolute;
@@ -554,7 +647,8 @@ img { display: block; max-width: 100%; }
 
 .system-section { max-width: none; padding-right: max(24px, calc((100vw - var(--max)) / 2)); padding-left: max(24px, calc((100vw - var(--max)) / 2)); }
 .system-note { max-width: 440px; margin: 24px 0 0; color: var(--muted); font-size: 15px; }
-.system-flow { display: grid; grid-template-columns: 1fr 32px 1fr 32px 1fr; align-items: stretch; }
+.system-flow { display: grid; align-items: stretch; }
+.system-flow-four { grid-template-columns: 1fr 24px 1fr 24px 1fr 24px 1fr; }
 .system-column { display: flex; min-height: 390px; padding: 26px; flex-direction: column; border: 1px solid var(--line); background: #ffffff; }
 .system-column span { margin-bottom: auto; color: var(--muted); font-size: 10px; font-weight: 900; }
 .system-column strong { padding: 13px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
@@ -673,6 +767,7 @@ img { display: block; max-width: 100%; }
   .problem-band,
   .journey-map,
   .principles-section,
+  .ai-journey-section,
   .system-section { grid-template-columns: 1fr; gap: 48px; padding: 90px 22px; }
   .problem-copy { font-size: 17px; }
   .journey-steps-five { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -694,7 +789,10 @@ img { display: block; max-width: 100%; }
   .feature-content { max-width: none; padding: 70px 26px 90px; }
   .feature-content h2 { font-size: 48px; }
   .usp-block { margin: 36px 0 28px; }
-  .system-flow { grid-template-columns: 1fr; gap: 12px; }
+  .ai-touchpoint-grid { grid-template-columns: 1fr; }
+  .ai-touchpoint-grid li { min-height: 0; }
+  .system-flow,
+  .system-flow-four { grid-template-columns: 1fr; gap: 12px; }
   .system-arrow { height: 26px; transform: rotate(90deg); }
   .system-column { min-height: 310px; }
   .continuity-section { grid-template-columns: 1fr; min-height: 0; }
@@ -725,6 +823,8 @@ img { display: block; max-width: 100%; }
   .journey-steps-five li:last-child { min-height: 145px; border-right: 0; }
   .journey-steps strong { margin-top: 22px; }
   .principle-list div { grid-template-columns: 1fr; gap: 7px; }
+  .ai-journey-callout { padding: 22px 20px; border-radius: 16px; }
+  .ai-touchpoint-grid strong { margin-top: 22px; font-size: 21px; }
   .feature-index nav { grid-template-columns: 1fr; }
   .feature-index nav a { min-height: 76px; border-right: 0; border-bottom: 1px solid var(--line); }
   .feature-index nav a:nth-child(3n),
@@ -781,6 +881,7 @@ img { display: block; max-width: 100%; }
   .problem-band,
   .journey-map,
   .principles-section,
+  .ai-journey-section,
   .feature-story,
   .continuity-section,
   .system-section,
@@ -861,7 +962,7 @@ img { display: block; max-width: 100%; }
 
   .hero-phone-front {
     top: 9mm;
-    right: 1mm;
+    right: 22mm;
   }
 
   .project-facts {
@@ -881,6 +982,7 @@ img { display: block; max-width: 100%; }
   .problem-band,
   .journey-map,
   .principles-section,
+  .ai-journey-section,
   .system-section {
     grid-template-columns: 1fr;
     gap: 18mm;
@@ -1022,6 +1124,53 @@ img { display: block; max-width: 100%; }
   .principle-list dt { font-size: 8pt; }
   .principle-list dd { font-size: 10pt; }
 
+  .ai-journey-section {
+    padding-top: 28mm;
+  }
+
+  .ai-journey-intro {
+    gap: 6mm;
+  }
+
+  .ai-journey-intro > p {
+    max-width: 150mm;
+    font-size: 10pt;
+  }
+
+  .ai-journey-callout {
+    max-width: 152mm;
+    padding: 5mm;
+    border-radius: 6mm;
+    box-shadow: none;
+  }
+
+  .ai-journey-callout strong {
+    margin-bottom: 2mm;
+    font-size: 13pt;
+  }
+
+  .ai-journey-callout p {
+    font-size: 7.8pt;
+  }
+
+  .ai-touchpoint-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .ai-touchpoint-grid li {
+    min-height: 44mm;
+    padding: 5mm;
+  }
+
+  .ai-touchpoint-grid strong {
+    margin-top: 8mm;
+    font-size: 14pt;
+  }
+
+  .ai-touchpoint-grid p {
+    font-size: 7.5pt;
+  }
+
   .continuity-section {
     grid-template-columns: 134mm 76mm;
   }
@@ -1039,8 +1188,8 @@ img { display: block; max-width: 100%; }
   .continuity-visual { padding: 20mm 7mm; }
   .phone-shot-compact { width: 61mm; height: 132mm; }
 
-  .system-flow {
-    grid-template-columns: 1fr 8mm 1fr 8mm 1fr;
+  .system-flow-four {
+    grid-template-columns: 1fr 6mm 1fr 6mm 1fr 6mm 1fr;
   }
 
   .system-arrow {

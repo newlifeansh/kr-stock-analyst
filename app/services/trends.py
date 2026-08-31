@@ -10,12 +10,19 @@ from typing import Iterable, Optional, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.collectors.news import preferred_news_url
 from app.models import DailyPrice, DisclosureItem, NewsItem, ResearchReport, StockMaster
+from app.services.economic_calendar import (
+    BLS_CPI_RELEASE_URL,
+    bok_release_occurrences_between,
+    cpi_release_occurrences_between,
+)
 from app.services.market_rankings import _base_item
 from app.services.stock_dashboard import _keyword_score, _round_decimal
 
 
 KST = timezone(timedelta(hours=9))
+TREND_PAST_EVENT_WINDOW_DAYS = 14
 
 
 @dataclass(frozen=True)
@@ -79,6 +86,27 @@ EVENT_TEMPLATES = (
         "Bank of Korea",
         "https://www.bok.or.kr/eng/stats/statsPublictSchdul/listCldr.do?menuNo=400359",
         ("BSI", "ESI", "경기", "심리", "내수", "제조업", "소비"),
+    ),
+    EventTemplate(
+        "us-cpi",
+        8,
+        12,
+        21,
+        30,
+        "미국",
+        "미국 CPI 소비자물가지수",
+        "매우 중요",
+        "예상치 대비 CPI가 미국 금리·달러, 성장주 할인율과 원달러·외국인 수급을 동시에 흔들 수 있음",
+        ("헤드라인 CPI", "근원 CPI", "미국 2년물", "미국 10년물", "달러", "원달러"),
+        ("반도체", "인터넷", "2차전지", "자동차", "금융"),
+        (
+            "헤드라인과 근원 CPI의 전월비·전년비가 예상치를 웃도는지 확인",
+            "주거비와 서비스 물가가 둔화하는지 확인",
+            "발표 직후 미국 2년물 금리·달러·나스닥과 원달러 반응을 함께 확인",
+        ),
+        "U.S. Bureau of Labor Statistics",
+        BLS_CPI_RELEASE_URL,
+        ("CPI", "소비자물가", "근원 CPI", "물가", "인플레이션", "금리", "달러", "환율", "연준"),
     ),
     EventTemplate(
         "us-pce",
@@ -147,18 +175,23 @@ EVENT_TEMPLATES = (
 
 FOCUSED_EVENT_AXES = {
     "미국 EIA 주간 원유재고": ("원유",),
+    "한국 BSI·ESI": ("경기심리",),
+    "미국 CPI 소비자물가지수": ("물가", "금리(고용)", "환율"),
     "미국 PCE 물가·개인소득/지출": ("환율", "금리(고용)"),
     "미국 주간 신규실업수당청구건수": ("금리(고용)",),
+    "한국 금융기관 가중평균금리": ("국내금리", "부동산"),
 }
 
 FOCUSED_TIMELINE_KEYWORDS = {
     "원유": ("원유", "유가", "WTI", "브렌트", "정제마진", "원유재고", "EIA"),
+    "물가": ("CPI", "소비자물가", "근원물가", "근원 CPI", "인플레이션"),
     "환율": ("환율", "원달러", "원/달러", "고환율", "원화", "달러 강세", "달러 약세"),
-    "금리(고용)": ("금리", "PCE", "FOMC", "연준", "고용", "실업", "신규실업수당"),
+    "금리(고용)": ("금리", "CPI", "PCE", "FOMC", "연준", "고용", "실업", "신규실업수당"),
 }
 
 FOCUSED_TIMELINE_LEADERS = {
     "원유": ("S-Oil", "SK이노베이션", "대한항공"),
+    "물가": ("NAVER", "SK하이닉스", "KB금융"),
     "환율": ("삼성전자", "SK하이닉스", "현대차"),
     "금리(고용)": ("KB금융", "NAVER", "LG에너지솔루션"),
 }
@@ -203,6 +236,13 @@ SECTOR_OUTLOOK = {
         "해운": "연료비와 글로벌 물동량 기대가 동시에 작용",
         "2차전지 소재": "원자재 가격 변동이 소재 마진과 재고평가에 영향",
     },
+    "미국 CPI 소비자물가지수": {
+        "반도체": "CPI 둔화 시 할인율 부담 완화, 상회 시 장기 성장주 밸류에이션 부담",
+        "인터넷": "미국 금리 변화에 민감한 장기 성장주 할인율을 확인",
+        "2차전지": "금리·달러와 전기차 할부 수요 변화에 함께 민감",
+        "자동차": "고금리는 미국 수요에 부담, 달러 강세는 수출 환산에 일부 우호",
+        "금융": "금리 고착은 마진·운용수익에 일부 우호적이나 경기·신용 부담과 공존",
+    },
     "한국 BSI·ESI": {
         "은행": "경기심리 개선 시 대출 성장/건전성 기대",
         "유통": "소비심리 개선 시 매출 기대",
@@ -238,6 +278,10 @@ SCENARIOS = {
         {"key": "bull", "label": "재고 감소/유가 상승", "description": "정유·에너지에는 우호, 항공·화학·해운에는 비용 부담"},
         {"key": "bear", "label": "재고 증가/유가 하락", "description": "항공·화학 비용 부담 완화, 정유 마진 기대는 약화"},
     ),
+    "미국 CPI 소비자물가지수": (
+        {"key": "bull", "label": "CPI 예상 하회/둔화", "description": "금리·달러 부담 완화로 성장주와 외국인 수급에 우호"},
+        {"key": "bear", "label": "CPI 예상 상회/재가속", "description": "금리·달러 상승으로 성장주 밸류 부담, 금융주는 일부 수혜"},
+    ),
     "한국 BSI·ESI": (
         {"key": "bull", "label": "경기심리 개선", "description": "내수·금융·소비재 심리 개선"},
         {"key": "bear", "label": "경기심리 악화", "description": "경기민감·내수주 실적 기대 둔화"},
@@ -261,6 +305,10 @@ SECTOR_SCENARIO_BIAS = {
     "미국 EIA 주간 원유재고": {
         "bull": {"정유": 1, "화학": -1, "항공": -1, "해운": -1, "2차전지": -1},
         "bear": {"정유": -1, "화학": 1, "항공": 1, "해운": 1, "2차전지": 1},
+    },
+    "미국 CPI 소비자물가지수": {
+        "bull": {"반도체": 1, "인터넷": 1, "2차전지": 1, "자동차": 1, "금융": -1, "은행": -1, "보험": -1},
+        "bear": {"반도체": -1, "인터넷": -1, "2차전지": -1, "자동차": -1, "금융": 1, "은행": 1, "보험": 1},
     },
     "한국 BSI·ESI": {
         "bull": {"은행": 1, "유통": 1, "건설": 1, "자동차": 1, "소비재": 1},
@@ -335,6 +383,10 @@ def _fixed_occurrences_between(template: EventTemplate, start: datetime, end: da
 
 
 def _scheduled_occurrences_between(template: EventTemplate, start: datetime, end: datetime) -> list[datetime]:
+    if template.key == "us-cpi":
+        return cpi_release_occurrences_between(start, end)
+    if template.key in {"kr-bsi-esi", "kr-bank-rate"}:
+        return bok_release_occurrences_between(template.key, start, end)
     if template.key == "us-eia-oil":
         return _weekly_occurrences_between(start, end, weekday=2, hour=23, minute=30)
     if template.key == "us-jobless-claims":
@@ -438,6 +490,23 @@ def _impact_for_text(text: str) -> str:
         "↑",
     )
     negative_hints = (
+        "금융사고",
+        "사기",
+        "횡령",
+        "배임",
+        "유용",
+        "피해",
+        "내부통제",
+        "해킹",
+        "정보 유출",
+        "압수수색",
+        "기소",
+        "제재",
+        "과징금",
+        "리콜",
+        "영업정지",
+        "부도",
+        "파산",
         "우려",
         "압박",
         "급락",
@@ -456,6 +525,11 @@ def _impact_for_text(text: str) -> str:
     score -= sum(1 for word in negative_hints if word in text)
 
     axes = _focused_axes_for_text(text)
+    if "물가" in axes:
+        if any(word in text for word in ("CPI 상승", "CPI 상회", "물가 재가속", "인플레이션 재가속", "예상 상회")):
+            score -= 2
+        if any(word in text for word in ("CPI 둔화", "CPI 하회", "물가 둔화", "인플레이션 완화", "예상 하회")):
+            score += 2
     if "환율" in axes:
         if any(word in text for word in ("환율 상승", "고환율", "원화 약세", "달러 강세", "1500원")):
             score -= 2
@@ -484,14 +558,19 @@ def _category_for_text(text: str, hinted_names: Optional[Iterable[str]] = None) 
         category = _company_category_for_name(name)
         if category:
             return category
-    if any(word in text for word in ("금리", "FOMC", "연준", "물가", "PCE", "환율", "원달러", "고환율", "원화")):
+    if any(word in text for word in ("금리", "FOMC", "연준", "물가", "CPI", "PCE", "환율", "원달러", "고환율", "원화")):
         return "매크로"
-    if any(word in text for word in ("유가", "원유", "금", "구리", "원자재", "중동")):
-        return "원자재"
     if any(word in text for word in ("반도체", "HBM", "메모리", "삼성전자", "SK하이닉스", "한미반도체")):
         return "반도체"
     if any(word in text for word in ("은행", "보험", "증권", "금융")):
         return "금융"
+    # A bare "금" also appears in 금융·금액·자금, so it must not be used as a
+    # commodity signal. Only unambiguous gold/commodity phrases are accepted.
+    if any(
+        word in text
+        for word in ("유가", "원유", "금값", "국제 금", "금 가격", "금 선물", "금 현물", "금 시세", "골드", "구리", "원자재", "중동")
+    ):
+        return "원자재"
     if any(word in text for word in ("자동차", "조선", "항공", "해운", "건설", "리츠")):
         return "대형주"
     return "시장"
@@ -519,14 +598,14 @@ def _leader_stocks_for_text(
     for cleaned in hinted:
         if cleaned not in leaders:
             leaders.append(cleaned)
-        if len(leaders) >= 3:
-            return leaders
+    if leaders:
+        # When the article/report explicitly identifies a company, do not pad
+        # the result with unrelated sector representatives.
+        return leaders[:3]
 
-    if stock_candidates and not hinted:
-        for name in _mentioned_stocks_for_text(text, stock_candidates, limit=3):
-            if name not in leaders:
-                leaders.append(name)
-        if len(leaders) >= 3:
+    if stock_candidates:
+        leaders = _mentioned_stocks_for_text(text, stock_candidates, limit=3)
+        if leaders:
             return leaders
 
     for axis in _focused_axes_for_text(text):
@@ -553,9 +632,30 @@ def _timeline_item(
     analysis_text: Optional[str] = None,
     hinted_names: Optional[Iterable[str]] = None,
     stock_candidates: Optional[Sequence[str]] = None,
+    allow_inferred_stocks: bool = True,
 ) -> dict[str, object]:
     analysis_source = analysis_text or title
-    category = _category_for_text(analysis_source, hinted_names=hinted_names)
+    explicit_names = [
+        cleaned
+        for cleaned in ((name or "").strip() for name in hinted_names or ())
+        if _is_matchable_stock_name(cleaned)
+    ]
+    if not explicit_names and stock_candidates:
+        # News cards only expose the headline. Match stocks against that same
+        # visible copy so a name found only in a broad summary cannot look like
+        # an unexplained or unrelated recommendation.
+        explicit_names = _mentioned_stocks_for_text(title, stock_candidates, limit=3)
+    category = _category_for_text(analysis_source, hinted_names=explicit_names)
+    leader_stocks = (
+        _leader_stocks_for_text(
+            analysis_source,
+            category,
+            hinted_names=explicit_names,
+            stock_candidates=stock_candidates,
+        )
+        if allow_inferred_stocks
+        else explicit_names[:3]
+    )
     return {
         "id": f"{prefix}-{idx}",
         "published_at": published_at,
@@ -564,7 +664,7 @@ def _timeline_item(
         "url": url,
         "category": category,
         "impact": _impact_for_text(analysis_source),
-        "leader_stocks": _leader_stocks_for_text(title, category, hinted_names=hinted_names, stock_candidates=stock_candidates),
+        "leader_stocks": leader_stocks,
         "related_event": related_event,
     }
 
@@ -586,14 +686,49 @@ def _template_by_id(event_id: str) -> tuple[Optional[EventTemplate], Optional[da
     return None, None
 
 
+def _news_row_identity(row: NewsItem) -> str:
+    canonical_url = preferred_news_url(row.source, row.external_id, row.detail_url)
+    if canonical_url:
+        return f"url:{canonical_url}"
+    if row.external_id:
+        return f"external:{row.source}:{row.external_id}"
+    normalized_title = re.sub(r"\s+", " ", row.title or "").strip()
+    return f"title:{normalized_title}"
+
+
+def _news_row_quality(row: NewsItem) -> tuple[int, int, int]:
+    title = re.sub(r"\s+", " ", row.title or "").strip()
+    summary = re.sub(r"\s+", " ", row.summary or "").strip()
+    return len(title), len(summary), row.id or 0
+
+
+def _deduplicated_news_rows(rows: Iterable[NewsItem], limit: int) -> list[NewsItem]:
+    preferred_by_article: dict[str, NewsItem] = {}
+    for row in rows:
+        identity = _news_row_identity(row)
+        current = preferred_by_article.get(identity)
+        if current is None or _news_row_quality(row) > _news_row_quality(current):
+            preferred_by_article[identity] = row
+    return sorted(
+        preferred_by_article.values(),
+        key=lambda row: (row.published_at or datetime.min, row.id or 0),
+        reverse=True,
+    )[:limit]
+
+
 def _latest_timeline(db: Session, limit: int = 80) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     seen_titles: set[str] = set()
     stock_candidates = _stock_name_candidates(db)
 
-    news_rows = list(
-        db.scalars(select(NewsItem).order_by(NewsItem.published_at.desc(), NewsItem.id.desc()).limit(limit))
+    fetched_news_rows = list(
+        db.scalars(
+            select(NewsItem)
+            .order_by(NewsItem.published_at.desc(), NewsItem.id.desc())
+            .limit(max(limit * 3, limit))
+        )
     )
+    news_rows = _deduplicated_news_rows(fetched_news_rows, limit)
     for idx, row in enumerate(news_rows, start=1):
         if row.title in seen_titles:
             continue
@@ -604,10 +739,11 @@ def _latest_timeline(db: Session, limit: int = 80) -> list[dict[str, object]]:
                 idx,
                 row.title,
                 row.press_name or row.source,
-                row.detail_url,
+                preferred_news_url(row.source, row.external_id, row.detail_url),
                 row.published_at,
                 analysis_text=f"{row.title} {row.summary or ''}",
                 stock_candidates=stock_candidates,
+                allow_inferred_stocks=False,
             )
         )
 
@@ -883,6 +1019,13 @@ def _direction_for_sector(template: EventTemplate, sector: str) -> str:
             return "환율/수요 혼재"
         if sector in {"금융", "보험", "은행"}:
             return "금리 수혜/경기 리스크"
+    if template.title == "미국 CPI 소비자물가지수":
+        if sector in {"반도체", "인터넷", "2차전지"}:
+            return "물가/금리 민감"
+        if sector == "자동차":
+            return "금리/환율 혼재"
+        if sector in {"금융", "보험", "은행"}:
+            return "금리 수혜/신용 리스크"
     if template.title == "한국 금융기관 가중평균금리":
         if sector in {"은행", "보험"}:
             return "금리 수혜"
@@ -956,6 +1099,8 @@ def _event_stock_impacts(db: Session, template: EventTemplate, scenario: str = "
 
 
 def _scenario_for_template(template: EventTemplate) -> str:
+    if template.title == "미국 CPI 소비자물가지수":
+        return "CPI가 예상보다 높으면 금리·달러 상승과 성장주 부담, 낮으면 할인율·외국인 수급 완화 경로로 해석합니다."
     if template.title == "미국 PCE 물가·개인소득/지출":
         return "PCE가 예상보다 높으면 금리·달러 상승 경로, 낮으면 할인율 완화 경로로 해석합니다."
     if template.title == "미국 EIA 주간 원유재고":
@@ -1046,40 +1191,58 @@ def _headline_for_events(events: list[dict[str, object]]) -> str:
     return "이번 1주일은 예정된 핵심 이벤트가 적어 최근 타임라인을 함께 봅니다."
 
 
+def scheduled_calendar_events_between(
+    start: datetime,
+    end: datetime,
+    *,
+    categories: Optional[set[str]] = None,
+) -> list[dict[str, object]]:
+    if start > end:
+        return []
+    events: list[dict[str, object]] = []
+    for template in EVENT_TEMPLATES:
+        axes = FOCUSED_EVENT_AXES.get(template.title)
+        if axes is None or (categories is not None and template.category not in categories):
+            continue
+        for starts_at in _scheduled_occurrences_between(template, start, end):
+            if starts_at < start or starts_at > end:
+                continue
+            events.append(
+                {
+                    "id": _event_id(template, starts_at),
+                    "starts_at": starts_at,
+                    "event_axes": list(axes),
+                    "category": template.category,
+                    "title": template.title,
+                    "importance": template.importance,
+                    "expected_impact": template.expected_impact,
+                    "affected_variables": list(template.affected_variables),
+                    "affected_sectors": list(template.affected_sectors),
+                    "watch_points": list(template.watch_points),
+                    "source_name": template.source_name,
+                    "source_url": template.source_url,
+                    "_keywords": template.keywords,
+                }
+            )
+    events.sort(key=lambda item: item["starts_at"])
+    return events
+
+
 def build_trend_analysis(db: Session, days: int = 7) -> dict[str, object]:
     now = _now_kst()
     window_start = now
     window_end = now + timedelta(days=days)
-    past_window_start = now - timedelta(days=14)
+    past_window_start = now - timedelta(days=TREND_PAST_EVENT_WINDOW_DAYS)
     timeline = _latest_timeline(db)
 
     events: list[dict[str, object]] = []
     past_events: list[dict[str, object]] = []
-    for template in EVENT_TEMPLATES:
-        axes = FOCUSED_EVENT_AXES.get(template.title)
-        if axes is None:
-            continue
-        for starts_at in _scheduled_occurrences_between(template, past_window_start, window_end):
-            event = {
-                "id": _event_id(template, starts_at),
-                "starts_at": starts_at,
-                "event_axes": list(axes),
-                "category": template.category,
-                "title": template.title,
-                "importance": template.importance,
-                "expected_impact": template.expected_impact,
-                "affected_variables": list(template.affected_variables),
-                "affected_sectors": list(template.affected_sectors),
-                "watch_points": list(template.watch_points),
-                "source_name": template.source_name,
-                "source_url": template.source_url,
-                "_keywords": template.keywords,
-            }
-            event["timeline"] = _event_timeline(event, timeline)
-            if starts_at < now:
-                past_events.append(event)
-            else:
-                events.append(event)
+    for event in scheduled_calendar_events_between(past_window_start, window_end):
+        event["timeline"] = _event_timeline(event, timeline)
+        if event["starts_at"] < now:
+            past_events.append(event)
+        else:
+            events.append(event)
 
     events.sort(key=lambda item: item["starts_at"])
     past_events.sort(key=lambda item: item["starts_at"], reverse=True)

@@ -1,0 +1,6112 @@
+/*
+ * Secret Note adaptive dark-theme fallback
+ *
+ * The canonical dashboard loads this file only when the system theme is dark.
+ */
+
+:root {
+  color-scheme: dark !important;
+
+  /* Semantic foundations sampled from the supplied reference image. */
+  --dark-canvas: #0b0b0d;
+  --dark-bg: #111113;
+  --dark-surface: #17171a;
+  --dark-surface-raised: #1d1d21;
+  --dark-surface-strong: #25252b;
+  --dark-border: #34343c;
+  --dark-border-soft: #29292f;
+  --dark-text: #f5f5f7;
+  --dark-text-secondary: #c8c8d0;
+  --dark-muted: #9a9aa6;
+  --dark-disabled: #6f6f7b;
+  --dark-focus: #8eb7ff;
+  --dark-accent: #6d9eff;
+  --dark-accent-strong: #4d86f7;
+  --dark-positive: #ff6380;
+  --dark-positive-soft: #32171f;
+  --dark-negative: #62a7ff;
+  --dark-negative-soft: #14253b;
+  --dark-success: #55d6a7;
+  --dark-success-soft: #112b23;
+  --dark-warning: #f5c451;
+  --dark-warning-soft: #332812;
+  --dark-danger: #ff7b84;
+  --dark-danger-soft: #35191c;
+
+  /* Shared application tokens. */
+  --bg: var(--dark-bg) !important;
+  --panel: var(--dark-surface) !important;
+  --line: var(--dark-border) !important;
+  --line-soft: var(--dark-border-soft) !important;
+  --line-strong: #42424b !important;
+  --text: var(--dark-text) !important;
+  --ink: var(--dark-text) !important;
+  --muted: var(--dark-muted) !important;
+  --accent: var(--dark-text) !important;
+  --accent-hover: #ffffff !important;
+  --accent-active: #ffffff !important;
+  --accent-soft: var(--dark-surface-strong) !important;
+  --primary: var(--dark-text) !important;
+  --button-contrast: var(--dark-bg) !important;
+  --positive: var(--dark-positive) !important;
+  --negative: var(--dark-negative) !important;
+  --danger: var(--dark-danger) !important;
+  --warn: var(--dark-warning) !important;
+  --success: var(--dark-success) !important;
+  --shadow-card: 0 10px 28px rgba(0, 0, 0, 0.32) !important;
+  --shadow-popover: 0 18px 50px rgba(0, 0, 0, 0.54) !important;
+}
+
+html,
+body {
+  background: var(--dark-bg) !important;
+  color: var(--dark-text) !important;
+}
+
+html {
+  scrollbar-color: #4a4a54 var(--dark-bg);
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  color: #ffffff;
+  background: #315ea8;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--dark-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4a4a54;
+  border: 2px solid var(--dark-bg);
+  border-radius: 99px;
+}
+
+:is(button, input, select, textarea, a, summary, [tabindex]):focus-visible {
+  outline: 3px solid var(--dark-focus) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+input,
+select,
+textarea {
+  color: var(--dark-text) !important;
+  background-color: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+  caret-color: var(--dark-text);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--dark-muted) !important;
+  opacity: 1;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled,
+[aria-disabled="true"] {
+  color: var(--dark-disabled) !important;
+  border-color: var(--dark-border-soft) !important;
+  opacity: 0.72;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Main Korea and US dashboard shells                                         */
+/* -------------------------------------------------------------------------- */
+
+body:not([data-view="stock"]),
+body[data-view="stock"],
+#stock-view.stock-detail-v3,
+#watchlist-view.watchlist-v15,
+#watchlist-view.watchlist-v3,
+#market-view.app-market-rankings,
+:is(body:not([data-view="stock"]) #chart-view[data-ui-version="4.0"], #stock-home-chart-analysis.chart-forecast-host),
+#morning-money-briefing-view {
+  --app-v3-bg: var(--dark-bg) !important;
+  --app-v3-panel: var(--dark-surface) !important;
+  --app-v3-text: var(--dark-text) !important;
+  --app-v3-muted: var(--dark-muted) !important;
+  --app-v3-line: var(--dark-border-soft) !important;
+  --app-v3-line-strong: var(--dark-border) !important;
+  --app-v3-red: var(--dark-positive) !important;
+  --app-v3-red-soft: var(--dark-positive-soft) !important;
+  --app-v3-blue: var(--dark-negative) !important;
+  --app-v3-blue-soft: var(--dark-negative-soft) !important;
+  --app-v3-green: var(--dark-success) !important;
+  --app-v3-yellow: var(--dark-warning) !important;
+
+  --stock-v3-bg: var(--dark-bg) !important;
+  --stock-v3-panel: var(--dark-surface) !important;
+  --stock-v3-text: var(--dark-text) !important;
+  --stock-v3-muted: var(--dark-muted) !important;
+  --stock-v3-line: var(--dark-border-soft) !important;
+  --stock-v3-line-strong: var(--dark-border) !important;
+  --stock-v3-red: var(--dark-positive) !important;
+  --stock-v3-red-soft: var(--dark-positive-soft) !important;
+  --stock-v3-blue: var(--dark-negative) !important;
+  --stock-v3-blue-soft: var(--dark-negative-soft) !important;
+  --stock-v3-green: var(--dark-success) !important;
+  --stock-v3-yellow: var(--dark-warning) !important;
+
+  --watch-v15-bg: var(--dark-bg) !important;
+  --watch-v15-panel: var(--dark-surface) !important;
+  --watch-v15-text: var(--dark-text) !important;
+  --watch-v15-muted: var(--dark-muted) !important;
+  --watch-v15-line: var(--dark-border-soft) !important;
+  --watch-v15-line-strong: var(--dark-border) !important;
+  --watch-v15-positive: var(--dark-positive) !important;
+  --watch-v15-positive-soft: var(--dark-positive-soft) !important;
+  --watch-v15-negative: var(--dark-negative) !important;
+  --watch-v15-negative-soft: var(--dark-negative-soft) !important;
+
+  --watch-v2-bg: var(--dark-bg) !important;
+  --watch-v2-panel: var(--dark-surface) !important;
+  --watch-v2-text: var(--dark-text) !important;
+  --watch-v2-muted: var(--dark-muted) !important;
+  --watch-v2-line: var(--dark-border-soft) !important;
+  --watch-v2-line-strong: var(--dark-border) !important;
+  --watch-v2-positive: var(--dark-positive) !important;
+  --watch-v2-negative: var(--dark-negative) !important;
+
+  --movers-bg: var(--dark-bg) !important;
+  --movers-surface: var(--dark-surface) !important;
+  --movers-text: var(--dark-text) !important;
+  --movers-muted: var(--dark-muted) !important;
+  --movers-line: var(--dark-border-soft) !important;
+  --movers-line-strong: var(--dark-border) !important;
+  --movers-positive: var(--dark-positive) !important;
+  --movers-negative: var(--dark-negative) !important;
+
+  --report-bg: var(--dark-bg) !important;
+  --report-text: var(--dark-text) !important;
+  --report-muted: var(--dark-muted) !important;
+  --report-line: var(--dark-border-soft) !important;
+  --report-red: var(--dark-positive) !important;
+  --report-blue: var(--dark-negative) !important;
+
+  --forecast-positive: var(--dark-positive) !important;
+  --forecast-negative: var(--dark-negative) !important;
+  --forecast-text: var(--dark-text) !important;
+  --forecast-muted: var(--dark-muted) !important;
+  --forecast-line: var(--dark-border-soft) !important;
+  --forecast-surface: var(--dark-surface-raised) !important;
+
+  --morning-money-accent: #ff806d !important;
+  --morning-money-text: var(--dark-text) !important;
+  --morning-money-muted: var(--dark-text-secondary) !important;
+  --morning-money-rule: var(--dark-border) !important;
+
+  background: var(--dark-bg) !important;
+  color: var(--dark-text) !important;
+}
+
+body :is(.app-frame, .shell, .app-page, .dashboard-detail-system, .dashboard-main, .app-main),
+#stock-view.stock-detail-v3,
+#watchlist-view.watchlist-v15,
+#watchlist-view.watchlist-v3,
+#market-view.app-market-rankings,
+#morning-money-briefing-view,
+#news-view,
+#ai-signals-view,
+#chart-view,
+#search-view,
+#recommend-view,
+#recommend-detail-view,
+#trend-view {
+  background-color: var(--dark-bg) !important;
+  color: var(--dark-text) !important;
+}
+
+body :is(h1, h2, h3, h4, h5, h6, strong, b, dt, dd, legend, summary) {
+  color: var(--dark-text) !important;
+}
+
+body :is(p, li, time, small, figcaption) {
+  color: var(--dark-text-secondary) !important;
+}
+
+body :is(.muted, [class$="-muted"], [class*="-muted "]),
+body :is([class$="-meta"], [class*="-meta "]),
+body :is([class$="-caption"], [class*="-caption "]),
+body :is([class$="-subtitle"], [class*="-subtitle "]) {
+  color: var(--dark-muted) !important;
+}
+
+body :is(a, button, label) {
+  color: var(--dark-text) !important;
+}
+
+body :is(a, button) > :is(span, strong, b, small, svg),
+body :is(a, button) > :is(span, strong, b, small, svg) * {
+  color: inherit !important;
+}
+
+body :is(svg, svg *) {
+  --svg-neutral: var(--dark-text-secondary);
+}
+
+.app-topbar,
+.secondary-commandbar,
+.stock-commandbar,
+.morning-money-commandbar,
+.app-header,
+.site-header,
+.mobile-header {
+  color: var(--dark-text) !important;
+  background: rgba(17, 17, 19, 0.96) !important;
+  border-color: var(--dark-border-soft) !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(18px) saturate(130%) !important;
+}
+
+.mobile-brand > span,
+.app-brand > span,
+.brand-chip,
+.market-label {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.app-icon-button,
+.secondary-commandbar-back,
+.stock-commandbar-back,
+.push-notification-sheet-close,
+.market-ranking-back,
+.morning-money-back {
+  color: var(--dark-text) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+.app-icon-button:hover,
+.secondary-commandbar-back:hover,
+.stock-commandbar-back:hover,
+.push-notification-sheet-close:hover,
+.market-ranking-back:hover,
+.morning-money-back:hover {
+  background: var(--dark-surface-strong) !important;
+}
+
+.bottom-nav {
+  color: var(--dark-muted) !important;
+  background: rgba(17, 17, 19, 0.97) !important;
+  border-color: var(--dark-border-soft) !important;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.28) !important;
+  backdrop-filter: blur(18px) saturate(130%) !important;
+}
+
+.bottom-nav-item {
+  color: var(--dark-muted) !important;
+  background: transparent !important;
+}
+
+.bottom-nav-item:is(.active, [aria-current="page"]) {
+  color: var(--dark-text) !important;
+}
+
+.bottom-nav-item:is(.active, [aria-current="page"])::before {
+  background: var(--dark-text) !important;
+}
+
+/* General surfaces, including cards generated after the first paint. */
+body :is(
+  article,
+  dialog,
+  table,
+  [role="table"],
+  [class$="-card"],
+  [class*="-card "],
+  [class$="-panel"],
+  [class*="-panel "],
+  [class$="-sheet"],
+  [class*="-sheet "],
+  [class$="-popover"],
+  [class*="-popover "],
+  [class$="-modal"],
+  [class*="-modal "]
+) {
+  color: var(--dark-text) !important;
+  background-color: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+  box-shadow: none !important;
+}
+
+body :is(
+  [class$="-row"],
+  [class*="-row "],
+  [class$="-item"],
+  [class*="-item "],
+  [class$="-entry"],
+  [class*="-entry "]
+) {
+  border-color: var(--dark-border-soft) !important;
+}
+
+body :is(
+  [class$="-row"],
+  [class*="-row "],
+  [class$="-item"],
+  [class*="-item "],
+  [class$="-entry"],
+  [class*="-entry "]
+):is(:hover, :focus-within) {
+  background-color: var(--dark-surface-raised) !important;
+}
+
+body :is(.table-head, thead, [role="rowgroup"]:first-child, [class$="-header-row"]) {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body :is(table, [role="table"], .table) :is(th, td, [role="cell"], [role="columnheader"], [role="rowheader"]) {
+  color: var(--dark-text-secondary) !important;
+  background-color: transparent !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+body :is(table, [role="table"], .table) :is(td, [role="cell"]) strong {
+  color: var(--dark-text) !important;
+}
+
+/* Core home screen. */
+.home-market-indices,
+.home-market-carousel,
+.home-ai-signals,
+.home-ai-response,
+.home-surge,
+.home-ranking,
+.home-ranking-list,
+.home-market-card,
+.home-news-card,
+.home-calendar-card,
+.service-footer {
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+  box-shadow: none !important;
+}
+
+.home-index-card {
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.home-index-card:is(:hover, :focus-visible) {
+  background: var(--dark-surface-raised) !important;
+}
+
+.home-index-card svg [fill="#ffffff"],
+.home-index-card svg [fill="#fff"] {
+  fill: var(--dark-surface) !important;
+}
+
+.home-ranking-tab,
+.home-ranking-market-trigger,
+.trend-tab,
+.trend-calendar-day,
+.news-filter,
+.news-page-filter,
+.ai-signal-stage-tab,
+.portfolio-tab,
+.watch-v3-tabs button,
+.market-segment-button {
+  color: var(--dark-text-secondary) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+:is(
+  .home-ranking-tab,
+  .trend-tab,
+  .trend-calendar-day,
+  .news-filter,
+  .news-page-filter,
+  .ai-signal-stage-tab,
+  .portfolio-tab,
+  .watch-v3-tabs button,
+  .market-segment-button
+):is(.active, .is-active, [aria-selected="true"]) {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+.home-ranking-row,
+.home-surge-row,
+.thread-item,
+.news-page-item,
+.ai-signal-row,
+.market-leaderboard-row {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.home-ranking-row:is(:hover, :focus-visible),
+.home-surge-row:is(:hover, :focus-visible),
+.thread-item:is(:hover, :focus-within),
+.news-page-item:is(:hover, :focus-within),
+.ai-signal-row:is(:hover, :focus-visible),
+.market-leaderboard-row:is(:hover, :focus-visible) {
+  background: var(--dark-surface-raised) !important;
+}
+
+.trend-calendar-day.is-today:not(.is-selected) {
+  color: var(--dark-accent) !important;
+  border-color: var(--dark-accent) !important;
+}
+
+.trend-calendar-event,
+.trend-past-item,
+.event-detail-summary,
+.event-detail-graph .flow-mobile-group {
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.service-footer {
+  color: var(--dark-text-secondary) !important;
+}
+
+.service-footer-disclosure,
+.service-footer-intro {
+  border-color: var(--dark-border-soft) !important;
+}
+
+/* Stock detail, watchlist, recommendations, charts and ranking tables. */
+#stock-view.stock-detail-v3 :is(
+  .stock-v3-company,
+  .stock-detail-tabs,
+  .stock-v3-section,
+  .stock-v3-hero,
+  .stock-v3-summary,
+  .stock-v3-tab-panel,
+  .stock-etf-holdings,
+  .stock-etf-distributions
+),
+#watchlist-view :is(
+  .watch-v3-stock-section,
+  .watch-v2-card,
+  .watch-v2-summary,
+  .watch-v2-filter,
+  .watch-v2-position,
+  .watch-v2-strategy
+),
+#recommend-view > *,
+#recommend-detail-view > *,
+#chart-view > *,
+#ai-signals-view > *,
+#news-view > *,
+#market-view > * {
+  background-color: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+  box-shadow: none !important;
+}
+
+#stock-view.stock-detail-v3 .stock-detail-tabs,
+#watchlist-view .watch-v3-tabs,
+.portfolio-tabs,
+.market-ranking-tabs,
+.ai-signal-stage-tabs,
+.news-page-filters {
+  background: rgba(23, 23, 26, 0.97) !important;
+  border-color: var(--dark-border-soft) !important;
+  backdrop-filter: blur(14px) !important;
+}
+
+#stock-view.stock-detail-v3 .stock-detail-tabs button {
+  color: var(--dark-muted) !important;
+  background: transparent !important;
+}
+
+#stock-view.stock-detail-v3 .stock-detail-tabs button:is(.active, [aria-selected="true"]) {
+  color: var(--dark-text) !important;
+}
+
+#stock-view.stock-detail-v3 .stock-detail-tabs button:is(.active, [aria-selected="true"])::after {
+  background: var(--dark-text) !important;
+}
+
+#stock-view.stock-detail-v3 :is(.stock-v3-metric-row, .stock-v3-evidence-row, .stock-etf-holding-row, .stock-etf-distribution-row),
+#watchlist-view :is(.watch-v2-metric-row, .watch-v2-stock-row, .watch-v2-evidence-row),
+.market-leaderboard-row,
+.recommendation-row,
+.ai-signal-row {
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+#stock-view.stock-detail-v3 :is(.stock-v3-metric-row, .stock-v3-evidence-row, .stock-etf-holding-row, .stock-etf-distribution-row):nth-child(even),
+#watchlist-view :is(.watch-v2-metric-row, .watch-v2-stock-row, .watch-v2-evidence-row):nth-child(even),
+.market-leaderboard-row:nth-child(even),
+.recommendation-row:nth-child(even),
+.ai-signal-row:nth-child(even) {
+  background: #19191d !important;
+}
+
+.stock-etf-donut-track,
+.score-ring {
+  stroke: var(--dark-border) !important;
+}
+
+.score-ring::after {
+  background: var(--dark-surface) !important;
+}
+
+.chart-stock-search,
+.chart-search-results,
+.chart-toolbar,
+.chart-canvas,
+.chart-forecast-summary,
+.chart-snapshot-panel,
+.recommend-search,
+.recommend-summary,
+.recommend-scorecard {
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.chart-stock-search input,
+.recommend-search input,
+.discovery-search input,
+.stock-search input {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.chart-range-button,
+.chart-tool-button,
+.chart-type-button,
+.recommend-filter-button,
+.app-segment-tabs button {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+:is(.chart-range-button, .chart-tool-button, .chart-type-button, .recommend-filter-button, .app-segment-tabs button):is(.active, .is-active, [aria-selected="true"]) {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+/* Filled actions remain unmistakable on dark surfaces. */
+:is(
+  .primary-action,
+  .discovery-search > button,
+  .stock-search > button,
+  .recommend-watch-button,
+  .recommend-track-button,
+  .recommend-ai-button,
+  .chart-refresh-button,
+  .chart-ai-button,
+  .chart-save-button,
+  .push-notification-sheet-save,
+  .login-submit,
+  .login-button
+) {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+:is(
+  .primary-action,
+  .discovery-search > button,
+  .stock-search > button,
+  .recommend-watch-button,
+  .recommend-track-button,
+  .recommend-ai-button,
+  .chart-refresh-button,
+  .chart-ai-button,
+  .chart-save-button,
+  .push-notification-sheet-save,
+  .login-submit,
+  .login-button
+):is(:hover, :focus-visible) {
+  background: #ffffff !important;
+}
+
+/* Semantic values and tinted badges.  Korean market convention is preserved:
+   red = rise/positive, blue = fall/negative. */
+body :is(
+  .positive,
+  .gain,
+  .up,
+  .is-positive,
+  [class$="-positive"],
+  [class*="-positive "],
+  [class$="-up"],
+  [class*="-up "]
+) {
+  color: var(--dark-positive) !important;
+}
+
+body :is(
+  .negative,
+  .loss,
+  .down,
+  .is-negative,
+  [class$="-negative"],
+  [class*="-negative "],
+  [class$="-down"],
+  [class*="-down "]
+) {
+  color: var(--dark-negative) !important;
+}
+
+body :is(.success, .good, [class$="-success"], [class*="-success "]) {
+  color: var(--dark-success) !important;
+}
+
+body :is(.warning, .warn, [class$="-warning"], [class*="-warning "]) {
+  color: var(--dark-warning) !important;
+}
+
+.thread-tag.impact-호재,
+.signal.strong,
+.positive-chip,
+.stock-v3-positive-chip {
+  color: #ff91a5 !important;
+  background: var(--dark-positive-soft) !important;
+  border-color: #63303b !important;
+}
+
+.thread-tag.impact-악재,
+.negative-chip,
+.stock-v3-negative-chip {
+  color: #8cbcff !important;
+  background: var(--dark-negative-soft) !important;
+  border-color: #294a73 !important;
+}
+
+.thread-tag,
+.leader-stock-tag,
+.status-chip,
+.signal.neutral,
+.market-rank-badge,
+.stock-code-chip {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.signal.watch,
+.ai-chip,
+.recommend-chip {
+  color: #c5b8ff !important;
+  background: #28223d !important;
+  border-color: #4a3c73 !important;
+}
+
+/* Dialogs, bottom sheets, loading and empty/error states. */
+.push-notification-sheet-backdrop,
+.app-exit-dialog-backdrop,
+.modal-backdrop,
+.sheet-backdrop {
+  background: rgba(0, 0, 0, 0.72) !important;
+}
+
+.push-notification-sheet-card,
+.app-exit-dialog-card,
+.modal-card,
+.bottom-sheet-card {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border: 1px solid var(--dark-border) !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.58) !important;
+}
+
+.push-notification-sheet-handle {
+  background: #55555f !important;
+}
+
+.push-recommendation-note {
+  color: #f5cc77 !important;
+  background: var(--dark-warning-soft) !important;
+  border-color: #5b471d !important;
+}
+
+.push-notification-sheet-status,
+.error-state,
+.form-error {
+  color: #ff9da5 !important;
+  background: var(--dark-danger-soft) !important;
+  border-color: #663037 !important;
+}
+
+.page-loading,
+.loading-overlay {
+  background: rgba(11, 11, 13, 0.82) !important;
+  backdrop-filter: blur(2px) !important;
+}
+
+.page-loading-indicator,
+.loading-card,
+.empty-state {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.loading-spinner,
+.page-loading-spinner {
+  border-color: var(--dark-border) !important;
+  border-top-color: var(--dark-text) !important;
+}
+
+.skeleton,
+[class*="skeleton"] {
+  background: linear-gradient(90deg, #222228 25%, #303038 50%, #222228 75%) !important;
+  background-size: 200% 100% !important;
+}
+
+.morning-money-popover,
+.morning-money-popover-open {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.morning-money-popover-coin {
+  background: #332812 !important;
+  box-shadow: inset 0 0 0 1px #5b471d !important;
+}
+
+/* Login and invite gates are also part of the staging review. */
+.login-gate,
+.login-gate[data-phase="form"],
+.invite-gate,
+.access-gate {
+  color: var(--dark-text) !important;
+  background: var(--dark-canvas) !important;
+}
+
+.login-card,
+.invite-card,
+.access-card {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.58) !important;
+}
+
+#login-gate .login-card h1,
+#login-gate .login-card > p {
+  color: var(--dark-text) !important;
+}
+
+#login-gate .login-card > p,
+#login-gate .login-invite-hint,
+#login-gate .login-support-contact {
+  color: var(--dark-secondary) !important;
+}
+
+#login-gate .login-card input {
+  color: var(--dark-text) !important;
+  caret-color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: #555560 !important;
+}
+
+#login-gate .login-card input::placeholder {
+  color: var(--dark-muted) !important;
+  opacity: 1 !important;
+}
+
+#login-gate .login-card button {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+#login-gate .login-caution-notice {
+  color: var(--dark-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+#login-gate .login-caution-notice strong {
+  color: var(--dark-text) !important;
+}
+
+body:not([data-view="stock"]) #login-gate .login-caution-notice p,
+#login-gate .login-caution-notice p {
+  color: var(--dark-secondary) !important;
+}
+
+#login-gate .login-support-contact a {
+  color: var(--dark-text) !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Legacy insight view                                                        */
+/* -------------------------------------------------------------------------- */
+
+.app-shell {
+  --bg: var(--dark-bg) !important;
+  --panel: var(--dark-surface) !important;
+  --panel-soft: var(--dark-surface-raised) !important;
+  --line: var(--dark-border-soft) !important;
+  --line-strong: var(--dark-border) !important;
+  --text: var(--dark-text) !important;
+  --muted: var(--dark-muted) !important;
+  --accent: var(--dark-success) !important;
+  --accent-soft: var(--dark-success-soft) !important;
+  --chip: var(--dark-surface-strong) !important;
+}
+
+.sidebar,
+.topbar,
+.desktop-board,
+.mobile-board,
+.insight-card,
+.briefing-card,
+.metric-card {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+  box-shadow: none !important;
+}
+
+.sidebar {
+  background: var(--dark-canvas) !important;
+}
+
+.sidebar :is(button, a):hover,
+.sidebar :is(button, a).active {
+  background: var(--dark-surface-strong) !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Spreadsheet-style desktop view                                             */
+/* -------------------------------------------------------------------------- */
+
+.desk-app {
+  --desk-green: #3acb8b !important;
+  --desk-green-dark: #259b6b !important;
+  --desk-blue: var(--dark-accent) !important;
+  --desk-grid: #303038 !important;
+  --desk-header: #151518 !important;
+  --desk-text: var(--dark-text) !important;
+  --desk-muted: var(--dark-muted) !important;
+  --desk-control-border: #44444e !important;
+  --desk-control-bottom: #555560 !important;
+  --desk-control-shadow: rgba(0, 0, 0, 0.48) !important;
+  color: var(--dark-text) !important;
+  background: var(--dark-bg) !important;
+}
+
+.desk-header,
+.desk-toolbar,
+.desk-formula-bar,
+.desk-grid-shell,
+.desk-sheet,
+.desk-sheet-tabs,
+.desk-statusbar,
+.desk-side-panel {
+  color: var(--dark-text) !important;
+  background-color: var(--dark-surface) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desk-toolbar,
+.desk-column-headers span,
+.desk-row-headers,
+.desk-row-headers span,
+.desk-grid-corner,
+.desk-cell-header,
+.desk-cell-muted,
+.desk-cell-status,
+.desk-sheet-tab {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desk-cell,
+.desk-cell-input,
+.desk-cell-input input {
+  color: var(--dark-text-secondary) !important;
+  background: #141417 !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.desk-cell:nth-child(odd) {
+  background: #161619 !important;
+}
+
+.desk-cell-title {
+  color: #07140f !important;
+  background: var(--desk-green) !important;
+}
+
+.desk-cell-subtitle {
+  color: #9ce7c7 !important;
+  background: #17362a !important;
+}
+
+.desk-cell-positive,
+.desk-live-up {
+  color: var(--dark-positive) !important;
+}
+
+.desk-cell-negative,
+.desk-live-down {
+  color: var(--dark-negative) !important;
+}
+
+.desk-document-title,
+.desk-menubar button,
+.desk-toolbar button,
+.desk-top-icon,
+.desk-formula-value,
+.desk-name-box {
+  color: var(--dark-text-secondary) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desk-document-title:focus,
+.desk-font-size,
+.desk-share,
+.desk-account {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desk-menubar button:hover,
+.desk-toolbar button:hover,
+.desk-top-icon:hover,
+.desk-sheet-tab:hover {
+  background: var(--dark-surface-strong) !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Portfolio and concept/reference screens                                    */
+/* -------------------------------------------------------------------------- */
+
+.portfolio-site,
+.portfolio-page,
+.portfolio-main,
+.portfolio-hero,
+.portfolio-section,
+.portfolio-footer,
+.portfolio-nav {
+  --page: var(--dark-bg) !important;
+  --paper: var(--dark-surface) !important;
+  --ink: var(--dark-text) !important;
+  --muted: var(--dark-muted) !important;
+  --line: var(--dark-border) !important;
+  --soft: var(--dark-surface-raised) !important;
+  color: var(--dark-text) !important;
+  background-color: var(--dark-bg) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.portfolio-page :is(.card, .project, .case-study, .contact-panel, .phone-frame),
+.portfolio-main :is(.card, .project, .case-study, .contact-panel, .phone-frame) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border) !important;
+  box-shadow: none !important;
+}
+
+.portfolio-page img,
+.portfolio-main img,
+.phone-shot img {
+  background: var(--dark-surface-raised);
+}
+
+.concept-switcher,
+.concept,
+.concept-pulse,
+.concept-lens,
+.concept-signals,
+.pulse-main,
+.signals-main,
+.signals-content,
+.lens-layout {
+  color: var(--dark-text) !important;
+  background: var(--dark-bg) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.concept-switcher,
+.pulse-rail,
+.product-bar,
+.lens-nav,
+.signals-top,
+.signals-nav {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.concept :is(
+  .market-strip article,
+  .story-tickers button,
+  .rating,
+  .range-card,
+  .metrics-card,
+  .consensus,
+  .portfolio-summary > article,
+  .watch-board,
+  .activity-feed,
+  .watch-row,
+  .period-control,
+  .global-search
+) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.concept-tab {
+  color: var(--dark-text-secondary) !important;
+  background: transparent !important;
+}
+
+.concept-tab:is(.is-active, :hover, :focus-visible) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+}
+
+.concept :is(input, button) {
+  color: var(--dark-text-secondary) !important;
+}
+
+/* Motion remains functional but respects the user's accessibility preference. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Visual QA corrections: preserve the compact shell around late-rendered data. */
+body[data-staging-ia="toss-clone"] .app-topbar {
+  display: flex !important;
+}
+
+body[data-staging-ia="toss-clone"]:is(
+  [data-view="stock"],
+  [data-view="ai-signals"],
+  [data-view="movers"],
+  [data-view="chart"],
+  [data-view="morning-briefing"],
+  [data-view="recommend-detail"],
+  [data-view="event-detail"],
+  [data-view="notifications"]
+) .app-topbar {
+  display: none !important;
+}
+
+body[data-staging-ia="toss-clone"] .morning-money-popover,
+body[data-staging-ia="toss-clone"] .service-footer {
+  display: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .ai-signal-mode-tabs {
+  gap: 7px !important;
+  padding: 9px var(--tc-gutter) !important;
+  border-radius: 0 !important;
+  background: var(--tc-bg) !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .ai-signal-mode-tabs button {
+  min-height: 38px !important;
+  padding: 0 14px !important;
+  border: 0 !important;
+  border-radius: 11px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .ai-signal-mode-tabs button.active {
+  color: var(--tc-text) !important;
+  background: var(--tc-surface-2) !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .ai-signal-mode-tabs button::after {
+  display: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-row {
+  min-height: 126px !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-areas: "headline" "support" !important;
+  align-content: center !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-headline {
+  grid-area: headline !important;
+  width: 100% !important;
+  display: grid !important;
+  grid-template-columns: 38px minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+.staging-ai-logo {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #303138;
+  border-radius: 50%;
+  color: #e0e2e7 !important;
+  background: #292a30 !important;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-identity {
+  min-width: 0 !important;
+  display: block !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-name {
+  display: block !important;
+  overflow: hidden !important;
+  color: var(--tc-text) !important;
+  font-size: 16px !important;
+  font-weight: 780 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-status {
+  justify-self: end !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-state {
+  min-height: 30px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 0 10px !important;
+  border-radius: 9px !important;
+  color: var(--tc-sub) !important;
+  background: #292a30 !important;
+  font-size: 11px !important;
+  font-weight: 750 !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-supporting {
+  grid-area: support !important;
+  width: 100% !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 8px !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-meta {
+  color: var(--tc-muted) !important;
+  font-size: 10px !important;
+  font-weight: 650 !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-metrics {
+  width: 100% !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-metric {
+  min-width: 0 !important;
+  display: grid !important;
+  gap: 2px !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-metric-label {
+  overflow: hidden !important;
+  color: var(--tc-muted) !important;
+  font-size: 9px !important;
+  font-weight: 650 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-metric-value {
+  overflow: hidden !important;
+  color: var(--tc-sub) !important;
+  font-size: 11px !important;
+  font-weight: 720 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+@media (max-width: 720px) {
+  :root {
+    --dark-border: #3a3a43;
+    --dark-border-soft: #29292f;
+  }
+
+  body :is(article, [class$="-card"], [class*="-card "]) {
+    box-shadow: none !important;
+  }
+
+  .app-topbar,
+  .secondary-commandbar,
+  .stock-commandbar,
+  .morning-money-commandbar {
+    min-height: 58px;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Visual QA corrections: dynamically-rendered controls with unscoped styles  */
+/* -------------------------------------------------------------------------- */
+
+.push-notification-sheet-actions {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.push-notification-sheet-close {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+}
+
+.push-notification-sheet-close svg,
+.push-notification-sheet-close svg * {
+  color: inherit !important;
+  stroke: currentColor !important;
+}
+
+.push-notification-sheet-snooze,
+.push-notification-sheet-disable {
+  color: var(--dark-text-secondary) !important;
+  background: transparent !important;
+}
+
+#push-notification-sheet :is(
+  .push-recommendation-copy,
+  .push-notification-condition-copy
+) strong {
+  color: var(--dark-text) !important;
+}
+
+#push-notification-sheet :is(
+  .push-recommendation-copy,
+  .push-notification-condition-copy
+) > span {
+  color: var(--dark-secondary) !important;
+}
+
+.home-market-signal-ticker,
+.home-ai-response-line,
+.home-ai-response-personal,
+.home-ai-response-factor,
+.home-ai-response-personal-status {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.home-ai-response :is(
+  span,
+  strong,
+  p,
+  .home-ai-response-heading,
+  .home-ai-response-watch-label,
+  .home-ai-response-factor-event
+) {
+  color: var(--dark-text-secondary) !important;
+}
+
+.home-ai-response :is(strong, .home-ai-response-heading, .home-ai-response-watch-label) {
+  color: var(--dark-text) !important;
+}
+
+.home-ranking-category-tabs button {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.home-ranking-category-tabs button:is(.active, [aria-selected="true"]) {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+.home-ranking-more,
+.trend-past-toggle,
+.trend-live-toggle {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.stock-list-logo.is-fallback,
+.stock-list-logo-fallback {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.trend-calendar-days,
+.trend-events {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.trend-calendar-event-flag,
+.event-relative,
+.trend-live-filter-count {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.event-importance {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.event-importance-important,
+.event-importance-critical {
+  color: #f5cc77 !important;
+  background: var(--dark-warning-soft) !important;
+  border-color: #5b471d !important;
+}
+
+.trend-live-filter {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.trend-live-filter.active {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+.trend-live-filter.active .trend-live-filter-count {
+  color: var(--dark-text-secondary) !important;
+  background: #2d2d33 !important;
+}
+
+.trend-live-filter.is-positive {
+  color: var(--dark-positive) !important;
+  background: var(--dark-positive-soft) !important;
+  border-color: #63303b !important;
+}
+
+.trend-live-filter.is-negative {
+  color: var(--dark-negative) !important;
+  background: var(--dark-negative-soft) !important;
+  border-color: #294a73 !important;
+}
+
+.trend-live-filter.is-positive .trend-live-filter-count,
+.trend-live-filter.is-negative .trend-live-filter-count {
+  color: inherit !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.trend-calendar-day.active .has-event {
+  background: var(--dark-bg) !important;
+}
+
+/* Stock-home visual QA. */
+.stock-v3-commandbar {
+  color: var(--dark-text) !important;
+  background: rgba(17, 17, 19, 0.97) !important;
+  border-color: var(--dark-border-soft) !important;
+  backdrop-filter: blur(18px) saturate(130%) !important;
+}
+
+.stock-v3-commandbar :is(.stock-v3-back, .stock-v3-star, .stock-v3-share, button) {
+  color: var(--dark-text) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+.market-chip,
+.ollama-ai-badge,
+.stock-home-ai-status {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.stock-mini-chart,
+.stock-v3-chart-pane,
+.stock-v3-main-chart,
+.stock-v3-chart-section,
+.chart-forecast-page,
+.chart-pattern-analysis,
+.chart-forecast-visual,
+.chart-forecast-clarifier {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.stock-v3-chart-grid,
+.chart-forecast-grid {
+  stroke: var(--dark-border) !important;
+}
+
+.stock-v3-chart-date,
+.stock-v3-extrema,
+.chart-forecast-axis-label,
+.chart-forecast-focus-label {
+  fill: var(--dark-muted) !important;
+  color: var(--dark-muted) !important;
+}
+
+.chart-forecast-recent-zone {
+  fill: rgba(255, 255, 255, 0.025) !important;
+}
+
+.chart-forecast-focus-start {
+  stroke: var(--dark-border) !important;
+}
+
+.chart-pattern-signal-dot {
+  fill: var(--dark-surface) !important;
+}
+
+.chart-forecast-center.neutral,
+.chart-forecast-end-dot.neutral {
+  stroke: var(--dark-text-secondary) !important;
+  fill: var(--dark-text-secondary) !important;
+}
+
+.chart-pattern-alignment.mixed {
+  color: var(--dark-warning) !important;
+}
+
+.chart-pattern-alignment.aligned {
+  color: var(--dark-success) !important;
+}
+
+.stock-v3-chart-badge {
+  background: rgba(23, 23, 26, 0.92) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.stock-v3-price-periods button {
+  color: var(--dark-text-secondary) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+.stock-v3-price-periods button.active {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+.stock-v3-summary-list,
+.stock-v3-chart-summary,
+.stock-home-flow-totals,
+.stock-home-disclosure-list,
+.stock-v3-keywords,
+.stock-v3-topic-tabs {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.stock-v3-summary-list :is(li, span, strong, b),
+.stock-v3-chart-summary :is(span, strong, b),
+.stock-home-flow-totals :is(span, strong, b) {
+  color: var(--dark-text-secondary) !important;
+}
+
+.stock-v3-summary-list :is(strong, b),
+.stock-v3-chart-summary :is(strong, b),
+.stock-home-flow-totals :is(strong, b) {
+  color: var(--dark-text) !important;
+}
+
+.stock-home-disclosure-all,
+.stock-home-disclosure-row,
+.stock-home-disclosure-toggle {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.stock-home-disclosure-row:is(:hover, :focus-visible),
+.stock-home-disclosure-toggle:is(:hover, :focus-visible) {
+  background: var(--dark-surface-raised) !important;
+}
+
+.stock-home-disclosure-row > i,
+.stock-home-disclosure-category,
+.stock-v3-news-thumb {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.stock-v3-keywords :is(span, button),
+.stock-v3-topic-tabs :is(span, button) {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.stock-v3-keywords button:is(.active, [aria-selected="true"]),
+.stock-v3-topic-tabs button:is(.active, [aria-selected="true"]) {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+.stock-v3-segment {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.stock-v3-segment button {
+  color: var(--dark-text-secondary) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+.stock-v3-segment button.active {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+}
+
+.stock-v3-news-list,
+.stock-v3-report-list,
+.research-report-list,
+.stock-v3-update-list {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.stock-v3-news-row,
+.research-report-item,
+.stock-v3-update-row {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.stock-v3-news-row:is(:hover, :focus-within),
+.research-report-item:is(:hover, :focus-within),
+.stock-v3-update-row:is(:hover, :focus-within) {
+  background: var(--dark-surface-raised) !important;
+}
+
+/* Search and recommendation cards. */
+.discovery-search,
+.discovery-search-form,
+.recommend-list,
+.recommend-card,
+.recommendation-card {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.term-help,
+.recommend-score-help {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.recommend-signal-stage,
+.recommend-signal-stage.is-collecting {
+  color: #8fe5c6 !important;
+  background: var(--dark-success-soft) !important;
+  border-color: #285846 !important;
+}
+
+/* Portfolio and watchlist tabs, including the empty state action. */
+.watchlist-content-tabs {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.watchlist-content-tabs button {
+  color: var(--dark-text-secondary) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+.watchlist-content-tabs button.active {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+}
+
+.watchlist-empty-card {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.watchlist-empty-card > button {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+/* Standalone chart example and chart controls. */
+.chart-stock-search-form,
+.chart-example-figure {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.chart-example-title :is(strong, span),
+.chart-example-legend span {
+  color: var(--dark-text-secondary) !important;
+}
+
+.chart-example-grid line {
+  stroke: var(--dark-border) !important;
+}
+
+.chart-example-future-zone {
+  fill: #151f2c !important;
+}
+
+.chart-example-past-area {
+  fill: rgba(154, 154, 166, 0.12) !important;
+}
+
+.chart-example-labels text {
+  fill: var(--dark-muted) !important;
+}
+
+.chart-example-labels text.current {
+  fill: var(--dark-text-secondary) !important;
+}
+
+/* AI signal list pages use the home signal-row component outside home. */
+.ai-signal-mode-tabs,
+.ai-signal-stage-tabs,
+.ai-signal-history-filters {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.ai-signal-mode-tabs button,
+.ai-signal-stage-tabs button,
+.ai-signal-history-filters button {
+  color: var(--dark-text-secondary) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+.ai-signal-mode-tabs button.active,
+.ai-signal-stage-tabs button.active,
+.ai-signal-history-filters button.active {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+#ai-signals-view .home-ai-signal-row {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+#ai-signals-view .home-ai-signal-row:nth-child(even) {
+  background: #19191d !important;
+}
+
+#ai-signals-view .home-ai-signal-row:is(:hover, :focus-visible) {
+  background: var(--dark-surface-raised) !important;
+}
+
+#ai-signals-view .home-ai-signal-row :is(span, small, time) {
+  color: var(--dark-text-secondary) !important;
+}
+
+#ai-signals-view .home-ai-signal-row strong {
+  color: var(--dark-text) !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* United States dashboard (/nasdaq)                                          */
+/* -------------------------------------------------------------------------- */
+
+body:has(.mobile-app-bar) {
+  --report-bg: var(--dark-bg) !important;
+  --report-text: var(--dark-text) !important;
+  --report-muted: var(--dark-muted) !important;
+  --report-line: var(--dark-border-soft) !important;
+  --report-red: var(--dark-positive) !important;
+  --report-blue: var(--dark-negative) !important;
+  background: var(--dark-bg) !important;
+  color: var(--dark-text) !important;
+}
+
+body:has(.mobile-app-bar) .login-card button {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+body:has(.mobile-app-bar) :is(.mobile-app-bar, .mobile-side-menu, .side-menu, .install-sheet) {
+  color: var(--dark-text) !important;
+  background: rgba(17, 17, 19, 0.97) !important;
+  border-color: var(--dark-border) !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(18px) saturate(130%) !important;
+}
+
+body:has(.mobile-app-bar) .mobile-menu-button {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) .mobile-menu-button span {
+  color: inherit !important;
+  background: currentColor !important;
+}
+
+body:has(.mobile-app-bar) .display-currency-toggle {
+  color: var(--dark-text) !important;
+  background: rgba(29, 29, 33, 0.96) !important;
+  border-color: var(--dark-border) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+body:has(.mobile-app-bar) .display-currency-toggle span {
+  color: var(--dark-muted) !important;
+}
+
+body:has(.mobile-app-bar) .side-menu-item,
+body:has(.mobile-app-bar) .side-footer-link {
+  color: var(--dark-text-secondary) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+body:has(.mobile-app-bar) .side-menu-item:is(.active, :hover, :focus-visible),
+body:has(.mobile-app-bar) .side-footer-link:is(:hover, :focus-visible) {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+body:has(.mobile-app-bar) :is(
+  #market-view,
+  #recommend-view,
+  #trend-view,
+  #watchlist-view,
+  #stock-view,
+  #chart-view,
+  #chart-history-view
+) {
+  --report-bg: var(--dark-bg) !important;
+  --report-text: var(--dark-text) !important;
+  --report-muted: var(--dark-muted) !important;
+  --report-line: var(--dark-border-soft) !important;
+  --report-red: var(--dark-positive) !important;
+  --report-blue: var(--dark-negative) !important;
+  color: var(--dark-text) !important;
+  background: var(--dark-bg) !important;
+}
+
+body:has(.mobile-app-bar) main :is(section, article, table, dl) {
+  color: var(--dark-text) !important;
+  background-color: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+  box-shadow: none !important;
+}
+
+body:has(.mobile-app-bar) main :is(section, article) :is(section, article, dl) {
+  background-color: var(--dark-surface-raised) !important;
+}
+
+body:has(.mobile-app-bar) main span:not([class*="positive"]):not([class*="negative"]):not(.positive):not(.negative) {
+  color: var(--dark-text-secondary) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view :is(
+  .topbar,
+  .stock-mobile-detail,
+  .stock-quote-card,
+  .stock-visual-card,
+  .stock-strategy-card,
+  .stock-section-card,
+  .panel,
+  .chart-analysis-panel,
+  .ai-analysis-panel,
+  .stock-mini-chart
+) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+  box-shadow: none !important;
+}
+
+body:has(.mobile-app-bar) #stock-view .stock-mobile-detail {
+  background: var(--dark-bg) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view .stock-price-main > strong,
+body:has(.mobile-app-bar) #stock-view .identity h1,
+body:has(.mobile-app-bar) #stock-view .stock-visual-main h2,
+body:has(.mobile-app-bar) #stock-view .summary-signal-card strong,
+body:has(.mobile-app-bar) #stock-view .stock-stat-grid dd,
+body:has(.mobile-app-bar) #stock-view .evidence-metric-grid dd,
+body:has(.mobile-app-bar) #stock-view .chart-summary-grid strong {
+  color: var(--dark-text) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view :is(.quote-strip, .stock-quote-card .quote-strip) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view :is(.quote-strip, .stock-quote-card .quote-strip) > div {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view .quote-strip strong {
+  color: var(--dark-text) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view :is(.stock-section-tabs, .stock-detail-tabs) {
+  color: var(--dark-text) !important;
+  background: rgba(23, 23, 26, 0.97) !important;
+  border-color: var(--dark-border-soft) !important;
+  backdrop-filter: blur(14px) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view :is(.stock-section-tabs, .stock-detail-tabs) button {
+  color: var(--dark-muted) !important;
+  background: transparent !important;
+}
+
+body:has(.mobile-app-bar) #stock-view :is(.stock-section-tabs, .stock-detail-tabs) button.active {
+  color: var(--dark-text) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view :is(.stock-section-tabs, .stock-detail-tabs) button.active::after {
+  background: var(--dark-text) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view :is(
+  .stock-summary-cards,
+  .summary-signal-card,
+  .stock-summary-data,
+  .stock-section-grid,
+  .stock-stat-grid,
+  .evidence-metric-grid,
+  .chart-summary-grid
+) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view :is(.stock-stat-grid, .evidence-metric-grid, .chart-summary-grid) > div {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view .summary-signal-card:nth-child(4n + 2),
+body:has(.mobile-app-bar) #stock-view .summary-signal-card:nth-child(4n + 3),
+body:has(.mobile-app-bar) #stock-view :is(.stock-stat-grid, .evidence-metric-grid, .chart-summary-grid) > div:nth-child(even) {
+  background: #19191d !important;
+}
+
+body:has(.mobile-app-bar) #stock-view .signal-meter {
+  background: var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view .stock-action-row .watch-button {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) #stock-form > button,
+body:has(.mobile-app-bar) .search > button,
+body:has(.mobile-app-bar) .login-card button {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+body:has(.mobile-app-bar) :is(.loading-modal-card, .install-sheet-card) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+/* Desktop sheet footer and selected sheet. */
+.desk-sheetbar,
+.desk-tabs {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desk-tab {
+  color: var(--dark-text-secondary) !important;
+  background: transparent !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.desk-tab:is([aria-selected="true"], :hover, :focus-visible) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+}
+
+.desk-side-separator {
+  background: var(--dark-border) !important;
+}
+
+/* Insight overview contains nested feed shells with their own light tokens. */
+.butler-overview-shell,
+.overview-feed-list,
+.overview-feed-row,
+.overview-summary,
+.overview-stat,
+.overview-side {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+  box-shadow: none !important;
+}
+
+.overview-feed-row:nth-child(even),
+.overview-stat {
+  background: var(--dark-surface-raised) !important;
+}
+
+/* Portfolio page (the page uses an id, not the historical class name). */
+#portfolio-main,
+#portfolio-main > section,
+#portfolio-main :is(
+  .journey-map,
+  .feature-visual,
+  .continuity-visual,
+  .system-column,
+  .return-reason,
+  .phone-shot,
+  .hero-phone,
+  .principle-list,
+  .project-facts
+) {
+  color: var(--dark-text) !important;
+  background-color: var(--dark-surface) !important;
+  border-color: var(--dark-border) !important;
+  box-shadow: none !important;
+}
+
+#portfolio-main :is(.feature-visual, .continuity-visual, .system-column, .journey-map li) {
+  background-color: var(--dark-surface-raised) !important;
+}
+
+#portfolio-main .ai-touchpoint-grid li {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+#portfolio-main .return-reason {
+  color: #f5cc77 !important;
+  background: var(--dark-warning-soft) !important;
+  border-color: #5b471d !important;
+}
+
+:is(.nav-cta, .primary-link, .primary-link.light, .skip-link) {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+.phone-shot img,
+.hero-phone img {
+  border-radius: inherit;
+}
+
+/* Concept selector keeps a high-contrast selected state. */
+.rail-action.is-active,
+.rail-action:is(:hover, :focus-visible) {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+}
+
+.rail-action.is-active :is(span, small),
+.rail-action:is(:hover, :focus-visible) :is(span, small) {
+  color: inherit !important;
+}
+
+/* WCAG contrast corrections found during rendered-page auditing. */
+body:not([data-view="stock"]) #home-ai-response-summary.home-ai-response-personal-status,
+.home-index-session.is-realtime {
+  color: var(--dark-muted) !important;
+}
+
+.home-market-signal-kicker {
+  color: #ffffff !important;
+  background: #9d2038 !important;
+}
+
+.morning-money-category-icon {
+  color: var(--dark-text-secondary) !important;
+}
+
+.morning-money-digest > span,
+.morning-money-digest-label,
+.morning-money-briefing-divider > span {
+  color: var(--dark-bg) !important;
+}
+
+#recommend-view .recommend-score-level.watch :is(b, span) {
+  color: var(--dark-accent) !important;
+}
+
+.news-page-filters button > span {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.news-page-filters button.is-positive > span {
+  color: var(--dark-positive) !important;
+  background: var(--dark-positive-soft) !important;
+}
+
+.news-page-filters button.is-negative > span {
+  color: var(--dark-negative) !important;
+  background: var(--dark-negative-soft) !important;
+}
+
+#stock-view.stock-detail-v3 .stock-community-avatar.is-naver_board {
+  color: #ffffff !important;
+  background: #087149 !important;
+}
+
+#stock-view.stock-detail-v3 :is(.foreign, .institution, .line, .target),
+#stock-view.stock-detail-v3 :is(.stock-v3-flow-focus-values, .stock-v3-flow-total, .stock-home-flow-totals) span {
+  color: var(--dark-muted) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view .stock-confidence-line {
+  color: var(--dark-text-secondary) !important;
+}
+
+/* Desktop-width contrast and secondary surfaces. */
+.app-support-link {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desk-logo {
+  color: #ffffff !important;
+  background: #1d7655 !important;
+}
+
+.desk-sheet .desk-cell.desk-cell-title {
+  color: #ffffff !important;
+  background: #1d7655 !important;
+}
+
+.desk-share :is(span, .desk-caret),
+.desk-statusbar :is(span, button),
+.desk-sheetbar :is(span, button),
+.desk-star,
+.desk-caret,
+.desk-all-sheets {
+  color: var(--dark-text-secondary) !important;
+}
+
+#desk-save-state.desk-save-state[data-state="saved"] {
+  color: var(--dark-success) !important;
+}
+
+.desk-side-rail svg text,
+.desk-side-rail text {
+  fill: var(--dark-text-secondary) !important;
+  color: var(--dark-text-secondary) !important;
+}
+
+.overview-index-row {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.overview-index-row:nth-child(even) {
+  background: #202025 !important;
+}
+
+.overview-index-row em.neutral,
+.overview-row-copy span,
+.overview-watch-card span {
+  color: var(--dark-muted) !important;
+}
+
+#portfolio-main :is(.journey-steps, .ai-touchpoint-grid) li > span,
+#portfolio-main :is(.feature-index, .feature-number, .usage-label) {
+  color: var(--dark-accent) !important;
+}
+
+.concept .eyebrow {
+  color: var(--dark-muted) !important;
+}
+
+.concept .down em {
+  color: var(--dark-negative) !important;
+}
+
+.concept :is(.wordmark i, .quiet-button b) {
+  color: #ffffff !important;
+  background: #9d2038 !important;
+}
+
+body .desk-header button.desk-star,
+.desk-app svg text {
+  color: var(--dark-text-secondary) !important;
+  fill: var(--dark-text-secondary) !important;
+}
+
+#portfolio-main .usp-block > span {
+  color: var(--dark-accent) !important;
+}
+
+.concept-switcher .eyebrow {
+  color: var(--dark-muted) !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Exhaustive route and tab-state corrections (staging v9)                    */
+/* -------------------------------------------------------------------------- */
+
+/* Keep keyboard focus obvious without drawing a large ring around tab bars. */
+[role="tab"]:focus-visible,
+.notifications-tabs button:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+  border-radius: 4px !important;
+  box-shadow: inset 0 0 0 2px var(--dark-focus) !important;
+}
+
+/* The notification center renders five tabs; keep all five on one row. */
+.notifications-page {
+  gap: 0 !important;
+  color: var(--dark-text) !important;
+  background: var(--dark-bg) !important;
+}
+
+.notifications-commandbar,
+.notifications-tabs,
+.notifications-list,
+.notifications-page .push-history-state {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.notifications-tabs {
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  overflow-x: hidden !important;
+}
+
+.notifications-tabs button {
+  min-width: 0 !important;
+  padding-inline: 3px !important;
+  overflow: visible !important;
+  color: var(--dark-muted) !important;
+  background: transparent !important;
+  font-size: clamp(11px, 1.8vw, 14px) !important;
+  letter-spacing: -0.02em !important;
+  text-overflow: clip !important;
+}
+
+.notifications-tabs button.active {
+  color: var(--dark-text) !important;
+}
+
+.notifications-tabs button.active::after {
+  background: var(--dark-text) !important;
+}
+
+.notifications-commandbar span,
+.notifications-summary,
+.notifications-date,
+.notifications-page .push-history-item-meta,
+.notifications-page .push-history-item-body,
+.notifications-page .push-history-state span {
+  color: var(--dark-muted) !important;
+}
+
+.notifications-commandbar h1,
+.notifications-back,
+.notifications-settings,
+.notifications-page .push-history-item-title,
+.notifications-page .push-history-state strong {
+  color: var(--dark-text) !important;
+}
+
+.notifications-date,
+.notifications-page .push-history-item {
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+.notifications-date {
+  border-top-color: var(--dark-bg) !important;
+}
+
+.notifications-page .push-history-item-meta > span {
+  color: var(--dark-text-secondary) !important;
+}
+
+/* TOP50 categories reveal a second filter bar only after interaction. */
+body:not([data-view="stock"]) #home-surge.home-top50 .home-ranking-subfilters {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body:not([data-view="stock"]) #home-surge.home-top50 .home-ranking-subfilters button {
+  color: var(--dark-text-secondary) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+body:not([data-view="stock"]) #home-surge.home-top50 .home-ranking-subfilters button.active {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+  box-shadow: none !important;
+}
+
+body:not([data-view="stock"]) #home-surge.home-top50 .home-ranking-subfilters button span {
+  color: var(--dark-muted) !important;
+}
+
+body:not([data-view="stock"]) #home-surge.home-top50 .home-ranking-subfilters button.active span {
+  color: var(--dark-bg) !important;
+}
+
+#home-ranking-market-trigger-label {
+  color: var(--dark-muted) !important;
+}
+
+/* Desktop workbook cloud status changes asynchronously after first paint. */
+#desk-save-state.desk-save-state,
+#desk-save-state.desk-save-state[data-state="saving"] {
+  color: var(--dark-muted) !important;
+}
+
+#desk-save-state.desk-save-state[data-state="saved"] {
+  color: var(--dark-success) !important;
+}
+
+#desk-save-state.desk-save-state[data-state="local"] {
+  color: var(--dark-warning) !important;
+}
+
+@media (max-width: 560px) {
+  .notifications-tabs {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+
+  .notifications-tabs button {
+    padding-inline: 2px !important;
+    font-size: clamp(10px, 3.2vw, 13px) !important;
+  }
+}
+
+/* Domestic secondary pages and stock-detail loading/empty states. */
+.secondary-view-meta,
+#market-view.app-market-rankings .ranking-message-cell {
+  color: var(--dark-muted) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-flow-total,
+#stock-view.stock-detail-v3 .recency {
+  color: var(--dark-text-secondary) !important;
+}
+
+#stock-view.stock-detail-v3 :is(
+  .stock-company-analysis-empty,
+  .stock-per-comparison-state,
+  .quant-signal-status
+) {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+#stock-view.stock-detail-v3 .stock-per-legend :is(.cost, .profit) {
+  color: var(--dark-text-secondary) !important;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-company :is(
+  .stock-revenue-breakdown-summary,
+  .stock-sector-margin-summary
+) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+#stock-view.stock-detail-v3 .stock-v3-company :is(
+  .stock-revenue-breakdown-summary > p,
+  .stock-revenue-breakdown-summary ul,
+  .stock-sector-margin-summary > p,
+  .stock-sector-margin-summary ul,
+  .stock-revenue-breakdown-legend .cost,
+  .stock-revenue-breakdown-legend .profit,
+  .stock-revenue-breakdown-legend .loss
+) {
+  color: var(--dark-text-secondary) !important;
+}
+
+/* Saved-recommendation tracking has a separate, late light-theme block. */
+body:not([data-view="stock"]) #recommend-history-view,
+body:not([data-view="stock"]) #recommend-history-view #recommend-history-list {
+  color: var(--dark-text) !important;
+  background: var(--dark-bg) !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(
+  .app-section-heading,
+  #recommend-history-list > .muted,
+  .recommend-track-card,
+  .recommend-track-metrics,
+  .recommend-track-signals,
+  .recommend-track-detail,
+  .recommend-track-saved-info,
+  .recommend-track-summary
+) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(
+  .recommend-track-metrics,
+  .recommend-track-signals
+) > div {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border-soft) !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(
+  .app-section-heading h2,
+  .recommend-track-title strong,
+  .recommend-track-saved-info h3,
+  .recommend-track-summary h3,
+  .recommend-track-detail-toggle
+) {
+  color: var(--dark-text) !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view :is(
+  .app-section-heading span,
+  .app-section-heading p,
+  #recommend-history-list > .muted,
+  .recommend-track-title span,
+  .recommend-track-metrics dt,
+  .recommend-track-signals span,
+  .recommend-track-detail-toggle-icon,
+  .recommend-track-summary p,
+  .recommend-track-points
+) {
+  color: var(--dark-muted) !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-metrics dd:not(.positive):not(.negative),
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-signals strong:not(.positive):not(.negative) {
+  color: var(--dark-text) !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-stock-action {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-remove {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body:not([data-view="stock"]) #recommend-history-view .recommend-track-detail {
+  border-top-color: var(--dark-bg) !important;
+}
+
+/* Insight CTA: white text now clears AA on the darker accent fill. */
+.overview-cta {
+  color: #ffffff !important;
+  background: #4350c4 !important;
+}
+
+.overview-cta:is(:hover, :focus-visible) {
+  background: #4b5bd6 !important;
+}
+
+/* US market selector contains three tabs, not two. */
+body:has(.mobile-app-bar) #market-view .market-segment {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) #market-view .market-segment-button {
+  color: var(--dark-text-secondary) !important;
+  background: transparent !important;
+}
+
+body:has(.mobile-app-bar) #market-view .market-segment-button + .market-segment-button {
+  border-left-color: var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) #market-view .market-segment-button.active {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+}
+
+/* US event chips and controls must not retain their light-theme fills. */
+body:has(.mobile-app-bar) #trend-view .event-schedule > span {
+  color: var(--dark-warning) !important;
+  background: var(--dark-warning-soft) !important;
+  border-color: #5b471d !important;
+}
+
+body:has(.mobile-app-bar) #trend-view .event-axis-badge {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) #trend-view .event-axis-badge.axis-rate {
+  color: var(--dark-success) !important;
+  background: var(--dark-success-soft) !important;
+}
+
+body:has(.mobile-app-bar) #trend-view .event-axis-badge.axis-dollar {
+  color: var(--dark-negative) !important;
+  background: var(--dark-negative-soft) !important;
+}
+
+body:has(.mobile-app-bar) #trend-view .event-axis-badge.axis-ai {
+  color: #aebfff !important;
+  background: #20213a !important;
+}
+
+body:has(.mobile-app-bar) #trend-view .flow-button {
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+  border-color: var(--dark-text) !important;
+}
+
+body:has(.mobile-app-bar) #trend-view .flow-button:is(:hover, :focus-visible) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-focus) !important;
+}
+
+body:has(.mobile-app-bar) #trend-view .tag {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) .news-sentiment-badge.neutral {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+}
+
+body:has(.mobile-app-bar) .news-sentiment-badge.positive {
+  color: var(--dark-positive) !important;
+  background: var(--dark-positive-soft) !important;
+}
+
+body:has(.mobile-app-bar) .news-sentiment-badge.negative {
+  color: var(--dark-negative) !important;
+  background: var(--dark-negative-soft) !important;
+}
+
+/* Recommendation metrics are direct divs, so they bypass the card rule. */
+body:has(.mobile-app-bar) #recommend-view :is(
+  .recommend-metrics,
+  .component-grid
+) > div {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) #recommend-view :is(
+  .recommend-metrics,
+  .component-grid
+) > div > span {
+  color: var(--dark-muted) !important;
+}
+
+body:has(.mobile-app-bar) #recommend-view :is(
+  .recommend-metrics,
+  .component-grid
+) > div > strong:not(.positive):not(.negative) {
+  color: var(--dark-text) !important;
+}
+
+body:has(.mobile-app-bar) #recommend-view :is(
+  .recommend-refresh,
+  .recommend-watch-button,
+  .recommend-track-button,
+  .recommend-ai-button
+) {
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) #recommend-view :is(
+  .recommend-refresh,
+  .recommend-watch-button,
+  .recommend-track-button,
+  .recommend-ai-button
+):is(:hover, :focus-visible) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-focus) !important;
+}
+
+/* US strategy price ladder contains direct divs and a light gradient. */
+body:has(.mobile-app-bar) #stock-view .strategy-range-chart {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view .strategy-range-track {
+  background: linear-gradient(
+    90deg,
+    var(--dark-negative-soft) 0%,
+    var(--dark-surface-strong) 46%,
+    var(--dark-positive-soft) 100%
+  ) !important;
+  box-shadow: inset 0 0 0 1px var(--dark-border) !important;
+}
+
+body:has(.mobile-app-bar) #stock-view .strategy-level-card.featured {
+  background: var(--dark-surface-raised) !important;
+  background-image: none !important;
+}
+
+/* US impact map uses direct div/a nodes outside the broad card selectors. */
+body:has(.mobile-app-bar) #trend-view :is(
+  .market-impact-center,
+  .market-impact-node,
+  .market-impact-flow-grid article,
+  .market-impact-metric,
+  .market-impact-stock-tags a,
+  .market-impact-stock-tags span
+) {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  border-color: var(--dark-border) !important;
+  box-shadow: none !important;
+}
+
+body:has(.mobile-app-bar) #trend-view :is(
+  .market-impact-center-content span,
+  .market-impact-center-content small,
+  .market-impact-node-label,
+  .market-impact-flow-title span,
+  .market-impact-flow-grid span,
+  .market-impact-flow-grid small,
+  .market-impact-metric span,
+  .market-impact-metric small,
+  .market-impact-tag-block > span,
+  .market-impact-detail p,
+  .market-impact-reasons
+) {
+  color: var(--dark-text-secondary) !important;
+}
+
+body:has(.mobile-app-bar) #trend-view :is(
+  .market-impact-center-content strong,
+  .market-impact-node strong,
+  .market-impact-flow-title strong,
+  .market-impact-flow-grid strong,
+  .market-impact-metric strong,
+  .market-impact-detail-head strong
+) {
+  color: var(--dark-text) !important;
+}
+
+body:has(.mobile-app-bar) #trend-view .market-impact-center.good .market-impact-center-content strong {
+  color: var(--dark-success) !important;
+}
+
+body:has(.mobile-app-bar) #trend-view .market-impact-center.bad .market-impact-center-content strong {
+  color: var(--dark-danger) !important;
+}
+
+body:has(.mobile-app-bar) #trend-view .market-impact-icon.commodity {
+  color: var(--dark-warning) !important;
+  background: var(--dark-warning-soft) !important;
+  border: 1px solid #5b471d !important;
+}
+
+body:has(.mobile-app-bar) #trend-view .market-impact-water {
+  background:
+    radial-gradient(circle at 25% -10px, rgba(29, 29, 33, 0.72) 0 18px, transparent 19px),
+    radial-gradient(circle at 72% -8px, rgba(29, 29, 33, 0.62) 0 15px, transparent 16px),
+    linear-gradient(180deg, var(--fill-wave), var(--fill-color)) !important;
+}
+
+body:has(.mobile-app-bar) #trend-view .market-impact-water::before {
+  background: rgba(29, 29, 33, 0.48) !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Toss-inspired purpose-first IA (staging only)                              */
+/* -------------------------------------------------------------------------- */
+
+body[data-staging-ia="toss-reference"] {
+  --toss-page-max: 960px;
+  --toss-page-gutter: clamp(18px, 4vw, 28px);
+  --toss-section-gap: 10px;
+  --toss-touch: 44px;
+  --toss-nav-height: 72px;
+  --toss-divider: #09090b;
+  overflow-x: clip;
+}
+
+body[data-staging-ia="toss-reference"].staging-menu-open {
+  overflow: hidden;
+}
+
+body[data-staging-ia="toss-reference"] .shell[data-ui-version="3.0"] {
+  width: min(var(--toss-page-max), 100%) !important;
+  min-height: calc(100vh - 60px) !important;
+  padding: 0 0 calc(112px + env(safe-area-inset-bottom)) !important;
+}
+
+body[data-staging-ia="toss-reference"] .app-page {
+  gap: 0 !important;
+}
+
+/* Global market context and fast actions. */
+body[data-staging-ia="toss-reference"] .app-topbar {
+  min-height: 60px !important;
+  padding: 8px max(var(--toss-page-gutter), calc((100vw - var(--toss-page-max)) / 2)) !important;
+  gap: 12px !important;
+  border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+body[data-staging-ia="toss-reference"] .mobile-brand {
+  gap: 8px !important;
+}
+
+body[data-staging-ia="toss-reference"] .mobile-brand .app-brand-mark {
+  width: 30px !important;
+  height: 30px !important;
+  flex-basis: 30px !important;
+  border-radius: 10px !important;
+  color: #111113 !important;
+  background: var(--dark-text) !important;
+  font-size: 13px !important;
+}
+
+body[data-staging-ia="toss-reference"] .mobile-brand strong {
+  font-size: 18px !important;
+  letter-spacing: -0.03em !important;
+}
+
+body[data-staging-ia="toss-reference"] .mobile-brand > span:last-child {
+  min-height: 24px !important;
+  padding-inline: 8px !important;
+  border-color: var(--dark-border) !important;
+  background: var(--dark-surface-strong) !important;
+  color: var(--dark-text-secondary) !important;
+}
+
+body[data-staging-ia="toss-reference"] .app-topbar-actions {
+  display: none !important;
+}
+
+.staging-top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.staging-top-actions > button,
+.staging-top-actions > .app-icon-button {
+  position: relative;
+  width: var(--toss-touch) !important;
+  min-width: var(--toss-touch) !important;
+  height: var(--toss-touch) !important;
+  min-height: var(--toss-touch) !important;
+  display: grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  color: var(--dark-text) !important;
+  background: transparent !important;
+  cursor: pointer;
+}
+
+.staging-top-actions > button:is(:hover, :focus-visible),
+.staging-top-actions > .app-icon-button:is(:hover, :focus-visible) {
+  background: var(--dark-surface-strong) !important;
+}
+
+.staging-top-actions svg {
+  width: 22px !important;
+  height: 22px !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 1.85 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+}
+
+/* Stable page framing: context, purpose, then evidence. */
+.staging-page-hero {
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 30px var(--toss-page-gutter) 22px;
+  background: var(--dark-bg) !important;
+}
+
+.staging-page-hero-copy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.staging-page-hero-copy > span,
+.staging-stock-panel-intro > span,
+.staging-ai-signal-hero > span {
+  color: var(--dark-muted) !important;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+
+.staging-page-hero h1 {
+  margin: 0;
+  color: var(--dark-text) !important;
+  font-size: clamp(28px, 6vw, 34px);
+  font-weight: 850;
+  letter-spacing: -0.045em;
+  line-height: 1.18;
+}
+
+.staging-page-hero p {
+  max-width: 620px;
+  margin: 3px 0 0;
+  color: var(--dark-text-secondary) !important;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.65;
+}
+
+.staging-page-hero > small {
+  flex: 0 0 auto;
+  max-width: 240px;
+  color: var(--dark-muted) !important;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.staging-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 2px var(--toss-page-gutter) 24px;
+  background: var(--dark-bg) !important;
+}
+
+.staging-quick-actions button {
+  min-width: 0;
+  min-height: 82px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 9px 4px;
+  border: 0;
+  border-radius: 16px;
+  color: var(--dark-text-secondary) !important;
+  background: transparent !important;
+  cursor: pointer;
+}
+
+.staging-quick-actions button:is(:hover, :focus-visible) {
+  background: var(--dark-surface-raised) !important;
+}
+
+.staging-quick-actions strong {
+  overflow: hidden;
+  color: inherit !important;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staging-quick-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--dark-border-soft);
+  border-radius: 15px;
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.staging-quick-icon.is-ai {
+  color: #ffffff !important;
+  border-color: transparent !important;
+  background: linear-gradient(135deg, #7657f6, #42bdf0) !important;
+  box-shadow: 0 8px 22px rgba(93, 101, 241, 0.25) !important;
+}
+
+/* The main screens use continuous sections, not a stack of floating cards. */
+body[data-staging-ia="toss-reference"] #home-view > :is(
+  .home-market-indices,
+  .home-ai-signals,
+  .home-surge,
+  .home-market-sections
+),
+body[data-staging-ia="toss-reference"] #search-view > :is(
+  .discovery-search,
+  .discovery-module
+),
+body[data-staging-ia="toss-reference"] #portfolio-view > :is(
+  .portfolio-tabs,
+  .portfolio-tab-panel
+) {
+  margin: 0 !important;
+  border-right: 0 !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-reference"] #home-view > :is(
+  .home-market-indices,
+  .home-ai-signals,
+  .home-surge,
+  .home-market-sections
+) {
+  padding: 26px var(--toss-page-gutter) !important;
+  border-top: var(--toss-section-gap) solid var(--toss-divider) !important;
+  background: var(--dark-surface) !important;
+}
+
+body[data-staging-ia="toss-reference"] #home-market-indices {
+  border-top-width: 1px !important;
+}
+
+body[data-staging-ia="toss-reference"] :is(
+  .home-flat-section-head,
+  .home-ai-signals-head,
+  .home-surge-head,
+  .trend-calendar-head,
+  .app-section-heading
+) {
+  align-items: flex-end !important;
+  gap: 16px !important;
+  margin-bottom: 18px !important;
+}
+
+body[data-staging-ia="toss-reference"] :is(
+  .home-flat-section-head,
+  .home-ai-signals-head,
+  .home-surge-head,
+  .trend-calendar-head,
+  .app-section-heading
+) h2 {
+  margin-top: 3px !important;
+  font-size: 21px !important;
+  font-weight: 850 !important;
+  letter-spacing: -0.035em !important;
+  line-height: 1.3 !important;
+}
+
+body[data-staging-ia="toss-reference"] :is(
+  .home-flat-section-head,
+  .home-ai-signals-head,
+  .home-surge-head,
+  .trend-calendar-head,
+  .app-section-heading
+) :is(span, time, p) {
+  color: var(--dark-muted) !important;
+  font-size: 11px !important;
+  font-weight: 650 !important;
+}
+
+body[data-staging-ia="toss-reference"] .home-market-carousel {
+  gap: 0 !important;
+  padding-bottom: 2px !important;
+  scroll-snap-type: x mandatory;
+}
+
+body[data-staging-ia="toss-reference"] .home-index-card {
+  min-width: min(250px, 72vw) !important;
+  padding: 15px 16px !important;
+  border: 0 !important;
+  border-right: 1px solid var(--dark-border-soft) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  scroll-snap-align: start;
+}
+
+body[data-staging-ia="toss-reference"] .home-index-card:first-child {
+  padding-left: 0 !important;
+}
+
+body[data-staging-ia="toss-reference"] .home-index-card:last-child {
+  border-right: 0 !important;
+}
+
+body[data-staging-ia="toss-reference"] .home-index-card strong {
+  font-variant-numeric: tabular-nums;
+}
+
+body[data-staging-ia="toss-reference"] .home-market-signal-title {
+  margin: 24px 0 14px !important;
+  color: var(--dark-text) !important;
+  font-size: clamp(23px, 5vw, 29px) !important;
+  font-weight: 850 !important;
+  letter-spacing: -0.045em !important;
+}
+
+body[data-staging-ia="toss-reference"] .home-market-signal-ticker {
+  min-height: 52px !important;
+  border-radius: 14px !important;
+  background:
+    linear-gradient(var(--dark-surface-raised), var(--dark-surface-raised)) padding-box,
+    linear-gradient(100deg, #7657f6, #42bdf0) border-box !important;
+  border: 1px solid transparent !important;
+}
+
+body[data-staging-ia="toss-reference"] .home-ai-response {
+  margin-top: 14px !important;
+  overflow: hidden !important;
+  border: 1px solid var(--dark-border-soft) !important;
+  border-radius: 16px !important;
+  background: var(--dark-surface-raised) !important;
+}
+
+body[data-staging-ia="toss-reference"] .home-ai-signals-list {
+  margin-top: 14px !important;
+}
+
+body[data-staging-ia="toss-reference"] :is(
+  .home-ranking-category-tabs,
+  .home-ranking-subfilters,
+  .ai-signal-stage-tabs,
+  .ai-signal-history-filters,
+  .news-page-filters
+) {
+  min-width: 0;
+  display: flex !important;
+  gap: 8px !important;
+  overflow-x: auto !important;
+  padding: 2px 0 7px !important;
+  border: 0 !important;
+  background: transparent !important;
+  scrollbar-width: none;
+}
+
+body[data-staging-ia="toss-reference"] :is(
+  .home-ranking-category-tabs,
+  .home-ranking-subfilters,
+  .ai-signal-stage-tabs,
+  .ai-signal-history-filters,
+  .news-page-filters
+)::-webkit-scrollbar {
+  display: none;
+}
+
+body[data-staging-ia="toss-reference"] :is(
+  .home-ranking-category-tabs,
+  .home-ranking-subfilters,
+  .ai-signal-stage-tabs,
+  .ai-signal-history-filters,
+  .news-page-filters
+) button {
+  min-width: max-content !important;
+  min-height: var(--toss-touch) !important;
+  flex: 0 0 auto !important;
+  padding: 0 15px !important;
+  border: 1px solid var(--dark-border) !important;
+  border-radius: 999px !important;
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-raised) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+body[data-staging-ia="toss-reference"] :is(
+  .home-ranking-category-tabs,
+  .home-ranking-subfilters,
+  .ai-signal-stage-tabs,
+  .ai-signal-history-filters,
+  .news-page-filters
+) button:is(.active, [aria-selected="true"]) {
+  border-color: var(--dark-text) !important;
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] .home-ranking-more,
+body[data-staging-ia="toss-reference"] .trend-live-toggle {
+  width: 100% !important;
+  min-height: 48px !important;
+  margin-top: 12px !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  background: var(--dark-surface-raised) !important;
+  color: var(--dark-text-secondary) !important;
+  font-size: 13px !important;
+  font-weight: 750 !important;
+}
+
+body[data-staging-ia="toss-reference"] .home-market-sections {
+  gap: 30px !important;
+}
+
+body[data-staging-ia="toss-reference"] .home-market-card {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-reference"] .home-news-card {
+  padding-top: 28px !important;
+  border-top: 1px solid var(--dark-border-soft) !important;
+}
+
+/* Discovery: search first, then stable shortcuts, then ranked candidates. */
+.staging-discovery-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 var(--toss-page-gutter) 26px;
+  overflow: hidden;
+  border: 1px solid var(--dark-border-soft);
+  border-radius: 16px;
+  background: var(--dark-border-soft) !important;
+}
+
+.staging-discovery-shortcuts button {
+  min-width: 0;
+  min-height: 86px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: center;
+  gap: 3px 8px;
+  padding: 14px 15px;
+  border: 0;
+  border-radius: 0;
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  cursor: pointer;
+  text-align: left;
+}
+
+.staging-discovery-shortcuts button:is(:hover, :focus-visible) {
+  background: var(--dark-surface-raised) !important;
+}
+
+.staging-discovery-shortcuts span {
+  grid-column: 1;
+  color: var(--dark-muted) !important;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.staging-discovery-shortcuts strong {
+  grid-column: 1;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staging-discovery-shortcuts i {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: var(--dark-muted) !important;
+  font-size: 20px;
+  font-style: normal;
+}
+
+body[data-staging-ia="toss-reference"] #search-view > .discovery-search {
+  height: 54px !important;
+  margin: 0 var(--toss-page-gutter) 16px !important;
+  padding: 6px 7px 6px 15px !important;
+  border: 1px solid var(--dark-border) !important;
+  border-radius: 16px !important;
+  background: var(--dark-surface-raised) !important;
+}
+
+body[data-staging-ia="toss-reference"] #search-view > .discovery-search > button {
+  min-width: 64px !important;
+  height: 42px !important;
+  border-radius: 12px !important;
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] #recommend-view.discovery-module {
+  gap: 16px !important;
+  padding: 26px var(--toss-page-gutter) !important;
+  border-top: var(--toss-section-gap) solid var(--toss-divider) !important;
+  background: var(--dark-surface) !important;
+}
+
+body[data-staging-ia="toss-reference"] #recommend-view .recommend-card {
+  border-right: 0 !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+/* Watch: one explanatory signal, then groups and comparable rows. */
+.staging-watch-signal {
+  width: calc(100% - (2 * var(--toss-page-gutter)));
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  margin: 0 var(--toss-page-gutter) 22px;
+  padding: 14px 15px;
+  border: 1px solid transparent;
+  border-radius: 17px;
+  color: var(--dark-text) !important;
+  background:
+    linear-gradient(var(--dark-surface-raised), var(--dark-surface-raised)) padding-box,
+    linear-gradient(110deg, #7657f6, #42bdf0) border-box !important;
+  cursor: pointer;
+  text-align: left;
+}
+
+.staging-watch-signal > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.staging-watch-signal small {
+  color: #a9b7ff !important;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.staging-watch-signal strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staging-watch-signal i {
+  color: var(--dark-muted) !important;
+  font-size: 24px;
+  font-style: normal;
+}
+
+.staging-ai-orb {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 36% 32%, #ffffff 0 6%, transparent 7%),
+    radial-gradient(circle, #62e1ff 0 20%, #7657f6 46%, transparent 70%) !important;
+  box-shadow: 0 0 22px rgba(90, 126, 255, 0.5);
+}
+
+body[data-staging-ia="toss-reference"] #portfolio-view > .portfolio-tabs {
+  position: sticky;
+  z-index: 42;
+  top: 60px;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  padding: 0 var(--toss-page-gutter) !important;
+  border-top: 1px solid var(--dark-border-soft) !important;
+  border-bottom: 1px solid var(--dark-border-soft) !important;
+  background: rgba(17, 17, 19, 0.96) !important;
+  backdrop-filter: blur(16px) !important;
+}
+
+body[data-staging-ia="toss-reference"] #portfolio-view > .portfolio-tabs button {
+  min-height: 50px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-reference"] #portfolio-view > .portfolio-tabs button.active {
+  color: var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] #portfolio-view > .portfolio-tabs button.active::after {
+  right: 18% !important;
+  left: 18% !important;
+  height: 3px !important;
+  border-radius: 99px !important;
+  background: var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] #portfolio-view > .portfolio-tab-panel {
+  padding: 22px var(--toss-page-gutter) 28px !important;
+  background: var(--dark-surface) !important;
+}
+
+body[data-staging-ia="toss-reference"] .watchlist-content-tabs {
+  min-height: 48px !important;
+  padding: 4px !important;
+  border-radius: 14px !important;
+  background: var(--dark-surface-raised) !important;
+}
+
+body[data-staging-ia="toss-reference"] .watchlist-content-tabs button {
+  min-height: 40px !important;
+  border-radius: 10px !important;
+}
+
+body[data-staging-ia="toss-reference"] #watchlist-view .watch-v3-tabs {
+  display: flex !important;
+  gap: 8px !important;
+  overflow-x: auto !important;
+  padding-block: 5px !important;
+  border: 0 !important;
+  background: transparent !important;
+  scrollbar-width: none;
+}
+
+body[data-staging-ia="toss-reference"] #watchlist-view .watch-v3-tabs button {
+  min-width: max-content !important;
+  min-height: var(--toss-touch) !important;
+  padding: 0 15px !important;
+  border: 1px solid var(--dark-border) !important;
+  border-radius: 999px !important;
+  background: var(--dark-surface-raised) !important;
+}
+
+body[data-staging-ia="toss-reference"] #watchlist-view .watch-v3-tabs button.active {
+  color: var(--dark-bg) !important;
+  border-color: var(--dark-text) !important;
+  background: var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] #watchlist-view :is(.watch-v2-list-surface, .watch-v3-stock-section) {
+  gap: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-reference"] #watchlist-view .watch-v2-stock-row {
+  border: 0 !important;
+  border-bottom: 1px solid var(--dark-border-soft) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+/* Feed: content mode first, filters second, chronological evidence last. */
+body[data-staging-ia="toss-reference"][data-view="news"] .news-commandbar {
+  display: none !important;
+}
+
+body[data-staging-ia="toss-reference"][data-view="news"] .app-topbar {
+  display: flex !important;
+}
+
+body[data-staging-ia="toss-reference"] .news-page-hero {
+  padding: 30px var(--toss-page-gutter) 18px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--dark-bg) !important;
+}
+
+body[data-staging-ia="toss-reference"] .news-page-hero h2 {
+  margin: 4px 0 5px !important;
+  font-size: clamp(28px, 6vw, 34px) !important;
+  font-weight: 850 !important;
+  letter-spacing: -0.045em !important;
+}
+
+body[data-staging-ia="toss-reference"] .news-page-hero p {
+  max-width: 620px !important;
+  font-size: 14px !important;
+  line-height: 1.65 !important;
+}
+
+.staging-feed-modes {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 0 var(--toss-page-gutter) 18px;
+  border-bottom: 1px solid var(--dark-border-soft);
+  background: var(--dark-bg) !important;
+  scrollbar-width: none;
+}
+
+.staging-feed-modes::-webkit-scrollbar {
+  display: none;
+}
+
+.staging-feed-modes button {
+  min-width: max-content;
+  min-height: 42px;
+  flex: 0 0 auto;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 11px;
+  color: var(--dark-muted) !important;
+  background: transparent !important;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.staging-feed-modes button.active {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+}
+
+body[data-staging-ia="toss-reference"] #news-view > :is(
+  .news-page-filters,
+  .news-page-result-meta,
+  .news-page-list
+) {
+  margin-right: var(--toss-page-gutter) !important;
+  margin-left: var(--toss-page-gutter) !important;
+}
+
+body[data-staging-ia="toss-reference"] #news-view > .news-page-filters {
+  margin-top: 22px !important;
+}
+
+body[data-staging-ia="toss-reference"] #news-view .news-page-filters button::after {
+  display: none !important;
+  content: none !important;
+}
+
+body[data-staging-ia="toss-reference"] #news-view > .news-page-result-meta {
+  margin-top: 8px !important;
+  margin-bottom: 8px !important;
+}
+
+body[data-staging-ia="toss-reference"] #news-view > .news-page-list {
+  margin-bottom: 30px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-reference"] #news-view :is(.news-page-item, .trend-thread-row) {
+  border-right: 0 !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+/* AI signal hub: explanatory language and a consistent filter hierarchy. */
+.staging-ai-signal-hero {
+  display: grid;
+  gap: 5px;
+  padding: 28px var(--toss-page-gutter) 22px;
+  border-bottom: 1px solid var(--dark-border-soft);
+  background:
+    radial-gradient(circle at 92% 0%, rgba(83, 106, 246, 0.2), transparent 34%),
+    var(--dark-bg) !important;
+}
+
+.staging-ai-signal-hero h2 {
+  max-width: 620px;
+  margin: 0;
+  font-size: clamp(24px, 5vw, 30px);
+  font-weight: 850;
+  letter-spacing: -0.04em;
+  line-height: 1.3;
+}
+
+.staging-ai-signal-hero p {
+  max-width: 680px;
+  margin: 5px 0 0;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+body[data-staging-ia="toss-reference"] #ai-signals-view > :is(
+  .ai-signal-mode-tabs,
+  .ai-signal-stage-tabs,
+  .ai-signal-history-filters,
+  .ai-signals-page-list
+) {
+  margin-right: var(--toss-page-gutter) !important;
+  margin-left: var(--toss-page-gutter) !important;
+}
+
+body[data-staging-ia="toss-reference"] #ai-signals-view .ai-signal-mode-tabs {
+  min-height: 52px !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  margin-top: 18px !important;
+  border-bottom: 1px solid var(--dark-border-soft) !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-reference"] #ai-signals-view .ai-signal-mode-tabs button {
+  min-height: 50px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-reference"] #ai-signals-view .ai-signal-mode-tabs button.active {
+  color: var(--dark-text) !important;
+  box-shadow: inset 0 -3px 0 var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] #ai-signals-view .ai-signals-page-list {
+  margin-top: 8px !important;
+  margin-bottom: 28px !important;
+}
+
+/* Stock detail: sticky context and progressive disclosure by task. */
+body[data-staging-ia="toss-reference"] #stock-view.stock-detail-v3 {
+  width: min(var(--toss-page-max), 100%) !important;
+  margin: 0 auto !important;
+  padding-bottom: calc(100px + env(safe-area-inset-bottom)) !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-commandbar {
+  min-height: 68px !important;
+  padding-inline: var(--toss-page-gutter) !important;
+  border-bottom: 1px solid var(--dark-border-soft) !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view :is(.stock-v3-back, .stock-v3-star, .stock-v3-share) {
+  width: var(--toss-touch) !important;
+  min-width: var(--toss-touch) !important;
+  height: var(--toss-touch) !important;
+  min-height: var(--toss-touch) !important;
+  border-radius: 14px !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-search > button {
+  width: var(--toss-touch) !important;
+  min-width: var(--toss-touch) !important;
+  height: var(--toss-touch) !important;
+  min-height: var(--toss-touch) !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  color: var(--dark-text) !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-search > button svg {
+  width: 20px !important;
+  height: 20px !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 1.9 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-command-title h1 {
+  font-size: 17px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.025em !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-quote-card {
+  margin: 0 !important;
+  padding: 24px var(--toss-page-gutter) 22px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--dark-bg) !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-price-line > strong {
+  font-size: clamp(34px, 9vw, 46px) !important;
+  font-weight: 850 !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.045em !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-price-periods {
+  display: grid !important;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  gap: 5px !important;
+  margin-top: 10px !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-price-periods button {
+  min-height: 38px !important;
+  border-radius: 10px !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-quote-metrics {
+  margin-top: 18px !important;
+  padding-top: 16px !important;
+  border-top: 1px solid var(--dark-border-soft) !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-detail-tabs {
+  position: sticky !important;
+  z-index: 44 !important;
+  top: var(--stock-tabs-fixed-top, 0) !important;
+  width: 100% !important;
+  display: flex !important;
+  grid-template-columns: none !important;
+  gap: 0 !important;
+  overflow-x: auto !important;
+  padding: 0 var(--toss-page-gutter) !important;
+  border: 0 !important;
+  border-top: 1px solid var(--dark-border-soft) !important;
+  border-bottom: 1px solid var(--dark-border-soft) !important;
+  background: rgba(17, 17, 19, 0.97) !important;
+  scrollbar-width: none;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-detail-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-detail-tabs button {
+  position: relative;
+  width: auto !important;
+  min-width: max-content !important;
+  min-height: 50px !important;
+  flex: 0 0 auto !important;
+  padding: 0 16px !important;
+  border: 0 !important;
+  color: var(--dark-muted) !important;
+  background: transparent !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-detail-tabs button.active {
+  color: var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-detail-tabs button.active::after {
+  right: 14px !important;
+  bottom: 0 !important;
+  left: 14px !important;
+  height: 3px !important;
+  border-radius: 99px 99px 0 0 !important;
+  background: var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view :is(
+  .stock-v3-home,
+  .stock-v3-company,
+  .stock-v3-ai,
+  .staging-stock-secondary-panel
+) {
+  gap: 0 !important;
+  padding: 0 !important;
+  background: var(--dark-bg) !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view :is(
+  .stock-v3-home,
+  .stock-v3-company,
+  .stock-v3-ai,
+  .staging-stock-secondary-panel
+) > .stock-v3-section {
+  margin: 0 !important;
+  padding: 26px var(--toss-page-gutter) !important;
+  border: 0 !important;
+  border-top: var(--toss-section-gap) solid var(--toss-divider) !important;
+  border-radius: 0 !important;
+  background: var(--dark-surface) !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-home > .stock-v3-section:first-child:not([hidden]) {
+  border-top-width: 1px !important;
+}
+
+.staging-stock-panel-intro {
+  display: grid;
+  gap: 5px;
+  padding: 26px var(--toss-page-gutter) 22px;
+  border-bottom: 1px solid var(--dark-border-soft);
+  background: var(--dark-bg) !important;
+}
+
+.staging-stock-panel-intro h2 {
+  margin: 0;
+  font-size: 27px;
+  font-weight: 850;
+  letter-spacing: -0.04em;
+}
+
+.staging-stock-panel-intro p {
+  max-width: 660px;
+  margin: 3px 0 0;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-section-head {
+  align-items: flex-end !important;
+  gap: 16px !important;
+  margin-bottom: 18px !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-section-head h2 {
+  margin-top: 3px !important;
+  font-size: 21px !important;
+  font-weight: 850 !important;
+  letter-spacing: -0.035em !important;
+  line-height: 1.3 !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-v3-section-head :is(span, time) {
+  color: var(--dark-muted) !important;
+  font-size: 11px !important;
+  font-weight: 650 !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-company-analysis-lead {
+  max-width: 720px !important;
+  margin: -4px 0 20px !important;
+  color: var(--dark-text-secondary) !important;
+  font-size: 14px !important;
+  font-weight: 550 !important;
+  line-height: 1.65 !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-investment-snapshot {
+  border-color: var(--dark-border-soft) !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-investment-snapshot-row {
+  min-height: 138px !important;
+  padding: 17px !important;
+  border-color: var(--dark-border-soft) !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-investment-snapshot-head strong {
+  color: var(--dark-text-secondary) !important;
+  font-size: 12px !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-investment-snapshot-row > b {
+  color: var(--dark-text) !important;
+  font-size: 21px !important;
+  font-variant-numeric: tabular-nums;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .stock-investment-snapshot-row > p {
+  color: var(--dark-muted) !important;
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .quant-current-card {
+  background:
+    radial-gradient(circle at 96% 4%, rgba(84, 98, 238, 0.2), transparent 34%),
+    var(--dark-surface) !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .quant-signal-refresh {
+  min-height: var(--toss-touch) !important;
+  padding-inline: 15px !important;
+  border-color: var(--dark-text) !important;
+  border-radius: 12px !important;
+  color: var(--dark-bg) !important;
+  background: var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] #stock-view .quant-signal-status {
+  margin: 18px var(--toss-page-gutter) !important;
+  padding: 18px !important;
+  border-radius: 14px !important;
+  text-align: left !important;
+}
+
+/* Floating four-purpose navigation, stable above the safe area. */
+body[data-staging-ia="toss-reference"] .bottom-nav {
+  z-index: 100 !important;
+  right: auto !important;
+  bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+  left: 50% !important;
+  width: min(calc(100% - 20px), 520px) !important;
+  height: var(--toss-nav-height) !important;
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 2px !important;
+  padding: 5px !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 20px !important;
+  background: rgba(25, 25, 28, 0.96) !important;
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.52) !important;
+  transform: translateX(-50%) !important;
+  backdrop-filter: blur(22px) saturate(135%) !important;
+}
+
+body[data-staging-ia="toss-reference"] .bottom-nav-item {
+  position: relative;
+  min-height: 60px !important;
+  gap: 4px !important;
+  padding: 5px 2px 4px !important;
+  border: 0 !important;
+  border-radius: 15px !important;
+  color: var(--dark-muted) !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-reference"] .bottom-nav-item::before {
+  position: absolute !important;
+  top: 5px !important;
+  left: 50% !important;
+  width: 38px !important;
+  height: 30px !important;
+  border-radius: 12px !important;
+  background: var(--dark-surface-strong) !important;
+  content: "" !important;
+  opacity: 0 !important;
+  transform: translateX(-50%) !important;
+}
+
+body[data-staging-ia="toss-reference"] .bottom-nav-item svg {
+  z-index: 1;
+  width: 21px !important;
+  height: 21px !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 1.85 !important;
+}
+
+body[data-staging-ia="toss-reference"] .bottom-nav-item span {
+  z-index: 1;
+  font-size: 11px !important;
+  font-weight: 650 !important;
+}
+
+body[data-staging-ia="toss-reference"] .bottom-nav-item.active {
+  color: var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] .bottom-nav-item.active::before {
+  opacity: 1 !important;
+}
+
+body[data-staging-ia="toss-reference"] .bottom-nav-item.active svg {
+  stroke-width: 2.3 !important;
+}
+
+body[data-staging-ia="toss-reference"] .bottom-nav-item.active span {
+  font-weight: 800 !important;
+}
+
+/* Service sheet. */
+.staging-service-sheet {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+}
+
+.staging-service-sheet[hidden] {
+  display: none !important;
+}
+
+.staging-service-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72) !important;
+  backdrop-filter: blur(3px);
+}
+
+.staging-service-sheet-card {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: min(620px, 100%);
+  max-height: min(720px, calc(100vh - 36px));
+  margin: auto;
+  overflow-y: auto;
+  padding: 10px var(--toss-page-gutter) calc(22px + env(safe-area-inset-bottom));
+  border: 1px solid var(--dark-border) !important;
+  border-bottom: 0 !important;
+  border-radius: 26px 26px 0 0 !important;
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-raised) !important;
+  box-shadow: 0 -24px 64px rgba(0, 0, 0, 0.5) !important;
+}
+
+.staging-service-sheet-handle {
+  width: 40px;
+  height: 5px;
+  margin: 0 auto 14px;
+  border-radius: 99px;
+  background: #55555f !important;
+}
+
+.staging-service-sheet-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.staging-service-sheet-card > header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.staging-service-sheet-card > header span {
+  color: var(--dark-muted) !important;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.staging-service-sheet-card h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 850;
+  letter-spacing: -0.04em;
+}
+
+.staging-service-sheet-card > header > button {
+  width: var(--toss-touch);
+  height: var(--toss-touch);
+  border: 0;
+  border-radius: 14px;
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.staging-service-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.staging-service-grid button {
+  min-height: 84px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 16px;
+  border: 1px solid var(--dark-border-soft);
+  border-radius: 16px;
+  color: var(--dark-text) !important;
+  background: var(--dark-surface) !important;
+  cursor: pointer;
+  text-align: left;
+}
+
+.staging-service-grid button:is(:hover, :focus-visible) {
+  border-color: var(--dark-border) !important;
+  background: var(--dark-surface-strong) !important;
+}
+
+.staging-service-grid strong {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.staging-service-grid span {
+  color: var(--dark-muted) !important;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.staging-service-sheet-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--dark-border-soft);
+}
+
+.staging-service-sheet-footer :is(.home-install-button, .app-support-link) {
+  min-height: var(--toss-touch) !important;
+  padding-inline: 14px !important;
+  border-radius: 12px !important;
+  color: var(--dark-text-secondary) !important;
+  background: var(--dark-surface-strong) !important;
+}
+
+.staging-service-sheet-footer .app-account-id {
+  max-width: none !important;
+  margin-right: auto;
+  color: var(--dark-muted) !important;
+}
+
+body[data-staging-ia="toss-reference"] .service-footer {
+  width: min(var(--toss-page-max), calc(100% - (2 * var(--toss-page-gutter)))) !important;
+  margin-bottom: calc(110px + env(safe-area-inset-bottom)) !important;
+}
+
+@media (max-width: 720px) {
+  .staging-page-hero {
+    align-items: flex-start;
+    display: grid;
+    gap: 10px;
+    padding-top: 25px;
+  }
+
+  .staging-page-hero > small {
+    max-width: none;
+    text-align: left;
+  }
+
+  .staging-discovery-shortcuts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body[data-staging-ia="toss-reference"] #stock-view .stock-investment-snapshot {
+    border-right: 0 !important;
+    border-left: 0 !important;
+  }
+
+  body[data-staging-ia="toss-reference"] #stock-view .stock-investment-snapshot-row {
+    min-height: 0 !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 7px 16px !important;
+    padding: 15px 2px !important;
+    border-right: 0 !important;
+  }
+
+  body[data-staging-ia="toss-reference"] #stock-view .stock-investment-snapshot-row > b {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    align-self: center !important;
+    font-size: 19px !important;
+    text-align: right !important;
+  }
+
+  body[data-staging-ia="toss-reference"] #stock-view .stock-investment-snapshot-row > p {
+    grid-column: 1 / -1 !important;
+  }
+}
+
+@media (max-width: 430px) {
+  body[data-staging-ia="toss-reference"] {
+    --toss-page-gutter: 18px;
+  }
+
+  body[data-staging-ia="toss-reference"] .app-topbar {
+    padding-inline: 13px !important;
+  }
+
+  body[data-staging-ia="toss-reference"] .mobile-brand .app-brand-mark {
+    display: none !important;
+  }
+
+  body[data-staging-ia="toss-reference"] .mobile-brand > span:last-child {
+    display: none !important;
+  }
+
+  .staging-top-actions {
+    gap: 0;
+  }
+
+  .staging-top-actions > button,
+  .staging-top-actions > .app-icon-button {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+  }
+
+  .staging-page-hero p {
+    font-size: 13px;
+  }
+
+  .staging-quick-actions {
+    gap: 2px;
+    padding-inline: 12px;
+  }
+
+  .staging-quick-actions button {
+    min-height: 78px;
+  }
+
+  .staging-quick-actions strong {
+    font-size: 11px;
+  }
+
+  .staging-quick-icon {
+    width: 42px;
+    height: 42px;
+  }
+
+  .staging-watch-signal strong {
+    font-size: 13px;
+  }
+
+  body[data-staging-ia="toss-reference"] #stock-view .stock-detail-tabs button {
+    padding-inline: 14px !important;
+    font-size: 12px !important;
+  }
+
+  body[data-staging-ia="toss-reference"] #stock-view .stock-v3-price-periods button {
+    min-height: 40px !important;
+    font-size: 11px !important;
+  }
+
+  .staging-service-grid button {
+    min-height: 80px;
+    padding: 14px;
+  }
+}
+
+@media (min-width: 900px) {
+  body[data-staging-ia="toss-reference"] #home-view > :is(
+    .home-market-indices,
+    .home-ai-signals,
+    .home-surge,
+    .home-market-sections
+  ),
+  body[data-staging-ia="toss-reference"] #recommend-view.discovery-module,
+  body[data-staging-ia="toss-reference"] #portfolio-view > .portfolio-tab-panel {
+    padding-block: 32px !important;
+  }
+
+  .staging-page-hero {
+    padding-top: 38px;
+  }
+
+  body[data-staging-ia="toss-reference"] #stock-view :is(
+    .stock-v3-home,
+    .stock-v3-company,
+    .stock-v3-ai,
+    .staging-stock-secondary-panel
+  ) > .stock-v3-section {
+    padding-block: 32px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-staging-ia="toss-reference"] *,
+  body[data-staging-ia="toss-reference"] *::before,
+  body[data-staging-ia="toss-reference"] *::after {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Late-rendered surfaces whose production rules use literal light colors. */
+body[data-staging-ia="toss-reference"] #watchlist-view .watch-v2-action {
+  border: 1px solid var(--dark-border-soft) !important;
+  background: var(--dark-surface-raised) !important;
+}
+
+body[data-staging-ia="toss-reference"] #watchlist-view .watch-v2-action > span {
+  color: var(--dark-muted) !important;
+}
+
+body[data-staging-ia="toss-reference"] #watchlist-view .watch-v2-action strong {
+  color: var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] #push-notification-sheet .push-notification-condition {
+  border-color: var(--dark-border) !important;
+  background: var(--dark-surface) !important;
+}
+
+body[data-staging-ia="toss-reference"] #push-notification-sheet .push-notification-condition.is-required {
+  border-color: #3a4250 !important;
+  background: var(--dark-surface-raised) !important;
+}
+
+body[data-staging-ia="toss-reference"] #push-notification-sheet .push-notification-condition-copy strong {
+  color: var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] #push-notification-sheet .push-notification-condition-copy > span {
+  color: var(--dark-text-secondary) !important;
+}
+
+body[data-staging-ia="toss-reference"] #push-notification-sheet .push-notification-required {
+  color: #86b9ff !important;
+}
+
+body[data-staging-ia="toss-reference"] #push-notification-sheet .push-notification-condition-switch {
+  background: #4c4c56 !important;
+}
+
+body[data-staging-ia="toss-reference"] #push-notification-sheet .push-notification-condition-control input:checked + .push-notification-condition-switch {
+  background: var(--dark-accent-strong) !important;
+}
+
+body[data-staging-ia="toss-reference"] #push-notification-sheet .push-notification-condition-switch::after {
+  background: var(--dark-text) !important;
+}
+
+body[data-staging-ia="toss-reference"] #push-notification-sheet-close {
+  color: var(--dark-text) !important;
+  background: var(--dark-surface-strong) !important;
+  border-color: var(--dark-border) !important;
+}
+
+body[data-staging-ia="toss-reference"] #push-notification-sheet-close svg,
+body[data-staging-ia="toss-reference"] #push-notification-sheet-close svg * {
+  fill: none !important;
+  stroke: currentColor !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Toss Securities reference reconstruction — staging v13                    */
+/* -------------------------------------------------------------------------- */
+
+body[data-staging-ia="toss-clone"] {
+  --tc-bg: #111115;
+  --tc-band: #08090b;
+  --tc-surface: #19191f;
+  --tc-surface-2: #202127;
+  --tc-line: #28292f;
+  --tc-text: #f2f3f5;
+  --tc-sub: #b0b3bb;
+  --tc-muted: #777b85;
+  --tc-red: #f04464;
+  --tc-blue: #3182f6;
+  --tc-violet: #8b7cf6;
+  --tc-gutter: 20px;
+  --tc-content: 760px;
+  --tc-touch: 44px;
+  overflow-x: clip;
+  background: var(--tc-bg) !important;
+  color: var(--tc-text) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", sans-serif !important;
+}
+
+body[data-staging-ia="toss-clone"].staging-menu-open {
+  overflow: hidden;
+}
+
+body[data-staging-ia="toss-clone"] *,
+body[data-staging-ia="toss-clone"] *::before,
+body[data-staging-ia="toss-clone"] *::after {
+  box-sizing: border-box;
+}
+
+body[data-staging-ia="toss-clone"] .app-frame,
+body[data-staging-ia="toss-clone"] .shell[data-ui-version="3.0"],
+body[data-staging-ia="toss-clone"] .app-page {
+  background: var(--tc-bg) !important;
+}
+
+body[data-staging-ia="toss-clone"] .shell[data-ui-version="3.0"] {
+  width: min(100%, var(--tc-content)) !important;
+  min-height: calc(100vh - 64px) !important;
+  margin: 0 auto !important;
+  padding: 0 0 calc(104px + env(safe-area-inset-bottom)) !important;
+}
+
+body[data-staging-ia="toss-clone"] .app-page {
+  min-width: 0 !important;
+  gap: 0 !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(button, a, input) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body[data-staging-ia="toss-clone"] :is(button, a):focus-visible {
+  outline: 2px solid #8eb7ff !important;
+  outline-offset: 2px !important;
+}
+
+/* Compact global header: title, live existing index, three controls. */
+body[data-staging-ia="toss-clone"] .app-topbar {
+  position: sticky !important;
+  z-index: 80 !important;
+  top: 0 !important;
+  width: 100% !important;
+  min-height: 64px !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  padding: 8px max(14px, calc((100vw - var(--tc-content)) / 2 + 14px)) !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.035) !important;
+  background: rgba(17, 17, 21, 0.97) !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(20px) saturate(125%) !important;
+}
+
+body[data-staging-ia="toss-clone"]:is(
+  [data-view="stock"],
+  [data-view="ai-signals"],
+  [data-view="movers"],
+  [data-view="chart"],
+  [data-view="morning-briefing"],
+  [data-view="recommend-detail"],
+  [data-view="event-detail"],
+  [data-view="notifications"]
+) .app-topbar {
+  display: none !important;
+}
+
+.staging-market-context {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  overflow: hidden;
+}
+
+.staging-market-context > strong {
+  flex: 0 0 auto;
+  color: var(--tc-text) !important;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1.1;
+}
+
+.staging-index-context {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.staging-index-context :is(b, em, i) {
+  flex: 0 0 auto;
+  color: var(--tc-muted) !important;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.staging-index-context b {
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.staging-index-context i.positive { color: var(--tc-red) !important; }
+.staging-index-context i.negative { color: var(--tc-blue) !important; }
+
+body[data-staging-ia="toss-clone"] .app-topbar-actions {
+  display: none !important;
+}
+
+.staging-top-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-left: auto;
+}
+
+.staging-top-actions > button {
+  position: relative;
+  width: var(--tc-touch);
+  min-width: var(--tc-touch);
+  height: var(--tc-touch);
+  min-height: var(--tc-touch);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 13px;
+  color: #d8dae0 !important;
+  background: transparent !important;
+  cursor: pointer;
+}
+
+.staging-top-actions > button:is(:hover, :focus-visible) {
+  background: var(--tc-surface-2) !important;
+}
+
+.staging-top-actions svg,
+.staging-service-sheet svg,
+.staging-shortcut-rail svg,
+.staging-watch-signal svg,
+.staging-discovery-signal svg,
+.staging-nav-back svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.85;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.staging-menu-dot {
+  position: absolute;
+  top: 8px;
+  right: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--tc-red) !important;
+}
+
+/* Shortcut cards are one of the few elevated surfaces in the reference. */
+.staging-shortcut-rail {
+  min-width: 0;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 18px var(--tc-gutter) 22px;
+  background: var(--tc-bg) !important;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.staging-shortcut-rail::-webkit-scrollbar { display: none; }
+
+.staging-shortcut-rail > button {
+  width: 104px;
+  min-width: 104px;
+  min-height: 92px;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 10px;
+  padding: 15px;
+  border: 0;
+  border-radius: 17px;
+  color: var(--tc-text) !important;
+  background: var(--tc-surface) !important;
+  cursor: pointer;
+  scroll-snap-align: start;
+  text-align: left;
+}
+
+.staging-shortcut-rail > button:is(:hover, :focus-visible) {
+  background: var(--tc-surface-2) !important;
+}
+
+.staging-shortcut-rail > button > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: #c8cbd2 !important;
+  background: #2b2c33 !important;
+}
+
+.staging-shortcut-rail > button > span.is-ai {
+  color: #fff !important;
+  background: linear-gradient(135deg, #8059f6, #5bbdf0) !important;
+}
+
+.staging-shortcut-rail > button > span.is-coral { color: #ff8b75 !important; }
+.staging-shortcut-rail > button > span.is-blue { color: #6ba4ff !important; }
+.staging-shortcut-rail > button > span.is-yellow { color: #f2c75c !important; }
+
+.staging-shortcut-rail svg { width: 19px; height: 19px; }
+
+.staging-shortcut-rail strong {
+  overflow: hidden;
+  color: var(--tc-text) !important;
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staging-home-shortcuts {
+  border-top: 10px solid var(--tc-band);
+}
+
+/* Shared flat sections and typography. */
+body[data-staging-ia="toss-clone"] :is(
+  #home-view > .home-market-indices,
+  #home-view > .home-ai-signals,
+  #home-view > .home-surge,
+  #home-view > .home-market-sections,
+  #search-view > .discovery-module,
+  #portfolio-view > .portfolio-tab-panel
+) {
+  margin: 0 !important;
+  border: 0 !important;
+  border-top: 10px solid var(--tc-band) !important;
+  border-radius: 0 !important;
+  background: var(--tc-bg) !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #home-view > .home-market-indices {
+  border-top: 0 !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(
+  .home-flat-section-head,
+  .home-ai-signals-head,
+  .home-surge-head,
+  .trend-calendar-head,
+  .app-section-heading,
+  .trend-watchlist-head
+) {
+  min-width: 0;
+  align-items: flex-end !important;
+  gap: 12px !important;
+  margin: 0 0 18px !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(
+  .home-flat-section-head,
+  .home-ai-signals-head,
+  .home-surge-head,
+  .trend-calendar-head,
+  .app-section-heading,
+  .trend-watchlist-head
+) h2 {
+  margin: 2px 0 0 !important;
+  color: var(--tc-text) !important;
+  font-size: 23px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.045em !important;
+  line-height: 1.25 !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(
+  .home-flat-section-head,
+  .home-ai-signals-head,
+  .home-surge-head,
+  .trend-calendar-head,
+  .app-section-heading,
+  .trend-watchlist-head
+) :is(span, time, p) {
+  color: var(--tc-muted) !important;
+  font-size: 11px !important;
+  font-weight: 650 !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(.text-action, .home-ranking-market-trigger) {
+  min-height: 40px !important;
+  padding: 0 4px 0 12px !important;
+  border: 0 !important;
+  color: var(--tc-muted) !important;
+  background: transparent !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+/* Home — compact market rail, AI strip, text tabs and ranked rows. */
+body[data-staging-ia="toss-clone"] #home-market-indices {
+  padding: 22px var(--tc-gutter) 18px !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-market-carousel {
+  gap: 0 !important;
+  margin-inline: calc(-1 * var(--tc-gutter)) !important;
+  padding: 0 var(--tc-gutter) 4px !important;
+  overflow-x: auto !important;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+body[data-staging-ia="toss-clone"] .home-market-carousel::-webkit-scrollbar { display: none; }
+
+body[data-staging-ia="toss-clone"] .home-index-card {
+  width: 204px !important;
+  min-width: 204px !important;
+  min-height: 128px !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  gap: 4px 10px !important;
+  padding: 14px 16px !important;
+  border: 0 !important;
+  border-right: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  scroll-snap-align: start;
+}
+
+body[data-staging-ia="toss-clone"] .home-index-card:first-child { padding-left: 0 !important; }
+body[data-staging-ia="toss-clone"] .home-index-card:last-child { border-right: 0 !important; }
+
+body[data-staging-ia="toss-clone"] .home-index-card header { grid-column: 1 / -1 !important; }
+body[data-staging-ia="toss-clone"] .home-index-card h2 {
+  font-size: 14px !important;
+  font-weight: 750 !important;
+}
+body[data-staging-ia="toss-clone"] .home-index-current {
+  font-size: 21px !important;
+  font-weight: 800 !important;
+  font-variant-numeric: tabular-nums;
+}
+body[data-staging-ia="toss-clone"] .home-index-change { justify-self: end !important; }
+body[data-staging-ia="toss-clone"] .home-index-chart { grid-column: 1 / -1 !important; height: 35px !important; }
+body[data-staging-ia="toss-clone"] .home-index-basis { grid-column: 1 / -1 !important; margin: 0 !important; }
+
+body[data-staging-ia="toss-clone"] #home-ai-signals,
+body[data-staging-ia="toss-clone"] #home-surge {
+  padding: 24px var(--tc-gutter) 28px !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-market-signal-title {
+  margin: 8px 0 12px !important;
+  color: var(--tc-text) !important;
+  font-size: 17px !important;
+  font-weight: 780 !important;
+  letter-spacing: -0.03em !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-market-signal-ticker {
+  min-height: 52px !important;
+  padding: 0 14px !important;
+  border: 1px solid transparent !important;
+  border-radius: 12px !important;
+  background:
+    linear-gradient(var(--tc-bg), var(--tc-bg)) padding-box,
+    linear-gradient(100deg, #7869f6, #388bea, #f04464) border-box !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-market-signal-kicker {
+  color: #8f88ff !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-ai-response {
+  margin: 14px 0 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-ai-response > header {
+  padding: 15px 0 10px !important;
+  border-top: 1px solid var(--tc-line) !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(.home-ai-response-line, .home-ai-response-personal) {
+  padding: 12px 0 !important;
+  border: 0 !important;
+  border-top: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-ai-signals-list {
+  display: grid !important;
+  gap: 0 !important;
+  margin-top: 10px !important;
+  border-top: 1px solid var(--tc-line) !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-ai-signal-row {
+  min-height: 66px !important;
+  padding: 12px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-ai-signal-name { font-size: 16px !important; }
+body[data-staging-ia="toss-clone"] .home-ai-signal-state { font-size: 16px !important; }
+
+body[data-staging-ia="toss-clone"] :is(
+  .home-ranking-category-tabs,
+  .home-ranking-subfilters,
+  .trend-live-filters,
+  .news-page-filters,
+  .ai-signal-mode-tabs,
+  .ai-signal-stage-tabs,
+  .ai-signal-history-filters
+) {
+  min-width: 0;
+  display: flex !important;
+  gap: 0 !important;
+  overflow-x: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  scrollbar-width: none;
+}
+
+body[data-staging-ia="toss-clone"] :is(
+  .home-ranking-category-tabs,
+  .home-ranking-subfilters,
+  .trend-live-filters,
+  .news-page-filters,
+  .ai-signal-mode-tabs,
+  .ai-signal-stage-tabs,
+  .ai-signal-history-filters
+)::-webkit-scrollbar { display: none; }
+
+body[data-staging-ia="toss-clone"] :is(
+  .home-ranking-category-tabs,
+  .home-ranking-subfilters,
+  .trend-live-filters,
+  .news-page-filters,
+  .ai-signal-mode-tabs,
+  .ai-signal-stage-tabs,
+  .ai-signal-history-filters
+) button {
+  position: relative;
+  min-width: max-content !important;
+  min-height: 44px !important;
+  flex: 0 0 auto !important;
+  padding: 0 15px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  color: var(--tc-muted) !important;
+  background: transparent !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(
+  .home-ranking-category-tabs,
+  .home-ranking-subfilters,
+  .trend-live-filters,
+  .news-page-filters,
+  .ai-signal-mode-tabs,
+  .ai-signal-stage-tabs,
+  .ai-signal-history-filters
+) button:first-child { padding-left: 0 !important; }
+
+body[data-staging-ia="toss-clone"] :is(
+  .home-ranking-category-tabs,
+  .home-ranking-subfilters,
+  .trend-live-filters,
+  .news-page-filters,
+  .ai-signal-mode-tabs,
+  .ai-signal-stage-tabs,
+  .ai-signal-history-filters
+) button:is(.active, [aria-selected="true"]) {
+  color: var(--tc-text) !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(
+  .home-ranking-category-tabs,
+  .trend-live-filters,
+  .news-page-filters,
+  .ai-signal-mode-tabs
+) button:is(.active, [aria-selected="true"])::after {
+  position: absolute;
+  right: 14px;
+  bottom: 0;
+  left: 14px;
+  height: 2px;
+  border-radius: 99px;
+  background: var(--tc-text) !important;
+  content: "";
+}
+
+body[data-staging-ia="toss-clone"] :is(.home-ranking-subfilters, .ai-signal-stage-tabs, .ai-signal-history-filters) {
+  gap: 7px !important;
+  padding: 7px 0 !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(.home-ranking-subfilters, .ai-signal-stage-tabs, .ai-signal-history-filters) button {
+  min-height: 36px !important;
+  padding: 0 13px !important;
+  border-radius: 10px !important;
+  background: var(--tc-surface) !important;
+  font-size: 12px !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(.home-ranking-subfilters, .ai-signal-stage-tabs, .ai-signal-history-filters) button:is(.active, [aria-selected="true"]) {
+  color: var(--tc-text) !important;
+  background: #2b2c33 !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-ranking-column-label {
+  padding: 10px 0 7px !important;
+  border: 0 !important;
+  color: var(--tc-muted) !important;
+  font-size: 11px !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-surge-list {
+  display: grid !important;
+  gap: 0 !important;
+  border-top: 1px solid var(--tc-line) !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-surge-row {
+  min-height: 70px !important;
+  display: grid !important;
+  grid-template-columns: 24px minmax(0, 1fr) minmax(88px, auto) !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 10px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-surge-rank {
+  color: var(--tc-sub) !important;
+  font-size: 15px !important;
+  font-weight: 750 !important;
+}
+
+body[data-staging-ia="toss-clone"] .home-surge-identity { gap: 10px !important; }
+body[data-staging-ia="toss-clone"] .home-surge-identity .stock-list-logo {
+  width: 38px !important;
+  height: 38px !important;
+}
+body[data-staging-ia="toss-clone"] .home-surge-quote { text-align: right !important; }
+
+body[data-staging-ia="toss-clone"] :is(.home-ranking-more, .trend-live-toggle) {
+  width: 100% !important;
+  min-height: 46px !important;
+  margin-top: 12px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  color: var(--tc-sub) !important;
+  background: var(--tc-surface) !important;
+  font-size: 13px !important;
+  font-weight: 720 !important;
+}
+
+/* Calendar/news on home — each is a flat section separated by a dark band. */
+body[data-staging-ia="toss-clone"] #trend-view.home-market-sections {
+  display: grid !important;
+  gap: 0 !important;
+  padding: 0 !important;
+}
+
+body[data-staging-ia="toss-clone"] #trend-view > .home-market-card {
+  margin: 0 !important;
+  padding: 24px var(--tc-gutter) 28px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--tc-bg) !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #trend-view > .home-market-card + .home-market-card {
+  border-top: 10px solid var(--tc-band) !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(.trend-calendar-day, .trend-event-card, .thread-item) {
+  border-right: 0 !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] .thread-item {
+  padding: 17px 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+}
+
+body[data-staging-ia="toss-clone"] .thread-item-story > strong {
+  font-size: 16px !important;
+  line-height: 1.48 !important;
+}
+
+/* Discover — search, horizontal cards, one real signal, compact candidates. */
+body[data-staging-ia="toss-clone"] #search-view > .discovery-search {
+  height: 52px !important;
+  margin: 18px var(--tc-gutter) 2px !important;
+  padding: 5px 6px 5px 15px !important;
+  border: 0 !important;
+  border-radius: 13px !important;
+  background: var(--tc-surface) !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #search-view > .discovery-search svg {
+  color: var(--tc-muted) !important;
+}
+
+body[data-staging-ia="toss-clone"] #search-view > .discovery-search input {
+  height: 42px !important;
+  padding: 0 10px !important;
+  border: 0 !important;
+  color: var(--tc-text) !important;
+  background: transparent !important;
+  font-size: 15px !important;
+}
+
+body[data-staging-ia="toss-clone"] #search-view > .discovery-search > button {
+  min-width: 54px !important;
+  height: 40px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  color: var(--tc-text) !important;
+  background: #2a2b32 !important;
+}
+
+.staging-discovery-shortcuts { padding-top: 18px; }
+
+.staging-discovery-signal {
+  width: calc(100% - (2 * var(--tc-gutter)));
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 22px auto minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 8px;
+  margin: 0 var(--tc-gutter) 22px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--tc-text) !important;
+  background:
+    linear-gradient(var(--tc-bg), var(--tc-bg)) padding-box,
+    linear-gradient(100deg, #7869f6, #388bea, #f04464) border-box !important;
+  cursor: pointer;
+  text-align: left;
+}
+
+.staging-discovery-signal > span { color: #8f88ff !important; }
+.staging-discovery-signal svg { width: 18px; height: 18px; }
+.staging-discovery-signal strong {
+  color: #928cff !important;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.staging-discovery-signal p {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--tc-sub) !important;
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.staging-discovery-signal i { color: var(--tc-muted) !important; }
+.staging-discovery-signal i svg { width: 16px; height: 16px; }
+
+body[data-staging-ia="toss-clone"] #recommend-view.discovery-module {
+  gap: 0 !important;
+  padding: 24px var(--tc-gutter) 28px !important;
+}
+
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-list {
+  display: grid !important;
+  gap: 0 !important;
+  border-top: 1px solid var(--tc-line) !important;
+}
+
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-card {
+  display: block !important;
+  padding: 16px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-head {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  grid-template-areas:
+    "rank rank"
+    "name score"
+    "reason reason"
+    "actions actions" !important;
+  gap: 7px 12px !important;
+}
+
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-rank-line { grid-area: rank !important; }
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-name { grid-area: name !important; }
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-score { grid-area: score !important; }
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-card-reason { grid-area: reason !important; }
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-card-actions { grid-area: actions !important; }
+
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-name {
+  min-height: 44px !important;
+  align-items: center !important;
+}
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-name strong { font-size: 17px !important; }
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-rank { color: var(--tc-muted) !important; font-size: 11px !important; }
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-as-of { font-size: 10px !important; }
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-score-value strong {
+  color: var(--tc-red) !important;
+  font-size: 19px !important;
+}
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-score-level { display: none !important; }
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-card-reason {
+  max-width: 100% !important;
+  padding: 8px 0 0 !important;
+  border-top: 0 !important;
+}
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-card-reason-label { display: none !important; }
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-card-reason p {
+  display: -webkit-box !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  color: var(--tc-sub) !important;
+  font-size: 13px !important;
+  line-height: 1.55 !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-decision-flow { display: none !important; }
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-card-actions {
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  margin-top: 5px !important;
+}
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-card-actions button {
+  min-width: max-content !important;
+  min-height: 36px !important;
+  height: 36px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  color: var(--tc-sub) !important;
+  background: var(--tc-surface) !important;
+  font-size: 12px !important;
+}
+body[data-staging-ia="toss-clone"] #recommend-view .recommend-card-actions .recommend-ai-button { display: none !important; }
+
+/* Interest — Toss-like tabs and one-line stock rows. */
+.staging-watch-signal {
+  width: calc(100% - (2 * var(--tc-gutter)));
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 10px;
+  margin: 14px var(--tc-gutter) 16px;
+  padding: 7px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--tc-line);
+  color: var(--tc-text) !important;
+  background: transparent !important;
+  cursor: pointer;
+  text-align: left;
+}
+
+.staging-watch-signal > span { color: #8f88ff !important; }
+.staging-watch-signal > p { min-width: 0; display: grid; gap: 2px; margin: 0; }
+.staging-watch-signal small { color: #8f88ff !important; font-size: 10px; font-weight: 800; }
+.staging-watch-signal strong {
+  overflow: hidden;
+  color: var(--tc-sub) !important;
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.staging-watch-signal i { color: var(--tc-muted) !important; }
+.staging-watch-signal i svg { width: 16px; height: 16px; }
+
+body[data-staging-ia="toss-clone"] #portfolio-view > .portfolio-tabs {
+  position: sticky !important;
+  z-index: 42 !important;
+  top: 64px !important;
+  display: flex !important;
+  gap: 4px !important;
+  padding: 5px var(--tc-gutter) 9px !important;
+  border: 0 !important;
+  background: rgba(17, 17, 21, 0.97) !important;
+  backdrop-filter: blur(18px) !important;
+}
+
+body[data-staging-ia="toss-clone"] #portfolio-view > .portfolio-tabs button {
+  width: auto !important;
+  min-height: 38px !important;
+  padding: 0 15px !important;
+  border: 0 !important;
+  border-radius: 11px !important;
+  color: var(--tc-muted) !important;
+  background: transparent !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+}
+
+body[data-staging-ia="toss-clone"] #portfolio-view > .portfolio-tabs button.active {
+  color: var(--tc-text) !important;
+  background: var(--tc-surface-2) !important;
+}
+
+body[data-staging-ia="toss-clone"] #portfolio-view > .portfolio-tabs button::after { display: none !important; }
+
+body[data-staging-ia="toss-clone"] #portfolio-view > .portfolio-tab-panel {
+  padding: 0 var(--tc-gutter) 28px !important;
+  border-top: 0 !important;
+}
+
+body[data-staging-ia="toss-clone"] .watchlist-content-tabs {
+  display: flex !important;
+  gap: 0 !important;
+  margin: 0 calc(-1 * var(--tc-gutter)) 8px !important;
+  padding: 0 var(--tc-gutter) !important;
+  overflow-x: auto !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-clone"] .watchlist-content-tabs button {
+  position: relative;
+  width: auto !important;
+  min-width: max-content !important;
+  min-height: 48px !important;
+  padding: 0 15px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  color: var(--tc-muted) !important;
+  background: transparent !important;
+  font-size: 13px !important;
+}
+
+body[data-staging-ia="toss-clone"] .watchlist-content-tabs button:first-child { padding-left: 0 !important; }
+body[data-staging-ia="toss-clone"] .watchlist-content-tabs button.active { color: var(--tc-text) !important; }
+body[data-staging-ia="toss-clone"] .watchlist-content-tabs button.active::after {
+  position: absolute;
+  right: 14px;
+  bottom: 0;
+  left: 14px;
+  height: 2px;
+  background: var(--tc-text) !important;
+  content: "";
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .watch-v3-tabs {
+  display: flex !important;
+  gap: 7px !important;
+  overflow-x: auto !important;
+  padding: 9px 0 12px !important;
+  border: 0 !important;
+  background: transparent !important;
+  scrollbar-width: none;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .watch-v3-tabs button {
+  min-width: max-content !important;
+  min-height: 36px !important;
+  padding: 0 13px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  color: var(--tc-muted) !important;
+  background: var(--tc-surface) !important;
+  font-size: 12px !important;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .watch-v3-tabs button.active {
+  color: var(--tc-text) !important;
+  background: #2b2c33 !important;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view :is(.watchlist-panel, .watch-v3-stock-section, .watch-v2-list-surface) {
+  display: grid !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .watch-v2-stock-row {
+  min-height: 74px !important;
+  padding: 10px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .watch-v2-stock-head {
+  min-height: 54px !important;
+  display: grid !important;
+  grid-template-columns: 40px minmax(0, 1fr) 38px !important;
+  align-items: center !important;
+  gap: 11px !important;
+  padding: 0 !important;
+}
+
+.staging-watch-logo {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #303138;
+  border-radius: 50%;
+  color: #dfe1e6 !important;
+  background: #26272d !important;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .watch-stock-name {
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .watch-v2-stock-name-row {
+  min-width: 0 !important;
+  display: grid !important;
+  gap: 3px !important;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .watch-v2-stock-name-row > strong {
+  font-size: 16px !important;
+  font-weight: 750 !important;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .watch-v2-status {
+  font-size: 10px !important;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .watch-stock-quote {
+  display: grid !important;
+  justify-items: end !important;
+  gap: 1px !important;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .watch-stock-inline-change {
+  order: -1;
+  font-size: 17px !important;
+  font-weight: 800 !important;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .watch-stock-inline-price {
+  color: var(--tc-muted) !important;
+  font-size: 11px !important;
+  font-weight: 650 !important;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view .remove-watch {
+  width: 38px !important;
+  height: 38px !important;
+  color: var(--tc-red) !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-clone"] #watchlist-view :is(
+  .watch-v15-metrics,
+  .watch-v2-response,
+  .watch-v2-row-footer,
+  .watch-v2-action,
+  .watch-v2-briefing
+) { display: none !important; }
+
+/* Feed — compact heading/tabs and chronological flat posts. */
+body[data-staging-ia="toss-clone"] #news-view .news-commandbar { display: none !important; }
+
+body[data-staging-ia="toss-clone"] .news-page-hero {
+  display: grid !important;
+  gap: 4px !important;
+  padding: 22px var(--tc-gutter) 12px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--tc-bg) !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] .news-page-hero h2 {
+  order: -1;
+  margin: 0 !important;
+  font-size: 24px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.045em !important;
+}
+
+body[data-staging-ia="toss-clone"] .news-page-hero p { display: none !important; }
+body[data-staging-ia="toss-clone"] .news-page-hero time { color: var(--tc-muted) !important; font-size: 11px !important; }
+
+.staging-feed-modes {
+  min-width: 0;
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  padding: 4px var(--tc-gutter) 10px;
+  border-bottom: 1px solid var(--tc-line);
+  background: var(--tc-bg) !important;
+  scrollbar-width: none;
+}
+
+.staging-feed-modes::-webkit-scrollbar { display: none; }
+.staging-feed-modes button {
+  min-width: max-content;
+  min-height: 38px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 11px;
+  color: var(--tc-muted) !important;
+  background: transparent !important;
+  font-size: 13px;
+  font-weight: 720;
+}
+.staging-feed-modes button.active {
+  color: var(--tc-text) !important;
+  background: var(--tc-surface-2) !important;
+}
+
+body[data-staging-ia="toss-clone"] .news-page-filters {
+  padding: 5px var(--tc-gutter) 0 !important;
+}
+body[data-staging-ia="toss-clone"] .news-page-result-meta {
+  margin: 0 !important;
+  padding: 10px var(--tc-gutter) !important;
+  color: var(--tc-muted) !important;
+  font-size: 11px !important;
+}
+body[data-staging-ia="toss-clone"] .news-page-list {
+  display: grid !important;
+  gap: 0 !important;
+  padding: 0 var(--tc-gutter) 30px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+body[data-staging-ia="toss-clone"] .news-page-list .thread-item { min-height: 112px !important; }
+
+/* Secondary pages and AI signal cards. */
+body[data-staging-ia="toss-clone"] :is(
+  .secondary-commandbar,
+  .morning-money-commandbar,
+  .market-ranking-commandbar
+) {
+  position: sticky !important;
+  z-index: 72 !important;
+  top: 0 !important;
+  min-height: 64px !important;
+  padding: 8px var(--tc-gutter) !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: rgba(17, 17, 21, 0.97) !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(18px) !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(
+  .secondary-commandbar-back,
+  .morning-money-back,
+  .market-ranking-back
+) {
+  width: var(--tc-touch) !important;
+  min-width: var(--tc-touch) !important;
+  height: var(--tc-touch) !important;
+  min-height: var(--tc-touch) !important;
+  border: 0 !important;
+  border-radius: 13px !important;
+  color: var(--tc-text) !important;
+  background: transparent !important;
+  font-size: 22px !important;
+}
+
+body[data-staging-ia="toss-clone"] :is(.secondary-commandbar, .morning-money-commandbar, .market-ranking-commandbar) h1 {
+  color: var(--tc-text) !important;
+  font-size: 17px !important;
+  font-weight: 780 !important;
+  letter-spacing: -0.035em !important;
+}
+
+.staging-ai-guide {
+  min-width: var(--tc-touch);
+  min-height: var(--tc-touch);
+  padding: 0;
+  border: 0;
+  color: var(--tc-sub) !important;
+  background: transparent !important;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .ai-signal-mode-tabs {
+  padding: 8px var(--tc-gutter) 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view :is(.ai-signal-stage-tabs, .ai-signal-history-filters) {
+  padding: 12px var(--tc-gutter) 8px !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .ai-signals-page-list {
+  display: grid !important;
+  gap: 12px !important;
+  padding: 10px var(--tc-gutter) 32px !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-row {
+  min-height: 104px !important;
+  display: grid !important;
+  gap: 11px !important;
+  padding: 17px !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: var(--tc-surface) !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-row:is(:hover, :focus-visible) {
+  background: var(--tc-surface-2) !important;
+}
+
+/* Stock detail — compact centered quote header, five tabs, flat evidence bands. */
+body[data-staging-ia="toss-clone"] #stock-view.stock-detail-v3 {
+  width: min(100%, var(--tc-content)) !important;
+  margin: 0 auto !important;
+  padding: 0 0 calc(36px + env(safe-area-inset-bottom)) !important;
+  background: var(--tc-bg) !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-commandbar {
+  position: sticky !important;
+  z-index: 76 !important;
+  top: 0 !important;
+  min-height: 68px !important;
+  display: grid !important;
+  grid-template-columns: 44px minmax(0, 1fr) 44px 44px !important;
+  align-items: center !important;
+  gap: 2px !important;
+  padding: 8px 12px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: rgba(17, 17, 21, 0.98) !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(18px) !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view :is(.stock-v3-back, .stock-v3-star) {
+  width: 44px !important;
+  min-width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  display: grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 13px !important;
+  color: var(--tc-text) !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-back { font-size: 23px !important; }
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-star { color: var(--tc-red) !important; font-size: 25px !important; }
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-command-title {
+  min-width: 0 !important;
+  display: grid !important;
+  justify-items: center !important;
+  gap: 1px !important;
+  overflow: hidden !important;
+  text-align: center !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-command-title > span { display: none !important; }
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-command-title h1 {
+  max-width: 100% !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  color: var(--tc-text) !important;
+  font-size: 15px !important;
+  font-weight: 780 !important;
+  letter-spacing: -0.035em !important;
+  line-height: 1.2 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-command-quote {
+  display: flex !important;
+  gap: 5px !important;
+  margin: 0 !important;
+  color: var(--tc-red) !important;
+  font-size: 11px !important;
+  font-weight: 720 !important;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2 !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-search {
+  width: 44px !important;
+  min-width: 44px !important;
+  display: block !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-search .search-box { display: none !important; }
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-search > button {
+  width: 44px !important;
+  min-width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  display: grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 13px !important;
+  color: var(--tc-text) !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-search > button svg {
+  width: 21px !important;
+  height: 21px !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 1.85 !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-share { display: none !important; }
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-layout {
+  display: grid !important;
+  gap: 0 !important;
+  background: var(--tc-bg) !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-detail-tabs-sentinel {
+  height: 0 !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-detail-tabs {
+  position: sticky !important;
+  z-index: 72 !important;
+  top: 68px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  display: flex !important;
+  grid-template-columns: none !important;
+  gap: 0 !important;
+  overflow-x: auto !important;
+  padding: 0 8px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+  background: rgba(17, 17, 21, 0.98) !important;
+  box-shadow: none !important;
+  scrollbar-width: none;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-detail-tabs::-webkit-scrollbar { display: none; }
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-detail-tabs button {
+  position: relative !important;
+  width: auto !important;
+  min-width: max-content !important;
+  min-height: 50px !important;
+  flex: 1 0 auto !important;
+  padding: 0 11px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  color: var(--tc-muted) !important;
+  background: transparent !important;
+  font-size: 12px !important;
+  font-weight: 720 !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-detail-tabs button.active {
+  color: var(--tc-text) !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-detail-tabs button.active::after {
+  position: absolute !important;
+  right: 10px !important;
+  bottom: 0 !important;
+  left: 10px !important;
+  height: 2px !important;
+  border-radius: 99px 99px 0 0 !important;
+  background: var(--tc-text) !important;
+  content: "" !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view :is(
+  .stock-v3-home,
+  .stock-v3-company,
+  .stock-v3-ai,
+  .staging-stock-secondary-panel
+) {
+  display: grid !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  background: var(--tc-bg) !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view [hidden] { display: none !important; }
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-quote-card {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-areas: "head" "price" "chart" "metrics" !important;
+  gap: 10px !important;
+  margin: 0 !important;
+  padding: 22px var(--tc-gutter) 24px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--tc-bg) !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-price-line > strong {
+  color: var(--tc-text) !important;
+  font-size: clamp(32px, 9vw, 42px) !important;
+  font-weight: 820 !important;
+  letter-spacing: -0.045em !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-chart-pane { min-height: 248px !important; }
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-price-periods {
+  display: flex !important;
+  justify-content: space-between !important;
+  gap: 2px !important;
+  margin-top: 8px !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-price-periods button {
+  min-width: 44px !important;
+  min-height: 40px !important;
+  padding: 0 8px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  color: var(--tc-muted) !important;
+  background: transparent !important;
+  font-size: 12px !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-price-periods button.active {
+  color: var(--tc-text) !important;
+  background: var(--tc-surface-2) !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-quote-metrics {
+  margin-top: 6px !important;
+  padding-top: 16px !important;
+  border-top: 1px solid var(--tc-line) !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view :is(
+  .stock-v3-home,
+  .stock-v3-company,
+  .stock-v3-ai,
+  .staging-stock-secondary-panel
+) > .stock-v3-section,
+body[data-staging-ia="toss-clone"] #stock-view .quant-signal-stack > .stock-v3-section {
+  margin: 0 !important;
+  padding: 25px var(--tc-gutter) 28px !important;
+  border: 0 !important;
+  border-top: 10px solid var(--tc-band) !important;
+  border-radius: 0 !important;
+  background: var(--tc-bg) !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-quote-card + .stock-v3-section {
+  border-top: 10px solid var(--tc-band) !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-section-head {
+  align-items: flex-end !important;
+  gap: 12px !important;
+  margin: 0 0 18px !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-section-head h2 {
+  margin: 2px 0 0 !important;
+  color: var(--tc-text) !important;
+  font-size: 23px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.045em !important;
+  line-height: 1.25 !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-section-head :is(span, time) {
+  color: var(--tc-muted) !important;
+  font-size: 11px !important;
+  font-weight: 650 !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view :is(
+  .stock-v3-segment,
+  .stock-v3-text-tabs,
+  .stock-company-details,
+  .stock-investment-snapshot,
+  .stock-company-check-columns,
+  .stock-community-providers
+) {
+  border-color: var(--tc-line) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-segment {
+  padding: 3px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  background: var(--tc-surface) !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-segment button {
+  min-height: 38px !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  color: var(--tc-muted) !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-v3-segment button.active {
+  color: var(--tc-text) !important;
+  background: #303138 !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .stock-investment-snapshot-row {
+  padding: 15px 0 !important;
+  border-color: var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .quant-current-card {
+  background:
+    radial-gradient(circle at 95% 0, rgba(109, 99, 246, 0.18), transparent 34%),
+    var(--tc-bg) !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .quant-signal-refresh {
+  min-height: 40px !important;
+  padding: 0 14px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  color: var(--tc-text) !important;
+  background: var(--tc-surface-2) !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-view .quant-signal-status {
+  margin: 22px var(--tc-gutter) !important;
+  padding: 18px !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  background: var(--tc-surface) !important;
+}
+
+/* Floating back control + four-item navigation pill. */
+body[data-staging-ia="toss-clone"] .bottom-nav {
+  position: fixed !important;
+  z-index: 100 !important;
+  right: 10px !important;
+  bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+  left: 76px !important;
+  width: auto !important;
+  height: 68px !important;
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 1px !important;
+  padding: 5px !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(255, 255, 255, 0.075) !important;
+  border-radius: 19px !important;
+  background: rgba(29, 29, 34, 0.97) !important;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.52) !important;
+  transform: none !important;
+  backdrop-filter: blur(22px) saturate(130%) !important;
+}
+
+body[data-staging-ia="toss-clone"] .bottom-nav-item {
+  position: relative !important;
+  min-width: 0 !important;
+  min-height: 56px !important;
+  display: grid !important;
+  place-items: center !important;
+  align-content: center !important;
+  gap: 3px !important;
+  padding: 4px 2px !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  color: #6f737d !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-clone"] .bottom-nav-item svg {
+  width: 20px !important;
+  height: 20px !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 1.8 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+}
+
+body[data-staging-ia="toss-clone"] .bottom-nav-item span {
+  color: inherit !important;
+  font-size: 10px !important;
+  font-weight: 650 !important;
+}
+
+body[data-staging-ia="toss-clone"] .bottom-nav-item.active {
+  color: var(--tc-text) !important;
+  background: #292a30 !important;
+}
+
+body[data-staging-ia="toss-clone"] .bottom-nav-item.active span { font-weight: 800 !important; }
+
+.staging-nav-back {
+  position: fixed;
+  z-index: 101;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+  left: 10px;
+  width: 56px;
+  height: 68px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 19px;
+  color: #c6c8ce !important;
+  background: rgba(29, 29, 34, 0.97) !important;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(22px) saturate(130%);
+}
+
+.staging-nav-back.is-home {
+  color: #5f626b !important;
+  cursor: default;
+}
+
+body[data-staging-ia="toss-clone"]:is(
+  [data-view="stock"],
+  [data-view="ai-signals"],
+  [data-view="movers"],
+  [data-view="chart"],
+  [data-view="morning-briefing"],
+  [data-view="recommend-detail"],
+  [data-view="event-detail"],
+  [data-view="notifications"]
+) :is(.bottom-nav, .staging-nav-back) {
+  display: none !important;
+}
+
+/* Bottom service sheet follows the same flat-list language. */
+.staging-service-sheet {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+}
+
+.staging-service-sheet[hidden] { display: none !important; }
+
+.staging-service-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72) !important;
+  backdrop-filter: blur(3px);
+}
+
+.staging-service-sheet-card {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: min(560px, 100%);
+  max-height: min(680px, calc(100vh - 28px));
+  margin: auto;
+  overflow-y: auto;
+  padding: 10px var(--tc-gutter) calc(22px + env(safe-area-inset-bottom));
+  border: 1px solid var(--tc-line) !important;
+  border-bottom: 0 !important;
+  border-radius: 25px 25px 0 0 !important;
+  color: var(--tc-text) !important;
+  background: #1b1b20 !important;
+  box-shadow: 0 -24px 64px rgba(0, 0, 0, 0.55) !important;
+}
+
+.staging-service-sheet-handle {
+  width: 38px;
+  height: 5px;
+  margin: 0 auto 13px;
+  border-radius: 99px;
+  background: #4c4d55 !important;
+}
+
+.staging-service-sheet-card > header {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 9px;
+}
+
+.staging-service-sheet-card h2 {
+  margin: 0;
+  color: var(--tc-text) !important;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.staging-service-sheet-card > header > button {
+  width: var(--tc-touch);
+  height: var(--tc-touch);
+  border: 0;
+  border-radius: 13px;
+  color: var(--tc-sub) !important;
+  background: #292a30 !important;
+  font-size: 23px;
+}
+
+.staging-service-list { display: grid; gap: 0; }
+
+.staging-service-list > button {
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--tc-line);
+  color: var(--tc-text) !important;
+  background: transparent !important;
+  text-align: left;
+}
+
+.staging-service-list > button > span {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--tc-sub) !important;
+  background: #292a30 !important;
+}
+
+.staging-service-list > button > span.is-ai {
+  color: #fff !important;
+  background: linear-gradient(135deg, #8059f6, #5bbdf0) !important;
+}
+
+.staging-service-list strong { font-size: 15px; font-weight: 750; }
+.staging-service-list i { color: var(--tc-muted) !important; }
+.staging-service-list i svg { width: 16px; height: 16px; }
+
+.staging-service-sheet-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding-top: 18px;
+}
+
+.staging-service-sheet-footer :is(.home-install-button, .app-support-link, .app-notification-button) {
+  min-height: 44px !important;
+  padding: 0 13px !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  color: var(--tc-sub) !important;
+  background: #292a30 !important;
+}
+
+.staging-service-sheet-footer .app-notification-button {
+  width: 44px !important;
+  display: grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+}
+
+.staging-service-sheet-footer .app-account-id {
+  max-width: 180px !important;
+  margin-right: auto;
+  color: var(--tc-muted) !important;
+}
+
+body[data-staging-ia="toss-clone"] .service-footer {
+  width: min(var(--tc-content), calc(100% - (2 * var(--tc-gutter)))) !important;
+  margin: 24px auto calc(100px + env(safe-area-inset-bottom)) !important;
+  border-color: var(--tc-line) !important;
+}
+
+/* Late light literals from generated components. */
+body[data-staging-ia="toss-clone"] :is(
+  .home-ai-response-factor,
+  .home-ai-response-personal-item,
+  .trend-event-card,
+  .thread-tag,
+  .stock-v3-update-list > *,
+  .stock-community-provider,
+  .stock-community-post,
+  .recommend-score-help,
+  .term-help
+) {
+  border-color: var(--tc-line) !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+@media (min-width: 621px) {
+  body[data-staging-ia="toss-clone"] .bottom-nav {
+    right: auto !important;
+    left: calc(50% + 36px) !important;
+    width: 520px !important;
+    transform: translateX(-50%) !important;
+  }
+
+  .staging-nav-back {
+    left: calc(50% - 300px);
+  }
+}
+
+@media (max-width: 430px) {
+  body[data-staging-ia="toss-clone"] { --tc-gutter: 18px; }
+
+  .staging-market-context { gap: 5px; }
+  .staging-market-context > strong { font-size: 20px; }
+  .staging-index-context b { max-width: 62px; }
+  .staging-index-context :is(b, em, i) { font-size: 10px; }
+
+  .staging-top-actions > button {
+    width: 42px;
+    min-width: 42px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .staging-shortcut-rail > button {
+    width: 100px;
+    min-width: 100px;
+  }
+
+  body[data-staging-ia="toss-clone"] #stock-view .stock-detail-tabs button {
+    padding-inline: 10px !important;
+    font-size: 11px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-staging-ia="toss-clone"] *,
+  body[data-staging-ia="toss-clone"] *::before,
+  body[data-staging-ia="toss-clone"] *::after {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Keep the three AI facts readable at the 390px reference viewport. */
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-row {
+  min-height: 144px !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-metric.is-execution {
+  grid-column: 1 / -1 !important;
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: baseline !important;
+  gap: 8px !important;
+}
+
+/* The quote chart now lives inside the Chart tab; undo the legacy summary hide. */
+body[data-staging-ia="toss-clone"] #stock-summary-section .stock-v3-quote-card .stock-mini-chart {
+  width: 100% !important;
+  min-height: 220px !important;
+  display: grid !important;
+  align-content: center !important;
+  overflow: visible !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="toss-clone"] #stock-summary-section .stock-v3-quote-card .stock-mini-chart svg {
+  width: 100% !important;
+  height: auto !important;
+  display: block !important;
+}

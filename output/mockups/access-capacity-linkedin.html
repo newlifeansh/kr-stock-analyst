@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>비밀노트 · 이용 인원 초과 팝업 목업</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --accent: #2563eb;
+        --accent-strong: #1d4ed8;
+        --text: #111827;
+        --muted: #667085;
+        --line: #d9dee7;
+        --surface: #ffffff;
+        --background: #f3f5f8;
+        --focus: #60a5fa;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+        margin: 0;
+      }
+
+      body {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        overflow-x: hidden;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 16% 10%, rgba(37, 99, 235, 0.12), transparent 32%),
+          var(--background);
+        font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      button,
+      a,
+      input {
+        font: inherit;
+      }
+
+      button,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      :focus-visible {
+        outline: 3px solid rgba(96, 165, 250, 0.72);
+        outline-offset: 3px;
+      }
+
+      .mockup-badge {
+        position: fixed;
+        z-index: 5;
+        top: max(14px, env(safe-area-inset-top));
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 7px 12px;
+        border: 1px solid rgba(37, 99, 235, 0.16);
+        border-radius: 999px;
+        color: #1d4ed8;
+        background: rgba(239, 246, 255, 0.94);
+        box-shadow: 0 6px 24px rgba(15, 23, 42, 0.08);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+      }
+
+      .login-card {
+        width: min(440px, 100%);
+        display: grid;
+        gap: 22px;
+        padding: 34px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: 0 28px 80px rgba(15, 23, 42, 0.14);
+      }
+
+      .login-copy {
+        display: grid;
+        gap: 8px;
+      }
+
+      .brand {
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+      }
+
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(26px, 5vw, 34px);
+        letter-spacing: -0.04em;
+      }
+
+      .login-copy p {
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.6;
+      }
+
+      .login-fields {
+        display: grid;
+        gap: 10px;
+      }
+
+      .login-fields input {
+        width: 100%;
+        min-height: 52px;
+        padding: 0 15px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        color: var(--text);
+        background: var(--surface);
+      }
+
+      .login-fields button,
+      .mockup-reopen {
+        min-height: 52px;
+        border: 0;
+        border-radius: 14px;
+        color: #ffffff;
+        background: var(--text);
+        font-weight: 850;
+        cursor: pointer;
+      }
+
+      .login-hint {
+        color: #7b8494;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .login-support {
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+      }
+
+      .login-support a {
+        color: var(--accent-strong);
+        font-weight: 800;
+      }
+
+      .access-capacity-modal {
+        position: fixed;
+        z-index: 10;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+      }
+
+      .access-capacity-modal[hidden] {
+        display: none;
+      }
+
+      .access-capacity-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.62);
+        backdrop-filter: blur(7px);
+      }
+
+      .access-capacity-card {
+        position: relative;
+        width: min(430px, 100%);
+        display: grid;
+        gap: 14px;
+        padding: 28px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 24px;
+        background: var(--surface);
+        box-shadow: 0 30px 90px rgba(15, 23, 42, 0.3);
+      }
+
+      .access-capacity-icon {
+        width: 44px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+        border-radius: 14px;
+        color: #b45309;
+        background: #fff7ed;
+        font-size: 22px;
+        font-weight: 900;
+      }
+
+      .access-capacity-eyebrow {
+        color: #b45309;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+      }
+
+      .access-capacity-card h2 {
+        font-size: 24px;
+        line-height: 1.3;
+        letter-spacing: -0.035em;
+      }
+
+      .access-capacity-card p {
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
+      .access-capacity-note {
+        color: #7b8494;
+        font-size: 12px;
+      }
+
+      .access-capacity-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        margin-top: 6px;
+      }
+
+      .access-capacity-actions a,
+      .access-capacity-actions button {
+        min-height: 50px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 14px;
+        padding: 0 16px;
+        font-size: 14px;
+        font-weight: 900;
+        text-decoration: none;
+      }
+
+      .access-capacity-actions a {
+        color: #ffffff;
+        background: #0a66c2;
+      }
+
+      .access-capacity-actions a:hover {
+        background: #004182;
+      }
+
+      .access-capacity-actions button {
+        border: 1px solid var(--line);
+        color: var(--text);
+        background: #ffffff;
+        cursor: pointer;
+      }
+
+      .mockup-reopen {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        min-height: 44px;
+        padding: 0 16px;
+        background: var(--accent);
+      }
+
+      @media (max-width: 480px) {
+        body {
+          padding: 18px;
+        }
+
+        .login-card {
+          padding: 26px 22px;
+          border-radius: 24px;
+        }
+
+        .access-capacity-card {
+          padding: 24px 22px;
+        }
+
+        .access-capacity-actions {
+          grid-template-columns: 1fr;
+        }
+
+        .access-capacity-actions a,
+        .access-capacity-actions button {
+          width: 100%;
+        }
+      }
+
+      @media (prefers-reduced-motion: no-preference) {
+        .access-capacity-card {
+          animation: modal-in 180ms ease-out;
+        }
+
+        @keyframes modal-in {
+          from {
+            opacity: 0;
+            transform: translateY(10px) scale(0.985);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <span class="mockup-badge">MOCKUP · 실서비스 미반영</span>
+
+    <main class="login-card" aria-label="비밀노트 로그인 목업">
+      <div class="login-copy">
+        <span class="brand">SECRET NOTE · KOREA MARKET</span>
+        <h1>한국증시 비밀노트</h1>
+        <p>아이디와 초대 코드를 입력해 시작하세요.</p>
+      </div>
+      <form class="login-fields" id="mock-login-form">
+        <input id="mock-id" type="text" value="신규사용자101" aria-label="아이디" />
+        <input type="text" value="KORNOTE2026" aria-label="초대 코드" />
+        <span class="login-hint">초대 코드는 첫 접속 시 한 번만 확인합니다.</span>
+        <button type="submit">시작하기</button>
+      </form>
+      <p class="login-support">
+        로그인 및 서비스 문의 ·
+        <a href="https://www.linkedin.com/in/connor-sh" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+      </p>
+    </main>
+
+    <section class="access-capacity-modal" id="access-capacity-modal">
+      <div class="access-capacity-backdrop" id="access-capacity-backdrop"></div>
+      <article
+        class="access-capacity-card"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="access-capacity-title"
+        aria-describedby="access-capacity-description access-capacity-note"
+      >
+        <span class="access-capacity-icon" aria-hidden="true">!</span>
+        <span class="access-capacity-eyebrow">초기 운영 안내</span>
+        <h2 id="access-capacity-title">현재 이용 가능 인원을 초과했어요</h2>
+        <p id="access-capacity-description">안정적인 서비스 운영을 위해 초기 이용 인원을 제한하고 있습니다. 추가 이용이 필요하시면 LinkedIn 메시지로 문의해주세요.</p>
+        <span class="access-capacity-note" id="access-capacity-note">문의 버튼을 누르면 새 탭에서 LinkedIn 프로필이 열립니다.</span>
+        <div class="access-capacity-actions">
+          <a id="linkedin-contact" href="https://www.linkedin.com/in/connor-sh" target="_blank" rel="noopener noreferrer">LinkedIn으로 문의하기</a>
+          <button id="access-capacity-close" type="button">닫기</button>
+        </div>
+      </article>
+    </section>
+
+    <button class="mockup-reopen" id="mockup-reopen" type="button" hidden>초과 상태 다시 보기</button>
+
+    <script>
+      const modal = document.getElementById("access-capacity-modal");
+      const closeButton = document.getElementById("access-capacity-close");
+      const linkedinContact = document.getElementById("linkedin-contact");
+      const reopenButton = document.getElementById("mockup-reopen");
+      const loginForm = document.getElementById("mock-login-form");
+      const loginId = document.getElementById("mock-id");
+      const backdrop = document.getElementById("access-capacity-backdrop");
+      let returnFocusTarget = loginId;
+
+      function focusableItems() {
+        return [linkedinContact, closeButton].filter((item) => !item.hidden);
+      }
+
+      function showCapacityModal(trigger = loginId) {
+        returnFocusTarget = trigger;
+        modal.hidden = false;
+        reopenButton.hidden = true;
+        document.body.style.overflow = "hidden";
+        linkedinContact.focus();
+      }
+
+      function closeCapacityModal() {
+        modal.hidden = true;
+        reopenButton.hidden = false;
+        document.body.style.overflow = "";
+        returnFocusTarget?.focus();
+      }
+
+      loginForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        showCapacityModal(event.submitter || loginId);
+      });
+
+      closeButton.addEventListener("click", closeCapacityModal);
+      backdrop.addEventListener("click", closeCapacityModal);
+      reopenButton.addEventListener("click", () => showCapacityModal(reopenButton));
+
+      window.addEventListener("keydown", (event) => {
+        if (modal.hidden) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeCapacityModal();
+          return;
+        }
+        if (event.key !== "Tab") return;
+        const items = focusableItems();
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      });
+
+      window.addEventListener("load", () => linkedinContact.focus());
+    </script>
+  </body>
+</html>
