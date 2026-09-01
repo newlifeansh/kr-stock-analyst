@@ -63,5 +63,8 @@ def test_deployment_workflow_enforces_staging_before_production() -> None:
     assert workflow.count('test -n "$RAILWAY_API_TOKEN"') == 2
     assert "      RAILWAY_TOKEN:" not in workflow
     assert workflow.count("npm install --global @railway/cli@5.45.7") == 2
+    assert workflow.count("railway up --detach --json") == 2
+    assert workflow.count('--message "github-sha=${{ github.sha }}"') == 2
+    assert "railway up --ci" not in workflow
     assert "name: production" in workflow
     assert "--production-url \"$PRODUCTION_BASE_URL\"" in workflow
