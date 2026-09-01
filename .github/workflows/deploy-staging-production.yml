@@ -59,14 +59,14 @@ jobs:
       name: staging
       url: ${{ vars.STAGING_BASE_URL || 'https://dark-theme-preview-staging.up.railway.app' }}
     env:
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
       - name: Validate Railway staging configuration
         run: |
-          test -n "$RAILWAY_TOKEN"
+          test -n "$RAILWAY_API_TOKEN"
           test -n "$STAGING_RAILWAY_PROJECT_ID"
           test -n "$STAGING_RAILWAY_SERVICE"
       - name: Install Railway CLI
@@ -147,14 +147,14 @@ jobs:
       name: production
       url: ${{ vars.PRODUCTION_BASE_URL }}
     env:
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
       - name: Validate Railway production configuration
         run: |
-          test -n "$RAILWAY_TOKEN"
+          test -n "$RAILWAY_API_TOKEN"
           test -n "$PRODUCTION_RAILWAY_PROJECT_ID"
           test -n "$PRODUCTION_RAILWAY_SERVICE"
           test -n "$PRODUCTION_BASE_URL"

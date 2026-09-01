@@ -59,6 +59,9 @@ def test_deployment_workflow_enforces_staging_before_production() -> None:
     assert '--project "$PRODUCTION_RAILWAY_PROJECT_ID"' in workflow
     assert '--service "$PRODUCTION_RAILWAY_SERVICE"' in workflow
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
+    assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 2
+    assert workflow.count('test -n "$RAILWAY_API_TOKEN"') == 2
+    assert "      RAILWAY_TOKEN:" not in workflow
     assert workflow.count("npm install --global @railway/cli@5.45.7") == 2
     assert "name: production" in workflow
     assert "--production-url \"$PRODUCTION_BASE_URL\"" in workflow
