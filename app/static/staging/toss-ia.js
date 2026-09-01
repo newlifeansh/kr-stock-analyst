@@ -672,6 +672,14 @@
   let stagingAiStockResponseRenderedFailedSources = 0;
   let stagingAiStockResponseSelectedState = "not_holding";
   let stagingAiStockResponseAverageBuyPrice = null;
+  let stagingAiStockResponseQuoteScopeSignature = "";
+  let stagingAiStockResponseLiveQuote = {
+    code: "",
+    price: null,
+    changeRate: null,
+    state: "idle",
+    isLive: false,
+  };
   const stagingAiStockResponseCache = new Map();
   const STAGING_AI_STOCK_RESPONSE_CACHE_MS = 2 * 60 * 1000;
   const STAGING_AI_STOCK_RESPONSE_INVESTOR_STATES = Object.freeze({
@@ -1286,6 +1294,7 @@
         personal_return_rate: perspective.returnRate,
         current_price: perspective.currentPrice,
         guide_rows: (perspective.rows || []).slice(0, 3),
+        decision_plan: (perspective.decisionPlan || []).slice(0, 3),
         hard_risk: Boolean(result.hardRisk),
         conflict: Boolean(result.conflict),
         limited: Boolean(result.limited),
@@ -1354,14 +1363,6 @@
       stagingAiStockResponseText("[data-staging-response-action]", summary.headline);
       stagingAiStockResponseText("[data-staging-response-summary]", summary.summary);
       stagingAiStockResponseText("[data-staging-response-reason]", summary.reason);
-      const nextList = stagingAiStockResponsePage.querySelector("[data-staging-response-next] ul");
-      const nextSection = stagingAiStockResponsePage.querySelector("[data-staging-response-next]");
-      if (nextList && summary.next_check) {
-        const first = nextList.querySelector("li") || document.createElement("li");
-        first.textContent = summary.next_check;
-        if (!first.isConnected) nextList.prepend(first);
-        if (nextSection) nextSection.hidden = false;
-      }
       finishStagingAiStockResponseSummary({
         requestedCode,
         requestedState,
@@ -1463,6 +1464,120 @@
     return row;
   };
 
+  const stagingAiStockResponseDecisionStepRow = (item = {}) => {
+    const row = document.createElement("li");
+    row.className = "staging-ai-stock-response-decision-step";
+    row.dataset.decisionKey = item.key || "check";
+    row.dataset.decisionTone = item.tone || "neutral";
+    const head = document.createElement("div");
+    head.className = "staging-ai-stock-response-decision-step-head";
+    const label = document.createElement("span");
+    label.textContent = item.label || "다음에 볼 때";
+    const status = document.createElement("em");
+    status.textContent = item.status || "조건 확인";
+    head.append(label, status);
+    const value = document.createElement("strong");
+    value.textContent = item.value || "가격 자료 부족";
+    const evidence = document.createElement("p");
+    evidence.textContent = item.evidence || "가격과 외국인·기관 매매가 함께 달라지는지 확인해요.";
+    row.append(head, value, evidence);
+    return row;
+  };
+
+  const stagingAiStockResponseQuoteTone = (value = stagingAiStockResponseLiveQuote.changeRate) => {
+    if (value === null || value === undefined || value === "") return "muted";
+    const rate = Number(value);
+    return Number.isFinite(rate) && rate > 0
+      ? "positive"
+      : Number.isFinite(rate) && rate < 0
+        ? "negative"
+        : "muted";
+  };
+
+  const renderStagingAiStockResponseLiveQuote = () => {
+    if (!stagingAiStockResponsePage) return;
+    const price = stagingAiStockResponseLiveQuote.price;
+    const changeRate = stagingAiStockResponseLiveQuote.changeRate;
+    const hasPrice = price !== null && price !== undefined && Number.isFinite(Number(price));
+    const hasRate = changeRate !== null && changeRate !== undefined && Number.isFinite(Number(changeRate));
+    const tone = stagingAiStockResponseQuoteTone(changeRate);
+    const quote = stagingAiStockResponsePage.querySelector("[data-staging-response-live-quote]");
+    const priceNode = stagingAiStockResponsePage.querySelector("[data-staging-response-live-price]");
+    const rateNode = stagingAiStockResponsePage.querySelector("[data-staging-response-live-rate]");
+    const stateNode = stagingAiStockResponsePage.querySelector("[data-staging-response-live-state]");
+    if (priceNode) priceNode.textContent = hasPrice
+      ? `${formatNumber(Math.round(Number(price)))}원`
+      : "시세 확인 중";
+    if (rateNode) {
+      rateNode.textContent = hasRate ? formatPercent(changeRate) : "--";
+      rateNode.dataset.quoteTone = tone;
+    }
+    const stateText = stagingAiStockResponseLiveQuote.state === "connected"
+      ? "실시간으로 반영 중"
+      : stagingAiStockResponseLiveQuote.state === "connecting"
+        ? "실시간 시세 연결 중"
+        : hasPrice
+          ? (stagingAiStockResponseLiveQuote.isLive ? "실시간 시세" : "가장 최근 시세")
+          : "시세를 불러오고 있어요";
+    if (stateNode) stateNode.textContent = stateText;
+    if (quote instanceof HTMLElement) {
+      quote.dataset.liveQuoteState = stagingAiStockResponseLiveQuote.state;
+      quote.dataset.quoteTone = tone;
+    }
+  };
+
+  const updateStagingAiStockResponseLiveQuote = (code, quote = {}) => {
+    if (String(code || "") !== stagingAiStockResponseLiveQuote.code || !quote) return;
+    const price = quote.price !== null && quote.price !== undefined
+      ? Number(quote.price)
+      : Number.NaN;
+    const changeRate = quote.change_rate !== null && quote.change_rate !== undefined
+      ? Number(quote.change_rate)
+      : Number.NaN;
+    if (Number.isFinite(price)) stagingAiStockResponseLiveQuote.price = price;
+    if (Number.isFinite(changeRate)) stagingAiStockResponseLiveQuote.changeRate = changeRate;
+    stagingAiStockResponseLiveQuote.state = "connected";
+    stagingAiStockResponseLiveQuote.isLive = true;
+    renderStagingAiStockResponseLiveQuote();
+  };
+
+  const syncStagingAiStockResponseQuoteScope = () => {
+    const active = Boolean(
+      !document.hidden
+      && stagingAiStockResponsePage
+      && !stagingAiStockResponsePage.hidden,
+    );
+    const code = active ? String(stagingAiStockResponsePage?.dataset.responseCode || "") : "";
+    const signature = `${active ? "detail" : "off"}:${code}`;
+    if (active && code && stagingAiStockResponseLiveQuote.code !== code) {
+      stagingAiStockResponseLiveQuote = {
+        code,
+        price: null,
+        changeRate: null,
+        state: "connecting",
+        isLive: false,
+      };
+    }
+    if (active && code && stagingAiStockResponseLiveQuote.state !== "connected") {
+      stagingAiStockResponseLiveQuote.state = "connecting";
+    }
+    renderStagingAiStockResponseLiveQuote();
+    if (signature === stagingAiStockResponseQuoteScopeSignature) return;
+    stagingAiStockResponseQuoteScopeSignature = signature;
+    if (typeof replaceQuoteStreamScope !== "function") return;
+    replaceQuoteStreamScope("staging-ai-stock-response", code ? [{
+      code,
+      handlers: {
+        onStatus: () => {
+          if (stagingAiStockResponseLiveQuote.code !== code) return;
+          stagingAiStockResponseLiveQuote.state = "connected";
+          renderStagingAiStockResponseLiveQuote();
+        },
+        onQuote: (payload) => updateStagingAiStockResponseLiveQuote(code, payload.quote),
+      },
+    }] : []);
+  };
+
   const renderStagingAiStockResponseLoading = (detail) => {
     if (!stagingAiStockResponsePage || !detail) return;
     stagingAiStockResponseSummaryToken += 1;
@@ -1470,6 +1585,16 @@
     stagingAiStockResponseRenderedFailedSources = 0;
     stagingAiStockResponsePage.dataset.responseTone = detail.tone || "neutral";
     stagingAiStockResponsePage.dataset.responseCode = detail.code || "";
+    if (stagingAiStockResponseLiveQuote.code !== String(detail.code || "")) {
+      stagingAiStockResponseLiveQuote = {
+        code: String(detail.code || ""),
+        price: null,
+        changeRate: null,
+        state: "connecting",
+        isLive: false,
+      };
+    }
+    renderStagingAiStockResponseLiveQuote();
     syncStagingAiStockResponseInvestorState(
       stagingAiStockResponseInvestorStateForCode(detail.code),
       stagingAiStockResponseAverageBuyPriceForCode(detail.code),
@@ -1532,6 +1657,39 @@
     const perspective = stagingAiStockResponsePerspectiveCopy(result, investorState);
     stagingAiStockResponsePage.dataset.responseTone = result.tone || "neutral";
     stagingAiStockResponsePage.dataset.responseCode = result.code || "";
+    const decisionLevels = result.decisionLevels || {};
+    const resultCode = String(result.code || "");
+    const resultPrice = decisionLevels.currentPrice;
+    const resultChangeRate = decisionLevels.changeRate;
+    if (stagingAiStockResponseLiveQuote.code !== resultCode) {
+      stagingAiStockResponseLiveQuote = {
+        code: resultCode,
+        price: resultPrice !== null && resultPrice !== undefined && Number.isFinite(Number(resultPrice))
+          ? Number(resultPrice)
+          : null,
+        changeRate: resultChangeRate !== null && resultChangeRate !== undefined && Number.isFinite(Number(resultChangeRate))
+          ? Number(resultChangeRate)
+          : null,
+        state: "snapshot",
+        isLive: decisionLevels.quoteIsLive === true,
+      };
+    } else {
+      if (
+        stagingAiStockResponseLiveQuote.price === null
+        && resultPrice !== null
+        && resultPrice !== undefined
+        && Number.isFinite(Number(resultPrice))
+      ) stagingAiStockResponseLiveQuote.price = Number(resultPrice);
+      if (
+        stagingAiStockResponseLiveQuote.changeRate === null
+        && resultChangeRate !== null
+        && resultChangeRate !== undefined
+        && Number.isFinite(Number(resultChangeRate))
+      ) stagingAiStockResponseLiveQuote.changeRate = Number(resultChangeRate);
+      stagingAiStockResponseLiveQuote.isLive = stagingAiStockResponseLiveQuote.isLive
+        || decisionLevels.quoteIsLive === true;
+    }
+    renderStagingAiStockResponseLiveQuote();
     setStagingAiStockResponseDisplay("loading", `내 상황을 ${STAGING_AI_STOCK_RESPONSE_INVESTOR_STATES[investorState].label} 기준으로 반영해 쉬운 말로 정리하고 있어요.`);
     const detail = readStagingAiStockResponseDetail(result.code) || {};
     const stanceCopy = stagingAiStockResponseStanceCopy(result.stance);
@@ -1571,6 +1729,12 @@
       stockLink.setAttribute("aria-label", `${result.name || result.code || "종목"} 상세에서 차트 보기`);
     }
 
+    const buyTrigger = decisionLevels.buyTrigger !== null && decisionLevels.buyTrigger !== undefined
+      ? Number(decisionLevels.buyTrigger)
+      : Number.NaN;
+    const buyTriggerText = Number.isFinite(buyTrigger)
+      ? `${formatNumber(Math.round(buyTrigger))}원`
+      : "상승 흐름 확인선";
     stagingAiStockResponseText(
       "[data-staging-response-guide-title]",
       perspective.positionMode === "holding_profit"
@@ -1579,13 +1743,13 @@
           ? "손실 제한선과 회복선을 나눠 보세요"
           : perspective.positionMode === "holding_unknown"
             ? "평균 매수가를 입력해 손익 기준을 확인하세요"
-            : "관망하다가 다시 볼 매수 포인트예요",
+            : "가격이 내려올 때와 올라갈 때를 나눠 보세요",
     );
     stagingAiStockResponseText(
       "[data-staging-response-guide-intro]",
       perspective.positionMode?.startsWith("holding")
         ? "현재가와 내 평균 매수가, 가격 흐름을 함께 비교한 참고 기준이에요."
-        : "현재가를 바로 사는 기준이 아니라 판단을 다시 확인할 관찰 가격이에요.",
+        : `${buyTriggerText}은 바로 사는 가격이 아니라 상승 흐름이 살아나는지 확인하는 선이에요. 가격이 내려오면 눌림목에서 하락이 멈추는지도 따로 봐요.`,
     );
     const guideRows = stagingAiStockResponsePage.querySelector("[data-staging-response-guide-rows]");
     if (guideRows) {
@@ -1628,7 +1792,7 @@
     if (warningSection) warningSection.hidden = warningItems.length === 0;
 
     const nextSection = stagingAiStockResponsePage.querySelector("[data-staging-response-next]");
-    const nextList = nextSection?.querySelector("ul");
+    const nextList = nextSection?.querySelector("[data-staging-response-decision-plan]");
     const deterministicNextChecks = (perspective.nextChecks || []).map(
       (item) => stagingAiStockResponseFriendlyNextCheck(item),
     );
@@ -1639,14 +1803,32 @@
         ? (result.nextChecks || []).map((item) => stagingAiStockResponseFriendlyNextCheck(item))
         : []),
     ].filter((item, index, items) => item && items.indexOf(item) === index).slice(0, 5);
-    if (nextList) {
-      nextList.replaceChildren(...perspectiveNextChecks.map((item) => {
-        const row = document.createElement("li");
-        row.textContent = item;
-        return row;
+    const decisionPlan = Array.isArray(perspective.decisionPlan) && perspective.decisionPlan.length
+      ? perspective.decisionPlan
+      : perspectiveNextChecks.slice(0, 3).map((item, index) => ({
+        key: `check_${index + 1}`,
+        label: `${index + 1}번째 확인`,
+        status: "조건 확인",
+        value: "가격과 매매 흐름",
+        evidence: item,
+        tone: "neutral",
       }));
+    if (nextList) {
+      nextList.replaceChildren(...decisionPlan.map(
+        (item) => stagingAiStockResponseDecisionStepRow(item),
+      ));
     }
-    if (nextSection) nextSection.hidden = perspectiveNextChecks.length === 0;
+    stagingAiStockResponseText(
+      "[data-staging-response-next-summary]",
+      perspective.positionMode === "holding_profit"
+        ? "오르면 일부 이익을 지키고, 내려오면 남은 수량의 보호 기준을 확인하세요."
+        : perspective.positionMode === "holding_loss"
+          ? "더 내려갈 때 손실을 줄일 기준과 다시 회복할 때 확인할 조건을 나눠 보세요."
+          : perspective.positionMode?.startsWith("holding")
+            ? "내 평균 매수가와 현재가를 비교해 계속 보유할 기준과 수량을 줄일 기준을 나눠 보세요."
+            : "가격이 내려오면 하락이 멈추는지, 올라가면 확인선 위에서 흐름을 유지하는지 순서대로 보세요.",
+    );
+    if (nextSection) nextSection.hidden = decisionPlan.length === 0;
     const retry = stagingAiStockResponsePage.querySelector("[data-staging-response-retry]");
     if (retry instanceof HTMLButtonElement) retry.hidden = failedSources === 0;
     if (stagingGptPageSummaryEnabled) {
@@ -1810,6 +1992,7 @@
     document.body.dataset.stagingAiStockResponse = "open";
     document.body.dataset.view = STAGING_AI_STOCK_RESPONSE_VIEW;
     window.scrollTo({ top: 0, behavior: "auto" });
+    syncStagingAiStockResponseQuoteScope();
     void loadStagingAiStockResponse(detail);
     if (focusBack) {
       window.requestAnimationFrame(() => contextualBack?.focus());
@@ -1837,6 +2020,11 @@
     stagingAiStockResponseAbortController = null;
     stagingAiStockResponseRequestToken += 1;
     stagingAiStockResponseSummaryToken += 1;
+    stagingAiStockResponseQuoteScopeSignature = "";
+    stagingAiStockResponseLiveQuote.state = "idle";
+    if (typeof clearQuoteStreamScope === "function") {
+      clearQuoteStreamScope("staging-ai-stock-response");
+    }
     stagingAiStockResponsePage.hidden = true;
     homeView.hidden = false;
     delete document.body.dataset.stagingAiStockResponse;
@@ -1953,6 +2141,19 @@
               <time class="staging-ai-stock-response-updated" data-staging-response-updated>업데이트 확인 중</time>
               <span>자료마다 기준시각이 달라요</span>
             </div>
+            <section class="staging-ai-stock-response-live-quote" data-staging-response-live-quote aria-label="현재 주가">
+              <dl>
+                <div>
+                  <dt>현재 주당 가격</dt>
+                  <dd data-staging-response-live-price>시세 확인 중</dd>
+                </div>
+                <div>
+                  <dt>오늘 등락률</dt>
+                  <dd data-staging-response-live-rate>--</dd>
+                </div>
+              </dl>
+              <p data-staging-response-live-state>실시간 시세 연결 중</p>
+            </section>
           </header>
           <section class="staging-ai-stock-response-context" aria-labelledby="staging-ai-stock-response-context-title">
             <span id="staging-ai-stock-response-context-title">이 화면이 열린 이유</span>
@@ -2035,17 +2236,17 @@
           <section class="staging-ai-stock-response-guide" aria-labelledby="staging-ai-stock-response-guide-title">
             <header>
               <span>내 상황별 가격 가이드</span>
-              <h3 id="staging-ai-stock-response-guide-title" data-staging-response-guide-title>관망하다가 다시 볼 매수 포인트예요</h3>
-              <p data-staging-response-guide-intro>현재가를 바로 사는 기준이 아니라 판단을 다시 확인할 관찰 가격이에요.</p>
+              <h3 id="staging-ai-stock-response-guide-title" data-staging-response-guide-title>가격이 내려올 때와 올라갈 때를 나눠 보세요</h3>
+              <p data-staging-response-guide-intro>높은 확인선은 바로 사는 가격이 아니며, 눌림목과 상승 흐름을 따로 확인해요.</p>
             </header>
             <div class="staging-ai-stock-response-guide-rows" data-staging-response-guide-rows></div>
             <p class="staging-ai-stock-response-guide-note">가격만으로 결정하지 말고 같은 시점의 외국인·기관 매매, 뉴스, 회사 공시, 증권사 리포트를 함께 확인해 주세요.</p>
           </section>
           <section class="staging-ai-stock-response-next" data-staging-response-next hidden aria-labelledby="staging-ai-stock-response-next-title">
-            <span>다음 확인</span>
-            <h3 id="staging-ai-stock-response-next-title">판단이 바뀌려면</h3>
-            <p>목표가나 거래 지시가 아니라, AI 판단이 달라질 수 있는 관찰 기준이에요.</p>
-            <ul></ul>
+            <span>앞으로 볼 것</span>
+            <h3 id="staging-ai-stock-response-next-title">앞으로 이렇게 확인하세요</h3>
+            <p data-staging-response-next-summary>가격이 내려올 때와 올라갈 때를 나눠 순서대로 확인해요.</p>
+            <ol data-staging-response-decision-plan></ol>
           </section>
           <section class="staging-ai-stock-response-warnings" data-staging-response-warnings hidden aria-labelledby="staging-ai-stock-response-warning-title">
             <h3 id="staging-ai-stock-response-warning-title">엇갈리거나 부족한 부분</h3>
@@ -7236,6 +7437,7 @@
       syncStagingFeed();
       decorateStagingBriefingArticle();
       syncRecommendationDetailQuoteScope();
+      syncStagingAiStockResponseQuoteScope();
       syncContextualHeader();
       syncStagingWatchlist();
       decorateWatchRows();
@@ -7276,6 +7478,7 @@
     syncPrimaryTopAction(view);
     syncRecentStocksRoute();
     syncRecommendationDetailQuoteScope();
+    syncStagingAiStockResponseQuoteScope();
     syncContextualHeader(view);
     scheduleMarketContextRotation();
     syncHotCommunityQuoteScope();
@@ -7327,10 +7530,12 @@
       syncHotCommunityRotation();
       syncRecentStockQuoteScope();
       syncRecommendationDetailQuoteScope();
+      syncStagingAiStockResponseQuoteScope();
       if (typeof clearQuoteStreamScope === "function") {
         clearQuoteStreamScope("staging-recent-stocks");
         clearQuoteStreamScope("staging-hot-community");
         clearQuoteStreamScope("staging-recommend-detail");
+        clearQuoteStreamScope("staging-ai-stock-response");
       }
       return;
     }
@@ -7339,6 +7544,7 @@
     syncHotCommunityRotation();
     syncRecentStockQuoteScope();
     syncRecommendationDetailQuoteScope();
+    syncStagingAiStockResponseQuoteScope();
   });
   window.addEventListener("popstate", (event) => {
     const returningFromAiStockResponse = !stagingAiStockResponsePage?.hidden;

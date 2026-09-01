@@ -845,7 +845,7 @@ def test_staging_v122_keeps_feed_root_header_and_bottom_navigation_visible():
     css = client.get("/assets/staging/toss-fidelity.css").text
     js = client.get("/assets/staging/toss-ia.js").text
 
-    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
+    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
     rules = css.split(
         "/* v122 — Feed is a primary route: keep the global header and bottom navigation. */",
         1,
@@ -909,7 +909,7 @@ def test_staging_v128_falls_back_for_ios_standalone_chart_headers():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert "contextual-safe-area-v128" in shell
-    assert "20260901-stock-title-position-guide-v85" in shell
+    assert "20260901-stock-response-scenarios-v86" in shell
     for contract in (
         'const isIosDevice = /iP(?:hone|ad|od)/.test(navigator.userAgent)',
         'navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1',
@@ -1963,7 +1963,7 @@ def test_staging_v69_rolls_the_header_through_major_market_indices():
     css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
+    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
     for contract in (
         'data-staging-index-ticker aria-live="off"',
         'const STAGING_MARKET_CONTEXT_CODES = ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "DOW", "SOX"]',
@@ -2054,7 +2054,7 @@ def test_staging_v74_removes_exchange_metadata_and_aligns_ai_signal_rows():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
+    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
     assert 'codeLine.className = "staging-ai-code"' not in js
     assert 'identity?.querySelector(".staging-ai-code")?.remove()' in js
 
@@ -2195,6 +2195,9 @@ def test_staging_v141_opens_a_beginner_friendly_stock_response_in_a_dedicated_pa
     assert 'data-staging-response-metrics' in js
     assert 'data-staging-response-warnings' in js
     assert 'data-staging-response-next' in js
+    assert 'data-staging-response-live-price' in js
+    assert 'data-staging-response-live-rate' in js
+    assert 'data-staging-response-decision-plan' in js
     assert 'data-staging-response-retry' in js
     assert 'data-staging-response-stock-link' in js
     assert 'data-staging-response-announcement' in js
@@ -2203,12 +2206,13 @@ def test_staging_v141_opens_a_beginner_friendly_stock_response_in_a_dedicated_pa
         "이 화면이 열린 이유",
         "쉽게 풀어보면",
         "왜 이렇게 보나요?",
-        "판단이 바뀌려면",
+        "앞으로 이렇게 확인하세요",
         "왜 이렇게 봤나요?",
         "점수와 계산 방법 알아보기",
     )
     positions = [page_markup.index(label) for label in expected_order]
     assert positions == sorted(positions)
+    assert "판단이 바뀌려면" not in page_markup
     assert "판단 신뢰도" not in page_markup
     assert "지금 판단" in page_markup
     assert "신호 방향" not in page_markup
@@ -3153,7 +3157,7 @@ def test_staging_v132_uses_home_only_notification_action_and_compact_sheet_rows(
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v132 — make notifications the home action") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
+    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
     assert "notification-sheet-v132" in shell
     assert 'bell: \'<path d="M27.5 16.5a9.5 9.5 0 0 0-19 0' in js
     for contract in (
@@ -3191,7 +3195,7 @@ def test_staging_v143_unifies_root_header_action_icon_geometry():
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v143 — one optical outline system") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
+    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
     assert "header-action-icons-v143" in shell
     for contract in (
         "const topActionGlyphs = Object.freeze({",
@@ -3229,7 +3233,7 @@ def test_staging_v146_explains_two_detail_pages_without_exposing_model_provenanc
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v146 — the model stays invisible") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
+    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
     assert "plain-language-detail-v146" in staging_shell
     assert "investor-action-copy-v147" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
@@ -3342,6 +3346,59 @@ def test_staging_v149_uses_two_holding_states_average_price_and_finished_copy():
     ]
 
 
+def test_staging_v151_shows_live_quote_and_separates_pullback_from_breakout_confirmation():
+    client = TestClient(staging_app)
+    shell = client.get("/dashboard?view=home").text
+    js = client.get("/assets/staging/toss-ia.js").text
+    logic = client.get("/assets/staging/ai-stock-response-logic.js").text
+    css = client.get("/assets/staging/toss-fidelity.css").text
+    rules = css[css.index("/* v151 — live quote context") :]
+
+    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
+    assert "position-input-v150-live-quote-decision-plan-v151" in shell
+    for contract in (
+        "현재 주당 가격",
+        "오늘 등락률",
+        'data-staging-response-live-price',
+        'data-staging-response-live-rate',
+        'data-staging-response-live-state',
+        'replaceQuoteStreamScope("staging-ai-stock-response"',
+        'clearQuoteStreamScope("staging-ai-stock-response")',
+        "가격이 내려올 때와 올라갈 때를 나눠 보세요",
+        "앞으로 이렇게 확인하세요",
+        'data-staging-response-decision-plan',
+        'data-staging-response-next-summary',
+        "stagingAiStockResponseDecisionStepRow",
+    ):
+        assert contract in js
+    assert "판단이 바뀌려면" not in js
+    summary_source = js[
+        js.index("const applyStagingAiStockResponseSummary") :
+        js.index("const stagingAiStockResponseKeyReasonRow")
+    ]
+    assert "summary.next_check" not in summary_source
+    assert 'querySelector("[data-staging-response-next] ul")' not in summary_source
+    for contract in (
+        '"눌림목 확인 구간"',
+        '"상승 흐름 확인선"',
+        '"매수가 아님"',
+        '"pullback"',
+        '"breakout"',
+        '"wait"',
+        "바로 따라 사기보다",
+    ):
+        assert contract in logic
+    for contract in (
+        ".staging-ai-stock-response-live-quote",
+        ".staging-ai-stock-response-decision-step",
+        '[data-quote-tone="positive"]',
+        '[data-quote-tone="negative"]',
+        "grid-template-columns: repeat(2, minmax(0, 1fr)) !important",
+        "word-break: keep-all !important",
+    ):
+        assert contract in rules
+
+
 def test_staging_v145_refines_three_daily_briefings_without_changing_news_or_signal_data():
     staging_client = TestClient(staging_app)
     production_client = TestClient(production_app)
@@ -3351,7 +3408,7 @@ def test_staging_v145_refines_three_daily_briefings_without_changing_news_or_sig
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v145 — GPT refines the current morning") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
+    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
     assert "gpt-briefing-v145" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' not in production_shell

@@ -799,6 +799,7 @@ def test_gpt_recommendation_detail_isolated_from_live_quote_updates() -> None:
     assert 'page.route_web_socket(' in case_source
     assert '"**/stocks/quotes*"' in case_source
     assert '"**/stocks/105560/quote*"' in case_source
+    assert "content?.dataset.summaryDisplay === 'ready'" in case_source
 
 
 def test_ai_signal_live_return_contract_is_registered_for_e2e() -> None:
@@ -882,6 +883,12 @@ def test_home_ai_response_e2e_unhides_the_fixture_parent_section() -> None:
     assert "주가에 영향을 줄 핵심 이벤트" not in case_source
     assert "summary_request_count_before_return" in case_source
     assert "requests.length === expectedCount" in case_source
+    assert '"change_rate": 1.25' in case_source
+    assert '"현재 주당 가격"' in case_source
+    assert '"오늘 등락률"' in case_source
+    assert '"상승 흐름 확인선"' in case_source
+    assert '"매수가 아님"' in case_source
+    assert '!= [["pullback", "breakout", "wait"]]' in case_source
     assert "personal.hidden = false;" in case_source
     assert case_source.index("personal.hidden = false;") < case_source.index(
         'personal.wait_for(state="visible")'

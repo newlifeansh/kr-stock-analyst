@@ -12,7 +12,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function createAiStockResponseLogic() {
   "use strict";
 
-  const VERSION = "20260901-position-guide-v2";
+  const VERSION = "20260901-decision-scenarios-v3";
   const WEIGHTS = Object.freeze({
     chart: 25,
     flow: 25,
@@ -542,6 +542,10 @@
     if (currentPrice === null || currentPrice <= 0) {
       return {
         currentPrice: null,
+        changeRate: number(dashboard?.quote?.change_rate),
+        quoteAsOf: dashboard?.quote?.as_of || dashboard?.quote?.trade_date || dashboard?.as_of || null,
+        marketSession: compact(dashboard?.quote?.market_session),
+        quoteIsLive: dashboard?.quote?.is_live === true,
         watchLow: null,
         watchHigh: null,
         buyTrigger: null,
@@ -620,6 +624,10 @@
     );
     return {
       currentPrice: roundTradePrice(currentPrice),
+      changeRate: number(dashboard?.quote?.change_rate),
+      quoteAsOf: dashboard?.quote?.as_of || dashboard?.quote?.trade_date || dashboard?.as_of || null,
+      marketSession: compact(dashboard?.quote?.market_session),
+      quoteIsLive: dashboard?.quote?.is_live === true,
       watchLow,
       watchHigh,
       buyTrigger,
@@ -657,6 +665,15 @@
   };
 
   const guideRow = (key, label, status, value, evidence, tone = "neutral") => ({
+    key,
+    label,
+    status,
+    value,
+    evidence,
+    tone,
+  });
+
+  const decisionStep = (key, label, status, value, evidence, tone = "neutral") => ({
     key,
     label,
     status,
@@ -712,22 +729,22 @@
         rows: [
           guideRow(
             "watch_zone",
-            buyConditionReady ? "1차 접근 참고 구간" : "가격 안정 확인 구간",
-            buyConditionReady ? "분할 접근 참고" : "관망",
+            buyConditionReady ? "가격이 내려올 때 볼 구간" : "눌림목 확인 구간",
+            buyConditionReady ? "1차 분할 매수 검토" : "하락 멈춤 확인",
             levels.watchLow && levels.watchHigh
               ? `${numberFormatter.format(levels.watchLow)}~${numberFormatter.format(levels.watchHigh)}원`
               : "가격 자료 부족",
             buyConditionReady
-              ? "이 구간에서 가격이 밀리지 않고 거래대금과 외국인·기관 매매가 유지되는지 확인해요."
-              : "이 가격대가 매수 지시선은 아니며, 하락이 멈추고 거래 흐름이 회복되는지 보는 구간이에요.",
+              ? "가격이 이 구간까지 내려온 뒤 더 떨어지지 않고, 실제 거래 규모와 외국인·기관 매매가 좋아지면 1차 분할 매수를 검토해요."
+              : "가격이 이 구간까지 내려온 뒤 더 떨어지지 않고 반등하는지 보는 눌림목 구간이에요. 가격에 닿았다는 이유만으로 바로 사지는 않아요.",
             buyConditionReady ? "positive" : "neutral",
           ),
           guideRow(
             "buy_trigger",
-            "매수 전환 확인 가격",
-            "조건 확인",
+            "상승 흐름 확인선",
+            "매수가 아님",
             priceText(levels.buyTrigger),
-            "이 가격 위에서 장을 마치고 실제 거래 규모, 외국인·기관 매매, 뉴스가 함께 좋아질 때 매수 관점을 다시 확인해요.",
+            "현재가보다 높은 이 가격은 바로 사는 매수가가 아니에요. 이 가격 위에서 장을 마치고 실제 거래 규모와 외국인·기관 매매가 함께 좋아지면 상승 흐름이 다시 확인된 것으로 봐요.",
             "positive",
           ),
           guideRow(
@@ -739,9 +756,37 @@
             "negative",
           ),
         ],
+        decisionPlan: [
+          decisionStep(
+            "pullback",
+            "가격이 내려올 때",
+            "1차 분할 매수 검토",
+            levels.watchLow && levels.watchHigh
+              ? `${numberFormatter.format(levels.watchLow)}~${numberFormatter.format(levels.watchHigh)}원`
+              : "가격 자료 부족",
+            "이 구간에서 하락이 멈추고 반등하면서 외국인·기관의 매도가 줄면, 적은 수량부터 나눠 살지 검토해요.",
+            "neutral",
+          ),
+          decisionStep(
+            "breakout",
+            "가격이 올라갈 때",
+            "매수가 아님",
+            priceText(levels.buyTrigger),
+            "이 가격은 상승 흐름 확인선이에요. 거래가 늘며 이 가격 위에서 장을 마쳐도 바로 따라 사기보다, 다시 이 가격을 지키는지 확인한 뒤 분할 매수를 검토해요.",
+            "positive",
+          ),
+          decisionStep(
+            "wait",
+            "계속 기다릴 때",
+            "관망 유지",
+            priceText(levels.riskLine),
+            "이 가격 아래에서 장을 마치거나 외국인·기관의 매도가 더 늘면 신규 매수는 계속 미뤄요.",
+            "negative",
+          ),
+        ],
         nextChecks: unique([
           number(levels.buyTrigger) !== null
-            ? `${priceText(levels.buyTrigger)} 위에서 장을 마치는지`
+            ? `${priceText(levels.buyTrigger)} 위에서 장을 마친 뒤 다시 그 가격을 지키는지`
             : null,
           ...commonNext,
         ]).slice(0, 5),
@@ -764,6 +809,32 @@
           guideRow("current_price", "현재가", "기준 가격", priceText(currentPrice), "평균 매수가와 비교하면 현재 수익·손실 구간을 계산할 수 있어요."),
           guideRow("risk_line", "손실 제한 참고선", "주의", priceText(levels.riskLine), "가격이 이 기준 아래로 내려가면서 외국인과 기관의 매도까지 늘어나는지 확인해요.", "negative"),
           guideRow("first_sell", "1차 분할 매도 참고선", "수익 관리", priceText(levels.firstSell), "수익권에 도달하면 일부 이익을 나눠 지킬지 검토하는 참고 가격이에요.", "positive"),
+        ],
+        decisionPlan: [
+          decisionStep(
+            "enter_average",
+            "먼저 할 일",
+            "평균 매수가 입력",
+            "내 매수가 확인",
+            "내 평균 매수가를 입력하면 현재 수익인지 손실인지 계산해 상황에 맞는 대응 기준을 보여드려요.",
+            "neutral",
+          ),
+          decisionStep(
+            "unknown_down",
+            "가격이 내려가면",
+            "위험 기준 확인",
+            priceText(levels.riskLine),
+            "이 가격 아래에서 장을 마치고 외국인·기관 매도도 늘면 보유 수량을 줄일지 검토해요.",
+            "negative",
+          ),
+          decisionStep(
+            "unknown_up",
+            "가격이 올라가면",
+            "일부 매도 검토",
+            priceText(levels.firstSell),
+            "평균 매수가를 입력한 뒤 실제 수익권이라면 이 가격 부근에서 일부 이익을 지킬지 검토해요.",
+            "positive",
+          ),
         ],
         nextChecks: unique([
           "내 평균 매수가를 입력해 현재 수익·손실 구간을 확인하기",
@@ -797,6 +868,32 @@
           guideRow("first_sell", "1차 분할 매도 참고선", "수익 관리", priceText(levels.firstSell), "이 가격 부근에서 일부 이익을 먼저 확보할지 검토해요.", "positive"),
           guideRow("protect", "이익 보호 기준", "주의", priceText(protectLine), "가격이 이 기준 아래로 밀리고 외국인과 기관의 매도도 늘어나면 남은 보유분을 다시 점검해요.", "negative"),
         ],
+        decisionPlan: [
+          decisionStep(
+            "take_profit",
+            "가격이 더 오르면",
+            "일부 매도 검토",
+            priceText(levels.firstSell),
+            "이 가격 부근에서는 전량을 한 번에 팔기보다 보유 수량 일부를 나눠 팔아 이익을 지킬지 검토해요.",
+            "positive",
+          ),
+          decisionStep(
+            "protect_profit",
+            "가격이 다시 내려오면",
+            "보유 기준 재점검",
+            priceText(protectLine),
+            "이 가격 아래에서 장을 마치고 외국인·기관의 매도도 늘면 남은 보유 수량을 줄일지 검토해요.",
+            "negative",
+          ),
+          decisionStep(
+            "keep_holding",
+            "계속 보유하려면",
+            "흐름 유지 확인",
+            `${priceText(protectLine)} 위 유지`,
+            "가격이 이익 보호 기준 위를 지키고 외국인·기관 매매와 최근 뉴스가 나빠지지 않으면 남은 수량의 보유 기준을 유지해요.",
+            "neutral",
+          ),
+        ],
         nextChecks: unique([
           number(levels.firstSell) !== null
             ? `${priceText(levels.firstSell)} 부근에서 일부 이익을 지킬지`
@@ -825,6 +922,32 @@
           guideRow("risk_line", "손실 제한 참고선", "주의", priceText(levels.riskLine), "이 가격 아래에서 장을 마치고 외국인과 기관의 매도도 늘어나면 보유 수량을 줄일지 점검해요.", "negative"),
           guideRow("recovery", "회복 확인 가격", "조건 확인", priceText(levels.buyTrigger), "이 가격 위로 회복하면서 실제 거래 규모와 외국인·기관 매매가 좋아지는지 확인해요.", "positive"),
         ],
+        decisionPlan: [
+          decisionStep(
+            "limit_loss",
+            "가격이 더 내려가면",
+            "손실 제한 검토",
+            priceText(levels.riskLine),
+            "이 가격 아래에서 장을 마치고 외국인·기관 매도도 늘면 보유 수량을 줄여 손실을 제한할지 검토해요.",
+            "negative",
+          ),
+          decisionStep(
+            "recovery",
+            "가격이 회복하면",
+            "회복 여부 확인",
+            priceText(levels.buyTrigger),
+            "이 가격 위로 올라온 뒤 다시 밀리지 않고 실제 거래 규모와 외국인·기관 매매가 좋아지는지 확인해요.",
+            "positive",
+          ),
+          decisionStep(
+            "hold_loss",
+            "계속 보유하려면",
+            "조건 동시 확인",
+            "가격·매매 함께 확인",
+            "가격만 반등하는 경우보다 외국인·기관 매도 감소와 부정 뉴스 완화가 함께 나타나는지 확인해요.",
+            "neutral",
+          ),
+        ],
         nextChecks: unique([
           number(levels.riskLine) !== null
             ? `${priceText(levels.riskLine)} 아래에서 장을 마치는지`
@@ -851,6 +974,32 @@
         guideRow("return", "내 수익률", "본전권", percentText(returnRate), `평균 매수가 ${priceText(averagePrice)}과 현재가 ${priceText(currentPrice)}을 비교했어요.`),
         guideRow("risk_line", "위험 관리 기준", "주의", priceText(levels.riskLine), "이 가격 아래로 밀리면 보유 기준을 다시 점검해요.", "negative"),
         guideRow("first_sell", "수익 관리 참고선", "조건 확인", priceText(levels.firstSell), "이 가격에 가까워지면 분할 매도로 이익을 지킬지 검토해요.", "positive"),
+      ],
+      decisionPlan: [
+        decisionStep(
+          "flat_down",
+          "가격이 내려가면",
+          "보유 기준 재점검",
+          priceText(levels.riskLine),
+          "이 가격 아래에서 장을 마치고 외국인·기관 매도도 늘면 보유 수량을 줄일지 검토해요.",
+          "negative",
+        ),
+        decisionStep(
+          "flat_up",
+          "가격이 올라가면",
+          "일부 매도 검토",
+          priceText(levels.firstSell),
+          "이 가격에 가까워지며 수익권으로 바뀌면 일부 이익을 먼저 지킬지 검토해요.",
+          "positive",
+        ),
+        decisionStep(
+          "flat_hold",
+          "계속 보유하려면",
+          "매매 흐름 확인",
+          "가격·매매 함께 확인",
+          "위험 기준 위를 지키면서 외국인·기관 매도가 늘지 않는지 함께 확인해요.",
+          "neutral",
+        ),
       ],
       nextChecks: unique([
         number(levels.riskLine) !== null

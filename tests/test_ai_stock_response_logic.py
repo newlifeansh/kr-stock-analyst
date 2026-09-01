@@ -67,7 +67,14 @@ def _complete_payload() -> dict[str, object]:
             "code": "005930",
             "name": "삼성전자",
             "as_of": "2026-08-29T12:00:00+09:00",
-            "quote": {"price": 275_000, "trade_date": "2026-08-28"},
+            "quote": {
+                "price": 275_000,
+                "change_rate": 1.82,
+                "trade_date": "2026-08-28",
+                "as_of": "2026-08-29T12:00:00+09:00",
+                "market_session": "regular",
+                "is_live": True,
+            },
             "coverage": {"price": True},
             "company_profile": {"sector": "반도체", "industry": "반도체 제조"},
             "chart_analysis": {
@@ -183,7 +190,10 @@ def test_multi_signal_response_uses_fixed_weights_and_surfaces_conflict() -> Non
     result = _build(_complete_payload())
     metrics = {item["key"]: item for item in result["metrics"]}
 
-    assert result["version"] == "20260901-position-guide-v2"
+    assert result["version"] == "20260901-decision-scenarios-v3"
+    assert result["decisionLevels"]["currentPrice"] == 275_000
+    assert result["decisionLevels"]["changeRate"] == pytest.approx(1.82)
+    assert result["decisionLevels"]["quoteIsLive"] is True
     assert [item["key"] for item in result["metrics"]] == [
         "chart",
         "flow",
@@ -366,9 +376,20 @@ def test_not_holding_guide_explains_observation_and_data_owned_buy_points() -> N
     assert "최근 뉴스" in guide["reason"]
     assert "증권사 리포트" in guide["reason"]
     assert rows["watch_zone"]["value"].endswith("원")
+    assert rows["watch_zone"]["label"] == "눌림목 확인 구간"
     assert rows["buy_trigger"]["value"] == "285,000원"
+    assert rows["buy_trigger"]["label"] == "상승 흐름 확인선"
+    assert rows["buy_trigger"]["status"] == "매수가 아님"
+    assert "바로 사는 매수가가 아니에요" in rows["buy_trigger"]["evidence"]
     assert rows["risk_line"]["value"] == "259,000원"
-    assert guide["nextChecks"][0] == "285,000원 위에서 장을 마치는지"
+    assert [step["key"] for step in guide["decisionPlan"]] == [
+        "pullback",
+        "breakout",
+        "wait",
+    ]
+    assert guide["decisionPlan"][1]["status"] == "매수가 아님"
+    assert "바로 따라 사기보다" in guide["decisionPlan"][1]["evidence"]
+    assert guide["nextChecks"][0] == "285,000원 위에서 장을 마친 뒤 다시 그 가격을 지키는지"
     assert all("250,000원" not in item for item in guide["nextChecks"])
 
 
@@ -386,6 +407,11 @@ def test_holding_profit_guide_uses_average_price_for_partial_profit_protection()
     assert rows["return"]["evidence"] == "평균 매수가 240,000원과 현재가 275,000원을 비교했어요."
     assert rows["first_sell"]["value"] == "285,000원"
     assert rows["protect"]["value"] == "259,000원"
+    assert [step["key"] for step in guide["decisionPlan"]] == [
+        "take_profit",
+        "protect_profit",
+        "keep_holding",
+    ]
 
 
 def test_holding_loss_guide_separates_loss_limit_and_recovery_prices() -> None:
@@ -400,6 +426,11 @@ def test_holding_loss_guide_separates_loss_limit_and_recovery_prices() -> None:
     assert guide["returnRate"] == pytest.approx(-11.290322, rel=1e-5)
     assert rows["risk_line"]["value"] == "259,000원"
     assert rows["recovery"]["value"] == "285,000원"
+    assert [step["key"] for step in guide["decisionPlan"]] == [
+        "limit_loss",
+        "recovery",
+        "hold_loss",
+    ]
 
 
 def test_holding_without_average_price_does_not_manufacture_personal_return() -> None:

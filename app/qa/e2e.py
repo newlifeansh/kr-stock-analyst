@@ -3828,7 +3828,14 @@ def run_e2e_checks(
                             "code": "035720",
                             "name": "카카오",
                             "as_of": "2026-08-29T10:30:00+09:00",
-                            "quote": {"price": 60_000, "trade_date": "2026-08-28"},
+                            "quote": {
+                                "price": 60_000,
+                                "change_rate": 1.25,
+                                "trade_date": "2026-08-28",
+                                "as_of": "2026-08-29T10:30:00+09:00",
+                                "market_session": "regular",
+                                "is_live": True,
+                            },
                             "coverage": {"price": True},
                             "company_profile": {"sector": "인터넷", "industry": "인터넷 서비스"},
                             "chart_analysis": {
@@ -3986,6 +3993,27 @@ def run_e2e_checks(
                       state.quoteStreamSignalControlActive = false;
                       closeAiSignalQuoteStreams();
                       pauseQuoteStreamConnection('checking');
+                      const qaNativeReplaceQuoteStreamScope = window.replaceQuoteStreamScope;
+                      window.__qaAiStockResponseQuoteScopes = [];
+                      window.replaceQuoteStreamScope = (scope, entries = []) => {
+                        if (scope !== 'staging-ai-stock-response') {
+                          return qaNativeReplaceQuoteStreamScope(scope, entries);
+                        }
+                        window.__qaAiStockResponseQuoteScopes = entries.map(entry => entry.code);
+                        for (const entry of entries) {
+                          window.queueMicrotask(() => {
+                            entry.handlers?.onStatus?.({ state: 'connected' });
+                            entry.handlers?.onQuote?.({
+                              quote: {
+                                price: 60000,
+                                change_rate: 1.25,
+                                market_session: 'regular',
+                                as_of: '2026-08-29T10:30:00+09:00',
+                              },
+                            });
+                          });
+                        }
+                      };
                       loadHomeAiSignals = async () => false;
                       renderHomeAiResponse = () => {};
                       const watchlist = JSON.parse(localStorage.getItem('analyst.watchlist') || '[]');
@@ -4150,14 +4178,22 @@ def run_e2e_checks(
                     "자료가 충분한가요?",
                     "확인한 자료",
                     "6개 모두",
+                    "현재 주당 가격",
+                    "60,000원",
+                    "오늘 등락률",
+                    "+1.25%",
                     "실제 계좌·주문 내역과 자동 연동되지 않아요",
                     "내 상황별 가격 가이드",
-                    "관망하다가 다시 볼 매수 포인트예요",
-                    "가격 안정 확인 구간",
-                    "매수 전환 확인 가격",
+                    "가격이 내려올 때와 올라갈 때를 나눠 보세요",
+                    "눌림목 확인 구간",
+                    "상승 흐름 확인선",
+                    "매수가 아님",
                     "관망을 이어갈 기준",
-                    "다음 확인",
-                    "판단이 바뀌려면",
+                    "앞으로 볼 것",
+                    "앞으로 이렇게 확인하세요",
+                    "가격이 내려올 때",
+                    "가격이 올라갈 때",
+                    "계속 기다릴 때",
                     "왜 이렇게 봤나요?",
                     "6가지 자료 자세히 보기",
                     "점수와 계산 방법 알아보기",
@@ -4171,6 +4207,15 @@ def run_e2e_checks(
                 if "판단 신뢰도" in detail_text or "종합점수" in detail_text:
                     raise QaFailure(
                         "적중 확률로 오해할 수 있는 기술 라벨이 첫 화면에 남아 있습니다.",
+                        {"detail_text": detail_text},
+                    )
+                if (
+                    "판단이 바뀌려면" in detail_text
+                    or "매수 전환 확인 가격" in detail_text
+                    or "관망하다가 다시 볼 매수 포인트예요" in detail_text
+                ):
+                    raise QaFailure(
+                        "높은 확인 가격을 매수가로 오해하게 만드는 이전 문구가 남아 있습니다.",
                         {"detail_text": detail_text},
                     )
                 page.get_by_text("6가지 자료 자세히 보기", exact=True).click()
@@ -4221,11 +4266,36 @@ def run_e2e_checks(
                       averagePriceFieldHidden: document.querySelector(
                         '[data-staging-response-average-price-field]'
                       )?.hidden,
+                      livePrice: document.querySelector(
+                        '[data-staging-response-live-price]'
+                      )?.textContent?.trim(),
+                      liveRate: document.querySelector(
+                        '[data-staging-response-live-rate]'
+                      )?.textContent?.trim(),
+                      liveQuoteState: document.querySelector(
+                        '[data-staging-response-live-quote]'
+                      )?.dataset.liveQuoteState,
+                      liveQuoteScopeCodes: window.__qaAiStockResponseQuoteScopes || [],
                       guideKeys: Array.from(document.querySelectorAll(
                         '.staging-ai-stock-response-guide-row'
                       )).map(node => node.dataset.guideKey),
+                      guideLabels: Array.from(document.querySelectorAll(
+                        '.staging-ai-stock-response-guide-row h4'
+                      )).map(node => node.textContent?.trim()),
+                      guideStatuses: Array.from(document.querySelectorAll(
+                        '.staging-ai-stock-response-guide-row-head > div > span'
+                      )).map(node => node.textContent?.trim()),
                       guideValues: Array.from(document.querySelectorAll(
                         '.staging-ai-stock-response-guide-row strong'
+                      )).map(node => node.textContent?.trim()),
+                      decisionKeys: Array.from(document.querySelectorAll(
+                        '.staging-ai-stock-response-decision-step'
+                      )).map(node => node.dataset.decisionKey),
+                      decisionStatuses: Array.from(document.querySelectorAll(
+                        '.staging-ai-stock-response-decision-step-head > em'
+                      )).map(node => node.textContent?.trim()),
+                      decisionValues: Array.from(document.querySelectorAll(
+                        '.staging-ai-stock-response-decision-step > strong'
                       )).map(node => node.textContent?.trim()),
                       firstOverviewPaddingLeft: parseFloat(getComputedStyle(
                         document.querySelector('.staging-ai-stock-response-overview > div:first-child')
@@ -4265,6 +4335,9 @@ def run_e2e_checks(
                       stockSummaryModes: (window.__qaStockSummaryRequests || [])
                         .filter(request => request.page_type === 'stock_response')
                         .map(request => request.facts?.position_mode),
+                      stockSummaryDecisionPlans: (window.__qaStockSummaryRequests || [])
+                        .filter(request => request.page_type === 'stock_response')
+                        .map(request => (request.facts?.decision_plan || []).map(item => item.key)),
                       summaryBadgeCount: document.querySelectorAll('[data-staging-summary-provenance]').length,
                       explanationLabel: document.querySelector('.staging-ai-stock-response-explanation > span')?.textContent?.trim(),
                       explanation: document.querySelector('[data-staging-response-reason]')?.textContent?.trim(),
@@ -4286,12 +4359,35 @@ def run_e2e_checks(
                     or detail_contract.get("investorState") != "not_holding"
                     or detail_contract.get("selectedInvestorState") != "not_holding"
                     or detail_contract.get("averagePriceFieldHidden") is not True
+                    or detail_contract.get("livePrice") != "60,000원"
+                    or detail_contract.get("liveRate") != "+1.25%"
+                    or detail_contract.get("liveQuoteState")
+                    not in {"snapshot", "connecting", "connected"}
+                    or detail_contract.get("liveQuoteScopeCodes") != ["035720"]
                     or detail_contract.get("guideKeys") != [
                         "watch_zone",
                         "buy_trigger",
                         "risk_line",
                     ]
+                    or detail_contract.get("guideLabels") != [
+                        "눌림목 확인 구간",
+                        "상승 흐름 확인선",
+                        "관망을 이어갈 기준",
+                    ]
+                    or detail_contract.get("guideStatuses") != [
+                        "하락 멈춤 확인",
+                        "매수가 아님",
+                        "주의",
+                    ]
                     or len(detail_contract.get("guideValues") or []) != 3
+                    or (detail_contract.get("guideValues") or [None, None])[1]
+                    != "63,000원"
+                    or detail_contract.get("decisionKeys")
+                    != ["pullback", "breakout", "wait"]
+                    or (detail_contract.get("decisionStatuses") or [None, None])[1]
+                    != "매수가 아님"
+                    or (detail_contract.get("decisionValues") or [None, None])[1]
+                    != "63,000원"
                     or not all(
                         float(height) >= 44
                         for height in detail_contract.get("investorOptionHeights") or []
@@ -4321,6 +4417,8 @@ def run_e2e_checks(
                     or detail_contract.get("loaderDisplay") != "none"
                     or (detail_contract.get("stockSummaryStates") or [])[-1:] != ["not_holding"]
                     or (detail_contract.get("stockSummaryModes") or [])[-1:] != ["watching"]
+                    or (detail_contract.get("stockSummaryDecisionPlans") or [])[-1:]
+                    != [["pullback", "breakout", "wait"]]
                     or detail_contract.get("summaryBadgeCount") != 0
                     or detail_contract.get("explanationLabel") != "왜 이렇게 보나요?"
                     or not detail_contract.get("explanation")
@@ -5601,8 +5699,13 @@ def run_e2e_checks(
                 )
                 page.set_viewport_size({"width": 390, "height": 844})
                 page.reload(wait_until="commit")
-                page.wait_for_selector(
-                    "#recommend-detail-content[data-recommendation-state='changed']",
+                page.wait_for_function(
+                    """() => {
+                      const content = document.querySelector('#recommend-detail-content');
+                      return content?.dataset.recommendationState === 'changed'
+                        && content?.dataset.summaryDisplay === 'ready'
+                        && Boolean(content.querySelector('.staging-recommend-detail-hero h1')?.textContent?.trim());
+                    }""",
                     timeout=int(timeout * 1000),
                 )
                 changed_contract = page.evaluate(

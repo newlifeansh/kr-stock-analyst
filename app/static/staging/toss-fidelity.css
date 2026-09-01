@@ -19327,3 +19327,201 @@ body[data-staging-ia="tds-video"] .staging-ai-stock-response-guide-note {
     text-align: left !important;
   }
 }
+
+/* v151 — live quote context and beginner-readable pullback/breakout decision plan. */
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote {
+  min-width: 0 !important;
+  display: grid !important;
+  gap: 9px !important;
+  margin: 11px 0 0 !important;
+  padding: 14px 15px 11px !important;
+  border: 1px solid var(--tc-line) !important;
+  border-radius: 14px !important;
+  color: var(--tc-text) !important;
+  background: var(--tc-surface) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dl {
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  margin: 0 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dl > div {
+  min-width: 0 !important;
+  display: grid !important;
+  gap: 4px !important;
+  padding-right: 14px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dl > div + div {
+  padding-right: 0 !important;
+  padding-left: 14px !important;
+  border-left: 1px solid var(--tc-line) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dt {
+  color: var(--tc-muted) !important;
+  font-size: 11px !important;
+  font-weight: 680 !important;
+  line-height: 1.4 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dd {
+  min-width: 0 !important;
+  margin: 0 !important;
+  color: var(--tc-text) !important;
+  font-size: clamp(17px, 4.8vw, 21px) !important;
+  font-variant-numeric: tabular-nums !important;
+  font-weight: 820 !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.32 !important;
+  overflow-wrap: anywhere !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dd[data-quote-tone="positive"] {
+  color: var(--tc-red) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dd[data-quote-tone="negative"] {
+  color: var(--tc-blue) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote > p {
+  margin: 0 !important;
+  padding-top: 8px !important;
+  border-top: 1px solid var(--tc-line) !important;
+  color: var(--tc-muted) !important;
+  font-size: 10px !important;
+  font-weight: 650 !important;
+  line-height: 1.4 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-next {
+  gap: 6px !important;
+  padding-top: 26px !important;
+  padding-bottom: 28px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-next h3 {
+  font-size: clamp(21px, 5.8vw, 25px) !important;
+  line-height: 1.4 !important;
+  word-break: keep-all !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-next > p {
+  color: var(--tc-sub) !important;
+  font-size: 13px !important;
+  line-height: 1.58 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-next > ol {
+  min-width: 0 !important;
+  display: grid !important;
+  gap: 10px !important;
+  margin: 11px 0 0 !important;
+  padding: 0 !important;
+  list-style: none !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step {
+  min-width: 0 !important;
+  display: grid !important;
+  gap: 7px !important;
+  margin: 0 !important;
+  padding: 15px !important;
+  border: 1px solid var(--tc-line) !important;
+  border-radius: 14px !important;
+  color: var(--tc-text) !important;
+  background: var(--tc-surface) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step-head {
+  min-width: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: wrap !important;
+  gap: 6px 10px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step-head > span {
+  color: var(--tc-sub) !important;
+  font-size: 12px !important;
+  font-weight: 760 !important;
+  line-height: 1.4 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step-head > em {
+  min-height: 23px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 3px 8px !important;
+  border-radius: 999px !important;
+  color: var(--tc-muted) !important;
+  background: var(--tc-surface-2) !important;
+  font-size: 10px !important;
+  font-style: normal !important;
+  font-weight: 780 !important;
+  line-height: 1.3 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step > strong {
+  color: var(--tc-text) !important;
+  font-size: 18px !important;
+  font-variant-numeric: tabular-nums !important;
+  font-weight: 820 !important;
+  line-height: 1.38 !important;
+  overflow-wrap: anywhere !important;
+  word-break: keep-all !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step > p {
+  margin: 0 !important;
+  color: var(--tc-muted) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1.62 !important;
+  overflow-wrap: anywhere !important;
+  word-break: keep-all !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step[data-decision-tone="positive"]
+  .staging-ai-stock-response-decision-step-head > em {
+  color: light-dark(#047857, #9be8c9) !important;
+  background: light-dark(rgba(0, 138, 91, 0.08), rgba(139, 227, 192, 0.09)) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step[data-decision-tone="negative"]
+  .staging-ai-stock-response-decision-step-head > em {
+  color: light-dark(#b42318, #ffaaa3) !important;
+  background: light-dark(rgba(180, 35, 24, 0.07), rgba(255, 140, 130, 0.08)) !important;
+}
+
+@media (min-width: 720px) {
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-hero {
+    width: min(100%, 720px) !important;
+    margin-right: auto !important;
+    margin-left: auto !important;
+  }
+}
+
+@media (max-width: 359px) {
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote {
+    padding-right: 12px !important;
+    padding-left: 12px !important;
+  }
+
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dl > div {
+    padding-right: 10px !important;
+  }
+
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dl > div + div {
+    padding-left: 10px !important;
+  }
+
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dd {
+    font-size: 16px !important;
+  }
+}
