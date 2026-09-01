@@ -73,7 +73,8 @@ jobs:
         run: npm install --global @railway/cli@5.45.7
       - name: Deploy the checked-out SHA to staging
         run: >-
-          railway up --ci
+          railway up --detach --json
+          --message "github-sha=${{ github.sha }}"
           --project "$STAGING_RAILWAY_PROJECT_ID"
           --environment staging
           --service "$STAGING_RAILWAY_SERVICE"
@@ -162,7 +163,8 @@ jobs:
         run: npm install --global @railway/cli@5.45.7
       - name: Promote the same checked-out SHA to production
         run: >-
-          railway up --ci
+          railway up --detach --json
+          --message "github-sha=${{ github.sha }}"
           --project "$PRODUCTION_RAILWAY_PROJECT_ID"
           --environment production
           --service "$PRODUCTION_RAILWAY_SERVICE"

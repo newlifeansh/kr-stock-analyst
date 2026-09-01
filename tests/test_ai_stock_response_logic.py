@@ -73,6 +73,7 @@ def _complete_payload() -> dict[str, object]:
                 "trade_date": "2026-08-28",
                 "as_of": "2026-08-29T12:00:00+09:00",
                 "market_session": "regular",
+                "market_session_label": "장중",
                 "is_live": True,
             },
             "coverage": {"price": True},
@@ -190,9 +191,10 @@ def test_multi_signal_response_uses_fixed_weights_and_surfaces_conflict() -> Non
     result = _build(_complete_payload())
     metrics = {item["key"]: item for item in result["metrics"]}
 
-    assert result["version"] == "20260901-decision-scenarios-v3"
+    assert result["version"] == "20260901-decision-scenarios-v4"
     assert result["decisionLevels"]["currentPrice"] == 275_000
     assert result["decisionLevels"]["changeRate"] == pytest.approx(1.82)
+    assert result["decisionLevels"]["marketSessionLabel"] == "장중"
     assert result["decisionLevels"]["quoteIsLive"] is True
     assert [item["key"] for item in result["metrics"]] == [
         "chart",

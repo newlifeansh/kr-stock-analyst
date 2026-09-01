@@ -12,7 +12,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function createAiStockResponseLogic() {
   "use strict";
 
-  const VERSION = "20260901-decision-scenarios-v3";
+  const VERSION = "20260901-decision-scenarios-v4";
   const WEIGHTS = Object.freeze({
     chart: 25,
     flow: 25,
@@ -545,6 +545,7 @@
         changeRate: number(dashboard?.quote?.change_rate),
         quoteAsOf: dashboard?.quote?.as_of || dashboard?.quote?.trade_date || dashboard?.as_of || null,
         marketSession: compact(dashboard?.quote?.market_session),
+        marketSessionLabel: compact(dashboard?.quote?.market_session_label),
         quoteIsLive: dashboard?.quote?.is_live === true,
         watchLow: null,
         watchHigh: null,
@@ -627,6 +628,7 @@
       changeRate: number(dashboard?.quote?.change_rate),
       quoteAsOf: dashboard?.quote?.as_of || dashboard?.quote?.trade_date || dashboard?.as_of || null,
       marketSession: compact(dashboard?.quote?.market_session),
+      marketSessionLabel: compact(dashboard?.quote?.market_session_label),
       quoteIsLive: dashboard?.quote?.is_live === true,
       watchLow,
       watchHigh,

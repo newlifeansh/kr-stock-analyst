@@ -845,7 +845,7 @@ def test_staging_v122_keeps_feed_root_header_and_bottom_navigation_visible():
     css = client.get("/assets/staging/toss-fidelity.css").text
     js = client.get("/assets/staging/toss-ia.js").text
 
-    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
+    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
     rules = css.split(
         "/* v122 — Feed is a primary route: keep the global header and bottom navigation. */",
         1,
@@ -909,7 +909,7 @@ def test_staging_v128_falls_back_for_ios_standalone_chart_headers():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert "contextual-safe-area-v128" in shell
-    assert "20260901-stock-response-scenarios-v86" in shell
+    assert "20260901-stock-response-live-session-v88" in shell
     for contract in (
         'const isIosDevice = /iP(?:hone|ad|od)/.test(navigator.userAgent)',
         'navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1',
@@ -1963,7 +1963,7 @@ def test_staging_v69_rolls_the_header_through_major_market_indices():
     css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
+    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
     for contract in (
         'data-staging-index-ticker aria-live="off"',
         'const STAGING_MARKET_CONTEXT_CODES = ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "DOW", "SOX"]',
@@ -2054,7 +2054,7 @@ def test_staging_v74_removes_exchange_metadata_and_aligns_ai_signal_rows():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
+    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
     assert 'codeLine.className = "staging-ai-code"' not in js
     assert 'identity?.querySelector(".staging-ai-code")?.remove()' in js
 
@@ -3157,7 +3157,7 @@ def test_staging_v132_uses_home_only_notification_action_and_compact_sheet_rows(
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v132 — make notifications the home action") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
+    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
     assert "notification-sheet-v132" in shell
     assert 'bell: \'<path d="M27.5 16.5a9.5 9.5 0 0 0-19 0' in js
     for contract in (
@@ -3195,7 +3195,7 @@ def test_staging_v143_unifies_root_header_action_icon_geometry():
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v143 — one optical outline system") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
+    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
     assert "header-action-icons-v143" in shell
     for contract in (
         "const topActionGlyphs = Object.freeze({",
@@ -3233,7 +3233,7 @@ def test_staging_v146_explains_two_detail_pages_without_exposing_model_provenanc
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v146 — the model stays invisible") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
+    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
     assert "plain-language-detail-v146" in staging_shell
     assert "investor-action-copy-v147" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
@@ -3354,7 +3354,7 @@ def test_staging_v151_shows_live_quote_and_separates_pullback_from_breakout_conf
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v151 — live quote context") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
+    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
     assert "position-input-v150-live-quote-decision-plan-v151" in shell
     for contract in (
         "현재 주당 가격",
@@ -3364,6 +3364,8 @@ def test_staging_v151_shows_live_quote_and_separates_pullback_from_breakout_conf
         'data-staging-response-live-state',
         'replaceQuoteStreamScope("staging-ai-stock-response"',
         'clearQuoteStreamScope("staging-ai-stock-response")',
+        "장 마감 시세",
+        'typeof quote.is_live === "boolean"',
         "가격이 내려올 때와 올라갈 때를 나눠 보세요",
         "앞으로 이렇게 확인하세요",
         'data-staging-response-decision-plan',
@@ -3372,6 +3374,21 @@ def test_staging_v151_shows_live_quote_and_separates_pullback_from_breakout_conf
     ):
         assert contract in js
     assert "판단이 바뀌려면" not in js
+    status_handler_source = js[
+        js.index("onStatus: () => {") : js.index("onQuote: (payload)")
+    ]
+    assert 'state = "connected"' not in status_handler_source
+    assert 'state = "connecting"' in status_handler_source
+    quote_scope_source = js[
+        js.index("const syncStagingAiStockResponseQuoteScope") :
+        js.index("const renderStagingAiStockResponseLoading")
+    ]
+    assert quote_scope_source.index(
+        'typeof replaceQuoteStreamScope !== "function"'
+    ) < quote_scope_source.index(
+        "signature === stagingAiStockResponseQuoteScopeSignature"
+    )
+    assert 'stagingAiStockResponseQuoteScopeSignature = ""' in quote_scope_source
     summary_source = js[
         js.index("const applyStagingAiStockResponseSummary") :
         js.index("const stagingAiStockResponseKeyReasonRow")
@@ -3408,7 +3425,7 @@ def test_staging_v145_refines_three_daily_briefings_without_changing_news_or_sig
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v145 — GPT refines the current morning") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-response-scenarios-v86"
+    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
     assert "gpt-briefing-v145" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' not in production_shell

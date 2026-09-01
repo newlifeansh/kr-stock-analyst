@@ -4008,6 +4008,8 @@ def run_e2e_checks(
                                 price: 60000,
                                 change_rate: 1.25,
                                 market_session: 'regular',
+                                market_session_label: '장중',
+                                is_live: true,
                                 as_of: '2026-08-29T10:30:00+09:00',
                               },
                             });
@@ -4275,6 +4277,9 @@ def run_e2e_checks(
                       liveQuoteState: document.querySelector(
                         '[data-staging-response-live-quote]'
                       )?.dataset.liveQuoteState,
+                      liveStateText: document.querySelector(
+                        '[data-staging-response-live-state]'
+                      )?.textContent?.trim(),
                       liveQuoteScopeCodes: window.__qaAiStockResponseQuoteScopes || [],
                       guideKeys: Array.from(document.querySelectorAll(
                         '.staging-ai-stock-response-guide-row'
@@ -4361,8 +4366,8 @@ def run_e2e_checks(
                     or detail_contract.get("averagePriceFieldHidden") is not True
                     or detail_contract.get("livePrice") != "60,000원"
                     or detail_contract.get("liveRate") != "+1.25%"
-                    or detail_contract.get("liveQuoteState")
-                    not in {"snapshot", "connecting", "connected"}
+                    or detail_contract.get("liveQuoteState") != "connected"
+                    or detail_contract.get("liveStateText") != "실시간으로 반영 중"
                     or detail_contract.get("liveQuoteScopeCodes") != ["035720"]
                     or detail_contract.get("guideKeys") != [
                         "watch_zone",
