@@ -679,6 +679,8 @@
     changeRate: null,
     state: "idle",
     isLive: false,
+    marketSession: "",
+    marketSessionLabel: "",
   };
   const stagingAiStockResponseCache = new Map();
   const STAGING_AI_STOCK_RESPONSE_CACHE_MS = 2 * 60 * 1000;
@@ -1512,8 +1514,19 @@
       rateNode.textContent = hasRate ? formatPercent(changeRate) : "--";
       rateNode.dataset.quoteTone = tone;
     }
+    const marketSession = String(stagingAiStockResponseLiveQuote.marketSession || "").toLowerCase();
+    const marketSessionLabel = String(
+      stagingAiStockResponseLiveQuote.marketSessionLabel || "",
+    ).trim();
+    const closedSession = ["closed", "krx_reference", "after_market_reference"].includes(
+      marketSession,
+    );
     const stateText = stagingAiStockResponseLiveQuote.state === "connected"
-      ? "실시간으로 반영 중"
+      ? closedSession
+        ? (marketSessionLabel || "장 마감 시세")
+        : stagingAiStockResponseLiveQuote.isLive
+          ? "실시간으로 반영 중"
+          : (marketSessionLabel || "가장 최근 시세")
       : stagingAiStockResponseLiveQuote.state === "connecting"
         ? "실시간 시세 연결 중"
         : hasPrice
@@ -1536,8 +1549,16 @@
       : Number.NaN;
     if (Number.isFinite(price)) stagingAiStockResponseLiveQuote.price = price;
     if (Number.isFinite(changeRate)) stagingAiStockResponseLiveQuote.changeRate = changeRate;
+    stagingAiStockResponseLiveQuote.marketSession = String(quote.market_session || "");
+    stagingAiStockResponseLiveQuote.marketSessionLabel = String(
+      quote.market_session_label || "",
+    );
     stagingAiStockResponseLiveQuote.state = "connected";
-    stagingAiStockResponseLiveQuote.isLive = true;
+    stagingAiStockResponseLiveQuote.isLive = typeof quote.is_live === "boolean"
+      ? quote.is_live
+      : ["regular", "open"].includes(
+        stagingAiStockResponseLiveQuote.marketSession.toLowerCase(),
+      );
     renderStagingAiStockResponseLiveQuote();
   };
 
@@ -1556,21 +1577,28 @@
         changeRate: null,
         state: "connecting",
         isLive: false,
+        marketSession: "",
+        marketSessionLabel: "",
       };
     }
     if (active && code && stagingAiStockResponseLiveQuote.state !== "connected") {
       stagingAiStockResponseLiveQuote.state = "connecting";
     }
     renderStagingAiStockResponseLiveQuote();
+    if (typeof replaceQuoteStreamScope !== "function") {
+      stagingAiStockResponseQuoteScopeSignature = "";
+      return;
+    }
     if (signature === stagingAiStockResponseQuoteScopeSignature) return;
     stagingAiStockResponseQuoteScopeSignature = signature;
-    if (typeof replaceQuoteStreamScope !== "function") return;
     replaceQuoteStreamScope("staging-ai-stock-response", code ? [{
       code,
       handlers: {
         onStatus: () => {
           if (stagingAiStockResponseLiveQuote.code !== code) return;
-          stagingAiStockResponseLiveQuote.state = "connected";
+          if (stagingAiStockResponseLiveQuote.state !== "connected") {
+            stagingAiStockResponseLiveQuote.state = "connecting";
+          }
           renderStagingAiStockResponseLiveQuote();
         },
         onQuote: (payload) => updateStagingAiStockResponseLiveQuote(code, payload.quote),
@@ -1592,6 +1620,8 @@
         changeRate: null,
         state: "connecting",
         isLive: false,
+        marketSession: "",
+        marketSessionLabel: "",
       };
     }
     renderStagingAiStockResponseLiveQuote();
@@ -1672,6 +1702,8 @@
           : null,
         state: "snapshot",
         isLive: decisionLevels.quoteIsLive === true,
+        marketSession: String(decisionLevels.marketSession || ""),
+        marketSessionLabel: String(decisionLevels.marketSessionLabel || ""),
       };
     } else {
       if (
@@ -1688,6 +1720,16 @@
       ) stagingAiStockResponseLiveQuote.changeRate = Number(resultChangeRate);
       stagingAiStockResponseLiveQuote.isLive = stagingAiStockResponseLiveQuote.isLive
         || decisionLevels.quoteIsLive === true;
+      if (!stagingAiStockResponseLiveQuote.marketSession) {
+        stagingAiStockResponseLiveQuote.marketSession = String(
+          decisionLevels.marketSession || "",
+        );
+      }
+      if (!stagingAiStockResponseLiveQuote.marketSessionLabel) {
+        stagingAiStockResponseLiveQuote.marketSessionLabel = String(
+          decisionLevels.marketSessionLabel || "",
+        );
+      }
     }
     renderStagingAiStockResponseLiveQuote();
     setStagingAiStockResponseDisplay("loading", `내 상황을 ${STAGING_AI_STOCK_RESPONSE_INVESTOR_STATES[investorState].label} 기준으로 반영해 쉬운 말로 정리하고 있어요.`);
