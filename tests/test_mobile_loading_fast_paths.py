@@ -25,7 +25,7 @@ def _function_source(source: str, name: str, next_name: str) -> str:
     return source[start : source.index(f"function {next_name}(", start + 1)]
 
 
-def test_stock_detail_renders_stable_snapshot_before_live_quote_stream():
+def test_stock_detail_hydrates_stable_snapshot_before_live_quote_stream():
     source = _dashboard_source()
     load_source = _function_source(source, "loadStockRequest", "load")
     render_source = _function_source(source, "render", "resolveStock")
@@ -34,6 +34,11 @@ def test_stock_detail_renders_stable_snapshot_before_live_quote_stream():
     assert "include_live=1" not in load_source
     assert "const loadSequence = ++state.stockLoadSequence;" in load_source
     assert load_source.count("loadSequence !== state.stockLoadSequence") >= 4
+    assert "const initialQuoteRequest = fetchInitialStockQuote(stock.code);" in load_source
+    assert "Promise.all([dashboardRequest, initialQuoteRequest])" in load_source
+    assert load_source.index("hydrateInitialStockQuote(") < load_source.index("render(dashboard")
+    assert 'state.stockQuoteReadyCode === String(data.code || "")' in render_source
+    assert "resetStockQuoteDisplay();" in render_source
     assert "connectQuoteStream(state.currentStock);" in render_source
     assert "dashboard.momentum.latest_trading_value = quoteDelta.trading_value;" in source
     assert "value !== null && value !== undefined" in source
@@ -512,6 +517,7 @@ def test_switching_stocks_clears_previous_stock_content_before_resolution():
     source = _dashboard_source()
     loading_source = _function_source(source, "setLoading", "render")
     load_source = _function_source(source, "loadStockRequest", "load")
+    quote_reset_source = _function_source(source, "resetStockQuoteDisplay", "resetStockPriceSummary")
     price_reset_source = _function_source(source, "resetStockPriceSummary", "renderStockHomeChartMessage")
     home_reset_source = _function_source(source, "resetStockHomeDetails", "renderStockPriceSummaryFromPrices")
     profile_reset_source = _function_source(source, "resetStockCompanyProfile", "renderStockDerivedIndicators")
@@ -527,9 +533,10 @@ def test_switching_stocks_clears_previous_stock_content_before_resolution():
         "elements.quoteValue",
         "elements.quoteCap",
     ):
-        assert stock_value in price_reset_source
-    assert "delete node.dataset.rawValue;" in price_reset_source
-    assert "quoteAnimationSequence" in price_reset_source
+        assert stock_value in quote_reset_source
+    assert "resetStockQuoteDisplay();" in price_reset_source
+    assert "delete node.dataset.rawValue;" in quote_reset_source
+    assert "quoteAnimationSequence" in quote_reset_source
     assert "새 종목의 시세와 수급을 확인하는 중입니다." in home_reset_source
     assert 'setText(elements.stockFlowSummary, "수급 이력 준비 중")' in home_reset_source
     assert "elements.stockResearchList.innerHTML" in home_reset_source

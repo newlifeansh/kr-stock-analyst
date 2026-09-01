@@ -179,6 +179,9 @@ let refreshes = 0;
 function currentAiSignalItems(items) {{ return items; }}
 function isCurrentAiSignalHolding(item) {{ return item?.current?.position_open === true; }}
 function aiSignalLiveReturnRate(_item, quote) {{ return Number(quote.price) > 0 ? 1.25 : null; }}
+function quotePayloadIsStoredFallbackDuringActiveSession(payload) {{
+  return payload?.source === "stored_daily_price";
+}}
 function refreshAiSignalLiveRows() {{ refreshes += 1; }}
 {update_source}
 const quotePayload = {{
@@ -188,13 +191,22 @@ const quotePayload = {{
 state.quoteStreamLatestByCode.set("005930", {{ payload: quotePayload, receivedAt: 123 }});
 const quoteAccepted = updateAiSignalLiveQuote("005930", quotePayload.quote, quotePayload);
 const fallbackClearedByQuote = !state.aiSignalQuoteStatuses.has("005930");
+state.aiSignalLiveQuotes.get("005930").displayReady = true;
+const storedFallbackPayload = {{
+  type: "quote", code: "005930", source: "stored_daily_price",
+  as_of: "2026-08-29T15:30:00+09:00", quote: {{ price: 69000 }},
+}};
+const storedFallbackAccepted = updateAiSignalLiveQuote(
+  "005930", storedFallbackPayload.quote, storedFallbackPayload,
+);
 updateAiSignalQuoteStatus("005930", {{ status: "fallback", message: "temporary" }});
 const fallbackStored = state.aiSignalQuoteStatuses.get("005930")?.status;
 updateAiSignalQuoteStatus("005930", {{ status: "recovered" }});
 console.log(JSON.stringify({{
-  quoteAccepted, fallbackClearedByQuote, fallbackStored,
+  quoteAccepted, fallbackClearedByQuote, storedFallbackAccepted, fallbackStored,
   recovered: !state.aiSignalQuoteStatuses.has("005930"),
   overlaySource: state.aiSignalLiveQuotes.get("005930")?.payload?.source,
+  overlayPrice: state.aiSignalLiveQuotes.get("005930")?.payload?.quote?.price,
   snapshotPrice: holding.current.price ?? null,
   refreshes,
 }}));
@@ -205,11 +217,13 @@ console.log(JSON.stringify({{
     assert json.loads(completed.stdout) == {
         "quoteAccepted": True,
         "fallbackClearedByQuote": True,
+        "storedFallbackAccepted": False,
         "fallbackStored": "fallback",
         "recovered": True,
         "overlaySource": "kis_realtime",
+        "overlayPrice": 71000,
         "snapshotPrice": None,
-        "refreshes": 3,
+        "refreshes": 4,
     }
 
 

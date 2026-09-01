@@ -27,6 +27,9 @@
   document.body.dataset.stagingIa = "tds-video";
   document.body.dataset.stagingFidelity = "20260829-v66";
   document.body.dataset.stagingInput = "pointer";
+  const stagingGptPageSummaryEnabled = Boolean(
+    document.querySelector('meta[name="secret-note-environment"][content="staging"]'),
+  );
 
   window.addEventListener("keydown", (event) => {
     if (event.key === "Tab" || event.key.startsWith("Arrow")) {
@@ -63,6 +66,52 @@
     const number = Number(value);
     if (!Number.isFinite(number)) return "-";
     return `${number > 0 ? "+" : ""}${number.toFixed(2)}%`;
+  };
+  const STAGING_PAGE_SUMMARY_PATH = "/staging-ai/page-summary";
+  const STAGING_PAGE_SUMMARY_TIMEOUT_MS = 9_000;
+  const STAGING_PAGE_SUMMARY_CACHE_MS = 30 * 60 * 1000;
+  const stagingPageSummaryCache = new Map();
+  const stagingJsonRequest = async (url, options = {}) => {
+    const controller = new AbortController();
+    const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 12_000;
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        timeoutMs: undefined,
+        headers: {
+          Accept: "application/json",
+          ...(options.body ? { "Content-Type": "application/json" } : {}),
+          ...(options.headers || {}),
+        },
+        credentials: "same-origin",
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const error = new Error(`staging request failed: ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response.json();
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  };
+  const requestStagingPageSummary = async (pageType, facts, fallback) => {
+    const requestBody = { page_type: pageType, facts, fallback };
+    const cacheKey = JSON.stringify(requestBody);
+    const cached = stagingPageSummaryCache.get(cacheKey);
+    if (cached && Date.now() - cached.savedAt <= STAGING_PAGE_SUMMARY_CACHE_MS) {
+      return { ...cached.payload, cache_hit: true };
+    }
+    const payload = await stagingJsonRequest(STAGING_PAGE_SUMMARY_PATH, {
+      method: "POST",
+      cache: "no-store",
+      body: JSON.stringify(requestBody),
+      timeoutMs: STAGING_PAGE_SUMMARY_TIMEOUT_MS,
+    });
+    stagingPageSummaryCache.set(cacheKey, { savedAt: Date.now(), payload });
+    return payload;
   };
   const svg = (icon, className = "") => {
     if (icon && typeof icon === "object" && icon.symbol) {
@@ -618,14 +667,32 @@
   let stagingAiStockResponseReturnScrollY = 0;
   let stagingAiStockResponseRequestToken = 0;
   let stagingAiStockResponseAbortController = null;
+  let stagingAiStockResponseSummaryToken = 0;
+  let stagingAiStockResponseRenderedResult = null;
+  let stagingAiStockResponseRenderedFailedSources = 0;
+  let stagingAiStockResponseSelectedState = "not_holding";
+  let stagingAiStockResponseAverageBuyPrice = null;
   const stagingAiStockResponseCache = new Map();
   const STAGING_AI_STOCK_RESPONSE_CACHE_MS = 2 * 60 * 1000;
+  const STAGING_AI_STOCK_RESPONSE_INVESTOR_STATES = Object.freeze({
+    not_holding: Object.freeze({
+      value: "not_holding",
+      label: "미보유",
+      note: "현재 보유하지 않은 상태로, 관망 이유와 매수 전환 조건을 설명해요.",
+    }),
+    holding: Object.freeze({
+      value: "holding",
+      label: "보유 중",
+      note: "평균 매수가와 현재가를 비교해 수익·손실 구간별 대응 기준을 설명해요.",
+    }),
+  });
   const STAGING_AI_STOCK_RESPONSE_METRICS = Object.freeze([
-    { key: "chart", label: "가격 흐름", guide: "가격과 추세가 버티는지 봅니다.", weight: 30 },
+    { key: "chart", label: "가격 흐름", guide: "가격과 추세가 버티는지 봅니다.", weight: 25 },
     { key: "flow", label: "외국인·기관 매매", guide: "외국인과 기관이 같은 방향으로 사고파는지 봅니다.", weight: 25 },
     { key: "disclosure", label: "회사 공식 공시", guide: "투자 전에 꼭 확인해야 할 공식 위험 공시를 봅니다.", weight: 15 },
     { key: "news", label: "최근 뉴스 분위기", guide: "최근 보도가 긍정과 주의 중 어느 쪽에 가까운지 봅니다.", weight: 10 },
-    { key: "market", label: "금리·환율·업종 환경", guide: "시장 환경이 이 종목에 유리한지 봅니다.", weight: 20 },
+    { key: "research", label: "증권사 리포트", guide: "최근 투자의견과 목표가 변화가 어느 방향인지 봅니다.", weight: 15 },
+    { key: "market", label: "금리·환율·업종 환경", guide: "시장 환경이 이 종목에 유리한지 봅니다.", weight: 10 },
   ]);
   const STAGING_AI_STOCK_RESPONSE_METRIC_BY_KEY = new Map(
     STAGING_AI_STOCK_RESPONSE_METRICS.map((metric) => [metric.key, metric]),
@@ -633,19 +700,19 @@
   const STAGING_AI_STOCK_RESPONSE_STANCE_COPY = Object.freeze({
     "신규 접근 보류": {
       badge: "중대 공시 먼저 확인",
-      headline: "새로 판단하기 전에 중요한 공시부터 확인해 주세요",
+      headline: "새로 살지 정하기 전에 중요한 공시부터 확인할 때예요",
     },
     "매도 신호 우선": {
-      badge: "AI 전략 · 매도 조건 확인",
-      headline: "현재 AI 전략의 매도 조건을 먼저 확인할 단계예요",
+      badge: "팔아야 할 조건 확인",
+      headline: "이미 보유 중이라면 팔아야 할 조건이 가까워졌는지 볼 때예요",
     },
     "수익 관리 우선": {
-      badge: "AI 전략 · 수익 관리",
-      headline: "수익을 지킬 기준부터 확인할 단계예요",
+      badge: "수익을 지킬 기준 확인",
+      headline: "오른 가격이 다시 내려갈 때를 대비할 기준부터 볼 때예요",
     },
     "재진입 유예": {
-      badge: "AI 전략 · 새 진입 대기",
-      headline: "현재는 새 진입 조건을 기다리는 단계예요",
+      badge: "다시 살 조건 대기",
+      headline: "지금은 다시 살 때가 아니라 조건이 갖춰지는지 기다릴 때예요",
     },
     "정보 확인 우선": {
       badge: "자료가 더 필요해요",
@@ -661,7 +728,7 @@
     },
     "분할 접근 검토": {
       badge: "긍정 신호 우세",
-      headline: "긍정 신호가 모였지만 조건을 확인하며 천천히 보세요",
+      headline: "좋은 신호가 더 많지만 가격이 안정적인지 한 번 더 볼 때예요",
     },
     "긍정 관찰": {
       badge: "조금 긍정적이에요",
@@ -676,26 +743,120 @@
       headline: "반등만 보고 판단하기에는 아직 조심스러워요",
     },
     "조건 확인 중": {
-      badge: "진입 조건 확인 중",
-      headline: "AI가 보는 진입 조건이 완성되는지 더 지켜보세요",
+      badge: "새로 살 조건 확인 중",
+      headline: "새로 살 수 있는 조건이 모두 갖춰지는지 더 볼 때예요",
     },
     "진입 조건 확인": {
       badge: "다음 조건 확인",
-      headline: "다음 거래일 조건을 확인한 뒤 판단해 주세요",
+      headline: "다음 거래일에도 같은 흐름이 이어지는지 확인할 때예요",
     },
     "수익확정 후 보유 관리": {
-      badge: "AI 전략 · 남은 비중 관리",
-      headline: "수익을 일부 지킨 뒤 남은 비중을 관리할 단계예요",
+      badge: "남은 보유분 확인",
+      headline: "일부 수익을 확보했고 남은 보유분을 계속 지켜볼 때예요",
     },
     "보유 관리": {
-      badge: "AI 전략 · 보유 기준 확인",
-      headline: "보유 기준과 손실 제한선을 함께 확인할 단계예요",
+      badge: "계속 보유할 기준 확인",
+      headline: "이미 보유 중이라면 계속 들고 갈지 판단할 기준을 볼 때예요",
     },
     "중립 관찰": {
       badge: "뚜렷한 방향이 없어요",
       headline: "아직 한쪽으로 모인 신호가 없어요",
     },
   });
+
+  const normalizeStagingAiStockResponseInvestorState = (value = "") => {
+    const normalized = String(value || "").trim();
+    return normalized === "holding" ? "holding" : "not_holding";
+  };
+
+  const normalizeStagingAiStockResponseAverageBuyPrice = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    const normalized = Number(String(value).replaceAll(",", ""));
+    return Number.isFinite(normalized) && normalized > 0 ? normalized : null;
+  };
+
+  const stagingAiStockResponseInvestorStateForCode = (code = "") => {
+    const investorStateApi = window.SecretNoteWatchlistInvestorState;
+    if (typeof investorStateApi?.read === "function") {
+      return normalizeStagingAiStockResponseInvestorState(investorStateApi.read(code));
+    }
+    try {
+      const items = JSON.parse(window.localStorage.getItem("analyst.watchlist") || "[]");
+      const item = Array.isArray(items)
+        ? items.find((candidate) => String(candidate?.code || "") === String(code || ""))
+        : null;
+      return normalizeStagingAiStockResponseInvestorState(item?.investor_state);
+    } catch {
+      return "not_holding";
+    }
+  };
+
+  const stagingAiStockResponseAverageBuyPriceForCode = (code = "") => {
+    const investorStateApi = window.SecretNoteWatchlistInvestorState;
+    if (typeof investorStateApi?.readAverageBuyPrice === "function") {
+      return normalizeStagingAiStockResponseAverageBuyPrice(
+        investorStateApi.readAverageBuyPrice(code),
+      );
+    }
+    try {
+      const items = JSON.parse(window.localStorage.getItem("analyst.watchlist") || "[]");
+      const item = Array.isArray(items)
+        ? items.find((candidate) => String(candidate?.code || "") === String(code || ""))
+        : null;
+      return normalizeStagingAiStockResponseAverageBuyPrice(item?.average_buy_price);
+    } catch {
+      return null;
+    }
+  };
+
+  const syncStagingAiStockResponseInvestorState = (
+    investorState = "not_holding",
+    averageBuyPrice = undefined,
+  ) => {
+    if (!stagingAiStockResponsePage) return;
+    const normalized = normalizeStagingAiStockResponseInvestorState(investorState);
+    stagingAiStockResponseSelectedState = normalized;
+    stagingAiStockResponseAverageBuyPrice = normalized === "holding"
+      ? normalizeStagingAiStockResponseAverageBuyPrice(
+        averageBuyPrice === undefined
+          ? stagingAiStockResponseAverageBuyPriceForCode(
+            stagingAiStockResponsePage.dataset.responseCode || "",
+          )
+          : averageBuyPrice,
+      )
+      : null;
+    stagingAiStockResponsePage.dataset.investorState = normalized;
+    for (const button of stagingAiStockResponsePage.querySelectorAll("[data-staging-response-investor-state]")) {
+      const selected = button.getAttribute("data-staging-response-investor-state") === normalized;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    }
+    const copy = STAGING_AI_STOCK_RESPONSE_INVESTOR_STATES[normalized];
+    stagingAiStockResponseText("[data-staging-response-investor-note]", copy.note);
+    const priceField = stagingAiStockResponsePage.querySelector(
+      "[data-staging-response-average-price-field]",
+    );
+    if (priceField instanceof HTMLElement) priceField.hidden = normalized !== "holding";
+    const priceInput = stagingAiStockResponsePage.querySelector(
+      "[data-staging-response-average-price]",
+    );
+    if (priceInput instanceof HTMLInputElement) {
+      priceInput.value = stagingAiStockResponseAverageBuyPrice
+        ? formatNumber(stagingAiStockResponseAverageBuyPrice)
+        : "";
+    }
+  };
+
+  const setStagingAiStockResponseDisplay = (mode = "loading", message = "") => {
+    if (!stagingAiStockResponsePage) return;
+    const ready = mode === "ready";
+    stagingAiStockResponsePage.dataset.responseDisplay = ready ? "ready" : "loading";
+    stagingAiStockResponsePage.dataset.responseLoaded = String(ready);
+    stagingAiStockResponsePage.setAttribute("aria-busy", String(!ready));
+    const loader = stagingAiStockResponsePage.querySelector("[data-staging-response-loader]");
+    if (loader instanceof HTMLElement) loader.hidden = ready;
+    if (message) stagingAiStockResponseText("[data-staging-response-loader-message]", message);
+  };
 
   const stagingAiStockResponseRouteActive = () => (
     new URLSearchParams(window.location.search).get("view") === STAGING_AI_STOCK_RESPONSE_VIEW
@@ -870,6 +1031,101 @@
     };
   };
 
+  const stagingAiStockResponsePerspectiveCopy = (
+    result = {},
+    investorState = stagingAiStockResponseSelectedState,
+  ) => {
+    const stateKey = normalizeStagingAiStockResponseInvestorState(investorState);
+    const deterministicGuide = window.SecretNoteAiStockResponse?.buildInvestorGuide?.(
+      result,
+      {
+        investorState: stateKey,
+        averageBuyPrice: stagingAiStockResponseAverageBuyPrice,
+      },
+    );
+    if (deterministicGuide && typeof deterministicGuide === "object") {
+      return {
+        ...deterministicGuide,
+        guide: deterministicGuide.directionGuide,
+      };
+    }
+    const score = Number(result.score);
+    const hardRisk = Boolean(result.hardRisk);
+    const limited = Boolean(result.limited) || !Number.isFinite(score);
+    const conflict = Boolean(result.conflict);
+    const stronglyPositive = !hardRisk && !limited && !conflict && score >= 35;
+    const positive = !hardRisk && !limited && !conflict && score >= 10;
+    const stronglyNegative = hardRisk || (!limited && score <= -35);
+    if (stateKey === "holding") {
+      if (hardRisk) return {
+        headline: "보유 중이라면 중요한 공시와 매도 기준부터 확인할 때예요",
+        summary: "보유 수량을 늘리기보다 현재 위험이 보유 기준을 바꾸는지 먼저 보세요.",
+        direction: "매도 기준 확인",
+        guide: "중대 공시가 다른 신호보다 우선해요",
+      };
+      if (limited) return {
+        headline: "보유 기준을 바꾸기 전에 자료가 더 필요한 때예요",
+        summary: "지금은 추가 매수보다 부족한 자료를 확인해 보유 기준을 먼저 점검해요.",
+        direction: "보유 기준 확인",
+        guide: "아직 확인되지 않은 자료가 있어요",
+      };
+      if (stronglyNegative) return {
+        headline: "보유 수량을 늘리기보다 위험 기준부터 확인할 때예요",
+        summary: "주의 신호가 많아 계속 보유할지와 보유량을 줄일 기준을 함께 봐야 해요.",
+        direction: "위험 기준 확인",
+        guide: "주의 신호가 긍정 신호보다 많아요",
+      };
+      if (conflict) return {
+        headline: "계속 보유할 기준과 줄일 기준을 함께 볼 때예요",
+        summary: "좋은 신호와 주의 신호가 섞여 있어 추가 매수는 서두르지 않는 구간이에요.",
+        direction: "보유 기준 확인",
+        guide: "좋은 신호와 주의 신호가 함께 있어요",
+      };
+      if (stronglyPositive) return {
+        headline: "보유 기준은 유지하되 더 살 조건은 따로 확인할 때예요",
+        summary: "긍정 신호가 많아도 현재가와 추가 매수 기준이 같이 맞는지 확인해야 해요.",
+        direction: "추가 매수 조건 확인",
+        guide: "보유 신호와 추가 매수 조건은 따로 보아요",
+      };
+      if (positive) return {
+        headline: "보유 기준을 확인하고 추가 매수는 서두르지 않을 때예요",
+        summary: "긍정 신호가 조금 많지만 더 살 조건까지 모두 갖춰졌다고 보기는 어려워요.",
+        direction: "보유 기준 확인",
+        guide: "추가 매수 전에 가격 조건을 더 보세요",
+      };
+      return {
+        headline: "보유 수량을 늘리기보다 현재 기준을 점검할 때예요",
+        summary: "보유을 유지할지와 위험 가격이 가까워지는지를 먼저 확인해요.",
+        direction: "보유 기준 확인",
+        guide: "추가 매수보다 보유·위험 기준이 우선이에요",
+      };
+    }
+    if (hardRisk) return {
+      headline: "새로 살지 정하기 전에 중요한 공시부터 확인할 때예요",
+      summary: "아직 보유하지 않은 상태이므로 중대 위험이 풀리기 전에는 신규 매수 판단을 미루는 구간이에요.",
+      direction: "신규 매수 대기",
+      guide: "중대 공시가 다른 신호보다 우선해요",
+    };
+    if (limited || conflict || stronglyNegative) return {
+      headline: "지금은 새로 살 때가 아니라 조건을 기다릴 때예요",
+      summary: "신규 매수 관점에서는 부족하거나 엇갈린 신호가 줄어드는지 먼저 확인해요.",
+      direction: "신규 매수 대기",
+      guide: limited ? "아직 확인되지 않은 자료가 있어요" : "새로 살 만큼 신호가 모이지 않았어요",
+    };
+    if (stronglyPositive) return {
+      headline: "신규 매수를 검토할 수 있지만 가격 조건부터 확인할 때예요",
+      summary: "긍정 신호가 많아도 실제로 새로 살 가격과 신호가 함께 맞는지 확인해야 해요.",
+      direction: "새 매수 조건 확인",
+      guide: "신규 매수 가격과 신호가 함께 맞는지 보세요",
+    };
+    return {
+      headline: "새로 살 조건이 더 갖춰지는지 확인할 때예요",
+      summary: "긍정 신호가 조금 많지만 신규 매수를 정하기 전에 다음 가격 조건을 확인해요.",
+      direction: "새 매수 조건 확인",
+      guide: "긍정 신호가 계속되는지 한 번 더 보세요",
+    };
+  };
+
   const stagingAiStockResponseDataState = (confidence = 0, limited = false) => {
     if (limited || Number(confidence) < 55) return "부족";
     if (Number(confidence) >= 75) return "충분";
@@ -877,7 +1133,7 @@
   };
 
   const stagingAiStockResponseCoverage = (count = 0) => {
-    if (Number(count) >= 5) return "5개 모두";
+    if (Number(count) >= 6) return "6개 모두";
     if (Number(count) > 0) return `${Number(count)}개 확인`;
     return "확인된 자료 없음";
   };
@@ -899,6 +1155,13 @@
   const stagingAiStockResponseFriendlyAction = (value = "") => {
     let text = String(value || "").trim();
     for (const [before, after] of [
+      ["현재 포지션", "현재 보유 상태"],
+      ["포지션", "보유 상태"],
+      ["신규 진입", "새로 사는 것"],
+      ["재진입", "다시 사는 것"],
+      ["진입 조건", "새로 살 조건"],
+      ["매매 시그널", "AI 판단"],
+      ["시그널", "AI 판단"],
       ["신규 접근을 서두르지 말고", "새로운 결정을 서두르지 말고"],
       ["신규 접근을 보류하세요", "새로운 결정을 미뤄 주세요"],
       ["신규 접근", "새로운 판단"],
@@ -932,15 +1195,187 @@
 
   const stagingAiStockResponseFriendlyNextCheck = (value = "") => {
     let text = String(value || "").trim();
-    text = text.replace(/^현재 시그널:\s*/, "AI 전략 조건: ");
+    text = text.replace(/^현재 시그널:\s*/, "현재 AI 판단: ");
     text = text.replace(/^공시 원문과 거래 상태를 먼저 확인$/, "중대 공시 원문과 거래 가능 상태를 확인하기");
-    text = text.replace(/^차트 지지 ([\d,]+)원 유지 여부$/, "주가가 $1원 지지선 위에서 유지되는지");
-    text = text.replace(/^차트 종가와 20일선 방향 재확인$/, "종가와 20일 이동평균선이 같은 방향으로 움직이는지");
-    text = text.replace(/^외국인·기관 합산 순매수 전환 확인$/, "외국인·기관 합산 매매가 순매수로 바뀌는지");
-    text = text.replace(/^수급 우호 흐름의 연속성 확인$/, "외국인·기관 순매수 흐름이 이어지는지");
+    text = text.replace(/^차트 지지 ([\d,]+)원 유지 여부$/, "주가가 $1원 아래로 내려가지 않는지");
+    text = text.replace(/^차트 종가와 20일선 방향 재확인$/, "장이 끝날 때 가격이 최근 20일 평균보다 위에 있는지");
+    text = text.replace(/^외국인·기관 합산 순매수 전환 확인$/, "외국인과 기관이 판 금액보다 산 금액이 많아지는지");
+    text = text.replace(/^수급 우호 흐름의 연속성 확인$/, "외국인과 기관이 계속 사는지");
     text = text.replace(/^부정 뉴스의 실적·사업 영향 범위 확인$/, "부정 뉴스가 실적과 사업에 실제로 영향을 주는지");
-    text = text.replace(/^관련 시장 위험축의 방향 전환 확인$/, "금리·환율·업종 환경의 주의 신호가 줄어드는지");
+    text = text.replace(/^관련 시장 위험축의 방향 전환 확인$/, "금리·환율·업종의 주의 요인이 줄어드는지");
+    for (const [before, after] of [
+      ["손실 제한선", "손실을 줄일 가격"],
+      ["지지선", "가격이 버텨야 하는 기준"],
+      ["저항선", "가격이 넘어서야 하는 기준"],
+      ["종가", "장이 끝날 때 가격"],
+      ["시그널", "AI 판단"],
+      ["수급", "외국인과 기관의 매매"],
+      ["진입", "새로 사는 것"],
+      ["포지션", "보유 상태"],
+    ]) text = text.replaceAll(before, after);
     return text;
+  };
+
+  const stagingAiStockResponseInvestorNextCheck = (
+    result = {},
+    investorState = stagingAiStockResponseSelectedState,
+  ) => {
+    const stateKey = normalizeStagingAiStockResponseInvestorState(investorState);
+    const perspective = stagingAiStockResponsePerspectiveCopy(result, stateKey);
+    if (Array.isArray(perspective.nextChecks) && perspective.nextChecks[0]) {
+      return stagingAiStockResponseFriendlyNextCheck(perspective.nextChecks[0]);
+    }
+    const score = Number(result.score);
+    if (result.hardRisk) return "중대 공시 원문과 거래 가능 상태를 먼저 확인하기";
+    if (stateKey === "holding") {
+      if (Number.isFinite(score) && score >= 35 && !result.conflict && !result.limited) {
+        return "추가 매수 전에 가격 조건과 긍정 신호가 함께 유지되는지";
+      }
+      return "보유 기준과 손실을 줄일 가격이 유지되는지";
+    }
+    return "신규 매수 전에 가격 조건과 긍정 신호가 함께 갖춰지는지";
+  };
+
+  const stagingAiStockResponseSummaryInput = (
+    result = {},
+    investorState = stagingAiStockResponseSelectedState,
+  ) => {
+    const normalizedState = normalizeStagingAiStockResponseInvestorState(investorState);
+    const stateCopy = STAGING_AI_STOCK_RESPONSE_INVESTOR_STATES[normalizedState];
+    const perspective = stagingAiStockResponsePerspectiveCopy(result, normalizedState);
+    const sources = (Array.isArray(result.metrics) ? result.metrics : []).map((metric) => ({
+      id: `metric-${metric.key || "unknown"}`,
+      key: metric.key,
+      label: stagingAiStockResponseMetricCopy(metric).label,
+      status: stagingAiStockResponseMetricStatus(metric.status),
+      value: stagingAiStockResponseMetricValue(metric),
+      evidence: metric.evidence,
+      available: metric.available !== false,
+      weight: metric.weight,
+      score: metric.score,
+    }));
+    const perspectiveNextChecks = (Array.isArray(perspective.nextChecks) ? perspective.nextChecks : [])
+      .map((item) => stagingAiStockResponseFriendlyNextCheck(item));
+    const nextChecks = [
+      stagingAiStockResponseInvestorNextCheck(result, normalizedState),
+      ...perspectiveNextChecks,
+      ...(perspectiveNextChecks.length === 0 && Array.isArray(result.nextChecks)
+        ? result.nextChecks.map((item) => stagingAiStockResponseFriendlyNextCheck(item))
+        : []),
+    ].filter((item, index, items) => item && items.indexOf(item) === index);
+    const fallback = {
+      headline: perspective.headline,
+      summary: perspective.summary,
+      reason: perspective.reason || stagingAiStockResponseReason(result),
+      action_title: perspective.headline,
+      next_check: nextChecks[0] || "현재 상태를 바꿀 다음 자료를 확인하고 있어요.",
+      evidence_refs: sources.slice(0, 3).map((source) => source.id),
+    };
+    return {
+      facts: {
+        code: result.code,
+        name: result.name,
+        stance: result.stance,
+        tone: result.tone,
+        action: result.action,
+        investor_state: normalizedState,
+        investor_state_label: stateCopy.label,
+        investor_state_note: stateCopy.note,
+        position_mode: perspective.positionMode,
+        average_buy_price: perspective.averageBuyPrice,
+        personal_return_rate: perspective.returnRate,
+        current_price: perspective.currentPrice,
+        guide_rows: (perspective.rows || []).slice(0, 3),
+        hard_risk: Boolean(result.hardRisk),
+        conflict: Boolean(result.conflict),
+        limited: Boolean(result.limited),
+        coverage_count: result.coverageCount,
+        as_of: result.asOf,
+        metrics: sources,
+        warnings: (result.warnings || []).slice(0, 5),
+        next_checks: nextChecks.slice(0, 5),
+        sources,
+      },
+      fallback,
+    };
+  };
+
+  const finishStagingAiStockResponseSummary = ({
+    requestedCode,
+    requestedState,
+    summaryToken,
+    mode = "rules",
+  }) => {
+    if (
+      !stagingAiStockResponsePage
+      || stagingAiStockResponsePage.dataset.responseCode !== requestedCode
+      || stagingAiStockResponseSelectedState !== requestedState
+      || summaryToken !== stagingAiStockResponseSummaryToken
+    ) return;
+    stagingAiStockResponsePage.dataset.summaryMode = mode;
+    setStagingAiStockResponseDisplay("ready");
+    const perspective = stagingAiStockResponsePerspectiveCopy(
+      stagingAiStockResponseRenderedResult || {},
+      requestedState,
+    );
+    stagingAiStockResponseText(
+      "[data-staging-response-announcement]",
+      `${stagingAiStockResponseRenderedResult?.name || "종목"} 설명이 ${STAGING_AI_STOCK_RESPONSE_INVESTOR_STATES[requestedState].label} 기준으로 준비됐습니다. ${perspective.headline}`,
+    );
+  };
+
+  const applyStagingAiStockResponseSummary = async (
+    result = {},
+    investorState = stagingAiStockResponseSelectedState,
+  ) => {
+    if (!stagingGptPageSummaryEnabled || !stagingAiStockResponsePage || !result.code) return;
+    const requestedCode = String(result.code);
+    const requestedState = normalizeStagingAiStockResponseInvestorState(investorState);
+    const summaryToken = ++stagingAiStockResponseSummaryToken;
+    stagingAiStockResponsePage.dataset.summaryMode = "loading";
+    setStagingAiStockResponseDisplay("loading", `내 상황을 ${STAGING_AI_STOCK_RESPONSE_INVESTOR_STATES[requestedState].label} 기준으로 반영해 쉬운 말로 정리하고 있어요.`);
+    const { facts, fallback } = stagingAiStockResponseSummaryInput(result, requestedState);
+    try {
+      const summary = await requestStagingPageSummary("stock_response", facts, fallback);
+      if (
+        stagingAiStockResponsePage.dataset.responseCode !== requestedCode
+        || stagingAiStockResponseSelectedState !== requestedState
+        || summaryToken !== stagingAiStockResponseSummaryToken
+      ) return;
+      if (typeof summary?.headline !== "string") {
+        finishStagingAiStockResponseSummary({
+          requestedCode,
+          requestedState,
+          summaryToken,
+          mode: "rules",
+        });
+        return;
+      }
+      stagingAiStockResponseText("[data-staging-response-action]", summary.headline);
+      stagingAiStockResponseText("[data-staging-response-summary]", summary.summary);
+      stagingAiStockResponseText("[data-staging-response-reason]", summary.reason);
+      const nextList = stagingAiStockResponsePage.querySelector("[data-staging-response-next] ul");
+      const nextSection = stagingAiStockResponsePage.querySelector("[data-staging-response-next]");
+      if (nextList && summary.next_check) {
+        const first = nextList.querySelector("li") || document.createElement("li");
+        first.textContent = summary.next_check;
+        if (!first.isConnected) nextList.prepend(first);
+        if (nextSection) nextSection.hidden = false;
+      }
+      finishStagingAiStockResponseSummary({
+        requestedCode,
+        requestedState,
+        summaryToken,
+        mode: summary.generation_mode || "rules",
+      });
+    } catch {
+      finishStagingAiStockResponseSummary({
+        requestedCode,
+        requestedState,
+        summaryToken,
+        mode: "rules",
+      });
+    }
   };
 
   const stagingAiStockResponseKeyReasonRow = (metric, { loading = false } = {}) => {
@@ -1006,12 +1441,40 @@
     return row;
   };
 
+  const stagingAiStockResponseGuideRow = (item = {}) => {
+    const row = document.createElement("article");
+    row.className = "staging-ai-stock-response-guide-row";
+    row.dataset.guideKey = item.key || "guide";
+    row.dataset.guideTone = item.tone || "neutral";
+    const head = document.createElement("div");
+    head.className = "staging-ai-stock-response-guide-row-head";
+    const identity = document.createElement("div");
+    const label = document.createElement("h4");
+    label.textContent = item.label || "확인 기준";
+    const status = document.createElement("span");
+    status.textContent = item.status || "확인";
+    identity.append(label, status);
+    const value = document.createElement("strong");
+    value.textContent = item.value || "자료 부족";
+    head.append(identity, value);
+    const evidence = document.createElement("p");
+    evidence.textContent = item.evidence || "연결된 가격 자료를 확인하고 있어요.";
+    row.append(head, evidence);
+    return row;
+  };
+
   const renderStagingAiStockResponseLoading = (detail) => {
     if (!stagingAiStockResponsePage || !detail) return;
+    stagingAiStockResponseSummaryToken += 1;
+    stagingAiStockResponseRenderedResult = null;
+    stagingAiStockResponseRenderedFailedSources = 0;
     stagingAiStockResponsePage.dataset.responseTone = detail.tone || "neutral";
     stagingAiStockResponsePage.dataset.responseCode = detail.code || "";
-    stagingAiStockResponsePage.dataset.responseLoaded = "false";
-    stagingAiStockResponsePage.setAttribute("aria-busy", "true");
+    syncStagingAiStockResponseInvestorState(
+      stagingAiStockResponseInvestorStateForCode(detail.code),
+      stagingAiStockResponseAverageBuyPriceForCode(detail.code),
+    );
+    setStagingAiStockResponseDisplay("loading", "6가지 자료를 확인하고 있어요.");
     stagingAiStockResponseText("[data-staging-response-name]", detail.name || detail.code || "관심종목");
     stagingAiStockResponseText("[data-staging-response-status]", "자료 확인 중");
     stagingAiStockResponseSetTime(
@@ -1022,7 +1485,7 @@
     stagingAiStockResponseText("[data-staging-response-context]", stagingAiStockResponseContext(detail));
     stagingAiStockResponseText(
       "[data-staging-response-action]",
-      "5가지 자료를 확인하고 있어요",
+      "6가지 자료를 확인하고 있어요",
     );
     stagingAiStockResponseText("[data-staging-response-summary]", "잠시만 기다리면 쉬운 말로 정리해 드릴게요.");
     stagingAiStockResponseText("[data-staging-response-reason]", detail.action || "종목별 판단 근거를 연결하고 있습니다.");
@@ -1031,11 +1494,11 @@
     stagingAiStockResponseText("[data-staging-response-confidence]", "--");
     stagingAiStockResponseText("[data-staging-response-coverage-label]", "확인 중");
     stagingAiStockResponseText("[data-staging-response-score]", "--");
-    stagingAiStockResponseText("[data-staging-response-coverage]", "5개 중 0개");
+    stagingAiStockResponseText("[data-staging-response-coverage]", "6개 중 0개");
     stagingAiStockResponseText("[data-staging-response-original-stance]", "계산 중");
     stagingAiStockResponseText(
       "[data-staging-response-lead]",
-      "차트 30 · 수급 25 · 공시 15 · 뉴스 10 · 시장 20 가중 종합",
+      "가격 흐름 25 · 외국인·기관 매매 25 · 회사 공시 15 · 뉴스 10 · 증권사 리포트 15 · 시장 환경 10 가중 종합",
     );
     const keyReasonList = stagingAiStockResponsePage.querySelector("[data-staging-response-key-reasons]");
     if (keyReasonList) {
@@ -1061,10 +1524,15 @@
 
   const renderStagingAiStockResponseResult = (result, { failedSources = 0 } = {}) => {
     if (!stagingAiStockResponsePage || !result) return;
+    stagingAiStockResponseRenderedResult = result;
+    stagingAiStockResponseRenderedFailedSources = failedSources;
+    const investorState = normalizeStagingAiStockResponseInvestorState(
+      stagingAiStockResponseSelectedState,
+    );
+    const perspective = stagingAiStockResponsePerspectiveCopy(result, investorState);
     stagingAiStockResponsePage.dataset.responseTone = result.tone || "neutral";
     stagingAiStockResponsePage.dataset.responseCode = result.code || "";
-    stagingAiStockResponsePage.dataset.responseLoaded = "true";
-    stagingAiStockResponsePage.setAttribute("aria-busy", "false");
+    setStagingAiStockResponseDisplay("loading", `내 상황을 ${STAGING_AI_STOCK_RESPONSE_INVESTOR_STATES[investorState].label} 기준으로 반영해 쉬운 말로 정리하고 있어요.`);
     const detail = readStagingAiStockResponseDetail(result.code) || {};
     const stanceCopy = stagingAiStockResponseStanceCopy(result.stance);
     stagingAiStockResponseText("[data-staging-response-name]", result.name || result.code || "관심종목");
@@ -1073,12 +1541,14 @@
       ?.setAttribute("data-original-stance", result.stance || "정보 확인 우선");
     stagingAiStockResponseSetTime("[data-staging-response-updated]", result.asOf, { prefix: "가장 최근 자료" });
     stagingAiStockResponseText("[data-staging-response-context]", stagingAiStockResponseContext(detail));
-    stagingAiStockResponseText("[data-staging-response-action]", stanceCopy.headline);
-    stagingAiStockResponseText("[data-staging-response-summary]", stagingAiStockResponseFriendlyAction(result.action));
-    stagingAiStockResponseText("[data-staging-response-reason]", stagingAiStockResponseReason(result));
-    const directionCopy = stagingAiStockResponseDirectionCopy(result);
-    stagingAiStockResponseText("[data-staging-response-direction]", directionCopy.value);
-    stagingAiStockResponseText("[data-staging-response-direction-guide]", directionCopy.guide);
+    stagingAiStockResponseText("[data-staging-response-action]", perspective.headline);
+    stagingAiStockResponseText("[data-staging-response-summary]", perspective.summary);
+    stagingAiStockResponseText(
+      "[data-staging-response-reason]",
+      perspective.reason || stagingAiStockResponseReason(result),
+    );
+    stagingAiStockResponseText("[data-staging-response-direction]", perspective.direction);
+    stagingAiStockResponseText("[data-staging-response-direction-guide]", perspective.guide);
     stagingAiStockResponseText(
       "[data-staging-response-data-state]",
       stagingAiStockResponseDataState(result.confidence, result.limited),
@@ -1092,13 +1562,36 @@
       "[data-staging-response-coverage-label]",
       stagingAiStockResponseCoverage(result.coverageCount),
     );
-    stagingAiStockResponseText("[data-staging-response-coverage]", `5개 중 ${result.coverageCount}개`);
+    stagingAiStockResponseText("[data-staging-response-coverage]", `6개 중 ${result.coverageCount}개`);
     stagingAiStockResponseText("[data-staging-response-original-stance]", result.stance || "정보 확인 우선");
     stagingAiStockResponseText("[data-staging-response-lead]", result.lead);
     const stockLink = stagingAiStockResponsePage.querySelector("[data-staging-response-stock-link]");
     if (stockLink instanceof HTMLAnchorElement) {
       stockLink.href = `/dashboard/${encodeURIComponent(result.code || "")}`;
       stockLink.setAttribute("aria-label", `${result.name || result.code || "종목"} 상세에서 차트 보기`);
+    }
+
+    stagingAiStockResponseText(
+      "[data-staging-response-guide-title]",
+      perspective.positionMode === "holding_profit"
+        ? "수익을 지킬 가격을 나눠 보세요"
+        : perspective.positionMode === "holding_loss"
+          ? "손실 제한선과 회복선을 나눠 보세요"
+          : perspective.positionMode === "holding_unknown"
+            ? "평균 매수가를 입력해 손익 기준을 확인하세요"
+            : "관망하다가 다시 볼 매수 포인트예요",
+    );
+    stagingAiStockResponseText(
+      "[data-staging-response-guide-intro]",
+      perspective.positionMode?.startsWith("holding")
+        ? "현재가와 내 평균 매수가, 가격 흐름을 함께 비교한 참고 기준이에요."
+        : "현재가를 바로 사는 기준이 아니라 판단을 다시 확인할 관찰 가격이에요.",
+    );
+    const guideRows = stagingAiStockResponsePage.querySelector("[data-staging-response-guide-rows]");
+    if (guideRows) {
+      guideRows.replaceChildren(...(perspective.rows || []).map(
+        (item) => stagingAiStockResponseGuideRow(item),
+      ));
     }
 
     const keyReasonList = stagingAiStockResponsePage.querySelector("[data-staging-response-key-reasons]");
@@ -1123,7 +1616,7 @@
     const warningList = warningSection?.querySelector("ul");
     const warningItems = [...(result.warnings || [])];
     if (failedSources > 0) {
-      warningItems.push(`일부 원천 응답 지연: 연결된 ${result.coverageCount}/5개 지표만 반영`);
+      warningItems.push(`일부 원천 응답 지연: 연결된 ${result.coverageCount}/6개 지표만 반영`);
     }
     if (warningList) {
       warningList.replaceChildren(...warningItems.map((item) => {
@@ -1136,20 +1629,37 @@
 
     const nextSection = stagingAiStockResponsePage.querySelector("[data-staging-response-next]");
     const nextList = nextSection?.querySelector("ul");
+    const deterministicNextChecks = (perspective.nextChecks || []).map(
+      (item) => stagingAiStockResponseFriendlyNextCheck(item),
+    );
+    const perspectiveNextChecks = [
+      stagingAiStockResponseInvestorNextCheck(result, investorState),
+      ...deterministicNextChecks,
+      ...(deterministicNextChecks.length === 0
+        ? (result.nextChecks || []).map((item) => stagingAiStockResponseFriendlyNextCheck(item))
+        : []),
+    ].filter((item, index, items) => item && items.indexOf(item) === index).slice(0, 5);
     if (nextList) {
-      nextList.replaceChildren(...(result.nextChecks || []).map((item) => {
+      nextList.replaceChildren(...perspectiveNextChecks.map((item) => {
         const row = document.createElement("li");
-        row.textContent = stagingAiStockResponseFriendlyNextCheck(item);
+        row.textContent = item;
         return row;
       }));
     }
-    if (nextSection) nextSection.hidden = !(result.nextChecks || []).length;
+    if (nextSection) nextSection.hidden = perspectiveNextChecks.length === 0;
     const retry = stagingAiStockResponsePage.querySelector("[data-staging-response-retry]");
     if (retry instanceof HTMLButtonElement) retry.hidden = failedSources === 0;
-    stagingAiStockResponseText(
-      "[data-staging-response-announcement]",
-      `${result.name || "종목"} AI 분석이 완료됐습니다. ${stanceCopy.headline}`,
-    );
+    if (stagingGptPageSummaryEnabled) {
+      void applyStagingAiStockResponseSummary(result, investorState);
+    } else {
+      const summaryToken = ++stagingAiStockResponseSummaryToken;
+      finishStagingAiStockResponseSummary({
+        requestedCode: String(result.code),
+        requestedState: investorState,
+        summaryToken,
+        mode: "rules",
+      });
+    }
   };
 
   const fetchStagingAiStockResponseJson = async (url, signal, { force = false } = {}) => {
@@ -1184,16 +1694,16 @@
         stance: "정보 확인 우선",
         tone: "limited",
         action: "세부 판단 모듈을 불러오지 못했습니다. 잠시 후 다시 열어 주세요.",
-        summary: "종목별 5개 지표를 아직 계산하지 못했습니다.",
+        summary: "종목별 6개 자료를 아직 계산하지 못했습니다.",
         score: null,
         scoreDisplay: "--",
         confidence: 0,
-        coverageLabel: "0/5개",
+        coverageLabel: "0/6개",
         coverageCount: 0,
         hardRisk: false,
         conflict: false,
         limited: true,
-        lead: "차트 30 · 수급 25 · 공시 15 · 뉴스 10 · 시장 20 가중 종합",
+        lead: "가격 흐름 25 · 외국인·기관 매매 25 · 회사 공시 15 · 뉴스 10 · 증권사 리포트 15 · 시장 환경 10 가중 종합",
         metrics: STAGING_AI_STOCK_RESPONSE_METRICS.map((metric) => ({
           ...metric,
           available: false,
@@ -1272,6 +1782,10 @@
       stagingAiStockResponseReturnScrollY = Math.max(0, window.scrollY);
     }
     storeStagingAiStockResponseDetail(detail);
+    syncStagingAiStockResponseInvestorState(
+      stagingAiStockResponseInvestorStateForCode(detail.code),
+      stagingAiStockResponseAverageBuyPriceForCode(detail.code),
+    );
     const cached = stagingAiStockResponseCache.get(detail.code);
     if (cached && Date.now() - cached.cachedAt < STAGING_AI_STOCK_RESPONSE_CACHE_MS) {
       renderStagingAiStockResponseResult(cached.result, { failedSources: cached.failedSources });
@@ -1322,6 +1836,7 @@
     stagingAiStockResponseAbortController?.abort();
     stagingAiStockResponseAbortController = null;
     stagingAiStockResponseRequestToken += 1;
+    stagingAiStockResponseSummaryToken += 1;
     stagingAiStockResponsePage.hidden = true;
     homeView.hidden = false;
     delete document.body.dataset.stagingAiStockResponse;
@@ -1443,28 +1958,88 @@
             <span id="staging-ai-stock-response-context-title">이 화면이 열린 이유</span>
             <p data-staging-response-context>최근 시장 이벤트와 이 종목의 연결을 확인했어요.</p>
           </section>
+          <section class="staging-ai-stock-response-investor-state" aria-labelledby="staging-ai-stock-response-investor-state-title">
+            <header>
+              <div>
+                <span>내 상황에 맞춰 볼게요</span>
+                <h3 id="staging-ai-stock-response-investor-state-title">현재 이 종목을 보유하고 있나요?</h3>
+              </div>
+              <p>보유 여부와 평균 매수가에 맞춰 확인할 가격이 달라져요.</p>
+            </header>
+            <div class="staging-ai-stock-response-investor-options" role="group" aria-label="이 종목에 대한 내 상황">
+              <button type="button" class="active" aria-pressed="true" data-staging-response-investor-state="not_holding">미보유</button>
+              <button type="button" aria-pressed="false" data-staging-response-investor-state="holding">보유 중</button>
+            </div>
+            <p class="staging-ai-stock-response-investor-note" data-staging-response-investor-note>
+              현재 보유하지 않은 상태로, 관망 이유와 매수 전환 조건을 설명해요.
+            </p>
+            <form class="staging-ai-stock-response-average-price" data-staging-response-average-price-field hidden novalidate>
+              <label for="staging-ai-stock-response-average-price">
+                <strong>내 평균 매수가</strong>
+                <span>현재 손익과 가격별 대응 기준을 계산할 때 사용해요.</span>
+              </label>
+              <div>
+                <span class="staging-ai-stock-response-average-price-control">
+                  <input
+                    id="staging-ai-stock-response-average-price"
+                    type="text"
+                    inputmode="decimal"
+                    autocomplete="off"
+                    placeholder="예: 72,000"
+                    aria-describedby="staging-ai-stock-response-average-price-help staging-ai-stock-response-average-price-status"
+                    data-staging-response-average-price
+                  >
+                  <span aria-hidden="true">원</span>
+                </span>
+                <button type="submit">적용</button>
+              </div>
+              <p id="staging-ai-stock-response-average-price-help">직접 입력한 값이며 실제 계좌·주문 내역과 자동 연동되지 않아요.</p>
+              <p id="staging-ai-stock-response-average-price-status" role="status" aria-live="polite" data-staging-response-average-price-status></p>
+            </form>
+          </section>
+          <section class="staging-ai-stock-response-loader" data-staging-response-loader role="status" aria-live="polite">
+            <span class="staging-ai-stock-response-loader-spinner" aria-hidden="true"></span>
+            <div>
+              <strong>종목 판단을 정리하고 있어요</strong>
+              <p data-staging-response-loader-message>6가지 자료를 확인하고 있어요.</p>
+            </div>
+          </section>
           <section class="staging-ai-stock-response-action" aria-labelledby="staging-ai-stock-response-action-title" aria-describedby="staging-ai-stock-response-disclaimer">
-            <span>현재 AI 전략 상태</span>
-            <h3 id="staging-ai-stock-response-action-title" data-staging-response-action>5가지 자료를 확인하고 있어요</h3>
+            <div class="staging-page-summary-head">
+              <span>쉽게 풀어보면</span>
+            </div>
+            <h3 id="staging-ai-stock-response-action-title" data-staging-response-action>6가지 자료를 확인하고 있어요</h3>
             <p class="staging-ai-stock-response-summary" data-staging-response-summary>잠시만 기다리면 쉬운 말로 정리해 드릴게요.</p>
-            <p class="staging-ai-stock-response-reason" data-staging-response-reason>종목별 판단 근거를 연결하고 있습니다.</p>
+            <div class="staging-ai-stock-response-explanation">
+              <span>왜 이렇게 보나요?</span>
+              <p class="staging-ai-stock-response-reason" data-staging-response-reason>종목별 판단 근거를 연결하고 있습니다.</p>
+            </div>
             <dl class="staging-ai-stock-response-overview" aria-label="현재 AI 분석 요약">
               <div>
-                <dt>현재 신호</dt>
+                <dt>지금 판단</dt>
                 <dd><strong data-staging-response-direction>계산 중이에요</strong><small data-staging-response-direction-guide>긍정·주의 신호를 비교하고 있어요</small></dd>
               </div>
               <div>
-                <dt>분석 자료 상태</dt>
+                <dt>자료가 충분한가요?</dt>
                 <dd><strong data-staging-response-data-state>확인 중</strong><small>완성도와 신호 일치 정도</small></dd>
               </div>
               <div>
-                <dt>반영한 자료</dt>
-                <dd><strong data-staging-response-coverage-label>확인 중</strong><small>차트·매매·공시·뉴스·시장</small></dd>
+                <dt>확인한 자료</dt>
+                <dd><strong data-staging-response-coverage-label>확인 중</strong><small>가격·외국인/기관·공시·뉴스·리포트·시장</small></dd>
               </div>
             </dl>
             <p class="staging-ai-stock-response-disclaimer" id="staging-ai-stock-response-disclaimer">
-              공개 데이터 기반 참고 정보이며 실제 보유 여부나 주문 내역을 반영하지 않아요. 매수·매도 권유가 아닙니다.
+              공개 데이터와 직접 입력한 평균 매수가를 바탕으로 한 대응 참고 정보예요. 실제 계좌·주문 내역과 자동 연동되지 않아요.
             </p>
+          </section>
+          <section class="staging-ai-stock-response-guide" aria-labelledby="staging-ai-stock-response-guide-title">
+            <header>
+              <span>내 상황별 가격 가이드</span>
+              <h3 id="staging-ai-stock-response-guide-title" data-staging-response-guide-title>관망하다가 다시 볼 매수 포인트예요</h3>
+              <p data-staging-response-guide-intro>현재가를 바로 사는 기준이 아니라 판단을 다시 확인할 관찰 가격이에요.</p>
+            </header>
+            <div class="staging-ai-stock-response-guide-rows" data-staging-response-guide-rows></div>
+            <p class="staging-ai-stock-response-guide-note">가격만으로 결정하지 말고 같은 시점의 외국인·기관 매매, 뉴스, 회사 공시, 증권사 리포트를 함께 확인해 주세요.</p>
           </section>
           <section class="staging-ai-stock-response-next" data-staging-response-next hidden aria-labelledby="staging-ai-stock-response-next-title">
             <span>다음 확인</span>
@@ -1485,7 +2060,7 @@
             </header>
             <div class="staging-ai-stock-response-key-reasons" data-staging-response-key-reasons></div>
             <details class="staging-ai-stock-response-all-reasons">
-              <summary>5가지 자료 자세히 보기</summary>
+              <summary>6가지 자료 자세히 보기</summary>
               <p>각 점수는 상승 확률이 아니라 자료별 긍정·주의 방향을 비교하기 위한 값이에요.</p>
               <div class="staging-ai-stock-response-metrics" data-staging-response-metrics></div>
             </details>
@@ -1497,10 +2072,10 @@
                 <div><dt>AI 전략의 원래 상태</dt><dd data-staging-response-original-stance>계산 중</dd></div>
                 <div><dt>분석 점수 (-100~+100)</dt><dd data-staging-response-score>--</dd></div>
                 <div><dt>내부 근거 충실도</dt><dd data-staging-response-confidence>--</dd></div>
-                <div><dt>반영한 자료</dt><dd data-staging-response-coverage>5개 중 0개</dd></div>
+                <div><dt>반영한 자료</dt><dd data-staging-response-coverage>6개 중 0개</dd></div>
               </dl>
               <p>내부 근거 충실도는 과거 적중률이나 주가 상승 확률이 아니에요. 자료 완성도와 신호가 같은 방향을 가리키는 정도를 함께 나타냅니다.</p>
-              <p class="staging-ai-stock-response-lead" data-staging-response-lead>차트 30 · 수급 25 · 공시 15 · 뉴스 10 · 시장 20 가중 종합</p>
+              <p class="staging-ai-stock-response-lead" data-staging-response-lead>가격 흐름 25 · 외국인·기관 매매 25 · 회사 공시 15 · 뉴스 10 · 증권사 리포트 15 · 시장 환경 10 가중 종합</p>
             </div>
           </details>
           <nav class="staging-ai-stock-response-links" aria-label="종목 추가 확인">
@@ -1511,6 +2086,71 @@
           </aside>
           <p class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-staging-response-announcement></p>
         `;
+        stagingAiStockResponsePage.addEventListener("click", (event) => {
+          const target = event.target instanceof Element
+            ? event.target.closest("[data-staging-response-investor-state]")
+            : null;
+          if (!(target instanceof HTMLButtonElement)) return;
+          const nextState = normalizeStagingAiStockResponseInvestorState(
+            target.dataset.stagingResponseInvestorState,
+          );
+          if (nextState === stagingAiStockResponseSelectedState) return;
+          syncStagingAiStockResponseInvestorState(nextState);
+          stagingAiStockResponseText("[data-staging-response-average-price-status]", "");
+          const code = stagingAiStockResponsePage?.dataset.responseCode || "";
+          const investorStateApi = window.SecretNoteWatchlistInvestorState;
+          if (typeof investorStateApi?.update === "function") {
+            investorStateApi.update(code, nextState);
+          }
+          if (stagingAiStockResponseRenderedResult) {
+            renderStagingAiStockResponseResult(stagingAiStockResponseRenderedResult, {
+              failedSources: stagingAiStockResponseRenderedFailedSources,
+            });
+          } else {
+            setStagingAiStockResponseDisplay(
+              "loading",
+              `내 상황을 ${STAGING_AI_STOCK_RESPONSE_INVESTOR_STATES[nextState].label} 기준으로 반영해 정리하고 있어요.`,
+            );
+          }
+        });
+        const averagePriceForm = stagingAiStockResponsePage.querySelector(
+          "[data-staging-response-average-price-field]",
+        );
+        averagePriceForm?.addEventListener("submit", (event) => {
+          event.preventDefault();
+          const priceInput = stagingAiStockResponsePage?.querySelector(
+            "[data-staging-response-average-price]",
+          );
+          if (!(priceInput instanceof HTMLInputElement)) return;
+          const averageBuyPrice = normalizeStagingAiStockResponseAverageBuyPrice(priceInput.value);
+          if (averageBuyPrice === null) {
+            priceInput.setAttribute("aria-invalid", "true");
+            stagingAiStockResponseText(
+              "[data-staging-response-average-price-status]",
+              "0원보다 큰 평균 매수가를 입력해 주세요.",
+            );
+            priceInput.focus({ preventScroll: true });
+            return;
+          }
+          priceInput.removeAttribute("aria-invalid");
+          stagingAiStockResponseAverageBuyPrice = averageBuyPrice;
+          priceInput.value = formatNumber(averageBuyPrice);
+          const code = stagingAiStockResponsePage?.dataset.responseCode || "";
+          const investorStateApi = window.SecretNoteWatchlistInvestorState;
+          if (typeof investorStateApi?.updateAverageBuyPrice === "function") {
+            investorStateApi.updateAverageBuyPrice(code, averageBuyPrice);
+          }
+          syncStagingAiStockResponseInvestorState("holding", averageBuyPrice);
+          stagingAiStockResponseText(
+            "[data-staging-response-average-price-status]",
+            `평균 매수가 ${formatNumber(averageBuyPrice)}원을 반영했어요.`,
+          );
+          if (stagingAiStockResponseRenderedResult) {
+            renderStagingAiStockResponseResult(stagingAiStockResponseRenderedResult, {
+              failedSources: stagingAiStockResponseRenderedFailedSources,
+            });
+          }
+        });
         shell.insertBefore(stagingAiStockResponsePage, serviceFooter || null);
       }
     }
@@ -2808,7 +3448,12 @@
     if (Number.isFinite(changeRate)) recommendationDetailLiveQuote.changeRate = changeRate;
     const item = recommendationDetailItem();
     if (item && item.code === recommendationDetailLiveQuote.code) {
-      if (Number.isFinite(price)) item.price = price;
+      if (Number.isFinite(price)) {
+        item.current_price = price;
+        if (item.ai_trade_signal?.current && typeof item.ai_trade_signal.current === "object") {
+          item.ai_trade_signal.current.price = price;
+        }
+      }
       if (Number.isFinite(changeRate)) item.change_rate = changeRate;
     }
     const page = document.getElementById("recommend-detail-page");
@@ -2825,9 +3470,14 @@
     const signature = `${active ? "detail" : "off"}:${code}`;
     const page = document.getElementById("recommend-detail-page");
     if (code && (recommendationDetailLiveQuote.code !== code || recommendationDetailLiveQuote.price === null)) {
+      const initialPrice = [
+        item?.ai_trade_signal?.current?.price,
+        item?.current_price,
+        item?.price,
+      ].find((value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)));
       recommendationDetailLiveQuote = {
         code,
-        price: Number.isFinite(Number(item?.price)) ? Number(item.price) : null,
+        price: initialPrice === undefined ? null : Number(initialPrice),
         changeRate: Number.isFinite(Number(item?.change_rate)) ? Number(item.change_rate) : null,
       };
     }
@@ -2850,9 +3500,169 @@
     }] : []);
   };
 
+  const recommendationCustomerState = (item = {}) => {
+    const current = item?.ai_trade_signal?.current || {};
+    const action = String(current.action || "").trim();
+    const positionOpen = current.position_open === true;
+    const name = item?.name || "이 종목";
+    const base = {
+      key: "checking",
+      label: "현재 판단 확인 중",
+      guide: "AI 판단 확인 중",
+      headline: `${name}, 현재 AI 판단을 확인하고 있어요`,
+      summary: "추천 기준을 통과한 기록과 현재 AI 판단을 함께 확인하고 있어요.",
+      actionTitle: "지금은 현재 판단이 확인될 때까지 기다릴 단계예요",
+      nextFallback: "현재 판단이 확인되면 새로 살지, 보유할지, 팔지 구분해 보여드려요.",
+      reason: "추천 점수와 가격 조건이 기준을 통과해 추천 목록에 들어왔어요.",
+      additionalBuyLabel: "확인 중",
+      positionOpen,
+    };
+    if (action === "entry_pending") {
+      return positionOpen
+        ? {
+          ...base,
+          key: "add-buy-wait",
+          label: "추가 매수 대기",
+          guide: "보유 중 · 더 살 조건 확인",
+          headline: `${name}, 보유하면서 추가 매수 조건을 기다리고 있어요`,
+          summary: "AI 전략은 이미 이 종목을 보유 중이며, 정해진 가격 조건이 맞을 때만 추가 매수를 검토해요.",
+          actionTitle: "지금은 보유하면서 추가 매수 가격을 확인할 때예요",
+          nextFallback: "추가 매수 가격과 손실을 줄일 가격이 바뀌는지 확인해요.",
+          reason: "추천 점수와 가격 조건, 서로 다른 확인 자료가 모두 기준을 통과했어요.",
+          additionalBuyLabel: "조건 확인 중",
+        }
+        : {
+          ...base,
+          key: "new-buy-wait",
+          label: "신규 매수 대기",
+          guide: "아직 매수 전",
+          headline: `${name}, 신규 매수를 기다리는 단계예요`,
+          summary: "추천 기준은 통과했지만 아직 매수 전이에요. 다음 거래가 시작될 때 가격 조건을 다시 확인해요.",
+          actionTitle: "지금은 새로 살 가격이 기준 안인지 확인할 때예요",
+          nextFallback: "다음 거래가 시작될 때 가격이 매수 기준 안인지 확인해요.",
+          reason: "추천 점수와 가격 조건, 서로 다른 확인 자료가 모두 기준을 통과했어요.",
+          additionalBuyLabel: "보유 전",
+        };
+    }
+    if (action === "entry_watch") {
+      return {
+        ...base,
+        key: positionOpen ? "add-buy-checking" : "new-buy-checking",
+        label: positionOpen ? "추가 매수 조건 확인 중" : "신규 매수 조건 확인 중",
+        guide: positionOpen ? "보유 중 · 조건 확인" : "아직 매수 전 · 조건 확인",
+        headline: `${name}, ${positionOpen ? "추가" : "신규"} 매수 조건을 확인하고 있어요`,
+        summary: `아직 ${positionOpen ? "추가" : "신규"} 매수 판단이 확정되지 않았어요. 필요한 가격과 자료가 갖춰지는지 확인하고 있어요.`,
+        actionTitle: "지금은 매수 조건이 갖춰지는지 확인할 때예요",
+        nextFallback: "추천 기준과 가격 조건이 모두 갖춰지는지 확인해요.",
+        additionalBuyLabel: positionOpen ? "조건 확인 중" : "보유 전",
+      };
+    }
+    if (action === "partial_exit_pending") {
+      return {
+        ...base,
+        key: "partial-sell-wait",
+        label: "일부 수익 확인 대기",
+        guide: "보유 중 · 일부 매도 조건 확인",
+        headline: `${name}, 일부 수익을 확인할 가격을 기다리고 있어요`,
+        summary: "AI 전략은 일부만 팔고 나머지는 보유할 조건을 확인하고 있어요.",
+        actionTitle: "지금은 일부 수익을 확인할 가격을 볼 때예요",
+        nextFallback: "일부 매도 기준과 남은 보유 물량의 위험 기준을 확인해요.",
+        additionalBuyLabel: "신호 없음",
+      };
+    }
+    if (action === "full_exit_pending") {
+      return {
+        ...base,
+        key: "sell-wait",
+        label: "매도 대기",
+        guide: "보유 중 · 매도 조건 확인",
+        headline: `${name}, 현재 AI 판단은 매도 대기예요`,
+        summary: "AI 전략은 보유를 끝낼 조건이 확인되어 실제 매도 가격을 기다리고 있어요.",
+        actionTitle: "지금은 보유를 끝낼 가격을 확인할 때예요",
+        nextFallback: "다음 거래가 시작될 때 매도 가격을 확인해요.",
+        additionalBuyLabel: "신호 없음",
+      };
+    }
+    if (action === "exited" && !positionOpen) {
+      return {
+        ...base,
+        key: "sold",
+        label: "매도 완료",
+        guide: "미보유 · 다음 기회 확인",
+        headline: `${name}, AI 전략은 현재 보유하지 않아요`,
+        summary: "이전 보유는 끝났고, 새로운 매수 조건이 생기는지 기다리는 상태예요.",
+        actionTitle: "지금은 새로운 매수 조건을 기다릴 때예요",
+        nextFallback: "새로운 매수 조건이 다시 갖춰지는지 확인해요.",
+        additionalBuyLabel: "해당 없음",
+      };
+    }
+    if (positionOpen || ["entered", "holding", "partially_exited"].includes(action)) {
+      const partial = action === "partially_exited";
+      return {
+        ...base,
+        key: partial ? "partial-hold" : "hold",
+        label: partial ? "일부 수익 확인 후 보유" : "보유 유지",
+        guide: "추가 매수 신호 없음",
+        headline: `${name}, 현재 AI 판단은 ${partial ? "일부 수익 확인 후 보유" : "보유 유지"}예요`,
+        summary: partial
+          ? "AI 전략은 일부 수익을 확인하고 남은 물량을 보유 중이에요. 지금은 추가 매수보다 남은 보유 기준을 확인해요."
+          : "AI 전략은 이미 이 종목을 보유 중이에요. 지금은 새로 더 사기보다 계속 보유할 기준과 위험 가격을 확인해요.",
+        actionTitle: "지금은 추가 매수보다 보유 기준을 확인할 때예요",
+        nextFallback: "손실을 줄일 가격과 첫 수익 확인 가격이 바뀌는지 살펴봐요.",
+        reason: "추천 기준을 통과한 뒤 AI 전략이 매수했고, 현재는 보유 상태를 점검하고 있어요.",
+        additionalBuyLabel: "신호 없음",
+      };
+    }
+    if (item?.recommendation_state === "entry_confirmed") {
+      return {
+        ...base,
+        key: "new-buy-wait",
+        label: "신규 매수 대기",
+        guide: "아직 매수 전",
+        headline: `${name}, 신규 매수를 기다리는 단계예요`,
+        summary: "추천 기준은 통과했지만 아직 매수 전이에요. 새로 살 가격이 기준 안인지 확인하고 있어요.",
+        actionTitle: "지금은 새로 살 가격이 기준 안인지 확인할 때예요",
+        nextFallback: "새로 살 가격이 매수 기준 안인지 확인해요.",
+        additionalBuyLabel: "보유 전",
+      };
+    }
+    return base;
+  };
+
   const decorateRecommendationCards = () => {
+    const status = document.getElementById("recommend-status");
+    if (status?.textContent?.includes("추천 후보를 찾지 못했습니다")) {
+      status.textContent = "지금 새로 매수를 검토할 종목이 없어요. 추천 기준을 통과하면 현재 AI 판단과 함께 이곳에 표시됩니다.";
+    }
     for (const card of document.querySelectorAll("#recommend-view .recommend-card")) {
+      const item = card.recommendationItem || {};
+      const customerState = recommendationCustomerState(item);
+      card.dataset.recommendationState = item.recommendation_state === "entered_today" ? "entered-today" : "entry-confirmed";
+      card.dataset.customerState = customerState.key;
       const itemName = card.querySelector(".recommend-name strong")?.textContent?.trim() || "추천 종목";
+      const rank = card.querySelector(".recommend-rank");
+      if (rank) {
+        rank.textContent = `#${item.rank || "-"} · ${customerState.label}`;
+        rank.classList.remove("watch");
+        rank.classList.add("buy");
+      }
+      const stage = card.querySelector(".recommend-signal-stage");
+      if (stage) stage.textContent = customerState.label;
+      const stageLabel = card.querySelector(".recommend-decision-flow-head > span");
+      if (stageLabel) stageLabel.textContent = "지금 AI 판단";
+      const changedLabel = card.querySelector(".recommend-signal-facts dt");
+      if (changedLabel) changedLabel.textContent = "최근 판단 변경";
+      const reasonLabel = card.querySelector(".recommend-card-reason-label");
+      if (reasonLabel) reasonLabel.textContent = "왜 추천에 들어왔나요?";
+      const reason = card.querySelector(".recommend-card-reason p");
+      if (reason) reason.textContent = customerState.reason;
+      const scoreLevelRow = card.querySelector(".recommend-score-level");
+      const scoreLevel = scoreLevelRow?.querySelector("b") || card.querySelector(".recommend-score em");
+      const scoreGuide = scoreLevelRow?.querySelector("span");
+      if (scoreLevel) scoreLevel.textContent = "추천 기준 통과";
+      if (scoreGuide) scoreGuide.textContent = `· ${customerState.guide}`;
+      scoreLevelRow?.classList.remove("high", "watch", "cautious");
+      scoreLevelRow?.classList.add("qualified");
       const detailButton = card.querySelector(".recommend-ai-button");
       if (detailButton) {
         detailButton.textContent = "자세히 보기";
@@ -2860,10 +3670,207 @@
       }
       const help = card.querySelector(".recommend-score-help");
       if (help) {
+        help.dataset.tooltip = "추천 점수는 기준을 통과한 종목끼리 비교한 순위예요. 지금 새로 살 차례인지, 보유할 차례인지는 현재 AI 판단에서 확인할 수 있어요.";
+        help.setAttribute("aria-label", "추천 점수와 현재 AI 판단 설명");
         help.setAttribute("aria-expanded", String(help.classList.contains("open")));
         help.setAttribute("aria-haspopup", "true");
       }
     }
+  };
+
+  const recommendationDetailFriendlyText = (value = "") => {
+    let text = String(value || "").replace(/\s+/g, " ").trim();
+    for (const [before, after] of [
+      ["추천 점수 기준과 장 마감 매수 조건, 독립 근거를 통과해 오늘 시가에 전략 반영이 끝났습니다", "추천 기준을 통과한 뒤 AI 전략이 매수했고, 현재는 보유 기준을 확인하고 있어요"],
+      ["장 마감 매수 조건과 독립 근거를 통과해 오늘 시가에 전략 반영이 끝났어요", "추천 기준을 통과한 뒤 AI 전략이 매수했고, 현재는 보유 기준을 확인하고 있어요"],
+      ["오늘 시가 반영이 끝나 현재는 보유 기준을 확인할 단계예요", "지금은 추가 매수보다 보유 기준을 확인할 때예요"],
+      ["오늘 시가 반영 완료", "보유 유지"],
+      ["오늘 시가 반영", "AI 전략 매수"],
+      ["장 마감 매수 조건", "추천 가격 조건"],
+      ["다음 거래일 시가의 갭 범위", "다음 거래 시작 가격 범위"],
+      ["시가의 갭 범위", "거래 시작 가격 범위"],
+      ["다음 거래일 시가", "다음 거래 시작 가격"],
+      ["독립 우호 근거", "서로 다른 확인 자료"],
+      ["독립 근거", "서로 다른 확인 자료"],
+      ["초기 위험선과 1차 계단형 수익을 나눠 확인하는 단계 기준", "처음 정한 위험 기준과 첫 수익 확인 기준"],
+      ["초기 위험선과 1차 수익확정 기준", "처음 정한 위험 기준과 첫 수익 확인 기준"],
+      ["점수와 차트가 기준을 통과해 진입 가격과 거래대금 확인이 우선입니다", "점수와 차트가 기준을 통과해 새로 살 가격과 실제 거래 규모 확인이 우선입니다"],
+      ["1차 수익확정 가격과 변동성 추적선을 매일 확인", "첫 수익을 확인할 가격과 가격이 흔들릴 때 손실을 줄일 기준을 매일 확인해요"],
+      ["새 매수보다 현재 포지션 관리가 우선이에요", "이미 보유 중이라면 새로 사기보다 계속 들고 갈지 판단할 기준을 먼저 볼 때예요"],
+      ["현재 포지션 관리가 우선입니다", "이미 보유 중이라면 계속 들고 갈지 판단할 기준을 먼저 볼 때예요"],
+      ["보유·매도 조건을 확인하세요", "이미 보유 중이라면 계속 들고 갈지, 팔지 판단할 기준을 볼 때예요"],
+      ["매수 우선검토", "매수 조건을 우선 확인하는 단계"],
+      ["가격 모멘텀 기준 선별", "최근 가격 흐름 기준으로 고른 후보"],
+      ["상승 추세", "가격이 오르는 흐름"],
+      ["하락 추세", "가격이 내리는 흐름"],
+      ["진입 가격", "새로 살 가격"],
+      ["거래대금", "실제 거래 규모"],
+      ["차트 지지", "가격이 버틴 기준"],
+      ["저항", "가격이 넘어서야 할 기준"],
+      ["수익확정", "수익을 나눠 확인하는 단계"],
+      ["추적선", "손실을 줄일 기준"],
+      ["모멘텀", "최근 가격 흐름"],
+      ["손실 제한선", "손실을 줄일 가격"],
+      ["AI 매매 시그널", "현재 AI 판단"],
+      ["매매 시그널", "AI 판단"],
+      ["매수 시그널", "새로 살 수 있다는 AI 판단"],
+      ["시그널", "AI 판단"],
+      ["신규 진입", "새로 사는 것"],
+      ["재진입", "다시 사는 것"],
+      ["진입 조건", "새로 살 조건"],
+      ["진입", "새로 사는 것"],
+      ["현재 포지션", "현재 보유 상태"],
+      ["포지션", "보유 상태"],
+      ["수급", "외국인과 기관의 매매"],
+      ["종가", "장이 끝날 때 가격"],
+      ["지지선", "가격이 버텨야 하는 기준"],
+      ["저항선", "가격이 넘어서야 하는 기준"],
+      ["변동성", "가격 움직임"],
+      ["추격 매수", "오른 가격을 따라 바로 사는 것"],
+      ["추격", "오른 가격을 따라 바로 사는 것"],
+    ]) text = text.replaceAll(before, after);
+    return text;
+  };
+
+  const recommendationDetailSummaryInput = (item, hero, action) => {
+    const score = Number(item?.score);
+    const currentSignal = item?.ai_trade_signal?.current || {};
+    const customerState = recommendationCustomerState(item);
+    const signalScore = Number(currentSignal.score);
+    const entryConfirmation = currentSignal.entry_confirmation || {};
+    const entryLevel = (currentSignal.levels || []).find((level) => level?.key === "entry") || {};
+    const explanation = typeof buildRecommendationAIExplanation === "function"
+      ? buildRecommendationAIExplanation(item)
+      : {};
+    const title = recommendationDetailFriendlyText(
+      hero?.querySelector("h1")?.textContent?.trim()
+        || customerState.headline,
+    );
+    const verdict = recommendationDetailFriendlyText(
+      hero?.querySelector(".recommend-detail-verdict")?.textContent?.trim()
+        || customerState.summary,
+    );
+    const actionTitle = recommendationDetailFriendlyText(
+      action?.querySelector(":scope > h2")?.textContent?.trim()
+        || customerState.actionTitle,
+    );
+    const nextCheck = recommendationDetailFriendlyText(
+      action?.querySelector(".staging-recommend-detail-next-check strong")?.textContent?.trim()
+        || currentSignal.next_confirmation
+        || customerState.nextFallback,
+    );
+    const sources = [{
+      id: "buy-condition",
+      label: "추천 기준 확인",
+      value: customerState.label,
+      evidence: customerState.reason,
+    }];
+    if (Number.isFinite(score)) sources.push({ id: "recommendation-score", label: "추천 점수", value: score });
+    sources.push({ id: "next-session-check", label: "다음 확인", value: actionTitle, evidence: nextCheck });
+    return {
+      facts: {
+        code: item?.code,
+        name: item?.name,
+        rank: item?.rank,
+        score: Number.isFinite(score) ? score : null,
+        recommendation_state: item?.recommendation_state,
+        customer_state: customerState.key,
+        customer_state_label: customerState.label,
+        customer_state_note: customerState.summary,
+        additional_buy_label: customerState.additionalBuyLabel,
+        buy_condition_met: item?.buy_condition_met === true,
+        buy_condition_as_of: item?.buy_condition_as_of,
+        entry_date: item?.recommendation_entry_date || currentSignal.entry_date,
+        strategy_entry_price: item?.strategy_entry_price || currentSignal.entry_price,
+        action: recommendationDetailFriendlyText(item?.action),
+        decision_reason: recommendationDetailFriendlyText(item?.decision_reason),
+        signal_action: currentSignal.action,
+        signal_score: Number.isFinite(signalScore) ? signalScore : null,
+        signal_label: actionTitle,
+        signal_next: nextCheck,
+        position_open: currentSignal.position_open,
+        current_price: currentSignal.price,
+        condition_price: item?.condition_price ?? item?.price,
+        entry_reference: entryLevel.price,
+        entry_confirmation: entryConfirmation,
+        entry_low: explanation.entryLow,
+        entry_high: explanation.entryHigh,
+        reasons: (item?.reasons || []).slice(0, 5).map(recommendationDetailFriendlyText),
+        risks: (item?.risks || []).slice(0, 5).map(recommendationDetailFriendlyText),
+        sources,
+      },
+      fallback: {
+        headline: title,
+        summary: verdict,
+        reason: customerState.reason,
+        action_title: actionTitle,
+        next_check: nextCheck,
+        evidence_refs: sources.slice(0, 3).map((source) => source.id),
+      },
+    };
+  };
+
+  let stagingRecommendationDetailSummaryToken = 0;
+  const setRecommendationDetailSummaryDisplay = (content, mode = "loading") => {
+    if (!(content instanceof HTMLElement)) return;
+    const ready = mode === "ready";
+    content.dataset.summaryDisplay = ready ? "ready" : "loading";
+    content.setAttribute("aria-busy", String(!ready));
+    const loader = content.querySelector(":scope > [data-staging-recommend-detail-loader]");
+    if (loader instanceof HTMLElement) loader.hidden = ready;
+  };
+
+  const applyRecommendationDetailSummary = async (item, hero, action, source) => {
+    const content = document.getElementById("recommend-detail-content");
+    if (!stagingGptPageSummaryEnabled || !content || !hero || !action || !item?.code) return;
+    const requestedCode = String(item.code);
+    const summaryToken = ++stagingRecommendationDetailSummaryToken;
+    content.dataset.summaryMode = "loading";
+    setRecommendationDetailSummaryDisplay(content, "loading");
+    const { facts, fallback } = recommendationDetailSummaryInput(item, hero, action);
+    try {
+      const summary = await requestStagingPageSummary("recommendation_detail", facts, fallback);
+      if (
+        !hero.isConnected
+        || String(recommendationDetailItem()?.code || "") !== requestedCode
+        || summaryToken !== stagingRecommendationDetailSummaryToken
+      ) return;
+      if (typeof summary?.headline !== "string") {
+        content.dataset.summaryMode = "rules";
+        setRecommendationDetailSummaryDisplay(content, "ready");
+        return;
+      }
+      const title = hero.querySelector("h1");
+      const verdict = hero.querySelector(".recommend-detail-verdict");
+      const actionTitle = action.querySelector(":scope > h2");
+      const reason = action.querySelector("[data-staging-recommend-detail-reason]");
+      const nextCheck = action.querySelector(".staging-recommend-detail-next-check strong");
+      if (title) title.textContent = recommendationDetailFriendlyText(summary.headline);
+      if (verdict) verdict.textContent = recommendationDetailFriendlyText(summary.summary);
+      if (actionTitle) actionTitle.textContent = recommendationDetailFriendlyText(summary.action_title);
+      if (reason) reason.textContent = recommendationDetailFriendlyText(summary.reason);
+      if (nextCheck) nextCheck.textContent = recommendationDetailFriendlyText(summary.next_check);
+      content.dataset.summaryMode = summary.generation_mode || "rules";
+      setRecommendationDetailSummaryDisplay(content, "ready");
+      if (source && summary.generation_mode === "openai") {
+        source.textContent = "설명은 이해하기 쉽게 풀어썼고, 추천 여부와 점수·가격은 공개 시장 데이터를 기준으로 계산했어요.";
+      }
+    } catch {
+      if (summaryToken !== stagingRecommendationDetailSummaryToken) return;
+      content.dataset.summaryMode = "rules";
+      setRecommendationDetailSummaryDisplay(content, "ready");
+    }
+  };
+
+  const kstTodayToken = () => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Seoul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
   };
 
   const decorateRecommendationDetail = () => {
@@ -2873,31 +3880,73 @@
     const item = recommendationDetailItem() || {};
     hero.classList.add("staging-recommend-detail-hero");
 
+    const children = Array.from(content.children);
+    const decision = children.find((node) => node.matches?.(".recommend-decision-flow.is-detail"));
+    const action = children.find((node) => node.matches?.(".recommend-detail-action"));
+    const sections = children.filter((node) => node.matches?.(".recommend-detail-section:not(.recommend-detail-action)"));
+    const sectionByTitle = (text) => sections.find((section) => section.querySelector(":scope > h2")?.textContent?.includes(text));
+    const levels = sectionByTitle("추천 후보 가격 기준");
+    const snapshot = sectionByTitle("판단에 쓴 핵심 수치");
+    const evidence = sectionByTitle("세부 근거");
+    const source = children.find((node) => node.matches?.(".recommend-detail-source"));
+    const currentStageText = decision?.querySelector(".recommend-signal-stage")?.textContent?.trim() || "";
+    const currentSignal = item.ai_trade_signal?.current || {};
+    const customerState = recommendationCustomerState(item);
+    const recommendationEntryDate = String(
+      item.recommendation_entry_date || currentSignal.entry_date || "",
+    ).slice(0, 10);
+    const recommendationStillActive = /매수 대기|매수 조건 (?:충족|확정)/.test(currentStageText);
+    const enteredToday = Boolean(
+      item.recommendation_state === "entered_today"
+      && recommendationEntryDate === kstTodayToken()
+      && /보유|진입 완료|확정 매수/.test(currentStageText),
+    );
+    const recommendationStillVisible = recommendationStillActive || enteredToday;
+    content.dataset.recommendationState = recommendationStillActive
+      ? "active"
+      : enteredToday
+        ? "entered-today"
+        : "changed";
+    content.dataset.customerState = customerState.key;
+
     const score = Number(item.score);
-    const oneMonth = Number(item.one_month_return);
-    const threeMonth = Number(item.three_month_return);
-    const chartScore = Number(item.chart_analysis?.score);
+    const signalScore = Number(currentSignal.score);
+    const entryConfirmation = currentSignal.entry_confirmation || {};
+    const supportiveCount = Number(entryConfirmation.supportive_count);
+    const requiredSupports = Number(entryConfirmation.required_supports);
+    const entryLevel = (currentSignal.levels || []).find((level) => level?.key === "entry") || {};
+    const conditionPrice = Number(item.condition_price ?? item.price);
+    const entryReference = Number(entryLevel.price);
+    const strategyEntryPrice = Number(item.strategy_entry_price || currentSignal.entry_price);
+    const currentPrice = Number(currentSignal.price);
     const heroHead = hero.querySelector(".recommend-detail-hero-head");
     const eyebrow = hero.querySelector(".recommend-detail-eyebrow");
     const title = hero.querySelector("h1");
     const lead = hero.querySelector(".recommend-detail-lead");
     const verdict = hero.querySelector(".recommend-detail-verdict");
-    const verdictText = verdict?.textContent?.trim() || "";
     if (eyebrow) {
-      eyebrow.textContent = `추천 후보 #${item.rank || "-"}`;
+      eyebrow.textContent = recommendationStillVisible
+        ? `추천 #${item.rank || "-"} · ${customerState.label}`
+        : `추천 당시 #${item.rank || "-"} · 현재 ${customerState.label}`;
     }
     if (title) {
-      title.textContent = /추격|단기 상승 부담/.test(verdictText)
-        ? "상승 흐름은 강하지만, 추격은 주의하세요"
-        : Number.isFinite(score) && score >= 75 && Number.isFinite(chartScore) && chartScore >= 75
-          ? "점수와 차트 흐름이 함께 강해요"
-          : Number.isFinite(score) && score >= 70
-            ? "조건이 좋은 후보지만 가격 확인이 먼저예요"
-            : "좋은 점과 위험 신호를 함께 확인하세요";
+      title.textContent = customerState.headline;
+    }
+    if (verdict) {
+      verdict.textContent = recommendationStillVisible
+        ? customerState.summary
+        : `${customerState.summary} 이 종목은 오늘의 신규 추천 목록에는 포함되지 않아요.`;
     }
     const scoreWrap = hero.querySelector(".recommend-detail-score");
     if (scoreWrap && Number.isFinite(score)) {
-      scoreWrap.setAttribute("aria-label", `추천 점수 ${formatNumber(score)}점, ${scoreWrap.querySelector("em")?.textContent || "평가 중"}`);
+      const scoreLevel = scoreWrap.querySelector("em");
+      if (scoreLevel) scoreLevel.textContent = recommendationStillVisible
+        ? "추천 기준 통과"
+        : "추천 당시 통과";
+      scoreWrap.setAttribute(
+        "aria-label",
+        `추천 점수 ${formatNumber(score)}점, 현재 AI 판단 ${customerState.label}`,
+      );
     }
     const scoreTrack = document.createElement("div");
     scoreTrack.className = "staging-recommend-detail-score-track";
@@ -2922,57 +3971,121 @@
       metric.append(term, description);
       quickMetrics.appendChild(metric);
     };
-    addQuickMetric("1개월", Number.isFinite(oneMonth) ? formatPercent(oneMonth) : "-​", oneMonth);
-    addQuickMetric("3개월", Number.isFinite(threeMonth) ? formatPercent(threeMonth) : "-​", threeMonth);
-    addQuickMetric("차트", Number.isFinite(chartScore) ? `${formatNumber(chartScore)}점` : "-​", chartScore);
+    addQuickMetric("추천 점수", Number.isFinite(score) ? `${formatNumber(score)}점` : "확인 중");
+    addQuickMetric("AI 판단 점수", Number.isFinite(signalScore) ? `${formatNumber(signalScore)}점` : "확인 중");
+    addQuickMetric("지금 판단", customerState.label);
     lead?.remove();
     (verdict || scoreTrack).insertAdjacentElement("afterend", quickMetrics);
 
-    const children = Array.from(content.children);
-    const decision = children.find((node) => node.matches?.(".recommend-decision-flow.is-detail"));
-    const action = children.find((node) => node.matches?.(".recommend-detail-action"));
-    const sections = children.filter((node) => node.matches?.(".recommend-detail-section:not(.recommend-detail-action)"));
-    const sectionByTitle = (text) => sections.find((section) => section.querySelector(":scope > h2")?.textContent?.includes(text));
-    const levels = sectionByTitle("추천 후보 가격 기준");
-    const snapshot = sectionByTitle("판단에 쓴 핵심 수치");
-    const evidence = sectionByTitle("세부 근거");
-    const source = children.find((node) => node.matches?.(".recommend-detail-source"));
-
+    let recommendationDataPending = false;
+    let recommendationSummaryReady = recommendationStillVisible;
     if (action) {
       action.classList.add("staging-recommend-detail-action");
       const label = action.querySelector(".recommend-detail-section-head > div");
-      if (label) label.textContent = "현재 대응";
+      if (label) label.textContent = "지금 어떻게 보면 되나요?";
       const badge = action.querySelector(".recommend-detail-ai-badge");
-      if (badge) badge.textContent = badge.textContent.replace("Ollama ", "");
+      recommendationDataPending = /분석 중|대기/.test(badge?.textContent || "");
+      recommendationSummaryReady = recommendationStillVisible && !recommendationDataPending;
+      badge?.remove();
       const actionTitle = action.querySelector(":scope > h2");
-      if (actionTitle?.textContent?.includes("현재 보유 상태")) {
-        actionTitle.textContent = "보유·매도 조건을 확인하세요";
-      } else if (actionTitle?.textContent?.includes("매수 확정")) {
-        actionTitle.textContent = "다음 시가의 매수 체결을 확인하세요";
-      } else if (actionTitle?.textContent?.includes("신규 매수")) {
-        actionTitle.textContent = "새 매수보다 현재 포지션 관리가 우선이에요";
+      if (actionTitle) {
+        actionTitle.textContent = customerState.actionTitle;
       }
       const actionCopy = action.querySelector(":scope > p");
       if (actionCopy) {
         const next = document.createElement("div");
         next.className = "staging-recommend-detail-next-check";
         next.append(
-          Object.assign(document.createElement("span"), { textContent: "다음 확인" }),
-          Object.assign(document.createElement("strong"), { textContent: actionCopy.textContent?.trim() || "다음 조건을 확인하고 있습니다." }),
+          Object.assign(document.createElement("span"), { textContent: "다음에 볼 것" }),
+          Object.assign(document.createElement("strong"), {
+            textContent: recommendationDetailFriendlyText(
+              currentSignal.next_confirmation
+                || actionCopy.textContent?.trim()
+                || customerState.nextFallback,
+            ),
+          }),
         );
         actionCopy.replaceWith(next);
       }
+      const reason = document.createElement("div");
+      reason.className = "staging-recommend-detail-reason";
+      reason.append(
+        Object.assign(document.createElement("span"), {
+          textContent: recommendationStillVisible ? "왜 추천에 들어왔나요?" : "추천 당시 왜 들어왔나요?",
+        }),
+        Object.assign(document.createElement("p"), {
+          textContent: customerState.reason,
+        }),
+      );
+      reason.querySelector("p").dataset.stagingRecommendDetailReason = "true";
+      action.querySelector(".staging-recommend-detail-next-check")?.insertAdjacentElement("beforebegin", reason);
     }
     if (levels) levels.classList.add("staging-recommend-detail-levels");
-    if (levels?.querySelector(":scope > h2")) levels.querySelector(":scope > h2").textContent = "매매 가격 기준";
-    if (snapshot?.querySelector(":scope > h2")) snapshot.querySelector(":scope > h2").textContent = "추천 판단 지표";
+    if (levels?.querySelector(":scope > h2")) {
+      levels.querySelector(":scope > h2").textContent = "지금 판단에 필요한 가격";
+    }
+    const levelGrid = levels?.querySelector(".recommend-detail-table");
+    if (levelGrid) {
+      const addConditionMetric = (label, value) => {
+        const metric = document.createElement("div");
+        metric.className = "recommend-detail-metric";
+        metric.append(
+          Object.assign(document.createElement("span"), { textContent: label }),
+          Object.assign(document.createElement("strong"), { textContent: value }),
+        );
+        levelGrid.appendChild(metric);
+      };
+      levelGrid.replaceChildren();
+      addConditionMetric("추천 기준", recommendationStillVisible ? "통과" : "추천 당시 통과");
+      addConditionMetric("추천 당시 가격", Number.isFinite(conditionPrice) ? `${formatNumber(conditionPrice)}원` : "확인 완료");
+      if (Number.isFinite(strategyEntryPrice)) {
+        addConditionMetric("AI 전략 매수가", `${formatNumber(strategyEntryPrice)}원`);
+      } else {
+        addConditionMetric("새로 살 기준 가격", Number.isFinite(entryReference) ? `${formatNumber(entryReference)}원` : "확인 중");
+      }
+      addConditionMetric("현재가", Number.isFinite(currentPrice) ? `${formatNumber(currentPrice)}원` : "확인 중");
+      addConditionMetric(
+        "확인한 자료",
+        Number.isFinite(supportiveCount) && Number.isFinite(requiredSupports)
+          ? `${formatNumber(supportiveCount)}개 · 기준 ${formatNumber(requiredSupports)}개`
+          : "확인 완료",
+      );
+      addConditionMetric("지금 판단", customerState.label);
+      addConditionMetric("추가 매수", customerState.additionalBuyLabel);
+    }
+    if (snapshot?.querySelector(":scope > h2")) snapshot.querySelector(":scope > h2").textContent = "추천 점수를 만든 핵심 수치";
     if (evidence) evidence.classList.add("staging-recommend-detail-evidence-section");
-    if (evidence?.querySelector(":scope > h2")) evidence.querySelector(":scope > h2").textContent = "근거와 주의점";
+    if (evidence?.querySelector(":scope > h2")) evidence.querySelector(":scope > h2").textContent = "추천 근거와 꼭 볼 위험";
+    for (const entry of evidence?.querySelectorAll("li") || []) {
+      entry.textContent = recommendationDetailFriendlyText(entry.textContent);
+    }
     if (decision) {
       decision.classList.add("staging-recommend-detail-journey");
       const journeyTitle = decision.querySelector(".recommend-decision-flow-head > span");
-      if (journeyTitle) journeyTitle.textContent = "AI 시그널 변화";
+      if (journeyTitle) journeyTitle.textContent = "추천 뒤 AI 판단 변화";
+      const journeyStage = decision.querySelector(".recommend-signal-stage");
+      if (journeyStage) journeyStage.textContent = customerState.label;
+      const independence = decision.querySelector(".recommend-signal-independence");
+      if (independence) {
+        independence.textContent = "추천 점수는 종목을 고른 결과이고, 현재 AI 판단은 지금 새로 살지·보유할지·팔지를 따로 보여줘요.";
+      }
       const timelineItems = Array.from(decision.querySelectorAll(".recommend-signal-timeline-item"));
+      for (const entry of timelineItems) {
+        const timelineTitle = entry.querySelector(".recommend-signal-timeline-head strong");
+        const timelineCopy = entry.querySelector(".recommend-signal-timeline-content > p");
+        if (timelineTitle?.textContent?.trim() === "추천 후보 평가") {
+          timelineTitle.textContent = "추천 조건 통과";
+        } else if (timelineTitle?.textContent?.trim() === "매수 대기") {
+          timelineTitle.textContent = customerState.positionOpen ? "추가 매수 대기" : "신규 매수 대기";
+        } else if (timelineTitle?.textContent?.trim() === "확정 매수") {
+          timelineTitle.textContent = "AI 전략 매수";
+        }
+        if (timelineCopy) {
+          timelineCopy.textContent = recommendationDetailFriendlyText(timelineCopy.textContent)
+            .replaceAll("관찰 후보", "추천 기준 통과")
+            .replace(/서로 다른 확인 자료 확인 후 다음 거래 시작 가격 범위를 확인해 매수/g, "서로 다른 확인 자료와 새로 살 가격을 확인");
+        }
+      }
       if (timelineItems.length > 4) {
         timelineItems.slice(4).forEach((entry) => { entry.hidden = true; });
         const toggle = document.createElement("button");
@@ -2981,12 +4094,37 @@
         toggle.dataset.stagingRecommendHistoryToggle = "true";
         toggle.setAttribute("aria-expanded", "false");
         toggle.dataset.hiddenCount = String(timelineItems.length - 4);
-        toggle.textContent = `지난 시그널 ${timelineItems.length - 4}개 더 보기`;
+        toggle.textContent = `지난 판단 ${timelineItems.length - 4}개 더 보기`;
         decision.querySelector(".recommend-signal-history")?.appendChild(toggle);
       }
     }
-    content.replaceChildren(...[hero, action, levels, evidence, decision, source].filter(Boolean));
+    if (source) source.textContent = "추천 점수와 현재 AI 판단은 공개 시장 데이터를 기준으로 계산했어요.";
+    const loader = document.createElement("section");
+    loader.className = "staging-recommend-detail-loader";
+    loader.dataset.stagingRecommendDetailLoader = "true";
+    loader.setAttribute("role", "status");
+    loader.setAttribute("aria-live", "polite");
+    loader.innerHTML = `
+      <span class="staging-ai-stock-response-loader-spinner" aria-hidden="true"></span>
+      <div>
+        <strong>추천 상태를 정리하고 있어요</strong>
+        <p>추천 기준과 현재 AI 판단을 쉬운 말로 풀고 있어요.</p>
+      </div>
+    `;
+    content.replaceChildren(loader, ...[hero, action, levels, evidence, decision, source].filter(Boolean));
     renderRecommendationDetailLiveQuote();
+    if (recommendationDataPending) {
+      stagingRecommendationDetailSummaryToken += 1;
+      content.dataset.summaryMode = "loading";
+      setRecommendationDetailSummaryDisplay(content, "loading");
+    } else if (stagingGptPageSummaryEnabled && recommendationSummaryReady) {
+      setRecommendationDetailSummaryDisplay(content, "loading");
+      void applyRecommendationDetailSummary(item, hero, action, source);
+    } else {
+      stagingRecommendationDetailSummaryToken += 1;
+      content.dataset.summaryMode = "rules";
+      setRecommendationDetailSummaryDisplay(content, "ready");
+    }
   };
 
   const handleRecentStocksClick = (event) => {
@@ -3077,7 +4215,7 @@
     searchView.insertAdjacentElement("afterend", recentStocksPage);
     renderRecentStocks();
     const recommendationTitle = document.getElementById("recommend-stage-title");
-    if (recommendationTitle) recommendationTitle.textContent = "오늘의 탐색 후보";
+    if (recommendationTitle) recommendationTitle.textContent = "지금 확인할 추천 종목";
     const recommendationHeading = recommendationTitle?.closest(".discovery-module-head");
     const recommendationHeadingGroup = recommendationTitle?.parentElement;
     if (recommendationHeadingGroup) {
@@ -3087,7 +4225,7 @@
       recommendationHeadingGroup.prepend(kicker);
       const description = document.createElement("p");
       description.className = "staging-recommend-description";
-      description.textContent = "가격 흐름과 거래대금, 차트 신호를 함께 살펴본 후보예요.";
+      description.textContent = "추천 기준을 통과한 종목을 현재 AI 판단과 함께 보여드려요. 새로 살 차례인지, 보유할 차례인지 먼저 확인해 보세요.";
       recommendationHeadingGroup.appendChild(description);
     }
     recommendationHeading?.setAttribute("aria-describedby", "staging-recommend-description");
@@ -3176,6 +4314,173 @@
     midday: "점심에 보는 돈이 되는 소식",
     afternoon: "장 마감 후 보는 돈이 되는 소식",
   })[edition] || "돈이 되는 소식";
+  const stagingBriefingPresentation = (payload = {}) => ({
+    morning: {
+      label: "아침판",
+      feedTitle: stagingBriefingTitle("morning"),
+      title: "밤사이 핵심만 빠르게",
+      accent: "개장 전 확인할 소식을 한데 모았어요.",
+    },
+    midday: {
+      label: "점심판",
+      feedTitle: stagingBriefingTitle("midday"),
+      title: "오전 핵심을 새로 정리했어요",
+      accent: "장중 흐름과 오후에 볼 포인트를 한데 모았어요.",
+    },
+    afternoon: {
+      label: "장 마감판",
+      feedTitle: stagingBriefingTitle("afternoon"),
+      title: "오후 핵심을 새로 정리했어요",
+      accent: "장 마감 뒤 이어질 변수와 다음 일정을 한데 모았어요.",
+    },
+  })[payload.edition] || {
+    label: payload.edition_label || "최신판",
+    feedTitle: stagingBriefingTitle(payload.edition),
+    title: "시장 핵심을 새로 정리했어요",
+    accent: "내 돈의 흐름에 영향을 줄 소식을 한데 모았어요.",
+  };
+  const stagingBriefingSummaryInput = (payload = {}) => {
+    const presentation = stagingBriefingPresentation(payload);
+    const categoryLabels = new Map(
+      (Array.isArray(payload.categories) ? payload.categories : [])
+        .map((category) => [String(category?.key || ""), String(category?.label || "주요 소식")]),
+    );
+    const highlights = (Array.isArray(payload.highlights) ? payload.highlights : [])
+      .filter((item) => String(item?.title || "").trim());
+    const candidates = highlights.length
+      ? highlights
+      : (Array.isArray(payload.categories) ? payload.categories : [])
+        .flatMap((category) => (Array.isArray(category?.items) ? category.items : [])
+          .map((item) => ({ ...item, category_key: item?.category_key || category?.key, category_label: item?.category_label || category?.label })));
+    const seenIds = new Set();
+    const sources = candidates.slice(0, 8).flatMap((item, index) => {
+      const title = String(item?.title || "").replace(/\s+/g, " ").trim();
+      if (!title) return [];
+      const categoryKey = String(item?.category_key || "news").replace(/[^a-z0-9_-]/gi, "-").slice(0, 16) || "news";
+      const itemKey = String(item?.id || index + 1).replace(/[^a-z0-9_-]/gi, "-").slice(0, 20) || String(index + 1);
+      let id = `briefing-${categoryKey}-${itemKey}`.slice(0, 48);
+      if (seenIds.has(id)) id = `${id.slice(0, 44)}-${index + 1}`;
+      seenIds.add(id);
+      return [{
+        id,
+        label: String(item?.category_label || categoryLabels.get(String(item?.category_key || "")) || "주요 소식"),
+        value: title,
+        evidence: String(item?.why_it_matters || item?.summary || item?.status || "공개 소식").replace(/\s+/g, " ").trim(),
+      }];
+    });
+    if (!sources.length) return null;
+    const summary = sources.slice(0, 3).map((source) => source.value).join(" · ");
+    return {
+      facts: {
+        edition: payload.edition,
+        edition_key: payload.edition_key,
+        edition_label: payload.edition_label,
+        publication_date: payload.publication_date,
+        selected_news_count: payload.selected_news_count,
+        opportunity_count: payload.opportunity_count,
+        caution_count: payload.caution_count,
+        sources,
+      },
+      fallback: {
+        headline: presentation.title,
+        summary: summary || presentation.accent,
+        reason: sources[0]?.evidence || presentation.accent,
+        action_title: `이번 ${presentation.label}에서 먼저 볼 내용`,
+        next_check: "원문·공시와 최신 시세를 함께 확인하세요.",
+        evidence_refs: sources.slice(0, 3).map((source) => source.id),
+      },
+    };
+  };
+  const stagingBriefingSummaryPromises = new Map();
+  const requestStagingBriefingSummary = (payload = {}) => {
+    const input = stagingBriefingSummaryInput(payload);
+    if (!input) return Promise.resolve(null);
+    const key = JSON.stringify({ edition_key: payload.edition_key, ...input });
+    const cached = stagingBriefingSummaryPromises.get(key);
+    if (cached) return cached;
+    const request = requestStagingPageSummary("briefing_edition", input.facts, input.fallback)
+      .catch((error) => {
+        stagingBriefingSummaryPromises.delete(key);
+        throw error;
+      });
+    stagingBriefingSummaryPromises.set(key, request);
+    return request;
+  };
+  const applyStagingBriefingCardSummary = async (payload = {}, editorialFeed = null) => {
+    if (!stagingGptPageSummaryEnabled || !editorialFeed || !payload?.edition_key) return;
+    const card = Array.from(editorialFeed.querySelectorAll("[data-staging-edition]"))
+      .find((node) => node.dataset.stagingEdition === String(payload.edition_key));
+    if (!card) return;
+    const badge = card.querySelector("[data-staging-briefing-summary-provenance]");
+    try {
+      const summary = await requestStagingBriefingSummary(payload);
+      if (!summary || !card.isConnected) return;
+      const title = card.querySelector("h3");
+      const lead = card.querySelector(".staging-editorial-summary");
+      if (title) title.textContent = summary.headline;
+      if (lead) lead.textContent = summary.summary;
+      card.dataset.summaryMode = summary.generation_mode || "rules";
+      if (badge) {
+        badge.textContent = summary.generation_mode === "openai" ? "GPT 문구 정리" : "데이터 요약";
+        badge.dataset.summaryMode = summary.generation_mode || "rules";
+        badge.title = summary.generation_note || "";
+      }
+    } catch {
+      card.dataset.summaryMode = "rules";
+      if (badge) {
+        badge.textContent = "데이터 요약";
+        badge.dataset.summaryMode = "rules";
+      }
+    }
+  };
+  const applyStagingBriefingArticleSummary = async (payload = {}) => {
+    if (!stagingGptPageSummaryEnabled || !payload?.edition_key) return;
+    const view = document.getElementById("morning-money-briefing-view");
+    const overview = view?.querySelector(".morning-money-overview");
+    if (!view || !overview || !stagingBriefingSummaryInput(payload)) return;
+    view.dataset.summaryEdition = String(payload.edition_key);
+    view.dataset.summaryMode = "loading";
+    const meta = overview.querySelector(".staging-article-meta");
+    let badge = overview.querySelector("[data-staging-briefing-summary-provenance]");
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "staging-page-summary-provenance staging-briefing-summary-provenance";
+      badge.dataset.stagingBriefingSummaryProvenance = "true";
+      meta?.insertAdjacentElement("afterend", badge);
+    }
+    badge.textContent = "문구 정리 중";
+    badge.dataset.summaryMode = "loading";
+    try {
+      const summary = await requestStagingBriefingSummary(payload);
+      if (!summary || view.dataset.summaryEdition !== String(payload.edition_key)) return;
+      const title = overview.querySelector("#morning-money-overview-title");
+      const intro = overview.querySelector("#morning-money-overview-intro");
+      const digestTitle = overview.querySelector("#morning-money-digest-title");
+      if (title) title.textContent = summary.headline;
+      if (intro) intro.textContent = summary.summary;
+      if (digestTitle) digestTitle.textContent = summary.action_title;
+      let next = overview.querySelector("[data-staging-briefing-next]");
+      if (!next) {
+        next = document.createElement("p");
+        next.className = "staging-briefing-ai-next";
+        next.dataset.stagingBriefingNext = "true";
+        next.append(document.createElement("span"), document.createElement("strong"));
+        overview.querySelector(".morning-money-digest")?.insertAdjacentElement("afterend", next);
+      }
+      const nextLabel = next.querySelector("span");
+      const nextValue = next.querySelector("strong");
+      if (nextLabel) nextLabel.textContent = "다음 확인";
+      if (nextValue) nextValue.textContent = summary.next_check;
+      view.dataset.summaryMode = summary.generation_mode || "rules";
+      badge.textContent = summary.generation_mode === "openai" ? "GPT 문구 정리" : "데이터 요약";
+      badge.dataset.summaryMode = summary.generation_mode || "rules";
+      badge.title = summary.generation_note || "";
+    } catch {
+      view.dataset.summaryMode = "rules";
+      badge.textContent = "데이터 요약";
+      badge.dataset.summaryMode = "rules";
+    }
+  };
   const stagingConfirmedBuyDate = (item = {}) => String(
     item.execution_date
       || item.current?.entry_date
@@ -3447,31 +4752,7 @@
         weekday: "long",
       }).format(parsed);
     };
-    const editorialPresentation = (payload = {}) => ({
-      morning: {
-        label: "아침판",
-        feedTitle: stagingBriefingTitle("morning"),
-        title: "밤사이 핵심만 빠르게",
-        accent: "개장 전 확인할 소식을 한데 모았어요.",
-      },
-      midday: {
-        label: "점심판",
-        feedTitle: stagingBriefingTitle("midday"),
-        title: "오전 핵심을 새로 정리했어요",
-        accent: "장중 흐름과 오후에 볼 포인트를 한데 모았어요.",
-      },
-      afternoon: {
-        label: "장 마감판",
-        feedTitle: stagingBriefingTitle("afternoon"),
-        title: "오후 핵심을 새로 정리했어요",
-        accent: "장 마감 뒤 이어질 변수와 다음 일정을 한데 모았어요.",
-      },
-    })[payload.edition] || {
-      label: payload.edition_label || "최신판",
-      feedTitle: stagingBriefingTitle(payload.edition),
-      title: "시장 핵심을 새로 정리했어요",
-      accent: "내 돈의 흐름에 영향을 줄 소식을 한데 모았어요.",
-    };
+    const editorialPresentation = stagingBriefingPresentation;
     const editorialPreliminaryBuysMarkup = (payload = {}) => {
       if (!stagingPreliminaryBuyDataAvailableForEdition(payload)) return "";
       const preliminaryBuys = stagingPreliminaryBuysForEdition(payload);
@@ -3553,13 +4834,32 @@
       const rows = (editorialEditions.length ? editorialEditions : [currentPayload])
         .filter((payload) => payload && payload.edition_key)
         .sort((left, right) => new Date(right.published_at || 0) - new Date(left.published_at || 0));
+      const latestPublicationDate = String(rows[0]?.publication_date || "");
+      const latestEditions = rows
+        .filter((payload) => String(payload?.publication_date || "") === latestPublicationDate)
+        .slice(0, 3);
+      const prefetchedEditionKeys = new Set(
+        latestEditions.map((payload) => String(payload.edition_key)),
+      );
       const signature = rows.map((payload) => {
         const buys = stagingConfirmedBuysForEdition(payload);
         const preliminaryBuys = stagingPreliminaryBuysForEdition(payload);
         const preliminaryAvailable = stagingPreliminaryBuyDataAvailableForEdition(payload);
         return `${payload.edition_key}:${payload.selected_news_count || 0}:${preliminaryAvailable}:${preliminaryBuys.map((item) => `${item.code}:${item.briefing_change}:${item.score || ""}`).join(",")}:${buys.map((item) => `${item.code}:${item.score || ""}`).join(",")}`;
       }).join("|");
-      if (signature === editorialSignature) return;
+      const shouldApplyGptCopy = stagingGptPageSummaryEnabled
+        && activeFeedMode === "content"
+        && (document.body.dataset.view || "") === "news";
+      const applyLatestGptCopy = () => {
+        if (!shouldApplyGptCopy) return;
+        for (const payload of latestEditions) {
+          void applyStagingBriefingCardSummary(payload, editorialFeed);
+        }
+      };
+      if (signature === editorialSignature) {
+        applyLatestGptCopy();
+        return;
+      }
       editorialSignature = signature;
       if (!rows.length) {
         editorialFeed.innerHTML = `<section class="staging-feed-empty"><strong>최근 콘텐츠를 준비하고 있어요</strong><p>${escapeText(currentPayload?.empty_message || "발행된 브리핑이 확인되면 자동으로 표시됩니다.")}</p></section>`;
@@ -3584,12 +4884,14 @@
           const summary = highlights.length ? highlights.join(" · ") : presentation.accent;
           const index = cardIndex;
           cardIndex += 1;
+          const summaryPrefetch = prefetchedEditionKeys.has(String(payload.edition_key));
           return `
             <article class="staging-editorial-post" data-staging-edition="${escapeText(payload.edition_key)}">
               <button type="button" data-staging-content-open data-staging-content-key="${escapeText(payload.edition_key)}" aria-label="${escapeText(presentation.feedTitle)} 전체 내용 읽기">
                 <header class="staging-editorial-author">
                   <span class="staging-editorial-avatar" aria-hidden="true">${svg(icons.briefing)}</span>
                   <p><strong>${escapeText(presentation.feedTitle)}</strong><small>${escapeText(presentation.label)} · ${escapeText(formatFeedTime(payload.published_at))}</small></p>
+                  ${stagingGptPageSummaryEnabled ? `<span class="staging-page-summary-provenance staging-briefing-card-provenance" data-staging-briefing-summary-provenance data-summary-mode="${summaryPrefetch ? "loading" : "deferred"}">${summaryPrefetch ? "문구 정리 중" : "열면 GPT 정리"}</span>` : ""}
                 </header>
                 <h3>${escapeText(presentation.title)}</h3>
                 <p class="staging-editorial-summary">${escapeText(summary)}</p>
@@ -3608,6 +4910,7 @@
           </section>
         `;
       }).join("");
+      applyLatestGptCopy();
     };
     const renderCalendar = () => {
       const payload = calendarPayload() || {};
@@ -3896,6 +5199,10 @@
         header.prepend(marker);
       }
     }
+    if (
+      stagingGptPageSummaryEnabled
+      && (document.body.dataset.view || "") === "morning-briefing"
+    ) void applyStagingBriefingArticleSummary(payload || {});
   };
 
   const aiSignalsView = document.getElementById("ai-signals-view");
@@ -4213,6 +5520,9 @@
         <strong data-staging-stock-rate></strong>
       </p>
     `;
+    const stockTitleLogo = document.getElementById("stock-title-logo");
+    const stockHeroNameRow = stockHero.querySelector(".staging-stock-hero-name-row");
+    if (stockTitleLogo && stockHeroNameRow) stockHeroNameRow.prepend(stockTitleLogo);
     const marketStatusButton = document.getElementById("stock-pre-market");
     if (marketStatusButton) {
       marketStatusButton.classList.add("staging-stock-market-status");
@@ -4300,6 +5610,12 @@
   let stagingSelectedChartType = "line";
   const STAGING_WEEK_CHART_TTL_MS = 30_000;
   const stagingWeekChartCache = new Map();
+  const STAGING_LIVE_INTRADAY_SESSIONS = new Set([
+    "nxt_pre_market",
+    "nxt_after_market",
+  ]);
+  const STAGING_LIVE_INTRADAY_CACHE_KEYS = 8;
+  const stagingLiveIntradayRows = new Map();
 
   const stagingChartNumeric = (value) => {
     const number = Number(value);
@@ -4388,13 +5704,11 @@
     };
     const request = (async () => {
       try {
-        const response = await fetch(`/stocks/${encodeURIComponent(normalizedCode)}/week-chart`, {
+        const payload = await stagingJsonRequest(`/stocks/${encodeURIComponent(normalizedCode)}/week-chart`, {
           headers: { Accept: "application/json" },
-          credentials: "same-origin",
           cache: "no-store",
         });
-        if (!response.ok) throw new Error(`week chart ${response.status}`);
-        const normalized = stagingNormalizeWeekChart(await response.json());
+        const normalized = stagingNormalizeWeekChart(payload);
         if (normalized.rows.length < 2) throw new Error("week chart has insufficient rows");
         const ready = {
           ...normalized,
@@ -4476,6 +5790,12 @@
     return "closed";
   };
 
+  const stagingStockChartLiveSession = (quote = null, phase = "closed") => {
+    if (phase === "regular") return quote?.is_live !== false;
+    return quote?.is_live === true
+      && STAGING_LIVE_INTRADAY_SESSIONS.has(String(quote?.market_session || ""));
+  };
+
   const stagingStockDailyRows = (quote = null) => {
     const sourceRows = typeof state !== "undefined" && Array.isArray(state.stockPriceRows)
       ? state.stockPriceRows
@@ -4523,7 +5843,7 @@
     return rows;
   };
 
-  const stagingStockIntradayRows = (quote = null, phase = "closed") => {
+  const stagingStockIntradayRows = (quote = null, phase = "closed", clockOverride = null) => {
     const sourceRows = typeof state !== "undefined" && Array.isArray(state.stockIntradayRows)
       ? state.stockIntradayRows
       : [];
@@ -4545,14 +5865,40 @@
       };
     }).filter((row) => row?.date && row.time && row.price !== null)
       .sort((left, right) => `${left.date}${left.time}`.localeCompare(`${right.date}${right.time}`));
-    const clock = stagingKoreaClock();
+    const clock = clockOverride || stagingKoreaClock();
     const quoteDate = stagingChartDateKey(quote?.trade_date);
     const quotePrice = stagingChartNumeric(quote?.price);
     const latestDate = rows.some((row) => row.date === quoteDate) ? quoteDate : rows.at(-1)?.date;
     if (latestDate) rows = rows.filter((row) => row.date === latestDate);
-    if (phase === "regular" && quotePrice !== null && quoteDate === clock.date) {
+    const liveSession = stagingStockChartLiveSession(quote, phase);
+    if (liveSession && quotePrice !== null && quoteDate === clock.date) {
       rows = rows.filter((row) => row.time <= clock.time);
       const isDebugClock = new URLSearchParams(window.location.search).has("stagingChartTime");
+      const stockCode = String(state.currentStock?.code || state.currentDashboard?.code || "").trim();
+      const liveCacheKey = `${stockCode || "unknown"}|${quoteDate}`;
+      const cachedRows = stagingLiveIntradayRows.get(liveCacheKey) || new Map();
+      const sourceLatestTime = rows.at(-1)?.time || "";
+      const rowsByTime = new Map(rows.map((row) => [row.time, row]));
+      for (const [time, cachedRow] of cachedRows) {
+        if (time < sourceLatestTime || time > clock.time) {
+          cachedRows.delete(time);
+          continue;
+        }
+        const existing = rowsByTime.get(time);
+        if (existing) {
+          existing.open = existing.open ?? cachedRow.open;
+          existing.high = Math.max(existing.high ?? cachedRow.high, cachedRow.high);
+          existing.low = Math.min(existing.low ?? cachedRow.low, cachedRow.low);
+          existing.close = cachedRow.close;
+          existing.price = cachedRow.price;
+          existing.volume = Math.max(existing.volume || 0, cachedRow.volume || 0);
+        } else {
+          const restored = { ...cachedRow };
+          rows.push(restored);
+          rowsByTime.set(time, restored);
+        }
+      }
+      rows.sort((left, right) => `${left.date}${left.time}`.localeCompare(`${right.date}${right.time}`));
       const latest = rows.at(-1);
       const startsNewMinute = !latest || latest.time < clock.time;
       const liveRow = {
@@ -4569,6 +5915,12 @@
       if (!isDebugClock) {
         if (!last || `${last.date}${last.time}` < `${liveRow.date}${liveRow.time}`) rows.push(liveRow);
         else if (last.date === liveRow.date) Object.assign(last, liveRow);
+        cachedRows.set(liveRow.time, { ...liveRow });
+        while (cachedRows.size > 390) cachedRows.delete(cachedRows.keys().next().value);
+        stagingLiveIntradayRows.set(liveCacheKey, cachedRows);
+        while (stagingLiveIntradayRows.size > STAGING_LIVE_INTRADAY_CACHE_KEYS) {
+          stagingLiveIntradayRows.delete(stagingLiveIntradayRows.keys().next().value);
+        }
       }
     }
     return rows;
@@ -4886,6 +6238,7 @@
     ensureStagingStockChartPeriods(periods);
     const quote = state.currentDashboard?.quote || null;
     const phase = stagingStockChartPhase(quote);
+    const liveSession = stagingStockChartLiveSession(quote, phase);
     const dailyRows = stagingStockDailyRows(quote);
     const periodConfig = STAGING_STOCK_CHART_PERIODS.find((item) => item.key === stagingSelectedChartPeriod)
       || STAGING_STOCK_CHART_PERIODS[0];
@@ -4905,7 +6258,7 @@
       chartTypeToggle.setAttribute("aria-label", label);
       chartTypeToggle.title = label;
     }
-    periods.classList.toggle("is-live", phase === "regular");
+    periods.classList.toggle("is-live", liveSession);
     periods.classList.toggle("is-candle", isCandle);
     periods.dataset.stagingChartPhase = phase;
     periods.dataset.stagingChartType = stagingSelectedChartType;
@@ -5035,7 +6388,7 @@
       stagingChartExtremaMarkup("최고", rows[highIndex], highPoint, "high", width, highPrice),
       stagingChartExtremaMarkup("최저", rows[lowIndex], lowPoint, "low", width, lowPrice),
     ].join("");
-    const livePoint = phase === "regular" ? `
+    const livePoint = liveSession ? `
       <g class="staging-toss-chart-live-point" transform="translate(${points.at(-1).x.toFixed(2)} ${points.at(-1).y.toFixed(2)})">
         <circle class="pulse-far" r="15"></circle>
         <circle class="pulse-near" r="9"></circle>
@@ -5044,7 +6397,14 @@
         <path class="spark spark-b" d="M12-12l3-3M12 12l3 3"></path>
       </g>
     ` : "";
-    const phaseLabel = phase === "regular" ? "장중 실시간" : phase === "preopen" ? "장전" : "장마감";
+    const marketSession = String(quote?.market_session || "");
+    const phaseLabel = marketSession === "nxt_pre_market" && liveSession
+      ? "프리장 실시간"
+      : marketSession === "nxt_after_market" && liveSession
+        ? "애프터장 실시간"
+        : phase === "regular" && liveSession
+          ? "장중 실시간"
+          : phase === "preopen" ? "장전" : "장마감";
     const rangeLabel = isIntraday
       ? `${stagingChartDateLabel(rows[0].date)} ${stagingChartTimeLabel(rows[0].time)}부터 ${stagingChartTimeLabel(lastRow.endTime || lastRow.time)}`
       : isDenseWeek
@@ -5062,7 +6422,7 @@
     ` : "";
 
     chart.innerHTML = `
-      <div class="staging-toss-stock-chart ${tone}${phase === "regular" ? " is-live" : ""}${isDenseWeek ? " is-week" : ""}${isCandle ? " is-candle" : ""}" data-chart-phase="${phase}" data-chart-period="${periodConfig.key}" data-chart-type="${stagingSelectedChartType}"${isDenseWeek ? ' data-chart-source="naver-week-ten-minute"' : ""} aria-label="${periodConfig.label} ${phaseLabel} ${chartLabel}">
+      <div class="staging-toss-stock-chart ${tone}${liveSession ? " is-live" : ""}${isDenseWeek ? " is-week" : ""}${isCandle ? " is-candle" : ""}" data-chart-phase="${phase}" data-chart-live="${liveSession}" data-chart-period="${periodConfig.key}" data-chart-type="${stagingSelectedChartType}"${isDenseWeek ? ' data-chart-source="naver-week-ten-minute"' : ""} aria-label="${periodConfig.label} ${phaseLabel} ${chartLabel}">
         <div class="staging-toss-chart-stage">
           <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${rangeLabel} ${chartFlowLabel}">
             ${baseline}
@@ -5950,6 +7310,7 @@
     document.getElementById("push-history-title"),
     document.getElementById("recommend-detail-name"),
     document.getElementById("recommend-detail-code"),
+    document.getElementById("recommend-status"),
     document.getElementById("recommend-list"),
     document.getElementById("recommend-detail-content"),
   ]) {

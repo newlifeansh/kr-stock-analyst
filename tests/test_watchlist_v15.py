@@ -10,7 +10,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.6"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260831v453"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260901v459"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -44,6 +44,18 @@ def test_watchlist_v15_uses_progressive_real_time_cards():
         'className = "watch-v15-metrics watch-v2-metrics"',
         'evidence.className = "watch-v2-evidence"',
         'footer.className = "watch-v2-row-footer"',
+        'investorStateControl.className = "watch-v2-investor-state"',
+        'investorStateSelect.dataset.watchInvestorState = item.code',
+        'label: "미보유"',
+        'label: "보유 중"',
+        'average_buy_price: investorState === "holding"',
+        'textContent: "내 상황"',
+        'const investorState = normalizeWatchlistInvestorState(item.investor_state);',
+        'investor_state: investorState',
+        'investor_state: "not_holding"',
+        'window.SecretNoteWatchlistInvestorState = Object.freeze({',
+        'updateAverageBuyPrice: updateWatchlistAverageBuyPrice',
+        'updateWatchlistInvestorState(select.dataset.watchInvestorState || "", select.value);',
         'el("h2", "", headline)',
         'el("h3", "", "먼저 볼 종목")',
         "scheduleWatchlistStrategyRender();",
@@ -68,6 +80,8 @@ def test_watchlist_v15_uses_progressive_real_time_cards():
         "grid-template-columns: repeat(2, minmax(0, 1fr));",
         ".watchlist-content-tabs button.active",
         ".watchlist-content-panel[hidden]",
+        ".watch-v2-investor-state {",
+        ".watch-v2-investor-state select",
     ):
         assert expected in styles
 
@@ -452,7 +466,7 @@ def test_market_lists_share_stock_logo_identity():
     styles = client.get("/assets/dashboard/styles.css").text
 
     for expected in (
-        "function createStockListLogo(code)",
+        'function createStockListLogo(code, className = "")',
         "`/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=${encodeURIComponent(DASHBOARD_CLIENT_VERSION)}`",
         "fallbackIcon.src = STOCK_LOGO_FALLBACK_DATA_URL;",
         'image.loading = "eager";',

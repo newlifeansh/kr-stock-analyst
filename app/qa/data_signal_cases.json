@@ -149,16 +149,16 @@
     },
     {
       "id": "DATA-KIS-007",
-      "title": "KRX·NXT 통합 시세와 신호용 KRX 분리",
+      "title": "KRX·NXT 통합 시세·프리마켓 차트와 신호용 KRX 분리",
       "domain": "KIS 연동",
       "priority": "P0",
       "modes": ["gate", "live"],
-      "automation": "pytest 장 구간 픽스처 + quote source 검사",
-      "preconditions": ["KRX·NXT·통합 체결을 준비한다."],
-      "inputs": {"venues": "KRX,NXT,INTEGRATED"},
-      "steps": ["화면 시세와 신호 확정에 사용된 거래소·체결일을 비교한다."],
-      "expected": ["화면은 통합시세를 쓸 수 있지만 확정 신호는 검증된 KRX 세션만 사용한다."],
-      "failure_criteria": ["NXT·합성 시세가 확정 일봉 또는 체결가로 사용된다."]
+      "automation": "pytest 장 구간·연속 분봉 DOM 픽스처 + quote source 검사 + 실제 KRX·NXT read-only probe",
+      "preconditions": ["KRX·NXT·통합 체결과 NXT 지원·미지원 종목의 1일 차트를 준비한다."],
+      "inputs": {"venues": "KRX,NXT,INTEGRATED", "code": "005930", "live_sessions": ["nxt_pre_market", "integrated_regular", "nxt_after_market"], "quote_minutes": ["0838", "0839"], "reference_session": "pre_market_reference"},
+      "steps": ["화면 시세와 신호 확정에 사용된 거래소·체결일을 비교한다.", "08:00–08:50 NXT 프리마켓에서 연속된 실시간 시세를 주입하고 1일 차트의 마지막 분봉 시각·가격·분내 고가·저가가 매 시세에 맞춰 누적되는지 확인한다.", "NXT 미지원 기준가 세션에서는 실시간 분봉과 맥동 표시가 추가되지 않는지 검사한다."],
+      "expected": ["화면은 통합시세를 쓸 수 있지만 확정 신호는 검증된 KRX 세션만 사용한다.", "NXT 프리마켓과 애프터마켓의 유효 실시간 시세는 현재 분봉에 즉시 반영되고 분이 바뀌면 이전 분봉을 보존한 채 차트 끝 시각이 진행한다.", "NXT 미지원 기준가와 장 마감 시세는 실시간 차트로 오인되지 않는다."],
+      "failure_criteria": ["NXT·합성 시세가 확정 일봉 또는 체결가로 사용된다.", "현재가는 바뀌지만 프리마켓 1일 차트의 마지막 시각·선 경로가 최초 로드 시점에 고정된다.", "NXT 미지원 기준가가 새로운 실시간 분봉 또는 실시간 상태로 표시된다."]
     },
 
     {
@@ -800,16 +800,16 @@
     },
     {
       "id": "SIG-CONTRACT-002",
-      "title": "추천 점수와 시그널 점수 분리",
+      "title": "종목 추천의 매수 기준 자격과 현재 AI 판단",
       "domain": "시그널 API 계약",
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
-      "automation": "pytest recommendation fixture + recommendation UI",
-      "preconditions": ["추천 점수는 높고 시그널 조건은 낮은 종목을 준비한다."],
-      "inputs": {"recommendation_score": 90, "signal_score": 40},
-      "steps": ["추천 카드와 종목 시그널 결과를 비교한다."],
-      "expected": ["추천 점수는 발견 우선순위일 뿐 확정 매수에 합산되지 않는다."],
-      "failure_criteria": ["추천 점수 때문에 시그널 단계가 승격된다."]
+      "automation": "pytest confirmed-entry pending/same-day-entry recommendation fixtures + staging canonical-dashboard/signal-day-close supplement fixture + live recommendation/signal parity + recommendation UI",
+      "preconditions": ["장 마감 entry_pending, 다음 거래일 당일 entered, 과거 holding, entry_watch, 매도 완료, 장중 entry_pending 상태를 함께 준비한다.", "시가 반영 순간 상위 추천 응답에서 빠졌지만 시장 시그널에는 entered_today로 남은 종목과 동일 종목의 공개 대시보드·조건 확인일 종가를 준비한다."],
+      "inputs": {"included": [{"recommendation_state": "entry_confirmed", "action": "entry_pending", "position_open": false, "customer_state": "new-buy-wait", "customer_label": "신규 매수 대기", "live_observation": false}, {"recommendation_state": "entered_today", "action": "entered", "position_open": true, "customer_state": "hold", "customer_label": "보유 유지", "additional_buy_label": "신호 없음", "entry_date": "recommendation_as_of_date", "transition_side": "buy", "entry_confirmation_allowed": true}], "future_mapping": {"entry_pending_position_open": "추가 매수 대기"}, "excluded_actions": ["entry_watch", "old_holding", "partial_exit_pending", "full_exit_pending", "exited", "live_entry_pending"], "selection_rule": "confirmed_entry_pending_or_entered_today"},
+      "steps": ["시장 시그널 스냅샷과 종목 추천 응답을 같은 시점에 조회한다.", "장 마감 entry_pending 종목과 그 조건이 다음 거래일 시가에 반영된 당일 entered 종목이 각각 entry_confirmed·entered_today로 포함되는지 확인한다.", "entered_today의 entry_date와 최근 buy 전환일이 추천 응답 기준일과 같고 독립 근거 승인이 있는지 검사한다.", "상위 추천 응답에서 당일 진입 종목이 먼저 빠진 경우 스테이징이 같은 공식 공개 대시보드로 추천 점수를 다시 계산하고 조건 확인일 종가를 결합하는지 검사한다.", "복원된 추천 점수·조건 확인 가격이 시장 시그널 점수·전략 진입가·현재가와 각각 분리되는지 확인한다.", "시장 스냅샷 갱신 중에는 30분 이내 최근 확정 상태를 유지하고 그보다 오래됐거나 항목이 없는 갱신 상태는 닫히는지 검사한다.", "과거 보유·관찰·매도·장중 예비 상태와 시가총액 100위 밖 확장 유니버스를 제외하고 자격 종목 안에서만 추천 점수 순위를 다시 매기는지 확인한다.", "추천 목록과 상세가 entry_pending 미보유를 신규 매수 대기, entry_pending 보유를 추가 매수 대기, entered·holding 보유를 보유 유지와 추가 매수 신호 없음으로 같은 방식으로 표시하는지 확인한다.", "화면에서 오늘 시가 반영·전략 반영·장 마감·독립 근거 같은 운영자 표현이 노출되지 않는지 검사한다.", "추천 상세에서 추천 당시 가격·AI 전략 매수가·현재가·확인 자료·지금 판단을 구분해 표시하며 실시간 현재가가 추천 당시 가격을 덮어쓰지 않는지 확인한다.", "추천 다음 날 또는 매도 상태로 바뀌면 목록에서 제외되고 상세는 추천 당시 조건과 현재 상태를 구분하는지 검사한다."],
+      "expected": ["종목 추천에는 장 마감 매수 조건이 확정된 종목이 체결 전부터 다음 거래일 시가 반영 당일까지 포함되지만 고객 화면은 내부 처리 시점 대신 현재 AI 판단을 보여준다.", "추천 카드의 숫자 점수는 자격 종목 사이의 우선순위로만 쓰고 행동 라벨은 신규 매수 대기·추가 매수 대기·보유 유지 중 현재 시그널에 맞는 상태를 표시한다.", "AI 전략이 보유 중이면 추천 당시 가격과 구분된 AI 전략 매수가·현재가 및 추가 매수 신호 유무를 보여주고 과거 보유 종목은 점수가 높아도 포함하지 않는다.", "상위 추천 API가 진입 순간 빈 목록을 반환해도 스테이징은 공식 대시보드의 추천 계산과 조건 확인일 종가로 당일 카드만 복원하며 신호 점수를 추천 점수로 대신 쓰지 않는다.", "짧은 시장 데이터 갱신 구간에는 최근 확정 추천이 사라지지 않으며 30분을 넘긴 불확실한 상태는 표시하지 않는다.", "자격 종목이 없으면 목록을 억지로 채우지 않고 다음 조건 확인을 안내한다."],
+      "failure_criteria": ["시가 반영 직후 또는 짧은 데이터 갱신 중 당일 조건 충족 종목이 추천 목록에서 사라진다.", "추천 점수가 높다는 이유로 관찰·과거 보유·매도·장중 예비 종목 또는 시가총액 100위 밖 종목이 추천 목록에 포함된다.", "조건을 통과한 추천 카드가 관찰·신중 같은 상반된 행동 등급을 표시한다.", "현재 시그널과 다른 신규 매수 대기·추가 매수 대기·보유 유지 상태를 표시하거나 목록과 상세의 상태가 서로 다르다.", "화면에 오늘 시가 반영·시가 반영 완료·전략 반영·장 마감 매수 조건·독립 근거 같은 운영자 표현이 노출된다.", "entered_today의 전환일·진입가·독립 근거 승인이 현재 신호와 맞지 않는다.", "신호 점수를 추천 점수로 재사용하거나 현재가·전략 진입가를 조건 확인 가격으로 표시한다.", "실시간 시세 갱신이 추천 당시 조건 확인 가격을 덮어쓴다.", "30분을 넘긴 갱신 중 스냅샷 또는 항목이 없는 상태를 확정 추천으로 표시한다.", "매수 조건 데이터가 없거나 불확실한데 이전 추천 또는 다른 후보로 목록을 채운다."]
     },
     {
       "id": "SIG-CONTRACT-003",
@@ -817,12 +817,12 @@
       "domain": "시그널 API 계약",
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
-      "automation": "pytest parity·주말·live-return freeze fixture + live market feed/revision + same-client-revision representative end-to-end",
-      "preconditions": ["동일 종목·동일 실행의 시장 피드·상세·관심·알림 표면을 조회한다.", "열린 보유·매도 대기 포지션과 완료 매도, 금요일 종가 예비 신호를 준비한다."],
-      "inputs": {"code": "005930", "signal_date": "2026-08-28", "refresh_at": "2026-08-30T12:38:41+09:00", "live_observation": false, "return_kinds": "open_position,closed_trade", "quote_order": "sequence+observed_at", "signal_revision": "changed_codes", "count_basis": "same_client_revision"},
-      "steps": ["동일 브라우저 리비전에서 state의 현재·해제 분류 건수와 DOM 필터 건수를 한 번에 읽어 일치 여부를 확인한다.", "action·stage·price·score·signal_date·exposure·display_return_rate·display_return_kind·return_basis를 표면별로 비교한다.", "열린 포지션에 순서가 증가하는 quote를 적용해 현재가·평가수익률·as_of가 같이 변경되는지 확인하고 낮은 sequence·이전 observed_at은 무시한다.", "완료 매도의 매수가·매도가·closed_trade 수익률은 후속 시세와 폴백 상태에서도 고정되는지 확인한다.", "changed_codes가 있는 새 signal_revision에서만 피드를 한 번 갱신하고 initial·동일 리비전을 무시하는지 검사한다.", "휴장 재계산 후 live_observation=false인 예비 신호의 signal_date·signal_at이 마지막 완료 거래일과 일치하는지 확인한다."],
-      "expected": ["동일 브라우저 리비전의 분류 건수와 동일 시점의 핵심 필드 및 열린 포지션의 비용·잔여비중 보정 수익률이 모든 표면에서 일치한다.", "열린 포지션만 최신 시세와 신호 리비전을 반영하고 완료 매매의 순현금흐름 수익률과 체결가는 불변이다.", "current.as_of는 재계산 시각을 유지하되 live_observation=false인 signal_date·signal_at은 마지막 장 마감 기준을 유지한다."],
-      "failure_criteria": ["서로 다른 리비전의 API·화면 건수를 비교해 오탐하거나 한 화면만 이전 상태·가격·날짜·수익률을 표시한다.", "늦게 도착한 시세가 최신 손익을 덮어쓰거나 완료 매도의 실현 수익률·체결가가 실시간 시세로 바뀐다.", "initial·중복 리비전이 불필요한 재조회를 일으키거나 신규 changed_codes 리비전이 화면에 반영되지 않는다.", "주말·휴장일 재계산 시각이 signal_date·signal_at으로 승격된다."]
+      "automation": "pytest parity·주말·live-return freeze fixture + watchlist investor-state roundtrip/backward-compatibility + live market feed/revision + same-client-revision representative end-to-end",
+      "preconditions": ["동일 종목·동일 실행의 시장 피드·상세·관심·알림 표면을 조회한다.", "열린 보유·매도 대기 포지션과 완료 매도, 금요일 종가 예비 신호를 준비한다.", "관심종목에 사용자가 직접 선택한 미보유·보유 중 설명 상태와 보유 종목 평균 매수가를 준비한다."],
+      "inputs": {"code": "005930", "signal_date": "2026-08-28", "refresh_at": "2026-08-30T12:38:41+09:00", "live_observation": false, "return_kinds": "open_position,closed_trade", "quote_order": "sequence+observed_at", "signal_revision": "changed_codes", "count_basis": "same_client_revision", "investor_states": ["not_holding", "holding"], "legacy_investor_states": ["before_buy", "after_sell"], "average_buy_price": 71500, "legacy_watchlist_update": "preserve_existing_state_and_average_buy_price"},
+      "steps": ["동일 브라우저 리비전에서 state의 현재·해제 분류 건수와 DOM 필터 건수를 한 번에 읽어 일치 여부를 확인한다.", "action·stage·price·score·signal_date·exposure·display_return_rate·display_return_kind·return_basis를 표면별로 비교한다.", "열린 포지션에 순서가 증가하는 quote를 적용해 현재가·평가수익률·as_of가 같이 변경되는지 확인하고 낮은 sequence·이전 observed_at은 무시한다.", "완료 매도의 매수가·매도가·closed_trade 수익률은 후속 시세와 폴백 상태에서도 고정되는지 확인한다.", "changed_codes가 있는 새 signal_revision에서만 피드를 한 번 갱신하고 initial·동일 리비전을 무시하는지 검사한다.", "관심종목 investor_state와 average_buy_price를 저장·재조회하고 기본값이 not_holding인지, legacy before_buy·after_sell이 not_holding으로 정규화되는지 확인한다.", "이전 클라이언트가 두 필드를 빼고 저장하면 기존 보유 상태와 평균 매수가를 유지하고 명시적으로 not_holding을 저장하면 평균 매수가를 지우는지 확인한다.", "휴장 재계산 후 live_observation=false인 예비 신호의 signal_date·signal_at이 마지막 완료 거래일과 일치하는지 확인한다."],
+      "expected": ["동일 브라우저 리비전의 분류 건수와 동일 시점의 핵심 필드 및 열린 포지션의 비용·잔여비중 보정 수익률이 모든 표면에서 일치한다.", "열린 포지션만 최신 시세와 신호 리비전을 반영하고 완료 매매의 순현금흐름 수익률과 체결가는 불변이다.", "관심종목의 investor_state는 not_holding·holding 두 값으로 계정별·종목별 보존되고 holding일 때만 average_buy_price를 유지하며 신호·점수·실제 주문 내역과 독립적인 사용자 설명 설정이다.", "current.as_of는 재계산 시각을 유지하되 live_observation=false인 signal_date·signal_at은 마지막 장 마감 기준을 유지한다."],
+      "failure_criteria": ["서로 다른 리비전의 API·화면 건수를 비교해 오탐하거나 한 화면만 이전 상태·가격·날짜·수익률을 표시한다.", "늦게 도착한 시세가 최신 손익을 덮어쓰거나 완료 매도의 실현 수익률·체결가가 실시간 시세로 바뀐다.", "initial·중복 리비전이 불필요한 재조회를 일으키거나 신규 changed_codes 리비전이 화면에 반영되지 않는다.", "investor_state 또는 평균 매수가가 저장되지 않거나 legacy 상태가 제3의 고객 상태로 남고 이전 클라이언트 저장이 기존 값을 임의로 초기화한다.", "미보유 상태에 평균 매수가가 남거나 보유 상태의 명시적 평균 매수가가 누락된다.", "주말·휴장일 재계산 시각이 signal_date·signal_at으로 승격된다."]
     },
     {
       "id": "SIG-CONTRACT-004",
@@ -843,13 +843,13 @@
       "title": "검색 자동완성 대비·삼성전자 상세 현재 스냅샷 일치",
       "domain": "시그널 화면 E2E",
       "priority": "P0",
-      "modes": ["e2e"],
-      "automation": "pytest explicit-dark suggestion CSS/same-client quote-session contract + Playwright mobile dark/light computed contrast and stock detail",
-      "preconditions": ["스테이징과 005930 API가 준비돼 있다."],
-      "inputs": {"query": "삼성전자", "code": "005930", "minimum_text_contrast_ratio": 4.5, "suggestion_states": ["default", "hover", "focus", "selected"], "quote_assertion": "same_client_snapshot_state_and_dom"},
-      "steps": ["발견 화면에서 검색어를 입력해 자동완성 결과 행의 배경·종목명 대비를 계산한다.", "검색 결과로 상세에 진입해 종목명과 URL을 API 계약으로 확인한다.", "동일 브라우저 작업에서 현재 quote state의 가격·등락률·장 상태 라벨과 DOM 표시값을 함께 읽어 일치 여부를 확인한다."],
-      "expected": ["다크·라이트 자동완성 종목명은 모든 상호작용 상태에서 배경 대비 4.5:1 이상이며 다크 화면에 흰 결과 행이 나타나지 않는다.", "상세 종목과 동일한 현재 시세 스냅샷의 가격·등락률·장 상태가 함께 표시되고 가로 넘침이 없다."],
-      "failure_criteria": ["다크 자동완성 행이 밝은 배경과 밝은 글자를 함께 사용하거나 대비가 4.5:1 미만이다.", "오종목 이동, 서로 다른 시점 값 비교, state·DOM 숫자 또는 장 상태 불일치, 잘림 또는 가로 넘침이 발생한다."]
+      "modes": ["gate", "e2e"],
+      "automation": "pytest explicit-dark suggestion CSS/same-client quote-session/initial live hydration Node contract + Playwright mobile dark/light computed contrast, stock-detail entry mutations, and current quote projection",
+      "preconditions": ["스테이징과 005930 API가 준비돼 있다.", "저장된 종가 스냅샷과 그 이후 시각의 현재 시세를 서로 다른 값으로 준비한다.", "장중 현재 시세 제공자가 실패해 stored_daily_price 프레임이 반환되는 경우를 준비한다."],
+      "inputs": {"query": "삼성전자", "code": "005930", "minimum_text_contrast_ratio": 4.5, "suggestion_states": ["default", "hover", "focus", "selected"], "initial_quote_state": "loading_until_current_quote", "active_session_stored_fallback": "keep_loading_without_numeric_quote", "quote_assertion": "same_client_snapshot_state_and_dom"},
+      "steps": ["발견 화면에서 검색어를 입력해 자동완성 결과 행의 배경·종목명 대비를 계산한다.", "검색 결과로 상세에 진입해 종목명과 URL을 API 계약으로 확인한다.", "상세 데이터와 현재 시세 요청을 동시에 지연·응답시키며 현재 시세 준비 전에는 가격·등락률이 숫자로 노출되지 않고 시세 확인 중 상태가 유지되는지 검사한다.", "장중 stored_daily_price 또는 허용 freshness를 지난 시세 프레임을 주입해 첫 숫자로 채택되지 않는지 확인하고, 장 마감 상태의 저장 종가는 현재 확인 가능한 마감값으로 표시되는지 검사한다.", "동일 브라우저 작업에서 현재 quote state의 가격·등락률·장 상태 라벨과 DOM 표시값을 함께 읽어 일치 여부를 확인한다."],
+      "expected": ["다크·라이트 자동완성 종목명은 모든 상호작용 상태에서 배경 대비 4.5:1 이상이며 다크 화면에 흰 결과 행이 나타나지 않는다.", "상세 최초 화면은 저장된 이전 등락률을 먼저 그리지 않고 현재 시세가 준비될 때까지 명시적 확인 상태를 표시한다.", "상세 종목과 동일한 현재 시세 스냅샷의 가격·등락률·장 상태가 첫 숫자 표시부터 함께 일치하며 가로 넘침이 없다."],
+      "failure_criteria": ["다크 자동완성 행이 밝은 배경과 밝은 글자를 함께 사용하거나 대비가 4.5:1 미만이다.", "현재 시세 준비 전에 저장된 가격·등락률 숫자가 잠깐 노출된 뒤 바뀐다.", "오종목 이동, 서로 다른 시점 값 비교, state·DOM 숫자 또는 장 상태 불일치, 잘림 또는 가로 넘침이 발생한다."]
     },
     {
       "id": "SIG-UI-002",
@@ -857,12 +857,12 @@
       "domain": "시그널 화면 E2E",
       "priority": "P0",
       "modes": ["gate", "e2e"],
-      "automation": "pytest CTA·예비 날짜·freshness-summary·ordered live-return DOM fixture + Playwright same-client-revision home CTA, signal tabs, exception-only quote status, weekend basis, quote/status/revision dark/light",
-      "preconditions": ["시장 시그널 피드가 fresh 상태다.", "열린 보유·매도 대기 행과 완료 매도 행, 금요일 장 마감 예비 신호, 일요일 스냅샷 갱신 시각을 준비한다."],
-      "inputs": {"views": ["home", "ai-signals"], "home_cta_touch_target_px": 44, "home_cta_destination": "ai-signals", "closed_preliminary_label": "2026.08.28 장 마감 기준", "weekend_refresh_at": "2026-08-30T12:38:41+09:00", "live_quote_prices": [105000, 106000], "quote_sequences": [10, 11, 9], "statuses": ["fallback", "recovered"], "status_hierarchy": {"normal": "one list summary", "mixed": "summary counts plus exception rows", "history": "hidden"}, "count_basis": "same_client_revision", "themes": ["dark", "light"]},
-      "steps": ["홈 AI 시그널 카드의 화살표가 접근 가능한 링크인지와 44px 터치 영역을 확인한다.", "화살표 중심이 종목명과 시그널 상태 중심 사이에 있는지 측정하고 눌러 AI 시그널 목록으로 이동한다.", "동일 브라우저 리비전에서 state 분류 건수와 현재·해제 및 단계별 DOM 건수를 한 번에 읽은 뒤 필터를 모두 클릭한다.", "고정 보유·매도 대기·완료 매도 행에 quote sequence 10→11→9와 observed_at을 주입해 열린 포지션만 최신 수익률로 변경되는지 검사한다.", "모든 보유 행이 정상일 때 단계 필터 아래 목록 요약이 보유 종목 수와 실시간 상태를 한 번만 표시하고 개별 실시간·확정 배지를 숨기는지 확인한다.", "한 종목에만 fallback 또는 구독 제한을 주입해 상단이 실시간·지연·확인 건수를 요약하고 해당 예외 종목에만 상태 배지를 표시한 뒤, 모든 종목이 같은 상태가 되거나 복구되면 반복 배지가 다시 숨는지 검사한다.", "해제 이력으로 전환해 현재 목록용 실시간 요약이 숨고, 현재 신호로 복귀하면 aria-live 요약이 복원되는지 확인한다.", "fallback status와 복구 프레임을 주입해 상태 텍스트·aria-live·행 aria-label이 변경되고 기존 수익률은 유지되는지 확인한다.", "initial·중복·changed_codes signal_revision을 순서대로 주입해 신규 변경에서만 피드 재조회가 한 번 발생하는지 확인한다.", "일요일 재계산 시각이 포함된 금요일 예비 신호를 행으로 렌더링해 기준일 문구와 NEW 배지를 확인한다."],
-      "expected": ["화살표는 종목명과 시그널 상태 사이 높이에 배치되고 누르면 AI 시그널 전체 목록으로 이동한다.", "선택 상태와 건수가 동일 브라우저 리비전의 분류 결과에 일치한다.", "열린 보유·매도 대기 행은 상태에 따라 '실시간 평가수익률'·'보유 평가수익률'·'최근 확인 수익률'과 의미색·기준 시각 접근성 레이블을 표시하고, 완료 매도의 '확정 수익률'과 체결가는 변하지 않는다.", "정상 상태는 단계 필터와 목록 사이의 투명한 한 줄 요약에서 `보유 N개 모두 실시간`과 최신 시각을 한 번만 표시하고, 종목별 `실시간`·`확정` 배지는 시각적으로 숨긴다.", "혼합 상태는 `실시간 N · 약 10초 지연 N · 확인 중 N`처럼 목록 범위를 요약하고 지연·확인·오프라인·장 마감 예외 행만 개별 배지를 표시하며, 해제 이력에서는 현재 목록 요약을 숨긴다.", "폴백·복구 상태는 색만이 아닌 텍스트와 aria-live로 전달되며 이전 수익률을 지우지 않는다.", "휴장 중 유지되는 예비 신호는 `2026.08.28 장 마감 기준`만 표시하고 일요일 시각·발생·NEW를 표시하지 않는다."],
-      "failure_criteria": ["화살표가 비대화형 요소이거나 터치 영역이 44px보다 작고 종목명 위에 치우친다.", "화살표를 눌러도 홈에 머물거나 필터가 반응하지 않고 다른 단계 종목이 섞인다.", "이전·중복 시세가 현재 수익률을 덮어쓰거나 완료 매도 수익률·체결가가 실시간 시세로 바뀐다.", "상단 요약과 모든 종목 행에 같은 `실시간`·시각이 반복되거나, 혼합 상태에서 어느 종목이 지연·확인 중인지 찾을 수 없다.", "현재 목록 요약이 단계 필터보다 위에서 두 탐색 행을 갈라놓거나 해제 이력에서도 남고, 320px·확대 화면에서 텍스트가 잘리거나 가로로 넘친다.", "폴백·복구·실시간 기준 안내가 스크린리더에서 누락되거나 상태 전환이 수익률을 초기화한다.", "새 changed_codes 리비전을 놓치거나 initial·중복 리비전마다 중복 재조회한다.", "금요일 신호가 일요일 발생으로 표시되거나 NEW 배지가 붙고 장 마감 기준 문구가 누락된다."]
+      "automation": "pytest CTA·예비 날짜·freshness-summary·entry-reset/initial-return hydration·ordered live-return DOM fixture + Playwright same-client-revision home CTA, signal entry mutations, tabs, exception-only quote status, weekend basis, quote/status/revision dark/light",
+      "preconditions": ["시장 시그널 피드가 fresh 상태다.", "열린 보유·매도 대기 행과 완료 매도 행, 금요일 장 마감 예비 신호, 일요일 스냅샷 갱신 시각을 준비한다.", "이전 화면에 남은 시그널 행과 스냅샷 수익률은 존재하지만 새 현재가 오버레이는 아직 준비되지 않은 진입 상태를 준비한다.", "장중 첫 quote가 stored_daily_price인 경우와 정상 quote 수신 뒤 fallback으로 전환되는 경우를 각각 준비한다."],
+      "inputs": {"views": ["home", "ai-signals"], "home_cta_touch_target_px": 44, "home_cta_destination": "ai-signals", "entry_sequence": ["loading", "current_quote", "numeric_return"], "pending_return_copy": "현재가 확인 중", "active_session_stored_fallback": "pending_without_snapshot_return", "post_live_fallback": "preserve_last_accepted_return", "closed_preliminary_label": "2026.08.28 장 마감 기준", "weekend_refresh_at": "2026-08-30T12:38:41+09:00", "live_quote_prices": [105000, 106000], "quote_sequences": [10, 11, 9], "statuses": ["fallback", "recovered"], "status_hierarchy": {"normal": "one list summary", "mixed": "summary counts plus exception rows", "history": "hidden"}, "count_basis": "same_client_revision", "themes": ["dark", "light"]},
+      "steps": ["홈 AI 시그널 카드의 화살표가 접근 가능한 링크인지와 44px 터치 영역을 확인한다.", "화살표 중심이 종목명과 시그널 상태 중심 사이에 있는지 측정하고 눌러 AI 시그널 목록으로 이동한다.", "홈과 AI 시그널 화면을 오갈 때 이전 행·건수·현재가 오버레이가 먼저 보이지 않고 로딩 상태로 초기화되는지 검사한다.", "열린 포지션 스냅샷에 과거 수익률이 있어도 새 현재가가 없으면 숫자 대신 평가수익률 현재가 확인 중을 표시하고, 현재가 수신 뒤에만 계산된 숫자를 공개하는지 검사한다.", "장중 첫 quote로 stored_daily_price를 주입하면 스냅샷 수익률을 공개하지 않는지 확인하고, 정상 quote를 한 번 표시한 뒤 fallback으로 바뀌면 마지막으로 확인된 수익률만 유지하는지 검사한다.", "동일 브라우저 리비전에서 state 분류 건수와 현재·해제 및 단계별 DOM 건수를 한 번에 읽은 뒤 필터를 모두 클릭한다.", "고정 보유·매도 대기·완료 매도 행에 quote sequence 10→11→9와 observed_at을 주입해 열린 포지션만 최신 수익률로 변경되는지 검사한다.", "모든 보유 행이 정상일 때 단계 필터 아래 목록 요약이 보유 종목 수와 실시간 상태를 한 번만 표시하고 개별 실시간·확정 배지를 숨기는지 확인한다.", "한 종목에만 fallback 또는 구독 제한을 주입해 상단이 실시간·지연·확인 건수를 요약하고 해당 예외 종목에만 상태 배지를 표시한 뒤, 모든 종목이 같은 상태가 되거나 복구되면 반복 배지가 다시 숨는지 검사한다.", "해제 이력으로 전환해 현재 목록용 실시간 요약이 숨고, 현재 신호로 복귀하면 aria-live 요약이 복원되는지 확인한다.", "fallback status와 복구 프레임을 주입해 상태 텍스트·aria-live·행 aria-label이 변경되고 이미 수신한 최근 수익률은 유지되는지 확인한다.", "initial·중복·changed_codes signal_revision을 순서대로 주입해 신규 변경에서만 피드 재조회가 한 번 발생하는지 확인한다.", "일요일 재계산 시각이 포함된 금요일 예비 신호를 행으로 렌더링해 기준일 문구와 NEW 배지를 확인한다."],
+      "expected": ["화살표는 종목명과 시그널 상태 사이 높이에 배치되고 누르면 AI 시그널 전체 목록으로 이동한다.", "새 화면 최초 진입에서는 이전 시그널 행·건수·스냅샷 수익률이 번쩍이지 않고 로딩→현재가 확인→계산 수익률 순서가 유지된다.", "선택 상태와 건수가 동일 브라우저 리비전의 분류 결과에 일치한다.", "열린 보유·매도 대기 행은 최초 현재가 전에는 평가수익률 현재가 확인 중을 표시하고, 이후 상태에 따라 '실시간 평가수익률'·'보유 평가수익률'·'최근 확인 수익률'과 의미색·기준 시각 접근성 레이블을 표시하며 완료 매도의 '확정 수익률'과 체결가는 변하지 않는다.", "정상 상태는 단계 필터와 목록 사이의 투명한 한 줄 요약에서 `보유 N개 모두 실시간`과 최신 시각을 한 번만 표시하고, 종목별 `실시간`·`확정` 배지는 시각적으로 숨긴다.", "혼합 상태는 `실시간 N · 약 10초 지연 N · 확인 중 N`처럼 목록 범위를 요약하고 지연·확인·오프라인·장 마감 예외 행만 개별 배지를 표시하며, 해제 이력에서는 현재 목록 요약을 숨긴다.", "폴백·복구 상태는 색만이 아닌 텍스트와 aria-live로 전달되며 이미 수신한 최근 수익률을 지우지 않는다.", "휴장 중 유지되는 예비 신호는 `2026.08.28 장 마감 기준`만 표시하고 일요일 시각·발생·NEW를 표시하지 않는다."],
+      "failure_criteria": ["화살표가 비대화형 요소이거나 터치 영역이 44px보다 작고 종목명 위에 치우친다.", "화살표를 눌러도 홈에 머물거나 필터가 반응하지 않고 다른 단계 종목이 섞인다.", "최초 진입에서 이전 행·건수 또는 스냅샷 수익률 숫자가 잠깐 보인 뒤 현재 값으로 바뀐다.", "이전·중복 시세가 현재 수익률을 덮어쓰거나 완료 매도 수익률·체결가가 실시간 시세로 바뀐다.", "상단 요약과 모든 종목 행에 같은 `실시간`·시각이 반복되거나, 혼합 상태에서 어느 종목이 지연·확인 중인지 찾을 수 없다.", "현재 목록 요약이 단계 필터보다 위에서 두 탐색 행을 갈라놓거나 해제 이력에서도 남고, 320px·확대 화면에서 텍스트가 잘리거나 가로로 넘친다.", "폴백·복구·실시간 기준 안내가 스크린리더에서 누락되거나 이미 수신한 수익률을 초기화한다.", "새 changed_codes 리비전을 놓치거나 initial·중복 리비전마다 중복 재조회한다.", "금요일 신호가 일요일 발생으로 표시되거나 NEW 배지가 붙고 장 마감 기준 문구가 누락된다."]
     },
     {
       "id": "SIG-UI-003",
@@ -1072,6 +1072,58 @@
       "steps": ["포트폴리오 핵심 기능 인덱스와 feature-story가 정확히 5개인지 확인한다.", "각 장면이 iPhone 13 Pro 390×844 프로덕션 캡처이고 자산·대체텍스트·캡처 날짜·설명이 일치하는지 확인한다.", "AI 시그널 캡처에서 매수 확정 필터와 종목별 전략 기준가·점수·신호 이후 수익률이 보이는지 검사한다.", "기업 체력·리포트 분석·차트 공부가 SK하이닉스 기준인지 확인하고 각 스크린샷 확대를 연다.", "모바일과 데스크톱에서 이미지 비율, 가로 넘침과 대화상자 포커스 반환을 검사한다."],
       "expected": ["AI 시그널, 피드 콘텐츠, 기업 체력, 리포트 분석, 차트 공부가 요청 순서대로 한 장씩 노출된다.", "다섯 이미지는 iPhone 13 Pro 390×844의 현재 프로덕션 다크 UI이며 종목 관련 세 장은 SK하이닉스 맥락을 표시한다.", "AI 시그널은 매수 확정 상태이고 각 종목의 양수·음수 신호 이후 수익률을 표시한다.", "확대 대화상자는 키보드로 열고 닫을 수 있고 레이아웃이 가로로 넘치지 않는다."],
       "failure_criteria": ["기능 수·순서가 다르거나 예전 홈·시장 리포트 이미지가 핵심 다섯 장에 남는다.", "캡처가 390×844가 아니거나 종목 관련 캡처가 SK하이닉스가 아니며 이미지·대체텍스트·설명이 어긋난다.", "AI 시그널이 전체 또는 예비 상태이거나 확정매수 종목별 수익률이 화면에 보이지 않는다.", "모바일 가로 넘침, 핵심 제목이 보이지 않는 이미지 잘림 또는 확대·닫기 포커스 손실이 발생한다."]
+    },
+    {
+      "id": "SIG-UI-017",
+      "title": "스테이징 두 종목 상세의 초보자용 쉬운 설명과 안전 폴백",
+      "domain": "시그널 화면 E2E",
+      "priority": "P0",
+      "modes": ["gate", "live", "e2e"],
+      "automation": "pytest Responses Structured Outputs schema/plain-language-provenance/numeric-command-source validation/cache/rate-limit/staging-isolation + Playwright recommendation-detail and ai-stock-response dark/light 320px·200% copy-only mutation",
+      "preconditions": ["app.staging_app:app 스테이징과 app.main:app 프로덕션 엔트리포인트가 구분돼 있다.", "종목 대응 상세와 종목 추천 상세의 기존 데이터·시그널 결과가 준비돼 있으며 OPENAI_API_KEY는 선택 사항이다."],
+      "inputs": {"endpoint": "/staging-ai/page-summary", "page_types": ["stock_response", "recommendation_detail"], "model": "gpt-4o-mini-2024-07-18", "prompt_version": "staging-page-summary-v11", "recommendation_states": ["entry_confirmed", "entered_today"], "customer_states": ["new-buy-wait", "add-buy-wait", "hold", "partial-hold", "partial-sell-wait", "sell-wait", "sold"], "customer_labels": ["신규 매수 대기", "추가 매수 대기", "보유 유지", "일부 수익 확인 후 보유", "일부 수익 확인 대기", "매도 대기", "매도 완료"], "operator_terms_hidden": ["오늘 시가 반영", "시가 반영 완료", "전략 반영", "장 마감 매수 조건", "독립 근거"], "structured_fields": ["headline", "summary", "reason", "action_title", "next_check", "evidence_refs"], "evidence_ref_contract": "allowed_evidence_refs 중 1~3개를 각각 별도 문자열로 정확히 복사", "mutable_ui": ["headline", "summary", "reason", "action_title", "next_check"], "immutable_financial_state": ["recommendation_eligibility", "recommendation_state", "recommendation_score", "signal_score", "rank", "buy_condition_as_of", "condition_price", "recommendation_entry_date", "strategy_entry_price", "current_price", "entry_reference", "independent_evidence_count", "next_session_check", "hard_risk", "position_mode", "average_buy_price", "personal_return_rate", "guide_rows", "metric_values", "weights"], "fallback_modes": ["disabled", "missing_key", "timeout", "http_error", "invalid_json", "unknown_evidence", "invented_number", "direct_trade_command", "advisory_action", "model_attribution", "finance_jargon", "operator_copy", "recommendation_contradiction", "customer_state_reverted", "customer_state_omission_locked", "investor_position_mode_reverted"], "hidden_generation_provenance": true, "plain_language_terms": {"포지션": "이미 보유 중인 상태", "진입": "새로 사는 것", "시그널": "AI 판단", "수급": "외국인과 기관이 사고파는 흐름", "종가": "장이 끝날 때 가격"}, "reading_order": ["current_ai_action", "beginner_meaning", "recommendation_reason", "personal_price_guide", "price_basis", "next_check"], "cache_seconds": 1800, "rate_limit_per_client_per_minute": 15, "themes": ["dark", "light"], "viewports": [320, 458], "zoom_percent": 200},
+      "steps": ["공식 Responses API의 json_schema strict 요청 형식과 고정 모델 스냅샷, 토큰 사용량·예상비용 응답 계약을 고정 전송기로 검사한다.", "허용된 근거 ID 목록이 모델 입력에 별도 제공되고 1~3개 ID가 합쳐지지 않은 개별 문자열로 반환되는지 검사한다.", "동일 사실을 반복 요청해 서버·브라우저 캐시가 재호출을 줄이고 클라이언트 및 전체 분당 제한이 적용되는지 확인한다.", "입력에 없는 숫자·알 수 없는 근거 ID·여러 ID를 합친 문자열·직접 매수나 매도 지시·모델 출처 표현·투자 전문 용어·오류·시간초과 응답을 주입해 규칙 기반 쉬운 문구가 그대로 유지되는지 확인한다.", "스테이징 종목 대응 상세에서 모델이 현재 의미·쉬운 설명·이유·다음 관찰 조건만 풀어쓰고 차트·수급·공시·뉴스·증권사 리포트·시장 6개 자료 값·상태·가중치·중대 공시 우선순위와 개인 가격 가이드는 유지하는지 검사한다.", "entry_confirmed 미보유 추천 상세에서 신규 매수 대기와 아직 매수 전이라는 뜻을 설명하고 고정 수치를 유지하는지 검사한다.", "entered_today 보유 추천 상세에서 보유 유지와 '추가 매수 신호는 없습니다'처럼 자연스러운 조사 표현, 보유 기준 확인을 설명하고 추천 당시 가격·AI 전략 매수가·현재가를 유지하는지 검사한다.", "미보유 관망·매수 조건 확인과 보유 수익·손실·본전·평균 매수가 미입력 position_mode를 다른 상태로 되돌리는 응답을 주입해 규칙 폴백으로 차단되는지 확인한다.", "오늘 시가 반영·전략 반영·장 마감 매수 조건·독립 근거 같은 운영자 표현을 주입해 규칙 폴백으로 차단되는지 확인한다.", "추천 기준 통과 입력에 단순 후보·아직 살 때가 아님·따라 사는 건 조심 같은 상반된 문구를 주입하고, 다음 확인 문장에 현재가를 임의 기준값으로 넣어 규칙 폴백으로 차단되는지 확인한다.", "두 상세의 사용자 화면에 GPT·모델·문구 정리·데이터 요약 같은 생성 출처 배지가 전혀 노출되지 않는지 확인한다.", "프로덕션 HTML에는 staging 환경 메타가 없고 요약 POST 경로가 404 또는 405이며 기존 문구가 유지되는지 확인한다.", "다크·라이트, 320px와 200% 대응 폭에서 현재 AI 판단→쉬운 의미→개인 가격 가이드→추천 이유→다음 확인 순서와 수치가 잘리거나 가로로 넘치지 않는지 검사한다."],
+      "expected": ["모델은 화면 뒤에서 제공된 공개 사실만 초보자가 이해할 일상어로 풀어쓰며 추천 자격과 모든 수치·위험 차단은 기존 결정 엔진이 소유한다.", "유효한 응답은 openai 모드와 허용 목록에서 정확히 복사한 1~3개 근거 ID·토큰·비용 메타를 제공하며 동일 입력은 캐시되어 비용이 반복되지 않는다.", "모델 키 부재나 검증 실패는 화면 오류 없이 rules 모드로 되돌아가고 기존 쉬운 설명을 즉시 읽을 수 있다.", "미보유 entry_pending은 신규 매수 대기, 보유 entry_pending은 추가 매수 대기, entered·holding 보유는 보유 유지와 추가 매수 신호 없음으로 설명한다.", "내부 추천 기록 범위는 유지하되 고객 화면에서는 운영 시점 대신 현재 AI 판단을 먼저 보여준다.", "두 상세에는 생성 모델과 처리 방식을 알리는 배지가 없고 프로덕션에는 요약 API와 동작 변화가 없다.", "두 화면은 좁은 폭·확대·다크·라이트에서도 현재 의미·이유·다음 관찰 조건을 순서대로 읽을 수 있고 가로 넘침이 없다."],
+      "failure_criteria": ["생성 문구가 추천 자격·상태·점수·가격·추천 순위·매수 조건 시각·전략 진입가·현재가·독립 근거 개수·중대 위험 상태를 변경하거나 입력에 없는 숫자를 노출한다.", "직접 매수·매도 지시, 특정 거래 행동이 좋다거나 유리하다는 권유, 수익 보장, 알 수 없는 근거 ID, 비정형 응답, 모델 출처 또는 포지션·진입·시그널·수급·종가 같은 금지 용어가 사용자 문구에 반영된다.", "추천 기준을 통과한 종목을 단순 후보·관찰 단계·아직 살 때가 아님·따라 사는 건 조심으로 바꾼다.", "현재 시그널과 다른 신규 매수 대기·추가 매수 대기·보유 유지 상태를 생성하거나 추가 매수 신호 없음 사실을 뒤집는다.", "오늘 시가 반영·시가 반영 완료·전략 반영·장 마감 매수 조건·독립 근거 같은 운영자 표현이 사용자 화면에 노출된다.", "키 부재·시간초과·API 오류에서 상세 화면이 중단되거나 빈 문구·내부 오류·비밀값을 노출한다.", "동일 입력이 캐시되지 않거나 호출 제한이 없어 새로고침과 공개 트래픽이 비용을 무제한 발생시킨다.", "고정 추천 자격·수치·가격 표가 생성 문구로 덮인다.", "프로덕션에서 staging 요약 API가 200으로 응답하거나 두 상세에 GPT·모델·문구 정리·데이터 요약 표시가 나타난다.", "현재 AI 판단→쉬운 의미→추천 이유→가격 기준→다음 확인 순서가 깨지거나 320px·200% 대응 폭에서 문구·수치가 잘리고 가로 넘침이 발생한다."]
+    },
+    {
+      "id": "SIG-UI-018",
+      "title": "스테이징 오전·점심·장마감 브리핑의 GPT 문구 정리와 호출 상한",
+      "domain": "시그널 화면 E2E",
+      "priority": "P0",
+      "modes": ["gate", "live", "e2e"],
+      "automation": "pytest briefing_edition Structured Outputs/evidence validation/latest-day call-budget/static isolation + Playwright three-edition feed/detail dark/light 320px·200% immutable-news-and-signal contract",
+      "preconditions": ["스테이징 피드에 같은 발행일의 morning·midday·afternoon 브리핑과 원문 뉴스·예비 또는 확정 AI 시그널이 준비돼 있다.", "STAGING_OPENAI_SUMMARY_ENABLED와 OPENAI_API_KEY는 선택 사항이며 실패 시 규칙 문구를 즉시 표시한다."],
+      "inputs": {"endpoint": "/staging-ai/page-summary", "page_type": "briefing_edition", "editions": ["morning", "midday", "afternoon"], "model": "gpt-4o-mini-2024-07-18", "prompt_version": "staging-page-summary-v11", "mutable_ui": ["feed_headline", "feed_summary", "detail_headline", "detail_intro", "detail_digest_title", "detail_next_check"], "immutable_content": ["edition", "publication_time", "selected_news_count", "category_count", "news_title", "news_status", "source_url", "preliminary_signal", "confirmed_signal"], "prefetch_scope": "latest publication_date only", "prefetch_max_calls": 3, "detail_cache_reuse": true, "cache_seconds": 1800, "themes": ["dark", "light"], "viewports": [320, 458], "zoom_percent": 200},
+      "steps": ["morning·midday·afternoon 고정 브리핑 사실과 개별 allowed_evidence_refs를 briefing_edition 요청으로 보내 구조화 응답을 검사한다.", "피드 콘텐츠 탭에서 최신 발행일의 최대 3개 판만 요약 요청하고 과거 판은 열기 전 호출하지 않는지 확인한다.", "피드 카드의 제목·요약·텍스트 출처 배지만 바뀌고 판 이름·발행 시각·핵심 소식 건수·예비 및 확정 AI 시그널은 그대로인지 검사한다.", "같은 판 상세를 열어 피드에서 받은 응답을 재사용하고 제목·도입·핵심 묶음 제목·다음 확인만 바뀌는지 확인한다.", "상세 뉴스 제목·상태·카테고리·원문 링크와 신호 종목·점수·단계가 GPT 적용 전후 동일한지 비교한다.", "키 부재·시간초과·잘못된 근거 ID·입력에 없는 숫자·직접 매매 지시를 주입해 데이터 요약 폴백과 원문 보존을 확인한다.", "다크·라이트, 320px와 200% 대응 폭에서 세 카드·상세 문구·출처 배지가 가로로 넘치지 않는지 검사한다."],
+      "expected": ["세 판의 GPT는 제공된 공개 사실을 읽기 쉬운 문구로만 정리하며 뉴스·시그널·시간·건수는 데이터 계층이 계속 소유한다.", "최신 발행일은 최대 3회만 미리 생성하고 같은 판 상세는 메모리 및 30분 캐시를 재사용해 추가 비용을 만들지 않는다.", "유효한 응답은 GPT 문구 정리, 폴백은 데이터 요약이라는 텍스트 배지로 구분되고 초기 콘텐츠는 기다림 없이 읽을 수 있다.", "과거 판은 사용자가 열 때만 요청하며 오류나 안전 검증 실패에서도 카드와 상세가 중단되지 않는다.", "세 판 모두 좁은 폭·확대·다크·라이트에서 뉴스와 수치를 그대로 읽을 수 있고 가로 넘침이 없다."],
+      "failure_criteria": ["최신 발행일 한 화면에서 3회를 초과해 GPT를 호출하거나 같은 판 상세 진입이 중복 비용을 발생시킨다.", "GPT가 판 구분·발행 시각·건수·뉴스 제목·상태·원문 링크·AI 시그널 종목·점수·단계를 변경하거나 삭제한다.", "과거 모든 브리핑을 피드 진입 즉시 생성해 호출량이 이력 길이에 비례한다.", "검증 실패나 API 오류에서 빈 카드·로딩 고착·내부 오류·비밀값을 노출한다.", "생성 상태가 색상으로만 표시되거나 320px·200% 대응 폭에서 문구·배지·원문 데이터가 잘리고 가로로 넘친다."]
+    },
+    {
+      "id": "SIG-UI-019",
+      "title": "관심종목 보유 여부별 개인 대응 가이드와 완료 전 로딩",
+      "domain": "시그널 화면 E2E",
+      "priority": "P0",
+      "modes": ["gate", "live", "e2e"],
+      "automation": "pytest watchlist investor_state/average_buy_price API + six-source deterministic guide/static DOM/prompt safety + Playwright ai-stock-response and recommendation-detail spinner/state-switch/profit-loss/padding/reduced-motion",
+      "preconditions": ["관심종목과 종목 대응 상세의 차트·수급·공시·뉴스·증권사 리포트·시장 6가지 자료와 현재가·가격 기준이 준비돼 있다.", "종목 설명 요약 응답을 지연·정상·실패로 제어할 수 있다."],
+      "inputs": {"investor_states": ["not_holding", "holding"], "labels": ["미보유", "보유 중"], "position_modes": ["watching", "buy_conditions_ready", "holding_profit", "holding_loss", "holding_flat", "holding_unknown"], "average_buy_prices": [null, 120000, 180000], "state_copy": {"not_holding": ["현재는 매수 관망이 필요해요", "매수 조건 확인"], "holding_profit": ["수익권", "분할 매도", "이익 보호"], "holding_loss": ["손실권", "손실 제한", "회복 확인"], "holding_unknown": ["평균 매수가 입력"]}, "guide_sources": ["price", "chart", "flow", "disclosure", "news", "research", "market"], "price_reference_policy": "현재가에서 12% 이내인 최근 차트·활성 신호 가격을 우선하고 종료된 전략의 오래된 가격은 제외", "initial_display": "spinner_until_data_and_summary_complete", "overview_first_card_padding_left_px": 12, "touch_target_min_px": 44, "reduced_motion": true},
+      "steps": ["관심종목에서 미보유·보유 중을 선택하고 재접속 후에도 종목별로 유지되는지 확인한다.", "보유 중을 선택하면 평균 매수가 입력이 나타나고 저장·재조회되며 미보유로 바꾸면 평균 매수가가 제거되는지 확인한다.", "미보유 상세에서 차트·외국인/기관 매매·뉴스·증권사 리포트의 방향으로 관망 이유를 설명하고 가격 안정 구간·매수 전환 확인 가격·관망 지속 기준을 표시하는지 검사한다.", "종료된 과거 전략 가격이 현재가에서 크게 벗어난 fixture를 넣고 개인 가격 가이드와 다음 확인 목록에는 현재가 인근의 최근 차트·활성 신호 가격만 일관되게 표시되는지 검사한다.", "보유 상세에서 평균 매수가와 현재가를 비교해 수익이면 분할 매도·이익 보호, 손실이면 손실 제한·회복 확인, 미입력이면 입력 필요 가이드로 결정되는지 검사한다.", "GPT 요청에는 investor_state·position_mode·average_buy_price·personal_return_rate·guide_rows가 포함되고 모델이 상태·수익률·가격을 계산하거나 뒤집지 않고 문장만 다듬는지 검사한다.", "6가지 자료 계산과 쉬운 설명이 완료되기 전에는 종목명·선택 상황·텍스트를 갖춘 로딩 상태만 표시하고 중간 규칙 문구를 숨기는지 검사한다.", "요약 성공·안전 폴백 모두 로딩이 종료되고 본문이 나타나며, 종목 추천 상세도 요약 완료 전 중간 문구를 노출하지 않는지 확인한다.", "지금 판단 첫 카드의 왼쪽 내부 여백이 12px이고 문구가 카드 경계에 붙지 않는지 측정한다.", "320px·200% 대응 폭과 reduced-motion에서 가로 넘침·색상 단독 상태·무한 회전이 없고 모든 선택·입력·적용 버튼이 44px 이상인지 검사한다."],
+      "expected": ["관심종목이라는 사실만으로 실제 보유를 추정하지 않고 사용자가 선택한 미보유·보유 중 두 상황에 맞춰 설명한다.", "미보유는 현재 관망 이유와 다시 볼 매수 포인트를, 보유 중은 개인 평균 매수가 기준 수익·손실 구간과 분할 매도·손실 제한 참고선을 보여준다.", "개인 가격 가이드와 다음 확인 문장은 동일한 현재 기준 가격을 사용하며 종료된 전략의 오래된 진입·손절 가격을 현재 행동 기준으로 재사용하지 않는다.", "차트·수급·공시·뉴스·증권사 리포트·시장 자료와 가격 계산은 결정 엔진이 소유하고 GPT는 그 사실을 초보자용 문장으로만 바꾼다.", "요약이 완료되기 전에는 의미 있는 로딩 텍스트와 스피너만 보이고 중간 규칙 본문은 보이지 않는다.", "로딩 완료 후 본문은 올바른 내부 여백과 반응형·키보드·동작 줄이기 계약을 지킨다."],
+      "failure_criteria": ["관심종목 등록을 실제 매수로 간주하거나 미보유·보유 중 외 제3의 상태를 노출한다.", "미보유에 보유·손익 문구를 표시하거나 보유 수익·손실·평균 매수가 미입력 상태를 서로 뒤집는다.", "GPT가 수익률·가격 가이드·position_mode를 계산 또는 변경하거나 실제 계좌·주문 내역과 연동된 것처럼 표시한다.", "증권사 리포트가 6가지 근거에서 누락되거나 자료 부족을 우호 신호로 간주한다.", "현재가와 무관하게 멀어진 과거 전략 가격이 매수 전환·손실 제한·다음 확인 가격으로 노출되거나 서로 다른 가격을 가리킨다.", "요약 완료 전 중간 규칙 본문이 번쩍이거나 요약 실패 후 로딩이 계속된다.", "지금 판단 첫 카드의 왼쪽 여백이 없어 문구가 잘리거나 상태가 색상으로만 구분된다.", "좁은 폭·확대에서 가로로 넘치거나 reduced-motion에서도 스피너가 계속 회전한다."]
+    },
+    {
+      "id": "SIG-UI-020",
+      "title": "종목 상세 종목명 옆 회사 로고와 안전 폴백",
+      "domain": "시그널 화면 E2E",
+      "priority": "P1",
+      "modes": ["gate", "e2e"],
+      "automation": "pytest stock-detail title-logo DOM/render/cache/CSS contract + Playwright mobile dark/light stock-switch/fallback title-row geometry",
+      "preconditions": ["활성 국내 종목과 실제 로고가 있는 종목·로고가 없는 종목을 준비한다."],
+      "inputs": {"ready_code": "005930", "manual_logo_code": "278470", "fallback_code": "014950", "position": "stock title left", "logo_sizes_px": {"desktop": 34, "mobile_header": 28, "staging_320": 34, "staging_458": 36}, "viewports": [320, 402, 458], "themes": ["dark", "light"]},
+      "steps": ["삼성전자 종목 상세를 열어 종목명 바로 왼쪽의 로고 배지와 이미지 경로가 005930을 가리키는지 확인한다.", "278470과 다른 종목으로 전환해 로고가 지연 없이 교체되며 이전 로고 노드가 남지 않는지 확인한다.", "로고가 없는 종목에서 이미지 요청이 실패해도 기본 심볼로 대체되는지 확인한다.", "다크·라이트와 320px·458px에서 로고가 종목명과 같은 행에 수직 정렬되고 차트 안에는 남지 않으며 가로로 넘치지 않는지 측정한다."],
+      "expected": ["모든 활성 국내 종목의 주요 종목명 바로 왼쪽에 회사 로고가 하나씩 표시된다.", "종목을 바꾸면 로고 URL과 내부 배지가 즉시 교체되고, 로고가 없으면 기본 심볼이 깨진 이미지를 대신해 보여준다.", "로고는 제목과 자연스러운 간격·수직 중심을 유지하고 차트 데이터 영역을 차지하거나 포인터 이벤트를 가리지 않는다."],
+      "failure_criteria": ["이전 종목의 로고가 남아 있거나 현재 종목과 다른 로고가 표시된다.", "로고 이미지가 없을 때 깨진 이미지가 보이거나 빈 아이콘이 노출된다.", "로고가 종목명과 다른 행에 있거나 제목을 가리고, 차트 안에 남거나 모바일 화면에서 잘리고 가로로 넘친다.", "로고 요청이 외부 수집처를 직접 노출하거나 가격과 평가를 가린다."]
     }
   ]
 }

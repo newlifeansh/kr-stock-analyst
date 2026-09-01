@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -46,17 +46,24 @@ MARKET_CAP_UNIVERSE_LIMIT = 100
 KST = timezone(timedelta(hours=9))
 UNIVERSE_CACHE_TTL_SECONDS = 300
 MAX_RECOMMENDATIONS_PER_SECTOR = 2
+RECOMMENDATION_SELECTION_RULE = "confirmed_entry_pending_or_entered_today"
+RECOMMENDATION_PENDING_STATE = "entry_confirmed"
+RECOMMENDATION_ENTERED_TODAY_STATE = "entered_today"
+RECOMMENDATION_PENDING_LABEL = "신규 매수 대기"
+RECOMMENDATION_ENTERED_TODAY_LABEL = "보유 유지"
 universe_cache = TTLCache(maxsize=16)
 settings = get_settings()
 
 
 METHODOLOGY = [
     "최근 시가총액 데이터가 있으면 상위 100개, 없으면 최신 거래대금 추정 상위 종목을 추천 유니버스로 사용한다.",
-    "유니버스 안에서 1개월/3개월 모멘텀, 거래대금, 거래대금 변화로 후보를 선별한다. 가격 이력이 짧으면 최신 거래대금과 단기 흐름으로 보수적으로 대체한다.",
+    "매수 기준을 통과한 종목은 아직 매수 전인 신규 매수 대기와 AI 전략이 매수를 마친 보유 유지 상태로 구분한다.",
+    "조건을 확인 중인 종목, 오래전에 매수한 종목, 매도 판단이 나온 종목은 추천 목록에서 제외한다.",
+    "조건을 통과한 종목 안에서 1개월/3개월 모멘텀, 거래대금, 거래대금 변화로 순위를 계산한다. 가격 이력이 짧으면 최신 거래대금과 단기 흐름으로 보수적으로 대체한다.",
     "선별 후보에 대해 추정치/애널리스트 변화, 실적/가이던스, 밸류에이션, 거시 민감도, 수급, 뉴스 분위기를 0~100점으로 환산한다.",
     "정밀 계산은 10개 항목 가중합을 사용한다. 빠른 후보 선별은 실제로 확인된 가격·거래대금 항목만 재가중해 계산하며, 없는 데이터에 임의 점수를 넣지 않는다.",
     "동일 기업군은 우선 한 종목, 동일 투자 섹터는 우선 두 종목 이내로 제한해 특정 위험 팩터 쏠림을 줄인다.",
-    "추천 점수는 모니터링 후보 순위이며, 실제 진입·보유·축소 판단은 종목별 AI 시그널 상태를 별도로 따른다.",
+    "추천 점수는 기준을 통과한 종목끼리 비교하는 순위이며, 실제로 새로 살 차례인지 보유할 차례인지는 현재 AI 판단으로 따로 보여준다.",
 ]
 
 RECOMMENDATION_GROUP_PREFIXES = (
@@ -157,6 +164,100 @@ def _latest_preliminary_states(
             "reason": raw_item.get("reason"),
         }
     return latest_by_code
+
+
+def _date_value(value: object) -> Optional[date]:
+    if isinstance(value, datetime):
+        return value.astimezone(KST).date() if value.tzinfo else value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def _recommendation_state_for_current(
+    current: object,
+    *,
+    today: date,
+) -> Optional[str]:
+    if not isinstance(current, dict) or current.get("live_observation"):
+        return None
+    action = str(current.get("action") or "")
+    position_open = bool(current.get("position_open"))
+    confirmation = current.get("entry_confirmation")
+    confirmation_allowed = (
+        isinstance(confirmation, dict) and confirmation.get("allowed") is True
+    )
+    if action == "entry_pending" and not position_open and confirmation_allowed:
+        return RECOMMENDATION_PENDING_STATE
+    if action not in {"entered", "holding"} or not position_open:
+        return None
+
+    lifecycle = current.get("lifecycle")
+    transition = (
+        lifecycle.get("latest_transition")
+        if isinstance(lifecycle, dict) and isinstance(lifecycle.get("latest_transition"), dict)
+        else {}
+    )
+    entry_date = _date_value(current.get("entry_date"))
+    transition_date = _date_value(transition.get("transition_date"))
+    if (
+        entry_date == today
+        and transition_date == today
+        and str(transition.get("side") or "").lower() == "buy"
+        and confirmation_allowed
+    ):
+        return RECOMMENDATION_ENTERED_TODAY_STATE
+    return None
+
+
+def _recommendation_signal_state(
+    signal: object,
+    *,
+    today: date,
+) -> Optional[str]:
+    if not isinstance(signal, dict) or signal.get("data_state") != "ready":
+        return None
+    return _recommendation_state_for_current(signal.get("current"), today=today)
+
+
+def _eligible_recommendation_snapshot_items(
+    db: Session,
+    *,
+    today: date,
+) -> dict[str, tuple[str, dict[str, object]]]:
+    """Return close-confirmed pending entries and entries executed today.
+
+    The persisted market snapshot is the point-in-time membership gate. A
+    condition-confirmed stock remains visible through its next-session opening
+    execution so users can still see the recommendation during that day. Older
+    holdings, watch states, sell states, and intraday observations stay out.
+    """
+
+    try:
+        snapshot = load_market_quant_signal_snapshot(db)
+    except Exception:
+        return {}
+    if not isinstance(snapshot, dict) or snapshot.get("status") != "ready":
+        return {}
+
+    eligible: dict[str, tuple[str, dict[str, object]]] = {}
+    for raw_item in snapshot.get("items") or []:
+        if not isinstance(raw_item, dict):
+            continue
+        current = raw_item.get("current")
+        state = _recommendation_state_for_current(current, today=today)
+        if state is None:
+            continue
+        code = str(raw_item.get("code") or "").strip()
+        if code:
+            eligible[code] = (state, raw_item)
+    return eligible
 
 
 def _clamp(value: Decimal, low: Decimal = Decimal("0"), high: Decimal = Decimal("100")) -> Decimal:
@@ -753,12 +854,22 @@ def build_recommendations(
     refresh_live: bool = False,
     ensure_signal_history: bool = True,
 ) -> dict[str, object]:
+    recommendation_as_of = _now_kst()
+    recommendation_date = recommendation_as_of.date()
     universe = _top_market_cap_universe(db, refresh_live=refresh_live)
     base_items = list(universe["base_items"])
+    eligible_snapshot_items = _eligible_recommendation_snapshot_items(
+        db,
+        today=recommendation_date,
+    )
 
     base_items.sort(key=_candidate_sort_key, reverse=True)
     score_pool_limit = max(candidate_limit, limit * 2)
-    candidates = base_items[: min(len(base_items), score_pool_limit)]
+    candidates = [
+        item
+        for item in base_items
+        if str(item.get("code") or "") in eligible_snapshot_items
+    ][: min(len(base_items), score_pool_limit)]
     scored = []
     if refresh_live:
         if _uses_runtime_database(db):
@@ -788,15 +899,14 @@ def build_recommendations(
         scored = [_score_fast_candidate(item, grouped_prices.get(str(item["code"]), [])) for item in candidates]
 
     scored.sort(key=lambda item: item["score"], reverse=True)
-    selected = _select_diverse_recommendations(scored, limit)
-    recommendation_as_of = _now_kst()
     preliminary_states = _latest_preliminary_states(
         db,
-        [str(item.get("code") or "") for item in selected],
+        [str(item.get("code") or "") for item in scored],
     )
-    for idx, item in enumerate(selected, start=1):
-        item["rank"] = idx
-        item["recommended_at"] = recommendation_as_of
+    qualified: list[dict[str, object]] = []
+    pending_count = 0
+    entered_today_count = 0
+    for item in scored:
         live_quote = item.pop("_quant_live_quote", None)
         try:
             if ensure_signal_history:
@@ -855,9 +965,12 @@ def build_recommendations(
                     "profit_stage": current.get("profit_stage", 0),
                     "pending_profit_stage": current.get("pending_profit_stage"),
                     "profit_steps_total": current.get("profit_steps_total", 3),
+                    "entry_setup": current.get("entry_setup"),
+                    "entry_confirmation": current.get("entry_confirmation"),
                     "partial_exit_reference": current.get("partial_exit_reference"),
                     "locked_profit_reference": current.get("locked_profit_reference"),
                     "stop_reference": current.get("stop_reference"),
+                    "levels": current.get("levels") or [],
                     "unrealized_return": current.get("unrealized_return"),
                     "reasons": current.get("reasons") or [],
                     "next_confirmation": current.get("next_confirmation") or "다음 종가 조건을 확인합니다.",
@@ -869,10 +982,59 @@ def build_recommendations(
             else None
         )
 
+        recommendation_state = _recommendation_signal_state(
+            signal,
+            today=recommendation_date,
+        )
+        if recommendation_state is None:
+            continue
+        snapshot_record = eligible_snapshot_items.get(str(item.get("code") or ""))
+        snapshot_item = snapshot_record[1] if snapshot_record else {}
+        entered_today = recommendation_state == RECOMMENDATION_ENTERED_TODAY_STATE
+        recommendation_label = (
+            RECOMMENDATION_ENTERED_TODAY_LABEL
+            if entered_today
+            else RECOMMENDATION_PENDING_LABEL
+        )
+        item["score_action"] = item.get("action")
+        item["score_decision_reason"] = item.get("decision_reason")
+        item["action"] = recommendation_label
+        item["decision_reason"] = (
+            "추천 기준을 통과한 뒤 AI 전략이 보유 중이며, 현재는 추가 매수보다 보유 기준을 확인하는 단계입니다."
+            if entered_today
+            else "추천 기준과 가격 조건, 서로 다른 확인 자료를 모두 통과해 신규 매수를 기다리는 단계입니다."
+        )
+        item["recommendation_state"] = recommendation_state
+        item["recommendation_label"] = recommendation_label
+        item["buy_condition_met"] = True
+        item["buy_condition_as_of"] = (
+            snapshot_item.get("signal_at")
+            or snapshot_item.get("signal_date")
+            or signal.get("price_through")
+        )
+        item["recommendation_entry_date"] = current.get("entry_date") if entered_today else None
+        item["strategy_entry_price"] = current.get("entry_price") if entered_today else None
+        item["condition_price"] = item.get("price")
+        if entered_today:
+            entered_today_count += 1
+        else:
+            pending_count += 1
+        qualified.append(item)
+
+    selected = _select_diverse_recommendations(qualified, limit)
+    for idx, item in enumerate(selected, start=1):
+        item["rank"] = idx
+        item["recommended_at"] = recommendation_as_of
+
     return {
         "as_of": recommendation_as_of,
         "universe_count": universe["universe_count"],
+        "screened_count": len(base_items),
         "candidate_count": len(candidates),
+        "qualified_count": len(qualified),
+        "pending_count": pending_count,
+        "entered_today_count": entered_today_count,
+        "selection_rule": RECOMMENDATION_SELECTION_RULE,
         "methodology": METHODOLOGY,
         "items": selected,
     }

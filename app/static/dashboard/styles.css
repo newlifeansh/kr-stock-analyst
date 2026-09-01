@@ -17745,8 +17745,19 @@ body :is(
   overflow: hidden;
 }
 
+#stock-view.stock-detail-v3 .stock-v3-name-row {
+  order: 1;
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  overflow: hidden;
+}
+
 #stock-view.stock-detail-v3 .stock-v3-command-title h1 {
   order: 1;
+  min-width: 0;
   margin: 0;
   color: var(--stock-v3-text);
   font-size: 24px !important;
@@ -19941,6 +19952,10 @@ body :is(
     gap: 7px;
   }
 
+  #stock-view.stock-detail-v3 .stock-v3-name-row {
+    gap: 7px;
+  }
+
   #stock-view.stock-detail-v3 .stock-v3-command-title h1 {
     font-size: 19px !important;
   }
@@ -20169,6 +20184,10 @@ body :is(
     display: flex;
     align-items: baseline;
     gap: 6px;
+  }
+
+  #stock-view.stock-detail-v3 .stock-v3-name-row {
+    gap: 7px;
   }
 
   #stock-view.stock-detail-v3 .stock-v3-command-title h1,
@@ -39756,6 +39775,13 @@ body[data-view="morning-briefing"] .morning-money-category-head h2 {
     overflow: hidden;
   }
 
+  #stock-view.stock-detail-v3 .stock-v3-commandbar.is-scrolled .stock-v3-name-row {
+    order: 0;
+    width: 100%;
+    justify-content: center;
+    gap: 6px;
+  }
+
   #stock-view.stock-detail-v3 .stock-v3-commandbar.is-scrolled .stock-v3-command-quote {
     order: 1;
     width: 100%;
@@ -41663,5 +41689,123 @@ body[data-view="ai-signals"] #ai-signals-view.app-ai-signals > .ai-signals-live-
   #ai-signals-view .ai-signals-live-status,
   #ai-signals-view .home-ai-signal-freshness {
     border: 1px solid CanvasText;
+  }
+}
+
+/* Watchlist explanations use the investor's declared situation, never an inferred holding. */
+.watch-v2-investor-state {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--watch-v2-line, var(--line));
+  color: var(--watch-v2-text, var(--text));
+}
+
+.watch-v2-investor-state > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.watch-v2-investor-state strong {
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.watch-v2-investor-state small {
+  color: var(--watch-v2-muted, var(--muted));
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.45;
+  word-break: keep-all;
+}
+
+.watch-v2-investor-state select {
+  min-width: 96px;
+  min-height: 44px;
+  padding: 0 32px 0 12px;
+  border: 1px solid var(--watch-v2-line, var(--line));
+  border-radius: 12px;
+  color: var(--watch-v2-text, var(--text));
+  background-color: var(--watch-v2-panel, var(--surface));
+  font: inherit;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.watch-v2-investor-state select:focus-visible {
+  outline: 2px solid var(--watch-v2-negative, #3182f6);
+  outline-offset: 2px;
+}
+
+@media (max-width: 359px) {
+  .watch-v2-investor-state {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .watch-v2-investor-state select {
+    width: 100%;
+  }
+}
+
+/* Stock detail identity: pair the company logo with the stock name instead of
+   placing it over the price chart. */
+#stock-view.stock-detail-v3 .stock-title-logo {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  flex: 0 0 34px;
+  display: block;
+  pointer-events: none;
+}
+
+#stock-view.stock-detail-v3 .stock-title-logo[hidden] {
+  display: none !important;
+}
+
+#stock-view.stock-detail-v3 .stock-title-logo-frame {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border: 1px solid var(--stock-v3-line, #e5e8eb);
+  background: #ffffff;
+}
+
+#stock-view.stock-detail-v3 .stock-title-logo-frame .stock-list-logo-image {
+  background: #ffffff;
+}
+
+@media (max-width: 430px) {
+  #stock-view.stock-detail-v3 .stock-v3-name-row > .stock-title-logo {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    flex-basis: 28px;
+  }
+}
+
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero-name-row > .stock-title-logo {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  flex-basis: 36px !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero-name-row > .stock-title-logo .stock-title-logo-frame {
+  border-color: light-dark(#e5e8eb, #3a3942) !important;
+  background: #ffffff !important;
+}
+
+@media (max-width: 359px) {
+  body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero-name-row > .stock-title-logo {
+    width: 34px !important;
+    height: 34px !important;
+    min-width: 34px !important;
+    flex-basis: 34px !important;
   }
 }

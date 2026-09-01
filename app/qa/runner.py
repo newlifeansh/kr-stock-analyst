@@ -415,6 +415,42 @@ class ReadOnlyApi:
             raise QaFailure(f"GET {path} did not return JSON", meta) from exc
         return payload, meta
 
+    def get_text(self, path: str, **params: Any) -> tuple[str, dict[str, Any]]:
+        started = monotonic()
+        response = self.client.get(
+            urljoin(self.base_url, path.lstrip("/")), params=params or None
+        )
+        meta = {
+            "path": path,
+            "http_status": response.status_code,
+            "latency_ms": round((monotonic() - started) * 1000),
+            "content_type": response.headers.get("content-type"),
+            "cache_control": response.headers.get("cache-control"),
+        }
+        if response.status_code >= 400:
+            raise QaFailure(f"GET {path} returned HTTP {response.status_code}", meta)
+        return response.text, meta
+
+    def post_json(
+        self, path: str, payload: dict[str, Any]
+    ) -> tuple[int, Any, dict[str, Any]]:
+        started = monotonic()
+        response = self.client.post(
+            urljoin(self.base_url, path.lstrip("/")), json=payload
+        )
+        meta = {
+            "path": path,
+            "http_status": response.status_code,
+            "latency_ms": round((monotonic() - started) * 1000),
+            "content_type": response.headers.get("content-type"),
+            "cache_control": response.headers.get("cache-control"),
+        }
+        try:
+            response_payload = response.json()
+        except ValueError:
+            response_payload = None
+        return response.status_code, response_payload, meta
+
 
 def _pytest_evidence(pytest_junit: Path | str | None) -> dict[str, Any] | None:
     if pytest_junit is None:
@@ -825,6 +861,227 @@ def _live_checks(
             pass_message="헬스·준비 상태와 HTTP 타임아웃 계약을 확인했습니다.",
         )
 
+        def staging_page_summary_contract() -> dict[str, Any]:
+            summary_case = next(
+                (case for case in catalog["cases"] if case.get("id") == "SIG-UI-017"),
+                {},
+            )
+            expected_prompt_version = str(
+                summary_case.get("inputs", {}).get("prompt_version") or ""
+            )
+            dashboard, dashboard_meta = api.get_text("/dashboard", view="home")
+            is_staging = (
+                '<meta name="secret-note-environment" content="staging" />'
+                in dashboard
+            )
+            request_payload = {
+                "page_type": "recommendation_detail",
+                "facts": {
+                    "code": "005930",
+                    "name": "삼성전자",
+                    "buy_condition_met": True,
+                    "recommendation_state": "entry_confirmed",
+                    "customer_state": "new-buy-wait",
+                    "customer_state_label": "신규 매수 대기",
+                    "customer_state_note": "아직 매수 전",
+                    "additional_buy_label": "보유 전",
+                    "signal_action": "entry_pending",
+                    "position_open": False,
+                    "sources": [
+                        {
+                            "id": "buy-condition",
+                            "label": "추천 기준 확인",
+                            "value": "신규 매수 대기",
+                        }
+                    ],
+                },
+                "fallback": {
+                    "headline": "삼성전자, 신규 매수를 기다리는 단계예요",
+                    "summary": "추천 기준은 통과했지만 아직 매수 전이에요.",
+                    "reason": "추천 점수와 가격 조건, 서로 다른 확인 자료가 기준을 통과했어요.",
+                    "action_title": "지금은 새로 살 가격이 기준 안인지 확인할 때예요",
+                    "next_check": "다음 거래가 시작될 때 가격이 매수 기준 안인지 확인해요.",
+                    "evidence_refs": ["buy-condition"],
+                },
+            }
+            status_code, payload, response_meta = api.post_json(
+                "/staging-ai/page-summary",
+                request_payload,
+            )
+            if not is_staging:
+                _assert(
+                    status_code in {404, 405},
+                    "프로덕션에서 스테이징 쉬운 설명 API가 활성화됐습니다.",
+                    http_status=status_code,
+                )
+                return {
+                    "environment_meta": "production",
+                    "http_status": status_code,
+                    "isolated": True,
+                    "latency_ms": response_meta["latency_ms"],
+                }
+            _assert(
+                status_code == 200,
+                "스테이징 쉬운 설명 API가 정상 응답하지 않았습니다.",
+                http_status=status_code,
+                latency_ms=response_meta["latency_ms"],
+            )
+            _assert(
+                isinstance(payload, dict),
+                "스테이징 쉬운 설명 API가 JSON 객체를 반환하지 않았습니다.",
+                **response_meta,
+            )
+            required_copy = {
+                "headline",
+                "summary",
+                "reason",
+                "action_title",
+                "next_check",
+                "evidence_refs",
+            }
+            _assert(
+                required_copy.issubset(payload)
+                and all(str(payload.get(key) or "").strip() for key in required_copy - {"evidence_refs"})
+                and isinstance(payload.get("evidence_refs"), list)
+                and payload.get("generation_mode") in {"openai", "rules"}
+                and expected_prompt_version
+                and payload.get("prompt_version") == expected_prompt_version,
+                "스테이징 쉬운 설명 응답 스키마가 잘못됐습니다.",
+                response_fields=sorted(payload),
+                generation_mode=payload.get("generation_mode"),
+                prompt_version=payload.get("prompt_version"),
+                expected_prompt_version=expected_prompt_version,
+            )
+            return {
+                "environment_meta": "staging",
+                "http_status": status_code,
+                "latency_ms": response_meta["latency_ms"],
+                "dashboard_http_status": dashboard_meta["http_status"],
+                "generation_mode": payload.get("generation_mode"),
+                "model_name": payload.get("model_name"),
+                "prompt_version": payload.get("prompt_version"),
+                "expected_prompt_version": expected_prompt_version,
+                "cache_hit": payload.get("cache_hit"),
+                "token_usage": {
+                    "input": payload.get("input_tokens"),
+                    "output": payload.get("output_tokens"),
+                    "total": payload.get("total_tokens"),
+                },
+                "estimated_cost_usd": payload.get("estimated_cost_usd"),
+            }
+
+        collector.check(
+            "SIG-UI-017",
+            staging_page_summary_contract,
+            pass_message="스테이징 쉬운 설명 응답과 프로덕션 격리 계약을 확인했습니다.",
+        )
+
+        def staging_briefing_summary_contract() -> dict[str, Any]:
+            briefing_case = next(
+                (case for case in catalog["cases"] if case.get("id") == "SIG-UI-018"),
+                {},
+            )
+            expected_prompt_version = str(
+                briefing_case.get("inputs", {}).get("prompt_version") or ""
+            )
+            dashboard, dashboard_meta = api.get_text("/dashboard", view="news")
+            is_staging = (
+                '<meta name="secret-note-environment" content="staging" />'
+                in dashboard
+            )
+            request_payload = {
+                "page_type": "briefing_edition",
+                "facts": {
+                    "edition": "midday",
+                    "edition_key": "qa-live:midday",
+                    "edition_label": "점심판",
+                    "publication_date": datetime.now(KST).date().isoformat(),
+                    "selected_news_count": 1,
+                    "opportunity_count": 1,
+                    "caution_count": 0,
+                    "sources": [
+                        {
+                            "id": "briefing-market-live-1",
+                            "label": "시장 흐름",
+                            "value": "공개 시장 소식을 확인했어요.",
+                            "evidence": "장중 흐름을 확인할 공개 자료예요.",
+                        }
+                    ],
+                },
+                "fallback": {
+                    "headline": "오전 핵심을 새로 정리했어요",
+                    "summary": "공개 시장 소식을 짧게 확인해요.",
+                    "reason": "장중 흐름을 확인할 공개 자료예요.",
+                    "action_title": "이번 점심판에서 먼저 볼 내용",
+                    "next_check": "원문과 최신 시세를 함께 확인하세요.",
+                    "evidence_refs": ["briefing-market-live-1"],
+                },
+            }
+            status_code, payload, response_meta = api.post_json(
+                "/staging-ai/page-summary",
+                request_payload,
+            )
+            if not is_staging:
+                _assert(
+                    status_code in {404, 405},
+                    "프로덕션에서 브리핑 GPT 문구 정리 API가 활성화됐습니다.",
+                    http_status=status_code,
+                )
+                return {
+                    "environment_meta": "production",
+                    "http_status": status_code,
+                    "isolated": True,
+                    "latency_ms": response_meta["latency_ms"],
+                }
+            _assert(
+                status_code == 200 and isinstance(payload, dict),
+                "스테이징 브리핑 GPT 문구 정리 API가 정상 응답하지 않았습니다.",
+                http_status=status_code,
+                latency_ms=response_meta["latency_ms"],
+            )
+            required_copy = {
+                "headline",
+                "summary",
+                "reason",
+                "action_title",
+                "next_check",
+                "evidence_refs",
+            }
+            _assert(
+                required_copy.issubset(payload)
+                and payload.get("generation_mode") in {"openai", "rules"}
+                and payload.get("prompt_version") == expected_prompt_version
+                and set(payload.get("evidence_refs") or {})
+                <= {"briefing-market-live-1"},
+                "스테이징 브리핑 구조화 요약 계약이 잘못됐습니다.",
+                response_fields=sorted(payload),
+                generation_mode=payload.get("generation_mode"),
+                prompt_version=payload.get("prompt_version"),
+                evidence_refs=payload.get("evidence_refs"),
+            )
+            return {
+                "environment_meta": "staging",
+                "http_status": status_code,
+                "latency_ms": response_meta["latency_ms"],
+                "dashboard_http_status": dashboard_meta["http_status"],
+                "generation_mode": payload.get("generation_mode"),
+                "model_name": payload.get("model_name"),
+                "prompt_version": payload.get("prompt_version"),
+                "cache_hit": payload.get("cache_hit"),
+                "token_usage": {
+                    "input": payload.get("input_tokens"),
+                    "output": payload.get("output_tokens"),
+                    "total": payload.get("total_tokens"),
+                },
+                "estimated_cost_usd": payload.get("estimated_cost_usd"),
+            }
+
+        collector.check(
+            "SIG-UI-018",
+            staging_briefing_summary_contract,
+            pass_message="세 브리핑의 구조화 문구 정리와 프로덕션 격리 계약을 확인했습니다.",
+        )
+
         def integrations_contract() -> dict[str, Any]:
             payload, meta = api.get("/meta/integrations")
             _assert(
@@ -1060,6 +1317,136 @@ def _live_checks(
                 "SIG-CONTRACT-001",
                 market_feed_contract,
                 pass_message="예비 시그널 거래정보 비노출을 확인했습니다.",
+            )
+
+            def recommendation_eligibility_contract() -> dict[str, Any]:
+                recommendations, meta = api.get(
+                    "/market/recommendations",
+                    limit=20,
+                    candidate_limit=100,
+                )
+                _assert(
+                    isinstance(recommendations, dict),
+                    "종목 추천 응답이 객체가 아닙니다.",
+                    **meta,
+                )
+                _assert(
+                    recommendations.get("selection_rule")
+                    == "confirmed_entry_pending_or_entered_today",
+                    "종목 추천의 매수 조건 자격 규칙이 다릅니다.",
+                    selection_rule=recommendations.get("selection_rule"),
+                )
+                items = recommendations.get("items") or []
+                _assert(isinstance(items, list), "종목 추천 items가 배열이 아닙니다.")
+                recommendation_date = str(recommendations.get("as_of") or "")[:10]
+                invalid: list[dict[str, Any]] = []
+                state_counts = {"entry_confirmed": 0, "entered_today": 0}
+                for item in items:
+                    if not isinstance(item, dict):
+                        invalid.append({"item": "not_object"})
+                        continue
+                    signal = item.get("ai_trade_signal")
+                    current = (
+                        signal.get("current")
+                        if isinstance(signal, dict)
+                        and isinstance(signal.get("current"), dict)
+                        else {}
+                    )
+                    state = str(item.get("recommendation_state") or "")
+                    lifecycle = current.get("lifecycle")
+                    transition = (
+                        lifecycle.get("latest_transition")
+                        if isinstance(lifecycle, dict)
+                        and isinstance(lifecycle.get("latest_transition"), dict)
+                        else {}
+                    )
+                    confirmation = current.get("entry_confirmation")
+                    pending_valid = bool(
+                        state == "entry_confirmed"
+                        and item.get("action") == "신규 매수 대기"
+                        and current.get("action") == "entry_pending"
+                        and current.get("position_open") is False
+                    )
+                    entered_today_valid = bool(
+                        state == "entered_today"
+                        and item.get("action") == "보유 유지"
+                        and current.get("action") in {"entered", "holding"}
+                        and current.get("position_open") is True
+                        and str(current.get("entry_date") or "")[:10] == recommendation_date
+                        and str(transition.get("transition_date") or "")[:10]
+                        == recommendation_date
+                        and str(transition.get("side") or "").lower() == "buy"
+                        and isinstance(confirmation, dict)
+                        and confirmation.get("allowed") is True
+                        and item.get("strategy_entry_price") == current.get("entry_price")
+                    )
+                    if (
+                        item.get("buy_condition_met") is not True
+                        or current.get("live_observation") is not False
+                        or not (pending_valid or entered_today_valid)
+                    ):
+                        invalid.append(
+                            {
+                                "code": item.get("code"),
+                                "action": item.get("action"),
+                                "recommendation_state": item.get("recommendation_state"),
+                                "buy_condition_met": item.get("buy_condition_met"),
+                                "signal_action": current.get("action"),
+                                "position_open": current.get("position_open"),
+                                "live_observation": current.get("live_observation"),
+                                "entry_date": current.get("entry_date"),
+                                "transition": transition,
+                            }
+                        )
+                    elif state in state_counts:
+                        state_counts[state] += 1
+                _assert(
+                    not invalid,
+                    "당일 진입이 아닌 관찰·과거 보유·매도·장중 예비 종목이 추천 목록에 포함됐습니다.",
+                    invalid=invalid,
+                )
+                expected_ranks = list(range(1, len(items) + 1))
+                ranks = [item.get("rank") for item in items if isinstance(item, dict)]
+                _assert(
+                    ranks == expected_ranks,
+                    "매수 조건 통과 종목의 추천 순위가 연속적이지 않습니다.",
+                    ranks=ranks,
+                )
+                qualified_count = int(recommendations.get("qualified_count") or 0)
+                _assert(
+                    qualified_count >= len(items),
+                    "추천 자격 종목 수가 반환 목록보다 작습니다.",
+                    qualified_count=qualified_count,
+                    returned_count=len(items),
+                )
+                _assert(
+                    int(recommendations.get("pending_count") or 0)
+                    >= state_counts["entry_confirmed"],
+                    "추천 응답의 진입 대기 수가 반환 상태보다 작습니다.",
+                    pending_count=recommendations.get("pending_count"),
+                    returned_pending=state_counts["entry_confirmed"],
+                )
+                _assert(
+                    int(recommendations.get("entered_today_count") or 0)
+                    >= state_counts["entered_today"],
+                    "추천 응답의 오늘 시가 반영 수가 반환 상태보다 작습니다.",
+                    entered_today_count=recommendations.get("entered_today_count"),
+                    returned_entered_today=state_counts["entered_today"],
+                )
+                return {
+                    **meta,
+                    "selection_rule": recommendations.get("selection_rule"),
+                    "qualified_count": qualified_count,
+                    "pending_count": recommendations.get("pending_count"),
+                    "entered_today_count": recommendations.get("entered_today_count"),
+                    "returned_count": len(items),
+                    "codes": [item.get("code") for item in items if isinstance(item, dict)],
+                }
+
+            collector.check(
+                "SIG-CONTRACT-002",
+                recommendation_eligibility_contract,
+                pass_message="추천 목록이 조건 확정 종목을 오늘 시가 반영일까지 유지하고 오래된 보유 종목은 제외함을 확인했습니다.",
             )
 
             def signal_surface_contract() -> dict[str, Any]:

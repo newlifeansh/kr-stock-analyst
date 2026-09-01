@@ -68,6 +68,24 @@ OLLAMA_CACHE_SECONDS=900
 
 서버 실행 후 `GET /stocks/005930/ai-analysis` 응답의 `generation_mode`가 `local_llm`이면 로컬 AI가 적용된 상태입니다. Ollama가 꺼져 있거나 시간 제한을 넘기면 API는 실패하지 않고 기존 데이터 분석 결과를 반환합니다. Railway 같은 원격 서버에서는 로컬 Mac의 Ollama에 접근할 수 없으므로 `STOCK_AI_PROVIDER=rules`를 사용합니다.
 
+## 스테이징 GPT 문구 정리
+
+`app.staging_app:app`으로 실행하는 스테이징에서는 종목 대응 상세와 종목 추천 상세의 제목·요약·다음 확인 문구만 GPT-4o mini로 정리할 수 있습니다. 점수, 가격, 추천 순위, AI 매매 시그널과 중대 위험 차단은 기존 규칙 엔진이 계속 결정합니다. Structured Outputs 스키마 검증, 원문에 없는 숫자 검사, 직접 매수·매도 지시 차단 중 하나라도 실패하면 현재 데이터 문구를 그대로 표시합니다. 프로덕션 엔트리포인트인 `app.main:app`에는 이 API와 UI가 주입되지 않습니다.
+
+Railway staging 환경 변수:
+
+```dotenv
+OPENAI_API_KEY=...
+STAGING_OPENAI_SUMMARY_ENABLED=true
+STAGING_OPENAI_MODEL=gpt-4o-mini-2024-07-18
+STAGING_OPENAI_TIMEOUT_SECONDS=8
+STAGING_OPENAI_CACHE_SECONDS=1800
+```
+
+키가 없거나 기능을 끄면 `/staging-ai/page-summary`는 HTTP 오류 대신 `generation_mode=rules`와 검증된 폴백 문구를 반환합니다. 동일한 입력은 브라우저와 서버에서 30분간 재사용하며, 공개 엔드포인트는 클라이언트당 분당 15회·전체 분당 120회로 제한합니다.
+
+GPT-4o mini 공식 단가는 입력 100만 토큰당 `$0.15`, 캐시 입력 `$0.075`, 출력 `$0.60`입니다. 한 화면당 입력 1,200토큰·출력 180토큰을 보수적으로 잡으면 약 `$0.000288`, 캐시되지 않은 1만 화면은 약 `$2.88`입니다. 실제 비용은 응답의 `input_tokens`, `output_tokens`, `estimated_cost_usd`로 확인합니다.
+
 ## PlayMCP / Remote MCP
 
 이 프로젝트는 이제 `PlayMCP`에 등록할 수 있는 read-only Remote MCP 엔드포인트를 함께 제공합니다.

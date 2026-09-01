@@ -29,6 +29,12 @@ class WatchlistItemIn(BaseModel):
     code: str = Field(..., min_length=1, max_length=12)
     name: str = Field(..., min_length=1, max_length=120)
     market: Optional[str] = Field(default=None, max_length=20)
+    # before_buy/after_sell remain accepted while older dashboard bundles age
+    # out; both are normalized to the single customer-facing not_holding state.
+    investor_state: Optional[
+        Literal["not_holding", "holding", "before_buy", "after_sell"]
+    ] = None
+    average_buy_price: Optional[Decimal] = Field(default=None, gt=0)
 
 
 class WatchlistUpdateIn(BaseModel):
@@ -53,6 +59,8 @@ class WatchlistItemOut(BaseModel):
     code: str
     name: str
     market: Optional[str] = None
+    investor_state: Literal["not_holding", "holding"] = "not_holding"
+    average_buy_price: Optional[Decimal] = None
 
 
 class WatchlistOut(BaseModel):
@@ -1224,6 +1232,15 @@ class RecommendationItemOut(BaseModel):
     score: Decimal
     action: str
     decision_reason: Optional[str] = None
+    score_action: Optional[str] = None
+    score_decision_reason: Optional[str] = None
+    recommendation_state: str = "entry_confirmed"
+    recommendation_label: str = "신규 매수 대기"
+    buy_condition_met: bool = True
+    buy_condition_as_of: Optional[datetime | date] = None
+    recommendation_entry_date: Optional[date] = None
+    strategy_entry_price: Optional[int] = None
+    condition_price: Optional[int] = None
     price: Optional[int] = None
     change_rate: Optional[Decimal] = None
     one_month_return: Optional[Decimal] = None
@@ -1256,9 +1273,12 @@ class RecommendationAiTradeSignalCurrentOut(BaseModel):
     pending_sell_percent: Optional[Decimal] = None
     expected_remaining_percent: Optional[Decimal] = None
     profit_steps_total: int = 3
+    entry_setup: Optional[str] = None
+    entry_confirmation: Optional[dict[str, object]] = None
     partial_exit_reference: Optional[int] = None
     locked_profit_reference: Optional[int] = None
     stop_reference: Optional[int] = None
+    levels: list[QuantDecisionLevelOut] = Field(default_factory=list)
     unrealized_return: Optional[Decimal] = None
     reasons: list[str] = Field(default_factory=list)
     next_confirmation: str
@@ -1292,7 +1312,12 @@ class RecommendationAiTradeSignalOut(BaseModel):
 class MarketRecommendationOut(BaseModel):
     as_of: datetime
     universe_count: int
+    screened_count: int = 0
     candidate_count: int
+    qualified_count: int = 0
+    pending_count: int = 0
+    entered_today_count: int = 0
+    selection_rule: str = "confirmed_entry_pending_or_entered_today"
     methodology: list[str]
     items: list[RecommendationItemOut]
 

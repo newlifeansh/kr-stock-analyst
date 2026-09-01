@@ -103,6 +103,37 @@ def init_db() -> None:
     if "notification_preferences" not in push_subscription_columns:
         with engine.begin() as connection:
             connection.execute(text('ALTER TABLE "push_subscription" ADD COLUMN "notification_preferences" TEXT'))
+    watchlist_item_columns = {column["name"] for column in inspector.get_columns("watchlist_item")}
+    if "investor_state" not in watchlist_item_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    'ALTER TABLE "watchlist_item" ADD COLUMN "investor_state" '
+                    "VARCHAR(20) NOT NULL DEFAULT 'not_holding'"
+                )
+            )
+    if "average_buy_price" not in watchlist_item_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    'ALTER TABLE "watchlist_item" ADD COLUMN "average_buy_price" '
+                    "NUMERIC(24, 2)"
+                )
+            )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                'UPDATE "watchlist_item" SET "investor_state" = '
+                "CASE WHEN \"investor_state\" = 'holding' THEN 'holding' ELSE 'not_holding' END "
+                'WHERE "investor_state" IS NULL OR "investor_state" <> \'holding\''
+            )
+        )
+        connection.execute(
+            text(
+                'UPDATE "watchlist_item" SET "average_buy_price" = NULL '
+                'WHERE "investor_state" <> \'holding\' OR "average_buy_price" <= 0'
+            )
+        )
     # The 2026-07-08 Kumho E&C row arrived with zero-valued OHLC placeholders
     # while still carrying a valid close. Treat those fields as missing; the
     # chart layer also applies the same fallback for future malformed rows.

@@ -198,6 +198,7 @@ const elements = {
   stockAISayText: $("stock-ai-say-text"),
   stockInlineAIRefresh: $("stock-inline-ai-refresh"),
   stockMiniChart: $("stock-mini-chart"),
+  stockTitleLogo: $("stock-title-logo"),
   stockDetailBack: $("stock-detail-back"),
   stockCommandbar: document.querySelector(".stock-v3-commandbar"),
   stockCommandQuote: $("stock-command-quote"),
@@ -491,6 +492,18 @@ const elements = {
 
 const WATCHLIST_KEY = "analyst.watchlist";
 const WATCHLIST_ID_KEY = "analyst.watchlistId";
+const WATCHLIST_INVESTOR_STATES = Object.freeze({
+  not_holding: Object.freeze({
+    value: "not_holding",
+    label: "미보유",
+    note: "현재 보유하지 않은 상태에서 관망 이유와 매수 전환 조건을 확인해요.",
+  }),
+  holding: Object.freeze({
+    value: "holding",
+    label: "보유 중",
+    note: "평균 매수가와 현재가를 비교해 수익·손실 구간별 대응 기준을 확인해요.",
+  }),
+});
 const HOME_AI_SIGNALS_MARKET_CACHE_KEY = "analyst.homeAiSignals.market.v2";
 const HOME_AI_SIGNALS_WATCHLIST_CACHE_PREFIX = "analyst.homeAiSignals.watchlist.v2";
 const HOME_AI_SIGNALS_CACHE_MAX_AGE_MS = 2 * 60 * 1000;
@@ -516,6 +529,7 @@ const AI_SIGNAL_ACTIVE_STALE_MS = 6 * 60_000;
 const AI_SIGNAL_CLOSED_STALE_MS = 12 * 60 * 60_000;
 const AI_SIGNAL_REALTIME_QUOTE_MAX_AGE_MS = 5_000;
 const AI_SIGNAL_DELAYED_QUOTE_MAX_AGE_MS = 30_000;
+const STOCK_INITIAL_QUOTE_TIMEOUT_MS = 1_800;
 const QUOTE_STREAM_DEFAULT_CODE_LIMIT = 64;
 const QUOTE_STREAM_DETAIL_STALE_MS = 4_000;
 const QUOTE_STREAM_OTHER_STALE_MS = 15_000;
@@ -1169,6 +1183,7 @@ const state = {
   stockActiveTab: "summary",
   stockLoadSequence: 0,
   stockLoadRetryTimer: null,
+  stockQuoteReadyCode: "",
   stockPriceRows: [],
   stockHomeChartResult: null,
   stockHomeChartHorizon: 10,
@@ -5471,7 +5486,8 @@ function renderStockTodaySummary(data) {
   if (!elements.stockHomeSummaryList) {
     return;
   }
-  const quote = data?.quote || {};
+  const quoteReady = state.stockQuoteReadyCode === String(data?.code || state.currentStock?.code || "");
+  const quote = quoteReady ? (data?.quote || {}) : {};
   const price = toNumber(quote.price);
   const changeRate = toNumber(quote.change_rate);
   const flows = data?.flows || {};
@@ -6505,7 +6521,8 @@ function renderStockStrategyVisual(payload) {
     return;
   }
   const levels = payload?.trade_levels || null;
-  const price = toNumber(state.currentDashboard?.quote?.price);
+  const quoteReady = state.stockQuoteReadyCode === String(state.currentDashboard?.code || "");
+  const price = quoteReady ? toNumber(state.currentDashboard?.quote?.price) : null;
   if (!levels || price === null) {
     setText(elements.stockStrategyStatus, "AI 분석을 불러오면 현재가 근처의 가격 기준을 표시합니다.");
     setText(elements.stockStrategyStance, payload?.stance || "-");
@@ -6729,7 +6746,7 @@ function renderStockDerivedIndicators(data) {
   setText(elements.stockForeignRatio, "-");
 }
 
-function resetStockPriceSummary() {
+function resetStockQuoteDisplay() {
   for (const node of [
     elements.quotePrice,
     elements.stockChangeValue,
@@ -6756,6 +6773,17 @@ function resetStockPriceSummary() {
   setText(elements.stockCommandChange, "");
   elements.stockCommandQuote.setAttribute("aria-label", "실시간 시세 확인 중");
   setTone(elements.stockCommandQuote, null);
+  setText(elements.stockLiveBadge, "시세 확인 중");
+  setText(elements.stockMarketStatusLabel, "장 상태 확인 중");
+  if (elements.stockPreMarket) {
+    elements.stockPreMarket.hidden = true;
+    elements.stockPreMarket.dataset.session = "";
+    elements.stockPreMarket.dataset.statusTone = "";
+  }
+}
+
+function resetStockPriceSummary() {
+  resetStockQuoteDisplay();
   for (const node of [
     elements.stockOpen,
     elements.stockHigh,
@@ -7191,6 +7219,13 @@ function updateQuoteStrip(quote, payload = null, options = {}) {
   if (!quote) {
     return false;
   }
+  const isCurrentStockQuote = payload?.type === "quote" && payload.code === state.currentStock?.code;
+  if (isCurrentStockQuote && !stockQuotePayloadIsDisplayReady(payload)) {
+    return false;
+  }
+  if (isCurrentStockQuote) {
+    state.stockQuoteReadyCode = String(payload.code);
+  }
   if (state.currentDashboard?.quote && options.merge !== false) {
     const accepted = applyLiveQuoteToDashboard(state.currentDashboard, quote, payload);
     if (!accepted) {
@@ -7343,6 +7378,28 @@ function quoteStreamPayloadHasUsablePrice(payload = {}) {
   if (rawPrice === null || rawPrice === undefined || rawPrice === "") return false;
   const price = Number(rawPrice);
   return Number.isFinite(price) && price > 0;
+}
+
+function quotePayloadIsStoredFallbackDuringActiveSession(payload = {}, now = new Date()) {
+  if (String(payload.source || "").toLowerCase() !== "stored_daily_price") return false;
+  const currentTime = now instanceof Date ? now : new Date(now);
+  return koreaExtendedQuoteLive(currentTime) || aiSignalQuoteUsesActiveSession(payload.quote || {});
+}
+
+function stockQuotePayloadIsDisplayReady(payload = {}, now = Date.now()) {
+  if (!quoteStreamPayloadHasUsablePrice(payload)) return false;
+  const currentTime = now instanceof Date ? now : new Date(now);
+  const activeSession = koreaExtendedQuoteLive(currentTime)
+    || aiSignalQuoteUsesActiveSession(payload.quote || {});
+  if (quotePayloadIsStoredFallbackDuringActiveSession(payload, currentTime)) return false;
+  if (!activeSession) return true;
+  const observedAt = quoteFrameTimestamp(payload);
+  if (observedAt === null) return false;
+  const age = Math.max(0, currentTime.getTime() - observedAt);
+  const maxAge = String(payload.source || "").toLowerCase() === "kis_realtime"
+    ? AI_SIGNAL_REALTIME_QUOTE_MAX_AGE_MS
+    : AI_SIGNAL_DELAYED_QUOTE_MAX_AGE_MS;
+  return age <= maxAge;
 }
 
 function quoteFrameSequence(payload = {}) {
@@ -7987,9 +8044,9 @@ function el(tag, className = "", text = "") {
   return node;
 }
 
-function createStockListLogo(code) {
+function createStockListLogo(code, className = "") {
   const normalizedCode = String(code || "").trim().toUpperCase();
-  const frame = el("span", "stock-list-logo");
+  const frame = el("span", ["stock-list-logo", className].filter(Boolean).join(" "));
   frame.setAttribute("aria-hidden", "true");
   const fallback = el("span", "stock-list-logo-fallback");
   const fallbackIcon = document.createElement("img");
@@ -8019,6 +8076,31 @@ function createStockListLogo(code) {
   image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=${encodeURIComponent(DASHBOARD_CLIENT_VERSION)}`;
   frame.appendChild(image);
   return frame;
+}
+
+function renderStockTitleLogo(stock = state.currentStock) {
+  if (!elements.stockTitleLogo) {
+    return;
+  }
+  const code = String(stock?.code || "").trim().toUpperCase();
+  if (!code) {
+    elements.stockTitleLogo.hidden = true;
+    elements.stockTitleLogo.replaceChildren();
+    delete elements.stockTitleLogo.dataset.stockCode;
+    return;
+  }
+  if (
+    elements.stockTitleLogo.dataset.stockCode === code
+    && elements.stockTitleLogo.firstElementChild
+  ) {
+    elements.stockTitleLogo.hidden = false;
+    return;
+  }
+  elements.stockTitleLogo.dataset.stockCode = code;
+  elements.stockTitleLogo.hidden = false;
+  elements.stockTitleLogo.replaceChildren(
+    createStockListLogo(code, "stock-title-logo-frame"),
+  );
 }
 
 function createStockListCopy(name, code) {
@@ -9135,6 +9217,9 @@ function navigateToStock(query, href = viewStockUrl(query)) {
   if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextPath) {
     writeDashboardHistory("stock", nextPath, "push", { stockQuery: normalized });
   }
+  if (state.view !== "stock") {
+    setLoading(normalized);
+  }
   setView("stock", { historyMode: "none" });
   window.scrollTo({ top: 0, behavior: "auto" });
   return load(normalized, { historyMode: "none" });
@@ -9153,6 +9238,17 @@ function normalizeWatchlistId(value) {
   return String(value || "").trim();
 }
 
+function normalizeWatchlistInvestorState(value) {
+  const normalized = String(value || "").trim();
+  return normalized === "holding" ? "holding" : "not_holding";
+}
+
+function normalizeWatchlistAverageBuyPrice(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const normalized = Number(String(value).replaceAll(",", ""));
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : null;
+}
+
 function normalizeWatchlistItems(items) {
   const seen = new Set();
   const normalized = [];
@@ -9163,7 +9259,16 @@ function normalizeWatchlistItems(items) {
       continue;
     }
     seen.add(code);
-    normalized.push({ code, name, market: item.market || "" });
+    const investorState = normalizeWatchlistInvestorState(item.investor_state);
+    normalized.push({
+      code,
+      name,
+      market: item.market || "",
+      investor_state: investorState,
+      average_buy_price: investorState === "holding"
+        ? normalizeWatchlistAverageBuyPrice(item.average_buy_price)
+        : null,
+    });
   }
   return normalized.slice(0, 100);
 }
@@ -9175,6 +9280,88 @@ function writeWatchlist(items, options = {}) {
     queueRemoteWatchlistSync();
   }
 }
+
+function watchlistInvestorStateForCode(code) {
+  const normalizedCode = String(code || "").trim();
+  const item = readWatchlist().find((candidate) => candidate.code === normalizedCode);
+  return normalizeWatchlistInvestorState(item?.investor_state);
+}
+
+function watchlistItemForCode(code) {
+  const normalizedCode = String(code || "").trim();
+  return readWatchlist().find((candidate) => candidate.code === normalizedCode) || null;
+}
+
+function watchlistAverageBuyPriceForCode(code) {
+  return normalizeWatchlistAverageBuyPrice(watchlistItemForCode(code)?.average_buy_price);
+}
+
+function syncWatchlistInvestorStateControls(code, investorState) {
+  const normalizedCode = String(code || "").trim();
+  const normalizedState = normalizeWatchlistInvestorState(investorState);
+  for (const control of document.querySelectorAll("[data-watch-investor-state]")) {
+    if (control.getAttribute("data-watch-investor-state") !== normalizedCode) continue;
+    if (control instanceof HTMLSelectElement) control.value = normalizedState;
+  }
+}
+
+function updateWatchlistInvestorState(code, investorState) {
+  const normalizedCode = String(code || "").trim();
+  const normalizedState = normalizeWatchlistInvestorState(investorState);
+  const items = readWatchlist();
+  let changed = false;
+  const nextItems = items.map((item) => {
+    if (item.code !== normalizedCode) return item;
+    if (item.investor_state !== normalizedState) changed = true;
+    return {
+      ...item,
+      investor_state: normalizedState,
+      average_buy_price: normalizedState === "holding" ? item.average_buy_price : null,
+    };
+  });
+  if (!nextItems.some((item) => item.code === normalizedCode)) return false;
+  if (changed) writeWatchlist(nextItems);
+  syncWatchlistInvestorStateControls(normalizedCode, normalizedState);
+  window.dispatchEvent(new CustomEvent("watchlist-investor-state-change", {
+    detail: { code: normalizedCode, investorState: normalizedState },
+  }));
+  return true;
+}
+
+function updateWatchlistAverageBuyPrice(code, averageBuyPrice) {
+  const normalizedCode = String(code || "").trim();
+  const normalizedPrice = normalizeWatchlistAverageBuyPrice(averageBuyPrice);
+  const items = readWatchlist();
+  let changed = false;
+  const nextItems = items.map((item) => {
+    if (item.code !== normalizedCode) return item;
+    if (
+      normalizeWatchlistInvestorState(item.investor_state) !== "holding"
+      || normalizeWatchlistAverageBuyPrice(item.average_buy_price) !== normalizedPrice
+    ) changed = true;
+    return {
+      ...item,
+      investor_state: "holding",
+      average_buy_price: normalizedPrice,
+    };
+  });
+  if (!nextItems.some((item) => item.code === normalizedCode)) return false;
+  if (changed) writeWatchlist(nextItems);
+  window.dispatchEvent(new CustomEvent("watchlist-average-buy-price-change", {
+    detail: { code: normalizedCode, averageBuyPrice: normalizedPrice },
+  }));
+  return true;
+}
+
+window.SecretNoteWatchlistInvestorState = Object.freeze({
+  options: WATCHLIST_INVESTOR_STATES,
+  normalize: normalizeWatchlistInvestorState,
+  read: watchlistInvestorStateForCode,
+  readItem: watchlistItemForCode,
+  readAverageBuyPrice: watchlistAverageBuyPriceForCode,
+  update: updateWatchlistInvestorState,
+  updateAverageBuyPrice: updateWatchlistAverageBuyPrice,
+});
 
 function updateWatchlistIdentityDisplay() {
   if (!elements.watchlistIdDisplay) {
@@ -9801,7 +9988,13 @@ function toggleWatchlistItem(stock) {
   const exists = items.some((item) => item.code === stock.code);
   const nextItems = exists
     ? items.filter((item) => item.code !== stock.code)
-    : [...items, { code: stock.code, name: stock.name, market: stock.market || "" }];
+    : [...items, {
+      code: stock.code,
+      name: stock.name,
+      market: stock.market || "",
+      investor_state: "not_holding",
+      average_buy_price: null,
+    }];
   writeWatchlist(nextItems);
   return !exists;
 }
@@ -11869,6 +12062,9 @@ function setView(requestedViewName, options = {}) {
     setAIAnalysisButtonsLoading(false);
   }
   state.view = view;
+  if (["home", "ai-signals"].includes(view) && previousView !== view) {
+    prepareAiSignalEntrySurface(view);
+  }
   if (view !== "morning-briefing") {
     state.morningMoneyBriefingSelection = null;
   }
@@ -13260,19 +13456,26 @@ function aiSignalLiveFreshnessState(item = {}, overlay = null, now = Date.now())
   ) {
     return "checking";
   }
-  if (state.aiSignalQuoteStatuses.get(code)?.status === "fallback") {
-    return isDomesticMarketClosed(new Date(now)) ? "closed" : "delayed";
+  const currentTime = new Date(now);
+  const fallbackActive = state.aiSignalQuoteStatuses.get(code)?.status === "fallback";
+  if (!overlay?.payload) {
+    return !koreaExtendedQuoteLive(currentTime) && isDomesticMarketClosed(currentTime)
+      ? "closed"
+      : "checking";
   }
-  if (!overlay?.payload) return isDomesticMarketClosed(new Date(now)) ? "closed" : "checking";
   const payload = overlay.payload;
   const quote = payload.quote || {};
   const age = Math.max(0, now - (quoteFrameTimestamp(payload) ?? overlay.receivedAt ?? now));
   const source = String(payload.source || "").toLowerCase();
+  if (quotePayloadIsStoredFallbackDuringActiveSession(payload, currentTime)) return "checking";
+  if (fallbackActive) {
+    return koreaExtendedQuoteLive(currentTime) || aiSignalQuoteUsesActiveSession(quote)
+      ? "delayed"
+      : "closed";
+  }
   if (source === "kis_realtime" && age <= AI_SIGNAL_REALTIME_QUOTE_MAX_AGE_MS) return "realtime";
-  if (
-    source === "stored_daily_price"
-    || ["closed", "krx_reference", "after_market_reference"].includes(String(quote.market_session || ""))
-  ) {
+  if (source === "stored_daily_price") return "closed";
+  if (["closed", "krx_reference", "after_market_reference"].includes(String(quote.market_session || ""))) {
     return age <= AI_SIGNAL_CLOSED_STALE_MS ? "closed" : "checking";
   }
   if (age <= AI_SIGNAL_DELAYED_QUOTE_MAX_AGE_MS) return "delayed";
@@ -13287,10 +13490,18 @@ function aiSignalItemWithLiveOverlay(item = {}, now = Date.now()) {
   if (!isCurrentAiSignalHolding(item)) {
     return { ...item, live_freshness_state: freshnessState };
   }
-  if (["checking", "offline"].includes(freshnessState) || !overlay?.payload?.quote) {
+  let displayReady = overlay?.displayReady === true;
+  if (!displayReady && ["realtime", "delayed", "closed"].includes(freshnessState)) {
+    displayReady = true;
+    if (overlay) overlay.displayReady = true;
+  }
+  if (!overlay?.payload?.quote || !displayReady) {
     return {
       ...item,
+      live_price: null,
       live_return_rate: null,
+      live_return_pending: true,
+      display_return_rate: null,
       live_freshness_state: freshnessState,
       display_return_kind: "stale_open_position",
     };
@@ -13301,16 +13512,33 @@ function aiSignalItemWithLiveOverlay(item = {}, now = Date.now()) {
   if (livePrice === null || returnRate === null) {
     return {
       ...item,
+      live_price: null,
       live_return_rate: null,
+      live_return_pending: true,
+      display_return_rate: null,
       live_freshness_state: "checking",
       display_return_kind: "stale_open_position",
     };
   }
   const liveUpdatedAt = overlay.payload.observed_at || overlay.payload.as_of || overlay.payload.published_at || "";
+  if (["checking", "offline"].includes(freshnessState)) {
+    return {
+      ...item,
+      live_price: livePrice,
+      live_return_rate: null,
+      live_return_pending: false,
+      live_updated_at: liveUpdatedAt,
+      live_source: overlay.payload.source || "",
+      live_freshness_state: freshnessState,
+      display_return_rate: returnRate,
+      display_return_kind: "stale_open_position",
+    };
+  }
   return {
     ...item,
     live_price: livePrice,
     live_return_rate: returnRate,
+    live_return_pending: false,
     live_updated_at: liveUpdatedAt,
     live_source: overlay.payload.source || "",
     live_freshness_state: freshnessState,
@@ -13369,7 +13597,7 @@ function aiSignalOutcomeMetrics(item = {}, view = {}) {
       : (item.target_sell_price ?? current.target_sell_price ?? current.partial_exit_reference);
   const targetStatus = pendingEntry ? null : (item.target_sell_status || current.target_sell_status);
   const score = toNumber(item.score ?? current.score);
-  const returnRate = pendingEntry
+  const returnRate = pendingEntry || item.live_return_pending === true
     ? null
     : toNumber(
       item.live_return_rate
@@ -13436,6 +13664,15 @@ function aiSignalOutcomeMetrics(item = {}, view = {}) {
       value: formatPercent(returnRate),
       numericValue: returnRate,
       returnKind,
+      freshnessState,
+    });
+  } else if (openPosition && item.live_return_pending === true) {
+    metrics.push({
+      key: "return",
+      label: "평가수익률",
+      value: freshnessState === "offline" ? "연결 후 확인" : "현재가 확인 중",
+      numericValue: null,
+      returnKind: "stale_open_position",
       freshnessState,
     });
   } else if (targetStatus) {
@@ -13588,6 +13825,27 @@ function applyStockQuantSignalLiveQuote(quote = {}, quotePayload = {}) {
   payload.display_return_kind = "open_position";
   renderQuantCurrentStatus(payload);
   return true;
+}
+
+function prepareAiSignalEntrySurface(view) {
+  state.aiSignalLiveQuotes.clear();
+  state.aiSignalQuoteStatuses.clear();
+  state.aiSignalLiveAsOf = "";
+  state.aiSignalSnapshotReceivedAt = 0;
+  state.aiSignalSnapshotAsOf = "";
+  state.aiSignalMarketStatus = "loading";
+  if (view === "ai-signals" && elements.aiSignalsPageList) {
+    for (const tab of [...elements.aiSignalModeTabs, ...elements.aiSignalStageTabs, ...elements.aiSignalHistorySideButtons]) {
+      const count = tab.querySelector("span");
+      if (count) count.textContent = "0";
+    }
+    const pending = el("p", "muted", "최근 30일 시장 AI 시그널을 불러오는 중입니다.");
+    pending.setAttribute("role", "status");
+    elements.aiSignalsPageList.replaceChildren(pending);
+  } else if (view === "home") {
+    renderPendingHomeAiSignals();
+  }
+  renderAiSignalLiveStatus();
 }
 
 function activeAiSignalList() {
@@ -13766,9 +14024,19 @@ function updateAiSignalLiveQuote(code, quote, payload = {}) {
   if (!item || aiSignalLiveReturnRate(item, quote) === null) return false;
   const accepted = state.quoteStreamLatestByCode.get(normalizedCode);
   const receivedAt = accepted?.payload === payload ? accepted.receivedAt : Date.now();
+  const nextPayload = { ...payload, code: normalizedCode, quote: { ...quote } };
+  const previousOverlay = state.aiSignalLiveQuotes.get(normalizedCode);
+  if (
+    previousOverlay?.displayReady === true
+    && quotePayloadIsStoredFallbackDuringActiveSession(nextPayload)
+  ) {
+    refreshAiSignalLiveRows(normalizedCode);
+    return false;
+  }
   state.aiSignalLiveQuotes.set(normalizedCode, {
-    payload: { ...payload, code: normalizedCode, quote: { ...quote } },
+    payload: nextPayload,
     receivedAt,
+    displayReady: previousOverlay?.displayReady === true,
   });
   if (String(payload.source || "").toLowerCase() === "kis_realtime") {
     state.aiSignalQuoteStatuses.delete(normalizedCode);
@@ -17573,6 +17841,32 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
     createWatchReportMetric("뉴스", formatPercent(dashboard.sentiment.score), "", "sentiment", dashboard.sentiment.score)
   );
 
+  const investorStateControl = document.createElement("label");
+  investorStateControl.className = "watch-v2-investor-state";
+  const investorStateCopy = document.createElement("span");
+  const averageBuyPrice = normalizeWatchlistAverageBuyPrice(item.average_buy_price);
+  investorStateCopy.append(
+    Object.assign(document.createElement("strong"), { textContent: "내 상황" }),
+    Object.assign(document.createElement("small"), {
+      textContent: normalizeWatchlistInvestorState(item.investor_state) === "holding"
+        ? averageBuyPrice
+          ? `평균 매수가 ${formatNumber(averageBuyPrice)}원 기준으로 설명해요`
+          : "상세에서 평균 매수가를 입력하면 손익별로 설명해요"
+        : "관망 이유와 매수 전환 조건을 설명해요",
+    }),
+  );
+  const investorStateSelect = document.createElement("select");
+  investorStateSelect.dataset.watchInvestorState = item.code;
+  investorStateSelect.setAttribute("aria-label", `${item.name} 내 상황`);
+  for (const option of Object.values(WATCHLIST_INVESTOR_STATES)) {
+    investorStateSelect.appendChild(Object.assign(document.createElement("option"), {
+      value: option.value,
+      textContent: option.label,
+    }));
+  }
+  investorStateSelect.value = normalizeWatchlistInvestorState(item.investor_state);
+  investorStateControl.append(investorStateCopy, investorStateSelect);
+
   const preOpenPoint = renderWatchPreOpenPoint(card, dashboard, null, item, usSectorMoves);
 
   const footer = document.createElement("footer");
@@ -17582,7 +17876,7 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
   detailLink.append(el("span", "", "종목 상세"), el("span", "", "›"));
   footer.appendChild(detailLink);
 
-  card.append(header, preOpenPoint, metrics, footer);
+  card.append(header, investorStateControl, preOpenPoint, metrics, footer);
   elements.watchlistBody.appendChild(card);
   return card;
 }
@@ -24037,6 +24331,7 @@ function setLoading(code) {
   state.stockQuantSignals = null;
   state.stockQuantRequestedCode = "";
   state.stockQuantLastLiveRefreshAt = 0;
+  state.stockQuoteReadyCode = "";
   state.stockPriceRows = [];
   elements.name.textContent = "종목 분석";
   elements.meta.textContent = `${code} · 불러오는 중`;
@@ -24110,8 +24405,13 @@ function render(data, options = {}) {
     }
   }
 
-  renderStockLiveSummary(data);
-  updateQuoteStrip(data.quote, data, { merge: false });
+  const quoteReady = state.stockQuoteReadyCode === String(data.code || "");
+  if (quoteReady) {
+    renderStockLiveSummary(data);
+    updateQuoteStrip(data.quote, data, { merge: false });
+  } else {
+    resetStockQuoteDisplay();
+  }
   renderStockCompanyProfile(data);
   renderStockResearchSummary(data);
   renderStockDerivedIndicators(data);
@@ -24263,6 +24563,39 @@ function scheduleStockDashboardWarmRefresh(stock, attempt = 0) {
   }, delayMs);
 }
 
+async function fetchInitialStockQuote(code) {
+  const normalizedCode = String(code || "");
+  if (!normalizedCode) return null;
+  try {
+    return await fetchJsonCached(
+      liveUrl(`/stocks/${encodeURIComponent(normalizedCode)}/quote`),
+      { force: true, ttlMs: 0, timeoutMs: STOCK_INITIAL_QUOTE_TIMEOUT_MS },
+    );
+  } catch {
+    return null;
+  }
+}
+
+function hydrateInitialStockQuote(dashboard, payload, code) {
+  const normalizedCode = String(code || "");
+  if (
+    !dashboard
+    || String(dashboard.code || "") !== normalizedCode
+    || String(payload?.code || "") !== normalizedCode
+    || !stockQuotePayloadIsDisplayReady(payload)
+  ) {
+    return false;
+  }
+  recordQuoteStreamPayload(payload);
+  const acceptedPayload = state.quoteStreamLatestByCode.get(normalizedCode)?.payload;
+  if (!stockQuotePayloadIsDisplayReady(acceptedPayload)) return false;
+  const dashboardSource = dashboard.source;
+  if (!applyLiveQuoteToDashboard(dashboard, acceptedPayload.quote, acceptedPayload)) return false;
+  dashboard.source = dashboardSource;
+  state.stockQuoteReadyCode = normalizedCode;
+  return true;
+}
+
 async function loadStockRequest(query, options = {}) {
   const normalized = String(query || "").trim();
   if (!normalized) {
@@ -24279,6 +24612,7 @@ async function loadStockRequest(query, options = {}) {
   );
   if (!sameQueryAsCurrent) {
     setLoading(normalized);
+    renderStockTitleLogo(null);
   }
   const resolvedCandidate = options.resolvedStock;
   const candidateMatches = Boolean(
@@ -24295,6 +24629,7 @@ async function loadStockRequest(query, options = {}) {
       return;
     }
     setLoading(normalized);
+    renderStockTitleLogo(null);
     elements.name.textContent = "종목 분석";
     elements.meta.textContent = `${normalized} · 데이터 없음`;
     closeQuoteStream();
@@ -24309,18 +24644,22 @@ async function loadStockRequest(query, options = {}) {
     setActiveStockTab("summary", { preserveScroll: true });
   }
   state.currentStock = { code: stock.code, name: stock.name, market: stock.market };
+  renderStockTitleLogo(state.currentStock);
   try {
     const dashboardUrl = `/stocks/${encodeURIComponent(stock.code)}/dashboard?include_profile=0&include_live=0`;
-    const dashboard = await fetchJsonCached(dashboardUrl, {
+    const initialQuoteRequest = fetchInitialStockQuote(stock.code);
+    const dashboardRequest = fetchJsonCached(dashboardUrl, {
         force: options.force === true,
         ttlMs: pageEntryTtlMs("stock"),
       });
+    const [dashboard, initialQuote] = await Promise.all([dashboardRequest, initialQuoteRequest]);
     if (loadSequence !== state.stockLoadSequence) {
       return;
     }
     if (sameStock && previousDashboard) {
       carryForwardLiveQuoteToDashboard(dashboard, previousDashboard);
     }
+    hydrateInitialStockQuote(dashboard, initialQuote, stock.code);
     render(dashboard, { previousCode: previousStock?.code });
     if (dashboard?.source === STOCK_DASHBOARD_WARMING_SOURCE) {
       state.responseCache.delete(dashboardUrl);
@@ -24369,8 +24708,12 @@ function load(query, options = {}) {
 async function syncViewFromLocation() {
   const parts = window.location.pathname.split("/").filter(Boolean);
   if (parts[0] === "dashboard" && parts[1]) {
+    const stockQuery = decodeURIComponent(parts[1]);
+    if (state.view !== "stock") {
+      setLoading(stockQuery);
+    }
     setView("stock", { historyMode: "none" });
-    await load(decodeURIComponent(parts[1]), { historyMode: "none" });
+    await load(stockQuery, { historyMode: "none" });
     return;
   }
   const params = new URLSearchParams(window.location.search);
@@ -25117,6 +25460,14 @@ elements.watchlistBody.addEventListener("click", (event) => {
   writeWatchlist(readWatchlist().filter((item) => item.code !== code));
   updateWatchButton();
   void loadWatchlist();
+});
+
+elements.watchlistBody.addEventListener("change", (event) => {
+  const select = event.target instanceof HTMLSelectElement
+    ? event.target.closest("[data-watch-investor-state]")
+    : null;
+  if (!(select instanceof HTMLSelectElement)) return;
+  updateWatchlistInvestorState(select.dataset.watchInvestorState || "", select.value);
 });
 
 for (const button of elements.watchlistFilterButtons) {

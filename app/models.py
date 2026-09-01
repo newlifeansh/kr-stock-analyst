@@ -247,6 +247,10 @@ class WatchlistItem(Base):
     code: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     market: Mapped[Optional[str]] = mapped_column(String(20))
+    investor_state: Mapped[str] = mapped_column(
+        String(20), default="not_holding", server_default="not_holding", nullable=False
+    )
+    average_buy_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 2))
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

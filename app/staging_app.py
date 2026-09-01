@@ -9,12 +9,13 @@ mobile service byte-for-byte unchanged.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
-from datetime import date, datetime, time, timedelta
 import html as html_lib
 import json
 import os
 import re
+from collections import deque
+from collections.abc import Awaitable, Callable, Mapping
+from datetime import date, datetime, time, timedelta
 from time import monotonic
 from types import SimpleNamespace
 from typing import Any
@@ -23,30 +24,35 @@ from urllib.parse import parse_qs, urlparse, urlunparse
 import httpx
 
 from app.db import SessionLocal
-from app.main import MANUAL_STOCK_LOGO_DIR, app as production_app
+from app.main import MANUAL_STOCK_LOGO_DIR
+from app.main import app as production_app
 from app.models import NewsItem
 from app.schemas import MorningMoneyBriefingOut
-from app.services.morning_money_briefing import (
-    KST,
-    build_morning_money_briefing_history,
+from app.services.chart_patterns import (
+    CHART_PATTERN_SCHEMA_VERSION,
+    detect_chart_patterns,
 )
 from app.services.dashboard_market_data import (
     DashboardMarketDataError,
     build_korea_market_calendar,
     fetch_stock_week_chart,
 )
-from app.services.chart_patterns import CHART_PATTERN_SCHEMA_VERSION, detect_chart_patterns
+from app.services.morning_money_briefing import (
+    KST,
+    build_morning_money_briefing_history,
+)
 from app.services.quant_signals import STRATEGY_VERSION
-
+from app.services.recommendations import _score_dashboard
+from app.services.staging_page_summary import summarize_staging_page
 
 Message = dict[str, Any]
 Receive = Callable[[], Awaitable[Message]]
 Send = Callable[[Message], Awaitable[None]]
 
 THEME_VERSION = "20260828-tds-adaptive-v77-shortcuts"
-STAGING_IA_VERSION = "20260831-header-action-icons-signal-copy-v61"
+STAGING_IA_VERSION = "20260901-stock-title-position-guide-v85"
 STAGING_STYLE_VERSION = (
-    f"{THEME_VERSION}-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143"
+    f"{THEME_VERSION}-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150"
 )
 STAGING_ENVIRONMENT_META = '<meta name="secret-note-environment" content="staging" />'
 SERVICE_UPDATE_META = (
@@ -84,8 +90,21 @@ STAGING_STOCK_READ_PATTERN = re.compile(
 )
 STAGING_KOREA_CALENDAR_PATH = "/staging-data/korea-calendar"
 STAGING_MORNING_MONEY_HISTORY_PATH = "/briefings/morning-money/history"
+STAGING_RECOMMENDATIONS_PATH = "/market/recommendations"
+STAGING_RECOMMENDATION_SUPPLEMENT_TTL_SECONDS = 120.0
+STAGING_RECOMMENDATION_REFRESHING_MAX_AGE_SECONDS = 30 * 60
 STAGING_MORNING_MONEY_HISTORY_TTL_SECONDS = 120.0
 _staging_morning_money_history_cache: dict[int, tuple[float, bytes]] = {}
+_staging_recommendation_supplement_cache: dict[
+    tuple[str, str], tuple[float, dict[str, Any]]
+] = {}
+STAGING_PAGE_SUMMARY_PATH = "/staging-ai/page-summary"
+STAGING_PAGE_SUMMARY_MAX_BODY_BYTES = 64 * 1024
+STAGING_PAGE_SUMMARY_RATE_WINDOW_SECONDS = 60.0
+STAGING_PAGE_SUMMARY_RATE_PER_CLIENT = 15
+STAGING_PAGE_SUMMARY_RATE_GLOBAL = 120
+_staging_page_summary_client_requests: dict[str, deque[float]] = {}
+_staging_page_summary_global_requests: deque[float] = deque()
 STAGING_READ_EXACT_PATHS = frozenset(
     {
         "/stocks",
@@ -114,6 +133,72 @@ _UPSTREAM_RESPONSE_HEADERS = frozenset(
         b"last-modified",
     }
 )
+
+
+class _StagingRequestBodyTooLarge(ValueError):
+    pass
+
+
+async def _read_staging_request_body(receive: Receive) -> bytes:
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        message = await receive()
+        if message.get("type") == "http.disconnect":
+            raise ConnectionError("client disconnected")
+        if message.get("type") != "http.request":
+            continue
+        chunk = bytes(message.get("body") or b"")
+        size += len(chunk)
+        if size > STAGING_PAGE_SUMMARY_MAX_BODY_BYTES:
+            raise _StagingRequestBodyTooLarge("request body is too large")
+        chunks.append(chunk)
+        if not message.get("more_body", False):
+            return b"".join(chunks)
+
+
+def _allow_staging_page_summary_request(scope: dict[str, Any]) -> bool:
+    now = monotonic()
+    cutoff = now - STAGING_PAGE_SUMMARY_RATE_WINDOW_SECONDS
+    while _staging_page_summary_global_requests and _staging_page_summary_global_requests[0] <= cutoff:
+        _staging_page_summary_global_requests.popleft()
+    for key, requests in list(_staging_page_summary_client_requests.items()):
+        while requests and requests[0] <= cutoff:
+            requests.popleft()
+        if not requests:
+            _staging_page_summary_client_requests.pop(key, None)
+    client = scope.get("client")
+    client_key = str(client[0]) if isinstance(client, (tuple, list)) and client else "unknown"
+    client_requests = _staging_page_summary_client_requests.setdefault(client_key, deque())
+    if (
+        len(client_requests) >= STAGING_PAGE_SUMMARY_RATE_PER_CLIENT
+        or len(_staging_page_summary_global_requests) >= STAGING_PAGE_SUMMARY_RATE_GLOBAL
+    ):
+        return False
+    client_requests.append(now)
+    _staging_page_summary_global_requests.append(now)
+    return True
+
+
+async def _send_staging_json(
+    send: Send,
+    *,
+    status: int,
+    payload: Mapping[str, Any],
+    extra_headers: list[tuple[bytes, bytes]] | None = None,
+) -> None:
+    body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+    headers = [
+        (b"content-type", b"application/json; charset=utf-8"),
+        (b"content-length", str(len(body)).encode("ascii")),
+        (b"cache-control", b"no-store"),
+        (b"x-content-type-options", b"nosniff"),
+        (b"x-robots-tag", b"noindex, nofollow, noarchive"),
+        (b"x-staging-theme", THEME_VERSION.encode("ascii")),
+    ]
+    headers.extend(extra_headers or [])
+    await send({"type": "http.response.start", "status": status, "headers": headers})
+    await send({"type": "http.response.body", "body": body, "more_body": False})
 
 
 def _header_value(headers: list[tuple[bytes, bytes]], name: bytes) -> str:
@@ -160,12 +245,397 @@ def _rewrite_staging_quality_contract(path: str, body: bytes) -> bytes:
     return json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
 
 
+def _staging_date_value(value: object) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def _staging_recommendation_state(
+    current: object,
+    *,
+    today: date,
+) -> str | None:
+    if not isinstance(current, dict) or current.get("live_observation"):
+        return None
+    action = str(current.get("action") or "")
+    position_open = bool(current.get("position_open"))
+    confirmation = current.get("entry_confirmation")
+    confirmation_allowed = (
+        isinstance(confirmation, dict) and confirmation.get("allowed") is True
+    )
+    if action == "entry_pending" and not position_open and confirmation_allowed:
+        return "entry_confirmed"
+    if action not in {"entered", "holding"} or not position_open:
+        return None
+
+    lifecycle = current.get("lifecycle")
+    transition = (
+        lifecycle.get("latest_transition")
+        if isinstance(lifecycle, dict) and isinstance(lifecycle.get("latest_transition"), dict)
+        else {}
+    )
+    if (
+        _staging_date_value(current.get("entry_date")) == today
+        and _staging_date_value(transition.get("transition_date")) == today
+        and str(transition.get("side") or "").lower() == "buy"
+        and confirmation_allowed
+    ):
+        return "entered_today"
+    return None
+
+
+def _staging_recommendation_signal_date(item: Mapping[str, Any]) -> date | None:
+    direct = _staging_date_value(item.get("signal_date"))
+    if direct is not None:
+        return direct
+    current = item.get("current")
+    lifecycle = current.get("lifecycle") if isinstance(current, Mapping) else None
+    transition = (
+        lifecycle.get("latest_transition") if isinstance(lifecycle, Mapping) else None
+    )
+    return (
+        _staging_date_value(transition.get("signal_date"))
+        if isinstance(transition, Mapping)
+        else None
+    )
+
+
+def _staging_recommendation_universe_eligible(item: Mapping[str, Any]) -> bool:
+    try:
+        market_cap_rank = int(item.get("market_cap_rank"))
+    except (TypeError, ValueError):
+        market_cap_rank = None
+    if market_cap_rank is not None and market_cap_rank > 100:
+        return False
+    return str(item.get("universe_tier") or "").lower() != "extended"
+
+
+def _staging_recommendation_signal_usable(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("status") == "ready":
+        return True
+    if payload.get("status") != "refreshing" or not isinstance(payload.get("items"), list):
+        return False
+    try:
+        snapshot_age_seconds = float(payload.get("snapshot_age_seconds"))
+    except (TypeError, ValueError):
+        return False
+    return 0 <= snapshot_age_seconds <= STAGING_RECOMMENDATION_REFRESHING_MAX_AGE_SECONDS
+
+
+async def _build_staging_recommendation_supplements(
+    client: httpx.AsyncClient,
+    signal_payload: dict[str, Any] | None,
+    existing_items: list[dict[str, Any]],
+    *,
+    reference_date: date | None = None,
+    max_items: int = 20,
+) -> list[dict[str, Any]]:
+    """Rebuild missing staging cards from canonical public, rule-owned data.
+
+    The canonical recommendation response may remove a condition-confirmed
+    stock at the instant its next-session opening entry is applied.  Staging
+    keeps that same-day record visible by recomputing the separate
+    recommendation score from the public stock dashboard and reading the
+    condition-day close from public price history.  The market signal score is
+    never substituted for the recommendation score.
+    """
+
+    if not _staging_recommendation_signal_usable(signal_payload):
+        return []
+    today = reference_date or datetime.now(KST).date()
+    existing_codes = {
+        str(item.get("code") or "").strip()
+        for item in existing_items
+        if isinstance(item, dict)
+    }
+    eligible: list[dict[str, Any]] = []
+    seen_codes: set[str] = set()
+    for raw_item in signal_payload.get("items") or []:
+        if not isinstance(raw_item, dict):
+            continue
+        code = str(raw_item.get("code") or "").strip()
+        if not code or code in existing_codes or code in seen_codes:
+            continue
+        if not _staging_recommendation_universe_eligible(raw_item):
+            continue
+        if _staging_recommendation_state(raw_item.get("current"), today=today) is None:
+            continue
+        if _staging_recommendation_signal_date(raw_item) is None:
+            continue
+        seen_codes.add(code)
+        eligible.append(raw_item)
+    eligible.sort(
+        key=lambda item: float(
+            item.get("score")
+            or (item.get("current") or {}).get("score")
+            or 0
+        ),
+        reverse=True,
+    )
+
+    async def build_one(signal_item: dict[str, Any]) -> dict[str, Any] | None:
+        code = str(signal_item.get("code") or "").strip()
+        signal_date = _staging_recommendation_signal_date(signal_item)
+        if not code or signal_date is None:
+            return None
+        cache_key = (code, signal_date.isoformat())
+        cached = _staging_recommendation_supplement_cache.get(cache_key)
+        if cached and monotonic() - cached[0] <= STAGING_RECOMMENDATION_SUPPLEMENT_TTL_SECONDS:
+            return dict(cached[1])
+        try:
+            dashboard_response, prices_response = await asyncio.gather(
+                client.get(
+                    f"{STAGING_DATA_UPSTREAM}/stocks/{code}/dashboard",
+                    params={"include_profile": 0, "include_live": 0},
+                    headers={"Accept": "application/json"},
+                ),
+                client.get(
+                    f"{STAGING_DATA_UPSTREAM}/stocks/{code}/prices",
+                    params={
+                        "from_date": signal_date.isoformat(),
+                        "to_date": signal_date.isoformat(),
+                        "limit": 5,
+                    },
+                    headers={"Accept": "application/json"},
+                ),
+            )
+            dashboard_response.raise_for_status()
+            prices_response.raise_for_status()
+            dashboard = dashboard_response.json()
+            prices = prices_response.json()
+            if not isinstance(dashboard, dict) or not isinstance(prices, list):
+                return None
+            condition_row = next(
+                (
+                    row
+                    for row in prices
+                    if isinstance(row, dict)
+                    and _staging_date_value(row.get("trade_date")) == signal_date
+                    and row.get("close") not in (None, "")
+                ),
+                None,
+            )
+            if condition_row is None:
+                return None
+            item = _score_dashboard(dashboard)
+        except (httpx.HTTPError, AttributeError, ArithmeticError, TypeError, ValueError, KeyError):
+            return None
+        item.pop("_quant_live_quote", None)
+        item["price"] = condition_row["close"]
+        item["condition_price"] = condition_row["close"]
+        item["recommended_at"] = (
+            signal_item.get("signal_at")
+            or signal_item.get("signal_date")
+            or signal_payload.get("as_of")
+        )
+        for key in (
+            "sector",
+            "industry",
+            "investment_sector",
+            "investment_sector_label",
+        ):
+            if signal_item.get(key) not in (None, ""):
+                item[key] = signal_item[key]
+        _staging_recommendation_supplement_cache[cache_key] = (monotonic(), dict(item))
+        return item
+
+    results = await asyncio.gather(*(build_one(item) for item in eligible[:max_items]))
+    return [item for item in results if isinstance(item, dict)]
+
+
+def _rewrite_staging_recommendation_contract(
+    body: bytes,
+    signal_payload: dict[str, Any] | None,
+    *,
+    requested_limit: int | None = None,
+    reference_date: date | None = None,
+    supplemental_items: list[dict[str, Any]] | None = None,
+) -> bytes:
+    """Expose confirmed entries through the day their opening entry is applied."""
+
+    try:
+        payload = json.loads(body)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return body
+    if not isinstance(payload, dict):
+        return body
+
+    signal_ready = _staging_recommendation_signal_usable(signal_payload)
+    signal_items = (
+        signal_payload.get("items")
+        if signal_ready and isinstance(signal_payload.get("items"), list)
+        else []
+    )
+    today = reference_date or datetime.now(KST).date()
+    eligible_by_code: dict[str, tuple[str, dict[str, Any]]] = {}
+    for raw_item in signal_items:
+        if not isinstance(raw_item, dict):
+            continue
+        if not _staging_recommendation_universe_eligible(raw_item):
+            continue
+        current = raw_item.get("current")
+        recommendation_state = _staging_recommendation_state(current, today=today)
+        if recommendation_state is None:
+            continue
+        code = str(raw_item.get("code") or "").strip()
+        if code:
+            eligible_by_code[code] = (recommendation_state, raw_item)
+
+    source_items = list(payload.get("items")) if isinstance(payload.get("items"), list) else []
+    source_codes = {
+        str(item.get("code") or "").strip()
+        for item in source_items
+        if isinstance(item, dict)
+    }
+    for supplemental in supplemental_items or []:
+        code = str(supplemental.get("code") or "").strip()
+        if code and code not in source_codes:
+            source_items.append(supplemental)
+            source_codes.add(code)
+    filtered: list[dict[str, Any]] = []
+    for raw_item in source_items:
+        if not isinstance(raw_item, dict):
+            continue
+        code = str(raw_item.get("code") or "").strip()
+        eligible_record = eligible_by_code.get(code)
+        if eligible_record is None:
+            continue
+        recommendation_state, signal_item = eligible_record
+        current = signal_item.get("current")
+        if not isinstance(current, dict):
+            continue
+        entered_today = recommendation_state == "entered_today"
+        recommendation_label = "보유 유지" if entered_today else "신규 매수 대기"
+        item = dict(raw_item)
+        if item.get("condition_price") in (None, ""):
+            item["condition_price"] = item.get("price")
+        compact_signal = (
+            dict(item.get("ai_trade_signal"))
+            if isinstance(item.get("ai_trade_signal"), dict)
+            else {}
+        )
+        compact_current = (
+            dict(compact_signal.get("current"))
+            if isinstance(compact_signal.get("current"), dict)
+            else {}
+        )
+        compact_current.update(current)
+        signal_as_of = signal_payload.get("as_of") if isinstance(signal_payload, dict) else None
+        signal_strategy = (
+            signal_payload.get("strategy_version")
+            if isinstance(signal_payload, dict)
+            else None
+        )
+        compact_signal.update(
+            {
+                "data_state": "ready",
+                "as_of": compact_signal.get("as_of") or signal_as_of,
+                "strategy_version": compact_signal.get("strategy_version")
+                or signal_strategy,
+                "current": compact_current,
+            }
+        )
+        item["ai_trade_signal"] = compact_signal
+        item["score_action"] = item.get("action")
+        item["score_decision_reason"] = item.get("decision_reason")
+        item["action"] = recommendation_label
+        item["decision_reason"] = (
+            "추천 기준을 통과한 뒤 AI 전략이 보유 중이며, 현재는 추가 매수보다 보유 기준을 확인하는 단계입니다."
+            if entered_today
+            else "추천 기준과 가격 조건, 서로 다른 확인 자료를 모두 통과해 신규 매수를 기다리는 단계입니다."
+        )
+        item["recommendation_state"] = recommendation_state
+        item["recommendation_label"] = recommendation_label
+        item["buy_condition_met"] = True
+        item["buy_condition_as_of"] = (
+            signal_item.get("signal_at")
+            or signal_item.get("signal_date")
+            or current.get("as_of")
+        )
+        item["recommendation_entry_date"] = current.get("entry_date") if entered_today else None
+        item["strategy_entry_price"] = current.get("entry_price") if entered_today else None
+        filtered.append(item)
+
+    filtered.sort(
+        key=lambda item: float(item.get("score") or 0),
+        reverse=True,
+    )
+    for rank, item in enumerate(filtered, start=1):
+        item["rank"] = rank
+
+    qualified_count = len(filtered)
+    pending_count = sum(
+        1 for item in filtered if item.get("recommendation_state") == "entry_confirmed"
+    )
+    entered_today_count = sum(
+        1 for item in filtered if item.get("recommendation_state") == "entered_today"
+    )
+    if requested_limit is not None:
+        filtered = filtered[: max(0, requested_limit)]
+
+    original_candidate_count = int(payload.get("candidate_count") or len(source_items))
+    payload["screened_count"] = int(payload.get("universe_count") or original_candidate_count)
+    payload["candidate_count"] = len(eligible_by_code)
+    payload["qualified_count"] = qualified_count
+    payload["pending_count"] = pending_count
+    payload["entered_today_count"] = entered_today_count
+    payload["selection_rule"] = "confirmed_entry_pending_or_entered_today"
+    payload["selection_state"] = "ready" if signal_ready else "unavailable"
+    payload["selection_refreshing"] = bool(
+        signal_ready
+        and isinstance(signal_payload, dict)
+        and signal_payload.get("status") == "refreshing"
+    )
+    payload["selection_message"] = (
+        (
+            "최신 시장 데이터를 확인 중이며, 확인이 끝난 종목의 현재 AI 판단을 보여드립니다."
+            if payload["selection_refreshing"]
+            else "추천 기준을 통과한 종목을 신규 매수 대기와 보유 유지 상태로 나눠 보여드립니다."
+        )
+        if payload["selection_state"] == "ready"
+        else "현재 판단을 확인하지 못해 추천 종목을 표시하지 않습니다. 잠시 후 다시 확인해 주세요."
+    )
+    payload["methodology"] = [
+        "시장 대표 종목 가운데 추천 기준과 가격 조건을 모두 통과한 종목만 보여드립니다.",
+        "아직 매수 전이면 신규 매수 대기, 이미 AI 전략이 매수했다면 보유 유지로 구분합니다.",
+        "조건을 확인 중이거나 매도 판단이 나온 종목은 제외하고, 기준을 통과한 종목끼리 추천 점수로 비교합니다.",
+    ]
+    payload["items"] = filtered
+    return json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+
+
 async def _read_staging_upstream(
     scope: dict[str, Any],
 ) -> tuple[int, list[tuple[bytes, bytes]], bytes]:
     path = str(scope.get("path") or "/")
     query = bytes(scope.get("query_string") or b"").decode("latin-1")
-    url = f"{STAGING_DATA_UPSTREAM}{path}{f'?{query}' if query else ''}"
+    requested_limit: int | None = None
+    upstream_query = query
+    if path == STAGING_RECOMMENDATIONS_PATH:
+        parsed_query = parse_qs(query, keep_blank_values=True)
+        try:
+            requested_limit = max(1, min(20, int((parsed_query.get("limit") or ["8"])[-1])))
+        except (TypeError, ValueError):
+            requested_limit = 8
+        parsed_query["limit"] = ["20"]
+        parsed_query["candidate_limit"] = ["100"]
+        upstream_query = "&".join(
+            f"{key}={value}"
+            for key, values in parsed_query.items()
+            for value in values
+        )
+    url = f"{STAGING_DATA_UPSTREAM}{path}{f'?{upstream_query}' if upstream_query else ''}"
     accept = _scope_header(scope, b"accept") or "*/*"
     async with httpx.AsyncClient(
         follow_redirects=True,
@@ -182,6 +652,42 @@ async def _read_staging_upstream(
         if response.status_code == 200 and "application/json" in response.headers.get("content-type", ""):
             body = await _sanitize_staging_stock_payload(client, path, body)
             body = _rewrite_staging_quality_contract(path, body)
+            if path == STAGING_RECOMMENDATIONS_PATH:
+                signal_payload: dict[str, Any] | None = None
+                try:
+                    signal_response = await client.get(
+                        f"{STAGING_DATA_UPSTREAM}/market/quant-signals",
+                        params={"universe_limit": 150, "limit": 0, "recent_days": 30},
+                        headers={"Accept": "application/json"},
+                    )
+                    signal_response.raise_for_status()
+                    decoded_signal_payload = signal_response.json()
+                    if isinstance(decoded_signal_payload, dict):
+                        signal_payload = decoded_signal_payload
+                except (httpx.HTTPError, ValueError, json.JSONDecodeError):
+                    signal_payload = None
+                try:
+                    source_payload = json.loads(body)
+                    source_items = (
+                        source_payload.get("items")
+                        if isinstance(source_payload, dict)
+                        and isinstance(source_payload.get("items"), list)
+                        else []
+                    )
+                    supplemental_items = await _build_staging_recommendation_supplements(
+                        client,
+                        signal_payload,
+                        [item for item in source_items if isinstance(item, dict)],
+                        max_items=max(requested_limit or 8, 8),
+                    )
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    supplemental_items = []
+                body = _rewrite_staging_recommendation_contract(
+                    body,
+                    signal_payload,
+                    requested_limit=requested_limit,
+                    supplemental_items=supplemental_items,
+                )
     headers = [
         (key.lower(), value)
         for key, value in response.headers.raw
@@ -653,6 +1159,50 @@ class StagingTDSVideoApp:
             return
 
         path = str(scope.get("path") or "")
+        if scope.get("method") == "POST" and path == STAGING_PAGE_SUMMARY_PATH:
+            fetch_site = _scope_header(scope, b"sec-fetch-site").lower()
+            if fetch_site == "cross-site":
+                await _send_staging_json(
+                    send,
+                    status=403,
+                    payload={"message": "교차 사이트 요청은 허용하지 않습니다."},
+                )
+                return
+            if not _allow_staging_page_summary_request(scope):
+                await _send_staging_json(
+                    send,
+                    status=429,
+                    payload={"message": "요약 요청이 잠시 많습니다. 기존 데이터 문구를 유지합니다."},
+                    extra_headers=[(b"retry-after", b"60")],
+                )
+                return
+            try:
+                raw_body = await _read_staging_request_body(receive)
+                payload = json.loads(raw_body or b"{}")
+                if not isinstance(payload, dict):
+                    raise TypeError("request payload must be an object")
+                result = await summarize_staging_page(payload)
+            except _StagingRequestBodyTooLarge:
+                await _send_staging_json(
+                    send,
+                    status=413,
+                    payload={"message": "요약 요청 크기가 제한을 초과했습니다."},
+                )
+                return
+            except (ConnectionError, json.JSONDecodeError, TypeError, ValueError):
+                await _send_staging_json(
+                    send,
+                    status=400,
+                    payload={"message": "요약 요청 형식을 확인해 주세요."},
+                )
+                return
+            await _send_staging_json(
+                send,
+                status=200,
+                payload=result.model_dump(mode="json"),
+            )
+            return
+
         if scope.get("method") == "GET" and path == STAGING_KOREA_CALENDAR_PATH:
             try:
                 status, headers, body = await _read_staging_korea_calendar(scope)

@@ -4,7 +4,7 @@ import json
 import os
 import re
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -34,6 +34,10 @@ E2E_CASE_IDS = (
     "SIG-UI-014",
     "SIG-UI-015",
     "SIG-UI-016",
+    "SIG-UI-017",
+    "SIG-UI-018",
+    "SIG-UI-019",
+    "SIG-UI-020",
 )
 
 
@@ -289,6 +293,53 @@ def _select_tab(button: Any) -> None:
             "클릭한 탭의 선택 상태가 반영되지 않았습니다.",
             {"text": button.inner_text()},
         )
+
+
+_NO_WAIT_ARGUMENT = object()
+
+
+def _wait_for_ui_contract(
+    page: Any,
+    expression: str,
+    *,
+    stage: str,
+    timeout_ms: int,
+    arg: Any = _NO_WAIT_ARGUMENT,
+) -> None:
+    """Wait for a browser contract and preserve the stalled UI state on timeout."""
+
+    try:
+        kwargs: dict[str, Any] = {"timeout": timeout_ms}
+        if arg is not _NO_WAIT_ARGUMENT:
+            kwargs["arg"] = arg
+        page.wait_for_function(expression, **kwargs)
+    except Exception as exc:
+        if not _is_playwright_timeout(exc):
+            raise
+        try:
+            snapshot = page.evaluate(
+                """() => {
+                  const response = document.querySelector('#staging-ai-stock-response-view');
+                  const latestSummary = (window.__qaStockSummaryRequests || [])
+                    .filter(request => request.page_type === 'stock_response').at(-1);
+                  return {
+                    url: location.href,
+                    view: document.body?.dataset.view || '',
+                    responseDisplay: response?.dataset.responseDisplay || '',
+                    responseLoaded: response?.dataset.responseLoaded || '',
+                    investorState: response?.dataset.investorState || '',
+                    summaryMode: response?.dataset.summaryMode || '',
+                    latestPositionMode: latestSummary?.facts?.position_mode || '',
+                    stockText: document.querySelector('#stock-view')?.innerText?.slice(0, 800) || '',
+                  };
+                }"""
+            )
+        except Exception:  # noqa: BLE001 - diagnostics must not mask the timeout.
+            snapshot = {"url": getattr(page, "url", "")}
+        raise QaFailure(
+            f"{stage} 상태가 제한 시간 안에 완성되지 않았습니다.",
+            {"stage": stage, "ui_snapshot": snapshot},
+        ) from exc
 
 
 def _assert_stock_quote_text(text: str, stock: dict[str, Any]) -> None:
@@ -696,6 +747,32 @@ def run_e2e_checks(
                         "종목 검색 자동완성 글자 대비가 4.5:1보다 낮습니다.",
                         {"theme": theme, "suggestion_contrast": suggestion_contrast},
                     )
+                page.evaluate(
+                    """() => {
+                      window.__qaStockEntryFrames = [];
+                      const snapshot = () => {
+                        const priceText = document.querySelector('#quote-price')?.textContent?.trim() || '';
+                        const rateText = document.querySelector('#quote-change')?.textContent?.trim() || '';
+                        const currentCode = String(state.currentStock?.code || '');
+                        const readyCode = String(state.stockQuoteReadyCode || '');
+                        const numeric = text => /[0-9]/.test(text) && text !== '-';
+                        window.__qaStockEntryFrames.push({
+                          priceText,
+                          rateText,
+                          currentCode,
+                          readyCode,
+                          hasNumericQuote: numeric(priceText) || numeric(rateText),
+                        });
+                      };
+                      const observer = new MutationObserver(snapshot);
+                      for (const selector of ['#quote-price', '#quote-change']) {
+                        const node = document.querySelector(selector);
+                        if (node) observer.observe(node, { childList: true, characterData: true, subtree: true });
+                      }
+                      window.__qaStockEntryObserver = observer;
+                      snapshot();
+                    }"""
+                )
                 search_input.press("Enter")
                 page.wait_for_selector("#stock-view", state="visible")
                 page.wait_for_function(
@@ -759,6 +836,27 @@ def run_e2e_checks(
                       displayed_rate: document.querySelector('#quote-change')?.textContent?.trim() || '',
                     })"""
                 )
+                entry_frames = page.evaluate(
+                    """() => {
+                      window.__qaStockEntryObserver?.disconnect();
+                      return window.__qaStockEntryFrames || [];
+                    }"""
+                )
+                premature_numeric_frames = [
+                    frame
+                    for frame in entry_frames
+                    if frame.get("hasNumericQuote")
+                    and frame.get("currentCode")
+                    and frame.get("readyCode") != frame.get("currentCode")
+                ]
+                if premature_numeric_frames:
+                    raise QaFailure(
+                        "현재 시세 준비 전에 이전 가격·등락률이 먼저 노출됐습니다.",
+                        {
+                            "entry_frames": entry_frames,
+                            "premature_numeric_frames": premature_numeric_frames,
+                        },
+                    )
                 detail_text = page.locator("#stock-view").inner_text()
                 _assert_stock_quote_text(detail_text, samsung)
                 resolved_url = unquote(page.url)
@@ -777,6 +875,7 @@ def run_e2e_checks(
                     "detail_url": page.url,
                     "api_stock": samsung,
                     "observed_quote": observed_quote,
+                    "entry_frames": entry_frames,
                 }
 
             results.append(
@@ -1415,6 +1514,42 @@ def run_e2e_checks(
                         "홈 AI 시그널 버튼의 동작·터치영역·수직 위치가 계약과 다릅니다.",
                         cta_contract,
                     )
+                page.evaluate(
+                    """() => {
+                      window.__qaSignalEntryFrames = [];
+                      const snapshot = () => {
+                        if (document.body.dataset.view !== 'ai-signals') return;
+                        const rows = [...document.querySelectorAll(
+                          '#ai-signals-page-list .home-ai-signal-row[data-code]'
+                        )];
+                        const openRows = rows.filter(
+                          row => row.aiSignalSnapshotItem?.current?.position_open === true
+                        );
+                        const returnTexts = openRows.map(row =>
+                          row.querySelector('[data-field="ai_signal_return"]')?.textContent?.trim() || ''
+                        );
+                        window.__qaSignalEntryFrames.push({
+                          listText: document.querySelector('#ai-signals-page-list')?.textContent
+                            ?.replace(/\\s+/g, ' ').trim() || '',
+                          counts: [...document.querySelectorAll(
+                            '#ai-signal-mode-tabs span, #ai-signal-stage-tabs span'
+                          )].map(node => node.textContent?.trim() || ''),
+                          openRowCount: openRows.length,
+                          pendingReturnCount: returnTexts.filter(
+                            text => text.includes('현재가 확인 중') || text.includes('연결 후 확인')
+                          ).length,
+                          numericReturnCount: returnTexts.filter(text => /%/.test(text)).length,
+                          returnTexts,
+                        });
+                      };
+                      const observer = new MutationObserver(snapshot);
+                      const list = document.querySelector('#ai-signals-page-list');
+                      if (list) observer.observe(list, { childList: true, characterData: true, subtree: true });
+                      observer.observe(document.body, { attributes: true, attributeFilter: ['data-view'] });
+                      window.__qaSignalEntryObserver = observer;
+                      snapshot();
+                    }"""
+                )
                 signal_cta.click()
                 page.wait_for_function(
                     "() => document.body.dataset.view === 'ai-signals'",
@@ -1424,6 +1559,37 @@ def run_e2e_checks(
                     raise QaFailure(
                         "홈 AI 시그널 버튼이 전체 목록 URL로 이동하지 않았습니다.",
                         {"url": page.url, "cta": cta_contract},
+                    )
+                page.wait_for_function(
+                    """() => !document.querySelector('#ai-signals-page-list')?.textContent
+                      ?.includes('불러오는 중입니다.')""",
+                    timeout=int(timeout * 1000),
+                )
+                signal_entry_frames = page.evaluate(
+                    """() => {
+                      window.__qaSignalEntryObserver?.disconnect();
+                      return window.__qaSignalEntryFrames || [];
+                    }"""
+                )
+                first_open_frame = next(
+                    (
+                        frame
+                        for frame in signal_entry_frames
+                        if int(frame.get("openRowCount") or 0) > 0
+                    ),
+                    None,
+                )
+                if first_open_frame and (
+                    int(first_open_frame.get("numericReturnCount") or 0) > 0
+                    or int(first_open_frame.get("pendingReturnCount") or 0)
+                    != int(first_open_frame.get("openRowCount") or 0)
+                ):
+                    raise QaFailure(
+                        "AI 시그널 최초 행에 이전 스냅샷 수익률이 먼저 노출됐습니다.",
+                        {
+                            "first_open_frame": first_open_frame,
+                            "signal_entry_frames": signal_entry_frames,
+                        },
                     )
                 return {
                     **shell,
@@ -1438,6 +1604,7 @@ def run_e2e_checks(
                     "weekend_close_basis": weekend_basis,
                     "home_copy": "시총 100위내 매매신호를 확인하세요",
                     "home_cta": cta_contract,
+                    "signal_entry_frames": signal_entry_frames,
                 }
 
             signal_ui_result = _run_page_case(
@@ -1481,12 +1648,14 @@ def run_e2e_checks(
                     )
                     latest_shell = _assert_page_shell(page, theme=theme)
                     page.wait_for_selector("#stock-view", state="visible")
-                    page.wait_for_function(
+                    _wait_for_ui_contract(
+                        page,
                         """() => Boolean(
                           document.querySelector('[data-staging-stock-change-context]')
                             ?.dataset.stagingQuoteDate
                         )""",
-                        timeout=int(timeout * 1000),
+                        stage=f"{stock['code']} 거래일 비교 문구",
+                        timeout_ms=int(timeout * 1000),
                     )
                     change_context = page.evaluate(
                         """() => {
@@ -1524,10 +1693,105 @@ def run_e2e_checks(
                             "내부 AI 완료 배지가 종목 화면에 노출됐습니다.",
                             {"code": stock["code"]},
                         )
-                    tabs = page.locator(".stock-detail-tabs button")
-                    page.wait_for_function(
-                        "() => document.querySelectorAll('.stock-detail-tabs button').length === 5",
+                    page.wait_for_selector(
+                        "#stock-title-logo:not([hidden]) .stock-title-logo-frame",
+                        state="visible",
                         timeout=int(timeout * 1000),
+                    )
+                    title_logo = page.evaluate(
+                        """() => {
+                          const logo = document.querySelector('#stock-title-logo');
+                          const titleRow = logo?.closest('.staging-stock-hero-name-row, .stock-v3-name-row');
+                          const title = titleRow?.querySelector('[data-staging-stock-name], #stock-name');
+                          const frame = logo?.querySelector('.stock-title-logo-frame');
+                          const image = logo?.querySelector('.stock-list-logo-image');
+                          const fallback = logo?.querySelector('.stock-list-logo-fallback');
+                          const bounds = element => {
+                            const rect = element?.getBoundingClientRect();
+                            return rect ? {
+                              top: rect.top,
+                              right: rect.right,
+                              bottom: rect.bottom,
+                              left: rect.left,
+                              width: rect.width,
+                              height: rect.height,
+                            } : null;
+                          };
+                          return {
+                            code: logo?.dataset.stockCode || '',
+                            hidden: logo?.hidden ?? true,
+                            bounds: bounds(logo),
+                            rowBounds: bounds(titleRow),
+                            titleBounds: bounds(title),
+                            rowClass: titleRow?.className || '',
+                            titleText: title?.textContent?.trim() || '',
+                            insideChart: Boolean(logo?.closest('.stock-v3-chart-pane')),
+                            frameClass: frame?.className || '',
+                            imageSrc: image?.getAttribute('src') || '',
+                            fallbackPresent: Boolean(fallback),
+                            pointerEvents: logo ? getComputedStyle(logo).pointerEvents : '',
+                            rootScrollWidth: document.documentElement.scrollWidth,
+                            viewportWidth: innerWidth,
+                          };
+                        }"""
+                    )
+                    logo_bounds = title_logo.get("bounds") or {}
+                    row_bounds = title_logo.get("rowBounds") or {}
+                    title_bounds = title_logo.get("titleBounds") or {}
+                    logo_failures = []
+                    if title_logo.get("code") != stock["code"] or title_logo.get("hidden"):
+                        logo_failures.append("selected_stock_identity")
+                    if (
+                        round(float(logo_bounds.get("width") or 0)) != 36
+                        or round(float(logo_bounds.get("height") or 0)) != 36
+                    ):
+                        logo_failures.append("staging_logo_size")
+                    if (
+                        "staging-stock-hero-name-row" not in str(title_logo.get("rowClass") or "")
+                        or title_logo.get("titleText") != stock["name"]
+                        or title_logo.get("insideChart")
+                    ):
+                        logo_failures.append("title_row_identity")
+                    logo_center_y = (
+                        float(logo_bounds.get("top") or 0)
+                        + float(logo_bounds.get("bottom") or 0)
+                    ) / 2
+                    title_center_y = (
+                        float(title_bounds.get("top") or 0)
+                        + float(title_bounds.get("bottom") or 0)
+                    ) / 2
+                    if (
+                        float(logo_bounds.get("left") or 0) < float(row_bounds.get("left") or 0) - 1
+                        or float(logo_bounds.get("right") or 0) > float(title_bounds.get("left") or 0)
+                        or abs(logo_center_y - title_center_y) > 1.5
+                    ):
+                        logo_failures.append("title_alignment")
+                    if title_logo.get("pointerEvents") != "none":
+                        logo_failures.append("title_interaction_passthrough")
+                    if (
+                        title_logo.get("imageSrc")
+                        and f"/stock-logos/{stock['code']}.png" not in title_logo["imageSrc"]
+                    ):
+                        logo_failures.append("logo_url")
+                    if not title_logo.get("imageSrc") and not title_logo.get("fallbackPresent"):
+                        logo_failures.append("fallback")
+                    if int(title_logo.get("rootScrollWidth") or 0) > int(title_logo.get("viewportWidth") or 0) + 1:
+                        logo_failures.append("horizontal_overflow")
+                    if logo_failures:
+                        raise QaFailure(
+                            "종목 상세 로고가 종목명 옆 정렬·이미지·폴백 계약을 지키지 않았습니다.",
+                            {
+                                "code": stock["code"],
+                                "failed_contracts": logo_failures,
+                                "title_logo": title_logo,
+                            },
+                        )
+                    tabs = page.locator(".stock-detail-tabs button")
+                    _wait_for_ui_contract(
+                        page,
+                        "() => document.querySelectorAll('.stock-detail-tabs button').length === 5",
+                        stage=f"{stock['code']} 상세 탭",
+                        timeout_ms=int(timeout * 1000),
                     )
                     if tabs.count() != 5:
                         raise QaFailure(
@@ -1583,25 +1847,31 @@ def run_e2e_checks(
                         "exited": "전량 매도 후 대기중",
                     }.get(stock.get("signal_action"), stock.get("signal_label"))
                     if expected_stage:
-                        page.wait_for_function(
+                        _wait_for_ui_contract(
+                            page,
                             "expected => document.querySelector('#stock-view')?.innerText.includes(expected)",
                             arg=expected_stage,
-                            timeout=int(timeout * 1000),
+                            stage=f"{stock['code']} 현재 AI 시그널 단계",
+                            timeout_ms=int(timeout * 1000),
                         )
                     transition_date = stock.get("signal_transition_date")
-                    if transition_date:
-                        page.wait_for_function(
+                    if transition_date and stock.get("signal_action") == "exited":
+                        _wait_for_ui_contract(
+                            page,
                             "expected => document.querySelector('#stock-view')?.innerText.includes(expected)",
                             arg=transition_date,
-                            timeout=int(timeout * 1000),
+                            stage=f"{stock['code']} 완료 매매 전환일",
+                            timeout_ms=int(timeout * 1000),
                         )
                     return_rate = stock.get("signal_return_rate")
                     if return_rate is not None:
                         expected_return_rate = f"{float(return_rate):+.2f}%"
-                        page.wait_for_function(
+                        _wait_for_ui_contract(
+                            page,
                             "expected => document.querySelector('#stock-view')?.innerText.includes(expected)",
                             arg=expected_return_rate,
-                            timeout=int(timeout * 1000),
+                            stage=f"{stock['code']} 완료 매매 수익률",
+                            timeout_ms=int(timeout * 1000),
                         )
                     action_icons = page.evaluate(
                         """() => {
@@ -1824,6 +2094,7 @@ def run_e2e_checks(
                             "signal_stage_text": expected_stage,
                             "transition_date": transition_date,
                             "change_context": change_context,
+                            "title_logo": title_logo,
                             "action_icons": action_icons,
                             "trading_hours": trading_hours,
                             "news_ui": news_ui,
@@ -1834,15 +2105,184 @@ def run_e2e_checks(
                     "fixtures": fixtures,
                 }
 
+            stock_result = _run_page_case(
+                browser=browser,
+                catalog_by_id=catalog_by_id,
+                case_id="SIG-UI-003",
+                base_url=base_url,
+                timeout=timeout,
+                artifact_dir=output_dir,
+                callback=stock_case,
+                storage_state=storage_state,
+                share_id=share_id,
+            )
+            results.append(stock_result)
+
+            def stock_title_logo_case(page: Any, theme: str) -> dict[str, Any]:
+                fixtures: list[dict[str, Any]] = []
+                for code, expected_kind in (
+                    ("005930", "collected"),
+                    ("278470", "official"),
+                    ("014950", "fallback"),
+                ):
+                    page.set_viewport_size({"width": 320, "height": 844})
+                    _navigate_page(
+                        page,
+                        _page_url(
+                            base_url,
+                            f"/dashboard/{code}",
+                            theme=theme,
+                            qa_title_logo=datetime.now(KST).strftime("%H%M%S%f"),
+                        ),
+                        wait_until="commit",
+                    )
+                    _assert_page_shell(page, theme=theme)
+                    page.wait_for_selector(
+                        "#stock-title-logo:not([hidden]) .stock-title-logo-frame",
+                        state="visible",
+                        timeout=int(timeout * 1000),
+                    )
+                    viewport_evidence: dict[str, Any] = {}
+                    for viewport_label, viewport_size in (
+                        ("320px", {"width": 320, "height": 844}),
+                        ("458px", {"width": 458, "height": 872}),
+                    ):
+                        page.set_viewport_size(viewport_size)
+                        page.wait_for_timeout(100)
+                        snapshot = page.evaluate(
+                            """() => {
+                              const logo = document.querySelector('#stock-title-logo');
+                              const titleRow = logo?.closest('.staging-stock-hero-name-row, .stock-v3-name-row');
+                              const title = titleRow?.querySelector('[data-staging-stock-name], #stock-name');
+                              const frame = logo?.querySelector('.stock-title-logo-frame');
+                              const image = logo?.querySelector('.stock-list-logo-image');
+                              const fallback = logo?.querySelector('.stock-list-logo-fallback');
+                              const bounds = element => {
+                                const rect = element?.getBoundingClientRect();
+                                return rect ? {
+                                  top: rect.top,
+                                  right: rect.right,
+                                  bottom: rect.bottom,
+                                  left: rect.left,
+                                  width: rect.width,
+                                  height: rect.height,
+                                } : null;
+                              };
+                              return {
+                                code: logo?.dataset.stockCode || '',
+                                hidden: logo?.hidden ?? true,
+                                logoCount: document.querySelectorAll('#stock-title-logo').length,
+                                bounds: bounds(logo),
+                                rowBounds: bounds(titleRow),
+                                titleBounds: bounds(title),
+                                rowClass: titleRow?.className || '',
+                                titleText: title?.textContent?.trim() || '',
+                                insideChart: Boolean(logo?.closest('.stock-v3-chart-pane')),
+                                frameClass: frame?.className || '',
+                                imageSrc: image?.getAttribute('src') || '',
+                                imageNaturalWidth: image?.naturalWidth || 0,
+                                fallbackPresent: Boolean(fallback),
+                                pointerEvents: logo ? getComputedStyle(logo).pointerEvents : '',
+                                rootScrollWidth: document.documentElement.scrollWidth,
+                                viewportWidth: innerWidth,
+                              };
+                            }"""
+                        )
+                        logo_bounds = snapshot.get("bounds") or {}
+                        row_bounds = snapshot.get("rowBounds") or {}
+                        title_bounds = snapshot.get("titleBounds") or {}
+                        image_src = str(snapshot.get("imageSrc") or "")
+                        frame_class = str(snapshot.get("frameClass") or "")
+                        failures = []
+                        if (
+                            snapshot.get("code") != code
+                            or snapshot.get("hidden")
+                            or int(snapshot.get("logoCount") or 0) != 1
+                        ):
+                            failures.append("selected_stock_identity")
+                        expected_size = 34 if viewport_label == "320px" else 36
+                        if (
+                            round(float(logo_bounds.get("width") or 0)) != expected_size
+                            or round(float(logo_bounds.get("height") or 0)) != expected_size
+                        ):
+                            failures.append("staging_logo_size")
+                        logo_center_y = (
+                            float(logo_bounds.get("top") or 0)
+                            + float(logo_bounds.get("bottom") or 0)
+                        ) / 2
+                        title_center_y = (
+                            float(title_bounds.get("top") or 0)
+                            + float(title_bounds.get("bottom") or 0)
+                        ) / 2
+                        title_gap = (
+                            float(title_bounds.get("left") or 0)
+                            - float(logo_bounds.get("right") or 0)
+                        )
+                        if (
+                            "staging-stock-hero-name-row" not in str(snapshot.get("rowClass") or "")
+                            or not snapshot.get("titleText")
+                            or snapshot.get("insideChart")
+                        ):
+                            failures.append("title_row_identity")
+                        if (
+                            float(logo_bounds.get("left") or 0) < float(row_bounds.get("left") or 0) - 1
+                            or title_gap < 4
+                            or title_gap > 12
+                            or abs(logo_center_y - title_center_y) > 1.5
+                        ):
+                            failures.append("title_alignment")
+                        if snapshot.get("pointerEvents") != "none":
+                            failures.append("title_interaction_passthrough")
+                        if image_src and not (
+                            f"/stock-logos/{code}.png" in image_src
+                            or image_src.startswith("data:image/")
+                        ):
+                            failures.append("logo_url")
+                        if expected_kind == "fallback":
+                            if (
+                                "is-fallback" not in frame_class
+                                or not snapshot.get("fallbackPresent")
+                            ):
+                                failures.append("fallback")
+                        elif (
+                            "is-fallback" in frame_class
+                            or int(snapshot.get("imageNaturalWidth") or 0) <= 0
+                        ):
+                            failures.append("logo_image")
+                        if int(snapshot.get("rootScrollWidth") or 0) > int(snapshot.get("viewportWidth") or 0) + 1:
+                            failures.append("horizontal_overflow")
+                        if failures:
+                            raise QaFailure(
+                                "종목 상세 종목명 옆 로고가 전환·폴백·반응형 정렬 계약을 지키지 않았습니다.",
+                                {
+                                    "code": code,
+                                    "theme": theme,
+                                    "viewport": viewport_label,
+                                    "expected_kind": expected_kind,
+                                    "failed_contracts": failures,
+                                    "title_logo": snapshot,
+                                },
+                            )
+                        viewport_evidence[viewport_label] = snapshot
+                    fixtures.append(
+                        {
+                            "code": code,
+                            "expected_kind": expected_kind,
+                            "viewports": viewport_evidence,
+                        }
+                    )
+                page.set_viewport_size(MOBILE_VIEWPORT)
+                return {"theme": theme, "fixtures": fixtures}
+
             results.append(
                 _run_page_case(
                     browser=browser,
                     catalog_by_id=catalog_by_id,
-                    case_id="SIG-UI-003",
+                    case_id="SIG-UI-020",
                     base_url=base_url,
                     timeout=timeout,
                     artifact_dir=output_dir,
-                    callback=stock_case,
+                    callback=stock_title_logo_case,
                     storage_state=storage_state,
                     share_id=share_id,
                 )
@@ -3261,6 +3701,63 @@ def run_e2e_checks(
             )
 
             def home_watchlist_response_detail_case(page: Any, theme: str) -> dict[str, Any]:
+                qa_remote_items: list[dict[str, Any]] = [
+                    {
+                        "code": "035720",
+                        "name": "카카오",
+                        "market": "KOSPI",
+                        "investor_state": "not_holding",
+                        "average_buy_price": None,
+                    }
+                ]
+                qa_remote_sync_requests: list[dict[str, Any]] = []
+
+                def qa_watchlist_route(route: Any) -> None:
+                    method = str(route.request.method or "GET").upper()
+                    if method == "PUT":
+                        try:
+                            request_payload = json.loads(route.request.post_data or "{}")
+                        except json.JSONDecodeError:
+                            request_payload = {}
+                        items = request_payload.get("items") or []
+                        qa_remote_items[:] = items if isinstance(items, list) else []
+                        qa_remote_sync_requests.append(
+                            {"method": method, "items": list(qa_remote_items)}
+                        )
+                    elif method != "GET":
+                        route.fulfill(status=405, json={"detail": "method not allowed"})
+                        return
+                    route.fulfill(
+                        status=200,
+                        json={"share_id": share_id, "items": qa_remote_items},
+                    )
+
+                page.route(
+                    re.compile(
+                        rf".*/watchlists/{re.escape(share_id)}(?:\?.*)?$"
+                    ),
+                    qa_watchlist_route,
+                )
+                page.route(
+                    re.compile(
+                        rf".*/watchlists/{re.escape(share_id)}/recommendation-tracks(?:\?.*)?$"
+                    ),
+                    lambda route: route.fulfill(
+                        status=200,
+                        json={
+                            "share_id": share_id,
+                            "initialized": True,
+                            "items": [],
+                        },
+                    ),
+                )
+                page.route(
+                    re.compile(r".*/session/write-token(?:\?.*)?$"),
+                    lambda route: route.fulfill(
+                        status=200,
+                        json={"write_token": "qa-e2e-write-token"},
+                    ),
+                )
                 page.route(
                     "**/stocks/035720/quant-signals*",
                     lambda route: route.fulfill(
@@ -3272,6 +3769,7 @@ def run_e2e_checks(
                             "as_of": "2026-08-29T10:30:00+09:00",
                             "data_state": "ready",
                             "confirmation": {
+                                "entry_allowed": False,
                                 "vetoes": [],
                                 "evidence": [
                                     {
@@ -3301,7 +3799,24 @@ def run_e2e_checks(
                                         "source": "저장 뉴스 + 네이버금융 종목뉴스",
                                         "as_of": "2026-08-29T09:20:00+09:00",
                                     },
+                                    {
+                                        "key": "research",
+                                        "available": True,
+                                        "score": 50,
+                                        "state": "supportive",
+                                        "summary": "최근 리포트 3건 · 목표가 상향 2건 · 투자의견 매수",
+                                        "source": "증권사 발간 리포트",
+                                        "as_of": "2026-08-29T07:30:00+09:00",
+                                    },
                                 ],
+                            },
+                            "current": {
+                                "action": "entry_watch",
+                                "label": "진입 관찰",
+                                "price": 60_000,
+                                "stop_reference": 55_000,
+                                "partial_exit_reference": 66_000,
+                                "next_confirmation": "외국인·기관 합산 순매수 전환 확인",
                             },
                         }
                     ),
@@ -3313,7 +3828,7 @@ def run_e2e_checks(
                             "code": "035720",
                             "name": "카카오",
                             "as_of": "2026-08-29T10:30:00+09:00",
-                            "quote": {"trade_date": "2026-08-28"},
+                            "quote": {"price": 60_000, "trade_date": "2026-08-28"},
                             "coverage": {"price": True},
                             "company_profile": {"sector": "인터넷", "industry": "인터넷 서비스"},
                             "chart_analysis": {
@@ -3323,6 +3838,15 @@ def run_e2e_checks(
                                 "signals": ["현재가가 20일선 위"],
                                 "risks": [],
                                 "support": 58_000,
+                                "resistance": 63_000,
+                                "atr_percent": 3.0,
+                            },
+                            "revisions": {
+                                "report_count_90d": 3,
+                                "target_up_count": 2,
+                                "target_down_count": 0,
+                                "latest_opinion": "매수",
+                                "latest_target_price": 75_000,
                             },
                             "flows": {},
                             "sentiment": {
@@ -3345,6 +3869,15 @@ def run_e2e_checks(
                             "flows": [],
                             "disclosures": [],
                             "news_items": [],
+                            "research_reports": [
+                                {
+                                    "broker_name": "QA증권",
+                                    "opinion": "매수",
+                                    "target_price": 75_000,
+                                    "title": "이익 회복 기대",
+                                    "published_at": "2026-08-29T07:30:00+09:00",
+                                }
+                            ],
                         }
                     ),
                 )
@@ -3382,6 +3915,38 @@ def run_e2e_checks(
                         }
                     ),
                 )
+                page.add_init_script(
+                    """(() => {
+                      const nativeFetch = window.fetch.bind(window);
+                      window.__qaStockSummaryRequests = [];
+                      window.fetch = (input, init = {}) => {
+                        const url = String(input?.url || input || '');
+                        if (!url.includes('/staging-ai/page-summary')) {
+                          return nativeFetch(input, init);
+                        }
+                        const request = JSON.parse(String(init.body || '{}'));
+                        window.__qaStockSummaryRequests.push(request);
+                        const response = {
+                          ...request.fallback,
+                          generation_mode: 'rules',
+                          model_name: null,
+                          generation_note: 'qa delayed verified copy',
+                          prompt_version: 'staging-page-summary-v11',
+                          cache_hit: false,
+                          input_tokens: null,
+                          output_tokens: null,
+                          total_tokens: null,
+                          estimated_cost_usd: null,
+                        };
+                        return new Promise(resolve => window.setTimeout(() => resolve(
+                          new Response(JSON.stringify(response), {
+                            status: 200,
+                            headers: { 'Content-Type': 'application/json' },
+                          })
+                        ), 450));
+                      };
+                    })();"""
+                )
                 _navigate_page(
                     page,
                     _page_url(
@@ -3396,14 +3961,6 @@ def run_e2e_checks(
                 )
                 shell = _assert_page_shell(page, theme=theme)
                 response = page.locator("#home-ai-response")
-                page.wait_for_function(
-                    """() => {
-                      const status = document.querySelector('#home-ai-response-summary');
-                      const text = status?.textContent?.trim() || '';
-                      return !text.includes('확인하고 있습니다')
-                        && !text.includes('주가에 영향을 줄 핵심 이벤트');
-                    }"""
-                )
                 page.evaluate(
                     """() => {
                       const list = document.querySelector('#home-ai-response-personal-list');
@@ -3431,6 +3988,18 @@ def run_e2e_checks(
                       pauseQuoteStreamConnection('checking');
                       loadHomeAiSignals = async () => false;
                       renderHomeAiResponse = () => {};
+                      const watchlist = JSON.parse(localStorage.getItem('analyst.watchlist') || '[]');
+                      const withoutQaStock = Array.isArray(watchlist)
+                        ? watchlist.filter(item => String(item?.code || '') !== '035720')
+                        : [];
+                      withoutQaStock.push({
+                        code: '035720',
+                        name: '카카오',
+                        market: 'KOSPI',
+                        investor_state: 'not_holding',
+                        average_buy_price: null,
+                      });
+                      localStorage.setItem('analyst.watchlist', JSON.stringify(withoutQaStock));
                       const row = document.createElement('a');
                       row.id = 'qa-ai-stock-response-row';
                       row.className = 'home-ai-interest-row is-negative';
@@ -3519,26 +4088,78 @@ def run_e2e_checks(
                 detail = page.locator("#staging-ai-stock-response-view")
                 detail.wait_for(state="visible")
                 page.wait_for_selector(
+                    "#staging-ai-stock-response-view[data-response-display='loading']"
+                )
+                loading_contract = page.evaluate(
+                    """() => {
+                      const detail = document.querySelector('#staging-ai-stock-response-view');
+                      const loader = detail?.querySelector('[data-staging-response-loader]');
+                      const action = detail?.querySelector('.staging-ai-stock-response-action');
+                      const selected = detail?.querySelector(
+                        '[data-staging-response-investor-state][aria-pressed="true"]'
+                      );
+                      return {
+                        ariaBusy: detail?.getAttribute('aria-busy'),
+                        display: detail?.dataset.responseDisplay,
+                        loaderDisplay: loader ? getComputedStyle(loader).display : '',
+                        loaderText: loader?.textContent?.replace(/\s+/g, ' ').trim() || '',
+                        actionDisplay: action ? getComputedStyle(action).display : '',
+                        selectedState: selected?.getAttribute('data-staging-response-investor-state'),
+                        optionCount: detail?.querySelectorAll('[data-staging-response-investor-state]').length || 0,
+                      };
+                    }"""
+                )
+                if (
+                    loading_contract.get("ariaBusy") != "true"
+                    or loading_contract.get("display") != "loading"
+                    or loading_contract.get("loaderDisplay") == "none"
+                    or "정리하고 있어요" not in str(loading_contract.get("loaderText") or "")
+                    or loading_contract.get("actionDisplay") != "none"
+                    or loading_contract.get("selectedState") != "not_holding"
+                    or loading_contract.get("optionCount") != 2
+                ):
+                    raise QaFailure(
+                        "종목 대응 설명이 완성되기 전 중간 본문이 노출됩니다.",
+                        loading_contract,
+                    )
+                page.wait_for_selector(
                     "#staging-ai-stock-response-view[data-response-loaded='true']"
+                )
+                _wait_for_ui_contract(
+                    page,
+                    """() => ['openai', 'rules'].includes(
+                      document.querySelector('#staging-ai-stock-response-view')?.dataset.summaryMode
+                    )""",
+                    stage="미보유 대응 설명",
+                    timeout_ms=int(timeout * 1000),
                 )
                 detail_text = detail.inner_text()
                 for required_text in (
                     "카카오",
                     "이 화면이 열린 이유",
                     "카카오X가 카뱅 품을 수 있는 이유",
-                    "현재 AI 전략 상태",
-                    "신호가 엇갈려요",
-                    "좋은 신호와 주의 신호가 함께 있어요",
-                    "현재 신호",
-                    "분석 자료 상태",
-                    "반영한 자료",
-                    "5개 모두",
-                    "실제 보유 여부나 주문 내역을 반영하지 않아요",
-                    "매수·매도 권유가 아닙니다",
+                    "내 상황에 맞춰 볼게요",
+                    "현재 이 종목을 보유하고 있나요?",
+                    "미보유",
+                    "보유 중",
+                    "쉽게 풀어보면",
+                    "왜 이렇게 보나요?",
+                    "현재는 매수 관망이 필요해요",
+                    "매수 관망",
+                    "지금 판단",
+                    "자료가 충분한가요?",
+                    "확인한 자료",
+                    "6개 모두",
+                    "실제 계좌·주문 내역과 자동 연동되지 않아요",
+                    "내 상황별 가격 가이드",
+                    "관망하다가 다시 볼 매수 포인트예요",
+                    "가격 안정 확인 구간",
+                    "매수 전환 확인 가격",
+                    "관망을 이어갈 기준",
                     "다음 확인",
                     "판단이 바뀌려면",
                     "왜 이렇게 봤나요?",
-                    "5가지 자료 자세히 보기",
+                    "6가지 자료 자세히 보기",
                     "점수와 계산 방법 알아보기",
                     "종목 상세에서 차트 보기",
                 ):
@@ -3552,7 +4173,7 @@ def run_e2e_checks(
                         "적중 확률로 오해할 수 있는 기술 라벨이 첫 화면에 남아 있습니다.",
                         {"detail_text": detail_text},
                     )
-                page.get_by_text("5가지 자료 자세히 보기", exact=True).click()
+                page.get_by_text("6가지 자료 자세히 보기", exact=True).click()
                 page.get_by_text("점수와 계산 방법 알아보기", exact=True).click()
                 expanded_text = detail.inner_text()
                 for required_text in (
@@ -3564,6 +4185,8 @@ def run_e2e_checks(
                     "최근 90일 신규매수 차단 공시 없음",
                     "최근 뉴스 분위기",
                     "긍정 6건 · 부정 2건 · 중립 2건",
+                    "증권사 리포트",
+                    "최근 리포트 3건 · 목표가 상향 2건 · 투자의견 매수",
                     "금리·환율·업종 환경",
                     "종목·업종 관련 축",
                     "분석 점수 (-100~+100)",
@@ -3588,6 +4211,32 @@ def run_e2e_checks(
                       directionLabel: document.querySelector('.staging-ai-stock-response-overview dt')?.textContent?.trim(),
                       directionValue: document.querySelector('[data-staging-response-direction]')?.textContent?.trim(),
                       directionGuide: document.querySelector('[data-staging-response-direction-guide]')?.textContent?.trim(),
+                      investorState: document.querySelector('#staging-ai-stock-response-view')?.dataset.investorState,
+                      selectedInvestorState: document.querySelector(
+                        '[data-staging-response-investor-state][aria-pressed="true"]'
+                      )?.getAttribute('data-staging-response-investor-state'),
+                      investorOptionHeights: [...document.querySelectorAll(
+                        '[data-staging-response-investor-state]'
+                      )].map(node => node.getBoundingClientRect().height),
+                      averagePriceFieldHidden: document.querySelector(
+                        '[data-staging-response-average-price-field]'
+                      )?.hidden,
+                      guideKeys: Array.from(document.querySelectorAll(
+                        '.staging-ai-stock-response-guide-row'
+                      )).map(node => node.dataset.guideKey),
+                      guideValues: Array.from(document.querySelectorAll(
+                        '.staging-ai-stock-response-guide-row strong'
+                      )).map(node => node.textContent?.trim()),
+                      firstOverviewPaddingLeft: parseFloat(getComputedStyle(
+                        document.querySelector('.staging-ai-stock-response-overview > div:first-child')
+                      ).paddingLeft || '0'),
+                      firstOverviewTextInset: (() => {
+                        const card = document.querySelector('.staging-ai-stock-response-overview > div:first-child');
+                        const label = card?.querySelector('dt');
+                        return card && label
+                          ? label.getBoundingClientRect().left - card.getBoundingClientRect().left
+                          : 0;
+                      })(),
                       metricCount: document.querySelectorAll('.staging-ai-stock-response-metric').length,
                       metricLabels: Array.from(document.querySelectorAll('.staging-ai-stock-response-metric h4')).map(node => node.textContent?.trim()),
                       metricStatuses: Array.from(document.querySelectorAll('.staging-ai-stock-response-metric-status')).map(node => node.textContent?.trim()),
@@ -3595,7 +4244,9 @@ def run_e2e_checks(
                       weightCount: Array.from(document.querySelectorAll('.staging-ai-stock-response-metric > footer > span:last-child')).filter(node => /^판단 반영 [0-9]+%$/.test(node.textContent?.trim() || '')).length,
                       firstScreenOrder: [
                         '.staging-ai-stock-response-context',
+                        '.staging-ai-stock-response-investor-state',
                         '.staging-ai-stock-response-action',
+                        '.staging-ai-stock-response-guide',
                         '.staging-ai-stock-response-next',
                         '.staging-ai-stock-response-evidence',
                         '.staging-ai-stock-response-method',
@@ -3603,6 +4254,23 @@ def run_e2e_checks(
                       metricLiveRegion: document.querySelector('[data-staging-response-metrics]')?.getAttribute('aria-live'),
                       announcementLiveRegion: document.querySelector('[data-staging-response-announcement]')?.getAttribute('aria-live'),
                       ariaBusy: document.querySelector('#staging-ai-stock-response-view')?.getAttribute('aria-busy'),
+                      summaryMode: document.querySelector('#staging-ai-stock-response-view')?.dataset.summaryMode,
+                      responseDisplay: document.querySelector('#staging-ai-stock-response-view')?.dataset.responseDisplay,
+                      loaderDisplay: getComputedStyle(
+                        document.querySelector('[data-staging-response-loader]')
+                      ).display,
+                      stockSummaryStates: (window.__qaStockSummaryRequests || [])
+                        .filter(request => request.page_type === 'stock_response')
+                        .map(request => request.facts?.investor_state),
+                      stockSummaryModes: (window.__qaStockSummaryRequests || [])
+                        .filter(request => request.page_type === 'stock_response')
+                        .map(request => request.facts?.position_mode),
+                      summaryBadgeCount: document.querySelectorAll('[data-staging-summary-provenance]').length,
+                      explanationLabel: document.querySelector('.staging-ai-stock-response-explanation > span')?.textContent?.trim(),
+                      explanation: document.querySelector('[data-staging-response-reason]')?.textContent?.trim(),
+                      visibleModelWords: /GPT|문구 정리|데이터 요약/.test(
+                        document.querySelector('#staging-ai-stock-response-view')?.innerText || ''
+                      ),
                     })"""
                 )
                 if (
@@ -3612,30 +4280,256 @@ def run_e2e_checks(
                     or detail_contract.get("bottomNavDisplay") != "none"
                     or detail_contract.get("pageWidth", 0) > detail_contract.get("viewportWidth", 0) + 1
                     or detail_contract.get("pageScrollWidth", 0) > detail_contract.get("viewportWidth", 0) + 1
-                    or detail_contract.get("directionLabel") != "현재 신호"
-                    or detail_contract.get("directionValue") != "신호가 엇갈려요"
-                    or detail_contract.get("directionGuide") != "좋은 신호와 주의 신호가 함께 있어요"
-                    or detail_contract.get("metricCount") != 5
+                    or detail_contract.get("directionLabel") != "지금 판단"
+                    or detail_contract.get("directionValue") != "매수 관망"
+                    or detail_contract.get("directionGuide") != "신호가 같은 방향으로 모이는지 기다려요"
+                    or detail_contract.get("investorState") != "not_holding"
+                    or detail_contract.get("selectedInvestorState") != "not_holding"
+                    or detail_contract.get("averagePriceFieldHidden") is not True
+                    or detail_contract.get("guideKeys") != [
+                        "watch_zone",
+                        "buy_trigger",
+                        "risk_line",
+                    ]
+                    or len(detail_contract.get("guideValues") or []) != 3
+                    or not all(
+                        float(height) >= 44
+                        for height in detail_contract.get("investorOptionHeights") or []
+                    )
+                    or abs(float(detail_contract.get("firstOverviewPaddingLeft") or 0) - 12) > 0.5
+                    or float(detail_contract.get("firstOverviewTextInset") or 0) < 11
+                    or detail_contract.get("metricCount") != 6
                     or detail_contract.get("metricLabels") != [
                         "가격 흐름",
                         "외국인·기관 매매",
                         "회사 공식 공시",
                         "최근 뉴스 분위기",
+                        "증권사 리포트",
                         "금리·환율·업종 환경",
                     ]
-                    or len(detail_contract.get("metricStatuses") or []) != 5
-                    or detail_contract.get("sourceCount") != 5
-                    or detail_contract.get("weightCount") != 5
+                    or len(detail_contract.get("metricStatuses") or []) != 6
+                    or detail_contract.get("sourceCount") != 6
+                    or detail_contract.get("weightCount") != 6
                     or detail_contract.get("firstScreenOrder") != sorted(
                         detail_contract.get("firstScreenOrder") or []
                     )
                     or detail_contract.get("metricLiveRegion") is not None
                     or detail_contract.get("announcementLiveRegion") != "polite"
                     or detail_contract.get("ariaBusy") != "false"
+                    or detail_contract.get("summaryMode") not in {"openai", "rules"}
+                    or detail_contract.get("responseDisplay") != "ready"
+                    or detail_contract.get("loaderDisplay") != "none"
+                    or (detail_contract.get("stockSummaryStates") or [])[-1:] != ["not_holding"]
+                    or (detail_contract.get("stockSummaryModes") or [])[-1:] != ["watching"]
+                    or detail_contract.get("summaryBadgeCount") != 0
+                    or detail_contract.get("explanationLabel") != "왜 이렇게 보나요?"
+                    or not detail_contract.get("explanation")
+                    or detail_contract.get("visibleModelWords") is not False
                 ):
                     raise QaFailure(
                         "초보자용 AI 종목 대응 화면의 라우팅·정보 위계 계약이 깨졌습니다.",
                         detail_contract,
+                    )
+                perspective_contract: dict[str, Any] = {}
+                page.locator(
+                    '[data-staging-response-investor-state="holding"]'
+                ).click()
+                page.wait_for_selector(
+                    "#staging-ai-stock-response-view[data-response-display='loading']"
+                )
+                holding_loading_action_display = page.evaluate(
+                    "getComputedStyle(document.querySelector('.staging-ai-stock-response-action')).display"
+                )
+                _wait_for_ui_contract(
+                    page,
+                    """() => {
+                      const detail = document.querySelector('#staging-ai-stock-response-view');
+                      const latest = (window.__qaStockSummaryRequests || [])
+                        .filter(request => request.page_type === 'stock_response').at(-1);
+                      return detail?.dataset.investorState === 'holding'
+                        && detail?.dataset.responseDisplay === 'ready'
+                        && latest?.facts?.position_mode === 'holding_unknown';
+                    }""",
+                    stage="평균 매수가 미입력 보유 대응",
+                    timeout_ms=int(timeout * 1000),
+                )
+                holding_unknown = page.evaluate(
+                    """() => ({
+                      selected: document.querySelector(
+                        '[data-staging-response-investor-state][aria-pressed="true"]'
+                      )?.getAttribute('data-staging-response-investor-state'),
+                      direction: document.querySelector('[data-staging-response-direction]')?.textContent?.trim(),
+                      headline: document.querySelector('[data-staging-response-action]')?.textContent?.trim(),
+                      averageFieldHidden: document.querySelector(
+                        '[data-staging-response-average-price-field]'
+                      )?.hidden,
+                      request: (window.__qaStockSummaryRequests || [])
+                        .filter(request => request.page_type === 'stock_response').at(-1)?.facts,
+                      guideKeys: Array.from(document.querySelectorAll(
+                        '.staging-ai-stock-response-guide-row'
+                      )).map(node => node.dataset.guideKey),
+                      ariaBusy: document.querySelector('#staging-ai-stock-response-view')?.getAttribute('aria-busy'),
+                    })"""
+                )
+                holding_unknown["loading_action_display"] = holding_loading_action_display
+                perspective_contract["holding_unknown"] = holding_unknown
+                if (
+                    holding_loading_action_display != "none"
+                    or holding_unknown.get("selected") != "holding"
+                    or holding_unknown.get("direction") != "매수가 입력 필요"
+                    or holding_unknown.get("headline")
+                    != "평균 매수가를 입력하면 보유 대응을 손익에 맞춰 볼 수 있어요"
+                    or holding_unknown.get("averageFieldHidden") is not False
+                    or (holding_unknown.get("request") or {}).get("position_mode")
+                    != "holding_unknown"
+                    or (holding_unknown.get("request") or {}).get("average_buy_price") is not None
+                    or holding_unknown.get("guideKeys")
+                    != ["current_price", "risk_line", "first_sell"]
+                    or holding_unknown.get("ariaBusy") != "false"
+                ):
+                    raise QaFailure(
+                        "평균 매수가 미입력 보유 상태의 안내가 올바르지 않습니다.",
+                        holding_unknown,
+                    )
+
+                average_input = page.locator("[data-staging-response-average-price]")
+                average_submit = page.locator(
+                    "[data-staging-response-average-price-field] button[type='submit']"
+                )
+                for mode, average_price, expected_direction, expected_headline, expected_return in (
+                    (
+                        "holding_profit",
+                        "50000",
+                        "수익 관리",
+                        "현재 수익권이라면 분할 매도로 이익을 지킬 구간을 볼 때예요",
+                        20.0,
+                    ),
+                    (
+                        "holding_loss",
+                        "70000",
+                        "손실 관리",
+                        "현재 손실권이라면 가격별 손실 제한 기준을 먼저 세울 때예요",
+                        -14.285714,
+                    ),
+                ):
+                    average_input.fill(average_price)
+                    average_submit.click()
+                    page.wait_for_selector(
+                        "#staging-ai-stock-response-view[data-response-display='loading']"
+                    )
+                    _wait_for_ui_contract(
+                        page,
+                        """mode => {
+                          const detail = document.querySelector('#staging-ai-stock-response-view');
+                          const latest = (window.__qaStockSummaryRequests || [])
+                            .filter(request => request.page_type === 'stock_response').at(-1);
+                          return detail?.dataset.responseDisplay === 'ready'
+                            && latest?.facts?.position_mode === mode;
+                        }""",
+                        arg=mode,
+                        stage=f"평균 매수가 입력 후 {mode} 대응",
+                        timeout_ms=int(timeout * 1000),
+                    )
+                    measurement = page.evaluate(
+                        """() => ({
+                          selected: document.querySelector(
+                            '[data-staging-response-investor-state][aria-pressed="true"]'
+                          )?.getAttribute('data-staging-response-investor-state'),
+                          direction: document.querySelector('[data-staging-response-direction]')?.textContent?.trim(),
+                          headline: document.querySelector('[data-staging-response-action]')?.textContent?.trim(),
+                          inputValue: document.querySelector(
+                            '[data-staging-response-average-price]'
+                          )?.value,
+                          request: (window.__qaStockSummaryRequests || [])
+                            .filter(request => request.page_type === 'stock_response').at(-1)?.facts,
+                          guideKeys: Array.from(document.querySelectorAll(
+                            '.staging-ai-stock-response-guide-row'
+                          )).map(node => node.dataset.guideKey),
+                          guideStatuses: Array.from(document.querySelectorAll(
+                            '.staging-ai-stock-response-guide-row-head > div > span'
+                          )).map(node => node.textContent?.trim()),
+                          persistedAverage: window.SecretNoteWatchlistInvestorState
+                            ?.readAverageBuyPrice('035720'),
+                          ariaBusy: document.querySelector('#staging-ai-stock-response-view')
+                            ?.getAttribute('aria-busy'),
+                        })"""
+                    )
+                    perspective_contract[mode] = measurement
+                    request_facts = measurement.get("request") or {}
+                    expected_keys = (
+                        ["return", "first_sell", "protect"]
+                        if mode == "holding_profit"
+                        else ["return", "risk_line", "recovery"]
+                    )
+                    expected_status = "수익권" if mode == "holding_profit" else "손실권"
+                    if (
+                        measurement.get("selected") != "holding"
+                        or measurement.get("direction") != expected_direction
+                        or measurement.get("headline") != expected_headline
+                        or request_facts.get("investor_state") != "holding"
+                        or request_facts.get("position_mode") != mode
+                        or float(request_facts.get("average_buy_price") or 0)
+                        != float(average_price)
+                        or abs(
+                            float(request_facts.get("personal_return_rate") or 0)
+                            - expected_return
+                        )
+                        > 0.01
+                        or measurement.get("guideKeys") != expected_keys
+                        or (measurement.get("guideStatuses") or [None])[0]
+                        != expected_status
+                        or float(measurement.get("persistedAverage") or 0)
+                        != float(average_price)
+                        or measurement.get("ariaBusy") != "false"
+                    ):
+                        raise QaFailure(
+                            "평균 매수가 기준 수익·손실 대응 가이드가 올바르지 않습니다.",
+                            {"mode": mode, "measurement": measurement},
+                        )
+
+                summary_request_count_before_return = page.evaluate(
+                    "(window.__qaStockSummaryRequests || []).filter(request => "
+                    "request.page_type === 'stock_response').length"
+                )
+                page.locator(
+                    '[data-staging-response-investor-state="not_holding"]'
+                ).click()
+                _wait_for_ui_contract(
+                    page,
+                    """expectedCount => {
+                      const detail = document.querySelector('#staging-ai-stock-response-view');
+                      const requests = (window.__qaStockSummaryRequests || [])
+                        .filter(request => request.page_type === 'stock_response');
+                      return detail?.dataset.responseDisplay === 'ready'
+                        && detail?.dataset.investorState === 'not_holding'
+                        && requests.length === expectedCount
+                        && requests.some(request => request.facts?.position_mode === 'watching');
+                    }""",
+                    arg=summary_request_count_before_return,
+                    stage="보유에서 미보유로 전환한 대응",
+                    timeout_ms=int(timeout * 1000),
+                )
+                cleared_state = page.evaluate(
+                    """() => ({
+                      fieldHidden: document.querySelector(
+                        '[data-staging-response-average-price-field]'
+                      )?.hidden,
+                      persistedAverage: window.SecretNoteWatchlistInvestorState
+                        ?.readAverageBuyPrice('035720'),
+                      summaryRequestCount: (window.__qaStockSummaryRequests || [])
+                        .filter(request => request.page_type === 'stock_response').length,
+                    })"""
+                )
+                perspective_contract["not_holding_after_holding"] = cleared_state
+                if (
+                    cleared_state.get("fieldHidden") is not True
+                    or cleared_state.get("persistedAverage") is not None
+                    or cleared_state.get("summaryRequestCount")
+                    != summary_request_count_before_return
+                ):
+                    raise QaFailure(
+                        "미보유 전환 후 평균 매수가가 남아 있습니다.",
+                        cleared_state,
                     )
                 reflow_contract: dict[str, Any] = {}
                 for label, viewport_size in (
@@ -3700,6 +4594,9 @@ def run_e2e_checks(
                     **contract,
                     "bounds": bounds,
                     "detail": detail_contract,
+                    "loading": loading_contract,
+                    "perspectives": perspective_contract,
+                    "watchlist_sync_requests": qa_remote_sync_requests,
                     "reflow": reflow_contract,
                     "restored_focus": restored_focus,
                 }
@@ -3709,6 +4606,20 @@ def run_e2e_checks(
                     browser=browser,
                     catalog_by_id=catalog_by_id,
                     case_id="SIG-UI-012",
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=home_watchlist_response_detail_case,
+                    storage_state=storage_state,
+                    share_id=share_id,
+                )
+            )
+
+            results.append(
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id="SIG-UI-019",
                     base_url=base_url,
                     timeout=timeout,
                     artifact_dir=output_dir,
@@ -4265,6 +5176,884 @@ def run_e2e_checks(
                     timeout=timeout,
                     artifact_dir=output_dir,
                     callback=portfolio_production_screens_case,
+                    storage_state=storage_state,
+                    share_id=share_id,
+                )
+            )
+
+            def staging_gpt_detail_copy_case(page: Any, theme: str) -> dict[str, Any]:
+                signal = {
+                    "data_state": "ready",
+                    "as_of": "2026-08-31T16:00:00+09:00",
+                    "current": {
+                        "action": "entry_pending",
+                        "label": "매수 조건 확정",
+                        "score": 89.19,
+                        "price": 173300,
+                        "position_open": False,
+                        "live_observation": False,
+                        "as_of": "2026-08-31T16:00:00+09:00",
+                        "entry_confirmation": {
+                            "allowed": True,
+                            "state": "approved",
+                            "required_supports": 1,
+                            "supportive_count": 2,
+                            "reason": "독립 우호 근거 2개 확인",
+                        },
+                        "levels": [
+                            {
+                                "key": "entry",
+                                "label": "진입 확인선",
+                                "price": 176900,
+                                "condition": "장 마감 가격 조건 충족",
+                            }
+                        ],
+                        "next_confirmation": "다음 거래일 시가의 갭 범위를 확인합니다.",
+                        "lifecycle": {"latest_transition": {}},
+                    },
+                    "history": [],
+                }
+                item = {
+                    "code": "105560",
+                    "name": "KB금융",
+                    "rank": 1,
+                    "score": 69.01,
+                    "price": 173300,
+                    "condition_price": 173300,
+                    "change_rate": 0.64,
+                    "one_month_return": 11.17,
+                    "three_month_return": 26.55,
+                    "action": "신규 매수 대기",
+                    "recommendation_state": "entry_confirmed",
+                    "recommendation_label": "신규 매수 대기",
+                    "buy_condition_met": True,
+                    "buy_condition_as_of": "2026-08-31T15:40:00+09:00",
+                    "decision_reason": "추천 기준과 가격 조건, 서로 다른 확인 자료를 모두 통과해 신규 매수를 기다리는 단계입니다.",
+                    "reasons": ["차트 점수 88점", "3개월 흐름 +26.55%"],
+                    "risks": ["현재 가격 변동성을 확인해야 합니다."],
+                    "recommended_at": "2026-08-31T16:00:00+09:00",
+                    "chart_analysis": {
+                        "score": 88,
+                        "trend": "상승 추세",
+                        "support": 178400,
+                        "resistance": 182000,
+                    },
+                    "ai_trade_signal": signal,
+                }
+                page.route_web_socket(
+                    "**/ws/quotes",
+                    lambda socket: socket.on_message(lambda _message: None),
+                )
+                page.route(
+                    "**/stocks/quotes*",
+                    lambda route: route.fulfill(
+                        json={
+                            "type": "quotes",
+                            "as_of": "2026-08-31T16:00:00+09:00",
+                            "items": [],
+                            "rejected_codes": [],
+                        }
+                    ),
+                )
+                page.route(
+                    "**/stocks/105560/quote*",
+                    lambda route: route.abort(),
+                )
+                page.add_init_script(
+                    "if (!sessionStorage.getItem('recommendation-detail-v1')) {"
+                    "sessionStorage.setItem('recommendation-detail-v1', JSON.stringify("
+                    + json.dumps(item, ensure_ascii=False)
+                    + "));}"
+                )
+                page.route(
+                    "**/stocks/105560/ai-analysis*",
+                    lambda route: route.fulfill(
+                        json={
+                            "generation_mode": "rules",
+                            "summary": item["decision_reason"],
+                            "generation_note": "점수와 가격 기준은 데이터 규칙으로 계산합니다.",
+                        }
+                    ),
+                )
+                page.route(
+                    "**/stocks/105560/quant-signals*",
+                    lambda route: route.fulfill(json=signal),
+                )
+
+                summary_requests: list[dict[str, Any]] = []
+
+                def fulfill_summary(route: Any) -> None:
+                    request_payload = route.request.post_data_json
+                    summary_requests.append(request_payload)
+                    customer_state = request_payload.get("facts", {}).get("customer_state")
+                    holding = customer_state in {"hold", "partial-hold"}
+                    route.fulfill(
+                        json={
+                            "headline": (
+                                "KB금융, 현재 AI 판단은 보유 유지예요"
+                                if holding
+                                else "KB금융, 신규 매수 대기 상태예요"
+                            ),
+                            "summary": (
+                                "추천 기준을 통과한 뒤 이미 보유 중인 상태예요."
+                                if holding
+                                else "추천 기준은 통과했지만 아직 매수 전이에요."
+                            ),
+                            "reason": "추천 점수와 가격 조건, 서로 다른 확인 자료 2개가 기준을 통과했어요.",
+                            "action_title": (
+                                "지금은 추가 매수보다 보유 기준을 확인할 때예요"
+                                if holding
+                                else "지금은 새로 살 가격이 기준 안인지 확인할 때예요"
+                            ),
+                            "next_check": (
+                                "손실을 줄일 가격과 첫 수익 확인 가격을 살펴봐요."
+                                if holding
+                                else "다음 거래가 시작될 때 가격이 매수 기준 안인지 확인해요."
+                            ),
+                            "evidence_refs": ["buy-condition", "recommendation-score"],
+                            "generation_mode": "openai",
+                            "model_name": "gpt-4o-mini-2024-07-18",
+                            "generation_note": "표시 문장만 쉽게 풀었으며 판단 값은 변경하지 않았습니다.",
+                            "prompt_version": "staging-page-summary-v11",
+                            "cache_hit": False,
+                            "input_tokens": 1000,
+                            "output_tokens": 100,
+                            "total_tokens": 1100,
+                            "estimated_cost_usd": 0.00021,
+                        }
+                    )
+
+                page.route("**/staging-ai/page-summary", fulfill_summary)
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/dashboard",
+                        view="recommend-detail",
+                        code="105560",
+                        theme=theme,
+                        qa_gpt=datetime.now(KST).strftime("%H%M%S"),
+                    ),
+                    wait_until="commit",
+                    ready_selector="body[data-view='recommend-detail']",
+                )
+                shell = _assert_page_shell(page, theme=theme)
+                page.wait_for_selector(
+                    "#recommend-detail-content[data-summary-mode='openai']",
+                    timeout=int(timeout * 1000),
+                )
+                contract = page.evaluate(
+                    """() => {
+                      const content = document.querySelector('#recommend-detail-content');
+                      const levels = [...content.querySelectorAll('.recommend-detail-metric')]
+                        .map(row => ({
+                          label: row.querySelector('span')?.textContent?.trim(),
+                          value: row.querySelector('strong')?.textContent?.trim(),
+                        }));
+                      return {
+                        view: document.body.dataset.view,
+                        summaryMode: content?.dataset.summaryMode,
+                        summaryDisplay: content?.dataset.summaryDisplay,
+                        ariaBusy: content?.getAttribute('aria-busy'),
+                        loaderDisplay: getComputedStyle(
+                          content?.querySelector('[data-staging-recommend-detail-loader]')
+                        ).display,
+                        customerState: content?.dataset.customerState,
+                        title: content?.querySelector('.staging-recommend-detail-hero h1')?.textContent?.trim(),
+                        summary: content?.querySelector('.recommend-detail-verdict')?.textContent?.trim(),
+                        actionTitle: content?.querySelector('.staging-recommend-detail-action > h2')?.textContent?.trim(),
+                        reason: content?.querySelector('[data-staging-recommend-detail-reason]')?.textContent?.trim(),
+                        nextCheck: content?.querySelector('.staging-recommend-detail-next-check strong')?.textContent?.trim(),
+                        badgeCount: content?.querySelectorAll('.recommend-detail-ai-badge').length,
+                        visibleModelWords: /GPT|문구 정리|데이터 요약/.test(content?.innerText || ''),
+                        visibleOperatorWords: /오늘 시가 반영|시가 반영 완료|전략 반영|장 마감 매수 조건|독립 근거/.test(content?.innerText || ''),
+                        scoreNow: content?.querySelector('.staging-recommend-detail-score-track')?.getAttribute('aria-valuenow'),
+                        scoreLevel: content?.querySelector('.recommend-detail-score em')?.textContent?.trim(),
+                        quickMetrics: [...content.querySelectorAll('.staging-recommend-detail-quick-metrics dd')]
+                          .map(node => node.textContent?.trim()),
+                        levels,
+                        journeyStage: content?.querySelector('.staging-recommend-detail-journey .recommend-signal-stage')?.textContent?.trim(),
+                        independence: content?.querySelector('.recommend-signal-independence')?.textContent?.trim(),
+                        source: content?.querySelector('.recommend-detail-source')?.textContent?.trim(),
+                        order: [
+                          '.staging-recommend-detail-hero',
+                          '.staging-recommend-detail-action',
+                          '.staging-recommend-detail-levels',
+                          '.staging-recommend-detail-evidence-section',
+                          '.staging-recommend-detail-journey',
+                        ].map(selector => content?.querySelector(selector)?.offsetTop || 0),
+                        width: content?.getBoundingClientRect().width || 0,
+                        scrollWidth: content?.scrollWidth || 0,
+                        viewportWidth: innerWidth,
+                      };
+                    }"""
+                )
+                if (
+                    contract.get("view") != "recommend-detail"
+                    or contract.get("summaryMode") != "openai"
+                    or contract.get("summaryDisplay") != "ready"
+                    or contract.get("ariaBusy") != "false"
+                    or contract.get("loaderDisplay") != "none"
+                    or contract.get("customerState") != "new-buy-wait"
+                    or contract.get("title") != "KB금융, 신규 매수 대기 상태예요"
+                    or contract.get("summary") != "추천 기준은 통과했지만 아직 매수 전이에요."
+                    or contract.get("reason") != "추천 점수와 가격 조건, 서로 다른 확인 자료 2개가 기준을 통과했어요."
+                    or contract.get("actionTitle") != "지금은 새로 살 가격이 기준 안인지 확인할 때예요"
+                    or contract.get("nextCheck") != "다음 거래가 시작될 때 가격이 매수 기준 안인지 확인해요."
+                    or contract.get("badgeCount") != 0
+                    or contract.get("visibleModelWords") is not False
+                    or contract.get("visibleOperatorWords") is not False
+                    or contract.get("scoreNow") != "69.01"
+                    or contract.get("scoreLevel") != "추천 기준 통과"
+                    or contract.get("quickMetrics") != ["69점", "89점", "신규 매수 대기"]
+                    or contract.get("journeyStage") != "신규 매수 대기"
+                    or "지금 새로 살지·보유할지·팔지를" not in str(contract.get("independence") or "")
+                    or "공개 시장 데이터를 기준" not in str(contract.get("source") or "")
+                    or contract.get("order") != sorted(contract.get("order") or [])
+                    or contract.get("width", 0) > contract.get("viewportWidth", 0) + 1
+                    or contract.get("scrollWidth", 0) > contract.get("viewportWidth", 0) + 1
+                ):
+                    raise QaFailure(
+                        "추천 상세에서 쉬운 설명과 고정 금융 데이터의 소유권이 분리되지 않았습니다.",
+                        contract,
+                    )
+                level_map = {
+                    str(row.get("label")): str(row.get("value"))
+                    for row in contract.get("levels") or []
+                }
+                live_price_text = level_map.get("현재가") or ""
+                if not (
+                    level_map.get("추천 기준") == "통과"
+                    and level_map.get("추천 당시 가격") == "173,300원"
+                    and level_map.get("새로 살 기준 가격") == "176,900원"
+                    and re.fullmatch(r"\d{1,3}(?:,\d{3})*원", live_price_text)
+                    and level_map.get("확인한 자료") == "2개 · 기준 1개"
+                    and level_map.get("지금 판단") == "신규 매수 대기"
+                    and level_map.get("추가 매수") == "보유 전"
+                ):
+                    raise QaFailure(
+                        "쉬운 설명 적용 뒤 추천 당시·신규 매수 기준 가격 또는 실시간 현재가가 누락됐습니다.",
+                        {"levels": level_map},
+                    )
+                if (
+                    len(summary_requests) != 1
+                    or summary_requests[0].get("page_type") != "recommendation_detail"
+                    or summary_requests[0].get("facts", {}).get("buy_condition_met") is not True
+                    or summary_requests[0].get("facts", {}).get("customer_state") != "new-buy-wait"
+                    or summary_requests[0].get("facts", {}).get("customer_state_label") != "신규 매수 대기"
+                    or summary_requests[0].get("facts", {}).get("additional_buy_label") != "보유 전"
+                    or summary_requests[0].get("facts", {}).get("current_price") != 173300
+                    or set(summary_requests[0].get("fallback") or {})
+                    != {"headline", "summary", "reason", "action_title", "next_check", "evidence_refs"}
+                ):
+                    raise QaFailure(
+                        "추천 상세가 스테이징 구조화 요약 계약으로 한 번만 요청하지 않았습니다.",
+                        {"requests": summary_requests},
+                    )
+
+                today_token = datetime.now(KST).date().isoformat()
+                signal["current"].update(
+                    {
+                        "action": "entered",
+                        "label": "전략상 진입 완료",
+                        "score": 75.37,
+                        "price": 171600,
+                        "position_open": True,
+                        "entry_date": today_token,
+                        "entry_price": 169100,
+                        "lifecycle": {
+                            "latest_transition": {
+                                "side": "buy",
+                                "signal_date": "2026-08-31",
+                                "transition_date": today_token,
+                                "price": 169100,
+                            }
+                        },
+                        "next_confirmation": "초기 위험선과 첫 수익 확인 기준을 매일 확인합니다.",
+                    }
+                )
+                item.update(
+                    {
+                        "action": "보유 유지",
+                        "recommendation_state": "entered_today",
+                        "recommendation_label": "보유 유지",
+                        "recommendation_entry_date": today_token,
+                        "strategy_entry_price": 169100,
+                        "price": 171600,
+                        "decision_reason": "추천 기준을 통과한 뒤 AI 전략이 보유 중이며, 현재는 추가 매수보다 보유 기준을 확인하는 단계입니다.",
+                        "ai_trade_signal": signal,
+                    }
+                )
+                page.evaluate(
+                    "payload => sessionStorage.setItem('recommendation-detail-v1', JSON.stringify(payload))",
+                    item,
+                )
+                page.reload(wait_until="commit")
+                page.wait_for_selector(
+                    "#recommend-detail-content[data-recommendation-state='entered-today'][data-summary-mode='openai']",
+                    timeout=int(timeout * 1000),
+                )
+                entered_today_contract = page.evaluate(
+                    """() => {
+                      const content = document.querySelector('#recommend-detail-content');
+                      const levelRows = [...content.querySelectorAll('.staging-recommend-detail-levels .recommend-detail-metric')];
+                      return {
+                        state: content?.dataset.recommendationState,
+                        customerState: content?.dataset.customerState,
+                        title: content?.querySelector('.staging-recommend-detail-hero h1')?.textContent?.trim(),
+                        summary: content?.querySelector('.recommend-detail-verdict')?.textContent?.trim(),
+                        actionTitle: content?.querySelector('.staging-recommend-detail-action > h2')?.textContent?.trim(),
+                        reason: content?.querySelector('[data-staging-recommend-detail-reason]')?.textContent?.trim(),
+                        scoreLevel: content?.querySelector('.recommend-detail-score em')?.textContent?.trim(),
+                        journeyStage: content?.querySelector('.staging-recommend-detail-journey .recommend-signal-stage')?.textContent?.trim(),
+                        levels: Object.fromEntries(levelRows.map(row => [
+                          row.querySelector('span')?.textContent?.trim(),
+                          row.querySelector('strong')?.textContent?.trim(),
+                        ])),
+                      };
+                    }"""
+                )
+                if (
+                    entered_today_contract.get("state") != "entered-today"
+                    or entered_today_contract.get("customerState") != "hold"
+                    or entered_today_contract.get("title") != "KB금융, 현재 AI 판단은 보유 유지예요"
+                    or "이미 보유 중인 상태" not in str(entered_today_contract.get("summary") or "")
+                    or "추가 매수보다 보유 기준" not in str(entered_today_contract.get("actionTitle") or "")
+                    or entered_today_contract.get("scoreLevel") != "추천 기준 통과"
+                    or entered_today_contract.get("journeyStage") != "보유 유지"
+                    or entered_today_contract.get("levels", {}).get("추천 기준") != "통과"
+                    or entered_today_contract.get("levels", {}).get("추천 당시 가격") != "173,300원"
+                    or entered_today_contract.get("levels", {}).get("AI 전략 매수가") != "169,100원"
+                    or not re.fullmatch(
+                        r"\d{1,3}(?:,\d{3})*원",
+                        entered_today_contract.get("levels", {}).get("현재가") or "",
+                    )
+                    or entered_today_contract.get("levels", {}).get("확인한 자료") != "2개 · 기준 1개"
+                    or entered_today_contract.get("levels", {}).get("지금 판단") != "보유 유지"
+                    or entered_today_contract.get("levels", {}).get("추가 매수") != "신호 없음"
+                    or len(summary_requests) != 2
+                    or summary_requests[1].get("facts", {}).get("recommendation_state") != "entered_today"
+                    or summary_requests[1].get("facts", {}).get("customer_state") != "hold"
+                    or summary_requests[1].get("facts", {}).get("additional_buy_label") != "신호 없음"
+                    or summary_requests[1].get("facts", {}).get("strategy_entry_price") != 169100
+                    or summary_requests[1].get("facts", {}).get("condition_price") != 173300
+                    or summary_requests[1].get("facts", {}).get("current_price") != 171600
+                ):
+                    raise QaFailure(
+                        "AI 전략이 보유 중인 추천이 보유 유지와 추가 매수 신호 없음으로 이어지지 않았습니다.",
+                        {"entered_today": entered_today_contract, "requests": summary_requests},
+                    )
+
+                reflow: dict[str, Any] = {}
+                for label, viewport_size in (
+                    ("320px", {"width": 320, "height": 740}),
+                    ("200_percent_equivalent", {"width": 229, "height": 436}),
+                ):
+                    page.set_viewport_size(viewport_size)
+                    page.wait_for_timeout(80)
+                    measured = page.evaluate(
+                        """() => {
+                          const content = document.querySelector('#recommend-detail-content');
+                          return {
+                            width: content?.getBoundingClientRect().width || 0,
+                            scrollWidth: content?.scrollWidth || 0,
+                            rootScrollWidth: document.documentElement.scrollWidth,
+                            viewportWidth: innerWidth,
+                          };
+                        }"""
+                    )
+                    reflow[label] = measured
+                    if (
+                        measured.get("width", 0) > measured.get("viewportWidth", 0) + 1
+                        or measured.get("scrollWidth", 0) > measured.get("viewportWidth", 0) + 1
+                        or measured.get("rootScrollWidth", 0) > measured.get("viewportWidth", 0) + 1
+                    ):
+                        raise QaFailure(
+                            f"GPT 추천 상세가 {label}에서 가로로 넘칩니다.",
+                            measured,
+                        )
+
+                prior_token = (datetime.now(KST).date() - timedelta(days=1)).isoformat()
+                signal["current"].update(
+                    {
+                        "action": "holding",
+                        "label": "보유 기준 확인",
+                        "entry_date": prior_token,
+                        "lifecycle": {
+                            "latest_transition": {
+                                "side": "buy",
+                                "signal_date": "2026-08-30",
+                                "transition_date": prior_token,
+                                "price": 169100,
+                            }
+                        },
+                    }
+                )
+                item.update(
+                    {
+                        "recommendation_entry_date": prior_token,
+                        "ai_trade_signal": signal,
+                    }
+                )
+                page.evaluate(
+                    "payload => sessionStorage.setItem('recommendation-detail-v1', JSON.stringify(payload))",
+                    item,
+                )
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.reload(wait_until="commit")
+                page.wait_for_selector(
+                    "#recommend-detail-content[data-recommendation-state='changed']",
+                    timeout=int(timeout * 1000),
+                )
+                changed_contract = page.evaluate(
+                    """() => {
+                      const content = document.querySelector('#recommend-detail-content');
+                      const levelRows = [...content.querySelectorAll('.staging-recommend-detail-levels .recommend-detail-metric')];
+                      return {
+                        state: content?.dataset.recommendationState,
+                        customerState: content?.dataset.customerState,
+                        title: content?.querySelector('.staging-recommend-detail-hero h1')?.textContent?.trim(),
+                        summary: content?.querySelector('.recommend-detail-verdict')?.textContent?.trim(),
+                        actionTitle: content?.querySelector('.staging-recommend-detail-action > h2')?.textContent?.trim(),
+                        reason: content?.querySelector('[data-staging-recommend-detail-reason]')?.textContent?.trim(),
+                        journeyStage: content?.querySelector('.staging-recommend-detail-journey .recommend-signal-stage')?.textContent?.trim(),
+                        conditionState: levelRows.find(row => row.querySelector('span')?.textContent?.trim() === '추천 기준')
+                          ?.querySelector('strong')?.textContent?.trim(),
+                      };
+                    }"""
+                )
+                if (
+                    changed_contract.get("state") != "changed"
+                    or changed_contract.get("customerState") != "hold"
+                    or changed_contract.get("title") != "KB금융, 현재 AI 판단은 보유 유지예요"
+                    or "오늘의 신규 추천 목록에는 포함되지 않아요" not in str(changed_contract.get("summary") or "")
+                    or "추가 매수보다 보유 기준" not in str(changed_contract.get("actionTitle") or "")
+                    or "현재는 보유 상태를 점검" not in str(changed_contract.get("reason") or "")
+                    or changed_contract.get("journeyStage") != "보유 유지"
+                    or changed_contract.get("conditionState") != "추천 당시 통과"
+                    or len(summary_requests) != 2
+                ):
+                    raise QaFailure(
+                        "당일이 지난 보유 상태가 신규 매수 추천으로 남아 있습니다.",
+                        {"changed": changed_contract, "summary_request_count": len(summary_requests)},
+                    )
+                return {
+                    **shell,
+                    "recommendation": contract,
+                    "entered_today_recommendation": entered_today_contract,
+                    "changed_recommendation": changed_contract,
+                    "request_page_type": summary_requests[0]["page_type"],
+                    "summary_request_count": len(summary_requests),
+                    "reflow": reflow,
+                }
+
+            results.append(
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id="SIG-UI-017",
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=staging_gpt_detail_copy_case,
+                    storage_state=storage_state,
+                    share_id=share_id,
+                )
+            )
+
+            def staging_gpt_briefing_copy_case(page: Any, theme: str) -> dict[str, Any]:
+                publication_date = datetime.now(KST).date().isoformat()
+                previous_date = (datetime.now(KST).date() - timedelta(days=1)).isoformat()
+
+                def briefing_fixture(
+                    edition: str,
+                    label: str,
+                    hour: int,
+                    title: str,
+                    *,
+                    date_value: str = publication_date,
+                ) -> dict[str, Any]:
+                    category_key = f"{edition}-market"
+                    item_id = f"{edition}-news-1"
+                    item = {
+                        "id": item_id,
+                        "title": title,
+                        "summary": f"{title}의 공개 배경을 확인했어요.",
+                        "status": "확인",
+                        "why_it_matters": "시장 흐름에 영향을 줄 수 있는 공개 소식이에요.",
+                        "detail_url": f"https://example.com/{edition}-news-1",
+                        "category_key": category_key,
+                        "category_label": "시장 흐름",
+                    }
+                    payload: dict[str, Any] = {
+                        "title": "오늘의 돈이 되는 소식",
+                        "edition": edition,
+                        "edition_key": f"{date_value}:{hour:02d}",
+                        "edition_label": label,
+                        "publication_date": date_value,
+                        "timezone": "Asia/Seoul",
+                        "window_start": f"{date_value}T{max(0, hour - 3):02d}:00:00+09:00",
+                        "window_end": f"{date_value}T{hour:02d}:00:00+09:00",
+                        "published_at": f"{date_value}T{hour:02d}:00:00+09:00",
+                        "next_publication_at": f"{date_value}T23:59:00+09:00",
+                        "generated_at": f"{date_value}T{hour:02d}:00:00+09:00",
+                        "total_news_count": 2,
+                        "selected_news_count": 2,
+                        "opportunity_count": 1,
+                        "caution_count": 0,
+                        "highlights": [item],
+                        "categories": [
+                            {
+                                "key": category_key,
+                                "label": "시장 흐름",
+                                "icon": "📈",
+                                "description": "공개 시장 소식",
+                                "count": 1,
+                                "items": [item],
+                            }
+                        ],
+                        "empty_message": None,
+                    }
+                    if edition == "midday" and date_value == publication_date:
+                        payload.update(
+                            {
+                                "preliminary_buys_available": True,
+                                "preliminary_buys": [
+                                    {
+                                        "code": "111111",
+                                        "name": "예비포착주",
+                                        "side": "buy",
+                                        "signal_date": publication_date,
+                                        "first_seen_at": f"{publication_date}T09:30:00+09:00",
+                                        "score": 74.2,
+                                        "reason": "오전 거래대금과 추세 조건이 새로 충족됐어요.",
+                                        "action": "entry_pending",
+                                        "active": True,
+                                    }
+                                ],
+                            }
+                        )
+                    if edition == "afternoon" and date_value == publication_date:
+                        payload["confirmed_buys"] = [
+                            {
+                                "code": "222222",
+                                "name": "확정매수주",
+                                "side": "buy",
+                                "signal_date": publication_date,
+                                "execution_date": publication_date,
+                                "score": 82.0,
+                                "reason": "종가 기준 추세와 거래대금 조건을 확인했어요.",
+                                "action": "holding",
+                            }
+                        ]
+                    return payload
+
+                latest = [
+                    briefing_fixture("afternoon", "장 마감판", 16, "장 마감 뒤 환율 흐름"),
+                    briefing_fixture("midday", "점심판", 12, "오전 수급 변화"),
+                    briefing_fixture("morning", "아침판", 6, "밤사이 미국 시장 흐름"),
+                ]
+                older = briefing_fixture(
+                    "morning",
+                    "아침판",
+                    6,
+                    "어제 아침 시장 흐름",
+                    date_value=previous_date,
+                )
+                current_hour = datetime.now(KST).hour
+                if current_hour >= 16:
+                    current_payload = latest[0]
+                elif current_hour >= 12:
+                    current_payload = latest[1]
+                elif current_hour >= 6:
+                    current_payload = latest[2]
+                else:
+                    current_payload = briefing_fixture(
+                        "afternoon",
+                        "장 마감판",
+                        16,
+                        "어제 장 마감 뒤 환율 흐름",
+                        date_value=previous_date,
+                    )
+                briefing_requests: list[str] = []
+
+                def fulfill_briefings(route: Any) -> None:
+                    briefing_requests.append(route.request.url)
+                    payload: Any = [*latest, older] if "/history" in route.request.url else current_payload
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json; charset=utf-8",
+                        body=json.dumps(payload, ensure_ascii=False),
+                    )
+
+                page.route(
+                    re.compile(r".*/briefings/morning-money/history(?:\?.*)?$"),
+                    fulfill_briefings,
+                )
+                page.route(
+                    re.compile(r".*/briefings/morning-money(?:\?.*)?$"),
+                    fulfill_briefings,
+                )
+                page.route(
+                    "**/market/quant-signals?*",
+                    lambda route: route.fulfill(json={"status": "ready", "items": []}),
+                )
+                page.route(
+                    "**/market/trends?*",
+                    lambda route: route.fulfill(json={"events": [], "past_events": []}),
+                )
+                page.route(
+                    "**/market/calendar?*",
+                    lambda route: route.fulfill(json={"events": [], "past_events": []}),
+                )
+
+                summary_requests: list[dict[str, Any]] = []
+                generated_copy = {
+                    "morning": {
+                        "headline": "아침 시장 핵심을 짧게 봐요",
+                        "summary": "밤사이 시장 흐름을 먼저 확인해요.",
+                    },
+                    "midday": {
+                        "headline": "점심에 볼 오전 핵심이에요",
+                        "summary": "오전 수급 흐름을 짧게 정리했어요.",
+                    },
+                    "afternoon": {
+                        "headline": "장 마감 뒤 핵심을 확인해요",
+                        "summary": "마감 뒤 환율 흐름을 차분히 살펴봐요.",
+                    },
+                }
+
+                def fulfill_summary(route: Any) -> None:
+                    request = route.request.post_data_json
+                    summary_requests.append(request)
+                    if request.get("page_type") != "briefing_edition":
+                        route.fulfill(status=400, json={"error": "unexpected page type"})
+                        return
+                    edition = str(request.get("facts", {}).get("edition") or "")
+                    sources = request.get("facts", {}).get("sources") or []
+                    refs = [
+                        str(source.get("id"))
+                        for source in sources
+                        if isinstance(source, dict) and source.get("id")
+                    ][:2]
+                    copy = generated_copy.get(edition, generated_copy["morning"])
+                    route.fulfill(
+                        json={
+                            **copy,
+                            "reason": "제공된 공개 소식만 바탕으로 문구를 정리했어요.",
+                            "action_title": f"이번 {edition} 브리핑에서 먼저 볼 내용",
+                            "next_check": "원문과 최신 시세를 함께 확인해요.",
+                            "evidence_refs": refs,
+                            "generation_mode": "openai",
+                            "model_name": "gpt-4o-mini-2024-07-18",
+                            "generation_note": "GPT는 브리핑 문구만 정리했습니다.",
+                            "prompt_version": "staging-page-summary-v11",
+                            "cache_hit": False,
+                            "input_tokens": 400,
+                            "output_tokens": 80,
+                            "total_tokens": 480,
+                            "estimated_cost_usd": 0.000108,
+                        }
+                    )
+
+                page.route("**/staging-ai/page-summary", fulfill_summary)
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/dashboard",
+                        view="home",
+                        theme=theme,
+                        money_briefing_preview="1",
+                        qa_gpt_briefing=datetime.now(KST).strftime("%H%M%S"),
+                    ),
+                    wait_until="commit",
+                    ready_selector="body[data-view='home']",
+                )
+                shell = _assert_page_shell(page, theme=theme)
+                page.locator("#bottom-nav [data-app-view='news']").click()
+                page.wait_for_selector('body[data-view="news"]')
+                page.wait_for_selector(".staging-feed-modes", state="visible")
+                page.locator('[data-staging-feed-mode="content"]').click()
+                page.wait_for_function(
+                    """() => document.querySelectorAll(
+                      '.staging-editorial-post[data-summary-mode="openai"]'
+                    ).length === 3""",
+                    timeout=int(timeout * 1000),
+                )
+                page.wait_for_timeout(120)
+
+                feed_contract = page.evaluate(
+                    """() => ({
+                      cards: [...document.querySelectorAll('.staging-editorial-post')].map(card => ({
+                        edition: card.dataset.stagingEdition,
+                        summaryMode: card.dataset.summaryMode || '',
+                        title: card.querySelector('h3')?.textContent?.trim(),
+                        summary: card.querySelector('.staging-editorial-summary')?.textContent?.trim(),
+                        badge: card.querySelector('[data-staging-briefing-summary-provenance]')?.textContent?.trim(),
+                        badgeMode: card.querySelector('[data-staging-briefing-summary-provenance]')?.dataset.summaryMode,
+                        footer: card.querySelector('footer')?.textContent?.replace(/\s+/g, ' ').trim(),
+                      })),
+                      preliminaryCodes: [...document.querySelectorAll('[data-staging-preliminary-buy-code]')]
+                        .map(node => node.dataset.stagingPreliminaryBuyCode),
+                      confirmedCodes: [...document.querySelectorAll('[data-staging-confirmed-buy-code]')]
+                        .map(node => node.dataset.stagingConfirmedBuyCode),
+                      rootScrollWidth: document.documentElement.scrollWidth,
+                      viewportWidth: innerWidth,
+                    })"""
+                )
+                latest_cards = {
+                    str(card.get("edition")): card
+                    for card in feed_contract.get("cards") or []
+                    if str(card.get("edition", "")).startswith(publication_date)
+                }
+                expected_titles = {
+                    f"{publication_date}:06": generated_copy["morning"]["headline"],
+                    f"{publication_date}:12": generated_copy["midday"]["headline"],
+                    f"{publication_date}:16": generated_copy["afternoon"]["headline"],
+                }
+                old_card = next(
+                    (
+                        card
+                        for card in feed_contract.get("cards") or []
+                        if card.get("edition") == f"{previous_date}:06"
+                    ),
+                    {},
+                )
+                if (
+                    set(latest_cards) != set(expected_titles)
+                    or any(
+                        latest_cards[key].get("title") != title
+                        or latest_cards[key].get("summaryMode") != "openai"
+                        or latest_cards[key].get("badge") != "GPT 문구 정리"
+                        or latest_cards[key].get("badgeMode") != "openai"
+                        or "핵심 소식 2건 전체 읽기" not in str(latest_cards[key].get("footer") or "")
+                        for key, title in expected_titles.items()
+                    )
+                    or old_card.get("title") != "밤사이 핵심만 빠르게"
+                    or old_card.get("badge") != "열면 GPT 정리"
+                    or old_card.get("badgeMode") != "deferred"
+                    or feed_contract.get("preliminaryCodes") != ["111111"]
+                    or feed_contract.get("confirmedCodes") != ["222222"]
+                    or feed_contract.get("rootScrollWidth", 0) > feed_contract.get("viewportWidth", 0) + 1
+                ):
+                    raise QaFailure(
+                        "세 브리핑의 GPT 문구, 과거 판 지연 생성 또는 고정 시그널 계약이 다릅니다.",
+                        feed_contract,
+                    )
+                request_editions = [
+                    request.get("facts", {}).get("edition") for request in summary_requests
+                ]
+                if len(summary_requests) != 3 or set(request_editions) != {
+                    "morning",
+                    "midday",
+                    "afternoon",
+                }:
+                    raise QaFailure(
+                        "최신 발행일 브리핑이 최대 세 번의 구조화 요약으로 제한되지 않았습니다.",
+                        {"request_editions": request_editions, "requests": summary_requests},
+                    )
+
+                midday_key = f"{publication_date}:12"
+                page.locator(
+                    f'[data-staging-edition="{midday_key}"] [data-staging-content-open]'
+                ).click()
+                page.wait_for_selector('body[data-view="morning-briefing"]')
+                page.wait_for_selector(
+                    '#morning-money-briefing-view[data-summary-mode="openai"]',
+                    timeout=int(timeout * 1000),
+                )
+                page.wait_for_timeout(120)
+                detail_contract = page.evaluate(
+                    """() => {
+                      const view = document.querySelector('#morning-money-briefing-view');
+                      return {
+                        title: view?.querySelector('#morning-money-overview-title')?.textContent?.trim(),
+                        intro: view?.querySelector('#morning-money-overview-intro')?.textContent?.trim(),
+                        digestTitle: view?.querySelector('#morning-money-digest-title')?.textContent?.trim(),
+                        nextCheck: view?.querySelector('.staging-briefing-ai-next strong')?.textContent?.trim(),
+                        badge: view?.querySelector('[data-staging-briefing-summary-provenance]')?.textContent?.trim(),
+                        meta: view?.querySelector('.staging-article-meta')?.textContent?.trim(),
+                        editionTitle: view?.querySelector('.morning-money-command-title h1')?.textContent?.trim(),
+                        categoryTitles: [...view.querySelectorAll('.morning-money-category-head h2')]
+                          .map(node => node.textContent?.trim()),
+                        newsTitles: [...view.querySelectorAll('.morning-money-news-title')]
+                          .map(node => node.textContent?.trim()),
+                        sourceLinks: [...view.querySelectorAll('.morning-money-news-title a')]
+                          .map(node => node.getAttribute('href')),
+                        preliminaryCodes: [...view.querySelectorAll('.staging-article-preliminary-buy')]
+                          .map(node => node.getAttribute('href')?.split('/').pop()),
+                        contentText: view?.querySelector('#morning-money-briefing-content')?.textContent
+                          ?.replace(/\s+/g, ' ').trim(),
+                        errorText: view?.querySelector('.morning-money-error-state')?.textContent
+                          ?.replace(/\s+/g, ' ').trim(),
+                        rootScrollWidth: document.documentElement.scrollWidth,
+                        viewportWidth: innerWidth,
+                      };
+                    }"""
+                )
+                if (
+                    len(summary_requests) != 3
+                    or detail_contract.get("title") != generated_copy["midday"]["headline"]
+                    or detail_contract.get("intro") != generated_copy["midday"]["summary"]
+                    or detail_contract.get("digestTitle") != "이번 midday 브리핑에서 먼저 볼 내용"
+                    or detail_contract.get("nextCheck") != "원문과 최신 시세를 함께 확인해요."
+                    or detail_contract.get("badge") != "GPT 문구 정리"
+                    or detail_contract.get("editionTitle") != "점심에 보는 돈이 되는 소식"
+                    or "핵심 소식 2건" not in str(detail_contract.get("meta") or "")
+                    or detail_contract.get("categoryTitles") != ["시장 흐름"]
+                    or detail_contract.get("newsTitles") != ["오전 수급 변화"]
+                    or detail_contract.get("sourceLinks") != ["https://example.com/midday-news-1"]
+                    or detail_contract.get("preliminaryCodes") != ["111111"]
+                    or detail_contract.get("rootScrollWidth", 0) > detail_contract.get("viewportWidth", 0) + 1
+                ):
+                    raise QaFailure(
+                        "브리핑 상세가 캐시된 GPT 문구와 원문 뉴스·시그널을 함께 보존하지 않았습니다.",
+                        {
+                            "detail": detail_contract,
+                            "request_count": len(summary_requests),
+                            "briefing_requests": briefing_requests,
+                        },
+                    )
+
+                reflow: dict[str, Any] = {}
+                for label, viewport_size in (
+                    ("320px", {"width": 320, "height": 740}),
+                    ("200_percent_equivalent", {"width": 229, "height": 436}),
+                ):
+                    page.set_viewport_size(viewport_size)
+                    page.wait_for_timeout(80)
+                    measured = page.evaluate(
+                        """() => ({
+                          rootScrollWidth: document.documentElement.scrollWidth,
+                          viewScrollWidth: document.querySelector('#morning-money-briefing-view')?.scrollWidth || 0,
+                          viewportWidth: innerWidth,
+                        })"""
+                    )
+                    reflow[label] = measured
+                    if (
+                        measured.get("rootScrollWidth", 0) > measured.get("viewportWidth", 0) + 1
+                        or measured.get("viewScrollWidth", 0) > measured.get("viewportWidth", 0) + 1
+                    ):
+                        raise QaFailure(f"GPT 브리핑 상세가 {label}에서 가로로 넘칩니다.", measured)
+                return {
+                    **shell,
+                    "briefing_requests": briefing_requests,
+                    "request_editions": request_editions,
+                    "feed": feed_contract,
+                    "detail": detail_contract,
+                    "reflow": reflow,
+                }
+
+            results.append(
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id="SIG-UI-018",
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=staging_gpt_briefing_copy_case,
                     storage_state=storage_state,
                     share_id=share_id,
                 )

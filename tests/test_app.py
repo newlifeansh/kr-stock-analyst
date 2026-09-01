@@ -23,7 +23,7 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["strategy_version"] == "position-lifecycle-v7.3"
-    assert response.json()["dashboard_version"] == "20260831v453"
+    assert response.json()["dashboard_version"] == "20260901v459"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -240,7 +240,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260831v453"}
+    assert version.json() == {"version": "20260901v459"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search")
@@ -248,7 +248,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert refresh.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert 'pathname === "/dashboard-sw.js"' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260831v453" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260901v459" in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -926,8 +926,9 @@ def test_secondary_pages_use_stock_detail_navigation_contract():
 
 
 def test_watchlist_share_id_roundtrip():
+    init_db()
     client = TestClient(app)
-    share_id = "codex-test-watchlist"
+    share_id = f"codex-test-watchlist-{time.time_ns()}"
     payload = {"items": [{"code": "005930", "name": "삼성전자", "market": "KOSPI"}]}
     token_response = client.get(f"/session/write-token?share_id={share_id}")
     assert token_response.status_code == 200
@@ -937,12 +938,81 @@ def test_watchlist_share_id_roundtrip():
     assert saved.status_code == 200
     saved_body = saved.json()
     assert saved_body["share_id"] == share_id
-    assert saved_body["items"] == payload["items"]
+    assert saved_body["items"] == [
+        {
+            **payload["items"][0],
+            "investor_state": "not_holding",
+            "average_buy_price": None,
+        }
+    ]
 
     loaded = client.get(f"/watchlists/{share_id}")
     assert loaded.status_code == 200
-    assert loaded.json()["items"] == payload["items"]
+    assert loaded.json()["items"] == [
+        {
+            **payload["items"][0],
+            "investor_state": "not_holding",
+            "average_buy_price": None,
+        }
+    ]
     assert "no-store" in loaded.headers["cache-control"]
+
+    legacy_alias = client.put(
+        f"/watchlists/{share_id}",
+        json={
+            "items": [
+                {
+                    **payload["items"][0],
+                    "investor_state": "before_buy",
+                    "average_buy_price": 70_000,
+                }
+            ]
+        },
+        headers={"X-Write-Token": write_token},
+    )
+    assert legacy_alias.status_code == 200
+    assert legacy_alias.json()["items"][0]["investor_state"] == "not_holding"
+    assert legacy_alias.json()["items"][0]["average_buy_price"] is None
+
+    holding_payload = {
+        "items": [
+            {
+                **payload["items"][0],
+                "investor_state": "holding",
+                "average_buy_price": 71_500,
+            }
+        ]
+    }
+    holding = client.put(
+        f"/watchlists/{share_id}",
+        json=holding_payload,
+        headers={"X-Write-Token": write_token},
+    )
+    assert holding.status_code == 200
+    assert holding.json()["items"][0]["investor_state"] == "holding"
+    assert holding.json()["items"][0]["average_buy_price"] == "71500.00"
+
+    legacy_update = client.put(
+        f"/watchlists/{share_id}",
+        json=payload,
+        headers={"X-Write-Token": write_token},
+    )
+    assert legacy_update.status_code == 200
+    assert legacy_update.json()["items"][0]["investor_state"] == "holding"
+    assert legacy_update.json()["items"][0]["average_buy_price"] == "71500.00"
+
+    cleared = client.put(
+        f"/watchlists/{share_id}",
+        json={
+            "items": [
+                {**payload["items"][0], "investor_state": "not_holding"}
+            ]
+        },
+        headers={"X-Write-Token": write_token},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["items"][0]["investor_state"] == "not_holding"
+    assert cleared.json()["items"][0]["average_buy_price"] is None
 
 
 def test_watchlists_remain_isolated_per_user_and_preserve_each_users_order():
@@ -1513,7 +1583,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260831v453' in shell
+    assert 'styles.css?v=20260901v459' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -1599,7 +1669,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260831v453"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260901v459"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -1636,7 +1706,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260831v453"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260901v459"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert 'return [-timestamp, view?.preliminary ? 0 : 1' in source

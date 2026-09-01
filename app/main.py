@@ -250,7 +250,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260831v453"
+DASHBOARD_CLIENT_VERSION = "20260901v459"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -2588,6 +2588,10 @@ def _normalize_watchlist_id(share_id: str) -> str:
     return cleaned
 
 
+def _normalize_watchlist_investor_state(value: Optional[str]) -> str:
+    return "holding" if str(value or "").strip() == "holding" else "not_holding"
+
+
 def _watchlist_response(db: Session, share_id: str) -> dict[str, object]:
     items = list(
         db.scalars(
@@ -3308,11 +3312,23 @@ def put_watchlist(share_id: str, payload: WatchlistUpdateIn, request: Request, d
         seen.add(code)
         master = db.get(StockMaster, code)
         row = existing.get(code)
+        requested_state = (
+            _normalize_watchlist_investor_state(item.investor_state)
+            if item.investor_state is not None
+            else None
+        )
         if row is None:
             row = WatchlistItem(
                 share_id=normalized_id,
                 code=code,
+                investor_state=requested_state or "not_holding",
             )
+        elif requested_state is not None:
+            row.investor_state = requested_state
+        if requested_state == "not_holding":
+            row.average_buy_price = None
+        elif row.investor_state == "holding" and "average_buy_price" in item.model_fields_set:
+            row.average_buy_price = item.average_buy_price
         row.name = (item.name or (master.name if master else code)).strip()
         row.market = item.market or (master.market if master else None)
         row.sort_order = len(rows)

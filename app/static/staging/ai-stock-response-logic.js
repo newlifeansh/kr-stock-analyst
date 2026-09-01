@@ -12,15 +12,16 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function createAiStockResponseLogic() {
   "use strict";
 
-  const VERSION = "20260829-multi-signal-v1";
+  const VERSION = "20260901-position-guide-v2";
   const WEIGHTS = Object.freeze({
-    chart: 30,
+    chart: 25,
     flow: 25,
     disclosure: 15,
     news: 10,
-    market: 20,
+    research: 15,
+    market: 10,
   });
-  const METRIC_ORDER = Object.freeze(["chart", "flow", "disclosure", "news", "market"]);
+  const METRIC_ORDER = Object.freeze(["chart", "flow", "disclosure", "news", "research", "market"]);
   const POSITIVE_WORDS = Object.freeze([
     "상향", "호조", "개선", "증가", "수주", "흑자", "서프라이즈", "강세",
     "성장", "돌파", "수혜", "상승", "회복", "호재", "매수",
@@ -62,6 +63,27 @@
     if (absolute >= 100_000_000) return `${sign}${numberFormatter.format(absolute / 100_000_000)}억원`;
     if (absolute >= 10_000) return `${sign}${numberFormatter.format(absolute / 10_000)}만원`;
     return `${sign}${numberFormatter.format(absolute)}원`;
+  };
+  const priceText = (value) => {
+    const parsed = number(value);
+    return parsed === null || parsed <= 0 ? "가격 자료 부족" : `${numberFormatter.format(parsed)}원`;
+  };
+  const percentText = (value) => {
+    const parsed = number(value);
+    if (parsed === null) return "수익률 계산 전";
+    return `${parsed > 0 ? "+" : ""}${parsed.toFixed(2)}%`;
+  };
+  const roundTradePrice = (value) => {
+    const parsed = number(value);
+    if (parsed === null || parsed <= 0) return null;
+    const tick = parsed >= 500_000 ? 1_000
+      : parsed >= 200_000 ? 500
+        : parsed >= 50_000 ? 100
+          : parsed >= 20_000 ? 50
+            : parsed >= 5_000 ? 10
+              : parsed >= 2_000 ? 5
+                : 1;
+    return Math.max(tick, Math.round(parsed / tick) * tick);
   };
   const newestAsOf = (...values) => values
     .flat(Infinity)
@@ -324,6 +346,61 @@
     });
   };
 
+  const researchMetric = (dashboard, homeContext, quant) => {
+    const connected = findEvidence(quant, ["research", "earnings"]);
+    if (connected && connected.available !== false) {
+      const score = number(connected.score) ?? scoreForState(connected.state);
+      return baseMetric({
+        key: "research",
+        label: "증권사 리포트",
+        score,
+        value: `${signed(score)}점`,
+        evidence: connected.summary,
+        source: connected.source || "증권사 발간 리포트",
+        asOf: connected.as_of || quant?.as_of,
+        available: true,
+        confidence: 0.92,
+      });
+    }
+    const revisions = dashboard?.revisions || {};
+    const reports = Array.isArray(homeContext?.research_reports) && homeContext.research_reports.length
+      ? homeContext.research_reports
+      : Array.isArray(revisions.recent_reports)
+        ? revisions.recent_reports
+        : [];
+    const reportCount = number(revisions.report_count_90d) ?? reports.length;
+    if (!reports.length && !reportCount) {
+      return baseMetric({ key: "research", label: "증권사 리포트" });
+    }
+    const latest = reports[0] || {};
+    const opinion = compact(latest.opinion || revisions.latest_opinion);
+    const title = compact(latest.title);
+    const revisionUp = number(revisions.target_up_count) || 0;
+    const revisionDown = number(revisions.target_down_count) || 0;
+    const targetPrice = number(latest.target_price ?? revisions.latest_target_price);
+    let score = clamp((revisionUp - revisionDown) * 25 + keywordScore(`${opinion} ${title}`) * 12, -100, 100);
+    if (/매수|buy|outperform/i.test(opinion)) score = clamp(score + 20, -100, 100);
+    if (/매도|sell|reduce/i.test(opinion)) score = clamp(score - 30, -100, 100);
+    const details = unique([
+      `${round(reportCount)}건`,
+      compact(latest.broker_name),
+      opinion,
+      targetPrice ? `목표가 ${numberFormatter.format(targetPrice)}원` : "",
+      title,
+    ]).join(" · ");
+    return baseMetric({
+      key: "research",
+      label: "증권사 리포트",
+      score,
+      value: targetPrice ? `목표가 ${numberFormatter.format(targetPrice)}원` : `${round(reportCount)}건`,
+      evidence: details || "최근 증권사 리포트의 의견과 목표가 변화를 확인했어요.",
+      source: "증권사 발간 리포트",
+      asOf: latest.published_at || revisions.latest_report_at || homeContext?.as_of,
+      available: true,
+      confidence: clamp(0.58 + Math.min(round(reportCount), 4) * 0.08, 0, 0.9),
+    });
+  };
+
   const marketDirection = (value) => {
     const normalized = normalize(value);
     if (normalized.includes("호재")) return 1;
@@ -414,6 +491,379 @@
     return unique(checks).slice(0, 3);
   };
 
+  const nearestPriceBelow = (currentPrice, candidates) => {
+    const usable = candidates
+      .map(number)
+      .filter((value) => value !== null && value > 0 && value < currentPrice);
+    return usable.length ? Math.max(...usable) : null;
+  };
+
+  const nearestPriceAbove = (currentPrice, candidates) => {
+    const usable = candidates
+      .map(number)
+      .filter((value) => value !== null && value > currentPrice);
+    return usable.length ? Math.min(...usable) : null;
+  };
+
+  const nearestPriceBelowWithin = (
+    currentPrice,
+    candidates,
+    { minPercent = 0, maxPercent = 12 } = {},
+  ) => {
+    const usable = candidates
+      .map(number)
+      .filter((value) => {
+        if (value === null || value <= 0 || value >= currentPrice) return false;
+        const distance = (currentPrice - value) / currentPrice * 100;
+        return distance >= minPercent && distance <= maxPercent;
+      });
+    return usable.length ? Math.max(...usable) : null;
+  };
+
+  const nearestPriceAboveWithin = (
+    currentPrice,
+    candidates,
+    { minPercent = 0, maxPercent = 12 } = {},
+  ) => {
+    const usable = candidates
+      .map(number)
+      .filter((value) => {
+        if (value === null || value <= currentPrice) return false;
+        const distance = (value - currentPrice) / currentPrice * 100;
+        return distance >= minPercent && distance <= maxPercent;
+      });
+    return usable.length ? Math.min(...usable) : null;
+  };
+
+  const responseDecisionLevels = (dashboard, quant) => {
+    const chart = dashboard?.chart_analysis || {};
+    const current = quant?.current || {};
+    const currentPrice = number(dashboard?.quote?.price) ?? number(current.price);
+    if (currentPrice === null || currentPrice <= 0) {
+      return {
+        currentPrice: null,
+        watchLow: null,
+        watchHigh: null,
+        buyTrigger: null,
+        riskLine: null,
+        firstSell: null,
+        support: number(chart.support),
+        resistance: number(chart.resistance),
+      };
+    }
+    const atrPercent = clamp(number(chart.atr_percent) ?? 3, 1, 8);
+    const support = number(chart.support);
+    const resistance = number(chart.resistance);
+    const movingAverages = chart.moving_averages || {};
+    const movingAveragePrices = [
+      movingAverages.ma5,
+      movingAverages.ma20,
+      movingAverages.ma60,
+      movingAverages.ma120,
+    ].map(number).filter((value) => value !== null);
+    const recentPatterns = (Array.isArray(chart.patterns) ? chart.patterns : [])
+      .filter((pattern) => pattern?.is_recent !== false);
+    const patternTriggers = recentPatterns.flatMap((pattern) => [
+      pattern?.trigger,
+      pattern?.boundaries?.upper?.end_price,
+      pattern?.boundaries?.lower?.end_price,
+    ]);
+    const patternTargets = recentPatterns.flatMap((pattern) => [
+      pattern?.target,
+      pattern?.invalidation,
+      pattern?.boundaries?.upper?.end_price,
+      pattern?.boundaries?.lower?.end_price,
+    ]);
+    const signalLevels = Array.isArray(current.levels) ? current.levels : [];
+    const signalPrice = (...keys) => number(signalLevels.find(
+      (level) => keys.includes(compact(level?.key)),
+    )?.price);
+    const signalContextActive = compact(current.action) !== "exited";
+    const stopCandidate = nearestPriceBelowWithin(currentPrice, [
+      signalContextActive ? current.stop_reference : null,
+      signalContextActive ? signalPrice("stop", "full_exit", "risk") : null,
+      ...movingAveragePrices,
+      ...patternTargets,
+      support,
+    ], { minPercent: 0.5, maxPercent: 12 });
+    const riskLine = roundTradePrice(
+      stopCandidate ?? currentPrice * (1 - clamp(atrPercent * 0.55, 2, 3.5) / 100),
+    );
+    const watchHigh = roundTradePrice(currentPrice * (1 - clamp(atrPercent * 0.1, 0.2, 0.6) / 100));
+    const fallbackWatchLow = currentPrice * (1 - clamp(atrPercent * 0.45, 1, 2.2) / 100);
+    const nearbySupport = nearestPriceBelowWithin(currentPrice, [
+      ...movingAveragePrices,
+      ...patternTargets,
+      support,
+    ], { minPercent: 0.5, maxPercent: 8 });
+    const watchLow = roundTradePrice(Math.max(fallbackWatchLow, nearbySupport || 0));
+    const buyTrigger = roundTradePrice(
+      nearestPriceAboveWithin(currentPrice, [
+        current.entry_confirmation?.price,
+        signalPrice("entry", "breakout"),
+        ...patternTriggers,
+        ...movingAveragePrices,
+        resistance,
+      ], { minPercent: 0.7, maxPercent: 12 })
+        ?? currentPrice * (1 + clamp(atrPercent * 0.35, 1.2, 2.5) / 100),
+    );
+    const firstSell = roundTradePrice(
+      nearestPriceAboveWithin(currentPrice, [
+        signalContextActive ? current.partial_exit_reference : null,
+        signalContextActive ? current.target_sell_price : null,
+        signalContextActive ? signalPrice("partial_exit", "target") : null,
+        ...movingAveragePrices,
+        ...patternTargets,
+        resistance,
+      ], { minPercent: 2.5, maxPercent: 20 })
+        ?? currentPrice * (1 + clamp(atrPercent * 0.8, 3, 5.5) / 100),
+    );
+    return {
+      currentPrice: roundTradePrice(currentPrice),
+      watchLow,
+      watchHigh,
+      buyTrigger,
+      riskLine,
+      firstSell,
+      support: roundTradePrice(support),
+      resistance: roundTradePrice(resistance),
+      strategyEntryPrice: roundTradePrice(current.entry_price),
+      lockedProfitReference: roundTradePrice(current.locked_profit_reference),
+      signalAction: compact(current.action),
+    };
+  };
+
+  const metricDirectionText = (metric) => {
+    if (!metric || metric.available === false) return "자료 부족";
+    if (metric.hardRisk) return "중대 위험";
+    if (number(metric.score) >= 25) return "긍정";
+    if (number(metric.score) <= -25) return "주의";
+    return "뚜렷한 방향 없음";
+  };
+
+  const investorReason = (result) => {
+    const metrics = new Map((result?.metrics || []).map((metric) => [metric.key, metric]));
+    return [
+      ["chart", "가격 흐름"],
+      ["flow", "외국인·기관 매매"],
+      ["news", "최근 뉴스"],
+      ["research", "증권사 리포트"],
+    ].map(([key, label]) => {
+      const direction = metricDirectionText(metrics.get(key));
+      if (direction === "자료 부족") return `${withTopic(label)} 자료가 부족해요.`;
+      if (direction === "뚜렷한 방향 없음") return `${withTopic(label)} 방향이 뚜렷하지 않아요.`;
+      return `${withTopic(label)} ${direction} 신호예요.`;
+    }).join(" ");
+  };
+
+  const guideRow = (key, label, status, value, evidence, tone = "neutral") => ({
+    key,
+    label,
+    status,
+    value,
+    evidence,
+    tone,
+  });
+
+  const buildInvestorGuide = (result = {}, { investorState = "not_holding", averageBuyPrice = null } = {}) => {
+    const state = investorState === "holding" ? "holding" : "not_holding";
+    const levels = result.decisionLevels || {};
+    const currentPrice = number(levels.currentPrice);
+    const averagePrice = state === "holding" ? number(averageBuyPrice) : null;
+    const returnRate = currentPrice !== null && averagePrice !== null && averagePrice > 0
+      ? (currentPrice / averagePrice - 1) * 100
+      : null;
+    const reason = investorReason(result);
+    const buyConditionReady = !result.hardRisk
+      && !result.limited
+      && !result.conflict
+      && number(result.score) >= 10
+      && result.entryAllowed === true
+      && ["entry_pending", "entered"].includes(compact(result.signalAction));
+    const metricMap = new Map((result.metrics || []).map((metric) => [metric.key, metric]));
+    const commonNext = unique([
+      number(metricMap.get("flow")?.score) < 0
+        ? "외국인과 기관이 판 금액보다 산 금액이 많아지는지"
+        : "외국인과 기관의 매수가 이어지는지",
+      number(metricMap.get("news")?.score) < 0
+        ? "부정 뉴스가 실적과 사업에 실제로 영향을 주는지"
+        : "최근 뉴스의 긍정 흐름이 실적 변화로 이어지는지",
+      "중요한 회사 공시가 새로 나오는지",
+      "증권사 목표가와 투자의견이 바뀌는지",
+    ]);
+    if (state === "not_holding") {
+      const headline = buyConditionReady
+        ? "매수 조건은 확인됐지만 가격이 안정되는지 먼저 볼 때예요"
+        : "현재는 매수 관망이 필요해요";
+      const summary = buyConditionReady
+        ? "신호가 기준을 통과했어도 한 번에 따라가기보다 가격과 거래 흐름이 함께 유지되는지 확인해요."
+        : "외국인·기관 매매, 뉴스, 가격 흐름, 증권사 리포트가 같은 방향으로 모이지 않아 새로 사는 판단은 잠시 미뤄 두는 구간이에요.";
+      return {
+        state,
+        positionMode: buyConditionReady ? "buy_conditions_ready" : "watching",
+        headline,
+        summary,
+        reason,
+        direction: buyConditionReady ? "매수 조건 확인" : "매수 관망",
+        directionGuide: buyConditionReady ? "가격과 거래 흐름이 함께 유지되는지 보세요" : "신호가 같은 방향으로 모이는지 기다려요",
+        currentPrice,
+        averageBuyPrice: null,
+        returnRate: null,
+        rows: [
+          guideRow(
+            "watch_zone",
+            buyConditionReady ? "1차 접근 참고 구간" : "가격 안정 확인 구간",
+            buyConditionReady ? "분할 접근 참고" : "관망",
+            levels.watchLow && levels.watchHigh
+              ? `${numberFormatter.format(levels.watchLow)}~${numberFormatter.format(levels.watchHigh)}원`
+              : "가격 자료 부족",
+            buyConditionReady
+              ? "이 구간에서 가격이 밀리지 않고 거래대금과 외국인·기관 매매가 유지되는지 확인해요."
+              : "이 가격대가 매수 지시선은 아니며, 하락이 멈추고 거래 흐름이 회복되는지 보는 구간이에요.",
+            buyConditionReady ? "positive" : "neutral",
+          ),
+          guideRow(
+            "buy_trigger",
+            "매수 전환 확인 가격",
+            "조건 확인",
+            priceText(levels.buyTrigger),
+            "이 가격 위에서 장을 마치고 실제 거래 규모, 외국인·기관 매매, 뉴스가 함께 좋아질 때 매수 관점을 다시 확인해요.",
+            "positive",
+          ),
+          guideRow(
+            "risk_line",
+            "관망을 이어갈 기준",
+            "주의",
+            priceText(levels.riskLine),
+            "이 가격 아래에서는 가격 흐름이 더 약해질 수 있어 신규 매수 판단을 계속 미뤄요.",
+            "negative",
+          ),
+        ],
+        nextChecks: unique([
+          number(levels.buyTrigger) !== null
+            ? `${priceText(levels.buyTrigger)} 위에서 장을 마치는지`
+            : null,
+          ...commonNext,
+        ]).slice(0, 5),
+      };
+    }
+
+    if (returnRate === null) {
+      return {
+        state,
+        positionMode: "holding_unknown",
+        headline: "평균 매수가를 입력하면 보유 대응을 손익에 맞춰 볼 수 있어요",
+        summary: "현재가만으로는 수익인지 손실인지 알 수 없어 일반적인 보유·위험 기준을 먼저 보여드려요.",
+        reason,
+        direction: "매수가 입력 필요",
+        directionGuide: "내 평균 매수가를 입력해 주세요",
+        currentPrice,
+        averageBuyPrice: null,
+        returnRate: null,
+        rows: [
+          guideRow("current_price", "현재가", "기준 가격", priceText(currentPrice), "평균 매수가와 비교하면 현재 수익·손실 구간을 계산할 수 있어요."),
+          guideRow("risk_line", "손실 제한 참고선", "주의", priceText(levels.riskLine), "가격이 이 기준 아래로 내려가면서 외국인과 기관의 매도까지 늘어나는지 확인해요.", "negative"),
+          guideRow("first_sell", "1차 분할 매도 참고선", "수익 관리", priceText(levels.firstSell), "수익권에 도달하면 일부 이익을 나눠 지킬지 검토하는 참고 가격이에요.", "positive"),
+        ],
+        nextChecks: unique([
+          "내 평균 매수가를 입력해 현재 수익·손실 구간을 확인하기",
+          ...commonNext,
+        ]).slice(0, 5),
+      };
+    }
+
+    const profit = returnRate > 0.5;
+    const loss = returnRate < -0.5;
+    const protectCandidate = nearestPriceBelow(currentPrice, [
+      levels.lockedProfitReference,
+      profit ? averagePrice : null,
+      levels.riskLine,
+    ]);
+    const protectLine = roundTradePrice(protectCandidate ?? levels.riskLine);
+    if (profit) {
+      return {
+        state,
+        positionMode: "holding_profit",
+        headline: "현재 수익권이라면 분할 매도로 이익을 지킬 구간을 볼 때예요",
+        summary: "한 번에 모두 정하기보다 1차 매도 참고 가격과 이익 보호 기준을 나눠 확인해요.",
+        reason,
+        direction: "수익 관리",
+        directionGuide: "분할 매도와 이익 보호 기준을 함께 봐요",
+        currentPrice,
+        averageBuyPrice: averagePrice,
+        returnRate,
+        rows: [
+          guideRow("return", "내 수익률", "수익권", percentText(returnRate), `평균 매수가 ${priceText(averagePrice)}과 현재가 ${priceText(currentPrice)}을 비교했어요.`, "positive"),
+          guideRow("first_sell", "1차 분할 매도 참고선", "수익 관리", priceText(levels.firstSell), "이 가격 부근에서 일부 이익을 먼저 확보할지 검토해요.", "positive"),
+          guideRow("protect", "이익 보호 기준", "주의", priceText(protectLine), "가격이 이 기준 아래로 밀리고 외국인과 기관의 매도도 늘어나면 남은 보유분을 다시 점검해요.", "negative"),
+        ],
+        nextChecks: unique([
+          number(levels.firstSell) !== null
+            ? `${priceText(levels.firstSell)} 부근에서 일부 이익을 지킬지`
+            : null,
+          number(protectLine) !== null
+            ? `${priceText(protectLine)} 아래로 밀리는지`
+            : null,
+          ...commonNext,
+        ]).slice(0, 5),
+      };
+    }
+    if (loss) {
+      return {
+        state,
+        positionMode: "holding_loss",
+        headline: "현재 손실권이라면 가격별 손실 제한 기준을 먼저 세울 때예요",
+        summary: "평균 매수가로 바로 돌아오기를 기다리기보다 약세가 이어지는 가격과 회복을 확인할 가격을 나눠 봐요.",
+        reason,
+        direction: "손실 관리",
+        directionGuide: "손실 제한선과 회복 확인선을 나눠 봐요",
+        currentPrice,
+        averageBuyPrice: averagePrice,
+        returnRate,
+        rows: [
+          guideRow("return", "내 수익률", "손실권", percentText(returnRate), `평균 매수가 ${priceText(averagePrice)}과 현재가 ${priceText(currentPrice)}을 비교했어요.`, "negative"),
+          guideRow("risk_line", "손실 제한 참고선", "주의", priceText(levels.riskLine), "이 가격 아래에서 장을 마치고 외국인과 기관의 매도도 늘어나면 보유 수량을 줄일지 점검해요.", "negative"),
+          guideRow("recovery", "회복 확인 가격", "조건 확인", priceText(levels.buyTrigger), "이 가격 위로 회복하면서 실제 거래 규모와 외국인·기관 매매가 좋아지는지 확인해요.", "positive"),
+        ],
+        nextChecks: unique([
+          number(levels.riskLine) !== null
+            ? `${priceText(levels.riskLine)} 아래에서 장을 마치는지`
+            : null,
+          number(levels.buyTrigger) !== null
+            ? `${priceText(levels.buyTrigger)} 위로 회복하는지`
+            : null,
+          ...commonNext,
+        ]).slice(0, 5),
+      };
+    }
+    return {
+      state,
+      positionMode: "holding_flat",
+      headline: "현재는 본전권이라 보유 기준과 위험선을 함께 확인할 때예요",
+      summary: "작은 등락보다 다음 방향이 정해지는 가격과 외국인·기관 매매 변화를 먼저 봐요.",
+      reason,
+      direction: "보유 기준 확인",
+      directionGuide: "위험선과 수익 관리 가격을 함께 봐요",
+      currentPrice,
+      averageBuyPrice: averagePrice,
+      returnRate,
+      rows: [
+        guideRow("return", "내 수익률", "본전권", percentText(returnRate), `평균 매수가 ${priceText(averagePrice)}과 현재가 ${priceText(currentPrice)}을 비교했어요.`),
+        guideRow("risk_line", "위험 관리 기준", "주의", priceText(levels.riskLine), "이 가격 아래로 밀리면 보유 기준을 다시 점검해요.", "negative"),
+        guideRow("first_sell", "수익 관리 참고선", "조건 확인", priceText(levels.firstSell), "이 가격에 가까워지면 분할 매도로 이익을 지킬지 검토해요.", "positive"),
+      ],
+      nextChecks: unique([
+        number(levels.riskLine) !== null
+          ? `${priceText(levels.riskLine)} 아래로 밀리는지`
+          : null,
+        number(levels.firstSell) !== null
+          ? `${priceText(levels.firstSell)} 부근에서 수익 관리가 필요한지`
+          : null,
+        ...commonNext,
+      ]).slice(0, 5),
+    };
+  };
+
   const buildResponse = ({ code = "", fallbackDetail = {}, quant = null, dashboard = null,
     homeContext = null, marketImpact = null } = {}) => {
     const metrics = [
@@ -421,6 +871,7 @@
       flowMetric(dashboard, quant),
       disclosureMetric(homeContext, quant),
       newsMetric(dashboard, homeContext, quant),
+      researchMetric(dashboard, homeContext, quant),
       marketMetric(dashboard, marketImpact, quant, fallbackDetail),
     ].sort((left, right) => METRIC_ORDER.indexOf(left.key) - METRIC_ORDER.indexOf(right.key));
     const available = metrics.filter((metric) => metric.available && number(metric.score) !== null);
@@ -549,19 +1000,21 @@
       confidence,
       coverageCount: available.length,
       coverageWeight: effectiveWeight,
-      coverageLabel: `${available.length}/5개 · 가중 ${effectiveWeight}%`,
-      lead: `차트 ${WEIGHTS.chart} · 수급 ${WEIGHTS.flow} · 공시 ${WEIGHTS.disclosure} · 뉴스 ${WEIGHTS.news} · 시장 ${WEIGHTS.market} 가중 종합 · 현재 반영 ${effectiveWeight}%`,
+      coverageLabel: `${available.length}/6개 · 가중 ${effectiveWeight}%`,
+      lead: `차트 ${WEIGHTS.chart} · 수급 ${WEIGHTS.flow} · 공시 ${WEIGHTS.disclosure} · 뉴스 ${WEIGHTS.news} · 리포트 ${WEIGHTS.research} · 시장 ${WEIGHTS.market} 가중 종합 · 현재 반영 ${effectiveWeight}%`,
       summary: `${summaryParts.join(" · ")}. ${quantLabel ? `현재 시그널은 ${quantLabel}입니다. ` : ""}${hardRisk ? "중대 공시는 종합점수보다 우선합니다." : "자료 부족과 신호 충돌은 신뢰도에 반영했습니다."}`,
       signalAction: quantAction || null,
       signalLabel: quantLabel || null,
       conflict,
       hardRisk,
       limited,
+      entryAllowed: quant?.confirmation?.entry_allowed === true,
+      decisionLevels: responseDecisionLevels(dashboard, quant),
       metrics,
       warnings,
       nextChecks: nextChecks(metrics, dashboard, quant, hardRisk),
     };
   };
 
-  return Object.freeze({ VERSION, WEIGHTS, buildResponse });
+  return Object.freeze({ VERSION, WEIGHTS, buildResponse, buildInvestorGuide });
 }));

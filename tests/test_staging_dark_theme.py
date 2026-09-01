@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import date, datetime
 import json
 from pathlib import Path
 import re
@@ -58,6 +58,304 @@ def test_staging_serves_bundled_official_stock_logo_before_upstream(monkeypatch)
     assert staging_module._is_staging_read_proxy_request(
         {"method": "GET", "path": "/stock-logos/005930.png"}
     ) is True
+
+
+def test_staging_recommendations_keep_pending_and_same_day_executed_entries():
+    recommendation_payload = {
+        "as_of": "2026-08-31T16:00:00+09:00",
+        "universe_count": 100,
+        "candidate_count": 20,
+        "items": [
+            {"rank": 1, "code": "078930", "name": "GS", "score": 81.38, "action": "우수"},
+            {"rank": 12, "code": "003230", "name": "삼양식품", "score": 70.98, "action": "관찰", "price": 1_531_000},
+            {"rank": 14, "code": "105560", "name": "KB금융", "score": 69.01, "action": "관찰", "price": 173_300},
+            {"rank": 18, "code": "000001", "name": "장중예비", "score": 65.0, "action": "관찰"},
+            {"rank": 19, "code": "005930", "name": "과거보유", "score": 64.0, "action": "관찰"},
+        ],
+    }
+    signal_payload = {
+        "status": "ready",
+        "as_of": "2026-08-31T15:40:00+09:00",
+        "strategy_version": "confirmed-entry-test",
+        "items": [
+            {
+                "code": "078930",
+                "current": {"action": "exited", "position_open": False, "live_observation": False},
+            },
+            {
+                "code": "003230",
+                "signal_at": "2026-08-31T15:40:00+09:00",
+                "current": {
+                    "action": "entry_pending",
+                    "position_open": False,
+                    "live_observation": False,
+                    "score": 94.98,
+                    "price": 1_531_000,
+                    "entry_confirmation": {
+                        "allowed": True,
+                        "required_supports": 1,
+                        "supportive_count": 2,
+                    },
+                    "levels": [{"key": "entry", "price": 1_520_000}],
+                    "next_confirmation": "다음 거래일 시가의 갭 범위를 확인",
+                },
+            },
+            {
+                "code": "105560",
+                "signal_at": "2026-08-31T15:40:00+09:00",
+                "current": {
+                    "action": "entered",
+                    "position_open": True,
+                    "live_observation": False,
+                    "score": 75.37,
+                    "price": 171_600,
+                    "entry_date": "2026-09-01",
+                    "entry_price": 169_100,
+                    "entry_confirmation": {
+                        "allowed": True,
+                        "required_supports": 1,
+                        "supportive_count": 2,
+                    },
+                    "lifecycle": {
+                        "state": "entered",
+                        "latest_transition": {
+                            "side": "buy",
+                            "signal_date": "2026-08-31",
+                            "transition_date": "2026-09-01",
+                            "price": 169_100,
+                        },
+                    },
+                    "levels": [{"key": "partial_exit", "price": 179_146}],
+                    "next_confirmation": "초기 위험선과 첫 수익확정 기준을 매일 확인",
+                },
+            },
+            {
+                "code": "000001",
+                "current": {"action": "entry_pending", "position_open": False, "live_observation": True},
+            },
+            {
+                "code": "005930",
+                "signal_at": "2026-08-30T15:40:00+09:00",
+                "current": {
+                    "action": "holding",
+                    "position_open": True,
+                    "live_observation": False,
+                    "entry_date": "2026-08-31",
+                    "entry_confirmation": {"allowed": True},
+                    "lifecycle": {
+                        "latest_transition": {
+                            "side": "buy",
+                            "transition_date": "2026-08-31",
+                        }
+                    },
+                },
+            },
+        ],
+    }
+
+    rewritten = staging_module._rewrite_staging_recommendation_contract(
+        json.dumps(recommendation_payload).encode(),
+        signal_payload,
+        requested_limit=2,
+        reference_date=date(2026, 9, 1),
+    )
+    payload = json.loads(rewritten)
+
+    assert payload["selection_rule"] == "confirmed_entry_pending_or_entered_today"
+    assert payload["selection_state"] == "ready"
+    assert payload["candidate_count"] == 2
+    assert payload["qualified_count"] == 2
+    assert payload["pending_count"] == 1
+    assert payload["entered_today_count"] == 1
+    assert [item["code"] for item in payload["items"]] == ["003230", "105560"]
+    pending, entered = payload["items"]
+    assert pending["rank"] == 1
+    assert pending["action"] == "신규 매수 대기"
+    assert pending["recommendation_state"] == "entry_confirmed"
+    assert pending["condition_price"] == 1_531_000
+    assert pending["ai_trade_signal"]["current"]["levels"][0]["price"] == 1_520_000
+    assert entered["rank"] == 2
+    assert entered["action"] == "보유 유지"
+    assert entered["recommendation_state"] == "entered_today"
+    assert entered["buy_condition_met"] is True
+    assert entered["recommendation_entry_date"] == "2026-09-01"
+    assert entered["strategy_entry_price"] == 169_100
+    assert entered["condition_price"] == 173_300
+    assert entered["ai_trade_signal"]["current"]["position_open"] is True
+
+
+def test_staging_rebuilds_a_missing_same_day_card_without_reusing_the_signal_score(
+    monkeypatch,
+):
+    monkeypatch.setattr(staging_module, "STAGING_DATA_UPSTREAM", "https://example.test")
+    staging_module._staging_recommendation_supplement_cache.clear()
+    requests = []
+
+    dashboard = {"code": "105560", "name": "KB금융"}
+    score_item = {
+        "code": "105560",
+        "name": "KB금융",
+        "market": "KOSPI",
+        "score": 69.01,
+        "action": "관찰",
+        "decision_reason": "추천 점수 기준 설명",
+        "price": 171_600,
+        "change_rate": -0.98,
+        "one_month_return": 1.78,
+        "three_month_return": 12.75,
+        "trading_value": 62_800_000_000,
+        "component_scores": {"price_momentum": 71.0},
+        "chart_analysis": {"score": 96.0, "trend": "상승 추세"},
+        "reasons": ["추천 근거"],
+        "risks": ["추천 주의점"],
+        "_quant_live_quote": {"price": 171_600},
+    }
+    monkeypatch.setattr(staging_module, "_score_dashboard", lambda payload: dict(score_item))
+
+    class Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        def json(self):
+            return self._payload
+
+    class Client:
+        async def get(self, url, **kwargs):
+            requests.append((url, kwargs))
+            if url.endswith("/dashboard"):
+                return Response(dashboard)
+            return Response([{"trade_date": "2026-08-31", "close": 173_300}])
+
+    signal_payload = {
+        "status": "ready",
+        "as_of": "2026-09-01T09:50:00+09:00",
+        "strategy_version": "position-lifecycle-v7.3",
+        "items": [
+            {
+                "code": "105560",
+                "name": "KB금융",
+                "market": "KOSPI",
+                "market_cap_rank": 11,
+                "universe_tier": "core",
+                "signal_date": "2026-08-31",
+                "signal_at": "2026-08-31T15:40:00+09:00",
+                "score": 89.19,
+                "current": {
+                    "action": "entered",
+                    "position_open": True,
+                    "live_observation": False,
+                    "score": 75.37,
+                    "price": 171_600,
+                    "entry_date": "2026-09-01",
+                    "entry_price": 169_100,
+                    "entry_confirmation": {
+                        "allowed": True,
+                        "required_supports": 1,
+                        "supportive_count": 2,
+                    },
+                    "lifecycle": {
+                        "latest_transition": {
+                            "side": "buy",
+                            "signal_date": "2026-08-31",
+                            "transition_date": "2026-09-01",
+                        }
+                    },
+                },
+            }
+        ],
+    }
+
+    supplements = asyncio.run(
+        staging_module._build_staging_recommendation_supplements(
+            Client(),
+            signal_payload,
+            [],
+            reference_date=date(2026, 9, 1),
+        )
+    )
+    payload = json.loads(
+        staging_module._rewrite_staging_recommendation_contract(
+            json.dumps({"universe_count": 100, "candidate_count": 0, "items": []}).encode(),
+            signal_payload,
+            requested_limit=8,
+            reference_date=date(2026, 9, 1),
+            supplemental_items=supplements,
+        )
+    )
+
+    assert len(requests) == 2
+    price_request = next(request for request in requests if request[0].endswith("/prices"))
+    assert price_request[1]["params"]["from_date"] == "2026-08-31"
+    assert payload["qualified_count"] == 1
+    item = payload["items"][0]
+    assert item["recommendation_state"] == "entered_today"
+    assert item["score"] == 69.01
+    assert item["ai_trade_signal"]["current"]["score"] == 75.37
+    assert item["price"] == 173_300
+    assert item["condition_price"] == 173_300
+    assert item["ai_trade_signal"]["current"]["price"] == 171_600
+    assert "_quant_live_quote" not in item
+
+
+def test_staging_recommendations_fail_closed_when_signal_membership_is_unavailable():
+    source = json.dumps(
+        {"universe_count": 100, "candidate_count": 1, "items": [{"code": "078930"}]}
+    ).encode()
+
+    payload = json.loads(staging_module._rewrite_staging_recommendation_contract(source, None))
+
+    assert payload["items"] == []
+    assert payload["selection_state"] == "unavailable"
+    assert "표시하지 않습니다" in payload["selection_message"]
+
+
+def test_staging_recommendations_keep_a_bounded_refreshing_snapshot_visible():
+    source = {
+        "universe_count": 100,
+        "candidate_count": 1,
+        "items": [{"code": "003230", "name": "삼양식품", "score": 66.24}],
+    }
+    current = {
+        "action": "entry_pending",
+        "position_open": False,
+        "live_observation": False,
+        "entry_confirmation": {
+            "allowed": True,
+            "required_supports": 1,
+            "supportive_count": 2,
+        },
+    }
+    refreshing = {
+        "status": "refreshing",
+        "snapshot_age_seconds": 650,
+        "items": [{"code": "003230", "current": current}],
+    }
+
+    payload = json.loads(
+        staging_module._rewrite_staging_recommendation_contract(
+            json.dumps(source).encode(),
+            refreshing,
+        )
+    )
+
+    assert [item["code"] for item in payload["items"]] == ["003230"]
+    assert payload["selection_state"] == "ready"
+    assert payload["selection_refreshing"] is True
+    assert "최신 시장 데이터를 확인 중" in payload["selection_message"]
+
+    refreshing["snapshot_age_seconds"] = 1_801
+    stale_payload = json.loads(
+        staging_module._rewrite_staging_recommendation_contract(
+            json.dumps(source).encode(),
+            refreshing,
+        )
+    )
+    assert stale_payload["items"] == []
+    assert stale_payload["selection_state"] == "unavailable"
 
 
 def test_staging_entry_point_injects_adaptive_tds_assets_into_every_html_shell():
@@ -547,7 +845,7 @@ def test_staging_v122_keeps_feed_root_header_and_bottom_navigation_visible():
     css = client.get("/assets/staging/toss-fidelity.css").text
     js = client.get("/assets/staging/toss-ia.js").text
 
-    assert STAGING_IA_VERSION == "20260831-header-action-icons-signal-copy-v61"
+    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
     rules = css.split(
         "/* v122 — Feed is a primary route: keep the global header and bottom navigation. */",
         1,
@@ -611,7 +909,7 @@ def test_staging_v128_falls_back_for_ios_standalone_chart_headers():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert "contextual-safe-area-v128" in shell
-    assert "20260831-header-action-icons-signal-copy-v61" in shell
+    assert "20260901-stock-title-position-guide-v85" in shell
     for contract in (
         'const isIosDevice = /iP(?:hone|ad|od)/.test(navigator.userAgent)',
         'navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1',
@@ -717,8 +1015,9 @@ def test_staging_v40_renews_discovery_hierarchy_and_responsive_cards():
 
     assert 'overview.className = "staging-discovery-overview"' in js
     assert 'rail.querySelector(\'[data-staging-view="ai-signals"]\')?.remove()' in js
-    assert 'recommendationTitle.textContent = "오늘의 탐색 후보"' in js
+    assert 'recommendationTitle.textContent = "지금 확인할 추천 종목"' in js
     assert 'description.className = "staging-recommend-description"' in js
+    assert "새로 살 차례인지, 보유할 차례인지 먼저 확인해 보세요." in js
     assert '.staging-discovery-shortcuts.staging-shortcut-rail' in css
     assert 'grid-template-columns: repeat(3, minmax(0, 1fr)) !important' in css
     assert '.staging-discovery-signal-copy > small' in css
@@ -830,11 +1129,18 @@ def test_staging_v45_recreates_toss_stock_chart_sessions_and_scrubbing():
         "state.stockPriceRows",
         "state.currentDashboard?.quote",
         "stagingStockChartPhase",
+        "stagingStockChartLiveSession",
+        "STAGING_LIVE_INTRADAY_SESSIONS",
+        '"nxt_pre_market"',
+        '"nxt_after_market"',
+        "stagingLiveIntradayRows",
+        "cachedRows.set(liveRow.time",
         "observedIntradayStartMinute",
         "observedIntradayEndMinute",
         "observedIntradaySpan",
         "stagingIntradayMinute(row.endTime || row.time) - observedIntradayStartMinute",
         "staging-toss-chart-live-point",
+        'data-chart-live="${liveSession}"',
         'scrubber.addEventListener("pointerdown"',
         'scrubber.addEventListener("pointermove"',
         'scrubber.setAttribute("aria-valuetext"',
@@ -975,20 +1281,58 @@ def test_staging_v49_renews_recommendation_cards_and_live_detail():
         "recommendationDetailQuoteText",
         "decorateRecommendationCards",
         "decorateRecommendationDetail",
+        "recommendationCustomerState",
         'scoreTrack.className = "staging-recommend-detail-score-track"',
         'quickMetrics.className = "staging-recommend-detail-quick-metrics"',
         'next.className = "staging-recommend-detail-next-check"',
-        'content.replaceChildren(...[hero, action, levels, evidence, decision, source].filter(Boolean))',
-        'label.textContent = "현재 대응"',
-        'textContent = "매매 가격 기준"',
-        'textContent = "추천 판단 지표"',
-        'textContent = "근거와 주의점"',
-        'journeyTitle.textContent = "AI 시그널 변화"',
+        'content.replaceChildren(loader, ...[hero, action, levels, evidence, decision, source].filter(Boolean))',
+        'const enteredToday = Boolean(',
+        'item.recommendation_state === "entered_today"',
+        'recommendationEntryDate === kstTodayToken()',
+        'key: "new-buy-wait"',
+        'key: "add-buy-wait"',
+        'key: partial ? "partial-hold" : "hold"',
+        'label: "신규 매수 대기"',
+        'label: "추가 매수 대기"',
+        'label: partial ? "일부 수익 확인 후 보유" : "보유 유지"',
+        'label.textContent = "지금 어떻게 보면 되나요?"',
+        'levels.querySelector(":scope > h2").textContent = "지금 판단에 필요한 가격"',
+        'textContent = "추천 점수를 만든 핵심 수치"',
+        'textContent = "추천 근거와 꼭 볼 위험"',
+        'journeyTitle.textContent = "추천 뒤 AI 판단 변화"',
+        'textContent: recommendationStillVisible ? "왜 추천에 들어왔나요?" : "추천 당시 왜 들어왔나요?"',
+        'addConditionMetric("추천 기준", recommendationStillVisible ? "통과" : "추천 당시 통과")',
+        'addConditionMetric("AI 전략 매수가"',
+        'addConditionMetric("현재가"',
+        'addConditionMetric("추가 매수", customerState.additionalBuyLabel)',
+        'scoreLevelRow?.querySelector("b")',
+        'scoreLevel.textContent = "추천 기준 통과"',
+        'scoreGuide.textContent = `· ${customerState.guide}`',
+        'scoreLevelRow?.classList.add("qualified")',
+        "추천 점수는 기준을 통과한 종목끼리 비교한 순위예요.",
+        "item.current_price = price",
+        "item.ai_trade_signal.current.price = price",
+        "item?.ai_trade_signal?.current?.price,",
+        "price: initialPrice === undefined ? null : Number(initialPrice)",
+        "condition_price: item?.condition_price ?? item?.price",
+        "const conditionPrice = Number(item.condition_price ?? item.price)",
+        '["초기 위험선과 1차 계단형 수익을 나눠 확인하는 단계 기준", "처음 정한 위험 기준과 첫 수익 확인 기준"]',
+        "recommendationDetailFriendlyText(summary.next_check)",
+        'journeyStage.textContent = customerState.label',
+        '.replaceAll("관찰 후보", "추천 기준 통과")',
+        'document.getElementById("recommend-status"),',
+        "지금 새로 매수를 검토할 종목이 없어요.",
+        'content.dataset.recommendationState = recommendationStillActive',
+        'content.dataset.customerState = customerState.key',
+        '? "entered-today"',
+        "오늘의 신규 추천 목록에는 포함되지 않아요",
+        "추천 당시 통과",
         'toggle.dataset.stagingRecommendHistoryToggle = "true"',
         'help.setAttribute("aria-expanded", String(help.classList.contains("open")))',
         'if (event.key !== "Escape") return',
     ):
         assert contract in js
+    assert "item.price = price" not in js
 
     for contract in (
         ".recommend-score-help:not(.open)::after",
@@ -1619,7 +1963,7 @@ def test_staging_v69_rolls_the_header_through_major_market_indices():
     css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260831-header-action-icons-signal-copy-v61"
+    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
     for contract in (
         'data-staging-index-ticker aria-live="off"',
         'const STAGING_MARKET_CONTEXT_CODES = ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "DOW", "SOX"]',
@@ -1710,7 +2054,7 @@ def test_staging_v74_removes_exchange_metadata_and_aligns_ai_signal_rows():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260831-header-action-icons-signal-copy-v61"
+    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
     assert 'codeLine.className = "staging-ai-code"' not in js
     assert 'identity?.querySelector(".staging-ai-code")?.remove()' in js
 
@@ -1857,7 +2201,8 @@ def test_staging_v141_opens_a_beginner_friendly_stock_response_in_a_dedicated_pa
     page_markup = js.split('stagingAiStockResponsePage.innerHTML = `', 1)[1].split('`;', 1)[0]
     expected_order = (
         "이 화면이 열린 이유",
-        "현재 AI 전략 상태",
+        "쉽게 풀어보면",
+        "왜 이렇게 보나요?",
         "판단이 바뀌려면",
         "왜 이렇게 봤나요?",
         "점수와 계산 방법 알아보기",
@@ -1865,19 +2210,20 @@ def test_staging_v141_opens_a_beginner_friendly_stock_response_in_a_dedicated_pa
     positions = [page_markup.index(label) for label in expected_order]
     assert positions == sorted(positions)
     assert "판단 신뢰도" not in page_markup
-    assert "현재 신호" in page_markup
+    assert "지금 판단" in page_markup
     assert "신호 방향" not in page_markup
     assert "긍정·주의 신호를 비교하고 있어요" in page_markup
     assert "적중률이나 주가 상승 확률이 아니에요" in page_markup
-    assert "실제 보유 여부나 주문 내역을 반영하지 않아요" in page_markup
-    assert "매수·매도 권유가 아닙니다" in page_markup
+    assert "실제 계좌·주문 내역과 자동 연동되지 않아요" in page_markup
+    assert "대응 참고 정보예요" in page_markup
     assert 'data-staging-response-metrics aria-live=' not in page_markup
     for friendly_label in (
         "가격 흐름",
         "외국인·기관 매매",
-        "회사 공식 공시",
-        "최근 뉴스 분위기",
-        "금리·환율·업종 환경",
+            "회사 공식 공시",
+            "최근 뉴스 분위기",
+            "증권사 리포트",
+            "금리·환율·업종 환경",
     ):
         assert friendly_label in js
     assert 'window.SecretNoteAiStockResponse' in js
@@ -1886,17 +2232,24 @@ def test_staging_v141_opens_a_beginner_friendly_stock_response_in_a_dedicated_pa
     assert '/home-context?flow_limit=1500' in js
     assert '"/market/impact"' in js
     assert 'const WEIGHTS = Object.freeze({' in logic
-    for contract in ('chart: 30', 'flow: 25', 'disclosure: 15', 'news: 10', 'market: 20'):
+    for contract in (
+        'chart: 25',
+        'flow: 25',
+        'disclosure: 15',
+        'news: 10',
+        'research: 15',
+        'market: 10',
+    ):
         assert contract in logic
     assert 'stance = "신규 접근 보류";' in logic
     assert 'stance = "정보 확인 우선";' in logic
     assert 'const conflict = positiveMetrics.length > 0 && negativeMetrics.length > 0;' in logic
     assert 'force ? 0 : STAGING_AI_STOCK_RESPONSE_CACHE_MS' in js
     assert 'stagingAiStockResponsePage?.dataset.responseLoaded !== "true"' in js
-    assert 'stagingAiStockResponseFriendlyAction(result.action)' in js
+    assert 'const perspective = stagingAiStockResponsePerspectiveCopy(result, investorState);' in js
     assert 'value: "조금 더 지켜봐요"' in js
     assert 'guide: "주의 신호가 긍정 신호보다 조금 많아요"' in js
-    assert 'stagingAiStockResponseText("[data-staging-response-direction-guide]", directionCopy.guide);' in js
+    assert 'stagingAiStockResponseText("[data-staging-response-direction-guide]", perspective.guide);' in js
     assert '["수급이", "외국인·기관 매매가"]' in js
     assert 'if (/확인$/.test(text)) text = `${text}해 주세요.`;' in js
     assert 'row.setAttribute("aria-label", `${detail.name} AI 종목 대응 보기`);' in js
@@ -2210,7 +2563,7 @@ def test_staging_market_calendar_places_today_second():
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
 
-    assert 'dashboard-app-v170.js?v=20260831v453' in shell
+    assert 'dashboard-app-v170.js?v=20260901v459' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 
@@ -2800,7 +3153,7 @@ def test_staging_v132_uses_home_only_notification_action_and_compact_sheet_rows(
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v132 — make notifications the home action") :]
 
-    assert STAGING_IA_VERSION == "20260831-header-action-icons-signal-copy-v61"
+    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
     assert "notification-sheet-v132" in shell
     assert 'bell: \'<path d="M27.5 16.5a9.5 9.5 0 0 0-19 0' in js
     for contract in (
@@ -2838,7 +3191,7 @@ def test_staging_v143_unifies_root_header_action_icon_geometry():
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v143 — one optical outline system") :]
 
-    assert STAGING_IA_VERSION == "20260831-header-action-icons-signal-copy-v61"
+    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
     assert "header-action-icons-v143" in shell
     for contract in (
         "const topActionGlyphs = Object.freeze({",
@@ -2865,6 +3218,176 @@ def test_staging_v143_unifies_root_header_action_icon_geometry():
         "pointer-events: none !important",
     ):
         assert contract in rules
+
+
+def test_staging_v146_explains_two_detail_pages_without_exposing_model_provenance():
+    staging_client = TestClient(staging_app)
+    production_client = TestClient(production_app)
+    staging_shell = staging_client.get("/dashboard?view=home").text
+    production_shell = production_client.get("/dashboard?view=home").text
+    js = staging_client.get("/assets/staging/toss-ia.js").text
+    css = staging_client.get("/assets/staging/toss-fidelity.css").text
+    rules = css[css.index("/* v146 — the model stays invisible") :]
+
+    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
+    assert "plain-language-detail-v146" in staging_shell
+    assert "investor-action-copy-v147" in staging_shell
+    assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
+    assert '<meta name="secret-note-environment" content="staging" />' not in production_shell
+    for contract in (
+        'const STAGING_PAGE_SUMMARY_PATH = "/staging-ai/page-summary"',
+        "const STAGING_PAGE_SUMMARY_CACHE_MS = 30 * 60 * 1000",
+        "const stagingPageSummaryCache = new Map()",
+        "const cached = stagingPageSummaryCache.get(cacheKey)",
+        "stagingPageSummaryCache.set(cacheKey, { savedAt: Date.now(), payload })",
+        "stagingGptPageSummaryEnabled",
+        'requestStagingPageSummary("stock_response"',
+        'requestStagingPageSummary("recommendation_detail"',
+        "applyStagingAiStockResponseSummary",
+        "applyRecommendationDetailSummary",
+        "recommendationDetailFriendlyText",
+        "새로 살 가격과 실제 거래 규모 확인이 우선입니다",
+        "가격이 흔들릴 때 손실을 줄일 기준을 매일 확인해요",
+        'action: recommendationDetailFriendlyText(item?.action)',
+        "customer_state: customerState.key",
+        "customer_state_label: customerState.label",
+        "additional_buy_label: customerState.additionalBuyLabel",
+        "쉽게 풀어보면",
+        "왜 이렇게 보나요?",
+        "지금 어떻게 보면 되나요?",
+        "지금은 추가 매수보다 보유 기준을 확인할 때예요",
+        "지금 확인할 추천 종목",
+        "새로 살 차례인지, 보유할 차례인지 먼저 확인해 보세요.",
+        "badge?.remove()",
+        'dataset.stagingRecommendDetailReason = "true"',
+        'content.dataset.summaryMode = summary.generation_mode || "rules"',
+        "설명은 이해하기 쉽게 풀어썼고, 추천 여부와 점수·가격은 공개 시장 데이터를 기준으로 계산했어요.",
+    ):
+        assert contract in js
+    for contract in (
+        ".staging-ai-stock-response-explanation",
+        ".staging-recommend-detail-reason",
+        "/* v147 — put the investor's current decision",
+        "grid-template-columns: minmax(0, 1fr) auto !important",
+        "justify-content: flex-start !important",
+        "overflow-wrap: anywhere !important",
+        "@media (max-width: 359px)",
+    ):
+        assert contract in rules
+    assert "data-staging-summary-provenance" not in js
+    detail_summary_source = js[js.index("const applyRecommendationDetailSummary") : js.index("const decorateRecommendationDetail")]
+    stock_summary_source = js[js.index("const applyStagingAiStockResponseSummary") : js.index("const stagingAiStockResponseKeyReasonRow")]
+    for source in (detail_summary_source, stock_summary_source):
+        assert "GPT 문구 정리" not in source
+        assert "문구 정리 중" not in source
+    assert js.count("fetch(") == 1
+
+
+def test_staging_v149_uses_two_holding_states_average_price_and_finished_copy():
+    client = TestClient(staging_app)
+    shell = client.get("/dashboard?view=home").text
+    js = client.get("/assets/staging/toss-ia.js").text
+    css = client.get("/assets/staging/toss-fidelity.css").text
+    rules = css[css.index("/* v148 — tailor explanations") :]
+
+    assert "position-guide-v149-position-input-v150" in shell
+    for contract in (
+        "const STAGING_AI_STOCK_RESPONSE_INVESTOR_STATES = Object.freeze({",
+        'not_holding: Object.freeze({',
+        'holding: Object.freeze({',
+        'data-staging-response-investor-state="not_holding"',
+        'data-staging-response-investor-state="holding"',
+        "현재 이 종목을 보유하고 있나요?",
+        'data-staging-response-average-price',
+        'data-staging-response-guide-rows',
+        "증권사 리포트",
+        "6가지 자료 자세히 보기",
+        "실제 계좌·주문 내역과 자동 연동되지 않아요",
+        "investor_state: normalizedState",
+        "investor_state_label: stateCopy.label",
+        "position_mode: perspective.positionMode",
+        "average_buy_price: perspective.averageBuyPrice",
+        "stagingAiStockResponsePerspectiveCopy",
+        'setStagingAiStockResponseDisplay("loading"',
+        'setStagingAiStockResponseDisplay("ready")',
+        'data-staging-response-loader role="status" aria-live="polite"',
+        'content.dataset.summaryDisplay = ready ? "ready" : "loading"',
+        'data-staging-recommend-detail-loader',
+        'setRecommendationDetailSummaryDisplay(content, "ready")',
+        "let recommendationDataPending = false;",
+        "if (recommendationDataPending) {",
+        "label} 기준으로 반영해 쉬운 말로 정리하고 있어요",
+    ):
+        assert contract in js
+    for contract in (
+        ".staging-ai-stock-response-overview > div:first-child",
+        "padding-left: 12px !important",
+        ".staging-ai-stock-response-investor-state",
+        ".staging-ai-stock-response-investor-options",
+        ".staging-ai-stock-response-average-price",
+        ".staging-ai-stock-response-guide-row",
+        "grid-template-columns: repeat(2, minmax(0, 1fr)) !important",
+        "min-height: 44px !important",
+        '.staging-ai-stock-response-page[data-response-display="loading"]',
+        '#recommend-detail-content[data-summary-display="loading"]',
+        ".staging-ai-stock-response-loader-spinner",
+        "animation: staging-investor-copy-spin 780ms linear infinite !important",
+        "@media (prefers-reduced-motion: reduce)",
+        "animation: none !important",
+    ):
+        assert contract in rules
+    assert "GPT" not in js[
+        js.index('class="staging-ai-stock-response-loader"') :
+        js.index('class="staging-ai-stock-response-action"')
+    ]
+
+
+def test_staging_v145_refines_three_daily_briefings_without_changing_news_or_signal_data():
+    staging_client = TestClient(staging_app)
+    production_client = TestClient(production_app)
+    staging_shell = staging_client.get("/dashboard?view=news").text
+    production_shell = production_client.get("/dashboard?view=news").text
+    js = staging_client.get("/assets/staging/toss-ia.js").text
+    css = staging_client.get("/assets/staging/toss-fidelity.css").text
+    rules = css[css.index("/* v145 — GPT refines the current morning") :]
+
+    assert STAGING_IA_VERSION == "20260901-stock-title-position-guide-v85"
+    assert "gpt-briefing-v145" in staging_shell
+    assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
+    assert '<meta name="secret-note-environment" content="staging" />' not in production_shell
+    for contract in (
+        "const stagingBriefingSummaryInput = (payload = {}) =>",
+        "const stagingBriefingSummaryPromises = new Map()",
+        'requestStagingPageSummary("briefing_edition"',
+        "selected_news_count: payload.selected_news_count",
+        "opportunity_count: payload.opportunity_count",
+        "caution_count: payload.caution_count",
+        "const applyStagingBriefingCardSummary = async",
+        "const applyStagingBriefingArticleSummary = async",
+        "const latestPublicationDate = String(rows[0]?.publication_date || \"\")",
+        ".slice(0, 3)",
+        'activeFeedMode === "content"',
+        '(document.body.dataset.view || "") === "news"',
+        "data-staging-briefing-summary-provenance",
+        'summaryPrefetch ? "loading" : "deferred"',
+        'summaryPrefetch ? "문구 정리 중" : "열면 GPT 정리"',
+        'summary.generation_mode === "openai" ? "GPT 문구 정리" : "데이터 요약"',
+        '(document.body.dataset.view || "") === "morning-briefing"',
+        "void applyStagingBriefingArticleSummary(payload || {})",
+        "핵심 소식 ${formatNumber(payload.selected_news_count || 0)}건 전체 읽기",
+        "editorialPreliminaryBuysMarkup(payload)",
+        "editorialConfirmedBuysMarkup(payload)",
+    ):
+        assert contract in js
+    for contract in (
+        ".staging-briefing-card-provenance",
+        ".staging-briefing-summary-provenance",
+        ".staging-briefing-ai-next",
+        "overflow-wrap: anywhere !important",
+        "@media (max-width: 359px)",
+    ):
+        assert contract in rules
+    assert js.count("fetch(") == 1
 
 
 def test_staging_v138_keeps_discovery_search_suggestions_legible_in_dark_mode():

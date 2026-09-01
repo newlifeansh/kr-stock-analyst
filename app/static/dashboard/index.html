@@ -24,13 +24,13 @@
       }
     </script>
     <script src="/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts" data-staging-theme-bootstrap></script>
-    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
-    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143" />
-    <script src="/assets/staging/ai-stock-response-logic.js?v=20260831-header-action-icons-signal-copy-v61" defer></script>
-    <script src="/assets/staging/stock-change-copy-logic.js?v=20260831-header-action-icons-signal-copy-v61" defer></script>
-    <script src="/assets/staging/toss-ia.js?v=20260831-header-action-icons-signal-copy-v61" defer></script>
+    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
+    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150" />
+    <script src="/assets/staging/ai-stock-response-logic.js?v=20260901-stock-title-position-guide-v85" defer></script>
+    <script src="/assets/staging/stock-change-copy-logic.js?v=20260901-stock-title-position-guide-v85" defer></script>
+    <script src="/assets/staging/toss-ia.js?v=20260901-stock-title-position-guide-v85" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260831v453&amp;build=20260831v453" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260901v459&amp;build=20260901v459" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -354,7 +354,10 @@
           <button class="stock-v3-back" id="stock-detail-back" type="button" aria-label="이전 화면">←</button>
           <div class="stock-v3-command-title">
             <span id="stock-v2-market-code">시장 · 종목코드</span>
-            <h1 id="stock-name">종목 분석</h1>
+            <div class="stock-v3-name-row">
+              <span class="stock-title-logo" id="stock-title-logo" aria-hidden="true" hidden></span>
+              <h1 id="stock-name">종목 분석</h1>
+            </div>
             <p class="stock-v3-command-quote" id="stock-command-quote" aria-label="상단 실시간 시세">
               <span id="stock-command-price">시세 확인 중</span>
               <span id="stock-command-change"></span>
@@ -1415,6 +1418,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260831v453" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260901v459" defer></script>
   </body>
 </html>

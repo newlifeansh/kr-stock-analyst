@@ -29,7 +29,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
     ids = [case["id"] for case in payload["cases"]]
 
     assert payload["strategy_version"] == "position-lifecycle-v7.3"
-    assert len(ids) == 79
+    assert len(ids) == 83
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -55,6 +55,10 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-UI-014",
         "SIG-UI-015",
         "SIG-UI-016",
+        "SIG-UI-017",
+        "SIG-UI-018",
+        "SIG-UI-019",
+        "SIG-UI-020",
         "SIG-CONTRACT-004",
     }.issubset(ids)
     assert all(case["priority"] in {"P0", "P1", "P2"} for case in payload["cases"])
@@ -70,7 +74,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "# 데이터 연동·시그널 판단 QA 카탈로그" in first
     assert "`position-lifecycle-v7.3`" in first
     assert "SIG-CONTRACT-003" in first
-    assert "QA 항목: 79개" in first
+    assert "QA 항목: 83개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -464,6 +468,111 @@ console.log(JSON.stringify({{ upstream, fallback }}));
 
 
 @pytest.mark.qa_gate
+def test_nxt_extended_session_quotes_advance_and_accumulate_intraday_chart_minutes() -> None:
+    script = r"""
+const fs = require("fs");
+const source = fs.readFileSync("app/static/staging/toss-ia.js", "utf8");
+const start = source.indexOf("  const stagingChartNumeric");
+const end = source.indexOf("  const stagingStockWeeklyRows", start);
+if (start < 0 || end < 0) throw new Error("staging chart helpers not found");
+const STAGING_WEEK_CHART_TTL_MS = 30000;
+const stagingWeekChartCache = new Map();
+const STAGING_LIVE_INTRADAY_SESSIONS = new Set(["nxt_pre_market", "nxt_after_market"]);
+const STAGING_LIVE_INTRADAY_CACHE_KEYS = 8;
+const stagingLiveIntradayRows = new Map();
+const window = { location: { search: "" }, requestAnimationFrame() {} };
+const document = { getElementById() { return null; } };
+const state = {
+  currentStock: { code: "005930" },
+  currentDashboard: { code: "005930" },
+  stockIntradayRows: [
+    {
+      trade_date: "20260901",
+      trade_time: "083700",
+      price: 259500,
+      open: 259500,
+      high: 259500,
+      low: 259500,
+      volume: 10,
+    },
+  ],
+  stockPriceRows: [],
+};
+const stagingJsonRequest = async () => ({});
+const upgradeStagingStockPriceChart = () => {};
+const fixture = `
+const quote = (price, session = "nxt_pre_market", isLive = true) => ({
+  trade_date: "2026-09-01",
+  price,
+  volume: 100,
+  market_session: session,
+  is_live: isLive,
+});
+const at = (time) => ({
+  date: "2026-09-01",
+  time,
+  weekday: "Tue",
+  minutes: Number(time.slice(0, 2)) * 60 + Number(time.slice(2, 4)),
+});
+const pre38 = stagingStockIntradayRows(quote(259000), "preopen", at("083800"));
+const pre39 = stagingStockIntradayRows(quote(260000), "preopen", at("083900"));
+const same39 = stagingStockIntradayRows(quote(258500), "preopen", at("083900"));
+const reference40 = stagingStockIntradayRows(
+  quote(260000, "pre_market_reference", false),
+  "preopen",
+  at("084000"),
+);
+console.log(JSON.stringify({
+  pre38: pre38.map(({ time, price }) => [time, price]),
+  pre39: pre39.map(({ time, price }) => [time, price]),
+  same39: same39.at(-1),
+  reference40: reference40.map(({ time, price }) => [time, price]),
+  live: {
+    pre: stagingStockChartLiveSession(quote(1), "preopen"),
+    reference: stagingStockChartLiveSession(
+      quote(1, "pre_market_reference", false),
+      "preopen",
+    ),
+    after: stagingStockChartLiveSession(
+      quote(1, "nxt_after_market", true),
+      "closed",
+    ),
+  },
+}));
+`;
+eval(source.slice(start, end) + fixture);
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "pre38": [["083700", 259500], ["083800", 259000]],
+        "pre39": [
+            ["083700", 259500],
+            ["083800", 259000],
+            ["083900", 260000],
+        ],
+        "same39": {
+            "date": "2026-09-01",
+            "time": "083900",
+            "open": 259000,
+            "high": 260000,
+            "low": 258500,
+            "close": 258500,
+            "price": 258500,
+            "volume": 100,
+        },
+        "reference40": [["083700", 259500]],
+        "live": {"pre": True, "reference": False, "after": True},
+    }
+
+
+@pytest.mark.qa_gate
 def test_ai_signal_live_dom_contract_has_status_and_accessible_return_labels() -> None:
     source = Path("app/static/dashboard/app.js").read_text(encoding="utf-8")
     shell = Path("app/static/dashboard/index.html").read_text(encoding="utf-8")
@@ -476,6 +585,9 @@ def test_ai_signal_live_dom_contract_has_status_and_accessible_return_labels() -
         'id="ai-signals-live-status"'
     ) < shell.index('id="ai-signals-page-list"')
     assert "function aiSignalItemWithLiveOverlay" in source
+    assert "function prepareAiSignalEntrySurface" in source
+    assert "live_return_pending: true" in source
+    assert 'state.stockQuoteReadyCode = normalizedCode;' in source
     assert "function aiSignalFreshnessSummary" in source
     assert "function syncAiSignalFreshnessBadgeVisibility" in source
     assert 'badge.hidden = hideAll || ["realtime", "confirmed"].includes(stateName);' in source
@@ -490,6 +602,8 @@ def test_ai_signal_live_dom_contract_has_status_and_accessible_return_labels() -
         "보유 평가수익률",
         "최근 확인 수익률",
         "확정 수익률",
+        "현재가 확인 중",
+        "연결 후 확인",
     ):
         assert label in source
     assert 'value.dataset.returnKind = metric.returnKind || "";' in source
@@ -652,9 +766,39 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
 
     assert "SIG-UI-016" in E2E_CASE_IDS
+    assert "SIG-UI-017" in E2E_CASE_IDS
+    assert "SIG-UI-018" in E2E_CASE_IDS
+    assert "SIG-UI-019" in E2E_CASE_IDS
+    assert "SIG-UI-020" in E2E_CASE_IDS
     assert "def portfolio_production_screens_case" in source
     assert "feature-ai-signals-production.jpg" in source
     assert "매수 확정 종목의 전략 기준가와 수익률" in source
+    assert "def stock_title_logo_case" in source
+    assert '("278470", "official")' in source
+    assert '("014950", "fallback")' in source
+    assert '"title_logo": title_logo' in source
+    assert "title_alignment" in source
+
+
+def test_gpt_briefing_copy_contract_is_registered_for_e2e() -> None:
+    source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
+
+    assert "SIG-UI-018" in E2E_CASE_IDS
+    assert "def staging_gpt_briefing_copy_case" in source
+    assert 'request.get("page_type") != "briefing_edition"' in source
+    assert 'request.get("facts", {}).get("edition")' in source
+    assert 'data-staging-briefing-summary-provenance' in source
+
+
+def test_gpt_recommendation_detail_isolated_from_live_quote_updates() -> None:
+    source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
+    case_source = source.split("def staging_gpt_detail_copy_case", 1)[1].split(
+        "def staging_gpt_briefing_copy_case", 1
+    )[0]
+
+    assert 'page.route_web_socket(' in case_source
+    assert '"**/stocks/quotes*"' in case_source
+    assert '"**/stocks/105560/quote*"' in case_source
 
 
 def test_ai_signal_live_return_contract_is_registered_for_e2e() -> None:
@@ -735,6 +879,9 @@ def test_home_ai_response_e2e_unhides_the_fixture_parent_section() -> None:
     assert "pauseQuoteStreamConnection('checking');" in case_source
     assert "loadHomeAiSignals = async () => false;" in case_source
     assert "renderHomeAiResponse = () => {};" in case_source
+    assert "주가에 영향을 줄 핵심 이벤트" not in case_source
+    assert "summary_request_count_before_return" in case_source
+    assert "requests.length === expectedCount" in case_source
     assert "personal.hidden = false;" in case_source
     assert case_source.index("personal.hidden = false;") < case_source.index(
         'personal.wait_for(state="visible")'
@@ -778,7 +925,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.3"
-    assert report["catalog_case_count"] == 79
+    assert report["catalog_case_count"] == 83
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -925,6 +1072,15 @@ class FakeReadOnlyApi:
                 "recent_days": 30,
                 "items": self.market_signal_items,
             }, self._meta(path)
+        if path == "/market/recommendations":
+            return {
+                "as_of": "2026-08-29T10:00:00+09:00",
+                "selection_rule": "confirmed_entry_pending_or_entered_today",
+                "qualified_count": 0,
+                "pending_count": 0,
+                "entered_today_count": 0,
+                "items": [],
+            }, self._meta(path)
         if path == "/stocks/005930":
             return {
                 "code": "005930",
@@ -965,6 +1121,29 @@ class FakeReadOnlyApi:
         if path == "/us/stocks/AAPL/dashboard":
             return {"symbol": "AAPL", "as_of": "2026-08-28"}, self._meta(path)
         return {"items": [], "status": "ready"}, self._meta(path)
+
+    def get_text(self, path: str, **params: object):
+        assert path == "/dashboard"
+        return (
+            '<html><head><meta name="secret-note-environment" content="staging" /></head></html>',
+            self._meta(path),
+        )
+
+    def post_json(self, path: str, payload: dict[str, object]):
+        assert path == "/staging-ai/page-summary"
+        fallback = dict(payload["fallback"])
+        return 200, {
+            **fallback,
+            "generation_mode": "rules",
+            "model_name": None,
+            "generation_note": "fixture fallback",
+            "prompt_version": "staging-page-summary-v11",
+            "cache_hit": False,
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+            "estimated_cost_usd": None,
+        }, self._meta(path)
 
 
 @pytest.mark.qa_live

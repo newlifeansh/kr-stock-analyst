@@ -211,6 +211,62 @@ console.log(JSON.stringify({{
     assert "payload = sanitizePendingEntryAiSignal(payload);" in render_source
 
 
+def test_stock_detail_title_logo_tracks_the_selected_stock_with_a_fallback():
+    client = TestClient(app)
+    shell = client.get("/dashboard/005930").text
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+    staging_source = client.get("/assets/staging/toss-ia.js").text
+
+    assert 'class="stock-v3-name-row"' in shell
+    assert 'class="stock-title-logo" id="stock-title-logo" aria-hidden="true" hidden' in shell
+    assert '<div class="stock-v3-chart-pane">\n              <div class="stock-mini-chart"' in shell
+    assert 'stockTitleLogo: $("stock-title-logo")' in source
+    logo_source = source[
+        source.index("function createStockListLogo(")
+        : source.index("function createStockListCopy(")
+    ]
+    assert 'function createStockListLogo(code, className = "")' in logo_source
+    assert '["stock-list-logo", className].filter(Boolean).join(" ")' in logo_source
+    assert 'function renderStockTitleLogo(stock = state.currentStock)' in logo_source
+    assert 'elements.stockTitleLogo.dataset.stockCode === code' in logo_source
+    assert 'createStockListLogo(code, "stock-title-logo-frame")' in logo_source
+    assert 'image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png' in logo_source
+    assert 'image.addEventListener("error", () => {' in logo_source
+    assert "image.remove();" in logo_source
+    assert "renderStockTitleLogo(null);" in source
+    assert "renderStockTitleLogo(state.currentStock);" in source
+
+    daily_chart_source = source[
+        source.index("function renderStockMiniChart(")
+        : source.index("function formatIntradayTime(")
+    ]
+    intraday_chart_source = source[
+        source.index("function renderStockIntradayChart(")
+        : source.index("function setCompanyProfileRow(")
+    ]
+    assert "const top = 18;" in daily_chart_source
+    assert "const top = 24;" in intraday_chart_source
+    assert ".stock-v3-name-row {" in styles
+    assert ".stock-title-logo {" in styles
+    assert "pointer-events: none;" in styles
+    assert ".stock-title-logo[hidden]" in styles
+    assert ".stock-title-logo-frame" in styles
+    staging_logo_styles = styles[styles.index(
+        'body[data-staging-ia="tds-video"] #stock-view '
+        ".staging-stock-hero-name-row > .stock-title-logo"
+    ) :]
+    assert "width: 36px !important;" in staging_logo_styles
+    assert 'const stockTitleLogo = document.getElementById("stock-title-logo");' in staging_source
+    assert "stockHeroNameRow.prepend(stockTitleLogo)" in staging_source
+    staging_chart_source = staging_source[
+        staging_source.index("const width = 360;") : staging_source.index(
+            "const priceValues = isCandle"
+        )
+    ]
+    assert "const top = 34;" in staging_chart_source
+
+
 def test_stock_detail_v3_shell_and_controls():
     client = TestClient(app)
 

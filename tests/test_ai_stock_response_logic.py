@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import subprocess
 
+import pytest
+
 
 LOGIC_PATH = Path("app/static/staging/ai-stock-response-logic.js").resolve()
 
@@ -25,6 +27,39 @@ process.stdout.write(JSON.stringify(logic.buildResponse(payload)));
     return json.loads(completed.stdout)
 
 
+def _build_guide(
+    payload: dict[str, object],
+    *,
+    investor_state: str,
+    average_buy_price: float | None = None,
+) -> dict[str, object]:
+    script = f"""
+const fs = require("fs");
+const logic = require({json.dumps(str(LOGIC_PATH))});
+const input = JSON.parse(fs.readFileSync(0, "utf8"));
+const result = logic.buildResponse(input.payload);
+process.stdout.write(JSON.stringify(logic.buildInvestorGuide(result, {{
+  investorState: input.investorState,
+  averageBuyPrice: input.averageBuyPrice,
+}})));
+"""
+    completed = subprocess.run(
+        ["node", "-e", script],
+        input=json.dumps(
+            {
+                "payload": payload,
+                "investorState": investor_state,
+                "averageBuyPrice": average_buy_price,
+            },
+            ensure_ascii=False,
+        ),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(completed.stdout)
+
+
 def _complete_payload() -> dict[str, object]:
     return {
         "code": "005930",
@@ -32,7 +67,7 @@ def _complete_payload() -> dict[str, object]:
             "code": "005930",
             "name": "삼성전자",
             "as_of": "2026-08-29T12:00:00+09:00",
-            "quote": {"trade_date": "2026-08-28"},
+            "quote": {"price": 275_000, "trade_date": "2026-08-28"},
             "coverage": {"price": True},
             "company_profile": {"sector": "반도체", "industry": "반도체 제조"},
             "chart_analysis": {
@@ -42,6 +77,15 @@ def _complete_payload() -> dict[str, object]:
                 "signals": ["현재가가 20일선 위"],
                 "risks": [],
                 "support": 250_000,
+                "resistance": 285_000,
+                "atr_percent": 3.2,
+            },
+            "revisions": {
+                "report_count_90d": 3,
+                "target_up_count": 2,
+                "target_down_count": 0,
+                "latest_opinion": "매수",
+                "latest_target_price": 310_000,
             },
             "flows": {},
             "sentiment": {
@@ -64,6 +108,7 @@ def _complete_payload() -> dict[str, object]:
             "industry": "반도체 제조",
             "as_of": "2026-08-29T12:00:00+09:00",
             "confirmation": {
+                "entry_allowed": False,
                 "vetoes": [],
                 "evidence": [
                     {
@@ -84,7 +129,24 @@ def _complete_payload() -> dict[str, object]:
                         "source": "OpenDART 공시",
                         "as_of": "2026-08-29T08:00:00+09:00",
                     },
+                    {
+                        "key": "research",
+                        "available": True,
+                        "score": 50,
+                        "state": "supportive",
+                        "summary": "최근 리포트 3건 · 목표가 상향 2건 · 투자의견 매수",
+                        "source": "증권사 발간 리포트",
+                        "as_of": "2026-08-29T07:30:00+09:00",
+                    },
                 ],
+            },
+            "current": {
+                "action": "entry_watch",
+                "label": "진입 관찰",
+                "price": 275_000,
+                "stop_reference": 259_000,
+                "partial_exit_reference": 292_000,
+                "next_confirmation": "외국인·기관 합산 순매수 전환 확인",
             },
         },
         "marketImpact": {
@@ -121,27 +183,29 @@ def test_multi_signal_response_uses_fixed_weights_and_surfaces_conflict() -> Non
     result = _build(_complete_payload())
     metrics = {item["key"]: item for item in result["metrics"]}
 
-    assert result["version"] == "20260829-multi-signal-v1"
+    assert result["version"] == "20260901-position-guide-v2"
     assert [item["key"] for item in result["metrics"]] == [
         "chart",
         "flow",
         "disclosure",
         "news",
+        "research",
         "market",
     ]
     assert {key: item["weight"] for key, item in metrics.items()} == {
-        "chart": 30,
+        "chart": 25,
         "flow": 25,
         "disclosure": 15,
         "news": 10,
-        "market": 20,
+        "research": 15,
+        "market": 10,
     }
     assert metrics["chart"]["value"] == "80점"
     assert metrics["chart"]["score"] == 60
     assert metrics["market"]["score"] == -80
     assert metrics["market"]["relevance"] == "direct"
     assert "종목·업종 관련 축" in metrics["market"]["evidence"]
-    assert result["coverageCount"] == 5
+    assert result["coverageCount"] == 6
     assert result["coverageWeight"] == 100
     assert result["conflict"] is True
     assert result["stance"] == "혼조 · 확인 우선"
@@ -265,7 +329,7 @@ def test_partial_sources_never_manufacture_confidence_or_safe_disclosure() -> No
     metrics = {item["key"]: item for item in result["metrics"]}
 
     assert result["coverageCount"] == 1
-    assert result["coverageWeight"] == 30
+    assert result["coverageWeight"] == 25
     assert result["limited"] is True
     assert result["stance"] == "정보 확인 우선"
     assert result["confidence"] <= 55
@@ -286,3 +350,61 @@ def test_unmatched_market_factors_are_labeled_as_broad_market_influence() -> Non
     assert market["relevance"] == "broad"
     assert market["source"] == "시장 5개 축·광역 영향"
     assert any("광역 시장 영향" in item for item in result["warnings"])
+
+
+def test_not_holding_guide_explains_observation_and_data_owned_buy_points() -> None:
+    payload = _complete_payload()
+
+    guide = _build_guide(payload, investor_state="not_holding")
+    rows = {row["key"]: row for row in guide["rows"]}
+
+    assert guide["state"] == "not_holding"
+    assert guide["positionMode"] == "watching"
+    assert guide["headline"] == "현재는 매수 관망이 필요해요"
+    assert "가격 흐름" in guide["reason"]
+    assert "외국인·기관 매매" in guide["reason"]
+    assert "최근 뉴스" in guide["reason"]
+    assert "증권사 리포트" in guide["reason"]
+    assert rows["watch_zone"]["value"].endswith("원")
+    assert rows["buy_trigger"]["value"] == "285,000원"
+    assert rows["risk_line"]["value"] == "259,000원"
+    assert guide["nextChecks"][0] == "285,000원 위에서 장을 마치는지"
+    assert all("250,000원" not in item for item in guide["nextChecks"])
+
+
+def test_holding_profit_guide_uses_average_price_for_partial_profit_protection() -> None:
+    guide = _build_guide(
+        _complete_payload(),
+        investor_state="holding",
+        average_buy_price=240_000,
+    )
+    rows = {row["key"]: row for row in guide["rows"]}
+
+    assert guide["positionMode"] == "holding_profit"
+    assert guide["returnRate"] == pytest.approx(14.583333, rel=1e-5)
+    assert rows["return"]["status"] == "수익권"
+    assert rows["return"]["evidence"] == "평균 매수가 240,000원과 현재가 275,000원을 비교했어요."
+    assert rows["first_sell"]["value"] == "285,000원"
+    assert rows["protect"]["value"] == "259,000원"
+
+
+def test_holding_loss_guide_separates_loss_limit_and_recovery_prices() -> None:
+    guide = _build_guide(
+        _complete_payload(),
+        investor_state="holding",
+        average_buy_price=310_000,
+    )
+    rows = {row["key"]: row for row in guide["rows"]}
+
+    assert guide["positionMode"] == "holding_loss"
+    assert guide["returnRate"] == pytest.approx(-11.290322, rel=1e-5)
+    assert rows["risk_line"]["value"] == "259,000원"
+    assert rows["recovery"]["value"] == "285,000원"
+
+
+def test_holding_without_average_price_does_not_manufacture_personal_return() -> None:
+    guide = _build_guide(_complete_payload(), investor_state="holding")
+
+    assert guide["positionMode"] == "holding_unknown"
+    assert guide["returnRate"] is None
+    assert "평균 매수가" in guide["headline"]
