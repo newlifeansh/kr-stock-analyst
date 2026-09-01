@@ -894,6 +894,17 @@ def build_recommendations(
                     )
                 )
             ]
+
+        # Live enrichment runs in isolated sessions and can be temporarily
+        # unavailable. Keep the verified price-based candidate instead of
+        # returning an empty recommendation list while that source recovers.
+        scored_codes = {str(item.get("code") or "") for item in scored}
+        grouped_prices = universe.get("price_groups") or {}
+        scored.extend(
+            _score_fast_candidate(item, grouped_prices.get(str(item["code"]), []))
+            for item in candidates
+            if str(item["code"]) not in scored_codes
+        )
     else:
         grouped_prices = universe.get("price_groups") or {}
         scored = [_score_fast_candidate(item, grouped_prices.get(str(item["code"]), [])) for item in candidates]

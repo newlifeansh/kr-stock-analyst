@@ -64,12 +64,18 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (url.pathname.startsWith("/assets/dashboard/") || url.pathname.startsWith("/assets/staging/")) {
+    // The HTML shell versions every asset, but a network-first strategy also
+    // prevents a dormant service worker from masking a newly deployed bundle.
     event.respondWith(
-      caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-        const copy = response.clone();
-        caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy));
-        return response;
-      }))
+      fetch(request, { cache: "no-store" })
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached || Response.error()))
     );
   }
 });

@@ -237,6 +237,29 @@ def test_recommendations_fall_back_to_close_times_volume_without_market_cap(monk
         assert all(item["ai_trade_signal"]["entry_score_threshold"] == Decimal("62.00") for item in payload["items"])
 
 
+def test_recommendations_keep_verified_candidates_when_live_enrichment_is_unavailable(monkeypatch):
+    _install_confirmed_entry_signals(monkeypatch, ["005930"])
+    monkeypatch.setattr(recommendations, "_uses_runtime_database", lambda _db: True)
+    monkeypatch.setattr(recommendations, "_score_candidate", lambda *_args, **_kwargs: None)
+
+    with _session() as db:
+        _seed_prices(db, "005930", "삼성전자", 80000, 1_000_000)
+        db.commit()
+
+        payload = build_recommendations(
+            db,
+            limit=1,
+            candidate_limit=10,
+            refresh_live=True,
+            ensure_signal_history=False,
+        )
+
+        assert payload["candidate_count"] == 1
+        assert [item["code"] for item in payload["items"]] == ["005930"]
+        assert payload["items"][0]["buy_condition_met"] is True
+        assert any("1차 후보" in risk for risk in payload["items"][0]["risks"])
+
+
 def test_recommendations_exclude_watch_holding_and_live_preliminary_states(monkeypatch):
     codes = ["100001", "100002", "100003", "100004", "100005"]
     confirmed = _confirmed_entry_signal(codes[0])

@@ -1415,10 +1415,22 @@ def test_market_core_only_uses_specific_market_moving_facts() -> None:
 
 def test_home_trend_payload_refreshes_ai_response() -> None:
     source = app_source()
+    refresh_start = source.index("function refreshHomeAiResponseContext")
+    refresh_end = source.index("function renderHomeAiResponse", refresh_start)
+    refresh_logic = source[refresh_start:refresh_end]
 
     assert "state.homeTrendContext = payload;" in source
     assert 'if (state.view === "home") {\n      renderHomeAiResponse();' in source
-    assert 'void refreshUsSectorMoves({ force: true, ttlMs: 0 });' in source
+    assert "function refreshHomeAiResponseContext" in source
+    assert "state.homeAiResponseRefreshPromise" in refresh_logic
+    assert "Promise.allSettled(requests)" in refresh_logic
+    assert "loadHomeAiSignals({ force, ttlMs: 0 })" in refresh_logic
+    assert "loadTrends(trendTab, { force, ttlMs: 0 })" in refresh_logic
+    assert "loadHomeMarketImpact({ force, ttlMs: 0 })" in refresh_logic
+    assert "refreshUsSectorMoves({ force, ttlMs: 0 })" in refresh_logic
+    assert 'quant-signals${force ? "?refresh=1" : ""}' in source
+    assert 'liveUrl("/market/trends?days=7&refresh=true")' in source
+    assert "startHomeAiResponseRefresh();" in source
     assert "connectUsSectorStream();" in source
 
 
@@ -1575,7 +1587,7 @@ def test_home_ai_response_is_personalized_from_interest_stocks_and_dominant_even
     assert 'context.kind === "macro-factor"' in source
     assert 'function loadHomeMarketImpact' in source
     assert 'state.homeMarketImpact = payload;' in source
-    assert 'loadHomeMarketImpact(pageEntryRefreshOptions("trend-impact", "home-impact"))' in source
+    assert "loadHomeMarketImpact({ force, ttlMs: 0 })" in source
     assert 'fetchJsonCached("/market/impact"' in source
     assert "JB금융|BNK금융|DGB금융" in source
     assert '`${item.name || "해운주"}: 유가보다 운임과 거래대금이 함께 버티는지를 우선 확인하세요.`' in source

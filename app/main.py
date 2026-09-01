@@ -342,13 +342,13 @@ STOCK_INVESTOR_FLOW_REFRESH_TTL_SECONDS = 300
 MARKET_RANKING_TTL_SECONDS = 120
 MARKET_INDICES_TTL_SECONDS = 300
 GLOBAL_MARKET_ASSETS_TTL_SECONDS = 30
-MARKET_IMPACT_TTL_SECONDS = 900
+MARKET_IMPACT_TTL_SECONDS = 60
 RECOMMENDATION_TTL_SECONDS = 600
 INTRADAY_CLOSED_TTL_SECONDS = 60 * 60 * 72
 INTRADAY_WARMUP_MAX_STOCKS = 60
 INTRADAY_WARMUP_START = time(15, 35)
 QUANT_SIGNAL_QUOTE_REFRESH_END = time(18, 0)
-TREND_ANALYSIS_TTL_SECONDS = 120
+TREND_ANALYSIS_TTL_SECONDS = 60
 TREND_GRAPH_TTL_SECONDS = 300
 WRITE_SESSION_COOKIE = "sn_write_session"
 WRITE_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
@@ -2375,8 +2375,11 @@ def stock_dashboard_shell():
         raise HTTPException(status_code=404, detail="Stock dashboard UI not found")
     # The dashboard shell points at versioned assets and must not be served from
     # an old browser document cache after a production release.
+    document = STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8").replace(
+        "__DASHBOARD_ASSET_VERSION__", DASHBOARD_CLIENT_VERSION
+    )
     return HTMLResponse(
-        STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8"),
+        document,
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
@@ -2994,6 +2997,7 @@ def get_watchlist_quant_signals(
     share_id: str,
     request: Request,
     response: Response,
+    refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
     _enforce_rate_limit(request, "watchlist_quant_signals", limit=30, window_seconds=60)
@@ -3001,7 +3005,7 @@ def get_watchlist_quant_signals(
     cache_key = ("watchlist_quant_signals", normalized_id)
     current_time = datetime.now(KST)
     quote_refresh_active = _quant_signal_quote_refresh_active(current_time)
-    cached_payload = watchlist_quant_signal_cache.get(cache_key)
+    cached_payload = None if refresh else watchlist_quant_signal_cache.get(cache_key)
     if cached_payload is not None and not quote_refresh_active:
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         response.headers["Pragma"] = "no-cache"
@@ -3074,8 +3078,9 @@ def get_watchlist_quant_signals(
     }
     # During trading and the post-close publication window, rebuild from the
     # same uncached quote source used by stock detail. Stable closes can reuse
-    # the result for five minutes, while a cold cache still fetches once.
-    watchlist_quant_signal_cache.set(cache_key, result, 5 if quote_refresh_active else 300)
+    # the result only briefly. Stable closes may reuse it for one minute, while
+    # an explicit refresh always bypasses the server cache above.
+    watchlist_quant_signal_cache.set(cache_key, result, 5 if quote_refresh_active else 60)
     return deepcopy(result)
 
 
