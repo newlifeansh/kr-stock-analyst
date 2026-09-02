@@ -29,7 +29,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
     ids = [case["id"] for case in payload["cases"]]
 
     assert payload["strategy_version"] == "position-lifecycle-v7.3"
-    assert len(ids) == 83
+    assert len(ids) == 84
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -59,6 +59,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-UI-018",
         "SIG-UI-019",
         "SIG-UI-020",
+        "SIG-UI-021",
         "SIG-CONTRACT-004",
     }.issubset(ids)
     assert all(case["priority"] in {"P0", "P1", "P2"} for case in payload["cases"])
@@ -74,7 +75,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "# 데이터 연동·시그널 판단 QA 카탈로그" in first
     assert "`position-lifecycle-v7.3`" in first
     assert "SIG-CONTRACT-003" in first
-    assert "QA 항목: 83개" in first
+    assert "QA 항목: 84개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -770,6 +771,7 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "SIG-UI-018" in E2E_CASE_IDS
     assert "SIG-UI-019" in E2E_CASE_IDS
     assert "SIG-UI-020" in E2E_CASE_IDS
+    assert "SIG-UI-021" in E2E_CASE_IDS
     assert "def portfolio_production_screens_case" in source
     assert "feature-ai-signals-production.jpg" in source
     assert "매수 확정 종목의 전략 기준가와 수익률" in source
@@ -778,6 +780,9 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert '("014950", "fallback")' in source
     assert '"title_logo": title_logo' in source
     assert "title_alignment" in source
+    assert 'signal_label_result["case_id"] = "SIG-UI-021"' in source
+    assert "부분 매도 대기(2차)" in source
+    assert "부분 수익 확정(2차)" in source
 
 
 def test_gpt_briefing_copy_contract_is_registered_for_e2e() -> None:
@@ -932,7 +937,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.3"
-    assert report["catalog_case_count"] == 83
+    assert report["catalog_case_count"] == 84
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"

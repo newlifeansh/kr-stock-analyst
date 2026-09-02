@@ -3,6 +3,7 @@ from datetime import date, datetime
 import json
 from pathlib import Path
 import re
+import subprocess
 
 from fastapi.testclient import TestClient
 
@@ -845,7 +846,7 @@ def test_staging_v122_keeps_feed_root_header_and_bottom_navigation_visible():
     css = client.get("/assets/staging/toss-fidelity.css").text
     js = client.get("/assets/staging/toss-ia.js").text
 
-    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
+    assert STAGING_IA_VERSION == "20260902-signal-sell-labels-v91"
     rules = css.split(
         "/* v122 — Feed is a primary route: keep the global header and bottom navigation. */",
         1,
@@ -909,7 +910,7 @@ def test_staging_v128_falls_back_for_ios_standalone_chart_headers():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert "contextual-safe-area-v128" in shell
-    assert "20260901-stock-response-live-session-v88" in shell
+    assert "20260902-signal-sell-labels-v91" in shell
     for contract in (
         'const isIosDevice = /iP(?:hone|ad|od)/.test(navigator.userAgent)',
         'navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1',
@@ -1963,7 +1964,7 @@ def test_staging_v69_rolls_the_header_through_major_market_indices():
     css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
+    assert STAGING_IA_VERSION == "20260902-signal-sell-labels-v91"
     for contract in (
         'data-staging-index-ticker aria-live="off"',
         'const STAGING_MARKET_CONTEXT_CODES = ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "DOW", "SOX"]',
@@ -2054,7 +2055,7 @@ def test_staging_v74_removes_exchange_metadata_and_aligns_ai_signal_rows():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
+    assert STAGING_IA_VERSION == "20260902-signal-sell-labels-v91"
     assert 'codeLine.className = "staging-ai-code"' not in js
     assert 'identity?.querySelector(".staging-ai-code")?.remove()' in js
 
@@ -2076,6 +2077,44 @@ def test_staging_v74_removes_exchange_metadata_and_aligns_ai_signal_rows():
         "grid-template-columns: 40px minmax(0, 1fr) auto 16px !important",
     ):
         assert contract in v74_rules
+
+
+def test_promoted_ai_signal_copy_preserves_sell_pending_and_confirmation_semantics():
+    js = TestClient(staging_app).get("/assets/staging/toss-ia.js").text
+    start = js.index("  const compactAiSignalLabel")
+    end = js.index("  const selectAiSignalSummaryMetrics", start)
+    compact_source = js[start:end]
+    script = f"""
+{compact_source}
+const labels = [
+  "2차 수익확정 대기",
+  "2차 수익확정·잔여 50% 보유",
+  "부분 매도 대기(2차)",
+  "부분 수익 확정(2차)",
+  "전량 매도 대기",
+  "전량 매도",
+  "전량 매도 확정",
+];
+console.log(JSON.stringify(labels.map(compactAiSignalLabel)));
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == [
+        "부분 매도 대기(2차)",
+        "부분 수익 확정(2차)",
+        "부분 매도 대기(2차)",
+        "부분 수익 확정(2차)",
+        "전량 매도 대기",
+        "전량 매도 확정",
+        "전량 매도 확정",
+    ]
+    assert "수익 확정" not in json.loads(completed.stdout)
 
 
 def test_staging_v75_uses_compact_adaptive_pull_refresh_feedback():
@@ -2567,7 +2606,7 @@ def test_staging_market_calendar_places_today_second():
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
 
-    assert 'dashboard-app-v170.js?v=20260901v459' in shell
+    assert 'dashboard-app-v170.js?v=20260902v461' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 
@@ -3157,7 +3196,7 @@ def test_staging_v132_uses_home_only_notification_action_and_compact_sheet_rows(
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v132 — make notifications the home action") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
+    assert STAGING_IA_VERSION == "20260902-signal-sell-labels-v91"
     assert "notification-sheet-v132" in shell
     assert 'bell: \'<path d="M27.5 16.5a9.5 9.5 0 0 0-19 0' in js
     for contract in (
@@ -3195,7 +3234,7 @@ def test_staging_v143_unifies_root_header_action_icon_geometry():
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v143 — one optical outline system") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
+    assert STAGING_IA_VERSION == "20260902-signal-sell-labels-v91"
     assert "header-action-icons-v143" in shell
     for contract in (
         "const topActionGlyphs = Object.freeze({",
@@ -3233,7 +3272,7 @@ def test_staging_v146_explains_two_detail_pages_without_exposing_model_provenanc
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v146 — the model stays invisible") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
+    assert STAGING_IA_VERSION == "20260902-signal-sell-labels-v91"
     assert "plain-language-detail-v146" in staging_shell
     assert "investor-action-copy-v147" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
@@ -3354,7 +3393,7 @@ def test_staging_v151_shows_live_quote_and_separates_pullback_from_breakout_conf
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v151 — live quote context") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
+    assert STAGING_IA_VERSION == "20260902-signal-sell-labels-v91"
     assert "position-input-v150-live-quote-decision-plan-v151" in shell
     for contract in (
         "현재 주당 가격",
@@ -3425,7 +3464,7 @@ def test_staging_v145_refines_three_daily_briefings_without_changing_news_or_sig
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v145 — GPT refines the current morning") :]
 
-    assert STAGING_IA_VERSION == "20260901-stock-response-live-session-v88"
+    assert STAGING_IA_VERSION == "20260902-signal-sell-labels-v91"
     assert "gpt-briefing-v145" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' not in production_shell

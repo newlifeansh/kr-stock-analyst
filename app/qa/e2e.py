@@ -38,6 +38,7 @@ E2E_CASE_IDS = (
     "SIG-UI-018",
     "SIG-UI-019",
     "SIG-UI-020",
+    "SIG-UI-021",
 )
 
 
@@ -1392,6 +1393,77 @@ def run_e2e_checks(
                             "snapshot_frozen": live_return_contract["snapshotFrozen"],
                         },
                     )
+                signal_label_contract = page.evaluate(
+                    """async () => {
+                      const list = document.querySelector('#ai-signals-page-list');
+                      if (!list) throw new Error('AI signal list is missing');
+                      const fixtures = [
+                        {
+                          code: '005830', name: 'DB손해보험', side: 'sell',
+                          current: {
+                            action: 'partial_exit_pending', position_open: true,
+                            pending_profit_stage: 2, profit_stage: 1,
+                          },
+                        },
+                        {
+                          code: '009540', name: 'HD한국조선해양', side: 'sell',
+                          current: { action: 'full_exit_pending', position_open: true },
+                        },
+                        {
+                          code: '001450', name: '현대해상', side: 'sell',
+                          current: {
+                            action: 'partially_exited', position_open: true, profit_stage: 2,
+                          },
+                        },
+                        {
+                          code: '103140', name: '풍산', side: 'sell',
+                          current: { action: 'exited', position_open: false },
+                        },
+                      ];
+                      list.replaceChildren(...fixtures.map(
+                        item => createHomeAiSignalRow(item, { detail: true }),
+                      ));
+                      await new Promise(resolve => requestAnimationFrame(
+                        () => requestAnimationFrame(resolve)
+                      ));
+                      return fixtures.map(item => {
+                        const row = list.querySelector(
+                          '.home-ai-signal-row[data-code="' + item.code + '"]'
+                        );
+                        return {
+                          code: item.code,
+                          label: row?.querySelector('.home-ai-signal-state')?.textContent?.trim() || '',
+                          fullLabel: row?.querySelector('.home-ai-signal-state')
+                            ?.dataset.stagingFullLabel || '',
+                          stage: aiSignalStageKey(item),
+                          ariaLabel: row?.getAttribute('aria-label') || '',
+                        };
+                      });
+                    }"""
+                )
+                expected_signal_labels = [
+                    ("005830", "부분 매도 대기(2차)", "preliminary-sell"),
+                    ("009540", "전량 매도 대기", "preliminary-sell"),
+                    ("001450", "부분 수익 확정(2차)", "recent-sell"),
+                    ("103140", "전량 매도 확정", "recent-sell"),
+                ]
+                for actual, (code, label, stage) in zip(
+                    signal_label_contract, expected_signal_labels, strict=True
+                ):
+                    if (
+                        actual.get("code") != code
+                        or actual.get("label") != label
+                        or actual.get("fullLabel") != label
+                        or actual.get("stage") != stage
+                        or label not in str(actual.get("ariaLabel") or "")
+                    ):
+                        raise QaFailure(
+                            "매도 대기·확정 또는 부분·전량 상태 문구가 합쳐졌습니다.",
+                            {
+                                "expected": expected_signal_labels,
+                                "actual": signal_label_contract,
+                            },
+                        )
                 weekend_basis = page.evaluate(
                     """() => {
                       const item = {
@@ -1600,6 +1672,7 @@ def run_e2e_checks(
                     },
                     "ui_snapshot": ui_signal_snapshot,
                     "stage_counts": stage_counts,
+                    "signal_label_contract": signal_label_contract,
                     "live_return_contract": live_return_contract,
                     "weekend_close_basis": weekend_basis,
                     "home_copy": "시총 100위내 매매신호를 확인하세요",
@@ -1619,6 +1692,28 @@ def run_e2e_checks(
                 share_id=share_id,
             )
             results.append(signal_ui_result)
+            signal_label_result = dict(signal_ui_result)
+            signal_label_result["case_id"] = "SIG-UI-021"
+            signal_label_result["evidence"] = {
+                "shared_e2e_case": "SIG-UI-002",
+                **{
+                    theme: {
+                        "signal_label_contract": dict(theme_evidence or {}).get(
+                            "signal_label_contract"
+                        )
+                    }
+                    for theme, theme_evidence in dict(
+                        signal_ui_result.get("evidence") or {}
+                    ).items()
+                    if theme in {"dark", "light"}
+                },
+            }
+            if signal_label_result["status"] == "pass":
+                signal_label_result["message"] = (
+                    "매도 대기·확정과 부분·전량 상태 문구를 "
+                    "승격된 모바일 DOM에서 구분했습니다."
+                )
+            results.append(signal_label_result)
             signal_contract_result = dict(signal_ui_result)
             signal_contract_result["case_id"] = "SIG-CONTRACT-003"
             signal_contract_result["evidence"] = {

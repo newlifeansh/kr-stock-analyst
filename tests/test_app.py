@@ -23,7 +23,7 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["strategy_version"] == "position-lifecycle-v7.3"
-    assert response.json()["dashboard_version"] == "20260901v459"
+    assert response.json()["dashboard_version"] == "20260902v461"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -240,7 +240,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260901v459"}
+    assert version.json() == {"version": "20260902v461"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search")
@@ -248,7 +248,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert refresh.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert 'pathname === "/dashboard-sw.js"' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260901v459" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260902v461" in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -1583,7 +1583,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260901v459' in shell
+    assert 'styles.css?v=20260902v461' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -1669,7 +1669,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260901v459"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260902v461"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -1706,7 +1706,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260901v459"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260902v461"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert 'return [-timestamp, view?.preliminary ? 0 : 1' in source
@@ -1930,7 +1930,7 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert 'identity.append(el("small", "", "시장 신호"));' in source
     assert 'return { key: "recent-buy", label: "확정 매수", tone: "buy", signalDate' in source
     assert 'return { key: "holding", label: "보유 중", tone: "hold", signalDate' not in source
-    assert '"전량 매도 · 전략 버전 통일" : "전량 매도"' in source
+    assert '"전량 매도 확정 · 전략 버전 통일" : "전량 매도 확정"' in source
     assert "function aiSignalTransitionKey" in source
     assert "function mergeAiSignalItems" not in source
     combine_source = source[source.index("function combineAiSignalPayloads"):source.index("function preliminaryHistoryAiSignalItems")]
@@ -1945,7 +1945,7 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert 'items.slice(0, 5).forEach' in source
     assert 'data-ai-signal-stage="all"' in shell
     assert 'data-ai-signal-stage="buy-holding">확정 매수·보유 <span>0</span>' in shell
-    assert 'data-ai-signal-stage="recent-sell">수익확정·전량 매도 <span>0</span>' in shell
+    assert 'data-ai-signal-stage="recent-sell">매도 확정 <span>0</span>' in shell
     assert 'data-ai-signal-stage="preliminary-buy">예비 매수 <span>0</span>' in shell
     assert 'data-ai-signal-stage="preliminary-sell">매도 대기 <span>0</span>' in shell
     assert 'data-ai-signal-stage="recent-buy"' not in shell
@@ -2011,7 +2011,7 @@ def test_ai_signal_home_preview_opens_full_list_before_stock_detail():
     assert 'return { key: "recent-buy", label: "예비 매수"' in source
     assert 'return { key: "recent-sell", label: "전량 매도 대기"' in source
     assert 'label: "확정 매수"' in source
-    assert '"전량 매도 · 전략 버전 통일" : "전량 매도"' in source
+    assert '"전량 매도 확정 · 전략 버전 통일" : "전량 매도 확정"' in source
     assert "function isPreliminaryAiSignal" in source
     signal_view_source = source[source.index("function homeAiSignalView"):source.index("function aiSignalTransitionKey")]
     assert "const preliminary = isPreliminaryAiSignal(item);" in signal_view_source
@@ -2078,7 +2078,7 @@ def test_ai_signal_preliminary_history_is_separated_from_active_signal_tabs():
     for stage, label in (
         ("all", "전체"),
         ("buy-holding", "확정 매수·보유"),
-        ("recent-sell", "수익확정·전량 매도"),
+        ("recent-sell", "매도 확정"),
         ("preliminary-buy", "예비 매수"),
         ("preliminary-sell", "매도 대기"),
     ):

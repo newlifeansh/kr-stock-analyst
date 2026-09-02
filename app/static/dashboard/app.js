@@ -12682,23 +12682,19 @@ function homeAiSignalView(item = {}) {
   }
   if (action === "partial_exit_pending") {
     const profitStage = Number(current.pending_profit_stage || (Number(current.profit_stage || 0) + 1));
-    return { key: "recent-sell", label: `${profitStage}차 수익확정 대기`, tone: "sell", signalDate, signalAt, updatedAt, preliminary };
+    return { key: "recent-sell", label: `부분 매도 대기(${profitStage}차)`, tone: "sell", signalDate, signalAt, updatedAt, preliminary };
   }
   if (action === "full_exit_pending") {
     return { key: "recent-sell", label: "전량 매도 대기", tone: "sell", signalDate, signalAt, updatedAt, preliminary };
   }
   if (action === "partially_exited" && current.position_open) {
     const profitStage = Number(current.profit_stage || transition?.profit_stage || 1);
-    const remaining = toNumber(current.model_exposure_percent);
-    const label = remaining === null
-      ? `${profitStage}차 수익확정·보유`
-      : `${profitStage}차 수익확정·잔여 ${formatNumber(remaining)}% 보유`;
-    return { key: "recent-sell", label, tone: "sell", signalDate, signalAt, updatedAt, preliminary: false };
+    return { key: "recent-sell", label: `부분 수익 확정(${profitStage}차)`, tone: "sell", signalDate, signalAt, updatedAt, preliminary: false };
   }
   if (action === "exited" || latestTransitionWasSell) {
     return {
       key: "recent-sell",
-      label: isSignalReconciliation(item) ? "전량 매도 · 전략 버전 통일" : "전량 매도",
+      label: isSignalReconciliation(item) ? "전량 매도 확정 · 전략 버전 통일" : "전량 매도 확정",
       tone: "sell",
       signalDate,
       signalAt,
@@ -16009,7 +16005,7 @@ function renderAiSignalsPage() {
     const labels = {
       all: "전체",
       "buy-holding": "확정 매수·보유",
-      "recent-sell": "수익확정·전량 매도",
+      "recent-sell": "매도 확정",
       "preliminary-buy": "예비 매수",
       "preliminary-sell": "매도 대기",
     };

@@ -6979,14 +6979,23 @@
 
   const compactAiSignalLabel = (value = "") => {
     const label = String(value || "").trim();
+    if (/^부분 매도 대기\(\d+차\)$/.test(label)) return label;
+    if (/^부분 수익 확정\(\d+차\)$/.test(label)) return label;
+    const pendingProfitStage = label.match(/^(\d+)차 수익확정 대기/);
+    if (pendingProfitStage) return `부분 매도 대기(${pendingProfitStage[1]}차)`;
+    const confirmedProfitStage = label.match(/^(\d+)차 수익확정/);
+    if (confirmedProfitStage) return `부분 수익 확정(${confirmedProfitStage[1]}차)`;
+    if (/^전량 매도 대기/.test(label)) return "전량 매도 대기";
+    if (/^전량 매도/.test(label)) return "전량 매도 확정";
     if (/^확정 매수/.test(label)) return "매수 확정";
-    if (/^확정 매도/.test(label)) return "매도 확정";
+    if (/^확정 매도/.test(label)) return "전량 매도 확정";
     if (/^예비 포착/.test(label)) return "매수 관찰";
     if (/^예비 매수/.test(label)) return "매수 대기";
     if (/^예비 매도/.test(label)) return "매도 대기";
     if (/매수 조건 해제/.test(label)) return "매수 해제";
     if (/매도 조건 해제/.test(label)) return "매도 해제";
-    if (/수익확정/.test(label)) return "수익 확정";
+    if (/수익확정.*대기/.test(label)) return "부분 매도 대기";
+    if (/수익확정/.test(label)) return "부분 수익 확정";
     return label;
   };
 

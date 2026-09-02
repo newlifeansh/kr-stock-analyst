@@ -11,7 +11,7 @@ from app.qa.release_parity import (
 def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     contract = local_release_contract()
 
-    assert contract["dashboard_version"] == "20260901v459"
+    assert contract["dashboard_version"] == "20260902v461"
     assert len(contract["assets"]) == 8
     assert all("?v=" in asset for asset in contract["assets"])
     assert any("contextual-safe-area-v128" in asset for asset in contract["assets"])
