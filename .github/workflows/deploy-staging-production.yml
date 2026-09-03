@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      bootstrap_production_source:
+        description: "스테이징이 프로덕션 공개 API를 읽는 경우 운영 원천을 먼저 같은 SHA로 배포"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -79,8 +85,45 @@ jobs:
           --environment staging
           --service "$STAGING_RAILWAY_SERVICE"
 
+  deploy_production_bootstrap:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.bootstrap_production_source == true
+    needs: [gate, deploy_staging]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_BASE_URL }}
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate Railway production configuration
+        run: |
+          test -n "$RAILWAY_API_TOKEN"
+          test -n "$PRODUCTION_RAILWAY_PROJECT_ID"
+          test -n "$PRODUCTION_RAILWAY_SERVICE"
+          test -n "$PRODUCTION_BASE_URL"
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.45.7
+      - name: Bootstrap the canonical production source with the checked-out SHA
+        run: >-
+          railway up --detach --json
+          --message "github-sha=${{ github.sha }}"
+          --project "$PRODUCTION_RAILWAY_PROJECT_ID"
+          --environment production
+          --service "$PRODUCTION_RAILWAY_SERVICE"
+
   staging_qa:
-    needs: deploy_staging
+    needs: [deploy_staging, deploy_production_bootstrap]
+    if: >-
+      always() &&
+      needs.deploy_staging.result == 'success' &&
+      (needs.deploy_production_bootstrap.result == 'success' ||
+       needs.deploy_production_bootstrap.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -141,6 +184,9 @@ jobs:
           retention-days: 30
 
   deploy_production:
+    if: >-
+      !(github.event_name == 'workflow_dispatch' &&
+        inputs.bootstrap_production_source == true)
     needs: staging_qa
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -170,7 +216,12 @@ jobs:
           --service "$PRODUCTION_RAILWAY_SERVICE"
 
   verify_production:
-    needs: deploy_production
+    needs: [staging_qa, deploy_production, deploy_production_bootstrap]
+    if: >-
+      always() &&
+      needs.staging_qa.result == 'success' &&
+      (needs.deploy_production.result == 'success' ||
+       needs.deploy_production_bootstrap.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:

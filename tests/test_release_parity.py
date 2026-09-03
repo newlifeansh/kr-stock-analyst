@@ -82,10 +82,13 @@ def test_deployment_workflow_enforces_staging_before_production() -> None:
     )
 
     assert "deploy_staging:\n    needs: gate" in workflow
-    assert "staging_qa:\n    needs: deploy_staging" in workflow
-    assert "deploy_production:\n    needs: staging_qa" in workflow
-    assert "verify_production:\n    needs: deploy_production" in workflow
-    assert workflow.count("ref: ${{ github.sha }}") == 5
+    assert "deploy_production_bootstrap:" in workflow
+    assert "needs: [gate, deploy_staging]" in workflow
+    assert "staging_qa:\n    needs: [deploy_staging, deploy_production_bootstrap]" in workflow
+    assert "deploy_production:" in workflow
+    assert "needs: staging_qa" in workflow
+    assert "verify_production:\n    needs: [staging_qa, deploy_production, deploy_production_bootstrap]" in workflow
+    assert workflow.count("ref: ${{ github.sha }}") == 6
     assert "--environment staging" in workflow
     assert "--environment production" in workflow
     assert '--project "$STAGING_RAILWAY_PROJECT_ID"' in workflow
@@ -93,12 +96,12 @@ def test_deployment_workflow_enforces_staging_before_production() -> None:
     assert '--project "$PRODUCTION_RAILWAY_PROJECT_ID"' in workflow
     assert '--service "$PRODUCTION_RAILWAY_SERVICE"' in workflow
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
-    assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 2
-    assert workflow.count('test -n "$RAILWAY_API_TOKEN"') == 2
+    assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 3
+    assert workflow.count('test -n "$RAILWAY_API_TOKEN"') == 3
     assert "      RAILWAY_TOKEN:" not in workflow
-    assert workflow.count("npm install --global @railway/cli@5.45.7") == 2
-    assert workflow.count("railway up --detach --json") == 2
-    assert workflow.count('--message "github-sha=${{ github.sha }}"') == 2
+    assert workflow.count("npm install --global @railway/cli@5.45.7") == 3
+    assert workflow.count("railway up --detach --json") == 3
+    assert workflow.count('--message "github-sha=${{ github.sha }}"') == 3
     assert "railway up --ci" not in workflow
     assert "name: production" in workflow
     assert "--production-url \"$PRODUCTION_BASE_URL\"" in workflow
