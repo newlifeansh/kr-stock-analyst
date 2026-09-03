@@ -87,6 +87,7 @@ def test_deployment_workflow_enforces_staging_before_production() -> None:
     assert "staging_qa:\n    needs: [deploy_staging, deploy_production_bootstrap]" in workflow
     assert "deploy_production:" in workflow
     assert "needs: staging_qa" in workflow
+    assert "always() &&" in workflow
     assert "verify_production:\n    needs: [staging_qa, deploy_production, deploy_production_bootstrap]" in workflow
     assert workflow.count("ref: ${{ github.sha }}") == 6
     assert "--environment staging" in workflow

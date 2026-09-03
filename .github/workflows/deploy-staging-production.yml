@@ -202,6 +202,7 @@ jobs:
 
   deploy_production:
     if: >-
+      always() &&
       !(github.event_name == 'workflow_dispatch' &&
         inputs.bootstrap_production_source == true)
     needs: staging_qa
