@@ -116,6 +116,23 @@ jobs:
           --project "$PRODUCTION_RAILWAY_PROJECT_ID"
           --environment production
           --service "$PRODUCTION_RAILWAY_SERVICE"
+      - name: Wait for the canonical signal API to serve the checked-out strategy
+        shell: bash
+        run: |
+          expected_strategy_version="$(sed -n 's/^STRATEGY_VERSION = "\([^"]*\)"/\1/p' app/services/quant_signals.py)"
+          test -n "$expected_strategy_version"
+          for attempt in $(seq 1 60); do
+            market_version="$(curl -fsS --max-time 20 "$PRODUCTION_BASE_URL/market/quant-signals?universe_limit=100&limit=5&recent_days=30" | jq -r '.strategy_version // empty' 2>/dev/null || true)"
+            stock_version="$(curl -fsS --max-time 20 "$PRODUCTION_BASE_URL/stocks/005930/quant-signals" | jq -r '.strategy_version // empty' 2>/dev/null || true)"
+            if [[ "$market_version" == "$expected_strategy_version" && "$stock_version" == "$expected_strategy_version" ]]; then
+              echo "Canonical signal API is ready: $expected_strategy_version"
+              exit 0
+            fi
+            echo "Waiting for canonical signal API ($attempt/60): market=$market_version stock=$stock_version expected=$expected_strategy_version"
+            sleep 10
+          done
+          echo "Canonical signal API did not serve $expected_strategy_version within the readiness window."
+          exit 1
 
   staging_qa:
     needs: [deploy_staging, deploy_production_bootstrap]
