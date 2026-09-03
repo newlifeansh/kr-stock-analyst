@@ -5132,7 +5132,6 @@
     const card = Array.from(editorialFeed.querySelectorAll("[data-staging-edition]"))
       .find((node) => node.dataset.stagingEdition === String(payload.edition_key));
     if (!card) return;
-    const badge = card.querySelector("[data-staging-briefing-summary-provenance]");
     try {
       const summary = await requestStagingBriefingSummary(payload);
       if (!summary || !card.isConnected) return;
@@ -5141,17 +5140,8 @@
       if (title) title.textContent = summary.headline;
       if (lead) lead.textContent = summary.summary;
       card.dataset.summaryMode = summary.generation_mode || "rules";
-      if (badge) {
-        badge.textContent = summary.generation_mode === "openai" ? "GPT 문구 정리" : "데이터 요약";
-        badge.dataset.summaryMode = summary.generation_mode || "rules";
-        badge.title = summary.generation_note || "";
-      }
     } catch {
       card.dataset.summaryMode = "rules";
-      if (badge) {
-        badge.textContent = "데이터 요약";
-        badge.dataset.summaryMode = "rules";
-      }
     }
   };
   const applyStagingBriefingArticleSummary = async (payload = {}) => {
@@ -5161,16 +5151,6 @@
     if (!view || !overview || !stagingBriefingSummaryInput(payload)) return;
     view.dataset.summaryEdition = String(payload.edition_key);
     view.dataset.summaryMode = "loading";
-    const meta = overview.querySelector(".staging-article-meta");
-    let badge = overview.querySelector("[data-staging-briefing-summary-provenance]");
-    if (!badge) {
-      badge = document.createElement("span");
-      badge.className = "staging-page-summary-provenance staging-briefing-summary-provenance";
-      badge.dataset.stagingBriefingSummaryProvenance = "true";
-      meta?.insertAdjacentElement("afterend", badge);
-    }
-    badge.textContent = "문구 정리 중";
-    badge.dataset.summaryMode = "loading";
     try {
       const summary = await requestStagingBriefingSummary(payload);
       if (!summary || view.dataset.summaryEdition !== String(payload.edition_key)) return;
@@ -5193,13 +5173,8 @@
       if (nextLabel) nextLabel.textContent = "다음 확인";
       if (nextValue) nextValue.textContent = summary.next_check;
       view.dataset.summaryMode = summary.generation_mode || "rules";
-      badge.textContent = summary.generation_mode === "openai" ? "GPT 문구 정리" : "데이터 요약";
-      badge.dataset.summaryMode = summary.generation_mode || "rules";
-      badge.title = summary.generation_note || "";
     } catch {
       view.dataset.summaryMode = "rules";
-      badge.textContent = "데이터 요약";
-      badge.dataset.summaryMode = "rules";
     }
   };
   const stagingConfirmedBuyDate = (item = {}) => String(
@@ -5559,9 +5534,6 @@
       const latestEditions = rows
         .filter((payload) => String(payload?.publication_date || "") === latestPublicationDate)
         .slice(0, 3);
-      const prefetchedEditionKeys = new Set(
-        latestEditions.map((payload) => String(payload.edition_key)),
-      );
       const signature = rows.map((payload) => {
         const buys = stagingConfirmedBuysForEdition(payload);
         const preliminaryBuys = stagingPreliminaryBuysForEdition(payload);
@@ -5605,14 +5577,12 @@
           const summary = highlights.length ? highlights.join(" · ") : presentation.accent;
           const index = cardIndex;
           cardIndex += 1;
-          const summaryPrefetch = prefetchedEditionKeys.has(String(payload.edition_key));
           return `
             <article class="staging-editorial-post" data-staging-edition="${escapeText(payload.edition_key)}">
               <button type="button" data-staging-content-open data-staging-content-key="${escapeText(payload.edition_key)}" aria-label="${escapeText(presentation.feedTitle)} 전체 내용 읽기">
                 <header class="staging-editorial-author">
                   <span class="staging-editorial-avatar" aria-hidden="true">${svg(icons.briefing)}</span>
                   <p><strong>${escapeText(presentation.feedTitle)}</strong><small>${escapeText(presentation.label)} · ${escapeText(formatFeedTime(payload.published_at))}</small></p>
-                  ${stagingGptPageSummaryEnabled ? `<span class="staging-page-summary-provenance staging-briefing-card-provenance" data-staging-briefing-summary-provenance data-summary-mode="${summaryPrefetch ? "loading" : "deferred"}">${summaryPrefetch ? "문구 정리 중" : "열면 GPT 정리"}</span>` : ""}
                 </header>
                 <h3>${escapeText(presentation.title)}</h3>
                 <p class="staging-editorial-summary">${escapeText(summary)}</p>

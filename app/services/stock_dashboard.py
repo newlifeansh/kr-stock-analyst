@@ -68,6 +68,26 @@ NEGATIVE_WORDS = (
     "위기",
     "충격",
     "매도",
+    # Financial-liquidity risk needs an explicit negative vocabulary. Without
+    # these terms, a headline such as "short-term borrowings surged" has no
+    # directional keyword and can fall through to a positive default in the
+    # market timeline classifier.
+    "단기차입금",
+    "차입금",
+    "유동성",
+    "경고등",
+    "자금난",
+    "차환 부담",
+    "이자 부담",
+    "부채",
+    "자금조달 차질",
+    "상장 차질",
+    "상장 무산",
+    "상장 불발",
+    "IPO 차질",
+    "IPO 무산",
+    "IPO 불발",
+    "막혀",
 )
 SURPRISE_WORDS = ("잠정", "실적", "매출액", "영업이익", "순이익", "어닝", "서프라이즈", "쇼크")
 GUIDANCE_WORDS = ("전망", "가이던스", "목표", "계획", "IR", "기업설명회", "투자설명회")

@@ -6428,8 +6428,7 @@ def run_e2e_checks(
                         summaryMode: card.dataset.summaryMode || '',
                         title: card.querySelector('h3')?.textContent?.trim(),
                         summary: card.querySelector('.staging-editorial-summary')?.textContent?.trim(),
-                        badge: card.querySelector('[data-staging-briefing-summary-provenance]')?.textContent?.trim(),
-                        badgeMode: card.querySelector('[data-staging-briefing-summary-provenance]')?.dataset.summaryMode,
+                        visibleModelWords: /GPT|문구 정리|데이터 요약/.test(card.innerText || ''),
                         footer: card.querySelector('footer')?.textContent?.replace(/\s+/g, ' ').trim(),
                       })),
                       preliminaryCodes: [...document.querySelectorAll('[data-staging-preliminary-buy-code]')]
@@ -6463,14 +6462,12 @@ def run_e2e_checks(
                     or any(
                         latest_cards[key].get("title") != title
                         or latest_cards[key].get("summaryMode") != "openai"
-                        or latest_cards[key].get("badge") != "GPT 문구 정리"
-                        or latest_cards[key].get("badgeMode") != "openai"
+                        or latest_cards[key].get("visibleModelWords") is not False
                         or "핵심 소식 2건 전체 읽기" not in str(latest_cards[key].get("footer") or "")
                         for key, title in expected_titles.items()
                     )
                     or old_card.get("title") != "밤사이 핵심만 빠르게"
-                    or old_card.get("badge") != "열면 GPT 정리"
-                    or old_card.get("badgeMode") != "deferred"
+                    or old_card.get("visibleModelWords") is not False
                     or feed_contract.get("preliminaryCodes") != ["111111"]
                     or feed_contract.get("confirmedCodes") != ["222222"]
                     or feed_contract.get("rootScrollWidth", 0) > feed_contract.get("viewportWidth", 0) + 1
@@ -6510,7 +6507,7 @@ def run_e2e_checks(
                         intro: view?.querySelector('#morning-money-overview-intro')?.textContent?.trim(),
                         digestTitle: view?.querySelector('#morning-money-digest-title')?.textContent?.trim(),
                         nextCheck: view?.querySelector('.staging-briefing-ai-next strong')?.textContent?.trim(),
-                        badge: view?.querySelector('[data-staging-briefing-summary-provenance]')?.textContent?.trim(),
+                        visibleModelWords: /GPT|문구 정리|데이터 요약/.test(view?.innerText || ''),
                         meta: view?.querySelector('.staging-article-meta')?.textContent?.trim(),
                         editionTitle: view?.querySelector('.morning-money-command-title h1')?.textContent?.trim(),
                         categoryTitles: [...view.querySelectorAll('.morning-money-category-head h2')]
@@ -6536,7 +6533,7 @@ def run_e2e_checks(
                     or detail_contract.get("intro") != generated_copy["midday"]["summary"]
                     or detail_contract.get("digestTitle") != "이번 midday 브리핑에서 먼저 볼 내용"
                     or detail_contract.get("nextCheck") != "원문과 최신 시세를 함께 확인해요."
-                    or detail_contract.get("badge") != "GPT 문구 정리"
+                    or detail_contract.get("visibleModelWords") is not False
                     or detail_contract.get("editionTitle") != "점심에 보는 돈이 되는 소식"
                     or "핵심 소식 2건" not in str(detail_contract.get("meta") or "")
                     or detail_contract.get("categoryTitles") != ["시장 흐름"]

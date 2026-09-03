@@ -29,7 +29,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
     ids = [case["id"] for case in payload["cases"]]
 
     assert payload["strategy_version"] == "position-lifecycle-v7.4"
-    assert len(ids) == 87
+    assert len(ids) == 88
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -42,6 +42,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "DATA-FUND-ANALYSIS-002",
         "DATA-CALENDAR-CONTENT-004",
         "DATA-CALENDAR-CONTENT-005",
+        "DATA-CALENDAR-CONTENT-006",
         "SIG-ENTRY-001",
         "SIG-ENTRY-004",
         "SIG-EXIT-001",
@@ -82,7 +83,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "# 데이터 연동·시그널 판단 QA 카탈로그" in first
     assert "`position-lifecycle-v7.4`" in first
     assert "SIG-CONTRACT-003" in first
-    assert "QA 항목: 87개" in first
+    assert "QA 항목: 88개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -857,7 +858,7 @@ def test_gpt_briefing_copy_contract_is_registered_for_e2e() -> None:
     assert "def staging_gpt_briefing_copy_case" in source
     assert 'request.get("page_type") != "briefing_edition"' in source
     assert 'request.get("facts", {}).get("edition")' in source
-    assert 'data-staging-briefing-summary-provenance' in source
+    assert 'visibleModelWords: /GPT|문구 정리|데이터 요약/.test' in source
 
 
 def test_gpt_recommendation_detail_isolated_from_live_quote_updates() -> None:
@@ -1002,7 +1003,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.4"
-    assert report["catalog_case_count"] == 87
+    assert report["catalog_case_count"] == 88
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"

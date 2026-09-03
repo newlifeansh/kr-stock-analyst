@@ -550,7 +550,10 @@ def _impact_for_text(text: str) -> str:
         return "호재"
     if score < 0:
         return "악재"
-    return "악재" if axes else "호재"
+    # Unknown or directionless stories are not positive by default. A
+    # positive label is an investment-facing claim and requires affirmative
+    # evidence; otherwise the feed must remain neutral until evidence exists.
+    return "악재" if axes else "중립"
 
 
 def _category_for_text(text: str, hinted_names: Optional[Iterable[str]] = None) -> str:

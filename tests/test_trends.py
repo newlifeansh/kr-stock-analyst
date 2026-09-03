@@ -33,6 +33,15 @@ def test_trend_impact_marks_exchange_rate_risk_as_negative():
     assert _impact_for_text(text) == "악재"
 
 
+def test_trend_impact_marks_financial_liquidity_risk_as_negative():
+    text = "대웅제약, 단기차입금 4배 늘고 계열사 IPO 막혀…유동성 경고등"
+    assert _impact_for_text(text) == "악재"
+
+
+def test_trend_impact_keeps_directionless_story_neutral():
+    assert _impact_for_text("대웅제약 관련 현황 정리") == "중립"
+
+
 def test_trend_category_uses_company_hint_before_broad_ai_keyword():
     text = "LG전자, 하반기 AI 모멘텀 기대"
     assert _category_for_text(text, hinted_names=["LG전자"]) == "대형주"

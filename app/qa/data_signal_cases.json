@@ -440,6 +440,36 @@
       "failure_criteria": ["중복 기사 또는 오종목 콘텐츠가 노출된다."]
     },
     {
+      "id": "DATA-CALENDAR-CONTENT-006",
+      "title": "뉴스 재무위험·중립 영향도 분류",
+      "domain": "캘린더·콘텐츠 연동",
+      "priority": "P0",
+      "modes": ["gate"],
+      "automation": "pytest 뉴스 영향도 규칙 fixture + /market/trends payload contract",
+      "preconditions": ["재무위험·긍정·방향성 없는 뉴스 제목을 준비하고 /market/trends 응답을 피드에 연결한다."],
+      "inputs": {
+        "negative_title": "대웅제약, 단기차입금 4배 늘고 계열사 IPO 막혀…유동성 경고등",
+        "positive_title": "대웅제약 신약 허가로 매출 성장 기대",
+        "neutral_title": "대웅제약 관련 현황 정리",
+        "allowed_impacts": "호재,악재,중립"
+      },
+      "steps": [
+        "재무위험 제목을 분류해 단기차입금·유동성·IPO 차질·경고등이 악재로 반영되는지 확인한다.",
+        "긍정 제목은 호재, 방향성 없는 제목은 중립으로 분류되는지 확인한다.",
+        "시장 뉴스 피드가 API의 영향도 값을 그대로 사용할 수 있도록 timeline payload의 영향도 계약을 검사한다."
+      ],
+      "expected": [
+        "재무위험 제목은 호재로 폴백되지 않고 악재로 노출된다.",
+        "방향성 근거가 없는 뉴스는 호재로 추정하지 않고 중립으로 노출된다.",
+        "피드에 전달되는 기사 제목·출처·영향도가 같은 분류값을 사용한다."
+      ],
+      "failure_criteria": [
+        "차입금 증가·유동성 경고·IPO 차질 뉴스가 호재 또는 근거 없는 중립으로 표시된다.",
+        "방향성 없는 제목이 호재로 표시된다.",
+        "timeline payload의 영향도가 호재·악재·중립 외 값이거나 제목의 방향성과 다르다."
+      ]
+    },
+    {
       "id": "DATA-CALENDAR-CONTENT-003",
       "title": "Ollama 분석 실패 폴백",
       "domain": "캘린더·콘텐츠 연동",
@@ -1135,9 +1165,9 @@
       "automation": "pytest briefing_edition Structured Outputs/evidence validation/latest-day call-budget/static isolation + Playwright three-edition feed/detail dark/light 320px·200% immutable-news-and-signal contract",
       "preconditions": ["운영·스테이징 피드에 같은 발행일의 morning·midday·afternoon 브리핑과 원문 뉴스·예비 또는 확정 AI 시그널이 준비돼 있다.", "OPENAI_SUMMARY_ENABLED와 OPENAI_API_KEY는 선택 사항이며 실패 시 규칙 문구를 즉시 표시한다."],
       "inputs": {"endpoint": "/ai/page-summary", "page_type": "briefing_edition", "editions": ["morning", "midday", "afternoon"], "model": "gpt-4o-mini-2024-07-18", "prompt_version": "staging-page-summary-v12", "mutable_ui": ["feed_headline", "feed_summary", "detail_headline", "detail_intro", "detail_digest_title", "detail_next_check"], "immutable_content": ["edition", "publication_time", "selected_news_count", "category_count", "news_title", "news_status", "source_url", "preliminary_signal", "confirmed_signal"], "prefetch_scope": "latest publication_date only", "prefetch_max_calls": 3, "detail_cache_reuse": true, "cache_seconds": 1800, "themes": ["dark", "light"], "viewports": [320, 458], "zoom_percent": 200},
-      "steps": ["morning·midday·afternoon 고정 브리핑 사실과 개별 allowed_evidence_refs를 briefing_edition 요청으로 보내 구조화 응답을 검사한다.", "피드 콘텐츠 탭에서 최신 발행일의 최대 3개 판만 요약 요청하고 과거 판은 열기 전 호출하지 않는지 확인한다.", "피드 카드의 제목·요약·텍스트 출처 배지만 바뀌고 판 이름·발행 시각·핵심 소식 건수·예비 및 확정 AI 시그널은 그대로인지 검사한다.", "같은 판 상세를 열어 피드에서 받은 응답을 재사용하고 제목·도입·핵심 묶음 제목·다음 확인만 바뀌는지 확인한다.", "상세 뉴스 제목·상태·카테고리·원문 링크와 신호 종목·점수·단계가 GPT 적용 전후 동일한지 비교한다.", "키 부재·시간초과·잘못된 근거 ID·입력에 없는 숫자·직접 매매 지시를 주입해 데이터 요약 폴백과 원문 보존을 확인한다.", "다크·라이트, 320px와 200% 대응 폭에서 세 카드·상세 문구·출처 배지가 가로로 넘치지 않는지 검사한다."],
-      "expected": ["세 판의 GPT는 제공된 공개 사실을 읽기 쉬운 문구로만 정리하며 뉴스·시그널·시간·건수는 데이터 계층이 계속 소유한다.", "최신 발행일은 최대 3회만 미리 생성하고 같은 판 상세는 메모리 및 30분 캐시를 재사용해 추가 비용을 만들지 않는다.", "유효한 응답은 GPT 문구 정리, 폴백은 데이터 요약이라는 텍스트 배지로 구분되고 초기 콘텐츠는 기다림 없이 읽을 수 있다.", "과거 판은 사용자가 열 때만 요청하며 오류나 안전 검증 실패에서도 카드와 상세가 중단되지 않는다.", "세 판 모두 좁은 폭·확대·다크·라이트에서 뉴스와 수치를 그대로 읽을 수 있고 가로 넘침이 없다."],
-      "failure_criteria": ["최신 발행일 한 화면에서 3회를 초과해 GPT를 호출하거나 같은 판 상세 진입이 중복 비용을 발생시킨다.", "GPT가 판 구분·발행 시각·건수·뉴스 제목·상태·원문 링크·AI 시그널 종목·점수·단계를 변경하거나 삭제한다.", "과거 모든 브리핑을 피드 진입 즉시 생성해 호출량이 이력 길이에 비례한다.", "검증 실패나 API 오류에서 빈 카드·로딩 고착·내부 오류·비밀값을 노출한다.", "생성 상태가 색상으로만 표시되거나 320px·200% 대응 폭에서 문구·배지·원문 데이터가 잘리고 가로로 넘친다."]
+      "steps": ["morning·midday·afternoon 고정 브리핑 사실과 개별 allowed_evidence_refs를 briefing_edition 요청으로 보내 구조화 응답을 검사한다.", "피드 콘텐츠 탭에서 최신 발행일의 최대 3개 판만 요약 요청하고 과거 판은 열기 전 호출하지 않는지 확인한다.", "피드 카드의 제목·요약만 바뀌고 생성 방식·출처를 알리는 GPT·모델·문구 정리·데이터 요약 배지는 노출되지 않으며 판 이름·발행 시각·핵심 소식 건수·예비 및 확정 AI 시그널은 그대로인지 검사한다.", "같은 판 상세를 열어 피드에서 받은 응답을 재사용하고 제목·도입·핵심 묶음 제목·다음 확인만 바뀌며 생성 출처 표시는 없는지 확인한다.", "상세 뉴스 제목·상태·카테고리·원문 링크와 신호 종목·점수·단계가 GPT 적용 전후 동일한지 비교한다.", "키 부재·시간초과·잘못된 근거 ID·입력에 없는 숫자·직접 매매 지시를 주입해 데이터 요약 폴백과 원문 보존을 확인한다.", "다크·라이트, 320px와 200% 대응 폭에서 세 카드·상세 문구·원문 데이터가 가로로 넘치지 않는지 검사한다."],
+      "expected": ["세 판의 GPT는 제공된 공개 사실을 읽기 쉬운 문구로만 정리하며 뉴스·시그널·시간·건수는 데이터 계층이 계속 소유한다.", "최신 발행일은 최대 3회만 미리 생성하고 같은 판 상세는 메모리 및 30분 캐시를 재사용해 추가 비용을 만들지 않는다.", "유효한 응답은 사용자 화면에 GPT·모델·문구 정리·데이터 요약 같은 생성 출처 배지를 노출하지 않으며 초기 콘텐츠는 기다림 없이 읽을 수 있다.", "과거 판은 사용자가 열 때만 요청하며 오류나 안전 검증 실패에서도 카드와 상세가 중단되지 않는다.", "세 판 모두 좁은 폭·확대·다크·라이트에서 뉴스와 수치를 그대로 읽을 수 있고 가로 넘침이 없다."],
+      "failure_criteria": ["최신 발행일 한 화면에서 3회를 초과해 GPT를 호출하거나 같은 판 상세 진입이 중복 비용을 발생시킨다.", "GPT가 판 구분·발행 시각·건수·뉴스 제목·상태·원문 링크·AI 시그널 종목·점수·단계를 변경하거나 삭제한다.", "과거 모든 브리핑을 피드 진입 즉시 생성해 호출량이 이력 길이에 비례한다.", "검증 실패나 API 오류에서 빈 카드·로딩 고착·내부 오류·비밀값을 노출한다.", "GPT·모델·문구 정리·데이터 요약 같은 생성 출처 표시가 사용자 화면에 노출되거나 320px·200% 대응 폭에서 문구·원문 데이터가 잘리고 가로로 넘친다."]
     },
     {
       "id": "SIG-UI-019",
