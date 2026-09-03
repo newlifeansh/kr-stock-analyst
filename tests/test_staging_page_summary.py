@@ -646,9 +646,9 @@ def test_staging_stock_response_replaces_holding_copy_for_not_holding_observatio
 @pytest.mark.qa_gate
 def test_staging_stock_response_requires_average_price_for_unknown_holding_return() -> None:
     fallback = {
-        "headline": "평균 매수가를 입력하면 보유 대응을 손익에 맞춰 볼 수 있어요",
-        "summary": "현재가만으로는 수익인지 손실인지 알 수 없어요.",
-        "reason": "가격 흐름과 증권사 리포트를 함께 확인했어요.",
+        "headline": "평균 매수가를 입력하면 내 보유 전략을 볼 수 있어요",
+        "summary": "아직 내 수익·손실을 계산하지 않았어요.",
+        "reason": "평균 매수가가 없으면 수익권·손실권을 구분할 수 없어요.",
         "action_title": "평균 매수가를 입력할 단계예요",
         "next_check": "평균 매수가와 현재가를 비교해요.",
         "evidence_refs": ["metric-research"],
@@ -669,17 +669,16 @@ def test_staging_stock_response_requires_average_price_for_unknown_holding_retur
     service = StagingPageSummaryService(
         _settings(),
         transport=httpx.MockTransport(
-            lambda _: httpx.Response(
-                200,
-                json={"output_text": json.dumps(fallback, ensure_ascii=False)},
-            )
+            lambda _: pytest.fail("평균 매수가 입력 전에는 모델을 호출하면 안 됩니다.")
         ),
     )
 
     result = asyncio.run(service.summarize(request))
 
-    assert result.generation_mode == "openai"
-    assert "평균 매수가" in f"{result.headline} {result.action_title}"
+    assert result.generation_mode == "rules"
+    assert result.headline == fallback["headline"]
+    assert result.summary == fallback["summary"]
+    assert "개인 손익 전략을 생성하지 않습니다" in (result.generation_note or "")
 
 
 def test_environment_requires_explicit_enable_even_when_key_exists(

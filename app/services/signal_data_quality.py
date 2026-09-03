@@ -156,7 +156,14 @@ def signal_data_quality_status(
     now: Optional[datetime] = None,
 ) -> dict[str, Any]:
     current = _kst(now)
-    latest_price_date = db.scalar(
+    # Keep every stored-data coverage check on the same completed session.
+    # During trading hours a quote upsert can create today's first DailyPrice
+    # row long before the full market candle/universe is available.  Treating
+    # that partial date as the Top100 basis makes otherwise healthy flow,
+    # fundamental, research, and index coverage collapse together.
+    calendar_target = latest_completed_korea_market_session_date(current)
+    flow_target = calendar_target
+    price_date_statement = (
         select(func.max(DailyPrice.trade_date))
         .join(StockMaster, StockMaster.code == DailyPrice.code)
         .where(
@@ -165,12 +172,17 @@ def signal_data_quality_status(
             DailyPrice.close.is_not(None),
         )
     )
+    if calendar_target is not None:
+        price_date_statement = price_date_statement.where(
+            DailyPrice.trade_date <= calendar_target
+        )
+    latest_price_date = db.scalar(
+        price_date_statement
+    )
     # A daily signal may only use a completed session. Requiring today's
     # still-forming candle before the evening publication window would mark a
     # healthy store stale and, worse, tempt downstream code to freeze partial
     # prices as end-of-day evidence.
-    calendar_target = latest_completed_korea_market_session_date(current)
-    flow_target = latest_completed_korea_market_session_date(current)
     top_codes = _top_codes(db, latest_price_date) if latest_price_date else []
     top_total = len(top_codes)
 

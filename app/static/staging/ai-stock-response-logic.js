@@ -12,7 +12,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function createAiStockResponseLogic() {
   "use strict";
 
-  const VERSION = "20260901-decision-scenarios-v4";
+  const VERSION = "20260902-holding-input-gate-v6";
   const WEIGHTS = Object.freeze({
     chart: 25,
     flow: 25,
@@ -728,6 +728,7 @@
         currentPrice,
         averageBuyPrice: null,
         returnRate: null,
+        holdingStrategy: null,
         rows: [
           guideRow(
             "watch_zone",
@@ -799,49 +800,18 @@
       return {
         state,
         positionMode: "holding_unknown",
-        headline: "평균 매수가를 입력하면 보유 대응을 손익에 맞춰 볼 수 있어요",
-        summary: "현재가만으로는 수익인지 손실인지 알 수 없어 일반적인 보유·위험 기준을 먼저 보여드려요.",
-        reason,
+        headline: "평균 매수가를 입력하면 내 보유 전략을 볼 수 있어요",
+        summary: "아직 내 수익·손실을 계산하지 않았어요. 위에서 평균 매수가를 입력해 주세요.",
+        reason: "평균 매수가가 없으면 현재가와 비교할 기준이 없어 수익권·손실권을 구분할 수 없어요.",
         direction: "매수가 입력 필요",
         directionGuide: "내 평균 매수가를 입력해 주세요",
         currentPrice,
         averageBuyPrice: null,
         returnRate: null,
-        rows: [
-          guideRow("current_price", "현재가", "기준 가격", priceText(currentPrice), "평균 매수가와 비교하면 현재 수익·손실 구간을 계산할 수 있어요."),
-          guideRow("risk_line", "손실 제한 참고선", "주의", priceText(levels.riskLine), "가격이 이 기준 아래로 내려가면서 외국인과 기관의 매도까지 늘어나는지 확인해요.", "negative"),
-          guideRow("first_sell", "1차 분할 매도 참고선", "수익 관리", priceText(levels.firstSell), "수익권에 도달하면 일부 이익을 나눠 지킬지 검토하는 참고 가격이에요.", "positive"),
-        ],
-        decisionPlan: [
-          decisionStep(
-            "enter_average",
-            "먼저 할 일",
-            "평균 매수가 입력",
-            "내 매수가 확인",
-            "내 평균 매수가를 입력하면 현재 수익인지 손실인지 계산해 상황에 맞는 대응 기준을 보여드려요.",
-            "neutral",
-          ),
-          decisionStep(
-            "unknown_down",
-            "가격이 내려가면",
-            "위험 기준 확인",
-            priceText(levels.riskLine),
-            "이 가격 아래에서 장을 마치고 외국인·기관 매도도 늘면 보유 수량을 줄일지 검토해요.",
-            "negative",
-          ),
-          decisionStep(
-            "unknown_up",
-            "가격이 올라가면",
-            "일부 매도 검토",
-            priceText(levels.firstSell),
-            "평균 매수가를 입력한 뒤 실제 수익권이라면 이 가격 부근에서 일부 이익을 지킬지 검토해요.",
-            "positive",
-          ),
-        ],
-        nextChecks: unique([
-          "내 평균 매수가를 입력해 현재 수익·손실 구간을 확인하기",
-          ...commonNext,
-        ]).slice(0, 5),
+        holdingStrategy: null,
+        rows: [],
+        decisionPlan: [],
+        nextChecks: ["내 평균 매수가를 입력해 현재 수익·손실 구간을 확인하기"],
       };
     }
 
@@ -865,6 +835,14 @@
         currentPrice,
         averageBuyPrice: averagePrice,
         returnRate,
+        holdingStrategy: {
+          stage: "수익 관리",
+          action: "분할 매도 · 이익 보호",
+          summary: `현재는 수익권이에요. ${priceText(levels.firstSell)} 부근에서 일부 이익을 지킬지 보고, ${priceText(protectLine)} 아래에서 장을 마치면 남은 보유분을 다시 점검해요.`,
+          averageBuyPrice: averagePrice,
+          currentPrice,
+          returnRate,
+        },
         rows: [
           guideRow("return", "내 수익률", "수익권", percentText(returnRate), `평균 매수가 ${priceText(averagePrice)}과 현재가 ${priceText(currentPrice)}을 비교했어요.`, "positive"),
           guideRow("first_sell", "1차 분할 매도 참고선", "수익 관리", priceText(levels.firstSell), "이 가격 부근에서 일부 이익을 먼저 확보할지 검토해요.", "positive"),
@@ -919,6 +897,14 @@
         currentPrice,
         averageBuyPrice: averagePrice,
         returnRate,
+        holdingStrategy: {
+          stage: "손실 관리",
+          action: "손실 제한 · 회복 확인",
+          summary: `현재는 손실권이에요. ${priceText(levels.riskLine)} 아래에서 장을 마치고 외국인·기관 매도도 늘면 손실을 줄일지 보고, ${priceText(levels.buyTrigger)} 위로 회복하면 가격과 매매 흐름을 다시 확인해요.`,
+          averageBuyPrice: averagePrice,
+          currentPrice,
+          returnRate,
+        },
         rows: [
           guideRow("return", "내 수익률", "손실권", percentText(returnRate), `평균 매수가 ${priceText(averagePrice)}과 현재가 ${priceText(currentPrice)}을 비교했어요.`, "negative"),
           guideRow("risk_line", "손실 제한 참고선", "주의", priceText(levels.riskLine), "이 가격 아래에서 장을 마치고 외국인과 기관의 매도도 늘어나면 보유 수량을 줄일지 점검해요.", "negative"),
@@ -972,6 +958,14 @@
       currentPrice,
       averageBuyPrice: averagePrice,
       returnRate,
+      holdingStrategy: {
+        stage: "보유 기준 확인",
+        action: "보유 유지 · 위험 기준",
+        summary: `현재는 본전권이에요. ${priceText(levels.riskLine)} 아래로 밀리는지와 ${priceText(levels.firstSell)} 부근에서 수익권으로 바뀌는지를 나눠 확인해요.`,
+        averageBuyPrice: averagePrice,
+        currentPrice,
+        returnRate,
+      },
       rows: [
         guideRow("return", "내 수익률", "본전권", percentText(returnRate), `평균 매수가 ${priceText(averagePrice)}과 현재가 ${priceText(currentPrice)}을 비교했어요.`),
         guideRow("risk_line", "위험 관리 기준", "주의", priceText(levels.riskLine), "이 가격 아래로 밀리면 보유 기준을 다시 점검해요.", "negative"),

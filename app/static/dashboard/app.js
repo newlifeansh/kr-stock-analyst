@@ -510,7 +510,7 @@ const HOME_AI_SIGNALS_CACHE_MAX_AGE_MS = 2 * 60 * 1000;
 const PUSH_HISTORY_CACHE_PREFIX = "analyst.pushHistory";
 const PUSH_LAST_SEEN_PREFIX = "analyst.pushLastSeen";
 const PUSH_ENABLED_PREFIX = "analyst.pushEnabled";
-const PUSH_ENTRY_PROMPT_SNOOZE_PREFIX = "analyst.pushEntryPromptSnoozedDate";
+const PUSH_ENTRY_PROMPT_WEEK_PREFIX = "analyst.pushEntryPromptWeek.v1";
 const RECOMMENDATION_PUSH_PROMPT_DECISION_PREFIX = "analyst.recommendationPushPromptDecision.v1";
 const RECOMMENDATION_HISTORY_KEY = "analyst.recommendationSnapshots";
 const RECOMMENDATION_TRACK_KEY = "analyst.recommendationTracks";
@@ -1258,7 +1258,9 @@ const state = {
   pushNotificationEnabled: false,
   pushNotificationSheetMode: "settings",
   pushNotificationEntryPromptChecked: false,
-  pushNotificationConditions: PUSH_NOTIFICATION_FALLBACK_OPTIONS.map((item) => item.id),
+  pushNotificationConditions: PUSH_NOTIFICATION_FALLBACK_OPTIONS
+    .filter((item) => item.required)
+    .map((item) => item.id),
   pushNotificationHistory: [],
   pushNotificationHistoryBusy: false,
   pushNotificationHistoryTab: "all",
@@ -1387,13 +1389,27 @@ function localCalendarDate(value = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-function pushEntryPromptSnoozeStorageKey() {
-  return scopedStorageKey(PUSH_ENTRY_PROMPT_SNOOZE_PREFIX);
+function localMondayWeekKey(value = new Date()) {
+  const weekStart = new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  const daysSinceMonday = (weekStart.getDay() + 6) % 7;
+  weekStart.setDate(weekStart.getDate() - daysSinceMonday);
+  return localCalendarDate(weekStart);
 }
 
-function pushEntryPromptSnoozedToday() {
-  const key = pushEntryPromptSnoozeStorageKey();
-  return Boolean(key) && localStorage.getItem(key) === localCalendarDate();
+function pushEntryPromptWeekStorageKey() {
+  return scopedStorageKey(PUSH_ENTRY_PROMPT_WEEK_PREFIX);
+}
+
+function pushEntryPromptShownThisWeek(value = new Date()) {
+  const key = pushEntryPromptWeekStorageKey();
+  return Boolean(key) && localStorage.getItem(key) === localMondayWeekKey(value);
+}
+
+function recordPushEntryPromptShown(value = new Date()) {
+  const key = pushEntryPromptWeekStorageKey();
+  if (key) {
+    localStorage.setItem(key, localMondayWeekKey(value));
+  }
 }
 
 function recommendationPushPromptDecisionStorageKey() {
@@ -10401,7 +10417,7 @@ function renderInstallSteps() {
     return;
   }
   const steps = isIOSDevice()
-    ? ["Safari의 공유 버튼을 누릅니다.", "홈 화면에 추가를 선택하고 추가를 누릅니다.", "홈 화면의 비밀노트 앱을 열어 알림 받기를 누릅니다."]
+    ? ["Safari의 공유 버튼을 누릅니다.", "홈 화면에 추가를 선택하고 추가를 누릅니다.", "홈 화면의 비밀노트 앱을 열어 알림 권한 허용하기를 누릅니다."]
     : ["Chrome에서 이 페이지를 연 상태로 우측 상단 메뉴를 누릅니다.", "앱 설치 또는 홈 화면에 추가를 선택합니다.", "추가를 누르면 비밀노트 아이콘이 홈 화면에 생깁니다."];
   elements.installSteps.innerHTML = "";
   for (const step of steps) {
@@ -10521,14 +10537,15 @@ function selectedPushNotificationConditions() {
 }
 
 function pushNotificationOptionSignature() {
-  return JSON.stringify(
-    pushNotificationOptions().map((option) => [
+  return JSON.stringify({
+    enabled: state.pushNotificationEnabled,
+    options: pushNotificationOptions().map((option) => [
       option.id,
       option.label,
       option.description,
       option.required === true,
     ]),
-  );
+  });
 }
 
 function compactPushNotificationDescription(option) {
@@ -10567,16 +10584,20 @@ function renderPushNotificationConditionOptions() {
   list.innerHTML = "";
 
   if (requiredOptions.length) {
+    const coreEnabled = state.pushNotificationEnabled;
+    const coreStateLabel = coreEnabled ? "켜짐" : "현재 꺼짐";
     const core = el("section", "push-notification-core");
     const coreCopy = el("span", "push-notification-core-copy");
+    const coreState = el("span", "push-notification-core-state", coreStateLabel);
+    coreState.dataset.enabled = String(coreEnabled);
     coreCopy.append(
       el("span", "push-notification-core-kicker", "기본 알림"),
       el("strong", "", requiredOptions.map((option) => option.label).join(" · ")),
     );
-    core.append(coreCopy, el("span", "push-notification-core-state", "항상 켜짐"));
+    core.append(coreCopy, coreState);
     core.setAttribute(
       "aria-label",
-      `기본 알림, ${requiredOptions.map((option) => option.label).join(", ")}, 항상 켜짐`,
+      `기본 알림, ${requiredOptions.map((option) => option.label).join(", ")}, ${coreStateLabel}`,
     );
     for (const option of requiredOptions) {
       const input = document.createElement("input");
@@ -10711,7 +10732,7 @@ function setPushNotificationSheetMode(mode = "settings") {
     elements.pushNotificationSheetTitle.textContent = isRecommendationEntryPrompt
       ? "추천 업데이트 알림"
       : isEntryPrompt
-        ? "알림 받기"
+        ? "알림을 켜시겠어요?"
         : "알림 설정";
   }
   if (elements.pushNotificationSheetSubtitle) {
@@ -10719,7 +10740,9 @@ function setPushNotificationSheetMode(mode = "settings") {
       ? isExistingPushCustomer
         ? "기존 설정은 유지하고 추천 업데이트만 추가해요."
         : "새 종목과 매매 단계 변경을 놓치지 않게 알려드려요."
-      : "필요한 소식만 골라 받아보세요.";
+      : isEntryPrompt
+        ? "현재는 꺼져 있어요. 받을 소식을 확인한 뒤 권한을 허용해주세요."
+        : "필요한 소식만 골라 받아보세요.";
   }
   if (elements.pushRecommendationGuide) {
     elements.pushRecommendationGuide.hidden = !isRecommendationEntryPrompt;
@@ -10728,7 +10751,7 @@ function setPushNotificationSheetMode(mode = "settings") {
     elements.pushNotificationSheetSnoozeButton.hidden = !isEntryPrompt && !isRecommendationEntryPrompt;
     elements.pushNotificationSheetSnoozeButton.textContent = isRecommendationEntryPrompt
       ? "다시 보지 않기"
-      : "오늘 하루 보지 않기";
+      : "이번 주 보지 않기";
   }
   if (elements.pushNotificationSheetClose) {
     elements.pushNotificationSheetClose.setAttribute(
@@ -10750,6 +10773,9 @@ function showPushNotificationSheet(options = {}) {
   updatePushNotificationSheet();
   elements.pushNotificationSheet.hidden = false;
   elements.pushNotificationSheet.setAttribute("aria-hidden", "false");
+  if (options.recordWeeklyPrompt === true) {
+    recordPushEntryPromptShown();
+  }
   if (wasHidden && elements.pushNotificationSheetBody) {
     elements.pushNotificationSheetBody.scrollTop = 0;
   }
@@ -10759,18 +10785,15 @@ function showPushNotificationSheet(options = {}) {
   }
 }
 
-function snoozePushNotificationEntryPromptForToday() {
-  const key = pushEntryPromptSnoozeStorageKey();
-  if (key) {
-    localStorage.setItem(key, localCalendarDate());
-  }
+function dismissPushNotificationEntryPromptForWeek() {
+  recordPushEntryPromptShown();
   closePushNotificationSheet();
-  setPushNotificationStatus("오늘은 AI 시그널 알림 안내를 다시 보여드리지 않습니다.");
+  setPushNotificationStatus("다음 주 월요일 이후 다시 안내드릴게요.");
 }
 
 function dismissPushNotificationEntryPrompt() {
   if (state.pushNotificationSheetMode !== "recommendation-entry") {
-    snoozePushNotificationEntryPromptForToday();
+    dismissPushNotificationEntryPromptForWeek();
     return;
   }
   recordRecommendationPushPromptDecision("dismissed");
@@ -11138,8 +11161,8 @@ function updatePushNotificationSheet() {
       label = isExistingPushCustomer
         ? "확인했어요"
         : isRecommendationEntryPrompt
-          ? "추천 알림 받기"
-          : "알림 받기";
+          ? "추천 알림 권한 허용하기"
+          : "알림 권한 허용하기";
     }
     if (busy) {
       label = isExistingPushCustomer
@@ -11169,7 +11192,7 @@ function updatePushNotificationSheet() {
     setPushNotificationSheetStatus(
       isRecommendationEntryPrompt
         ? "홈 화면에 추가하면 추천 업데이트를 별도 알림으로 받을 수 있어요."
-        : PUSH_NOTIFICATION_EXAMPLE_TEXT,
+        : `현재 알림은 꺼져 있어요. 홈 화면에 추가한 뒤 앱에서 알림 권한을 허용해주세요.\n\n${PUSH_NOTIFICATION_EXAMPLE_TEXT}`,
     );
     return;
   }
@@ -11195,10 +11218,18 @@ function updatePushNotificationSheet() {
   }
   saveButton && (saveButton.disabled = busy);
   if (isRecommendationEntryPrompt) {
-    setPushNotificationSheetStatus("");
+    setPushNotificationSheetStatus(
+      state.pushNotificationEnabled
+        ? ""
+        : "현재 알림은 꺼져 있어요. 아래 버튼을 눌러 권한을 허용해야 알림이 시작됩니다.",
+    );
     return;
   }
-  setPushNotificationSheetStatus("");
+  setPushNotificationSheetStatus(
+    state.pushNotificationEnabled
+      ? ""
+      : "현재 알림은 꺼져 있어요. 선택한 소식은 ‘알림 권한 허용하기’를 누른 뒤 적용됩니다.",
+  );
 }
 
 function serviceUpdateBlocksPushNotificationPrompt() {
@@ -11236,14 +11267,20 @@ async function maybeShowPushNotificationEntryPrompt() {
   ) {
     return;
   }
+  if (!state.pushNotificationEnabled && pushEntryPromptShownThisWeek()) {
+    return;
+  }
   if (!recommendationPushPromptHandled()) {
-    showPushNotificationSheet({ mode: "recommendation-entry" });
+    showPushNotificationSheet({
+      mode: "recommendation-entry",
+      recordWeeklyPrompt: !state.pushNotificationEnabled,
+    });
     return;
   }
-  if (!canPrompt || state.pushNotificationEnabled || pushEntryPromptSnoozedToday()) {
+  if (!canPrompt || state.pushNotificationEnabled) {
     return;
   }
-  showPushNotificationSheet({ mode: "entry" });
+  showPushNotificationSheet({ mode: "entry", recordWeeklyPrompt: true });
 }
 
 window.addEventListener("secret-note:service-update-priority", () => {
@@ -12682,23 +12719,19 @@ function homeAiSignalView(item = {}) {
   }
   if (action === "partial_exit_pending") {
     const profitStage = Number(current.pending_profit_stage || (Number(current.profit_stage || 0) + 1));
-    return { key: "recent-sell", label: `${profitStage}차 수익확정 대기`, tone: "sell", signalDate, signalAt, updatedAt, preliminary };
+    return { key: "recent-sell", label: `부분 매도 대기(${profitStage}차)`, tone: "sell", signalDate, signalAt, updatedAt, preliminary };
   }
   if (action === "full_exit_pending") {
     return { key: "recent-sell", label: "전량 매도 대기", tone: "sell", signalDate, signalAt, updatedAt, preliminary };
   }
   if (action === "partially_exited" && current.position_open) {
     const profitStage = Number(current.profit_stage || transition?.profit_stage || 1);
-    const remaining = toNumber(current.model_exposure_percent);
-    const label = remaining === null
-      ? `${profitStage}차 수익확정·보유`
-      : `${profitStage}차 수익확정·잔여 ${formatNumber(remaining)}% 보유`;
-    return { key: "recent-sell", label, tone: "sell", signalDate, signalAt, updatedAt, preliminary: false };
+    return { key: "recent-sell", label: `부분 수익 확정(${profitStage}차)`, tone: "sell", signalDate, signalAt, updatedAt, preliminary: false };
   }
   if (action === "exited" || latestTransitionWasSell) {
     return {
       key: "recent-sell",
-      label: isSignalReconciliation(item) ? "전량 매도 · 전략 버전 통일" : "전량 매도",
+      label: isSignalReconciliation(item) ? "전량 매도 확정 · 전략 버전 통일" : "전량 매도 확정",
       tone: "sell",
       signalDate,
       signalAt,
@@ -16009,7 +16042,7 @@ function renderAiSignalsPage() {
     const labels = {
       all: "전체",
       "buy-holding": "확정 매수·보유",
-      "recent-sell": "수익확정·전량 매도",
+      "recent-sell": "매도 확정",
       "preliminary-buy": "예비 매수",
       "preliminary-sell": "매도 대기",
     };

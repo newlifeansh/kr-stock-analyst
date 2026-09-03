@@ -17045,6 +17045,10 @@ body[data-staging-ia="tds-video"] #push-notification-sheet .push-notification-co
   white-space: nowrap !important;
 }
 
+body[data-staging-ia="tds-video"] #push-notification-sheet .push-notification-core-state[data-enabled="false"] {
+  color: var(--tc-sub) !important;
+}
+
 body[data-staging-ia="tds-video"] #push-notification-sheet .push-notification-optional {
   display: grid !important;
 }
@@ -19523,5 +19527,365 @@ body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step[data-
 
   body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dd {
     font-size: 16px !important;
+  }
+}
+
+/* v152 — manual quote reanalysis, personal holding strategy, and a non-holder price map. */
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-analysis-refresh {
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 9px 12px !important;
+  padding-top: 9px !important;
+  border-top: 1px solid var(--tc-line) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-analysis-refresh > p {
+  min-width: 0 !important;
+  margin: 0 !important;
+  color: var(--tc-muted) !important;
+  font-size: 10px !important;
+  font-weight: 640 !important;
+  line-height: 1.5 !important;
+  overflow-wrap: anywhere !important;
+  word-break: keep-all !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-analysis-refresh > button {
+  min-width: 112px !important;
+  min-height: 44px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 13px !important;
+  border: 1px solid var(--tc-line) !important;
+  border-radius: 11px !important;
+  color: var(--tc-sub) !important;
+  background: var(--tc-surface-2) !important;
+  font-size: 11px !important;
+  font-weight: 790 !important;
+  line-height: 1.35 !important;
+  text-align: center !important;
+  word-break: keep-all !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-analysis-refresh[data-analysis-state="stale"] > p {
+  color: light-dark(#8a4b08, #ffd08a) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-analysis-refresh[data-analysis-state="stale"] > button {
+  border-color: light-dark(rgba(0, 106, 255, 0.24), rgba(117, 164, 255, 0.34)) !important;
+  color: light-dark(#1c56b2, #c2d4ff) !important;
+  background: light-dark(#eef4ff, #202c46) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-analysis-refresh > button:disabled {
+  cursor: wait !important;
+  opacity: 0.68 !important;
+}
+
+body[data-staging-ia="tds-video"][data-staging-input="keyboard"]
+  .staging-ai-stock-response-analysis-refresh > button:focus-visible {
+  outline: 2px solid var(--tc-focus) !important;
+  outline-offset: 2px !important;
+}
+
+body[data-staging-ia="tds-video"] :is(
+  .staging-ai-stock-response-holding-strategy,
+  .staging-ai-stock-response-price-map
+) {
+  min-width: 0 !important;
+  margin: 0 0 15px !important;
+  padding: 16px !important;
+  border: 1px solid var(--tc-line) !important;
+  border-radius: 15px !important;
+  color: var(--tc-text) !important;
+  background: var(--tc-surface) !important;
+}
+
+body[data-staging-ia="tds-video"] :is(
+  .staging-ai-stock-response-holding-strategy,
+  .staging-ai-stock-response-price-map
+)[hidden] {
+  display: none !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy {
+  display: grid !important;
+  gap: 12px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy > header {
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 4px 10px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy > header > span {
+  grid-column: 1 / -1 !important;
+  color: light-dark(#047857, #9be8c9) !important;
+  font-size: 10px !important;
+  font-weight: 780 !important;
+  line-height: 1.4 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy h4 {
+  margin: 0 !important;
+  color: var(--tc-text) !important;
+  font-size: 18px !important;
+  font-weight: 820 !important;
+  letter-spacing: -0.025em !important;
+  line-height: 1.4 !important;
+  word-break: keep-all !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy > header > strong {
+  min-height: 25px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 3px 8px !important;
+  border-radius: 999px !important;
+  color: var(--tc-sub) !important;
+  background: var(--tc-surface-2) !important;
+  font-size: 10px !important;
+  font-weight: 780 !important;
+  line-height: 1.3 !important;
+  white-space: nowrap !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy > p {
+  margin: 0 !important;
+  color: var(--tc-sub) !important;
+  font-size: 12px !important;
+  font-weight: 620 !important;
+  line-height: 1.62 !important;
+  word-break: keep-all !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy dl {
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 1px !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid var(--tc-line) !important;
+  border-radius: 12px !important;
+  background: var(--tc-line) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy dl > div {
+  min-width: 0 !important;
+  display: grid !important;
+  gap: 4px !important;
+  padding: 11px 12px !important;
+  background: var(--tc-surface-2) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy :is(dt, dd) {
+  min-width: 0 !important;
+  margin: 0 !important;
+  overflow-wrap: anywhere !important;
+  word-break: keep-all !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy dt {
+  color: var(--tc-muted) !important;
+  font-size: 10px !important;
+  font-weight: 680 !important;
+  line-height: 1.4 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy dd {
+  color: var(--tc-text) !important;
+  font-size: 13px !important;
+  font-variant-numeric: tabular-nums !important;
+  font-weight: 790 !important;
+  line-height: 1.45 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy[data-strategy-mode="holding_profit"]
+  [data-staging-response-holding-return] {
+  color: var(--tc-red) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy[data-strategy-mode="holding_loss"]
+  [data-staging-response-holding-return] {
+  color: var(--tc-blue) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map {
+  display: grid !important;
+  gap: 12px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map figcaption {
+  min-width: 0 !important;
+  display: grid !important;
+  gap: 4px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map figcaption > span {
+  color: light-dark(#1c56b2, #9eb9ff) !important;
+  font-size: 10px !important;
+  font-weight: 790 !important;
+  line-height: 1.4 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map figcaption > strong {
+  color: var(--tc-text) !important;
+  font-size: 16px !important;
+  font-weight: 810 !important;
+  line-height: 1.45 !important;
+  word-break: keep-all !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-plot {
+  min-width: 0 !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  overscroll-behavior-inline: contain !important;
+  scrollbar-width: thin !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-plot svg {
+  width: 100% !important;
+  min-width: 320px !important;
+  height: auto !important;
+  display: block !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-axis,
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-connector {
+  fill: none !important;
+  stroke: light-dark(#d5d9df, #4a4a54) !important;
+  stroke-width: 1 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-zone {
+  fill: light-dark(rgba(0, 138, 91, 0.1), rgba(139, 227, 192, 0.1)) !important;
+  stroke: light-dark(rgba(0, 138, 91, 0.42), rgba(139, 227, 192, 0.48)) !important;
+  stroke-width: 1 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-level {
+  fill: none !important;
+  stroke: light-dark(#9ba2ad, #797a84) !important;
+  stroke-width: 1.5 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-level.is-dashed {
+  stroke-dasharray: 5 4 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-level.is-current {
+  stroke: light-dark(#1c56b2, #9eb9ff) !important;
+  stroke-width: 2.5 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-level.is-risk {
+  stroke: light-dark(#b42318, #ffaaa3) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-current-dot {
+  fill: light-dark(#1c56b2, #9eb9ff) !important;
+  stroke: var(--tc-surface) !important;
+  stroke-width: 2 !important;
+}
+
+body[data-staging-ia="tds-video"] :is(
+  .staging-ai-stock-response-price-map-label,
+  .staging-ai-stock-response-price-map-price,
+  .staging-ai-stock-response-price-map-route-number
+) {
+  fill: var(--tc-sub) !important;
+  font-family: inherit !important;
+  font-size: 10px !important;
+  font-weight: 720 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-label.is-current {
+  fill: light-dark(#1c56b2, #b7ccff) !important;
+  font-weight: 820 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-label.is-risk {
+  fill: light-dark(#b42318, #ffaaa3) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-route {
+  fill: none !important;
+  stroke: light-dark(#697386, #b6b8c1) !important;
+  stroke-width: 1.6 !important;
+  stroke-dasharray: 3 3 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-arrowhead {
+  fill: light-dark(#697386, #b6b8c1) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map > ol {
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  list-style: none !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map > ol > li {
+  min-width: 0 !important;
+  display: grid !important;
+  align-content: start !important;
+  gap: 5px !important;
+  padding: 11px !important;
+  border-radius: 11px !important;
+  background: var(--tc-surface-2) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map > ol strong {
+  color: var(--tc-sub) !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  line-height: 1.4 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map > ol span,
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map > p {
+  margin: 0 !important;
+  color: var(--tc-muted) !important;
+  font-size: 10px !important;
+  font-weight: 610 !important;
+  line-height: 1.55 !important;
+  word-break: keep-all !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map > p {
+  padding-top: 10px !important;
+  border-top: 1px solid var(--tc-line) !important;
+}
+
+@media (max-width: 359px) {
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-analysis-refresh,
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy > header,
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy dl,
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map > ol {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-analysis-refresh > button {
+    width: 100% !important;
+  }
+
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy > header > span {
+    grid-column: auto !important;
+  }
+
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-holding-strategy > header > strong {
+    justify-self: start !important;
   }
 }

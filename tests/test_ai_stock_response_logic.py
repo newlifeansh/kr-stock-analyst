@@ -191,7 +191,7 @@ def test_multi_signal_response_uses_fixed_weights_and_surfaces_conflict() -> Non
     result = _build(_complete_payload())
     metrics = {item["key"]: item for item in result["metrics"]}
 
-    assert result["version"] == "20260901-decision-scenarios-v4"
+    assert result["version"] == "20260902-holding-input-gate-v6"
     assert result["decisionLevels"]["currentPrice"] == 275_000
     assert result["decisionLevels"]["changeRate"] == pytest.approx(1.82)
     assert result["decisionLevels"]["marketSessionLabel"] == "장중"
@@ -372,6 +372,7 @@ def test_not_holding_guide_explains_observation_and_data_owned_buy_points() -> N
 
     assert guide["state"] == "not_holding"
     assert guide["positionMode"] == "watching"
+    assert guide["holdingStrategy"] is None
     assert guide["headline"] == "현재는 매수 관망이 필요해요"
     assert "가격 흐름" in guide["reason"]
     assert "외국인·기관 매매" in guide["reason"]
@@ -405,6 +406,17 @@ def test_holding_profit_guide_uses_average_price_for_partial_profit_protection()
 
     assert guide["positionMode"] == "holding_profit"
     assert guide["returnRate"] == pytest.approx(14.583333, rel=1e-5)
+    assert guide["holdingStrategy"] == {
+        "stage": "수익 관리",
+        "action": "분할 매도 · 이익 보호",
+        "summary": (
+            "현재는 수익권이에요. 285,000원 부근에서 일부 이익을 지킬지 보고, "
+            "259,000원 아래에서 장을 마치면 남은 보유분을 다시 점검해요."
+        ),
+        "averageBuyPrice": 240_000,
+        "currentPrice": 275_000,
+        "returnRate": pytest.approx(14.583333, rel=1e-5),
+    }
     assert rows["return"]["status"] == "수익권"
     assert rows["return"]["evidence"] == "평균 매수가 240,000원과 현재가 275,000원을 비교했어요."
     assert rows["first_sell"]["value"] == "285,000원"
@@ -426,6 +438,13 @@ def test_holding_loss_guide_separates_loss_limit_and_recovery_prices() -> None:
 
     assert guide["positionMode"] == "holding_loss"
     assert guide["returnRate"] == pytest.approx(-11.290322, rel=1e-5)
+    assert guide["holdingStrategy"]["stage"] == "손실 관리"
+    assert guide["holdingStrategy"]["action"] == "손실 제한 · 회복 확인"
+    assert guide["holdingStrategy"]["averageBuyPrice"] == 310_000
+    assert guide["holdingStrategy"]["currentPrice"] == 275_000
+    assert guide["holdingStrategy"]["returnRate"] == pytest.approx(-11.290322, rel=1e-5)
+    assert "259,000원 아래" in guide["holdingStrategy"]["summary"]
+    assert "285,000원 위로 회복" in guide["holdingStrategy"]["summary"]
     assert rows["risk_line"]["value"] == "259,000원"
     assert rows["recovery"]["value"] == "285,000원"
     assert [step["key"] for step in guide["decisionPlan"]] == [
@@ -440,4 +459,25 @@ def test_holding_without_average_price_does_not_manufacture_personal_return() ->
 
     assert guide["positionMode"] == "holding_unknown"
     assert guide["returnRate"] is None
-    assert "평균 매수가" in guide["headline"]
+    assert guide["holdingStrategy"] is None
+    assert guide["headline"] == "평균 매수가를 입력하면 내 보유 전략을 볼 수 있어요"
+    assert guide["rows"] == []
+    assert guide["decisionPlan"] == []
+    assert "수익권" not in guide["headline"] + guide["summary"]
+    assert "손실권" not in guide["headline"] + guide["summary"]
+
+
+def test_holding_flat_guide_exposes_a_deterministic_personal_strategy_summary() -> None:
+    guide = _build_guide(
+        _complete_payload(),
+        investor_state="holding",
+        average_buy_price=275_000,
+    )
+
+    assert guide["positionMode"] == "holding_flat"
+    assert guide["returnRate"] == pytest.approx(0)
+    assert guide["holdingStrategy"]["stage"] == "보유 기준 확인"
+    assert guide["holdingStrategy"]["action"] == "보유 유지 · 위험 기준"
+    assert guide["holdingStrategy"]["averageBuyPrice"] == 275_000
+    assert guide["holdingStrategy"]["currentPrice"] == 275_000
+    assert "본전권" in guide["holdingStrategy"]["summary"]

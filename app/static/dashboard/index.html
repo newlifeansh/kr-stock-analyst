@@ -7,6 +7,7 @@
     <meta id="staging-theme-color" name="theme-color" content="#17161b" />
     <meta name="color-scheme" content="light dark" />
     <meta name="secret-note-service-update" content="20260829-chart-analysis-v1" />
+    <meta name="secret-note-page-summary" content="enabled" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
@@ -24,13 +25,13 @@
       }
     </script>
     <script src="/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts" data-staging-theme-bootstrap></script>
-    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
-    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151" />
-    <script src="/assets/staging/ai-stock-response-logic.js?v=20260901-stock-response-live-session-v88" defer></script>
-    <script src="/assets/staging/stock-change-copy-logic.js?v=20260901-stock-response-live-session-v88" defer></script>
-    <script src="/assets/staging/toss-ia.js?v=20260901-stock-response-live-session-v88" defer></script>
+    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
+    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153" />
+    <script src="/assets/staging/ai-stock-response-logic.js?v=20260902-production-gpt-v92" defer></script>
+    <script src="/assets/staging/stock-change-copy-logic.js?v=20260902-production-gpt-v92" defer></script>
+    <script src="/assets/staging/toss-ia.js?v=20260902-production-gpt-v92" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260901v459&amp;build=20260901v459" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260902v461&amp;build=20260902v461" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -240,7 +241,7 @@
           <footer class="push-notification-sheet-actions">
             <button class="push-notification-sheet-disable" id="push-notification-sheet-disable-button" type="button" hidden>알림 오프</button>
             <button class="push-notification-sheet-save" id="push-notification-sheet-save-button" type="button">알림 켜기</button>
-            <button class="push-notification-sheet-snooze" id="push-notification-sheet-snooze-button" type="button" hidden>오늘 하루 보지 않기</button>
+            <button class="push-notification-sheet-snooze" id="push-notification-sheet-snooze-button" type="button" hidden>이번 주 보지 않기</button>
           </footer>
         </article>
       </section>
@@ -1115,7 +1116,7 @@
         <nav class="ai-signal-stage-tabs" id="ai-signal-stage-tabs" role="tablist" aria-label="AI 시그널 상태" aria-orientation="horizontal">
           <button class="active" id="ai-signal-stage-all" type="button" role="tab" aria-selected="true" aria-controls="ai-signals-page-list" data-ai-signal-stage="all">전체 <span>0</span></button>
           <button id="ai-signal-stage-buy-holding" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-stage="buy-holding">확정 매수·보유 <span>0</span></button>
-          <button id="ai-signal-stage-recent-sell" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-stage="recent-sell">수익확정·전량 매도 <span>0</span></button>
+          <button id="ai-signal-stage-recent-sell" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-stage="recent-sell">매도 확정 <span>0</span></button>
           <button id="ai-signal-stage-preliminary-buy" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-stage="preliminary-buy">예비 매수 <span>0</span></button>
           <button id="ai-signal-stage-preliminary-sell" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-stage="preliminary-sell">매도 대기 <span>0</span></button>
         </nav>
@@ -1418,6 +1419,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260901v459" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260902v461" defer></script>
   </body>
 </html>

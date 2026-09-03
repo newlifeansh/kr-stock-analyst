@@ -78,6 +78,6 @@ def test_public_stock_week_chart_returns_explicit_upstream_error(monkeypatch):
 
 
 def test_quality_strategy_version_does_not_retag_evidence_history():
-    assert STRATEGY_VERSION == "position-lifecycle-v7.3"
+    assert STRATEGY_VERSION == "position-lifecycle-v7.4"
     assert ENTRY_EVIDENCE_STRATEGY_VERSION == "position-lifecycle-v7.0"
     assert STRATEGY_VERSION != ENTRY_EVIDENCE_STRATEGY_VERSION

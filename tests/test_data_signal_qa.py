@@ -28,13 +28,14 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
     payload = load_qa_catalog()
     ids = [case["id"] for case in payload["cases"]]
 
-    assert payload["strategy_version"] == "position-lifecycle-v7.3"
-    assert len(ids) == 83
+    assert payload["strategy_version"] == "position-lifecycle-v7.4"
+    assert len(ids) == 87
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
         "DATA-KIS-005",
         "DATA-DART-003",
+        "DATA-LOGO-001",
         "DATA-COM-005",
         "DATA-ETF-001",
         "DATA-FUND-ANALYSIS-001",
@@ -42,7 +43,9 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "DATA-CALENDAR-CONTENT-004",
         "DATA-CALENDAR-CONTENT-005",
         "SIG-ENTRY-001",
+        "SIG-ENTRY-004",
         "SIG-EXIT-001",
+        "SIG-EXIT-005",
         "SIG-UI-003",
         "SIG-UI-004",
         "SIG-UI-005",
@@ -59,8 +62,13 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-UI-018",
         "SIG-UI-019",
         "SIG-UI-020",
+        "SIG-UI-021",
         "SIG-CONTRACT-004",
     }.issubset(ids)
+    service_update = next(case for case in payload["cases"] if case["id"] == "SIG-UI-005")
+    assert service_update["priority"] == "P1"
+    assert service_update["inputs"]["popup_enabled"] is False
+    assert service_update["inputs"]["notification_prompt_blocked"] is False
     assert all(case["priority"] in {"P0", "P1", "P2"} for case in payload["cases"])
 
 
@@ -72,9 +80,9 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
 
     assert first == second
     assert "# 데이터 연동·시그널 판단 QA 카탈로그" in first
-    assert "`position-lifecycle-v7.3`" in first
+    assert "`position-lifecycle-v7.4`" in first
     assert "SIG-CONTRACT-003" in first
-    assert "QA 항목: 83개" in first
+    assert "QA 항목: 87개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -611,13 +619,71 @@ def test_ai_signal_live_dom_contract_has_status_and_accessible_return_labels() -
     assert 'row.setAttribute("aria-label", aiSignalDetailAriaLabel(item, view));' in source
 
 
-def test_regular_e2e_cases_snooze_the_entry_prompt_but_priority_case_does_not() -> None:
+def test_regular_e2e_cases_record_the_current_prompt_week_but_priority_case_does_not() -> None:
     source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
 
     assert "if dismiss_service_update:" in source
-    assert "analyst.pushEntryPromptSnoozedDate.{normalized_share_id}" in source
-    assert "datetime.now(KST).date().isoformat()" in source
+    assert "analyst.pushEntryPromptWeek.v1.{normalized_share_id}" in source
+    assert "prompt_week_start = today_kst - timedelta(days=today_kst.weekday())" in source
+    assert "prompt_week_start.isoformat()" in source
     assert "dismiss_service_update=False" in source
+
+
+@pytest.mark.qa_gate
+def test_push_entry_prompt_week_resets_only_at_local_monday_boundary() -> None:
+    source = Path("app/static/dashboard/app.js").read_text(encoding="utf-8")
+    start = source.index("function localCalendarDate")
+    end = source.index("function recommendationPushPromptDecisionStorageKey", start)
+    script = f"""
+const values = new Map();
+const localStorage = {{
+  getItem(key) {{ return values.has(key) ? values.get(key) : null; }},
+  setItem(key, value) {{ values.set(key, String(value)); }},
+}};
+const state = {{ watchlistId: "weekly-user" }};
+const PUSH_ENTRY_PROMPT_WEEK_PREFIX = "analyst.pushEntryPromptWeek.v1";
+function scopedStorageKey(prefix, shareId = state.watchlistId) {{
+  return shareId ? `${{prefix}}.${{String(shareId).trim()}}` : "";
+}}
+{source[start:end]}
+const monday = new Date(2026, 7, 31, 12, 0, 0);
+const sunday = new Date(2026, 8, 6, 23, 59, 59);
+const nextMonday = new Date(2026, 8, 7, 0, 0, 0);
+const previousSunday = new Date(2026, 7, 30, 12, 0, 0);
+recordPushEntryPromptShown(monday);
+const firstWeek = {{
+  mondayKey: localMondayWeekKey(monday),
+  previousSundayKey: localMondayWeekKey(previousSunday),
+  monday: pushEntryPromptShownThisWeek(monday),
+  sunday: pushEntryPromptShownThisWeek(sunday),
+  nextMonday: pushEntryPromptShownThisWeek(nextMonday),
+}};
+recordPushEntryPromptShown(nextMonday);
+console.log(JSON.stringify({{
+  firstWeek,
+  nextWeekKey: values.get("analyst.pushEntryPromptWeek.v1.weekly-user"),
+  nextMondayAfterRecord: pushEntryPromptShownThisWeek(nextMonday),
+}}));
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "firstWeek": {
+            "mondayKey": "2026-08-31",
+            "previousSundayKey": "2026-08-24",
+            "monday": True,
+            "sunday": True,
+            "nextMonday": False,
+        },
+        "nextWeekKey": "2026-09-07",
+        "nextMondayAfterRecord": True,
+    }
 
 
 def test_e2e_navigation_retries_only_a_document_commit_timeout() -> None:
@@ -770,6 +836,7 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "SIG-UI-018" in E2E_CASE_IDS
     assert "SIG-UI-019" in E2E_CASE_IDS
     assert "SIG-UI-020" in E2E_CASE_IDS
+    assert "SIG-UI-021" in E2E_CASE_IDS
     assert "def portfolio_production_screens_case" in source
     assert "feature-ai-signals-production.jpg" in source
     assert "매수 확정 종목의 전략 기준가와 수익률" in source
@@ -778,6 +845,9 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert '("014950", "fallback")' in source
     assert '"title_logo": title_logo' in source
     assert "title_alignment" in source
+    assert 'signal_label_result["case_id"] = "SIG-UI-021"' in source
+    assert "부분 매도 대기(2차)" in source
+    assert "부분 수익 확정(2차)" in source
 
 
 def test_gpt_briefing_copy_contract_is_registered_for_e2e() -> None:
@@ -931,8 +1001,8 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     by_id = {item["id"]: item for item in report["checks"]}
 
     assert report["schema_version"] == "1.0"
-    assert report["strategy_version"] == "position-lifecycle-v7.3"
-    assert report["catalog_case_count"] == 83
+    assert report["strategy_version"] == "position-lifecycle-v7.4"
+    assert report["catalog_case_count"] == 87
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1012,7 +1082,7 @@ class FakeReadOnlyApi:
         if path == "/health":
             return {
                 "status": "ok",
-                "strategy_version": "position-lifecycle-v7.3",
+                "strategy_version": "position-lifecycle-v7.4",
             }, self._meta(path)
         if path == "/readyz":
             return {"status": "ok", "database_ok": True}, self._meta(path)
@@ -1027,7 +1097,7 @@ class FakeReadOnlyApi:
             }
             return {
                 "status": "degraded",
-                "strategy_version": "position-lifecycle-v7.3",
+                "strategy_version": "position-lifecycle-v7.4",
                 "as_of": "2026-08-29T10:00:00+09:00",
                 "datasets": {
                     "price": {**ready, "state": self.quality_price_state},
@@ -1070,7 +1140,7 @@ class FakeReadOnlyApi:
         if path == "/market/quant-signals":
             return {
                 "status": "ready",
-                "strategy_version": "position-lifecycle-v7.3",
+                "strategy_version": "position-lifecycle-v7.4",
                 "as_of": "2026-08-29T10:00:00+09:00",
                 "snapshot_generated_at": "2026-08-29T10:00:00+09:00",
                 "signal_revision": 7,
@@ -1106,7 +1176,7 @@ class FakeReadOnlyApi:
             return {"points": []}, self._meta(path)
         if path == "/stocks/005930/quant-signals":
             return {
-                "strategy_version": "position-lifecycle-v7.3",
+                "strategy_version": "position-lifecycle-v7.4",
                 "current": {"action": "hold"},
                 "as_of": "2026-08-29T10:00:00+09:00",
             }, self._meta(path)
@@ -1137,14 +1207,14 @@ class FakeReadOnlyApi:
         )
 
     def post_json(self, path: str, payload: dict[str, object]):
-        assert path == "/staging-ai/page-summary"
+        assert path == "/ai/page-summary"
         fallback = dict(payload["fallback"])
         return 200, {
             **fallback,
             "generation_mode": "rules",
             "model_name": None,
             "generation_note": "fixture fallback",
-            "prompt_version": "staging-page-summary-v11",
+            "prompt_version": "staging-page-summary-v12",
             "cache_hit": False,
             "input_tokens": None,
             "output_tokens": None,

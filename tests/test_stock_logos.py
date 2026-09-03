@@ -100,6 +100,20 @@ def test_sync_stock_logos_fetches_only_uncached_active_stocks() -> None:
     assert db.get(StockLogo, "005930").image_data == PNG_SIGNATURE + b"existing"
 
 
+def test_sync_stock_logos_skips_checked_in_official_ci_assets() -> None:
+    db = make_session()
+    add_stock(db, "278470", "에이피알")
+    requested: list[str] = []
+
+    result = sync_stock_logos(
+        db,
+        fetcher=lambda url, **_kwargs: requested.append(url),
+    )
+
+    assert result == {"candidates": 0, "ready": 0, "missing": 0, "failed": 0}
+    assert requested == []
+
+
 def test_missing_logo_is_negative_cached_until_retry_window() -> None:
     db = make_session()
     add_stock(db, "005930", "삼성전자")

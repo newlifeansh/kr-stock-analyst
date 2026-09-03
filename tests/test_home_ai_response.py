@@ -307,6 +307,79 @@ def test_home_ai_signal_view_accepts_a_missing_watchlist_signal() -> None:
     assert json.loads(completed.stdout) is None
 
 
+def test_sell_signal_labels_keep_pending_and_confirmed_states_distinct() -> None:
+    source = app_source()
+    view_start = source.index("function isPreliminaryAiSignal(")
+    view_end = source.index("function aiSignalTransitionKey(", view_start)
+    stage_start = source.index("function aiSignalStageKey(")
+    stage_end = source.index("function aiSignalCurrentTimestamp(", stage_start)
+    function_source = source[view_start:view_end] + source[stage_start:stage_end]
+    script = f"""
+{function_source}
+const fixtures = [
+  {{
+    key: "partial-pending",
+    current: {{ action: "partial_exit_pending", position_open: true, pending_profit_stage: 2 }},
+  }},
+  {{
+    key: "full-pending",
+    current: {{ action: "full_exit_pending", position_open: true, profit_stage: 2 }},
+  }},
+  {{
+    key: "partial-confirmed",
+    current: {{ action: "partially_exited", position_open: true, profit_stage: 2 }},
+  }},
+  {{
+    key: "full-confirmed",
+    current: {{ action: "exited", position_open: false, profit_stage: 2 }},
+  }},
+];
+console.log(JSON.stringify(fixtures.map((item) => {{
+  const view = homeAiSignalView(item);
+  return {{
+    key: item.key,
+    label: view.label,
+    preliminary: view.preliminary,
+    stage: aiSignalStageKey(item),
+  }};
+}})));
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == [
+        {
+            "key": "partial-pending",
+            "label": "부분 매도 대기(2차)",
+            "preliminary": True,
+            "stage": "preliminary-sell",
+        },
+        {
+            "key": "full-pending",
+            "label": "전량 매도 대기",
+            "preliminary": True,
+            "stage": "preliminary-sell",
+        },
+        {
+            "key": "partial-confirmed",
+            "label": "부분 수익 확정(2차)",
+            "preliminary": False,
+            "stage": "recent-sell",
+        },
+        {
+            "key": "full-confirmed",
+            "label": "전량 매도 확정",
+            "preliminary": False,
+            "stage": "recent-sell",
+        },
+    ]
+
+
 def test_pending_state_uses_last_completed_trade_date_during_weekend_refresh() -> None:
     source = app_source()
     start = source.index("function isPreliminaryAiSignal(")

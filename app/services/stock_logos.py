@@ -20,6 +20,7 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MAX_LOGO_BYTES = 2 * 1024 * 1024
 STOCK_CODE_PATTERN = re.compile(r"^[0-9A-Z]{6}$")
 FALLBACK_STOCK_LOGO_PATH = Path(__file__).resolve().parents[1] / "static" / "stock-logo-fallback.png"
+MANUAL_STOCK_LOGO_DIR = Path(__file__).resolve().parents[1] / "static" / "stock-logos"
 
 
 @dataclass(frozen=True)
@@ -146,6 +147,11 @@ def sync_stock_logos(
     fetcher: Callable[..., requests.Response] = requests.get,
 ) -> dict[str, int]:
     market_names = [item.strip().upper() for item in markets.split(",") if item.strip()]
+    manual_codes = {
+        path.stem.upper()
+        for path in MANUAL_STOCK_LOGO_DIR.glob("*.png")
+        if STOCK_CODE_PATTERN.fullmatch(path.stem.upper())
+    }
     retry_before = datetime.utcnow() - timedelta(days=max(1, missing_retry_days))
     statement = (
         select(StockMaster.code)
@@ -164,6 +170,8 @@ def sync_stock_logos(
     )
     if limit is not None:
         statement = statement.limit(max(0, limit))
+    if manual_codes:
+        statement = statement.where(StockMaster.code.not_in(manual_codes))
     codes = list(db.scalars(statement))
     summary = {"candidates": len(codes), "ready": 0, "missing": 0, "failed": 0}
     if not codes:

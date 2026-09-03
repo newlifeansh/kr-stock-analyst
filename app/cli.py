@@ -46,6 +46,7 @@ from app.qa.catalog import write_qa_catalog_markdown
 from app.qa.release_parity import verify_release_parity, write_release_parity_report
 from app.qa.runner import run_data_signal_qa, write_qa_report
 from app.services.company_profiles import collect_company_profiles
+from app.services.official_stock_logos import backfill_official_stock_logos
 from app.services.stock_logos import sync_stock_logos
 
 app = typer.Typer(no_args_is_help=True)
@@ -1199,6 +1200,50 @@ def collect_company_profiles_command(
             max_workers=max_workers,
         )
     typer.echo(result["message"])
+
+
+@app.command("backfill-official-stock-logos")
+def backfill_official_stock_logos_command(
+    markets: str = typer.Option(
+        "KOSPI,KOSDAQ", "--markets", help="Comma-separated markets"
+    ),
+    codes: Optional[str] = typer.Option(
+        None,
+        "--codes",
+        help="Optional comma-separated stock codes; ETF codes are always excluded",
+    ),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Optional company limit"),
+    max_workers: int = typer.Option(
+        4, "--max-workers", help="Concurrent official-site requests"
+    ),
+    timeout_seconds: int = typer.Option(
+        12, "--timeout-seconds", help="Per-request timeout"
+    ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite/--skip-existing",
+        help="Replace official logo files that are already checked in",
+    ),
+    discover_homepages: bool = typer.Option(
+        True,
+        "--discover-homepages/--profiles-only",
+        help="Resolve missing official homepages from DART stock-code identities",
+    ),
+) -> None:
+    init_db()
+    requested_codes = [value.strip() for value in (codes or "").split(",") if value.strip()]
+    with SessionLocal() as db:
+        result = backfill_official_stock_logos(
+            db,
+            markets=markets,
+            codes=requested_codes or None,
+            limit=limit,
+            max_workers=max_workers,
+            timeout_seconds=timeout_seconds,
+            overwrite=overwrite,
+            discover_homepages=discover_homepages,
+        )
+    typer.echo(json.dumps(result, ensure_ascii=False, default=str))
 
 
 @app.command("collect-stock-news")

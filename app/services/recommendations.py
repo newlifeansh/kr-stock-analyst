@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from threading import RLock
 from typing import Optional
 
 from sqlalchemy import func, select
@@ -14,10 +15,19 @@ from app.models import DailyPrice, StockMaster
 from app.services.market_rankings import _base_item, _row_value
 from app.services.quant_signals import (
     ENTRY_SCORE,
+    MARKET_SIGNAL_FEED_LIMIT,
+    MARKET_SIGNAL_RECENT_DAYS,
+    MARKET_SIGNAL_UNIVERSE_LIMIT,
     MIN_BACKTEST_HISTORY_ROWS,
+    apply_market_signal_reconciliations,
+    enrich_market_quant_signal_sectors,
+    load_external_market_quant_signal_feed,
+    load_market_quant_signal_feed,
     load_market_quant_signal_snapshot,
     load_quant_signal_payload,
     load_reference_quant_signal_payload,
+    market_payload_has_trade_metadata,
+    save_market_quant_signal_snapshot,
 )
 from app.services.sector_taxonomy import investment_sector_fields
 from app.services.stock_dashboard import (
@@ -27,7 +37,6 @@ from app.services.stock_dashboard import (
     ensure_stock_price_history,
 )
 from app.services.ttl_cache import TTLCache
-
 
 WEIGHTS = {
     "estimate_revision": Decimal("12"),
@@ -45,6 +54,7 @@ WEIGHTS = {
 MARKET_CAP_UNIVERSE_LIMIT = 100
 KST = timezone(timedelta(hours=9))
 UNIVERSE_CACHE_TTL_SECONDS = 300
+RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_AGE_SECONDS = 6 * 60 * 60
 MAX_RECOMMENDATIONS_PER_SECTOR = 2
 RECOMMENDATION_SELECTION_RULE = "confirmed_entry_pending_or_entered_today"
 RECOMMENDATION_PENDING_STATE = "entry_confirmed"
@@ -52,6 +62,7 @@ RECOMMENDATION_ENTERED_TODAY_STATE = "entered_today"
 RECOMMENDATION_PENDING_LABEL = "신규 매수 대기"
 RECOMMENDATION_ENTERED_TODAY_LABEL = "보유 유지"
 universe_cache = TTLCache(maxsize=16)
+recommendation_signal_snapshot_refresh_lock = RLock()
 settings = get_settings()
 
 
@@ -226,6 +237,95 @@ def _recommendation_signal_state(
     return _recommendation_state_for_current(signal.get("current"), today=today)
 
 
+def _recommendation_signal_snapshot_needs_refresh(
+    snapshot: object,
+    *,
+    now: datetime,
+) -> bool:
+    """Return whether the recommendation eligibility snapshot is unavailable or stale."""
+    if not isinstance(snapshot, dict) or snapshot.get("status") != "ready":
+        return True
+
+    # load_market_quant_signal_snapshot always adds this field. Snapshots in
+    # tests and older callers may omit it, so keep those explicit fixtures
+    # usable rather than treating an unknown age as a reason to block cards.
+    generated_at = str(snapshot.get("snapshot_generated_at") or "").strip()
+    if not generated_at:
+        return False
+    try:
+        generated = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if generated.tzinfo is None:
+        generated = generated.replace(tzinfo=timezone.utc)
+    age_seconds = (now - generated.astimezone(KST)).total_seconds()
+    return age_seconds > RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_AGE_SECONDS
+
+
+def _refresh_recommendation_signal_snapshot_if_stale(
+    db: Session,
+    *,
+    now: datetime,
+) -> Optional[dict[str, object]]:
+    """Refresh the eligibility source before ranking recommendations.
+
+    The market-signal endpoint refreshes stale snapshots in a background task.
+    Recommendations are a separate request path, so relying on that task can
+    leave the cards empty for the entire request/cache window. Refresh here
+    only when needed. If a stale snapshot cannot be refreshed, fail closed so
+    an old entry is never presented as a current recommendation.
+    """
+    snapshot = load_market_quant_signal_snapshot(
+        db,
+        universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
+        limit=MARKET_SIGNAL_FEED_LIMIT,
+        recent_days=MARKET_SIGNAL_RECENT_DAYS,
+    )
+    if not _recommendation_signal_snapshot_needs_refresh(snapshot, now=now):
+        return snapshot
+
+    with recommendation_signal_snapshot_refresh_lock:
+        snapshot = load_market_quant_signal_snapshot(
+            db,
+            universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
+            limit=MARKET_SIGNAL_FEED_LIMIT,
+            recent_days=MARKET_SIGNAL_RECENT_DAYS,
+        )
+        if not _recommendation_signal_snapshot_needs_refresh(snapshot, now=now):
+            return snapshot
+        try:
+            external = load_external_market_quant_signal_feed(
+                settings.market_quant_signal_source_url,
+                universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
+                limit=MARKET_SIGNAL_FEED_LIMIT,
+                recent_days=MARKET_SIGNAL_RECENT_DAYS,
+                timeout_seconds=settings.market_quant_signal_source_timeout_seconds,
+            )
+            if external is not None and market_payload_has_trade_metadata(external):
+                payload = external
+            else:
+                payload = load_market_quant_signal_feed(
+                    db,
+                    universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
+                    limit=MARKET_SIGNAL_FEED_LIMIT,
+                    recent_days=MARKET_SIGNAL_RECENT_DAYS,
+                    now=now,
+                )
+            payload = apply_market_signal_reconciliations(payload, now=now) or payload
+            payload = enrich_market_quant_signal_sectors(db, payload)
+            return save_market_quant_signal_snapshot(
+                db,
+                payload,
+                universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
+                limit=MARKET_SIGNAL_FEED_LIMIT,
+                recent_days=MARKET_SIGNAL_RECENT_DAYS,
+                generated_at=now,
+            )
+        except Exception:
+            db.rollback()
+            return None
+
+
 def _eligible_recommendation_snapshot_items(
     db: Session,
     *,
@@ -240,7 +340,10 @@ def _eligible_recommendation_snapshot_items(
     """
 
     try:
-        snapshot = load_market_quant_signal_snapshot(db)
+        snapshot = _refresh_recommendation_signal_snapshot_if_stale(
+            db,
+            now=_now_kst(),
+        )
     except Exception:
         return {}
     if not isinstance(snapshot, dict) or snapshot.get("status") != "ready":

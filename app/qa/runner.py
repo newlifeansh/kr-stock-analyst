@@ -531,9 +531,9 @@ def _gate_checks(
         pass_message="최소 125개 완전 일봉 입력 계약을 확인했습니다.",
     )
 
-    bar = qs.PriceBar(date(2026, 8, 28), 100, 103, 99, 102, 2_000_000, 10_000_000_000)
+    bar = qs.PriceBar(date(2026, 9, 4), 100, 103, 99, 102, 2_000_000, 10_000_000_000)
     common = {
-        "atr_percent": 0.05,
+        "atr_percent": 0.04,
         "ema20_extension_atr": 2.0,
         "average_trading_value": 6_000_000_000.0,
         "ema10": 101.0,
@@ -548,29 +548,29 @@ def _gate_checks(
     }
 
     def entry_boundaries() -> dict[str, Any]:
-        # Keep this fixture below the separate early-turn participation gate,
-        # so it isolates only the established-trend 62 point boundary.
+        # Keep this fixture above the separate early-turn participation gate,
+        # so it isolates the v7.4 established-trend score boundary.
         below = {**common, "score": qs.ENTRY_SCORE - 0.01, "volume_ratio": 1.0}
         exact = {**common, "score": qs.ENTRY_SCORE, "volume_ratio": 1.0}
         _assert(
             qs._entry_setup_kind(bar, below) is None,
-            "62점 직전 기존 추세가 진입했습니다.",
+            "64점 직전 기존 추세가 진입했습니다.",
         )
         _assert(
             qs._entry_setup_kind(bar, exact) == "trend_continuation",
-            "62점 동일값 진입이 거절됐습니다.",
+            "64점 동일값 진입이 거절됐습니다.",
         )
         return {"threshold": qs.ENTRY_SCORE, "below": qs.ENTRY_SCORE - 0.01}
 
     collector.check(
         "SIG-ENTRY-001",
         entry_boundaries,
-        pass_message="기존 추세 62점 경계값을 확인했습니다.",
+        pass_message="v7.4 기존 추세 64점 경계값을 확인했습니다.",
     )
 
     def early_boundaries() -> dict[str, Any]:
         early_bar = qs.PriceBar(
-            date(2026, 8, 28), 99, 103, 98, 101.5, 2_000_000, 10_000_000_000
+            date(2026, 9, 4), 99, 103, 98, 101.5, 2_000_000, 10_000_000_000
         )
         early = {
             **common,
@@ -583,21 +583,21 @@ def _gate_checks(
         }
         _assert(
             qs._entry_setup_kind(early_bar, early) == "early_turn",
-            "61점 조기 전환이 거절됐습니다.",
+            "64점 조기 전환이 거절됐습니다.",
         )
         _assert(
             qs._entry_setup_kind(
                 early_bar, {**early, "score": qs.EARLY_ENTRY_SCORE - 0.01}
             )
             is None,
-            "61점 직전 조기 전환이 진입했습니다.",
+            "64점 직전 조기 전환이 진입했습니다.",
         )
         return {"threshold": qs.EARLY_ENTRY_SCORE}
 
     collector.check(
         "SIG-ENTRY-002",
         early_boundaries,
-        pass_message="조기 전환 61점 경계값을 확인했습니다.",
+        pass_message="v7.4 조기 전환 64점 경계값을 확인했습니다.",
     )
 
     def quality_guards() -> dict[str, Any]:
@@ -609,6 +609,8 @@ def _gate_checks(
             ("atr_percent", qs.MAX_ENTRY_ATR_PERCENT + 0.0001),
             ("ema20_extension_atr", qs.MAX_ENTRY_EXTENSION_ATR + 0.001),
             ("average_trading_value", qs.MIN_AVERAGE_TRADING_VALUE - 1),
+            ("momentum5", -0.0001),
+            ("volume_ratio", 0.79),
         ):
             _assert(
                 not qs._entry_quality_allowed(
@@ -626,7 +628,7 @@ def _gate_checks(
     collector.check(
         "SIG-ENTRY-003",
         quality_guards,
-        pass_message="예비 포착 및 변동성·이격·거래대금 품질 가드를 확인했습니다.",
+        pass_message="v7.4 예비 포착 및 변동성·이격·모멘텀·참여·거래대금 품질 가드를 확인했습니다.",
     )
 
     def execution_gap() -> dict[str, Any]:
@@ -674,7 +676,8 @@ def _gate_checks(
     def ladder_contract() -> dict[str, Any]:
         legacy = qs._profit_ladder_steps(date(2026, 8, 23))
         preservation = qs._profit_ladder_steps(date(2026, 8, 24))
-        current = qs._profit_ladder_steps(date(2026, 8, 25))
+        tactical = qs._profit_ladder_steps(date(2026, 8, 25))
+        current = qs._profit_ladder_steps(date(2026, 9, 4))
         _assert(
             legacy == qs.LEGACY_PROFIT_LADDER_STEPS,
             "2026-08-24 이전 규칙이 바뀌었습니다.",
@@ -683,27 +686,32 @@ def _gate_checks(
             preservation == qs.PROFIT_PRESERVATION_LADDER_STEPS,
             "v7.1 규칙이 바뀌었습니다.",
         )
-        _assert(current == qs.PROFIT_LADDER_STEPS, "v7.3 수익확정 규칙이 바뀌었습니다.")
+        _assert(tactical == qs.TACTICAL_PROFIT_LADDER_STEPS, "v7.3 수익확정 규칙이 바뀌었습니다.")
         _assert(
-            round(sum(step[1] for step in current), 8) == 0.70,
-            "잔여 30% 러너 계약이 깨졌습니다.",
+            current == qs.PROFIT_LADDER_STEPS
+            and round(sum(step[1] for step in current), 8) == 1.0,
+            "v7.4 +3%/+5% 전체 확정 계약이 깨졌습니다.",
         )
+        stable_position = {"entry_price": 100.0, "initial_risk": 2.0}
+        resolved = qs._resolved_profit_ladder_steps(stable_position, date(2026, 9, 4))
+        _assert(resolved[0][0] == 1.5 and resolved[1][0] == 2.5, "고정 목표가의 R 변환이 바뀌었습니다.")
         return {
             "legacy": legacy,
             "v7_1": preservation,
-            "v7_3": current,
+            "v7_3": tactical,
+            "v7_4": current,
             "runner": qs.MIN_RUNNER_FRACTION,
         }
 
     collector.check(
         "SIG-EXIT-001",
         ladder_contract,
-        pass_message="역사적·현행 수익확정 사다리와 잔여 30%를 확인했습니다.",
+        pass_message="역사적 사다리와 v7.4 +3%/+5% 수익확정을 확인했습니다.",
     )
     collector.check(
         "SIG-VERSION-001",
         ladder_contract,
-        pass_message="결정일별 과거 전략 규칙 보존을 확인했습니다.",
+        pass_message="결정일별 과거·현행 전략 규칙 보존을 확인했습니다.",
     )
 
     def lifecycle_contract() -> dict[str, Any]:
@@ -905,24 +913,12 @@ def _live_checks(
                 },
             }
             status_code, payload, response_meta = api.post_json(
-                "/staging-ai/page-summary",
+                "/ai/page-summary",
                 request_payload,
             )
-            if not is_staging:
-                _assert(
-                    status_code in {404, 405},
-                    "프로덕션에서 스테이징 쉬운 설명 API가 활성화됐습니다.",
-                    http_status=status_code,
-                )
-                return {
-                    "environment_meta": "production",
-                    "http_status": status_code,
-                    "isolated": True,
-                    "latency_ms": response_meta["latency_ms"],
-                }
             _assert(
                 status_code == 200,
-                "스테이징 쉬운 설명 API가 정상 응답하지 않았습니다.",
+                "쉬운 설명 API가 정상 응답하지 않았습니다.",
                 http_status=status_code,
                 latency_ms=response_meta["latency_ms"],
             )
@@ -946,14 +942,14 @@ def _live_checks(
                 and payload.get("generation_mode") in {"openai", "rules"}
                 and expected_prompt_version
                 and payload.get("prompt_version") == expected_prompt_version,
-                "스테이징 쉬운 설명 응답 스키마가 잘못됐습니다.",
+                "쉬운 설명 응답 스키마가 잘못됐습니다.",
                 response_fields=sorted(payload),
                 generation_mode=payload.get("generation_mode"),
                 prompt_version=payload.get("prompt_version"),
                 expected_prompt_version=expected_prompt_version,
             )
             return {
-                "environment_meta": "staging",
+                "environment_meta": "staging" if is_staging else "production",
                 "http_status": status_code,
                 "latency_ms": response_meta["latency_ms"],
                 "dashboard_http_status": dashboard_meta["http_status"],
@@ -973,7 +969,7 @@ def _live_checks(
         collector.check(
             "SIG-UI-017",
             staging_page_summary_contract,
-            pass_message="스테이징 쉬운 설명 응답과 프로덕션 격리 계약을 확인했습니다.",
+            pass_message="쉬운 설명 응답과 안전 폴백 계약을 확인했습니다.",
         )
 
         def staging_briefing_summary_contract() -> dict[str, Any]:
@@ -1018,24 +1014,12 @@ def _live_checks(
                 },
             }
             status_code, payload, response_meta = api.post_json(
-                "/staging-ai/page-summary",
+                "/ai/page-summary",
                 request_payload,
             )
-            if not is_staging:
-                _assert(
-                    status_code in {404, 405},
-                    "프로덕션에서 브리핑 GPT 문구 정리 API가 활성화됐습니다.",
-                    http_status=status_code,
-                )
-                return {
-                    "environment_meta": "production",
-                    "http_status": status_code,
-                    "isolated": True,
-                    "latency_ms": response_meta["latency_ms"],
-                }
             _assert(
                 status_code == 200 and isinstance(payload, dict),
-                "스테이징 브리핑 GPT 문구 정리 API가 정상 응답하지 않았습니다.",
+                "브리핑 GPT 문구 정리 API가 정상 응답하지 않았습니다.",
                 http_status=status_code,
                 latency_ms=response_meta["latency_ms"],
             )
@@ -1053,14 +1037,14 @@ def _live_checks(
                 and payload.get("prompt_version") == expected_prompt_version
                 and set(payload.get("evidence_refs") or {})
                 <= {"briefing-market-live-1"},
-                "스테이징 브리핑 구조화 요약 계약이 잘못됐습니다.",
+                "브리핑 구조화 요약 계약이 잘못됐습니다.",
                 response_fields=sorted(payload),
                 generation_mode=payload.get("generation_mode"),
                 prompt_version=payload.get("prompt_version"),
                 evidence_refs=payload.get("evidence_refs"),
             )
             return {
-                "environment_meta": "staging",
+                "environment_meta": "staging" if is_staging else "production",
                 "http_status": status_code,
                 "latency_ms": response_meta["latency_ms"],
                 "dashboard_http_status": dashboard_meta["http_status"],
@@ -1079,7 +1063,7 @@ def _live_checks(
         collector.check(
             "SIG-UI-018",
             staging_briefing_summary_contract,
-            pass_message="세 브리핑의 구조화 문구 정리와 프로덕션 격리 계약을 확인했습니다.",
+            pass_message="세 브리핑의 구조화 문구 정리와 안전 폴백 계약을 확인했습니다.",
         )
 
         def integrations_contract() -> dict[str, Any]:

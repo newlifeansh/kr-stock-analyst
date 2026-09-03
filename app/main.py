@@ -134,6 +134,10 @@ from app.services.etf_profiles import (
     validate_etf_holdings_snapshot,
 )
 from app.services.market_indices import build_market_indices, merge_live_market_indices
+from app.services.staging_page_summary import (
+    PageSummaryResponse,
+    summarize_staging_page,
+)
 from app.services.market_calendar import (
     is_korea_market_session_date,
     is_korea_regular_market_session,
@@ -250,7 +254,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260901v459"
+DASHBOARD_CLIENT_VERSION = "20260902v461"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -1493,6 +1497,68 @@ def stock_dashboard_styles(request: Request):
 app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
 if mcp_server is not None:
     app.mount("/mcp", mcp_server.streamable_http_app())
+
+
+PAGE_SUMMARY_PATH = "/ai/page-summary"
+PAGE_SUMMARY_MAX_BODY_BYTES = 64 * 1024
+PAGE_SUMMARY_RATE_WINDOW_SECONDS = 60.0
+PAGE_SUMMARY_RATE_PER_CLIENT = 15
+PAGE_SUMMARY_RATE_GLOBAL = 120
+_page_summary_rate_lock = RLock()
+_page_summary_client_requests: dict[str, list[float]] = {}
+_page_summary_global_requests: list[float] = []
+
+
+def _allow_page_summary_request(request: Request) -> bool:
+    now = time_module.monotonic()
+    cutoff = now - PAGE_SUMMARY_RATE_WINDOW_SECONDS
+    client_key = request.client.host if request.client else "unknown"
+    with _page_summary_rate_lock:
+        _page_summary_global_requests[:] = [
+            timestamp
+            for timestamp in _page_summary_global_requests
+            if timestamp > cutoff
+        ]
+        for key, timestamps in list(_page_summary_client_requests.items()):
+            current = [timestamp for timestamp in timestamps if timestamp > cutoff]
+            if current:
+                _page_summary_client_requests[key] = current
+            else:
+                _page_summary_client_requests.pop(key, None)
+        client_requests = _page_summary_client_requests.setdefault(client_key, [])
+        if (
+            len(client_requests) >= PAGE_SUMMARY_RATE_PER_CLIENT
+            or len(_page_summary_global_requests) >= PAGE_SUMMARY_RATE_GLOBAL
+        ):
+            return False
+        client_requests.append(now)
+        _page_summary_global_requests.append(now)
+        return True
+
+
+@app.post(PAGE_SUMMARY_PATH, response_model=PageSummaryResponse)
+async def page_summary(request: Request, response: Response):
+    if request.headers.get("sec-fetch-site", "").lower() == "cross-site":
+        raise HTTPException(status_code=403, detail="교차 사이트 요청은 허용하지 않습니다.")
+    if not _allow_page_summary_request(request):
+        raise HTTPException(
+            status_code=429,
+            detail="요약 요청이 잠시 많습니다. 기존 데이터 문구를 유지합니다.",
+            headers={"Retry-After": "60"},
+        )
+    raw_body = await request.body()
+    if len(raw_body) > PAGE_SUMMARY_MAX_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="요약 요청 크기가 제한을 초과했습니다.")
+    try:
+        payload = json.loads(raw_body or b"{}")
+        if not isinstance(payload, dict):
+            raise TypeError("request payload must be an object")
+        result = await summarize_staging_page(payload)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="요약 요청 형식을 확인해 주세요.")
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return result
 
 
 @app.get("/")

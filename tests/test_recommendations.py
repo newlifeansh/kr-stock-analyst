@@ -8,7 +8,12 @@ from app.db import Base
 from app.models import DailyPrice, StockMaster
 from app.schemas import MarketRecommendationOut
 from app.services import recommendations
-from app.services.recommendations import _action, _decision_reason, build_recommendations, universe_cache
+from app.services.recommendations import (
+    _action,
+    _decision_reason,
+    build_recommendations,
+    universe_cache,
+)
 
 
 def test_high_recommendation_score_produces_an_actionable_but_measured_decision():
@@ -21,6 +26,109 @@ def test_high_recommendation_score_produces_an_actionable_but_measured_decision(
         Decimal("80"),
         Decimal("30.55"),
     )
+
+
+def test_recommendations_refresh_stale_signal_snapshot_before_screening(monkeypatch):
+    now = datetime(2026, 9, 3, 21, 0, tzinfo=recommendations.KST)
+    signal = _confirmed_entry_signal("005930")
+    stale_snapshot = {
+        "status": "ready",
+        "snapshot_generated_at": "2026-09-02T10:19:48.000000+00:00",
+        "items": [],
+        "preliminary_history": [],
+    }
+    refreshed_snapshot = {
+        "status": "ready",
+        "items": [
+            {
+                "code": "005930",
+                "signal_at": "2026-09-03T15:40:00+09:00",
+                "current": signal["current"],
+            }
+        ],
+        "preliminary_history": [],
+    }
+    snapshot_calls = iter([stale_snapshot, stale_snapshot])
+    monkeypatch.setattr(recommendations, "_now_kst", lambda: now)
+    monkeypatch.setattr(
+        recommendations,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: next(snapshot_calls, stale_snapshot),
+    )
+    monkeypatch.setattr(
+        recommendations,
+        "load_external_market_quant_signal_feed",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        recommendations,
+        "load_market_quant_signal_feed",
+        lambda *_args, **_kwargs: refreshed_snapshot,
+    )
+    monkeypatch.setattr(
+        recommendations,
+        "apply_market_signal_reconciliations",
+        lambda payload, **_kwargs: payload,
+    )
+    monkeypatch.setattr(
+        recommendations,
+        "enrich_market_quant_signal_sectors",
+        lambda _db, payload: payload,
+    )
+    saved = []
+    monkeypatch.setattr(
+        recommendations,
+        "save_market_quant_signal_snapshot",
+        lambda _db, payload, **_kwargs: saved.append(payload) or refreshed_snapshot,
+    )
+    monkeypatch.setattr(
+        recommendations,
+        "load_quant_signal_payload",
+        lambda _db, _code, **_kwargs: signal,
+    )
+
+    with _session() as db:
+        _seed_prices(db, "005930", "삼성전자", 80_000, 1_000_000)
+        db.commit()
+        universe_cache.clear()
+
+        payload = build_recommendations(
+            db,
+            limit=1,
+            candidate_limit=10,
+            refresh_live=False,
+            ensure_signal_history=False,
+        )
+
+    assert saved == [refreshed_snapshot]
+    assert payload["candidate_count"] == 1
+    assert [item["code"] for item in payload["items"]] == ["005930"]
+
+
+def test_recommendations_fail_closed_when_stale_signal_snapshot_cannot_refresh(monkeypatch):
+    stale_snapshot = {
+        "status": "ready",
+        "snapshot_generated_at": "2026-09-02T10:19:48.000000+00:00",
+        "items": [{"code": "005930", "current": {"action": "entry_pending"}}],
+    }
+    monkeypatch.setattr(
+        recommendations,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: stale_snapshot,
+    )
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("upstream down")
+
+    monkeypatch.setattr(recommendations, "load_external_market_quant_signal_feed", unavailable)
+
+    with _session() as db:
+        assert (
+            recommendations._refresh_recommendation_signal_snapshot_if_stale(
+                db,
+                now=datetime(2026, 9, 3, 21, 0, tzinfo=recommendations.KST),
+            )
+            is None
+        )
 
 
 def _session() -> Session:

@@ -1,4 +1,4 @@
-"""Staging-only GPT copy summaries for stock details and daily briefings.
+"""GPT copy summaries for stock details and daily briefings.
 
 The model is deliberately kept outside the financial decision path.  It may
 rewrite supplied copy, but cannot calculate or change scores, signals, prices,
@@ -23,7 +23,7 @@ from typing import Any, Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-PROMPT_VERSION = "staging-page-summary-v11"
+PROMPT_VERSION = "staging-page-summary-v12"
 DEFAULT_MODEL = "gpt-4o-mini-2024-07-18"
 DEFAULT_API_BASE = "https://api.openai.com/v1"
 INPUT_PRICE_PER_MILLION_USD = 0.15
@@ -206,7 +206,10 @@ class StagingPageSummarySettings:
     @classmethod
     def from_environment(cls) -> StagingPageSummarySettings:
         api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        enabled_value = os.getenv("STAGING_OPENAI_SUMMARY_ENABLED", "").strip().lower()
+        enabled_value = os.getenv(
+            "OPENAI_SUMMARY_ENABLED",
+            os.getenv("STAGING_OPENAI_SUMMARY_ENABLED", ""),
+        ).strip().lower()
         enabled = enabled_value in {
             "1",
             "true",
@@ -216,14 +219,33 @@ class StagingPageSummarySettings:
         return cls(
             api_key=api_key,
             enabled=enabled,
-            model=os.getenv("STAGING_OPENAI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL,
-            api_base=os.getenv("STAGING_OPENAI_API_BASE", DEFAULT_API_BASE).strip().rstrip("/")
+            model=os.getenv(
+                "OPENAI_SUMMARY_MODEL",
+                os.getenv("STAGING_OPENAI_MODEL", DEFAULT_MODEL),
+            ).strip()
+            or DEFAULT_MODEL,
+            api_base=os.getenv(
+                "OPENAI_SUMMARY_API_BASE",
+                os.getenv("STAGING_OPENAI_API_BASE", DEFAULT_API_BASE),
+            ).strip().rstrip("/")
             or DEFAULT_API_BASE,
             timeout_seconds=_bounded_float(
-                os.getenv("STAGING_OPENAI_TIMEOUT_SECONDS"), default=8.0, minimum=2.0, maximum=30.0
+                os.getenv(
+                    "OPENAI_SUMMARY_TIMEOUT_SECONDS",
+                    os.getenv("STAGING_OPENAI_TIMEOUT_SECONDS"),
+                ),
+                default=8.0,
+                minimum=2.0,
+                maximum=30.0,
             ),
             cache_seconds=_bounded_float(
-                os.getenv("STAGING_OPENAI_CACHE_SECONDS"), default=1800.0, minimum=30.0, maximum=86400.0
+                os.getenv(
+                    "OPENAI_SUMMARY_CACHE_SECONDS",
+                    os.getenv("STAGING_OPENAI_CACHE_SECONDS"),
+                ),
+                default=1800.0,
+                minimum=30.0,
+                maximum=86400.0,
             ),
         )
 
@@ -373,6 +395,7 @@ def _system_prompt(page_type: str) -> str:
             "holding_loss이면 현재 손실권이라는 사실과 손실 제한 가격·회복 확인 가격을 나눠 볼 단계라고 설명하세요. "
             "holding_flat이면 본전권에서 보유 기준과 위험 가격을 함께 볼 단계라고 설명하세요. "
             "holding_unknown이면 평균 매수가를 입력해야 개인 손익 기준을 계산할 수 있다고 설명하세요. "
+            "holding_unknown에서는 수익권·손실권을 단정하거나 분할 매도·손실 제한·회복 전략을 제시하지 마세요. "
             "보유 중인 상태를 신규 매수 대기나 미보유 상태로 바꾸지 마세요. "
             "가격, 수익률, 점수, position_mode, guide_rows는 데이터 엔진이 계산한 사실입니다. 새로 계산하거나 다른 값으로 바꾸지 마세요. "
             "reason에서는 가격 흐름, 외국인·기관 매매, 최근 뉴스, 증권사 리포트 중 제공된 근거의 방향을 연결해 왜 지금 단계인지 설명하세요. "
@@ -485,6 +508,8 @@ def _preserve_stock_investor_state_copy(
         return copy
     investor_state = _clean_text(facts.get("investor_state"), limit=32)
     position_mode = _clean_text(facts.get("position_mode"), limit=48)
+    if position_mode == "holding_unknown":
+        return fallback
     state_copy = f"{copy.headline} {copy.summary} {copy.action_title}"
     expected = {
         "not_holding": r"매수\s*(?:관망|조건)|새(?:로)?\s*살|미보유",
@@ -612,6 +637,11 @@ def _copy_is_safe(
         investor_state = _clean_text(facts.get("investor_state"), limit=32)
         position_mode = _clean_text(facts.get("position_mode"), limit=48)
         state_copy = f"{copy.headline} {copy.summary} {copy.action_title}"
+        if position_mode == "holding_unknown" and re.search(
+            r"수익권|손실권|분할\s*매도|손실\s*제한|회복\s*(?:확인|가격)",
+            output_text,
+        ):
+            return False
         if investor_state == "not_holding":
             if not re.search(r"매수\s*(?:관망|조건)|새(?:로)?\s*살|미보유", state_copy):
                 return False
@@ -672,6 +702,14 @@ class StagingPageSummaryService:
 
     async def summarize(self, request: PageSummaryRequest) -> PageSummaryResponse:
         facts = _sanitize_facts(request.facts)
+        if (
+            request.page_type == "stock_response"
+            and _clean_text(facts.get("position_mode"), limit=48) == "holding_unknown"
+        ):
+            return _rules_response(
+                request.fallback,
+                note="평균 매수가 입력 전에는 개인 손익 전략을 생성하지 않습니다.",
+            )
         if not self.settings.enabled or not self.settings.api_key:
             return _rules_response(
                 request.fallback,

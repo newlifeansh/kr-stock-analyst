@@ -34335,6 +34335,10 @@ body.modal-open {
   color: #b42318;
 }
 
+#push-notification-sheet .push-notification-core-state[data-enabled="false"] {
+  color: #68717d;
+}
+
 #push-notification-sheet .push-notification-condition-list {
   display: grid;
   gap: 10px;

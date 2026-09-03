@@ -46,23 +46,29 @@ from app.services.signal_entry_evidence import (
 
 
 KST = ZoneInfo("Asia/Seoul")
-STRATEGY_VERSION = "position-lifecycle-v7.3"
+STRATEGY_VERSION = "position-lifecycle-v7.4"
 STRATEGY_NAME = "독립 근거 확인·조기 추세 포착·단기 전술형 수익확정 전략"
 MIN_HISTORY_ROWS = 125
 WARMUP_ROWS = 65
 BACKTEST_ROWS = 252
 MIN_BACKTEST_HISTORY_ROWS = WARMUP_ROWS + BACKTEST_ROWS
 SIGNAL_HISTORY_ROWS = 900
-ENTRY_SCORE = 62.0
+# v7.3 thresholds are retained for historical replay. v7.4 tightens the
+# current entry gate after the latest completed session in this release.
+STABLE_PROFIT_EFFECTIVE_DATE = date(2026, 9, 4)
+V7_3_ENTRY_SCORE = 62.0
+V7_3_EARLY_ENTRY_SCORE = 61.0
+V7_3_MAX_ENTRY_ATR_PERCENT = 0.06
+ENTRY_SCORE = 64.0
 ENTRY_MOMENTUM_MIN = 0.005
-EARLY_ENTRY_SCORE = 61.0
+EARLY_ENTRY_SCORE = 64.0
 EARLY_ENTRY_MOMENTUM_5_MIN = 0.02
 EARLY_ENTRY_MOMENTUM_20_FLOOR = -0.01
 EARLY_ENTRY_EMA60_GAP_MAX = 0.005
 EARLY_ENTRY_VOLUME_MIN = 1.1
 PRE_ENTRY_SCORE = 54.0
 PRE_ENTRY_MOMENTUM_5_MIN = 0.0
-MAX_ENTRY_ATR_PERCENT = 0.06
+MAX_ENTRY_ATR_PERCENT = 0.045
 MAX_ENTRY_EXTENSION_ATR = 2.5
 MAX_ENTRY_GAP_ATR = 1.5
 MAX_ENTRY_GAP_PERCENT = 0.05
@@ -85,15 +91,25 @@ PROFIT_PRESERVATION_LADDER_STEPS = (
     (6.0, 0.10, 5.5, 2.6),
 )
 TACTICAL_EXIT_EFFECTIVE_DATE = date(2026, 8, 25)
-PROFIT_LADDER_STEPS = (
+# v7.3 ladder, used for all decisions before the v7.4 effective date.
+TACTICAL_PROFIT_LADDER_STEPS = (
     (1.0, 0.30, 0.25, 2.6),
     (1.6, 0.25, 1.0, 2.2),
     (2.5, 0.15, 1.8, 1.8),
 )
-MIN_RUNNER_FRACTION = 0.30
+# v7.4 uses price-percent targets. The first and third fields are percentages
+# of entry price and are converted to R only after the position's initial risk
+# is known.
+PROFIT_LADDER_STEPS = (
+    (0.03, 0.50, 0.02, 1.8),
+    (0.05, 0.50, 0.05, 1.2),
+)
+V7_3_MIN_RUNNER_FRACTION = 0.30
+MIN_RUNNER_FRACTION = 0.0
 MAX_TACTICAL_TRANSITION_SELL_FRACTION = 0.30
 INITIAL_STOP_ATR = 1.75
-MAX_INITIAL_RISK_PERCENT = 0.06
+V7_3_MAX_INITIAL_RISK_PERCENT = 0.06
+MAX_INITIAL_RISK_PERCENT = 0.04
 BASE_TRAILING_STOP_ATR = 3.4
 PRE_TACTICAL_MIN_HOLDING_BARS = 5
 MIN_HOLDING_BARS = 3
@@ -117,7 +133,7 @@ MARKET_SIGNAL_EXTENDED_EFFECTIVE_DATE = date(2026, 8, 27)
 # silently discard events that are also eligible for push notifications.
 MARKET_SIGNAL_FEED_LIMIT = 0
 MARKET_SIGNAL_RECENT_DAYS = 30
-MARKET_SIGNAL_SNAPSHOT_VERSION = "v30"
+MARKET_SIGNAL_SNAPSHOT_VERSION = "v31"
 
 POSITIVE_WORDS = (
     "상향",
@@ -426,12 +442,38 @@ def _indicator_rows(bars: list[PriceBar]) -> list[dict[str, float]]:
     return indicators
 
 
-def _entry_quality_allowed(bar: PriceBar, indicator: dict[str, float]) -> bool:
+def _entry_parameters(strategy_date: Optional[date]) -> dict[str, float]:
+    if strategy_date is not None and strategy_date < STABLE_PROFIT_EFFECTIVE_DATE:
+        return {
+            "entry_score": V7_3_ENTRY_SCORE,
+            "early_entry_score": V7_3_EARLY_ENTRY_SCORE,
+            "max_entry_atr_percent": V7_3_MAX_ENTRY_ATR_PERCENT,
+            "min_momentum5": -float("inf"),
+            "min_volume_ratio": -float("inf"),
+        }
+    return {
+        "entry_score": ENTRY_SCORE,
+        "early_entry_score": EARLY_ENTRY_SCORE,
+        "max_entry_atr_percent": MAX_ENTRY_ATR_PERCENT,
+        "min_momentum5": 0.0,
+        "min_volume_ratio": 0.8,
+    }
+
+
+def _entry_quality_allowed(
+    bar: PriceBar,
+    indicator: dict[str, float],
+    *,
+    strategy_date: Optional[date] = None,
+) -> bool:
+    parameters = _entry_parameters(strategy_date or bar.trade_date)
     return bool(
         bar.ohlc_complete
-        and indicator["atr_percent"] <= MAX_ENTRY_ATR_PERCENT
+        and indicator["atr_percent"] <= parameters["max_entry_atr_percent"]
         and indicator.get("ema20_extension_atr", 0.0) <= MAX_ENTRY_EXTENSION_ATR
         and indicator.get("average_trading_value", 0.0) >= MIN_AVERAGE_TRADING_VALUE
+        and indicator.get("momentum5", 0.0) >= parameters["min_momentum5"]
+        and indicator.get("volume_ratio", 0.0) >= parameters["min_volume_ratio"]
     )
 
 
@@ -446,10 +488,11 @@ def _entry_setup_kind(bar: PriceBar, indicator: dict[str, float]) -> Optional[st
     guardrails.
     """
 
-    if not _entry_quality_allowed(bar, indicator):
+    parameters = _entry_parameters(bar.trade_date)
+    if not _entry_quality_allowed(bar, indicator, strategy_date=bar.trade_date):
         return None
     trend_continuation = bool(
-        indicator["score"] >= ENTRY_SCORE
+        indicator["score"] >= parameters["entry_score"]
         and bar.close > indicator["ema20"] > indicator["ema60"]
         and indicator["ema20_slope"] > 0
         and indicator["momentum20"] > ENTRY_MOMENTUM_MIN
@@ -457,7 +500,7 @@ def _entry_setup_kind(bar: PriceBar, indicator: dict[str, float]) -> Optional[st
     if trend_continuation:
         return "trend_continuation"
     early_turn = bool(
-        indicator["score"] >= EARLY_ENTRY_SCORE
+        indicator["score"] >= parameters["early_entry_score"]
         and bar.close > indicator["ema10"] > indicator["ema20"]
         and indicator["ema20"] >= indicator["ema60"] * (1.0 - EARLY_ENTRY_EMA60_GAP_MAX)
         and indicator.get("ema10_slope", 0.0) > 0
@@ -476,7 +519,11 @@ def _entry_signal(bar: PriceBar, indicator: dict[str, float]) -> bool:
 def _pre_entry_signal(bar: PriceBar, indicator: dict[str, float]) -> bool:
     """Identify a near-ready setup without presenting it as an executable buy."""
 
-    if _entry_signal(bar, indicator) or not _entry_quality_allowed(bar, indicator):
+    if _entry_signal(bar, indicator) or not _entry_quality_allowed(
+        bar,
+        indicator,
+        strategy_date=bar.trade_date,
+    ):
         return False
     return bool(
         indicator["score"] >= PRE_ENTRY_SCORE
@@ -524,11 +571,21 @@ def _execution_cost(indicator: dict[str, float]) -> float:
     return _clamp(cost, MIN_EXECUTION_COST_PER_SIDE, MAX_EXECUTION_COST_PER_SIDE)
 
 
-def _initial_risk(entry_price: float, atr: float) -> float:
+def _initial_risk(
+    entry_price: float,
+    atr: float,
+    *,
+    strategy_date: Optional[date] = None,
+) -> float:
     """Cap planned risk so a volatile ATR cannot create an unbounded stop distance."""
     minimum_risk = entry_price * 0.01
     volatility_risk = max(0.0, atr) * INITIAL_STOP_ATR
-    maximum_risk = entry_price * MAX_INITIAL_RISK_PERCENT
+    maximum_risk_percent = (
+        V7_3_MAX_INITIAL_RISK_PERCENT
+        if strategy_date is not None and strategy_date < STABLE_PROFIT_EFFECTIVE_DATE
+        else MAX_INITIAL_RISK_PERCENT
+    )
+    maximum_risk = entry_price * maximum_risk_percent
     return min(max(volatility_risk, minimum_risk), maximum_risk)
 
 
@@ -553,7 +610,48 @@ def _profit_ladder_steps(
         return LEGACY_PROFIT_LADDER_STEPS
     if strategy_date is not None and strategy_date < TACTICAL_EXIT_EFFECTIVE_DATE:
         return PROFIT_PRESERVATION_LADDER_STEPS
+    if strategy_date is not None and strategy_date < STABLE_PROFIT_EFFECTIVE_DATE:
+        return TACTICAL_PROFIT_LADDER_STEPS
     return PROFIT_LADDER_STEPS
+
+
+def _stable_profit_mode(strategy_date: Optional[date]) -> bool:
+    return strategy_date is None or strategy_date >= STABLE_PROFIT_EFFECTIVE_DATE
+
+
+def _resolved_profit_ladder_steps(
+    position: dict[str, Any],
+    strategy_date: Optional[date],
+) -> tuple[tuple[float, float, float, float], ...]:
+    steps = _profit_ladder_steps(strategy_date)
+    if not _stable_profit_mode(strategy_date):
+        return steps
+    entry_price = float(position["entry_price"])
+    initial_risk = max(float(position["initial_risk"]), entry_price * 0.01)
+    return tuple(
+        (
+            (entry_price * target_percent) / initial_risk,
+            sell_fraction,
+            (entry_price * locked_percent) / initial_risk,
+            trailing_atr,
+        )
+        for target_percent, sell_fraction, locked_percent, trailing_atr in steps
+    )
+
+
+def _resolved_break_even_trigger_r(
+    position: dict[str, Any],
+    strategy_date: Optional[date],
+) -> float:
+    if _stable_profit_mode(strategy_date):
+        entry_price = float(position["entry_price"])
+        initial_risk = max(float(position["initial_risk"]), entry_price * 0.01)
+        return (entry_price * 0.02) / initial_risk
+    return _break_even_trigger_r(strategy_date)
+
+
+def _minimum_runner_fraction(strategy_date: Optional[date]) -> float:
+    return MIN_RUNNER_FRACTION if _stable_profit_mode(strategy_date) else V7_3_MIN_RUNNER_FRACTION
 
 
 def _break_even_trigger_r(strategy_date: Optional[date]) -> float:
@@ -583,8 +681,8 @@ def _position_levels(
     *,
     strategy_date: Optional[date] = None,
 ) -> dict[str, Any]:
-    profit_ladder_steps = _profit_ladder_steps(strategy_date)
-    break_even_trigger_r = _break_even_trigger_r(strategy_date)
+    profit_ladder_steps = _resolved_profit_ladder_steps(position, strategy_date)
+    break_even_trigger_r = _resolved_break_even_trigger_r(position, strategy_date)
     entry_price = float(position["entry_price"])
     initial_risk = max(float(position["initial_risk"]), entry_price * 0.01)
     current_stage = max(
@@ -605,21 +703,31 @@ def _position_levels(
         locked_r = max(locked_r, step_locked_r)
         trailing_atr = min(trailing_atr, step_trailing_atr)
     entry_date = position.get("entry_date")
+    transition_ladders: list[tuple[tuple[float, float, float, float], ...]] = []
     if (
         strategy_date is not None
         and strategy_date >= TACTICAL_EXIT_EFFECTIVE_DATE
         and isinstance(entry_date, date)
         and entry_date < TACTICAL_EXIT_EFFECTIVE_DATE
     ):
-        # A v7.1 position may already have secured a stronger floor than the
-        # faster v7.2 ladder assigns to the same stage number. Preserve the
-        # strongest previously earned floor and never widen its trailing band.
+        transition_ladders.append(PROFIT_PRESERVATION_LADDER_STEPS)
+    if (
+        strategy_date is not None
+        and strategy_date >= STABLE_PROFIT_EFFECTIVE_DATE
+        and isinstance(entry_date, date)
+        and entry_date < STABLE_PROFIT_EFFECTIVE_DATE
+    ):
+        transition_ladders.append(TACTICAL_PROFIT_LADDER_STEPS)
+    # A migrated position may already have secured a stronger floor than the
+    # new ladder assigns to the same stage number. Preserve the strongest
+    # previously earned floor and never widen its trailing band.
+    for previous_steps in transition_ladders:
         for (
             previous_trigger_r,
             _previous_sell_fraction,
             previous_locked_r,
             previous_trailing_atr,
-        ) in PROFIT_PRESERVATION_LADDER_STEPS:
+        ) in previous_steps:
             if peak_r + 1e-9 < previous_trigger_r:
                 break
             locked_r = max(locked_r, previous_locked_r)
@@ -671,6 +779,7 @@ def _position_levels(
         "break_even_trigger_r": break_even_trigger_r,
         "break_even_floor": break_even_floor,
         "profit_protection_active": profit_protection_active,
+        "profit_ladder_mode": "fixed_percent" if _stable_profit_mode(strategy_date) else "risk_multiple",
     }
 
 
@@ -688,11 +797,25 @@ def _full_exit_signal(
     )
     if bar.close <= float(position["initial_stop"]):
         return True, "초기 급락 위험선 이탈", levels, True
-    if levels["profit_protection_active"] and bar.close <= levels["hard_floor"]:
+    profit_target_reached = bool(
+        levels["reached_stage"] > levels["current_stage"]
+        and levels["reached_stage"] > 0
+        and bar.close
+        >= float(position["entry_price"])
+        + levels["initial_risk"]
+        * levels["profit_ladder_steps"][levels["reached_stage"] - 1][0]
+    )
+    if (
+        levels["profit_protection_active"]
+        and bar.close <= levels["hard_floor"]
+        and not (_stable_profit_mode(bar.trade_date) and profit_target_reached)
+    ):
         if levels["reached_stage"]:
             return True, f"{levels['reached_stage']}단계 수익 보호선 이탈", levels, True
         return True, "비용 차감 손익분기 보호선 이탈", levels, True
-    if bar.close <= levels["trailing_stop"]:
+    if bar.close <= levels["trailing_stop"] and not (
+        _stable_profit_mode(bar.trade_date) and profit_target_reached
+    ):
         return True, "고점 대비 변동성 추적선 이탈", levels, bool(levels["current_stage"])
     if indicator["score"] <= EXIT_SCORE:
         return True, "종합 점수가 전량 매도 기준보다 약해짐", levels, False
@@ -725,22 +848,28 @@ def _partial_exit_signal(
             target_stage = stage
 
     entry_date = position.get("entry_date")
+    stable_transition = bool(
+        bar.trade_date >= STABLE_PROFIT_EFFECTIVE_DATE
+        and isinstance(entry_date, date)
+        and entry_date < STABLE_PROFIT_EFFECTIVE_DATE
+    )
     tactical_transition = bool(
         bar.trade_date >= TACTICAL_EXIT_EFFECTIVE_DATE
         and isinstance(entry_date, date)
         and entry_date < TACTICAL_EXIT_EFFECTIVE_DATE
     )
+    runner_fraction = _minimum_runner_fraction(bar.trade_date)
     evaluated_stage = max(current_stage, target_stage)
     intended_remaining_fraction = (
         max(
-            MIN_RUNNER_FRACTION,
+            runner_fraction,
             1.0 - sum(step[1] for step in profit_ladder_steps[:evaluated_stage]),
         )
         if evaluated_stage > 0
         else 1.0
     )
     default_current_remaining = max(
-        MIN_RUNNER_FRACTION,
+        runner_fraction,
         1.0 - sum(step[1] for step in profit_ladder_steps[:current_stage]),
     )
     current_remaining_fraction = float(
@@ -771,23 +900,36 @@ def _partial_exit_signal(
             )
         levels["sell_fraction"] = sell_fraction
         levels["remaining_after_fraction"] = max(
-            MIN_RUNNER_FRACTION,
+            runner_fraction,
             current_remaining_fraction - sell_fraction,
         )
         levels["target_price"] = (
             float(position["entry_price"]) + (levels["initial_risk"] * trigger_r)
         )
-        transition_label = "단기 전술형 전환 · " if tactical_transition else ""
+        transition_label = (
+            "안정 수익확정형 전환 · "
+            if stable_transition
+            else "단기 전술형 전환 · "
+            if tactical_transition
+            else ""
+        )
+        if _stable_profit_mode(bar.trade_date):
+            target_label = f"{PROFIT_LADDER_STEPS[target_stage - 1][0] * 100:.0f}% 수익"
+        else:
+            target_label = f"초기 위험의 {trigger_r:.1f}배 수익"
         return (
             True,
-            f"{transition_label}초기 위험의 {trigger_r:.1f}배 수익 · "
-            f"{target_stage}차 수익확정",
+            f"{transition_label}{target_label} · {target_stage}차 수익확정",
             levels,
         )
     if current_stage >= len(profit_ladder_steps):
-        return False, "계단형 수익확정 완료·추세 잔여분 보유", levels
+        return False, "수익확정 완료·추세 잔여분 보유", levels
     next_trigger_r = profit_ladder_steps[current_stage][0]
-    return False, f"다음 {next_trigger_r:.1f}R 수익확정 기준 미도달", levels
+    if _stable_profit_mode(bar.trade_date):
+        next_label = f"다음 {PROFIT_LADDER_STEPS[current_stage][0] * 100:.0f}% 수익확정 기준 미도달"
+    else:
+        next_label = f"다음 {next_trigger_r:.1f}R 수익확정 기준 미도달"
+    return False, next_label, levels
 
 
 def _signal_reason(indicator: dict[str, float], side: str) -> str:
@@ -903,8 +1045,11 @@ def _simulate(
 
             if active_pending["side"] == "buy" and execution_allowed:
                 strategy_equity_at_entry = cash
-                initial_risk = _initial_risk(execution_price, float(active_pending["atr"]))
-                entry_profit_steps = _profit_ladder_steps(bar.trade_date)
+                initial_risk = _initial_risk(
+                    execution_price,
+                    float(active_pending["atr"]),
+                    strategy_date=bar.trade_date,
+                )
                 shares = strategy_equity_at_entry / (execution_price * (1.0 + execution_cost))
                 cash = 0.0
                 if index >= performance_start_index:
@@ -921,8 +1066,7 @@ def _simulate(
                     "peak_price": execution_price,
                     "initial_stop": max(1.0, execution_price - initial_risk),
                     "initial_risk": initial_risk,
-                    "target_sell_price": execution_price
-                    + (initial_risk * entry_profit_steps[0][0]),
+                    "target_sell_price": None,
                     "initial_shares": shares,
                     "entry_equity": strategy_equity_at_entry,
                     "realized_proceeds": 0.0,
@@ -936,6 +1080,10 @@ def _simulate(
                     "exit_confirmation_count": 0,
                     "exit_confirmation_reason": None,
                 }
+                entry_profit_steps = _resolved_profit_ladder_steps(position, bar.trade_date)
+                position["target_sell_price"] = execution_price + (
+                    initial_risk * entry_profit_steps[0][0]
+                )
                 lifecycle_events.append(
                     {
                         "signal_date": active_pending["signal_date"],
@@ -958,7 +1106,7 @@ def _simulate(
                 )
             elif active_pending["side"] == "partial_sell" and position and execution_allowed:
                 target_sell_price = active_pending.get("target_sell_price") or position.get("target_sell_price")
-                execution_profit_steps = _profit_ladder_steps(bar.trade_date)
+                execution_profit_steps = _resolved_profit_ladder_steps(position, bar.trade_date)
                 requested_stage = max(
                     1,
                     min(
@@ -1031,6 +1179,12 @@ def _simulate(
                 )
             elif active_pending["side"] == "sell" and position and execution_allowed:
                 target_sell_price = active_pending.get("target_sell_price") or position.get("target_sell_price")
+                target_stage = active_pending.get("target_stage")
+                if target_stage is not None:
+                    position["profit_stage"] = max(
+                        int(position.get("profit_stage") or 0),
+                        int(target_stage),
+                    )
                 sold_fraction = shares / float(position["initial_shares"])
                 if index >= performance_start_index:
                     turnover += sold_fraction
@@ -1162,8 +1316,14 @@ def _simulate(
                     "execution_cost": _execution_cost(indicator),
                 }
             elif should_partial and not should_exit:
+                current_remaining_fraction = float(position.get("remaining_fraction") or 0.0)
+                final_profit_exit = bool(
+                    _stable_profit_mode(bar.trade_date)
+                    and float(partial_levels.get("sell_fraction") or 0.0)
+                    >= current_remaining_fraction - 1e-9
+                )
                 pending = {
-                    "side": "partial_sell",
+                    "side": "sell" if final_profit_exit else "partial_sell",
                     "signal_date": bar.trade_date,
                     "score": indicator["score"],
                     "reason": partial_reason,
@@ -1171,6 +1331,7 @@ def _simulate(
                     "target_stage": partial_levels.get("target_stage"),
                     "sell_fraction": partial_levels.get("sell_fraction"),
                     "protective_floor": partial_levels.get("hard_floor"),
+                    "profit_exit": final_profit_exit,
                     "execution_cost": _execution_cost(indicator),
                 }
         elif _entry_signal(bar, indicator) and (
@@ -2076,6 +2237,22 @@ def _current_signal(
             label = "전량 매도 조건 재확인"
             reasons.append(f"{exit_reason} 1차 확인·다음 종가까지 보유")
             next_confirmation = "다음 종가에서도 이탈하면 남은 비중 전량 매도"
+        elif should_partial and bool(
+            _stable_profit_mode(bar.trade_date)
+            and float(partial_levels.get("sell_fraction") or 0.0)
+            >= float(position["remaining_fraction"]) - 1e-9
+        ):
+            state = "full_exit_pending"
+            label = "2차 수익확정·전량 매도 대기"
+            pending_stage = int(partial_levels.get("target_stage") or (profit_stage + 1))
+            pending_profit_stage = max(1, min(pending_stage, len(active_profit_steps)))
+            pending_sell_fraction = float(position["remaining_fraction"])
+            expected_remaining_fraction = 0.0
+            pending_target = _safe_number(partial_levels.get("target_price"))
+            if pending_target is not None:
+                partial_target = pending_target
+            reasons.append(partial_reason)
+            next_confirmation = "종가 기준 +5% 수익확정 후 다음 거래일 시가에 잔여비중 전량 매도"
         elif should_partial:
             state = "partial_exit_pending"
             pending_stage = int(partial_levels.get("target_stage") or (profit_stage + 1))
@@ -2092,7 +2269,7 @@ def _current_signal(
                 partial_levels.get("remaining_after_fraction")
                 if partial_levels.get("remaining_after_fraction") is not None
                 else max(
-                    MIN_RUNNER_FRACTION,
+                    _minimum_runner_fraction(bar.trade_date),
                     float(position["remaining_fraction"])
                     - float(partial_levels.get("sell_fraction") or 0.0),
                 )
@@ -2112,9 +2289,13 @@ def _current_signal(
                 f"{float(position['remaining_fraction']) * 100:.0f}%의 상승 추세를 추적 중"
             )
             next_confirmation = (
-                f"다음 {active_profit_steps[profit_stage][0]:.1f}R 수익확정과 보호선을 확인"
+                (
+                    f"다음 {PROFIT_LADDER_STEPS[profit_stage][0] * 100:.0f}% 수익확정과 보호선을 확인"
+                    if position_levels["profit_ladder_mode"] == "fixed_percent"
+                    else f"다음 {active_profit_steps[profit_stage][0]:.1f}R 수익확정과 보호선을 확인"
+                )
                 if profit_stage < len(active_profit_steps)
-                else f"남은 {MIN_RUNNER_FRACTION * 100:.0f}%는 고점 대비 변동성 추적선으로 상승 추세를 끝까지 추적"
+                else f"남은 {_minimum_runner_fraction(bar.trade_date) * 100:.0f}%는 고점 대비 변동성 추적선으로 상승 추세를 끝까지 추적"
             )
         elif position["entry_date"] == confirmed[-1].trade_date:
             state = "entered"
@@ -2134,7 +2315,7 @@ def _current_signal(
                 next_stage - 1
             ]
             target_remaining_fraction = max(
-                MIN_RUNNER_FRACTION,
+                _minimum_runner_fraction(bar.trade_date),
                 1.0 - sum(step[1] for step in active_profit_steps[:next_stage]),
             )
             sell_fraction = (
@@ -2146,15 +2327,17 @@ def _current_signal(
                 )
                 or configured_sell_fraction
             )
+            target_condition_prefix = (
+                f"{PROFIT_LADDER_STEPS[next_stage - 1][0] * 100:.0f}% 수익에서 원래 비중의 "
+                if position_levels["profit_ladder_mode"] == "fixed_percent"
+                else f"초기 위험의 {trigger_r:.1f}배 수익에서 원래 비중의 "
+            )
             levels.append(
                 {
                     "key": "partial_exit",
                     "label": f"{next_stage}차 수익확정",
                     "price": _price(partial_target),
-                    "condition": (
-                        f"초기 위험의 {trigger_r:.1f}배 수익에서 원래 비중의 "
-                        f"{sell_fraction * 100:.0f}% 매도"
-                    ),
+                    "condition": f"{target_condition_prefix}{sell_fraction * 100:.0f}% 매도",
                 }
             )
         levels.append(
@@ -2206,9 +2389,9 @@ def _current_signal(
                 "label": "진입 확인선" if entry_confirmation["allowed"] else "독립 근거 확인",
                 "price": _price(max(indicator["ema20"], indicator["prior_high"])),
                 "condition": (
-                    f"기존 추세 {ENTRY_SCORE:.0f}점 또는 조기 전환 {EARLY_ENTRY_SCORE:.0f}점·"
-                    f"5일 흐름 {EARLY_ENTRY_MOMENTUM_5_MIN * 100:.1f}% 초과·"
-                    f"ATR {MAX_ENTRY_ATR_PERCENT * 100:.0f}% 이하·"
+                    f"기존 추세·조기 전환 {ENTRY_SCORE:.0f}점 이상·"
+                    "5일 흐름 0% 이상·거래량 20일 평균의 0.8배 이상·"
+                    f"ATR {MAX_ENTRY_ATR_PERCENT * 100:.1f}% 이하·"
                     f"20일선 이격 {MAX_ENTRY_EXTENSION_ATR:.1f}ATR 이하·"
                     f"20일 평균 거래대금 {MIN_AVERAGE_TRADING_VALUE / 100_000_000:.0f}억원 이상"
                 ),
@@ -2356,7 +2539,7 @@ def _current_signal(
                 if expected_remaining_fraction is not None
                 else None
             ),
-            "profit_steps_total": len(PROFIT_LADDER_STEPS),
+            "profit_steps_total": len(active_profit_steps) if position else len(PROFIT_LADDER_STEPS),
             "entry_setup": entry_setup,
             "entry_confirmation": entry_confirmation,
             "holding_days": holding_days,
@@ -2443,23 +2626,23 @@ def build_quant_signal_payload(
         "confirmation": current_context,
         "methodology": [
             "EMA 10·20·60일, 5·10·20일 흐름, 20일 고점, 거래량, ATR14를 동일 규칙으로 계산합니다.",
-            "각 종목은 관망→예비 포착→매수 대기→보유→3단계 수익확정→전량 매도로 전환합니다.",
+            "각 종목은 관망→예비 포착→매수 대기→보유→+3%·+5% 수익확정→전량 매도로 전환합니다.",
             "수익률은 종목별 매수가·각 수익확정가·최종 매도가와 거래비용만으로 계산합니다.",
             "신호는 종가에서 판정하고 다음 거래일의 검증된 KRX 실제 시가에 즉시 반영하여 미래 가격을 참조하지 않습니다.",
             "시가·고가·저가·종가가 모두 확인된 일봉만 신호와 다음 시가 체결 계산에 사용합니다.",
-            f"{TACTICAL_EXIT_EFFECTIVE_DATE.isoformat()}부터 초기 위험의 1R·1.6R·2.5R에서 원래 비중의 30%·25%·15%를 순차 매도하고 마지막 30%는 추세 종료까지 보유합니다.",
+            f"{STABLE_PROFIT_EFFECTIVE_DATE.isoformat()}부터 +3%에서 50%, +5%에서 잔여 50%를 수익확정하고 수익이 큰 종목도 빠르게 전량 확정합니다.",
             f"{PROFIT_PRESERVATION_EFFECTIVE_DATE.isoformat()}의 2R·4R·6R 규칙과 그 이전 3R·5R·8R 이력은 각 결정일 기준으로 보존하고 소급해 바꾸지 않습니다.",
             f"기존 보유 종목을 단기 전술형으로 전환할 때는 하루 최대 {MAX_TACTICAL_TRANSITION_SELL_FRACTION * 100:.0f}%만 수익확정합니다.",
             "기존 v7.1 보유 종목이 이미 확보한 더 높은 수익 보호선은 v7.2 전환 후에도 낮추지 않습니다.",
             f"최초 위험폭은 ATR을 사용하되 매수가의 {MAX_INITIAL_RISK_PERCENT * 100:.0f}% 이내로 제한합니다.",
             f"초기·수익 보호선의 종가 이탈은 확인 대기 없이 다음 거래일 시가에 전량 매도하고, 일반 추세 이탈은 최소 {MIN_HOLDING_BARS}거래일 후 종가 1회로 확인합니다.",
-            f"신규 진입은 기존 추세 {ENTRY_SCORE:.0f}점 또는 조기 전환 {EARLY_ENTRY_SCORE:.0f}점과 함께 ATR {MAX_ENTRY_ATR_PERCENT * 100:.0f}% 이하·20일선 이격 {MAX_ENTRY_EXTENSION_ATR:.1f}ATR 이하·20일 평균 거래대금 {MIN_AVERAGE_TRADING_VALUE / 100_000_000:.0f}억원 이상을 요구합니다.",
+            f"신규 진입은 기존 추세·조기 전환 모두 {ENTRY_SCORE:.0f}점 이상과 5일 흐름 0% 이상·거래량 20일 평균의 0.8배 이상, ATR {MAX_ENTRY_ATR_PERCENT * 100:.1f}% 이하·20일선 이격 {MAX_ENTRY_EXTENSION_ATR:.1f}ATR 이하·20일 평균 거래대금 {MIN_AVERAGE_TRADING_VALUE / 100_000_000:.0f}억원 이상을 요구합니다.",
             f"{ENTRY_EVIDENCE_EFFECTIVE_DATE.isoformat()}부터 가격 조건 뒤 실적·컨센서스, 시장·섹터 상대강도, 거래대금 정규화 수급을 독립 확인하며 기존 추세는 우호 근거 1개, 조기 전환은 2개를 요구합니다.",
             "OpenDART 중대 위험 공시와 시장 급락·고변동 국면은 점수와 무관하게 신규매수를 보류합니다.",
             "외부 근거는 종목·신호일·전략 버전별 스냅샷으로 고정하여 나중 데이터가 과거 매수 판단을 바꾸지 못하게 합니다.",
             f"매수 확정 전에는 {PRE_ENTRY_SCORE:.0f}점 이상·단기 흐름 개선 종목을 예비 포착으로 분리해 다음 부족 조건을 표시합니다.",
             f"종가 신호 뒤 다음 시가가 {MAX_ENTRY_GAP_ATR:.1f}ATR 또는 {MAX_ENTRY_GAP_PERCENT * 100:.0f}% 범위를 벗어나면 오래된 진입 주문을 취소합니다.",
-            f"초기 위험의 {BREAK_EVEN_TRIGGER_R:.2f}배 수익에 도달하면 매수·매도 예상 비용을 반영한 손익분기 보호선을 적용합니다.",
+            "매수가 대비 +2%에 도달하면 매수·매도 예상 비용을 반영한 수익 보호선을 적용합니다.",
             "수익확정 예정 다음 시가가 이미 수익 보호선 아래면 소량만 매도하지 않고 잔여비중을 전량 매도합니다.",
             f"전량 매도 후 {REENTRY_COOLDOWN_BARS}거래일은 동일 종목 재진입을 유예해 반복 매매를 줄입니다.",
             "거래대금과 변동성에 따라 양방향 체결비용을 0.125%~0.50%로 차등 반영합니다.",
@@ -2469,7 +2652,7 @@ def build_quant_signal_payload(
             "실시간·백테스트에서 같은 신호 함수 사용",
             "슬라이딩 윈도우와 상태 순차 갱신",
             "목표 보유비중과 현재 비중의 차이로 상태 전환",
-            f"변동성 위험선·계단형 수익확정·잔여 {MIN_RUNNER_FRACTION * 100:.0f}% 추세 추적",
+            "변동성 위험선·+3%/+5% 고정 수익확정·잔여 비중 최소화",
             "유동성·변동성을 반영한 체결비용",
             "종목별 매수·단계별 수익확정·전량 매도 가격을 반영한 손익률",
             "장기 상태 프리롤 후 최근 252거래일 성과만 분리 측정",
@@ -4296,6 +4479,8 @@ def load_market_quant_signal_snapshot(
     if not isinstance(payload, dict):
         return None
     if not market_payload_has_trade_metadata(payload):
+        return None
+    if payload.get("strategy_version") != STRATEGY_VERSION:
         return None
     payload["status"] = "ready"
     generated_at = snapshot.generated_at

@@ -7,7 +7,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete, func, select
 
 from app.db import SessionLocal, get_db, init_db
-from app.main import app, rate_limit_lock, rate_limit_windows
+from app.main import (
+    _page_summary_client_requests,
+    _page_summary_global_requests,
+    _page_summary_rate_lock,
+    app,
+    rate_limit_lock,
+    rate_limit_windows,
+)
 from app.models import (
     DashboardAccessIdentity,
     DashboardAccessQuota,
@@ -22,8 +29,8 @@ def test_health():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["strategy_version"] == "position-lifecycle-v7.3"
-    assert response.json()["dashboard_version"] == "20260901v459"
+    assert response.json()["strategy_version"] == "position-lifecycle-v7.4"
+    assert response.json()["dashboard_version"] == "20260902v461"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -35,12 +42,57 @@ def test_health():
     assert readyz.json()["database_ok"] is True
 
 
+def test_production_page_summary_endpoint_keeps_holding_unknown_as_input_only():
+    with _page_summary_rate_lock:
+        _page_summary_client_requests.clear()
+        _page_summary_global_requests.clear()
+    response = TestClient(app).post(
+        "/ai/page-summary",
+        json={
+            "page_type": "stock_response",
+            "facts": {
+                "code": "005930",
+                "investor_state": "holding",
+                "position_mode": "holding_unknown",
+                "average_buy_price": None,
+                "sources": [{"id": "metric-research", "label": "증권사 리포트"}],
+            },
+            "fallback": {
+                "headline": "평균 매수가를 입력하면 내 보유 전략을 볼 수 있어요",
+                "summary": "아직 내 수익·손실을 계산하지 않았어요. 위에서 평균 매수가를 입력해 주세요.",
+                "reason": "평균 매수가가 없으면 현재가와 비교할 기준이 없어 수익권·손실권을 구분할 수 없어요.",
+                "action_title": "평균 매수가를 입력할 단계예요",
+                "next_check": "평균 매수가와 현재가를 비교해요.",
+                "evidence_refs": ["metric-research"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    payload = response.json()
+    assert payload["generation_mode"] == "rules"
+    assert payload["model_name"] is None
+    assert payload["headline"] == "평균 매수가를 입력하면 내 보유 전략을 볼 수 있어요"
+    assert "현재 손실권" not in " ".join(str(value) for value in payload.values())
+
+
+def test_production_page_summary_endpoint_rejects_cross_site_requests():
+    response = TestClient(app).post(
+        "/ai/page-summary",
+        headers={"sec-fetch-site": "cross-site"},
+        json={"page_type": "stock_response", "facts": {}, "fallback": {}},
+    )
+
+    assert response.status_code == 403
+
+
 def test_signal_data_quality_endpoint_can_probe_sources_without_caching(monkeypatch):
     monkeypatch.setattr(
         "app.main.signal_data_quality_status",
         lambda _db, _settings: {
             "status": "ready",
-            "strategy_version": "position-lifecycle-v7.3",
+            "strategy_version": "position-lifecycle-v7.4",
         },
     )
     monkeypatch.setattr(
@@ -59,7 +111,7 @@ def test_signal_data_quality_endpoint_can_probe_sources_without_caching(monkeypa
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["status"] == "ready"
-    assert response.json()["strategy_version"] == "position-lifecycle-v7.3"
+    assert response.json()["strategy_version"] == "position-lifecycle-v7.4"
     assert response.json()["api_probe"]["sample_code"] == "005930"
     assert response.json()["api_probe"]["items"][0]["state"] == "ready"
 
@@ -240,7 +292,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260901v459"}
+    assert version.json() == {"version": "20260902v461"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search")
@@ -248,7 +300,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert refresh.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert 'pathname === "/dashboard-sw.js"' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260901v459" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260902v461" in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -631,7 +683,7 @@ def test_stale_market_signal_snapshot_hides_preliminary_rows_and_refreshes(monke
     )
     payload = {
         "status": "ready",
-        "strategy_version": "position-lifecycle-v7.3",
+        "strategy_version": "position-lifecycle-v7.4",
         "snapshot_generated_at": datetime.now(timezone.utc) - stale_age,
         "as_of": datetime.now(ZoneInfo("Asia/Seoul")) - stale_age,
         "universe_count": 100,
@@ -729,7 +781,7 @@ def test_fresh_market_signal_snapshot_keeps_current_preliminary_rows(monkeypatch
 
     payload = {
         "status": "ready",
-        "strategy_version": "position-lifecycle-v7.3",
+        "strategy_version": "position-lifecycle-v7.4",
         "snapshot_generated_at": datetime.now(timezone.utc),
         "as_of": datetime.now(ZoneInfo("Asia/Seoul")),
         "universe_count": 100,
@@ -794,7 +846,7 @@ def test_market_quant_signal_preparing_payload_includes_active_reconciliation(mo
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "preparing"
-        assert payload["strategy_version"] == "position-lifecycle-v7.3"
+        assert payload["strategy_version"] == "position-lifecycle-v7.4"
         oci = next(item for item in payload["items"] if item["code"] == "010060")
         assert oci["status"] == "confirmed"
         assert oci["side"] == "sell"
@@ -1583,7 +1635,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260901v459' in shell
+    assert 'styles.css?v=20260902v461' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -1669,7 +1721,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260901v459"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260902v461"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -1706,7 +1758,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260901v459"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260902v461"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert 'return [-timestamp, view?.preliminary ? 0 : 1' in source
@@ -1930,7 +1982,7 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert 'identity.append(el("small", "", "시장 신호"));' in source
     assert 'return { key: "recent-buy", label: "확정 매수", tone: "buy", signalDate' in source
     assert 'return { key: "holding", label: "보유 중", tone: "hold", signalDate' not in source
-    assert '"전량 매도 · 전략 버전 통일" : "전량 매도"' in source
+    assert '"전량 매도 확정 · 전략 버전 통일" : "전량 매도 확정"' in source
     assert "function aiSignalTransitionKey" in source
     assert "function mergeAiSignalItems" not in source
     combine_source = source[source.index("function combineAiSignalPayloads"):source.index("function preliminaryHistoryAiSignalItems")]
@@ -1945,7 +1997,7 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert 'items.slice(0, 5).forEach' in source
     assert 'data-ai-signal-stage="all"' in shell
     assert 'data-ai-signal-stage="buy-holding">확정 매수·보유 <span>0</span>' in shell
-    assert 'data-ai-signal-stage="recent-sell">수익확정·전량 매도 <span>0</span>' in shell
+    assert 'data-ai-signal-stage="recent-sell">매도 확정 <span>0</span>' in shell
     assert 'data-ai-signal-stage="preliminary-buy">예비 매수 <span>0</span>' in shell
     assert 'data-ai-signal-stage="preliminary-sell">매도 대기 <span>0</span>' in shell
     assert 'data-ai-signal-stage="recent-buy"' not in shell
@@ -2011,7 +2063,7 @@ def test_ai_signal_home_preview_opens_full_list_before_stock_detail():
     assert 'return { key: "recent-buy", label: "예비 매수"' in source
     assert 'return { key: "recent-sell", label: "전량 매도 대기"' in source
     assert 'label: "확정 매수"' in source
-    assert '"전량 매도 · 전략 버전 통일" : "전량 매도"' in source
+    assert '"전량 매도 확정 · 전략 버전 통일" : "전량 매도 확정"' in source
     assert "function isPreliminaryAiSignal" in source
     signal_view_source = source[source.index("function homeAiSignalView"):source.index("function aiSignalTransitionKey")]
     assert "const preliminary = isPreliminaryAiSignal(item);" in signal_view_source
@@ -2078,7 +2130,7 @@ def test_ai_signal_preliminary_history_is_separated_from_active_signal_tabs():
     for stage, label in (
         ("all", "전체"),
         ("buy-holding", "확정 매수·보유"),
-        ("recent-sell", "수익확정·전량 매도"),
+        ("recent-sell", "매도 확정"),
         ("preliminary-buy", "예비 매수"),
         ("preliminary-sell", "매도 대기"),
     ):
@@ -2468,7 +2520,7 @@ def test_push_settings_include_device_test_action():
     assert "overflow-y: auto;" in styles
 
 
-def test_push_settings_group_required_alerts_and_only_switch_optional_alerts():
+def test_push_settings_show_unsubscribed_alerts_as_off_until_permission():
     client = TestClient(app)
     shell = client.get("/dashboard").text
     source = client.get("/assets/dashboard/app.js").text
@@ -2479,7 +2531,8 @@ def test_push_settings_group_required_alerts_and_only_switch_optional_alerts():
         'const optionalOptions = options.filter((option) => !option.required);',
         'el("section", "push-notification-core")',
         'el("span", "push-notification-core-kicker", "기본 알림")',
-        'el("span", "push-notification-core-state", "항상 켜짐")',
+        'const coreStateLabel = coreEnabled ? "켜짐" : "현재 꺼짐";',
+        'coreState.dataset.enabled = String(coreEnabled);',
         'el("section", "push-notification-optional")',
         'el("strong", "", "추가 알림")',
         'summary.textContent = `${selectedCount}/${optionalInputs.length} 선택`;',
@@ -2489,7 +2542,12 @@ def test_push_settings_group_required_alerts_and_only_switch_optional_alerts():
         'recommendation_update: "상위 10 진입·매매 단계 변경"',
     ):
         assert contract in source
+    assert 'pushNotificationConditions: PUSH_NOTIFICATION_FALLBACK_OPTIONS\n    .filter((item) => item.required)' in source
+    assert '"현재 알림은 꺼져 있어요.' in source
+    assert '알림 권한 허용하기' in source
+    assert 'data-enabled="false"' in client.get("/assets/dashboard/styles.css").text
     assert '"항상 받기"' not in source
+    assert '"항상 켜짐"' not in source
     assert 'el("label", "push-notification-condition")' in source
 
 
@@ -2529,7 +2587,7 @@ def test_push_settings_repairs_missing_server_subscription():
     assert "pushSubscriptionUsesKey(subscription, config.public_key)" in source
 
 
-def test_push_entry_prompt_offers_ai_signals_and_today_snooze():
+def test_push_entry_prompt_is_limited_to_one_impression_per_monday_week():
     client = TestClient(app)
     shell = client.get("/dashboard").text
     source = client.get("/assets/dashboard/app.js").text
@@ -2537,18 +2595,21 @@ def test_push_entry_prompt_offers_ai_signals_and_today_snooze():
 
     assert 'id="push-notification-sheet-subtitle"' in shell
     assert 'id="push-notification-sheet-snooze-button"' in shell
-    assert "오늘 하루 보지 않기" in shell
-    assert '? "알림 받기"' in source
-    assert '"필요한 소식만 골라 받아보세요."' in source
-    assert ": PUSH_NOTIFICATION_EXAMPLE_TEXT" in source
+    assert "이번 주 보지 않기" in shell
+    assert '? "알림을 켜시겠어요?"' in source
+    assert '"현재는 꺼져 있어요. 받을 소식을 확인한 뒤 권한을 허용해주세요."' in source
+    assert "${PUSH_NOTIFICATION_EXAMPLE_TEXT}" in source
     assert '["morning_briefing", 0]' in source
     assert '["ai_signal", 1]' in source
-    assert 'const PUSH_ENTRY_PROMPT_SNOOZE_PREFIX = "analyst.pushEntryPromptSnoozedDate";' in source
-    assert "function pushEntryPromptSnoozedToday()" in source
+    assert 'const PUSH_ENTRY_PROMPT_WEEK_PREFIX = "analyst.pushEntryPromptWeek.v1";' in source
+    assert "function localMondayWeekKey(" in source
+    assert "function pushEntryPromptShownThisWeek(" in source
+    assert "function recordPushEntryPromptShown(" in source
     assert "async function maybeShowPushNotificationEntryPrompt()" in source
     assert "const canPrompt = needsIOSHomeInstall || (" in source
-    assert 'showPushNotificationSheet({ mode: "entry" });' in source
-    assert "function snoozePushNotificationEntryPromptForToday()" in source
+    assert 'showPushNotificationSheet({ mode: "entry", recordWeeklyPrompt: true });' in source
+    assert "function dismissPushNotificationEntryPromptForWeek()" in source
+    assert 'if (!state.pushNotificationEnabled && pushEntryPromptShownThisWeek()) {' in source
     assert '#push-notification-sheet:is([data-mode="entry"], [data-mode="recommendation-entry"]) .push-notification-sheet-actions' in styles
     assert '.push-notification-sheet-snooze:not([hidden])' in styles
 
@@ -2585,7 +2646,7 @@ def test_recommendation_push_entry_prompt_reaches_all_customers_with_state_speci
         'const isExistingPushCustomer = isRecommendationEntryPrompt && state.pushNotificationEnabled;',
         '"기존 설정은 유지하고 추천 업데이트만 추가해요."',
         '"확인했어요"',
-        '"추천 알림 받기"',
+        '"추천 알림 권한 허용하기"',
         '"다시 보지 않기"',
         "function recommendationPushPromptHandled()",
         "function recommendationPushNotificationEnabled()",
@@ -2595,8 +2656,10 @@ def test_recommendation_push_entry_prompt_reaches_all_customers_with_state_speci
         'recordRecommendationPushPromptDecision(wasPushNotificationEnabled ? "confirmed" : "enabled");',
         'state.pushNotificationConditions.includes("recommendation_update")',
         'if (!recommendationPushPromptHandled()) {',
-        'showPushNotificationSheet({ mode: "recommendation-entry" });',
-        'if (!canPrompt || state.pushNotificationEnabled || pushEntryPromptSnoozedToday()) {',
+        'mode: "recommendation-entry",',
+        'recordWeeklyPrompt: !state.pushNotificationEnabled,',
+        'if (!state.pushNotificationEnabled && pushEntryPromptShownThisWeek()) {',
+        'if (!canPrompt || state.pushNotificationEnabled) {',
         'if (isRecommendationEntryPrompt && recommendationPushNotificationEnabled()) {',
         'return normalizePushNotificationConditions([...existingConditions, "recommendation_update"]);',
         "savePushNotificationSettings({ conditions });",

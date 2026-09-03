@@ -486,9 +486,20 @@ def test_fundamental_quality_keeps_two_day_sla_while_collector_uses_headroom():
     assert stale["datasets"]["fundamentals"]["state"] == "stale"
 
 
-def test_signal_data_quality_does_not_require_evidence_for_a_forming_session(monkeypatch):
+def test_signal_data_quality_keeps_completed_universe_when_current_session_is_partial(monkeypatch):
     db = _session()
-    _seed_stock_data(db)
+    stock, _prices = _seed_stock_data(db)
+    current_row = db.scalar(
+        select(DailyPrice).where(
+            DailyPrice.code == stock.code,
+            DailyPrice.trade_date == SIGNAL_DATE,
+        )
+    )
+    current_row.open = None
+    current_row.high = None
+    current_row.low = None
+    current_row.volume = 0
+    current_row.trading_value = 0
     db.commit()
     completed_session = SIGNAL_DATE - timedelta(days=1)
     monkeypatch.setattr(
@@ -503,7 +514,12 @@ def test_signal_data_quality_does_not_require_evidence_for_a_forming_session(mon
     )
 
     evidence = payload["datasets"]["entry_evidence_snapshot"]
-    assert payload["datasets"]["price"]["latest_date"] == SIGNAL_DATE
+    assert payload["universe"]["date"] == completed_session
+    assert payload["datasets"]["price"]["latest_date"] == completed_session
+    assert payload["datasets"]["price"]["state"] == "ready"
+    assert payload["datasets"]["investor_flow"]["coverage_rate"] == 1.0
+    assert payload["datasets"]["fundamentals"]["coverage_rate"] == 1.0
+    assert payload["datasets"]["research"]["coverage_rate"] == 1.0
     assert evidence["signal_date"] == completed_session
     assert evidence["state"] == "not_applicable"
     assert evidence["coverage_rate"] is None

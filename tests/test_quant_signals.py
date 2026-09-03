@@ -401,6 +401,7 @@ def test_verified_live_krx_bar_executes_previous_sell_once(
     expected_exposure,
 ):
     bars, indicators = _strategy_test_inputs(69)
+    monkeypatch.setattr(quant_signals, "STABLE_PROFIT_EFFECTIVE_DATE", date(9999, 12, 31))
     monkeypatch.setattr(quant_signals, "PROFIT_PRESERVATION_EFFECTIVE_DATE", bars[0].trade_date)
     monkeypatch.setattr(quant_signals, "TACTICAL_EXIT_EFFECTIVE_DATE", bars[0].trade_date)
     _set_entry_indicator(indicators[65])
@@ -645,9 +646,124 @@ def test_entry_rejects_atr_over_six_percent():
 
 
 def test_initial_risk_is_capped_at_six_percent_of_entry():
-    assert quant_signals._initial_risk(100.0, 20.0) == 6.0
-    assert quant_signals._initial_risk(100.0, 2.0) == 3.5
-    assert quant_signals._initial_risk(100.0, 0.1) == 1.0
+    old_date = date(2026, 1, 2)
+    assert quant_signals._initial_risk(100.0, 20.0, strategy_date=old_date) == 6.0
+    assert quant_signals._initial_risk(100.0, 2.0, strategy_date=old_date) == 3.5
+    assert quant_signals._initial_risk(100.0, 0.1, strategy_date=old_date) == 1.0
+
+
+def test_v74_entry_filter_and_initial_risk_cap():
+    bar = quant_signals.PriceBar(
+        trade_date=date(2026, 9, 4),
+        open=100.0,
+        high=103.0,
+        low=99.0,
+        close=102.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    indicator = {
+        "score": 64.0,
+        "ema10": 101.0,
+        "ema20": 100.0,
+        "ema60": 99.0,
+        "ema10_slope": 0.01,
+        "ema20_slope": 0.01,
+        "momentum5": 0.0,
+        "momentum20": 0.01,
+        "volume_ratio": 0.8,
+        "atr": 5.0,
+        "atr_percent": 0.045,
+        "ema20_extension_atr": 1.0,
+        "average_trading_value": 5_000_000_000.0,
+    }
+
+    assert quant_signals._entry_setup_kind(bar, indicator) == "trend_continuation"
+    for field, value in (("score", 63.99), ("atr_percent", 0.0451), ("momentum5", -0.0001), ("volume_ratio", 0.799)):
+        assert quant_signals._entry_setup_kind(bar, {**indicator, field: value}) is None
+    assert quant_signals._initial_risk(100.0, 20.0, strategy_date=bar.trade_date) == 4.0
+
+
+def test_v74_fixed_targets_protect_at_two_percent_and_sell_remaining_half_at_five_percent():
+    _bars, indicators = _strategy_test_inputs(1)
+    position = {
+        "entry_date": date(2026, 9, 4),
+        "entry_price": 100.0,
+        "entry_cost": 0.002,
+        "initial_risk": 2.0,
+        "initial_stop": 96.0,
+        "profit_stage": 1,
+        "remaining_fraction": 0.50,
+    }
+
+    levels = quant_signals._position_levels(position, indicators[0], peak_price=102.0)
+    assert levels["profit_ladder_mode"] == "fixed_percent"
+    assert levels["profit_protection_active"] is True
+    assert levels["next_partial_target"] == pytest.approx(105.0)
+
+    bar = quant_signals.PriceBar(
+        trade_date=date(2026, 9, 5),
+        open=105.0,
+        high=106.0,
+        low=104.0,
+        close=105.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    should_partial, reason, target_levels = quant_signals._partial_exit_signal(
+        bar,
+        indicators[0],
+        position,
+        peak_price=105.0,
+    )
+    assert should_partial is True
+    assert "5% 수익" in reason
+    assert target_levels["target_stage"] == 2
+    assert target_levels["target_price"] == pytest.approx(105.0)
+    assert target_levels["sell_fraction"] == pytest.approx(0.50)
+    assert target_levels["remaining_after_fraction"] == pytest.approx(0.0)
+
+
+def test_v74_second_target_closes_the_trade_without_a_runner(monkeypatch):
+    bars, indicators = _strategy_test_inputs(72)
+    monkeypatch.setattr(quant_signals, "STABLE_PROFIT_EFFECTIVE_DATE", bars[65].trade_date)
+    monkeypatch.setattr(quant_signals, "PROFIT_PRESERVATION_EFFECTIVE_DATE", bars[0].trade_date)
+    monkeypatch.setattr(quant_signals, "TACTICAL_EXIT_EFFECTIVE_DATE", bars[0].trade_date)
+    for index in range(65, 70):
+        _set_entry_indicator(indicators[index])
+    bars[67] = quant_signals.PriceBar(
+        trade_date=bars[67].trade_date,
+        open=100.0,
+        high=104.0,
+        low=99.0,
+        close=103.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    bars[68] = quant_signals.PriceBar(
+        trade_date=bars[68].trade_date,
+        open=103.0,
+        high=106.0,
+        low=102.0,
+        close=105.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    bars[69] = quant_signals.PriceBar(
+        trade_date=bars[69].trade_date,
+        open=105.0,
+        high=106.0,
+        low=104.0,
+        close=105.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+
+    result = quant_signals._simulate(bars, indicators)
+    assert [event["side"] for event in result["events"]] == ["buy", "partial_sell", "sell"]
+    assert result["events"][-1]["profit_stage"] == 2
+    assert result["trades"][-1]["status"] == "closed"
+    assert result["position"] is None
 
 
 def test_strict_early_turn_can_confirm_before_the_medium_trend_crosses():
@@ -888,9 +1004,15 @@ def test_tactical_profit_ladder_raises_the_locked_floor_and_keeps_a_thirty_perce
         "remaining_fraction": 1.0,
     }
 
-    stage_one = quant_signals._position_levels(position, indicators[0], peak_price=102.0)
-    stage_two = quant_signals._position_levels(position, indicators[0], peak_price=103.2)
-    stage_three = quant_signals._position_levels(position, indicators[0], peak_price=105.0)
+    stage_one = quant_signals._position_levels(
+        position, indicators[0], peak_price=102.0, strategy_date=quant_signals.TACTICAL_EXIT_EFFECTIVE_DATE
+    )
+    stage_two = quant_signals._position_levels(
+        position, indicators[0], peak_price=103.2, strategy_date=quant_signals.TACTICAL_EXIT_EFFECTIVE_DATE
+    )
+    stage_three = quant_signals._position_levels(
+        position, indicators[0], peak_price=105.0, strategy_date=quant_signals.TACTICAL_EXIT_EFFECTIVE_DATE
+    )
     assert [
         stage_one["locked_profit_floor"],
         stage_two["locked_profit_floor"],
@@ -913,7 +1035,7 @@ def test_tactical_profit_ladder_raises_the_locked_floor_and_keeps_a_thirty_perce
     )
     assert should_partial is True
     assert levels["target_stage"] == 3
-    assert levels["sell_fraction"] == 1.0 - quant_signals.MIN_RUNNER_FRACTION
+    assert levels["sell_fraction"] == 1.0 - quant_signals.V7_3_MIN_RUNNER_FRACTION
 
 
 def test_profit_preservation_ladder_starts_on_effective_date_without_rewriting_history():
@@ -1688,7 +1810,7 @@ def test_quant_signal_endpoint_uses_same_engine_for_multiple_stocks(monkeypatch)
         assert hynix.status_code == 200
         assert samsung.headers["cache-control"].startswith("no-store")
         assert samsung.json()["strategy_version"] == hynix.json()["strategy_version"]
-        assert samsung.json()["entry_score_threshold"] == "62.00"
+        assert samsung.json()["entry_score_threshold"] == "64.00"
         assert samsung.json()["performance"]["turnover_percent"] is not None
         assert samsung.json()["performance"]["execution_count"] > 0
         assert all(event["entry_price"] is not None for event in samsung.json()["events"])
@@ -2966,7 +3088,7 @@ def test_trade_metadata_requires_entry_price_and_uses_new_snapshot_namespace():
     assert quant_signals.market_payload_has_trade_metadata(market_payload) is True
     del market_payload["items"][0]["entry_price"]
     assert quant_signals.market_payload_has_trade_metadata(market_payload) is False
-    assert quant_signals.market_quant_signal_snapshot_key(150, 0, 30) == "v30:150:0:30"
+    assert quant_signals.market_quant_signal_snapshot_key(150, 0, 30) == "v31:150:0:30"
 
 
 def test_market_preliminary_history_keeps_cleared_signals_for_same_day():
@@ -3121,7 +3243,7 @@ def test_external_stock_quant_signal_payload_uses_canonical_full_state():
 
     assert payload is not None
     assert payload["signal_source"] == "canonical"
-    assert payload["entry_score_threshold"] == Decimal("62.00")
+    assert payload["entry_score_threshold"] == Decimal("64.00")
     assert payload["current"]["action"] == "entry_pending"
     assert calls[0][0] == "https://signals.example/stocks/175330/quant-signals"
 
