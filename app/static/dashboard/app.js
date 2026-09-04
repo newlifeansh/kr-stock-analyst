@@ -16221,6 +16221,20 @@ async function loadHomeAiSignals(options = {}) {
       scheduleAiSignalRevisionReconcile(options.expectedRevision);
     }
     refreshAiSignalLiveRows();
+    if (state.view === "home") {
+      const fallbackItems = normalizedAiSignalItems(state.aiSignalItems, { includeHistorical: true });
+      if (fallbackItems.length && renderHomeAiSignals({
+        as_of: state.aiSignalSnapshotAsOf || state.homeAiSignalsAsOf || null,
+        signal_revision: state.aiSignalRevision,
+        market_status: "ready",
+        items: fallbackItems,
+        market_items: fallbackItems,
+        watchlist_items: [],
+      })) {
+        elements.homeAiSignalsMeta.textContent = "시그널 연결 지연 · 마지막 확인 목록";
+        return false;
+      }
+    }
     if (state.view === "home" && !elements.homeAiSignalsList.querySelector(".home-ai-signal-row")) {
       elements.homeAiSignalsList.innerHTML = '<p class="muted">AI 시그널을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>';
     }
