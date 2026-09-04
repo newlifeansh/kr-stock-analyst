@@ -184,6 +184,8 @@ jobs:
             --base-url "$STAGING_BASE_URL" \
             --output artifacts/qa-data-signal/live.json \
             $kis_flag
+      - name: Allow API rate-limit window to reset before browser E2E
+        run: sleep 65
       - name: Run mobile dark and light staging E2E
         run: >-
           analyst qa data-signal
