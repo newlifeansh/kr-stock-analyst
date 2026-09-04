@@ -2,7 +2,7 @@
 
 - 카탈로그 버전: `1.0`
 - 기준 전략: `position-lifecycle-v7.4`
-- QA 항목: 89개
+- QA 항목: 90개
 - 상태 규칙: `PASS` 정상, `WARN` 외부 원천 일시 장애 또는 허용된 caution, `FAIL` 계약 위반
 
 이 문서는 `app/qa/data_signal_cases.json`에서 생성합니다. 직접 수정하지 않습니다.
@@ -129,6 +129,7 @@
 | SIG-EXECUTION-001 | P0 | 종가 판단과 다음 실제 시가 체결 | gate<br>pytest lifecycle fixture | 금요일 신호와 월요일 완전 시가를 준비한다. | decision=close, execution=next open | 주말을 건너 다음 거래일 체결 이벤트를 확인한다. | 신호일 종가가 아닌 다음 실제 거래일 시가가 매수가다. | 동일 종가 체결 또는 휴일 체결이 생성된다. |
 | SIG-EXECUTION-002 | P0 | 진입 갭 제한과 시가 누락 | gate<br>pytest gap/open fixture | 1.5ATR·5% 경계와 시가 누락을 준비한다. | gap_atr=1.5, gap_percent=5% | 경계 안·밖과 불완전 시가에서 체결을 실행한다. | 허용 범위만 체결하고 시가 누락은 미체결로 기록한다. | 오래된 갭 신호 또는 가상 시가로 체결한다. |
 | SIG-EXECUTION-003 | P0 | 유동성·변동성 체결비용 | gate<br>pytest execution-cost fixture | 거래대금·ATR 구간별 지표를 준비한다. | min=0.125%, max=0.50% | 편도 비용과 손익률 현금흐름을 계산한다. | 비용이 범위 내이며 매수·부분매도·전량매도마다 차감된다. | 비용 누락·이중 차감 또는 범위 초과가 발생한다. |
+| SIG-EXECUTION-004 | P1 | 종가형·하이브리드·장중 매수매도 비교 | gate<br>pytest deterministic OHLC proxy + three-mode comparison report artifact | 동일 일봉 이력·동일 전략 규칙·동일 체결비용과 +3%/+5% 목표를 준비한다. | daily_mode=close-confirmed then next-open, hybrid_mode=close-confirmed entries with intraday sell proxy, full_intraday_mode=signal-day close entry with intraday sell proxy, ambiguous_candle=stop-first | 동일 종목·기간을 종가형·하이브리드형·장중 매수매도형으로 각각 재생한다.<br>하이브리드형은 진입을 다음 시가에 두고 하드 리스크선과 +3%/+5% 매도만 현재 일봉 OHLC 안에서 우선 처리한다.<br>장중 매수매도형은 일봉 신호가 확인된 당일 종가 진입 프록시와 같은 장중 매도 처리를 사용한다.<br>수익률·최대낙폭·승률·거래횟수·회전율의 차이를 보고서에 기록한다. | 진입과 일반 추세청산은 종가형·하이브리드형에서 동일하고, 장중 매수매도형만 신호일 종가 프록시로 진입한다.<br>저가와 목표가가 같은 봉에 함께 닿으면 낙관적 체결을 만들지 않고 보호선 우선으로 계산한다.<br>실제 분봉 이력이 없으므로 장중 매수 결과는 종가 진입 프록시임이 보고서에 표시된다. | 비교 중 전략 규칙·과거 날짜별 사다리·체결비용이 달라진다.<br>OHLC만으로 장중 경로 또는 장중 매수 시점을 확정했다고 표시하거나 같은 봉을 목표가 우선으로 계산한다.<br>세 모드의 지표 차이와 데이터 한계가 산출물에 남지 않는다. |
 
 ## 시그널 청산 판단
 
