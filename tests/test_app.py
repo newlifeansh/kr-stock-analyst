@@ -12,6 +12,7 @@ from app.main import (
     _page_summary_global_requests,
     _page_summary_rate_lock,
     app,
+    api_cache,
     rate_limit_lock,
     rate_limit_windows,
 )
@@ -30,7 +31,7 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["strategy_version"] == "position-lifecycle-v7.4"
-    assert response.json()["dashboard_version"] == "20260904v462"
+    assert response.json()["dashboard_version"] == "20260904v463"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -40,6 +41,43 @@ def test_health():
     readyz = client.get("/readyz")
     assert readyz.status_code == 200
     assert readyz.json()["database_ok"] is True
+
+
+def test_market_recommendations_do_not_keep_empty_payload_for_full_cache_window(monkeypatch):
+    calls = []
+
+    def empty_recommendations(_db, **_kwargs):
+        calls.append(True)
+        return {
+            "as_of": datetime(2026, 9, 4, 9, 20, tzinfo=timezone(timedelta(hours=9))),
+            "universe_count": 100,
+            "screened_count": 100,
+            "candidate_count": 0,
+            "qualified_count": 0,
+            "pending_count": 0,
+            "entered_today_count": 0,
+            "selection_rule": "confirmed_entry_pending_or_entered_today",
+            "methodology": [],
+            "items": [],
+        }
+
+    api_cache.clear()
+    with rate_limit_lock:
+        rate_limit_windows.clear()
+    monkeypatch.setattr("app.main.build_recommendations", empty_recommendations)
+    client = TestClient(app)
+
+    try:
+        first = client.get("/market/recommendations?limit=8&candidate_limit=45")
+        second = client.get("/market/recommendations?limit=8&candidate_limit=45")
+    finally:
+        api_cache.clear()
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(calls) == 2
+    assert first.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
+    assert second.headers["pragma"] == "no-cache"
 
 
 def test_production_page_summary_endpoint_keeps_holding_unknown_as_input_only():
@@ -292,7 +330,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260904v462"}
+    assert version.json() == {"version": "20260904v463"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search")
@@ -300,7 +338,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert refresh.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert 'pathname === "/dashboard-sw.js"' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260904v462" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260904v463" in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -744,10 +782,15 @@ def test_stale_market_signal_snapshot_hides_preliminary_rows_and_refreshes(monke
         main_module.market_quant_signal_cache.clear()
 
 
-def test_market_signal_snapshot_freshness_uses_session_specific_limits():
+def test_market_signal_snapshot_freshness_uses_session_specific_limits(monkeypatch):
     from app import main as main_module
 
     active_now = datetime(2026, 8, 21, 14, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    monkeypatch.setattr(
+        main_module,
+        "is_korea_regular_market_session",
+        lambda value: value == active_now,
+    )
     active_payload = {
         "snapshot_generated_at": (
             active_now
@@ -1635,7 +1678,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260904v462' in shell
+    assert 'styles.css?v=20260904v463' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -1721,7 +1764,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260904v462"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260904v463"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -1758,7 +1801,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260904v462"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260904v463"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert 'return [-timestamp, view?.preliminary ? 0 : 1' in source

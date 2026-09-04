@@ -254,7 +254,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260904v462"
+DASHBOARD_CLIENT_VERSION = "20260904v463"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -348,6 +348,7 @@ MARKET_INDICES_TTL_SECONDS = 300
 GLOBAL_MARKET_ASSETS_TTL_SECONDS = 30
 MARKET_IMPACT_TTL_SECONDS = 60
 RECOMMENDATION_TTL_SECONDS = 600
+RECOMMENDATION_EMPTY_CACHE_TTL_SECONDS = 5
 INTRADAY_CLOSED_TTL_SECONDS = 60 * 60 * 72
 INTRADAY_WARMUP_MAX_STOCKS = 60
 INTRADAY_WARMUP_START = time(15, 35)
@@ -7565,22 +7566,43 @@ def market_ranking_period_returns(
 @app.get("/market/recommendations", response_model=MarketRecommendationOut)
 def market_recommendations(
     request: Request,
+    response: Response,
     limit: int = Query(default=8, ge=1, le=20),
     candidate_limit: int = Query(default=50, ge=10, le=100),
     refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
     _enforce_rate_limit(request, "market_recommendations", limit=10, window_seconds=60)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     key = ("market_recommendations", limit, candidate_limit)
     if refresh:
         payload = build_recommendations(db, limit=limit, candidate_limit=candidate_limit, refresh_live=True)
-        api_cache.set(key, payload, RECOMMENDATION_TTL_SECONDS)
+        api_cache.set(
+            key,
+            payload,
+            RECOMMENDATION_TTL_SECONDS
+            if payload.get("items")
+            else RECOMMENDATION_EMPTY_CACHE_TTL_SECONDS,
+        )
         return payload
-    return api_cache.get_or_set(
+    cached = api_cache.get(key)
+    if isinstance(cached, dict) and cached.get("items"):
+        return cached
+    if cached is not None:
+        # An empty result is often a transient signal-refresh state. Expire it
+        # before rebuilding so an old empty response cannot hide new picks for
+        # the full recommendation cache window.
+        api_cache.set(key, cached, 0)
+    payload = build_recommendations(db, limit=limit, candidate_limit=candidate_limit)
+    api_cache.set(
         key,
-        RECOMMENDATION_TTL_SECONDS,
-        lambda: build_recommendations(db, limit=limit, candidate_limit=candidate_limit),
+        payload,
+        RECOMMENDATION_TTL_SECONDS
+        if payload.get("items")
+        else RECOMMENDATION_EMPTY_CACHE_TTL_SECONDS,
     )
+    return payload
 
 
 @app.get("/market/impact", response_model=MarketImpactOut)
