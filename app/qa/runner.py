@@ -631,6 +631,61 @@ def _gate_checks(
         pass_message="v7.4 예비 포착 및 변동성·이격·모멘텀·참여·거래대금 품질 가드를 확인했습니다.",
     )
 
+    def versioned_entry_filters() -> dict[str, Any]:
+        candidate_bar = qs.PriceBar(
+            date(2026, 9, 4),
+            100,
+            103,
+            99,
+            102,
+            2_000_000,
+            10_000_000_000,
+        )
+        candidate_indicator = {
+            **common,
+            "score": 70.0,
+            "momentum5": 0.007,
+            "volume_ratio": 1.05,
+            "atr_percent": 0.035,
+            "ema20_extension_atr": 1.5,
+        }
+        comparison = qs.compare_entry_filter_candidates(
+            candidate_bar,
+            candidate_indicator,
+        )
+        _assert(
+            qs.ENTRY_FILTER_VERSION == qs.ENTRY_FILTER_H1_VERSION,
+            "활성 진입필터가 H1이 아닙니다.",
+        )
+        _assert(
+            qs._entry_signal(candidate_bar, candidate_indicator),
+            "기본 진입 경로가 H1을 통과하지 못했습니다.",
+        )
+        _assert(
+            comparison[qs.ENTRY_FILTER_H1_VERSION]["allowed"] is True,
+            "H1 경계 후보가 거절됐습니다.",
+        )
+        _assert(
+            comparison[qs.ENTRY_FILTER_H2_VERSION]["allowed"] is False,
+            "H2 shadow가 약한 모멘텀 후보를 허용했습니다.",
+        )
+        _assert(
+            comparison[qs.ENTRY_FILTER_H3_VERSION]["allowed"] is True,
+            "H3의 정상 ATR·이격 후보가 거절됐습니다.",
+        )
+        return {
+            "candidate_strategy_version": qs.CANDIDATE_STRATEGY_VERSION,
+            "active_filter": qs.ENTRY_FILTER_VERSION,
+            "shadow_filters": list(qs.ENTRY_FILTER_SHADOW_VERSIONS),
+            "comparison": comparison,
+        }
+
+    collector.check(
+        "SIG-ENTRY-005",
+        versioned_entry_filters,
+        pass_message="v7.5-rc1 H1 활성 필터와 H2·H3 백엔드 shadow 비교 계약을 확인했습니다.",
+    )
+
     def execution_gap() -> dict[str, Any]:
         pending = {"signal_price": 100.0, "atr": 2.0}
         _assert(

@@ -678,10 +678,81 @@ def test_v74_entry_filter_and_initial_risk_cap():
         "average_trading_value": 5_000_000_000.0,
     }
 
-    assert quant_signals._entry_setup_kind(bar, indicator) == "trend_continuation"
+    assert quant_signals._entry_setup_kind(
+        bar,
+        indicator,
+        entry_filter_version=quant_signals.ENTRY_FILTER_BASELINE_VERSION,
+    ) == "trend_continuation"
     for field, value in (("score", 63.99), ("atr_percent", 0.0451), ("momentum5", -0.0001), ("volume_ratio", 0.799)):
-        assert quant_signals._entry_setup_kind(bar, {**indicator, field: value}) is None
+        assert quant_signals._entry_setup_kind(
+            bar,
+            {**indicator, field: value},
+            entry_filter_version=quant_signals.ENTRY_FILTER_BASELINE_VERSION,
+        ) is None
     assert quant_signals._initial_risk(100.0, 20.0, strategy_date=bar.trade_date) == 4.0
+
+
+def test_v75_rc1_activates_h1_and_keeps_h2_h3_shadow_only():
+    bar = quant_signals.PriceBar(
+        trade_date=date(2026, 9, 4),
+        open=100.0,
+        high=103.0,
+        low=99.0,
+        close=102.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    indicator = {
+        "score": 70.0,
+        "ema10": 101.0,
+        "ema20": 100.0,
+        "ema60": 99.0,
+        "ema10_slope": 0.01,
+        "ema20_slope": 0.01,
+        "momentum5": 0.007,
+        "momentum20": 0.01,
+        "volume_ratio": 1.05,
+        "atr": 2.0,
+        "atr_percent": 0.035,
+        "ema20_extension_atr": 1.5,
+        "average_trading_value": 5_000_000_000.0,
+    }
+
+    assert quant_signals.STRATEGY_VERSION == "position-lifecycle-v7.4"
+    assert quant_signals.CANDIDATE_STRATEGY_VERSION == "position-lifecycle-v7.5-rc1"
+    assert [item["version"] for item in quant_signals.STRATEGY_VERSION_HISTORY] == [
+        "position-lifecycle-legacy",
+        "position-lifecycle-v7.1",
+        "position-lifecycle-v7.3",
+        "position-lifecycle-v7.4",
+        "position-lifecycle-v7.5-rc1",
+    ]
+    assert quant_signals.active_entry_filter_version(bar.trade_date) == "buy-filter-h1"
+    assert quant_signals._entry_signal(bar, indicator) is True
+    assert quant_signals._entry_signal(
+        bar,
+        indicator,
+        entry_filter_version=quant_signals.ENTRY_FILTER_H2_VERSION,
+    ) is False
+    assert quant_signals._entry_signal(
+        bar,
+        indicator,
+        entry_filter_version=quant_signals.ENTRY_FILTER_H3_VERSION,
+    ) is True
+
+    comparison = quant_signals.compare_entry_filter_candidates(bar, indicator)
+    assert comparison[quant_signals.ENTRY_FILTER_BASELINE_VERSION]["allowed"] is True
+    assert comparison[quant_signals.ENTRY_FILTER_H1_VERSION]["allowed"] is True
+    assert comparison[quant_signals.ENTRY_FILTER_H2_VERSION]["allowed"] is False
+    assert comparison[quant_signals.ENTRY_FILTER_H3_VERSION]["allowed"] is True
+
+
+def test_strategy_version_for_date_preserves_previous_releases():
+    assert quant_signals.strategy_version_for_date(date(2026, 8, 23)) == "position-lifecycle-legacy"
+    assert quant_signals.strategy_version_for_date(date(2026, 8, 24)) == "position-lifecycle-v7.1"
+    assert quant_signals.strategy_version_for_date(date(2026, 8, 25)) == "position-lifecycle-v7.3"
+    assert quant_signals.strategy_version_for_date(date(2026, 9, 3)) == "position-lifecycle-v7.3"
+    assert quant_signals.strategy_version_for_date(date(2026, 9, 4)) == "position-lifecycle-v7.4"
 
 
 def test_v74_fixed_targets_protect_at_two_percent_and_sell_remaining_half_at_five_percent():

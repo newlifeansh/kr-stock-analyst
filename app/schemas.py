@@ -1147,6 +1147,11 @@ class StockQuantSignalsOut(BaseModel):
     as_of: datetime
     strategy_name: str
     strategy_version: str
+    candidate_strategy_version: Optional[str] = None
+    strategy_version_history: list[dict[str, object]] = Field(default_factory=list)
+    entry_filter_version: Optional[str] = None
+    entry_filter_effective_date: Optional[date] = None
+    entry_filter_shadow_versions: list[str] = Field(default_factory=list)
     profit_preservation_effective_date: Optional[date] = None
     tactical_exit_effective_date: Optional[date] = None
     entry_score_threshold: Decimal

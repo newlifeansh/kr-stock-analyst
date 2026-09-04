@@ -2,7 +2,7 @@
 
 - 카탈로그 버전: `1.0`
 - 기준 전략: `position-lifecycle-v7.4`
-- QA 항목: 90개
+- QA 항목: 91개
 - 상태 규칙: `PASS` 정상, `WARN` 외부 원천 일시 장애 또는 허용된 caution, `FAIL` 계약 위반
 
 이 문서는 `app/qa/data_signal_cases.json`에서 생성합니다. 직접 수정하지 않습니다.
@@ -113,6 +113,7 @@
 | SIG-ENTRY-002 | P0 | 조기 전환 진입 61점 계약 | gate<br>pytest early_turn fixture | EMA10·20·60 근접과 거래량 경계 계열을 준비한다. | score=61, momentum5=>2%, volume_ratio=>=1.1 | EMA60 gap 0.5%, M20 -1%, 각 조건의 경계를 검증한다. | 모든 조기 전환 조건과 품질 가드가 충족돼야 한다. | 추세·참여 전환이 확인되지 않았는데 후보가 된다. |
 | SIG-ENTRY-003 | P0 | 예비 포착과 공통 품질 가드 | gate, live<br>pytest pre-entry fixture + market feed | 확정 조건은 부족하지만 근접한 계열을 준비한다. | score=54, atr_max=6%, extension_max=2.5ATR, turnover_min=50억원 | 각 품질 가드와 다음 확인 문구를 검증한다. | 예비 포착은 매수가 없이 부족 조건만 표시한다. | 품질 가드 미달 종목이 예비·확정 신호가 된다. |
 | SIG-ENTRY-004 | P0 | v7.4 진입필터와 초기 손실상한 | gate, live<br>pytest v7.4 boundary fixture + live strategy contract | 64점 경계, ATR 4.5%, 5일 흐름 0%, 거래량 0.8배와 초기 위험 4% 경계를 준비한다. | score_min=64, atr_max=4.5%, momentum5_min=0%, volume_ratio_min=0.8, initial_risk_max=4% | 각 조건의 직전·동일값을 기존 추세와 조기 전환에 각각 적용한다.<br>높은 ATR과 음의 5일 흐름, 낮은 거래량을 차단한다.<br>ATR이 큰 종목의 초기 위험폭을 계산한다. | 모든 신규 진입은 64점 이상·ATR 4.5% 이하·5일 흐름 0% 이상·거래량 0.8배 이상을 충족하고 초기 위험은 매수가의 4%를 넘지 않는다. | 경계 미달 후보가 진입하거나 4% 초과 초기 위험선이 생성된다. |
+| SIG-ENTRY-005 | P0 | v7.5-rc1 H1 활성 진입필터와 H2·H3 shadow 비교 | gate<br>pytest versioned entry-filter boundary fixture + backend shadow replay | v7.4 baseline과 H1·H2·H3 후보를 동일한 가격·비용·하이브리드 체결 모델로 준비한다. | candidate_strategy_version=position-lifecycle-v7.5-rc1, active_filter=buy-filter-h1, shadow_filters=['buy-filter-h2', 'buy-filter-h3'], h1_momentum5_min=0.5%, h1_volume_ratio_min=1.0, h2_momentum5_min=1%, h2_volume_ratio_min=1.1, h3_atr_max=4%, h3_extension_max=2ATR | H1의 0.5%·1.0배 경계를 검증하고 기본 진입 경로가 H1을 사용하는지 확인한다.<br>동일 봉에서 H2·H3의 허용·거절 결과를 계산하되 사용자 상태·알림·주문에는 반영하지 않는다.<br>동일 기간의 하이브리드 OHLC 프록시 백테스트에서 수익률·최대낙폭·승률·회전율을 baseline과 비교한다.<br>후보 버전과 H1/H2/H3 필터 버전을 보고서에 고정한다. | 현재 후보 신호는 H1만 적용하고 H2·H3는 백엔드 비교군으로 남는다.<br>v7.4 baseline·v7.5-rc1 후보·과거 날짜별 규칙은 서로 덮어쓰지 않는다.<br>분봉 이력이 없으므로 결과는 일봉 OHLC 기반 하이브리드 프록시라고 명시된다. | H2·H3가 사용자 알림·매수대기·주문·보유 상태를 직접 바꾼다.<br>H1 경계가 0.5%·1.0배와 다르거나 H3의 ATR·이격 제한이 누락된다.<br>후보 또는 과거 버전이 baseline 캐시·체결 이력을 소급 변경한다. |
 
 ## 시그널 독립 근거
 

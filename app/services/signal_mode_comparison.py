@@ -267,6 +267,7 @@ def _simulate_ohlc_proxy(
     performance_start_index_override: int | None = None,
     entry_mode: str,
     mode: str,
+    entry_filter_version: str | None = None,
 ) -> dict[str, Any]:
     """Replay one entry policy with conservative intraday OHLC-proxy exits."""
 
@@ -379,8 +380,24 @@ def _simulate_ohlc_proxy(
                 pending = pending_close
         elif index < len(bars) - 1 and (
             last_exit_index is None or index - last_exit_index > qs.REENTRY_COOLDOWN_BARS
-        ) and qs._entry_signal(bar, indicator):
-            setup = qs._entry_setup_kind(bar, indicator) or "trend_continuation"
+        ) and (
+            qs._entry_signal(bar, indicator)
+            if entry_filter_version is None
+            else qs._entry_signal(
+                bar,
+                indicator,
+                entry_filter_version=entry_filter_version,
+            )
+        ):
+            setup = (
+                qs._entry_setup_kind(bar, indicator)
+                if entry_filter_version is None
+                else qs._entry_setup_kind(
+                    bar,
+                    indicator,
+                    entry_filter_version=entry_filter_version,
+                )
+            ) or "trend_continuation"
             entry_action = {
                 "side": "buy",
                 "signal_date": bar.trade_date,
@@ -452,6 +469,7 @@ def simulate_hybrid_ohlc_proxy(
     indicators: list[dict[str, float]],
     *,
     performance_start_index_override: int | None = None,
+    entry_filter_version: str | None = None,
 ) -> dict[str, Any]:
     """Replay next-open entries with conservative intraday exits."""
 
@@ -461,6 +479,7 @@ def simulate_hybrid_ohlc_proxy(
         performance_start_index_override=performance_start_index_override,
         entry_mode="next_open",
         mode="hybrid_sell_intraday_ohlc_proxy",
+        entry_filter_version=entry_filter_version,
     )
 
 
@@ -469,6 +488,7 @@ def simulate_full_intraday_ohlc_proxy(
     indicators: list[dict[str, float]],
     *,
     performance_start_index_override: int | None = None,
+    entry_filter_version: str | None = None,
 ) -> dict[str, Any]:
     """Replay same-close entries with conservative intraday exits.
 
@@ -483,7 +503,65 @@ def simulate_full_intraday_ohlc_proxy(
         performance_start_index_override=performance_start_index_override,
         entry_mode="same_close",
         mode="full_intraday_ohlc_proxy",
+        entry_filter_version=entry_filter_version,
     )
+
+
+def compare_entry_filter_backtest(
+    bars: list[qs.PriceBar],
+    indicators: list[dict[str, float]],
+    *,
+    performance_start_index_override: int | None = None,
+) -> dict[str, Any]:
+    """Replay H1/H2/H3 as a backend shadow comparison under hybrid exits."""
+
+    versions = (
+        qs.ENTRY_FILTER_BASELINE_VERSION,
+        qs.ENTRY_FILTER_H1_VERSION,
+        qs.ENTRY_FILTER_H2_VERSION,
+        qs.ENTRY_FILTER_H3_VERSION,
+    )
+    results: dict[str, dict[str, Any]] = {}
+    for version in versions:
+        result = simulate_hybrid_ohlc_proxy(
+            bars,
+            indicators,
+            performance_start_index_override=performance_start_index_override,
+            entry_filter_version=version,
+        )
+        results[version] = result
+    baseline = results[qs.ENTRY_FILTER_BASELINE_VERSION]
+
+    def delta(result: dict[str, Any]) -> dict[str, float | None]:
+        keys = (
+            "strategy_return",
+            "max_drawdown",
+            "win_rate",
+            "average_return",
+            "turnover_percent",
+        )
+        return {
+            key: round(float(result[key]) - float(baseline[key]), 2)
+            if result.get(key) is not None and baseline.get(key) is not None
+            else None
+            for key in keys
+        }
+
+    return {
+        "execution_model": "hybrid_sell_intraday_ohlc_proxy",
+        "data_warning": "일봉 OHLC 기반 보수적 장중 매도 프록시이며 실제 분봉 체결이 아닙니다.",
+        "active_version": qs.ENTRY_FILTER_VERSION,
+        "shadow_versions": list(qs.ENTRY_FILTER_SHADOW_VERSIONS),
+        "results": {
+            version: {
+                key: value
+                for key, value in result.items()
+                if key != "trades"
+            }
+            | {"delta_vs_baseline": delta(result)}
+            for version, result in results.items()
+        },
+    }
 
 
 def aggregate_mode_comparison(rows: list[dict[str, Any]]) -> dict[str, Any]:

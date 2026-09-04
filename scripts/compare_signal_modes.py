@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -201,7 +201,7 @@ def build_report(
     ]
     recent_aggregate = aggregate_mode_comparison(recent_rows)
     return {
-        "generated_at": datetime.now(UTC),
+        "generated_at": datetime.now(timezone.utc),
         "strategy_version": qs.STRATEGY_VERSION,
         "comparison_candidate": "hybrid-sell-intraday-v7.5-rc1",
         "latest_price_date": latest_price_date,

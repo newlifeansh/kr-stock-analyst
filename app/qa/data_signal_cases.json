@@ -641,6 +641,19 @@
       "expected": ["모든 신규 진입은 64점 이상·ATR 4.5% 이하·5일 흐름 0% 이상·거래량 0.8배 이상을 충족하고 초기 위험은 매수가의 4%를 넘지 않는다."],
       "failure_criteria": ["경계 미달 후보가 진입하거나 4% 초과 초기 위험선이 생성된다."]
     },
+    {
+      "id": "SIG-ENTRY-005",
+      "title": "v7.5-rc1 H1 활성 진입필터와 H2·H3 shadow 비교",
+      "domain": "시그널 진입 판단",
+      "priority": "P0",
+      "modes": ["gate"],
+      "automation": "pytest versioned entry-filter boundary fixture + backend shadow replay",
+      "preconditions": ["v7.4 baseline과 H1·H2·H3 후보를 동일한 가격·비용·하이브리드 체결 모델로 준비한다."],
+      "inputs": {"candidate_strategy_version": "position-lifecycle-v7.5-rc1", "active_filter": "buy-filter-h1", "shadow_filters": ["buy-filter-h2", "buy-filter-h3"], "h1_momentum5_min": "0.5%", "h1_volume_ratio_min": 1.0, "h2_momentum5_min": "1%", "h2_volume_ratio_min": 1.1, "h3_atr_max": "4%", "h3_extension_max": "2ATR"},
+      "steps": ["H1의 0.5%·1.0배 경계를 검증하고 기본 진입 경로가 H1을 사용하는지 확인한다.", "동일 봉에서 H2·H3의 허용·거절 결과를 계산하되 사용자 상태·알림·주문에는 반영하지 않는다.", "동일 기간의 하이브리드 OHLC 프록시 백테스트에서 수익률·최대낙폭·승률·회전율을 baseline과 비교한다.", "후보 버전과 H1/H2/H3 필터 버전을 보고서에 고정한다."],
+      "expected": ["현재 후보 신호는 H1만 적용하고 H2·H3는 백엔드 비교군으로 남는다.", "v7.4 baseline·v7.5-rc1 후보·과거 날짜별 규칙은 서로 덮어쓰지 않는다.", "분봉 이력이 없으므로 결과는 일봉 OHLC 기반 하이브리드 프록시라고 명시된다."],
+      "failure_criteria": ["H2·H3가 사용자 알림·매수대기·주문·보유 상태를 직접 바꾼다.", "H1 경계가 0.5%·1.0배와 다르거나 H3의 ATR·이격 제한이 누락된다.", "후보 또는 과거 버전이 baseline 캐시·체결 이력을 소급 변경한다."]
+    },
 
     {
       "id": "SIG-EVIDENCE-001",

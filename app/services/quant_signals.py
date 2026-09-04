@@ -46,7 +46,14 @@ from app.services.signal_entry_evidence import (
 
 
 KST = ZoneInfo("Asia/Seoul")
+LEGACY_STRATEGY_VERSION = "position-lifecycle-legacy"
+V7_1_STRATEGY_VERSION = "position-lifecycle-v7.1"
+V7_3_STRATEGY_VERSION = "position-lifecycle-v7.3"
 STRATEGY_VERSION = "position-lifecycle-v7.4"
+# The released v7.4 line remains the comparison baseline until the H1
+# candidate is explicitly promoted.  Keeping the candidate separate makes
+# yesterday's release and the new entry gate independently reproducible.
+CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc1"
 STRATEGY_NAME = "독립 근거 확인·조기 추세 포착·단기 전술형 수익확정 전략"
 MIN_HISTORY_ROWS = 125
 WARMUP_ROWS = 65
@@ -73,6 +80,56 @@ MAX_ENTRY_EXTENSION_ATR = 2.5
 MAX_ENTRY_GAP_ATR = 1.5
 MAX_ENTRY_GAP_PERCENT = 0.05
 MIN_AVERAGE_TRADING_VALUE = 5_000_000_000.0
+# Entry-filter versions are intentionally independent from the position
+# lifecycle version.  H1 is the active candidate; H2/H3 are shadow-only
+# comparison profiles and never change a user's signal by themselves.
+ENTRY_FILTER_BASELINE_VERSION = "buy-filter-v7.4-baseline"
+ENTRY_FILTER_H1_VERSION = "buy-filter-h1"
+ENTRY_FILTER_H2_VERSION = "buy-filter-h2"
+ENTRY_FILTER_H3_VERSION = "buy-filter-h3"
+ENTRY_FILTER_VERSION = ENTRY_FILTER_H1_VERSION
+ENTRY_FILTER_EFFECTIVE_DATE = date(2026, 9, 4)
+ENTRY_FILTER_SHADOW_VERSIONS = (
+    ENTRY_FILTER_H2_VERSION,
+    ENTRY_FILTER_H3_VERSION,
+)
+STRATEGY_VERSION_HISTORY = (
+    {
+        "version": LEGACY_STRATEGY_VERSION,
+        "effective_from": None,
+        "effective_to": "2026-08-23",
+        "status": "historical",
+        "scope": "3R·5R·8R 수익확정 사다리",
+    },
+    {
+        "version": V7_1_STRATEGY_VERSION,
+        "effective_from": "2026-08-24",
+        "effective_to": "2026-08-24",
+        "status": "historical",
+        "scope": "2R·4R·6R 수익보호 사다리",
+    },
+    {
+        "version": V7_3_STRATEGY_VERSION,
+        "effective_from": "2026-08-25",
+        "effective_to": "2026-09-03",
+        "status": "historical",
+        "scope": "1R·1.6R·2.5R 전술형 사다리",
+    },
+    {
+        "version": STRATEGY_VERSION,
+        "effective_from": "2026-09-04",
+        "effective_to": None,
+        "status": "baseline",
+        "scope": "+3%·+5% 고정 수익확정·runner 0%",
+    },
+    {
+        "version": CANDIDATE_STRATEGY_VERSION,
+        "effective_from": "2026-09-04",
+        "effective_to": None,
+        "status": "candidate",
+        "scope": "v7.4 baseline + buy-filter-h1; promotion pending",
+    },
+)
 EXIT_SCORE = 42.0
 # Each step is (trigger in initial-risk multiples, fraction of the original
 # position to sell, locked-profit floor in R, volatility trailing width in ATR).
@@ -442,6 +499,58 @@ def _indicator_rows(bars: list[PriceBar]) -> list[dict[str, float]]:
     return indicators
 
 
+def strategy_version_for_date(strategy_date: Optional[date]) -> str:
+    """Return the immutable position-lifecycle version for a decision date."""
+
+    if strategy_date is None or strategy_date >= STABLE_PROFIT_EFFECTIVE_DATE:
+        return STRATEGY_VERSION
+    if strategy_date >= TACTICAL_EXIT_EFFECTIVE_DATE:
+        return V7_3_STRATEGY_VERSION
+    if strategy_date >= PROFIT_PRESERVATION_EFFECTIVE_DATE:
+        return V7_1_STRATEGY_VERSION
+    return LEGACY_STRATEGY_VERSION
+
+
+def _entry_filter_parameters(
+    strategy_date: Optional[date],
+    entry_filter_version: Optional[str],
+) -> dict[str, float]:
+    """Overlay one independently versioned entry filter on base parameters."""
+
+    parameters = _entry_parameters(strategy_date)
+    if entry_filter_version in (None, ENTRY_FILTER_BASELINE_VERSION):
+        return parameters
+    if entry_filter_version == ENTRY_FILTER_H1_VERSION:
+        return {
+            **parameters,
+            "min_momentum5": 0.005,
+            "min_volume_ratio": 1.0,
+        }
+    if entry_filter_version == ENTRY_FILTER_H2_VERSION:
+        return {
+            **parameters,
+            "min_momentum5": 0.01,
+            "min_volume_ratio": 1.1,
+        }
+    if entry_filter_version == ENTRY_FILTER_H3_VERSION:
+        return {
+            **parameters,
+            "max_entry_atr_percent": 0.04,
+            "max_entry_extension_atr": 2.0,
+            "min_momentum5": 0.005,
+            "min_volume_ratio": 1.0,
+        }
+    raise ValueError(f"Unknown entry filter version: {entry_filter_version}")
+
+
+def active_entry_filter_version(strategy_date: Optional[date]) -> str:
+    """Return H1 only after its effective date; preserve historical baseline."""
+
+    if strategy_date is not None and strategy_date < ENTRY_FILTER_EFFECTIVE_DATE:
+        return ENTRY_FILTER_BASELINE_VERSION
+    return ENTRY_FILTER_VERSION
+
+
 def _entry_parameters(strategy_date: Optional[date]) -> dict[str, float]:
     if strategy_date is not None and strategy_date < STABLE_PROFIT_EFFECTIVE_DATE:
         return {
@@ -465,19 +574,30 @@ def _entry_quality_allowed(
     indicator: dict[str, float],
     *,
     strategy_date: Optional[date] = None,
+    entry_filter_version: Optional[str] = None,
 ) -> bool:
-    parameters = _entry_parameters(strategy_date or bar.trade_date)
+    decision_date = strategy_date or bar.trade_date
+    parameters = _entry_filter_parameters(
+        decision_date,
+        entry_filter_version or active_entry_filter_version(decision_date),
+    )
     return bool(
         bar.ohlc_complete
         and indicator["atr_percent"] <= parameters["max_entry_atr_percent"]
-        and indicator.get("ema20_extension_atr", 0.0) <= MAX_ENTRY_EXTENSION_ATR
+        and indicator.get("ema20_extension_atr", 0.0)
+        <= parameters.get("max_entry_extension_atr", MAX_ENTRY_EXTENSION_ATR)
         and indicator.get("average_trading_value", 0.0) >= MIN_AVERAGE_TRADING_VALUE
         and indicator.get("momentum5", 0.0) >= parameters["min_momentum5"]
         and indicator.get("volume_ratio", 0.0) >= parameters["min_volume_ratio"]
     )
 
 
-def _entry_setup_kind(bar: PriceBar, indicator: dict[str, float]) -> Optional[str]:
+def _entry_setup_kind(
+    bar: PriceBar,
+    indicator: dict[str, float],
+    *,
+    entry_filter_version: Optional[str] = None,
+) -> Optional[str]:
     """Return the confirmed setup without looking beyond the current close.
 
     ``trend_continuation`` keeps the established medium-term trend filter but
@@ -488,8 +608,14 @@ def _entry_setup_kind(bar: PriceBar, indicator: dict[str, float]) -> Optional[st
     guardrails.
     """
 
-    parameters = _entry_parameters(bar.trade_date)
-    if not _entry_quality_allowed(bar, indicator, strategy_date=bar.trade_date):
+    decision_filter = entry_filter_version or active_entry_filter_version(bar.trade_date)
+    parameters = _entry_filter_parameters(bar.trade_date, decision_filter)
+    if not _entry_quality_allowed(
+        bar,
+        indicator,
+        strategy_date=bar.trade_date,
+        entry_filter_version=decision_filter,
+    ):
         return None
     trend_continuation = bool(
         indicator["score"] >= parameters["entry_score"]
@@ -512,8 +638,58 @@ def _entry_setup_kind(bar: PriceBar, indicator: dict[str, float]) -> Optional[st
     return "early_turn" if early_turn else None
 
 
-def _entry_signal(bar: PriceBar, indicator: dict[str, float]) -> bool:
-    return _entry_setup_kind(bar, indicator) is not None
+def _entry_signal(
+    bar: PriceBar,
+    indicator: dict[str, float],
+    *,
+    entry_filter_version: Optional[str] = None,
+) -> bool:
+    return (
+        _entry_setup_kind(
+            bar,
+            indicator,
+            entry_filter_version=entry_filter_version,
+        )
+        is not None
+    )
+
+
+def compare_entry_filter_candidates(
+    bar: PriceBar,
+    indicator: dict[str, float],
+) -> dict[str, dict[str, Any]]:
+    """Compare baseline/H1/H2/H3 eligibility without changing active state.
+
+    This is deliberately a pure backend diagnostic.  Only H1 is used by the
+    active signal path after its effective date; H2 and H3 are returned for
+    shadow backtests and are not promoted to notifications or orders.
+    """
+
+    result: dict[str, dict[str, Any]] = {}
+    for version in (
+        ENTRY_FILTER_BASELINE_VERSION,
+        ENTRY_FILTER_H1_VERSION,
+        ENTRY_FILTER_H2_VERSION,
+        ENTRY_FILTER_H3_VERSION,
+    ):
+        setup = _entry_setup_kind(
+            bar,
+            indicator,
+            entry_filter_version=version,
+        )
+        parameters = _entry_filter_parameters(bar.trade_date, version)
+        result[version] = {
+            "allowed": setup is not None,
+            "entry_setup": setup,
+            "entry_score": parameters["entry_score"],
+            "max_entry_atr_percent": parameters["max_entry_atr_percent"],
+            "max_entry_extension_atr": parameters.get(
+                "max_entry_extension_atr", MAX_ENTRY_EXTENSION_ATR
+            ),
+            "min_momentum5": parameters["min_momentum5"],
+            "min_volume_ratio": parameters["min_volume_ratio"],
+        }
+    return result
 
 
 def _pre_entry_signal(bar: PriceBar, indicator: dict[str, float]) -> bool:
@@ -2609,6 +2785,11 @@ def build_quant_signal_payload(
         "as_of": current_time,
         "strategy_name": STRATEGY_NAME,
         "strategy_version": STRATEGY_VERSION,
+        "candidate_strategy_version": CANDIDATE_STRATEGY_VERSION,
+        "strategy_version_history": [dict(item) for item in STRATEGY_VERSION_HISTORY],
+        "entry_filter_version": ENTRY_FILTER_VERSION,
+        "entry_filter_effective_date": ENTRY_FILTER_EFFECTIVE_DATE,
+        "entry_filter_shadow_versions": list(ENTRY_FILTER_SHADOW_VERSIONS),
         "profit_preservation_effective_date": PROFIT_PRESERVATION_EFFECTIVE_DATE,
         "tactical_exit_effective_date": TACTICAL_EXIT_EFFECTIVE_DATE,
         "entry_score_threshold": _decimal(ENTRY_SCORE),
@@ -2636,7 +2817,8 @@ def build_quant_signal_payload(
             "기존 v7.1 보유 종목이 이미 확보한 더 높은 수익 보호선은 v7.2 전환 후에도 낮추지 않습니다.",
             f"최초 위험폭은 ATR을 사용하되 매수가의 {MAX_INITIAL_RISK_PERCENT * 100:.0f}% 이내로 제한합니다.",
             f"초기·수익 보호선의 종가 이탈은 확인 대기 없이 다음 거래일 시가에 전량 매도하고, 일반 추세 이탈은 최소 {MIN_HOLDING_BARS}거래일 후 종가 1회로 확인합니다.",
-            f"신규 진입은 기존 추세·조기 전환 모두 {ENTRY_SCORE:.0f}점 이상과 5일 흐름 0% 이상·거래량 20일 평균의 0.8배 이상, ATR {MAX_ENTRY_ATR_PERCENT * 100:.1f}% 이하·20일선 이격 {MAX_ENTRY_EXTENSION_ATR:.1f}ATR 이하·20일 평균 거래대금 {MIN_AVERAGE_TRADING_VALUE / 100_000_000:.0f}억원 이상을 요구합니다.",
+            f"기준 v7.4 신규 진입은 {ENTRY_SCORE:.0f}점 이상과 5일 흐름 0% 이상·거래량 20일 평균의 0.8배 이상, ATR {MAX_ENTRY_ATR_PERCENT * 100:.1f}% 이하·20일선 이격 {MAX_ENTRY_EXTENSION_ATR:.1f}ATR 이하·20일 평균 거래대금 {MIN_AVERAGE_TRADING_VALUE / 100_000_000:.0f}억원 이상을 요구합니다.",
+            f"후보 {CANDIDATE_STRATEGY_VERSION}의 활성 H1 매수필터는 {ENTRY_FILTER_EFFECTIVE_DATE.isoformat()}부터 5일 흐름 {0.5:.1f}% 이상·거래량 20일 평균의 {1.0:.1f}배 이상을 추가 요구하며, H2·H3({', '.join(ENTRY_FILTER_SHADOW_VERSIONS)})는 백엔드 비교만 수행합니다.",
             f"{ENTRY_EVIDENCE_EFFECTIVE_DATE.isoformat()}부터 가격 조건 뒤 실적·컨센서스, 시장·섹터 상대강도, 거래대금 정규화 수급을 독립 확인하며 기존 추세는 우호 근거 1개, 조기 전환은 2개를 요구합니다.",
             "OpenDART 중대 위험 공시와 시장 급락·고변동 국면은 점수와 무관하게 신규매수를 보류합니다.",
             "외부 근거는 종목·신호일·전략 버전별 스냅샷으로 고정하여 나중 데이터가 과거 매수 판단을 바꾸지 못하게 합니다.",

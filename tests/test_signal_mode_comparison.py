@@ -5,6 +5,7 @@ from app.services import quant_signals as qs
 from app.services.signal_mode_comparison import (
     IntradayExitDecision,
     aggregate_mode_comparison,
+    compare_entry_filter_backtest,
     intraday_exit_decision,
     simulate_full_intraday_ohlc_proxy,
 )
@@ -112,6 +113,50 @@ def test_full_intraday_proxy_enters_at_signal_day_close(monkeypatch) -> None:
     simulate_full_intraday_ohlc_proxy(bars, indicators)
 
     assert captured_entry_prices == [100.0]
+
+
+def test_entry_filter_shadow_replay_keeps_h2_h3_out_of_active_state():
+    bars = [
+        qs.PriceBar(
+            trade_date=date(2026, 1, 1) + timedelta(days=index),
+            open=99.5,
+            high=101.0,
+            low=99.5,
+            close=100.0,
+            volume=1_000_000.0,
+            trading_value=30_000_000_000.0,
+        )
+        for index in range(70)
+    ]
+    indicators = [
+        {
+            **_indicator(),
+            "momentum5": 0.007,
+            "volume_ratio": 1.05,
+            "ema10": 101.0,
+            "ema60": 99.0,
+            "ema10_slope": 0.01,
+            "ema20_slope": 0.01,
+            "momentum20": 0.01,
+            "ema20_extension_atr": 1.5,
+        }
+        for _ in bars
+    ]
+
+    comparison = compare_entry_filter_backtest(bars, indicators)
+
+    assert comparison["active_version"] == qs.ENTRY_FILTER_H1_VERSION
+    assert comparison["shadow_versions"] == [
+        qs.ENTRY_FILTER_H2_VERSION,
+        qs.ENTRY_FILTER_H3_VERSION,
+    ]
+    assert set(comparison["results"]) == {
+        qs.ENTRY_FILTER_BASELINE_VERSION,
+        qs.ENTRY_FILTER_H1_VERSION,
+        qs.ENTRY_FILTER_H2_VERSION,
+        qs.ENTRY_FILTER_H3_VERSION,
+    }
+    assert comparison["results"][qs.ENTRY_FILTER_H2_VERSION]["completed_trades"] == 0
 
 
 def test_aggregate_reports_hybrid_delta_without_portfolio_compounding() -> None:
