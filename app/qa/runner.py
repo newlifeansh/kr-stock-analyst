@@ -683,7 +683,44 @@ def _gate_checks(
     collector.check(
         "SIG-ENTRY-005",
         versioned_entry_filters,
-        pass_message="v7.5-rc1 H1 활성 필터와 H2·H3 백엔드 shadow 비교 계약을 확인했습니다.",
+        pass_message="v7.5-rc2 H1 활성 필터와 H2·H3 백엔드 shadow 비교 계약을 확인했습니다.",
+    )
+
+    def shadow_refresh_contract() -> dict[str, Any]:
+        from app import main as main_module
+        from app.services import entry_filter_backtest as shadow
+
+        expected_filters = (
+            qs.ENTRY_FILTER_BASELINE_VERSION,
+            qs.ENTRY_FILTER_H1_VERSION,
+            qs.ENTRY_FILTER_H2_VERSION,
+            qs.ENTRY_FILTER_H3_VERSION,
+        )
+        _assert(
+            shadow.FILTER_VERSIONS == expected_filters,
+            "shadow 백테스트 필터 구성이 누락됐습니다.",
+        )
+        _assert(
+            shadow.ENTRY_FILTER_SHADOW_CACHE_KEY.endswith(
+                qs.CANDIDATE_STRATEGY_VERSION
+            ),
+            "shadow 백테스트 저장 키가 후보 버전에 고정되지 않았습니다.",
+        )
+        _assert(
+            hasattr(main_module, "_run_entry_filter_shadow_backtest_loop"),
+            "collector shadow 백테스트 루프가 연결되지 않았습니다.",
+        )
+        return {
+            "refresh_interval_seconds": 300,
+            "snapshot_key": shadow.ENTRY_FILTER_SHADOW_CACHE_KEY,
+            "filters": list(expected_filters),
+            "automatic_runner": "app.main._run_entry_filter_shadow_backtest_loop",
+        }
+
+    collector.check(
+        "SIG-ENTRY-006",
+        shadow_refresh_contract,
+        pass_message="H1·H2·H3 일괄 shadow 백테스트 자동 갱신 루프와 분리 저장 계약을 확인했습니다.",
     )
 
     def execution_gap() -> dict[str, Any]:

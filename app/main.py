@@ -182,6 +182,7 @@ from app.services.quant_signals import (
     save_market_quant_signal_snapshot,
     synchronize_quant_payload_live_quote,
 )
+from app.services.entry_filter_backtest import refresh_entry_filter_shadow_snapshot
 from app.services.signal_reconciliations import (
     apply_market_signal_reconciliations,
     apply_stock_signal_reconciliations,
@@ -272,6 +273,7 @@ MORNING_MONEY_BRIEFING_CACHE_SECONDS = 30
 MORNING_MONEY_HISTORY_CACHE_SECONDS = 120
 complete_snapshot_runtime: Optional[SnapshotRuntime] = None
 market_quant_signal_refresh_lock = RLock()
+entry_filter_shadow_refresh_lock = RLock()
 MARKET_QUANT_SIGNAL_ACTIVE_MAX_AGE_SECONDS = 10 * 60
 MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS = 6 * 60 * 60
 kis_realtime_provider = KisRealtimeQuoteProvider(settings)
@@ -1001,6 +1003,38 @@ def _refresh_market_quant_signal_snapshot(
         market_quant_signal_refresh_lock.release()
 
 
+def _refresh_entry_filter_shadow_snapshot() -> Optional[dict[str, Any]]:
+    if not entry_filter_shadow_refresh_lock.acquire(blocking=False):
+        return None
+    try:
+        with SessionLocal() as db:
+            return refresh_entry_filter_shadow_snapshot(db)
+    except Exception:  # pragma: no cover - operational safeguard
+        logger.exception("Entry filter shadow backtest refresh failed")
+        return None
+    finally:
+        entry_filter_shadow_refresh_lock.release()
+
+
+async def _run_entry_filter_shadow_backtest_loop() -> None:
+    """Keep H1/H2/H3 replayed together whenever a new daily dataset exists."""
+
+    while True:
+        try:
+            result = await asyncio.to_thread(_refresh_entry_filter_shadow_snapshot)
+            if result and result.get("status") == "refreshed":
+                report = result.get("report") or {}
+                logger.info(
+                    "Entry filter shadow backtest refreshed: candidate=%s latest_price_date=%s symbols=%s",
+                    report.get("candidate_strategy_version"),
+                    report.get("latest_price_date"),
+                    report.get("symbols_evaluated"),
+                )
+        except Exception:  # pragma: no cover - operational safeguard
+            logger.exception("Entry filter shadow backtest loop failed")
+        await asyncio.sleep(300)
+
+
 def _build_market_quant_signal_payload(
     db: Session,
     *,
@@ -1409,6 +1443,7 @@ async def lifespan(_: FastAPI):
     bootstrap_task: asyncio.Task | None = None
     intraday_warmup_task: asyncio.Task | None = None
     market_quant_signal_task: asyncio.Task | None = None
+    entry_filter_shadow_task: asyncio.Task | None = None
     stock_logo_task: asyncio.Task | None = None
     complete_snapshot_schedule_task: asyncio.Task | None = None
     collectors_started = False
@@ -1425,6 +1460,9 @@ async def lifespan(_: FastAPI):
             )
             intraday_warmup_task = asyncio.create_task(_run_intraday_warmup_loop())
             market_quant_signal_task = asyncio.create_task(_run_market_quant_signal_refresh_loop())
+            entry_filter_shadow_task = asyncio.create_task(
+                _run_entry_filter_shadow_backtest_loop()
+            )
             if settings.stock_logo_enabled:
                 stock_logo_task = asyncio.create_task(_run_stock_logo_sync_loop())
             if settings.bootstrap_on_start:
@@ -1444,6 +1482,10 @@ async def lifespan(_: FastAPI):
                 market_quant_signal_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await market_quant_signal_task
+            if entry_filter_shadow_task is not None:
+                entry_filter_shadow_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await entry_filter_shadow_task
             if stock_logo_task is not None:
                 stock_logo_task.cancel()
                 with suppress(asyncio.CancelledError):

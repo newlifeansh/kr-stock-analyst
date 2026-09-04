@@ -203,7 +203,7 @@ def build_report(
     return {
         "generated_at": datetime.now(timezone.utc),
         "strategy_version": qs.STRATEGY_VERSION,
-        "comparison_candidate": "hybrid-sell-intraday-v7.5-rc1",
+        "comparison_candidate": "hybrid-sell-intraday-v7.5-rc2",
         "latest_price_date": latest_price_date,
         "universe_market_cap_date": latest_market_cap_date,
         "universe_limit": universe_limit,

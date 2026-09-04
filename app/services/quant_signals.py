@@ -53,7 +53,7 @@ STRATEGY_VERSION = "position-lifecycle-v7.4"
 # The released v7.4 line remains the comparison baseline until the H1
 # candidate is explicitly promoted.  Keeping the candidate separate makes
 # yesterday's release and the new entry gate independently reproducible.
-CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc1"
+CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc2"
 STRATEGY_NAME = "독립 근거 확인·조기 추세 포착·단기 전술형 수익확정 전략"
 MIN_HISTORY_ROWS = 125
 WARMUP_ROWS = 65

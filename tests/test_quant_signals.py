@@ -719,13 +719,13 @@ def test_v75_rc1_activates_h1_and_keeps_h2_h3_shadow_only():
     }
 
     assert quant_signals.STRATEGY_VERSION == "position-lifecycle-v7.4"
-    assert quant_signals.CANDIDATE_STRATEGY_VERSION == "position-lifecycle-v7.5-rc1"
+    assert quant_signals.CANDIDATE_STRATEGY_VERSION == "position-lifecycle-v7.5-rc2"
     assert [item["version"] for item in quant_signals.STRATEGY_VERSION_HISTORY] == [
         "position-lifecycle-legacy",
         "position-lifecycle-v7.1",
         "position-lifecycle-v7.3",
         "position-lifecycle-v7.4",
-        "position-lifecycle-v7.5-rc1",
+        "position-lifecycle-v7.5-rc2",
     ]
     assert quant_signals.active_entry_filter_version(bar.trade_date) == "buy-filter-h1"
     assert quant_signals._entry_signal(bar, indicator) is True
