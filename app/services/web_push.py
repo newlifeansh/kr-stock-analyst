@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+import hashlib
 import json
 import logging
 import re
@@ -154,6 +155,7 @@ PUSH_KIND_TO_CONDITION = {
 }
 
 RECOMMENDATION_PUSH_LIMIT = 10
+RECOMMENDATION_BATCH_THRESHOLD = 3
 RECOMMENDATION_STATE_KIND = "recommendation_state"
 SIGNAL_NOTIFICATION_ICON_BY_STATE = {
     "entry_watch": "🔎",
@@ -709,6 +711,39 @@ def _recommendation_signal_candidate(
         occurred_at=now,
         stock_codes=(item.code,),
         predecessor_event_key=item.predecessor_event_key,
+    )
+
+
+def _recommendation_batch_candidate(
+    candidates: list[NotificationCandidate],
+    now: datetime,
+) -> NotificationCandidate:
+    representative = candidates[0]
+    additional_count = len(candidates) - 1
+    representative_name = representative.title.split(" 추천", 1)[0]
+    if representative_name == representative.title:
+        representative_name = notification_history_signal_name(representative.title)
+    digest_source = "|".join(sorted(candidate.event_key for candidate in candidates))
+    digest = hashlib.sha256(digest_source.encode("utf-8")).hexdigest()[:16]
+    stock_codes = tuple(
+        dict.fromkeys(
+            code
+            for candidate in candidates
+            for code in candidate.stock_codes
+        )
+    )
+    return NotificationCandidate(
+        event_key=f"recommendation-batch:{now.date().isoformat()}:{digest}",
+        kind="recommendation_update",
+        title=f"{representative_name} 외 {additional_count}건의 추천종목이 업데이트되었어요",
+        body=(
+            f"추천종목 {len(candidates)}건이 변경되었어요. "
+            f"{representative_name}의 상세에서 변경 내용을 확인하세요."
+        ),
+        url=representative.url,
+        tag=f"recommendation-batch-{now.date().isoformat()}-{digest}",
+        occurred_at=now,
+        stock_codes=stock_codes,
     )
 
 
@@ -1308,6 +1343,18 @@ class WebPushRuntime:
             self._replace_recommendation_state(db, subscription, items)
             db.commit()
             return 0
+
+        if len(candidates) >= RECOMMENDATION_BATCH_THRESHOLD:
+            # Keep recommendation updates behind every required market-signal
+            # predecessor before collapsing them into one customer-facing push.
+            # Otherwise the summary could overtake a signal notification that
+            # is intentionally waiting for its provider TTL to elapse.
+            if any(
+                not self._predecessor_delivery_ready(db, subscription, candidate)
+                for candidate in candidates
+            ):
+                return 0
+            candidates = [_recommendation_batch_candidate(candidates, now)]
 
         sent = 0
         handled = True

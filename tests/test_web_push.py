@@ -431,6 +431,60 @@ def test_recommendation_updates_alert_new_top_ten_entry_and_open_its_detail(monk
         db.close()
 
 
+def test_recommendation_updates_batch_three_or_more_changes_into_one_summary_alert(monkeypatch):
+    db = _session()
+    payloads = []
+    try:
+        subscription = PushSubscription(
+            share_id="tester",
+            endpoint="https://push.example/recommendation-batch",
+            p256dh="p" * 64,
+            auth="a" * 24,
+            notification_preferences='["recommendation_update"]',
+        )
+        db.add(subscription)
+        db.commit()
+        db.refresh(subscription)
+        monkeypatch.setattr(web_push, "webpush", lambda **kwargs: payloads.append(json.loads(kwargs["data"])))
+        runtime = web_push.WebPushRuntime(_settings())
+        now = datetime(2026, 8, 24, 10, 0)
+        initial = {
+            "items": [
+                _recommendation_item("005930", "삼성전자", 1, "82", "entry_pending"),
+            ]
+        }
+        runtime._process_recommendation_updates(db, subscription, initial, now)
+
+        updated = {
+            "items": [
+                _recommendation_item("005930", "삼성전자", 1, "82", "holding"),
+                _recommendation_item("000660", "SK하이닉스", 2, "80", "entry_pending"),
+                _recommendation_item("035420", "NAVER", 3, "79", "entry_pending"),
+            ]
+        }
+        assert runtime._process_recommendation_updates(db, subscription, updated, now) == 1
+        assert len(payloads) == 1
+        assert payloads[0]["title"] == "삼성전자 외 2건의 추천종목이 업데이트되었어요"
+        assert payloads[0]["body"] == "추천종목 3건이 변경되었어요. 삼성전자의 상세에서 변경 내용을 확인하세요."
+        assert payloads[0]["url"] == "/dashboard?view=recommend-detail&code=005930"
+        assert payloads[0]["kind"] == "recommendation_update"
+
+        # The summarized delivery is idempotent and must not repeat on the
+        # next scan when the recommendation state has not changed.
+        assert runtime._process_recommendation_updates(db, subscription, updated, now) == 0
+        assert len(payloads) == 1
+        initialized, codes, signals = runtime._recommendation_state(db, subscription)
+        assert initialized is True
+        assert codes == {"005930", "000660", "035420"}
+        assert signals == {
+            "005930": "holding",
+            "000660": "buy-pending",
+            "035420": "buy-pending",
+        }
+    finally:
+        db.close()
+
+
 def test_recommendation_updates_alert_only_when_ai_buy_or_sell_stage_changes(monkeypatch):
     db = _session()
     payloads = []

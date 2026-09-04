@@ -31,7 +31,7 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["strategy_version"] == "position-lifecycle-v7.4"
-    assert response.json()["dashboard_version"] == "20260904v464"
+    assert response.json()["dashboard_version"] == "20260904v465"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -330,7 +330,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260904v464"}
+    assert version.json() == {"version": "20260904v465"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search")
@@ -338,7 +338,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert refresh.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert 'pathname === "/dashboard-sw.js"' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260904v464" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260904v465" in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -1678,7 +1678,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260904v464' in shell
+    assert 'styles.css?v=20260904v465' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -1764,7 +1764,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260904v464"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260904v465"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -1801,7 +1801,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260904v464"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260904v465"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert 'return [-timestamp, view?.preliminary ? 0 : 1' in source
