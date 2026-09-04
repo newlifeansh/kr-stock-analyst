@@ -295,6 +295,94 @@ def test_public_websocket_probe_matches_http_revision_and_ack_contract(monkeypat
 
 
 @pytest.mark.qa_gate
+@pytest.mark.qa_live
+def test_public_websocket_probe_rechecks_http_revision_after_publication_race(monkeypatch) -> None:
+    class FakeSocket:
+        def __init__(self, frames: list[dict[str, object]]):
+            self.frames = [json.dumps(frame) for frame in frames]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def recv(self, timeout: float) -> str:
+            return self.frames.pop(0)
+
+        def send(self, payload: str) -> None:
+            return None
+
+    opening = [
+        {"type": "ready", "transport": "multiplex", "max_codes": 64},
+        {
+            "type": "signal_revision",
+            "revision": 8,
+            "as_of": "2026-08-31T09:00:00+09:00",
+            "changed_codes": [],
+            "initial": True,
+        },
+    ]
+    first = FakeSocket(
+        opening
+        + [
+            {"type": "subscribed", "codes": ["005930"], "count": 1, "rejected_codes": []},
+            {
+                "type": "quote",
+                "code": "005930",
+                "source": "kis_realtime",
+                "sequence": 1,
+                "observed_at": "2026-08-31T09:00:00+09:00",
+                "published_at": "2026-08-31T09:00:00.010000+09:00",
+                "quote": {"price": 105000},
+            },
+            {"type": "subscribed", "codes": [], "count": 0, "rejected_codes": []},
+        ]
+    )
+    second = FakeSocket(opening)
+    sockets = iter([first, second])
+    monkeypatch.setattr("websockets.sync.client.connect", lambda *_args, **_kwargs: next(sockets))
+    monkeypatch.setattr(
+        "app.qa.runner._resolve_public_quote_stream_url",
+        lambda *_args, **_kwargs: ("wss://canonical-fixture.test/ws/quotes", "dashboard_meta"),
+    )
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"signal_revision": 8}
+
+    class FakeClient:
+        def __init__(self, *args: object, **kwargs: object):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def get(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.qa.runner.httpx.Client", FakeClient)
+    collector = ResultCollector(load_qa_catalog())
+
+    _public_websocket_check(
+        collector,
+        "https://fixture-staging.test",
+        1,
+        expected_signal_revision=7,
+    )
+
+    [result] = collector.results
+    assert result.status == "pass", result.message
+    assert result.evidence["signal_revision"]["revision"] == 8
+
+
+@pytest.mark.qa_gate
 def test_public_quote_stream_resolution_matches_browser_metadata(monkeypatch) -> None:
     class FakeResponse:
         def __init__(self, text: str):

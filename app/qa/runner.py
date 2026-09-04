@@ -1853,6 +1853,31 @@ def _public_websocket_check(
     *,
     expected_signal_revision: int | None = None,
 ) -> None:
+    def current_http_signal_revision() -> int | None:
+        """Read the revision immediately before comparing a live socket frame.
+
+        The canonical feed can publish a new snapshot while the live QA suite
+        is moving from its HTTP probes to the WebSocket probe.  A revision
+        mismatch in that narrow window is a moving-target race, not evidence
+        that the two transports disagree.  Re-read the HTTP revision once so
+        the comparison is made against the same publication window.
+        """
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            response = client.get(
+                f"{base_url.rstrip('/')}/market/quant-signals",
+                params={"universe_limit": 150, "limit": 0, "recent_days": 30},
+            )
+        response.raise_for_status()
+        payload = response.json()
+        revision = payload.get("signal_revision")
+        if (
+            not isinstance(revision, int)
+            or isinstance(revision, bool)
+            or revision < 0
+        ):
+            return None
+        return revision
+
     def websocket_contract() -> dict[str, Any]:
         try:
             from websockets.sync.client import connect
@@ -1909,12 +1934,15 @@ def _public_websocket_check(
                 opening["signal_revision"], require_initial=True
             )
             if expected_signal_revision is not None:
-                _assert(
-                    revision["revision"] == expected_signal_revision,
-                    "WebSocket 초기 신호 리비전이 HTTP 스냅샷과 다릅니다.",
-                    websocket_revision=revision["revision"],
-                    http_revision=expected_signal_revision,
-                )
+                if revision["revision"] != expected_signal_revision:
+                    refreshed_http_revision = current_http_signal_revision()
+                    _assert(
+                        revision["revision"] == refreshed_http_revision,
+                        "WebSocket 초기 신호 리비전이 HTTP 스냅샷과 다릅니다.",
+                        websocket_revision=revision["revision"],
+                        http_revision=expected_signal_revision,
+                        refreshed_http_revision=refreshed_http_revision,
+                    )
             _assert(ready.get("transport") == "multiplex", "WebSocket transport가 multiplex가 아닙니다.")
             _assert(
                 int(ready.get("max_codes") or 0) > 0,
