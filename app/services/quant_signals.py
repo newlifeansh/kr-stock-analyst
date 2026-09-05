@@ -191,6 +191,7 @@ MARKET_SIGNAL_EXTENDED_EFFECTIVE_DATE = date(2026, 8, 27)
 MARKET_SIGNAL_FEED_LIMIT = 0
 MARKET_SIGNAL_RECENT_DAYS = 30
 MARKET_SIGNAL_SNAPSHOT_VERSION = "v31"
+SNAPSHOT_MAX_FUTURE_SKEW_SECONDS = 60
 
 POSITIVE_WORDS = (
     "상향",
@@ -4672,6 +4673,13 @@ def load_market_quant_signal_snapshot(
     return payload
 
 
+def _snapshot_generated_at_utc_naive(value: datetime) -> datetime:
+    """Normalize snapshot timestamps before storing them in a naive DB column."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def save_market_quant_signal_snapshot(
     db: Session,
     payload: dict[str, Any],
@@ -4682,7 +4690,9 @@ def save_market_quant_signal_snapshot(
     generated_at: Optional[datetime] = None,
 ) -> dict[str, Any]:
     cache_key = market_quant_signal_snapshot_key(universe_limit, limit, recent_days)
-    stored_at = (generated_at or datetime.utcnow()).replace(tzinfo=None)
+    stored_at = _snapshot_generated_at_utc_naive(
+        generated_at or datetime.now(timezone.utc)
+    )
     snapshot = db.get(MarketQuantSignalSnapshot, cache_key)
     previous_payload = None
     if snapshot is not None:

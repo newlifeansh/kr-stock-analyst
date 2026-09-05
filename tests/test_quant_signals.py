@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -81,6 +81,32 @@ def _price_rows(code: str, count: int = 340) -> list[DailyPrice]:
 
 def _stock(code: str = "005930", name: str = "삼성전자") -> StockMaster:
     return StockMaster(code=code, name=name, market="KOSPI", is_active=True)
+
+
+def test_market_signal_snapshot_normalizes_aware_generated_at_to_utc():
+    generated_at = datetime(2026, 9, 5, 10, 0, tzinfo=timezone(timedelta(hours=9)))
+    payload = {"strategy_version": STRATEGY_VERSION, "items": []}
+
+    with _session() as db:
+        saved = quant_signals.save_market_quant_signal_snapshot(
+            db,
+            payload,
+            universe_limit=2,
+            limit=0,
+            recent_days=30,
+            generated_at=generated_at,
+        )
+        loaded = quant_signals.load_market_quant_signal_snapshot(
+            db,
+            universe_limit=2,
+            limit=0,
+            recent_days=30,
+        )
+
+    expected = "2026-09-05T01:00:00+00:00"
+    assert saved["snapshot_generated_at"] == expected
+    assert loaded is not None
+    assert loaded["snapshot_generated_at"] == expected
 
 
 def _session() -> Session:

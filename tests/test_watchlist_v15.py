@@ -139,6 +139,19 @@ def test_recommendation_detail_is_single_column_and_action_first_on_mobile():
     assert "overflow-wrap: break-word;\n  word-break: keep-all;" in styles
 
 
+def test_recommendation_detail_revalidates_current_recommendation_before_rendering():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+    detail_loader = source.split("async function loadRecommendationDetail", 1)[1].split("function openRecommendationDetail", 1)[0]
+
+    assert "RECOMMENDATION_DETAIL_CACHE_VERSION = 2" in source
+    assert "RECOMMENDATION_DETAIL_CACHE_TTL_MS = 5 * 60_000" in source
+    assert 'parsed.pathname === "/market/recommendations"' in source
+    assert 'const payload = await fetchJsonCached("/market/recommendations?limit=20&candidate_limit=100", { force: true, ttlMs: 0 });' in detail_loader
+    assert detail_loader.index("const payload = await fetchJsonCached") < detail_loader.index("saveRecommendationDetailItem(item)")
+    assert "clearRecommendationDetailItem();" in detail_loader
+
+
 def test_recommendation_cards_show_linked_signal_status_and_load_full_history_on_demand():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text

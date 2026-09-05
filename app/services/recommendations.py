@@ -55,6 +55,7 @@ MARKET_CAP_UNIVERSE_LIMIT = 100
 KST = timezone(timedelta(hours=9))
 UNIVERSE_CACHE_TTL_SECONDS = 300
 RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_AGE_SECONDS = 6 * 60 * 60
+RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_FUTURE_SKEW_SECONDS = 60
 MAX_RECOMMENDATIONS_PER_SECTOR = 2
 RECOMMENDATION_SELECTION_RULE = "confirmed_entry_pending_or_entered_today"
 RECOMMENDATION_PENDING_STATE = "entry_confirmed"
@@ -258,8 +259,16 @@ def _recommendation_signal_snapshot_needs_refresh(
         return True
     if generated.tzinfo is None:
         generated = generated.replace(tzinfo=timezone.utc)
-    age_seconds = (now - generated.astimezone(KST)).total_seconds()
-    return age_seconds > RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_AGE_SECONDS
+    current_utc = (
+        now.astimezone(timezone.utc)
+        if now.tzinfo is not None
+        else now.replace(tzinfo=timezone.utc)
+    )
+    age_seconds = (current_utc - generated.astimezone(timezone.utc)).total_seconds()
+    return (
+        age_seconds > RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_AGE_SECONDS
+        or age_seconds < -RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_FUTURE_SKEW_SECONDS
+    )
 
 
 def _refresh_recommendation_signal_snapshot_if_stale(

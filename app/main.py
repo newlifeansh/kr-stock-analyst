@@ -175,6 +175,7 @@ from app.services.quant_signals import (
     load_market_quant_signal_snapshot,
     market_payload_has_trade_metadata,
     load_reference_quant_signal_payload,
+    SNAPSHOT_MAX_FUTURE_SKEW_SECONDS,
     quant_signal_current_summary_fields,
     quant_payload_has_trade_metadata,
     sanitize_pending_entry_signal_payload,
@@ -1161,17 +1162,30 @@ def _market_quant_signal_snapshot_freshness(
         if generated_at.tzinfo is None:
             generated_at = generated_at.replace(tzinfo=timezone.utc)
         generated_at = generated_at.astimezone(KST)
-    age_seconds = (
-        max(0, int((current - generated_at).total_seconds()))
-        if generated_at is not None
-        else None
+    if generated_at is not None:
+        current_utc = (
+            current.astimezone(timezone.utc)
+            if current.tzinfo is not None
+            else current.replace(tzinfo=timezone.utc)
+        )
+        generated_at_utc = generated_at.astimezone(timezone.utc)
+        raw_age_seconds = (current_utc - generated_at_utc).total_seconds()
+        age_seconds = max(0, int(raw_age_seconds))
+        future_skew_seconds = max(0, int(-raw_age_seconds))
+    else:
+        age_seconds = None
+        future_skew_seconds = None
+    stale = (
+        age_seconds is None
+        or future_skew_seconds > SNAPSHOT_MAX_FUTURE_SKEW_SECONDS
+        or age_seconds > max_age_seconds
     )
-    stale = age_seconds is None or age_seconds > max_age_seconds
     return {
         "snapshot_state": "stale" if stale else "fresh",
         "snapshot_age_seconds": age_seconds,
         "snapshot_max_age_seconds": max_age_seconds,
         "snapshot_generated_at": generated_at.isoformat() if generated_at else None,
+        "snapshot_future_skew_seconds": future_skew_seconds,
     }
 
 
@@ -7620,30 +7634,21 @@ def market_recommendations(
     key = ("market_recommendations", limit, candidate_limit)
     if refresh:
         payload = build_recommendations(db, limit=limit, candidate_limit=candidate_limit, refresh_live=True)
-        api_cache.set(
-            key,
-            payload,
-            RECOMMENDATION_TTL_SECONDS
-            if payload.get("items")
-            else RECOMMENDATION_EMPTY_CACHE_TTL_SECONDS,
-        )
+        if payload.get("items"):
+            api_cache.set(key, payload, 0)
+        else:
+            api_cache.set(key, payload, RECOMMENDATION_EMPTY_CACHE_TTL_SECONDS)
         return payload
     cached = api_cache.get(key)
-    if isinstance(cached, dict) and cached.get("items"):
-        return cached
     if cached is not None:
-        # An empty result is often a transient signal-refresh state. Expire it
-        # before rebuilding so an old empty response cannot hide new picks for
-        # the full recommendation cache window.
+        # Recommendation eligibility and prices can change without an HTTP
+        # cache hit. Never serve a non-empty in-process result as current.
         api_cache.set(key, cached, 0)
     payload = build_recommendations(db, limit=limit, candidate_limit=candidate_limit)
-    api_cache.set(
-        key,
-        payload,
-        RECOMMENDATION_TTL_SECONDS
-        if payload.get("items")
-        else RECOMMENDATION_EMPTY_CACHE_TTL_SECONDS,
-    )
+    if payload.get("items"):
+        api_cache.set(key, payload, 0)
+    else:
+        api_cache.set(key, payload, RECOMMENDATION_EMPTY_CACHE_TTL_SECONDS)
     return payload
 
 

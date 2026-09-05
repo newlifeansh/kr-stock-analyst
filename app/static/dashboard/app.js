@@ -514,6 +514,8 @@ const PUSH_ENTRY_PROMPT_WEEK_PREFIX = "analyst.pushEntryPromptWeek.v1";
 const RECOMMENDATION_PUSH_PROMPT_DECISION_PREFIX = "analyst.recommendationPushPromptDecision.v1";
 const RECOMMENDATION_HISTORY_KEY = "analyst.recommendationSnapshots";
 const RECOMMENDATION_TRACK_KEY = "analyst.recommendationTracks";
+const RECOMMENDATION_DETAIL_CACHE_VERSION = 2;
+const RECOMMENDATION_DETAIL_CACHE_TTL_MS = 5 * 60_000;
 const CHART_SNAPSHOT_KEY = "analyst.chartSnapshots";
 const UI_CACHE_TTL_MS = 60_000;
 const PAGE_ENTRY_MINUTE_MS = 60_000;
@@ -1246,6 +1248,7 @@ const state = {
   recommendTrackRequestId: 0,
   recommendationLoading: false,
   currentRecommendationDetailItem: null,
+  currentRecommendationDetailItemSavedAt: 0,
   morningMoneyBriefing: null,
   morningMoneyBriefingSelection: null,
   morningMoneyBriefingLoading: false,
@@ -8163,6 +8166,7 @@ function isUncachedKoreaMarketDataUrl(url) {
     const parsed = new URL(url, window.location.origin);
     return parsed.pathname === "/stocks/search"
       || parsed.pathname === "/stocks/quotes"
+      || parsed.pathname === "/market/recommendations"
       || /^\/stocks\/[^/]+\/quote$/.test(parsed.pathname)
       || (/^\/stocks\/[^/]+\/dashboard$/.test(parsed.pathname) && parsed.searchParams.get("include_live") !== "0");
   } catch {
@@ -21813,21 +21817,52 @@ function createRecommendationDecisionFlow(item = {}, options = {}) {
 }
 
 function saveRecommendationDetailItem(item) {
+  const savedAt = Date.now();
   state.currentRecommendationDetailItem = item;
+  state.currentRecommendationDetailItemSavedAt = savedAt;
   try {
-    sessionStorage.setItem("recommendation-detail-v1", JSON.stringify(item));
+    sessionStorage.setItem("recommendation-detail-v1", JSON.stringify({
+      version: RECOMMENDATION_DETAIL_CACHE_VERSION,
+      saved_at: savedAt,
+      item,
+    }));
+  } catch {
+    return;
+  }
+}
+
+function clearRecommendationDetailItem() {
+  state.currentRecommendationDetailItem = null;
+  state.currentRecommendationDetailItemSavedAt = 0;
+  try {
+    sessionStorage.removeItem("recommendation-detail-v1");
   } catch {
     return;
   }
 }
 
 function readRecommendationDetailItem(code = "") {
-  if (state.currentRecommendationDetailItem && (!code || state.currentRecommendationDetailItem.code === code)) {
+  if (
+    state.currentRecommendationDetailItem
+    && Date.now() - state.currentRecommendationDetailItemSavedAt <= RECOMMENDATION_DETAIL_CACHE_TTL_MS
+    && (!code || state.currentRecommendationDetailItem.code === code)
+  ) {
     return state.currentRecommendationDetailItem;
   }
   try {
-    const item = JSON.parse(sessionStorage.getItem("recommendation-detail-v1") || "null");
-    return item && (!code || item.code === code) ? item : null;
+    const cached = JSON.parse(sessionStorage.getItem("recommendation-detail-v1") || "null");
+    const savedAt = Number(cached?.saved_at);
+    const item = cached?.version === RECOMMENDATION_DETAIL_CACHE_VERSION ? cached.item : null;
+    if (
+      !item
+      || !Number.isFinite(savedAt)
+      || Date.now() - savedAt > RECOMMENDATION_DETAIL_CACHE_TTL_MS
+      || (code && item.code !== code)
+    ) {
+      sessionStorage.removeItem("recommendation-detail-v1");
+      return null;
+    }
+    return item;
   } catch {
     return null;
   }
@@ -21972,8 +22007,8 @@ function renderRecommendationDetail(
 
 async function loadRecommendationDetail(code = "") {
   window.scrollTo(0, 0);
-  let item = readRecommendationDetailItem(code);
-  if (!item && code) {
+  let item = null;
+  if (code) {
     try {
       const payload = await fetchJsonCached("/market/recommendations?limit=20&candidate_limit=100", { force: true, ttlMs: 0 });
       item = (payload.items || []).find((candidate) => candidate.code === code) || null;
@@ -21982,6 +22017,7 @@ async function loadRecommendationDetail(code = "") {
     }
   }
   if (!item) {
+    clearRecommendationDetailItem();
     elements.recommendDetailContent.replaceChildren(el("p", "muted", "추천 정보를 찾지 못했습니다. 추천 목록에서 다시 선택해주세요."));
     return;
   }

@@ -131,6 +131,19 @@ def test_recommendations_fail_closed_when_stale_signal_snapshot_cannot_refresh(m
         )
 
 
+def test_recommendations_treat_future_signal_snapshot_as_stale():
+    now = datetime(2026, 9, 3, 21, 0, tzinfo=recommendations.KST)
+    future_snapshot = {
+        "status": "ready",
+        "snapshot_generated_at": (now + timedelta(hours=1)).isoformat(),
+    }
+
+    assert recommendations._recommendation_signal_snapshot_needs_refresh(
+        future_snapshot,
+        now=now,
+    ) is True
+
+
 def _session() -> Session:
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)

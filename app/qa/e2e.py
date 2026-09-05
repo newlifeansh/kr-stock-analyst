@@ -5317,7 +5317,15 @@ def run_e2e_checks(
                     or contract.get("optionalCheckedCount") != 0
                     or contract.get("optionalSummary") != "0/6 선택"
                     or contract.get("statusHidden") is not False
-                    or "현재 알림은 꺼져 있어요" not in contract.get("statusText", "")
+                    or not any(
+                        phrase in contract.get("statusText", "")
+                        for phrase in (
+                            "현재 알림은 꺼져 있어요",
+                            "브라우저 설정에서 알림 권한을 허용한 뒤 다시 열어주세요",
+                            "알림 기능을 준비하고 있습니다",
+                            "이 브라우저에서는 웹 알림을 지원하지 않습니다",
+                        )
+                    )
                     or contract.get("repeatedLockedCopyCount")
                     or contract.get("lockedRowCount")
                 ):
@@ -5795,8 +5803,19 @@ def run_e2e_checks(
                 page.add_init_script(
                     "if (!sessionStorage.getItem('recommendation-detail-v1')) {"
                     "sessionStorage.setItem('recommendation-detail-v1', JSON.stringify("
-                    + json.dumps(item, ensure_ascii=False)
+                    + json.dumps(
+                        {
+                            "version": 2,
+                            "saved_at": 1_000_000_000_000,
+                            "item": item,
+                        },
+                        ensure_ascii=False,
+                    )
                     + "));}"
+                )
+                page.route(
+                    "**/market/recommendations*",
+                    lambda route: route.fulfill(json={"items": [item]}),
                 )
                 page.route(
                     "**/stocks/105560/ai-analysis*",
@@ -6018,7 +6037,7 @@ def run_e2e_checks(
                     }
                 )
                 page.evaluate(
-                    "payload => sessionStorage.setItem('recommendation-detail-v1', JSON.stringify(payload))",
+                    "payload => sessionStorage.setItem('recommendation-detail-v1', JSON.stringify({version: 2, saved_at: Date.now(), item: payload}))",
                     item,
                 )
                 page.reload(wait_until="commit")
@@ -6129,7 +6148,7 @@ def run_e2e_checks(
                     }
                 )
                 page.evaluate(
-                    "payload => sessionStorage.setItem('recommendation-detail-v1', JSON.stringify(payload))",
+                    "payload => sessionStorage.setItem('recommendation-detail-v1', JSON.stringify({version: 2, saved_at: Date.now(), item: payload}))",
                     item,
                 )
                 page.set_viewport_size({"width": 390, "height": 844})

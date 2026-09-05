@@ -80,6 +80,57 @@ def test_market_recommendations_do_not_keep_empty_payload_for_full_cache_window(
     assert second.headers["pragma"] == "no-cache"
 
 
+def test_market_recommendations_do_not_serve_non_empty_in_process_cache(monkeypatch):
+    from fastapi import Response
+    from app import main as main_module
+
+    calls = []
+
+    def recommendations(_db, **_kwargs):
+        calls.append(True)
+        return {
+            "as_of": datetime(2026, 9, 4, 15, 30, tzinfo=timezone(timedelta(hours=9))),
+            "universe_count": 100,
+            "screened_count": 1,
+            "candidate_count": 1,
+            "qualified_count": 1,
+            "pending_count": 1,
+            "entered_today_count": 0,
+            "selection_rule": "confirmed_entry_pending_or_entered_today",
+            "methodology": [],
+            "items": [{"code": f"00593{len(calls)}"}],
+        }
+
+    api_cache.clear()
+    with rate_limit_lock:
+        rate_limit_windows.clear()
+    monkeypatch.setattr("app.main.build_recommendations", recommendations)
+    monkeypatch.setattr("app.main._enforce_rate_limit", lambda *_args, **_kwargs: None)
+
+    try:
+        first = main_module.market_recommendations(
+            request=object(),
+            response=Response(),
+            limit=8,
+            candidate_limit=45,
+            refresh=False,
+            db=object(),
+        )
+        second = main_module.market_recommendations(
+            request=object(),
+            response=Response(),
+            limit=8,
+            candidate_limit=45,
+            refresh=False,
+            db=object(),
+        )
+    finally:
+        api_cache.clear()
+
+    assert first["items"][0]["code"] != second["items"][0]["code"]
+    assert len(calls) == 2
+
+
 def test_production_page_summary_endpoint_keeps_holding_unknown_as_input_only():
     with _page_summary_rate_lock:
         _page_summary_client_requests.clear()
@@ -817,6 +868,15 @@ def test_market_signal_snapshot_freshness_uses_session_specific_limits(monkeypat
     assert main_module._market_quant_signal_snapshot_freshness(
         closed_stale_payload, closed_now
     )["snapshot_state"] == "stale"
+    future_payload = {
+        "snapshot_generated_at": (closed_now + timedelta(hours=1)).isoformat()
+    }
+    future_freshness = main_module._market_quant_signal_snapshot_freshness(
+        future_payload, closed_now
+    )
+    assert future_freshness["snapshot_state"] == "stale"
+    assert future_freshness["snapshot_age_seconds"] == 0
+    assert future_freshness["snapshot_future_skew_seconds"] == 3600
 
 
 def test_fresh_market_signal_snapshot_keeps_current_preliminary_rows(monkeypatch):
