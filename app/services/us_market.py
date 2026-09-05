@@ -1087,6 +1087,7 @@ def _nth_from_end(items: list[USPrice], offset: int) -> Optional[USPrice]:
 
 def _momentum(prices: list[USPrice]) -> dict[str, object]:
     latest = prices[-1] if prices else None
+    one_week = _nth_from_end(prices, 5)
     one_month = _nth_from_end(prices, 21)
     three_month = _nth_from_end(prices, 63)
     recent_values = [row.trading_value for row in prices[-5:] if row.trading_value is not None]
@@ -1094,6 +1095,7 @@ def _momentum(prices: list[USPrice]) -> dict[str, object]:
     recent_average = Decimal(str(mean(recent_values))) if recent_values else None
     baseline_average = Decimal(str(mean(baseline_values))) if baseline_values else None
     return {
+        "one_week_return": _rate(latest.close if latest else None, one_week.close if one_week else None),
         "one_month_return": _rate(latest.close if latest else None, one_month.close if one_month else None),
         "three_month_return": _rate(latest.close if latest else None, three_month.close if three_month else None),
         "trading_value_change": _rate(recent_average, baseline_average),
@@ -1794,8 +1796,24 @@ def _us_market_label(market: str = "ALL") -> str:
     return "전체 미장"
 
 
-def build_us_rankings(category: str = "surge", limit: int = 20, market: str = "ALL") -> dict[str, object]:
-    category = category if category in {"surge", "trading_value", "valuation", "momentum", "sentiment"} else "surge"
+def build_us_rankings(
+    category: str = "surge",
+    limit: int = 20,
+    market: str = "ALL",
+    mode: str = "",
+) -> dict[str, object]:
+    category = category if category in {
+        "surge",
+        "volume",
+        "market_cap",
+        "dividend",
+        "per",
+        "trading_value",
+        "valuation",
+        "momentum",
+        "sentiment",
+    } else "surge"
+    normalized_mode = str(mode or "").strip().lower()
     universe = _us_universe_for_market(market)
     dashboards = []
     with ThreadPoolExecutor(max_workers=min(12, max(1, len(universe)))) as executor:
@@ -1809,6 +1827,18 @@ def build_us_rankings(category: str = "surge", limit: int = 20, market: str = "A
         quote = payload["quote"]
         momentum = payload["momentum"]
         sentiment = payload["sentiment"]
+        valuation = payload.get("valuation") or {}
+        if category == "volume":
+            return Decimal(str(quote.get("volume") or 0))
+        if category == "market_cap":
+            return Decimal(str(quote.get("market_cap") or 0))
+        if category == "dividend":
+            dividend_yield = Decimal(str(valuation.get("dividend_yield") or 0))
+            if normalized_mode == "amount":
+                return Decimal(str(quote.get("price") or 0)) * dividend_yield / Decimal("100")
+            return dividend_yield
+        if category == "per":
+            return Decimal(str(valuation.get("per") or 0))
         if category == "trading_value":
             return Decimal(str(quote.get("trading_value") or 0))
         if category == "momentum":
@@ -1816,16 +1846,28 @@ def build_us_rankings(category: str = "surge", limit: int = 20, market: str = "A
         if category == "sentiment":
             return Decimal(str(sentiment.get("score") or 0))
         if category == "valuation":
-            valuation = payload.get("valuation") or {}
             return _valuation_score(valuation)
+        if category == "surge" and normalized_mode in {"week", "weekly"}:
+            return Decimal(str(momentum.get("one_week_return") or 0))
+        if category == "surge" and normalized_mode in {"month", "monthly"}:
+            return Decimal(str(momentum.get("one_month_return") or 0))
         return Decimal(str(quote.get("change_rate") or 0))
 
+    if category in {"per", "dividend", "market_cap", "volume"}:
+        dashboards = [payload for payload in dashboards if metric(payload) > 0]
+    reverse = category != "per"
     rows = []
-    for rank, payload in enumerate(sorted(dashboards, key=metric, reverse=True)[:limit], start=1):
+    for rank, payload in enumerate(sorted(dashboards, key=metric, reverse=reverse)[:limit], start=1):
         quote = payload["quote"]
         momentum = payload["momentum"]
         sentiment = payload["sentiment"]
         valuation = payload.get("valuation") or {}
+        dividend_yield = valuation.get("dividend_yield")
+        dividend_per_share = (
+            Decimal(str(quote.get("price"))) * Decimal(str(dividend_yield)) / Decimal("100")
+            if quote.get("price") is not None and dividend_yield is not None
+            else None
+        )
         rows.append(
             {
                 "rank": rank,
@@ -1834,20 +1876,33 @@ def build_us_rankings(category: str = "surge", limit: int = 20, market: str = "A
                 "name": payload["name"],
                 "market": payload["market"],
                 "trade_date": quote.get("trade_date"),
+                "currency": "USD",
                 "price": quote.get("price"),
                 "change_rate": quote.get("change_rate"),
+                "volume": quote.get("volume"),
+                "market_cap": quote.get("market_cap"),
+                "one_week_return": momentum.get("one_week_return"),
                 "one_month_return": momentum.get("one_month_return"),
                 "three_month_return": momentum.get("three_month_return"),
                 "trading_value": quote.get("trading_value"),
                 "trading_value_change": momentum.get("trading_value_change"),
                 "per": valuation.get("per"),
                 "pbr": valuation.get("pbr"),
+                "dividend_yield": dividend_yield,
+                "dividend_per_share": dividend_per_share,
                 "sentiment_score": sentiment.get("score"),
                 "news_count": sum(sentiment.get(key, 0) for key in ("positive_count", "negative_count", "neutral_count")),
                 "metric_value": metric(payload),
             }
         )
-    return {"category": category, "market": _us_market_label(market), "as_of": datetime.now(timezone.utc), "items": rows}
+    return {
+        "category": category,
+        "mode": normalized_mode,
+        "market": _us_market_label(market),
+        "source": "yahoo_finance",
+        "as_of": datetime.now(timezone.utc),
+        "items": rows,
+    }
 
 
 def build_us_recommendations(limit: int = 8, candidate_limit: int = 30) -> dict[str, object]:

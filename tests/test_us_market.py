@@ -65,6 +65,89 @@ def test_us_rankings_scan_full_universe(monkeypatch):
     assert set(calls) == universe_codes
 
 
+def test_us_rankings_support_current_dashboard_volume_market_cap_and_low_per(monkeypatch):
+    universe = [
+        {"code": "AAA", "name": "Alpha", "market": "NASDAQ", "sector": "기술"},
+        {"code": "BBB", "name": "Beta", "market": "NASDAQ", "sector": "기술"},
+    ]
+    values = {
+        "AAA": {"volume": 100, "market_cap": Decimal("500"), "per": Decimal("30")},
+        "BBB": {"volume": 300, "market_cap": Decimal("900"), "per": Decimal("12")},
+    }
+
+    def fake_dashboard(code):
+        value = values[code]
+        return {
+            "code": code,
+            "name": code,
+            "market": "NASDAQ",
+            "quote": {
+                "trade_date": None,
+                "price": Decimal("100"),
+                "change_rate": Decimal("1"),
+                "volume": value["volume"],
+                "trading_value": Decimal(value["volume"] * 100),
+                "market_cap": value["market_cap"],
+            },
+            "momentum": {
+                "one_week_return": Decimal("2"),
+                "one_month_return": Decimal("3"),
+                "three_month_return": Decimal("4"),
+                "trading_value_change": Decimal("5"),
+            },
+            "sentiment": {"score": Decimal("0"), "positive_count": 0, "negative_count": 0, "neutral_count": 0},
+            "valuation": {"per": value["per"], "pbr": Decimal("2"), "dividend_yield": Decimal("1")},
+        }
+
+    monkeypatch.setattr(us_market, "_us_universe_for_market", lambda market: universe)
+    monkeypatch.setattr(us_market, "_dashboard_cached", fake_dashboard)
+
+    volume = us_market.build_us_rankings("volume", limit=5, market="NASDAQ")
+    market_cap = us_market.build_us_rankings("market_cap", limit=5, market="NASDAQ")
+    low_per = us_market.build_us_rankings("per", limit=5, market="NASDAQ")
+
+    assert [item["code"] for item in volume["items"]] == ["BBB", "AAA"]
+    assert [item["code"] for item in market_cap["items"]] == ["BBB", "AAA"]
+    assert [item["code"] for item in low_per["items"]] == ["BBB", "AAA"]
+    assert volume["source"] == "yahoo_finance"
+    assert volume["items"][0]["currency"] == "USD"
+    assert volume["items"][0]["volume"] == 300
+
+
+def test_us_surge_ranking_honors_week_and_month_modes(monkeypatch):
+    universe = [
+        {"code": "AAA", "name": "Alpha", "market": "NASDAQ", "sector": "기술"},
+        {"code": "BBB", "name": "Beta", "market": "NASDAQ", "sector": "기술"},
+    ]
+
+    def fake_dashboard(code):
+        is_alpha = code == "AAA"
+        return {
+            "code": code,
+            "name": code,
+            "market": "NASDAQ",
+            "quote": {"trade_date": None, "price": Decimal("100"), "change_rate": Decimal("1"), "volume": 10, "trading_value": Decimal("1000"), "market_cap": Decimal("10000")},
+            "momentum": {
+                "one_week_return": Decimal("9" if is_alpha else "2"),
+                "one_month_return": Decimal("1" if is_alpha else "8"),
+                "three_month_return": Decimal("3"),
+                "trading_value_change": Decimal("0"),
+            },
+            "sentiment": {"score": Decimal("0"), "positive_count": 0, "negative_count": 0, "neutral_count": 0},
+            "valuation": {"per": Decimal("20"), "pbr": Decimal("2")},
+        }
+
+    monkeypatch.setattr(us_market, "_us_universe_for_market", lambda market: universe)
+    monkeypatch.setattr(us_market, "_dashboard_cached", fake_dashboard)
+
+    week = us_market.build_us_rankings("surge", limit=5, market="NASDAQ", mode="week")
+    month = us_market.build_us_rankings("surge", limit=5, market="NASDAQ", mode="month")
+
+    assert [item["code"] for item in week["items"]] == ["AAA", "BBB"]
+    assert [item["code"] for item in month["items"]] == ["BBB", "AAA"]
+    assert week["items"][0]["one_week_return"] == Decimal("9")
+
+
 def test_research_from_quote_summary_fills_analyst_fields():
     payload = {
         "financialData": {

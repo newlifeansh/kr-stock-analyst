@@ -913,7 +913,8 @@ const STOCK_TERM_HELP = {
 const dashboardQueryParams = new URLSearchParams(window.location.search);
 const requestedView = dashboardQueryParams.get("view");
 const requestedMarketRankingSnapshotId = dashboardQueryParams.get("snapshot") || "";
-const requestedMarketRankingMarket = dashboardQueryParams.get("market") || "ALL";
+const isUsRootPath = /^\/us\/?$/.test(window.location.pathname);
+const requestedMarketRankingMarket = dashboardQueryParams.get("market") || (isUsRootPath ? "NASDAQ" : "ALL");
 const requestedMarketRankingCategory = dashboardQueryParams.get("category") || "volume";
 const requestedMarketRankingMode = dashboardQueryParams.get("mode") || "";
 const requestedNewsFilter = dashboardQueryParams.get("filter") || "all";
@@ -1043,6 +1044,9 @@ const MARKET_RANKING_CONFIG = Object.freeze({
   }),
 });
 const DEFAULT_MARKET_RANKING_CATEGORY = "volume";
+const MARKET_RANKING_MARKETS = new Set(["ALL", "KOSPI", "KOSDAQ", "NASDAQ", "SP500"]);
+const US_MARKET_RANKING_MARKETS = new Set(["NASDAQ", "SP500"]);
+const US_MARKET_RANKING_CATEGORIES = new Set(["volume", "surge", "market_cap", "dividend", "per"]);
 const STOCK_ETF_NAME_PREFIXES = Object.freeze([
   "1Q", "ACE", "ARIRANG", "BNK", "DAISHIN", "DS", "FOCUS", "HANARO", "HEROES", "HK",
   "IBK", "KCGI", "KBSTAR", "KINDEX", "KIWOOM", "KOACT", "KODEX", "KOSEF", "MIGHTY",
@@ -1099,7 +1103,7 @@ const state = {
   homeSurgeSector: "all",
   homeRankingCategory: DEFAULT_MARKET_RANKING_CATEGORY,
   homeRankingMode: "",
-  homeRankingMarket: "ALL",
+  homeRankingMarket: MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL",
   homeRankingRequestId: 0,
   homeSurgeItems: [],
   homeMarketIndexItems: [],
@@ -1143,7 +1147,7 @@ const state = {
   selectedWatchChartCode: "",
   marketRankingCache: new Map(),
   marketRankingSnapshotId: requestedMarketRankingSnapshotId,
-  marketRankingMarket: ["ALL", "KOSPI", "KOSDAQ"].includes(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL",
+  marketRankingMarket: MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL",
   marketRankingSnapshotAsOf: "",
   marketRankingMode: requestedMarketRankingMode,
   marketLeaderboardItems: [],
@@ -1517,6 +1521,25 @@ function formatMoney(value) {
     return `${(number / 1_0000_0000).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}억`;
   }
   return number.toLocaleString("ko-KR");
+}
+
+function formatUsdCompact(value) {
+  const number = toNumber(value);
+  if (number === null) {
+    return "-";
+  }
+  const absolute = Math.abs(number);
+  const units = [
+    [1_000_000_000_000, "T"],
+    [1_000_000_000, "B"],
+    [1_000_000, "M"],
+  ];
+  for (const [divisor, suffix] of units) {
+    if (absolute >= divisor) {
+      return `$${(number / divisor).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}${suffix}`;
+    }
+  }
+  return `$${number.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}`;
 }
 
 function formatCompactCount(value) {
@@ -8099,6 +8122,10 @@ function createStockListLogo(code, className = "") {
   return frame;
 }
 
+function createRankingStockLogo(item = {}) {
+  return createStockListLogo(item.currency === "USD" ? "" : item.code);
+}
+
 function renderStockTitleLogo(stock = state.currentStock) {
   if (!elements.stockTitleLogo) {
     return;
@@ -9145,6 +9172,14 @@ function sentimentBreakdown(sentiment = {}) {
 
 function viewStockUrl(name) {
   return `/dashboard/${encodeURIComponent(name)}`;
+}
+
+function rankingStockUrl(item = {}, selectedMarket = "ALL") {
+  const code = item.code || item.name || "";
+  if (isUsRankingMarket(selectedMarket) || item.currency === "USD") {
+    return `/us/stock/${encodeURIComponent(code)}`;
+  }
+  return viewStockUrl(code);
 }
 
 function showStockShareStatus(message) {
@@ -12339,10 +12374,13 @@ function normalizeMarketRankingMode(category, mode) {
   return modes.some((item) => item.key === mode) ? mode : modes[0].key;
 }
 
-function formatRankingMarketCap(value) {
+function formatRankingMarketCap(value, currency = "KRW") {
   const number = toNumber(value);
   if (number === null) {
     return "-";
+  }
+  if (currency === "USD") {
+    return formatUsdCompact(number);
   }
   return Math.abs(number) >= 100_000_000
     ? formatMoney(number)
@@ -12362,31 +12400,39 @@ function rankingPeriodReturn(item, mode) {
 
 function rankingMetricPresentation(item, category = state.rankingCategory, mode = state.marketRankingMode) {
   const normalizedMode = normalizeMarketRankingMode(category, mode);
+  const numericPrice = toNumber(item.price);
+  const priceText = numericPrice === null
+    ? "-"
+    : item.currency === "USD"
+      ? `$${numericPrice.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}`
+      : formatNumber(numericPrice);
   const quoteText = item.price == null
     ? "현재 시세 확인 중"
-    : `${formatNumber(item.price)} · ${formatPercent(item.change_rate)}`;
+    : `${priceText} · ${formatPercent(item.change_rate)}`;
   if (category === "volume") {
     return { primary: formatRankingVolume(item.volume), secondary: quoteText, tone: null };
   }
   if (category === "surge") {
     const periodReturn = rankingPeriodReturn(item, normalizedMode);
     if (normalizedMode === "daily") {
-      return { primary: formatNumber(item.price), secondary: formatPercent(periodReturn), tone: periodReturn };
+      return { primary: priceText, secondary: formatPercent(periodReturn), tone: periodReturn };
     }
-    return { primary: formatPercent(periodReturn), secondary: `현재 ${formatNumber(item.price)} · ${formatPercent(item.change_rate)}`, tone: periodReturn };
+    return { primary: formatPercent(periodReturn), secondary: `현재 ${priceText} · ${formatPercent(item.change_rate)}`, tone: periodReturn };
   }
   if (category === "market_cap") {
-    return { primary: formatRankingMarketCap(item.market_cap), secondary: quoteText, tone: null };
+    return { primary: formatRankingMarketCap(item.market_cap, item.currency), secondary: quoteText, tone: null };
   }
   if (category === "etf") {
     const primary = normalizedMode === "volume"
       ? formatRankingVolume(item.volume)
-      : formatRankingMarketCap(item.market_cap);
+      : formatRankingMarketCap(item.market_cap, item.currency);
     return { primary, secondary: quoteText, tone: null };
   }
   if (category === "dividend") {
     const primary = normalizedMode === "amount"
-      ? `${formatNumber(item.dividend_per_share)}원`
+      ? item.currency === "USD"
+        ? formatUsdCompact(item.dividend_per_share)
+        : `${formatNumber(item.dividend_per_share)}원`
       : formatPercent(item.dividend_yield);
     return { primary, secondary: quoteText, tone: item.dividend_yield };
   }
@@ -12394,7 +12440,7 @@ function rankingMetricPresentation(item, category = state.rankingCategory, mode 
     return { primary: item.per == null ? "-" : formatMultiple(item.per), secondary: quoteText, tone: null };
   }
   if (["low52", "high52"].includes(category)) {
-    return { primary: formatNumber(item.price), secondary: formatPercent(item.change_rate), tone: item.change_rate };
+    return { primary: priceText, secondary: formatPercent(item.change_rate), tone: item.change_rate };
   }
   if (category === "trading_value") return { primary: formatMoney(item.trading_value), secondary: quoteText, tone: null };
   if (category === "momentum") return { primary: formatPercent(item.metric_value), secondary: quoteText, tone: item.metric_value };
@@ -12448,7 +12494,7 @@ function createMarketLeaderboardCard(item) {
 
   const main = document.createElement("a");
   main.className = "market-leaderboard-main";
-  main.href = viewStockUrl(item.code || item.name);
+  main.href = rankingStockUrl(item, state.marketRankingMarket);
 
   const rank = document.createElement("span");
   rank.className = "market-rank-badge";
@@ -12463,7 +12509,7 @@ function createMarketLeaderboardCard(item) {
   strong.textContent = item.name;
 
   name.append(strong);
-  identity.append(createStockListLogo(item.code), name);
+  identity.append(createRankingStockLogo(item), name);
 
   const quoteBlock = renderRankingMetricBlock(
     document.createElement("span"),
@@ -12537,6 +12583,9 @@ function startMarketSurgeLeaderboard(payload) {
   state.marketLeaderboardTradeDate = state.marketLeaderboardItems.find((item) => item.trade_date)?.trade_date || "";
   state.marketLeaderboardItems = state.marketLeaderboardItems.map((item, index) => ({ ...item, rank: index + 1 }));
   renderMarketSurgeLeaderboard();
+  if (isUsRankingMarket(state.marketRankingMarket)) {
+    return;
+  }
   for (const item of state.marketLeaderboardItems.slice(0, 50)) {
     connectMarketQuoteStream(item.code);
   }
@@ -12651,7 +12700,20 @@ function isDomesticMarketClosed(now = new Date()) {
 
 function marketRankingBasisLabel(payload = {}, options = {}) {
   const firstTradeDate = (payload.items || []).find((item) => item.trade_date)?.trade_date;
-  const marketLabel = payload.market === "KOSDAQ" ? "KOSDAQ" : payload.market === "KOSPI" ? "KOSPI" : "전체 시장";
+  const usMarket = ["NASDAQ", "S&P 500", "전체 미장"].includes(payload.market)
+    || (payload.items || []).some((item) => item.currency === "USD");
+  const marketLabel = payload.market === "KOSDAQ"
+    ? "KOSDAQ"
+    : payload.market === "KOSPI"
+      ? "KOSPI"
+      : usMarket
+        ? payload.market || "미국 시장"
+        : "국내 전체";
+  if (usMarket) {
+    const closeDate = formatDateLabel(firstTradeDate || payload.as_of);
+    const basis = closeDate === "-" ? "미국장 기준 정보 확인 중" : `${closeDate} 미국장 마감 기준`;
+    return options.includeMarket === false ? basis : `${basis} · ${marketLabel}`;
+  }
   if (firstTradeDate && isDomesticMarketClosed()) {
     const closeDate = formatDateLabel(firstTradeDate);
     if (closeDate !== "-") {
@@ -16521,13 +16583,13 @@ function renderHomeMarketSignalTicker(payload = {}) {
 function createHomeSurgeRow(item, index) {
   const row = document.createElement("a");
   row.className = "home-surge-row home-ranking-row";
-  row.href = viewStockUrl(item.code || item.name);
+  row.href = rankingStockUrl(item, state.homeRankingMarket);
   row.dataset.code = item.code || "";
 
   const rank = el("span", "home-surge-rank", String(Number(item.rank) || index + 1));
   const identity = el("span", "home-surge-identity");
   identity.append(
-    createStockListLogo(item.code),
+    createRankingStockLogo(item),
     createStockListCopy(item.name, item.code)
   );
   const quote = renderRankingMetricBlock(
@@ -16556,7 +16618,11 @@ function marketRankingColumnLabel(category, mode) {
 
 function syncHomeRankingCategoryTabs() {
   for (const tab of elements.homeRankingCategoryTabs) {
-    const selected = tab.dataset.homeRankingCategory === state.homeRankingCategory;
+    const category = tab.dataset.homeRankingCategory;
+    const available = !isUsRankingMarket(state.homeRankingMarket) || US_MARKET_RANKING_CATEGORIES.has(category);
+    const selected = available && category === state.homeRankingCategory;
+    tab.hidden = !available;
+    tab.disabled = !available;
     tab.classList.toggle("active", selected);
     tab.setAttribute("aria-selected", String(selected));
     tab.tabIndex = selected ? 0 : -1;
@@ -16641,6 +16707,10 @@ function updateHomeRankingQuote(code, quote) {
 }
 
 function connectHomeRankingQuoteStreams(items = state.homeSurgeItems.slice(0, 5)) {
+  if (isUsRankingMarket(state.homeRankingMarket)) {
+    closeHomeRankingQuoteStreams();
+    return;
+  }
   replaceQuoteStreamScope("home-ranking", items.slice(0, 5).map((item) => ({
     code: item.code,
     handlers: {
@@ -16701,7 +16771,10 @@ async function loadHomeSurgeRankings(options = {}) {
 }
 
 function setHomeRankingCategory(category, options = {}) {
-  const normalized = MARKET_RANKING_CONFIG[category] ? category : DEFAULT_MARKET_RANKING_CATEGORY;
+  const requested = MARKET_RANKING_CONFIG[category] ? category : DEFAULT_MARKET_RANKING_CATEGORY;
+  const normalized = isUsRankingMarket(state.homeRankingMarket) && !US_MARKET_RANKING_CATEGORIES.has(requested)
+    ? DEFAULT_MARKET_RANKING_CATEGORY
+    : requested;
   state.homeRankingCategory = normalized;
   state.homeRankingMode = defaultMarketRankingMode(normalized);
   state.homeSurgeItems = [];
@@ -16721,7 +16794,11 @@ function setHomeRankingCategory(category, options = {}) {
 }
 
 function normalizeHomeRankingMarket(market) {
-  return ["ALL", "KOSPI", "KOSDAQ"].includes(market) ? market : "ALL";
+  return MARKET_RANKING_MARKETS.has(market) ? market : "ALL";
+}
+
+function isUsRankingMarket(market) {
+  return US_MARKET_RANKING_MARKETS.has(normalizeHomeRankingMarket(market));
 }
 
 function homeRankingRequestMarket(category = state.homeRankingCategory) {
@@ -16729,7 +16806,7 @@ function homeRankingRequestMarket(category = state.homeRankingCategory) {
 }
 
 function homeRankingMarketLabel(market) {
-  return ({ ALL: "전체", KOSPI: "코스피", KOSDAQ: "코스닥" })[market] || "전체";
+  return ({ ALL: "국내 전체", KOSPI: "코스피", KOSDAQ: "코스닥", NASDAQ: "나스닥", SP500: "S&P 500" })[market] || "국내 전체";
 }
 
 function syncHomeRankingMarketControls() {
@@ -16830,6 +16907,12 @@ function setHomeRankingMarket(market, options = {}) {
   const normalized = normalizeHomeRankingMarket(market);
   const changed = state.homeRankingMarket !== normalized;
   state.homeRankingMarket = normalized;
+  if (isUsRankingMarket(normalized) && !US_MARKET_RANKING_CATEGORIES.has(state.homeRankingCategory)) {
+    state.homeRankingCategory = DEFAULT_MARKET_RANKING_CATEGORY;
+    state.homeRankingMode = defaultMarketRankingMode(state.homeRankingCategory);
+  }
+  syncHomeRankingCategoryTabs();
+  renderHomeSurgeSectorFilters();
   syncHomeRankingMarketControls();
   closeHomeRankingMarketSheet();
   if (!changed || options.load === false) {
@@ -16848,7 +16931,7 @@ function currentMarketFilter() {
 }
 
 function setMarketFilter(market) {
-  const normalized = ["ALL", "KOSPI", "KOSDAQ"].includes(market) ? market : "ALL";
+  const normalized = normalizeHomeRankingMarket(market);
   state.marketRankingMarket = normalized;
   for (const tab of elements.marketTabs) {
     const active = tab.dataset.marketFilter === normalized;
@@ -16866,6 +16949,9 @@ function stopMarketRankingRefresh() {
 function scheduleMarketRankingRefresh() {
   stopMarketRankingRefresh();
   if (state.view !== "movers") {
+    return;
+  }
+  if (isUsRankingMarket(currentMarketFilter())) {
     return;
   }
   const phase = koreaMarketPhase();
@@ -16969,11 +17055,15 @@ function setMarketRankingMode(mode, options = {}) {
 }
 
 function requestMarketRanking(category, market, options = {}) {
-  const normalizedCategory = MARKET_RANKING_CONFIG[category] ? category : DEFAULT_MARKET_RANKING_CATEGORY;
+  const usMarket = isUsRankingMarket(market);
+  const requestedCategory = MARKET_RANKING_CONFIG[category] ? category : DEFAULT_MARKET_RANKING_CATEGORY;
+  const normalizedCategory = usMarket && !US_MARKET_RANKING_CATEGORIES.has(requestedCategory)
+    ? DEFAULT_MARKET_RANKING_CATEGORY
+    : requestedCategory;
   const mode = normalizeMarketRankingMode(normalizedCategory, options.mode);
   const limit = Math.max(1, Math.min(3000, Number(options.limit) || 50));
   const force = options.force === true;
-  const snapshotId = normalizedCategory === "surge" && mode === "daily" && !force
+  const snapshotId = !usMarket && normalizedCategory === "surge" && mode === "daily" && !force
     ? String(options.snapshotId || "").trim()
     : "";
   const key = marketRankingKey(normalizedCategory, market, limit, snapshotId, mode);
@@ -16993,7 +17083,7 @@ function requestMarketRanking(category, market, options = {}) {
   if (mode) {
     params.set("mode", mode);
   }
-  if (force) {
+  if (force && !usMarket) {
     params.set("refresh", "1");
   }
   if (snapshotId) {
@@ -17002,14 +17092,14 @@ function requestMarketRanking(category, market, options = {}) {
   if (market !== "ALL") {
     params.set("market", market);
   }
-  const url = `/market/rankings?${params.toString()}`;
+  const url = `${usMarket ? "/us/market/rankings" : "/market/rankings"}?${params.toString()}`;
   const promise = fetchJsonCached(url, {
     force,
     ttlMs: force ? 0 : ttlMs,
     timeoutMs: 25_000,
   })
     .then((payload) => {
-      if (normalizedCategory === "surge" && mode === "daily" && payload?.snapshot_id) {
+      if (!usMarket && normalizedCategory === "surge" && mode === "daily" && payload?.snapshot_id) {
         state.marketRankingSnapshotId = payload.snapshot_id;
         state.marketRankingSnapshotAsOf = payload.snapshot_captured_at || payload.as_of || "";
       }
@@ -17029,17 +17119,21 @@ async function prefetchMarketRankings(market = currentMarketFilter()) {
 }
 
 async function loadMarketRankings(options = {}) {
-  const category = MARKET_RANKING_CONFIG[options.category]
+  let category = MARKET_RANKING_CONFIG[options.category]
     ? options.category
     : MARKET_RANKING_CONFIG[state.rankingCategory]
       ? state.rankingCategory
       : DEFAULT_MARKET_RANKING_CATEGORY;
+  const requestedMarket = normalizeHomeRankingMarket(options.market || currentMarketFilter());
+  if (isUsRankingMarket(requestedMarket) && !US_MARKET_RANKING_CATEGORIES.has(category)) {
+    category = DEFAULT_MARKET_RANKING_CATEGORY;
+  }
   state.rankingCategory = category;
   state.marketRankingMode = normalizeMarketRankingMode(category, options.mode ?? state.marketRankingMode);
   if (elements.rankCategorySelect) {
     elements.rankCategorySelect.value = category;
   }
-  const market = setMarketFilter(category === "etf" ? "ALL" : options.market || currentMarketFilter());
+  const market = setMarketFilter(category === "etf" ? "ALL" : requestedMarket);
   const limit = Math.max(1, Math.min(50, Number(options.limit) || 50));
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
@@ -24857,7 +24951,14 @@ async function syncViewFromLocation() {
   const routeMarket = params.get("market") || "ALL";
   const routeCategory = params.get("category") || DEFAULT_MARKET_RANKING_CATEGORY;
   const routeNewsFilter = params.get("filter") || "all";
-  state.marketRankingMarket = ["ALL", "KOSPI", "KOSDAQ"].includes(routeMarket) ? routeMarket : "ALL";
+  state.marketRankingMarket = normalizeHomeRankingMarket(routeMarket);
+  if (routeView === "home") {
+    state.homeRankingMarket = state.marketRankingMarket;
+    if (isUsRankingMarket(state.homeRankingMarket) && !US_MARKET_RANKING_CATEGORIES.has(state.homeRankingCategory)) {
+      state.homeRankingCategory = DEFAULT_MARKET_RANKING_CATEGORY;
+      state.homeRankingMode = defaultMarketRankingMode(state.homeRankingCategory);
+    }
+  }
   state.rankingCategory = MARKET_RANKING_CONFIG[routeCategory] ? routeCategory : DEFAULT_MARKET_RANKING_CATEGORY;
   state.marketRankingMode = normalizeMarketRankingMode(state.rankingCategory, params.get("mode") || "");
   state.marketRankingSnapshotId = params.get("snapshot") || "";
@@ -25015,7 +25116,10 @@ function moveRovingTabFocus(event, tabs, currentTab = event.currentTarget) {
 
 for (const tab of elements.homeRankingCategoryTabs) {
   tab.addEventListener("click", () => setHomeRankingCategory(tab.dataset.homeRankingCategory));
-  tab.addEventListener("keydown", (event) => moveRovingTabFocus(event, elements.homeRankingCategoryTabs));
+  tab.addEventListener("keydown", (event) => moveRovingTabFocus(
+    event,
+    elements.homeRankingCategoryTabs.filter((item) => !item.hidden && !item.disabled),
+  ));
 }
 
 elements.homeSurgeSectorFilters?.addEventListener("click", (event) => {
@@ -25857,7 +25961,9 @@ document.addEventListener("visibilitychange", () => {
   } else if (state.view === "news") {
     void loadTrends("live", { force: true, ttlMs: 0 });
   } else if (state.view === "movers") {
-    state.marketLeaderboardItems.slice(0, 50).forEach((item) => connectMarketQuoteStream(item.code));
+    if (!isUsRankingMarket(state.marketRankingMarket)) {
+      state.marketLeaderboardItems.slice(0, 50).forEach((item) => connectMarketQuoteStream(item.code));
+    }
     scheduleMarketRankingRefresh();
   } else if (state.view === "stock" && state.currentStock) {
     connectQuoteStream(state.currentStock);

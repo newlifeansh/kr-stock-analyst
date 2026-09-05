@@ -25,13 +25,13 @@
       }
     </script>
     <script src="/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts" data-staging-theme-bootstrap></script>
-    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
-    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153" />
-    <script src="/assets/staging/ai-stock-response-logic.js?v=20260904-production-gpt-v93" defer></script>
-    <script src="/assets/staging/stock-change-copy-logic.js?v=20260904-production-gpt-v93" defer></script>
-    <script src="/assets/staging/toss-ia.js?v=20260904-production-gpt-v93" defer></script>
+    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
+    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154" />
+    <script src="/assets/staging/ai-stock-response-logic.js?v=20260905-us-ranking-v94" defer></script>
+    <script src="/assets/staging/stock-change-copy-logic.js?v=20260905-us-ranking-v94" defer></script>
+    <script src="/assets/staging/toss-ia.js?v=20260905-us-ranking-v94" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260904v465&amp;build=20260904v465" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260905v466&amp;build=20260905v466" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -169,7 +169,7 @@
           <h2 id="home-ranking-market-sheet-title">거래소</h2>
           <div class="home-ranking-market-options" role="radiogroup" aria-label="TOP 50 거래소 선택">
             <button class="active" type="button" role="radio" aria-checked="true" data-home-ranking-market="ALL">
-              <span>전체</span>
+              <span>국내 전체</span>
               <span class="home-ranking-market-check" aria-hidden="true">
                 <svg viewBox="0 0 24 24" focusable="false"><path d="m7 12 3.2 3.2L17 8.5"></path></svg>
               </span>
@@ -182,6 +182,18 @@
             </button>
             <button type="button" role="radio" aria-checked="false" data-home-ranking-market="KOSDAQ">
               <span>코스닥</span>
+              <span class="home-ranking-market-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false"><path d="m7 12 3.2 3.2L17 8.5"></path></svg>
+              </span>
+            </button>
+            <button type="button" role="radio" aria-checked="false" data-home-ranking-market="NASDAQ">
+              <span>나스닥</span>
+              <span class="home-ranking-market-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false"><path d="m7 12 3.2 3.2L17 8.5"></path></svg>
+              </span>
+            </button>
+            <button type="button" role="radio" aria-checked="false" data-home-ranking-market="SP500">
+              <span>S&amp;P 500</span>
               <span class="home-ranking-market-check" aria-hidden="true">
                 <svg viewBox="0 0 24 24" focusable="false"><path d="m7 12 3.2 3.2L17 8.5"></path></svg>
               </span>
@@ -940,7 +952,7 @@
               aria-controls="home-ranking-market-sheet"
               aria-expanded="false"
             >
-              <span id="home-ranking-market-trigger-label">전체</span>
+              <span id="home-ranking-market-trigger-label">국내 전체</span>
               <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m6 8 4 4 4-4"></path></svg>
             </button>
           </header>
@@ -1154,9 +1166,11 @@
         </header>
         <nav class="market-ranking-mode-tabs" id="market-ranking-mode-tabs" role="tablist" aria-label="순위 기간 및 기준" hidden></nav>
         <nav class="market-segment market-ranking-tabs" role="tablist" aria-label="시장 선택">
-          <button class="market-segment-button active" type="button" data-market-filter="ALL" role="tab" aria-selected="true">전체</button>
+          <button class="market-segment-button active" type="button" data-market-filter="ALL" role="tab" aria-selected="true">국내</button>
           <button class="market-segment-button" type="button" data-market-filter="KOSPI" role="tab" aria-selected="false">KOSPI</button>
           <button class="market-segment-button" type="button" data-market-filter="KOSDAQ" role="tab" aria-selected="false">KOSDAQ</button>
+          <button class="market-segment-button" type="button" data-market-filter="NASDAQ" role="tab" aria-selected="false">나스닥</button>
+          <button class="market-segment-button" type="button" data-market-filter="SP500" role="tab" aria-selected="false">S&amp;P 500</button>
         </nav>
         <div class="market-ranking-column-head" id="market-ranking-column-head" aria-hidden="true"><span>종목</span><span>거래량 · 현재 시세</span></div>
         <section class="market-ranking-list" id="ranking-body" aria-live="polite"><p class="muted">거래량 상위 종목을 불러오는 중입니다.</p></section>
@@ -1365,6 +1379,7 @@
           <div class="service-footer-disclosure-body">
             <ul>
               <li>한국거래소(KRX), 한국투자증권 Open API, OpenDART, 네이버 금융 및 국내 증권사 공개 리서치 자료를 활용합니다.</li>
+              <li>미국 시장은 Yahoo Finance 시세·기업정보, SEC EDGAR 공시 및 공개 뉴스 피드를 활용합니다.</li>
               <li>본 서비스는 현재 광고, 유료 결제 및 제휴 수익 없이 비상업적으로 운영됩니다.</li>
               <li>제공되는 데이터는 정보 제공과 분석 참고를 위해 가공하여 표시하며, 원문 또는 원시데이터의 재판매나 대량 재배포를 목적으로 하지 않습니다.</li>
               <li>데이터 이용은 각 제공처의 이용조건과 관련 법령을 따르며, 권리자의 정당한 요청이 있는 경우 관련 데이터의 표시 또는 제공을 중단할 수 있습니다.</li>
@@ -1419,6 +1434,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260904v465" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260905v466" defer></script>
   </body>
 </html>

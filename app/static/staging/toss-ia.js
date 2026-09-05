@@ -2927,9 +2927,13 @@
         return false;
       }
     };
-    const rankingPriceText = (value) => {
+    const rankingUsdPriceFormatter = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 2 });
+    const rankingPriceText = (value, currency = "KRW") => {
       const number = Number(value);
-      return Number.isFinite(number) ? `${rankingPriceFormatter.format(Math.round(number))}원` : "현재가 확인 중";
+      if (!Number.isFinite(number)) return "현재가 확인 중";
+      return currency === "USD"
+        ? `$${rankingUsdPriceFormatter.format(number)}`
+        : `${rankingPriceFormatter.format(Math.round(number))}원`;
     };
     const rankingRatePresentation = (value) => {
       const number = value === null || value === undefined || value === "" ? null : Number(value);
@@ -2944,6 +2948,15 @@
       const code = String(item?.code || button.dataset.code || "");
       const name = String(item?.name || button.dataset.name || "종목");
       const market = String(item?.market || button.dataset.market || "");
+      const currency = String(item?.currency || button.dataset.currency || "KRW");
+      button.dataset.currency = currency;
+      button.hidden = currency === "USD";
+      button.disabled = currency === "USD";
+      if (currency === "USD") {
+        button.setAttribute("aria-hidden", "true");
+        return;
+      }
+      button.removeAttribute("aria-hidden");
       const active = homeRankingIsWatched(code);
       button.dataset.code = code;
       button.dataset.name = name;
@@ -2960,7 +2973,7 @@
       const rate = card.querySelector(".staging-home-ranking-rate");
       const heart = card.querySelector(".staging-home-ranking-watch");
       if (item && price) {
-        const text = rankingPriceText(item.price);
+        const text = rankingPriceText(item.price, item.currency);
         if (price.textContent !== text) price.textContent = text;
       }
       if (item && rate) {
@@ -2985,6 +2998,7 @@
         const fallbackName = stockCopy?.querySelector("strong")?.textContent?.trim() || code || "종목";
         const name = String(item?.name || fallbackName);
         const market = String(item?.market || "");
+        const currency = String(item?.currency || "KRW");
 
         const detail = document.createElement("span");
         detail.className = "staging-home-ranking-copy";
@@ -3008,6 +3022,8 @@
         card.dataset.code = code;
         card.dataset.name = name;
         card.dataset.market = market;
+        card.dataset.currency = currency;
+        card.classList.toggle("is-us-market", currency === "USD");
 
         const heart = document.createElement("button");
         heart.className = "staging-home-ranking-watch";
@@ -3015,7 +3031,8 @@
         heart.innerHTML = svg(icons.interest);
 
         sourceRow.replaceWith(card);
-        card.append(sourceRow, heart);
+        card.append(sourceRow);
+        if (currency !== "USD") card.append(heart);
         if (sourceMetric) {
           sourceMetric.classList.add("staging-home-ranking-source");
           sourceMetric.hidden = true;

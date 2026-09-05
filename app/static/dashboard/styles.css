@@ -41805,6 +41805,22 @@ body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero-name-row > .st
   background: #ffffff !important;
 }
 
+/* TOP 50 v466: domestic and US market filters share the current dashboard. */
+#market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-tabs {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 480px) {
+  #market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-tabs {
+    padding-inline: 8px;
+  }
+
+  #market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-tabs .market-segment-button {
+    padding-inline: 3px;
+    font-size: 12px;
+  }
+}
+
 @media (max-width: 359px) {
   body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero-name-row > .stock-title-logo {
     width: 34px !important;

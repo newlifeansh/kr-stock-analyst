@@ -31,7 +31,7 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["strategy_version"] == "position-lifecycle-v7.4"
-    assert response.json()["dashboard_version"] == "20260904v465"
+    assert response.json()["dashboard_version"] == "20260905v466"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -212,7 +212,7 @@ def test_root_redirects_to_korea_dashboard():
     assert response.headers["location"] == "/dashboard?view=home"
 
 
-def test_us_path_serves_unified_market_shell_without_changing_root():
+def test_us_path_serves_current_dashboard_shell_with_nasdaq_default_without_changing_root():
     client = TestClient(app, base_url="https://secretnote.cloud")
 
     root = client.get("/", follow_redirects=False)
@@ -221,12 +221,11 @@ def test_us_path_serves_unified_market_shell_without_changing_root():
     assert root.status_code == 307
     assert root.headers["location"] == "/dashboard?view=home"
     assert response.status_code == 200
-    assert "시장 한눈에" in response.text
-    assert 'id="overview-view"' in response.text
-    assert 'id="overview-korea"' in response.text
-    assert 'id="overview-us"' in response.text
-    assert "국내증시" in response.text
-    assert "미국증시" in response.text
+    assert 'id="home-view"' in response.text
+    assert 'id="home-surge"' in response.text
+    assert 'data-home-ranking-market="NASDAQ"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260905v466"' in response.text
+    assert "시장 한눈에" not in response.text
 
 
 def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
@@ -410,7 +409,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260904v465"}
+    assert version.json() == {"version": "20260905v466"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search")
@@ -418,7 +417,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert refresh.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert 'pathname === "/dashboard-sw.js"' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260904v465" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260905v466" in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -1767,7 +1766,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260904v465' in shell
+    assert 'styles.css?v=20260905v466' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -1794,6 +1793,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '<summary>서비스 및 문의</summary>' in shell
     assert '비상업적 무료 베타 서비스' not in shell
     assert '<li>한국거래소(KRX), 한국투자증권 Open API' in shell
+    assert '<li>미국 시장은 Yahoo Finance 시세·기업정보, SEC EDGAR 공시 및 공개 뉴스 피드를 활용합니다.</li>' in shell
     assert '<li>본 서비스는 현재 광고, 유료 결제 및 제휴 수익 없이' in shell
     assert '광고, 유료 결제 및 제휴 수익 없이 비상업적으로 운영됩니다' in shell
     assert '원문 또는 원시데이터의 재판매나 대량 재배포를 목적으로 하지 않습니다' in shell
@@ -1831,8 +1831,8 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert "state.loginSubmitting" in source
     assert 'showAccessCapacityModal()' in source
     assert 'function trapAccessCapacityFocus(event)' in source
-    assert 'main.href = viewStockUrl(item.code || item.name);' in source
-    assert 'row.href = viewStockUrl(item.code || item.name);' in source
+    assert 'main.href = rankingStockUrl(item, state.marketRankingMarket);' in source
+    assert 'row.href = rankingStockUrl(item, state.homeRankingMarket);' in source
     assert 'link.href = viewStockUrl(item.code || item.name);' in source
     assert 'aria-label="서비스 유의사항"' in shell
     assert '투자 권유·자문 또는 수익 보장이 아닙니다' in shell
@@ -1853,7 +1853,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260904v465"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260905v466"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -1890,7 +1890,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260904v465"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260905v466"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert 'return [-timestamp, view?.preliminary ? 0 : 1' in source
@@ -2029,6 +2029,8 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert 'data-home-ranking-market="ALL"' in shell
     assert 'data-home-ranking-market="KOSPI"' in shell
     assert 'data-home-ranking-market="KOSDAQ"' in shell
+    assert 'data-home-ranking-market="NASDAQ"' in shell
+    assert 'data-home-ranking-market="SP500"' in shell
     assert 'id="home-surge-sector-filters"' in shell
     assert 'aria-label="TOP 50 세부 기준"' in shell
     assert 'data-home-ranking-category="volume">거래량</button>' in shell
@@ -2052,6 +2054,8 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert 'data-market-filter="ALL"' in shell
     assert 'data-market-filter="KOSPI"' in shell
     assert 'data-market-filter="KOSDAQ"' in shell
+    assert 'data-market-filter="NASDAQ"' in shell
+    assert 'data-market-filter="SP500"' in shell
     assert 'id="market-ranking-back"' in shell
     assert 'class="market-segment market-ranking-tabs"' in shell
     assert 'id="market-view" class="app-page app-market-rankings" data-ui-version="6.0"' in shell
@@ -2062,7 +2066,7 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
         assert f'title: "한국 {title}"' not in source
     assert source.count('column: "시가총액 · 현재 시세"') == 2
     assert '시가총액(억) · 현재 시세' not in source
-    assert "function formatRankingMarketCap(value)" in source
+    assert 'function formatRankingMarketCap(value, currency = "KRW")' in source
     assert "formatMarketCapEok" not in source
     assert "? formatMoney(number)" in source
     assert 'function createMarketLeaderboardMetric' in source
@@ -2072,7 +2076,11 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert "function setHomeSurgeSector" in source
     assert 'homeSurgeSector: "all"' in source
     assert "const items = state.homeSurgeItems.slice(0, 5);" in source
-    assert 'homeRankingMarket: "ALL"' in source
+    assert 'homeRankingMarket: MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket)' in source
+    assert 'const US_MARKET_RANKING_MARKETS = new Set(["NASDAQ", "SP500"]);' in source
+    assert 'const US_MARKET_RANKING_CATEGORIES = new Set(["volume", "surge", "market_cap", "dividend", "per"]);' in source
+    assert 'const url = `${usMarket ? "/us/market/rankings" : "/market/rankings"}?${params.toString()}`;' in source
+    assert 'return `/us/stock/${encodeURIComponent(code)}`;' in source
     assert "const market = homeRankingRequestMarket(category);" in source
     assert "limit: 5" in source
     assert "setMarketFilter(homeRankingRequestMarket(state.rankingCategory));" in source

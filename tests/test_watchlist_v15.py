@@ -10,7 +10,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.6"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260904v465"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260905v466"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -484,7 +484,9 @@ def test_market_lists_share_stock_logo_identity():
         "fallbackIcon.src = STOCK_LOGO_FALLBACK_DATA_URL;",
         'image.loading = "eager";',
         'image.addEventListener("error", () => {',
-        "identity.append(\n    createStockListLogo(item.code),\n    createStockListCopy(item.name, item.code)",
+        'function createRankingStockLogo(item = {})',
+        'return createStockListLogo(item.currency === "USD" ? "" : item.code);',
+        "identity.append(\n    createRankingStockLogo(item),\n    createStockListCopy(item.name, item.code)",
         "createStockListCopy(item.name, item.code)",
     ):
         assert expected in source

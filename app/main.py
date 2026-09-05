@@ -256,7 +256,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260904v465"
+DASHBOARD_CLIENT_VERSION = "20260905v466"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -2625,8 +2625,6 @@ def concepts_shell():
     return HTMLResponse(CONCEPTS_INDEX.read_text(encoding="utf-8"))
 
 
-@app.get("/us")
-@app.get("/us/")
 @app.get("/us/stock/{code}")
 @app.get("/nasdaq")
 @app.get("/nasdaq/{code}")
@@ -2634,6 +2632,24 @@ def nasdaq_dashboard_shell():
     if not NASDAQ_DASHBOARD_INDEX.exists():
         raise HTTPException(status_code=404, detail="NASDAQ dashboard UI not found")
     return HTMLResponse(NASDAQ_DASHBOARD_INDEX.read_text(encoding="utf-8"))
+
+
+@app.get("/us")
+@app.get("/us/")
+def us_market_dashboard_shell():
+    """Keep /us canonical while serving the current production dashboard shell."""
+    if not STOCK_DASHBOARD_INDEX.exists():
+        raise HTTPException(status_code=404, detail="Stock dashboard UI not found")
+    document = STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8").replace(
+        "__DASHBOARD_ASSET_VERSION__", DASHBOARD_CLIENT_VERSION
+    )
+    return HTMLResponse(
+        document,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/dashboard.webmanifest")
@@ -3921,13 +3937,14 @@ def us_stock_ai_analysis(
 def us_market_rankings(
     category: str = Query(default="surge"),
     market: str = Query(default="ALL"),
+    mode: str = Query(default=""),
     limit: int = Query(default=20, ge=1, le=100),
 ):
-    key = ("us_market_rankings", category, market, limit)
+    key = ("us_market_rankings", category, market, mode, limit)
     return api_cache.get_or_set(
         key,
         MARKET_RANKING_TTL_SECONDS,
-        lambda: build_us_rankings(category, limit=limit, market=market),
+        lambda: build_us_rankings(category, limit=limit, market=market, mode=mode),
     )
 
 

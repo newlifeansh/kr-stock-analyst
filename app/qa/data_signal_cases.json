@@ -1303,16 +1303,16 @@
     },
     {
       "id": "DATA-MARKET-UNIFIED-001",
-      "title": "고정 메인 도메인 /us 국내·미국 시장 요약 단일 응답",
-      "domain": "미국증시 경로·공통 시장 화면",
-      "priority": "P1",
-      "modes": ["gate"],
-      "automation": "pytest /us unified-shell + cross-market endpoint/cache contract",
-      "preconditions": ["기존 secretnote.cloud 루트와 /dashboard 국내 화면 계약을 유지한다.", "국내 지수와 미국 주요 지수가 완전한 스냅샷으로 준비돼 있다."],
-      "inputs": {"host": "secretnote.cloud", "frontend_entry": "/us?view=overview", "stock_entry": "/us/stock/AAPL", "endpoint": "/market/cross-market?limit=30", "markets": ["KOSPI", "KOSDAQ", "SP500", "NASDAQ", "SOX", "DOW"], "cache_seconds": 30},
-      "steps": ["별도 스테이징의 /us?view=overview에서 운영의 기존 공개 시장 피드를 서버 측으로 합성해 화면을 선검증한다.", "secretnote.cloud/us?view=overview에 접속해 국내·미국 시장 한눈에 화면이 열리는지 확인한다.", "루트 /는 계속 /dashboard?view=home으로 이동하고 기존 /dashboard 셸과 정적 자산이 변경되지 않았는지 확인한다.", "시장 요약 화면이 /market/cross-market 한 번으로 국내와 미국 지수 카드를 채우는지 확인한다.", "새로고침 전후 응답이 동일한 캐시 계약을 사용하고 underlying 시장 스냅샷을 중복 호출하지 않는지 확인한다.", "/us/stock/AAPL은 종목 셸을 열고 /us/stocks/* API는 JSON 계약을 유지하는지 확인한다.", "모바일 폭과 데이터 오류 상태에서 로딩·빈 상태·오류 문구가 가로 넘침 없이 읽히는지 확인한다."],
-      "expected": ["기존 도메인과 국내 루트 동작은 그대로이고 /us만 국내·미국 통합 셸을 제공한다.", "응답은 korea와 us 스냅샷을 함께 반환하고 화면은 국내 지수와 미국 지수를 같은 시점 기준으로 분리 표시한다.", "통합 화면은 브라우저 기준 시장 요약 요청을 한 번만 사용하며 서버 캐시는 30초 재사용 계약을 지킨다.", "미국 종목 상세 경로와 기존 /us API 경로가 충돌하지 않는다.", "외부 데이터가 없거나 실패해도 빈 카드·안내 문구로 안전하게 종료되고 내부 오류나 비밀값을 노출하지 않는다."],
-      "failure_criteria": ["루트 / 또는 기존 /dashboard가 미국 화면으로 바뀌거나 기존 국내 화면 자산이 변경된다.", "/us가 국내 대시보드로 리다이렉트되거나 미국 전용 화면만 표시된다.", "국내와 미국 데이터를 각각 별도 브라우저 요청으로 가져오거나 동일 스냅샷을 매번 원천 재호출한다.", "korea·us 중 한 시장이 누락되거나 서로 다른 응답 시점을 기준으로 표시된다.", "/us/stock/* 셸이 /us/stocks/* API를 가로채거나 기존 API 계약을 바꾼다.", "모바일·오류 상태에서 로딩 고착, 가로 넘침, 내부 오류, 인증정보가 노출된다."]
+      "title": "최신 국내 대시보드 TOP 50의 나스닥·S&P 500 통합",
+      "domain": "홈 TOP 50·미국증시 시장 필터",
+      "priority": "P0",
+      "modes": ["gate", "live", "e2e"],
+      "automation": "pytest dashboard shell/US ranking contract + browser market-filter E2E",
+      "preconditions": ["secretnote.cloud/dashboard?view=home 최신 국내 화면을 기준선으로 사용한다.", "국내 운영 및 국내 스테이징의 기존 데이터·배포를 변경하지 않고 별도 미국 스테이징에서 같은 커밋을 검증한다."],
+      "inputs": {"host": "secretnote.cloud", "frontend_entry": "/dashboard?view=home", "canonical_us_entry": "/us", "stock_entry": "/us/stock/AAPL", "domestic_endpoint": "/market/rankings", "us_endpoint": "/us/market/rankings", "markets": ["ALL", "KOSPI", "KOSDAQ", "NASDAQ", "SP500"], "us_categories": ["volume", "surge", "market_cap", "dividend", "per"]},
+      "steps": ["별도 미국 스테이징에서 최신 국내 대시보드 홈을 열고 TOP 50 거래소 선택창에 국내 전체·코스피·코스닥·나스닥·S&P 500이 표시되는지 확인한다.", "나스닥과 S&P 500을 각각 선택해 기본 거래량 TOP 5가 /us/market/rankings 응답으로 교체되는지 확인한다.", "미국 시장에서 수익률 일간·주간·월간, 시가총액, 배당, PER 순위를 전환하고 미지원 ETF·52주 탭이 노출되지 않는지 확인한다.", "국내 전체·코스피·코스닥으로 돌아와 기존 /market/rankings와 국내 실시간 시세 구독이 유지되는지 확인한다.", "미국 순위 행은 달러 가격·달러 시가총액을 표시하고 /us/stock/{ticker}로 이동하며 국내 순위 행은 /dashboard/{code}로 이동하는지 확인한다.", "/us가 이전 미국 전용 홈 대신 현재 대시보드 셸을 같은 경로에서 제공하고 나스닥 필터를 기본 선택하는지 확인한다.", "TOP 50 더보기와 390px 모바일 화면에서 5개 시장 탭, 로딩·빈 상태·오류 문구가 가로 넘침 없이 읽히는지 확인한다."],
+      "expected": ["현재 국내 홈의 구조와 오늘의 시장·AI 시그널·뉴스 영역은 유지되고 TOP 50 시장 필터만 국내·미국 통합 범위로 확장된다.", "국내 시장은 기존 국내 API와 원화 표시를 사용하고 미국 시장은 미국 API와 USD 표시를 사용한다.", "나스닥과 S&P 500 기본 거래량 및 지원 카테고리가 순위 기준에 맞게 정렬되며 미국 종목은 국내 웹소켓에 구독되지 않는다.", "/us와 /dashboard?view=home은 같은 최신 셸을 사용하되 /us는 나스닥 TOP 5를 기본 표시한다.", "외부 데이터가 없거나 실패해도 빈 상태로 안전하게 종료되고 내부 오류나 비밀값을 노출하지 않는다."],
+      "failure_criteria": ["secretnote.cloud/us가 이전 미국 전용 홈을 계속 표시하거나 /dashboard 최신 화면과 다른 셸을 제공한다.", "나스닥·S&P 500 선택 후 국내 종목 또는 국내 /market/rankings 응답이 표시된다.", "미국 거래량·시가총액·PER 정렬이 잘못되거나 USD 수치를 원화 단위로 표시한다.", "미국 종목 코드를 국내 시세 웹소켓에 구독하거나 미국 행이 국내 종목 상세로 이동한다.", "국내 전체·코스피·코스닥 필터나 기존 국내 순위 동작이 회귀한다.", "모바일에서 시장 탭이 잘리거나 가로 넘침, 로딩 고착, 내부 오류, 인증정보 노출이 발생한다."]
     }
   ]
 }
