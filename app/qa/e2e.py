@@ -4047,6 +4047,11 @@ def run_e2e_checks(
                     """(() => {
                       const nativeFetch = window.fetch.bind(window);
                       window.__qaStockSummaryRequests = [];
+                      window.__qaStockSummaryReleaseQueue = [];
+                      window.__qaReleaseStockSummary = () => {
+                        const release = window.__qaStockSummaryReleaseQueue.shift();
+                        if (typeof release === 'function') release();
+                      };
                       window.fetch = (input, init = {}) => {
                         const url = String(input?.url || input || '');
                         if (!url.includes('/ai/page-summary')) {
@@ -4066,12 +4071,18 @@ def run_e2e_checks(
                           total_tokens: null,
                           estimated_cost_usd: null,
                         };
-                        return new Promise(resolve => window.setTimeout(() => resolve(
-                          new Response(JSON.stringify(response), {
-                            status: 200,
-                            headers: { 'Content-Type': 'application/json' },
-                          })
-                        ), 1_500));
+                        return new Promise(resolve => {
+                          let settled = false;
+                          const release = () => {
+                            if (settled) return;
+                            settled = true;
+                            resolve(new Response(JSON.stringify(response), {
+                              status: 200,
+                              headers: { 'Content-Type': 'application/json' },
+                            }));
+                          };
+                          window.__qaStockSummaryReleaseQueue.push(release);
+                        });
                       };
                     })();"""
                 )
@@ -4275,6 +4286,7 @@ def run_e2e_checks(
                         "종목 대응 설명이 완성되기 전 중간 본문이 노출됩니다.",
                         loading_contract,
                     )
+                page.evaluate("window.__qaReleaseStockSummary();")
                 page.wait_for_selector(
                     "#staging-ai-stock-response-view[data-response-loaded='true']"
                 )
@@ -4717,6 +4729,7 @@ def run_e2e_checks(
                     page.wait_for_selector(
                         "#staging-ai-stock-response-view[data-response-display='loading']"
                     )
+                    page.evaluate("window.__qaReleaseStockSummary();")
                     _wait_for_ui_contract(
                         page,
                         """mode => {
@@ -4990,6 +5003,7 @@ def run_e2e_checks(
                         "수동 재분석 중 중복 호출을 막는 로딩 상태가 없습니다.",
                         refresh_loading,
                     )
+                page.evaluate("window.__qaReleaseStockSummary();")
                 _wait_for_ui_contract(
                     page,
                     """expectedCount => {
