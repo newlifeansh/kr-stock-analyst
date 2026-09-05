@@ -256,7 +256,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260905v470"
+DASHBOARD_CLIENT_VERSION = "20260905v471"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -2562,7 +2562,7 @@ async def stock_week_chart(code: str):
 @app.get("/dashboard-refresh")
 def stock_dashboard_refresh():
     # Recovery page for installed iOS/PWA clients that are still executing an
-    # old cached dashboard bundle. It removes only this dashboard's worker and
+    # old cached dashboard bundle. It removes only dashboard-related workers and
     # static caches; local/session storage (including the login identity) stays.
     return HTMLResponse(
         f"""<!doctype html>
@@ -2581,7 +2581,9 @@ def stock_dashboard_refresh():
           await Promise.all(registrations
             .filter((registration) => {{
               const scriptUrl = registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || "";
-              return new URL(scriptUrl, location.origin).pathname === "/dashboard-sw.js";
+              return ["/dashboard-sw.js", "/us-sw.js"].includes(
+                new URL(scriptUrl, location.origin).pathname
+              );
             }})
             .map((registration) => registration.unregister()));
         }} catch {{}}
@@ -2702,10 +2704,65 @@ def nasdaq_manifest():
 
 @app.get("/us-sw.js")
 @app.get("/nasdaq-sw.js")
-def nasdaq_service_worker():
+def nasdaq_service_worker(request: Request):
+    if request.url.path == "/us-sw.js":
+        # Retire the legacy /us-scoped worker. Its narrower scope otherwise wins
+        # over the current dashboard worker at scope=/ and can keep an old US
+        # shell visible to returning users even after the server was upgraded.
+        return Response(
+            content=f'''const CURRENT_DASHBOARD_BUILD = "{DASHBOARD_CLIENT_VERSION}";
+const LEGACY_US_CACHE_PATTERN = /^secret-note-static-\\d{{8}}us/;
+
+self.addEventListener("install", () => self.skipWaiting());
+
+self.addEventListener("activate", (event) => {{
+  event.waitUntil((async () => {{
+    const keys = await caches.keys();
+    await Promise.all(keys
+      .filter((key) => LEGACY_US_CACHE_PATTERN.test(key))
+      .map((key) => caches.delete(key)));
+    await self.clients.claim();
+    const clients = await self.clients.matchAll({{
+      type: "window",
+      includeUncontrolled: true,
+    }});
+    await Promise.all(clients.map((client) => {{
+      const url = new URL(client.url);
+      if (url.origin !== self.location.origin || !url.pathname.startsWith("/us")) {{
+        return undefined;
+      }}
+      url.searchParams.set("app_build", CURRENT_DASHBOARD_BUILD);
+      return client.navigate(url.href).catch(() => undefined);
+    }}));
+    await self.registration.unregister();
+  }})());
+}});
+
+self.addEventListener("fetch", (event) => {{
+  const request = event.request;
+  if (request.method !== "GET") return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  event.respondWith(fetch(request, {{ cache: "no-store" }}));
+}});
+''',
+            media_type="application/javascript",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Service-Worker-Allowed": "/us",
+            },
+        )
     if not NASDAQ_SERVICE_WORKER.exists():
         raise HTTPException(status_code=404, detail="NASDAQ service worker not found")
-    return FileResponse(NASDAQ_SERVICE_WORKER, media_type="application/javascript")
+    return FileResponse(
+        NASDAQ_SERVICE_WORKER,
+        media_type="application/javascript",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/health")
