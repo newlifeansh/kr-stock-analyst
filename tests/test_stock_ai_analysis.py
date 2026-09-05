@@ -1,4 +1,5 @@
 from app.services.stock_ai_analysis import build_stock_ai_analysis
+from app.schemas import StockAIAnalysisOut
 
 
 def _base_dashboard():
@@ -112,6 +113,46 @@ def test_stock_ai_analysis_uses_buy_language_only_for_actionable_stance():
     assert trade_levels["actionable"] is True
     assert trade_levels["entry_label"] == "1차 매수권"
     assert "1차 매수" in strategy_text
+
+
+def test_us_stock_ai_analysis_keeps_cent_prices_and_usd_money_labels():
+    dashboard = _base_dashboard()
+    dashboard.update({"code": "NVDA", "name": "NVIDIA", "market": "NASDAQ"})
+    dashboard["quote"] = {
+        **dashboard["quote"],
+        "price": 230.36,
+        "change_rate": 0.84,
+        "trading_value": 30_450_000_000,
+    }
+    dashboard["chart_analysis"] = {
+        **dashboard["chart_analysis"],
+        "score": 82,
+        "stance": "추세 추종 관심",
+        "support": 217.14,
+        "resistance": 239.87,
+        "moving_averages": {"ma5": 228.42, "ma20": 220.15, "ma60": 205.71},
+        "risks": [],
+    }
+    dashboard["momentum"] = {
+        **dashboard["momentum"],
+        "one_month_return": 5.19,
+        "three_month_return": 12.32,
+        "trading_value_change": 6.46,
+    }
+    dashboard["valuation"] = {**dashboard["valuation"], "pbr_zscore": 0.4}
+
+    payload = build_stock_ai_analysis(dashboard)
+    summary_and_strategy = " ".join([payload["summary"], *payload["strategy"]])
+
+    assert "$230.36" in payload["summary"]
+    assert "$" in summary_and_strategy
+    assert "거래대금은 최근 $30." in " ".join(payload["key_points"])
+    assert "B이고 변화율" in " ".join(payload["key_points"])
+    assert payload["trade_levels"]["buy_low"] != round(payload["trade_levels"]["buy_low"])
+    assert "억원" not in " ".join(payload["key_points"])
+    validated = StockAIAnalysisOut.model_validate(payload)
+    assert validated.trade_levels is not None
+    assert isinstance(validated.trade_levels.buy_low, float)
 
 
 def test_stock_ai_analysis_explains_intraday_rebound_inside_weak_month():

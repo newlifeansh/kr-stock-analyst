@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from pathlib import Path
+import re
 import struct
 
 import pytest
@@ -23,6 +25,7 @@ from app.services.stock_logos import (
     normalize_stock_logo_code,
     sync_stock_logos,
 )
+from app.services.us_market import US_EQUITY_UNIVERSE
 
 
 class FakeResponse:
@@ -163,3 +166,31 @@ def test_fallback_stock_logo_is_a_256_pixel_png() -> None:
 
     assert image_data.startswith(PNG_SIGNATURE)
     assert struct.unpack(">II", image_data[16:24]) == (256, 256)
+
+
+def test_every_us_equity_has_audited_checked_in_logo_and_manifest_entry() -> None:
+    manifest = json.loads((MANUAL_STOCK_LOGO_DIR / "sources.json").read_text(encoding="utf-8"))
+    storage_codes = [re.sub(r"[^0-9A-Z]", "", item["code"].upper()) for item in US_EQUITY_UNIVERSE]
+
+    assert len(storage_codes) == 76
+    assert len(storage_codes) == len(set(storage_codes))
+    for item, storage_code in zip(US_EQUITY_UNIVERSE, storage_codes):
+        image_path = MANUAL_STOCK_LOGO_DIR / f"{storage_code}.png"
+        image_data = image_path.read_bytes()
+        assert image_data.startswith(PNG_SIGNATURE), item["code"]
+        assert struct.unpack(">II", image_data[16:24]) == (256, 256), item["code"]
+        assert manifest[storage_code]["ticker"] == item["code"]
+        assert manifest[storage_code]["width"] == 256
+        assert manifest[storage_code]["height"] == 256
+
+
+def test_us_logo_endpoint_serves_ticker_and_dotted_ticker_assets() -> None:
+    db = make_session()
+
+    apple = stock_logo("AAPL", db=db)
+    berkshire = stock_logo("BRK.B", db=db)
+
+    assert isinstance(apple, FileResponse)
+    assert Path(apple.path) == MANUAL_STOCK_LOGO_DIR / "AAPL.png"
+    assert isinstance(berkshire, FileResponse)
+    assert Path(berkshire.path) == MANUAL_STOCK_LOGO_DIR / "BRKB.png"

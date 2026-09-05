@@ -3,6 +3,15 @@ from decimal import Decimal
 from app.services import us_market
 
 
+class _FakeNewsResponse:
+    content = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+    <rss><channel><item><title>엔비디아 실적 전망</title><link>https://example.test/nvda</link>
+    <pubDate>Fri, 04 Sep 2026 12:00:00 GMT</pubDate><source>테스트뉴스</source></item></channel></rss>""".encode("utf-8")
+
+    def raise_for_status(self):
+        return None
+
+
 def test_resolve_compact_apple_company_name_without_koreanizing(monkeypatch):
     monkeypatch.setattr(us_market, "_search_yahoo", lambda *args, **kwargs: {"quotes": []})
 
@@ -198,3 +207,69 @@ def test_research_from_quote_summary_fills_analyst_fields():
     assert research["latest_target_price"] == Decimal("314.42")
     assert research["latest_opinion"] == "매수"
     assert research["analyst_opinion_count"] == 42
+
+
+def test_us_financial_series_keeps_raw_usd_and_calculates_percent_margins():
+    fundamentals = {
+        "annualTotalRevenue": [{"asOfDate": "2024-12-31", "reportedValue": {"raw": 100_000_000_000}}],
+        "annualOperatingIncome": [{"asOfDate": "2024-12-31", "reportedValue": {"raw": 20_000_000_000}}],
+        "annualNetIncome": [{"asOfDate": "2024-12-31", "reportedValue": {"raw": 15_000_000_000}}],
+        "annualDilutedEPS": [{"asOfDate": "2024-12-31", "reportedValue": {"raw": 2.5}}],
+    }
+
+    rows = us_market._financial_series_rows(fundamentals, "annual")
+
+    assert rows == [{
+        "period": "2024",
+        "reported_at": "2024-12-31",
+        "estimated": False,
+        "revenue": Decimal("100000000000"),
+        "operating_profit": Decimal("20000000000"),
+        "net_income": Decimal("15000000000"),
+        "eps": Decimal("2.5"),
+        "operating_margin": Decimal("20.00"),
+        "net_margin": Decimal("15.00"),
+    }]
+
+
+def test_google_news_defaults_to_korean_service_locale(monkeypatch):
+    request = {}
+
+    def fake_get(url, **kwargs):
+        request.update({"url": url, **kwargs})
+        return _FakeNewsResponse()
+
+    monkeypatch.setattr(us_market.requests, "get", fake_get)
+
+    rows = us_market._google_news_items("NVIDIA stock")
+
+    assert request["params"] == {"q": "NVIDIA stock", "hl": "ko", "gl": "KR", "ceid": "KR:ko"}
+    assert rows[0]["title"] == "엔비디아 실적 전망"
+    assert rows[0]["source"] == "테스트뉴스"
+
+
+def test_us_news_screen_excludes_untranslated_english_titles(monkeypatch):
+    monkeypatch.setattr(
+        us_market,
+        "resolve_us_stock",
+        lambda symbol: {"code": "NVDA", "name": "NVIDIA"},
+    )
+    monkeypatch.setattr(
+        us_market,
+        "_google_news_items",
+        lambda *args, **kwargs: [
+            {"title": "NVIDIA expands AI infrastructure", "url": "https://example.test/en", "source": "English Wire"},
+            {"title": "엔비디아, AI 인프라 투자 확대", "url": "https://example.test/ko", "source": "한국어 뉴스"},
+        ],
+    )
+    monkeypatch.setattr(
+        us_market,
+        "_search_yahoo",
+        lambda *args, **kwargs: {
+            "news": [{"title": "Another English headline", "link": "https://example.test/yahoo"}],
+        },
+    )
+
+    rows = us_market._news("NVDA")
+
+    assert [row["title"] for row in rows] == ["엔비디아, AI 인프라 투자 확대"]

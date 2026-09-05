@@ -27,11 +27,11 @@
     <script src="/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts" data-staging-theme-bootstrap></script>
     <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
     <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154" />
-    <script src="/assets/staging/ai-stock-response-logic.js?v=20260905-us-ranking-v94" defer></script>
-    <script src="/assets/staging/stock-change-copy-logic.js?v=20260905-us-ranking-v94" defer></script>
-    <script src="/assets/staging/toss-ia.js?v=20260905-us-ranking-v94" defer></script>
+    <script src="/assets/staging/ai-stock-response-logic.js?v=20260905-us-detail-v95" defer></script>
+    <script src="/assets/staging/stock-change-copy-logic.js?v=20260905-us-detail-v95" defer></script>
+    <script src="/assets/staging/toss-ia.js?v=20260905-us-detail-v95" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260905v466&amp;build=20260905v466" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260905v470&amp;build=20260905v470" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -786,6 +786,27 @@
           </section>
 
           <section class="stock-tab-panel stock-v3-ai" id="stock-strategy-section" data-stock-panel="strategy" role="tabpanel" hidden>
+            <section class="us-stock-ai-stack" id="us-stock-ai-content" aria-live="polite" hidden>
+              <article class="stock-v3-section us-stock-ai-summary">
+                <header class="stock-v3-section-head">
+                  <div><span>데이터로 정리한 판단</span><h2 id="us-stock-ai-stance">미국 종목을 분석하고 있어요</h2></div>
+                  <span class="stock-v3-source" id="us-stock-ai-coverage">자료 확인 중</span>
+                </header>
+                <p class="us-stock-ai-lead" id="us-stock-ai-summary">차트, 실적, 밸류에이션, 뉴스와 SEC 공시를 함께 확인하고 있습니다.</p>
+              </article>
+              <article class="stock-v3-section us-stock-ai-evidence">
+                <header class="stock-v3-section-head"><div><span>판단 근거</span><h2>먼저 볼 포인트</h2></div></header>
+                <ul class="us-stock-ai-list" id="us-stock-ai-key-points"></ul>
+              </article>
+              <article class="stock-v3-section us-stock-ai-strategy">
+                <header class="stock-v3-section-head"><div><span>대응 기준</span><h2>이렇게 확인해 보세요</h2></div></header>
+                <ol class="us-stock-ai-list" id="us-stock-ai-strategy-list"></ol>
+              </article>
+              <article class="stock-v3-section us-stock-ai-risks">
+                <header class="stock-v3-section-head"><div><span>놓치면 안 되는 것</span><h2>추가 확인할 위험</h2></div></header>
+                <ul class="us-stock-ai-list" id="us-stock-ai-risk-list"></ul>
+              </article>
+            </section>
             <p class="quant-signal-status" id="quant-signal-status" role="status">AI 시그널을 계산하는 중입니다.</p>
             <section class="quant-signal-stack" id="quant-signal-content" hidden>
               <article class="stock-v3-section quant-current-card">
@@ -1378,8 +1399,8 @@
           <summary>데이터 출처</summary>
           <div class="service-footer-disclosure-body">
             <ul>
-              <li>한국거래소(KRX), 한국투자증권 Open API, OpenDART, 네이버 금융 및 국내 증권사 공개 리서치 자료를 활용합니다.</li>
-              <li>미국 시장은 Yahoo Finance 시세·기업정보, SEC EDGAR 공시 및 공개 뉴스 피드를 활용합니다.</li>
+              <li id="service-source-kr">한국거래소(KRX), 한국투자증권 Open API, OpenDART, 네이버 금융 및 국내 증권사 공개 리서치 자료를 활용합니다.</li>
+              <li id="service-source-us">미국 시장은 Yahoo Finance 시세·기업정보, SEC EDGAR 공시 및 공개 뉴스 피드를 활용합니다.</li>
               <li>본 서비스는 현재 광고, 유료 결제 및 제휴 수익 없이 비상업적으로 운영됩니다.</li>
               <li>제공되는 데이터는 정보 제공과 분석 참고를 위해 가공하여 표시하며, 원문 또는 원시데이터의 재판매나 대량 재배포를 목적으로 하지 않습니다.</li>
               <li>데이터 이용은 각 제공처의 이용조건과 관련 법령을 따르며, 권리자의 정당한 요청이 있는 경우 관련 데이터의 표시 또는 제공을 중단할 수 있습니다.</li>
@@ -1434,6 +1455,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260905v466" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260905v470" defer></script>
   </body>
 </html>

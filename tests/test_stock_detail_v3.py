@@ -590,7 +590,7 @@ def test_stock_detail_v3_shell_and_controls():
     assert 'showStockShareStatus("종목 상세 링크를 복사했습니다.")' in source
     assert 'return load(normalized, { historyMode: "none" });' in source
     assert "const quantSignalPrefetch = loadQuantSignals({ auto: true });" not in source
-    assert 'return tabName === "strategy" && Boolean(state.currentStock?.code);' in source
+    assert 'return !stockDashboardIsUs() && tabName === "strategy"' in source
     assert "ensureStockCompanyAnalysis();" in source
     assert 'a[href^="/dashboard/"]' in source
     assert 'classList.remove("has-saved-watchlist-id")' in source

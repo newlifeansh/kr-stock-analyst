@@ -3896,7 +3896,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260828-official-ci-v1`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260905-us-detail-v95`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -6221,7 +6221,7 @@
       <div class="staging-stock-hero-name-row">
         <h2 data-staging-stock-name>종목 분석</h2>
       </div>
-      <p class="staging-stock-hero-price"><strong data-staging-stock-price>-</strong><span>원</span></p>
+      <p class="staging-stock-hero-price"><strong data-staging-stock-price>-</strong><span data-staging-stock-currency>원</span></p>
       <p class="staging-stock-hero-change">
         <span data-staging-stock-change-context>최근 장에서</span>
         <strong data-staging-stock-change>-</strong>
@@ -6314,6 +6314,10 @@
   const stagingChartNumber = new Intl.NumberFormat("ko-KR", {
     maximumFractionDigits: 0,
   });
+  const stagingUsdChartNumber = new Intl.NumberFormat("ko-KR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  });
   let stagingSelectedChartPeriod = "1D";
   let stagingSelectedChartType = "line";
   const STAGING_WEEK_CHART_TTL_MS = 30_000;
@@ -6328,6 +6332,26 @@
   const stagingChartNumeric = (value) => {
     const number = Number(value);
     return Number.isFinite(number) ? number : null;
+  };
+
+  const stagingStockIsUsd = () => {
+    try {
+      const dashboard = typeof state === "object" ? state.currentDashboard : null;
+      const market = String(dashboard?.market || state?.currentStock?.market || "").toUpperCase();
+      return dashboard?.currency === "USD"
+        || ["NASDAQ", "NYSE", "SP500", "US"].includes(market)
+        || /^\/us\/stock\//.test(window.location.pathname);
+    } catch {
+      return /^\/us\/stock\//.test(window.location.pathname);
+    }
+  };
+
+  const stagingStockPriceText = (value) => {
+    const number = stagingChartNumeric(value);
+    if (number === null) return "-";
+    return stagingStockIsUsd()
+      ? `$${stagingUsdChartNumber.format(number)}`
+      : `${stagingChartNumber.format(Math.round(number))}원`;
   };
 
   const stagingChartClamp = (value, minimum, maximum) => (
@@ -6763,7 +6787,7 @@
     return `
       <g class="staging-toss-chart-extrema ${type}">
         <circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="2.5"></circle>
-        <text x="${labelX.toFixed(2)}" y="${labelY.toFixed(2)}" text-anchor="middle">${label} ${stagingChartNumber.format(Math.round(value))}원</text>
+        <text x="${labelX.toFixed(2)}" y="${labelY.toFixed(2)}" text-anchor="middle">${label} ${stagingStockPriceText(value)}</text>
       </g>
     `;
   };
@@ -6798,12 +6822,12 @@
           ? `${stagingChartDateLabel(row.date)} · ${stagingChartTimeLabel(row.time)}`
           : stagingChartDateLabel(row.date);
       const price = stagingChartNumeric(row.close ?? row.price) ?? 0;
-      const priceText = `${stagingChartNumber.format(Math.round(price))}원`;
+      const priceText = stagingStockPriceText(price);
       const ohlcText = isCandle
         ? [
-          `시가 ${stagingChartNumber.format(Math.round(row.open))}원`,
-          `고가 ${stagingChartNumber.format(Math.round(row.high))}원`,
-          `저가 ${stagingChartNumber.format(Math.round(row.low))}원`,
+          `시가 ${stagingStockPriceText(row.open)}`,
+          `고가 ${stagingStockPriceText(row.high)}`,
+          `저가 ${stagingStockPriceText(row.low)}`,
           `종가 ${priceText}`,
         ]
         : [];
@@ -6832,7 +6856,7 @@
       for (const key of ["open", "high", "low", "close"]) {
         const value = key === "close" ? price : row[key];
         const target = tooltip.querySelector(`[data-staging-candle-value="${key}"]`);
-        if (target) target.textContent = `${stagingChartNumber.format(Math.round(value))}원`;
+        if (target) target.textContent = stagingStockPriceText(value);
       }
       chart.classList.add("is-scrubbing");
       crosshair.hidden = false;
@@ -6938,12 +6962,16 @@
   };
 
   const upgradeStagingStockPriceChart = () => {
-    if (!window.location.pathname.startsWith("/dashboard/") || typeof state === "undefined") return;
+    if (!/^\/(?:dashboard\/|us\/stock\/)/.test(window.location.pathname) || typeof state === "undefined") return;
     const chart = document.getElementById("stock-mini-chart");
     const periods = document.getElementById("stock-v2-price-periods");
     if (!chart || !periods || !state.currentDashboard) return;
 
     ensureStagingStockChartPeriods(periods);
+    const usStock = stagingStockIsUsd();
+    if (usStock && ["1D", "1W"].includes(stagingSelectedChartPeriod)) {
+      stagingSelectedChartPeriod = "3M";
+    }
     const quote = state.currentDashboard?.quote || null;
     const phase = stagingStockChartPhase(quote);
     const liveSession = stagingStockChartLiveSession(quote, phase);
@@ -6955,6 +6983,7 @@
     const stockCode = String(state.currentStock?.code || state.currentDashboard?.code || "").trim();
     const isCandle = stagingSelectedChartType === "candle";
     for (const button of periods.querySelectorAll("[data-staging-chart-period]")) {
+      button.hidden = usStock && ["1D", "1W"].includes(button.dataset.stagingChartPeriod || "");
       const active = button.dataset.stagingChartPeriod === periodConfig.key;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
@@ -7070,7 +7099,7 @@
       const bodyHeight = Math.max(1.6, Math.abs(closeY - openY));
       const bodyY = (openY + closeY) / 2 - bodyHeight / 2;
       const direction = row.close > row.open ? "rise" : row.close < row.open ? "fall" : "flat";
-      const title = `${stagingCandleTimestampLabel(row)} · 시가 ${stagingChartNumber.format(Math.round(row.open))}원 · 고가 ${stagingChartNumber.format(Math.round(row.high))}원 · 저가 ${stagingChartNumber.format(Math.round(row.low))}원 · 종가 ${stagingChartNumber.format(Math.round(row.close))}원`;
+      const title = `${stagingCandleTimestampLabel(row)} · 시가 ${stagingStockPriceText(row.open)} · 고가 ${stagingStockPriceText(row.high)} · 저가 ${stagingStockPriceText(row.low)} · 종가 ${stagingStockPriceText(row.close)}`;
       return `
         <g class="staging-toss-chart-candle is-${direction}" data-staging-candle-index="${index}">
           <title>${title}</title>
@@ -7106,7 +7135,9 @@
       </g>
     ` : "";
     const marketSession = String(quote?.market_session || "");
-    const phaseLabel = marketSession === "nxt_pre_market" && liveSession
+    const phaseLabel = usStock
+      ? ({ premarket: "미국 프리마켓", regular: "미국 정규장", afterhours: "미국 애프터마켓", closed: "미국장 마감" }[typeof usMarketPhase === "function" ? usMarketPhase() : "closed"] || "미국장 마감")
+      : marketSession === "nxt_pre_market" && liveSession
       ? "프리장 실시간"
       : marketSession === "nxt_after_market" && liveSession
         ? "애프터장 실시간"
@@ -7605,7 +7636,7 @@
       market: String(stock?.market || dashboardData?.market || dashboardData?.profile?.market || "").trim(),
       priceText: priceFromDom && priceFromDom !== "-"
         ? priceFromDom
-        : Number.isFinite(numericPrice) ? formatNumber(Math.round(numericPrice)) : "-",
+        : Number.isFinite(numericPrice) ? stagingStockPriceText(numericPrice) : "-",
       rateText: rateFromDom && rateFromDom !== "-"
         ? rateFromDom
         : Number.isFinite(numericRate) ? formatPercent(numericRate) : "-",
@@ -7657,12 +7688,19 @@
     detail.hidden = !showDetail;
     marketStatus.dataset.stagingOrderability = state;
     const spokenStatus = showDetail ? `${summary}, ${detailText}` : summary;
-    marketStatus.setAttribute("aria-label", `${spokenStatus}, 국내주식 거래시간 안내 열기`);
+    marketStatus.setAttribute("aria-label", stagingStockIsUsd()
+      ? `${spokenStatus}, 미국 동부시간 기준`
+      : `${spokenStatus}, 국내주식 거래시간 안내 열기`);
   };
 
   const syncStockChangeContext = () => {
     const target = stockHero?.querySelector("[data-staging-stock-change-context]");
     if (!target) return;
+    if (stagingStockIsUsd()) {
+      target.textContent = "최근 미국장에서";
+      target.dataset.stagingChangeContext = "us-session";
+      return;
+    }
 
     let dashboardData = null;
     let priceRows = [];
@@ -7708,10 +7746,15 @@
     };
     copyText("[data-staging-stock-name]", "#stock-name", "종목 분석");
     copyText("[data-staging-stock-price]", "#quote-price", "-");
+    const currencyTarget = stockHero.querySelector("[data-staging-stock-currency]");
+    if (currencyTarget) {
+      currencyTarget.hidden = stagingStockIsUsd();
+      currencyTarget.textContent = stagingStockIsUsd() ? "" : "원";
+    }
 
     const changeTarget = stockHero.querySelector("[data-staging-stock-change]");
     const changeSource = document.getElementById("stock-change-value")?.textContent?.replace(/\s+/g, " ")?.trim() || "-";
-    const formattedChange = changeSource === "-" || changeSource.endsWith("원") ? changeSource : `${changeSource}원`;
+    const formattedChange = stagingStockIsUsd() || changeSource === "-" || changeSource.endsWith("원") ? changeSource : `${changeSource}원`;
     if (changeTarget && changeTarget.textContent !== formattedChange) {
       changeTarget.textContent = formattedChange;
     }

@@ -806,9 +806,18 @@ def sec_filings(symbol: str, limit: int = 8, refresh: bool = False) -> list[dict
             if accession and document
             else None
         )
+        form_label = {
+            "10-K": "연간 사업보고서",
+            "10-Q": "분기보고서",
+            "8-K": "주요 경영사항 보고",
+            "4": "임원·주요주주 거래",
+            "DEF 14A": "정기 주주총회 위임장",
+            "S-8": "임직원 주식보상 등록",
+        }.get(str(form), "SEC 제출 서류")
         filings.append(
             {
-                "title": f"{form} · {description}",
+                "title": f"{form} · {form_label}",
+                "original_title": description,
                 "source": "SEC EDGAR",
                 "url": url,
                 "published_at": datetime.combine(filing_date, time(0), tzinfo=timezone.utc) if filing_date else None,
@@ -825,10 +834,20 @@ def sec_filings(symbol: str, limit: int = 8, refresh: bool = False) -> list[dict
     return filings
 
 
-def _google_news_items(query: str, limit: int = 10) -> list[dict[str, object]]:
+def _google_news_items(
+    query: str,
+    limit: int = 10,
+    *,
+    language: str = "ko",
+) -> list[dict[str, object]]:
+    korean = language.lower().startswith("ko")
     response = requests.get(
         GOOGLE_NEWS_RSS_URL,
-        params={"q": query, "hl": "en-US", "gl": "US", "ceid": "US:en"},
+        params=(
+            {"q": query, "hl": "ko", "gl": "KR", "ceid": "KR:ko"}
+            if korean
+            else {"q": query, "hl": "en-US", "gl": "US", "ceid": "US:en"}
+        ),
         headers=US_HEADERS,
         timeout=12,
     )
@@ -1252,10 +1271,13 @@ def _news(symbol: str) -> list[dict[str, object]]:
     seen: set[str] = set()
     for query in dict.fromkeys(google_queries):
         try:
-            items = _google_news_items(query, limit=10)
+            items = _google_news_items(query, limit=10, language="ko")
         except Exception:
             continue
         for item in items:
+            title = str(item.get("title") or "").strip()
+            if not re.search(r"[가-힣]", title):
+                continue
             url = item.get("url") or item.get("title")
             if not url or str(url) in seen:
                 continue
@@ -1269,6 +1291,9 @@ def _news(symbol: str) -> list[dict[str, object]]:
         except Exception:
             continue
         for item in payload.get("news") or []:
+            title = str(item.get("title") or "").strip()
+            if not re.search(r"[가-힣]", title):
+                continue
             url = item.get("link") or item.get("uuid") or item.get("title")
             if not url or str(url) in seen:
                 continue
@@ -1278,7 +1303,7 @@ def _news(symbol: str) -> list[dict[str, object]]:
                 published_at = datetime.fromtimestamp(item["providerPublishTime"], timezone.utc)
             rows.append(
                 {
-                    "title": item.get("title") or "",
+                    "title": title,
                     "source": item.get("publisher") or "Yahoo Finance",
                     "url": item.get("link"),
                     "published_at": published_at,
@@ -1287,6 +1312,43 @@ def _news(symbol: str) -> list[dict[str, object]]:
             if len(rows) >= 10:
                 return rows
     return rows[:10]
+
+
+def _financial_series_rows(
+    fundamentals: dict[str, list[dict[str, object]]],
+    scope: str,
+) -> list[dict[str, object]]:
+    prefix = "quarterly" if scope == "quarterly" else "annual"
+    metric_names = {
+        "revenue": f"{prefix}TotalRevenue",
+        "operating_profit": f"{prefix}OperatingIncome",
+        "net_income": f"{prefix}NetIncome",
+        "eps": f"{prefix}DilutedEPS",
+    }
+    rows_by_date: dict[str, dict[str, object]] = {}
+    for key, metric_name in metric_names.items():
+        for item in _metric_series(fundamentals, metric_name):
+            as_of = str(item.get("asOfDate") or "")[:10]
+            value = _raw_metric_value(item)
+            if not as_of or value is None:
+                continue
+            rows_by_date.setdefault(as_of, {})[key] = value
+    rows: list[dict[str, object]] = []
+    for as_of, values in sorted(rows_by_date.items()):
+        revenue = _to_decimal(values.get("revenue"))
+        operating_profit = _to_decimal(values.get("operating_profit"))
+        net_income = _to_decimal(values.get("net_income"))
+        rows.append(
+            {
+                "period": as_of[:4] if scope == "annual" else as_of[:7].replace("-", "."),
+                "reported_at": as_of,
+                "estimated": False,
+                **values,
+                "operating_margin": _round_decimal(operating_profit / revenue * Decimal("100")) if revenue and operating_profit is not None else None,
+                "net_margin": _round_decimal(net_income / revenue * Decimal("100")) if revenue and net_income is not None else None,
+            }
+        )
+    return rows[-6:] if scope == "annual" else rows[-8:]
 
 
 def _classify_us_news_item(item: dict[str, object]) -> dict[str, object]:
@@ -1691,7 +1753,25 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
         "code": stock["code"],
         "name": stock["name"],
         "market": stock["market"],
+        "currency": "USD",
         "as_of": datetime.now(timezone.utc),
+        "company_profile": {
+            "short_summary": (
+                f"{stock['name']} 종목은 미국 {stock['market']}에 상장된 "
+                f"{stock.get('sector') or '기업'} 종목입니다. 실적, 밸류에이션, 뉴스와 SEC 공시를 함께 확인하세요."
+            ),
+            "industry": stock.get("sector"),
+            "sector": stock.get("sector"),
+            "source_label": "SEC EDGAR · Yahoo Finance",
+            "source_url": f"https://www.sec.gov/edgar/search/#/q={stock['code']}",
+        },
+        "financial_series": {
+            "annual": _financial_series_rows(fundamentals, "annual") if fundamentals else [],
+            "quarterly": _financial_series_rows(fundamentals, "quarterly") if fundamentals else [],
+            "currency": "USD",
+            "unit": "USD",
+            "source": "Yahoo Finance 재무 데이터",
+        },
         "quote": {
             "trade_date": latest.trade_date if latest else None,
             "price": price,
@@ -1744,8 +1824,10 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
         "macro_sensitivity": {
             "interest_rate": Decimal("-0.20") if stock.get("sector") in {"클라우드/AI", "소프트웨어", "AI 소프트웨어"} else Decimal("-0.10"),
             "fx": Decimal("0.20"),
+            "fx_usdkrw": Decimal("0.20"),
             "commodity": Decimal("-0.10"),
             "export": Decimal("0.30"),
+            "exports": Decimal("0.30"),
         },
         "sentiment": {
             "score": sentiment_score,

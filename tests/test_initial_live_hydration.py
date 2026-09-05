@@ -28,7 +28,9 @@ def test_stock_detail_hydrates_current_quote_before_first_numeric_render() -> No
         source, "hydrateInitialStockQuote", "loadStockRequest"
     )
 
-    assert "const initialQuoteRequest = fetchInitialStockQuote(stock.code);" in load_source
+    assert "const initialQuoteRequest = usStockRequest ? Promise.resolve(null) : fetchInitialStockQuote(stock.code);" in load_source
+    assert "if (!usStockRequest && sameStock && previousDashboard)" in load_source
+    assert "if (usStockRequest)" in load_source
     assert "Promise.all([dashboardRequest, initialQuoteRequest])" in load_source
     assert load_source.index("hydrateInitialStockQuote(") < load_source.index("render(dashboard")
     assert "state.stockQuoteReadyCode = normalizedCode;" in hydrate_source

@@ -37,6 +37,137 @@
   --page-loading-spinner-border: 4px;
 }
 
+/* US stock detail: current Toss-style shell with market-specific evidence. */
+#stock-view .us-stock-ai-stack {
+  display: grid;
+  gap: 12px;
+}
+
+#stock-view .us-stock-ai-stack[hidden],
+body[data-stock-market="us"] #stock-flow-section,
+body[data-stock-market="us"] #stock-summary-section > .stock-v3-two-column,
+body[data-stock-market="us"] .stock-community-section,
+body[data-stock-market="us"] .stock-sector-margin-section,
+body[data-stock-market="us"] .stock-sga-section,
+body[data-stock-market="us"] .stock-financial-health-section,
+body[data-stock-market="us"] .stock-cashflow-waterfall-section,
+body[data-stock-market="us"] [data-stock-tab="community"],
+body[data-stock-market="us"] [data-stock-panel="community"],
+body[data-stock-market="us"] #stock-research-section > .stock-v3-segment,
+body[data-stock-market="us"] #quant-signal-status,
+body[data-stock-market="us"] #quant-signal-content {
+  display: none !important;
+}
+
+#stock-view .us-stock-ai-summary {
+  background: linear-gradient(145deg, rgba(49, 130, 246, 0.15), rgba(25, 31, 40, 0.94));
+}
+
+#stock-view .us-stock-ai-lead {
+  margin: 18px 0 0;
+  color: var(--tc-sub, #b0b8c1);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.65;
+  letter-spacing: -0.02em;
+}
+
+#stock-view .us-stock-ai-list {
+  display: grid;
+  gap: 0;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+#stock-view .us-stock-ai-list li {
+  position: relative;
+  margin: 0;
+  padding: 14px 0 14px 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  color: var(--tc-text, #f2f4f6);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+#stock-view .us-stock-ai-list li:last-child {
+  border-bottom: 0;
+}
+
+#stock-view .us-stock-ai-list li::before {
+  position: absolute;
+  top: 21px;
+  left: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3182f6;
+  content: "";
+}
+
+#stock-view .us-stock-ai-risks .us-stock-ai-list li::before {
+  background: #f04452;
+}
+
+#stock-view .us-stock-consensus-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 4px;
+}
+
+#stock-view .us-stock-consensus-grid > div {
+  min-width: 0;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+#stock-view .us-stock-consensus-grid dt {
+  color: var(--tc-muted, #8b95a1);
+  font-size: 13px;
+}
+
+#stock-view .us-stock-consensus-grid dd {
+  overflow: hidden;
+  margin: 8px 0 0;
+  color: var(--tc-text, #f2f4f6);
+  font-size: 20px;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-stock-market="us"] #stock-view [data-staging-chart-period="1D"],
+body[data-stock-market="us"] #stock-view [data-staging-chart-period="1W"],
+body[data-stock-market="us"] #stock-view .staging-toss-chart-session-icon {
+  display: none !important;
+}
+
+body[data-stock-market="us"] #stock-view :is(.stock-list-logo, .staging-stock-logo),
+.stock-list-logo.is-us-stock-logo {
+  overflow: hidden;
+  background: #f2f4f6 !important;
+  box-shadow: inset 0 0 0 1px rgba(2, 32, 71, 0.08);
+}
+
+body[data-stock-market="us"] #stock-view :is(.stock-list-logo-image, .staging-stock-logo-image),
+.stock-list-logo.is-us-stock-logo .stock-list-logo-image {
+  object-fit: contain;
+}
+
+@media (max-width: 480px) {
+  #stock-view .us-stock-consensus-grid > div {
+    padding: 16px;
+  }
+
+  #stock-view .us-stock-consensus-grid dd {
+    font-size: 18px;
+  }
+}
+
 /* ETF stock home: composition and distribution information. */
 #stock-view.stock-detail-v3 .stock-detail-tabs button:disabled {
   color: var(--stock-v3-muted);

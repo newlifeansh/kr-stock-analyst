@@ -34,7 +34,7 @@ def test_stock_detail_hydrates_stable_snapshot_before_live_quote_stream():
     assert "include_live=1" not in load_source
     assert "const loadSequence = ++state.stockLoadSequence;" in load_source
     assert load_source.count("loadSequence !== state.stockLoadSequence") >= 4
-    assert "const initialQuoteRequest = fetchInitialStockQuote(stock.code);" in load_source
+    assert "const initialQuoteRequest = usStockRequest ? Promise.resolve(null) : fetchInitialStockQuote(stock.code);" in load_source
     assert "Promise.all([dashboardRequest, initialQuoteRequest])" in load_source
     assert load_source.index("hydrateInitialStockQuote(") < load_source.index("render(dashboard")
     assert 'state.stockQuoteReadyCode === String(data.code || "")' in render_source
@@ -370,7 +370,8 @@ def test_hidden_stock_analysis_is_loaded_only_when_its_tab_is_selected():
 
     assert "void loadStockCompanyAnalysis(data);" not in render_source
     assert "const quantSignalPrefetch" not in load_source
-    assert 'return tabName === "strategy" && Boolean(state.currentStock?.code);' in source
+    assert '(tabName === "summary" || (stockDashboardIsUs() && tabName === "strategy"))' in source
+    assert 'return !stockDashboardIsUs() && tabName === "strategy"' in source
     assert 'state.stockActiveTab !== "company"' in source
     assert "ensureStockCompanyAnalysis();" in source
 
@@ -524,7 +525,7 @@ def test_switching_stocks_clears_previous_stock_content_before_resolution():
     company_reset_source = _function_source(source, "resetStockCompanyAnalysis", "loadStockCompanyAnalysis")
     quote_animation_source = _function_source(source, "animateQuoteNumber", "updateQuoteStrip")
 
-    assert load_source.index("setLoading(normalized);") < load_source.index("await resolveStock(normalized)")
+    assert load_source.index("setLoading(normalized);") < load_source.index("await resolveStock(normalized, { usMarket: usStockRequest })")
     for stock_value in (
         "elements.quotePrice",
         "elements.stockChangeValue",
@@ -568,7 +569,7 @@ def test_mobile_stock_search_is_not_closed_by_background_stock_retries():
         "load(item.name, { resolvedStock: item })"
     )
     assert "const resolvedCandidate = options.resolvedStock;" in load_source
-    assert "candidateMatches ? resolvedCandidate : await resolveStock(normalized)" in load_source
+    assert "candidateMatches ? resolvedCandidate : await resolveStock(normalized, { usMarket: usStockRequest })" in load_source
     assert "state.responseCache.delete(dashboardUrl);" in load_source
     assert "scheduleStockDashboardWarmRefresh(stock);" in load_source
     assert submit_source.index("collapseStockSearch") < submit_source.index("load(query)")

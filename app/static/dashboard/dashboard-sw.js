@@ -1,14 +1,14 @@
-const DASHBOARD_SW_VERSION = "20260905v466";
-const DASHBOARD_BUILD_VERSION = "20260905v466";
+const DASHBOARD_SW_VERSION = "20260905v470";
+const DASHBOARD_BUILD_VERSION = "20260905v470";
 const STATIC_CACHE = `secret-note-static-${DASHBOARD_SW_VERSION}-${DASHBOARD_BUILD_VERSION}`;
 const STATIC_ASSETS = [
-  "/assets/dashboard/styles.css?v=20260905v466&build=20260905v466",
+  "/assets/dashboard/styles.css?v=20260905v470&build=20260905v470",
   "/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts",
   "/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154",
   "/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154",
-  "/assets/staging/ai-stock-response-logic.js?v=20260905-us-ranking-v94",
-  "/assets/staging/stock-change-copy-logic.js?v=20260905-us-ranking-v94",
-  "/assets/staging/toss-ia.js?v=20260905-us-ranking-v94",
+  "/assets/staging/ai-stock-response-logic.js?v=20260905-us-detail-v95",
+  "/assets/staging/stock-change-copy-logic.js?v=20260905-us-detail-v95",
+  "/assets/staging/toss-ia.js?v=20260905-us-detail-v95",
   "/assets/dashboard/icons/icon-192.png?v=20260620bq",
   "/assets/dashboard/icons/icon-512.png?v=20260620bq",
   "/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq"
@@ -32,7 +32,7 @@ self.addEventListener("activate", (event) => {
       .then(() => self.clients.matchAll({ type: "window", includeUncontrolled: true }))
       .then((clients) => Promise.all(clients.map((client) => {
         const url = new URL(client.url);
-        if (url.origin !== self.location.origin || !url.pathname.startsWith("/dashboard")) {
+        if (url.origin !== self.location.origin || (!url.pathname.startsWith("/dashboard") && !url.pathname.startsWith("/us"))) {
           return undefined;
         }
         const currentBuild = url.searchParams.get("app_build");

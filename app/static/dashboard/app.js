@@ -170,6 +170,13 @@ const elements = {
   aiSectionList: $("ai-section-list"),
   quantSignalStatus: $("quant-signal-status"),
   quantSignalContent: $("quant-signal-content"),
+  usStockAIContent: $("us-stock-ai-content"),
+  usStockAIStance: $("us-stock-ai-stance"),
+  usStockAICoverage: $("us-stock-ai-coverage"),
+  usStockAISummary: $("us-stock-ai-summary"),
+  usStockAIKeyPoints: $("us-stock-ai-key-points"),
+  usStockAIStrategy: $("us-stock-ai-strategy-list"),
+  usStockAIRisks: $("us-stock-ai-risk-list"),
   quantSignalRefresh: $("quant-signal-refresh"),
   quantCurrentLabel: $("quant-current-label"),
   quantLifecycle: $("quant-lifecycle"),
@@ -920,6 +927,14 @@ const requestedMarketRankingMode = dashboardQueryParams.get("mode") || "";
 const requestedNewsFilter = dashboardQueryParams.get("filter") || "all";
 const requestedTrendEventId = dashboardQueryParams.get("event_id") || "";
 const hasStockDetailPath = window.location.pathname.split("/").filter(Boolean).length > 1;
+const isUsStockDetailPath = /^\/us\/stock\/[^/]+\/?$/.test(window.location.pathname);
+if (isUsStockDetailPath) {
+  document.body.dataset.stockMarket = "us";
+  document.title = "미국증시 비밀노트";
+  const loginTitle = $("login-title");
+  if (loginTitle) loginTitle.textContent = "미국증시 비밀노트";
+  if (elements.loginDescription) elements.loginDescription.textContent = "아이디를 입력해 미국 종목을 확인하세요.";
+}
 const LEGACY_VIEW_MAP = {
   trend: "home",
   "trend-past": "home",
@@ -1454,6 +1469,9 @@ function pathQuery() {
   if (parts[0] === "dashboard" && parts[1]) {
     return decodeURIComponent(parts[1]);
   }
+  if (parts[0] === "us" && parts[1] === "stock" && parts[2]) {
+    return decodeURIComponent(parts[2]);
+  }
   return new URLSearchParams(window.location.search).get("query") || "SK하이닉스";
 }
 
@@ -1540,6 +1558,64 @@ function formatUsdCompact(value) {
     }
   }
   return `$${number.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}`;
+}
+
+function stockDashboardIsUs(data = state.currentDashboard) {
+  const market = String(data?.market || state.currentStock?.market || "").toUpperCase();
+  return data?.currency === "USD"
+    || ["NASDAQ", "NYSE", "SP500", "US"].includes(market)
+    || isUsStockDetailPath
+    || /^\/us\/stock\//.test(window.location.pathname);
+}
+
+function formatUsdPrice(value) {
+  const number = toNumber(value);
+  if (number === null) {
+    return "-";
+  }
+  const digits = Math.abs(number) < 1 ? 4 : 2;
+  return `$${number.toLocaleString("ko-KR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: digits,
+  })}`;
+}
+
+function formatStockPrice(value, data = state.currentDashboard) {
+  return stockDashboardIsUs(data)
+    ? formatUsdPrice(value)
+    : (toNumber(value) === null ? "-" : formatNumber(Math.round(Number(value))));
+}
+
+function formatStockChangeValue(value, data = state.currentDashboard) {
+  const number = toNumber(value);
+  if (number === null) {
+    return "-";
+  }
+  if (stockDashboardIsUs(data)) {
+    return `${number > 0 ? "+" : number < 0 ? "-" : ""}${formatUsdPrice(Math.abs(number))}`;
+  }
+  return formatChangeValue(number);
+}
+
+function formatStockMoney(value, data = state.currentDashboard) {
+  return stockDashboardIsUs(data) ? formatUsdCompact(value) : formatMoney(value);
+}
+
+function formatStockForecastPrice(value, data = state.currentDashboard) {
+  const number = toNumber(value);
+  if (number === null) return "-";
+  return stockDashboardIsUs(data)
+    ? formatUsdPrice(number)
+    : `${formatNumber(roundTradePrice(number))}원`;
+}
+
+function formatStockForecastRange(low, high, data = state.currentDashboard) {
+  const lower = toNumber(low);
+  const upper = toNumber(high);
+  if (lower === null || upper === null) return "-";
+  return stockDashboardIsUs(data)
+    ? `${formatUsdPrice(Math.min(lower, upper))}~${formatUsdPrice(Math.max(lower, upper))}`
+    : `${formatPriceRange(lower, upper)}원`;
 }
 
 function formatCompactCount(value) {
@@ -1737,6 +1813,35 @@ function renderKoreaQuoteSession(quote = null) {
   setText(elements.stockMarketStatusLabel, displayStatus);
 }
 
+function renderUsQuoteSession() {
+  const phase = usMarketPhase();
+  const labels = {
+    premarket: "미국 프리마켓",
+    regular: "미국 정규장 진행중",
+    afterhours: "미국 애프터마켓",
+    closed: "미국장 마감",
+  };
+  const displayStatus = labels[phase] || labels.closed;
+  const tone = phase === "regular" ? "live" : phase === "closed" ? "closed" : "waiting";
+  setText(elements.stockLiveBadge, displayStatus);
+  if (!elements.stockPreMarket) {
+    return;
+  }
+  elements.stockPreMarket.hidden = false;
+  elements.stockPreMarket.dataset.session = `us_${phase}`;
+  elements.stockPreMarket.dataset.statusTone = tone;
+  elements.stockPreMarket.setAttribute("aria-label", `${displayStatus}, 미국 동부시간 기준`);
+  setText(elements.stockMarketStatusLabel, "미국 동부시간 기준");
+}
+
+function renderStockQuoteSession(quote = null, data = state.currentDashboard) {
+  if (stockDashboardIsUs(data)) {
+    renderUsQuoteSession();
+    return;
+  }
+  renderKoreaQuoteSession(quote);
+}
+
 function stockMetaText(data, sourceLabel = "") {
   const parts = [formatDataBasis(data.as_of)];
   const preMarket = formatPreMarketChange(data.quote, false);
@@ -1751,6 +1856,9 @@ function stockMetaText(data, sourceLabel = "") {
 
 function stockDetailMetaText(data) {
   const parts = [];
+  if (stockDashboardIsUs(data)) {
+    parts.push(`${data?.market || "미국"} · 미국주식`);
+  }
   if (data?.source === STOCK_DASHBOARD_WARMING_SOURCE) {
     parts.push("기본 데이터 표시 · 정밀 데이터 준비 중");
   }
@@ -1964,15 +2072,20 @@ function scrollStockTabsToTop(options = {}) {
 }
 
 function shouldAutoLoadStockAI(tabName = state.stockActiveTab) {
-  return tabName === "summary" && Boolean(state.currentStock?.code);
+  return (tabName === "summary" || (stockDashboardIsUs() && tabName === "strategy"))
+    && Boolean(state.currentStock?.code);
 }
 
 function shouldAutoLoadStockQuantSignals(tabName = state.stockActiveTab) {
-  return tabName === "strategy" && Boolean(state.currentStock?.code);
+  return !stockDashboardIsUs() && tabName === "strategy" && Boolean(state.currentStock?.code);
 }
 
 function ensureStockCompanyAnalysis() {
   if (state.stockActiveTab !== "company" || !state.currentDashboard?.code || currentStockIsEtf()) {
+    return;
+  }
+  if (stockDashboardIsUs()) {
+    renderUsStockCompanyAnalysis(state.currentDashboard);
     return;
   }
   const statuses = [
@@ -2056,16 +2169,16 @@ function renderStockLiveSummary(data) {
   if (!data) {
     return;
   }
-  renderKoreaQuoteSession(data.quote);
-  setText(elements.stockChangeValue, formatChangeValue(data.quote?.change_value));
+  renderStockQuoteSession(data.quote, data);
+  setText(elements.stockChangeValue, formatStockChangeValue(data.quote?.change_value, data));
   setTone(elements.stockChangeValue, data.quote?.change_value);
   setText(elements.stockVolume, formatCompactCount(data.quote?.volume));
   setText(elements.stockVolumeDetail, formatNumber(data.quote?.volume));
-  setText(elements.stockTradingValueDetail, formatMoney(data.quote?.trading_value));
-  setText(elements.stockMarketCapDetail, formatMoney(data.quote?.market_cap));
+  setText(elements.stockTradingValueDetail, formatStockMoney(data.quote?.trading_value, data));
+  setText(elements.stockMarketCapDetail, formatStockMoney(data.quote?.market_cap, data));
   const previousClose = previousCloseFromQuote(data.quote);
-  setText(elements.stockPrevCloseSummary, previousClose === null ? "-" : formatNumber(Math.round(previousClose)));
-  setText(elements.stockPrevClose, previousClose === null ? "-" : formatNumber(Math.round(previousClose)));
+  setText(elements.stockPrevCloseSummary, formatStockPrice(previousClose, data));
+  setText(elements.stockPrevClose, formatStockPrice(previousClose, data));
 }
 
 function signalLabel(value, positive = "우호", neutral = "보통", negative = "부담") {
@@ -2379,6 +2492,9 @@ function formatChartAxisPrice(value) {
   if (number === null) {
     return "-";
   }
+  if (stockDashboardIsUs()) {
+    return formatUsdPrice(number);
+  }
   if (Math.abs(number) >= 10000) {
     return `${Math.round(number / 10000).toLocaleString("ko-KR")}만`;
   }
@@ -2411,12 +2527,12 @@ function renderStockV2Range(prices, quote = null) {
   const upperDistance = Math.max(0, 100 - position);
   setText(elements.stockV2RangePercent, `상단 ${upperDistance.toFixed(0)}%`);
   elements.stockV2RangeChart.innerHTML = `
-    <div class="stock-v2-range-value"><strong>${formatNumber(current)}</strong><span>현재가</span></div>
+    <div class="stock-v2-range-value"><strong>${formatStockPrice(current)}</strong><span>현재가</span></div>
     <div class="stock-v2-range-track" style="--position:${position.toFixed(2)}%">
       <i class="stock-v2-range-fill"></i>
-      <b class="stock-v2-range-marker"><span>${formatNumber(current)}</span></b>
+      <b class="stock-v2-range-marker"><span>${formatStockPrice(current)}</span></b>
     </div>
-    <div class="stock-v2-range-labels"><span>최저 ${formatNumber(low)}</span><span>최고 ${formatNumber(high)}</span></div>
+    <div class="stock-v2-range-labels"><span>최저 ${formatStockPrice(low)}</span><span>최고 ${formatStockPrice(high)}</span></div>
   `;
 }
 
@@ -2439,8 +2555,8 @@ function renderStockV2Consensus(data) {
   setText(elements.stockV2ConsensusUpside, `여력 ${formatPercent(upside)}`);
   setTone(elements.stockV2ConsensusUpside, upside);
   elements.stockV2ConsensusChart.innerHTML = `
-    <div class="stock-v2-comparison-row current"><span>현재가</span><div><i style="width:${currentWidth.toFixed(2)}%"></i></div><strong>${formatNumber(current)}</strong></div>
-    <div class="stock-v2-comparison-row target"><span>목표가</span><div><i style="width:${targetWidth.toFixed(2)}%"></i></div><strong>${formatNumber(target)}</strong></div>
+    <div class="stock-v2-comparison-row current"><span>현재가</span><div><i style="width:${currentWidth.toFixed(2)}%"></i></div><strong>${formatStockPrice(current, data)}</strong></div>
+    <div class="stock-v2-comparison-row target"><span>목표가</span><div><i style="width:${targetWidth.toFixed(2)}%"></i></div><strong>${formatStockPrice(target, data)}</strong></div>
     <p>최근 90일 리포트 ${formatNumber(reportCount)}건 · ${data?.revisions?.latest_opinion || "의견 없음"}</p>
   `;
 }
@@ -2485,7 +2601,7 @@ function renderStockV2Flow(data) {
       <div class="stock-v2-flow-row ${direction}">
         <span>${row.label}</span>
         <div class="stock-v2-flow-track"><i style="width:${magnitude.toFixed(2)}%"></i></div>
-        <strong>${formatMoney(row.value)}</strong>
+        <strong>${formatStockMoney(row.value, data)}</strong>
       </div>
     `;
   }).join("");
@@ -2675,7 +2791,7 @@ function renderStockMiniChart(prices, quote = null) {
     hoverPoint.setAttribute("cx", point.x.toFixed(2));
     hoverPoint.setAttribute("cy", point.y.toFixed(2));
     tooltip.style.left = `${clampNumber(point.x / width * 100, 12, 88)}%`;
-    tooltip.innerHTML = `<span>${formatDateLabel(row.date)}</span><strong>${formatNumber(row.close)}</strong><em>거래량 ${formatCompactCount(row.volume)}</em>`;
+    tooltip.innerHTML = `<span>${formatDateLabel(row.date)}</span><strong>${formatStockPrice(row.close)}</strong><em>거래량 ${formatCompactCount(row.volume)}</em>`;
   });
   hit?.addEventListener("pointerleave", hideTooltip);
 }
@@ -2824,6 +2940,9 @@ function formatFinancialAmount(value) {
   const number = toNumber(value);
   if (number === null) {
     return "-";
+  }
+  if (stockDashboardIsUs() || state.currentDashboard?.financial_series?.currency === "USD") {
+    return formatUsdCompact(number);
   }
   const absolute = Math.abs(number);
   if (absolute >= 10000) {
@@ -4214,6 +4333,53 @@ function renderCompanySnapshot(data, performance, metrics) {
   }
 }
 
+function renderUsCompanySnapshot(data, performance) {
+  if (!elements.stockInvestmentSnapshot) return;
+  const valuation = data?.valuation || {};
+  const revenueGrowth = performance.revenueGrowth;
+  const profitGrowth = performance.operatingProfitGrowth;
+  const margin = toNumber(performance.latest?.operating_margin);
+  const marginChange = performance.operatingMarginChange;
+  const eps = toNumber(valuation.eps);
+  const per = toNumber(valuation.per);
+  const industryPer = toNumber(valuation.industry_per);
+  const dividendYield = toNumber(valuation.dividend_yield);
+  const rows = [
+    {
+      label: "성장",
+      status: revenueGrowth === null ? "정보 부족" : revenueGrowth >= 0 ? "성장" : "감소",
+      value: revenueGrowth === null ? "-" : formatPercent(revenueGrowth),
+      detail: `매출 ${revenueGrowth === null ? "비교 불가" : formatPercent(revenueGrowth)} · 영업이익 ${profitGrowth === null ? "비교 불가" : formatPercent(profitGrowth)}`,
+    },
+    {
+      label: "수익성",
+      status: margin === null ? "정보 부족" : margin < 0 ? "적자" : marginChange === null || marginChange >= 0 ? "개선" : "둔화",
+      value: margin === null ? "-" : formatCompanyPercent(margin),
+      detail: marginChange === null ? "최근 영업이익률을 기준으로 봅니다." : `비교 기간보다 ${formatCompanyPoint(marginChange)} ${marginChange >= 0 ? "높아졌습니다." : "낮아졌습니다."}`,
+    },
+    {
+      label: "주당이익",
+      status: eps === null ? "정보 부족" : eps > 0 ? "이익" : "적자",
+      value: formatUsdPrice(eps),
+      detail: "최근 12개월 희석 EPS 기준입니다.",
+    },
+    {
+      label: "가격",
+      status: per === null || industryPer === null ? "비교 제한" : per <= industryPer ? "업종 대비 낮음" : "업종 대비 높음",
+      value: per === null ? "-" : formatCompanyMultiple(per),
+      detail: industryPer === null ? `배당수익률 ${formatPercent(dividendYield)}` : `동일업종 PER ${formatCompanyMultiple(industryPer)} · 배당수익률 ${formatPercent(dividendYield)}`,
+    },
+  ];
+  elements.stockInvestmentSnapshot.innerHTML = "";
+  for (const row of rows) {
+    const item = el("article", `stock-investment-snapshot-row ${companySignalTone(row.status)}`);
+    const head = el("div", "stock-investment-snapshot-head");
+    head.append(el("strong", "", row.label), el("span", "", row.status));
+    item.append(head, el("b", "", row.value), el("p", "", row.detail));
+    elements.stockInvestmentSnapshot.appendChild(item);
+  }
+}
+
 function companyMetricTone(value, thresholds = {}) {
   const number = toNumber(value);
   if (number === null) return "is-neutral";
@@ -4441,12 +4607,12 @@ function renderCompanyValuation(data) {
   dismissStockBarTooltip(elements.stockCompanyValuation);
   const valuation = data?.valuation || {};
   elements.stockCompanyValuation.innerHTML = "";
-  renderCompanyPerComparison(data, valuation);
+  if (!stockDashboardIsUs(data)) renderCompanyPerComparison(data, valuation);
   const grid = el("dl", "stock-company-valuation-grid");
   for (const row of [
     ["PBR", formatCompanyMultiple(valuation.pbr), "주가 ÷ 주당순자산"],
-    ["EPS", toNumber(valuation.eps) === null ? "-" : `${formatNumber(Math.round(toNumber(valuation.eps)))}원`, "주당순이익"],
-    ["BPS", toNumber(valuation.bps) === null ? "-" : `${formatNumber(Math.round(toNumber(valuation.bps)))}원`, "주당순자산"],
+    ["EPS", stockDashboardIsUs(data) ? formatUsdPrice(valuation.eps) : (toNumber(valuation.eps) === null ? "-" : `${formatNumber(Math.round(toNumber(valuation.eps)))}원`), "주당순이익"],
+    ["BPS", stockDashboardIsUs(data) ? formatUsdPrice(valuation.bps) : (toNumber(valuation.bps) === null ? "-" : `${formatNumber(Math.round(toNumber(valuation.bps)))}원`), "주당순자산"],
     ["배당수익률", toNumber(valuation.dividend_yield) === null ? "-" : formatCompanyPercent(valuation.dividend_yield), "최근 배당 기준"],
   ]) {
     const item = el("div", "");
@@ -4537,6 +4703,23 @@ function renderStockCompanyAnalysis(data = state.currentDashboard) {
         : metrics.group
           ? `${statementLabel} 재무제표 기준 · 금액은 이해를 돕기 위해 억원/조원으로 환산했습니다.`
           : "최신 DART 재무제표가 없어 실적·밸류에이션 정보만 표시합니다.";
+  }
+}
+
+function renderUsStockCompanyAnalysis(data = state.currentDashboard) {
+  if (!data) return;
+  renderStockFinancialChart();
+  renderCompanyRevenueBreakdown(data);
+  const performance = latestCompanyPerformance(data);
+  const metrics = companyStatementMetrics(data);
+  const latestPeriod = performance.latest?.period || "최근 실적";
+  setText(elements.stockCompanyAnalysisAsOf, `${latestPeriod} · USD 기준`);
+  renderUsCompanySnapshot(data, performance);
+  renderCompanyValuation(data);
+  renderCompanyCheckpoints(data, performance, metrics);
+  if (elements.stockCompanyDataStatus) {
+    elements.stockCompanyDataStatus.dataset.state = "ready";
+    elements.stockCompanyDataStatus.textContent = "Yahoo Finance 재무 데이터와 SEC 공시를 기준으로 표시합니다.";
   }
 }
 
@@ -5364,9 +5547,14 @@ function renderStockHomeUpdates(data) {
     return;
   }
   const { reports, disclosures, news } = stockHomeContentItems(data);
+  const usStock = stockDashboardIsUs(data);
+  const consensusRow = usStock ? {
+    title: `애널리스트 의견 ${data?.revisions?.latest_opinion || "집계 중"}${data?.revisions?.latest_target_price ? ` · 목표가 ${formatUsdPrice(data.revisions.latest_target_price)}` : ""}`,
+    published_at: data?.revisions?.latest_report_at || data?.as_of,
+  } : null;
   const rows = [
-    { label: "리포트", icon: "R", row: reports[0], title: reports[0]?.title },
-    { label: "공시", icon: "D", row: disclosures[0], title: disclosures[0]?.report_name || disclosures[0]?.title },
+    { label: usStock ? "컨센서스" : "리포트", icon: "R", row: reports[0] || consensusRow, title: reports[0]?.title || consensusRow?.title },
+    { label: usStock ? "SEC" : "공시", icon: usStock ? "S" : "D", row: disclosures[0], title: disclosures[0]?.report_name || disclosures[0]?.title },
     { label: "뉴스", icon: "N", row: news[0], title: news[0]?.title },
   ];
   elements.stockHomeUpdates.innerHTML = "";
@@ -5418,7 +5606,7 @@ function stockOneMonthDisclosureRows(data) {
     .filter(({ date }) => date && date >= cutoffDate && date <= referenceDate)
     .sort((a, b) => b.date.localeCompare(a.date) || String(b.row?.external_id || "").localeCompare(String(a.row?.external_id || "")))
     .filter(({ row }) => {
-      const key = String(row?.external_id || row?.detail_url || row?.id || "").trim();
+      const key = String(row?.external_id || row?.detail_url || row?.url || row?.accession_number || row?.id || "").trim();
       if (!key || seen.has(key)) {
         return false;
       }
@@ -5463,15 +5651,22 @@ function renderStockHomeDisclosures(data) {
     return;
   }
   const { disclosures } = stockHomeContentItems(data);
-  const rows = stockOneMonthDisclosureRows(data);
+  const usStock = stockDashboardIsUs(data);
+  const rows = usStock
+    ? [...disclosures].sort((a, b) => String(updateItemDate(b) || "").localeCompare(String(updateItemDate(a) || ""))).slice(0, 8)
+    : stockOneMonthDisclosureRows(data);
   const companyName = String(data?.name || state.currentStock?.name || "선택 종목").trim();
   if (elements.stockHomeDisclosuresAll) {
-    elements.stockHomeDisclosuresAll.href = stockDartCompanyUrl(data, disclosures);
-    elements.stockHomeDisclosuresAll.setAttribute("aria-label", `${companyName} DART 전체 공시 보기`);
+    elements.stockHomeDisclosuresAll.href = usStock
+      ? `https://www.sec.gov/edgar/search/#/q=${encodeURIComponent(data?.code || companyName)}`
+      : stockDartCompanyUrl(data, disclosures);
+    elements.stockHomeDisclosuresAll.setAttribute("aria-label", `${companyName} ${usStock ? "SEC" : "DART"} 전체 공시 보기`);
   }
   setText(
     elements.stockHomeDisclosuresSummary,
-    rows.length ? `최근 30일 · 총 ${formatNumber(rows.length)}건` : "최근 30일 내 수집된 공시가 없습니다."
+    rows.length
+      ? `${usStock ? "최근 SEC 제출" : "최근 30일"} · 총 ${formatNumber(rows.length)}건`
+      : `${usStock ? "최근 수집된 SEC 공시가" : "최근 30일 내 수집된 공시가"} 없습니다.`
   );
   elements.stockHomeDisclosures.innerHTML = "";
   if (!rows.length) {
@@ -5480,7 +5675,13 @@ function renderStockHomeDisclosures(data) {
       elements.stockHomeDisclosuresToggle.hidden = true;
       elements.stockHomeDisclosuresToggle.setAttribute("aria-expanded", "false");
     }
-    elements.stockHomeDisclosures.appendChild(el("p", "stock-v3-chart-empty", "최근 30일 내 공시가 없습니다. DART 전체 보기에서 과거 공시를 확인할 수 있습니다."));
+    elements.stockHomeDisclosures.appendChild(el(
+      "p",
+      "stock-v3-chart-empty",
+      usStock
+        ? "수집된 SEC 공시가 없습니다. SEC 전체 보기에서 원문을 확인할 수 있습니다."
+        : "최근 30일 내 공시가 없습니다. DART 전체 보기에서 과거 공시를 확인할 수 있습니다.",
+    ));
     return;
   }
   const disclosureLimit = 5;
@@ -5509,7 +5710,7 @@ function renderStockHomeDisclosures(data) {
       node.href = href;
       node.target = "_blank";
       node.rel = "noopener noreferrer";
-      node.setAttribute("aria-label", `${title} DART 원문 보기`);
+      node.setAttribute("aria-label", `${title} ${usStock ? "SEC" : "DART"} 원문 보기`);
     }
     const copy = el("span", "stock-home-disclosure-copy");
     const meta = el("span", "stock-home-disclosure-meta");
@@ -5521,7 +5722,7 @@ function renderStockHomeDisclosures(data) {
     if (row?.filer_name) {
       copy.appendChild(el("small", "", `제출인 ${String(row.filer_name).trim()}`));
     }
-    node.append(el("i", "", "D"), copy, el("span", "stock-home-disclosure-arrow", href ? "↗" : ""));
+    node.append(el("i", "", usStock ? "S" : "D"), copy, el("span", "stock-home-disclosure-arrow", href ? "↗" : ""));
     elements.stockHomeDisclosures.appendChild(node);
   }
 }
@@ -5544,7 +5745,19 @@ function renderStockTodaySummary(data) {
   const high = range.length ? Math.max(...range.map((row) => row.high ?? row.close)) : null;
   const distanceFromHigh = price && high ? (price / high - 1) * 100 : null;
   const phase = koreaMarketPhaseLabel();
-  const bullets = [
+  const usStock = stockDashboardIsUs(data);
+  const usPhaseLabels = {
+    premarket: "미국 프리마켓",
+    regular: "미국 정규장",
+    afterhours: "미국 애프터마켓",
+    closed: "최근 미국장",
+  };
+  const bullets = usStock ? [
+    `${usPhaseLabels[usMarketPhase()] || "최근 미국장"} ${price === null ? "시세 대기" : `${formatUsdPrice(price)} (${formatPercent(changeRate)})`}${distanceFromHigh === null ? "" : ` · 52주 고점 대비 ${formatPercent(distanceFromHigh)}`}`,
+    `1개월 ${formatPercent(data?.momentum?.one_month_return)} · 3개월 ${formatPercent(data?.momentum?.three_month_return)}`,
+    volumeRatio === null ? `거래량 ${formatCompactCount(latestVolume)}` : `거래량 ${formatCompactCount(latestVolume)} · 최근 20일 평균의 ${volumeRatio.toFixed(0)}%`,
+    `${data?.market || "미국시장"} · ${data?.company_profile?.industry || data?.company_profile?.sector || "업종 정보 확인 중"}`,
+  ] : [
     `${phase} ${price === null ? "시세 대기" : `${formatNumber(price)}원 (${formatPercent(changeRate)})`}${distanceFromHigh === null ? "" : ` · 52주 고점 대비 ${formatPercent(distanceFromHigh)}`}`,
     `외국인 ${formatMoney(flows.foreign_net_buy_20d)} · 기관 ${formatMoney(flows.institution_net_buy_20d)} (최근 20거래일)`,
     volumeRatio === null ? `거래량 ${formatCompactCount(latestVolume)}` : `거래량 ${formatCompactCount(latestVolume)} · 최근 20일 평균의 ${volumeRatio.toFixed(0)}%`,
@@ -6669,7 +6882,7 @@ function renderStockStrategyVisual(payload) {
 function renderStockResearchSummary(data) {
   const revisions = data?.revisions || {};
   const latestTargetPrice = revisions.latest_target_price;
-  setText(elements.stockTargetPrice, latestTargetPrice ? formatNumber(latestTargetPrice) : "-");
+  setText(elements.stockTargetPrice, latestTargetPrice ? formatStockPrice(latestTargetPrice, data) : "-");
   setText(elements.stockLatestOpinion, revisions.latest_opinion || "-");
   if (elements.stockLatestReportAt) {
     elements.stockLatestReportAt.textContent = "";
@@ -6783,9 +6996,9 @@ function renderStockDerivedIndicators(data) {
   const pbr = toNumber(data?.valuation?.pbr);
   const latestEps = data?.surprise?.latest_eps ?? data?.revisions?.estimated_eps;
   const bps = quotePrice !== null && pbr !== null && pbr !== 0 ? quotePrice / pbr : null;
-  setText(elements.stockEps, formatNumber(latestEps));
-  setText(elements.stockBps, bps === null ? "-" : formatNumber(Math.round(bps)));
-  setText(elements.stockDividendYield, "-");
+  setText(elements.stockEps, stockDashboardIsUs(data) ? formatUsdPrice(latestEps) : formatNumber(latestEps));
+  setText(elements.stockBps, stockDashboardIsUs(data) ? formatUsdPrice(data?.valuation?.bps ?? bps) : (bps === null ? "-" : formatNumber(Math.round(bps))));
+  setText(elements.stockDividendYield, stockDashboardIsUs(data) ? formatPercent(data?.valuation?.dividend_yield) : "-");
   setText(elements.stockDividendPerShare, "-");
   setText(elements.stockForeignRatio, "-");
 }
@@ -6968,18 +7181,19 @@ function renderStockPriceSummaryFromPrices(prices, quote = null) {
   if (!Array.isArray(prices) || !prices.length) {
     return;
   }
-  const latest = prices[0] || {};
-  const previous = prices[1] || {};
+  const usStock = stockDashboardIsUs();
+  const latest = (usStock ? prices.at(-1) : prices[0]) || {};
+  const previous = (usStock ? prices.at(-2) : prices[1]) || {};
   const previousClose = previous.close ?? previousCloseFromQuote(quote);
 
-  setText(elements.stockPrevClose, formatNumber(previousClose));
-  setText(elements.stockPrevCloseSummary, formatNumber(previousClose));
-  setText(elements.stockOpen, formatNumber(latest.open));
-  setText(elements.stockHigh, formatNumber(latest.high));
-  setText(elements.stockLow, formatNumber(latest.low));
+  setText(elements.stockPrevClose, formatStockPrice(previousClose));
+  setText(elements.stockPrevCloseSummary, formatStockPrice(previousClose));
+  setText(elements.stockOpen, formatStockPrice(latest.open));
+  setText(elements.stockHigh, formatStockPrice(latest.high));
+  setText(elements.stockLow, formatStockPrice(latest.low));
   setText(elements.stockVolumeDetail, formatNumber(quote?.volume ?? latest.volume));
-  setText(elements.stockTradingValueDetail, formatMoney(quote?.trading_value ?? latest.trading_value));
-  setText(elements.stockMarketCapDetail, formatMoney(quote?.market_cap ?? latest.market_cap));
+  setText(elements.stockTradingValueDetail, formatStockMoney(quote?.trading_value ?? latest.trading_value));
+  setText(elements.stockMarketCapDetail, formatStockMoney(quote?.market_cap ?? latest.market_cap));
 }
 
 async function loadStockPriceSummary(code, quote) {
@@ -6987,8 +7201,10 @@ async function loadStockPriceSummary(code, quote) {
     return;
   }
   try {
-    const marketOpen = koreaMarketPhase() === "regular";
-    const prices = await fetchJsonCached(`/stocks/${encodeURIComponent(code)}/prices?limit=1000`, {
+    const usStock = stockDashboardIsUs();
+    const marketOpen = usStock ? usMarketPhase() === "regular" : koreaMarketPhase() === "regular";
+    const priceEndpoint = usStock ? `/us/stocks/${encodeURIComponent(code)}/prices?limit=1000` : `/stocks/${encodeURIComponent(code)}/prices?limit=1000`;
+    const prices = await fetchJsonCached(priceEndpoint, {
       ttlMs: marketOpen ? 30_000 : 30 * PAGE_ENTRY_MINUTE_MS,
     });
     if (state.currentStock?.code !== code) {
@@ -7001,6 +7217,7 @@ async function loadStockPriceSummary(code, quote) {
     renderQuantSignalChart();
     renderStockV2Range(prices, currentQuote);
     renderStockHome(state.currentDashboard);
+    renderUsStockResearch(state.currentDashboard);
     renderStockHomeChartAnalysis();
   } catch {
     if (state.currentStock?.code !== code) {
@@ -7112,6 +7329,18 @@ async function loadStockHomeDetailsLegacy(data, requestId) {
 async function loadStockHomeDetails(data, options = {}) {
   const code = data?.code;
   if (!code) {
+    return;
+  }
+  if (stockDashboardIsUs(data)) {
+    state.stockHomeDetailsRequestId += 1;
+    state.stockFlowRows = [];
+    state.stockResearchRows = [];
+    state.stockDisclosureRows = Array.isArray(data?.guidance?.latest_events) ? data.guidance.latest_events : [];
+    state.stockNewsRows = Array.isArray(data?.sentiment?.latest_items) ? data.sentiment.latest_items : [];
+    state.stockCommunity = null;
+    renderStockHome(data);
+    renderUsStockResearch(data);
+    configureStockMarketExperience(data);
     return;
   }
   const contextRetry = options.contextRetry === true;
@@ -7282,13 +7511,13 @@ function updateQuoteStrip(quote, payload = null, options = {}) {
     renderStockTrendScore(state.currentDashboard);
   }
   const displayQuote = state.currentDashboard?.quote || quote;
-  animateQuoteNumber(elements.quotePrice, displayQuote.price, (value) => formatNumber(Math.round(Number(value))));
-  animateQuoteNumber(elements.stockChangeValue, displayQuote.change_value, formatChangeValue);
+  animateQuoteNumber(elements.quotePrice, displayQuote.price, (value) => formatStockPrice(value));
+  animateQuoteNumber(elements.stockChangeValue, displayQuote.change_value, (value) => formatStockChangeValue(value));
   animateQuoteNumber(elements.quoteChange, displayQuote.change_rate, formatPercent);
   animateQuoteNumber(
     elements.stockCommandPrice,
     displayQuote.price,
-    (value) => `${formatNumber(Math.round(Number(value)))}원`,
+    (value) => stockDashboardIsUs() ? formatUsdPrice(value) : `${formatNumber(Math.round(Number(value)))}원`,
   );
   animateQuoteNumber(
     elements.stockCommandChange,
@@ -7301,23 +7530,23 @@ function updateQuoteStrip(quote, payload = null, options = {}) {
     "aria-label",
     commandPrice === null
       ? "실시간 시세 확인 중"
-      : `${state.currentStock?.name || "현재 종목"} 현재가 ${formatNumber(Math.round(commandPrice))}원, 등락률 ${formatPercent(commandChangeRate)}`,
+      : `${state.currentStock?.name || "현재 종목"} 현재가 ${formatStockPrice(commandPrice)}, 등락률 ${formatPercent(commandChangeRate)}`,
   );
   setTone(elements.stockChangeValue, displayQuote.change_value);
   setTone(elements.quoteChange, displayQuote.change_rate);
   setTone(elements.stockCommandQuote, displayQuote.change_rate);
-  renderKoreaQuoteSession(displayQuote);
+  renderStockQuoteSession(displayQuote);
   setText(elements.stockVolume, formatCompactCount(displayQuote.volume));
   setText(elements.stockVolumeDetail, formatNumber(displayQuote.volume));
-  flashTextUpdate(elements.quoteValue, formatMoney(displayQuote.trading_value), displayQuote.trading_value);
-  setText(elements.stockTradingValueDetail, formatMoney(displayQuote.trading_value));
+  flashTextUpdate(elements.quoteValue, formatStockMoney(displayQuote.trading_value), displayQuote.trading_value);
+  setText(elements.stockTradingValueDetail, formatStockMoney(displayQuote.trading_value));
   if (displayQuote.market_cap !== null && displayQuote.market_cap !== undefined && displayQuote.market_cap !== "") {
-    animateQuoteNumber(elements.quoteCap, displayQuote.market_cap, (value) => formatMoney(Math.round(Number(value))));
-    setText(elements.stockMarketCapDetail, formatMoney(displayQuote.market_cap));
+    animateQuoteNumber(elements.quoteCap, displayQuote.market_cap, (value) => formatStockMoney(value));
+    setText(elements.stockMarketCapDetail, formatStockMoney(displayQuote.market_cap));
   }
   const previousClose = previousCloseFromQuote(displayQuote);
-  setText(elements.stockPrevCloseSummary, previousClose === null ? "-" : formatNumber(Math.round(previousClose)));
-  setText(elements.stockPrevClose, previousClose === null ? "-" : formatNumber(Math.round(previousClose)));
+  setText(elements.stockPrevCloseSummary, formatStockPrice(previousClose));
+  setText(elements.stockPrevClose, formatStockPrice(previousClose));
   if (payload?.as_of && state.currentStock?.code === payload.code && payload.market) {
     elements.meta.textContent = stockDetailMetaText({ code: payload.code, market: payload.market });
     renderStockLiveSummary({ code: payload.code, market: payload.market, as_of: payload.as_of, quote: displayQuote });
@@ -7335,7 +7564,8 @@ function updateQuoteStrip(quote, payload = null, options = {}) {
   }
   applyStockQuantSignalLiveQuote(quote, payload || {});
   if (
-    state.stockActiveTab === "strategy"
+    !stockDashboardIsUs()
+    && state.stockActiveTab === "strategy"
     && state.stockQuantSignals
     && !state.stockQuantLoading
     && Date.now() - state.stockQuantLastLiveRefreshAt >= 30_000
@@ -7755,7 +7985,10 @@ function closeQuoteStream() {
 }
 
 function connectQuoteStream(stock) {
-  if (!stock?.code) return;
+  if (!stock?.code || stockDashboardIsUs()) {
+    closeQuoteStream();
+    return;
+  }
   const code = String(stock.code);
   replaceQuoteStreamScope("detail", [{
     code,
@@ -8123,7 +8356,9 @@ function createStockListLogo(code, className = "") {
 }
 
 function createRankingStockLogo(item = {}) {
-  return createStockListLogo(item.currency === "USD" ? "" : item.code);
+  const logo = createStockListLogo(item.code);
+  if (item.currency === "USD") logo.classList.add("is-us-stock-logo");
+  return logo;
 }
 
 function renderStockTitleLogo(stock = state.currentStock) {
@@ -9024,7 +9259,8 @@ async function fetchSuggestions(query) {
   }
   state.suggestionController = new AbortController();
   try {
-    const response = await fetch(`/stocks/search?query=${encodeURIComponent(normalized)}&limit=30`, {
+    const endpoint = stockDashboardIsUs() ? "/us/stocks/search" : "/stocks/search";
+    const response = await fetch(`${endpoint}?query=${encodeURIComponent(normalized)}&limit=30`, {
       signal: state.suggestionController.signal,
       cache: "no-store",
     });
@@ -10118,6 +10354,13 @@ function dashboardLocationRoute() {
       url: `${window.location.pathname}${window.location.search}${window.location.hash}`,
     };
   }
+  if (parts[0] === "us" && parts[1] === "stock" && parts[2]) {
+    return {
+      route: "stock",
+      stockQuery: decodeURIComponent(parts[2]),
+      url: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+    };
+  }
   const params = new URLSearchParams(window.location.search);
   const requested = params.get("view") || "home";
   const route = ["trend", "trend-past", "trend-impact"].includes(requested) ? "home" : requested;
@@ -10130,7 +10373,9 @@ function dashboardLocationRoute() {
 function dashboardRouteUrl(routeName) {
   const route = String(routeName || "home");
   if (route === "stock" && state.currentStock?.name) {
-    return viewStockUrl(state.currentStock.name);
+    return stockDashboardIsUs()
+      ? `/us/stock/${encodeURIComponent(state.currentStock.code)}`
+      : viewStockUrl(state.currentStock.name);
   }
   if (route === "recommend-detail") {
     const code = state.currentRecommendationDetailItem?.code
@@ -11568,6 +11813,9 @@ function dashboardRefreshUrl() {
   const code = pathQuery();
   if (code) {
     url.searchParams.set("code", code);
+    if (stockDashboardIsUs()) {
+      url.searchParams.set("market", "us");
+    }
   } else {
     url.searchParams.set("view", state.view || "home");
   }
@@ -19065,9 +19313,9 @@ function renderChartStudyPage(pattern, analysis, item) {
         : "가격 돌파 전";
     for (const [label, value, tone] of [
       ["확인 순서", lesson.confirmation, ""],
-      ["확인 기준", trigger === null ? "가격 확인 중" : `${formatNumber(trigger)}원`, "positive"],
+      ["확인 기준", trigger === null ? "가격 확인 중" : formatStockForecastPrice(trigger), "positive"],
       ["돌파 거래량", volumeState, confirmation?.volume_confirmed ? "positive" : ""],
-      ["무효화", invalidation === null ? "가격 확인 중" : `${formatNumber(invalidation)}원`, "negative"],
+      ["무효화", invalidation === null ? "가격 확인 중" : formatStockForecastPrice(invalidation), "negative"],
     ]) {
       const cell = el("div", "");
       cell.append(el("dt", "", label), el("dd", tone, value));
@@ -19135,7 +19383,7 @@ function renderChartPatternAnalysis(analysis, forecast, item) {
     ["무효화", primary.invalidation, primary.direction === "bullish" ? "negative" : "positive"],
   ]) {
     const cell = el("div", "");
-    cell.append(el("span", "", label), el("strong", tone, value ? `${formatNumber(value)}원` : "확인 중"));
+    cell.append(el("span", "", label), el("strong", tone, value ? formatStockForecastPrice(value) : "확인 중"));
     levels.appendChild(cell);
   }
   top.appendChild(levels);
@@ -19283,9 +19531,9 @@ function renderChartForecastResult(result, horizon = 5, options = {}) {
   );
   const metrics = el("div", "chart-forecast-metrics");
   const metricData = [
-    ["현재가", `${formatNumber(roundTradePrice(forecast.current))}원`, ""],
-    [`${forecast.days}거래일 예상 중심`, `${formatNumber(roundTradePrice(forecast.expected))}원`, chartForecastResultTone(forecast)],
-    [`${forecast.days}거래일 예상 범위`, `${formatPriceRange(forecast.points.at(-1).lower, forecast.points.at(-1).upper)}원`, ""],
+    ["현재가", formatStockForecastPrice(forecast.current, dashboard), ""],
+    [`${forecast.days}거래일 예상 중심`, formatStockForecastPrice(forecast.expected, dashboard), chartForecastResultTone(forecast)],
+    [`${forecast.days}거래일 예상 범위`, formatStockForecastRange(forecast.points.at(-1).lower, forecast.points.at(-1).upper, dashboard), ""],
     ["흐름 신뢰도", `${forecast.confidence} · ${Math.round(forecast.confidenceScore)}점`, ""],
   ];
   for (const [label, value, tone] of metricData) {
@@ -20248,6 +20496,12 @@ function resetAIAnalysis() {
   if (elements.stockPriceLadder) {
     elements.stockPriceLadder.innerHTML = '<p class="muted">전략 가격대 대기 중</p>';
   }
+  setText(elements.usStockAIStance, "미국 종목을 분석하고 있어요");
+  setText(elements.usStockAICoverage, "자료 확인 중");
+  setText(elements.usStockAISummary, "차트, 실적, 밸류에이션, 뉴스와 SEC 공시를 함께 확인하고 있습니다.");
+  for (const list of [elements.usStockAIKeyPoints, elements.usStockAIStrategy, elements.usStockAIRisks]) {
+    if (list) list.innerHTML = "";
+  }
 }
 
 function resetQuantSignals(message = "AI 시그널을 계산하는 중입니다.") {
@@ -20659,6 +20913,17 @@ async function loadQuantSignals(options = {}) {
   }
 }
 
+function renderUsAIAnalysis(payload) {
+  if (!stockDashboardIsUs() || !elements.usStockAIContent) return;
+  elements.usStockAIContent.hidden = false;
+  setText(elements.usStockAIStance, payload?.stance || "관찰 우선");
+  setText(elements.usStockAICoverage, `분석 자료 ${aiDataCoverage(payload)}`);
+  setText(elements.usStockAISummary, payload?.summary || "현재 공개 데이터만으로는 판단 근거가 충분하지 않습니다.");
+  appendListItems(elements.usStockAIKeyPoints, payload?.key_points, "핵심 근거를 확인하는 중입니다.");
+  appendListItems(elements.usStockAIStrategy, payload?.strategy, "가격과 거래량을 더 확인한 뒤 대응하세요.");
+  appendListItems(elements.usStockAIRisks, payload?.risks, "추가로 확인된 위험 신호는 제한적입니다.");
+}
+
 function renderAIAnalysis(payload) {
   state.stockAIAnalysis = payload;
   state.stockAIRequestedCode = payload.code;
@@ -20707,6 +20972,7 @@ function renderAIAnalysis(payload) {
     box.appendChild(list);
     elements.aiSectionList.appendChild(box);
   }
+  renderUsAIAnalysis(payload);
 }
 
 function setAIAnalysisButtonsLoading(isLoading, labels = {}) {
@@ -20750,7 +21016,8 @@ async function loadAIAnalysis(options = {}) {
   elements.aiStrategy.innerHTML = "";
   elements.aiRisks.innerHTML = "";
   elements.aiSectionList.innerHTML = "";
-  const url = `/stocks/${encodeURIComponent(code)}/ai-analysis${forceRefresh ? "?refresh=1" : ""}`;
+  const analysisBase = stockDashboardIsUs() ? "/us/stocks" : "/stocks";
+  const url = `${analysisBase}/${encodeURIComponent(code)}/ai-analysis${forceRefresh ? "?refresh=1" : ""}`;
   if (forceRefresh) {
     clearCachedUrl(url);
   }
@@ -20771,6 +21038,8 @@ async function loadAIAnalysis(options = {}) {
       return;
     }
     elements.aiAnalysisSummary.textContent = "AI 분석을 생성하지 못했습니다.";
+    setText(elements.usStockAIStance, "분석을 불러오지 못했어요");
+    setText(elements.usStockAISummary, "잠시 후 다시 확인해 주세요. 현재가와 재무 정보는 계속 볼 수 있습니다.");
     const badge = elements.aiAnalysisProviderBadge;
     badge.hidden = false;
     badge.textContent = "AI 분석 확인 실패";
@@ -24596,12 +24865,117 @@ function setLoading(code) {
   updateWatchButton();
 }
 
+function configureStockMarketExperience(data) {
+  const usStock = stockDashboardIsUs(data);
+  document.body.dataset.stockMarket = usStock ? "us" : "kr";
+  if (elements.stockView) {
+    elements.stockView.dataset.market = usStock ? "us" : "kr";
+  }
+  document.title = `${data?.name || "종목"} | ${usStock ? "미국증시" : "국내증시"} 비밀노트`;
+  if (elements.input) elements.input.placeholder = usStock ? "미국 종목명 또는 티커" : "종목명 또는 코드";
+
+  const toggleSection = (selector, hidden) => {
+    for (const node of document.querySelectorAll(selector)) {
+      node.hidden = hidden;
+    }
+  };
+  for (const selector of [
+    "#stock-flow-section",
+    "#stock-summary-section > .stock-v3-two-column",
+    ".stock-community-section",
+    ".stock-sector-margin-section",
+    ".stock-sga-section",
+    ".stock-financial-health-section",
+    ".stock-cashflow-waterfall-section",
+  ]) {
+    toggleSection(selector, usStock);
+  }
+  const statementSection = elements.stockCompanyMetricGroups?.closest("article");
+  if (statementSection) statementSection.hidden = usStock;
+  const communityTab = document.querySelector('[data-stock-tab="community"]');
+  const communityPanel = document.querySelector('[data-stock-panel="community"]');
+  if (communityTab) communityTab.hidden = usStock;
+  if (communityPanel) communityPanel.hidden = usStock || state.stockActiveTab !== "community";
+  if (elements.usStockAIContent) elements.usStockAIContent.hidden = !usStock;
+  if (elements.quantSignalStatus) elements.quantSignalStatus.hidden = usStock;
+  if (elements.quantSignalContent) elements.quantSignalContent.hidden = usStock || elements.quantSignalContent.hidden;
+
+  const disclosureSection = elements.stockHomeDisclosures?.closest("article");
+  const disclosureEyebrow = disclosureSection?.querySelector(".stock-v3-section-head div > span");
+  const disclosureTitle = disclosureSection?.querySelector(".stock-v3-section-head h2");
+  if (disclosureEyebrow) disclosureEyebrow.textContent = usStock ? "SEC 공시" : "DART 공시";
+  if (disclosureTitle) disclosureTitle.textContent = usStock ? "최근 제출 서류" : "최근 1개월 공시";
+
+  const researchSection = document.getElementById("stock-research-section");
+  const researchEyebrow = researchSection?.querySelector(".stock-v3-section-head div > span");
+  const researchTitle = researchSection?.querySelector(".stock-v3-section-head h2");
+  const researchSource = researchSection?.querySelector(".stock-v3-section-head .stock-v3-source");
+  const researchModes = researchSection?.querySelector(".stock-v3-segment");
+  if (researchEyebrow) researchEyebrow.textContent = usStock ? "애널리스트 집계" : "증권사 자료";
+  if (researchTitle) researchTitle.textContent = usStock ? "컨센서스" : "리포트 분석";
+  if (researchSource) researchSource.textContent = usStock ? "Yahoo Finance 집계" : "증권사 발행 자료";
+  if (researchModes) researchModes.hidden = usStock;
+
+  const newsTitle = document.getElementById("stock-news-section")?.querySelector("h2");
+  if (newsTitle) newsTitle.textContent = usStock ? "미국 종목뉴스" : "종목뉴스";
+  const companyLead = document.querySelector("#stock-company-section .stock-company-analysis-lead");
+  if (companyLead) {
+    companyLead.textContent = usStock
+      ? "성장, 수익성, 실적 추세와 현재 밸류에이션을 한눈에 비교합니다."
+      : "성장, 수익성, 현금, 부채, 효율, 가격을 함께 비교해 숫자의 의미를 빠르게 읽을 수 있습니다.";
+  }
+  const serviceIntro = document.getElementById("service-intro-title")?.closest("section, article, div");
+  const serviceMarketCopy = Array.from(serviceIntro?.querySelectorAll("li") || [])
+    .find((node) => node.textContent.includes("국내 주식시장"));
+  if (serviceMarketCopy && usStock) {
+    serviceMarketCopy.textContent = "AI 분석과 공개 데이터를 활용해 미국 주식시장 정보를 이해하기 쉽게 정리합니다.";
+  }
+  const domesticSource = document.getElementById("service-source-kr");
+  const usSource = document.getElementById("service-source-us");
+  if (domesticSource) domesticSource.hidden = usStock;
+  if (usSource) usSource.hidden = !usStock;
+}
+
+function renderUsStockResearch(data) {
+  if (!stockDashboardIsUs(data)) return;
+  const revisions = data?.revisions || {};
+  const current = toNumber(data?.quote?.price);
+  const target = toNumber(revisions.latest_target_price);
+  const upside = current && target ? (target / current - 1) * 100 : null;
+  if (elements.stockReportHistoryChart) {
+    elements.stockReportHistoryChart.innerHTML = `
+      <dl class="us-stock-consensus-grid">
+        <div><dt>평균 목표가</dt><dd>${formatUsdPrice(target)}</dd></div>
+        <div><dt>현재가 대비</dt><dd class="${upside !== null && upside >= 0 ? "positive" : "negative"}">${formatPercent(upside)}</dd></div>
+        <div><dt>의견</dt><dd>${revisions.latest_opinion || "집계 중"}</dd></div>
+        <div><dt>참여 애널리스트</dt><dd>${formatNumber(revisions.analyst_opinion_count || revisions.report_count_90d)}명</dd></div>
+      </dl>
+    `;
+  }
+  if (elements.stockReportSummary) {
+    elements.stockReportSummary.innerHTML = `
+      <div><span>목표가 상단</span><strong>${formatUsdPrice(revisions.target_high_price)}</strong></div>
+      <div><span>목표가 하단</span><strong>${formatUsdPrice(revisions.target_low_price)}</strong></div>
+      <div><span>최근 집계</span><strong>${formatDataBasis(revisions.latest_report_at || data?.as_of)}</strong></div>
+    `;
+  }
+  if (elements.stockResearchList) {
+    elements.stockResearchList.innerHTML = "";
+    elements.stockResearchList.appendChild(el(
+      "li",
+      "research-report-empty",
+      "개별 리포트 원문 제목은 제공 범위에 포함하지 않고, 공개된 애널리스트 컨센서스만 표시합니다.",
+    ));
+  }
+}
+
 function render(data, options = {}) {
   const previousCode = options.previousCode || state.currentStock?.code;
   const preserveQuantRequest = options.preserveQuantRequest === true
     && state.stockQuantRequestedCode === data.code;
-  state.currentStock = { code: data.code, name: data.name, market: data.market };
+  state.currentStock = { code: data.code, name: data.name, market: data.market, currency: data.currency };
   state.currentDashboard = data;
+  configureStockMarketExperience(data);
   resetStockEtfProfile(data);
   state.stockAIRequestSequence += 1;
   state.stockAILoading = false;
@@ -24618,6 +24992,7 @@ function render(data, options = {}) {
     state.stockQuantLastLiveRefreshAt = 0;
     resetQuantSignals();
   }
+  configureStockMarketExperience(data);
   setActiveStockTab(state.stockActiveTab || "summary", {
     preserveScroll: true,
     deferDataLoads: true,
@@ -24650,8 +25025,14 @@ function render(data, options = {}) {
   renderStockV2Dashboard(data);
   loadStockPriceSummary(data.code, data.quote);
   void loadStockHomeDetails(data);
-  void loadStockEtfProfile(data);
-  connectQuoteStream(state.currentStock);
+  if (stockDashboardIsUs(data)) {
+    renderUsStockCompanyAnalysis(data);
+    renderUsStockResearch(data);
+    closeQuoteStream();
+  } else {
+    void loadStockEtfProfile(data);
+    connectQuoteStream(state.currentStock);
+  }
 
   const chart = data.chart_analysis || {};
   elements.chartScore.textContent = formatNumber(chart.score);
@@ -24661,18 +25042,22 @@ function render(data, options = {}) {
   elements.chartRisk.textContent = chart.risk_level || "-";
   elements.chartVolume.textContent = formatRatio(chart.volume_ratio);
   elements.chartSupport.textContent = chart.support
-    ? `${formatNumber(chart.support)} (${formatPercent(chart.distance_to_support)})`
+    ? `${formatStockPrice(chart.support, data)} (${formatPercent(chart.distance_to_support)})`
     : "-";
   elements.chartResistance.textContent = chart.resistance
-    ? `${formatNumber(chart.resistance)} (${formatPercent(chart.distance_to_resistance)})`
+    ? `${formatStockPrice(chart.resistance, data)} (${formatPercent(chart.distance_to_resistance)})`
     : "-";
   setTone(elements.chartScore, chart.score - 50);
   appendListItems(elements.chartSignals, chart.signals, "뚜렷한 차트 신호가 아직 약합니다.");
   appendListItems(elements.chartRisks, chart.risks, "주요 차트 리스크 신호는 제한적입니다.");
 
-  elements.estimateRevenue.textContent = formatMoney(data.revisions.estimated_revenue ? Number(data.revisions.estimated_revenue) * 100000000 : null);
-  elements.estimateProfit.textContent = formatMoney(data.revisions.estimated_operating_profit ? Number(data.revisions.estimated_operating_profit) * 100000000 : null);
-  elements.estimateEps.textContent = formatNumber(data.revisions.estimated_eps);
+  elements.estimateRevenue.textContent = stockDashboardIsUs(data)
+    ? formatUsdCompact(data.revisions.estimated_revenue)
+    : formatMoney(data.revisions.estimated_revenue ? Number(data.revisions.estimated_revenue) * 100000000 : null);
+  elements.estimateProfit.textContent = stockDashboardIsUs(data)
+    ? formatUsdCompact(data.revisions.estimated_operating_profit)
+    : formatMoney(data.revisions.estimated_operating_profit ? Number(data.revisions.estimated_operating_profit) * 100000000 : null);
+  elements.estimateEps.textContent = stockDashboardIsUs(data) ? formatUsdPrice(data.revisions.estimated_eps) : formatNumber(data.revisions.estimated_eps);
   elements.revisionCount.textContent = formatNumber(data.revisions.report_count_90d);
   elements.revisionUp.textContent = formatNumber(data.revisions.target_up_count);
   elements.revisionDown.textContent = formatNumber(data.revisions.target_down_count);
@@ -24685,8 +25070,8 @@ function render(data, options = {}) {
   setTone(elements.momentum3m, data.momentum.three_month_return);
   setTone(elements.valueChange, data.momentum.trading_value_change);
 
-  elements.foreignFlow.textContent = formatMoney(data.flows.foreign_net_buy_20d);
-  elements.institutionFlow.textContent = formatMoney(data.flows.institution_net_buy_20d);
+  elements.foreignFlow.textContent = formatStockMoney(data.flows.foreign_net_buy_20d, data);
+  elements.institutionFlow.textContent = formatStockMoney(data.flows.institution_net_buy_20d, data);
   elements.foreignIntensity.textContent = formatPercent(data.flows.foreign_intensity);
   elements.institutionIntensity.textContent = formatPercent(data.flows.institution_intensity);
   setTone(elements.foreignFlow, data.flows.foreign_net_buy_20d);
@@ -24699,9 +25084,13 @@ function render(data, options = {}) {
   elements.perZ.textContent = data.valuation.per_zscore ?? "계산중";
   elements.pbrZ.textContent = data.valuation.pbr_zscore ?? "계산중";
 
-  elements.latestRevenue.textContent = formatMoney(data.surprise.latest_revenue ? Number(data.surprise.latest_revenue) * 100000000 : null);
-  elements.latestProfit.textContent = formatMoney(data.surprise.latest_operating_profit ? Number(data.surprise.latest_operating_profit) * 100000000 : null);
-  elements.latestEps.textContent = formatNumber(data.surprise.latest_eps);
+  elements.latestRevenue.textContent = stockDashboardIsUs(data)
+    ? formatUsdCompact(data.surprise.latest_revenue)
+    : formatMoney(data.surprise.latest_revenue ? Number(data.surprise.latest_revenue) * 100000000 : null);
+  elements.latestProfit.textContent = stockDashboardIsUs(data)
+    ? formatUsdCompact(data.surprise.latest_operating_profit)
+    : formatMoney(data.surprise.latest_operating_profit ? Number(data.surprise.latest_operating_profit) * 100000000 : null);
+  elements.latestEps.textContent = stockDashboardIsUs(data) ? formatUsdPrice(data.surprise.latest_eps) : formatNumber(data.surprise.latest_eps);
   elements.profitGrowth.textContent = formatPercent(data.surprise.operating_profit_growth);
   setTone(elements.profitGrowth, data.surprise.operating_profit_growth);
 
@@ -24732,6 +25121,8 @@ function render(data, options = {}) {
   setTone(elements.macroCommodity, data.macro_sensitivity.commodity);
   setTone(elements.macroExport, data.macro_sensitivity.exports);
   renderStockHome(data);
+  renderUsStockResearch(data);
+  configureStockMarketExperience(data);
   updateWatchButton();
   // Dispatch the price, context, and quote requests above before optional
   // analysis work so the first useful stock view wins the cold-start race.
@@ -24740,13 +25131,15 @@ function render(data, options = {}) {
   ensureStockCompanyAnalysis();
 }
 
-async function resolveStock(query) {
+async function resolveStock(query, options = {}) {
   const normalized = String(query || "").trim();
   if (!normalized) {
     return null;
   }
   try {
-    return await fetchJsonCached(`/stocks/resolve?query=${encodeURIComponent(normalized)}`, { ttlMs: 5 * UI_CACHE_TTL_MS });
+    const usMarket = options.usMarket === true || /^\/us\/stock\//.test(window.location.pathname);
+    const endpoint = usMarket ? "/us/stocks/resolve" : "/stocks/resolve";
+    return await fetchJsonCached(`${endpoint}?query=${encodeURIComponent(normalized)}`, { ttlMs: 5 * UI_CACHE_TTL_MS });
   } catch {
     return null;
   }
@@ -24850,7 +25243,8 @@ async function loadStockRequest(query, options = {}) {
     && resolvedCandidate?.name
     && [String(resolvedCandidate.code), String(resolvedCandidate.name)].includes(normalized),
   );
-  const stock = candidateMatches ? resolvedCandidate : await resolveStock(normalized);
+  const usStockRequest = options.usMarket === true || /^\/us\/stock\//.test(window.location.pathname);
+  const stock = candidateMatches ? resolvedCandidate : await resolveStock(normalized, { usMarket: usStockRequest });
   if (loadSequence !== state.stockLoadSequence) {
     return;
   }
@@ -24873,11 +25267,18 @@ async function loadStockRequest(query, options = {}) {
   if (previousStock?.code && !sameStock) {
     setActiveStockTab("summary", { preserveScroll: true });
   }
-  state.currentStock = { code: stock.code, name: stock.name, market: stock.market };
+  state.currentStock = { code: stock.code, name: stock.name, market: stock.market, currency: usStockRequest ? "USD" : stock.currency };
+  if (usStockRequest && state.stockPricePeriod === "1D") {
+    state.stockPricePeriod = "3M";
+  } else if (!usStockRequest && previousDashboard?.currency === "USD") {
+    state.stockPricePeriod = "1D";
+  }
   renderStockTitleLogo(state.currentStock);
   try {
-    const dashboardUrl = `/stocks/${encodeURIComponent(stock.code)}/dashboard?include_profile=0&include_live=0`;
-    const initialQuoteRequest = fetchInitialStockQuote(stock.code);
+    const dashboardUrl = usStockRequest
+      ? `/us/stocks/${encodeURIComponent(stock.code)}/dashboard`
+      : `/stocks/${encodeURIComponent(stock.code)}/dashboard?include_profile=0&include_live=0`;
+    const initialQuoteRequest = usStockRequest ? Promise.resolve(null) : fetchInitialStockQuote(stock.code);
     const dashboardRequest = fetchJsonCached(dashboardUrl, {
         force: options.force === true,
         ttlMs: pageEntryTtlMs("stock"),
@@ -24886,12 +25287,16 @@ async function loadStockRequest(query, options = {}) {
     if (loadSequence !== state.stockLoadSequence) {
       return;
     }
-    if (sameStock && previousDashboard) {
+    if (!usStockRequest && sameStock && previousDashboard) {
       carryForwardLiveQuoteToDashboard(dashboard, previousDashboard);
     }
-    hydrateInitialStockQuote(dashboard, initialQuote, stock.code);
+    if (usStockRequest) {
+      state.stockQuoteReadyCode = String(stock.code);
+    } else {
+      hydrateInitialStockQuote(dashboard, initialQuote, stock.code);
+    }
     render(dashboard, { previousCode: previousStock?.code });
-    if (dashboard?.source === STOCK_DASHBOARD_WARMING_SOURCE) {
+    if (!usStockRequest && dashboard?.source === STOCK_DASHBOARD_WARMING_SOURCE) {
       state.responseCache.delete(dashboardUrl);
       scheduleStockDashboardWarmRefresh(stock);
     }
@@ -24919,7 +25324,9 @@ async function loadStockRequest(query, options = {}) {
   if (loadSequence !== state.stockLoadSequence) {
     return;
   }
-  const stockUrl = `/dashboard/${encodeURIComponent(stock.name)}`;
+  const stockUrl = usStockRequest
+    ? `/us/stock/${encodeURIComponent(stock.code)}`
+    : `/dashboard/${encodeURIComponent(stock.name)}`;
   if (options.historyMode !== "none") {
     writeDashboardHistory(
       "stock",
@@ -24944,6 +25351,15 @@ async function syncViewFromLocation() {
     }
     setView("stock", { historyMode: "none" });
     await load(stockQuery, { historyMode: "none" });
+    return;
+  }
+  if (parts[0] === "us" && parts[1] === "stock" && parts[2]) {
+    const stockQuery = decodeURIComponent(parts[2]);
+    if (state.view !== "stock") {
+      setLoading(stockQuery);
+    }
+    setView("stock", { historyMode: "none" });
+    await load(stockQuery, { historyMode: "none", usMarket: true });
     return;
   }
   const params = new URLSearchParams(window.location.search);
@@ -25180,7 +25596,9 @@ elements.appExitDialog?.addEventListener("cancel", (event) => {
   event.preventDefault();
   cancelAppExit();
 });
-elements.stockPreMarket?.addEventListener("click", openStockTradingHoursSheet);
+elements.stockPreMarket?.addEventListener("click", () => {
+  if (!stockDashboardIsUs()) openStockTradingHoursSheet();
+});
 elements.stockTradingHoursBackdrop?.addEventListener("click", closeStockTradingHoursSheet);
 elements.stockTradingHoursConfirm?.addEventListener("click", closeStockTradingHoursSheet);
 
@@ -25446,6 +25864,10 @@ elements.input?.addEventListener("keydown", (event) => {
   }
 });
 elements.stockDetailBack?.addEventListener("click", () => {
+  if (stockDashboardIsUs() && !canNavigateBackWithinDashboard() && !document.referrer.startsWith(window.location.origin)) {
+    window.location.assign("/us");
+    return;
+  }
   navigateBackOrFallback("home");
 });
 elements.stockEtfDividendMore?.addEventListener("click", openStockEtfDividendPage);
@@ -25965,7 +26387,7 @@ document.addEventListener("visibilitychange", () => {
       state.marketLeaderboardItems.slice(0, 50).forEach((item) => connectMarketQuoteStream(item.code));
     }
     scheduleMarketRankingRefresh();
-  } else if (state.view === "stock" && state.currentStock) {
+  } else if (state.view === "stock" && state.currentStock && !stockDashboardIsUs()) {
     connectQuoteStream(state.currentStock);
   } else if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
     elements.watchlistBody.querySelectorAll("[data-watch-card][data-code]").forEach((card) => {

@@ -892,13 +892,13 @@ class StockAIAnalysisSectionOut(BaseModel):
 
 
 class StockAITradeLevelsOut(BaseModel):
-    buy_low: Optional[int] = None
-    buy_high: Optional[int] = None
-    breakout: Optional[int] = None
-    stop: Optional[int] = None
-    first_sell: Optional[int] = None
-    support_reference: Optional[int] = None
-    resistance_reference: Optional[int] = None
+    buy_low: Optional[int | float] = None
+    buy_high: Optional[int | float] = None
+    breakout: Optional[int | float] = None
+    stop: Optional[int | float] = None
+    first_sell: Optional[int | float] = None
+    support_reference: Optional[int | float] = None
+    resistance_reference: Optional[int | float] = None
     actionable: bool = False
     entry_label: Optional[str] = None
     entry_note: Optional[str] = None

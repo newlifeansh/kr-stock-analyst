@@ -256,7 +256,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260905v466"
+DASHBOARD_CLIENT_VERSION = "20260905v470"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -2595,10 +2595,16 @@ def stock_dashboard_refresh():
         const view = ["home", "search", "portfolio", "chart", "recommend-detail", "morning-briefing"].includes(params.get("view"))
           ? params.get("view")
           : "search";
-        const code = /^\\d{{6}}$/.test(params.get("code") || "") ? params.get("code") : "";
-        const destination = code
-          ? `/dashboard/${{code}}?app_build={DASHBOARD_CLIENT_VERSION}`
-          : `/dashboard?view=${{encodeURIComponent(view)}}&app_build={DASHBOARD_CLIENT_VERSION}`;
+        const market = params.get("market") === "us" ? "us" : "kr";
+        const requestedCode = String(params.get("code") || "").trim().toUpperCase();
+        const code = market === "us"
+          ? (/^[A-Z][A-Z0-9.-]{{0,9}}$/.test(requestedCode) ? requestedCode : "")
+          : (/^\\d{{6}}$/.test(requestedCode) ? requestedCode : "");
+        const destination = code && market === "us"
+          ? `/us/stock/${{encodeURIComponent(code)}}?app_build={DASHBOARD_CLIENT_VERSION}`
+          : code
+            ? `/dashboard/${{code}}?app_build={DASHBOARD_CLIENT_VERSION}`
+            : `/dashboard?view=${{encodeURIComponent(view)}}&app_build={DASHBOARD_CLIENT_VERSION}`;
         location.replace(destination);
       }})();
     </script>
@@ -2625,7 +2631,6 @@ def concepts_shell():
     return HTMLResponse(CONCEPTS_INDEX.read_text(encoding="utf-8"))
 
 
-@app.get("/us/stock/{code}")
 @app.get("/nasdaq")
 @app.get("/nasdaq/{code}")
 def nasdaq_dashboard_shell():
@@ -2634,6 +2639,7 @@ def nasdaq_dashboard_shell():
     return HTMLResponse(NASDAQ_DASHBOARD_INDEX.read_text(encoding="utf-8"))
 
 
+@app.get("/us/stock/{code}")
 @app.get("/us")
 @app.get("/us/")
 def us_market_dashboard_shell():

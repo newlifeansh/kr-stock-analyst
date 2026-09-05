@@ -342,7 +342,7 @@ def test_dashboard_surfaces_extended_session_status_and_live_intraday_refresh():
     assert "formatQuoteTradeTime" not in mobile
     assert "setText(elements.stockMarketStatusLabel, displayStatus);" in mobile
     assert "trapStockTradingHoursFocus" in mobile
-    assert 'elements.stockPreMarket?.addEventListener("click", openStockTradingHoursSheet);' in mobile
+    assert 'if (!stockDashboardIsUs()) openStockTradingHoursSheet();' in mobile
     assert "KIS 실시간" not in mobile
     assert "const marketOpen = koreaExtendedQuoteLive();" in mobile
     assert "quote?.is_live === true" in mobile

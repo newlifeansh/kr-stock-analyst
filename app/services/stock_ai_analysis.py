@@ -21,6 +21,15 @@ def _fmt_number(value: object) -> str:
     return f"{number:,.0f}"
 
 
+def _fmt_price(value: object, *, is_us: bool = False) -> str:
+    number = _num(value)
+    if number is None:
+        return "-"
+    if is_us:
+        return f"${number:,.2f}"
+    return _fmt_number(number)
+
+
 def _fmt_percent(value: object) -> str:
     number = _num(value)
     if number is None:
@@ -29,10 +38,19 @@ def _fmt_percent(value: object) -> str:
     return f"{sign}{number:.2f}%"
 
 
-def _fmt_money(value: object) -> str:
+def _fmt_money(value: object, *, is_us: bool = False) -> str:
     number = _num(value)
     if number is None:
         return "-"
+    if is_us:
+        absolute = abs(number)
+        if absolute >= 1_000_000_000_000:
+            return f"${number / 1_000_000_000_000:,.1f}T"
+        if absolute >= 1_000_000_000:
+            return f"${number / 1_000_000_000:,.1f}B"
+        if absolute >= 1_000_000:
+            return f"${number / 1_000_000:,.1f}M"
+        return f"${number:,.0f}"
     if abs(number) >= 1_0000_0000_0000:
         return f"{number / 1_0000_0000_0000:,.1f}조"
     if abs(number) >= 1_0000_0000:
@@ -47,9 +65,11 @@ def _fmt_multiple(value: object) -> str:
     return f"{number:.2f}x"
 
 
-def _round_trade_price(value: float | None) -> int | None:
+def _round_trade_price(value: float | None, *, is_us: bool = False) -> float | int | None:
     if value is None:
         return None
+    if is_us:
+        return round(value, 2)
     absolute = abs(value)
     if absolute >= 500_000:
         tick = 1000
@@ -72,7 +92,14 @@ def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
-def _near_price_level(raw: object, price: float | None, *, side: str, max_distance_pct: float = 12.0) -> int | None:
+def _near_price_level(
+    raw: object,
+    price: float | None,
+    *,
+    side: str,
+    max_distance_pct: float = 12.0,
+    is_us: bool = False,
+) -> float | int | None:
     raw_number = _num(raw)
     if raw_number is None or price is None or price <= 0:
         return None
@@ -83,10 +110,15 @@ def _near_price_level(raw: object, price: float | None, *, side: str, max_distan
         return None
     if side == "resistance" and raw_number <= price:
         return None
-    return _round_trade_price(raw_number)
+    return _round_trade_price(raw_number, is_us=is_us)
 
 
-def _trade_levels(price: object, chart: dict[str, Any]) -> dict[str, int | str | bool | None]:
+def _trade_levels(
+    price: object,
+    chart: dict[str, Any],
+    *,
+    is_us: bool = False,
+) -> dict[str, float | int | str | bool | None]:
     price_number = _num(price)
     if price_number is None or price_number <= 0:
         return {
@@ -95,8 +127,8 @@ def _trade_levels(price: object, chart: dict[str, Any]) -> dict[str, int | str |
             "breakout": None,
             "stop": None,
             "first_sell": None,
-            "support_reference": _round_trade_price(_num(chart.get("support"))),
-            "resistance_reference": _round_trade_price(_num(chart.get("resistance"))),
+            "support_reference": _round_trade_price(_num(chart.get("support")), is_us=is_us),
+            "resistance_reference": _round_trade_price(_num(chart.get("resistance")), is_us=is_us),
             "actionable": False,
             "entry_label": "관찰 가격대",
             "entry_note": "데이터 부족",
@@ -104,22 +136,30 @@ def _trade_levels(price: object, chart: dict[str, Any]) -> dict[str, int | str |
 
     atr = _num(chart.get("atr_percent"))
     moving_averages = chart.get("moving_averages") if isinstance(chart.get("moving_averages"), dict) else {}
-    support_reference = _round_trade_price(_num(chart.get("support")))
-    resistance_reference = _round_trade_price(_num(chart.get("resistance")))
+    support_reference = _round_trade_price(_num(chart.get("support")), is_us=is_us)
+    resistance_reference = _round_trade_price(_num(chart.get("resistance")), is_us=is_us)
     raw_support = _near_price_level(
         chart.get("support"),
         price_number,
         side="support",
         max_distance_pct=3.0,
+        is_us=is_us,
     )
     raw_resistance = _near_price_level(
         chart.get("resistance"),
         price_number,
         side="resistance",
         max_distance_pct=3.0,
+        is_us=is_us,
     )
     ma_supports = [
-        _near_price_level(moving_averages.get(key), price_number, side="support", max_distance_pct=3.0)
+        _near_price_level(
+            moving_averages.get(key),
+            price_number,
+            side="support",
+            max_distance_pct=3.0,
+            is_us=is_us,
+        )
         for key in ("ma5", "ma20", "ma60")
     ]
     ma_supports = [value for value in ma_supports if value is not None]
@@ -136,15 +176,19 @@ def _trade_levels(price: object, chart: dict[str, Any]) -> dict[str, int | str |
     nearby_supports = [value for value in nearby_supports if fallback_buy_low <= value <= buy_high_raw]
     preferred_buy_low = max(nearby_supports) if nearby_supports else fallback_buy_low
     minimum_zone_low = buy_high_raw * 0.992
-    buy_low = _round_trade_price(max(fallback_buy_low, min(preferred_buy_low, minimum_zone_low)))
-    buy_high = _round_trade_price(buy_high_raw)
+    buy_low = _round_trade_price(
+        max(fallback_buy_low, min(preferred_buy_low, minimum_zone_low)),
+        is_us=is_us,
+    )
+    buy_high = _round_trade_price(buy_high_raw, is_us=is_us)
 
     stop_pct = _clamp(atr_basis * 0.55, 2.0, 3.5)
     stop = _round_trade_price(
         min(
             price_number * (1 - stop_pct / 100),
             (buy_low or price_number) * 0.992,
-        )
+        ),
+        is_us=is_us,
     )
     breakout_pct = _clamp(atr_basis * 0.35, 1.2, 2.5)
     breakout_floor = price_number * 1.012
@@ -152,13 +196,14 @@ def _trade_levels(price: object, chart: dict[str, Any]) -> dict[str, int | str |
     breakout_raw = price_number * (1 + breakout_pct / 100)
     if raw_resistance is not None:
         breakout_raw = _clamp(raw_resistance, breakout_floor, breakout_ceiling)
-    breakout = _round_trade_price(breakout_raw)
+    breakout = _round_trade_price(breakout_raw, is_us=is_us)
     sell_pct = _clamp(atr_basis * 0.8, 3.0, 5.5)
     first_sell = _round_trade_price(
         max(
             (breakout or 0) * 1.008,
             price_number * (1 + sell_pct / 100),
-        )
+        ),
+        is_us=is_us,
     )
 
     return {
@@ -175,12 +220,12 @@ def _trade_levels(price: object, chart: dict[str, Any]) -> dict[str, int | str |
     }
 
 
-def _fmt_range(low: object, high: object) -> str:
+def _fmt_range(low: object, high: object, *, is_us: bool = False) -> str:
     low_number = _num(low)
     high_number = _num(high)
     if low_number is None or high_number is None:
         return "-"
-    return f"{_fmt_number(min(low_number, high_number))}~{_fmt_number(max(low_number, high_number))}"
+    return f"{_fmt_price(min(low_number, high_number), is_us=is_us)}~{_fmt_price(max(low_number, high_number), is_us=is_us)}"
 
 
 def _tone(value: float | None, positive: float, negative: float) -> int:
@@ -204,7 +249,7 @@ def _topic_name(name: object) -> str:
     last = text[-1]
     if "가" <= last <= "힣":
         return f"{text}{'은' if (ord(last) - ord('가')) % 28 else '는'}"
-    return f"{text}은"
+    return f"{text} 종목은"
 
 
 def _as_state(value: str) -> str:
@@ -357,11 +402,11 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
 
     price = quote.get("price")
     actionable_trade = stance in {"관심 매수 후보", "추세 확인 후 분할 접근"}
-    trade_levels = _trade_levels(price, chart)
+    trade_levels = _trade_levels(price, chart, is_us=is_us)
     trade_levels["actionable"] = actionable_trade
     trade_levels["entry_label"] = "1차 매수권" if actionable_trade else "관찰 가격대"
     trade_levels["entry_note"] = "분할 접근 구간" if actionable_trade else "신규 매수 보류 기준"
-    buy_zone = _fmt_range(trade_levels["buy_low"], trade_levels["buy_high"])
+    buy_zone = _fmt_range(trade_levels["buy_low"], trade_levels["buy_high"], is_us=is_us)
     stop_line = trade_levels["stop"]
     breakout_line = trade_levels["breakout"]
     first_sell_line = trade_levels["first_sell"]
@@ -383,15 +428,15 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
             f"{intraday_context} {_topic_name(dashboard.get('name'))} 현재 {_as_state(stance)} 분류됩니다. "
             f"차트는 {chart.get('stance') or '-'}이고, 1개월 {_fmt_percent(one_month)}, "
             f"3개월 {_fmt_percent(three_month)} 흐름입니다. "
-            f"현재가 {_fmt_number(price)} 기준 1차 매수권은 {buy_zone}, 돌파 기준은 {_fmt_number(breakout_line)}입니다."
+            f"현재가 {_fmt_price(price, is_us=is_us)} 기준 1차 매수권은 {buy_zone}, 돌파 기준은 {_fmt_price(breakout_line, is_us=is_us)}입니다."
         )
     else:
         summary = (
             f"{intraday_context} {_topic_name(dashboard.get('name'))} 현재 {_as_state(stance)} 분류됩니다. "
             f"차트는 {chart.get('stance') or '-'}이고, 1개월 {_fmt_percent(one_month)}, "
             f"3개월 {_fmt_percent(three_month)} 흐름입니다. "
-            f"현재가 {_fmt_number(price)} 기준 {buy_zone}은 실행 구간이 아니라 관찰 가격대이며, "
-            f"신규 매수는 {_fmt_number(breakout_line)} 돌파와 거래대금 증가가 나온 뒤로 미룹니다."
+            f"현재가 {_fmt_price(price, is_us=is_us)} 기준 {buy_zone}은 실행 구간이 아니라 관찰 가격대이며, "
+            f"신규 매수는 {_fmt_price(breakout_line, is_us=is_us)} 돌파와 거래대금 증가가 나온 뒤로 미룹니다."
         )
 
     if is_us:
@@ -450,7 +495,7 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
     key_points = [
         intraday_context,
         f"가격 흐름은 {chart.get('stance') or chart.get('trend') or '-'}입니다. 1개월 {_fmt_percent(one_month)}, 3개월 {_fmt_percent(three_month)}라 단기와 중기 흐름을 같이 봅니다.",
-        f"거래대금은 최근 {_fmt_money(quote.get('trading_value'))}이고 변화율은 {_fmt_percent(value_change)}입니다. 돈이 계속 들어오는지가 핵심입니다.",
+        f"거래대금은 최근 {_fmt_money(quote.get('trading_value'), is_us=is_us)}이고 변화율은 {_fmt_percent(value_change)}입니다. 돈이 계속 들어오는지가 핵심입니다.",
         flow_point,
         f"이익 대비 가격(PER)은 {_fmt_multiple(valuation.get('per'))}, 자산 대비 가격(PBR)은 {_fmt_multiple(valuation.get('pbr'))}입니다. {_valuation_plain(per_z, pbr_z)}",
         macro_point,
@@ -459,16 +504,16 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
     if actionable_trade:
         strategy = [
             f"1차 매수: {buy_zone}에서 가격이 밀리지 않고 거래대금이 유지될 때만 분할 접근합니다.",
-            f"추가 매수: {_fmt_number(breakout_line)} 위로 올라서고 거래대금이 늘면 돌파 매수 구간으로 봅니다.",
-            f"매도/축소: {_fmt_number(stop_line)} 아래로 내려가면 시나리오가 틀린 것으로 보고 비중을 줄입니다.",
-            f"1차 매도: {_fmt_number(first_sell_line)} 부근에서는 일부 이익실현을 먼저 고려합니다.",
+            f"추가 매수: {_fmt_price(breakout_line, is_us=is_us)} 위로 올라서고 거래대금이 늘면 돌파 매수 구간으로 봅니다.",
+            f"매도/축소: {_fmt_price(stop_line, is_us=is_us)} 아래로 내려가면 시나리오가 틀린 것으로 보고 비중을 줄입니다.",
+            f"1차 매도: {_fmt_price(first_sell_line, is_us=is_us)} 부근에서는 일부 이익실현을 먼저 고려합니다.",
         ]
     else:
         strategy = [
             f"신규 매수: 보류합니다. {buy_zone}은 가격이 안정되는지 보는 관찰 가격대입니다.",
-            f"전환 가격: {_fmt_number(breakout_line)} 위로 올라서고 거래대금이 늘 때만 분할 접근 후보로 다시 봅니다.",
-            f"보유 대응: {_fmt_number(stop_line)} 아래로 내려가면 약세 지속으로 보고 비중을 줄입니다.",
-            f"이익 관리: 이미 보유 중이라면 {_fmt_number(first_sell_line)} 부근에서 일부 이익실현만 참고합니다.",
+            f"전환 가격: {_fmt_price(breakout_line, is_us=is_us)} 위로 올라서고 거래대금이 늘 때만 분할 접근 후보로 다시 봅니다.",
+            f"보유 대응: {_fmt_price(stop_line, is_us=is_us)} 아래로 내려가면 약세 지속으로 보고 비중을 줄입니다.",
+            f"이익 관리: 이미 보유 중이라면 {_fmt_price(first_sell_line, is_us=is_us)} 부근에서 일부 이익실현만 참고합니다.",
         ]
 
     risks = [
@@ -488,18 +533,18 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
             "items": [
                 f"{chart.get('stance') or '-'} 판단입니다. 핵심 신호는 {_first(chart.get('signals') or [], '아직 뚜렷하지 않습니다.')}",
                 (
-                    f"매매 기준은 1차 매수 {buy_zone}, 돌파 {_fmt_number(breakout_line)}, 손절/축소 {_fmt_number(stop_line)}입니다."
+                    f"매매 기준은 1차 매수 {buy_zone}, 돌파 {_fmt_price(breakout_line, is_us=is_us)}, 손절/축소 {_fmt_price(stop_line, is_us=is_us)}입니다."
                     if actionable_trade
-                    else f"가격 기준은 관찰 가격대 {buy_zone}, 전환 가격 {_fmt_number(breakout_line)}, 축소 기준 {_fmt_number(stop_line)}입니다. 현재 판단에서는 신규 매수 실행선이 아닙니다."
+                    else f"가격 기준은 관찰 가격대 {buy_zone}, 전환 가격 {_fmt_price(breakout_line, is_us=is_us)}, 축소 기준 {_fmt_price(stop_line, is_us=is_us)}입니다. 현재 판단에서는 신규 매수 실행선이 아닙니다."
                 ),
-                f"참고 박스권은 지지 {_fmt_number(support_reference)}, 저항 {_fmt_number(resistance_reference)}입니다. 현재가와 멀면 매매 실행선으로 쓰지 않습니다.",
+                f"참고 박스권은 지지 {_fmt_price(support_reference, is_us=is_us)}, 저항 {_fmt_price(resistance_reference, is_us=is_us)}입니다. 현재가와 멀면 매매 실행선으로 쓰지 않습니다.",
             ],
         },
         {
             "title": "실적과 밸류",
             "items": [
                 f"최근 영업이익 변화는 {_fmt_percent(profit_growth)}이고 리포트 수는 {_fmt_number(revisions.get('report_count_90d'))}건입니다.",
-                f"추정 EPS {_fmt_number(revisions.get('estimated_eps'))}, 추정 PER {_fmt_multiple(valuation.get('estimated_per'))} 기준으로 봅니다.",
+                f"추정 EPS {_fmt_price(revisions.get('estimated_eps'), is_us=is_us)}, 추정 PER {_fmt_multiple(valuation.get('estimated_per'))} 기준으로 봅니다.",
             ],
         },
         flow_section,
@@ -508,11 +553,11 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
             "title": "조건부 시나리오",
             "items": [
                 (
-                    f"상승 시나리오: {_fmt_number(breakout_line)} 돌파와 거래대금 증가가 동시에 나오면 추가 상승 흐름으로 봅니다."
+                    f"상승 시나리오: {_fmt_price(breakout_line, is_us=is_us)} 돌파와 거래대금 증가가 동시에 나오면 추가 상승 흐름으로 봅니다."
                     if actionable_trade
-                    else f"매수 전환 시나리오: {_fmt_number(breakout_line)} 돌파와 거래대금 증가가 동시에 나와야 신규 매수 후보로 격상합니다."
+                    else f"매수 전환 시나리오: {_fmt_price(breakout_line, is_us=is_us)} 돌파와 거래대금 증가가 동시에 나와야 신규 매수 후보로 격상합니다."
                 ),
-                f"하락 시나리오: {_fmt_number(stop_line)} 이탈 시 단기 추세 훼손으로 보고 신규 매수는 보류합니다.",
+                f"하락 시나리오: {_fmt_price(stop_line, is_us=is_us)} 이탈 시 단기 추세 훼손으로 보고 신규 매수는 보류합니다.",
             ],
         },
     ]
