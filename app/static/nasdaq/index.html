@@ -3,24 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>비밀노트 · 미국증시</title>
+    <title>비밀노트 · 국내·미국증시</title>
     <meta name="theme-color" content="#111827" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <link rel="manifest" href="/nasdaq.webmanifest" />
+    <link rel="manifest" href="/us.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/nasdaq/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/nasdaq/icons/favicon-64.png?v=20260620bq" />
     <script>
       if (window.location.protocol === "file:") {
-        var serverUrl = new URL("http://127.0.0.1:8001/nasdaq");
+        var serverUrl = new URL("http://127.0.0.1:8001/us");
         serverUrl.search = window.location.search || "?view=trend";
         serverUrl.hash = window.location.hash;
         window.location.replace(serverUrl.toString());
       }
     </script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/nasdaq/styles.css?v=20260813us91" />
+    <link rel="stylesheet" href="/assets/nasdaq/styles.css?v=20260905us92" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -29,7 +29,7 @@
       </div>
       <form class="login-card" id="login-form" autocomplete="off">
         <div class="login-copy">
-          <h1 id="login-title">미국증시 비밀노트</h1>
+          <h1 id="login-title">국내·미국증시 비밀노트</h1>
           <p>아이디만 입력하면 바로 시작됩니다.</p>
         </div>
         <div class="login-search-shell">
@@ -51,7 +51,7 @@
         </button>
         <div class="mobile-brand">
           <strong>비밀노트</strong>
-          <span>미국증시</span>
+          <span>국내·미국증시</span>
           <em class="mobile-page-title" id="mobile-page-title" hidden></em>
         </div>
         <button class="home-install-button" id="home-install-button" type="button" hidden>홈 추가</button>
@@ -90,12 +90,16 @@
       <aside class="side-nav" id="side-nav">
         <div class="side-brand">
           <strong>비밀노트</strong>
-          <span class="side-brand-badge">미국증시</span>
+          <span class="side-brand-badge">국내·미국</span>
         </div>
         <nav class="side-menu">
           <div class="side-menu-group">
+            <span class="side-menu-label">시장</span>
+            <button class="side-menu-item active" type="button" data-view="overview">시장 한눈에</button>
+          </div>
+          <div class="side-menu-group">
             <span class="side-menu-label">종목</span>
-            <button class="side-menu-item active" type="button" data-view="stock">종목 검색</button>
+            <button class="side-menu-item" type="button" data-view="stock">미국 종목 검색</button>
             <button class="side-menu-item" type="button" data-view="watchlist">관심 종목</button>
             <button class="side-menu-item" type="button" data-view="chart">AI 차트 분석</button>
           </div>
@@ -105,7 +109,7 @@
             <button class="side-menu-item" type="button" data-view="recommend-history">핀 종목</button>
           </div>
           <div class="side-menu-group">
-            <span class="side-menu-label">시장</span>
+            <span class="side-menu-label">미국시장</span>
             <button class="side-menu-item" type="button" data-view="trend">트랜드 분석</button>
             <div class="side-menu-sub">
               <button class="side-menu-item side-menu-sub-item" type="button" data-view="trend-past">지난 이벤트</button>
@@ -132,6 +136,51 @@
       </aside>
 
       <main class="shell">
+      <section id="overview-view" hidden>
+        <header class="topbar overview-topbar">
+          <div class="identity">
+            <div>
+              <h1>시장 한눈에</h1>
+              <p id="overview-meta">국내·미국 주요 지수</p>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <button class="primary-action" id="overview-refresh" type="button">새로고침</button>
+          </div>
+        </header>
+
+        <section class="market-overview-intro" aria-label="시장 화면 안내">
+          <strong>오늘 시장의 방향을 먼저 확인하세요.</strong>
+          <span>한 번의 통합 스냅샷에서 국내와 미국 지수를 함께 표시합니다.</span>
+        </section>
+
+        <section class="cross-market-grid" aria-label="국내·미국 시장 지수">
+          <article class="cross-market-panel">
+            <header class="cross-market-panel-head">
+              <div>
+                <span class="section-eyebrow">KOREA</span>
+                <h2>국내증시</h2>
+              </div>
+              <a href="/dashboard?view=home">국내 화면 열기</a>
+            </header>
+            <div class="cross-market-cards" id="overview-korea" aria-live="polite">
+              <p class="cross-market-state">국내 지수를 불러오는 중입니다.</p>
+            </div>
+          </article>
+          <article class="cross-market-panel">
+            <header class="cross-market-panel-head">
+              <div>
+                <span class="section-eyebrow">UNITED STATES</span>
+                <h2>미국증시</h2>
+              </div>
+              <button class="text-action" type="button" data-view="stock">미국 종목 보기</button>
+            </header>
+            <div class="cross-market-cards" id="overview-us" aria-live="polite">
+              <p class="cross-market-state">미국 지수를 불러오는 중입니다.</p>
+            </div>
+          </article>
+        </section>
+      </section>
       <section id="stock-view">
         <header class="topbar stock-detail-topbar">
           <div class="identity">
@@ -595,10 +644,13 @@
           "trend-impact": "trend-view",
           chart: "chart-view",
           "chart-history": "chart-history-view",
+          overview: "overview-view",
           market: "market-view",
         };
         const requestedView = new URLSearchParams(window.location.search).get("view");
-        const initialView = Object.prototype.hasOwnProperty.call(viewToSection, requestedView) ? requestedView : "stock";
+        const initialView = Object.prototype.hasOwnProperty.call(viewToSection, requestedView)
+          ? requestedView
+          : ["/", "/us", "/us/", "/nasdaq", "/nasdaq/"].includes(window.location.pathname) ? "overview" : "stock";
         const titleNode = document.getElementById("mobile-page-title");
         if (titleNode) {
           titleNode.textContent = "";
@@ -625,6 +677,6 @@
         }
       })();
     </script>
-    <script src="/assets/nasdaq/app.js?v=20260813us91" defer></script>
+    <script src="/assets/nasdaq/app.js?v=20260905us92" defer></script>
   </body>
 </html>

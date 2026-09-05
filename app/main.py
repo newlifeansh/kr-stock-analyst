@@ -349,6 +349,7 @@ STOCK_INVESTOR_FLOW_REFRESH_TTL_SECONDS = 300
 MARKET_RANKING_TTL_SECONDS = 120
 MARKET_INDICES_TTL_SECONDS = 300
 GLOBAL_MARKET_ASSETS_TTL_SECONDS = 30
+CROSS_MARKET_OVERVIEW_TTL_SECONDS = 30
 MARKET_IMPACT_TTL_SECONDS = 60
 RECOMMENDATION_TTL_SECONDS = 600
 RECOMMENDATION_EMPTY_CACHE_TTL_SECONDS = 5
@@ -1892,8 +1893,10 @@ def _legacy_railway_browser_destination(request: Request, canonical_base: str) -
             "/portfolio",
             "/concepts",
             "/nasdaq",
+            "/us",
         }
         or path.startswith("/nasdaq/")
+        or path.startswith("/us/")
     )
     if is_dashboard_ui or is_other_ui:
         return _legacy_railway_destination(request, canonical_base)
@@ -2622,6 +2625,9 @@ def concepts_shell():
     return HTMLResponse(CONCEPTS_INDEX.read_text(encoding="utf-8"))
 
 
+@app.get("/us")
+@app.get("/us/")
+@app.get("/us/stock/{code}")
 @app.get("/nasdaq")
 @app.get("/nasdaq/{code}")
 def nasdaq_dashboard_shell():
@@ -2664,6 +2670,7 @@ def stock_dashboard_service_worker():
     )
 
 
+@app.get("/us.webmanifest")
 @app.get("/nasdaq.webmanifest")
 def nasdaq_manifest():
     if not NASDAQ_MANIFEST.exists():
@@ -2671,6 +2678,7 @@ def nasdaq_manifest():
     return FileResponse(NASDAQ_MANIFEST, media_type="application/manifest+json")
 
 
+@app.get("/us-sw.js")
 @app.get("/nasdaq-sw.js")
 def nasdaq_service_worker():
     if not NASDAQ_SERVICE_WORKER.exists():
@@ -7884,6 +7892,45 @@ def _build_global_market_assets_snapshot(db: Session, snapshot_key: str) -> Snap
         fresh_for_seconds=GLOBAL_MARKET_ASSETS_TTL_SECONDS,
         validator=_validate_global_market_assets_snapshot,
     )
+
+
+@app.get("/market/cross-market")
+def cross_market_overview(
+    response: Response,
+    limit: int = Query(default=30, ge=2, le=120),
+    refresh: bool = Query(default=False),
+    db: Session = Depends(get_db),
+):
+    """Return the Korea and US market strips in one browser request.
+
+    The two underlying feeds already publish complete snapshots. This endpoint
+    only composes those snapshots so the canonical ``/us`` shell does not make
+    a second round-trip for the domestic market strip.
+    """
+    response.headers["Cache-Control"] = "public, max-age=15, stale-while-revalidate=30"
+    key = ("cross_market_overview", int(limit))
+    if refresh:
+        api_cache.set(key, None, 0)
+
+    def build() -> dict[str, object]:
+        korea = market_indices(response=Response(), limit=limit, refresh=refresh, db=db)
+        us = global_market_assets(response=Response(), limit=limit, db=db)
+        items = [
+            item
+            for payload in (korea, us)
+            for item in (payload.get("items") or [])
+            if isinstance(item, dict) and item.get("as_of")
+        ]
+        as_of_values = sorted(str(item["as_of"]) for item in items)
+        return {
+            "korea": korea,
+            "us": us,
+            "as_of": as_of_values[-1] if as_of_values else None,
+            "source": "snapshot-composite",
+            "refresh_interval_seconds": CROSS_MARKET_OVERVIEW_TTL_SECONDS,
+        }
+
+    return api_cache.get_or_set(key, CROSS_MARKET_OVERVIEW_TTL_SECONDS, build)
 
 
 @app.get("/ingestions", response_model=list[IngestionRunOut])

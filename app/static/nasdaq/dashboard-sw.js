@@ -1,9 +1,9 @@
-const DASHBOARD_SW_VERSION = "20260722us89";
+const DASHBOARD_SW_VERSION = "20260905us92";
 const STATIC_CACHE = `secret-note-static-${DASHBOARD_SW_VERSION}`;
 const STATIC_ASSETS = [
-  "/nasdaq?view=trend",
-  "/assets/nasdaq/styles.css?v=20260722us89",
-  "/assets/nasdaq/app.js?v=20260722us89",
+  "/us?view=overview",
+  "/assets/nasdaq/styles.css?v=20260905us92",
+  "/assets/nasdaq/app.js?v=20260905us92",
   "/assets/nasdaq/icons/icon-192.png?v=20260620bq",
   "/assets/nasdaq/icons/icon-512.png?v=20260620bq",
   "/assets/nasdaq/icons/apple-touch-icon.png?v=20260620bq"
@@ -38,7 +38,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).catch(() => caches.match("/nasdaq?view=trend")));
+    event.respondWith(fetch(request).catch(() => caches.match("/us?view=overview")));
     return;
   }
   if (url.pathname.startsWith("/assets/nasdaq/")) {

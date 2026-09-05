@@ -89,6 +89,7 @@ STAGING_STOCK_READ_PATTERN = re.compile(
     r"^/stocks/(?P<code>[0-9]{6})/(?P<resource>quote|dashboard|ai-analysis|quant-signals)$"
 )
 STAGING_KOREA_CALENDAR_PATH = "/staging-data/korea-calendar"
+STAGING_CROSS_MARKET_PATH = "/market/cross-market"
 STAGING_MORNING_MONEY_HISTORY_PATH = "/briefings/morning-money/history"
 STAGING_RECOMMENDATIONS_PATH = "/market/recommendations"
 STAGING_RECOMMENDATION_SUPPLEMENT_TTL_SECONDS = 120.0
@@ -218,6 +219,8 @@ def _is_staging_read_proxy_request(scope: dict[str, Any]) -> bool:
     ):
         return False
     if STAGING_LOCAL_STOCK_NEWS_PATTERN.fullmatch(path):
+        return False
+    if path.startswith("/us/stock/"):
         return False
     if path.startswith("/stock-logos/"):
         logo_name = path.removeprefix("/stock-logos/")
@@ -703,6 +706,51 @@ async def _read_staging_upstream(
         ]
     )
     return response.status_code, headers, body
+
+
+async def _build_staging_cross_market(scope: dict[str, Any]) -> dict[str, Any]:
+    query = bytes(scope.get("query_string") or b"").decode("latin-1")
+    parsed_query = parse_qs(query, keep_blank_values=True)
+    try:
+        limit = max(2, min(120, int((parsed_query.get("limit") or ["30"])[-1])))
+    except (TypeError, ValueError):
+        limit = 30
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=STAGING_DATA_TIMEOUT_SECONDS,
+    ) as client:
+        korea_response, us_response = await asyncio.gather(
+            client.get(
+                f"{STAGING_DATA_UPSTREAM}/market/indices",
+                params={"limit": limit},
+                headers={"Accept": "application/json"},
+            ),
+            client.get(
+                f"{STAGING_DATA_UPSTREAM}/market/global-assets",
+                params={"limit": limit},
+                headers={"Accept": "application/json"},
+            ),
+        )
+    korea_response.raise_for_status()
+    us_response.raise_for_status()
+    korea = korea_response.json()
+    us = us_response.json()
+    if not isinstance(korea, dict) or not isinstance(us, dict):
+        raise ValueError("cross-market upstream payload must be an object")
+    items = [
+        item
+        for payload in (korea, us)
+        for item in (payload.get("items") or [])
+        if isinstance(item, dict) and item.get("as_of")
+    ]
+    as_of_values = sorted(str(item["as_of"]) for item in items)
+    return {
+        "korea": korea,
+        "us": us,
+        "as_of": as_of_values[-1] if as_of_values else None,
+        "source": "snapshot-composite",
+        "refresh_interval_seconds": 30,
+    }
 
 
 def _as_date(value: Any) -> date | None:
@@ -1232,6 +1280,27 @@ class StagingTDSVideoApp:
                     "body": body,
                     "more_body": False,
                 }
+            )
+            return
+
+        if (
+            scope.get("method") == "GET"
+            and path == STAGING_CROSS_MARKET_PATH
+            and STAGING_DATA_UPSTREAM
+        ):
+            try:
+                cross_market_payload = await _build_staging_cross_market(scope)
+            except (httpx.HTTPError, TypeError, ValueError, json.JSONDecodeError):
+                await _send_staging_json(
+                    send,
+                    status=502,
+                    payload={"message": "국내·미국 시장 데이터를 불러오지 못했습니다."},
+                )
+                return
+            await _send_staging_json(
+                send,
+                status=200,
+                payload=cross_market_payload,
             )
             return
 

@@ -2,7 +2,7 @@
 
 - 카탈로그 버전: `1.0`
 - 기준 전략: `position-lifecycle-v7.4`
-- QA 항목: 93개
+- QA 항목: 94개
 - 상태 규칙: `PASS` 정상, `WARN` 외부 원천 일시 장애 또는 허용된 caution, `FAIL` 계약 위반
 
 이 문서는 `app/qa/data_signal_cases.json`에서 생성합니다. 직접 수정하지 않습니다.
@@ -141,7 +141,7 @@
 | SIG-EXIT-002 | P0 | 초기 위험선·손익분기·추적선 | gate<br>pytest stop-level fixture | 각 보호선 상·하 종가를 준비한다. | initial_risk=1.75ATR capped 1~4%, profit_protection_trigger=+2% | hard floor와 trailing stop 우선순위를 확인한다. | 보호선은 낮아지지 않고 이탈 시 다음 시가 전량 매도한다. | 수익 보호선이 후퇴하거나 이탈 후 보유를 지속한다. |
 | SIG-EXIT-003 | P0 | 수익확정 예정 후 갭 하락 전량 매도 | gate<br>pytest protective gap fixture | 부분매도 예정과 보호선 아래 다음 시가를 준비한다. | pending=partial_sell | 다음 시가 체결 단계에서 주문 종류를 확인한다. | 부분매도 대신 잔여 비중을 즉시 전량 매도한다. | 일부만 매도하고 보호선 아래 잔여를 유지한다. |
 | SIG-EXIT-004 | P0 | 일반 점수·추세 이탈 확인 | gate<br>pytest exit confirmation fixture | 3거래일 전후와 score 42·EMA 이탈을 준비한다. | min_holding_bars=3, exit_score=42, confirmation_bars=1 | 최소 보유기간과 확인 횟수를 경계별로 실행한다. | 보호선 외 일반 이탈은 최소 보유기간 후 종가 1회로 확정된다. | 너무 이른 전량 매도 또는 확인 후 미매도가 발생한다. |
-| SIG-EXIT-005 | P0 | v7.4 수익 보호와 빠른 전량 확정 | gate, e2e<br>pytest fixed-target/zero-runner fixture + staging lifecycle DOM contract | +2% 보호 발동, +3% 1차 매도, +5% 2차 전량 매도 시나리오를 준비한다. | strategy_version=position-lifecycle-v7.4, targets=[0.03, 0.05], sell_fractions=[0.5, 0.5], runner_fraction=0.0 | 고점이 +2%에 도달한 뒤 보호선을 계산한다.<br>+3% 종가 신호 다음 시가에서 50% 매도를 실행한다.<br>+5% 종가 신호 다음 시가에서 잔여 50%를 전량 매도하고 closed trade를 기록한다.<br>기존 v7.3 포지션이 새 규칙으로 전환될 때 하루 매도 상한을 확인한다. | +2% 이후 보호선이 작동하고 +3%·+5%의 두 단계만 사용하며 +5% 후 포지션과 잔여 러너가 없다.<br>기존 포지션 전환은 한 거래일 최대 30%로 제한되어 급격한 일괄 매도를 막는다. | +2% 이후 보호선이 사라지거나 +3%·+5% 목표가가 R 배수로 변동한다.<br>+5% 도달 후 0%가 아닌 잔여 비중이 남거나 closed trade가 생성되지 않는다.<br>기존 포지션 전환에서 하루 30%를 초과해 매도한다. |
+| SIG-EXIT-005 | P0 | v7.4 수익 보호와 빠른 전량 확정 | gate<br>pytest fixed-target/zero-runner fixture + staging lifecycle DOM contract | +2% 보호 발동, +3% 1차 매도, +5% 2차 전량 매도 시나리오를 준비한다. | strategy_version=position-lifecycle-v7.4, targets=[0.03, 0.05], sell_fractions=[0.5, 0.5], runner_fraction=0.0 | 고점이 +2%에 도달한 뒤 보호선을 계산한다.<br>+3% 종가 신호 다음 시가에서 50% 매도를 실행한다.<br>+5% 종가 신호 다음 시가에서 잔여 50%를 전량 매도하고 closed trade를 기록한다.<br>기존 v7.3 포지션이 새 규칙으로 전환될 때 하루 매도 상한을 확인한다. | +2% 이후 보호선이 작동하고 +3%·+5%의 두 단계만 사용하며 +5% 후 포지션과 잔여 러너가 없다.<br>기존 포지션 전환은 한 거래일 최대 30%로 제한되어 급격한 일괄 매도를 막는다. | +2% 이후 보호선이 사라지거나 +3%·+5% 목표가가 R 배수로 변동한다.<br>+5% 도달 후 0%가 아닌 잔여 비중이 남거나 closed trade가 생성되지 않는다.<br>기존 포지션 전환에서 하루 30%를 초과해 매도한다. |
 
 ## 시그널 버전 호환
 
@@ -199,3 +199,9 @@
 | QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SIG-CONTRACT-005 | P1 | 추천종목 변경 3건 이상 알림 묶음 발송 | gate<br>pytest web_push 추천 변경·묶음 발송·중복 방지 fixture | 추천 업데이트 알림을 허용한 구독자와 기존 추천 기준선이 준비돼 있다. | batch_threshold=3, representative=변경 후보 중 추천 순위가 가장 높은 종목, additional_count=전체 변경 건수 - 1, kind=recommendation_update | 추천 상태가 1건 변경된 경우 기존 개별 알림을 확인한다.<br>추천 상태가 2건 변경된 경우 기존 개별 알림 2건을 확인한다.<br>신규 진입과 AI 단계 변경이 섞인 3건 이상을 같은 스캔에 넣고 대표 종목명 외 추가 건수의 요약 알림 1건만 발송되는지 확인한다.<br>같은 상태로 재스캔해 요약 알림이 중복 발송되지 않고 전체 추천 기준선이 저장되는지 확인한다. | 변경 1~2건은 종목별 추천 업데이트 알림을 유지한다.<br>변경 3건 이상은 대표 추천종목명과 외 추가 건수 형식의 recommendation_update 1건으로 묶어 발송한다.<br>요약 알림의 링크는 대표 종목 상세를 열고 변경 후보 전체가 기준선에 반영된다.<br>선행 시장 시그널 알림 조건이 있는 후보가 포함되면 모든 선행 조건이 충족된 뒤 요약 알림을 발송한다. | 3건 이상 변경에서 종목별 푸시가 여러 건 발송된다.<br>대표 종목명 또는 추가 건수가 실제 변경 건수와 다르다.<br>같은 변경 상태의 다음 스캔에서 요약 알림이 반복 발송되거나 일부 기준선만 저장된다.<br>대표 상세 링크가 없거나 선행 시장 시그널 알림보다 먼저 요약 알림이 도착한다. |
+
+## 미국증시 경로·공통 시장 화면
+
+| QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| DATA-MARKET-UNIFIED-001 | P1 | 고정 메인 도메인 /us 국내·미국 시장 요약 단일 응답 | gate<br>pytest /us unified-shell + cross-market endpoint/cache contract | 기존 secretnote.cloud 루트와 /dashboard 국내 화면 계약을 유지한다.<br>국내 지수와 미국 주요 지수가 완전한 스냅샷으로 준비돼 있다. | host=secretnote.cloud, frontend_entry=/us?view=overview, stock_entry=/us/stock/AAPL, endpoint=/market/cross-market?limit=30, markets=['KOSPI', 'KOSDAQ', 'SP500', 'NASDAQ', 'SOX', 'DOW'], cache_seconds=30 | 별도 스테이징의 /us?view=overview에서 운영의 기존 공개 시장 피드를 서버 측으로 합성해 화면을 선검증한다.<br>secretnote.cloud/us?view=overview에 접속해 국내·미국 시장 한눈에 화면이 열리는지 확인한다.<br>루트 /는 계속 /dashboard?view=home으로 이동하고 기존 /dashboard 셸과 정적 자산이 변경되지 않았는지 확인한다.<br>시장 요약 화면이 /market/cross-market 한 번으로 국내와 미국 지수 카드를 채우는지 확인한다.<br>새로고침 전후 응답이 동일한 캐시 계약을 사용하고 underlying 시장 스냅샷을 중복 호출하지 않는지 확인한다.<br>/us/stock/AAPL은 종목 셸을 열고 /us/stocks/* API는 JSON 계약을 유지하는지 확인한다.<br>모바일 폭과 데이터 오류 상태에서 로딩·빈 상태·오류 문구가 가로 넘침 없이 읽히는지 확인한다. | 기존 도메인과 국내 루트 동작은 그대로이고 /us만 국내·미국 통합 셸을 제공한다.<br>응답은 korea와 us 스냅샷을 함께 반환하고 화면은 국내 지수와 미국 지수를 같은 시점 기준으로 분리 표시한다.<br>통합 화면은 브라우저 기준 시장 요약 요청을 한 번만 사용하며 서버 캐시는 30초 재사용 계약을 지킨다.<br>미국 종목 상세 경로와 기존 /us API 경로가 충돌하지 않는다.<br>외부 데이터가 없거나 실패해도 빈 카드·안내 문구로 안전하게 종료되고 내부 오류나 비밀값을 노출하지 않는다. | 루트 / 또는 기존 /dashboard가 미국 화면으로 바뀌거나 기존 국내 화면 자산이 변경된다.<br>/us가 국내 대시보드로 리다이렉트되거나 미국 전용 화면만 표시된다.<br>국내와 미국 데이터를 각각 별도 브라우저 요청으로 가져오거나 동일 스냅샷을 매번 원천 재호출한다.<br>korea·us 중 한 시장이 누락되거나 서로 다른 응답 시점을 기준으로 표시된다.<br>/us/stock/* 셸이 /us/stocks/* API를 가로채거나 기존 API 계약을 바꾼다.<br>모바일·오류 상태에서 로딩 고착, 가로 넘침, 내부 오류, 인증정보가 노출된다. |

@@ -212,6 +212,35 @@ def test_root_redirects_to_korea_dashboard():
     assert response.headers["location"] == "/dashboard?view=home"
 
 
+def test_us_path_serves_unified_market_shell_without_changing_root():
+    client = TestClient(app, base_url="https://secretnote.cloud")
+
+    root = client.get("/", follow_redirects=False)
+    response = client.get("/us", follow_redirects=False)
+
+    assert root.status_code == 307
+    assert root.headers["location"] == "/dashboard?view=home"
+    assert response.status_code == 200
+    assert "시장 한눈에" in response.text
+    assert 'id="overview-view"' in response.text
+    assert 'id="overview-korea"' in response.text
+    assert 'id="overview-us"' in response.text
+    assert "국내증시" in response.text
+    assert "미국증시" in response.text
+
+
+def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
+    client = TestClient(app, base_url="https://secretnote.cloud")
+
+    stock_shell = client.get("/us/stock/AAPL")
+    search_api = client.get("/us/stocks/search", params={"query": "AAPL"})
+
+    assert stock_shell.status_code == 200
+    assert 'id="stock-view"' in stock_shell.text
+    assert search_api.status_code == 200
+    assert search_api.headers["content-type"].startswith("application/json")
+
+
 def test_canonical_dashboard_sets_browser_security_headers():
     client = TestClient(app, base_url="https://secretnote.cloud")
 

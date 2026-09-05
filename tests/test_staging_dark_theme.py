@@ -30,6 +30,12 @@ HTML_ROUTES = (
     "/dashboard?view=chart",
     "/dashboard?view=chart-history",
     "/dashboard/005930",
+    "/us",
+    "/us/stock/AAPL",
+    "/us?view=watchlist",
+    "/us?view=recommend",
+    "/us?view=trend",
+    "/us?view=market",
     "/nasdaq",
     "/nasdaq/AAPL",
     "/nasdaq?view=watchlist",
@@ -2363,6 +2369,60 @@ def test_staging_data_bridge_only_matches_public_read_routes(monkeypatch):
     assert not staging_module._is_staging_read_proxy_request(
         {"type": "http", "method": "GET", "path": "/dashboard"}
     )
+    assert not staging_module._is_staging_read_proxy_request(
+        {"type": "http", "method": "GET", "path": "/us/stock/AAPL"}
+    )
+    assert staging_module._is_staging_read_proxy_request(
+        {"type": "http", "method": "GET", "path": "/us/stocks/AAPL/dashboard"}
+    )
+
+
+def test_staging_cross_market_composes_existing_canonical_feeds(monkeypatch):
+    monkeypatch.setattr(staging_module, "STAGING_DATA_UPSTREAM", "https://secretnote.cloud")
+    requests = []
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url, **kwargs):
+            requests.append((url, kwargs.get("params")))
+            if url.endswith("/market/indices"):
+                return Response(
+                    {"items": [{"code": "KOSPI", "as_of": "2026-09-05T09:00:00+09:00"}]}
+                )
+            return Response(
+                {"items": [{"code": "SP500", "as_of": "2026-09-05T06:00:00-04:00"}]}
+            )
+
+    monkeypatch.setattr(staging_module.httpx, "AsyncClient", Client)
+
+    response = TestClient(staging_app).get("/market/cross-market?limit=31")
+
+    assert response.status_code == 200
+    assert response.json()["source"] == "snapshot-composite"
+    assert response.json()["korea"]["items"][0]["code"] == "KOSPI"
+    assert response.json()["us"]["items"][0]["code"] == "SP500"
+    assert requests == [
+        ("https://secretnote.cloud/market/indices", {"limit": 31}),
+        ("https://secretnote.cloud/market/global-assets", {"limit": 31}),
+    ]
 
 
 def test_staging_quality_proxy_keeps_upstream_data_and_uses_candidate_strategy():

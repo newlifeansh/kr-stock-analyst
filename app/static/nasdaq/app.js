@@ -8,6 +8,11 @@ const elements = {
   loginForm: $("login-form"),
   loginInput: $("login-id-input"),
   loginStatus: $("login-status"),
+  overviewView: $("overview-view"),
+  overviewMeta: $("overview-meta"),
+  overviewRefresh: $("overview-refresh"),
+  overviewKorea: $("overview-korea"),
+  overviewUs: $("overview-us"),
   pullRefreshIndicator: $("pull-refresh-indicator"),
   pullRefreshLabel: $("pull-refresh-label"),
   form: $("stock-form"),
@@ -379,10 +384,20 @@ const STOCK_TERM_HELP = {
   "리스크 선호": "미국 대형 성장주와 위험자산 선호가 살아날 때 같이 탄력을 받을지 보는 자리입니다.",
 };
 
+const US_APP_BASE_PATH = "/us";
+
+function isUsAppOverviewPath(pathname = window.location.pathname) {
+  return ["/", "/us", "/us/", "/nasdaq", "/nasdaq/"].includes(pathname);
+}
+
+function usAppViewUrl(view) {
+  return `${US_APP_BASE_PATH}?view=${encodeURIComponent(view)}`;
+}
+
 const state = {
-  view: ["market", "watchlist", "recommend", "recommend-history", "trend", "trend-past", "trend-impact", "chart", "chart-history"].includes(new URLSearchParams(window.location.search).get("view"))
+  view: ["overview", "market", "watchlist", "recommend", "recommend-history", "trend", "trend-past", "trend-impact", "chart", "chart-history"].includes(new URLSearchParams(window.location.search).get("view"))
     ? new URLSearchParams(window.location.search).get("view")
-    : "stock",
+    : isUsAppOverviewPath() ? "overview" : "stock",
   rankingCategory: "surge",
   stockActiveTab: "summary",
   currentStock: null,
@@ -421,6 +436,7 @@ const state = {
   currentTrendPayload: null,
   currentTrendImpactPayload: null,
   currentMarketPayload: null,
+  currentMarketOverview: null,
   usSectorMoves: null,
   usSectorRefreshing: false,
   usSectorSocket: null,
@@ -459,6 +475,7 @@ const state = {
 };
 
 const VIEW_NAV_SECTION = {
+  overview: "market",
   stock: "stock",
   watchlist: "stock",
   recommend: "research",
@@ -515,6 +532,9 @@ function pathQuery() {
     return "AAPL";
   }
   const parts = window.location.pathname.split("/").filter(Boolean);
+  if (parts[0] === "us" && parts[1] === "stock" && parts[2]) {
+    return decodeURIComponent(parts[2]);
+  }
   if (parts[0] === "nasdaq" && parts[1]) {
     return decodeURIComponent(parts[1]);
   }
@@ -527,7 +547,8 @@ function isStockOverviewQuery() {
 
 function hasExplicitStockPath() {
   const parts = window.location.pathname.split("/").filter(Boolean);
-  return parts[0] === "nasdaq" && Boolean(parts[1]);
+  return (parts[0] === "us" && parts[1] === "stock" && Boolean(parts[2]))
+    || (parts[0] === "nasdaq" && Boolean(parts[1]));
 }
 
 function isStockOverviewMode(view = state.view) {
@@ -1992,9 +2013,9 @@ function socketUrl(path) {
 }
 
 function currentPresencePageKey() {
-  const path = window.location.pathname || "/nasdaq";
+  const path = window.location.pathname || US_APP_BASE_PATH;
   const search = window.location.search || "";
-  return `${path}${search}` || "/nasdaq";
+  return `${path}${search}` || US_APP_BASE_PATH;
 }
 
 function formatPresenceDisplayCount(count) {
@@ -3295,8 +3316,98 @@ function canStartPullRefresh(target) {
   return !target.closest("input, textarea, select, .suggestions, .loading-modal-card, .install-sheet-card");
 }
 
+const CROSS_MARKET_US_CODES = new Set(["SP500", "NASDAQ", "SOX", "DOW"]);
+
+function formatMarketOverviewValue(value) {
+  const number = toNumber(value);
+  return number === null
+    ? "-"
+    : number.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
+}
+
+function marketOverviewPhase(item = {}) {
+  const phase = String(item.market_session || "").toLowerCase();
+  if (["open", "regular", "integrated_regular"].includes(phase)) return "장중";
+  if (["preopen", "premarket", "nxt_pre_market"].includes(phase)) return "개장 전";
+  return "장 마감 기준";
+}
+
+function renderMarketOverviewCards(target, items = []) {
+  if (!target) return;
+  target.innerHTML = "";
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "cross-market-state";
+    empty.textContent = "아직 표시할 지수 데이터가 없습니다.";
+    target.appendChild(empty);
+    return;
+  }
+  for (const item of items) {
+    const card = document.createElement("article");
+    const changeRate = toNumber(item.change_rate);
+    card.className = `cross-market-card ${changeRate === null ? "" : changeRate >= 0 ? "is-positive" : "is-negative"}`;
+    const label = escapeHtml(item.label || item.code || "시장");
+    const asOf = escapeHtml(formatDate(item.as_of));
+    card.innerHTML = `
+      <div class="cross-market-card-head">
+        <strong>${label}</strong>
+        <span>${escapeHtml(marketOverviewPhase(item))}</span>
+      </div>
+      <strong class="cross-market-card-value">${escapeHtml(formatMarketOverviewValue(item.current))}</strong>
+      <div class="cross-market-card-foot">
+        <span>${escapeHtml(formatPercent(item.change_rate))}</span>
+        <small>${asOf}</small>
+      </div>`;
+    target.appendChild(card);
+  }
+}
+
+function renderMarketOverview(payload = {}) {
+  state.currentMarketOverview = payload;
+  const koreaItems = Array.isArray(payload.korea?.items) ? payload.korea.items : [];
+  const usItems = Array.isArray(payload.us?.items)
+    ? payload.us.items.filter((item) => CROSS_MARKET_US_CODES.has(String(item.code || "")))
+    : [];
+  renderMarketOverviewCards(elements.overviewKorea, koreaItems);
+  renderMarketOverviewCards(elements.overviewUs, usItems);
+  if (elements.overviewMeta) {
+    elements.overviewMeta.textContent = payload.as_of
+      ? `국내·미국 주요 지수 · ${formatDate(payload.as_of)}`
+      : "국내·미국 주요 지수";
+  }
+}
+
+async function loadMarketOverview(options = {}) {
+  if (elements.overviewKorea && !state.currentMarketOverview) {
+    elements.overviewKorea.innerHTML = '<p class="cross-market-state">국내 지수를 불러오는 중입니다.</p>';
+  }
+  if (elements.overviewUs && !state.currentMarketOverview) {
+    elements.overviewUs.innerHTML = '<p class="cross-market-state">미국 지수를 불러오는 중입니다.</p>';
+  }
+  const force = options.force === true;
+  const query = `/market/cross-market?limit=30${force ? "&refresh=true" : ""}`;
+  try {
+    const payload = await fetchJsonCached(query, {
+      force,
+      ttlMs: force ? 0 : (options.ttlMs ?? 30_000),
+    });
+    renderMarketOverview(payload);
+  } catch {
+    if (!state.currentMarketOverview) {
+      renderMarketOverviewCards(elements.overviewKorea, []);
+      renderMarketOverviewCards(elements.overviewUs, []);
+    }
+    if (elements.overviewMeta) {
+      elements.overviewMeta.textContent = "시장 데이터를 잠시 불러오지 못했습니다.";
+    }
+  }
+}
+
 async function refreshCurrentView() {
   switch (state.view) {
+    case "overview":
+      await loadMarketOverview({ force: true });
+      return;
     case "stock": {
       const query = stockNavigationQuery();
       const shouldRefreshAI = elements.aiAnalysisPanel?.hidden === false;
@@ -3508,7 +3619,7 @@ function viewStockUrl(stockOrName) {
   const value = typeof stockOrName === "object" && stockOrName
     ? stockOrName.code || stockOrName.name
     : stockOrName;
-  return `/nasdaq/${encodeURIComponent(value || "AAPL")}`;
+  return `${US_APP_BASE_PATH}/stock/${encodeURIComponent(value || "AAPL")}`;
 }
 
 function stockNavigationQuery() {
@@ -3959,7 +4070,7 @@ function registerDashboardServiceWorker() {
   if (!("serviceWorker" in navigator)) {
     return;
   }
-  navigator.serviceWorker.register("/nasdaq-sw.js", { scope: "/nasdaq" }).catch(() => undefined);
+  navigator.serviceWorker.register("/us-sw.js", { scope: "/us" }).catch(() => undefined);
 }
 
 function pageEntryTtlMs(view) {
@@ -4045,6 +4156,7 @@ function setView(view) {
     window.clearTimeout(state.recommendationCooldownTimer);
     state.recommendationCooldownTimer = null;
   }
+  elements.overviewView.hidden = view !== "overview";
   elements.stockView.hidden = view !== "stock";
   elements.watchlistView.hidden = view !== "watchlist";
   elements.recommendView.hidden = view !== "recommend";
@@ -4055,15 +4167,18 @@ function setView(view) {
   elements.marketView.hidden = view !== "market";
   updateSideNavState();
   renderSectionShell();
-  if (view === "stock") {
+  if (view === "overview") {
+    history.replaceState(null, "", usAppViewUrl("overview"));
+    loadMarketOverview(pageEntryRefreshOptions("overview"));
+  } else if (view === "stock") {
   } else if (view === "market") {
-    history.replaceState(null, "", "/nasdaq?view=market");
+    history.replaceState(null, "", usAppViewUrl("market"));
     loadMarketRankings(pageEntryRefreshOptions("market", currentMarketFilter()));
   } else if (view === "watchlist") {
-    history.replaceState(null, "", "/nasdaq?view=watchlist");
+    history.replaceState(null, "", usAppViewUrl("watchlist"));
     loadWatchlist(pageEntryRefreshOptions("watchlist"));
   } else if (view === "recommend") {
-    history.replaceState(null, "", "/nasdaq?view=recommend");
+    history.replaceState(null, "", usAppViewUrl("recommend"));
     updateRecommendationButtonState();
     const entryOptions = pageEntryRefreshOptions("recommend");
     refreshUsSectorMoves(entryOptions);
@@ -4074,22 +4189,22 @@ function setView(view) {
     }
     connectUsSectorStream();
   } else if (view === "recommend-history") {
-    history.replaceState(null, "", "/nasdaq?view=recommend-history");
+    history.replaceState(null, "", usAppViewUrl("recommend-history"));
     loadRecommendationHistory(pageEntryRefreshOptions("recommend-history"));
   } else if (view === "trend") {
-    history.replaceState(null, "", "/nasdaq?view=trend");
+    history.replaceState(null, "", usAppViewUrl("trend"));
     loadTrends("events", pageEntryRefreshOptions("trend", "events"));
   } else if (view === "trend-past") {
-    history.replaceState(null, "", "/nasdaq?view=trend-past");
+    history.replaceState(null, "", usAppViewUrl("trend-past"));
     loadTrends("past", pageEntryRefreshOptions("trend-past", "past"));
   } else if (view === "trend-impact") {
-    history.replaceState(null, "", "/nasdaq?view=trend-impact");
+    history.replaceState(null, "", usAppViewUrl("trend-impact"));
     loadMarketImpactAnalysis(pageEntryRefreshOptions("trend-impact"));
   } else if (view === "chart") {
-    history.replaceState(null, "", "/nasdaq?view=chart");
+    history.replaceState(null, "", usAppViewUrl("chart"));
     loadWatchCharts(pageEntryRefreshOptions("chart"));
   } else if (view === "chart-history") {
-    history.replaceState(null, "", "/nasdaq?view=chart-history");
+    history.replaceState(null, "", usAppViewUrl("chart-history"));
     renderChartSnapshots();
   }
   updateResponsiveModeBadges();
@@ -7635,6 +7750,21 @@ for (const item of elements.sideItems) {
   });
 }
 
+elements.overviewRefresh?.addEventListener("click", () => {
+  loadMarketOverview({ force: true });
+});
+
+elements.overviewView?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-view]");
+  if (!button) return;
+  if (button.dataset.view === "stock") {
+    const query = focusStockView();
+    if (!state.currentStock?.code) load(query);
+    return;
+  }
+  setView(button.dataset.view);
+});
+
 elements.sectionShellSecondaryTabs?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-shell-view]");
   if (!button) {
@@ -8101,7 +8231,9 @@ document.addEventListener("click", (event) => {
 });
 
 function bootInitialView() {
-  if (state.view === "market") {
+  if (state.view === "overview") {
+    setView("overview");
+  } else if (state.view === "market") {
     setView("market");
   } else if (state.view === "watchlist") {
     setView("watchlist");

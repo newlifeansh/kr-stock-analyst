@@ -93,3 +93,77 @@ def test_dashboard_market_index_loader_supports_legacy_mobile_webviews():
     assert "incomingByCode.get(code) || previousByCode.get(code)" in loader
     assert "mergedItems.length !== expectedCodes.size" in loader
     assert "updatedAtCandidates[updatedAtCandidates.length - 1] || null" in loader
+
+
+def test_cross_market_endpoint_composes_and_caches_korea_and_us_snapshots(monkeypatch):
+    calls = {"korea": 0, "us": 0}
+
+    def fake_korea(*, response, limit, refresh, db):
+        calls["korea"] += 1
+        return {
+            "items": [
+                {
+                    "code": "KOSPI",
+                    "label": "코스피",
+                    "current": 2700,
+                    "change_rate": 0.42,
+                    "as_of": "2026-09-05T09:00:00+09:00",
+                }
+            ]
+        }
+
+    def fake_us(*, response, limit, db):
+        calls["us"] += 1
+        return {
+            "items": [
+                {
+                    "code": "SP500",
+                    "label": "S&P 500",
+                    "current": 6500,
+                    "change_rate": -0.18,
+                    "as_of": "2026-09-05T06:00:00-04:00",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(main_module, "market_indices", fake_korea)
+    monkeypatch.setattr(main_module, "global_market_assets", fake_us)
+    main_module.api_cache.clear()
+    main_module.app.dependency_overrides[get_db] = lambda: iter([object()])
+    client = TestClient(main_module.app)
+    try:
+        first = client.get("/market/cross-market?limit=31")
+        second = client.get("/market/cross-market?limit=31")
+    finally:
+        main_module.app.dependency_overrides.pop(get_db, None)
+        main_module.api_cache.clear()
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["source"] == "snapshot-composite"
+    assert first.json()["korea"]["items"][0]["code"] == "KOSPI"
+    assert first.json()["us"]["items"][0]["code"] == "SP500"
+    assert first.json()["refresh_interval_seconds"] == 30
+    assert calls == {"korea": 1, "us": 1}
+    assert second.headers["cache-control"] == "public, max-age=15, stale-while-revalidate=30"
+
+
+def test_nasdaq_shell_declares_cross_market_overview_contract():
+    client = TestClient(main_module.app)
+
+    shell = client.get("/us")
+    script = client.get("/assets/nasdaq/app.js")
+    manifest = client.get("/us.webmanifest")
+
+    assert shell.status_code == 200
+    assert 'id="overview-view"' in shell.text
+    assert 'id="overview-korea"' in shell.text
+    assert 'id="overview-us"' in shell.text
+    assert script.status_code == 200
+    assert "/market/cross-market?limit=30" in script.text
+    assert "CROSS_MARKET_US_CODES" in script.text
+    assert "loadMarketOverview" in script.text
+    assert manifest.status_code == 200
+    assert manifest.json()["start_url"] == "/us?view=overview"
+    assert manifest.json()["scope"] == "/us"
+    assert 'US_APP_BASE_PATH = "/us"' in script.text
