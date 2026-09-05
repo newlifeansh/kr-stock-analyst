@@ -4071,7 +4071,7 @@ def run_e2e_checks(
                             status: 200,
                             headers: { 'Content-Type': 'application/json' },
                           })
-                        ), 450));
+                        ), 1_500));
                       };
                     })();"""
                 )

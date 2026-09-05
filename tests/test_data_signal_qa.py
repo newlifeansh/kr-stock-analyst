@@ -1052,6 +1052,7 @@ def test_home_ai_response_e2e_unhides_the_fixture_parent_section() -> None:
     assert '"매수가 아님"' in case_source
     assert '!= [["pullback", "breakout", "wait"]]' in case_source
     assert "personal.hidden = false;" in case_source
+    assert "), 1_500));" in case_source
     assert case_source.index("personal.hidden = false;") < case_source.index(
         'personal.wait_for(state="visible")'
     )
