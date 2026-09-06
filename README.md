@@ -266,6 +266,9 @@ analyst collect-stocks --date 20260617 --markets KOSPI,KOSDAQ
 # 알파스퀘어 종목 로고를 운영 DB에 캐싱
 analyst sync-stock-logos --markets KOSPI,KOSDAQ
 
+# AlphaSquare 미국 대표 종목 로고를 로컬 PNG 자산으로 갱신
+python3 scripts/sync_us_stock_logos.py
+
 # 특정일 전종목 가격/시총 수집
 analyst collect-prices --date 20260617 --market KOSPI
 

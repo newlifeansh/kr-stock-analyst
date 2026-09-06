@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime
 import json
-from pathlib import Path
 import re
 import struct
+from datetime import datetime
+from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.main import MANUAL_STOCK_LOGO_DIR, stock_logo
@@ -180,6 +180,11 @@ def test_every_us_equity_has_audited_checked_in_logo_and_manifest_entry() -> Non
         assert image_data.startswith(PNG_SIGNATURE), item["code"]
         assert struct.unpack(">II", image_data[16:24]) == (256, 256), item["code"]
         assert manifest[storage_code]["ticker"] == item["code"]
+        assert manifest[storage_code]["source_kind"] == "alphasquare"
+        assert manifest[storage_code]["image_url"] == (
+            "https://file.alphasquare.co.kr/media/images/stock_logo/us/"
+            f"{item['code']}.png"
+        )
         assert manifest[storage_code]["width"] == 256
         assert manifest[storage_code]["height"] == 256
 

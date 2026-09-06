@@ -1,3 +1,4 @@
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from app.services import us_market
@@ -273,3 +274,73 @@ def test_us_news_screen_excludes_untranslated_english_titles(monkeypatch):
     rows = us_market._news("NVDA")
 
     assert [row["title"] for row in rows] == ["엔비디아, AI 인프라 투자 확대"]
+
+
+def test_us_prices_requests_long_history_for_five_year_and_all_charts(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        us_market,
+        "resolve_us_stock",
+        lambda symbol: {"code": "NVDA", "name": "NVIDIA"},
+    )
+
+    def fake_chart_prices_range(symbol, range_, interval, refresh, limit):
+        calls.append((symbol, range_, interval, refresh, limit))
+        return {}, []
+
+    monkeypatch.setattr(us_market, "chart_prices_range", fake_chart_prices_range)
+
+    assert us_market.us_prices("NVDA", limit=2000) == []
+    assert calls == [("NVDA", "10y", "1d", False, 2000)]
+
+
+def test_us_intraday_prices_normalizes_new_york_market_points(monkeypatch):
+    timestamp = int(datetime(2026, 9, 4, 13, 31, tzinfo=UTC).timestamp())
+    monkeypatch.setattr(
+        us_market,
+        "resolve_us_stock",
+        lambda symbol: {"code": "NVDA", "name": "NVIDIA"},
+    )
+    monkeypatch.setattr(
+        us_market,
+        "fetch_chart_range",
+        lambda *args, **kwargs: {
+            "meta": {"chartPreviousClose": 170.25},
+            "timestamp": [timestamp],
+            "indicators": {
+                "quote": [{
+                    "open": [171.0],
+                    "high": [172.5],
+                    "low": [170.75],
+                    "close": [172.0],
+                    "volume": [12345],
+                }]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        us_market,
+        "_us_market_session",
+        lambda: {
+            "session": "regular",
+            "label": "미국 정규장 진행 중",
+            "is_live": True,
+            "local_time": datetime(2026, 9, 4, 9, 31, tzinfo=us_market.NEW_YORK_TZ),
+        },
+    )
+
+    payload = us_market.us_intraday_prices("NVDA", range_="1d", interval="1m")
+
+    assert payload["market_timezone"] == "America/New_York"
+    assert payload["market_session"] == "regular"
+    assert payload["reference_price"] == Decimal("170.25")
+    assert payload["points"] == [{
+        "trade_date": date(2026, 9, 4),
+        "trade_time": "093100",
+        "open": Decimal("171.0"),
+        "high": Decimal("172.5"),
+        "low": Decimal("170.75"),
+        "close": Decimal("172.0"),
+        "price": Decimal("172.0"),
+        "volume": 12345,
+    }]

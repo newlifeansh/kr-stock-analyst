@@ -1,34 +1,30 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from hashlib import sha256
 from io import BytesIO
-import json
 from pathlib import Path
-import re
-import sys
 
-from PIL import Image, UnidentifiedImageError
 import requests
+from PIL import Image, UnidentifiedImageError
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.services.official_stock_logos import (  # noqa: E402
+from app.services.official_stock_logos import (
     _image_quality_score,
     normalize_official_logo_png,
 )
-from app.services.us_market import US_EQUITY_UNIVERSE  # noqa: E402
-
+from app.services.us_market import US_EQUITY_UNIVERSE
 
 LOGO_DIR = ROOT / "app" / "static" / "stock-logos"
 MANIFEST_PATH = LOGO_DIR / "sources.json"
-PROVIDERS = (
-    ("financial-modeling-prep", "https://financialmodelingprep.com/image-stock/{symbol}.png"),
-    ("companies-market-cap", "https://companiesmarketcap.com/img/company-logos/256/{symbol}.png"),
-    ("parqet", "https://assets.parqet.com/logos/symbol/{symbol}?format=png"),
-)
+ALPHASQUARE_US_LOGO_BASE_URL = "https://file.alphasquare.co.kr/media/images/stock_logo/us"
+PROVIDERS = (("alphasquare", f"{ALPHASQUARE_US_LOGO_BASE_URL}/{{symbol}}.png"),)
 HEADERS = {
     "Accept": "image/png,image/*;q=0.8",
     "User-Agent": "SecretNoteUSLogoCollector/1.0",
@@ -39,16 +35,11 @@ def storage_code(symbol: str) -> str:
     return re.sub(r"[^0-9A-Z]", "", symbol.upper())
 
 
-def provider_symbol(symbol: str) -> str:
-    return symbol.upper().replace(".", "-")
-
-
 def fetch_logo(item: dict[str, str], timeout_seconds: int) -> tuple[str, dict[str, object] | None, str | None]:
     symbol = item["code"]
-    candidate = provider_symbol(symbol)
     errors: list[str] = []
     for source_kind, template in PROVIDERS:
-        source_url = template.format(symbol=candidate)
+        source_url = template.format(symbol=symbol.upper())
         try:
             response = requests.get(
                 source_url,
@@ -74,7 +65,7 @@ def fetch_logo(item: dict[str, str], timeout_seconds: int) -> tuple[str, dict[st
                     raise ValueError("normalized dimensions are not 256x256")
             return symbol, {
                 "company_name": item["name"],
-                "evidence": f"public US equity logo CDN · normalized quality score {quality}",
+                "evidence": f"AlphaSquare US stock logo CDN · normalized quality score {quality}",
                 "height": 256,
                 "homepage_url": None,
                 "image_url": source_url,

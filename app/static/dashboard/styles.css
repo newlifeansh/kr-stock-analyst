@@ -45,18 +45,65 @@
 
 #stock-view .us-stock-ai-stack[hidden],
 body[data-stock-market="us"] #stock-flow-section,
-body[data-stock-market="us"] #stock-summary-section > .stock-v3-two-column,
-body[data-stock-market="us"] .stock-community-section,
 body[data-stock-market="us"] .stock-sector-margin-section,
 body[data-stock-market="us"] .stock-sga-section,
 body[data-stock-market="us"] .stock-financial-health-section,
 body[data-stock-market="us"] .stock-cashflow-waterfall-section,
-body[data-stock-market="us"] [data-stock-tab="community"],
-body[data-stock-market="us"] [data-stock-panel="community"],
 body[data-stock-market="us"] #stock-research-section > .stock-v3-segment,
 body[data-stock-market="us"] #quant-signal-status,
 body[data-stock-market="us"] #quant-signal-content {
   display: none !important;
+}
+
+#stock-view .us-stock-market-flow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+#stock-view .us-stock-market-flow > div,
+#stock-view .us-stock-liquidity-flow > div {
+  min-width: 0;
+  border-radius: 14px;
+  background: var(--tc-fill-secondary, rgba(255, 255, 255, 0.055));
+}
+
+#stock-view .us-stock-market-flow > div {
+  padding: 15px 12px;
+}
+
+#stock-view .us-stock-market-flow dt,
+#stock-view .us-stock-liquidity-flow span {
+  color: var(--tc-sub, #8b95a1);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+#stock-view .us-stock-market-flow dd {
+  margin: 7px 0 0;
+  font-size: 18px;
+  font-weight: 760;
+  letter-spacing: -0.02em;
+}
+
+#stock-view .us-stock-liquidity-flow {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+#stock-view .us-stock-liquidity-flow > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 14px;
+}
+
+#stock-view .us-stock-liquidity-flow strong {
+  flex: 0 0 auto;
+  font-size: 14px;
 }
 
 #stock-view .us-stock-ai-summary {

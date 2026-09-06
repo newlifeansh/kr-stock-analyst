@@ -3896,7 +3896,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260906-us-quote-v96`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260906-us-parity-v97`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -6381,6 +6381,32 @@
   };
 
   const stagingNormalizeWeekChart = (payload) => {
+    const pointRows = (Array.isArray(payload?.points) ? payload.points : []).map((row) => {
+      const date = stagingChartDateKey(row?.trade_date || row?.date);
+      const time = String(row?.trade_time || row?.time || "").replace(/[^0-9]/g, "").padStart(6, "0");
+      const close = stagingChartNumeric(row?.price ?? row?.close);
+      if (!date || !time || close === null) return null;
+      const open = stagingChartNumeric(row?.open) ?? close;
+      return {
+        date,
+        time,
+        open,
+        high: Math.max(stagingChartNumeric(row?.high) ?? close, open, close),
+        low: Math.min(stagingChartNumeric(row?.low) ?? close, open, close),
+        close,
+        price: close,
+        volume: stagingChartNumeric(row?.volume) || 0,
+      };
+    }).filter(Boolean)
+      .sort((left, right) => `${left.date}${left.time}`.localeCompare(`${right.date}${right.time}`));
+    if (pointRows.length) {
+      return {
+        rows: pointRows,
+        referencePrice: stagingChartNumeric(payload?.reference_price),
+        tradeBaseAt: stagingChartDateKey(payload?.trade_date),
+        marketStatus: String(payload?.market_session || payload?.market_state || ""),
+      };
+    }
     const groups = payload?.priceInfos && typeof payload.priceInfos === "object"
       ? Object.entries(payload.priceInfos)
       : [];
@@ -6415,7 +6441,7 @@
 
   const ensureStagingWeekChartData = (code, force = false) => {
     const normalizedCode = String(code || "").trim();
-    if (!/^[0-9]{6}$/.test(normalizedCode)) return Promise.resolve(null);
+    if (!normalizedCode) return Promise.resolve(null);
     const now = Date.now();
     const current = stagingWeekChartCache.get(normalizedCode);
     if (!force && current?.status === "loading" && current.promise) return current.promise;
@@ -6439,7 +6465,10 @@
     };
     const request = (async () => {
       try {
-        const payload = await stagingJsonRequest(`/stocks/${encodeURIComponent(normalizedCode)}/week-chart`, {
+        const endpoint = stagingStockIsUsd()
+          ? `/us/stocks/${encodeURIComponent(normalizedCode)}/intraday?range=5d&interval=5m`
+          : `/stocks/${encodeURIComponent(normalizedCode)}/week-chart`;
+        const payload = await stagingJsonRequest(endpoint, {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
@@ -6512,10 +6541,44 @@
     return result;
   };
 
+  const stagingNewYorkClock = (date = new Date()) => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(date).reduce((result, part) => {
+      result[part.type] = part.value;
+      return result;
+    }, {});
+    const hour = Number(parts.hour || 0);
+    const minute = Number(parts.minute || 0);
+    return {
+      date: `${parts.year}-${parts.month}-${parts.day}`,
+      time: `${String(hour).padStart(2, "0")}${String(minute).padStart(2, "0")}00`,
+      weekday: parts.weekday || "",
+      minutes: hour * 60 + minute,
+    };
+  };
+
+  const stagingStockClock = () => stagingStockIsUsd()
+    ? stagingNewYorkClock()
+    : stagingKoreaClock();
+
   const stagingStockChartPhase = (quote = null) => {
     const requested = new URLSearchParams(window.location.search).get("stagingChartPhase");
     if (["preopen", "regular", "closed"].includes(requested)) return requested;
-    const clock = stagingKoreaClock();
+    if (stagingStockIsUsd()) {
+      const session = String(quote?.market_session || "");
+      if (session === "regular") return "regular";
+      if (session === "premarket") return "preopen";
+      return "closed";
+    }
+    const clock = stagingStockClock();
     if (["Sat", "Sun"].includes(clock.weekday)) return "closed";
     if (clock.minutes >= 7 * 60 && clock.minutes < 9 * 60) return "preopen";
     if (clock.minutes >= 9 * 60 && clock.minutes < 15 * 60 + 30) {
@@ -6600,7 +6663,7 @@
       };
     }).filter((row) => row?.date && row.time && row.price !== null)
       .sort((left, right) => `${left.date}${left.time}`.localeCompare(`${right.date}${right.time}`));
-    const clock = clockOverride || stagingKoreaClock();
+    const clock = clockOverride || stagingStockClock();
     const quoteDate = stagingChartDateKey(quote?.trade_date);
     const quotePrice = stagingChartNumeric(quote?.price);
     const latestDate = rows.some((row) => row.date === quoteDate) ? quoteDate : rows.at(-1)?.date;
@@ -6666,7 +6729,7 @@
     if (!rows.length) return rows;
     const quoteDate = stagingChartDateKey(quote?.trade_date);
     const quotePrice = stagingChartNumeric(quote?.price);
-    const clock = stagingKoreaClock();
+    const clock = stagingStockClock();
     const last = rows.at(-1);
     if (quoteDate && quotePrice !== null && quoteDate >= (last?.date || "")) {
       if (phase === "regular" && quoteDate === clock.date) {
@@ -6971,10 +7034,6 @@
     if (!chart || !periods || !state.currentDashboard) return;
 
     ensureStagingStockChartPeriods(periods);
-    const usStock = stagingStockIsUsd();
-    if (usStock && ["1D", "1W"].includes(stagingSelectedChartPeriod)) {
-      stagingSelectedChartPeriod = "3M";
-    }
     const quote = state.currentDashboard?.quote || null;
     const phase = stagingStockChartPhase(quote);
     const liveSession = stagingStockChartLiveSession(quote, phase);
@@ -6986,7 +7045,7 @@
     const stockCode = String(state.currentStock?.code || state.currentDashboard?.code || "").trim();
     const isCandle = stagingSelectedChartType === "candle";
     for (const button of periods.querySelectorAll("[data-staging-chart-period]")) {
-      button.hidden = usStock && ["1D", "1W"].includes(button.dataset.stagingChartPeriod || "");
+      button.hidden = false;
       const active = button.dataset.stagingChartPeriod === periodConfig.key;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));

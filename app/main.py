@@ -237,6 +237,7 @@ from app.services.us_market import (
     resolve_us_stock,
     search_us_stocks,
     usdkrw_rate,
+    us_intraday_prices,
     us_prices,
     us_sector_moves,
 )
@@ -256,7 +257,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260906v472"
+DASHBOARD_CLIENT_VERSION = "20260906v473"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -3978,11 +3979,38 @@ def us_stock_prices(
     symbol: str,
     limit: int = Query(default=250, ge=1, le=2000),
     refresh: bool = Query(default=False),
+    range_: str = Query(default="10y", alias="range"),
 ):
+    if range_ not in {"1y", "5y", "10y", "max"}:
+        raise HTTPException(status_code=422, detail="Unsupported US price range")
     try:
-        return us_prices(symbol, limit=limit, refresh=refresh)
+        return us_prices(symbol, limit=limit, refresh=refresh, range_=range_)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="US stock prices not found") from exc
+
+
+@app.get("/us/stocks/{symbol}/intraday")
+def us_stock_intraday(
+    symbol: str,
+    response: Response,
+    range_: str = Query(default="1d", alias="range"),
+    interval: str = Query(default="1m"),
+    refresh: bool = Query(default=False),
+):
+    if (range_, interval) not in {("1d", "1m"), ("5d", "5m")}:
+        raise HTTPException(status_code=422, detail="Unsupported US intraday range or interval")
+    try:
+        payload = us_intraday_prices(
+            symbol,
+            range_=range_,
+            interval=interval,
+            refresh=refresh,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="US intraday prices not found") from exc
+    is_live = payload.get("market_state") == "open"
+    response.headers["Cache-Control"] = "no-store" if is_live else "private, max-age=180"
+    return payload
 
 
 @app.get("/us/stocks/{symbol}/ai-analysis", response_model=StockAIAnalysisOut)

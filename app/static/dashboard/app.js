@@ -5918,6 +5918,33 @@ function renderStockHomeCheckpoints(data) {
     return;
   }
   dismissStockBarTooltip(elements.stockHomeCheckpoints);
+  if (stockDashboardIsUs(data)) {
+    const momentum = data?.momentum || {};
+    const flows = data?.flows || {};
+    const performance = [
+      ["1주", momentum.one_week_return],
+      ["1개월", momentum.one_month_return],
+      ["3개월", momentum.three_month_return],
+    ];
+    const liquidity = [
+      [flows.stock_liquidity_label || "개별 종목 거래대금 변화", flows.foreign_intensity],
+      [flows.etf_liquidity_label || "대표 ETF 거래대금 변화", flows.institution_intensity],
+    ];
+    elements.stockHomeCheckpoints.innerHTML = `
+      <dl class="us-stock-market-flow" aria-label="최근 미국 종목 시장 흐름">
+        ${performance.map(([label, value]) => `
+          <div><dt>${label} 수익률</dt><dd class="${(toNumber(value) || 0) >= 0 ? "positive" : "negative"}">${formatPercent(value)}</dd></div>
+        `).join("")}
+      </dl>
+      <div class="us-stock-liquidity-flow" role="list" aria-label="최근 거래대금 변화">
+        ${liquidity.map(([label, value]) => `
+          <div role="listitem"><span>${label}</span><strong class="${(toNumber(value) || 0) >= 0 ? "positive" : "negative"}">${formatPercent(value)}</strong></div>
+        `).join("")}
+      </div>
+      <p class="stock-home-flow-caption">투자자별 순매수가 아닌 Yahoo Finance 가격·거래대금 변화입니다.</p>
+    `;
+    return;
+  }
   const rows = stockHomeSevenDayFlowRows();
   elements.stockHomeCheckpoints.innerHTML = "";
   if (rows.length < 2) {
@@ -6228,10 +6255,19 @@ function stockCommunityAvatarLabel(providerKey) {
   if (providerKey === "naver_board") {
     return "N";
   }
+  if (providerKey === "yahoo_finance") {
+    return "Y";
+  }
+  if (providerKey === "stocktwits") {
+    return "S";
+  }
   return "T";
 }
 
 function stockCommunityMeta(providerKey, row) {
+  if (row?.external_landing) {
+    return "외부 서비스에서 원문 확인";
+  }
   if (providerKey === "naver_board") {
     return `${stockCommunityDate(row.created_at)} · 조회 ${formatCompactCount(row.view_count || 0)} · 공감 ${formatCompactCount(row.like_count || 0)} · 비공감 ${formatCompactCount(row.dislike_count || 0)}`;
   }
@@ -6257,8 +6293,8 @@ function renderStockCommunity(payload) {
   if (!elements.stockCommunityProviders || !elements.stockCommunityStatus) {
     return;
   }
-  // 종목 상세에서는 네이버 종토방만 보여 준다. Threads는 검색 결과가 안정적으로
-  // 제공되지 않아 출처 탭과 게시물 목록에서 제외한다.
+  // 국내 종목 상세에서는 네이버 종토방만 보여 준다. 미국 종목은 게시물을
+  // 미러링하지 않고 원문 커뮤니티로 이동하는 안전한 랜딩 카드만 제공한다.
   const providers = (Array.isArray(payload?.providers) ? payload.providers : [])
     .filter((provider) => provider?.key !== "threads");
   const totalItems = providers.reduce((sum, provider) => sum + (Array.isArray(provider?.items) ? provider.items.length : 0), 0);
@@ -6298,7 +6334,8 @@ function renderStockCommunity(payload) {
   const items = Array.isArray(selected.items) ? selected.items : [];
   const summary = el("div", "stock-community-board-summary");
   if (items.length) {
-    summary.appendChild(el("strong", "", `최근 글 ${formatNumber(items.length)}건`));
+    const landingOnly = items.every((row) => row?.external_landing);
+    summary.appendChild(el("strong", "", landingOnly ? "원문 커뮤니티로 이동해요" : `최근 글 ${formatNumber(items.length)}건`));
     board.appendChild(summary);
   }
 
@@ -6322,10 +6359,13 @@ function renderStockCommunity(payload) {
     const identity = el("span", "stock-community-identity");
     identity.append(
       el("strong", "", row.author_name || selected.label || "커뮤니티"),
-      el("span", "", row.username ? `@${row.username}` : (selected.key === "naver_board" ? "종토방" : "Threads"))
+      el("span", "", row.username ? `${row.external_landing ? "" : "@"}${row.username}` : (selected.key === "naver_board" ? "종토방" : "Threads"))
     );
-    const impact = el("span", `stock-community-impact is-${row.impact === "호재" ? "positive" : row.impact === "악재" ? "negative" : "neutral"}`, row.impact || "중립");
-    line.append(identity, impact);
+    const impact = row.external_landing
+      ? null
+      : el("span", `stock-community-impact is-${row.impact === "호재" ? "positive" : row.impact === "악재" ? "negative" : "neutral"}`, row.impact || "중립");
+    line.append(identity);
+    if (impact) line.appendChild(impact);
 
     const text = el("p", "stock-community-text", row.text || row.title || "게시물 내용 없음");
     const footer = el("div", "stock-community-footer");
@@ -6344,7 +6384,7 @@ function renderStockCommunity(payload) {
     }
     const shortcutUrl = stockCommunityShortcutUrl(selected.key, row, payload?.code);
     if (shortcutUrl) {
-      const shortcut = el("a", "stock-community-shortcut", "바로가기");
+      const shortcut = el("a", "stock-community-shortcut", row.external_landing ? "원문에서 보기" : "바로가기");
       shortcut.href = shortcutUrl;
       shortcut.target = "_blank";
       shortcut.rel = "noopener noreferrer";
@@ -6365,6 +6405,41 @@ function renderStockCommunity(payload) {
   }
   board.appendChild(list);
   elements.stockCommunityProviders.appendChild(board);
+}
+
+function usStockCommunityPayload(data) {
+  const symbol = String(data?.code || state.currentStock?.code || "").trim().toUpperCase();
+  if (!symbol) {
+    return { message: "종목 커뮤니티 링크를 준비하지 못했습니다.", providers: [] };
+  }
+  return {
+    code: symbol,
+    message: "게시글은 원문 커뮤니티에서 확인할 수 있습니다.",
+    providers: [
+      {
+        key: "yahoo_finance",
+        label: "Yahoo Finance",
+        items: [{
+          author_name: "Yahoo Finance",
+          username: "미국 종목 토론",
+          text: `${data?.name || symbol} 투자자 토론을 원문 서비스에서 확인하세요.`,
+          url: `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}/community/`,
+          external_landing: true,
+        }],
+      },
+      {
+        key: "stocktwits",
+        label: "Stocktwits",
+        items: [{
+          author_name: "Stocktwits",
+          username: "실시간 투자자 반응",
+          text: `${symbol} 관련 투자자 반응과 원문 게시물을 확인하세요.`,
+          url: `https://stocktwits.com/symbol/${encodeURIComponent(symbol)}`,
+          external_landing: true,
+        }],
+      },
+    ],
+  };
 }
 
 function isLikelyStockEtfName(name) {
@@ -7203,7 +7278,9 @@ async function loadStockPriceSummary(code, quote) {
   try {
     const usStock = stockDashboardIsUs();
     const marketOpen = usStock ? usMarketPhase() === "regular" : koreaMarketPhase() === "regular";
-    const priceEndpoint = usStock ? `/us/stocks/${encodeURIComponent(code)}/prices?limit=1000` : `/stocks/${encodeURIComponent(code)}/prices?limit=1000`;
+    const priceEndpoint = usStock
+      ? `/us/stocks/${encodeURIComponent(code)}/prices?limit=2000&range=10y`
+      : `/stocks/${encodeURIComponent(code)}/prices?limit=1000`;
     const prices = await fetchJsonCached(priceEndpoint, {
       ttlMs: marketOpen ? 30_000 : 30 * PAGE_ENTRY_MINUTE_MS,
     });
@@ -7238,20 +7315,26 @@ async function loadStockPriceSummary(code, quote) {
 
 async function loadStockIntraday(code, requestId) {
   try {
-    const marketOpen = koreaExtendedQuoteLive();
-    const endpoint = `/stocks/${encodeURIComponent(code)}/intraday?limit=390`;
+    const usStock = stockDashboardIsUs();
+    const marketOpen = usStock
+      ? ["premarket", "regular", "afterhours"].includes(usMarketPhase())
+      : koreaExtendedQuoteLive();
+    const endpoint = usStock
+      ? `/us/stocks/${encodeURIComponent(code)}/intraday?range=1d&interval=1m`
+      : `/stocks/${encodeURIComponent(code)}/intraday?limit=390`;
     const requestUrl = marketOpen ? liveUrl(endpoint) : endpoint;
-    let pending = state.stockIntradayPending.get(code);
+    const pendingKey = `${usStock ? "us" : "kr"}:${code}`;
+    let pending = state.stockIntradayPending.get(pendingKey);
     if (!pending) {
       pending = fetchJsonCached(requestUrl, {
         force: marketOpen,
         ttlMs: marketOpen ? 0 : 30 * PAGE_ENTRY_MINUTE_MS,
       }).finally(() => {
-        if (state.stockIntradayPending.get(code) === pending) {
-          state.stockIntradayPending.delete(code);
+        if (state.stockIntradayPending.get(pendingKey) === pending) {
+          state.stockIntradayPending.delete(pendingKey);
         }
       });
-      state.stockIntradayPending.set(code, pending);
+      state.stockIntradayPending.set(pendingKey, pending);
     }
     const payload = await pending;
     if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
@@ -7332,15 +7415,17 @@ async function loadStockHomeDetails(data, options = {}) {
     return;
   }
   if (stockDashboardIsUs(data)) {
-    state.stockHomeDetailsRequestId += 1;
+    const requestId = ++state.stockHomeDetailsRequestId;
     state.stockFlowRows = [];
     state.stockResearchRows = [];
     state.stockDisclosureRows = Array.isArray(data?.guidance?.latest_events) ? data.guidance.latest_events : [];
     state.stockNewsRows = Array.isArray(data?.sentiment?.latest_items) ? data.sentiment.latest_items : [];
-    state.stockCommunity = null;
+    state.stockCommunity = usStockCommunityPayload(data);
+    renderStockCommunity(state.stockCommunity);
     renderStockHome(data);
     renderUsStockResearch(data);
     configureStockMarketExperience(data);
+    void loadStockIntraday(code, requestId);
     return;
   }
   const contextRetry = options.contextRetry === true;
@@ -24881,8 +24966,6 @@ function configureStockMarketExperience(data) {
   };
   for (const selector of [
     "#stock-flow-section",
-    "#stock-summary-section > .stock-v3-two-column",
-    ".stock-community-section",
     ".stock-sector-margin-section",
     ".stock-sga-section",
     ".stock-financial-health-section",
@@ -24894,8 +24977,8 @@ function configureStockMarketExperience(data) {
   if (statementSection) statementSection.hidden = usStock;
   const communityTab = document.querySelector('[data-stock-tab="community"]');
   const communityPanel = document.querySelector('[data-stock-panel="community"]');
-  if (communityTab) communityTab.hidden = usStock;
-  if (communityPanel) communityPanel.hidden = usStock || state.stockActiveTab !== "community";
+  if (communityTab) communityTab.hidden = false;
+  if (communityPanel) communityPanel.hidden = state.stockActiveTab !== "community";
   if (elements.usStockAIContent) elements.usStockAIContent.hidden = !usStock;
   if (elements.quantSignalStatus) elements.quantSignalStatus.hidden = usStock;
   if (elements.quantSignalContent) elements.quantSignalContent.hidden = usStock || elements.quantSignalContent.hidden;
@@ -24915,6 +24998,12 @@ function configureStockMarketExperience(data) {
   if (researchTitle) researchTitle.textContent = usStock ? "컨센서스" : "리포트 분석";
   if (researchSource) researchSource.textContent = usStock ? "Yahoo Finance 집계" : "증권사 발행 자료";
   if (researchModes) researchModes.hidden = usStock;
+
+  const checkpointSection = elements.stockHomeCheckpoints?.closest("article");
+  const checkpointEyebrow = checkpointSection?.querySelector(".stock-v3-section-head div > span");
+  const checkpointTitle = checkpointSection?.querySelector(".stock-v3-section-head h2");
+  if (checkpointEyebrow) checkpointEyebrow.textContent = usStock ? "시장 흐름" : "수급 확인";
+  if (checkpointTitle) checkpointTitle.textContent = usStock ? "최근 수익률" : "최근 7일 수급";
 
   const newsTitle = document.getElementById("stock-news-section")?.querySelector("h2");
   if (newsTitle) newsTitle.textContent = usStock ? "미국 종목뉴스" : "종목뉴스";
@@ -25268,9 +25357,7 @@ async function loadStockRequest(query, options = {}) {
     setActiveStockTab("summary", { preserveScroll: true });
   }
   state.currentStock = { code: stock.code, name: stock.name, market: stock.market, currency: usStockRequest ? "USD" : stock.currency };
-  if (usStockRequest && state.stockPricePeriod === "1D") {
-    state.stockPricePeriod = "3M";
-  } else if (!usStockRequest && previousDashboard?.currency === "USD") {
+  if (!usStockRequest && previousDashboard?.currency === "USD") {
     state.stockPricePeriod = "1D";
   }
   renderStockTitleLogo(state.currentStock);

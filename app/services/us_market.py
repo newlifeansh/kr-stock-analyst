@@ -1022,14 +1022,33 @@ def us_sector_moves(refresh: bool = False) -> dict[str, object]:
     return payload
 
 
-def fetch_chart(symbol: str, refresh: bool = False) -> dict[str, object]:
+def fetch_chart_range(
+    symbol: str,
+    range_: str = "1y",
+    interval: str = "1d",
+    include_prepost: bool = False,
+    refresh: bool = False,
+) -> dict[str, object]:
     code = _symbol(symbol)
-    key = ("us_chart", code)
+    key = ("us_chart", code, range_, interval, bool(include_prepost))
+
+    def build() -> dict[str, object]:
+        return _fetch_chart(
+            code,
+            range_=range_,
+            interval=interval,
+            include_prepost=include_prepost,
+        )
+
     if refresh:
-        payload = _fetch_chart(code)
+        payload = build()
         US_CACHE.set(key, payload, US_TTL_SECONDS)
         return payload
-    return US_CACHE.get_or_set(key, US_TTL_SECONDS, lambda: _fetch_chart(code))
+    return US_CACHE.get_or_set(key, US_TTL_SECONDS, build)
+
+
+def fetch_chart(symbol: str, refresh: bool = False) -> dict[str, object]:
+    return fetch_chart_range(symbol, refresh=refresh)
 
 
 def usdkrw_rate(refresh: bool = False) -> dict[str, object]:
@@ -1052,8 +1071,7 @@ def _usdkrw_rate_payload() -> dict[str, object]:
     }
 
 
-def chart_prices(symbol: str, refresh: bool = False, limit: int = 250) -> tuple[dict[str, object], list[USPrice]]:
-    result = fetch_chart(symbol, refresh=refresh)
+def _chart_price_rows(symbol: str, result: dict[str, object], limit: int) -> tuple[dict[str, object], list[USPrice]]:
     meta = result.get("meta") or {}
     quote = (result.get("indicators", {}).get("quote") or [{}])[0]
     timestamps = result.get("timestamp") or []
@@ -1079,6 +1097,22 @@ def chart_prices(symbol: str, refresh: bool = False, limit: int = 250) -> tuple[
     return meta, rows[-limit:]
 
 
+def chart_prices(symbol: str, refresh: bool = False, limit: int = 250) -> tuple[dict[str, object], list[USPrice]]:
+    result = fetch_chart(symbol, refresh=refresh)
+    return _chart_price_rows(symbol, result, limit)
+
+
+def chart_prices_range(
+    symbol: str,
+    range_: str,
+    interval: str = "1d",
+    refresh: bool = False,
+    limit: int = 2000,
+) -> tuple[dict[str, object], list[USPrice]]:
+    result = fetch_chart_range(symbol, range_=range_, interval=interval, refresh=refresh)
+    return _chart_price_rows(symbol, result, limit)
+
+
 def _price_dict(row: USPrice) -> dict[str, object]:
     return {
         "code": row.code,
@@ -1094,10 +1128,75 @@ def _price_dict(row: USPrice) -> dict[str, object]:
     }
 
 
-def us_prices(symbol: str, limit: int = 250, refresh: bool = False) -> list[dict[str, object]]:
+def us_prices(
+    symbol: str,
+    limit: int = 250,
+    refresh: bool = False,
+    range_: str = "10y",
+) -> list[dict[str, object]]:
     stock = resolve_us_stock(symbol)
-    _, rows = chart_prices(stock["code"], refresh=refresh, limit=limit)
+    _, rows = chart_prices_range(
+        stock["code"],
+        range_=range_,
+        interval="1d",
+        refresh=refresh,
+        limit=limit,
+    )
     return [_price_dict(row) for row in rows]
+
+
+def us_intraday_prices(
+    symbol: str,
+    range_: str = "1d",
+    interval: str = "1m",
+    refresh: bool = False,
+) -> dict[str, object]:
+    stock = resolve_us_stock(symbol)
+    result = fetch_chart_range(
+        stock["code"],
+        range_=range_,
+        interval=interval,
+        include_prepost=False,
+        refresh=refresh,
+    )
+    meta = result.get("meta") or {}
+    quote = (result.get("indicators", {}).get("quote") or [{}])[0]
+    timestamps = result.get("timestamp") or []
+    points: list[dict[str, object]] = []
+    for index, timestamp in enumerate(timestamps):
+        close = _to_decimal(_list_get(quote.get("close") or [], index))
+        if close is None:
+            continue
+        local = datetime.fromtimestamp(timestamp, timezone.utc).astimezone(NEW_YORK_TZ)
+        open_price = _to_decimal(_list_get(quote.get("open") or [], index)) or close
+        high = _to_decimal(_list_get(quote.get("high") or [], index)) or close
+        low = _to_decimal(_list_get(quote.get("low") or [], index)) or close
+        volume = _list_get(quote.get("volume") or [], index)
+        points.append({
+            "trade_date": local.date(),
+            "trade_time": local.strftime("%H%M%S"),
+            "open": open_price,
+            "high": max(high, open_price, close),
+            "low": min(low, open_price, close),
+            "close": close,
+            "price": close,
+            "volume": int(volume) if volume is not None else None,
+        })
+    session = _us_market_session()
+    return {
+        "code": stock["code"],
+        "source": "Yahoo Finance",
+        "as_of": session["local_time"],
+        "market_state": "open" if session["is_live"] else "closed",
+        "market_session": session["session"],
+        "market_session_label": session["label"],
+        "market_timezone": "America/New_York",
+        "range": range_,
+        "interval": interval,
+        "trade_date": points[-1]["trade_date"] if points else None,
+        "reference_price": _to_decimal(meta.get("chartPreviousClose")) or _to_decimal(meta.get("previousClose")),
+        "points": points,
+    }
 
 
 def _nth_from_end(items: list[USPrice], offset: int) -> Optional[USPrice]:
@@ -1724,6 +1823,7 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
     chart = _chart_analysis(prices)
     momentum = _momentum(prices)
     flows = _us_liquidity_proxy(stock, momentum)
+    market_session = _us_market_session()
     try:
         fundamentals = fetch_us_fundamentals(stock["code"], refresh=refresh)
     except Exception:
@@ -1780,6 +1880,10 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
             "volume": int(volume) if volume is not None else None,
             "trading_value": trading_value,
             "market_cap": financials.get("market_cap"),
+            "market_session": market_session["session"],
+            "market_session_label": market_session["label"],
+            "market_local_time": market_session["local_time"],
+            "is_live": market_session["is_live"],
         },
         "revisions": {
             **research,
