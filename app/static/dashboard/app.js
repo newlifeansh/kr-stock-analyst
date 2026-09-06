@@ -6028,7 +6028,7 @@ function renderStockHomeCheckpoints(data) {
 }
 
 const STOCK_KEYWORD_STOPWORDS = new Set([
-  "관련", "대한", "위한", "통해", "최근", "전망", "주가", "증권", "투자", "리포트", "뉴스", "공시", "분석", "기업", "시장", "종목", "이번", "올해", "내년", "상승", "하락", "강세", "약세", "확대", "감소", "증가", "발표", "기준", "가능", "예상", "코스피", "코스닥", "the", "and", "with", "for", "from",
+  "관련", "대한", "위한", "통해", "최근", "전망", "주가", "주식", "증권", "투자", "리포트", "뉴스", "공시", "분석", "기업", "시장", "종목", "이번", "올해", "내년", "상승", "하락", "강세", "약세", "확대", "감소", "증가", "발표", "기준", "가능", "예상", "움직였습니다", "한국어", "코스피", "코스닥", "the", "and", "with", "for", "from", "com", "www", "inc", "corp", "corporation", "company", "companies", "ltd", "llc", "holding", "holdings", "stock", "stocks", "share", "shares", "tradingkey", "investing",
 ]);
 
 function stockKeywords(data) {
@@ -6041,13 +6041,14 @@ function stockKeywords(data) {
     ...news.map((row) => row.title),
   ].filter(Boolean);
   const stockName = String(data?.name || "").toLowerCase();
+  const stockCode = String(data?.code || "").toLowerCase();
   const counts = new Map();
   for (const text of texts) {
     const tokens = String(text).match(/[가-힣A-Za-z0-9]{2,}/g) || [];
     for (const rawToken of tokens) {
       const token = rawToken.replace(/^20\d{2}$/, "").trim();
       const normalized = token.toLowerCase();
-      if (!token || normalized === stockName || STOCK_KEYWORD_STOPWORDS.has(normalized) || /^\d+$/.test(token)) {
+      if (!token || normalized === stockName || normalized === stockCode || STOCK_KEYWORD_STOPWORDS.has(normalized) || /^\d+$/.test(token)) {
         continue;
       }
       counts.set(token, (counts.get(token) || 0) + 1);
