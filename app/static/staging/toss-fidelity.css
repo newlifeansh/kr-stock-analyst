@@ -225,7 +225,7 @@ body[data-staging-ia="tds-video"] #home-ai-signals .home-market-signal-row:focus
 }
 
 /* v45 — Toss Securities-style price chart with live-session progress and scrubbing. */
-body[data-staging-ia="tds-video"] #stock-summary-section .stock-v3-quote-card .stock-v3-chart-pane {
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs .stock-v3-chart-pane {
   min-height: 402px !important;
   padding-top: 14px !important;
 }
@@ -1903,7 +1903,7 @@ body[data-staging-ia="tds-video"][data-staging-input="keyboard"] #stock-view .st
   pointer-events: none !important;
 }
 
-body[data-staging-ia="tds-video"] #stock-summary-section .stock-v3-quote-card #stock-mini-chart {
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs #stock-mini-chart {
   min-height: 306px !important;
   display: block !important;
   align-content: initial !important;
@@ -5122,7 +5122,7 @@ body[data-staging-ia="tds-video"] #stock-view .stock-v3-chart-pane {
   padding-top: 8px !important;
 }
 
-body[data-staging-ia="tds-video"] #stock-summary-section .stock-v3-quote-card .stock-mini-chart {
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs .stock-mini-chart {
   width: 100% !important;
   min-height: 220px !important;
   display: grid !important;
@@ -5132,7 +5132,7 @@ body[data-staging-ia="tds-video"] #stock-summary-section .stock-v3-quote-card .s
   background: transparent !important;
 }
 
-body[data-staging-ia="tds-video"] #stock-summary-section .stock-v3-quote-card .stock-mini-chart svg {
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs .stock-mini-chart svg {
   width: 100% !important;
   height: auto !important;
   display: block !important;
@@ -6804,13 +6804,13 @@ body[data-staging-ia="tds-video"] #stock-view .stock-detail-tabs button.active::
   background: light-dark(#191f28, #e4e1ee) !important;
 }
 
-body[data-staging-ia="tds-video"] #stock-summary-section > .stock-v3-quote-card {
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs {
   grid-template-areas: "chart" "metrics" !important;
   gap: 8px !important;
   padding: 8px var(--tc-gutter) 28px !important;
 }
 
-body[data-staging-ia="tds-video"] #stock-summary-section > .stock-v3-quote-card > :is(
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs > :is(
   .stock-v3-quote-head,
   .stock-v3-price-line,
   .stock-pre-market
@@ -6818,28 +6818,28 @@ body[data-staging-ia="tds-video"] #stock-summary-section > .stock-v3-quote-card 
   display: none !important;
 }
 
-body[data-staging-ia="tds-video"] #stock-summary-section .stock-v3-quote-card .stock-v3-chart-pane {
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs .stock-v3-chart-pane {
   grid-area: chart !important;
   min-height: 300px !important;
   padding-top: 12px !important;
 }
 
-body[data-staging-ia="tds-video"] #stock-summary-section .stock-v3-quote-card .stock-v3-quote-metrics {
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs .stock-v3-quote-metrics {
   grid-area: metrics !important;
 }
 
-body[data-staging-ia="tds-video"] #stock-summary-section .stock-v3-chart-badge {
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs .stock-v3-chart-badge {
   border: 0 !important;
   color: var(--tc-sub) !important;
   background: var(--tc-surface) !important;
   box-shadow: none !important;
 }
 
-body[data-staging-ia="tds-video"] #stock-summary-section .stock-v3-chart-badge strong {
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs .stock-v3-chart-badge strong {
   color: var(--tc-red) !important;
 }
 
-body[data-staging-ia="tds-video"] #stock-summary-section .stock-v3-chart-badge span {
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs .stock-v3-chart-badge span {
   color: var(--tc-muted) !important;
 }
 
@@ -11763,7 +11763,7 @@ body[data-staging-ia="tds-video"] #ai-signals-view :is(.ai-signal-stage-tabs, .a
   }
 }
 
-body[data-staging-ia="tds-video"] #stock-summary-section .stock-v3-quote-card .stock-v3-chart-pane {
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs .stock-v3-chart-pane {
   min-height: 402px !important;
   padding-top: 14px !important;
 }

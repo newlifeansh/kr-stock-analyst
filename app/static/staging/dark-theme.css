@@ -6094,8 +6094,8 @@ body[data-staging-ia="toss-clone"] #ai-signals-view .home-ai-signal-metric.is-ex
   gap: 8px !important;
 }
 
-/* The quote chart now lives inside the Chart tab; undo the legacy summary hide. */
-body[data-staging-ia="toss-clone"] #stock-summary-section .stock-v3-quote-card .stock-mini-chart {
+/* Keep the quote chart visible in its shared position above the stock tabs. */
+body[data-staging-ia="toss-clone"] #stock-view .staging-stock-quote-before-tabs .stock-mini-chart {
   width: 100% !important;
   min-height: 220px !important;
   display: grid !important;
@@ -6105,7 +6105,7 @@ body[data-staging-ia="toss-clone"] #stock-summary-section .stock-v3-quote-card .
   background: transparent !important;
 }
 
-body[data-staging-ia="toss-clone"] #stock-summary-section .stock-v3-quote-card .stock-mini-chart svg {
+body[data-staging-ia="toss-clone"] #stock-view .staging-stock-quote-before-tabs .stock-mini-chart svg {
   width: 100% !important;
   height: auto !important;
   display: block !important;

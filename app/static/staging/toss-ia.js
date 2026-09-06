@@ -3896,7 +3896,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260905-us-detail-v95`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260906-us-quote-v96`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -6212,7 +6212,7 @@
     if (companyProfile) stockCompanyPanel.prepend(companyProfile);
 
     const quoteCard = document.querySelector("#stock-view .stock-v3-quote-card");
-    if (quoteCard) stockSummaryPanel.prepend(quoteCard);
+    if (quoteCard) quoteCard.classList.add("staging-stock-quote-before-tabs");
     const sentinel = document.getElementById("stock-detail-tabs-sentinel");
     stockHero = document.createElement("section");
     stockHero.className = "staging-stock-hero";
@@ -6245,7 +6245,10 @@
       marketStatusButton.prepend(orderability, separator);
       stockHero.appendChild(marketStatusButton);
     }
-    if (sentinel?.parentElement) sentinel.parentElement.insertBefore(stockHero, sentinel);
+    if (sentinel?.parentElement) {
+      sentinel.parentElement.insertBefore(stockHero, sentinel);
+      if (quoteCard) sentinel.parentElement.insertBefore(quoteCard, sentinel);
+    }
 
     const stockBack = document.getElementById("stock-detail-back");
     const stockStar = document.getElementById("watch-toggle");
