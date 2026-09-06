@@ -187,8 +187,6 @@ body[data-stock-market="us"] #quant-signal-content {
   white-space: nowrap;
 }
 
-body[data-stock-market="us"] #stock-view [data-staging-chart-period="1D"],
-body[data-stock-market="us"] #stock-view [data-staging-chart-period="1W"],
 body[data-stock-market="us"] #stock-view .staging-toss-chart-session-icon {
   display: none !important;
 }
