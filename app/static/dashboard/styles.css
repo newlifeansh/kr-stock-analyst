@@ -41994,8 +41994,10 @@ body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero-name-row > .st
   }
 }
 
-/* US logo edge-fit v477: US tiles must reach the circular crop. Keep the
-   domestic logo frame unchanged because domestic marks use a separate source. */
+/* US logo edge-fit v478: US tiles must reach the circular crop. Keep the
+   domestic logo frame unchanged because domestic marks use a separate source.
+   Once a transparent logo loads, remove its placeholder layer so the fallback
+   glyph cannot show through transparent brand details (for example GOOGL/MSFT). */
 body[data-stock-market="us"] #stock-view :is(.stock-list-logo, .staging-stock-logo),
 body[data-staging-ia="tds-video"] #home-view #home-surge.staging-home-top50 .staging-home-ranking-main > .stock-list-logo.is-us-stock-logo,
 .stock-list-logo.is-us-stock-logo {
@@ -42017,4 +42019,10 @@ body[data-staging-ia="tds-video"] #home-view #home-surge.staging-home-top50 .sta
   background: transparent !important;
   transform: scale(1.052);
   transform-origin: center;
+}
+
+body[data-stock-market="us"] #stock-view .stock-list-logo.has-stock-logo > .stock-list-logo-fallback,
+body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .staging-stock-logo-fallback,
+.stock-list-logo.is-us-stock-logo.has-stock-logo > .stock-list-logo-fallback {
+  display: none !important;
 }
