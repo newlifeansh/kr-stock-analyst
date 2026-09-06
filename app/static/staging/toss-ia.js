@@ -3896,7 +3896,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260906-us-parity-v97`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260906-us-parity-v98`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -7034,6 +7034,7 @@
     if (!chart || !periods || !state.currentDashboard) return;
 
     ensureStagingStockChartPeriods(periods);
+    const usStock = stagingStockIsUsd();
     const quote = state.currentDashboard?.quote || null;
     const phase = stagingStockChartPhase(quote);
     const liveSession = stagingStockChartLiveSession(quote, phase);
