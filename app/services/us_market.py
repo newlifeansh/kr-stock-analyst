@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import json
+import re
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from email.utils import parsedate_to_datetime
-import re
+from pathlib import Path
 from statistics import mean
 from typing import Optional
-import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo
 
 import requests
@@ -22,6 +24,7 @@ YAHOO_SEARCH_URL = "https://query2.finance.yahoo.com/v1/finance/search"
 GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search"
 YAHOO_COOKIE_URL = "https://fc.yahoo.com"
 YAHOO_CRUMB_URL = "https://query1.finance.yahoo.com/v1/test/getcrumb"
+YAHOO_QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
 YAHOO_QUOTE_SUMMARY_URL = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}"
 YAHOO_TIMESERIES_URLS = (
     "https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{symbol}",
@@ -151,7 +154,7 @@ US_COMPANY_SUFFIXES = (
 )
 
 
-NASDAQ_UNIVERSE: list[dict[str, str]] = [
+_FALLBACK_NASDAQ_UNIVERSE: list[dict[str, str]] = [
     {"code": "NVDA", "name": "NVIDIA", "sector": "AI 반도체"},
     {"code": "MSFT", "name": "Microsoft", "sector": "클라우드/AI"},
     {"code": "AAPL", "name": "Apple", "sector": "소비자기기"},
@@ -204,7 +207,7 @@ NASDAQ_UNIVERSE: list[dict[str, str]] = [
     {"code": "APP", "name": "AppLovin", "sector": "광고테크"},
 ]
 
-SP500_UNIVERSE: list[dict[str, str]] = [
+_FALLBACK_SP500_UNIVERSE: list[dict[str, str]] = [
     {"code": "LLY", "name": "Eli Lilly", "sector": "헬스케어", "market": "SP500"},
     {"code": "BRK.B", "name": "Berkshire Hathaway", "sector": "금융", "market": "SP500"},
     {"code": "JPM", "name": "JPMorgan Chase", "sector": "금융", "market": "SP500"},
@@ -312,7 +315,67 @@ US_KOREAN_ALIASES: dict[str, tuple[str, ...]] = {
     "CAT": ("캐터필러", "캐터필라"),
 }
 
-US_EQUITY_UNIVERSE = [*NASDAQ_UNIVERSE, *SP500_UNIVERSE]
+US_UNIVERSE_DATA_PATH = Path(__file__).with_name("us_equity_universe.json")
+
+
+def _load_us_equity_universe() -> tuple[list[dict[str, object]], dict[str, object]]:
+    try:
+        payload = json.loads(US_UNIVERSE_DATA_PATH.read_text(encoding="utf-8"))
+        items = payload.get("items") or []
+        if not isinstance(items, list) or not items:
+            raise ValueError("US equity universe is empty")
+        codes = [str(item.get("code") or "") for item in items]
+        if len(codes) != len(set(codes)):
+            raise ValueError("US equity universe contains duplicate tickers")
+        popular = {
+            item["code"]: item
+            for item in [*_FALLBACK_NASDAQ_UNIVERSE, *_FALLBACK_SP500_UNIVERSE]
+        }
+        items = [
+            {
+                **item,
+                **(
+                    {
+                        "name": popular[str(item["code"])]["name"],
+                        "sector": popular[str(item["code"])]["sector"],
+                    }
+                    if str(item.get("code")) in popular
+                    else {}
+                ),
+            }
+            for item in items
+        ]
+        return items, payload
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        nasdaq = [
+            {**item, "market": "NASDAQ", "markets": ["NASDAQ"]}
+            for item in _FALLBACK_NASDAQ_UNIVERSE
+        ]
+        sp500 = [
+            {**item, "market": "SP500", "markets": ["SP500"]}
+            for item in _FALLBACK_SP500_UNIVERSE
+        ]
+        items = [*nasdaq, *sp500]
+        return items, {
+            "schema_version": 0,
+            "counts": {
+                "nasdaq_100": len(nasdaq),
+                "sp500": len(sp500),
+                "overlap": 0,
+                "union": len(items),
+            },
+            "sources": {},
+        }
+
+
+US_EQUITY_UNIVERSE, US_EQUITY_UNIVERSE_METADATA = _load_us_equity_universe()
+NASDAQ_UNIVERSE = [
+    item for item in US_EQUITY_UNIVERSE if "NASDAQ" in (item.get("markets") or [])
+]
+SP500_UNIVERSE = [
+    item for item in US_EQUITY_UNIVERSE if "SP500" in (item.get("markets") or [])
+]
+US_UNIVERSE_COUNTS = dict(US_EQUITY_UNIVERSE_METADATA.get("counts") or {})
 US_UNIVERSE_BY_CODE = {item["code"]: item for item in US_EQUITY_UNIVERSE}
 
 US_SECTOR_ETFS: list[dict[str, str]] = [
@@ -537,7 +600,7 @@ def _peer_group_key(stock: dict[str, object]) -> str:
     market = str(stock.get("market") or "")
     if any(keyword in sector for keyword in ("반도체", "메모리")):
         return "semiconductors"
-    if any(keyword in sector for keyword in ("클라우드", "소프트웨어", "AI", "광고", "소셜", "보안", "EDA", "네트워크", "IT 서비스", "핀테크")):
+    if any(keyword in sector for keyword in ("기술", "클라우드", "소프트웨어", "AI", "광고", "소셜", "보안", "EDA", "네트워크", "IT 서비스", "핀테크")):
         return "technology"
     if any(keyword in sector for keyword in ("금융", "결제")):
         return "financials"
@@ -547,6 +610,10 @@ def _peer_group_key(stock: dict[str, object]) -> str:
         return "energy"
     if "소재" in sector:
         return "materials"
+    if "부동산" in sector:
+        return "real_estate"
+    if "통신" in sector:
+        return "communications"
     if any(keyword in sector for keyword in ("산업재", "운송", "항공")):
         return "industrials"
     if "필수소비재" in sector:
@@ -563,29 +630,18 @@ def _industry_valuation_stats(peer_key: str) -> dict[str, object]:
 
     def build() -> dict[str, object]:
         peers = US_EQUITY_UNIVERSE if peer_key == "all" else [item for item in US_EQUITY_UNIVERSE if _peer_group_key(item) == peer_key]
-
-        def peer_snapshot(item: dict[str, str]) -> Optional[dict[str, object]]:
-            try:
-                fundamentals = fetch_us_fundamentals(item["code"])
-                meta, prices = chart_prices(item["code"], limit=1)
-                latest = prices[-1] if prices else None
-                price = _to_decimal(meta.get("regularMarketPrice")) or (latest.close if latest else None)
-                return _financial_snapshot(fundamentals, price)
-            except Exception:
-                return None
-
         per_values: list[Decimal] = []
         pbr_values: list[Decimal] = []
-        with ThreadPoolExecutor(max_workers=min(8, max(1, len(peers)))) as executor:
-            snapshots = [future.result() for future in as_completed([executor.submit(peer_snapshot, item) for item in peers])]
-        for snapshot in snapshots:
-            if not snapshot:
-                continue
-            per = snapshot.get("per")
-            pbr = snapshot.get("pbr")
-            if isinstance(per, Decimal) and Decimal("0") < per < Decimal("500"):
+        try:
+            quotes = fetch_us_quote_batch([str(item["code"]) for item in peers])
+        except Exception:
+            quotes = {}
+        for quote in quotes.values():
+            per = _to_decimal(quote.get("trailingPE"))
+            pbr = _to_decimal(quote.get("priceToBook"))
+            if per is not None and Decimal("0") < per < Decimal("500"):
                 per_values.append(per)
-            if isinstance(pbr, Decimal) and Decimal("0") < pbr < Decimal("200"):
+            if pbr is not None and Decimal("0") < pbr < Decimal("200"):
                 pbr_values.append(pbr)
         return {
             "peer_group": peer_key,
@@ -735,6 +791,52 @@ def _fetch_yahoo_quote_summary_once(symbol: str, refresh_auth: bool = False) -> 
     if not result:
         raise ValueError("Yahoo quote summary not found")
     return result[0]
+
+
+def _fetch_yahoo_quote_batch_once(
+    symbols: list[str],
+    refresh_auth: bool = False,
+) -> list[dict[str, object]]:
+    auth = _yahoo_auth(refresh=refresh_auth)
+    response = requests.get(
+        YAHOO_QUOTE_URL,
+        params={"symbols": ",".join(symbols), "crumb": auth.get("crumb")},
+        headers=US_HEADERS,
+        cookies=auth.get("cookies") if isinstance(auth.get("cookies"), dict) else None,
+        timeout=20,
+    )
+    if response.status_code == 401 and not refresh_auth:
+        return _fetch_yahoo_quote_batch_once(symbols, refresh_auth=True)
+    response.raise_for_status()
+    return ((response.json().get("quoteResponse") or {}).get("result") or [])
+
+
+def fetch_us_quote_batch(
+    symbols: list[str],
+    refresh: bool = False,
+) -> dict[str, dict[str, object]]:
+    canonical = list(dict.fromkeys(_symbol(symbol) for symbol in symbols if _symbol(symbol)))
+    key = ("us_quote_batch", tuple(sorted(canonical)))
+    if not refresh:
+        return US_CACHE.get_or_set(
+            key,
+            US_TTL_SECONDS,
+            lambda: fetch_us_quote_batch(canonical, refresh=True),
+        )
+    yahoo_to_code = {
+        (_chart_symbol_candidates(symbol)[-1] if "." in symbol else symbol): symbol
+        for symbol in canonical
+    }
+    rows: dict[str, dict[str, object]] = {}
+    requested = list(yahoo_to_code)
+    for offset in range(0, len(requested), 100):
+        for quote in _fetch_yahoo_quote_batch_once(requested[offset : offset + 100]):
+            yahoo_symbol = _symbol(str(quote.get("symbol") or ""))
+            code = yahoo_to_code.get(yahoo_symbol) or yahoo_to_code.get(yahoo_symbol.replace("-", "."))
+            if code:
+                rows[code] = quote
+    US_CACHE.set(key, rows, US_TTL_SECONDS)
+    return rows
 
 
 def fetch_us_research_summary(symbol: str, refresh: bool = False) -> dict[str, object]:
@@ -1304,13 +1406,20 @@ def search_us_stocks(query: str, limit: int = 20) -> list[dict[str, object]]:
         if (
             normalized in item["code"]
             or cleaned.lower() in item["name"].lower()
-            or (len(query_key) >= 4 and (query_key in item_key or item_key in query_key))
+            or (
+                len(query_key) >= 4
+                and (
+                    query_key in item_key
+                    or (len(item_key) >= 4 and item_key in query_key)
+                )
+            )
             or _korean_alias_match(query_key, item["code"])
         ):
             items[item["code"]] = {
                 "code": item["code"],
                 "name": item["name"],
                 "market": item.get("market", "NASDAQ"),
+                "markets": item.get("markets") or [item.get("market", "NASDAQ")],
                 "sector": item["sector"],
             }
     try:
@@ -1329,6 +1438,7 @@ def search_us_stocks(query: str, limit: int = 20) -> list[dict[str, object]]:
                 "code": symbol,
                 "name": quote.get("longname") or quote.get("shortname") or symbol,
                 "market": market,
+                "markets": (US_UNIVERSE_BY_CODE.get(symbol) or {}).get("markets") or [market],
                 "sector": (US_UNIVERSE_BY_CODE.get(symbol) or {}).get("sector"),
             }
     except Exception:
@@ -1340,7 +1450,13 @@ def resolve_us_stock(query: str) -> dict[str, object]:
     code = _symbol(query)
     if code in US_UNIVERSE_BY_CODE:
         item = US_UNIVERSE_BY_CODE[code]
-        return {"code": code, "name": item["name"], "market": item.get("market", "NASDAQ"), "sector": item["sector"]}
+        return {
+            "code": code,
+            "name": item["name"],
+            "market": item.get("market", "NASDAQ"),
+            "markets": item.get("markets") or [item.get("market", "NASDAQ")],
+            "sector": item["sector"],
+        }
     matches = search_us_stocks(query, limit=1)
     if matches:
         return matches[0]
@@ -1351,6 +1467,7 @@ def resolve_us_stock(query: str) -> dict[str, object]:
         "code": code,
         "name": meta.get("longName") or meta.get("shortName") or code,
         "market": _fmt_market(meta.get("exchangeName")),
+        "markets": (US_UNIVERSE_BY_CODE.get(code) or {}).get("markets") or [],
         "sector": (US_UNIVERSE_BY_CODE.get(code) or {}).get("sector"),
     }
 
@@ -1964,7 +2081,7 @@ def _dashboard_cached(symbol: str) -> Optional[dict[str, object]]:
         return None
 
 
-def _us_universe_for_market(market: str = "ALL") -> list[dict[str, str]]:
+def _us_universe_for_market(market: str = "ALL") -> list[dict[str, object]]:
     normalized = (market or "ALL").upper()
     if normalized == "NASDAQ":
         return NASDAQ_UNIVERSE
@@ -1980,6 +2097,75 @@ def _us_market_label(market: str = "ALL") -> str:
     if normalized in {"SP500", "S&P500", "S&P_500"}:
         return "S&P 500"
     return "전체 미장"
+
+
+def _quote_batch_dashboards(universe: list[dict[str, object]]) -> list[dict[str, object]]:
+    quotes = fetch_us_quote_batch([str(item["code"]) for item in universe])
+    dashboards: list[dict[str, object]] = []
+    for item in universe:
+        code = str(item["code"])
+        quote = quotes.get(code)
+        if not quote:
+            continue
+        price = _to_decimal(quote.get("regularMarketPrice"))
+        volume = int(quote.get("regularMarketVolume") or 0) or None
+        average_volume = _to_decimal(quote.get("averageDailyVolume3Month"))
+        volume_change = (
+            _round_decimal((Decimal(volume) / average_volume - Decimal("1")) * Decimal("100"))
+            if volume is not None and average_volume not in (None, Decimal("0"))
+            else None
+        )
+        market_time = quote.get("regularMarketTime")
+        trade_date = None
+        if market_time:
+            try:
+                trade_date = datetime.fromtimestamp(int(market_time), tz=timezone.utc).date()
+            except (TypeError, ValueError, OSError):
+                pass
+        dividend_yield = _to_decimal(quote.get("dividendYield"))
+        if dividend_yield is None:
+            dividend_yield = _to_decimal(quote.get("trailingAnnualDividendYield"))
+            if dividend_yield is not None and dividend_yield < Decimal("1"):
+                dividend_yield *= Decimal("100")
+        one_month_return = _to_decimal(quote.get("fiftyDayAverageChangePercent"))
+        three_month_return = _to_decimal(quote.get("twoHundredDayAverageChangePercent"))
+        if one_month_return is not None:
+            one_month_return *= Decimal("100")
+        if three_month_return is not None:
+            three_month_return *= Decimal("100")
+        dashboards.append(
+            {
+                "code": code,
+                "name": item["name"],
+                "market": item.get("market", "NASDAQ"),
+                "quote": {
+                    "trade_date": trade_date,
+                    "price": price,
+                    "change_rate": _to_decimal(quote.get("regularMarketChangePercent")),
+                    "volume": volume,
+                    "trading_value": price * Decimal(volume) if price is not None and volume else None,
+                    "market_cap": _to_decimal(quote.get("marketCap")),
+                },
+                "momentum": {
+                    "one_week_return": None,
+                    "one_month_return": _round_decimal(one_month_return),
+                    "three_month_return": _round_decimal(three_month_return),
+                    "trading_value_change": volume_change,
+                },
+                "sentiment": {
+                    "score": Decimal("0"),
+                    "positive_count": 0,
+                    "negative_count": 0,
+                    "neutral_count": 0,
+                },
+                "valuation": {
+                    "per": _to_decimal(quote.get("trailingPE")),
+                    "pbr": _to_decimal(quote.get("priceToBook")),
+                    "dividend_yield": _round_decimal(dividend_yield),
+                },
+            }
+        )
+    return dashboards
 
 
 def build_us_rankings(
@@ -2001,13 +2187,22 @@ def build_us_rankings(
     } else "surge"
     normalized_mode = str(mode or "").strip().lower()
     universe = _us_universe_for_market(market)
-    dashboards = []
-    with ThreadPoolExecutor(max_workers=min(12, max(1, len(universe)))) as executor:
-        futures = [executor.submit(_dashboard_cached, item["code"]) for item in universe]
-        for future in as_completed(futures):
-            payload = future.result()
-            if payload:
-                dashboards.append(payload)
+    bulk_supported = category != "sentiment" and not (
+        category == "surge" and normalized_mode in {"week", "weekly", "month", "monthly"}
+    )
+    if bulk_supported:
+        try:
+            dashboards = _quote_batch_dashboards(universe)
+        except Exception:
+            dashboards = []
+    else:
+        dashboards = []
+        with ThreadPoolExecutor(max_workers=min(12, max(1, len(universe)))) as executor:
+            futures = [executor.submit(_dashboard_cached, str(item["code"])) for item in universe]
+            for future in as_completed(futures):
+                payload = future.result()
+                if payload:
+                    dashboards.append(payload)
 
     def metric(payload: dict[str, object]) -> Decimal:
         quote = payload["quote"]
@@ -2114,7 +2309,7 @@ def build_us_recommendations(limit: int = 8, candidate_limit: int = 30) -> dict[
         reasons = [
             f"차트 점수 {chart.get('score')}점, {chart.get('trend')} 흐름",
             f"1개월 {momentum.get('one_month_return') or 0}%, 3개월 {momentum.get('three_month_return') or 0}% 모멘텀",
-            "NASDAQ·S&P 500 대표 종목 후보군 안에서 계산",
+            "Nasdaq-100·S&P 500 전체 구성종목 후보군 안에서 계산",
         ]
         if sentiment.get("positive_count"):
             reasons.append(f"최근 긍정 뉴스 {sentiment.get('positive_count')}건")

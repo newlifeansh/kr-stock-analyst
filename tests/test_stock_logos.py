@@ -4,11 +4,13 @@ import json
 import re
 import struct
 from datetime import datetime
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
+from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -172,21 +174,42 @@ def test_every_us_equity_has_audited_checked_in_logo_and_manifest_entry() -> Non
     manifest = json.loads((MANUAL_STOCK_LOGO_DIR / "sources.json").read_text(encoding="utf-8"))
     storage_codes = [re.sub(r"[^0-9A-Z]", "", item["code"].upper()) for item in US_EQUITY_UNIVERSE]
 
-    assert len(storage_codes) == 76
+    assert len(storage_codes) == 518
     assert len(storage_codes) == len(set(storage_codes))
     for item, storage_code in zip(US_EQUITY_UNIVERSE, storage_codes):
         image_path = MANUAL_STOCK_LOGO_DIR / f"{storage_code}.png"
         image_data = image_path.read_bytes()
         assert image_data.startswith(PNG_SIGNATURE), item["code"]
         assert struct.unpack(">II", image_data[16:24]) == (256, 256), item["code"]
+        with Image.open(image_path) as image:
+            visible_bbox = image.convert("RGBA").getchannel("A").getbbox()
+        assert visible_bbox is not None, item["code"]
+        circle_fill_ratio = max(
+            visible_bbox[2] - visible_bbox[0],
+            visible_bbox[3] - visible_bbox[1],
+        ) / 256
+        assert circle_fill_ratio >= 0.95, item["code"]
         assert manifest[storage_code]["ticker"] == item["code"]
-        assert manifest[storage_code]["source_kind"] == "alphasquare"
-        assert manifest[storage_code]["image_url"] == (
-            "https://file.alphasquare.co.kr/media/images/stock_logo/us/"
-            f"{item['code']}.png"
-        )
+        assert manifest[storage_code]["source_kind"] in {
+            "alphasquare",
+            "financial-modeling-prep",
+            "companies-market-cap",
+            "parqet",
+            "generated-fallback",
+        }
+        assert manifest[storage_code]["sha256"] == sha256(image_data).hexdigest()
         assert manifest[storage_code]["width"] == 256
         assert manifest[storage_code]["height"] == 256
+        assert manifest[storage_code]["circle_fill_status"] == "pass"
+        assert manifest[storage_code]["circle_fill_ratio"] == pytest.approx(
+            round(circle_fill_ratio, 4)
+        )
+        assert manifest[storage_code]["visible_bbox"] == list(visible_bbox)
+
+    assert manifest["NVDA"]["image_url"] == (
+        "https://file.alphasquare.co.kr/media/images/stock_logo/us/NVDA.png"
+    )
+    assert manifest["VMRK"]["circle_fill_status"] == "pass"
 
 
 def test_us_logo_endpoint_serves_ticker_and_dotted_ticker_assets() -> None:

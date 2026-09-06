@@ -57,8 +57,9 @@ def test_stock_detail_secondary_loaders_keep_dashboard_visible_and_retry_context
     assert "const previousPrices = Array.isArray(state.stockPriceRows)" in price_source
     assert "resetStockHomeDetails();" not in home_source
     assert "loadStockIntraday(code, requestId)" not in legacy_source
-    assert "state.stockIntradayPending.get(code)" in intraday_source
-    assert "state.stockIntradayPending.set(code, pending)" in intraday_source
+    assert 'const pendingKey = `${usStock ? "us" : "kr"}:${code}`;' in intraday_source
+    assert "state.stockIntradayPending.get(pendingKey)" in intraday_source
+    assert "state.stockIntradayPending.set(pendingKey, pending)" in intraday_source
     assert "const contextRetry = options.contextRetry === true;" in home_source
     assert "state.stockFlowHistoryLoading = false;" in home_source
     assert 'state.stockFlowHistoryError = "";' in home_source

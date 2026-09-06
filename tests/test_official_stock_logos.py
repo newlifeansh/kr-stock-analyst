@@ -1,5 +1,5 @@
-from io import BytesIO
 import json
+from io import BytesIO
 
 from PIL import Image
 from sqlalchemy import create_engine
@@ -12,6 +12,7 @@ from app.services.official_stock_logos import (
     collect_official_stock_logo,
     discover_official_logo_candidates,
     normalize_official_homepage_url,
+    normalize_official_logo_png,
     parse_krx_kind_official_homepages,
 )
 
@@ -52,6 +53,29 @@ def _session():
     )
     Base.metadata.create_all(bind=engine)
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+
+
+def _visible_bbox(png_data: bytes) -> tuple[int, int, int, int] | None:
+    with Image.open(BytesIO(png_data)) as image:
+        return image.convert("RGBA").getchannel("A").getbbox()
+
+
+def test_circle_fill_normalization_fills_square_tiles_and_preserves_wordmark_margin():
+    square = Image.new("RGBA", (128, 128), (20, 110, 180, 255))
+    transparent_wordmark = Image.new("RGBA", (400, 100), (20, 110, 180, 255))
+
+    assert _visible_bbox(normalize_official_logo_png(square)) == (20, 20, 236, 236)
+    assert _visible_bbox(
+        normalize_official_logo_png(square, circle_fill=True)
+    ) == (0, 0, 256, 256)
+    wordmark_bbox = _visible_bbox(
+        normalize_official_logo_png(transparent_wordmark, circle_fill=True)
+    )
+    assert wordmark_bbox is not None
+    assert max(
+        wordmark_bbox[2] - wordmark_bbox[0],
+        wordmark_bbox[3] - wordmark_bbox[1],
+    ) == 244
 
 
 def test_official_homepage_normalization_rejects_dart_placeholders():

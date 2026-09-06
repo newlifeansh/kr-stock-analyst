@@ -66,9 +66,13 @@ def test_us_rankings_scan_full_universe(monkeypatch):
             },
         }
 
-    monkeypatch.setattr(us_market, "_dashboard_cached", fake_dashboard)
+    monkeypatch.setattr(
+        us_market,
+        "_quote_batch_dashboards",
+        lambda universe: [fake_dashboard(str(item["code"])) for item in universe],
+    )
 
-    payload = us_market.build_us_rankings("surge", limit=100, market="ALL")
+    payload = us_market.build_us_rankings("surge", limit=1000, market="ALL")
     universe_codes = {item["code"] for item in us_market.US_EQUITY_UNIVERSE}
 
     assert {item["code"] for item in payload["items"]} == universe_codes
@@ -110,7 +114,11 @@ def test_us_rankings_support_current_dashboard_volume_market_cap_and_low_per(mon
         }
 
     monkeypatch.setattr(us_market, "_us_universe_for_market", lambda market: universe)
-    monkeypatch.setattr(us_market, "_dashboard_cached", fake_dashboard)
+    monkeypatch.setattr(
+        us_market,
+        "_quote_batch_dashboards",
+        lambda current: [fake_dashboard(str(item["code"])) for item in current],
+    )
 
     volume = us_market.build_us_rankings("volume", limit=5, market="NASDAQ")
     market_cap = us_market.build_us_rankings("market_cap", limit=5, market="NASDAQ")

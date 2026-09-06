@@ -458,7 +458,11 @@ def _is_light_only_transparent_logo(image: Image.Image) -> bool:
     return near_white / len(visible_pixels) > 0.96
 
 
-def normalize_official_logo_png(image: Image.Image) -> bytes:
+def normalize_official_logo_png(
+    image: Image.Image,
+    *,
+    circle_fill: bool = False,
+) -> bytes:
     if image.width < MIN_SOURCE_EDGE or image.height < MIN_SOURCE_EDGE:
         raise ValueError("source logo is too small")
     if image.width > 8192 or image.height > 8192:
@@ -467,7 +471,14 @@ def normalize_official_logo_png(image: Image.Image) -> bytes:
     if not bbox:
         raise ValueError("source logo is empty")
     visible = image.crop(bbox)
-    maximum = OUTPUT_SIZE - (OUTPUT_INSET * 2)
+    output_inset = OUTPUT_INSET
+    if circle_fill:
+        aspect_ratio = max(visible.width, visible.height) / min(
+            visible.width, visible.height
+        )
+        fully_opaque = visible.getchannel("A").getextrema()[0] == 255
+        output_inset = 0 if fully_opaque and aspect_ratio <= 1.25 else 6
+    maximum = OUTPUT_SIZE - (output_inset * 2)
     scale = min(maximum / visible.width, maximum / visible.height)
     resized = visible.resize(
         (max(1, round(visible.width * scale)), max(1, round(visible.height * scale))),

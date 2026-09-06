@@ -50,6 +50,7 @@ include = ["app*"]
 
 [tool.setuptools.package-data]
 "app.qa" = ["*.json"]
+"app.services" = ["us_equity_universe.json"]
 
 [tool.pytest.ini_options]
 markers = [

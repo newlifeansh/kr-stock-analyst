@@ -305,7 +305,7 @@ def test_stock_detail_contains_community_ui():
     assert "state.stockCommunityProviderKey" in source
     assert "stock-community-expand" in source
     assert "function stockCommunityShortcutUrl" in source
-    assert 'el("a", "stock-community-shortcut", "바로가기")' in source
+    assert 'row.external_landing ? "원문에서 보기" : "바로가기"' in source
     assert "stock-community-shortcut" in styles
     assert "min-height: 44px" in styles
     assert "stock-community-original" not in source
