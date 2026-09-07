@@ -1,6 +1,8 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+import pytest
+
 from app.services import us_market
 
 
@@ -166,6 +168,89 @@ def test_us_surge_ranking_honors_week_and_month_modes(monkeypatch):
     assert week["items"][0]["one_week_return"] == Decimal("9")
 
 
+def test_us_recommendations_use_the_batch_ranking_snapshot_without_per_stock_fetches(monkeypatch):
+    as_of = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(
+        us_market,
+        "build_us_rankings",
+        lambda *args, **kwargs: {
+            "as_of": as_of,
+            "items": [
+                {
+                    "code": "NVDA",
+                    "name": "NVIDIA",
+                    "market": "NASDAQ",
+                    "currency": "USD",
+                    "price": Decimal("168.25"),
+                    "change_rate": Decimal("2.4"),
+                    "one_month_return": Decimal("12.5"),
+                    "three_month_return": Decimal("24.0"),
+                    "trading_value": Decimal("12000000000"),
+                    "per": Decimal("36"),
+                    "pbr": Decimal("20"),
+                    "sentiment_score": Decimal("0"),
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        us_market,
+        "_dashboard_cached",
+        lambda symbol: (_ for _ in ()).throw(AssertionError(f"unexpected detail fetch: {symbol}")),
+    )
+
+    payload = us_market.build_us_recommendations(limit=1, candidate_limit=5)
+
+    assert payload["candidate_count"] == 1
+    assert payload["items"][0]["code"] == "NVDA"
+    assert payload["items"][0]["currency"] == "USD"
+    assert payload["items"][0]["ai_trade_signal"]["status"] == "preliminary"
+    assert payload["items"][0]["ai_trade_signal"]["current"]["position_open"] is False
+    assert "배치 시세" in payload["methodology"][0]
+
+
+def test_us_quant_signals_expose_only_usd_preliminary_candidates(monkeypatch):
+    as_of = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(
+        us_market,
+        "build_us_recommendations",
+        lambda **kwargs: {
+            "as_of": as_of,
+            "universe_count": 2,
+            "items": [
+                {
+                    "code": "NVDA",
+                    "name": "NVIDIA",
+                    "market": "NASDAQ",
+                    "sector": "Technology",
+                    "ai_trade_signal": {
+                        "data_state": "ready",
+                        "side": "buy",
+                        "status": "preliminary",
+                        "is_preliminary": True,
+                        "signal_date": date(2026, 9, 7),
+                        "current": {
+                            "action": "entry_watch",
+                            "position_open": False,
+                            "model_exposure_percent": Decimal("0"),
+                        },
+                    },
+                },
+            ],
+        },
+    )
+
+    payload = us_market.build_us_quant_signals(limit=20, recent_days=30)
+
+    assert payload["status"] == "ready"
+    assert payload["confirmed_count"] == 0
+    assert payload["preliminary_count"] == 1
+    assert payload["items"][0]["code"] == "NVDA"
+    assert payload["items"][0]["currency"] == "USD"
+    assert payload["items"][0]["current"]["position_open"] is False
+    assert payload["items"][0]["current"]["model_exposure_percent"] == Decimal("0")
+
+
 def test_research_from_quote_summary_fills_analyst_fields():
     payload = {
         "financialData": {
@@ -207,7 +292,10 @@ def test_research_from_quote_summary_fills_analyst_fields():
         },
     }
 
-    research = us_market._research_from_quote_summary(payload)
+    research = us_market._research_from_quote_summary(
+        payload,
+        now=datetime(2026, 7, 1, tzinfo=UTC),
+    )
 
     assert research["report_count_90d"] == 2
     assert research["target_up_count"] == 1
@@ -257,7 +345,7 @@ def test_google_news_defaults_to_korean_service_locale(monkeypatch):
     assert rows[0]["source"] == "테스트뉴스"
 
 
-def test_us_news_screen_excludes_untranslated_english_titles(monkeypatch):
+def test_us_news_does_not_fallback_to_non_naver_sources(monkeypatch):
     monkeypatch.setattr(
         us_market,
         "resolve_us_stock",
@@ -265,23 +353,221 @@ def test_us_news_screen_excludes_untranslated_english_titles(monkeypatch):
     )
     monkeypatch.setattr(
         us_market,
-        "_google_news_items",
-        lambda *args, **kwargs: [
-            {"title": "NVIDIA expands AI infrastructure", "url": "https://example.test/en", "source": "English Wire"},
-            {"title": "엔비디아, AI 인프라 투자 확대", "url": "https://example.test/ko", "source": "한국어 뉴스"},
-        ],
+        "_naver_news_items",
+        lambda *args, **kwargs: [],
     )
     monkeypatch.setattr(
         us_market,
-        "_search_yahoo",
-        lambda *args, **kwargs: {
-            "news": [{"title": "Another English headline", "link": "https://example.test/yahoo"}],
-        },
+        "_naver_world_local_news_items",
+        lambda *args, **kwargs: [],
+    )
+    rows = us_market._news("NVDA")
+
+    assert rows == []
+
+
+def test_us_news_prefers_korean_naver_news_results(monkeypatch):
+    monkeypatch.setattr(
+        us_market,
+        "_naver_world_local_news_items",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        us_market,
+        "_naver_news_items",
+        lambda *args, **kwargs: [{
+            "title": "엔비디아, AI 투자 확대",
+            "source": "한국경제",
+            "url": "https://news.example/nvda",
+        }],
+    )
+    monkeypatch.setattr(
+        us_market,
+        "_google_news_items",
+        lambda *args, **kwargs: [{
+            "title": "구글 뉴스 대체 기사",
+            "source": "Google News",
+            "url": "https://news.example/google",
+        }],
     )
 
     rows = us_market._news("NVDA")
 
-    assert [row["title"] for row in rows] == ["엔비디아, AI 인프라 투자 확대"]
+    assert rows == [{
+        "title": "엔비디아, AI 투자 확대",
+        "source": "한국경제",
+        "url": "https://news.example/nvda",
+    }]
+
+
+def test_parse_naver_world_local_news_payload_builds_korean_article_links():
+    rows = us_market._parse_naver_world_local_news_payload({
+        "result": [{
+            "articleId": "0005410226",
+            "datetime": "202609071026",
+            "officeId": "008",
+            "officeName": "머니투데이",
+            "title": "&quot;AGI가 왔다&quot; 젠슨 황도 선언",
+        }],
+    })
+
+    assert rows == [{
+        "title": '"AGI가 왔다" 젠슨 황도 선언',
+        "source": "머니투데이",
+        "url": "https://n.news.naver.com/mnews/article/008/0005410226",
+        "published_at": datetime(2026, 9, 7, 10, 26),
+    }]
+
+
+def test_us_news_prefers_naver_world_local_news_api(monkeypatch):
+    local_rows = [{
+        "title": "엔비디아 국내 언론 기사",
+        "source": "한국경제",
+        "url": "https://n.news.naver.com/mnews/article/999/0000000001",
+    }]
+    monkeypatch.setattr(us_market, "_naver_world_local_news_items", lambda *args, **kwargs: local_rows)
+    monkeypatch.setattr(us_market, "_naver_news_items", lambda *args, **kwargs: pytest.fail("search fallback should not run"))
+
+    assert us_market._news("NVDA") == local_rows
+
+
+def test_us_news_filters_unrelated_naver_headlines_for_the_selected_stock(monkeypatch):
+    monkeypatch.setattr(
+        us_market,
+        "resolve_us_stock",
+        lambda symbol: {"code": "ASML", "name": "ASML Holding"},
+    )
+    monkeypatch.setattr(
+        us_market,
+        "_naver_world_local_news_items",
+        lambda *args, **kwargs: [
+            {"title": "에코프로, 로봇 정조준", "source": "딜사이트", "url": "https://news.example/ecopro"},
+            {"title": "ASML 장비 수요 확대", "source": "한국경제", "url": "https://news.example/asml"},
+        ],
+    )
+
+    rows = us_market._news("ASML")
+
+    assert [row["title"] for row in rows] == ["ASML 장비 수요 확대"]
+
+
+def test_naver_news_queries_exact_company_before_aliases_and_ticker():
+    candidates = us_market._naver_news_query_candidates({
+        "code": "ASML",
+        "name": "ASML Holding",
+    })
+
+    assert candidates == ["ASML Holding", "에이에스엠엘", "ASML"]
+    assert "ASML ASML" not in candidates
+
+
+def test_naver_news_search_skips_full_unrelated_page_and_uses_next_query(monkeypatch):
+    calls = []
+
+    class FakeSearchResponse:
+        def __init__(self, query):
+            self.text = query
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, **kwargs):
+        query = kwargs["params"]["query"]
+        calls.append(kwargs["params"])
+        return FakeSearchResponse(query)
+
+    def fake_parse(html, limit=10):
+        if html == "ASML Holding":
+            return [
+                {
+                    "title": f"에코프로 배터리 뉴스 {index}",
+                    "source": "테스트뉴스",
+                    "url": f"https://news.example/ecopro-{index}",
+                }
+                for index in range(10)
+            ]
+        if html == "에이에스엠엘":
+            return [{
+                "title": "에이에스엠엘, 차세대 노광장비 투자 확대",
+                "source": "테스트뉴스",
+                "url": "https://news.example/asml",
+            }]
+        return []
+
+    monkeypatch.setattr(
+        us_market,
+        "resolve_us_stock",
+        lambda symbol: {"code": "ASML", "name": "ASML Holding"},
+    )
+    monkeypatch.setattr(us_market.requests, "get", fake_get)
+    monkeypatch.setattr(us_market, "_parse_naver_news_search_html", fake_parse)
+
+    rows = us_market._naver_news_items("ASML", limit=10)
+
+    assert [row["title"] for row in rows] == ["에이에스엠엘, 차세대 노광장비 투자 확대"]
+    assert [call["query"] for call in calls] == ["ASML Holding", "에이에스엠엘", "ASML"]
+    assert all(call["sort"] == "0" for call in calls)
+
+
+def test_parse_yahoo_news_payload_keeps_ticker_related_overseas_fields():
+    timestamp = 1788562282
+    rows = us_market._parse_yahoo_news_payload(
+        {
+            "news": [
+                {
+                    "uuid": "y-1",
+                    "title": "Why ASML Holding Stock Bumped 4% Higher Today",
+                    "publisher": "Motley Fool",
+                    "link": "https://finance.yahoo.com/news/asml",
+                    "providerPublishTime": timestamp,
+                    "relatedTickers": ["ASML", "NVDA"],
+                    "thumbnail": {"resolutions": [{"tag": "140x140", "url": "https://img.example/asml.jpg"}]},
+                },
+                {
+                    "uuid": "y-2",
+                    "title": "Ecopro outlook",
+                    "publisher": "Other",
+                    "link": "https://finance.yahoo.com/news/ecopro",
+                    "relatedTickers": ["ECOR"],
+                },
+            ],
+        },
+        "ASML",
+        stock={"code": "ASML", "name": "ASML Holding"},
+    )
+
+    assert rows == [{
+        "title": "Why ASML Holding Stock Bumped 4% Higher Today",
+        "source": "Yahoo Finance",
+        "source_category": "overseas",
+        "press_name": "Motley Fool",
+        "url": "https://finance.yahoo.com/news/asml",
+        "detail_url": "https://finance.yahoo.com/news/asml",
+        "external_id": "y-1",
+        "published_at": datetime.fromtimestamp(timestamp, UTC),
+        "image_url": "https://img.example/asml.jpg",
+    }]
+
+
+def test_parse_naver_news_search_html_extracts_domestic_article_fields():
+    html = """
+    <div class="hCxR_uNoqfEahHu_">
+      <div class="sds-comps-profile-info-title-text">테스트경제 <span>새 창 열림</span></div>
+      <div class="sds-comps-profile-info-subtext">2026.09.07. 08:10</div>
+      <a data-heatmap-target=".tit" href="https://news.example/nvda">
+        <span class="sds-comps-text-type-headline1">엔비디아 실적 전망</span>
+      </a>
+    </div>
+    """
+
+    rows = us_market._parse_naver_news_search_html(html)
+
+    assert rows == [{
+        "title": "엔비디아 실적 전망",
+        "source": "테스트경제",
+        "url": "https://news.example/nvda",
+        "published_at": datetime(2026, 9, 7, 8, 10),
+    }]
 
 
 def test_us_prices_requests_long_history_for_five_year_and_all_charts(monkeypatch):
@@ -352,3 +638,18 @@ def test_us_intraday_prices_normalizes_new_york_market_points(monkeypatch):
         "price": Decimal("172.0"),
         "volume": 12345,
     }]
+
+
+def test_us_previous_close_prefers_current_daily_reference_over_stale_chart_metadata():
+    meta = {
+        "chartPreviousClose": 171.66,
+        "previousClose": None,
+    }
+
+    assert us_market._us_previous_close(meta, Decimal("228.45")) == Decimal("228.45")
+    reference = us_market._us_intraday_reference_price({
+        "regularMarketPrice": 230.36,
+        "regularMarketChangePercent": 0.836,
+        "chartPreviousClose": 171.66,
+    })
+    assert round(float(reference), 2) == 228.45

@@ -904,6 +904,15 @@ class StockAITradeLevelsOut(BaseModel):
     entry_note: Optional[str] = None
 
 
+class PublicSignalReasonOut(BaseModel):
+    key: str
+    label: str
+    state: str
+    summary: str
+    as_of: Optional[datetime | date] = None
+    available: bool = True
+
+
 class StockAIAnalysisOut(BaseModel):
     code: str
     name: str
@@ -919,6 +928,7 @@ class StockAIAnalysisOut(BaseModel):
     strategy: list[str]
     risks: list[str]
     sections: list[StockAIAnalysisSectionOut]
+    public_reasons: list[PublicSignalReasonOut] = Field(default_factory=list)
     trade_levels: Optional[StockAITradeLevelsOut] = None
     generation_mode: str = "rules"
     model_name: Optional[str] = None
@@ -1069,7 +1079,7 @@ class QuantContextEvidenceOut(BaseModel):
     state: str
     summary: str
     source: str
-    as_of: Optional[datetime] = None
+    as_of: Optional[datetime | date] = None
     score: Optional[Decimal] = None
     available: bool
     used_for_entry: bool = False
@@ -1154,7 +1164,7 @@ class StockQuantSignalsOut(BaseModel):
     entry_filter_shadow_versions: list[str] = Field(default_factory=list)
     profit_preservation_effective_date: Optional[date] = None
     tactical_exit_effective_date: Optional[date] = None
-    entry_score_threshold: Decimal
+    entry_score_threshold: Optional[Decimal] = None
     source: str
     signal_source: Optional[str] = None
     data_rows: int
@@ -1171,6 +1181,7 @@ class StockQuantSignalsOut(BaseModel):
     current: Optional[QuantCurrentSignalOut] = None
     performance: Optional[QuantPerformanceOut] = None
     factors: list[QuantFactorOut] = Field(default_factory=list)
+    public_reasons: list[PublicSignalReasonOut] = Field(default_factory=list)
     events: list[QuantSignalEventOut] = Field(default_factory=list)
     signal_reconciliations: list[QuantSignalReconciliationOut] = Field(default_factory=list)
     trades: list[QuantTradeOut] = Field(default_factory=list)
@@ -1307,11 +1318,12 @@ class RecommendationAiTradeSignalOut(BaseModel):
     price_through: Optional[date] = None
     strategy_version: str
     signal_source: Optional[str] = None
-    entry_score_threshold: Decimal
+    entry_score_threshold: Optional[Decimal] = None
     display_return_rate: Optional[Decimal] = None
     display_return_kind: Optional[str] = None
     latest_preliminary: Optional[RecommendationAiTradeSignalPreliminaryOut] = None
     current: Optional[RecommendationAiTradeSignalCurrentOut] = None
+    public_reasons: list[PublicSignalReasonOut] = Field(default_factory=list)
 
 
 class MarketRecommendationOut(BaseModel):

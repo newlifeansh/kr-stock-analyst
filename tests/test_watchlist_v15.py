@@ -10,7 +10,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.6"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260907v478"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260908v489"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -147,7 +147,7 @@ def test_recommendation_detail_revalidates_current_recommendation_before_renderi
     assert "RECOMMENDATION_DETAIL_CACHE_VERSION = 2" in source
     assert "RECOMMENDATION_DETAIL_CACHE_TTL_MS = 5 * 60_000" in source
     assert 'parsed.pathname === "/market/recommendations"' in source
-    assert 'const payload = await fetchJsonCached("/market/recommendations?limit=20&candidate_limit=100", { force: true, ttlMs: 0 });' in detail_loader
+    assert 'const payload = await fetchJsonCached(marketOverviewUrl("/market/recommendations?limit=20&candidate_limit=100"), { force: true, ttlMs: 0 });' in detail_loader
     assert detail_loader.index("const payload = await fetchJsonCached") < detail_loader.index("saveRecommendationDetailItem(item)")
     assert "clearRecommendationDetailItem();" in detail_loader
 

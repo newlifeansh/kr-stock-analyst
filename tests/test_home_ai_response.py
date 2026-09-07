@@ -757,6 +757,7 @@ function toNumber(value) {{
 }}
 function formatNumber(value) {{ return Number(value).toLocaleString("en-US"); }}
 function formatPercent(value) {{ return `${{Number(value) >= 0 ? "+" : ""}}${{Number(value).toFixed(2)}}%`; }}
+function formatAiSignalPrice(value) {{ return `${{formatNumber(value)}}원`; }}
 function isSignalReconciliation() {{ return false; }}
 {function_source}
 const metrics = aiSignalOutcomeMetrics({{
@@ -799,6 +800,7 @@ function toNumber(value) {{
 }}
 function formatNumber(value) {{ return Number(value).toLocaleString("en-US"); }}
 function formatPercent(value) {{ return `${{Number(value) >= 0 ? "+" : ""}}${{Number(value).toFixed(2)}}%`; }}
+function formatAiSignalPrice(value) {{ return `${{formatNumber(value)}}원`; }}
 function isSignalReconciliation() {{ return false; }}
 {function_source}
 const metrics = aiSignalOutcomeMetrics({{
@@ -1053,6 +1055,7 @@ def test_ai_signal_preliminary_buy_hides_previous_trade_metrics() -> None:
     script = f"""
 function homeAiSignalView() {{ return null; }}
 function isSignalReconciliation() {{ return false; }}
+const isUsMarketContext = false;
 function toNumber(value) {{
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
@@ -1259,6 +1262,7 @@ function readStoredJson(key, fallback = null) {{
 function writeStoredJson(key, value) {{
   if (key) storage.set(key, JSON.stringify(value));
 }}
+function marketStorageKey(key) {{ return key; }}
 {function_source}
 writeCachedHomeAiSignals({{
   as_of: "2026-08-21T12:20:00+09:00",
@@ -1502,7 +1506,8 @@ def test_home_trend_payload_refreshes_ai_response() -> None:
     assert "loadHomeMarketImpact({ force, ttlMs: 0 })" in refresh_logic
     assert "refreshUsSectorMoves({ force, ttlMs: 0 })" in refresh_logic
     assert 'quant-signals${force ? "?refresh=1" : ""}' in source
-    assert 'liveUrl("/market/trends?days=7&refresh=true")' in source
+    assert 'liveUrl(`${trendsUrl}&refresh=true`)' in source
+    assert 'const trendsUrl = marketOverviewUrl("/market/trends?days=7")' in source
     assert "startHomeAiResponseRefresh();" in source
     assert "connectUsSectorStream();" in source
 
@@ -1661,7 +1666,7 @@ def test_home_ai_response_is_personalized_from_interest_stocks_and_dominant_even
     assert 'function loadHomeMarketImpact' in source
     assert 'state.homeMarketImpact = payload;' in source
     assert "loadHomeMarketImpact({ force, ttlMs: 0 })" in source
-    assert 'fetchJsonCached("/market/impact"' in source
+    assert 'fetchJsonCached(marketOverviewUrl("/market/impact")' in source
     assert "JB금융|BNK금융|DGB금융" in source
     assert '`${item.name || "해운주"}: 유가보다 운임과 거래대금이 함께 버티는지를 우선 확인하세요.`' in source
     assert "제품 스프레드와 거래대금 반응" in source

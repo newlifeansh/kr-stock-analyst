@@ -59,12 +59,26 @@ HTML_ROUTES = (
 def test_staging_serves_bundled_official_stock_logo_before_upstream(monkeypatch):
     monkeypatch.setattr(staging_module, "STAGING_DATA_UPSTREAM", "https://example.test")
 
-    assert staging_module._is_staging_read_proxy_request(
-        {"method": "GET", "path": "/stock-logos/278470.png"}
-    ) is False
+    for ticker_path in (
+        "/stock-logos/278470.png",
+        "/stock-logos/AMGN.png",
+        "/stock-logos/LIN.png",
+        "/stock-logos/COST.png",
+        "/stock-logos/BRK.B.png",
+    ):
+        assert staging_module._is_staging_read_proxy_request(
+            {"method": "GET", "path": ticker_path}
+        ) is False
     assert staging_module._is_staging_read_proxy_request(
         {"method": "GET", "path": "/stock-logos/005930.png"}
     ) is True
+    assert staging_module._is_staging_read_proxy_request(
+        {"method": "GET", "path": "/stock-logos/UNKNOWN.png"}
+    ) is True
+
+    response = TestClient(staging_app).get("/stock-logos/AMGN.png")
+    assert response.status_code == 200
+    assert response.headers["x-stock-logo-source"] == "official-manual"
 
 
 def test_staging_recommendations_keep_pending_and_same_day_executed_entries():
@@ -615,7 +629,7 @@ def test_staging_tds_ia_asset_preserves_data_contracts_and_remaps_navigation():
     assert "실제 계좌·보유·주문 내역이 아닙니다." not in response.text
     assert 'aiSignalsView.querySelector(".ai-signals-commandbar")?.remove()' not in response.text
     assert 'source.classList.add("staging-proxied-commandbar")' in response.text
-    assert 'image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260906-us-parity-v100`' in response.text
+    assert 'image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260908-public-signal-v102`' in response.text
     assert 'className = "staging-pinned-empty"' in response.text
     assert "현재 AI 전략 비중은" in response.text
     for role in (
@@ -633,7 +647,7 @@ def test_stock_quote_stays_above_tabs_and_market_tab_contracts_match():
     dashboard_js = client.get("/dashboard-app-v170.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
 
-    quote_index = shell.index('class="stock-v3-quote-card" aria-label="호가와 가격 차트"')
+    quote_index = shell.index('class="stock-v3-quote-card" aria-label="현재가와 가격 차트"')
     sentinel_index = shell.index('id="stock-detail-tabs-sentinel"')
     tabs_index = shell.index('class="stock-section-tabs stock-detail-tabs"')
     assert quote_index < sentinel_index < tabs_index
@@ -799,7 +813,7 @@ def test_staging_v32_uses_toss_tab_hierarchy_and_flat_signal_list_rows():
     assert ".home-ai-signal-metric-value.positive" in css
     assert ".home-ai-signal-metric-value.negative" in css
     assert '"buy-holding": "매수 확정"' in js
-    assert '"preliminary-buy": "매수 대기"' in js
+    assert '"preliminary-buy": stagingUsMarketContext ? "예비 매수" : "매수 대기"' in js
 
 
 def test_staging_v32_replaces_duplicate_child_headers_with_one_contextual_topbar():
@@ -906,7 +920,7 @@ def test_staging_v122_keeps_feed_root_header_and_bottom_navigation_visible():
     css = client.get("/assets/staging/toss-fidelity.css").text
     js = client.get("/assets/staging/toss-ia.js").text
 
-    assert STAGING_IA_VERSION == "20260906-us-parity-v100"
+    assert STAGING_IA_VERSION == "20260908-public-signal-v102"
     rules = css.split(
         "/* v122 — Feed is a primary route: keep the global header and bottom navigation. */",
         1,
@@ -970,7 +984,7 @@ def test_staging_v128_falls_back_for_ios_standalone_chart_headers():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert "contextual-safe-area-v128" in shell
-    assert "20260906-us-parity-v100" in shell
+    assert "20260908-public-signal-v102" in shell
     for contract in (
         'const isIosDevice = /iP(?:hone|ad|od)/.test(navigator.userAgent)',
         'navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1',
@@ -1014,7 +1028,7 @@ def test_staging_v37_rebuilds_home_top50_with_return_first_and_watch_toggles():
     assert 'button.setAttribute("aria-pressed", String(active))' in js
     assert 'const rankingPriceText = (value, currency = "KRW")' in js
     assert 'currency === "USD"' in js
-    assert 'button.hidden = currency === "USD"' in js
+    assert 'const unsupportedUsdWatch = currency === "USD" && !stagingUsMarketContext;' in js
     assert 'homeRankingObserver.observe(homeRankingList, { childList: true, subtree: true })' in js
     assert ".staging-home-ranking-main" in css
     assert ".staging-home-ranking-watch.active svg" in css
@@ -1031,7 +1045,7 @@ def test_staging_rebuilt_navigation_keeps_app_routes_clickable():
 
     assert 'const bindStagingRoute = (button, view) => {' in js
     assert 'if (typeof setView === "function") {' in js
-    assert 'window.history.pushState({}, "", `/dashboard?view=${encodeURIComponent(view)}`);' in js
+    assert 'window.history.pushState({}, "", `${stagingRootPath}?view=${encodeURIComponent(view)}`);' in js
     assert 'window.dispatchEvent(new PopStateEvent("popstate"));' in js
     assert 'bindStagingRoute(button, item.view);' in js
     assert 'bindStagingRoute(proxy, view);' in js
@@ -1129,9 +1143,9 @@ def test_staging_v42_compacts_home_ai_signal_into_a_single_market_card():
 
     assert 'aiSignals.classList.add("staging-home-signal-section")' in js
     assert 'signalTicker.classList.add("staging-home-signal-card")' in js
-    assert 'data-staging-home-signal-meta>시총 100위내 매매신호를 확인하세요</small>' in js
+    assert 'stagingUsMarketContext ? "미국 종목의 최신 예비 신호를 확인하세요" : "시총 100위내 매매신호를 확인하세요"' in js
     assert 'const signalChevron = document.createElement("a");' in js
-    assert 'signalChevron.href = "/dashboard?view=ai-signals";' in js
+    assert 'signalChevron.href = `${stagingRootPath}?view=ai-signals`;' in js
     assert 'signalChevron.dataset.aiSignalListLink = "true";' in js
     assert 'signalChevron.setAttribute("aria-label", "AI 시그널 전체 목록 보기");' in js
     assert 'signalChevron.setAttribute("aria-hidden", "true");' not in js
@@ -1167,7 +1181,7 @@ def test_staging_v43_adds_ai_signal_page_hierarchy_and_toss_text_tabs():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert 'intro.className = "staging-ai-signals-intro"' in js
-    assert '<span>시총 Top 100 에서</span>' in js
+    assert '<span>${stagingUsMarketContext ? "미국 대표 대형주에서" : "시총 Top 100 에서"}</span>' in js
     assert '<h2 id="staging-ai-signals-title">AI는 무엇을 사고 팔까?</h2>' in js
     assert 'modeTabs.insertAdjacentElement("beforebegin", intro)' in js
     assert '#ai-signals-view .staging-ai-signals-intro' in css
@@ -1285,7 +1299,7 @@ def test_staging_v46_adds_home_hot_community_ranking_and_post_drilldown():
         '.slice(0, 3)',
         'renderHotCommunityStocks();',
         'renderHotCommunityPosts(payload);',
-        'await navigateToStock(code, `/dashboard/${encodeURIComponent(code)}`)',
+        'await navigateToStock(code, stagingStockRoute(code))',
         'data-stock-tab="community"',
     ):
         assert contract in js
@@ -1425,7 +1439,8 @@ def test_staging_v47_replaces_discovery_signal_with_recent_stock_history():
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
     for contract in (
-        'const RECENT_STOCKS_KEY = "secret-note-staging-recent-stocks-v1"',
+        'const RECENT_STOCKS_KEY = stagingUsMarketContext',
+        ': "secret-note-staging-recent-stocks-v1";',
         'recentStocksPreview.className = "staging-recent-stocks-preview"',
         '<h3 id="staging-recent-stocks-preview-title">최근 본 종목</h3>',
         'data-staging-recent-more>더 보기',
@@ -1476,7 +1491,7 @@ def test_staging_v50_builds_inline_feed_content_calendar_and_editorial_detail():
         "아침, 점심, 장 마감 후에 꼭 볼 시장 소식",
         'data-staging-editorial-feed',
         'data-staging-content-open',
-        'fetchJsonCached("/market/trends?days=14"',
+        'stagingUsMarketContext ? "/us/market/trends?days=14" : "/market/trends?days=14"',
         'Array.from({ length: 18 }',
         'data-staging-calendar-date',
         'data-staging-calendar-today',
@@ -2029,7 +2044,7 @@ def test_staging_v69_rolls_the_header_through_major_market_indices():
     css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260906-us-parity-v100"
+    assert STAGING_IA_VERSION == "20260908-public-signal-v102"
     for contract in (
         'data-staging-index-ticker aria-live="off"',
         'const STAGING_MARKET_CONTEXT_CODES = ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "DOW", "SOX"]',
@@ -2120,7 +2135,7 @@ def test_staging_v74_removes_exchange_metadata_and_aligns_ai_signal_rows():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260906-us-parity-v100"
+    assert STAGING_IA_VERSION == "20260908-public-signal-v102"
     assert 'codeLine.className = "staging-ai-code"' not in js
     assert 'identity?.querySelector(".staging-ai-code")?.remove()' in js
 
@@ -2292,11 +2307,10 @@ def test_staging_v141_opens_a_beginner_friendly_stock_response_in_a_dedicated_pa
     assert 'data-staging-response-direction-guide' in js
     assert 'data-staging-response-data-state' in js
     assert 'data-staging-response-coverage-label' in js
-    assert 'data-staging-response-score' in js
-    assert 'data-staging-response-confidence' in js
-    assert 'data-staging-response-coverage' in js
+    assert 'data-staging-response-score' not in js
+    assert 'data-staging-response-confidence' not in js
     assert 'data-staging-response-key-reasons' in js
-    assert 'data-staging-response-metrics' in js
+    assert 'data-staging-response-metrics' not in js
     assert 'data-staging-response-warnings' in js
     assert 'data-staging-response-next' in js
     assert 'data-staging-response-live-price' in js
@@ -2311,8 +2325,7 @@ def test_staging_v141_opens_a_beginner_friendly_stock_response_in_a_dedicated_pa
         "쉽게 풀어보면",
         "왜 이렇게 보나요?",
         "앞으로 이렇게 확인하세요",
-        "왜 이렇게 봤나요?",
-        "점수와 계산 방법 알아보기",
+        "20일·60일·수급만 확인해요",
     )
     positions = [page_markup.index(label) for label in expected_order]
     assert positions == sorted(positions)
@@ -2321,42 +2334,25 @@ def test_staging_v141_opens_a_beginner_friendly_stock_response_in_a_dedicated_pa
     assert "지금 판단" in page_markup
     assert "신호 방향" not in page_markup
     assert "긍정·주의 신호를 비교하고 있어요" in page_markup
-    assert "적중률이나 주가 상승 확률이 아니에요" in page_markup
+    assert "적중률이나 주가 상승 확률이 아니에요" not in page_markup
     assert "실제 계좌·주문 내역과 자동 연동되지 않아요" in page_markup
     assert "대응 참고 정보예요" in page_markup
     assert 'data-staging-response-metrics aria-live=' not in page_markup
-    for friendly_label in (
-        "가격 흐름",
-        "외국인·기관 매매",
-            "회사 공식 공시",
-            "최근 뉴스 분위기",
-            "증권사 리포트",
-            "금리·환율·업종 환경",
-    ):
+    for friendly_label in ("20일", "60일", "수급"):
         assert friendly_label in js
     assert 'window.SecretNoteAiStockResponse' in js
     assert '/quant-signals' in js
     assert 'include_profile=0&include_live=0' in js
-    assert '/home-context?flow_limit=1500' in js
-    assert '"/market/impact"' in js
-    assert 'const WEIGHTS = Object.freeze({' in logic
-    for contract in (
-        'chart: 25',
-        'flow: 25',
-        'disclosure: 15',
-        'news: 10',
-        'research: 15',
-        'market: 10',
-    ):
-        assert contract in logic
-    assert 'stance = "신규 접근 보류";' in logic
-    assert 'stance = "정보 확인 우선";' in logic
-    assert 'const conflict = positiveMetrics.length > 0 && negativeMetrics.length > 0;' in logic
+    assert '/home-context?flow_limit=1500' not in js
+    assert '"/market/impact"' not in js
+    assert 'const WEIGHTS = Object.freeze({' not in logic
+    assert 'const PUBLIC_REASON_KEYS = Object.freeze(["trend_20d", "trend_60d", "flow"]);' in logic
+    assert 'weightedScore' not in logic
     assert 'force ? 0 : STAGING_AI_STOCK_RESPONSE_CACHE_MS' in js
     assert 'stagingAiStockResponsePage?.dataset.responseLoaded !== "true"' in js
     assert 'const perspective = stagingAiStockResponsePerspectiveCopy(result, investorState);' in js
-    assert 'value: "조금 더 지켜봐요"' in js
-    assert 'guide: "주의 신호가 긍정 신호보다 조금 많아요"' in js
+    assert 'stagingAiStockResponsePublicReasons' in js
+    assert 'stagingAiStockResponsePublicReasonText' in js
     assert 'stagingAiStockResponseText("[data-staging-response-direction-guide]", perspective.guide);' in js
     assert '["수급이", "외국인·기관 매매가"]' in js
     assert 'if (/확인$/.test(text)) text = `${text}해 주세요.`;' in js
@@ -2724,7 +2720,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20260907v478' in shell
+    assert 'dashboard-app-v170.js?v=20260908v489' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 
@@ -3028,7 +3024,7 @@ def test_staging_editorial_editions_explain_midday_preliminary_and_close_confirm
     assert '오늘 확정 매수 ${formatNumber(confirmedBuys.length)}종목' in staging_js
     assert 'stagingConfirmedBuyReason(item, 88)' in staging_js
     assert '오늘 새로 확정된 매수 종목은 없었어요.' in staging_js
-    assert 'fetchJsonCached("/market/quant-signals?universe_limit=150&limit=0&recent_days=30"' in staging_js
+    assert ': "/market/quant-signals?universe_limit=150&limit=0&recent_days=30";' in staging_js
     assert 'preliminary_buys: stagingPreliminaryBuysForEdition(selected)' in staging_js
     assert 'preliminary_buys_available: stagingPreliminaryBuyDataAvailableForEdition(selected)' in staging_js
     assert 'confirmed_buys: stagingConfirmedBuysForEdition(selected)' in staging_js
@@ -3313,7 +3309,7 @@ def test_staging_v132_uses_home_only_notification_action_and_compact_sheet_rows(
     js = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v132 — make notifications the home action") :]
-    assert STAGING_IA_VERSION == "20260906-us-parity-v100"
+    assert STAGING_IA_VERSION == "20260908-public-signal-v102"
     assert "notification-sheet-v132" in shell
     assert 'bell: \'<path d="M27.5 16.5a9.5 9.5 0 0 0-19 0' in js
     for contract in (
@@ -3350,7 +3346,7 @@ def test_staging_v143_unifies_root_header_action_icon_geometry():
     js = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v143 — one optical outline system") :]
-    assert STAGING_IA_VERSION == "20260906-us-parity-v100"
+    assert STAGING_IA_VERSION == "20260908-public-signal-v102"
     assert "header-action-icons-v143" in shell
     for contract in (
         "const topActionGlyphs = Object.freeze({",
@@ -3387,7 +3383,7 @@ def test_staging_v146_explains_two_detail_pages_without_exposing_model_provenanc
     js = staging_client.get("/assets/staging/toss-ia.js").text
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v146 — the model stays invisible") :]
-    assert STAGING_IA_VERSION == "20260906-us-parity-v100"
+    assert STAGING_IA_VERSION == "20260908-public-signal-v102"
     assert "plain-language-detail-v146" in staging_shell
     assert "investor-action-copy-v147" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
@@ -3460,8 +3456,8 @@ def test_staging_v149_uses_two_holding_states_average_price_and_finished_copy():
         "현재 이 종목을 보유하고 있나요?",
         'data-staging-response-average-price',
         'data-staging-response-guide-rows',
-        "증권사 리포트",
-        "6가지 자료 자세히 보기",
+        "20일·60일·수급만 확인해요",
+        "세 가지 핵심 흐름",
         "실제 계좌·주문 내역과 자동 연동되지 않아요",
         "investor_state: normalizedState",
         "investor_state_label: stateCopy.label",
@@ -3509,7 +3505,7 @@ def test_staging_v151_shows_live_quote_and_separates_pullback_from_breakout_conf
     logic = client.get("/assets/staging/ai-stock-response-logic.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v151 — live quote context") :]
-    assert STAGING_IA_VERSION == "20260906-us-parity-v100"
+    assert STAGING_IA_VERSION == "20260908-public-signal-v102"
     assert "position-input-v150-live-quote-decision-plan-v151" in shell
     for contract in (
         "현재 주당 가격",
@@ -3557,7 +3553,7 @@ def test_staging_v151_shows_live_quote_and_separates_pullback_from_breakout_conf
         '"pullback"',
         '"breakout"',
         '"wait"',
-        "바로 따라 사기보다",
+        "20일·60일 흐름과 수급",
     ):
         assert contract in logic
     for contract in (
@@ -3579,7 +3575,7 @@ def test_staging_v152_requires_manual_reanalysis_and_adds_personal_strategy_pric
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v152 — manual quote reanalysis") :]
 
-    assert STAGING_IA_VERSION == "20260906-us-parity-v100"
+    assert STAGING_IA_VERSION == "20260908-public-signal-v102"
     assert "live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154" in shell
     for contract in (
         'data-staging-response-analysis-refresh data-analysis-state="loading"',
@@ -3623,7 +3619,7 @@ def test_staging_v152_requires_manual_reanalysis_and_adds_personal_strategy_pric
         "is_live:",
     ):
         assert contract in merge_source
-    assert "20260902-holding-input-gate-v6" in logic
+    assert "20260908-public-reasons-v7" in logic
     for contract in (
         'holdingStrategy: null',
         'action: "분할 매도 · 이익 보호"',
@@ -3656,7 +3652,7 @@ def test_staging_v145_refines_three_daily_briefings_without_changing_news_or_sig
     js = staging_client.get("/assets/staging/toss-ia.js").text
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v145 — GPT refines the current morning") :]
-    assert STAGING_IA_VERSION == "20260906-us-parity-v100"
+    assert STAGING_IA_VERSION == "20260908-public-signal-v102"
     assert "gpt-briefing-v145" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' not in production_shell

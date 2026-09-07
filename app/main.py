@@ -119,7 +119,10 @@ from app.mcp_server import build_insight_mcp_server
 from app.services.company_briefs import build_company_briefs
 from app.services.chart_patterns import CHART_PATTERN_SCHEMA_VERSION, detect_chart_patterns
 from app.services.company_profiles import ensure_company_profile
-from app.services.community_feed import build_stock_community_feed
+from app.services.community_feed import (
+    build_stock_community_feed,
+    build_us_stock_community_feed,
+)
 from app.services.dashboard_market_data import (
     DashboardMarketDataError,
     build_korea_market_calendar,
@@ -183,6 +186,12 @@ from app.services.quant_signals import (
     save_market_quant_signal_snapshot,
     synchronize_quant_payload_live_quote,
 )
+from app.services.public_signal import (
+    public_market_signal_payload,
+    public_quant_signal_payload,
+    public_recommendation_signal_payload,
+    public_stock_ai_analysis_payload,
+)
 from app.services.entry_filter_backtest import refresh_entry_filter_shadow_snapshot
 from app.services.signal_reconciliations import (
     apply_market_signal_reconciliations,
@@ -231,6 +240,7 @@ from app.services.us_market import (
     build_us_dashboard,
     build_us_event_graph,
     build_us_market_impact,
+    build_us_quant_signals,
     build_us_rankings,
     build_us_recommendations,
     build_us_trends,
@@ -257,7 +267,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260907v478"
+DASHBOARD_CLIENT_VERSION = "20260908v489"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -3220,7 +3230,7 @@ def get_watchlist_quant_signals(
     if cached_payload is not None and not quote_refresh_active:
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         response.headers["Pragma"] = "no-cache"
-        return deepcopy(cached_payload)
+        return public_market_signal_payload(cached_payload)
     watch_items = list(
         db.scalars(
             select(WatchlistItem)
@@ -3292,7 +3302,7 @@ def get_watchlist_quant_signals(
     # the result only briefly. Stable closes may reuse it for one minute, while
     # an explicit refresh always bypasses the server cache above.
     watchlist_quant_signal_cache.set(cache_key, result, 5 if quote_refresh_active else 60)
-    return deepcopy(result)
+    return public_market_signal_payload(result)
 
 
 def _notification_history_kst_iso(value: datetime) -> str:
@@ -3506,7 +3516,7 @@ def get_market_quant_signals(
     payload["signal_revision_scope"] = "canonical_market_feed"
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response.headers["Pragma"] = "no-cache"
-    return payload
+    return public_market_signal_payload(payload)
 
 
 @app.put("/watchlists/{share_id}", response_model=WatchlistOut)
@@ -3827,6 +3837,32 @@ def us_stock_dashboard(symbol: str, refresh: bool = Query(default=False)):
         raise HTTPException(status_code=404, detail="US stock not found") from exc
 
 
+@app.get("/us/stocks/{symbol}/community-feed", response_model=StockCommunityFeedOut)
+def us_stock_community_feed(
+    symbol: str,
+    response: Response,
+    limit: int = Query(default=12, ge=1, le=20),
+):
+    try:
+        stock = resolve_us_stock(symbol)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="US stock not found") from exc
+    code = _normalize_us_symbol(str(stock.get("code") or symbol))
+    key = ("us_stock_community_feed", code, limit)
+    payload = api_cache.get_or_set(
+        key,
+        max(30, settings.threads_feed_cache_seconds),
+        lambda: build_us_stock_community_feed(
+            stock,
+            limit=limit,
+            timeout_seconds=settings.threads_feed_timeout_seconds,
+        ),
+    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return payload
+
+
 @app.websocket("/ws/us/stocks/{symbol}/quote")
 async def us_stock_quote_stream(websocket: WebSocket, symbol: str):
     await websocket.accept()
@@ -4021,7 +4057,10 @@ def us_stock_ai_analysis(
 ):
     _enforce_rate_limit(request, "us_stock_ai_analysis", limit=20, window_seconds=60)
     dashboard = us_stock_dashboard(symbol, refresh=refresh)
-    return build_stock_ai_analysis(dashboard)
+    return public_stock_ai_analysis_payload(
+        build_stock_ai_analysis(dashboard),
+        context=dashboard,
+    )
 
 
 @app.get("/us/market/rankings")
@@ -4047,11 +4086,28 @@ def us_market_recommendations(
 ):
     _enforce_rate_limit(request, "us_market_recommendations", limit=10, window_seconds=60)
     key = ("us_market_recommendations", limit, candidate_limit)
-    return api_cache.get_or_set(
+    payload = api_cache.get_or_set(
         key,
         RECOMMENDATION_TTL_SECONDS,
         lambda: build_us_recommendations(limit=limit, candidate_limit=candidate_limit),
     )
+    return public_recommendation_signal_payload(payload)
+
+
+@app.get("/us/market/quant-signals")
+def us_market_quant_signals(
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=50),
+    recent_days: int = Query(default=30, ge=1, le=90),
+):
+    _enforce_rate_limit(request, "us_market_quant_signals", limit=12, window_seconds=60)
+    key = ("us_market_quant_signals", limit, recent_days)
+    payload = api_cache.get_or_set(
+        key,
+        RECOMMENDATION_TTL_SECONDS,
+        lambda: build_us_quant_signals(limit=limit, recent_days=recent_days),
+    )
+    return public_market_signal_payload(payload)
 
 
 @app.get("/us/market/trends")
@@ -7171,7 +7227,10 @@ def stock_ai_analysis(
     if not _enrich_cached_live_quote(dashboard, code, db):
         _enrich_uncached_kis_quote(dashboard, code, db)
     rules = build_stock_ai_analysis(dashboard)
-    return enrich_stock_ai_analysis(dashboard, rules)
+    return public_stock_ai_analysis_payload(
+        enrich_stock_ai_analysis(dashboard, rules),
+        context=dashboard,
+    )
 
 
 @app.get("/stocks/{code}/quant-signals", response_model=StockQuantSignalsOut)
@@ -7201,7 +7260,7 @@ def stock_quant_signals(
         payload = enrich_quant_signal_payload_sector(db, payload, code)
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         response.headers["Pragma"] = "no-cache"
-        return payload
+        return public_quant_signal_payload(payload)
     if not db.get(StockMaster, code):
         _ensure_stock_master_from_naver(db, code)
     if not db.get(StockMaster, code):
@@ -7220,7 +7279,7 @@ def stock_quant_signals(
     payload = enrich_quant_signal_payload_sector(db, payload, code)
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response.headers["Pragma"] = "no-cache"
-    return payload
+    return public_quant_signal_payload(payload)
 
 
 @app.get("/stocks/{code}/prices", response_model=list[DailyPriceOut])
@@ -7754,7 +7813,7 @@ def market_recommendations(
             api_cache.set(key, payload, 0)
         else:
             api_cache.set(key, payload, RECOMMENDATION_EMPTY_CACHE_TTL_SECONDS)
-        return payload
+        return public_recommendation_signal_payload(payload)
     cached = api_cache.get(key)
     if cached is not None:
         # Recommendation eligibility and prices can change without an HTTP
@@ -7765,7 +7824,7 @@ def market_recommendations(
         api_cache.set(key, payload, 0)
     else:
         api_cache.set(key, payload, RECOMMENDATION_EMPTY_CACHE_TTL_SECONDS)
-    return payload
+    return public_recommendation_signal_payload(payload)
 
 
 @app.get("/market/impact", response_model=MarketImpactOut)

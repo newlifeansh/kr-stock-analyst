@@ -25,13 +25,13 @@
       }
     </script>
     <script src="/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts" data-staging-theme-bootstrap></script>
-    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
-    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154" />
-    <script src="/assets/staging/ai-stock-response-logic.js?v=20260906-us-parity-v100" defer></script>
-    <script src="/assets/staging/stock-change-copy-logic.js?v=20260906-us-parity-v100" defer></script>
-    <script src="/assets/staging/toss-ia.js?v=20260906-us-parity-v100" defer></script>
+    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
+    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155" />
+    <script src="/assets/staging/ai-stock-response-logic.js?v=20260908-public-signal-v102" defer></script>
+    <script src="/assets/staging/stock-change-copy-logic.js?v=20260908-public-signal-v102" defer></script>
+    <script src="/assets/staging/toss-ia.js?v=20260908-public-signal-v102" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260907v478&amp;build=20260907v478" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260908v489&amp;build=20260908v489" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -428,7 +428,7 @@
         </section>
 
         <div class="stock-v3-layout">
-          <article class="stock-v3-quote-card" aria-label="호가와 가격 차트">
+          <article class="stock-v3-quote-card" aria-label="현재가와 가격 차트">
             <div class="stock-v3-quote-head" hidden aria-hidden="true">
               <span class="market-chip" id="stock-live-badge">실시간</span>
               <span id="stock-v2-as-of" hidden>기준 정보 확인 중</span>
@@ -604,7 +604,19 @@
             </article>
 
             <article class="stock-v3-section" id="stock-news-section">
-              <header class="stock-v3-section-head"><div><span>최근 기사</span><h2>종목뉴스</h2></div></header>
+              <header class="stock-v3-section-head">
+                <div><span>최근 기사</span><h2>종목뉴스</h2></div>
+                <span class="stock-v3-source" id="stock-news-source">네이버 금융 종목뉴스</span>
+              </header>
+              <div class="stock-v3-news-tabs" id="stock-news-tabs" role="tablist" aria-label="종목뉴스 출처">
+                <button class="active" type="button" role="tab" data-stock-news-tab="domestic" aria-controls="news-list" aria-selected="true">
+                  국내뉴스 <span id="stock-news-domestic-count">0</span>
+                </button>
+                <button type="button" role="tab" data-stock-news-tab="overseas" aria-controls="news-list" aria-selected="false" tabindex="-1">
+                  해외뉴스 <span id="stock-news-overseas-count">0</span>
+                </button>
+              </div>
+              <p class="stock-v3-news-source-note" id="stock-news-source-note" role="status">네이버 뉴스의 한국어 기사입니다.</p>
               <ul class="event-list stock-v3-news-list" id="news-list" aria-live="polite"></ul>
             </article>
 
@@ -819,6 +831,40 @@
                 </header>
                 <dl class="quant-current-position" id="quant-current-position"></dl>
                 <p class="quant-next-confirmation" id="quant-next-confirmation"></p>
+              </article>
+
+              <article class="stock-v3-section quant-evidence-card">
+                <header class="stock-v3-section-head quant-evidence-head">
+                  <div><span>공개 판단 근거</span><h2>20일·60일·수급만 확인해요</h2></div>
+                  <span class="stock-v3-source" id="quant-evidence-asof">기준일 확인 중</span>
+                </header>
+                <p class="quant-evidence-lead" id="quant-evidence-lead">세부 계산식과 점수는 공개하지 않고 핵심 흐름만 보여드립니다.</p>
+                <div class="quant-public-evidence" id="quant-public-evidence" aria-live="polite"></div>
+                <p class="quant-public-evidence-note">AI 판단에는 추가 내부 검증이 반영되지만 화면에는 세 가지 공개 근거만 표시합니다.</p>
+              </article>
+
+              <article class="stock-v3-section quant-decision-chart-card" data-domestic-quant-only>
+                <header class="stock-v3-section-head">
+                  <div><span>공개 가격 흐름</span><h2>20일선과 60일선을 확인해요</h2></div>
+                  <span class="stock-v3-source" id="quant-decision-chart-source">최근 3개월</span>
+                </header>
+                <div class="quant-decision-price-chart" id="quant-decision-price-chart" aria-live="polite"></div>
+                <div class="quant-decision-legend" aria-label="일봉 차트 범례">
+                  <span class="candle-up">상승 일봉</span><span class="candle-down">하락 일봉</span><span class="ema-20">20일선</span><span class="ema-60">60일선</span>
+                </div>
+              </article>
+
+              <article class="stock-v3-section quant-flow-card" data-domestic-quant-only>
+                <header class="stock-v3-section-head">
+                  <div><span>최근 20거래일 수급</span><h2>외국인과 기관은 움직였을까요?</h2></div>
+                  <span class="stock-v3-source" id="quant-flow-source">수급 확인 중</span>
+                </header>
+                <div class="quant-flow-summary" id="quant-flow-summary" aria-live="polite"></div>
+                <div class="quant-decision-flow-chart" id="quant-decision-flow-chart"></div>
+                <div class="quant-decision-legend" aria-label="수급 차트 범례">
+                  <span class="foreign">외국인 순매수</span><span class="institution">기관 순매수</span><span class="zero">0원 기준선</span>
+                </div>
+                <p class="quant-chart-caption">0원 위는 순매수, 아래는 순매도예요. 금액은 거래일별 순매수 대금입니다.</p>
               </article>
 
               <article class="stock-v3-section quant-chart-card">
@@ -1400,7 +1446,7 @@
           <div class="service-footer-disclosure-body">
             <ul>
               <li id="service-source-kr">한국거래소(KRX), 한국투자증권 Open API, OpenDART, 네이버 금융 및 국내 증권사 공개 리서치 자료를 활용합니다.</li>
-              <li id="service-source-us">미국 시장은 Yahoo Finance 시세·기업정보, SEC EDGAR 공시 및 공개 뉴스 피드를 활용합니다.</li>
+              <li id="service-source-us">미국 시장은 Yahoo Finance 시세·기업정보·해외뉴스, SEC EDGAR 공시 및 네이버 뉴스의 국내 기사를 활용합니다.</li>
               <li>본 서비스는 현재 광고, 유료 결제 및 제휴 수익 없이 비상업적으로 운영됩니다.</li>
               <li>제공되는 데이터는 정보 제공과 분석 참고를 위해 가공하여 표시하며, 원문 또는 원시데이터의 재판매나 대량 재배포를 목적으로 하지 않습니다.</li>
               <li>데이터 이용은 각 제공처의 이용조건과 관련 법령을 따르며, 권리자의 정당한 요청이 있는 경우 관련 데이터의 표시 또는 제공을 중단할 수 있습니다.</li>
@@ -1455,6 +1501,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260907v478" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260908v489" defer></script>
   </body>
 </html>

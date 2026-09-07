@@ -4314,7 +4314,7 @@ def run_e2e_checks(
                     "지금 판단",
                     "자료가 충분한가요?",
                     "확인한 자료",
-                    "6개 모두",
+                    "20일·60일·수급",
                     "현재 주당 가격",
                     "60,000원",
                     "오늘 등락률",
@@ -4338,9 +4338,7 @@ def run_e2e_checks(
                     "가격이 내려올 때",
                     "가격이 올라갈 때",
                     "계속 기다릴 때",
-                    "왜 이렇게 봤나요?",
-                    "6가지 자료 자세히 보기",
-                    "점수와 계산 방법 알아보기",
+                    "20일·60일·수급만 확인해요",
                     "종목 상세에서 차트 보기",
                 ):
                     if required_text not in detail_text:
@@ -4362,31 +4360,17 @@ def run_e2e_checks(
                         "높은 확인 가격을 매수가로 오해하게 만드는 이전 문구가 남아 있습니다.",
                         {"detail_text": detail_text},
                     )
-                page.get_by_text("6가지 자료 자세히 보기", exact=True).click()
-                page.get_by_text("점수와 계산 방법 알아보기", exact=True).click()
-                expanded_text = detail.inner_text()
-                for required_text in (
-                    "가격 흐름",
-                    "74점",
-                    "외국인·기관 매매",
-                    "외국인 -820억원",
-                    "회사 공식 공시",
-                    "최근 90일 신규매수 차단 공시 없음",
-                    "최근 뉴스 분위기",
-                    "긍정 6건 · 부정 2건 · 중립 2건",
-                    "증권사 리포트",
-                    "최근 리포트 3건 · 목표가 상향 2건 · 투자의견 매수",
-                    "금리·환율·업종 환경",
-                    "종목·업종 관련 축",
+                for forbidden_text in (
+                    "6가지 자료 자세히 보기",
+                    "점수와 계산 방법 알아보기",
                     "분석 점수 (-100~+100)",
                     "내부 근거 충실도",
-                    "적중률이나 주가 상승 확률이 아니에요",
                     "현재 반영 100%",
                 ):
-                    if required_text not in expanded_text:
+                    if forbidden_text in detail_text:
                         raise QaFailure(
-                            "펼친 근거·계산 상세의 필수 내용이 누락됐습니다.",
-                            {"missing": required_text, "detail_text": expanded_text},
+                            "공개 시그널 화면에 내부 계산 상세가 남아 있습니다.",
+                            {"forbidden": forbidden_text, "detail_text": detail_text},
                         )
                 detail_contract = page.evaluate(
                     """() => ({
@@ -5445,7 +5429,6 @@ def run_e2e_checks(
                         _page_url(
                             base_url,
                             f"/stocks/{code}/dashboard",
-                            refresh="true",
                             include_profile="false",
                             include_live="false",
                         ),
@@ -5499,7 +5482,13 @@ def run_e2e_checks(
                         }
                     )
                     if patterns and (selected is None or line_patterns):
-                        selected = {"code": code, "patterns": patterns, "has_line": bool(line_patterns)}
+                        selected = {
+                            "code": code,
+                            "patterns": patterns,
+                            "has_line": bool(line_patterns),
+                            "line_pattern": line_patterns[0] if line_patterns else None,
+                            "payload": payload,
+                        }
                     if selected and selected["has_line"]:
                         break
 
@@ -5508,6 +5497,15 @@ def run_e2e_checks(
                         "학습 화면을 검증할 최근 차트 패턴이 없습니다.",
                         {"api": api_evidence},
                     )
+
+                page.route(
+                    f"**/stocks/{selected['code']}/dashboard*",
+                    lambda route: route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps(selected["payload"], ensure_ascii=False),
+                    ),
+                )
 
                 _navigate_page(
                     page,
@@ -5528,7 +5526,21 @@ def run_e2e_checks(
                         "차트 패턴 점수 설명이 적합도 계약과 다릅니다.",
                         {"text": pattern_text},
                     )
-                study_button = pattern_section.locator(".chart-pattern-study-button")
+                if selected["has_line"]:
+                    more_patterns = pattern_section.locator(".chart-pattern-more")
+                    if more_patterns.count():
+                        more_patterns.evaluate("element => { element.open = true; }")
+                    line_pattern_name = str(
+                        (selected.get("line_pattern") or {}).get("name") or ""
+                    )
+                    study_button = pattern_section.get_by_role(
+                        "button",
+                        name=f"{line_pattern_name} 차트 공부 열기",
+                        exact=True,
+                    )
+                else:
+                    study_button = pattern_section.locator(".chart-pattern-study-button")
+                study_button.wait_for(state="visible", timeout=int(timeout * 1000))
                 study_button.click()
                 study = page.locator("#chart-study-view")
                 study.wait_for(state="visible", timeout=int(timeout * 1000))

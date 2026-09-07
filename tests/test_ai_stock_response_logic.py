@@ -8,6 +8,7 @@ import pytest
 
 
 LOGIC_PATH = Path("app/static/staging/ai-stock-response-logic.js").resolve()
+PUBLIC_REASON_KEYS = ["trend_20d", "trend_60d", "flow"]
 
 
 def _build(payload: dict[str, object]) -> dict[str, object]:
@@ -61,11 +62,14 @@ process.stdout.write(JSON.stringify(logic.buildInvestorGuide(result, {{
 
 
 def _complete_payload() -> dict[str, object]:
+    """Older six-source fixture retained to prove private inputs stay unrendered."""
+
     return {
         "code": "005930",
         "dashboard": {
             "code": "005930",
             "name": "삼성전자",
+            "market": "KOSPI",
             "as_of": "2026-08-29T12:00:00+09:00",
             "quote": {
                 "price": 275_000,
@@ -76,8 +80,11 @@ def _complete_payload() -> dict[str, object]:
                 "market_session_label": "장중",
                 "is_live": True,
             },
-            "coverage": {"price": True},
-            "company_profile": {"sector": "반도체", "industry": "반도체 제조"},
+            "momentum": {
+                "one_month_return": 12.0,
+                "three_month_return": -4.0,
+                "trading_value_change": 8.0,
+            },
             "chart_analysis": {
                 "score": 80,
                 "trend": "상승 추세",
@@ -91,33 +98,21 @@ def _complete_payload() -> dict[str, object]:
             "revisions": {
                 "report_count_90d": 3,
                 "target_up_count": 2,
-                "target_down_count": 0,
                 "latest_opinion": "매수",
-                "latest_target_price": 310_000,
             },
             "flows": {},
             "sentiment": {
                 "score": 40,
-                "positive_count": 6,
-                "negative_count": 2,
-                "neutral_count": 2,
-                "latest_items": [
-                    {
-                        "title": "반도체 수요 회복",
-                        "published_at": "2026-08-29T09:00:00+09:00",
-                    }
-                ],
+                "latest_items": [{"title": "비공개 뉴스 근거"}],
             },
         },
         "quant": {
             "code": "005930",
             "name": "삼성전자",
-            "sector": "반도체",
-            "industry": "반도체 제조",
             "as_of": "2026-08-29T12:00:00+09:00",
             "confirmation": {
                 "entry_allowed": False,
-                "vetoes": [],
+                "vetoes": ["비공개 공시 차단 규칙"],
                 "evidence": [
                     {
                         "key": "flow",
@@ -125,26 +120,14 @@ def _complete_payload() -> dict[str, object]:
                         "score": -50,
                         "state": "caution",
                         "summary": "외국인 -1,200억원 · 기관 +100억원",
-                        "source": "투자자별 매매동향",
-                        "as_of": "2026-08-28T15:30:00+09:00",
-                    },
-                    {
-                        "key": "disclosure",
-                        "available": True,
-                        "score": 0,
-                        "state": "neutral",
-                        "summary": "최근 90일 중대 위험 공시 없음",
-                        "source": "OpenDART 공시",
-                        "as_of": "2026-08-29T08:00:00+09:00",
+                        "source": "비공개 수급 원천",
                     },
                     {
                         "key": "research",
                         "available": True,
                         "score": 50,
                         "state": "supportive",
-                        "summary": "최근 리포트 3건 · 목표가 상향 2건 · 투자의견 매수",
-                        "source": "증권사 발간 리포트",
-                        "as_of": "2026-08-29T07:30:00+09:00",
+                        "summary": "비공개 리포트 상세",
                     },
                 ],
             },
@@ -154,304 +137,144 @@ def _complete_payload() -> dict[str, object]:
                 "price": 275_000,
                 "stop_reference": 259_000,
                 "partial_exit_reference": 292_000,
-                "next_confirmation": "외국인·기관 합산 순매수 전환 확인",
+                "next_confirmation": "비공개 다음 조건",
             },
+        },
+        "homeContext": {
+            "disclosures": [{"report_name": "비공개 공시 상세"}],
+            "news_items": [{"title": "비공개 뉴스 상세"}],
         },
         "marketImpact": {
-            "as_of": "2026-08-29T11:00:00+09:00",
-            "data_quality": "확인",
-            "summary": "시장 위험 우위",
-            "good_weight": 30,
-            "bad_weight": 70,
-            "factors": [
-                {
-                    "key": "risk",
-                    "label": "투자심리",
-                    "direction": "악재",
-                    "percent": 30,
-                    "confidence": 80,
-                    "affected_sectors": ["반도체"],
-                    "leader_stocks": ["SK하이닉스"],
-                },
-                {
-                    "key": "commodity",
-                    "label": "원자재",
-                    "direction": "호재",
-                    "percent": 20,
-                    "confidence": 60,
-                    "affected_sectors": ["화학"],
-                    "leader_stocks": ["LG화학"],
-                },
-            ],
+            "factors": [{"label": "비공개 시장 가중치", "confidence": 80}],
         },
     }
 
 
-def test_multi_signal_response_uses_fixed_weights_and_surfaces_conflict() -> None:
+def test_public_response_exposes_only_20d_60d_and_flow() -> None:
     result = _build(_complete_payload())
-    metrics = {item["key"]: item for item in result["metrics"]}
 
-    assert result["version"] == "20260902-holding-input-gate-v6"
-    assert result["decisionLevels"]["currentPrice"] == 275_000
-    assert result["decisionLevels"]["changeRate"] == pytest.approx(1.82)
-    assert result["decisionLevels"]["marketSessionLabel"] == "장중"
-    assert result["decisionLevels"]["quoteIsLive"] is True
-    assert [item["key"] for item in result["metrics"]] == [
-        "chart",
-        "flow",
-        "disclosure",
-        "news",
-        "research",
-        "market",
+    assert result["version"] == "20260908-public-reasons-v7"
+    assert [item["key"] for item in result["publicReasons"]] == PUBLIC_REASON_KEYS
+    assert [item["label"] for item in result["publicReasons"]] == ["20일", "60일", "수급"]
+    assert [item["state"] for item in result["publicReasons"]] == [
+        "positive",
+        "negative",
+        "negative",
     ]
-    assert {key: item["weight"] for key, item in metrics.items()} == {
-        "chart": 25,
-        "flow": 25,
-        "disclosure": 15,
-        "news": 10,
-        "research": 15,
-        "market": 10,
-    }
-    assert metrics["chart"]["value"] == "80점"
-    assert metrics["chart"]["score"] == 60
-    assert metrics["market"]["score"] == -80
-    assert metrics["market"]["relevance"] == "direct"
-    assert "종목·업종 관련 축" in metrics["market"]["evidence"]
-    assert result["coverageCount"] == 6
-    assert result["coverageWeight"] == 100
+    assert result["coverageLabel"] == "3/3개"
     assert result["conflict"] is True
-    assert result["stance"] == "혼조 · 확인 우선"
-    assert result["confidence"] <= 72
-    assert "신호 충돌" in result["warnings"][0]
+    assert result["stance"] == "진입 관찰"
+    for private_key in ("metrics", "score", "confidence", "lead", "coverageWeight"):
+        assert private_key not in result
+
+    serialized = json.dumps(result, ensure_ascii=False)
+    for private_copy in (
+        "비공개 뉴스",
+        "비공개 공시",
+        "비공개 리포트",
+        "비공개 시장",
+        "-1,200억원",
+        "비공개 다음 조건",
+    ):
+        assert private_copy not in serialized
 
 
-def test_hard_disclosure_veto_overrides_a_positive_composite() -> None:
+def test_supplied_public_reasons_keep_order_but_not_raw_detail_copy() -> None:
     payload = _complete_payload()
-    payload["quant"]["confirmation"] = {
-        "vetoes": ["중대 공시: 주주배정 유상증자 결정"],
-        "evidence": [
-            {
-                "key": "flow",
-                "available": True,
-                "score": 100,
-                "state": "supportive",
-                "summary": "외국인·기관 동반 순매수",
-            },
-            {
-                "key": "disclosure_risk",
-                "available": True,
-                "score": -100,
-                "state": "caution",
-                "summary": "최근 14일 중대 공시 1건",
-            },
-            {
-                "key": "news",
-                "available": True,
-                "score": 100,
-                "state": "supportive",
-                "summary": "긍정 뉴스 우위",
-            },
-        ],
-    }
-
-    result = _build(payload)
-    disclosure = next(item for item in result["metrics"] if item["key"] == "disclosure")
-
-    assert result["hardRisk"] is True
-    assert result["stance"] == "신규 접근 보류"
-    assert "점수보다 중대 공시" in result["action"]
-    assert disclosure["hardRisk"] is True
-    assert disclosure["value"] == "위험 공시"
-
-
-def test_recent_raw_hard_disclosure_overrides_generic_quant_disclosure_context() -> None:
-    payload = _complete_payload()
-    payload["homeContext"] = {
-        "code": "005930",
-        "name": "삼성전자",
-        "as_of": "2026-08-29T12:00:00+09:00",
-        "disclosures": [
-            {
-                "report_name": "주주배정 유상증자 결정",
-                "published_at": "2026-08-28T10:00:00+09:00",
-            }
-        ],
-        "news_items": [],
-    }
-
-    result = _build(payload)
-    disclosure = next(item for item in result["metrics"] if item["key"] == "disclosure")
-
-    assert result["hardRisk"] is True
-    assert result["stance"] == "신규 접근 보류"
-    assert disclosure["hardRisk"] is True
-    assert "유상증자 결정" in disclosure["evidence"]
-
-    payload.pop("dashboard")
-    payload.pop("marketImpact")
-    partial_result = _build(payload)
-    assert partial_result["limited"] is True
-    assert partial_result["hardRisk"] is True
-    assert partial_result["stance"] == "신규 접근 보류"
-
-
-def test_canonical_full_exit_signal_overrides_a_positive_weighted_score() -> None:
-    payload = _complete_payload()
-    payload["quant"]["current"] = {
-        "action": "full_exit_pending",
-        "label": "전량 매도 대기",
-        "next_confirmation": "다음 거래일 시가에 잔여 비중 전량 매도",
-    }
-    payload["quant"]["confirmation"]["evidence"][0]["score"] = 100
-    payload["quant"]["confirmation"]["evidence"][0]["state"] = "supportive"
-    payload["marketImpact"]["factors"][0]["direction"] = "호재"
+    payload["quant"]["public_reasons"] = [
+        {"key": "flow", "state": "positive", "summary": "원천 상세 수급"},
+        {"key": "trend_60d", "state": "neutral", "summary": "원천 상세 60일"},
+        {"key": "trend_20d", "state": "negative", "summary": "원천 상세 20일"},
+    ]
 
     result = _build(payload)
 
-    assert result["score"] > 0
-    assert result["signalAction"] == "full_exit_pending"
-    assert result["stance"] == "매도 신호 우선"
-    assert result["action"] == "다음 거래일 시가에 잔여 비중 전량 매도"
-    assert "현재 시그널은 전량 매도 대기" in result["summary"]
+    assert [item["key"] for item in result["publicReasons"]] == PUBLIC_REASON_KEYS
+    assert [item["state"] for item in result["publicReasons"]] == [
+        "negative",
+        "neutral",
+        "positive",
+    ]
+    assert "원천 상세" not in json.dumps(result, ensure_ascii=False)
 
 
-def test_partial_sources_never_manufacture_confidence_or_safe_disclosure() -> None:
-    result = _build(
-        {
-            "code": "005930",
-            "dashboard": {
-                "code": "005930",
-                "name": "삼성전자",
-                "as_of": "2026-08-29T12:00:00+09:00",
-                "quote": {"trade_date": "2026-08-28"},
-                "coverage": {"price": True},
-                "chart_analysis": {
-                    "score": 78,
-                    "trend": "상승 추세",
-                    "setup": "돌파 대기",
-                    "signals": ["20일선 위"],
-                    "risks": [],
-                },
-                "flows": {},
-                "sentiment": {"score": None, "latest_items": []},
-            },
-            "homeContext": {"disclosures": [], "news_items": []},
-        }
-    )
-    metrics = {item["key"]: item for item in result["metrics"]}
+def test_missing_public_inputs_stay_unavailable() -> None:
+    result = _build({"code": "005930", "dashboard": {"code": "005930"}})
 
-    assert result["coverageCount"] == 1
-    assert result["coverageWeight"] == 25
     assert result["limited"] is True
-    assert result["stance"] == "정보 확인 우선"
-    assert result["confidence"] <= 55
-    assert metrics["disclosure"]["available"] is False
-    assert metrics["disclosure"]["value"] == "자료 확인 중"
-    assert "미확인 지표" in result["warnings"][0]
+    assert result["coverageCount"] == 0
+    assert [item["state"] for item in result["publicReasons"]] == [
+        "unavailable",
+        "unavailable",
+        "unavailable",
+    ]
+    assert all("자료가 부족" in item["summary"] for item in result["publicReasons"])
 
 
-def test_unmatched_market_factors_are_labeled_as_broad_market_influence() -> None:
-    payload = _complete_payload()
-    payload["quant"]["sector"] = "은행"
-    payload["quant"]["industry"] = "금융"
-    payload["dashboard"]["company_profile"] = {"sector": "은행", "industry": "금융"}
+def test_client_bundle_contains_no_private_scoring_contract() -> None:
+    source = LOGIC_PATH.read_text(encoding="utf-8")
 
-    result = _build(payload)
-    market = next(item for item in result["metrics"] if item["key"] == "market")
+    for private_contract in (
+        "const WEIGHTS",
+        "chart: 25",
+        "disclosure: 15",
+        "entry_score_threshold",
+        "HARD_DISCLOSURE_RISK_TOKENS",
+        "weightedScore",
+        "coverageWeight",
+    ):
+        assert private_contract not in source
 
-    assert market["relevance"] == "broad"
-    assert market["source"] == "시장 5개 축·광역 영향"
-    assert any("광역 시장 영향" in item for item in result["warnings"])
 
-
-def test_not_holding_guide_explains_observation_and_data_owned_buy_points() -> None:
-    payload = _complete_payload()
-
-    guide = _build_guide(payload, investor_state="not_holding")
+def test_not_holding_guide_uses_only_three_public_reasons() -> None:
+    guide = _build_guide(_complete_payload(), investor_state="not_holding")
     rows = {row["key"]: row for row in guide["rows"]}
 
-    assert guide["state"] == "not_holding"
     assert guide["positionMode"] == "watching"
-    assert guide["holdingStrategy"] is None
-    assert guide["headline"] == "현재는 매수 관망이 필요해요"
-    assert "가격 흐름" in guide["reason"]
-    assert "외국인·기관 매매" in guide["reason"]
-    assert "최근 뉴스" in guide["reason"]
-    assert "증권사 리포트" in guide["reason"]
-    assert rows["watch_zone"]["value"].endswith("원")
-    assert rows["watch_zone"]["label"] == "눌림목 확인 구간"
+    assert guide["headline"] == "현재는 20일·60일·수급을 확인하며 기다릴 때예요"
+    assert "20일" in guide["reason"]
+    assert "60일" in guide["reason"]
+    assert "수급" in guide["reason"]
+    assert "뉴스" not in guide["reason"]
+    assert "리포트" not in guide["reason"]
     assert rows["buy_trigger"]["value"] == "285,000원"
-    assert rows["buy_trigger"]["label"] == "상승 흐름 확인선"
-    assert rows["buy_trigger"]["status"] == "매수가 아님"
-    assert "바로 사는 매수가가 아니에요" in rows["buy_trigger"]["evidence"]
     assert rows["risk_line"]["value"] == "259,000원"
     assert [step["key"] for step in guide["decisionPlan"]] == [
         "pullback",
         "breakout",
         "wait",
     ]
-    assert guide["decisionPlan"][1]["status"] == "매수가 아님"
-    assert "바로 따라 사기보다" in guide["decisionPlan"][1]["evidence"]
-    assert guide["nextChecks"][0] == "285,000원 위에서 장을 마친 뒤 다시 그 가격을 지키는지"
-    assert all("250,000원" not in item for item in guide["nextChecks"])
 
 
-def test_holding_profit_guide_uses_average_price_for_partial_profit_protection() -> None:
-    guide = _build_guide(
+def test_holding_guides_keep_personal_price_behavior_without_private_reasons() -> None:
+    profit = _build_guide(
         _complete_payload(),
         investor_state="holding",
         average_buy_price=240_000,
     )
-    rows = {row["key"]: row for row in guide["rows"]}
-
-    assert guide["positionMode"] == "holding_profit"
-    assert guide["returnRate"] == pytest.approx(14.583333, rel=1e-5)
-    assert guide["holdingStrategy"] == {
-        "stage": "수익 관리",
-        "action": "분할 매도 · 이익 보호",
-        "summary": (
-            "현재는 수익권이에요. 285,000원 부근에서 일부 이익을 지킬지 보고, "
-            "259,000원 아래에서 장을 마치면 남은 보유분을 다시 점검해요."
-        ),
-        "averageBuyPrice": 240_000,
-        "currentPrice": 275_000,
-        "returnRate": pytest.approx(14.583333, rel=1e-5),
-    }
-    assert rows["return"]["status"] == "수익권"
-    assert rows["return"]["evidence"] == "평균 매수가 240,000원과 현재가 275,000원을 비교했어요."
-    assert rows["first_sell"]["value"] == "285,000원"
-    assert rows["protect"]["value"] == "259,000원"
-    assert [step["key"] for step in guide["decisionPlan"]] == [
-        "take_profit",
-        "protect_profit",
-        "keep_holding",
-    ]
-
-
-def test_holding_loss_guide_separates_loss_limit_and_recovery_prices() -> None:
-    guide = _build_guide(
+    loss = _build_guide(
         _complete_payload(),
         investor_state="holding",
         average_buy_price=310_000,
     )
-    rows = {row["key"]: row for row in guide["rows"]}
 
-    assert guide["positionMode"] == "holding_loss"
-    assert guide["returnRate"] == pytest.approx(-11.290322, rel=1e-5)
-    assert guide["holdingStrategy"]["stage"] == "손실 관리"
-    assert guide["holdingStrategy"]["action"] == "손실 제한 · 회복 확인"
-    assert guide["holdingStrategy"]["averageBuyPrice"] == 310_000
-    assert guide["holdingStrategy"]["currentPrice"] == 275_000
-    assert guide["holdingStrategy"]["returnRate"] == pytest.approx(-11.290322, rel=1e-5)
-    assert "259,000원 아래" in guide["holdingStrategy"]["summary"]
-    assert "285,000원 위로 회복" in guide["holdingStrategy"]["summary"]
-    assert rows["risk_line"]["value"] == "259,000원"
-    assert rows["recovery"]["value"] == "285,000원"
-    assert [step["key"] for step in guide["decisionPlan"]] == [
+    assert profit["positionMode"] == "holding_profit"
+    assert profit["returnRate"] == pytest.approx(14.583333, rel=1e-5)
+    assert profit["holdingStrategy"]["stage"] == "수익 관리"
+    assert [step["key"] for step in profit["decisionPlan"]] == [
+        "take_profit",
+        "protect_profit",
+        "keep_holding",
+    ]
+    assert loss["positionMode"] == "holding_loss"
+    assert loss["returnRate"] == pytest.approx(-11.290322, rel=1e-5)
+    assert loss["holdingStrategy"]["stage"] == "손실 관리"
+    assert [step["key"] for step in loss["decisionPlan"]] == [
         "limit_loss",
         "recovery",
         "hold_loss",
     ]
+    assert "뉴스" not in json.dumps({"profit": profit, "loss": loss}, ensure_ascii=False)
 
 
 def test_holding_without_average_price_does_not_manufacture_personal_return() -> None:
@@ -460,24 +283,27 @@ def test_holding_without_average_price_does_not_manufacture_personal_return() ->
     assert guide["positionMode"] == "holding_unknown"
     assert guide["returnRate"] is None
     assert guide["holdingStrategy"] is None
-    assert guide["headline"] == "평균 매수가를 입력하면 내 보유 전략을 볼 수 있어요"
     assert guide["rows"] == []
     assert guide["decisionPlan"] == []
-    assert "수익권" not in guide["headline"] + guide["summary"]
-    assert "손실권" not in guide["headline"] + guide["summary"]
 
 
-def test_holding_flat_guide_exposes_a_deterministic_personal_strategy_summary() -> None:
-    guide = _build_guide(
-        _complete_payload(),
-        investor_state="holding",
-        average_buy_price=275_000,
-    )
+def test_us_price_guide_uses_usd_without_exposing_extra_reasons() -> None:
+    payload = {
+        "code": "NVDA",
+        "dashboard": {
+            "code": "NVDA",
+            "name": "NVIDIA",
+            "market": "NASDAQ",
+            "currency": "USD",
+            "quote": {"price": 185.25},
+            "momentum": {"one_month_return": 3, "three_month_return": 7},
+            "flows": {"foreign_intensity": -0.2},
+            "chart_analysis": {"support": 178.5, "resistance": 192.5},
+        },
+    }
 
-    assert guide["positionMode"] == "holding_flat"
-    assert guide["returnRate"] == pytest.approx(0)
-    assert guide["holdingStrategy"]["stage"] == "보유 기준 확인"
-    assert guide["holdingStrategy"]["action"] == "보유 유지 · 위험 기준"
-    assert guide["holdingStrategy"]["averageBuyPrice"] == 275_000
-    assert guide["holdingStrategy"]["currentPrice"] == 275_000
-    assert "본전권" in guide["holdingStrategy"]["summary"]
+    result = _build(payload)
+    guide = _build_guide(payload, investor_state="not_holding")
+
+    assert [item["key"] for item in result["publicReasons"]] == PUBLIC_REASON_KEYS
+    assert guide["rows"][1]["value"].startswith("$")

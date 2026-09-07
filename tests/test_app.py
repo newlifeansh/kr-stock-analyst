@@ -31,7 +31,7 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["strategy_version"] == "position-lifecycle-v7.4"
-    assert response.json()["dashboard_version"] == "20260907v478"
+    assert response.json()["dashboard_version"] == "20260908v489"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -224,8 +224,79 @@ def test_us_path_serves_current_dashboard_shell_with_nasdaq_default_without_chan
     assert 'id="home-view"' in response.text
     assert 'id="home-surge"' in response.text
     assert 'data-home-ranking-market="NASDAQ"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260907v478"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260908v489"' in response.text
     assert "시장 한눈에" not in response.text
+
+
+def test_us_surface_isolates_market_data_navigation_and_saved_lists_from_dashboard():
+    client = TestClient(app, base_url="https://secretnote.cloud")
+    dashboard_shell = client.get("/dashboard?view=home").text
+    us_shell = client.get("/us?view=home").text
+    source = client.get("/dashboard-app-v170.js").text
+
+    assert dashboard_shell == us_shell
+    assert '<h1 id="login-title">한국증시 비밀노트</h1>' in dashboard_shell
+    assert "const isUsMarketContext = isUsRootPath || isUsStockDetailPath;" in source
+    assert 'return isUsMarketContext ? `${prefix}.us` : prefix;' in source
+    assert '? `/us/stock/${encodeURIComponent(name)}`' in source
+    assert 'const base = isUsMarketContext ? "/us/watchlists" : "/watchlists";' in source
+    assert '`/us/market/quant-signals?limit=20&recent_days=${recentDays}`' in source
+    assert 'const baseUrl = marketOverviewUrl(`/market/recommendations?limit=${RECOMMENDATION_LIMIT}&candidate_limit=45`);' in source
+    assert 'const trendsUrl = marketOverviewUrl("/market/trends?days=7");' in source
+    assert 'const url = marketStockDashboardUrl(selected.code);' in source
+    assert 'elements.morningMoneyPopover.hidden = true;' in source
+    assert '.filter((option) => option.id !== "morning_briefing")' in source
+    assert 'label: "미국장 시작·마감"' in source
+    assert '? { key: "confirmation", label: "다음 확인", value: "미국 정규장 종가" }' in source
+    assert 'if (domesticSource) domesticSource.remove();' in source
+    assert source.count("if (!code || isUsMarketContext) return;") >= 2
+
+
+def test_us_surface_keeps_the_shared_staging_shell_on_us_routes_and_us_data():
+    source = TestClient(app).get("/assets/staging/toss-ia.js").text
+
+    assert 'const stagingUsMarketContext = /^\\/us(?:\\/|$)/.test(window.location.pathname);' in source
+    assert 'const stagingRootPath = stagingUsMarketContext ? "/us" : "/dashboard";' in source
+    assert '? `/us/stock/${encodeURIComponent(code || "")}`' in source
+    assert 'signalChevron.href = `${stagingRootPath}?view=ai-signals`;' in source
+    assert 'if (homeResponse && !stagingUsMarketContext)' in source
+    assert '"/us/market/quant-signals?limit=20&recent_days=30"' in source
+    assert '"/us/market/trends?days=14"' in source
+    assert '`/us/market/rankings?category=${hotCommunityState.mode}${modeQuery}&market=NASDAQ&limit=15`' in source
+    assert '`/us/stocks/${encodeURIComponent(normalizedCode)}/community-feed?limit=5`' in source
+    assert '"secret-note-staging-recent-stocks-us-v1"' in source
+    assert 'const unsupportedUsdWatch = currency === "USD" && !stagingUsMarketContext;' in source
+    assert 'rail.querySelector(\'[data-staging-view="morning-briefing"]\')?.remove();' in source
+    assert 'if (!stagingUsMarketContext) decorateStagingBriefingArticle();' in source
+
+
+def test_us_market_quant_signals_endpoint_returns_preliminary_us_candidates(monkeypatch):
+    from app import main as main_module
+
+    calls = []
+    monkeypatch.setattr(
+        main_module,
+        "build_us_quant_signals",
+        lambda limit, recent_days: calls.append((limit, recent_days)) or {
+            "status": "ready",
+            "confirmed_count": 0,
+            "preliminary_count": 1,
+            "items": [{
+                "code": "NVDA",
+                "name": "NVIDIA",
+                "currency": "USD",
+                "status": "preliminary",
+                "current": {"action": "entry_watch", "position_open": False},
+            }],
+        },
+    )
+
+    response = TestClient(app).get("/us/market/quant-signals?limit=7&recent_days=21")
+
+    assert response.status_code == 200
+    assert calls == [(7, 21)]
+    assert response.json()["items"][0]["currency"] == "USD"
+    assert response.json()["items"][0]["current"]["position_open"] is False
 
 
 def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
@@ -237,8 +308,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="us-stock-ai-content"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260907v478"' in stock_shell.text
-    assert 'src="/assets/staging/toss-ia.js?v=20260906-us-parity-v100"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260908v489"' in stock_shell.text
+    assert 'src="/assets/staging/toss-ia.js?v=20260908-public-signal-v102"' in stock_shell.text
     assert "NASDAQ Intelligence" not in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -255,29 +326,42 @@ def test_us_stock_detail_frontend_uses_us_contract_without_domestic_quote_subscr
     stream_source = source[source.index("function connectQuoteStream"):source.index("function closeWatchlistQuoteStreams")]
 
     assert 'const isUsStockDetailPath = /^\\/us\\/stock\\/[^/]+\\/?$/.test(window.location.pathname);' in source
+    assert 'const isUsRootPath = /^\\/us\\/?$/.test(window.location.pathname);' in source
     assert 'const dashboardUrl = usStockRequest' in load_source
     assert '`/us/stocks/${encodeURIComponent(stock.code)}/dashboard`' in load_source
     assert 'const initialQuoteRequest = usStockRequest ? Promise.resolve(null)' in load_source
     assert "if (!stock?.code || stockDashboardIsUs())" in stream_source
-    assert 'const endpoint = stockDashboardIsUs() ? "/us/stocks/search" : "/stocks/search";' in source
+    assert 'const endpoint = (stockDashboardIsUs() || isUsRootPath) ? "/us/stocks/search" : "/stocks/search";' in source
     assert 'const analysisBase = stockDashboardIsUs() ? "/us/stocks" : "/stocks";' in source
+    assert "function setStockSignalPresentation(isUs)" in source
+    assert "function renderUsAIAnalysis(payload)" in source
+    assert 'if (stockDashboardIsUs() && state.stockAIAnalysis) {\n      renderUsAIAnalysis(state.stockAIAnalysis);\n    }' in source
+    assert '최근 1년 가격 흐름' in source
+    assert '최근 1년 핵심 지표' in source
+    assert 'AI 판단 근거와 대응 기준 보기' in source
+    assert 'if (stockDashboardIsUs()) {\n    return loadAIAnalysis(options);\n  }' in source
     assert 'url.searchParams.set("market", "us");' in source
     assert 'formatUsdPrice' in source
     assert '미국 동부시간 기준' in source
     assert 'stagingStockPriceText' in toss
-    assert '20260906-us-parity-v100' in toss
+    assert '20260908-public-signal-v102' in toss
     assert 'body[data-stock-market="us"] [data-stock-tab="community"]' not in styles
     assert 'body[data-stock-market="us"] #stock-summary-section > .stock-v3-two-column' not in styles
     assert 'body[data-stock-market="us"] #stock-view [data-staging-chart-period="1D"]' not in styles
     assert 'body[data-stock-market="us"] #stock-view [data-staging-chart-period="1W"]' not in styles
+    assert 'body[data-stock-market="us"] #quant-signal-content' not in styles
+    assert 'body[data-stock-market="us"] #stock-view .staging-toss-chart-session-icon {\n  /* Keep the zero-width grid item so the first period button stays visible. */\n  display: inline-flex !important;\n}' in styles
     assert '`/us/stocks/${encodeURIComponent(code)}/intraday?range=1d&interval=1m`' in source
+    assert '`/us/stocks/${encodeURIComponent(code)}/community-feed?limit=12`' in source
     assert '`/us/stocks/${encodeURIComponent(code)}/prices?limit=2000&range=10y`' in source
     assert 'function usStockCommunityPayload(data)' in source
+    assert 'label: "네이버 미국증시"' in source
+    assert 'formatStockPrice(value, state.currentDashboard)' in source
     assert '원문 커뮤니티로 이동해요' in source
     assert 'button.hidden = false' in toss
     assert '/intraday?range=5d&interval=5m' in toss
     assert '.stock-list-logo.is-us-stock-logo' in styles
-    assert '/* US logo edge-fit v478:' in styles
+    assert '/* US logo edge-fit v479:' in styles
     assert 'body[data-stock-market="us"] #stock-view :is(.stock-list-logo, .staging-stock-logo)' in styles
     assert '.stock-list-logo.is-us-stock-logo > .stock-list-logo-image' in styles
     assert 'object-fit: cover !important;' in styles
@@ -488,7 +572,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260907v478"}
+    assert version.json() == {"version": "20260908v489"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search")
@@ -496,9 +580,9 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert refresh.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert '["/dashboard-sw.js", "/us-sw.js"].includes' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260907v478" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260908v489" in refresh.text
     assert 'params.get("market") === "us"' in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260907v478" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260908v489" in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -511,7 +595,7 @@ def test_legacy_us_service_worker_retires_its_scope_and_routes_clients_to_curren
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'CURRENT_DASHBOARD_BUILD = "20260907v478"' in worker.text
+    assert 'CURRENT_DASHBOARD_BUILD = "20260908v489"' in worker.text
     assert r"/^secret-note-static-\d{8}us/" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert 'url.pathname.startsWith("/us")' in worker.text
@@ -1871,7 +1955,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260907v478' in shell
+    assert 'styles.css?v=20260908v489' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -1898,7 +1982,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '<summary>서비스 및 문의</summary>' in shell
     assert '비상업적 무료 베타 서비스' not in shell
     assert '<li id="service-source-kr">한국거래소(KRX), 한국투자증권 Open API' in shell
-    assert '<li id="service-source-us">미국 시장은 Yahoo Finance 시세·기업정보, SEC EDGAR 공시 및 공개 뉴스 피드를 활용합니다.</li>' in shell
+    assert '<li id="service-source-us">미국 시장은 Yahoo Finance 시세·기업정보·해외뉴스, SEC EDGAR 공시 및 네이버 뉴스의 국내 기사를 활용합니다.</li>' in shell
     assert '<li>본 서비스는 현재 광고, 유료 결제 및 제휴 수익 없이' in shell
     assert '광고, 유료 결제 및 제휴 수익 없이 비상업적으로 운영됩니다' in shell
     assert '원문 또는 원시데이터의 재판매나 대량 재배포를 목적으로 하지 않습니다' in shell
@@ -1958,7 +2042,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260907v478"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260908v489"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -1985,7 +2069,8 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'data-news-page-filter="all"' in shell
     assert 'data-news-page-filter="positive"' in shell
     assert 'data-news-page-filter="negative"' in shell
-    assert 'return `/dashboard?view=news&filter=${encodeURIComponent(state.trendNewsFilter || "all")}`;' in source
+    assert 'const root = isUsMarketContext ? "/us" : "/dashboard";' in source
+    assert 'return `${root}?view=news&filter=${encodeURIComponent(state.trendNewsFilter || "all")}`;' in source
     assert ".trend-live-filter:focus-visible" in styles
     assert "min-height: 44px;" in styles
     assert 'maximum-scale=1, user-scalable=no, viewport-fit=cover' in shell
@@ -1995,7 +2080,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260907v478"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260908v489"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert 'return [-timestamp, view?.preliminary ? 0 : 1' in source
@@ -2037,6 +2122,23 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     bottom_nav_styles = styles[styles.index(".bottom-nav {"):styles.index(".bottom-nav-item {")]
     assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in bottom_nav_styles
     assert 'trend: "home"' in source
+
+
+def test_us_stock_news_has_separate_domestic_and_yahoo_overseas_tabs():
+    client = TestClient(app)
+    shell = client.get("/us/stock/ASML").text
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    assert 'id="stock-news-tabs" role="tablist" aria-label="종목뉴스 출처"' in shell
+    assert 'data-stock-news-tab="domestic"' in shell
+    assert 'data-stock-news-tab="overseas"' in shell
+    assert 'id="stock-news-source-note"' in shell
+    assert "function stockNewsCollections" in source
+    assert "function renderStockNewsPanel" in source
+    assert 'navigationKeys = ["ArrowLeft", "ArrowRight", "Home", "End"]' in source
+    assert "sentiment.overseas_items" in source
+    assert ".stock-v3-news-tabs button.active::after" in styles
 
 
 def test_chart_view_is_search_first_and_renders_five_or_ten_day_scenarios():
@@ -2181,7 +2283,8 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert "function setHomeSurgeSector" in source
     assert 'homeSurgeSector: "all"' in source
     assert "const items = state.homeSurgeItems.slice(0, 5);" in source
-    assert 'homeRankingMarket: MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket)' in source
+    assert 'homeRankingMarket: isUsMarketContext' in source
+    assert '? (US_MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "NASDAQ")' in source
     assert 'const US_MARKET_RANKING_MARKETS = new Set(["NASDAQ", "SP500"]);' in source
     assert 'const US_MARKET_RANKING_CATEGORIES = new Set(["volume", "surge", "market_cap", "dividend", "per"]);' in source
     assert 'const url = `${usMarket ? "/us/market/rankings" : "/market/rankings"}?${params.toString()}`;' in source
@@ -2223,7 +2326,7 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert ": item.as_of || item.updated_at;" in source
     assert "function renderHomeAiSignals" in source
     assert "function startHomeMarketSignalTicker" in source
-    assert 'row.href = options.linkToList ? "/dashboard?view=ai-signals" : viewStockUrl(item.code || item.name || "");' in source
+    assert 'row.href = options.linkToList ? dashboardRouteUrl("ai-signals") : viewStockUrl(item.code || item.name || "");' in source
     assert 'identity.append(el("small", "", "시장 신호"));' in source
     assert 'return { key: "recent-buy", label: "확정 매수", tone: "buy", signalDate' in source
     assert 'return { key: "holding", label: "보유 중", tone: "hold", signalDate' not in source

@@ -50,9 +50,9 @@ Receive = Callable[[], Awaitable[Message]]
 Send = Callable[[Message], Awaitable[None]]
 
 THEME_VERSION = "20260828-tds-adaptive-v77-shortcuts"
-STAGING_IA_VERSION = "20260906-us-parity-v100"
+STAGING_IA_VERSION = "20260908-public-signal-v102"
 STAGING_STYLE_VERSION = (
-    f"{THEME_VERSION}-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154"
+    f"{THEME_VERSION}-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155"
 )
 STAGING_ENVIRONMENT_META = '<meta name="secret-note-environment" content="staging" />'
 SERVICE_UPDATE_META = (
@@ -87,6 +87,10 @@ STAGING_LOCAL_STOCK_NEWS_PATTERN = re.compile(
 )
 STAGING_STOCK_READ_PATTERN = re.compile(
     r"^/stocks/(?P<code>[0-9]{6})/(?P<resource>quote|dashboard|ai-analysis|quant-signals)$"
+)
+STAGING_STOCK_LOGO_PATH_PATTERN = re.compile(
+    r"^/stock-logos/(?P<name>[0-9A-Z][0-9A-Z.-]{0,11})\.png$",
+    re.IGNORECASE,
 )
 STAGING_KOREA_CALENDAR_PATH = "/staging-data/korea-calendar"
 STAGING_CROSS_MARKET_PATH = "/market/cross-market"
@@ -210,6 +214,16 @@ def _header_value(headers: list[tuple[bytes, bytes]], name: bytes) -> str:
     return ""
 
 
+def _has_bundled_stock_logo(path: str) -> bool:
+    match = STAGING_STOCK_LOGO_PATH_PATTERN.fullmatch(path)
+    if match is None:
+        return False
+    normalized_name = re.sub(r"[^0-9A-Z]", "", match.group("name").upper())
+    if not normalized_name:
+        return False
+    return (MANUAL_STOCK_LOGO_DIR / f"{normalized_name}.png").is_file()
+
+
 def _is_staging_read_proxy_request(scope: dict[str, Any]) -> bool:
     if not STAGING_DATA_UPSTREAM or scope.get("method") != "GET":
         return False
@@ -222,10 +236,8 @@ def _is_staging_read_proxy_request(scope: dict[str, Any]) -> bool:
         return False
     if path.startswith("/us/stock/"):
         return False
-    if path.startswith("/stock-logos/"):
-        logo_name = path.removeprefix("/stock-logos/")
-        if re.fullmatch(r"[0-9A-Z]{6}\.png", logo_name) and (MANUAL_STOCK_LOGO_DIR / logo_name).is_file():
-            return False
+    if _has_bundled_stock_logo(path):
+        return False
     return path in STAGING_READ_EXACT_PATHS or path.startswith(
         STAGING_READ_PATH_PREFIXES
     )

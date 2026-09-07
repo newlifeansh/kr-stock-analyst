@@ -1907,7 +1907,19 @@ def test_quant_signal_endpoint_uses_same_engine_for_multiple_stocks(monkeypatch)
         assert hynix.status_code == 200
         assert samsung.headers["cache-control"].startswith("no-store")
         assert samsung.json()["strategy_version"] == hynix.json()["strategy_version"]
-        assert samsung.json()["entry_score_threshold"] == "64.00"
+        assert samsung.json()["entry_score_threshold"] is None
+        assert [item["key"] for item in samsung.json()["public_reasons"]] == [
+            "trend_20d",
+            "trend_60d",
+            "flow",
+        ]
+        assert [item["key"] for item in samsung.json()["factors"]] == [
+            "trend_20d",
+            "trend_60d",
+        ]
+        assert [item["key"] for item in samsung.json()["confirmation"]["evidence"]] == [
+            "flow",
+        ]
         assert samsung.json()["performance"]["turnover_percent"] is not None
         assert samsung.json()["performance"]["execution_count"] > 0
         assert all(event["entry_price"] is not None for event in samsung.json()["events"])

@@ -185,6 +185,76 @@ def test_stock_community_feed_endpoint_uses_naver_board_and_threads(monkeypatch)
         db.close()
 
 
+def test_us_stock_community_feed_uses_naver_world_board(monkeypatch):
+    calls = []
+
+    class Response:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return {
+                "result": {
+                    "posts": [{
+                        "id": "428998231",
+                        "writtenAt": "2026-09-06T15:05:56",
+                        "title": "AI 투자 과열 논란",
+                        "writer": {"nickname": "미국주식러", "imageUrl": "https://example.test/avatar.png"},
+                        "recommendCount": 12,
+                        "notRecommendCount": 1,
+                        "commentCount": 3,
+                        "viewCount": 99,
+                    }],
+                },
+            }
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setattr(community_feed.requests, "get", fake_get)
+    stock = {"code": "NVDA", "name": "NVIDIA", "market": "NASDAQ", "markets": ["NASDAQ"]}
+
+    payload = community_feed.build_us_stock_community_feed(stock, limit=12)
+
+    provider = payload["providers"][0]
+    item = provider["items"][0]
+    assert calls[0][0] == community_feed.NAVER_WORLD_DISCUSSION_URL
+    assert calls[0][1]["params"] == {"itemCode": "NVDA.O", "discussionType": "foreignStock"}
+    assert provider["label"] == "네이버 미국증시"
+    assert provider["source"] == "naver_world_stock_board"
+    assert item["url"] == "https://m.stock.naver.com/worldstock/stock/NVDA.O/discussion/428998231"
+    assert item["like_count"] == 12
+    assert item["reply_count"] == 3
+
+
+def test_us_stock_community_feed_endpoint_is_market_scoped(monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "resolve_us_stock",
+        lambda symbol: {"code": "ZZZ", "name": "Test US", "market": "NYSE", "markets": ["NYSE"]},
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_us_stock_community_feed",
+        lambda stock, **kwargs: {
+            "code": stock["code"],
+            "name": stock["name"],
+            "as_of": datetime.utcnow(),
+            "message": "네이버 미국증시 종목토론방",
+            "providers": [],
+        },
+    )
+
+    response = TestClient(app).get("/us/stocks/ZZZ/community-feed")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"].startswith("no-store")
+    assert response.json()["message"] == "네이버 미국증시 종목토론방"
+
+
 def test_threads_keyword_search_is_mapped_with_meta_api(monkeypatch):
     calls = []
 

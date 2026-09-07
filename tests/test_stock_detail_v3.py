@@ -50,6 +50,44 @@ console.log(JSON.stringify(rows));
     }
 
 
+def test_quant_signal_flow_chart_uses_money_and_avoids_total_double_counting():
+    source = TestClient(app).get("/assets/dashboard/app.js").text
+    start = source.index("function quantDailyFlowRows(")
+    end = source.index("function renderQuantDecisionFlowChart(", start)
+    function_source = source[start:end]
+    script = f"""
+function toNumber(value) {{
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}}
+const state = {{ stockFlowRows: [] }};
+{function_source}
+const rows = quantDailyFlowRows([
+  {{ trade_date: "2026-09-01", investor_type: "외국인", net_buy_value: 10 }},
+  {{ trade_date: "2026-09-01", investor_type: "외국인합계", net_buy_value: 100 }},
+  {{ trade_date: "2026-09-01", investor_type: "기관합계", net_buy_value: 200 }},
+  {{ trade_date: "2026-09-01", investor_type: "금융투자", net_buy_value: 50 }},
+  {{ trade_date: "2026-09-02", investor_type: "외국인", net_buy_value: -30 }},
+  {{ trade_date: "2026-09-02", investor_type: "금융투자", net_buy_value: 40 }},
+  {{ trade_date: "2026-09-02", investor_type: "보험", net_buy_value: -10 }},
+  {{ trade_date: "2026-09-03", investor_type: "외국인", net_buy_volume: 999 }},
+], 20);
+console.log(JSON.stringify(rows));
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == [
+        {"date": "2026-09-01", "foreign": 100, "institution": 200},
+        {"date": "2026-09-02", "foreign": -30, "institution": 30},
+    ]
+
+
 def test_chart_pattern_age_moves_with_the_latest_daily_point():
     source = TestClient(app).get("/assets/dashboard/app.js").text
     start = source.index("function chartPatternAgeDays(")
@@ -147,6 +185,7 @@ function formatNumber(value) {{ return String(Number(value)); }}
 function formatPercent(value) {{ return `${{Number(value) >= 0 ? "+" : ""}}${{Number(value).toFixed(2)}}%`; }}
 function quantToneClass(value) {{ return Number(value) >= 0 ? "positive" : "negative"; }}
 function formatDateLabel(value) {{ return String(value || "-"); }}
+function formatQuantPrice(value) {{ return `${{formatNumber(value)}}원`; }}
 {function_source}
 const raw = {{
   display_return_rate: 10.21,
@@ -326,7 +365,13 @@ def test_stock_detail_v3_shell_and_controls():
         'id="quant-signal-chart"',
         'id="quant-current-label"',
         'id="quant-signal-refresh"',
+        'id="quant-public-evidence"',
+        'id="quant-decision-price-chart"',
+        'id="quant-decision-flow-chart"',
         "AI 지금 이렇게 판단해요",
+        "20일·60일·수급만 확인해요",
+        "20일선과 60일선을 확인해요",
+        "외국인과 기관은 움직였을까요?",
         "최근 1년 AI 시그널",
         "모든 매매내역 보기",
         'id="stock-share"',
@@ -348,6 +393,12 @@ def test_stock_detail_v3_shell_and_controls():
 
     source = client.get("/assets/dashboard/app.js").text
     assert 'state.stockPricePeriod = button.dataset.pricePeriod || "1D"' in source
+    assert "function renderQuantDecisionEvidence(" in source
+    assert "function renderQuantDecisionPriceChart(" in source
+    assert "function quantDailyFlowRows(" in source
+    assert "function renderQuantDecisionFlowChart(" in source
+    assert "row?.net_buy_value" in source
+    assert 'node.hidden = isUs;' in source
     assert "function syncStockDetailTabsFixedState()" in source
     assert "function syncStockDetailCommandbarState()" in source
     assert "const shouldShowCompactQuote = stockTop <= -24" in source
@@ -425,6 +476,12 @@ def test_stock_detail_v3_shell_and_controls():
     assert "영업비용이 매출의" in source
     assert "stock-revenue-chart-columns" in source
     styles = client.get("/assets/dashboard/styles.css").text
+    assert ".quant-public-evidence" in styles
+    assert ".quant-evidence-meter" not in styles
+    assert ".quant-candle.up" in styles
+    assert ".quant-flow-bar.foreign" in styles
+    assert "[data-domestic-quant-only][hidden]" in styles
+    assert ".quant-price-levels" not in styles
     assert ".stock-revenue-chart-bar {\n  position: absolute;\n  bottom: 0;" in styles
     assert "display: flex;\n  flex-direction: column-reverse;\n  overflow: hidden;\n  border-radius: 0;" in styles
     assert ".stock-revenue-chart-bar .cost {\n  border-radius: 0;" in styles

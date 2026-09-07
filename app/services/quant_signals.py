@@ -43,6 +43,7 @@ from app.services.signal_entry_evidence import (
     entry_confirmation_decision,
     load_entry_evidence_timeline,
 )
+from app.services.public_signal import build_public_signal_reasons
 
 
 KST = ZoneInfo("Asia/Seoul")
@@ -3063,6 +3064,7 @@ def quant_signal_current_summary_fields(payload: dict[str, Any]) -> dict[str, An
     signal date or resurrecting metrics from a previous closed trade.
     """
 
+    public_reasons = build_public_signal_reasons(payload)
     result = sanitize_pending_entry_signal_payload(payload)
     current = result.get("current") if isinstance(result.get("current"), dict) else {}
     lifecycle = current.get("lifecycle") if isinstance(current.get("lifecycle"), dict) else {}
@@ -3217,6 +3219,7 @@ def quant_signal_current_summary_fields(payload: dict[str, Any]) -> dict[str, An
         "is_current_holding": bool(current.get("position_open")),
         "signal_origin": signal_origin,
         "reconciliation_id": reconciliation_id,
+        "public_reasons": public_reasons,
         "current": current or None,
     }
 
@@ -3582,6 +3585,7 @@ def _market_preliminary_signal_item(
     payload: dict[str, Any],
     now: datetime,
 ) -> Optional[dict[str, Any]]:
+    public_reasons = build_public_signal_reasons(payload)
     payload = sanitize_pending_entry_signal_payload(payload)
     current = payload.get("current")
     if not isinstance(current, dict):
@@ -3628,6 +3632,7 @@ def _market_preliminary_signal_item(
         "updated_at": signal_at,
         "current": current,
         "is_current_holding": bool(current.get("position_open")),
+        "public_reasons": public_reasons,
     }
     display_return_fields = quant_signal_display_return_fields(payload)
     item["return_rate"] = display_return_fields.get("display_return_rate")
@@ -3898,6 +3903,7 @@ def load_market_quant_signal_feed(
             context=None,
             entry_evidence_by_date=evidence_timeline,
         )
+        public_reasons = build_public_signal_reasons(payload)
         current = payload.get("current") if isinstance(payload.get("current"), dict) else None
         events = payload.get("events") or []
         previous_tracking = retention_state.get(code, {})
@@ -4090,6 +4096,7 @@ def load_market_quant_signal_feed(
                 "state_after": event.get("state_after"),
                 "status": "confirmed",
                 "is_preliminary": False,
+                "public_reasons": public_reasons,
             }
             item.update(
                 _market_signal_universe_fields(

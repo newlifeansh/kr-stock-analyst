@@ -8,14 +8,17 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from email.utils import parsedate_to_datetime
+from html import unescape
 from pathlib import Path
 from statistics import mean
 from typing import Optional
 from zoneinfo import ZoneInfo
 
 import requests
+from bs4 import BeautifulSoup
 
 from app.services.stock_dashboard import _chart_analysis, _rate, _round_decimal
+from app.services.public_signal import build_public_signal_reasons
 from app.services.ttl_cache import TTLCache
 
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -30,6 +33,8 @@ YAHOO_TIMESERIES_URLS = (
     "https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{symbol}",
     "https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{symbol}",
 )
+NAVER_NEWS_SEARCH_URL = "https://search.naver.com/search.naver"
+NAVER_WORLD_LOCAL_NEWS_URL = "https://m.stock.naver.com/front-api/news/worldStock/local/list"
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 US_CACHE = TTLCache(maxsize=2048)
@@ -40,6 +45,7 @@ US_SECTOR_CLOSED_TTL_SECONDS = 300
 US_HEADERS = {"User-Agent": "Mozilla/5.0"}
 SEC_HEADERS = {"User-Agent": "secret-note-us-dashboard/0.1 local research app"}
 NEW_YORK_TZ = ZoneInfo("America/New_York")
+KOREA_TZ = ZoneInfo("Asia/Seoul")
 
 US_FUNDAMENTAL_TYPES: tuple[str, ...] = (
     "trailingPeRatio",
@@ -976,6 +982,389 @@ def _google_news_items(
     return rows
 
 
+def _parse_naver_search_datetime(
+    value: object,
+    now: Optional[datetime] = None,
+) -> Optional[datetime]:
+    text = " ".join(str(value or "").split()).replace("새 창 열림", "").strip()
+    if not text:
+        return None
+    current = now or datetime.now(KOREA_TZ)
+    relative = re.fullmatch(r"(\d+)\s*(분|시간|일)\s*전", text)
+    if relative:
+        amount = int(relative.group(1))
+        unit = relative.group(2)
+        delta = (
+            timedelta(minutes=amount)
+            if unit == "분"
+            else timedelta(hours=amount)
+            if unit == "시간"
+            else timedelta(days=amount)
+        )
+        return (current - delta).replace(tzinfo=None)
+    if text == "어제":
+        return (current - timedelta(days=1)).replace(tzinfo=None)
+    for fmt in ("%Y.%m.%d. %H:%M", "%Y.%m.%d %H:%M", "%Y.%m.%d.", "%Y.%m.%d"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _naver_news_query_candidates(stock: dict[str, object]) -> list[str]:
+    code = str(stock.get("code") or "").strip().upper()
+    aliases = list(US_KOREAN_ALIASES.get(code, ()))
+    name = str(stock.get("name") or "").strip()
+    candidates: list[str] = []
+    if name:
+        candidates.append(name)
+    candidates.extend(
+        str(alias).strip()
+        for alias in aliases
+        if str(alias).strip().casefold() != code.casefold()
+    )
+    candidates.append(code)
+    unique: list[str] = []
+    seen: set[str] = set()
+    for query in candidates:
+        cleaned = " ".join(query.split()).strip()
+        key = cleaned.casefold()
+        if not cleaned or key in seen:
+            continue
+        seen.add(key)
+        unique.append(cleaned)
+    return unique
+
+
+def _us_news_identity_terms(stock: dict[str, object]) -> set[str]:
+    """Return conservative title terms used to keep news tied to one ticker."""
+    code = str(stock.get("code") or "").strip().upper()
+    name = str(stock.get("name") or "").strip()
+    terms = {
+        value
+        for value in (
+            code.lower(),
+            code.replace(".", "-").lower(),
+            code.replace("-", ".").lower(),
+        )
+        if len(value) >= 2
+    }
+    terms.update(str(alias).strip().lower() for alias in US_KOREAN_ALIASES.get(code, ()))
+    # Keep meaningful words from the original company name. Registry/share
+    # boilerplate is not an identity signal and creates false positives.
+    ignored = {"new", "york", "registry", "shares", "class", "the", *US_COMPANY_SUFFIXES}
+    terms.update(
+        token.lower()
+        for token in re.findall(r"[A-Za-z]{3,}|[가-힣]{2,}", name)
+        if token.lower() not in ignored
+    )
+    return {term for term in terms if term}
+
+
+def _us_news_title_matches_stock(title: object, stock: dict[str, object]) -> bool:
+    text = " ".join(str(title or "").split()).lower()
+    if not text:
+        return False
+    return any(term in text for term in _us_news_identity_terms(stock))
+
+
+def _filter_us_news_for_stock(
+    rows: list[dict[str, object]],
+    stock: dict[str, object],
+    *,
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    """Drop broad market headlines that a per-stock feed can return."""
+    filtered: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        title = " ".join(str(item.get("title") or "").split()).strip()
+        url = str(item.get("url") or item.get("link") or "").strip()
+        if not title or not url or not _us_news_title_matches_stock(title, stock):
+            continue
+        key = url or title
+        if key in seen:
+            continue
+        seen.add(key)
+        filtered.append({**item, "title": title, "url": url})
+        if len(filtered) >= limit:
+            break
+    return filtered
+
+
+def _naver_world_news_code_candidates(stock: dict[str, object]) -> list[str]:
+    """Return the Reuters-style code used by Naver's US stock news API."""
+    base = str(stock.get("code") or "").strip().upper().replace(".", "-")
+    if not base:
+        return []
+    markets = {str(value).upper() for value in (stock.get("markets") or [])}
+    market = str(stock.get("market") or "").upper()
+    if market:
+        markets.add(market)
+    if "NASDAQ" in markets or "AMEX" in markets:
+        return [f"{base}.O"]
+    if "NYSE" in markets:
+        return [f"{base}.N"]
+    return [f"{base}.O", f"{base}.N", f"{base}.A"]
+
+
+def _parse_naver_world_local_news_payload(
+    payload: object,
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    if not isinstance(payload, dict):
+        return []
+    rows: list[dict[str, object]] = []
+    for item in (payload.get("result") or [])[:limit]:
+        if not isinstance(item, dict):
+            continue
+        title = unescape(" ".join(str(item.get("title") or "").split())).strip()
+        office_id = str(item.get("officeId") or "").strip()
+        article_id = str(item.get("articleId") or "").strip()
+        if not title or not re.search(r"[가-힣]", title) or not office_id or not article_id:
+            continue
+        published_at = None
+        raw_datetime = str(item.get("datetime") or "").strip()
+        if raw_datetime:
+            try:
+                published_at = datetime.strptime(raw_datetime, "%Y%m%d%H%M")
+            except ValueError:
+                published_at = None
+        rows.append(
+            {
+                "title": title,
+                "source": str(item.get("officeName") or "네이버 뉴스").strip() or "네이버 뉴스",
+                "url": f"https://n.news.naver.com/mnews/article/{office_id}/{article_id}",
+                "published_at": published_at,
+            }
+        )
+    return rows
+
+
+def _naver_world_local_news_items(
+    symbol: str,
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    try:
+        stock = resolve_us_stock(symbol)
+    except Exception:
+        stock = {"code": _symbol(symbol), "name": ""}
+    rows: list[dict[str, object]] = []
+    seen: set[str] = set()
+    last_error: Exception | None = None
+    for reuters_code in _naver_world_news_code_candidates(stock):
+        try:
+            response = requests.get(
+                NAVER_WORLD_LOCAL_NEWS_URL,
+                params={"reutersCode": reuters_code, "page": 1, "pageSize": limit},
+                headers={**US_HEADERS, "Referer": "https://m.stock.naver.com/worldstock/"},
+                timeout=12,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            last_error = exc
+            continue
+        for item in _parse_naver_world_local_news_payload(payload, limit=limit):
+            url = str(item.get("url") or "").strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            rows.append(item)
+            if len(rows) >= limit:
+                return rows
+        if rows:
+            return rows[:limit]
+    if not rows and last_error is not None:
+        raise last_error
+    return rows
+
+
+def _parse_naver_news_search_html(html: str, limit: int = 10) -> list[dict[str, object]]:
+    soup = BeautifulSoup(html, "html.parser")
+    rows: list[dict[str, object]] = []
+    for title_link in soup.select('a[data-heatmap-target=".tit"]')[:limit]:
+        title_node = title_link.select_one(".sds-comps-text-type-headline1")
+        title = " ".join((title_node or title_link).get_text(" ", strip=True).split())
+        title = title.replace("새 창 열림", "").strip()
+        url = str(title_link.get("href") or "").strip()
+        if not title or not url or not re.search(r"[가-힣]", title):
+            continue
+        card = title_link
+        for _ in range(6):
+            card = card.parent
+            if card is None:
+                break
+            if (
+                card.select_one(".sds-comps-profile-info-title-text")
+                and card.select_one(".sds-comps-profile-info-subtext")
+            ):
+                break
+        if card is None:
+            continue
+        source_node = card.select_one(".sds-comps-profile-info-title-text")
+        source = (
+            " ".join(source_node.get_text(" ", strip=True).split())
+            if source_node
+            else ""
+        )
+        source = source.replace("새 창 열림", "").strip() or "네이버 뉴스"
+        date_node = card.select_one(".sds-comps-profile-info-subtext")
+        rows.append(
+            {
+                "title": title,
+                "source": source,
+                "url": url,
+                "published_at": _parse_naver_search_datetime(date_node.get_text(" ", strip=True) if date_node else None),
+            }
+        )
+    return rows
+
+
+def _naver_news_items(
+    symbol: str,
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    try:
+        stock = resolve_us_stock(symbol)
+    except Exception:
+        stock = {"code": _symbol(symbol), "name": ""}
+    rows: list[dict[str, object]] = []
+    seen: set[str] = set()
+    last_error: Exception | None = None
+    for query in _naver_news_query_candidates(stock):
+        try:
+            response = requests.get(
+                NAVER_NEWS_SEARCH_URL,
+                # Naver's relevance ordering is required here. Its latest-first
+                # mode can turn an exact company query into a broad market feed.
+                params={"where": "news", "query": query, "sort": "0"},
+                headers=US_HEADERS,
+                timeout=12,
+            )
+            response.raise_for_status()
+        except Exception as exc:
+            last_error = exc
+            continue
+        for item in _parse_naver_news_search_html(response.text, limit=max(limit * 2, 20)):
+            if not _us_news_title_matches_stock(item.get("title"), stock):
+                continue
+            url = str(item.get("url") or "").strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            rows.append(item)
+            if len(rows) >= limit:
+                return rows
+    if not rows and last_error is not None:
+        raise last_error
+    return rows
+
+
+def _yahoo_news_thumbnail(item: dict[str, object]) -> Optional[str]:
+    thumbnail = item.get("thumbnail")
+    resolutions = thumbnail.get("resolutions") if isinstance(thumbnail, dict) else None
+    if not isinstance(resolutions, list):
+        return None
+    preferred = next(
+        (
+            resolution.get("url")
+            for resolution in resolutions
+            if isinstance(resolution, dict)
+            and resolution.get("url")
+            and resolution.get("tag") == "140x140"
+        ),
+        None,
+    )
+    if preferred:
+        return str(preferred)
+    first = next(
+        (
+            resolution.get("url")
+            for resolution in resolutions
+            if isinstance(resolution, dict) and resolution.get("url")
+        ),
+        None,
+    )
+    return str(first) if first else None
+
+
+def _parse_yahoo_news_payload(
+    payload: object,
+    symbol: str,
+    *,
+    stock: Optional[dict[str, object]] = None,
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    """Normalize Yahoo Finance search news into the dashboard article model."""
+    if not isinstance(payload, dict):
+        return []
+    resolved_stock = stock or {"code": _symbol(symbol), "name": ""}
+    normalized_symbol = _symbol(symbol).replace("-", ".").upper()
+    rows: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for item in payload.get("news") or []:
+        if not isinstance(item, dict):
+            continue
+        title = " ".join(str(item.get("title") or "").split()).strip()
+        url = str(item.get("link") or item.get("url") or "").strip()
+        if not title or not url:
+            continue
+        related = {
+            _symbol(str(value)).replace("-", ".").upper()
+            for value in (item.get("relatedTickers") or [])
+            if str(value).strip()
+        }
+        # Yahoo's result list can contain related market stories. Require the
+        # title to mention the requested company so broad Europe/semiconductor
+        # stories do not leak into a per-stock news tab.
+        if related and normalized_symbol not in related:
+            continue
+        if not _us_news_title_matches_stock(title, resolved_stock):
+            continue
+        key = str(item.get("uuid") or url)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "title": title,
+                "source": "Yahoo Finance",
+                "source_category": "overseas",
+                "press_name": str(item.get("publisher") or "Yahoo Finance").strip() or "Yahoo Finance",
+                "url": url,
+                "detail_url": url,
+                "external_id": str(item.get("uuid") or key),
+                "published_at": _parse_epoch_datetime(item.get("providerPublishTime")),
+                "image_url": _yahoo_news_thumbnail(item),
+            }
+        )
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def _yahoo_news_items(symbol: str, limit: int = 10) -> list[dict[str, object]]:
+    code = _symbol(symbol)
+    if not code:
+        return []
+    cache_key = ("yahoo_news", code, limit)
+
+    def load() -> list[dict[str, object]]:
+        try:
+            stock = resolve_us_stock(code)
+            payload = _search_yahoo(code, limit=1, news_count=max(limit, 10))
+            return _parse_yahoo_news_payload(payload, code, stock=stock, limit=limit)
+        except Exception:
+            # News availability must not make the quote/dashboard unavailable.
+            return []
+
+    return US_CACHE.get_or_set(cache_key, US_TTL_SECONDS, load)
+
+
 def _chart_has_prices(result: dict[str, object]) -> bool:
     quote = (result.get("indicators", {}).get("quote") or [{}])[0]
     closes = quote.get("close") or []
@@ -1254,11 +1643,12 @@ def us_intraday_prices(
     refresh: bool = False,
 ) -> dict[str, object]:
     stock = resolve_us_stock(symbol)
+    session = _us_market_session()
     result = fetch_chart_range(
         stock["code"],
         range_=range_,
         interval=interval,
-        include_prepost=False,
+        include_prepost=session["session"] in {"premarket", "afterhours"},
         refresh=refresh,
     )
     meta = result.get("meta") or {}
@@ -1284,7 +1674,6 @@ def us_intraday_prices(
             "price": close,
             "volume": int(volume) if volume is not None else None,
         })
-    session = _us_market_session()
     return {
         "code": stock["code"],
         "source": "Yahoo Finance",
@@ -1296,13 +1685,39 @@ def us_intraday_prices(
         "range": range_,
         "interval": interval,
         "trade_date": points[-1]["trade_date"] if points else None,
-        "reference_price": _to_decimal(meta.get("chartPreviousClose")) or _to_decimal(meta.get("previousClose")),
+        "reference_price": _us_intraday_reference_price(meta),
         "points": points,
     }
 
 
 def _nth_from_end(items: list[USPrice], offset: int) -> Optional[USPrice]:
     return items[-1 - offset] if len(items) > offset else None
+
+
+def _us_previous_close(
+    meta: dict[str, object],
+    fallback: Optional[Decimal] = None,
+) -> Optional[Decimal]:
+    return (
+        _to_decimal(meta.get("regularMarketPreviousClose"))
+        or fallback
+        or _to_decimal(meta.get("previousClose"))
+        or _to_decimal(meta.get("chartPreviousClose"))
+    )
+
+
+def _us_intraday_reference_price(meta: dict[str, object]) -> Optional[Decimal]:
+    reference = (
+        _to_decimal(meta.get("regularMarketPreviousClose"))
+        or _to_decimal(meta.get("previousClose"))
+    )
+    if reference is not None:
+        return reference
+    price = _to_decimal(meta.get("regularMarketPrice"))
+    change_rate = _to_decimal(meta.get("regularMarketChangePercent"))
+    if price is not None and change_rate is not None and change_rate != Decimal("-100"):
+        return price / (Decimal("1") + change_rate / Decimal("100"))
+    return _to_decimal(meta.get("chartPreviousClose"))
 
 
 def _momentum(prices: list[USPrice]) -> dict[str, object]:
@@ -1473,61 +1888,24 @@ def resolve_us_stock(query: str) -> dict[str, object]:
 
 
 def _news(symbol: str) -> list[dict[str, object]]:
-    queries = [symbol]
-    google_queries = []
     try:
         stock = resolve_us_stock(symbol)
-        queries.append(stock["code"])
-        if stock.get("name"):
-            google_queries.append(f'"{stock["name"]}" OR {stock["code"]} stock')
     except Exception:
-        pass
-    queries.extend(_chart_symbol_candidates(symbol))
-    rows = []
-    seen: set[str] = set()
-    for query in dict.fromkeys(google_queries):
+        stock = {"code": _symbol(symbol), "name": ""}
+    for loader in (_naver_world_local_news_items, _naver_news_items):
         try:
-            items = _google_news_items(query, limit=10, language="ko")
+            rows = []
+            for item in loader(symbol, limit=10):
+                title = str(item.get("title") or "").strip()
+                if not title or not re.search(r"[가-힣]", title):
+                    continue
+                rows.append(item)
+            filtered = _filter_us_news_for_stock(rows, stock, limit=10)
+            if filtered:
+                return filtered
         except Exception:
             continue
-        for item in items:
-            title = str(item.get("title") or "").strip()
-            if not re.search(r"[가-힣]", title):
-                continue
-            url = item.get("url") or item.get("title")
-            if not url or str(url) in seen:
-                continue
-            seen.add(str(url))
-            rows.append(item)
-            if len(rows) >= 10:
-                return rows
-    for query in dict.fromkeys(item for item in queries if str(item or "").strip()):
-        try:
-            payload = _search_yahoo(str(query), limit=1, news_count=10)
-        except Exception:
-            continue
-        for item in payload.get("news") or []:
-            title = str(item.get("title") or "").strip()
-            if not re.search(r"[가-힣]", title):
-                continue
-            url = item.get("link") or item.get("uuid") or item.get("title")
-            if not url or str(url) in seen:
-                continue
-            seen.add(str(url))
-            published_at = None
-            if item.get("providerPublishTime"):
-                published_at = datetime.fromtimestamp(item["providerPublishTime"], timezone.utc)
-            rows.append(
-                {
-                    "title": title,
-                    "source": item.get("publisher") or "Yahoo Finance",
-                    "url": item.get("link"),
-                    "published_at": published_at,
-                }
-            )
-            if len(rows) >= 10:
-                return rows
-    return rows[:10]
+    return []
 
 
 def _financial_series_rows(
@@ -1731,7 +2109,11 @@ def _recommendation_key_label(key: object, mean: Optional[Decimal] = None) -> Op
     return None
 
 
-def _research_from_quote_summary(summary: dict[str, object]) -> dict[str, object]:
+def _research_from_quote_summary(
+    summary: dict[str, object],
+    *,
+    now: datetime | None = None,
+) -> dict[str, object]:
     financial = summary.get("financialData") if isinstance(summary.get("financialData"), dict) else {}
     trend = summary.get("recommendationTrend") if isinstance(summary.get("recommendationTrend"), dict) else {}
     history = summary.get("upgradeDowngradeHistory") if isinstance(summary.get("upgradeDowngradeHistory"), dict) else {}
@@ -1748,14 +2130,14 @@ def _research_from_quote_summary(summary: dict[str, object]) -> dict[str, object
     positive_trend = trend_counts["strongBuy"] + trend_counts["buy"]
     negative_trend = trend_counts["sell"] + trend_counts["strongSell"]
 
-    now = datetime.now(timezone.utc)
+    current_time = now or datetime.now(timezone.utc)
     history_rows = []
     if isinstance(history, dict):
         for row in history.get("history") or []:
             if not isinstance(row, dict):
                 continue
             report_at = _parse_epoch_datetime(row.get("epochGradeDate"))
-            if report_at and report_at < now - timedelta(days=90):
+            if report_at and report_at < current_time - timedelta(days=90):
                 continue
             history_rows.append({**row, "report_at": report_at})
 
@@ -1928,10 +2310,22 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
     meta, prices = chart_prices(stock["code"], refresh=refresh, limit=250)
     latest = prices[-1] if prices else None
     previous = _nth_from_end(prices, 1)
-    price = _to_decimal(meta.get("regularMarketPrice")) or (latest.close if latest else None)
+    market_session = _us_market_session()
+    session_price_key = {
+        "premarket": "preMarketPrice",
+        "afterhours": "postMarketPrice",
+    }.get(str(market_session["session"]))
+    price = (
+        _to_decimal(meta.get(session_price_key)) if session_price_key else None
+    ) or _to_decimal(meta.get("regularMarketPrice")) or (latest.close if latest else None)
+    previous_close = _us_previous_close(meta, previous.close if previous else None)
+    day_high = _to_decimal(meta.get("regularMarketDayHigh"))
+    day_low = _to_decimal(meta.get("regularMarketDayLow"))
     volume = meta.get("regularMarketVolume") or (latest.volume if latest else None)
     trading_value = price * Decimal(str(volume)) if price is not None and volume is not None else None
-    news_items = _classify_us_news(_news(stock["code"]))
+    domestic_news_items = _classify_us_news(_news(stock["code"]))
+    overseas_news_items = _classify_us_news(_yahoo_news_items(stock["code"], limit=10))
+    news_items = [*domestic_news_items, *overseas_news_items]
     sentiment_points = [Decimal(str(item.get("sentiment_score") or 0)) for item in news_items]
     positive = sum(1 for item in news_items if item.get("sentiment") == "positive")
     negative = sum(1 for item in news_items if item.get("sentiment") == "negative")
@@ -1940,7 +2334,6 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
     chart = _chart_analysis(prices)
     momentum = _momentum(prices)
     flows = _us_liquidity_proxy(stock, momentum)
-    market_session = _us_market_session()
     try:
         fundamentals = fetch_us_fundamentals(stock["code"], refresh=refresh)
     except Exception:
@@ -1992,8 +2385,11 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
         "quote": {
             "trade_date": latest.trade_date if latest else None,
             "price": price,
-            "change_value": price - previous.close if price is not None and previous and previous.close is not None else None,
-            "change_rate": _rate(price, previous.close if previous else None),
+            "previous_close": previous_close,
+            "change_value": price - previous_close if price is not None and previous_close is not None else None,
+            "change_rate": _rate(price, previous_close),
+            "day_high": day_high,
+            "day_low": day_low,
             "volume": int(volume) if volume is not None else None,
             "trading_value": trading_value,
             "market_cap": financials.get("market_cap"),
@@ -2055,7 +2451,13 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
             "positive_count": positive,
             "negative_count": negative,
             "neutral_count": neutral,
-            "latest_items": news_items,
+            # Keep latest_items as the Korean domestic feed for compatibility;
+            # the explicit collections power the domestic/overseas tabs.
+            "latest_items": domestic_news_items,
+            "domestic_items": domestic_news_items,
+            "overseas_items": overseas_news_items,
+            "domestic_source": "Naver News",
+            "overseas_source": "Yahoo Finance",
         },
         "coverage": {
             "price": bool(prices),
@@ -2067,7 +2469,7 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
             ),
             "research_proxy": bool(research.get("report_count_90d")),
             "disclosure": bool(filings),
-            "news": bool(news_items),
+            "news": bool(domestic_news_items or overseas_news_items),
             "valuation": bool(financials.get("per") or financials.get("pbr") or financials.get("ttm_eps")),
             "macro_sensitivity": True,
         },
@@ -2097,6 +2499,18 @@ def _us_market_label(market: str = "ALL") -> str:
     if normalized in {"SP500", "S&P500", "S&P_500"}:
         return "S&P 500"
     return "전체 미장"
+
+
+def _us_recommendation_universe() -> list[dict[str, object]]:
+    preferred_codes = list(dict.fromkeys(
+        str(item["code"])
+        for item in [*_FALLBACK_NASDAQ_UNIVERSE, *_FALLBACK_SP500_UNIVERSE]
+    ))
+    return [
+        US_UNIVERSE_BY_CODE[code]
+        for code in preferred_codes
+        if code in US_UNIVERSE_BY_CODE
+    ]
 
 
 def _quote_batch_dashboards(universe: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -2173,6 +2587,8 @@ def build_us_rankings(
     limit: int = 20,
     market: str = "ALL",
     mode: str = "",
+    *,
+    universe_override: Optional[list[dict[str, object]]] = None,
 ) -> dict[str, object]:
     category = category if category in {
         "surge",
@@ -2186,7 +2602,7 @@ def build_us_rankings(
         "sentiment",
     } else "surge"
     normalized_mode = str(mode or "").strip().lower()
-    universe = _us_universe_for_market(market)
+    universe = universe_override if universe_override is not None else _us_universe_for_market(market)
     bulk_supported = category != "sentiment" and not (
         category == "surge" and normalized_mode in {"week", "weekly", "month", "monthly"}
     )
@@ -2287,76 +2703,198 @@ def build_us_rankings(
 
 
 def build_us_recommendations(limit: int = 8, candidate_limit: int = 30) -> dict[str, object]:
-    rankings = build_us_rankings("momentum", limit=max(candidate_limit, limit), market="ALL")
+    now = datetime.now(timezone.utc)
+    rankings = build_us_rankings(
+        "momentum",
+        limit=max(candidate_limit, limit),
+        market="ALL",
+        universe_override=_us_recommendation_universe(),
+    )
     items = []
     for payload in rankings["items"][:candidate_limit]:
-        dashboard = _dashboard_cached(payload["code"])
-        if not dashboard:
-            continue
-        chart = dashboard["chart_analysis"]
-        momentum = dashboard["momentum"]
-        quote = dashboard["quote"]
-        sentiment = dashboard["sentiment"]
-        valuation = dashboard.get("valuation") or {}
-        score = Decimal("0")
-        score += Decimal(str(chart.get("score") or 0)) * Decimal("0.45")
-        score += max(Decimal("0"), Decimal(str(momentum.get("one_month_return") or 0))) * Decimal("0.35")
-        score += max(Decimal("0"), Decimal(str(sentiment.get("score") or 0))) * Decimal("0.12")
-        if any(valuation.get(key) is not None for key in ("per", "pbr", "industry_per", "per_zscore", "pbr_zscore")):
-            value_score = _valuation_score(valuation)
-            score += value_score * Decimal("0.08")
+        one_month_return = Decimal(str(payload.get("one_month_return") or 0))
+        three_month_return = Decimal(str(payload.get("three_month_return") or 0))
+        change_rate = Decimal(str(payload.get("change_rate") or 0))
+        price_momentum_score = max(
+            Decimal("0"),
+            min(
+                Decimal("100"),
+                Decimal("50")
+                + one_month_return * Decimal("1.2")
+                + three_month_return * Decimal("0.35")
+                + change_rate * Decimal("0.25"),
+            ),
+        )
+        valuation = {"per": payload.get("per"), "pbr": payload.get("pbr")}
+        value_score = _valuation_score(valuation)
+        liquidity_score = Decimal("60") if payload.get("trading_value") else Decimal("45")
+        sentiment_score = max(
+            Decimal("0"),
+            min(Decimal("100"), Decimal("50") + Decimal(str(payload.get("sentiment_score") or 0))),
+        )
+        score = (
+            price_momentum_score * Decimal("0.65")
+            + value_score * Decimal("0.15")
+            + liquidity_score * Decimal("0.12")
+            + sentiment_score * Decimal("0.08")
+        )
         score = _round_decimal(min(Decimal("100"), score)) or Decimal("0")
+        trend = "상승" if price_momentum_score >= Decimal("58") else "조정" if price_momentum_score < Decimal("45") else "중립"
+        chart = {
+            "score": _round_decimal(price_momentum_score),
+            "trend": trend,
+            "risks": ["배치 시세 기반 예비 판단이라 종목 상세에서 최신 차트와 뉴스를 다시 확인해야 합니다."],
+        }
         reasons = [
             f"차트 점수 {chart.get('score')}점, {chart.get('trend')} 흐름",
-            f"1개월 {momentum.get('one_month_return') or 0}%, 3개월 {momentum.get('three_month_return') or 0}% 모멘텀",
-            "Nasdaq-100·S&P 500 전체 구성종목 후보군 안에서 계산",
+            f"1개월 {one_month_return}%, 3개월 {three_month_return}% 모멘텀",
+            "Nasdaq-100·S&P 500 대표 대형주 후보군 안에서 계산",
         ]
-        if sentiment.get("positive_count"):
-            reasons.append(f"최근 긍정 뉴스 {sentiment.get('positive_count')}건")
         risks = list(chart.get("risks") or [])[:3] or ["무료 데이터 기반이라 실적 추정·ETF/펀드 플로우는 제한적으로 반영"]
+        public_reasons = build_public_signal_reasons(
+            {},
+            context={
+                "as_of": now,
+                "one_month_return": one_month_return,
+                "three_month_return": three_month_return,
+                "trading_value_change": payload.get("trading_value_change"),
+            },
+        )
+        signal_action = "entry_pending" if score >= Decimal("60") else "entry_watch"
+        signal_label = "예비 매수" if signal_action == "entry_pending" else "예비 포착"
+        signal = {
+            "data_state": "ready",
+            "side": "buy",
+            "status": "preliminary",
+            "is_preliminary": True,
+            "signal": signal_label,
+            "signal_date": now.date(),
+            "signal_at": now,
+            "updated_at": now,
+            "price": payload.get("price"),
+            "score": score,
+            "reason": reasons[0],
+            "entry_score_threshold": Decimal("60"),
+            "public_reasons": public_reasons,
+            "events": [],
+            "current": {
+                "action": signal_action,
+                "label": signal_label,
+                "position_open": False,
+                "model_exposure_percent": Decimal("0"),
+                "live_observation": False,
+                "score": score,
+                "price": payload.get("price"),
+                "as_of": now,
+                "reasons": reasons[:3],
+                "next_confirmation": "다음 미국 정규장 종가에서 추세와 거래량 조건을 다시 확인합니다.",
+                "lifecycle": {
+                    "latest_transition": {
+                        "label": signal_label,
+                        "side": "buy",
+                        "signal_at": now,
+                        "signal_date": now.date(),
+                        "transition_date": now.date(),
+                        "price": payload.get("price"),
+                    }
+                },
+            },
+        }
         items.append(
             {
                 "rank": 0,
-                "code": dashboard["code"],
-                "name": dashboard["name"],
-                "market": dashboard["market"],
+                "code": payload["code"],
+                "name": payload["name"],
+                "market": payload["market"],
+                "currency": "USD",
+                "sector": (US_UNIVERSE_BY_CODE.get(str(payload["code"])) or {}).get("sector"),
                 "score": score,
                 "action": "관심 매수후보" if score >= 60 else "관망",
-                "price": quote.get("price"),
-                "change_rate": quote.get("change_rate"),
-                "one_month_return": momentum.get("one_month_return"),
-                "three_month_return": momentum.get("three_month_return"),
-                "trading_value": quote.get("trading_value"),
+                "price": payload.get("price"),
+                "change_rate": payload.get("change_rate"),
+                "one_month_return": payload.get("one_month_return"),
+                "three_month_return": payload.get("three_month_return"),
+                "trading_value": payload.get("trading_value"),
+                "trading_value_change": payload.get("trading_value_change"),
                 "component_scores": {
                     "estimate_revision": Decimal("45"),
                     "analyst_revision_ratio": Decimal("45"),
                     "surprise": Decimal("45"),
                     "guidance": Decimal("45"),
-                    "price_momentum": min(Decimal("100"), max(Decimal("0"), Decimal("50") + Decimal(str(momentum.get("one_month_return") or 0)))),
-                    "trading_value": Decimal("60") if quote.get("trading_value") else Decimal("45"),
-                    "valuation": _valuation_score(valuation),
+                    "price_momentum": _round_decimal(price_momentum_score),
+                    "trading_value": liquidity_score,
+                    "valuation": value_score,
                     "macro": Decimal("55"),
                     "flows": Decimal("45"),
-                    "sentiment": min(Decimal("100"), max(Decimal("0"), Decimal("55") + Decimal(str(sentiment.get("score") or 0)) * Decimal("0.45"))),
+                    "sentiment": sentiment_score,
                 },
                 "chart_analysis": chart,
                 "reasons": reasons,
                 "risks": risks,
+                "ai_trade_signal": signal,
             }
         )
     selected = sorted(items, key=lambda item: item["score"], reverse=True)[:limit]
     for index, item in enumerate(selected, start=1):
         item["rank"] = index
     return {
-        "as_of": datetime.now(timezone.utc),
+        "as_of": now,
         "universe_count": len(US_EQUITY_UNIVERSE),
         "candidate_count": min(candidate_limit, len(items)),
         "methodology": [
-            "무료 Yahoo Finance 차트·뉴스 기반",
-            "차트 점수, 1개월/3개월 모멘텀, 거래대금, 뉴스 분위기 중심",
+            "무료 Yahoo Finance 대표 대형주 배치 시세 기반 예비 후보",
+            "1개월/3개월 모멘텀, 거래대금, 밸류에이션 중심",
             "미국 개별주 13F·애널리스트 세부 데이터는 현재 무료 대체값으로 처리",
         ],
         "items": selected,
+    }
+
+
+def build_us_quant_signals(limit: int = 20, recent_days: int = 30) -> dict[str, object]:
+    """Expose US recommendation momentum as explicit preliminary signal candidates.
+
+    The US feed deliberately does not invent filled positions or realized returns.
+    Until a dedicated persisted US execution lifecycle exists, every row remains a
+    preliminary candidate backed by the same chart, momentum, and news evidence as
+    the recommendation surface.
+    """
+    normalized_limit = max(1, min(50, int(limit)))
+    payload = build_us_recommendations(
+        limit=normalized_limit,
+        candidate_limit=max(30, normalized_limit),
+    )
+    as_of = payload.get("as_of") or datetime.now(timezone.utc)
+    items: list[dict[str, object]] = []
+    for recommendation in payload.get("items", []):
+        signal = dict(recommendation.get("ai_trade_signal") or {})
+        current = dict(signal.get("current") or {})
+        if not signal or not current:
+            continue
+        items.append(
+            {
+                **signal,
+                "code": recommendation["code"],
+                "name": recommendation["name"],
+                "market": recommendation.get("market") or "NASDAQ",
+                "currency": "USD",
+                "sector": recommendation.get("sector"),
+                "signal_scope": "market",
+                "price_through": str(signal.get("signal_date") or as_of)[:10],
+                "as_of": as_of,
+                "current": current,
+            }
+        )
+    return {
+        "status": "ready",
+        "strategy_version": "us-momentum-watch-v1",
+        "as_of": as_of,
+        "snapshot_generated_at": as_of,
+        "universe_count": payload.get("universe_count", len(US_EQUITY_UNIVERSE)),
+        "recent_days": max(1, min(90, int(recent_days))),
+        "preliminary_count": len(items),
+        "confirmed_count": 0,
+        "preliminary_history": [],
+        "items": items,
     }
 
 
