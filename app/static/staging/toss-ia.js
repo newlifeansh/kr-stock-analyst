@@ -2787,7 +2787,7 @@
       const market = String(item?.market || button.dataset.market || "");
       const currency = String(item?.currency || button.dataset.currency || "KRW");
       button.dataset.currency = currency;
-      const unsupportedUsdWatch = currency === "USD" && !stagingUsMarketContext;
+      const unsupportedUsdWatch = currency === "USD" && !stagingUsHubContext;
       button.hidden = unsupportedUsdWatch;
       button.disabled = unsupportedUsdWatch;
       if (unsupportedUsdWatch) {
@@ -2870,7 +2870,7 @@
 
         sourceRow.replaceWith(card);
         card.append(sourceRow);
-        if (currency !== "USD" || stagingUsMarketContext) card.append(heart);
+        if (currency !== "USD" || stagingUsHubContext) card.append(heart);
         if (sourceMetric) {
           sourceMetric.classList.add("staging-home-ranking-source");
           sourceMetric.hidden = true;
@@ -3959,7 +3959,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260908-public-signal-v103`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260908-unified-market-v104`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }

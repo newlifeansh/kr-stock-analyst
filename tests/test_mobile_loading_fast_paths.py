@@ -505,7 +505,7 @@ def test_stock_async_results_are_scoped_and_same_stock_failure_keeps_last_comple
     assert "state.stockLoadSequence += 1;" in view_source
     assert "state.stockAIRequestSequence += 1;" in view_source
     assert "closeQuoteStream();" in loading_source
-    assert "const sameStock = previousStock?.code === stock.code;" in load_source
+    assert "const sameStock = previousStock?.code === stock.code && stockDashboardIsUs(previousStock) === usStockRequest;" in load_source
     assert "if (!sameStock) {" in load_source
     assert "carryForwardLiveQuoteToDashboard(dashboard, previousDashboard);" in load_source
     assert "error?.status === 503" in load_source
@@ -526,7 +526,7 @@ def test_switching_stocks_clears_previous_stock_content_before_resolution():
     company_reset_source = _function_source(source, "resetStockCompanyAnalysis", "loadStockCompanyAnalysis")
     quote_animation_source = _function_source(source, "animateQuoteNumber", "updateQuoteStrip")
 
-    assert load_source.index("setLoading(normalized);") < load_source.index("await resolveStock(normalized, { usMarket: usStockRequest })")
+    assert load_source.index("setLoading(normalized);") < load_source.index("await resolveStock(normalized, { marketScope: requestedScope })")
     for stock_value in (
         "elements.quotePrice",
         "elements.stockChangeValue",
@@ -570,7 +570,7 @@ def test_mobile_stock_search_is_not_closed_by_background_stock_retries():
         "load(item.name, { resolvedStock: item })"
     )
     assert "const resolvedCandidate = options.resolvedStock;" in load_source
-    assert "candidateMatches ? resolvedCandidate : await resolveStock(normalized, { usMarket: usStockRequest })" in load_source
+    assert "candidateMatches ? resolvedCandidate : await resolveStock(normalized, { marketScope: requestedScope })" in load_source
     assert "state.responseCache.delete(dashboardUrl);" in load_source
     assert "scheduleStockDashboardWarmRefresh(stock);" in load_source
     assert submit_source.index("collapseStockSearch") < submit_source.index("load(query)")

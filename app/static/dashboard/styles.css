@@ -42737,7 +42737,6 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   text-align: left;
   text-decoration: none;
   cursor: pointer;
-  transform: translateZ(0);
   transition: filter 140ms ease, transform 140ms ease;
   -webkit-tap-highlight-color: transparent;
 }
@@ -42862,7 +42861,7 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   #portfolio-view .watch-market-map-tile:hover {
     z-index: 2;
     filter: brightness(1.1);
-    transform: translateZ(0) scale(1.008);
+    transform: scale(1.008);
   }
 }
 
@@ -43572,7 +43571,7 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
 }
 
 .unified-market-scope-tabs button {
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 14px;
   border: 0;
   border-radius: 9px;
@@ -43629,7 +43628,7 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   }
 
   .unified-market-scope-tabs button {
-    min-height: 38px;
+    min-height: 44px;
     padding-inline: 8px;
   }
 }

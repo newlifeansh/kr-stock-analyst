@@ -213,7 +213,7 @@ def test_root_redirects_to_korea_dashboard():
     assert response.headers["location"] == "/dashboard?view=home"
 
 
-def test_us_path_serves_current_dashboard_shell_with_nasdaq_default_without_changing_root():
+def test_us_path_serves_unified_dashboard_shell_without_changing_domestic_root():
     client = TestClient(app, base_url="https://secretnote.cloud")
 
     root = client.get("/", follow_redirects=False)
@@ -224,49 +224,71 @@ def test_us_path_serves_current_dashboard_shell_with_nasdaq_default_without_chan
     assert response.status_code == 200
     assert 'id="home-view"' in response.text
     assert 'id="home-surge"' in response.text
+    assert 'id="unified-market-scope"' in response.text
+    assert 'data-unified-market-scope="all"' in response.text
+    assert 'data-unified-market-scope="kr"' in response.text
+    assert 'data-unified-market-scope="us"' in response.text
+    assert 'data-market-filter="MIXED"' in response.text
     assert 'data-home-ranking-market="NASDAQ"' in response.text
     assert 'src="/dashboard-app-v170.js?v=20260908v493"' in response.text
     assert "시장 한눈에" not in response.text
 
 
-def test_us_surface_isolates_market_data_navigation_and_saved_lists_from_dashboard():
+def test_us_surface_combines_markets_with_scoped_navigation_and_preserves_dashboard():
     client = TestClient(app, base_url="https://secretnote.cloud")
     dashboard_shell = client.get("/dashboard?view=home").text
     us_shell = client.get("/us?view=home").text
     source = client.get("/dashboard-app-v170.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
 
     assert dashboard_shell == us_shell
     assert '<h1 id="login-title">한국증시 비밀노트</h1>' in dashboard_shell
-    assert "const isUsMarketContext = isUsRootPath || isUsStockDetailPath;" in source
+    assert "const isUsHubContext = isUsRootPath || Boolean(usStockPathMatch);" in source
+    assert 'const requestedMarketScope = ["all", "kr", "us"].includes' in source
     assert 'return isUsMarketContext ? `${prefix}.us` : prefix;' in source
-    assert '? `/us/stock/${encodeURIComponent(name)}`' in source
-    assert 'const base = isUsMarketContext ? "/us/watchlists" : "/watchlists";' in source
+    assert 'function ensureUnifiedHomeTop50()' in source
+    assert 'domesticTitle.textContent = "한국 TOP 50";' in source
+    assert 'title.textContent = "미국 TOP 50";' in source
+    assert 'function fetchUnifiedStockSearch(query, limit, signal, marketScope = state.marketScope)' in source
+    assert 'const endpoint = scope === "us" ? "/us/stocks/search" : "/stocks/search";' in source
+    assert 'const base = marketScope === "us" ? "/us/watchlists" : "/watchlists";' in source
     assert '`/us/market/quant-signals?limit=20&recent_days=${recentDays}`' in source
-    assert 'const baseUrl = marketOverviewUrl(`/market/recommendations?limit=${RECOMMENDATION_LIMIT}&candidate_limit=45`);' in source
-    assert 'const trendsUrl = marketOverviewUrl("/market/trends?days=7");' in source
-    assert 'const url = marketStockDashboardUrl(selected.code);' in source
+    assert 'const settled = await Promise.allSettled([fetchScope("kr"), fetchScope("us")]);' in source
+    assert 'async function fetchRecommendationsForScope(options = {})' in source
+    assert 'async function fetchTrendsForScope(options = {})' in source
+    assert 'const url = marketStockDashboardUrl(selected.code, { item: selected });' in source
+    assert 'marketStockDashboardUrl(track.code, { item: track })' in source
+    assert 'connectWatchlistQuoteStream(item.code, item);' in source
     assert 'elements.morningMoneyPopover.hidden = true;' in source
     assert '.filter((option) => option.id !== "morning_briefing")' in source
     assert 'label: "미국장 시작·마감"' in source
     assert '? { key: "confirmation", label: "다음 확인", value: "미국 정규장 종가" }' in source
-    assert 'if (domesticSource) domesticSource.remove();' in source
-    assert source.count("if (!code || isUsMarketContext) return;") >= 2
+    assert 'if (domesticSource) domesticSource.hidden = false;' in source
+    assert 'if (usSource) usSource.hidden = false;' in source
+    assert source.count('if (!code || marketScopeForItem(item) === "us") return;') >= 2
+    assert 'return `/dashboard/${encodeURIComponent(name)}`;' in source
+    unified_scope_styles = styles[styles.index("/* /us unified market hub") :]
+    assert unified_scope_styles.count("min-height: 44px;") >= 2
+    assert ".unified-market-scope-tabs button:focus-visible" in unified_scope_styles
 
 
-def test_us_surface_keeps_the_shared_staging_shell_on_us_routes_and_us_data():
+def test_us_surface_keeps_shared_staging_shell_and_market_scope_routes():
     source = TestClient(app).get("/assets/staging/toss-ia.js").text
 
-    assert 'const stagingUsMarketContext = /^\\/us(?:\\/|$)/.test(window.location.pathname);' in source
-    assert 'const stagingRootPath = stagingUsMarketContext ? "/us" : "/dashboard";' in source
-    assert '? `/us/stock/${encodeURIComponent(code || "")}`' in source
-    assert 'signalChevron.href = `${stagingRootPath}?view=ai-signals`;' in source
+    assert 'const stagingUsHubContext = /^\\/us(?:\\/|$)/.test(window.location.pathname);' in source
+    assert 'const stagingRootPath = stagingUsHubContext ? "/us" : "/dashboard";' in source
+    assert 'const stagingMarketScope = ["all", "kr", "us"].includes' in source
+    assert '? `/us/stock/${encodeURIComponent(code || "")}?market_scope=${/^\\d{6}$/.test' in source
+    assert 'signalChevron.href = stagingUsHubContext' in source
+    assert '? `${stagingRootPath}?view=ai-signals&market_scope=${stagingMarketScope}`' in source
     assert 'if (homeResponse && !stagingUsMarketContext)' in source
     assert '"/us/market/quant-signals?limit=20&recent_days=30"' in source
     assert '"/us/market/trends?days=14"' in source
     assert '`/us/market/rankings?category=${hotCommunityState.mode}${modeQuery}&market=NASDAQ&limit=15`' in source
     assert '`/us/stocks/${encodeURIComponent(normalizedCode)}/community-feed?limit=5`' in source
     assert '"secret-note-staging-recent-stocks-us-v1"' in source
-    assert 'const unsupportedUsdWatch = currency === "USD" && !stagingUsMarketContext;' in source
+    assert 'const unsupportedUsdWatch = currency === "USD" && !stagingUsHubContext;' in source
+    assert 'const upgradeHomeUsRankingRows = () => {' in source
     assert 'rail.querySelector(\'[data-staging-view="morning-briefing"]\')?.remove();' in source
     assert 'if (!stagingUsMarketContext) decorateStagingBriefingArticle();' in source
 
@@ -310,7 +332,7 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="us-stock-ai-content"' in stock_shell.text
     assert 'src="/dashboard-app-v170.js?v=20260908v493"' in stock_shell.text
-    assert 'src="/assets/staging/toss-ia.js?v=20260908-public-signal-v103"' in stock_shell.text
+    assert 'src="/assets/staging/toss-ia.js?v=20260908-unified-market-v104"' in stock_shell.text
     assert "NASDAQ Intelligence" not in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -326,13 +348,16 @@ def test_us_stock_detail_frontend_uses_us_contract_without_domestic_quote_subscr
     load_source = source[source.index("async function loadStockRequest"):source.index("function load(query")]
     stream_source = source[source.index("function connectQuoteStream"):source.index("function closeWatchlistQuoteStreams")]
 
-    assert 'const isUsStockDetailPath = /^\\/us\\/stock\\/[^/]+\\/?$/.test(window.location.pathname);' in source
+    assert 'const usStockPathMatch = window.location.pathname.match(/^\\/us\\/stock\\/([^/]+)\\/?$/);' in source
     assert 'const isUsRootPath = /^\\/us\\/?$/.test(window.location.pathname);' in source
+    assert 'const isUsHubContext = isUsRootPath || Boolean(usStockPathMatch);' in source
+    assert 'const isUsStockDetailPath = Boolean(usStockPathMatch) && !/^\\d{6}$/.test(usStockPathCode);' in source
     assert 'const dashboardUrl = usStockRequest' in load_source
     assert '`/us/stocks/${encodeURIComponent(stock.code)}/dashboard`' in load_source
     assert 'const initialQuoteRequest = usStockRequest ? Promise.resolve(null)' in load_source
     assert "if (!stock?.code || stockDashboardIsUs())" in stream_source
-    assert 'const endpoint = (stockDashboardIsUs() || isUsRootPath) ? "/us/stocks/search" : "/stocks/search";' in source
+    assert 'function fetchUnifiedStockSearch(query, limit, signal, marketScope = state.marketScope)' in source
+    assert 'const endpoint = scope === "us" ? "/us/stocks/search" : "/stocks/search";' in source
     assert 'const analysisBase = stockDashboardIsUs() ? "/us/stocks" : "/stocks";' in source
     assert "function setStockSignalPresentation(isUs)" in source
     assert "function renderUsAIAnalysis(payload)" in source
@@ -345,7 +370,7 @@ def test_us_stock_detail_frontend_uses_us_contract_without_domestic_quote_subscr
     assert 'formatUsdPrice' in source
     assert '미국 동부시간 기준' in source
     assert 'stagingStockPriceText' in toss
-    assert '20260908-public-signal-v103' in toss
+    assert '20260908-unified-market-v104' in toss
     assert 'body[data-stock-market="us"] [data-stock-tab="community"]' not in styles
     assert 'body[data-stock-market="us"] #stock-summary-section > .stock-v3-two-column' not in styles
     assert 'body[data-stock-market="us"] #stock-view [data-staging-chart-period="1D"]' not in styles
@@ -1793,7 +1818,7 @@ def test_stock_research_links_open_in_current_view_and_tab_survives_refresh():
     assert "function naverResearchDetailUrl(row)" in source
     assert 'row?.source !== "naver_finance" || row?.source_category !== "company"' in source
     assert "return naverResearchDetailUrl(row) || naverNewsArticleUrl(row) || row?.pdf_url || row?.detail_url || row?.url || null;" in source
-    assert 'const sameStock = previousStock?.code === stock.code;' in source
+    assert 'const sameStock = previousStock?.code === stock.code && stockDashboardIsUs(previousStock) === usStockRequest;' in source
     assert 'if (previousStock?.code && !sameStock)' in source
     assert 'setActiveStockTab(state.stockActiveTab || "summary", {' in source
     assert "preserveScroll: true," in source
@@ -2090,8 +2115,8 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'showAccessCapacityModal()' in source
     assert 'function trapAccessCapacityFocus(event)' in source
     assert 'main.href = rankingStockUrl(item, state.marketRankingMarket);' in source
-    assert 'row.href = rankingStockUrl(item, state.homeRankingMarket);' in source
-    assert 'link.href = viewStockUrl(item.code || item.name);' in source
+    assert 'row.href = rankingStockUrl(item, selectedMarket);' in source
+    assert 'link.href = viewStockUrl(item.code || item.name, item);' in source
     assert 'aria-label="서비스 유의사항"' in shell
     assert '투자 권유·자문 또는 수익 보장이 아닙니다' in shell
     assert '무료 베타 서비스 안내' not in shell
@@ -2125,7 +2150,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert "function renderNewsPage()" in source
     assert 'const node = el("article", "thread-item");' in source
     assert 'const stockLink = el("a", "thread-tag leader-stock-tag", `#${stock}`);' in source
-    assert 'stockLink.href = viewStockUrl(stock);' in source
+    assert 'stockLink.href = viewStockUrl(stock, item);' in source
     assert '.thread-item-story:focus-visible' in styles
     assert '.thread-item-story > strong {' in styles
     assert 'white-space: normal;' in styles
@@ -2138,8 +2163,8 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'data-news-page-filter="all"' in shell
     assert 'data-news-page-filter="positive"' in shell
     assert 'data-news-page-filter="negative"' in shell
-    assert 'const root = isUsMarketContext ? "/us" : "/dashboard";' in source
-    assert 'return `${root}?view=news&filter=${encodeURIComponent(state.trendNewsFilter || "all")}`;' in source
+    assert 'const root = isUsHubContext ? "/us" : "/dashboard";' in source
+    assert 'return scopedRoute(`${root}?view=news&filter=${encodeURIComponent(state.trendNewsFilter || "all")}`);' in source
     assert ".trend-live-filter:focus-visible" in styles
     assert "min-height: 44px;" in styles
     assert 'maximum-scale=1, user-scalable=no, viewport-fit=cover' in shell
@@ -2352,12 +2377,19 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert "function setHomeSurgeSector" in source
     assert 'homeSurgeSector: "all"' in source
     assert "const items = state.homeSurgeItems.slice(0, 5);" in source
-    assert 'homeRankingMarket: isUsMarketContext' in source
-    assert '? (US_MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "NASDAQ")' in source
+    assert 'homeRankingMarket: isUsRootPath ? "ALL"' in source
+    assert 'const requestedMarketRankingMarket = dashboardQueryParams.get("market") || (isUsRootPath ? "MIXED" : "ALL");' in source
+    assert 'const MARKET_RANKING_MARKETS = new Set(["MIXED", "ALL", "KOSPI", "KOSDAQ", "NASDAQ", "SP500"]);' in source
     assert 'const US_MARKET_RANKING_MARKETS = new Set(["NASDAQ", "SP500"]);' in source
     assert 'const US_MARKET_RANKING_CATEGORIES = new Set(["volume", "surge", "market_cap", "dividend", "per"]);' in source
     assert 'const url = `${usMarket ? "/us/market/rankings" : "/market/rankings"}?${params.toString()}`;' in source
-    assert 'return `/us/stock/${encodeURIComponent(code)}`;' in source
+    assert 'function ensureUnifiedHomeTop50()' in source
+    assert 'domesticTitle.textContent = "한국 TOP 50";' in source
+    assert 'title.textContent = "미국 TOP 50";' in source
+    assert 'async function loadHomeUsRankings(options = {})' in source
+    assert 'state.homeUsSurgeItems = tagMarketItems(payload.items, "us");' in source
+    assert 'if (market === "MIXED") {' in source
+    assert 'return unifiedMarketUrl(`/us/stock/${encodeURIComponent(code)}`, "us");' in source
     assert "const market = homeRankingRequestMarket(category);" in source
     assert "limit: 5" in source
     assert "setMarketFilter(homeRankingRequestMarket(state.rankingCategory));" in source
@@ -2372,7 +2404,7 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert 'elements.homeSurgeSectorFilters.scrollLeft = previousScrollLeft;' in source
     home_ranking_shell = shell[shell.index('id="home-surge"'):shell.index('id="trend-view"')]
     home_ranking_mobile_styles = styles[
-        styles.index('@media (max-width: 480px) {\n  body:not([data-view="stock"]) #home-surge.home-top50 {'):
+        styles.index('@media (max-width: 480px) {\n  body:not([data-view="stock"]) :is(#home-surge, #home-surge-us).home-top50 {'):
         styles.index("/* TOP 50 6.1: market selector sheet")
     ]
     assert home_ranking_shell.index('id="home-surge-list"') < home_ranking_shell.index('id="home-surge-more"')
@@ -2395,7 +2427,7 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert ": item.as_of || item.updated_at;" in source
     assert "function renderHomeAiSignals" in source
     assert "function startHomeMarketSignalTicker" in source
-    assert 'row.href = options.linkToList ? dashboardRouteUrl("ai-signals") : viewStockUrl(item.code || item.name || "");' in source
+    assert 'row.href = options.linkToList ? dashboardRouteUrl("ai-signals") : viewStockUrl(item.code || item.name || "", item);' in source
     assert 'identity.append(el("small", "", "시장 신호"));' in source
     assert 'return { key: "recent-buy", label: "확정 매수", tone: "buy", signalDate' in source
     assert 'return { key: "holding", label: "보유 중", tone: "hold", signalDate' not in source

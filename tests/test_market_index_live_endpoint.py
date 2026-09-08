@@ -77,7 +77,7 @@ def test_dashboard_polls_live_market_indices_without_frontend_cache():
     assert "marketIndexRefreshTimer" in source
     assert 'liveUrl(domesticEndpoint), { force: true, ttlMs: 0 }' in source
     assert 'liveUrl("/market/global-assets?limit=30"), { force: true, ttlMs: 0 }' in source
-    assert 'const activeMarket = isUsMarketContext' in source
+    assert 'const activeMarket = isUsHubContext' in source
     assert 'const intervalMs = activeMarket ? 5_000 : 30_000' in source
 
 
