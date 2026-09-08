@@ -1922,7 +1922,14 @@ def run_e2e_checks(
                           return {
                             heading: section?.querySelector('h2')?.textContent?.trim() || '',
                             modeControlCount: section?.querySelectorAll('[data-news-mode]').length || 0,
-                            tablistCount: section?.querySelectorAll('[role="tablist"]').length || 0,
+                            tablistCount: Array.from(
+                              section?.querySelectorAll('[role="tablist"]') || []
+                            ).filter(node => {
+                              const style = getComputedStyle(node);
+                              return !node.hidden
+                                && style.display !== 'none'
+                                && style.visibility !== 'hidden';
+                            }).length,
                             hasBreakingCopy: section?.innerText.includes('AI 속보') || false,
                             listPresent: Boolean(list),
                             listLive: list?.getAttribute('aria-live') || '',
@@ -2249,6 +2256,24 @@ def run_e2e_checks(
                         "#stock-title-logo:not([hidden]) .stock-title-logo-frame",
                         state="visible",
                         timeout=int(timeout * 1000),
+                    )
+                    _wait_for_ui_contract(
+                        page,
+                        """fixture => {
+                          const logo = document.querySelector('#stock-title-logo');
+                          const frame = logo?.querySelector('.stock-title-logo-frame');
+                          const image = logo?.querySelector('.stock-list-logo-image');
+                          if (logo?.dataset.stockCode !== fixture.code || !frame) return false;
+                          if (fixture.expectedKind === 'fallback') {
+                            return frame.classList.contains('is-fallback');
+                          }
+                          return !frame.classList.contains('is-fallback')
+                            && image?.complete
+                            && image.naturalWidth > 0;
+                        }""",
+                        arg={"code": code, "expectedKind": expected_kind},
+                        stage=f"{code} 종목명·로고 준비",
+                        timeout_ms=int(timeout * 1000),
                     )
                     viewport_evidence: dict[str, Any] = {}
                     for viewport_label, viewport_size in (
@@ -4051,9 +4076,17 @@ def run_e2e_checks(
                       const nativeFetch = window.fetch.bind(window);
                       window.__qaStockSummaryRequests = [];
                       window.__qaStockSummaryReleaseQueue = [];
-                      window.__qaReleaseStockSummary = () => {
-                        const release = window.__qaStockSummaryReleaseQueue.shift();
-                        if (typeof release === 'function') release();
+                      window.__qaReleaseStockSummary = async () => {
+                        const deadline = performance.now() + 5000;
+                        while (performance.now() < deadline) {
+                          const release = window.__qaStockSummaryReleaseQueue.shift();
+                          if (typeof release === 'function') {
+                            release();
+                            return true;
+                          }
+                          await new Promise(resolve => window.setTimeout(resolve, 10));
+                        }
+                        throw new Error('QA stock summary release queue did not receive a request');
                       };
                       window.fetch = (input, init = {}) => {
                         const url = String(input?.url || input || '');

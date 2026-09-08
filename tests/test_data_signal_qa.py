@@ -1071,8 +1071,10 @@ def test_home_ai_response_e2e_unhides_the_fixture_parent_section() -> None:
     assert '!= [["pullback", "breakout", "wait"]]' in case_source
     assert "personal.hidden = false;" in case_source
     assert "window.__qaStockSummaryReleaseQueue = [];" in case_source
-    assert "window.__qaReleaseStockSummary = () =>" in case_source
-    assert "window.setTimeout(release" not in case_source
+    assert "window.__qaReleaseStockSummary = async () =>" in case_source
+    assert "window.__qaStockSummaryReleaseQueue.shift()" in case_source
+    assert "performance.now() + 5000" in case_source
+    assert "window.setTimeout(resolve, 10)" in case_source
     assert case_source.count("window.__qaReleaseStockSummary();") == 3
     assert case_source.index("personal.hidden = false;") < case_source.index(
         'personal.wait_for(state="visible")'
@@ -1080,6 +1082,24 @@ def test_home_ai_response_e2e_unhides_the_fixture_parent_section() -> None:
     assert "document.activeElement?.id === expected" in case_source
     assert 'arg="qa-ai-stock-response-row"' in case_source
     assert "timeout=min(int(timeout * 1000), 3_000)" in case_source
+
+
+def test_stock_detail_e2e_waits_for_visible_news_controls_and_settled_logo() -> None:
+    source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
+    stock_case_source = source.split("def stock_case", 1)[1].split(
+        "def stock_title_logo_case", 1
+    )[0]
+    logo_case_source = source.split("def stock_title_logo_case", 1)[1].split(
+        "def interest_loading_case", 1
+    )[0]
+
+    assert "section?.querySelectorAll('[role=\"tablist\"]')" in stock_case_source
+    assert "!node.hidden" in stock_case_source
+    assert "style.display !== 'none'" in stock_case_source
+    assert "logo?.dataset.stockCode !== fixture.code" in logo_case_source
+    assert "image?.complete" in logo_case_source
+    assert "image.naturalWidth > 0" in logo_case_source
+    assert 'stage=f"{code} 종목명·로고 준비"' in logo_case_source
 
 
 @pytest.mark.qa_gate
