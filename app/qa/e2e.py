@@ -4309,10 +4309,10 @@ def run_e2e_checks(
                     "보유 중",
                     "쉽게 풀어보면",
                     "왜 이렇게 보나요?",
-                    "현재는 매수 관망이 필요해요",
+                    "현재는 20일·60일·수급을 확인하며 기다릴 때예요",
                     "매수 관망",
                     "지금 판단",
-                    "자료가 충분한가요?",
+                    "공개 기준",
                     "확인한 자료",
                     "20일·60일·수급",
                     "현재 주당 가격",
@@ -4470,6 +4470,13 @@ def run_e2e_checks(
                       metricStatuses: Array.from(document.querySelectorAll('.staging-ai-stock-response-metric-status')).map(node => node.textContent?.trim()),
                       sourceCount: Array.from(document.querySelectorAll('.staging-ai-stock-response-metric > footer > span:first-child')).filter(node => node.textContent?.trim()).length,
                       weightCount: Array.from(document.querySelectorAll('.staging-ai-stock-response-metric > footer > span:last-child')).filter(node => /^판단 반영 [0-9]+%$/.test(node.textContent?.trim() || '')).length,
+                      publicReasonCount: document.querySelectorAll('.staging-ai-stock-response-key-reason').length,
+                      publicReasonKeys: Array.from(document.querySelectorAll(
+                        '.staging-ai-stock-response-key-reason'
+                      )).map(node => node.dataset.publicReason),
+                      publicReasonLabels: Array.from(document.querySelectorAll(
+                        '.staging-ai-stock-response-key-reason h4'
+                      )).map(node => node.textContent?.trim()),
                       firstScreenOrder: [
                         '.staging-ai-stock-response-context',
                         '.staging-ai-stock-response-investor-state',
@@ -4477,7 +4484,6 @@ def run_e2e_checks(
                         '.staging-ai-stock-response-guide',
                         '.staging-ai-stock-response-next',
                         '.staging-ai-stock-response-evidence',
-                        '.staging-ai-stock-response-method',
                       ].map(selector => document.querySelector(selector)?.offsetTop || 0),
                       metricLiveRegion: document.querySelector('[data-staging-response-metrics]')?.getAttribute('aria-live'),
                       announcementLiveRegion: document.querySelector('[data-staging-response-announcement]')?.getAttribute('aria-live'),
@@ -4513,7 +4519,7 @@ def run_e2e_checks(
                     or detail_contract.get("pageScrollWidth", 0) > detail_contract.get("viewportWidth", 0) + 1
                     or detail_contract.get("directionLabel") != "지금 판단"
                     or detail_contract.get("directionValue") != "매수 관망"
-                    or detail_contract.get("directionGuide") != "신호가 같은 방향으로 모이는지 기다려요"
+                    or detail_contract.get("directionGuide") != "세 가지 공개 흐름을 함께 확인해요"
                     or detail_contract.get("investorState") != "not_holding"
                     or detail_contract.get("selectedInvestorState") != "not_holding"
                     or detail_contract.get("averagePriceFieldHidden") is not True
@@ -4561,18 +4567,16 @@ def run_e2e_checks(
                     )
                     or abs(float(detail_contract.get("firstOverviewPaddingLeft") or 0) - 12) > 0.5
                     or float(detail_contract.get("firstOverviewTextInset") or 0) < 11
-                    or detail_contract.get("metricCount") != 6
-                    or detail_contract.get("metricLabels") != [
-                        "가격 흐름",
-                        "외국인·기관 매매",
-                        "회사 공식 공시",
-                        "최근 뉴스 분위기",
-                        "증권사 리포트",
-                        "금리·환율·업종 환경",
-                    ]
-                    or len(detail_contract.get("metricStatuses") or []) != 6
-                    or detail_contract.get("sourceCount") != 6
-                    or detail_contract.get("weightCount") != 6
+                    or detail_contract.get("metricCount") != 0
+                    or detail_contract.get("metricLabels") != []
+                    or detail_contract.get("metricStatuses") != []
+                    or detail_contract.get("sourceCount") != 0
+                    or detail_contract.get("weightCount") != 0
+                    or detail_contract.get("publicReasonCount") != 3
+                    or detail_contract.get("publicReasonKeys")
+                    != ["trend_20d", "trend_60d", "flow"]
+                    or detail_contract.get("publicReasonLabels")
+                    != ["20일", "60일", "수급"]
                     or detail_contract.get("firstScreenOrder") != sorted(
                         detail_contract.get("firstScreenOrder") or []
                     )
@@ -5073,8 +5077,8 @@ def run_e2e_checks(
                             overviewColumns: getComputedStyle(
                               document.querySelector('.staging-ai-stock-response-overview')
                             ).gridTemplateColumns,
-                            methodColumns: getComputedStyle(
-                              document.querySelector('.staging-ai-stock-response-method dl > div')
+                            publicReasonColumns: getComputedStyle(
+                              document.querySelector('.staging-ai-stock-response-key-reasons')
                             ).gridTemplateColumns,
                           };
                         }"""
