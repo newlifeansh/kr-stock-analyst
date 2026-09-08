@@ -1503,8 +1503,8 @@ def test_home_trend_payload_refreshes_ai_response() -> None:
     assert "loadHomeMarketImpact({ force, ttlMs: 0 })" in refresh_logic
     assert "refreshUsSectorMoves({ force, ttlMs: 0 })" in refresh_logic
     assert 'quant-signals${force ? "?refresh=1" : ""}' in source
-    assert 'liveUrl(`${trendsUrl}&refresh=true`)' in source
-    assert 'const trendsUrl = marketOverviewUrl("/market/trends?days=7")' in source
+    assert 'liveUrl(`${endpoint}&refresh=true`)' in source
+    assert 'const endpoint = `${base}/market/trends?days=${days}`;' in source
     assert "startHomeAiResponseRefresh();" in source
     assert "connectUsSectorStream();" in source
 
@@ -1638,7 +1638,7 @@ def test_home_ai_response_is_personalized_from_interest_stocks_and_dominant_even
     assert 'match.relation >= 60 ? "민감 업종" : "참고"' in interest_logic
     assert "const responseLimit = 2;" in interest_logic
     assert "candidates.length >= responseLimit" in interest_logic
-    assert 'row.href = viewStockUrl(item.code || item.name || "");' in interest_logic
+    assert 'row.href = viewStockUrl(item.code || item.name || "", item);' in interest_logic
     assert '`${homeInterestContextLabel(selection.context)} · ${watchlistTheme(match.item)} 연관' in interest_logic
     assert '"현재 관심종목과 직접 연결되는 주요 이벤트가 없습니다. 새로운 뉴스·일정이 확인되면 바로 반영합니다."' in interest_logic
     assert "function isUserHoldingSignal" not in source

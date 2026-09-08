@@ -2304,30 +2304,30 @@ body .desk-header button.desk-star,
 }
 
 /* TOP50 categories reveal a second filter bar only after interaction. */
-body:not([data-view="stock"]) #home-surge.home-top50 .home-ranking-subfilters {
+body:not([data-view="stock"]) :is(#home-surge, #home-surge-us).home-top50 .home-ranking-subfilters {
   color: var(--dark-text-secondary) !important;
   background: var(--dark-surface-strong) !important;
   border-color: var(--dark-border) !important;
 }
 
-body:not([data-view="stock"]) #home-surge.home-top50 .home-ranking-subfilters button {
+body:not([data-view="stock"]) :is(#home-surge, #home-surge-us).home-top50 .home-ranking-subfilters button {
   color: var(--dark-text-secondary) !important;
   background: transparent !important;
   border-color: transparent !important;
 }
 
-body:not([data-view="stock"]) #home-surge.home-top50 .home-ranking-subfilters button.active {
+body:not([data-view="stock"]) :is(#home-surge, #home-surge-us).home-top50 .home-ranking-subfilters button.active {
   color: var(--dark-bg) !important;
   background: var(--dark-text) !important;
   border-color: var(--dark-text) !important;
   box-shadow: none !important;
 }
 
-body:not([data-view="stock"]) #home-surge.home-top50 .home-ranking-subfilters button span {
+body:not([data-view="stock"]) :is(#home-surge, #home-surge-us).home-top50 .home-ranking-subfilters button span {
   color: var(--dark-muted) !important;
 }
 
-body:not([data-view="stock"]) #home-surge.home-top50 .home-ranking-subfilters button.active span {
+body:not([data-view="stock"]) :is(#home-surge, #home-surge-us).home-top50 .home-ranking-subfilters button.active span {
   color: var(--dark-bg) !important;
 }
 

@@ -25,13 +25,13 @@
       }
     </script>
     <script src="/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts" data-staging-theme-bootstrap></script>
-    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v156" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
-    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v156" />
-    <script src="/assets/staging/ai-stock-response-logic.js?v=20260908-public-signal-v103" defer></script>
-    <script src="/assets/staging/stock-change-copy-logic.js?v=20260908-public-signal-v103" defer></script>
-    <script src="/assets/staging/toss-ia.js?v=20260908-public-signal-v103" defer></script>
+    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
+    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157" />
+    <script src="/assets/staging/ai-stock-response-logic.js?v=20260908-unified-market-v104" defer></script>
+    <script src="/assets/staging/stock-change-copy-logic.js?v=20260908-unified-market-v104" defer></script>
+    <script src="/assets/staging/toss-ia.js?v=20260908-unified-market-v104" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260908v492&amp;build=20260908v492" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260908v493&amp;build=20260908v493" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -117,6 +117,14 @@
           <p id="push-notification-status" class="sr-only" aria-live="polite"></p>
         </div>
       </header>
+      <nav class="unified-market-scope" id="unified-market-scope" aria-label="표시할 주식시장" hidden>
+        <span class="unified-market-scope-label">시장</span>
+        <div class="unified-market-scope-tabs" role="tablist" aria-label="국내·미국 종목 필터">
+          <button class="active" type="button" role="tab" aria-selected="true" data-unified-market-scope="all">전체</button>
+          <button type="button" role="tab" aria-selected="false" data-unified-market-scope="kr"><span aria-hidden="true">🇰🇷</span> 국내</button>
+          <button type="button" role="tab" aria-selected="false" data-unified-market-scope="us"><span aria-hidden="true">🇺🇸</span> 미국</button>
+        </div>
+      </nav>
       <section class="pull-refresh-indicator" id="pull-refresh-indicator" aria-live="polite" hidden>
         <div class="pull-refresh-spinner" aria-hidden="true"></div>
         <strong id="pull-refresh-label">아래로 당겨서 새로고침</strong>
@@ -1237,6 +1245,7 @@
         </header>
         <nav class="market-ranking-mode-tabs" id="market-ranking-mode-tabs" role="tablist" aria-label="순위 기간 및 기준" hidden></nav>
         <nav class="market-segment market-ranking-tabs" role="tablist" aria-label="시장 선택">
+          <button class="market-segment-button" type="button" data-market-filter="MIXED" role="tab" aria-selected="false" hidden>전체</button>
           <button class="market-segment-button active" type="button" data-market-filter="ALL" role="tab" aria-selected="true">국내</button>
           <button class="market-segment-button" type="button" data-market-filter="KOSPI" role="tab" aria-selected="false">KOSPI</button>
           <button class="market-segment-button" type="button" data-market-filter="KOSDAQ" role="tab" aria-selected="false">KOSDAQ</button>
@@ -1505,6 +1514,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260908v492" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260908v493" defer></script>
   </body>
 </html>

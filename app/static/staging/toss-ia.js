@@ -8,11 +8,19 @@
 (() => {
   "use strict";
 
-  const stagingUsMarketContext = /^\/us(?:\/|$)/.test(window.location.pathname);
-  const stagingRootPath = stagingUsMarketContext ? "/us" : "/dashboard";
+  const stagingUsHubContext = /^\/us(?:\/|$)/.test(window.location.pathname);
+  const stagingQueryParams = new URLSearchParams(window.location.search);
+  const stagingMarketScope = ["all", "kr", "us"].includes(stagingQueryParams.get("market_scope"))
+    ? stagingQueryParams.get("market_scope")
+    : "all";
+  const stagingUsStockMatch = window.location.pathname.match(/^\/us\/stock\/([^/]+)\/?$/);
+  const stagingUsStockCode = stagingUsStockMatch ? decodeURIComponent(stagingUsStockMatch[1]) : "";
+  const stagingUsMarketContext = Boolean(stagingUsStockMatch && !/^\d{6}$/.test(stagingUsStockCode))
+    || (stagingUsHubContext && stagingMarketScope === "us");
+  const stagingRootPath = stagingUsHubContext ? "/us" : "/dashboard";
   const stagingStockRoute = (code) => (
-    stagingUsMarketContext
-      ? `/us/stock/${encodeURIComponent(code || "")}`
+    stagingUsHubContext
+      ? `/us/stock/${encodeURIComponent(code || "")}?market_scope=${/^\d{6}$/.test(String(code || "")) ? "kr" : "us"}`
       : `/dashboard/${encodeURIComponent(code || "")}`
   );
 
@@ -2381,11 +2389,13 @@
       signalKicker.innerHTML = `
         <span class="staging-home-signal-icon" aria-hidden="true">${svg(icons.ai)}</span>
         <strong>AI 시그널</strong>
-        <small data-staging-home-signal-meta>${stagingUsMarketContext ? "미국 종목의 최신 예비 신호를 확인하세요" : "시총 100위내 매매신호를 확인하세요"}</small>
+        <small data-staging-home-signal-meta>${stagingUsHubContext ? "한국·미국 종목의 최신 예비 신호를 확인하세요" : "시총 100위내 매매신호를 확인하세요"}</small>
       `;
       const signalChevron = document.createElement("a");
       signalChevron.className = "staging-home-signal-chevron";
-      signalChevron.href = `${stagingRootPath}?view=ai-signals`;
+      signalChevron.href = stagingUsHubContext
+        ? `${stagingRootPath}?view=ai-signals&market_scope=${stagingMarketScope}`
+        : `${stagingRootPath}?view=ai-signals`;
       signalChevron.dataset.aiSignalListLink = "true";
       signalChevron.setAttribute("aria-label", "AI 시그널 전체 목록 보기");
       signalChevron.innerHTML = svg(icons.chevron);
@@ -2777,7 +2787,7 @@
       const market = String(item?.market || button.dataset.market || "");
       const currency = String(item?.currency || button.dataset.currency || "KRW");
       button.dataset.currency = currency;
-      const unsupportedUsdWatch = currency === "USD" && !stagingUsMarketContext;
+      const unsupportedUsdWatch = currency === "USD" && !stagingUsHubContext;
       button.hidden = unsupportedUsdWatch;
       button.disabled = unsupportedUsdWatch;
       if (unsupportedUsdWatch) {
@@ -2860,7 +2870,7 @@
 
         sourceRow.replaceWith(card);
         card.append(sourceRow);
-        if (currency !== "USD" || stagingUsMarketContext) card.append(heart);
+        if (currency !== "USD" || stagingUsHubContext) card.append(heart);
         if (sourceMetric) {
           sourceMetric.classList.add("staging-home-ranking-source");
           sourceMetric.hidden = true;
@@ -2926,6 +2936,111 @@
       if (returnTab && !returnTab.classList.contains("active")) returnTab.click();
       else scheduleHomeRankingUpgrade();
     }, { once: true });
+
+    let homeUsRankingObserver = null;
+    const currentHomeUsRankingItem = (code) => {
+      try {
+        const items = typeof state === "object" && Array.isArray(state.homeUsSurgeItems)
+          ? state.homeUsSurgeItems
+          : [];
+        return items.find((item) => String(item?.code || "") === String(code || "")) || null;
+      } catch {
+        return null;
+      }
+    };
+    const upgradeHomeUsRankingRows = () => {
+      const section = document.getElementById("home-surge-us");
+      const list = document.getElementById("home-surge-list-us");
+      if (!section || !list) return;
+      section.classList.add("staging-home-top50");
+      document.getElementById("home-ranking-category-tabs-us")?.classList.add("staging-primary-tabs");
+      document.getElementById("home-surge-sector-filters-us")?.classList.add("staging-filter-chips");
+      for (const sourceRow of list.querySelectorAll(":scope > a.home-ranking-row")) {
+        const originalClassName = sourceRow.className;
+        const code = sourceRow.dataset.code || "";
+        const item = currentHomeUsRankingItem(code);
+        const rank = sourceRow.querySelector(".home-surge-rank");
+        const identity = sourceRow.querySelector(".home-surge-identity");
+        const logo = identity?.querySelector(".stock-list-logo");
+        const stockCopy = identity?.querySelector(".stock-list-copy");
+        const sourceMetric = sourceRow.querySelector(".ranking-metric-block");
+        const name = String(item?.name || stockCopy?.querySelector("strong")?.textContent?.trim() || code || "종목");
+        const detail = document.createElement("span");
+        detail.className = "staging-home-ranking-copy";
+        if (stockCopy) detail.appendChild(stockCopy);
+        else detail.appendChild(Object.assign(document.createElement("strong"), { textContent: name }));
+        const quote = document.createElement("span");
+        quote.className = "staging-home-ranking-quote";
+        quote.append(
+          Object.assign(document.createElement("span"), {
+            className: "staging-home-ranking-price",
+            textContent: rankingPriceText(item?.price, "USD"),
+          }),
+          Object.assign(document.createElement("span"), {
+            className: `staging-home-ranking-rate ${rankingRatePresentation(item?.change_rate).tone}`,
+            textContent: rankingRatePresentation(item?.change_rate).text,
+          }),
+        );
+        detail.appendChild(quote);
+        sourceRow.className = "staging-home-ranking-main";
+        sourceRow.removeAttribute("data-code");
+        sourceRow.setAttribute("aria-label", `${name} 미국 종목 상세 보기`);
+        sourceRow.replaceChildren(...[rank, logo, detail].filter(Boolean));
+
+        const card = document.createElement("article");
+        card.className = `${originalClassName} staging-home-ranking-row is-us-market`;
+        card.dataset.code = code;
+        card.dataset.name = name;
+        card.dataset.market = String(item?.market || "NASDAQ");
+        card.dataset.currency = "USD";
+        const heart = document.createElement("button");
+        heart.className = "staging-home-ranking-watch";
+        heart.type = "button";
+        heart.innerHTML = svg(icons.interest);
+        syncHomeRankingHeart(heart, { ...item, code, name, currency: "USD", market_scope: "us" });
+        sourceRow.replaceWith(card);
+        card.append(sourceRow, heart);
+        if (sourceMetric) {
+          sourceMetric.classList.add("staging-home-ranking-source");
+          sourceMetric.hidden = true;
+          sourceMetric.setAttribute("aria-hidden", "true");
+          card.appendChild(sourceMetric);
+        }
+      }
+      for (const card of list.querySelectorAll(":scope > .staging-home-ranking-row")) {
+        const item = currentHomeUsRankingItem(card.dataset.code);
+        const price = card.querySelector(".staging-home-ranking-price");
+        const rate = card.querySelector(".staging-home-ranking-rate");
+        const heart = card.querySelector(".staging-home-ranking-watch");
+        const priceText = rankingPriceText(item?.price, "USD");
+        if (price && price.textContent !== priceText) price.textContent = priceText;
+        if (rate) {
+          const presentation = rankingRatePresentation(item?.change_rate);
+          if (rate.textContent !== presentation.text) rate.textContent = presentation.text;
+          rate.className = `staging-home-ranking-rate ${presentation.tone}`;
+        }
+        if (heart) syncHomeRankingHeart(heart, { ...item, market_scope: "us", currency: "USD" });
+      }
+      if (!homeUsRankingObserver) {
+        homeUsRankingObserver = new MutationObserver(() => window.requestAnimationFrame(upgradeHomeUsRankingRows));
+        homeUsRankingObserver.observe(list, { childList: true, subtree: true });
+        list.addEventListener("click", (event) => {
+          const button = event.target instanceof Element
+            ? event.target.closest(".staging-home-ranking-watch")
+            : null;
+          if (!button) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const item = currentHomeUsRankingItem(button.closest(".staging-home-ranking-row")?.dataset.code);
+          if (!item || typeof toggleWatchlistItem !== "function") return;
+          toggleWatchlistItem({ ...item, market_scope: "us", currency: "USD" });
+          window.requestAnimationFrame(upgradeHomeUsRankingRows);
+        });
+      }
+    };
+    const homeTop50Observer = new MutationObserver(upgradeHomeUsRankingRows);
+    homeTop50Observer.observe(homeView, { childList: true });
+    window.requestAnimationFrame(upgradeHomeUsRankingRows);
 
     const hotCommunitySection = document.createElement("section");
     hotCommunitySection.className = "staging-hot-community";
@@ -3734,7 +3849,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260908-public-signal-v103`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260908-unified-market-v104`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
