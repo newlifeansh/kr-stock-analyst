@@ -234,13 +234,11 @@ console.log(JSON.stringify({{
     )
 
     assert json.loads(completed.stdout) == {
-        "headline": "매수 대기중",
+        "headline": "매수 대기",
         "tone": "entry_pending",
         "next": "다음 거래일 시가의 갭을 확인한 뒤 매수 신호로 반영할 예정이에요.",
         "rows": [
             ["현재가", "5460원", "neutral"],
-            ["종합 신호", "84.63점", "neutral"],
-            ["전략 잔여비중", "0%", "neutral"],
         ],
         "currentTarget": None,
         "displayReturn": None,
@@ -248,6 +246,55 @@ console.log(JSON.stringify({{
     }
     render_source = source[source.index("function renderQuantSignals("):source.index("async function loadQuantSignals(")]
     assert "payload = sanitizePendingEntryAiSignal(payload);" in render_source
+
+
+def test_meritz_entry_score_is_not_rendered_as_a_current_public_score() -> None:
+    source = TestClient(app).get("/assets/dashboard/app.js").text
+    start = source.index("function quantSignalCurrentState(")
+    end = source.index("function renderQuantCurrentStatus(", start)
+    function_source = source[start:end]
+    script = f"""
+function toNumber(value) {{
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}}
+function formatNumber(value) {{ return String(Number(value)); }}
+function formatPercent(value) {{ return `${{Number(value) >= 0 ? "+" : ""}}${{Number(value).toFixed(2)}}%`; }}
+function quantToneClass(value) {{ return Number(value) >= 0 ? "positive" : "negative"; }}
+function formatDateLabel(value) {{ return String(value || "-"); }}
+function formatQuantPrice(value) {{ return `${{formatNumber(value)}}원`; }}
+{function_source}
+const status = quantCurrentStatusView({{
+  score: 100,
+  display_return_rate: -3.79,
+  current: {{
+    action: "holding",
+    position_open: true,
+    score: 80.04,
+    entry_price: 137000,
+    target_sell_price: 150700,
+    model_exposure_percent: 100,
+  }},
+}});
+console.log(JSON.stringify(status));
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    status = json.loads(completed.stdout)
+
+    assert status["headline"] == "보유 중"
+    assert status["rows"] == [
+        ["매수가", "137000원", "neutral"],
+        ["다음 수익확정가", "150700원", "neutral"],
+        ["평가수익률", "-3.79%", "negative"],
+    ]
+    assert "점" not in json.dumps(status, ensure_ascii=False)
 
 
 def test_stock_detail_title_logo_tracks_the_selected_stock_with_a_fallback():
@@ -369,10 +416,11 @@ def test_stock_detail_v3_shell_and_controls():
         'id="quant-decision-price-chart"',
         'id="quant-decision-flow-chart"',
         "AI 지금 이렇게 판단해요",
-        "20일·60일·수급만 확인해요",
-        "20일선과 60일선을 확인해요",
-        "외국인과 기관은 움직였을까요?",
-        "최근 1년 AI 시그널",
+            "20일 · 60일 · 수급",
+            "20일선 · 60일선",
+            "수급 흐름",
+            "신호 기록",
+            "차트와 지난 기록",
         "모든 매매내역 보기",
         'id="stock-share"',
         'id="stock-share-status"',
@@ -398,6 +446,12 @@ def test_stock_detail_v3_shell_and_controls():
     assert "function quantDailyFlowRows(" in source
     assert "function renderQuantDecisionFlowChart(" in source
     assert "row?.net_buy_value" in source
+    assert '<h2>20일 · 60일 · 수급</h2>' in shell.text
+    assert '<details class="stock-v3-section quant-archive-disclosure">' in shell.text
+    assert '<summary><span>더 보기</span><strong>차트와 지난 기록</strong></summary>' in shell.text
+    assert shell.text.index('class="stock-v3-section quant-current-card"') < shell.text.index('class="stock-v3-section quant-evidence-card"') < shell.text.index('class="stock-v3-section quant-archive-disclosure"')
+    archive_start = shell.text.index('<details class="stock-v3-section quant-archive-disclosure">')
+    assert " open" not in shell.text[archive_start : archive_start + 100]
     assert 'node.hidden = isUs;' in source
     assert "function syncStockDetailTabsFixedState()" in source
     assert "function syncStockDetailCommandbarState()" in source
@@ -459,12 +513,12 @@ def test_stock_detail_v3_shell_and_controls():
     current_state_source = source[
         source.index("function quantSignalCurrentState") : source.index("function quantCurrentStatusView")
     ]
-    assert 'headline: "매수 대기중"' in current_state_source
-    assert 'headline: `${pendingStage}차 수익확정 대기중`' in current_state_source
+    assert 'headline: "매수 대기"' in current_state_source
+    assert 'headline: `${pendingStage}차 매도 대기`' in current_state_source
     assert "current.pending_profit_stage || (profitStage + 1)" in current_state_source
-    assert 'headline: "전량 매도 대기중"' in current_state_source
-    assert '`${profitStage || latestEvent?.profit_stage || 1}차 수익확정 후 보유중` : "매수 후 보유중"' in current_state_source
-    assert 'headline: "전량 매도 후 대기중"' in current_state_source
+    assert 'headline: "전량 매도 대기"' in current_state_source
+    assert '`${profitStage || latestEvent?.profit_stage || 1}차 수익확정 · 보유` : "보유 중"' in current_state_source
+    assert 'headline: "매도 완료"' in current_state_source
     assert current_state_source.index('latestEvent?.side === "sell"') < current_state_source.index("current.position_open")
     assert current_state_source.index('action === "entry_pending"') < current_state_source.index('latestEvent?.side === "sell"')
     assert '["buy", "partial_sell"].includes(latestEvent?.side)' in current_state_source
@@ -477,6 +531,7 @@ def test_stock_detail_v3_shell_and_controls():
     assert "stock-revenue-chart-columns" in source
     styles = client.get("/assets/dashboard/styles.css").text
     assert ".quant-public-evidence" in styles
+    assert ".quant-archive-disclosure > summary" in styles
     assert ".quant-evidence-meter" not in styles
     assert ".quant-candle.up" in styles
     assert ".quant-flow-bar.foreign" in styles
@@ -656,7 +711,7 @@ def test_stock_detail_v3_shell_and_controls():
     assert "stockSummaryAIBadge" not in source
     assert 'badge.textContent = "Ollama AI 분석 중";' in source
     assert 'badge.textContent = "AI 분석 확인 실패";' in source
-    assert 'headline: "전량 매도 후 대기중"' in source
+    assert 'headline: "매도 완료"' in source
     assert "AI 전략 기준 현재 상태" not in shell.text
     assert "AI 모의 전략 ·" not in source
     assert 'id="quant-current-score"' not in shell.text

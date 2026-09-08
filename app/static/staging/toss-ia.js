@@ -3734,7 +3734,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260908-public-signal-v102`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260908-public-signal-v103`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -7455,11 +7455,10 @@
       const candidate = keys.map((key) => byKey.get(key)).find(Boolean);
       if (candidate && !selected.includes(candidate)) selected.push(candidate);
     };
-    take("price", "capture-price", "sell-price", "target", "target-status");
-    take("release-result", "condition-status");
-    take("execution", "confirmation", "reason", "source");
-    if (!selected.length) selected.push(...metrics.filter((metric) => !["score", "capture-score"].includes(metric.dataset.metric)).slice(0, 2));
-    return selected.slice(0, 2);
+    take("price", "capture-price", "sell-price");
+    take("target", "target-status", "release-result", "condition-status", "execution", "confirmation", "reason", "source");
+    if (!selected.length) selected.push(...metrics.slice(0, 1));
+    return selected.slice(0, 1);
   };
 
   const decorateAiRows = () => {
@@ -7482,20 +7481,8 @@
 
       const status = headline.querySelector(".home-ai-signal-status");
       const metrics = Array.from(row.querySelectorAll(".home-ai-signal-metrics > .home-ai-signal-metric"));
-      const scoreMetric = metrics.find((metric) => ["score", "capture-score"].includes(metric.dataset.metric));
       const returnMetric = metrics.find((metric) => metric.dataset.metric === "return");
-      const scoreValue = scoreMetric?.querySelector(".home-ai-signal-metric-value")?.textContent?.trim() || "";
-      let score = status?.querySelector(".staging-ai-score");
-      if (status && scoreValue) {
-        if (!score) {
-          score = document.createElement("small");
-          score.className = "staging-ai-score";
-          status.appendChild(score);
-        }
-        score.textContent = scoreValue;
-      } else {
-        score?.remove();
-      }
+      status?.querySelector(".staging-ai-score")?.remove();
       const returnValueNode = returnMetric?.querySelector(".home-ai-signal-metric-value");
       const returnValue = returnValueNode?.textContent?.trim() || "";
       let statusReturn = status?.querySelector(".staging-ai-return");

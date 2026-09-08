@@ -260,11 +260,14 @@ def test_desktop_stock_detail_preserves_the_mobile_information_contract():
         "밸류에이션 비교",
         "투자 체크포인트",
         "AI 지금 이렇게 판단해요",
-        "최근 1년 AI 시그널",
-        "최근 1년 전략 결과",
         "모든 매매내역 보기",
     ):
         assert label in mobile
+        assert label in desktop
+
+    for label in ("신호 기록", "전략 결과", "차트와 지난 기록"):
+        assert label in mobile
+    for label in ("최근 1년 AI 시그널", "최근 1년 전략 결과"):
         assert label in desktop
 
     assert "renderDesktopDetailHeader(root, code, dashboard, prices, intraday)" in desktop

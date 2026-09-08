@@ -22222,6 +22222,14 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
   border-top: 1px solid #dfe4ea;
 }
 
+#stock-view.stock-detail-v3 .quant-current-position:has(> div:only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#stock-view.stock-detail-v3 .quant-current-position:has(> div:nth-child(2):last-child) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 #stock-view.stock-detail-v3 .quant-current-position > div {
   min-width: 0;
   padding: 16px 14px 0;
@@ -22299,6 +22307,67 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
 
 #stock-view.stock-detail-v3 .quant-history-card {
   padding: 20px 26px;
+}
+
+#stock-view.stock-detail-v3 .quant-archive-disclosure {
+  padding: 0;
+  overflow: hidden;
+}
+
+#stock-view.stock-detail-v3 .quant-archive-disclosure > summary {
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px 16px;
+  padding: 15px 26px;
+  color: var(--stock-v3-text);
+  cursor: pointer;
+  list-style: none;
+}
+
+#stock-view.stock-detail-v3 .quant-archive-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+#stock-view.stock-detail-v3 .quant-archive-disclosure > summary span {
+  grid-column: 1;
+  color: var(--stock-v3-muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+#stock-view.stock-detail-v3 .quant-archive-disclosure > summary strong {
+  grid-column: 1;
+  color: var(--stock-v3-text);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+#stock-view.stock-detail-v3 .quant-archive-disclosure > summary::after {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: var(--stock-v3-muted);
+  content: "+";
+  font-size: 20px;
+  font-weight: 500;
+}
+
+#stock-view.stock-detail-v3 .quant-archive-disclosure[open] > summary::after {
+  content: "−";
+}
+
+#stock-view.stock-detail-v3 .quant-archive-content {
+  display: grid;
+}
+
+#stock-view.stock-detail-v3 .quant-archive-content > .stock-v3-section {
+  margin: 0;
+  padding: 24px 26px;
+  border: 0;
+  border-top: 1px solid var(--stock-v3-line);
+  border-radius: 0;
+  box-shadow: none;
 }
 
 #stock-view.stock-detail-v3 .quant-trade-disclosure > summary {
@@ -22514,16 +22583,19 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
 #stock-view.stock-detail-v3 .quant-public-evidence {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 #stock-view.stock-detail-v3 .quant-evidence-row {
-  display: grid;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   min-width: 0;
-  gap: 10px;
-  padding: 16px;
+  gap: 12px;
+  min-height: 48px;
+  padding: 12px 14px;
   border: 1px solid var(--stock-v3-line);
-  border-radius: 14px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--stock-v3-panel) 92%, var(--stock-v3-bg));
 }
 
@@ -22542,6 +22614,14 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
   color: var(--stock-v3-text);
   font-size: 13px;
   font-weight: 800;
+}
+
+#stock-view.stock-detail-v3 .quant-evidence-row > strong {
+  min-width: 0;
+  color: var(--stock-v3-text);
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 #stock-view.stock-detail-v3 .quant-evidence-badge {
@@ -22743,7 +22823,8 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
   }
 
   #stock-view.stock-detail-v3 .quant-evidence-row {
-    padding: 14px;
+    min-height: 46px;
+    padding: 11px 12px;
   }
 
   #stock-view.stock-detail-v3 :is(.quant-decision-price-chart, .quant-decision-flow-chart) {

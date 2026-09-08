@@ -781,7 +781,6 @@ console.log(JSON.stringify(metrics.map((metric) => [metric.label, metric.value])
     )
 
     assert json.loads(completed.stdout) == [
-        ["점수", "48.92점"],
         ["매도가", "210,500원"],
         ["확정 수익률", "-6.91%"],
     ]
@@ -828,7 +827,6 @@ console.log(JSON.stringify(metrics.map((metric) => [metric.label, metric.value])
     )
 
     assert json.loads(completed.stdout) == [
-        ["점수", "93.42점"],
         ["다음 수익확정가", "269,552원"],
         ["보유 평가수익률", "+29.95%"],
     ]
@@ -1112,7 +1110,6 @@ console.log(JSON.stringify({{
     assert json.loads(completed.stdout) == {
         "metrics": [
             {"key": "price", "label": "예상 매수가", "value": "확인 중"},
-            {"key": "score", "label": "점수", "value": "84.63점"},
             {"key": "execution", "label": "체결 기준", "value": "다음 거래일 시가"},
         ],
         "entryPrice": None,

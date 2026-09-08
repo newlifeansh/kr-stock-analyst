@@ -19911,3 +19911,108 @@ body[data-staging-ia="tds-video"] #market-view.app-market-rankings .market-ranki
     font-size: 12px !important;
   }
 }
+
+/* v156 — reduce public signal pages to one decision, three evidence rows, and details on demand. */
+body[data-staging-ia="tds-video"] #stock-view .quant-signal-stack > .stock-v3-section.quant-current-card {
+  padding: 22px var(--tc-gutter) 0 !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-signal-stack > .stock-v3-section.quant-evidence-card {
+  padding: 22px var(--tc-gutter) 24px !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-current-position {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  margin-top: 16px !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-current-position:has(> div:only-child) {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-current-position:has(> div:nth-child(2):last-child) {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-current-position > div,
+body[data-staging-ia="tds-video"] #stock-view .quant-current-position > div:nth-child(odd),
+body[data-staging-ia="tds-video"] #stock-view .quant-current-position > div:nth-child(even) {
+  min-height: 56px !important;
+  padding: 10px 9px !important;
+  border-right: 1px solid var(--tc-line) !important;
+  border-bottom: 0 !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-current-position > div:first-child {
+  padding-left: 0 !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-current-position > div:last-child {
+  padding-right: 0 !important;
+  border-right: 0 !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-next-confirmation {
+  margin-top: 16px !important;
+  padding: 13px 0 17px !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-public-evidence {
+  gap: 8px !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-evidence-row {
+  min-height: 46px !important;
+  padding: 10px 12px !important;
+  border-color: var(--tc-line) !important;
+  border-radius: 10px !important;
+  background: var(--tc-surface-2) !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-evidence-row > strong {
+  color: var(--tc-text) !important;
+  font-size: 13px !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-evidence-badge {
+  min-height: 22px !important;
+  padding-inline: 8px !important;
+  font-size: 10px !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-signal-stack > .stock-v3-section.quant-archive-disclosure {
+  padding: 0 !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-archive-disclosure > summary {
+  min-height: 72px !important;
+  padding: 15px var(--tc-gutter) !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-archive-disclosure > summary span {
+  color: var(--tc-muted) !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-archive-disclosure > summary strong {
+  color: var(--tc-text) !important;
+  font-size: 17px !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .quant-archive-content > .stock-v3-section {
+  margin: 0 !important;
+  padding: 26px var(--tc-gutter) 30px !important;
+  border: 0 !important;
+  border-top: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  color: var(--tc-text) !important;
+  background: var(--tc-bg) !important;
+  box-shadow: none !important;
+}
+
+body[data-staging-ia="tds-video"] #ai-signals-view .home-ai-signal-row[data-staging-list-row="true"] {
+  min-height: 88px !important;
+  padding-top: 11px !important;
+  padding-bottom: 11px !important;
+}
