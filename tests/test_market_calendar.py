@@ -55,3 +55,24 @@ def test_completed_market_session_uses_yesterday_until_flow_publication(monkeypa
     assert morning == date(2026, 8, 11)
     assert evening == date(2026, 8, 12)
     assert lookups[0].hour == 23 and lookups[0].date() == date(2026, 8, 11)
+
+
+def test_published_investor_flow_session_uses_separate_naver_sla(monkeypatch):
+    lookups = []
+
+    def latest(now=None):
+        lookups.append(now)
+        return now.date()
+
+    monkeypatch.setattr(market_calendar, "latest_korea_market_session_date", latest)
+
+    publication_gap = market_calendar.latest_published_korea_investor_flow_date(
+        datetime(2026, 8, 12, 18, 5)
+    )
+    published = market_calendar.latest_published_korea_investor_flow_date(
+        datetime(2026, 8, 12, 19, 5)
+    )
+
+    assert publication_gap == date(2026, 8, 11)
+    assert published == date(2026, 8, 12)
+    assert lookups[0].hour == 23 and lookups[0].date() == date(2026, 8, 11)

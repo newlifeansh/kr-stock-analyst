@@ -110,7 +110,7 @@ def test_stock_detail_refreshes_stale_flow_once_per_latest_session(monkeypatch):
     main_module.stock_investor_flow_refresh_cache.clear()
     monkeypatch.setattr(
         main_module,
-        "latest_completed_korea_market_session_date",
+        "latest_published_korea_investor_flow_date",
         lambda _now=None: date(2026, 8, 11),
     )
 

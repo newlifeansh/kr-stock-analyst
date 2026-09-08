@@ -780,8 +780,8 @@ def test_strategy_version_for_date_preserves_previous_releases():
     assert quant_signals.strategy_version_for_date(date(2026, 8, 25)) == "position-lifecycle-v7.3"
     assert quant_signals.strategy_version_for_date(date(2026, 9, 3)) == "position-lifecycle-v7.3"
     assert quant_signals.strategy_version_for_date(date(2026, 9, 4)) == "position-lifecycle-v7.4"
-    assert quant_signals.strategy_version_for_date(date(2026, 9, 8)) == "position-lifecycle-v7.4"
-    assert quant_signals.strategy_version_for_date(date(2026, 9, 9)) == "position-lifecycle-v7.4.1"
+    assert quant_signals.strategy_version_for_date(date(2026, 9, 7)) == "position-lifecycle-v7.4"
+    assert quant_signals.strategy_version_for_date(date(2026, 9, 8)) == "position-lifecycle-v7.4.1"
 
 
 def test_v741_chase_veto_preserves_meritz_history_and_blocks_new_overheated_entries():

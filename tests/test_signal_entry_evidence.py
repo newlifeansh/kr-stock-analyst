@@ -421,6 +421,10 @@ def test_signal_data_quality_reports_cross_source_coherence(monkeypatch):
         "app.services.signal_data_quality.latest_completed_korea_market_session_date",
         lambda _now: SIGNAL_DATE,
     )
+    monkeypatch.setattr(
+        "app.services.signal_data_quality.latest_published_korea_investor_flow_date",
+        lambda _now: SIGNAL_DATE,
+    )
 
     payload = signal_data_quality_status(
         db,
@@ -508,6 +512,10 @@ def test_signal_data_quality_keeps_completed_universe_when_current_session_is_pa
         "app.services.signal_data_quality.latest_completed_korea_market_session_date",
         lambda _now: completed_session,
     )
+    monkeypatch.setattr(
+        "app.services.signal_data_quality.latest_published_korea_investor_flow_date",
+        lambda _now: completed_session,
+    )
 
     payload = signal_data_quality_status(
         db,
@@ -569,6 +577,10 @@ def test_signal_data_quality_excludes_confirmed_non_trading_placeholders(monkeyp
         "app.services.signal_data_quality.latest_completed_korea_market_session_date",
         lambda _now: SIGNAL_DATE,
     )
+    monkeypatch.setattr(
+        "app.services.signal_data_quality.latest_published_korea_investor_flow_date",
+        lambda _now: SIGNAL_DATE,
+    )
 
     payload = signal_data_quality_status(
         db,
@@ -614,6 +626,10 @@ def test_signal_data_quality_requires_complete_ohlc_for_all_active_stocks(monkey
     )
     monkeypatch.setattr(
         "app.services.signal_data_quality.latest_completed_korea_market_session_date",
+        lambda _now: SIGNAL_DATE,
+    )
+    monkeypatch.setattr(
+        "app.services.signal_data_quality.latest_published_korea_investor_flow_date",
         lambda _now: SIGNAL_DATE,
     )
 

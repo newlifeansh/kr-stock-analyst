@@ -221,10 +221,10 @@
       "modes": ["gate", "live"],
       "automation": "pytest investor fixture + data-quality coverage",
       "preconditions": ["기관합계와 세부 주체가 함께 있는 응답을 준비한다."],
-      "inputs": {"window": 20},
-      "steps": ["외국인·기관합계 우선 및 거래대금 정규화를 계산한다."],
-      "expected": ["세부 주체가 중복 합산되지 않고 같은 20일 거래대금이 분모로 사용된다."],
-      "failure_criteria": ["기관 수급이 이중 집계되거나 날짜·분모가 다르다."]
+      "inputs": {"window": 20, "naver_publication_sla_kst": "19:00"},
+      "steps": ["외국인·기관합계 우선 및 거래대금 정규화를 계산한다.", "장 마감 가격 확정과 네이버 당일 수급 공개 사이에는 직전 공개 완료 거래일을 수급 최신성 목표로 사용한다."],
+      "expected": ["세부 주체가 중복 합산되지 않고 같은 20일 거래대금이 분모로 사용된다.", "19시 전 공개 지연 구간에는 직전 거래일 수급이 ready이고, 19시 이후에는 당일 수급을 요구한다."],
+      "failure_criteria": ["기관 수급이 이중 집계되거나 날짜·분모가 다르다.", "원천 공개 전 존재하지 않는 당일 수급을 요구해 정상 배포를 P0 stale로 차단한다."]
     },
 
     {
@@ -674,11 +674,11 @@
       "priority": "P0",
       "modes": ["gate", "live"],
       "automation": "pytest 메리츠 회귀·경계값·재진입 fixture + live 관망 상태 계약",
-      "preconditions": ["2026-09-03 메리츠 100점 기존 신호와 2026-09-09 이후의 동일한 과열 조건을 준비한다.", "전량 매도 후 10거래일 유예가 끝난 계속 유효 조건과 새 돌파·20일선 눌림 조건을 준비한다."],
-      "inputs": {"effective_date": "2026-09-09", "ema20_extension_atr_veto": ">=1.5ATR", "ema20_extension_percent_veto": ">=7%", "momentum5_veto": ">10%", "momentum_lookback_bars": 3, "reentry_cooldown_bars": 10, "reentry_fresh_triggers": ["새 20일 고점 돌파", "20일선 2% 이내 눌림 후 회복"], "meritz_fixture": {"code": "138040", "signal_date": "2026-09-03", "score": 100, "ema20_extension_atr": 2.3916, "momentum5": "15.04%"}},
+      "preconditions": ["2026-09-03 메리츠 100점 기존 신호와 2026-09-08 이후의 동일한 과열 조건을 준비한다.", "전량 매도 후 10거래일 유예가 끝난 계속 유효 조건과 새 돌파·20일선 눌림 조건을 준비한다."],
+      "inputs": {"effective_date": "2026-09-08", "ema20_extension_atr_veto": ">=1.5ATR", "ema20_extension_percent_veto": ">=7%", "momentum5_veto": ">10%", "momentum_lookback_bars": 3, "reentry_cooldown_bars": 10, "reentry_fresh_triggers": ["새 20일 고점 돌파", "20일선 2% 이내 눌림 후 회복"], "meritz_fixture": {"code": "138040", "signal_date": "2026-09-03", "score": 100, "ema20_extension_atr": 2.3916, "momentum5": "15.04%"}},
       "steps": ["100점이어도 ATR·절대 이격 경계에서 신규매수가 차단되는지 확인한다.", "5일 급등률이 10%를 초과한 봉과 다음 2개 봉을 차단하고 3번째 후속 봉에서 다시 평가한다.", "재진입 유예 종료 즉시의 계속 유효 조건을 차단하고 새 돌파 또는 20일선 눌림·회복에서만 허용한다.", "2026-09-03 기존 메리츠 이력이 v7.3으로 그대로 재현되는지 확인한다.", "스테이징·운영의 해당 조건 종목이 매수 확정이 아닌 관망 상태로 노출되는지 확인한다."],
       "expected": ["종합점수가 높아도 과도 이격·최근 급등이면 매수를 확정하지 않는다.", "재진입 유예 종료는 기존 조건의 즉시 승계가 아니며 새 가격 사건이 필수다.", "적용일 이전 신호·체결·손익은 소급 변경되지 않는다.", "공개 화면은 관망 결론만 반영하고 세부 임계값과 veto 원문은 20일·60일·수급 3가지 공개 근거 밖으로 노출하지 않는다."],
-      "failure_criteria": ["100점이라는 이유로 이격·급등 veto를 무시한다.", "유예 종료 첫 날 새 돌파·눌림 없이 즉시 재진입한다.", "2026-09-09 이전 기존 이력이 새 규칙으로 다시 계산된다.", "공개 API·DOM에 세부 임계값·veto 원문이 노출된다."]
+      "failure_criteria": ["100점이라는 이유로 이격·급등 veto를 무시한다.", "유예 종료 첫 날 새 돌파·눌림 없이 즉시 재진입한다.", "2026-09-08 이전 기존 이력이 새 규칙으로 다시 계산된다.", "공개 API·DOM에 세부 임계값·veto 원문이 노출된다."]
     },
 
     {
@@ -847,7 +847,7 @@
       "priority": "P0",
       "modes": ["gate"],
       "automation": "pytest strategy-date fixture",
-      "preconditions": ["2026-08-24 이전·당일·2026-08-25 이후·2026-09-04·2026-09-09 경계 신호를 준비한다."],
+      "preconditions": ["2026-08-24 이전·당일·2026-08-25 이후·2026-09-04·2026-09-08 경계 신호를 준비한다."],
       "inputs": {"versions": "legacy,v7.1,v7.2,v7.3,v7.4,v7.4.1"},
       "steps": ["각 결정일의 ladder와 보호선을 비교한다."],
       "expected": ["3R·5R·8R, 2R·4R·6R, 1R·1.6R·2.5R, +3%·+5% 규칙이 날짜별로 유지된다."],
@@ -888,7 +888,7 @@
       "modes": ["gate"],
       "automation": "pytest cooldown fixture",
       "preconditions": ["매도 후 9·10·11번째 거래일 진입 조건과 유예 종료 후 새 돌파·눌림 유무를 준비한다."],
-      "inputs": {"cooldown_bars": 10, "post_cooldown_fresh_trigger_required_from": "2026-09-09"},
+      "inputs": {"cooldown_bars": 10, "post_cooldown_fresh_trigger_required_from": "2026-09-08"},
       "steps": ["각 날짜에서 진입 허용 여부와 다음 조건 문구를 확인한다.", "유예가 끝난 조건을 그대로 유지했을 때와 새 돌파·눌림이 발생했을 때를 비교한다."],
       "expected": ["10거래일 동안 차단되고, 적용일 이후에는 유예 종료 후에도 새 돌파 또는 20일선 눌림·회복에서만 재진입한다."],
       "failure_criteria": ["유예 중 재진입하거나 종료 후에도 영구 차단된다."]

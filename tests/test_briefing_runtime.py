@@ -682,7 +682,7 @@ def test_investor_flow_coverage_uses_market_calendar_when_prices_are_stale(monke
 
     monkeypatch.setattr(
         briefing,
-        "latest_completed_korea_market_session_date",
+        "latest_published_korea_investor_flow_date",
         lambda _now=None: date(2026, 8, 11),
     )
 
@@ -727,7 +727,7 @@ def test_investor_flow_coverage_applies_configured_signal_universe_limit(monkeyp
 
     monkeypatch.setattr(
         briefing,
-        "latest_completed_korea_market_session_date",
+        "latest_published_korea_investor_flow_date",
         lambda _now=None: date(2026, 8, 21),
     )
 

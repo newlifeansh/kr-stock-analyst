@@ -15,6 +15,7 @@ NAVER_INDEX_CHART_URL = "https://fchart.stock.naver.com/sise.nhn"
 MARKET_SESSION_CACHE = TTLCache(maxsize=2)
 MARKET_SESSION_TTL_SECONDS = 60
 INVESTOR_FLOW_READY_TIME = time(18, 0)
+NAVER_INVESTOR_FLOW_READY_TIME = time(19, 0)
 
 
 def _kst_datetime(value: Optional[datetime] = None) -> datetime:
@@ -70,6 +71,23 @@ def latest_completed_korea_market_session_date(now: Optional[datetime] = None) -
     current = _kst_datetime(now)
     through = current.date()
     if current.time() < INVESTOR_FLOW_READY_TIME:
+        through -= timedelta(days=1)
+    lookup_time = datetime.combine(through, time(23, 59, 59), tzinfo=KST)
+    return latest_korea_market_session_date(lookup_time)
+
+
+def latest_published_korea_investor_flow_date(now: Optional[datetime] = None) -> Optional[date]:
+    """Return the latest session expected in Naver's investor-flow table.
+
+    Finalized prices become usable before Naver publishes the matching foreign
+    and institutional flow table. Keep the flow freshness target on the prior
+    session during that publication gap instead of reporting valid stored flow
+    data as stale.
+    """
+
+    current = _kst_datetime(now)
+    through = current.date()
+    if current.time() < NAVER_INVESTOR_FLOW_READY_TIME:
         through -= timedelta(days=1)
     lookup_time = datetime.combine(through, time(23, 59, 59), tzinfo=KST)
     return latest_korea_market_session_date(lookup_time)

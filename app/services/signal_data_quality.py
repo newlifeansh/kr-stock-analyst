@@ -25,6 +25,7 @@ from app.models import (
 )
 from app.services.market_calendar import (
     latest_completed_korea_market_session_date,
+    latest_published_korea_investor_flow_date,
 )
 from app.services.signal_entry_evidence import (
     ENTRY_EVIDENCE_EFFECTIVE_DATE,
@@ -162,7 +163,7 @@ def signal_data_quality_status(
     # that partial date as the Top100 basis makes otherwise healthy flow,
     # fundamental, research, and index coverage collapse together.
     calendar_target = latest_completed_korea_market_session_date(current)
-    flow_target = calendar_target
+    flow_target = latest_published_korea_investor_flow_date(current)
     price_date_statement = (
         select(func.max(DailyPrice.trade_date))
         .join(StockMaster, StockMaster.code == DailyPrice.code)

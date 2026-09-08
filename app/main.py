@@ -145,6 +145,7 @@ from app.services.market_calendar import (
     is_korea_market_session_date,
     is_korea_regular_market_session,
     latest_completed_korea_market_session_date,
+    latest_published_korea_investor_flow_date,
 )
 from app.services.global_market_assets import (
     GLOBAL_MARKET_DEFINITIONS,
@@ -457,7 +458,7 @@ def _refresh_stock_investor_flow_if_stale(
 ) -> dict[str, object]:
     """Refresh one detail page from the flow source when its latest day is stale."""
     current = now or datetime.now(KST)
-    target_date = latest_completed_korea_market_session_date(current)
+    target_date = latest_published_korea_investor_flow_date(current)
     stored_date = _latest_stock_investor_flow_date(db, stock_code)
     if not force and target_date is not None and stored_date is not None and stored_date >= target_date:
         return {

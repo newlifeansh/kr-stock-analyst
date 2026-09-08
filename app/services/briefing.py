@@ -59,6 +59,7 @@ from app.services.market_calendar import (
     is_korea_market_session_date,
     latest_completed_korea_market_session_date,
     latest_korea_market_session_date,
+    latest_published_korea_investor_flow_date,
 )
 
 KST = ZoneInfo("Asia/Seoul")
@@ -759,7 +760,7 @@ class BriefingRuntime:
         now: Optional[datetime] = None,
     ) -> dict[str, object]:
         current = now or datetime.now(KST)
-        calendar_target = latest_completed_korea_market_session_date(current)
+        calendar_target = latest_published_korea_investor_flow_date(current)
         stored_price_target = db.scalar(select(func.max(DailyPrice.trade_date)))
         target_date = calendar_target or stored_price_target or current.date()
         code_statement = select(StockMaster.code).where(

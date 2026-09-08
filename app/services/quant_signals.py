@@ -83,7 +83,7 @@ MAX_ENTRY_EXTENSION_ATR = 2.5
 # absolute-percent cap catches unusually volatile names while the ATR cap is
 # the primary, volatility-normalized guard.  A >10% five-session surge must
 # leave the three-bar lookback before a fresh entry can be considered.
-CHASE_GUARD_EFFECTIVE_DATE = date(2026, 9, 9)
+CHASE_GUARD_EFFECTIVE_DATE = date(2026, 9, 8)
 CHASE_MAX_ENTRY_EXTENSION_ATR = 1.5
 CHASE_MAX_ENTRY_EXTENSION_PERCENT = 0.07
 CHASE_MOMENTUM_5_MAX = 0.10
@@ -131,20 +131,20 @@ STRATEGY_VERSION_HISTORY = (
     {
         "version": V7_4_STRATEGY_VERSION,
         "effective_from": "2026-09-04",
-        "effective_to": "2026-09-08",
+        "effective_to": "2026-09-07",
         "status": "historical",
         "scope": "+3%·+5% 고정 수익확정·runner 0%",
     },
     {
         "version": STRATEGY_VERSION,
-        "effective_from": "2026-09-09",
+        "effective_from": "2026-09-08",
         "effective_to": None,
         "status": "baseline",
         "scope": "v7.4 수익확정 + 추격매수 veto·재진입 신규 확인",
     },
     {
         "version": CANDIDATE_STRATEGY_VERSION,
-        "effective_from": "2026-09-09",
+        "effective_from": "2026-09-08",
         "effective_to": None,
         "status": "candidate",
         "scope": "v7.4.1 baseline + buy-filter-h1; promotion pending",
