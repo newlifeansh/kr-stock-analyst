@@ -9,6 +9,28 @@ from app.services.company_profiles import _short_company_summary
 from app.services import stock_dashboard
 
 
+def test_mobile_ai_signal_content_aligns_with_chart_gutter_for_domestic_and_us():
+    client = TestClient(app)
+    styles = client.get("/assets/dashboard/styles.css").text
+    staging_styles = client.get("/assets/staging/toss-fidelity.css").text
+
+    generic_selector = "#stock-view .stock-tab-panel > *"
+    override_selector = "#stock-view.stock-detail-v3 .stock-tab-panel > :is("
+    generic_start = styles.index(generic_selector)
+    generic_rule = styles[generic_start : styles.index("}", generic_start) + 1]
+    override_start = styles.index(override_selector)
+    override_rule = styles[override_start : styles.index("}", override_start) + 1]
+
+    assert "padding-inline: 16px;" in generic_rule
+    assert override_start > generic_start
+    assert ".quant-signal-stack" in override_rule
+    assert ".us-stock-ai-stack" in override_rule
+    assert "padding-inline: 0;" in override_rule
+    assert "--tds-space-gutter: 20px;" in staging_styles
+    assert "padding: 28px var(--tc-gutter) 30px !important;" in staging_styles
+    assert "padding: 22px var(--tc-gutter) 0 !important;" in staging_styles
+
+
 def test_chart_daily_series_appends_a_newer_live_quote():
     source = TestClient(app).get("/assets/dashboard/app.js").text
     start = source.index("function stockPriceRowsWithLiveQuote(")

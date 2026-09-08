@@ -22177,6 +22177,15 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
   gap: 10px;
 }
 
+@media (max-width: 720px) {
+  #stock-view.stock-detail-v3 .stock-tab-panel > :is(
+    .quant-signal-stack,
+    .us-stock-ai-stack
+  ) {
+    padding-inline: 0;
+  }
+}
+
 #stock-view.stock-detail-v3 .quant-current-card {
   padding: 22px 26px 0;
   background: #ffffff;
