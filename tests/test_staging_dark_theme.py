@@ -1299,7 +1299,7 @@ def test_staging_v46_adds_home_hot_community_ranking_and_post_drilldown():
         '.slice(0, 3)',
         'renderHotCommunityStocks();',
         'renderHotCommunityPosts(payload);',
-        'await navigateToStock(code, stagingStockRoute(code))',
+        'await navigateToStock(code, route)',
         'data-stock-tab="community"',
     ):
         assert contract in js
@@ -1954,6 +1954,61 @@ def test_staging_v63_hot_community_matches_toss_auto_rotation_and_compact_struct
     assert "font-size: 21px !important" in cascade_seal
     assert ".staging-hot-community-stock:not(.active)" in cascade_seal
     assert "width: 44px !important" in cascade_seal
+
+
+def test_staging_v157_home_community_switches_korea_and_us_with_fresh_scoped_data():
+    client = TestClient(staging_app)
+    js = client.get("/assets/staging/toss-ia.js").text
+    css = client.get("/assets/staging/toss-fidelity.css").text
+
+    hot_community = js.split(
+        'const initialHotCommunityMarket = stagingUsMarketContext ? "us" : "kr";',
+        1,
+    )[1].split("const decorateHomeAiStockResponseRows", 1)[0]
+    for contract in (
+        'role="group" aria-label="커뮤니티 시장 선택"',
+        'aria-label="미국 커뮤니티 보기"',
+        'data-hot-community-market="us"><span aria-hidden="true">🇺🇸</span>',
+        'aria-label="한국 커뮤니티 보기"',
+        'data-hot-community-market="kr"><span aria-hidden="true">🇰🇷</span>',
+        "market: initialHotCommunityMarket",
+        "const hotCommunityRankingKey =",
+        "const hotCommunityFeedKey =",
+        'hotCommunitySection.dataset.hotCommunityMarket = hotCommunityState.market',
+        'button.setAttribute("aria-pressed", String(selected))',
+        'const cacheKey = hotCommunityRankingKey(requestedMarket, requestedMode)',
+        'const cacheKey = hotCommunityFeedKey(normalizedCode, requestedMarket)',
+        'const switchHotCommunityMarket = (market) =>',
+        "hotCommunityState.feedRequestId += 1",
+        "force: true",
+        "return stagingJsonRequest(url, {",
+        "requestedMarket !== hotCommunityState.market",
+        'const rankingPath = requestedMarket === "us"',
+        'const communityPath = requestedMarket === "us"',
+        '? `/us/stock/${encodeURIComponent(code || "")}`',
+        ': `/dashboard/${encodeURIComponent(code || "")}`',
+        'if ((market === "us") !== stagingUsMarketContext)',
+    ):
+        assert contract in hot_community
+
+    assert "hotCommunityState.rankings.get(hotCommunityState.mode)" not in hot_community
+    assert "hotCommunityState.feeds.has(normalizedCode)" not in hot_community
+
+    v157_rules = css.split(
+        "/* v157 — country-flag market switch for the home community feed. */",
+        1,
+    )[1]
+    for contract in (
+        ".staging-hot-community-market-toggle",
+        "grid-template-columns: repeat(2, minmax(0, 1fr)) !important",
+        ".staging-hot-community-market-toggle > button",
+        "min-width: 46px !important",
+        "min-height: 44px !important",
+        '[aria-pressed="true"]',
+        ":focus-visible",
+        "@media (prefers-reduced-motion: reduce)",
+    ):
+        assert contract in v157_rules
 
 
 def test_staging_v66_removes_residual_dark_surfaces_and_sheet_focus_ring():
@@ -2720,7 +2775,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20260908v492' in shell
+    assert 'dashboard-app-v170.js?v=20260908v493' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 

@@ -21,6 +21,7 @@ from app.models import (
     DashboardAccessQuota,
     PushNotificationHistory,
     RecommendationTrackState,
+    WatchlistGroupState,
     WatchlistItem,
 )
 
@@ -31,7 +32,7 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["strategy_version"] == "position-lifecycle-v7.4.1"
-    assert response.json()["dashboard_version"] == "20260908v492"
+    assert response.json()["dashboard_version"] == "20260908v493"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -224,7 +225,7 @@ def test_us_path_serves_current_dashboard_shell_with_nasdaq_default_without_chan
     assert 'id="home-view"' in response.text
     assert 'id="home-surge"' in response.text
     assert 'data-home-ranking-market="NASDAQ"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260908v492"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260908v493"' in response.text
     assert "시장 한눈에" not in response.text
 
 
@@ -308,7 +309,7 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="us-stock-ai-content"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260908v492"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260908v493"' in stock_shell.text
     assert 'src="/assets/staging/toss-ia.js?v=20260908-public-signal-v103"' in stock_shell.text
     assert "NASDAQ Intelligence" not in stock_shell.text
     assert search_api.status_code == 200
@@ -572,7 +573,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260908v492"}
+    assert version.json() == {"version": "20260908v493"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search")
@@ -580,9 +581,9 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert refresh.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert '["/dashboard-sw.js", "/us-sw.js"].includes' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260908v492" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260908v493" in refresh.text
     assert 'params.get("market") === "us"' in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260908v492" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260908v493" in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -595,7 +596,7 @@ def test_legacy_us_service_worker_retires_its_scope_and_routes_clients_to_curren
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'CURRENT_DASHBOARD_BUILD = "20260908v492"' in worker.text
+    assert 'CURRENT_DASHBOARD_BUILD = "20260908v493"' in worker.text
     assert r"/^secret-note-static-\d{8}us/" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert 'url.pathname.startsWith("/us")' in worker.text
@@ -1506,6 +1507,67 @@ def test_recommendation_tracks_sync_and_keep_initialized_empty_state():
             db.commit()
 
 
+def test_watchlist_groups_sync_normalizes_and_keeps_initialized_empty_state():
+    init_db()
+    client = TestClient(app)
+    share_id = "codex-watchlist-groups"
+    token_response = client.get(f"/session/write-token?share_id={share_id}")
+    assert token_response.status_code == 200
+    headers = {"X-Write-Token": token_response.json()["write_token"]}
+    payload = {
+        "groups": [
+            {
+                "id": "group-tech",
+                "name": "  반도체   성장  ",
+                "codes": ["005930", "005930", "A005930", "NVDA"],
+            },
+            {"id": "default", "name": "기본", "codes": ["000660"]},
+            {"id": "group-duplicate", "name": "반도체 성장", "codes": ["000660"]},
+            {"id": "bad id!", "name": "배당", "codes": ["AAPL"]},
+        ]
+    }
+    expected = [
+        {"id": "group-tech", "name": "반도체 성장", "codes": ["005930", "NVDA"]},
+        {"id": "badid", "name": "배당", "codes": ["AAPL"]},
+    ]
+    try:
+        initial = client.get(f"/watchlists/{share_id}/groups")
+        assert initial.status_code == 200
+        assert initial.json()["initialized"] is False
+        assert initial.json()["groups"] == []
+        assert "no-store" in initial.headers["cache-control"]
+
+        saved = client.put(
+            f"/watchlists/{share_id}/groups",
+            json=payload,
+            headers=headers,
+        )
+        assert saved.status_code == 200
+        assert saved.json()["initialized"] is True
+        assert saved.json()["groups"] == expected
+
+        loaded = client.get(f"/watchlists/{share_id}/groups")
+        assert loaded.status_code == 200
+        assert loaded.json()["groups"] == expected
+
+        cleared = client.put(
+            f"/watchlists/{share_id}/groups",
+            json={"groups": []},
+            headers=headers,
+        )
+        assert cleared.status_code == 200
+        assert cleared.json()["initialized"] is True
+        assert cleared.json()["groups"] == []
+    finally:
+        with SessionLocal() as db:
+            db.execute(
+                delete(WatchlistGroupState).where(
+                    WatchlistGroupState.share_id == share_id
+                )
+            )
+            db.commit()
+
+
 def test_dashboard_identity_uses_server_as_source_of_truth_and_syncs_pins():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text
@@ -1513,14 +1575,21 @@ def test_dashboard_identity_uses_server_as_source_of_truth_and_syncs_pins():
     for expected in (
         'cache: "no-store"',
         "fetchRemoteRecommendationTracks(normalizedId)",
+        "fetchRemoteWatchlistGroups(normalizedId)",
         "remoteTrackPayload.initialized !== true",
+        "remoteGroupPayload.initialized !== true",
         "saveRemoteRecommendationTracks(localTrackItems, normalizedId)",
-        "writeWatchlist(remoteItems, { sync: false });",
+        "saveRemoteWatchlistGroups(localGroups, normalizedId)",
+        "writeWatchlist(remoteItems, { sync: false, replaceAll: true });",
         "writeRecommendationTracks(remoteTrackItems, { sync: false, shareId: normalizedId });",
+        "writeWatchlistGroups(remoteGroups, { sync: false, shareId: normalizedId });",
         "watchlistSyncPending: false",
+        "watchlistGroupSyncPending: false",
         "recommendationTrackSyncPending: false",
         "queueRemoteRecommendationTrackSync();",
+        "queueRemoteWatchlistGroupSync();",
         "recommendationTrackStorageKey(currentId)",
+        "watchlistGroupStorageKey(currentId)",
     ):
         assert expected in source
 
@@ -1955,7 +2024,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260908v492' in shell
+    assert 'styles.css?v=20260908v493' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -2042,7 +2111,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260908v492"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260908v493"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -2080,7 +2149,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260908v492"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260908v493"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert 'return [-timestamp, view?.preliminary ? 0 : 1' in source

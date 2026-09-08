@@ -23,6 +23,8 @@ if ("scrollRestoration" in history) {
 
 const elements = {
   appFrame: document.querySelector(".app-frame"),
+  unifiedMarketScope: $("unified-market-scope"),
+  unifiedMarketScopeButtons: Array.from(document.querySelectorAll("[data-unified-market-scope]")),
   loginGate: $("login-gate"),
   loginSplash: $("login-splash"),
   loginForm: $("login-form"),
@@ -369,6 +371,34 @@ const elements = {
   discoverySearchForm: $("discovery-search-form"),
   discoverySearchInput: $("discovery-search-input"),
   discoverySearchSuggestions: $("discovery-search-suggestions"),
+  watchGroupTabs: $("watch-group-tabs"),
+  watchUserGroupTabs: $("watch-user-group-tabs"),
+  watchGroupCreate: $("watch-group-create"),
+  watchGroupEdit: $("watch-group-edit"),
+  watchGroupAddStock: $("watch-group-add-stock"),
+  watchGroupMeta: $("watch-group-meta"),
+  watchGroupDialog: $("watch-group-dialog"),
+  watchGroupForm: $("watch-group-form"),
+  watchGroupDialogTitle: $("watch-group-dialog-title"),
+  watchGroupDialogDescription: $("watch-group-dialog-description"),
+  watchGroupDialogClose: $("watch-group-dialog-close"),
+  watchGroupName: $("watch-group-name"),
+  watchGroupMembers: $("watch-group-members"),
+  watchGroupDialogStatus: $("watch-group-dialog-status"),
+  watchGroupDelete: $("watch-group-delete"),
+  watchGroupCancel: $("watch-group-cancel"),
+  watchGroupSave: $("watch-group-save"),
+  watchMarketMap: $("watch-market-map"),
+  watchMarketMapGroup: $("watch-market-map-group"),
+  watchMarketMapDescription: $("watch-market-map-description"),
+  watchMarketMapStage: $("watch-market-map-stage"),
+  watchMarketMapLegend: $("watch-market-map-legend"),
+  watchMarketMapStatus: $("watch-market-map-status"),
+  watchMarketMapSheet: $("watch-market-map-sheet"),
+  watchMarketMapSheetTitle: $("watch-market-map-sheet-title"),
+  watchMarketMapSheetDescription: $("watch-market-map-sheet-description"),
+  watchMarketMapSheetClose: $("watch-market-map-sheet-close"),
+  watchMarketMapSheetList: $("watch-market-map-sheet-list"),
   portfolioTabs: Array.from(document.querySelectorAll("[data-portfolio-tab]")),
   portfolioWatchlistPanel: $("portfolio-watchlist-panel"),
   portfolioTrackingPanel: $("portfolio-tracking-panel"),
@@ -512,6 +542,12 @@ const elements = {
 
 const WATCHLIST_KEY = "analyst.watchlist";
 const WATCHLIST_ID_KEY = "analyst.watchlistId";
+const WATCHLIST_GROUP_KEY = "analyst.watchlistGroups.v1";
+const WATCHLIST_SYSTEM_GROUPS = Object.freeze({
+  default: Object.freeze({ id: "default", name: "기본" }),
+  pinned: Object.freeze({ id: "pinned", name: "핀종목" }),
+});
+const WATCHLIST_GROUP_LIMIT = 12;
 const WATCHLIST_INVESTOR_STATES = Object.freeze({
   not_holding: Object.freeze({
     value: "not_holding",
@@ -934,21 +970,28 @@ const dashboardQueryParams = new URLSearchParams(window.location.search);
 const requestedView = dashboardQueryParams.get("view");
 const requestedMarketRankingSnapshotId = dashboardQueryParams.get("snapshot") || "";
 const isUsRootPath = /^\/us\/?$/.test(window.location.pathname);
-const requestedMarketRankingMarket = dashboardQueryParams.get("market") || (isUsRootPath ? "NASDAQ" : "ALL");
+const usStockPathMatch = window.location.pathname.match(/^\/us\/stock\/([^/]+)\/?$/);
+const usStockPathCode = usStockPathMatch ? decodeURIComponent(usStockPathMatch[1]) : "";
+const isUsHubContext = isUsRootPath || Boolean(usStockPathMatch);
+const requestedMarketScope = ["all", "kr", "us"].includes(dashboardQueryParams.get("market_scope"))
+  ? dashboardQueryParams.get("market_scope")
+  : "all";
+const requestedMarketRankingMarket = dashboardQueryParams.get("market") || (isUsRootPath ? "MIXED" : "ALL");
 const requestedMarketRankingCategory = dashboardQueryParams.get("category") || "volume";
 const requestedMarketRankingMode = dashboardQueryParams.get("mode") || "";
 const requestedNewsFilter = dashboardQueryParams.get("filter") || "all";
 const requestedTrendEventId = dashboardQueryParams.get("event_id") || "";
 const hasStockDetailPath = window.location.pathname.split("/").filter(Boolean).length > 1;
-const isUsStockDetailPath = /^\/us\/stock\/[^/]+\/?$/.test(window.location.pathname);
-const isUsMarketContext = isUsRootPath || isUsStockDetailPath;
-if (isUsMarketContext) {
-  document.body.dataset.stockMarket = "us";
-  document.body.dataset.appMarket = "us";
-  document.title = "미국증시 비밀노트";
+const isUsStockDetailPath = Boolean(usStockPathMatch) && !/^\d{6}$/.test(usStockPathCode);
+const isUsMarketContext = isUsHubContext;
+if (isUsHubContext) {
+  document.body.dataset.stockMarket = isUsStockDetailPath ? "us" : "mixed";
+  document.body.dataset.appMarket = "mixed";
+  document.body.dataset.marketScope = requestedMarketScope;
+  document.title = "통합증시 비밀노트";
   const loginTitle = $("login-title");
-  if (loginTitle) loginTitle.textContent = "미국증시 비밀노트";
-  if (elements.loginDescription) elements.loginDescription.textContent = "아이디를 입력해 미국 종목을 확인하세요.";
+  if (loginTitle) loginTitle.textContent = "통합증시 비밀노트";
+  if (elements.loginDescription) elements.loginDescription.textContent = "아이디를 입력해 국내·미국 종목을 확인하세요.";
 }
 const LEGACY_VIEW_MAP = {
   trend: "home",
@@ -1074,7 +1117,7 @@ const MARKET_RANKING_CONFIG = Object.freeze({
   }),
 });
 const DEFAULT_MARKET_RANKING_CATEGORY = "volume";
-const MARKET_RANKING_MARKETS = new Set(["ALL", "KOSPI", "KOSDAQ", "NASDAQ", "SP500"]);
+const MARKET_RANKING_MARKETS = new Set(["MIXED", "ALL", "KOSPI", "KOSDAQ", "NASDAQ", "SP500"]);
 const US_MARKET_RANKING_MARKETS = new Set(["NASDAQ", "SP500"]);
 const US_MARKET_RANKING_CATEGORIES = new Set(["volume", "surge", "market_cap", "dividend", "per"]);
 const STOCK_ETF_NAME_PREFIXES = Object.freeze([
@@ -1086,9 +1129,8 @@ const STOCK_ETF_NAME_PREFIXES = Object.freeze([
 
 const state = {
   view: initialView,
-  rankingCategory: isUsMarketContext && !US_MARKET_RANKING_CATEGORIES.has(requestedMarketRankingCategory)
-    ? DEFAULT_MARKET_RANKING_CATEGORY
-    : MARKET_RANKING_CONFIG[requestedMarketRankingCategory]
+  marketScope: requestedMarketScope,
+  rankingCategory: MARKET_RANKING_CONFIG[requestedMarketRankingCategory]
     ? requestedMarketRankingCategory
     : DEFAULT_MARKET_RANKING_CATEGORY,
   currentStock: null,
@@ -1108,7 +1150,23 @@ const state = {
   trendEventsItems: [],
   trendPastEventsItems: [],
   trendCalendarDate: "",
-  portfolioTab: requestedView === "recommend-history" ? "tracking" : "watchlist",
+  portfolioTab: "watchlist",
+  activeWatchGroup: requestedView === "recommend-history"
+    ? "pinned"
+    : String(dashboardQueryParams.get("group") || "default"),
+  watchlistGroups: [],
+  watchlistGroupDialogMode: "create",
+  watchlistGroupEditingId: "",
+  watchlistGroupDialogTrigger: null,
+  watchlistGroupSyncTimer: null,
+  watchlistGroupSyncing: false,
+  watchlistGroupSyncPending: false,
+  watchMarketMapHiddenEntries: [],
+  watchMarketMapUsdKrw: null,
+  watchMarketMapFxPromise: null,
+  watchMarketMapSheetTrigger: null,
+  watchMarketMapResizeObserver: null,
+  watchMarketMapRenderFrame: null,
   watchlistContentTab: "strategy",
   aiSignalMode: "current",
   aiSignalStage: "all",
@@ -1135,11 +1193,11 @@ const state = {
   homeSurgeSector: "all",
   homeRankingCategory: DEFAULT_MARKET_RANKING_CATEGORY,
   homeRankingMode: "",
-  homeRankingMarket: isUsMarketContext
-    ? (US_MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "NASDAQ")
-    : (MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL"),
+  homeRankingMarket: isUsRootPath ? "ALL" : (MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL"),
   homeRankingRequestId: 0,
+  homeUsRankingRequestId: 0,
   homeSurgeItems: [],
+  homeUsSurgeItems: [],
   homeMarketIndexItems: [],
   homeTrendContext: null,
   homeMarketImpact: null,
@@ -1176,13 +1234,14 @@ const state = {
   recommendationTrackSyncPending: false,
   writeToken: "",
   writeTokenShareId: "",
+  writeTokens: new Map(),
   watchChartResults: [],
   watchChartLoadSequence: 0,
   selectedWatchChartCode: "",
   marketRankingCache: new Map(),
   marketRankingSnapshotId: requestedMarketRankingSnapshotId,
-  marketRankingMarket: isUsMarketContext
-    ? (US_MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "NASDAQ")
+  marketRankingMarket: isUsRootPath && !dashboardQueryParams.has("market")
+    ? ({ all: "MIXED", kr: "ALL", us: "NASDAQ" }[requestedMarketScope] || "MIXED")
     : (MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL"),
   marketRankingSnapshotAsOf: "",
   marketRankingMode: requestedMarketRankingMode,
@@ -1320,51 +1379,181 @@ const state = {
 };
 
 function applyUsMarketSurface() {
-  if (!isUsMarketContext) {
+  if (!isUsHubContext) {
     return;
   }
   const setCopy = (id, value) => {
     const node = $(id);
     if (node) node.textContent = value;
   };
-  setCopy("home-market-signal-title", "미국 AI는 무엇을 사고팔까?");
-  setCopy("home-ai-response-heading", "미국 관심종목 대응");
-  setCopy("trend-events-title", "미국 증시 캘린더");
-  setCopy("trend-live-title", "미국 시장 뉴스");
-  setCopy("news-page-title", "미국 시장 뉴스");
-  setCopy("recommend-stage-title", "미국 추천 종목");
+  setCopy("home-market-signal-title", "한국·미국 AI는 무엇을 사고팔까?");
+  setCopy("home-ai-response-heading", "통합 관심종목 대응");
+  setCopy("trend-events-title", "통합 증시 캘린더");
+  setCopy("trend-live-title", "한국·미국 시장 뉴스");
+  setCopy("news-page-title", "한국·미국 시장 뉴스");
+  setCopy("recommend-stage-title", "한국·미국 추천 종목");
   if (elements.discoverySearchInput) {
-    elements.discoverySearchInput.placeholder = "미국 종목명 또는 티커";
-    elements.discoverySearchInput.setAttribute("aria-label", "미국 종목 검색");
+    elements.discoverySearchInput.placeholder = "국내 종목명·코드 또는 미국 티커";
+    elements.discoverySearchInput.setAttribute("aria-label", "국내·미국 종목 검색");
   }
   if (elements.input) {
-    elements.input.placeholder = "미국 종목명 또는 티커";
+    elements.input.placeholder = "국내 종목명·코드 또는 미국 티커";
   }
   const signalListLink = document.querySelector("a[data-ai-signal-list-link]");
   if (signalListLink) signalListLink.href = "/us?view=ai-signals";
+  const brand = document.querySelector(".mobile-brand");
+  const brandMarket = brand?.querySelector(":scope > span:last-child");
+  if (brand) brand.setAttribute("aria-label", "비밀노트 통합증시");
+  if (brandMarket) brandMarket.textContent = "통합증시";
   const serviceIntro = document.getElementById("service-intro-title")?.closest("section, article, div");
   const serviceMarketCopy = Array.from(serviceIntro?.querySelectorAll("li") || [])
     .find((node) => node.textContent.includes("국내 주식시장"));
   if (serviceMarketCopy) {
-    serviceMarketCopy.textContent = "AI 분석과 공개 데이터를 활용해 미국 주식시장 정보를 이해하기 쉽게 정리합니다.";
+    serviceMarketCopy.textContent = "AI 분석과 공개 데이터를 활용해 한국과 미국 주식시장 정보를 함께 정리합니다.";
   }
   const domesticSource = document.getElementById("service-source-kr");
   const usSource = document.getElementById("service-source-us");
-  if (domesticSource) domesticSource.remove();
+  if (domesticSource) domesticSource.hidden = false;
   if (usSource) usSource.hidden = false;
-  for (const node of document.querySelectorAll(
-    '[data-home-ranking-market="ALL"], [data-home-ranking-market="KOSPI"], [data-home-ranking-market="KOSDAQ"], '
-      + '[data-market-filter="ALL"], [data-market-filter="KOSPI"], [data-market-filter="KOSDAQ"], '
-      + '[data-home-ranking-category="etf"], [data-home-ranking-category="low52"], [data-home-ranking-category="high52"]',
-  )) {
-    node.hidden = true;
+  if (elements.unifiedMarketScope) {
+    elements.unifiedMarketScope.hidden = ["home", "stock", "portfolio"].includes(state.view);
   }
+  for (const button of elements.unifiedMarketScopeButtons) {
+    const active = button.dataset.unifiedMarketScope === state.marketScope;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  }
+  for (const button of elements.marketTabs) {
+    const market = button.dataset.marketFilter;
+    button.hidden = state.marketScope === "kr"
+      ? ["MIXED", "NASDAQ", "SP500"].includes(market)
+      : state.marketScope === "us"
+        ? ["MIXED", "ALL", "KOSPI", "KOSDAQ"].includes(market)
+        : false;
+  }
+  ensureUnifiedHomeTop50();
 }
 
 applyUsMarketSurface();
 
 const dashboardLiveQuoteTimes = new WeakMap();
 const dashboardLiveQuoteDeltas = new WeakMap();
+
+function marketScopeForItem(item = {}) {
+  const explicit = String(item.market_scope || item.country || "").toLowerCase();
+  if (["us", "usa", "united_states"].includes(explicit)) return "us";
+  if (["kr", "kor", "korea", "south_korea"].includes(explicit)) return "kr";
+  const market = String(item.market || item.exchange || "").toUpperCase();
+  if (item.currency === "USD" || ["NASDAQ", "NYSE", "AMEX", "SP500", "US"].includes(market)) return "us";
+  if (item.currency === "KRW" || ["KOSPI", "KOSDAQ", "KONEX", "KR"].includes(market)) return "kr";
+  return /^\d{6}$/.test(String(item.code || "").trim()) ? "kr" : "kr";
+}
+
+function tagMarketItems(items, marketScope) {
+  return (Array.isArray(items) ? items : []).map((item) => ({
+    ...item,
+    market_scope: marketScope,
+    currency: item.currency || (marketScope === "us" ? "USD" : "KRW"),
+  }));
+}
+
+function itemMatchesMarketScope(item, marketScope = state.marketScope) {
+  return marketScope === "all" || marketScopeForItem(item) === marketScope;
+}
+
+function createMarketBadge(item = {}) {
+  const scope = marketScopeForItem(item);
+  const badge = el("span", `market-origin-badge is-${scope}`, scope === "us" ? "미국" : "국내");
+  badge.setAttribute("aria-label", scope === "us" ? "미국 증시 종목" : "국내 증시 종목");
+  return badge;
+}
+
+function unifiedMarketUrl(url, marketScope = state.marketScope) {
+  const next = new URL(url, window.location.origin);
+  if (isUsHubContext) next.searchParams.set("market_scope", marketScope);
+  return `${next.pathname}${next.search}${next.hash}`;
+}
+
+function setUnifiedMarketScope(marketScope) {
+  if (!isUsHubContext || !["all", "kr", "us"].includes(marketScope)) return;
+  const target = /^\/us\/stock\//.test(window.location.pathname)
+    ? new URL("/us?view=search", window.location.origin)
+    : new URL(window.location.href);
+  target.searchParams.set("market_scope", marketScope);
+  target.searchParams.delete("market");
+  target.searchParams.delete("snapshot");
+  window.location.assign(`${target.pathname}${target.search}${target.hash}`);
+}
+
+function syncUnifiedMarketScopeVisibility(view = state.view) {
+  if (!elements.unifiedMarketScope) return;
+  elements.unifiedMarketScope.hidden = !isUsHubContext || ["home", "stock", "portfolio", "recommend-detail", "event-detail", "morning-briefing"].includes(view);
+}
+
+function ensureUnifiedHomeTop50() {
+  if (!isUsRootPath || document.getElementById("home-surge-us")) return;
+  const domestic = document.getElementById("home-surge");
+  if (!domestic) return;
+  domestic.dataset.marketScope = "kr";
+  const domesticTitle = domestic.querySelector("#home-surge-title");
+  if (domesticTitle) domesticTitle.textContent = "한국 TOP 50";
+  const domesticMarketTrigger = domestic.querySelector("#home-ranking-market-trigger");
+  if (domesticMarketTrigger) {
+    domesticMarketTrigger.disabled = true;
+    domesticMarketTrigger.classList.add("is-static");
+    domesticMarketTrigger.setAttribute("aria-disabled", "true");
+  }
+  const domesticMarketLabel = domestic.querySelector("#home-ranking-market-trigger-label");
+  if (domesticMarketLabel) domesticMarketLabel.textContent = "전체";
+
+  const usSection = domestic.cloneNode(true);
+  const idMap = new Map();
+  for (const node of usSection.querySelectorAll("[id]")) {
+    const previous = node.id;
+    const next = `${previous}-us`;
+    idMap.set(previous, next);
+    node.id = next;
+  }
+  usSection.id = "home-surge-us";
+  usSection.dataset.marketScope = "us";
+  for (const node of usSection.querySelectorAll("[aria-controls], [aria-labelledby]")) {
+    for (const attribute of ["aria-controls", "aria-labelledby"]) {
+      const current = node.getAttribute(attribute);
+      if (current && idMap.has(current)) node.setAttribute(attribute, idMap.get(current));
+    }
+  }
+  const title = usSection.querySelector("#home-surge-title-us");
+  if (title) title.textContent = "미국 TOP 50";
+  const meta = usSection.querySelector("#home-surge-meta-us");
+  if (meta) meta.textContent = "미국 실시간 순위 확인 중";
+  const marketLabel = usSection.querySelector("#home-ranking-market-trigger-label-us");
+  if (marketLabel) marketLabel.textContent = "전체";
+  const marketTrigger = usSection.querySelector("#home-ranking-market-trigger-us");
+  if (marketTrigger) {
+    marketTrigger.disabled = true;
+    marketTrigger.classList.add("is-static");
+    marketTrigger.setAttribute("aria-disabled", "true");
+  }
+  const list = usSection.querySelector("#home-surge-list-us");
+  if (list) list.innerHTML = '<p class="muted">미국 거래량 상위 종목을 불러오는 중입니다.</p>';
+  for (const button of usSection.querySelectorAll("[data-home-ranking-category]")) {
+    const category = button.dataset.homeRankingCategory;
+    if (!US_MARKET_RANKING_CATEGORIES.has(category)) {
+      button.remove();
+      continue;
+    }
+    button.addEventListener("click", () => setHomeRankingCategory(category));
+  }
+  usSection.querySelector("#home-surge-more-us")?.addEventListener("click", () => {
+    state.rankingCategory = state.homeRankingCategory;
+    state.marketRankingMode = normalizeMarketRankingMode(state.rankingCategory, state.homeRankingMode);
+    setMarketFilter("NASDAQ");
+    setView("movers");
+    window.scrollTo({ top: 0, behavior: "auto" });
+  });
+  domestic.insertAdjacentElement("afterend", usSection);
+}
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1634,28 +1823,28 @@ function stockDashboardIsUs(data = state.currentDashboard) {
   const market = String(data?.market || state.currentStock?.market || "").toUpperCase();
   return data?.currency === "USD"
     || ["NASDAQ", "NYSE", "SP500", "US"].includes(market)
-    || isUsRootPath
-    || isUsStockDetailPath
-    || /^\/us\/stock\//.test(window.location.pathname);
+    || (isUsStockDetailPath && !data && !state.currentStock);
 }
 
 function marketStockDashboardUrl(code, options = {}) {
   const encodedCode = encodeURIComponent(code);
-  if (isUsMarketContext) {
+  const context = options.item || options.stock || (state.currentStock?.code === code ? state.currentStock : {});
+  if (marketScopeForItem(context) === "us") {
     return `/us/stocks/${encodedCode}/dashboard${options.refresh ? "?refresh=true" : ""}`;
   }
   return `/stocks/${encodedCode}/dashboard${options.refresh ? "?refresh=1&include_profile=0" : "?include_profile=0&include_live=0"}`;
 }
 
-function marketStockPricesUrl(code, limit = 260) {
+function marketStockPricesUrl(code, limit = 260, item = {}) {
   const encodedCode = encodeURIComponent(code);
-  return isUsMarketContext
+  const context = Object.keys(item || {}).length ? item : (state.currentStock?.code === code ? state.currentStock : {});
+  return marketScopeForItem(context) === "us"
     ? `/us/stocks/${encodedCode}/prices?limit=${limit}&range=1y`
     : `/stocks/${encodedCode}/prices?limit=${limit}`;
 }
 
-function marketOverviewUrl(path) {
-  return isUsMarketContext ? `/us${path}` : path;
+function marketOverviewUrl(path, marketScope = state.marketScope) {
+  return isUsHubContext && marketScope === "us" ? `/us${path}` : path;
 }
 
 function formatUsdPrice(value) {
@@ -1956,6 +2145,8 @@ function stockDetailMetaText(data) {
   const parts = [];
   if (stockDashboardIsUs(data)) {
     parts.push(`${data?.market || "미국"} · 미국주식`);
+  } else if (isUsHubContext) {
+    parts.push(`${data?.market || "한국"} · 국내주식`);
   }
   if (data?.source === STOCK_DASHBOARD_WARMING_SOURCE) {
     parts.push("기본 데이터 표시 · 정밀 데이터 준비 중");
@@ -1964,9 +2155,6 @@ function stockDetailMetaText(data) {
 }
 
 function homeMarketAssetOrder(now = new Date()) {
-  if (isUsMarketContext) {
-    return ["SP500", "NASDAQ", "SOX", "DOW", "GOLD", "OIL"];
-  }
   const krPhase = koreaMarketPhase(now);
   const usPhase = usMarketPhase(now);
   const krOpen = krPhase === "preopen" || krPhase === "regular";
@@ -8336,6 +8524,8 @@ function updateWatchlistRowQuote(code, quote, payload = null) {
   const tradingValueCell = card.querySelector('[data-field="trading_value"]');
   const oneMonthCell = card.querySelector('[data-field="one_month"]');
   const threeMonthCell = card.querySelector('[data-field="three_month"]');
+  const trackedPnlRateCell = card.querySelector('[data-field="tracked_pnl_rate"]');
+  const pinnedTodayRateCell = card.querySelector('[data-field="pin_today_rate"]');
 
   if (card.watchDashboard) {
     const accepted = applyLiveQuoteToDashboard(card.watchDashboard, quote, payload);
@@ -8343,22 +8533,31 @@ function updateWatchlistRowQuote(code, quote, payload = null) {
       return false;
     }
     quote = card.watchDashboard.quote;
-    if (oneMonthCell) {
+    if (card.dataset.watchGroupKind !== "pinned" && oneMonthCell) {
       flashTextUpdate(oneMonthCell, formatPercent(card.watchDashboard.momentum?.one_month_return), card.watchDashboard.momentum?.one_month_return);
       setLiveCellTone(oneMonthCell, card.watchDashboard.momentum?.one_month_return);
     }
-    if (threeMonthCell) {
+    if (card.dataset.watchGroupKind !== "pinned" && threeMonthCell) {
       flashTextUpdate(threeMonthCell, formatPercent(card.watchDashboard.momentum?.three_month_return), card.watchDashboard.momentum?.three_month_return);
       setLiveCellTone(threeMonthCell, card.watchDashboard.momentum?.three_month_return);
     }
   }
 
   if (priceCell && quote.price !== null && quote.price !== undefined && quote.price !== "") {
-    animateQuoteNumber(priceCell, quote.price, (value) => formatNumber(Math.round(Number(value))));
+    animateQuoteNumber(priceCell, quote.price, (value) => formatStockPrice(value, card.watchDashboard));
   }
   if (changeCell && quote.change_rate !== null && quote.change_rate !== undefined && quote.change_rate !== "") {
     animateQuoteNumber(changeCell, quote.change_rate, formatPercent);
     setLiveCellTone(changeCell, quote.change_rate);
+  }
+  const trackedProfit = recommendationTrackProfit(card.dataset.trackedPrice, quote.price);
+  if (trackedPnlRateCell && trackedProfit.rate !== null) {
+    animateQuoteNumber(trackedPnlRateCell, trackedProfit.rate, formatPercent);
+    setLiveCellTone(trackedPnlRateCell, trackedProfit.rate);
+  }
+  if (pinnedTodayRateCell && quote.change_rate !== null && quote.change_rate !== undefined && quote.change_rate !== "") {
+    animateQuoteNumber(pinnedTodayRateCell, quote.change_rate, formatPercent);
+    setLiveCellTone(pinnedTodayRateCell, quote.change_rate);
   }
   if (preMarketCell) {
     const preMarketText = formatPreMarketDisplay(quote);
@@ -8368,7 +8567,7 @@ function updateWatchlistRowQuote(code, quote, payload = null) {
   if (tradingValueCell && quote.trading_value !== null && quote.trading_value !== undefined && quote.trading_value !== "") {
     flashTextUpdate(tradingValueCell, formatMoney(quote.trading_value), quote.trading_value);
   }
-  if (card.watchDashboard) {
+  if (card.watchDashboard && card.dataset.watchGroupKind !== "pinned") {
     const point = renderWatchPreOpenPoint(card, card.watchDashboard, card.watchDashboard.quote, card.watchItem, card.usSectorMoves || state.usSectorMoves);
     const metrics = card.querySelector(".watch-v15-metrics");
     if (metrics && point.nextSibling !== metrics) {
@@ -8387,8 +8586,8 @@ function updateWatchlistRowQuote(code, quote, payload = null) {
   return true;
 }
 
-function connectWatchlistQuoteStream(code) {
-  if (!code || isUsMarketContext) return;
+function connectWatchlistQuoteStream(code, item = {}) {
+  if (!code || marketScopeForItem(item) === "us") return;
   setQuoteStreamHandler("watchlist", code, {
     onStatus: (payload) => updateWatchlistStreamStatus(code, payload),
     onQuote: (payload) => updateWatchlistRowQuote(code, payload.quote, payload),
@@ -8434,8 +8633,8 @@ function updateRecommendationCardQuote(code, quote) {
   card.recommendationItem = item;
 }
 
-function connectRecommendationQuoteStream(code) {
-  if (!code || isUsMarketContext) return;
+function connectRecommendationQuoteStream(code, item = {}) {
+  if (!code || marketScopeForItem(item) === "us") return;
   setQuoteStreamHandler("recommendation", code, {
     onQuote: (payload) => {
       updateRecommendationCardQuote(code, payload.quote);
@@ -8900,7 +9099,7 @@ function refreshMorningMoneyBriefingVisibility(now = new Date()) {
   if (!elements.morningMoneyPopover) {
     return false;
   }
-  if (isUsMarketContext) {
+  if (isUsHubContext && state.marketScope === "us") {
     elements.morningMoneyPopover.hidden = true;
     return false;
   }
@@ -9363,11 +9562,7 @@ async function refreshCurrentView() {
       });
       return;
     case "portfolio":
-      if (state.portfolioTab === "tracking") {
-        await loadRecommendationHistory({ force: true });
-      } else {
-        await Promise.all([loadWatchlist({ force: true }), loadTrendWatchlistNews({ force: true })]);
-      }
+      await Promise.all([loadWatchlist({ force: true }), loadTrendWatchlistNews({ force: true })]);
       return;
     case "chart":
       if (state.watchChartResults[0]?.item) {
@@ -9521,12 +9716,36 @@ function renderSuggestions(items) {
     name.className = "suggestion-name";
     name.textContent = item.name;
     button.append(name);
+    if (isUsHubContext) button.append(createMarketBadge(item));
     button.addEventListener("mousedown", (event) => event.preventDefault());
     button.addEventListener("click", () => chooseSuggestion(item));
     elements.suggestions.appendChild(button);
   }
   elements.suggestions.hidden = false;
   elements.input.setAttribute("aria-expanded", "true");
+}
+
+async function fetchUnifiedStockSearch(query, limit, signal, marketScope = state.marketScope) {
+  const scopes = isUsHubContext && marketScope === "all" ? ["kr", "us"] : [isUsHubContext ? marketScope : "kr"];
+  const settled = await Promise.allSettled(scopes.map(async (scope) => {
+    const endpoint = scope === "us" ? "/us/stocks/search" : "/stocks/search";
+    const response = await fetch(`${endpoint}?query=${encodeURIComponent(query)}&limit=${limit}`, {
+      signal,
+      cache: "no-store",
+    });
+    if (!response.ok) return [];
+    return tagMarketItems(await response.json(), scope);
+  }));
+  const seen = new Set();
+  return settled
+    .filter((result) => result.status === "fulfilled")
+    .flatMap((result) => result.value)
+    .filter((item) => {
+      const key = `${marketScopeForItem(item)}:${item.code}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 async function fetchSuggestions(query) {
@@ -9540,16 +9759,7 @@ async function fetchSuggestions(query) {
   }
   state.suggestionController = new AbortController();
   try {
-    const endpoint = stockDashboardIsUs() ? "/us/stocks/search" : "/stocks/search";
-    const response = await fetch(`${endpoint}?query=${encodeURIComponent(normalized)}&limit=30`, {
-      signal: state.suggestionController.signal,
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      hideSuggestions();
-      return;
-    }
-    renderSuggestions(await response.json());
+    renderSuggestions(await fetchUnifiedStockSearch(normalized, 30, state.suggestionController.signal));
   } catch (error) {
     if (error.name !== "AbortError") {
       hideSuggestions();
@@ -9588,6 +9798,7 @@ function renderStandaloneSuggestions(input, container, items, onChoose) {
     button.append(
       el("strong", "", item.name || item.code),
     );
+    if (isUsHubContext) button.append(createMarketBadge(item));
     button.addEventListener("mousedown", (event) => event.preventDefault());
     button.addEventListener("click", () => {
       input.value = item.name || item.code || "";
@@ -9614,16 +9825,7 @@ async function fetchStandaloneSuggestions(kind, query) {
   const controller = new AbortController();
   state[controllerKey] = controller;
   try {
-    const endpoint = (stockDashboardIsUs() || isUsRootPath) ? "/us/stocks/search" : "/stocks/search";
-    const response = await fetch(`${endpoint}?query=${encodeURIComponent(normalized)}&limit=12`, {
-      signal: controller.signal,
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      hideStandaloneSuggestions(input, container);
-      return;
-    }
-    const items = await response.json();
+    const items = await fetchUnifiedStockSearch(normalized, 12, controller.signal);
     if (document.activeElement !== input) {
       hideStandaloneSuggestions(input, container);
       return;
@@ -9688,18 +9890,22 @@ function sentimentBreakdown(sentiment = {}) {
   };
 }
 
-function viewStockUrl(name) {
-  return isUsMarketContext
-    ? `/us/stock/${encodeURIComponent(name)}`
-    : `/dashboard/${encodeURIComponent(name)}`;
+function viewStockUrl(name, item = {}) {
+  const explicitScope = Object.keys(item || {}).length
+    ? marketScopeForItem(item)
+    : (isUsHubContext && state.marketScope === "us" ? "us" : "kr");
+  if (isUsHubContext || explicitScope === "us") {
+    return unifiedMarketUrl(`/us/stock/${encodeURIComponent(name)}`, explicitScope);
+  }
+  return `/dashboard/${encodeURIComponent(name)}`;
 }
 
 function rankingStockUrl(item = {}, selectedMarket = "ALL") {
   const code = item.code || item.name || "";
   if (isUsRankingMarket(selectedMarket) || item.currency === "USD") {
-    return `/us/stock/${encodeURIComponent(code)}`;
+    return unifiedMarketUrl(`/us/stock/${encodeURIComponent(code)}`, "us");
   }
-  return viewStockUrl(code);
+  return viewStockUrl(code, item);
 }
 
 function showStockShareStatus(message) {
@@ -9807,10 +10013,20 @@ function navigateToStock(query, href = viewStockUrl(query)) {
   return load(normalized, { historyMode: "none" });
 }
 
-function readWatchlist() {
+function readWatchlist(options = {}) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(marketStorageKey(WATCHLIST_KEY)) || "[]");
-    return Array.isArray(parsed) ? normalizeWatchlistItems(parsed) : [];
+    if (!isUsHubContext) {
+      const parsed = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || "[]");
+      return Array.isArray(parsed) ? normalizeWatchlistItems(tagMarketItems(parsed, "kr")) : [];
+    }
+    const domestic = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || "[]");
+    const us = JSON.parse(localStorage.getItem(`${WATCHLIST_KEY}.us`) || "[]");
+    const allItems = normalizeWatchlistItems([
+      ...tagMarketItems(Array.isArray(domestic) ? domestic : [], "kr"),
+      ...tagMarketItems(Array.isArray(us) ? us : [], "us"),
+    ]);
+    const effectiveScope = state.view === "home" || options.allMarkets === true ? "all" : state.marketScope;
+    return allItems.filter((item) => itemMatchesMarketScope(item, effectiveScope));
   } catch {
     return [];
   }
@@ -9837,15 +10053,19 @@ function normalizeWatchlistItems(items) {
   for (const item of items || []) {
     const code = String(item?.code || "").trim();
     const name = String(item?.name || "").trim();
-    if (!code || !name || seen.has(code)) {
+    const marketScope = marketScopeForItem(item);
+    const key = `${marketScope}:${code}`;
+    if (!code || !name || seen.has(key)) {
       continue;
     }
-    seen.add(code);
+    seen.add(key);
     const investorState = normalizeWatchlistInvestorState(item.investor_state);
     normalized.push({
       code,
       name,
       market: item.market || "",
+      market_scope: marketScope,
+      currency: item.currency || (marketScope === "us" ? "USD" : "KRW"),
       investor_state: investorState,
       average_buy_price: investorState === "holding"
         ? normalizeWatchlistAverageBuyPrice(item.average_buy_price)
@@ -9856,11 +10076,353 @@ function normalizeWatchlistItems(items) {
 }
 
 function writeWatchlist(items, options = {}) {
-  const normalized = normalizeWatchlistItems(items);
-  localStorage.setItem(marketStorageKey(WATCHLIST_KEY), JSON.stringify(normalized));
+  let normalized = normalizeWatchlistItems(items);
+  if (isUsHubContext) {
+    if (options.replaceAll !== true && state.marketScope !== "all" && state.view !== "home") {
+      normalized = normalizeWatchlistItems([
+        ...readWatchlist({ allMarkets: true }).filter((item) => marketScopeForItem(item) !== state.marketScope),
+        ...normalized,
+      ]);
+    }
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(normalized.filter((item) => marketScopeForItem(item) === "kr")));
+    localStorage.setItem(`${WATCHLIST_KEY}.us`, JSON.stringify(normalized.filter((item) => marketScopeForItem(item) === "us")));
+  } else {
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(normalized));
+  }
   if (options.sync !== false) {
     queueRemoteWatchlistSync();
   }
+  renderWatchlistGroupTabs();
+}
+
+function watchlistGroupStorageKey(shareId = state.watchlistId) {
+  const prefix = marketStorageKey(WATCHLIST_GROUP_KEY);
+  return scopedStorageKey(prefix, shareId) || prefix;
+}
+
+function normalizeWatchlistGroups(groups) {
+  const normalized = [];
+  const seenIds = new Set();
+  const seenNames = new Set();
+  for (const rawGroup of groups || []) {
+    const id = String(rawGroup?.id || "").replace(/[^0-9A-Za-z_-]/g, "").slice(0, 40);
+    const name = String(rawGroup?.name || "").replace(/\s+/g, " ").trim().slice(0, 30);
+    const nameKey = name.toLocaleLowerCase("ko-KR");
+    if (
+      !id
+      || ["default", "pinned"].includes(id)
+      || seenIds.has(id)
+      || !name
+      || ["기본", "핀종목", "핀 종목"].includes(nameKey)
+      || seenNames.has(nameKey)
+    ) {
+      continue;
+    }
+    const codes = [];
+    const seenCodes = new Set();
+    for (const rawCode of rawGroup?.codes || []) {
+      const code = String(rawCode || "").trim();
+      if (!code || seenCodes.has(code)) continue;
+      seenCodes.add(code);
+      codes.push(code);
+      if (codes.length >= 100) break;
+    }
+    seenIds.add(id);
+    seenNames.add(nameKey);
+    normalized.push({ id, name, codes });
+    if (normalized.length >= WATCHLIST_GROUP_LIMIT) break;
+  }
+  return normalized;
+}
+
+function readWatchlistGroups(options = {}) {
+  const storageKey = watchlistGroupStorageKey(options.shareId);
+  try {
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || "[]");
+    return Array.isArray(parsed) ? normalizeWatchlistGroups(parsed) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeWatchlistGroups(groups, options = {}) {
+  const normalized = normalizeWatchlistGroups(groups);
+  const storageKey = watchlistGroupStorageKey(options.shareId);
+  localStorage.setItem(storageKey, JSON.stringify(normalized));
+  state.watchlistGroups = normalized;
+  if (options.sync !== false) queueRemoteWatchlistGroupSync();
+  renderWatchlistGroupTabs();
+  return normalized;
+}
+
+function watchlistGroupById(groupId = state.activeWatchGroup) {
+  const groups = state.watchlistGroups.length ? state.watchlistGroups : readWatchlistGroups();
+  return groups.find((group) => group.id === groupId) || null;
+}
+
+function watchlistItemsForGroup(groupId = state.activeWatchGroup) {
+  if (groupId === "pinned") {
+    return readRecommendationTracks().map((track) => ({
+      code: track.code,
+      name: track.name,
+      market: track.market || "",
+      market_scope: marketScopeForItem(track),
+      currency: track.currency || (marketScopeForItem(track) === "us" ? "USD" : "KRW"),
+      pin_track: track,
+    }));
+  }
+  const items = readWatchlist({ allMarkets: isUsHubContext });
+  if (groupId === "default") return items;
+  const group = watchlistGroupById(groupId);
+  if (!group) return items;
+  const itemByCode = new Map(items.map((item) => [item.code, item]));
+  return group.codes.map((code) => itemByCode.get(code)).filter(Boolean);
+}
+
+function activeWatchlistGroupName() {
+  return WATCHLIST_SYSTEM_GROUPS[state.activeWatchGroup]?.name
+    || watchlistGroupById()?.name
+    || WATCHLIST_SYSTEM_GROUPS.default.name;
+}
+
+function watchlistGroupMetaText(groupId = state.activeWatchGroup) {
+  const count = watchlistItemsForGroup(groupId).length;
+  return groupId === "pinned"
+    ? `${formatNumber(count)}개 · 핀 설정일 기준`
+    : `${formatNumber(count)}개`;
+}
+
+function createWatchlistGroupTab(group) {
+  const button = el("button", "watch-group-chip", group.name);
+  button.type = "button";
+  button.id = `watch-group-${group.id}`;
+  button.dataset.watchGroup = group.id;
+  button.setAttribute("role", "tab");
+  button.setAttribute("aria-controls", "watchlist-strategy-panel");
+  return button;
+}
+
+function renderWatchlistGroupTabs() {
+  if (!elements.watchGroupTabs || !elements.watchUserGroupTabs) return;
+  const focusedGroupId = elements.watchGroupTabs.contains(document.activeElement)
+    ? document.activeElement.closest("[data-watch-group]")?.dataset.watchGroup || ""
+    : "";
+  state.watchlistGroups = normalizeWatchlistGroups(
+    state.watchlistGroups.length ? state.watchlistGroups : readWatchlistGroups(),
+  );
+  const validIds = new Set(["default", "pinned", ...state.watchlistGroups.map((group) => group.id)]);
+  if (!validIds.has(state.activeWatchGroup)) state.activeWatchGroup = "default";
+  elements.watchUserGroupTabs.replaceChildren(...state.watchlistGroups.map(createWatchlistGroupTab));
+  const tabs = Array.from(elements.watchGroupTabs.querySelectorAll("[data-watch-group]"));
+  for (const tab of tabs) {
+    const selected = tab.dataset.watchGroup === state.activeWatchGroup;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
+  const customSelected = Boolean(watchlistGroupById());
+  elements.watchGroupEdit.hidden = !customSelected;
+  elements.watchGroupCreate.disabled = state.watchlistGroups.length >= WATCHLIST_GROUP_LIMIT;
+  elements.watchGroupCreate.setAttribute(
+    "aria-label",
+    state.watchlistGroups.length >= WATCHLIST_GROUP_LIMIT
+      ? `관심 폴더는 최대 ${WATCHLIST_GROUP_LIMIT}개까지 만들 수 있습니다`
+      : "새 관심 폴더 만들기",
+  );
+  if (elements.watchGroupMeta) elements.watchGroupMeta.textContent = watchlistGroupMetaText();
+  if (elements.watchlistMeta) {
+    elements.watchlistMeta.textContent = `${activeWatchlistGroupName()} · ${watchlistGroupMetaText()}`;
+  }
+  if (elements.portfolioView) elements.portfolioView.dataset.activeWatchGroup = state.activeWatchGroup;
+  if (elements.watchlistView) {
+    elements.watchlistView.dataset.groupKind = state.activeWatchGroup === "pinned"
+      ? "pinned"
+      : customSelected
+        ? "custom"
+        : "default";
+  }
+  if (focusedGroupId) {
+    elements.watchGroupTabs
+      .querySelector(`[data-watch-group="${selectorEscape(focusedGroupId)}"]`)
+      ?.focus();
+  }
+}
+
+function handleWatchlistGroupKeydown(event) {
+  if (!elements.watchGroupTabs || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const tabs = Array.from(elements.watchGroupTabs.querySelectorAll("[data-watch-group]:not([disabled])"));
+  const currentTab = event.target.closest("[data-watch-group]");
+  const currentIndex = tabs.indexOf(currentTab);
+  if (currentIndex < 0) return;
+  event.preventDefault();
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? tabs.length - 1
+      : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  const nextGroupId = tabs[nextIndex].dataset.watchGroup || "default";
+  setActiveWatchGroup(nextGroupId, { load: true, reveal: true });
+  elements.watchGroupTabs
+    .querySelector(`[data-watch-group="${selectorEscape(nextGroupId)}"]`)
+    ?.focus();
+}
+
+function setActiveWatchGroup(groupId, options = {}) {
+  const requested = String(groupId || "default");
+  const valid = ["default", "pinned"].includes(requested) || Boolean(watchlistGroupById(requested));
+  state.activeWatchGroup = valid ? requested : "default";
+  state.portfolioTab = "watchlist";
+  state.watchlistFilter = "all";
+  state.selectedTrendWatchCode = "";
+  closeWatchMarketMapSheet();
+  renderWatchlistGroupTabs();
+  if (options.reveal === true) {
+    elements.watchGroupTabs.querySelector(`[data-watch-group="${selectorEscape(state.activeWatchGroup)}"]`)
+      ?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "nearest",
+        inline: "center",
+      });
+  }
+  if (options.load === false || state.view !== "portfolio") return state.activeWatchGroup;
+  if (state.watchlistContentTab === "news") {
+    launchBriefPageLoading("관심종목 뉴스를 불러오는 중", () => loadTrendWatchlistNews(pageEntryRefreshOptions("watchlist", `news-${state.activeWatchGroup}`)));
+  } else {
+    launchBriefPageLoading(PAGE_LOADING_LABELS.watchlist, () => loadWatchlist(pageEntryRefreshOptions("watchlist", state.activeWatchGroup)));
+  }
+  return state.activeWatchGroup;
+}
+
+function watchlistGroupDialogOpen() {
+  return Boolean(elements.watchGroupDialog?.open || elements.watchGroupDialog?.hasAttribute("open"));
+}
+
+function renderWatchlistGroupMembers(selectedCodes = []) {
+  if (!elements.watchGroupMembers) return;
+  const selected = new Set(selectedCodes);
+  const items = readWatchlist({ allMarkets: isUsHubContext });
+  elements.watchGroupMembers.replaceChildren();
+  if (!items.length) {
+    elements.watchGroupMembers.append(el(
+      "p",
+      "watch-group-members-empty",
+      "기본 그룹에 종목을 먼저 추가하면 이곳에서 폴더에 담을 수 있습니다.",
+    ));
+    return;
+  }
+  for (const item of items) {
+    const label = document.createElement("label");
+    label.className = "watch-group-member";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.name = "watch-group-member";
+    input.value = item.code;
+    input.checked = selected.has(item.code);
+    const copy = el("span", "watch-group-member-copy");
+    copy.append(el("strong", "", item.name), el("small", "", item.code));
+    label.append(input, copy);
+    elements.watchGroupMembers.append(label);
+  }
+}
+
+function openWatchlistGroupDialog(groupId = "") {
+  if (!elements.watchGroupDialog || !elements.watchGroupName) return;
+  const group = groupId ? watchlistGroupById(groupId) : null;
+  state.watchlistGroupDialogMode = group ? "edit" : "create";
+  state.watchlistGroupEditingId = group?.id || "";
+  state.watchlistGroupDialogTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  elements.watchGroupDialogTitle.textContent = group ? "폴더 편집" : "새 폴더 만들기";
+  elements.watchGroupDialogDescription.textContent = group
+    ? "폴더 이름과 포함할 종목을 바꿀 수 있습니다."
+    : "폴더 이름을 정하고 기본 관심종목에서 담을 종목을 선택하세요.";
+  elements.watchGroupName.value = group?.name || "";
+  elements.watchGroupDialogStatus.textContent = "";
+  elements.watchGroupDelete.hidden = !group;
+  elements.watchGroupSave.textContent = group ? "변경 저장" : "폴더 만들기";
+  renderWatchlistGroupMembers(group?.codes || []);
+  if (typeof elements.watchGroupDialog.showModal === "function") elements.watchGroupDialog.showModal();
+  else elements.watchGroupDialog.setAttribute("open", "");
+  window.setTimeout(() => elements.watchGroupName.focus(), 20);
+}
+
+function closeWatchlistGroupDialog() {
+  if (!elements.watchGroupDialog || !watchlistGroupDialogOpen()) return;
+  if (typeof elements.watchGroupDialog.close === "function") elements.watchGroupDialog.close();
+  else elements.watchGroupDialog.removeAttribute("open");
+  const trigger = state.watchlistGroupDialogTrigger;
+  state.watchlistGroupDialogTrigger = null;
+  window.setTimeout(() => trigger?.focus(), 20);
+}
+
+function selectedWatchlistGroupMemberCodes() {
+  return Array.from(elements.watchGroupMembers?.querySelectorAll('input[name="watch-group-member"]:checked') || [])
+    .map((input) => String(input.value || "").trim())
+    .filter(Boolean);
+}
+
+function watchlistGroupNameError(name, editingId = "") {
+  if (!name) return "폴더 이름을 입력해주세요.";
+  if (name.length > 20) return "폴더 이름은 20자까지 입력할 수 있습니다.";
+  if (["기본", "핀종목", "핀 종목"].includes(name)) return "기본 그룹과 다른 이름을 사용해주세요.";
+  const duplicate = state.watchlistGroups.some(
+    (group) => group.id !== editingId && group.name.toLocaleLowerCase("ko-KR") === name.toLocaleLowerCase("ko-KR"),
+  );
+  return duplicate ? "이미 사용 중인 폴더 이름입니다." : "";
+}
+
+function saveWatchlistGroupFromDialog(event) {
+  event.preventDefault();
+  const name = String(elements.watchGroupName?.value || "").replace(/\s+/g, " ").trim();
+  const error = watchlistGroupNameError(name, state.watchlistGroupEditingId);
+  if (error) {
+    elements.watchGroupDialogStatus.textContent = error;
+    elements.watchGroupName.focus();
+    return;
+  }
+  const groups = [...state.watchlistGroups];
+  const codes = selectedWatchlistGroupMemberCodes();
+  let groupId = state.watchlistGroupEditingId;
+  if (state.watchlistGroupDialogMode === "edit" && groupId) {
+    const index = groups.findIndex((group) => group.id === groupId);
+    if (index >= 0) groups[index] = { ...groups[index], name, codes };
+  } else {
+    if (groups.length >= WATCHLIST_GROUP_LIMIT) {
+      elements.watchGroupDialogStatus.textContent = `관심 폴더는 최대 ${WATCHLIST_GROUP_LIMIT}개까지 만들 수 있습니다.`;
+      return;
+    }
+    groupId = `group-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    groups.push({ id: groupId, name, codes });
+  }
+  state.activeWatchGroup = groupId;
+  writeWatchlistGroups(groups);
+  closeWatchlistGroupDialog();
+  if (state.view === "portfolio") void loadWatchlist({ force: false });
+}
+
+function deleteActiveWatchlistGroup() {
+  const group = watchlistGroupById(state.watchlistGroupEditingId);
+  if (!group || !window.confirm(`‘${group.name}’ 폴더를 삭제할까요? 관심종목 자체는 삭제되지 않습니다.`)) return;
+  state.activeWatchGroup = "default";
+  writeWatchlistGroups(state.watchlistGroups.filter((item) => item.id !== group.id));
+  closeWatchlistGroupDialog();
+  if (state.view === "portfolio") void loadWatchlist({ force: false });
+}
+
+function removeCodeFromActiveWatchlistGroup(code) {
+  const group = watchlistGroupById();
+  if (!group) return false;
+  writeWatchlistGroups(state.watchlistGroups.map((item) => (
+    item.id === group.id ? { ...item, codes: item.codes.filter((value) => value !== code) } : item
+  )));
+  return true;
+}
+
+function removeWatchlistCodeFromGroups(code) {
+  const groups = state.watchlistGroups.map((group) => ({
+    ...group,
+    codes: group.codes.filter((value) => value !== code),
+  }));
+  if (JSON.stringify(groups) !== JSON.stringify(state.watchlistGroups)) writeWatchlistGroups(groups);
 }
 
 function watchlistInvestorStateForCode(code) {
@@ -9890,7 +10452,7 @@ function syncWatchlistInvestorStateControls(code, investorState) {
 function updateWatchlistInvestorState(code, investorState) {
   const normalizedCode = String(code || "").trim();
   const normalizedState = normalizeWatchlistInvestorState(investorState);
-  const items = readWatchlist();
+  const items = readWatchlist({ allMarkets: isUsHubContext });
   let changed = false;
   const nextItems = items.map((item) => {
     if (item.code !== normalizedCode) return item;
@@ -10262,15 +10824,18 @@ function hideLoginGate() {
 }
 
 async function fetchRemoteWatchlist(shareId) {
-  const base = isUsMarketContext ? "/us/watchlists" : "/watchlists";
-  const response = await fetch(`${base}/${encodeURIComponent(shareId)}`, {
-    cache: "no-store",
-    credentials: "same-origin",
-  });
-  if (!response.ok) {
-    throw new Error("watchlist load failed");
-  }
-  return response.json();
+  const fetchScope = async (marketScope) => {
+    const base = marketScope === "us" ? "/us/watchlists" : "/watchlists";
+    const response = await fetch(`${base}/${encodeURIComponent(shareId)}`, { cache: "no-store", credentials: "same-origin" });
+    if (!response.ok) throw new Error("watchlist load failed");
+    const payload = await response.json();
+    return tagMarketItems(payload.items, marketScope);
+  };
+  if (!isUsHubContext) return { items: await fetchScope("kr") };
+  const settled = await Promise.allSettled([fetchScope("kr"), fetchScope("us")]);
+  const items = settled.filter((result) => result.status === "fulfilled").flatMap((result) => result.value);
+  if (!items.length && settled.every((result) => result.status === "rejected")) throw settled[0].reason;
+  return { items };
 }
 
 async function ensureWriteToken(shareId = state.watchlistId, options = {}) {
@@ -10278,10 +10843,12 @@ async function ensureWriteToken(shareId = state.watchlistId, options = {}) {
   if (!normalizedId) {
     return "";
   }
-  if (!options.force && state.writeToken && state.writeTokenShareId === normalizedId) {
-    return state.writeToken;
+  const marketScope = options.marketScope === "us" ? "us" : "kr";
+  const tokenKey = `${normalizedId}:${marketScope}`;
+  if (!options.force && state.writeTokens.has(tokenKey)) {
+    return state.writeTokens.get(tokenKey);
   }
-  const market = isUsMarketContext ? "&market=us" : "";
+  const market = marketScope === "us" ? "&market=us" : "";
   const response = await fetch(`/session/write-token?share_id=${encodeURIComponent(normalizedId)}${market}`, {
     credentials: "same-origin",
   });
@@ -10291,6 +10858,7 @@ async function ensureWriteToken(shareId = state.watchlistId, options = {}) {
   const payload = await response.json();
   state.writeToken = String(payload.write_token || "");
   state.writeTokenShareId = normalizedId;
+  state.writeTokens.set(tokenKey, state.writeToken);
   return state.writeToken;
 }
 
@@ -10299,9 +10867,10 @@ async function saveRemoteWatchlist(items, shareId = state.watchlistId) {
   if (!normalizedId) {
     return null;
   }
-  const requestPayload = JSON.stringify({ items: normalizeWatchlistItems(items) });
-  const base = isUsMarketContext ? "/us/watchlists" : "/watchlists";
-  const requestOnce = async (writeToken) =>
+  const saveScope = async (marketScope, scopeItems) => {
+    const requestPayload = JSON.stringify({ items: normalizeWatchlistItems(scopeItems) });
+    const base = marketScope === "us" ? "/us/watchlists" : "/watchlists";
+    const requestOnce = async (writeToken) =>
     fetch(`${base}/${encodeURIComponent(normalizedId)}`, {
       method: "PUT",
       cache: "no-store",
@@ -10312,14 +10881,18 @@ async function saveRemoteWatchlist(items, shareId = state.watchlistId) {
       },
       body: requestPayload,
     });
-  let response = await requestOnce(await ensureWriteToken(normalizedId));
-  if (response.status === 403) {
-    response = await requestOnce(await ensureWriteToken(normalizedId, { force: true }));
-  }
-  if (!response.ok) {
-    throw new Error("watchlist save failed");
-  }
-  return response.json();
+    let response = await requestOnce(await ensureWriteToken(normalizedId, { marketScope }));
+    if (response.status === 403) response = await requestOnce(await ensureWriteToken(normalizedId, { force: true, marketScope }));
+    if (!response.ok) throw new Error("watchlist save failed");
+    return response.json();
+  };
+  const normalized = normalizeWatchlistItems(items);
+  if (!isUsHubContext) return saveScope("kr", normalized);
+  const [domestic, us] = await Promise.all([
+    saveScope("kr", normalized.filter((item) => marketScopeForItem(item) === "kr")),
+    saveScope("us", normalized.filter((item) => marketScopeForItem(item) === "us")),
+  ]);
+  return { items: [...tagMarketItems(domestic.items, "kr"), ...tagMarketItems(us.items, "us")] };
 }
 
 function queueRemoteWatchlistSync() {
@@ -10344,7 +10917,7 @@ async function syncLocalWatchlistToRemote() {
     return;
   }
   const syncShareId = state.watchlistId;
-  const items = readWatchlist();
+  const items = readWatchlist({ allMarkets: isUsHubContext });
   const snapshot = JSON.stringify(items);
   state.watchlistSyncing = true;
   state.watchlistSyncPending = false;
@@ -10360,10 +10933,80 @@ async function syncLocalWatchlistToRemote() {
     }
   } finally {
     state.watchlistSyncing = false;
-    const changedWhileSaving = state.watchlistId === syncShareId && JSON.stringify(readWatchlist()) !== snapshot;
+    const changedWhileSaving = state.watchlistId === syncShareId && JSON.stringify(readWatchlist({ allMarkets: isUsHubContext })) !== snapshot;
     if (state.watchlistId && (state.watchlistSyncPending || changedWhileSaving)) {
       state.watchlistSyncPending = false;
       queueRemoteWatchlistSync();
+    }
+  }
+}
+
+async function fetchRemoteWatchlistGroups(shareId) {
+  const scopedShareId = isUsHubContext ? `us.${shareId}` : shareId;
+  const response = await fetch(`/watchlists/${encodeURIComponent(scopedShareId)}/groups`, {
+    cache: "no-store",
+    credentials: "same-origin",
+  });
+  if (!response.ok) throw new Error("watchlist groups load failed");
+  return response.json();
+}
+
+async function saveRemoteWatchlistGroups(groups, shareId = state.watchlistId) {
+  const normalizedId = normalizeWatchlistId(shareId);
+  if (!normalizedId) return null;
+  const scopedShareId = isUsHubContext ? `us.${normalizedId}` : normalizedId;
+  const requestPayload = JSON.stringify({ groups: normalizeWatchlistGroups(groups) });
+  const requestOnce = async (writeToken) => fetch(`/watchlists/${encodeURIComponent(scopedShareId)}/groups`, {
+    method: "PUT",
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Write-Token": writeToken,
+    },
+    body: requestPayload,
+  });
+  const tokenOptions = { marketScope: isUsHubContext ? "us" : "kr" };
+  let response = await requestOnce(await ensureWriteToken(normalizedId, tokenOptions));
+  if (response.status === 403) {
+    response = await requestOnce(await ensureWriteToken(normalizedId, { ...tokenOptions, force: true }));
+  }
+  if (!response.ok) throw new Error("watchlist groups save failed");
+  return response.json();
+}
+
+function queueRemoteWatchlistGroupSync() {
+  if (!state.watchlistId) return;
+  if (state.watchlistGroupSyncing) {
+    state.watchlistGroupSyncPending = true;
+    return;
+  }
+  window.clearTimeout(state.watchlistGroupSyncTimer);
+  state.watchlistGroupSyncTimer = window.setTimeout(syncLocalWatchlistGroupsToRemote, 450);
+}
+
+async function syncLocalWatchlistGroupsToRemote() {
+  if (!state.watchlistId) return;
+  if (state.watchlistGroupSyncing) {
+    state.watchlistGroupSyncPending = true;
+    return;
+  }
+  const syncShareId = state.watchlistId;
+  const groups = readWatchlistGroups({ shareId: syncShareId });
+  const snapshot = JSON.stringify(groups);
+  state.watchlistGroupSyncing = true;
+  state.watchlistGroupSyncPending = false;
+  try {
+    await saveRemoteWatchlistGroups(groups, syncShareId);
+  } catch {
+    if (state.watchlistId === syncShareId) setWatchlistIdStatus("관심 폴더 동기화 실패", "error");
+  } finally {
+    state.watchlistGroupSyncing = false;
+    const changedWhileSaving = state.watchlistId === syncShareId
+      && JSON.stringify(readWatchlistGroups({ shareId: syncShareId })) !== snapshot;
+    if (state.watchlistId && (state.watchlistGroupSyncPending || changedWhileSaving)) {
+      state.watchlistGroupSyncPending = false;
+      queueRemoteWatchlistGroupSync();
     }
   }
 }
@@ -10393,6 +11036,7 @@ async function applyWatchlistId(shareId, options = {}) {
   }
   state.writeToken = "";
   state.writeTokenShareId = "";
+  state.writeTokens.clear();
   localStorage.setItem(WATCHLIST_ID_KEY, normalizedId);
   state.pushNotificationEnabled = readCachedPushEnabled();
   hydratePushNotificationHistory();
@@ -10408,12 +11052,14 @@ async function applyWatchlistId(shareId, options = {}) {
   setWatchlistIdStatus("서버 목록 불러오는 중");
   const syncIdentity = async () => {
     const localTrackItems = readRecommendationTracks({ shareId: normalizedId });
-    const [remotePayload, remoteTrackPayload] = await Promise.all([
+    const localGroups = readWatchlistGroups({ shareId: normalizedId });
+    const [remotePayload, remoteTrackPayload, remoteGroupPayload] = await Promise.all([
       fetchRemoteWatchlist(normalizedId),
       fetchRemoteRecommendationTracks(normalizedId),
+      fetchRemoteWatchlistGroups(normalizedId),
     ]);
     const remoteItems = normalizeWatchlistItems(remotePayload.items || []);
-    writeWatchlist(remoteItems, { sync: false });
+    writeWatchlist(remoteItems, { sync: false, replaceAll: true });
 
     let remoteTrackItems = normalizeRecommendationTracks(remoteTrackPayload.items || []);
     if (remoteTrackPayload.initialized !== true) {
@@ -10421,8 +11067,15 @@ async function applyWatchlistId(shareId, options = {}) {
       remoteTrackItems = normalizeRecommendationTracks(migratedPayload?.items || localTrackItems);
     }
     writeRecommendationTracks(remoteTrackItems, { sync: false, shareId: normalizedId });
+
+    let remoteGroups = normalizeWatchlistGroups(remoteGroupPayload.groups || []);
+    if (remoteGroupPayload.initialized !== true) {
+      const migratedPayload = await saveRemoteWatchlistGroups(localGroups, normalizedId);
+      remoteGroups = normalizeWatchlistGroups(migratedPayload?.groups || localGroups);
+    }
+    writeWatchlistGroups(remoteGroups, { sync: false, shareId: normalizedId });
     setWatchlistIdStatus(
-      `${normalizedId} · 관심 ${formatNumber(remoteItems.length)}개 · 핀 ${formatNumber(remoteTrackItems.length)}개`,
+      `${normalizedId} · 관심 ${formatNumber(remoteItems.length)}개 · 핀 ${formatNumber(remoteTrackItems.length)}개 · 폴더 ${formatNumber(remoteGroups.length)}개`,
       "success"
     );
     if (!elements.loginGate || elements.loginGate.hidden) {
@@ -10431,11 +11084,10 @@ async function applyWatchlistId(shareId, options = {}) {
     updateWatchButton();
     updateRecommendationWatchButtons();
     updateRecommendationTrackButtons();
+    renderWatchlistGroupTabs();
     if (options.refreshView !== false) {
       if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
         void loadWatchlist({ force: true, ttlMs: 0 });
-      } else if (state.view === "portfolio" && state.portfolioTab === "tracking") {
-        void loadRecommendationHistory({ force: true, ttlMs: 0 });
       }
     }
   };
@@ -10455,6 +11107,7 @@ async function logoutWatchlistIdentity() {
   }
   window.clearTimeout(state.watchlistSyncTimer);
   window.clearTimeout(state.recommendationTrackSyncTimer);
+  window.clearTimeout(state.watchlistGroupSyncTimer);
   stopPushNotificationUnreadRefresh();
   state.watchlistSyncTimer = null;
   state.watchlistSyncing = false;
@@ -10462,6 +11115,9 @@ async function logoutWatchlistIdentity() {
   state.recommendationTrackSyncTimer = null;
   state.recommendationTrackSyncing = false;
   state.recommendationTrackSyncPending = false;
+  state.watchlistGroupSyncTimer = null;
+  state.watchlistGroupSyncing = false;
+  state.watchlistGroupSyncPending = false;
   state.watchlistId = "";
   state.writeToken = "";
   state.writeTokenShareId = "";
@@ -10470,6 +11126,8 @@ async function logoutWatchlistIdentity() {
   localStorage.removeItem(WATCHLIST_ID_KEY);
   localStorage.removeItem(marketStorageKey(WATCHLIST_KEY));
   localStorage.removeItem(recommendationTrackStorageKey(currentId));
+  localStorage.removeItem(watchlistGroupStorageKey(currentId));
+  localStorage.removeItem(marketStorageKey(WATCHLIST_GROUP_KEY));
   localStorage.removeItem(RECOMMENDATION_TRACK_KEY);
   localStorage.removeItem("analyst.watchlistActivity");
   resetHomeAiSignalsForIdentity();
@@ -10486,6 +11144,9 @@ async function logoutWatchlistIdentity() {
   updateRecommendationWatchButtons();
   updateRecommendationTrackButtons();
   updateRecommendationTrackMeta();
+  state.watchlistGroups = [];
+  state.activeWatchGroup = "default";
+  renderWatchlistGroupTabs();
   if (elements.watchlistBody) {
     elements.watchlistBody.innerHTML = '<p class="muted">로그인 후 관심 종목을 불러옵니다.</p>';
   }
@@ -10528,6 +11189,8 @@ async function initializeWatchlistIdentity() {
       showLoginGate("저장된 아이디를 불러오지 못했습니다. 다시 입력해주세요.", { skipSplash: true, tone: "error" });
     }
   } else {
+    state.watchlistGroups = readWatchlistGroups();
+    renderWatchlistGroupTabs();
     setWatchlistIdStatus("로컬 저장 중");
     showLoginGate(savedId ? "서비스 이용을 위해 초대 코드를 입력해주세요." : "");
   }
@@ -10577,9 +11240,12 @@ function toggleWatchlistItem(stock) {
       code: stock.code,
       name: stock.name,
       market: stock.market || "",
+      market_scope: marketScopeForItem(stock),
+      currency: stock.currency || (marketScopeForItem(stock) === "us" ? "USD" : "KRW"),
       investor_state: "not_holding",
       average_buy_price: null,
     }];
+  if (exists) removeWatchlistCodeFromGroups(stock.code);
   writeWatchlist(nextItems);
   return !exists;
 }
@@ -10664,31 +11330,30 @@ function dashboardLocationRoute() {
 
 function dashboardRouteUrl(routeName) {
   const route = String(routeName || "home");
-  const root = isUsMarketContext ? "/us" : "/dashboard";
+  const root = isUsHubContext ? "/us" : "/dashboard";
+  const scopedRoute = (url) => (isUsHubContext ? unifiedMarketUrl(url, state.marketScope) : url);
   if (route === "stock" && state.currentStock?.name) {
-    return stockDashboardIsUs()
-      ? `/us/stock/${encodeURIComponent(state.currentStock.code)}`
-      : viewStockUrl(state.currentStock.name);
+    return viewStockUrl(state.currentStock.name, state.currentStock);
   }
   if (route === "recommend-detail") {
     const code = state.currentRecommendationDetailItem?.code
       || new URLSearchParams(window.location.search).get("code")
       || "";
-    return `${root}?view=recommend-detail${code ? `&code=${encodeURIComponent(code)}` : ""}`;
+    return scopedRoute(`${root}?view=recommend-detail${code ? `&code=${encodeURIComponent(code)}` : ""}`);
   }
   if (route === "movers") {
     const market = currentMarketFilter();
     const snapshot = state.marketRankingSnapshotId
       ? `&snapshot=${encodeURIComponent(state.marketRankingSnapshotId)}`
       : "";
-    return `${root}?view=movers&market=${encodeURIComponent(market)}${snapshot}`;
+    return scopedRoute(`${root}?view=movers&market=${encodeURIComponent(market)}${snapshot}`);
   }
   if (route === "news") {
-    return `${root}?view=news&filter=${encodeURIComponent(state.trendNewsFilter || "all")}`;
+    return scopedRoute(`${root}?view=news&filter=${encodeURIComponent(state.trendNewsFilter || "all")}`);
   }
   if (route === "event-detail") {
     const eventId = state.activeTrendEventId || state.selectedTrendEvent?.id || "";
-    return `${root}?view=event-detail${eventId ? `&event_id=${encodeURIComponent(eventId)}` : ""}`;
+    return scopedRoute(`${root}?view=event-detail${eventId ? `&event_id=${encodeURIComponent(eventId)}` : ""}`);
   }
   const safeRoute = [
     "home",
@@ -10705,7 +11370,7 @@ function dashboardRouteUrl(routeName) {
     "chart-study",
     "chart-history",
   ].includes(route) ? route : "home";
-  return `${root}?view=${encodeURIComponent(safeRoute)}`;
+  return scopedRoute(`${root}?view=${encodeURIComponent(safeRoute)}`);
 }
 
 function createDashboardHistoryState(route, index, options = {}) {
@@ -11081,7 +11746,7 @@ function closeInstallSheet() {
 
 function pushNotificationOptions() {
   const options = state.pushConfig?.condition_options || PUSH_NOTIFICATION_FALLBACK_OPTIONS;
-  const marketOptions = isUsMarketContext
+  const marketOptions = isUsHubContext && state.marketScope === "us"
     ? options
       .filter((option) => option.id !== "morning_briefing")
       .map((option) => {
@@ -12627,7 +13292,8 @@ function canonicalAppView(requested) {
   } else if (requested === "event-detail") {
     state.activeTrendTab = "events";
   } else if (requested === "recommend-history") {
-    state.portfolioTab = "tracking";
+    state.portfolioTab = "watchlist";
+    state.activeWatchGroup = "pinned";
   } else if (requested === "watchlist") {
     state.portfolioTab = "watchlist";
   }
@@ -12637,6 +13303,7 @@ function canonicalAppView(requested) {
 function setWatchlistContentTab(tabName, options = {}) {
   const active = tabName === "news" ? "news" : "strategy";
   state.watchlistContentTab = active;
+  if (active === "news") closeWatchMarketMapSheet();
   for (const tab of elements.watchlistContentTabs) {
     const selected = tab.dataset.watchContentTab === active;
     tab.classList.toggle("active", selected);
@@ -12650,31 +13317,29 @@ function setWatchlistContentTab(tabName, options = {}) {
   }
   if (active === "news") {
     closeWatchlistQuoteStreams();
-    launchBriefPageLoading("관심종목 뉴스를 불러오는 중", () => loadTrendWatchlistNews(pageEntryRefreshOptions("watchlist", "news")));
+    launchBriefPageLoading("관심종목 뉴스를 불러오는 중", () => loadTrendWatchlistNews(pageEntryRefreshOptions("watchlist", `news-${state.activeWatchGroup}`)));
   } else {
-    launchBriefPageLoading(PAGE_LOADING_LABELS.watchlist, () => loadWatchlist(pageEntryRefreshOptions("watchlist", "strategy")));
+    launchBriefPageLoading(PAGE_LOADING_LABELS.watchlist, () => loadWatchlist(pageEntryRefreshOptions("watchlist", `strategy-${state.activeWatchGroup}`)));
   }
   return active;
 }
 
 function setPortfolioTab(tabName, options = {}) {
-  const active = tabName === "tracking" ? "tracking" : "watchlist";
+  const requestedGroup = tabName === "tracking" ? "pinned" : state.activeWatchGroup;
+  const active = "watchlist";
   state.portfolioTab = active;
   for (const tab of elements.portfolioTabs) {
-    const selected = tab.dataset.portfolioTab === active;
+    const selected = tab.dataset.portfolioTab === (tabName === "tracking" ? "tracking" : "watchlist");
     tab.classList.toggle("active", selected);
     tab.setAttribute("aria-selected", String(selected));
   }
-  elements.portfolioWatchlistPanel.hidden = active !== "watchlist";
-  elements.portfolioTrackingPanel.hidden = active !== "tracking";
+  elements.portfolioWatchlistPanel.hidden = false;
+  elements.portfolioTrackingPanel.hidden = true;
   if (options.load === false || state.view !== "portfolio") {
     return active;
   }
-  if (active === "tracking") {
-    launchBriefPageLoading(PAGE_LOADING_LABELS["recommend-history"], () => loadRecommendationHistory(pageEntryRefreshOptions("recommend-history")));
-  } else {
-    setWatchlistContentTab(state.watchlistContentTab, { load: true });
-  }
+  setActiveWatchGroup(requestedGroup, { load: false });
+  setWatchlistContentTab(state.watchlistContentTab, { load: true });
   return active;
 }
 
@@ -12707,6 +13372,7 @@ function setView(requestedViewName, options = {}) {
     setAIAnalysisButtonsLoading(false);
   }
   state.view = view;
+  if (view !== "portfolio") closeWatchMarketMapSheet();
   if (["home", "ai-signals"].includes(view) && previousView !== view) {
     prepareAiSignalEntrySurface(view);
   }
@@ -12714,6 +13380,7 @@ function setView(requestedViewName, options = {}) {
     state.morningMoneyBriefingSelection = null;
   }
   document.body.dataset.view = view;
+  syncUnifiedMarketScopeVisibility(view);
   setFlowLoading(false);
   hideSuggestions();
   if (view !== "stock") {
@@ -12809,6 +13476,9 @@ function setView(requestedViewName, options = {}) {
     });
     startHomeAiResponseRefresh();
     void loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home", { forceOnFirst: false }));
+    if (isUsRootPath) {
+      void loadHomeUsRankings(pageEntryRefreshOptions("market", "home-us", { forceOnFirst: false }));
+    }
     connectUsSectorStream();
     launchBriefPageLoading(
       PAGE_LOADING_LABELS.trend,
@@ -13077,6 +13747,7 @@ function createMarketLeaderboardCard(item) {
 
   name.append(strong);
   identity.append(createRankingStockLogo(item), name);
+  if (isUsHubContext) identity.append(createMarketBadge(item));
 
   const quoteBlock = renderRankingMetricBlock(
     document.createElement("span"),
@@ -13153,7 +13824,7 @@ function startMarketSurgeLeaderboard(payload) {
   if (isUsRankingMarket(state.marketRankingMarket)) {
     return;
   }
-  for (const item of state.marketLeaderboardItems.slice(0, 50)) {
+  for (const item of state.marketLeaderboardItems.slice(0, 50).filter((entry) => marketScopeForItem(entry) === "kr")) {
     connectMarketQuoteStream(item.code);
   }
 }
@@ -13496,7 +14167,8 @@ function marketAiSignalItems(payload = {}) {
         code: item.code,
         name: item.name || item.code,
         market: item.market || null,
-        currency: item.currency || ((typeof isUsMarketContext !== "undefined" && isUsMarketContext) ? "USD" : "KRW"),
+        currency: item.currency || (marketScopeForItem(item) === "us" ? "USD" : "KRW"),
+        market_scope: item.market_scope || marketScopeForItem(item),
         sector: item.sector || null,
         industry: item.industry || null,
         investment_sector: item.investment_sector || "other",
@@ -13850,7 +14522,7 @@ function aiSignalPriceLine(item, view) {
 }
 
 function formatAiSignalPrice(value, item = {}) {
-  return item.currency === "USD" || isUsMarketContext
+  return item.currency === "USD" || marketScopeForItem(item) === "us"
     ? formatUsdPrice(value)
     : `${formatNumber(value)}원`;
 }
@@ -14013,8 +14685,11 @@ function aiSignalFreshnessSummaryLabel(summary = {}) {
 }
 
 function aiSignalLifecycleIsActive(now = new Date()) {
-  if (isUsMarketContext) {
+  if (isUsHubContext && state.marketScope === "us") {
     return ["premarket", "regular", "afterhours"].includes(usMarketPhase(now));
+  }
+  if (isUsHubContext && state.marketScope === "all") {
+    return ["premarket", "regular", "afterhours"].includes(usMarketPhase(now)) || koreaMarketPhase(now) === "regular";
   }
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Seoul",
@@ -14360,7 +15035,7 @@ function aiSignalOutcomeMetrics(item = {}, view = {}) {
     });
   }
   if (pendingEntry) {
-    metrics.push(isUsMarketContext
+    metrics.push(marketScopeForItem(item) === "us"
       ? { key: "confirmation", label: "다음 확인", value: "미국 정규장 종가" }
       : { key: "execution", label: "체결 기준", value: "다음 거래일 시가" });
   } else if (view.preliminary && returnRate === null && !targetStatus) {
@@ -14586,7 +15261,8 @@ function aiSignalPageFreshnessView(now = Date.now()) {
     };
   }
   if (!heldItems.length) {
-    const closed = isUsMarketContext
+    const usOnly = isUsHubContext && state.marketScope === "us";
+    const closed = usOnly
       ? usMarketPhase(new Date(now)) === "closed"
       : isDomesticMarketClosed(new Date(now));
     return {
@@ -14594,11 +15270,11 @@ function aiSignalPageFreshnessView(now = Date.now()) {
       counts: {},
       heldCount: 0,
       mixed: false,
-      label: closed ? `현재 목록 · ${isUsMarketContext ? "미국 장 마감" : "장 마감"}` : "시그널 변경 확인 중",
+      label: closed ? `현재 목록 · ${usOnly ? "미국 장 마감" : "장 마감"}` : "시그널 변경 확인 중",
       detail: closed
         ? "확정 수익률은 유지되고 다음 장의 시그널 변경을 기다려요."
-        : isUsMarketContext
-          ? "미국 시장 데이터가 갱신되면 시그널 변경을 반영해요."
+        : isUsHubContext
+          ? "한국·미국 시장 데이터가 갱신되면 시그널 변경을 반영해요."
           : "시그널 변경을 실시간으로 확인하고 있어요.",
       time: formatAiSignalLiveTime(state.aiSignalSnapshotAsOf),
     };
@@ -14769,7 +15445,7 @@ function closeAiSignalQuoteStreams() {
 }
 
 function connectAiSignalQuoteStreams(_items = state.aiSignalItems) {
-  if (isUsMarketContext) {
+  if (isUsHubContext && state.marketScope === "us") {
     state.quoteStreamSignalControlActive = false;
     clearQuoteStreamScope("ai-signals");
     renderAiSignalLiveStatus();
@@ -14777,7 +15453,7 @@ function connectAiSignalQuoteStreams(_items = state.aiSignalItems) {
   }
   state.quoteStreamSignalControlActive = true;
   const codes = visibleAiSignalSnapshotItems()
-    .filter((item) => isCurrentAiSignalHolding(item))
+    .filter((item) => isCurrentAiSignalHolding(item) && marketScopeForItem(item) === "kr")
     .map((item) => String(item.code || ""))
     .filter(Boolean);
   replaceQuoteStreamScope("ai-signals", codes.map((code, index) => ({
@@ -14808,8 +15484,8 @@ function normalizedAiSignalItems(items = [], options = {}) {
 }
 
 function homeMarketVolatilitySentence(items = state.homeMarketIndexItems) {
-  const focusCodes = isUsMarketContext
-    ? ["SP500", "NASDAQ", "SOX", "DOW"]
+  const focusCodes = isUsHubContext
+    ? ["KOSPI", "KOSDAQ", "SP500", "NASDAQ", "SOX", "DOW"]
     : ["KOSPI", "KOSDAQ"];
   const domestic = (Array.isArray(items) ? items : [])
     .filter((item) => focusCodes.includes(String(item?.code || "").toUpperCase()))
@@ -14831,22 +15507,22 @@ function homeMarketVolatilitySentence(items = state.homeMarketIndexItems) {
     return `${strongest.label} ${formatPercent(strongest.rate)}로 변동성이 큰 구간이어서 장중 급등락에 유의해야 합니다.`;
   }
   if (hasMixedDirection) {
-    return isUsMarketContext
-      ? "미국 주요 지수 흐름이 엇갈려 업종과 종목별 변동성 차이를 확인해야 합니다."
+    return isUsHubContext
+      ? "한국과 미국 주요 지수 흐름이 엇갈려 시장별 변동성 차이를 확인해야 합니다."
       : "코스피와 코스닥 흐름이 엇갈려 종목별 변동성 차이를 확인해야 합니다.";
   }
   if (allPositive && maximumMove >= 0.7) {
-    return isUsMarketContext
-      ? "미국 주요 지수가 함께 강세지만 단기 추격보다 종목별 거래 흐름 확인이 필요합니다."
+    return isUsHubContext
+      ? "한국과 미국 주요 지수를 함께 보되 단기 추격보다 종목별 거래 흐름 확인이 필요합니다."
       : "코스피와 코스닥이 함께 강세지만 단기 추격보다 종목별 수급 확인이 필요합니다.";
   }
   if (allNegative && maximumMove >= 0.7) {
-    return isUsMarketContext
-      ? "미국 주요 지수가 함께 약세여서 추가 하락과 변동성 확대에 유의해야 합니다."
+    return isUsHubContext
+      ? "한국과 미국 주요 지수의 약세와 변동성 확대에 유의해야 합니다."
       : "코스피와 코스닥이 함께 약세여서 추가 하락과 수급 이탈에 유의해야 합니다.";
   }
-  return isUsMarketContext
-    ? "미국 지수 변동은 제한적이지만 업종과 종목별 움직임 차이를 확인할 구간입니다."
+  return isUsHubContext
+    ? "한국과 미국 지수 변동은 제한적이지만 시장별 종목 움직임 차이를 확인할 구간입니다."
     : "국내 지수 변동은 제한적이지만 종목별 움직임 차이를 확인할 구간입니다.";
 }
 
@@ -16244,7 +16920,8 @@ function createHomeAiSignalRow(item, options = {}) {
     && item.current?.live_observation === true;
   const row = document.createElement("a");
   row.className = `home-ai-signal-row is-${view.tone}${view.preliminary && !released ? " is-preliminary" : ""}${livePreliminary ? " is-live-preliminary" : ""}${released ? " is-released" : ""}`;
-  row.href = options.linkToList ? dashboardRouteUrl("ai-signals") : viewStockUrl(item.code || item.name || "");
+  row.href = options.linkToList ? dashboardRouteUrl("ai-signals") : viewStockUrl(item.code || item.name || "", item);
+  row.dataset.marketScope = marketScopeForItem(item);
   row.dataset.code = item.code || "";
   row.aiSignalItem = item;
   row.aiSignalSnapshotItem = snapshotItem;
@@ -16267,6 +16944,7 @@ function createHomeAiSignalRow(item, options = {}) {
   const identity = el("span", "home-ai-signal-identity");
   const nameLine = el("span", "home-ai-signal-name-line");
   nameLine.append(el("strong", "home-ai-signal-name", item.name || item.code || "-"));
+  if (isUsHubContext) nameLine.append(createMarketBadge(item));
   const activityBadge = aiSignalActivityBadge(item, view);
   if (activityBadge) {
     nameLine.append(el(
@@ -16788,34 +17466,54 @@ async function loadAiSignalsPage(options = {}) {
 
 async function fetchMarketAiSignals(options = {}) {
   const recentDays = Number(options.recentDays) || AI_SIGNAL_HISTORY_DAYS;
-  const url = isUsMarketContext
-    ? `/us/market/quant-signals?limit=20&recent_days=${recentDays}`
-    : `/market/quant-signals?universe_limit=150&limit=0&recent_days=${recentDays}`;
-  const retryDelays = [0, 1200, 2500];
-  let payload = null;
-  for (let index = 0; index < retryDelays.length; index += 1) {
-    if (retryDelays[index]) {
-      await delay(retryDelays[index]);
+  const effectiveScope = isUsHubContext && state.view === "home" ? "all" : state.marketScope;
+  const fetchScope = async (marketScope) => {
+    const url = marketScope === "us"
+      ? `/us/market/quant-signals?limit=20&recent_days=${recentDays}`
+      : `/market/quant-signals?universe_limit=150&limit=0&recent_days=${recentDays}`;
+    const retryDelays = [0, 1200, 2500];
+    let payload = null;
+    for (let index = 0; index < retryDelays.length; index += 1) {
+      if (retryDelays[index]) await delay(retryDelays[index]);
+      payload = await fetchJsonCached(url, {
+        force: options.force === true || index > 0,
+        ttlMs: index > 0 ? 0 : (options.ttlMs ?? PAGE_ENTRY_MINUTE_MS),
+      });
+      if (!isAiSignalMarketUpdating(payload?.status)) break;
     }
-    payload = await fetchJsonCached(url, {
-      force: options.force === true || index > 0,
-      ttlMs: index > 0 ? 0 : (options.ttlMs ?? PAGE_ENTRY_MINUTE_MS),
-    });
-    if (!isAiSignalMarketUpdating(payload?.status)) {
-      return payload;
-    }
+    return {
+      ...(payload || { status: "preparing", recent_days: recentDays }),
+      items: tagMarketItems(payload?.items, marketScope),
+      preliminary_history: tagMarketItems(payload?.preliminary_history, marketScope),
+    };
+  };
+  if (!isUsHubContext || effectiveScope !== "all") {
+    return fetchScope(isUsHubContext ? effectiveScope : "kr");
   }
-  return payload || { status: "preparing", recent_days: recentDays, items: [] };
+  const settled = await Promise.allSettled([fetchScope("kr"), fetchScope("us")]);
+  const payloads = settled.filter((result) => result.status === "fulfilled").map((result) => result.value);
+  if (!payloads.length) throw settled[0]?.reason || new Error("market signal request failed");
+  return {
+    status: payloads.some((payload) => isAiSignalMarketUpdating(payload.status)) ? "refreshing" : "ready",
+    as_of: payloads.map((payload) => payload.as_of).filter(Boolean).sort().at(-1) || null,
+    signal_revision: Math.max(0, ...payloads.map((payload) => Number(payload.signal_revision) || 0)),
+    recent_days: recentDays,
+    universe_count: payloads.reduce((sum, payload) => sum + (Number(payload.universe_count) || 0), 0),
+    confirmed_count: payloads.reduce((sum, payload) => sum + (Number(payload.confirmed_count) || 0), 0),
+    preliminary_count: payloads.reduce((sum, payload) => sum + (Number(payload.preliminary_count) || 0), 0),
+    items: payloads.flatMap((payload) => payload.items || []),
+    preliminary_history: payloads.flatMap((payload) => payload.preliminary_history || []),
+  };
 }
 
 async function fetchCombinedAiSignals(options = {}) {
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? PAGE_ENTRY_MINUTE_MS;
   const recentDays = Number(options.recentDays) || AI_SIGNAL_HISTORY_DAYS;
-  const watchlistUrl = !isUsMarketContext && state.watchlistId
+  const watchlistUrl = (!isUsHubContext || state.marketScope !== "us") && state.watchlistId
     ? `/watchlists/${encodeURIComponent(state.watchlistId)}/quant-signals${force ? "?refresh=1" : ""}`
     : "";
-  const watchlistRequest = !isUsMarketContext && state.watchlistId
+  const watchlistRequest = (!isUsHubContext || state.marketScope !== "us") && state.watchlistId
     ? fetchJsonCached(
       watchlistUrl,
       { force, ttlMs: force ? 0 : ttlMs },
@@ -17195,11 +17893,12 @@ function renderHomeMarketSignalTicker(payload = {}) {
   startHomeMarketSignalTicker();
 }
 
-function createHomeSurgeRow(item, index) {
+function createHomeSurgeRow(item, index, selectedMarket = state.homeRankingMarket) {
   const row = document.createElement("a");
   row.className = "home-surge-row home-ranking-row";
-  row.href = rankingStockUrl(item, state.homeRankingMarket);
+  row.href = rankingStockUrl(item, selectedMarket);
   row.dataset.code = item.code || "";
+  row.dataset.marketScope = marketScopeForItem(item);
 
   const rank = el("span", "home-surge-rank", String(Number(item.rank) || index + 1));
   const identity = el("span", "home-surge-identity");
@@ -17207,6 +17906,7 @@ function createHomeSurgeRow(item, index) {
     createRankingStockLogo(item),
     createStockListCopy(item.name, item.code)
   );
+  if (isUsHubContext) identity.append(createMarketBadge(item));
   const quote = renderRankingMetricBlock(
     el("span", "home-surge-quote ranking-metric-block"),
     item,
@@ -17281,6 +17981,71 @@ function renderHomeSurgeList() {
   items.forEach((item, index) => elements.homeSurgeList.appendChild(createHomeSurgeRow(item, index)));
 }
 
+function syncHomeUsRankingControls() {
+  const section = document.getElementById("home-surge-us");
+  if (!section) return;
+  const category = US_MARKET_RANKING_CATEGORIES.has(state.homeRankingCategory)
+    ? state.homeRankingCategory
+    : DEFAULT_MARKET_RANKING_CATEGORY;
+  const mode = category === state.homeRankingCategory
+    ? state.homeRankingMode
+    : defaultMarketRankingMode(category);
+  for (const button of section.querySelectorAll("[data-home-ranking-category]")) {
+    const selected = button.dataset.homeRankingCategory === category;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  }
+  const column = section.querySelector("#home-ranking-column-label-us");
+  if (column) column.textContent = marketRankingColumnLabel(category, mode);
+}
+
+function renderHomeUsRankings(payload = {}, category = DEFAULT_MARKET_RANKING_CATEGORY) {
+  const section = document.getElementById("home-surge-us");
+  const list = section?.querySelector("#home-surge-list-us");
+  if (!list) return;
+  state.homeUsSurgeItems = tagMarketItems(payload.items, "us");
+  const meta = section.querySelector("#home-surge-meta-us");
+  if (meta) meta.textContent = marketRankingBasisLabel(payload, { includeMarket: false });
+  syncHomeUsRankingControls();
+  list.replaceChildren();
+  const items = state.homeUsSurgeItems.slice(0, 5);
+  if (!items.length) {
+    list.append(el("p", "muted", "조건에 맞는 미국 종목이 없습니다."));
+    return;
+  }
+  items.forEach((item, index) => list.appendChild(createHomeSurgeRow(item, index, "NASDAQ")));
+}
+
+async function loadHomeUsRankings(options = {}) {
+  const section = document.getElementById("home-surge-us");
+  const list = section?.querySelector("#home-surge-list-us");
+  if (!list) return;
+  const category = US_MARKET_RANKING_CATEGORIES.has(state.homeRankingCategory)
+    ? state.homeRankingCategory
+    : DEFAULT_MARKET_RANKING_CATEGORY;
+  const mode = category === state.homeRankingCategory
+    ? state.homeRankingMode
+    : defaultMarketRankingMode(category);
+  const requestId = ++state.homeUsRankingRequestId;
+  if (!list.querySelector(".home-surge-row")) {
+    list.innerHTML = `<p class="muted">미국 ${marketRankingConfig(category).loading}</p>`;
+  }
+  try {
+    const payload = await requestMarketRanking(category, "NASDAQ", {
+      force: options.force === true,
+      ttlMs: options.ttlMs ?? pageEntryTtlMs("market"),
+      limit: 5,
+      mode,
+    });
+    if (state.view === "home" && requestId === state.homeUsRankingRequestId) renderHomeUsRankings(payload, category);
+  } catch {
+    if (state.view === "home" && requestId === state.homeUsRankingRequestId && !list.querySelector(".home-surge-row")) {
+      list.innerHTML = '<p class="muted">미국 순위를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.</p>';
+    }
+  }
+}
+
 function setHomeSurgeSector(mode, options = {}) {
   state.homeRankingMode = normalizeMarketRankingMode(state.homeRankingCategory, mode);
   for (const button of elements.homeSurgeSectorFilters?.querySelectorAll("button[data-home-ranking-mode]") || []) {
@@ -17294,6 +18059,7 @@ function setHomeSurgeSector(mode, options = {}) {
   }
   if (options.load !== false) {
     void loadHomeSurgeRankings({ force: true, ttlMs: 0 });
+    if (isUsRootPath) void loadHomeUsRankings({ force: true, ttlMs: 0 });
   }
 }
 
@@ -17394,6 +18160,7 @@ function setHomeRankingCategory(category, options = {}) {
   state.homeRankingMode = defaultMarketRankingMode(normalized);
   state.homeSurgeItems = [];
   syncHomeRankingCategoryTabs();
+  syncHomeUsRankingControls();
   syncHomeRankingMarketControls();
   renderHomeSurgeSectorFilters();
   if (elements.homeRankingColumnLabel) {
@@ -17405,13 +18172,11 @@ function setHomeRankingCategory(category, options = {}) {
   closeHomeRankingQuoteStreams();
   if (options.load !== false) {
     void loadHomeSurgeRankings({ force: options.force !== false, ttlMs: 0 });
+    if (isUsRootPath) void loadHomeUsRankings({ force: options.force !== false, ttlMs: 0 });
   }
 }
 
 function normalizeHomeRankingMarket(market) {
-  if (isUsMarketContext) {
-    return ["NASDAQ", "SP500"].includes(market) ? market : "NASDAQ";
-  }
   return MARKET_RANKING_MARKETS.has(market) ? market : "ALL";
 }
 
@@ -17420,15 +18185,12 @@ function isUsRankingMarket(market) {
 }
 
 function homeRankingRequestMarket(category = state.homeRankingCategory) {
-  if (isUsMarketContext) {
-    return normalizeHomeRankingMarket(state.homeRankingMarket);
-  }
   return category === "etf" ? "ALL" : normalizeHomeRankingMarket(state.homeRankingMarket);
 }
 
 function homeRankingMarketLabel(market) {
-  return ({ ALL: "국내 전체", KOSPI: "코스피", KOSDAQ: "코스닥", NASDAQ: "나스닥", SP500: "S&P 500" })[market]
-    || (isUsMarketContext ? "나스닥" : "국내 전체");
+  return ({ MIXED: "전체", ALL: "국내 전체", KOSPI: "코스피", KOSDAQ: "코스닥", NASDAQ: "나스닥", SP500: "S&P 500" })[market]
+    || "국내 전체";
 }
 
 function syncHomeRankingMarketControls() {
@@ -17614,7 +18376,9 @@ function syncMarketRankingSnapshotUrl() {
   }
   writeDashboardHistory(
     "movers",
-    `${isUsMarketContext ? "/us" : "/dashboard"}?${params.toString()}`,
+    isUsHubContext
+      ? unifiedMarketUrl(`/us?${params.toString()}`, state.marketScope)
+      : `/dashboard?${params.toString()}`,
     "replace",
   );
 }
@@ -17677,6 +18441,40 @@ function setMarketRankingMode(mode, options = {}) {
 }
 
 function requestMarketRanking(category, market, options = {}) {
+  if (market === "MIXED") {
+    const limit = Math.max(1, Math.min(50, Number(options.limit) || 50));
+    const cacheKey = marketRankingKey(category, market, limit, "", options.mode);
+    const ttlMs = options.ttlMs ?? pageEntryTtlMs("market");
+    const cached = state.marketRankingCache.get(cacheKey);
+    if (!options.force && cached?.payload && Date.now() - (cached.savedAt || 0) <= ttlMs) {
+      return Promise.resolve(cached.payload);
+    }
+    const promise = Promise.allSettled([
+      requestMarketRanking(category, "ALL", { ...options, limit }),
+      requestMarketRanking(category, "NASDAQ", { ...options, limit }),
+    ]).then((settled) => {
+      const domestic = settled[0].status === "fulfilled" ? tagMarketItems(settled[0].value.items, "kr") : [];
+      const us = settled[1].status === "fulfilled" ? tagMarketItems(settled[1].value.items, "us") : [];
+      if (!domestic.length && !us.length) throw settled[0].reason || settled[1].reason || new Error("mixed rankings unavailable");
+      const items = [];
+      for (let index = 0; items.length < limit && (index < domestic.length || index < us.length); index += 1) {
+        if (domestic[index]) items.push(domestic[index]);
+        if (items.length < limit && us[index]) items.push(us[index]);
+      }
+      const payload = {
+        market: "MIXED",
+        as_of: [
+          settled[0].status === "fulfilled" ? settled[0].value?.as_of : null,
+          settled[1].status === "fulfilled" ? settled[1].value?.as_of : null,
+        ].filter(Boolean).sort().at(-1) || null,
+        items: items.map((item, index) => ({ ...item, rank: index + 1 })),
+      };
+      state.marketRankingCache.set(cacheKey, { payload, savedAt: Date.now() });
+      return payload;
+    });
+    state.marketRankingCache.set(cacheKey, { promise });
+    return promise;
+  }
   const usMarket = isUsRankingMarket(market);
   const requestedCategory = MARKET_RANKING_CONFIG[category] ? category : DEFAULT_MARKET_RANKING_CATEGORY;
   const normalizedCategory = usMarket && !US_MARKET_RANKING_CATEGORIES.has(requestedCategory)
@@ -17918,6 +18716,7 @@ function scheduleWatchlistStrategyRender() {
     state.watchlistStrategyRenderTimer = null;
     if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
       renderWatchlistStrategy(state.watchlistResults, state.usSectorMoves, state.watchlistMarketContext);
+      renderWatchMarketMap(state.watchlistResults);
     }
   }, 350);
 }
@@ -18191,7 +18990,10 @@ function updateWatchPreOpenPoints(usSectorMoves = state.usSectorMoves) {
 }
 
 function watchlistStrategyPhase(usSectorMoves = state.usSectorMoves) {
-  if (isUsMarketContext) {
+  if (isUsHubContext && state.marketScope === "all") {
+    return { label: "통합 시장", usLabel: usSectorSessionLabel(usSectorMoves), action: "한국장 수급과 미국장 가격·거래량을 시장 배지별로 확인" };
+  }
+  if (isUsHubContext && state.marketScope === "us") {
     const phase = usMarketPhase();
     const label = {
       premarket: "미국 프리장",
@@ -18265,12 +19067,18 @@ function renderWatchlistStrategy(results = state.watchlistResults, usSectorMoves
   if (!section) {
     return;
   }
+  if (state.activeWatchGroup === "pinned") {
+    section.hidden = true;
+    section.replaceChildren();
+    return;
+  }
   const valid = (results || []).filter((result) => result?.dashboard);
   if (!valid.length) {
     section.hidden = true;
     section.replaceChildren();
     return;
   }
+  const onlyUsStocks = valid.every((result) => marketScopeForItem(result.item) === "us");
 
   const phase = watchlistStrategyPhase(usSectorMoves);
   const changes = valid.map((result) => toNumber(result.dashboard.quote?.change_rate)).filter((value) => value !== null);
@@ -18331,11 +19139,11 @@ function renderWatchlistStrategy(results = state.watchlistResults, usSectorMoves
       : "주요 이벤트와 뉴스 흐름을 반영해 관심 종목을 점검 중";
   const leaderNames = mainFactor ? (mainFactor.leader_stocks || []).filter((name) => valid.some((result) => [result.item.name, result.item.code].includes(name))) : [];
   const action = mainFactor?.direction === "악재" && positiveCount > negativeCount
-    ? `${leaderNames.length ? `${leaderNames.slice(0, 2).join(" · ")} 상승 지속 여부: ` : ""}${isUsMarketContext ? "거래량과 가격 강도가 악재를 이기는지 확인" : "거래대금과 외국인·기관 수급이 악재를 이기는지 확인"}`
+    ? `${leaderNames.length ? `${leaderNames.slice(0, 2).join(" · ")} 상승 지속 여부: ` : ""}${onlyUsStocks ? "거래량과 가격 강도가 악재를 이기는지 확인" : "거래대금과 외국인·기관 수급이 악재를 이기는지 확인"}`
     : mainFactor?.direction === "악재"
       ? `${leaderNames.length ? `${leaderNames.slice(0, 2).join(" · ")} 점검: ` : ""}${mainFactor.interpretation || "수급·뉴스 반응을 우선 확인"}`
     : negativeCount > positiveCount
-      ? (isUsMarketContext ? "오늘 약세였던 종목의 뉴스·거래량·관련 섹터를 함께 확인" : "오늘 약세였던 종목의 뉴스·수급·미국 연관 섹터를 함께 확인")
+      ? (onlyUsStocks ? "오늘 약세였던 종목의 뉴스·거래량·관련 섹터를 함께 확인" : "오늘 약세였던 종목의 뉴스·수급·미국 연관 섹터를 함께 확인")
       : phase.action;
 
   const header = el("header", "watch-v2-briefing-head");
@@ -18352,7 +19160,7 @@ function renderWatchlistStrategy(results = state.watchlistResults, usSectorMoves
     ["관심", `${valid.length}개`, ""],
     ["상승", `${positiveCount}개`, positiveCount ? "positive" : ""],
     ["하락", `${negativeCount}개`, negativeCount ? "negative" : ""],
-    [isUsMarketContext ? "섹터 평균" : "미국 연관", usAverage === null ? "확인 중" : formatPercent(usAverage), usTone],
+    [onlyUsStocks ? "섹터 평균" : "미국 연관", usAverage === null ? "확인 중" : formatPercent(usAverage), usTone],
   ];
   for (const [label, value, tone] of statItems) {
     stats.appendChild(createWatchReportMetric(label, value, tone));
@@ -18379,7 +19187,7 @@ function renderWatchlistStrategy(results = state.watchlistResults, usSectorMoves
   for (const [index, item] of monitoring.entries()) {
     const row = document.createElement("a");
     row.className = "watch-v2-monitor-row";
-    row.href = viewStockUrl(item.item.name);
+    row.href = viewStockUrl(item.item.name, item.item);
     const rank = el("span", "watch-v2-monitor-rank", String(index + 1));
     const copy = el("span", "watch-v2-monitor-copy");
     copy.append(el("strong", "", item.item.name), el("small", "", item.reason));
@@ -18399,9 +19207,414 @@ function renderWatchlistStrategy(results = state.watchlistResults, usSectorMoves
   section.hidden = false;
 }
 
+function watchMarketMapMarketCap(result = {}) {
+  for (const value of [
+    result.dashboard?.quote?.market_cap,
+    result.dashboard?.market_cap,
+    result.item?.market_cap,
+  ]) {
+    const marketCap = toNumber(value);
+    if (marketCap !== null && marketCap > 0) return marketCap;
+  }
+  return null;
+}
+
+async function refreshWatchMarketMapExchangeRate(options = {}) {
+  if (!options.force && state.watchMarketMapUsdKrw) return state.watchMarketMapUsdKrw;
+  if (state.watchMarketMapFxPromise) return state.watchMarketMapFxPromise;
+  const url = options.force ? "/us/fx/usdkrw?refresh=true" : "/us/fx/usdkrw";
+  state.watchMarketMapFxPromise = fetchJsonCached(url, {
+    force: options.force === true,
+    ttlMs: options.force ? 0 : 30 * 60 * 1000,
+  })
+    .then((payload) => {
+      const rate = toNumber(payload?.rate);
+      if (rate !== null && rate >= 500 && rate <= 3000) state.watchMarketMapUsdKrw = rate;
+      return state.watchMarketMapUsdKrw;
+    })
+    .catch(() => state.watchMarketMapUsdKrw)
+    .finally(() => {
+      state.watchMarketMapFxPromise = null;
+    });
+  return state.watchMarketMapFxPromise;
+}
+
+function watchMarketMapEntries(results = state.watchlistResults) {
+  const validResults = (results || []).filter((result) => result?.item && result?.dashboard);
+  const marketScopes = new Set(validResults.map((result) => marketScopeForItem(result.item)));
+  const mixedMarkets = marketScopes.has("kr") && marketScopes.has("us");
+  return validResults
+    .map((result, sourceIndex) => {
+      const marketCap = watchMarketMapMarketCap(result);
+      const usdKrw = mixedMarkets && marketScopeForItem(result.item) === "us"
+        ? toNumber(state.watchMarketMapUsdKrw)
+        : 1;
+      return {
+        ...result,
+        sourceIndex,
+        marketCap,
+        comparableMarketCap: marketCap === null || usdKrw === null ? null : marketCap * usdKrw,
+      };
+    })
+    .sort((left, right) => {
+      if (
+        left.comparableMarketCap !== null
+        && right.comparableMarketCap !== null
+        && left.comparableMarketCap !== right.comparableMarketCap
+      ) {
+        return right.comparableMarketCap - left.comparableMarketCap;
+      }
+      if (left.comparableMarketCap !== null) return -1;
+      if (right.comparableMarketCap !== null) return 1;
+      return left.sourceIndex - right.sourceIndex;
+    })
+    .map((entry, index) => ({ ...entry, rank: index + 1 }));
+}
+
+function layoutWatchMarketMapNodes(nodes, width, height) {
+  const laidOut = [];
+  const visit = (group, x, y, groupWidth, groupHeight) => {
+    if (!group.length) return;
+    if (group.length === 1) {
+      laidOut.push({ ...group[0], x, y, width: groupWidth, height: groupHeight });
+      return;
+    }
+    const totalWeight = group.reduce((sum, node) => sum + Math.max(Number(node.weight) || 0, 0.000001), 0);
+    const targetWeight = totalWeight / 2;
+    let accumulated = 0;
+    let splitIndex = 1;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (let index = 1; index < group.length; index += 1) {
+      accumulated += Math.max(Number(group[index - 1].weight) || 0, 0.000001);
+      const distance = Math.abs(targetWeight - accumulated);
+      if (distance <= nearestDistance) {
+        nearestDistance = distance;
+        splitIndex = index;
+      } else {
+        break;
+      }
+    }
+    const first = group.slice(0, splitIndex);
+    const second = group.slice(splitIndex);
+    const firstWeight = first.reduce((sum, node) => sum + Math.max(Number(node.weight) || 0, 0.000001), 0);
+    const share = Math.min(0.999999, Math.max(0.000001, firstWeight / totalWeight));
+    if (groupWidth >= groupHeight) {
+      const firstWidth = groupWidth * share;
+      visit(first, x, y, firstWidth, groupHeight);
+      visit(second, x + firstWidth, y, groupWidth - firstWidth, groupHeight);
+    } else {
+      const firstHeight = groupHeight * share;
+      visit(first, x, y, groupWidth, firstHeight);
+      visit(second, x, y + firstHeight, groupWidth, groupHeight - firstHeight);
+    }
+  };
+  visit(nodes, 0, 0, Math.max(1, width), Math.max(1, height));
+  return laidOut;
+}
+
+function computeWatchMarketMapLayout(entries, width, height) {
+  const source = Array.isArray(entries) ? entries : [];
+  if (!source.length) return { nodes: [], visibleEntries: [], hiddenEntries: [] };
+  const knownCaps = source.map((entry) => entry.comparableMarketCap).filter((value) => value !== null && value > 0);
+  const fallbackWeight = knownCaps.length ? Math.max(1, Math.min(...knownCaps) * 0.08) : 1;
+  const weighted = source.map((entry) => ({
+    entry,
+    weight: entry.comparableMarketCap === null ? fallbackWeight : entry.comparableMarketCap,
+  }));
+  const sourceWeight = weighted.reduce((sum, node) => sum + node.weight, 0);
+  const maxVisible = width < 360 ? 5 : width < 520 ? 7 : width < 840 ? 10 : 12;
+  const minWidth = width < 520 ? 70 : 82;
+  const minHeight = width < 520 ? 54 : 58;
+  const minArea = minWidth * minHeight;
+  let visibleCount = Math.min(maxVisible, weighted.length);
+
+  while (visibleCount >= 1) {
+    const visible = weighted.slice(0, visibleCount);
+    const hidden = weighted.slice(visibleCount);
+    const nodes = visible.map((node) => ({ ...node, kind: "stock" }));
+    if (hidden.length) {
+      nodes.push({
+        kind: "overflow",
+        weight: Math.max(
+          hidden.reduce((sum, node) => sum + node.weight, 0),
+          sourceWeight * 0.05,
+        ),
+        entries: hidden.map((node) => node.entry),
+      });
+    }
+    const laidOut = layoutWatchMarketMapNodes(nodes, width, height);
+    const readable = laidOut.every((node) => {
+      const targetWidth = node.kind === "overflow" ? 64 : minWidth;
+      const targetHeight = node.kind === "overflow" ? 44 : minHeight;
+      const targetArea = node.kind === "overflow" ? 64 * 44 : minArea;
+      return node.width >= targetWidth
+        && node.height >= targetHeight
+        && node.width * node.height >= targetArea;
+    });
+    if (readable || visibleCount === 1) {
+      return {
+        nodes: laidOut,
+        visibleEntries: visible.map((node) => node.entry),
+        hiddenEntries: hidden.map((node) => node.entry),
+      };
+    }
+    visibleCount -= 1;
+  }
+  return { nodes: [], visibleEntries: [], hiddenEntries: source };
+}
+
+function watchMarketMapTone(changeRate) {
+  const change = toNumber(changeRate);
+  if (change === null || Math.abs(change) < 0.005) return { id: "flat", label: "보합" };
+  return change > 0 ? { id: "positive", label: "상승" } : { id: "negative", label: "하락" };
+}
+
+function watchMarketMapStrength(changeRate) {
+  const change = Math.abs(toNumber(changeRate) || 0);
+  if (change >= 4) return "strong";
+  if (change >= 1.5) return "medium";
+  return "soft";
+}
+
+function formatWatchMarketCap(entry = {}) {
+  if (entry.marketCap === null) return "시총 확인 중";
+  return stockDashboardIsUs(entry.dashboard)
+    ? `시총 ${formatUsdCompact(entry.marketCap)}`
+    : `시총 ${formatMoney(entry.marketCap)}원`;
+}
+
+function positionWatchMarketMapTile(tile, node, width, height) {
+  const gap = 3;
+  const left = node.x + gap / 2;
+  const top = node.y + gap / 2;
+  const tileWidth = Math.max(1, node.width - gap);
+  const tileHeight = Math.max(1, node.height - gap);
+  tile.style.left = `${(left / width) * 100}%`;
+  tile.style.top = `${(top / height) * 100}%`;
+  tile.style.width = `${(tileWidth / width) * 100}%`;
+  tile.style.height = `${(tileHeight / height) * 100}%`;
+  tile.classList.toggle("is-compact", node.width < 128 || node.height < 92);
+  tile.classList.toggle("is-micro", node.width < 94 || node.height < 68);
+}
+
+function createWatchMarketMapTile(node, width, height) {
+  if (node.kind === "overflow") {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "watch-market-map-tile is-overflow";
+    button.setAttribute("aria-haspopup", "dialog");
+    button.setAttribute("aria-label", `지도에서 생략된 관심종목 ${node.entries.length}개를 시가총액 순으로 보기`);
+    button.append(
+      el("strong", "", `${formatNumber(node.entries.length)}개`),
+      el("span", "", "더보기"),
+      el("small", "", "시총 순 목록"),
+    );
+    button.addEventListener("click", () => openWatchMarketMapSheet(button));
+    positionWatchMarketMapTile(button, node, width, height);
+    return button;
+  }
+
+  const entry = node.entry;
+  const change = toNumber(entry.dashboard?.quote?.change_rate);
+  const tone = watchMarketMapTone(change);
+  const tile = document.createElement("a");
+  tile.className = `watch-market-map-tile is-${tone.id} is-${watchMarketMapStrength(change)}`;
+  tile.href = viewStockUrl(entry.item.code || entry.item.name, entry.item);
+  tile.dataset.code = entry.item.code || "";
+  tile.dataset.marketScope = marketScopeForItem(entry.item);
+  tile.setAttribute(
+    "aria-label",
+    `${entry.item.name}, ${formatWatchMarketCap(entry)}, 오늘 ${tone.label} ${formatPercent(change)}, 종목 상세 보기`,
+  );
+
+  const top = el("span", "watch-market-map-tile-top");
+  top.append(el("span", "watch-market-map-rank", String(entry.rank)));
+  if (isUsHubContext) {
+    top.append(el(
+      "span",
+      "watch-market-map-origin",
+      marketScopeForItem(entry.item) === "us" ? "미국" : "국내",
+    ));
+  }
+  const copy = el("span", "watch-market-map-tile-copy");
+  copy.append(
+    el("strong", "", entry.item.name),
+    el("span", "watch-market-map-change", formatPercent(change)),
+    el("small", "", formatWatchMarketCap(entry)),
+  );
+  tile.append(top, copy);
+  positionWatchMarketMapTile(tile, node, width, height);
+  return tile;
+}
+
+function renderWatchMarketMapLegend(entries) {
+  if (!elements.watchMarketMapLegend) return;
+  const counts = { positive: 0, flat: 0, negative: 0 };
+  for (const entry of entries) {
+    counts[watchMarketMapTone(entry.dashboard?.quote?.change_rate).id] += 1;
+  }
+  elements.watchMarketMapLegend.replaceChildren();
+  for (const [id, label] of [["positive", "상승"], ["flat", "보합"], ["negative", "하락"]]) {
+    const item = el("span", `is-${id}`);
+    item.append(el("i", ""), document.createTextNode(`${label} ${formatNumber(counts[id])}`));
+    elements.watchMarketMapLegend.appendChild(item);
+  }
+}
+
+function ensureWatchMarketMapResizeObserver() {
+  if (!elements.watchMarketMapStage || state.watchMarketMapResizeObserver || typeof ResizeObserver === "undefined") return;
+  let lastWidth = 0;
+  let lastHeight = 0;
+  state.watchMarketMapResizeObserver = new ResizeObserver(([entry]) => {
+    const width = Math.round(entry?.contentRect?.width || 0);
+    const height = Math.round(entry?.contentRect?.height || 0);
+    if (!width || !height || (width === lastWidth && height === lastHeight)) return;
+    lastWidth = width;
+    lastHeight = height;
+    window.cancelAnimationFrame(state.watchMarketMapRenderFrame);
+    state.watchMarketMapRenderFrame = window.requestAnimationFrame(() => {
+      state.watchMarketMapRenderFrame = null;
+      if (state.view === "portfolio" && state.watchlistContentTab === "strategy") {
+        renderWatchMarketMap(state.watchlistResults);
+      }
+    });
+  });
+  state.watchMarketMapResizeObserver.observe(elements.watchMarketMapStage);
+}
+
+function renderWatchMarketMap(results = state.watchlistResults, options = {}) {
+  if (!elements.watchMarketMap || !elements.watchMarketMapStage) return;
+  const groupName = activeWatchlistGroupName();
+  const entries = watchMarketMapEntries(results);
+  const marketScopes = new Set(entries.map((entry) => marketScopeForItem(entry.item)));
+  const mixedMarkets = marketScopes.has("kr") && marketScopes.has("us");
+  elements.watchMarketMapGroup.textContent = mixedMarkets
+    ? `${groupName} · 시가총액 순 · ${state.watchMarketMapUsdKrw ? "원화 환산" : "환율 확인 중"}`
+    : `${groupName} · 시가총액 순`;
+
+  if (!entries.length) {
+    state.watchMarketMapHiddenEntries = [];
+    renderWatchMarketMapLegend([]);
+    closeWatchMarketMapSheet();
+    if (options.loading && Number(options.totalCount) > 0) {
+      elements.watchMarketMap.hidden = false;
+      elements.watchMarketMapStage.className = "watch-market-map-stage is-loading";
+      elements.watchMarketMapStage.setAttribute("aria-busy", "true");
+      elements.watchMarketMapStage.replaceChildren(
+        el("span", "watch-market-map-skeleton is-large"),
+        el("span", "watch-market-map-skeleton"),
+        el("span", "watch-market-map-skeleton"),
+      );
+      elements.watchMarketMapStatus.textContent = `${groupName} 종목의 시가총액을 확인하고 있습니다.`;
+      return;
+    }
+    elements.watchMarketMap.hidden = true;
+    elements.watchMarketMapStage.replaceChildren();
+    elements.watchMarketMapStatus.textContent = "";
+    return;
+  }
+
+  elements.watchMarketMap.hidden = false;
+  elements.watchMarketMapStage.className = "watch-market-map-stage";
+  elements.watchMarketMapStage.removeAttribute("aria-busy");
+  const bounds = elements.watchMarketMapStage.getBoundingClientRect();
+  const width = Math.max(1, bounds.width || elements.watchMarketMapStage.clientWidth || 1);
+  const height = Math.max(1, bounds.height || elements.watchMarketMapStage.clientHeight || 1);
+  const layout = computeWatchMarketMapLayout(entries, width, height);
+  state.watchMarketMapHiddenEntries = layout.hiddenEntries;
+  elements.watchMarketMapStage.replaceChildren(
+    ...layout.nodes.map((node) => createWatchMarketMapTile(node, width, height)),
+  );
+  renderWatchMarketMapLegend(entries);
+  elements.watchMarketMapStatus.textContent = layout.hiddenEntries.length
+    ? `${groupName} ${entries.length}개 중 시가총액이 큰 ${layout.visibleEntries.length}개를 지도에 표시하고, 나머지 ${layout.hiddenEntries.length}개는 더보기에 정리했습니다.`
+    : `${groupName} ${entries.length}개를 시가총액 순으로 지도에 표시했습니다.`;
+  ensureWatchMarketMapResizeObserver();
+  if (elements.watchMarketMapSheet?.open) renderWatchMarketMapSheet(layout.hiddenEntries);
+}
+
+function createWatchMarketMapSheetRow(entry) {
+  const link = document.createElement("a");
+  link.className = "watch-market-map-sheet-row";
+  link.href = viewStockUrl(entry.item.code || entry.item.name, entry.item);
+  const rank = el("span", "watch-market-map-sheet-rank", String(entry.rank));
+  const identity = el("span", "watch-market-map-sheet-identity");
+  const nameRow = el("span", "watch-market-map-sheet-name");
+  nameRow.append(el("strong", "", entry.item.name));
+  if (isUsHubContext) {
+    nameRow.append(el(
+      "em",
+      `is-${marketScopeForItem(entry.item)}`,
+      marketScopeForItem(entry.item) === "us" ? "미국" : "국내",
+    ));
+  }
+  identity.append(nameRow, el("small", "", `${entry.item.code} · ${formatWatchMarketCap(entry)}`));
+  const values = el("span", "watch-market-map-sheet-values");
+  const change = toNumber(entry.dashboard?.quote?.change_rate);
+  const tone = watchMarketMapTone(change);
+  values.append(
+    el("strong", "", formatStockPrice(entry.dashboard?.quote?.price, entry.dashboard)),
+    el("small", `is-${tone.id}`, `${tone.label} ${formatPercent(change)}`),
+  );
+  link.append(rank, identity, values);
+  link.setAttribute("aria-label", `${entry.rank}위 ${entry.item.name}, ${formatWatchMarketCap(entry)}, 종목 상세 보기`);
+  return link;
+}
+
+function renderWatchMarketMapSheet(entries = state.watchMarketMapHiddenEntries) {
+  if (!elements.watchMarketMapSheetList) return;
+  const source = Array.isArray(entries) ? entries : [];
+  elements.watchMarketMapSheetTitle.textContent = `${activeWatchlistGroupName()}의 나머지 종목`;
+  elements.watchMarketMapSheetDescription.textContent = source.length
+    ? `지도에서 작아진 ${formatNumber(source.length)}개 종목을 시가총액 순으로 정리했어요.`
+    : "지도에 모든 종목이 표시되어 있어요.";
+  elements.watchMarketMapSheetList.replaceChildren();
+  if (!source.length) {
+    elements.watchMarketMapSheetList.append(el("p", "watch-market-map-sheet-empty", "더 보여드릴 종목이 없습니다."));
+    return;
+  }
+  elements.watchMarketMapSheetList.append(...source.map(createWatchMarketMapSheetRow));
+}
+
+function watchMarketMapSheetOpen() {
+  return Boolean(elements.watchMarketMapSheet?.open || elements.watchMarketMapSheet?.hasAttribute("open"));
+}
+
+function openWatchMarketMapSheet(trigger = null) {
+  if (!elements.watchMarketMapSheet || !state.watchMarketMapHiddenEntries.length) return;
+  state.watchMarketMapSheetTrigger = trigger instanceof HTMLElement ? trigger : document.activeElement;
+  renderWatchMarketMapSheet();
+  document.body.classList.add("modal-open");
+  if (typeof elements.watchMarketMapSheet.showModal === "function") elements.watchMarketMapSheet.showModal();
+  else elements.watchMarketMapSheet.setAttribute("open", "");
+  window.setTimeout(() => elements.watchMarketMapSheetClose?.focus(), 20);
+}
+
+function finishWatchMarketMapSheetClose() {
+  document.body.classList.remove("modal-open");
+  const trigger = state.watchMarketMapSheetTrigger;
+  state.watchMarketMapSheetTrigger = null;
+  window.setTimeout(() => {
+    const focusTarget = trigger?.isConnected
+      ? trigger
+      : elements.watchMarketMapStage?.querySelector(".watch-market-map-tile.is-overflow");
+    focusTarget?.focus();
+  }, 20);
+}
+
+function closeWatchMarketMapSheet() {
+  if (!elements.watchMarketMapSheet || !watchMarketMapSheetOpen()) return;
+  if (typeof elements.watchMarketMapSheet.close === "function") {
+    elements.watchMarketMapSheet.close();
+  } else {
+    elements.watchMarketMapSheet.removeAttribute("open");
+    finishWatchMarketMapSheetClose();
+  }
+}
+
 function watchPreOpenSummary(dashboard, quoteOverride = null, item = {}, usSectorMoves = state.usSectorMoves) {
   const quote = quoteOverride || dashboard.quote || {};
-  if (isUsMarketContext) {
+  if (marketScopeForItem(item) === "us" || stockDashboardIsUs(dashboard)) {
     const phase = usMarketPhase();
     const changeRate = toNumber(quote.change_rate);
     const oneMonth = toNumber(dashboard.momentum?.one_month_return);
@@ -18572,7 +19785,7 @@ function renderWatchPreOpenPoint(card, dashboard, quoteOverride = null, item = {
   const valuationView = interpretValuation(dashboard);
   const newsView = watchNewsView(dashboard);
   const macroView = interpretMacro(dashboard);
-  if (isUsMarketContext) {
+  if (marketScopeForItem(item) === "us" || stockDashboardIsUs(dashboard)) {
     const trend = watchTrendPoint(dashboard.momentum?.one_month_return, dashboard.momentum?.three_month_return) || "추세 확인 중";
     evidence.append(
       createWatchContextItem("추세", trend, "muted"),
@@ -18613,25 +19826,52 @@ function appendInlineLoadingState(card, title, message = "") {
   }
 }
 
-function renderWatchlistMessage(text) {
+function renderWatchlistMessage(text, options = {}) {
   clearWatchlistLoadingOverlay();
+  renderWatchMarketMap([]);
   elements.watchlistBody.innerHTML = "";
   const message = document.createElement("article");
   message.className = "watchlist-empty-card";
   const isEmpty = text === "관심 종목 없음";
+  const groupId = options.groupId || state.activeWatchGroup;
+  const customGroup = watchlistGroupById(groupId);
   const title = document.createElement("strong");
-  title.textContent = isEmpty ? "관심 종목이 아직 없습니다." : "종목 정보를 불러오지 못했습니다.";
+  title.textContent = !isEmpty
+    ? "종목 정보를 불러오지 못했습니다."
+    : groupId === "pinned"
+      ? "아직 핀한 종목이 없습니다."
+      : customGroup
+        ? `${customGroup.name} 폴더가 비어 있습니다.`
+        : "관심 종목이 아직 없습니다.";
   const description = document.createElement("p");
-  description.textContent = isEmpty
-    ? "종목 검색에서 별표를 누르면 이곳에서 시황과 대응 정보를 한 번에 볼 수 있습니다."
-    : "잠시 후 다시 열거나 새로고침해 주세요.";
+  description.textContent = !isEmpty
+    ? "잠시 후 다시 열거나 새로고침해 주세요."
+    : groupId === "pinned"
+      ? "추천 종목에서 핀을 설정하면 설정일과 그날 가격 대비 수익률을 이곳에서 함께 볼 수 있습니다."
+      : customGroup
+        ? "폴더 편집에서 기본 관심종목을 골라 담아보세요."
+        : "종목 검색에서 관심 추가를 누르면 시황과 대응 정보를 한 번에 볼 수 있습니다.";
   message.append(title, description);
   if (isEmpty) {
+    const actions = document.createElement("div");
+    actions.className = "watchlist-empty-actions";
     const action = document.createElement("button");
     action.type = "button";
-    action.textContent = "종목 검색 열기";
-    action.addEventListener("click", () => setView("search"));
-    message.appendChild(action);
+    action.textContent = groupId === "pinned" ? "추천 종목 보기" : customGroup ? "폴더 편집" : "종목 검색 열기";
+    action.addEventListener("click", () => {
+      if (customGroup) openWatchlistGroupDialog(customGroup.id);
+      else setView("search");
+    });
+    actions.appendChild(action);
+    if (customGroup) {
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "secondary";
+      add.textContent = "종목 추가";
+      add.addEventListener("click", () => setView("search"));
+      actions.appendChild(add);
+    }
+    message.appendChild(actions);
   }
   elements.watchlistBody.appendChild(message);
 }
@@ -18669,6 +19909,7 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
   const card = document.createElement("article");
   card.className = "watch-stock-card watch-v2-stock-row";
   card.dataset.code = item.code;
+  card.dataset.marketScope = marketScopeForItem(item);
   card.dataset.watchCard = "true";
   card.watchDashboard = dashboard;
   card.watchItem = item;
@@ -18680,7 +19921,7 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
   header.className = "watch-stock-head watch-v2-stock-head";
   const link = document.createElement("a");
   link.className = "watch-stock-name";
-  link.href = viewStockUrl(item.code || item.name);
+  link.href = viewStockUrl(item.code || item.name, item);
   const nameRow = document.createElement("span");
   nameRow.className = "watch-v2-stock-name-row";
   const strong = document.createElement("strong");
@@ -18689,7 +19930,9 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
   status.className = `watch-v2-status ${statusView.tone}`;
   status.dataset.field = "watch_status";
   status.append(el("i", ""), document.createTextNode(statusView.label));
-  nameRow.append(strong, status);
+  nameRow.append(strong);
+  if (isUsHubContext) nameRow.append(createMarketBadge(item));
+  nameRow.append(status);
   const meta = document.createElement("span");
   meta.className = "watch-stock-quote";
   const inlinePrice = document.createElement("strong");
@@ -18707,11 +19950,13 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
   const removeButton = document.createElement("button");
   removeButton.className = "remove-watch";
   removeButton.type = "button";
-  removeButton.textContent = "★";
+  const customGroup = watchlistGroupById();
+  removeButton.textContent = customGroup ? "−" : "★";
   removeButton.dataset.code = item.code;
-  removeButton.setAttribute("aria-label", `${item.name} 관심 해제`);
-  removeButton.setAttribute("aria-pressed", "true");
-  removeButton.title = "관심 해제";
+  removeButton.dataset.watchAction = customGroup ? "remove-group" : "remove-watchlist";
+  removeButton.setAttribute("aria-label", customGroup ? `${item.name} ${customGroup.name} 폴더에서 제거` : `${item.name} 관심 해제`);
+  removeButton.setAttribute("aria-pressed", String(!customGroup));
+  removeButton.title = customGroup ? "폴더에서 제거" : "관심 해제";
   header.append(link, removeButton);
 
   const metrics = document.createElement("dl");
@@ -18754,11 +19999,82 @@ function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
   const footer = document.createElement("footer");
   footer.className = "watch-v2-row-footer";
   const detailLink = document.createElement("a");
-  detailLink.href = viewStockUrl(item.code || item.name);
+  detailLink.href = viewStockUrl(item.code || item.name, item);
   detailLink.append(el("span", "", "종목 상세"), el("span", "", "›"));
   footer.appendChild(detailLink);
 
   card.append(header, investorStateControl, preOpenPoint, metrics, footer);
+  elements.watchlistBody.appendChild(card);
+  return card;
+}
+
+function appendPinnedWatchRow(item, dashboard) {
+  const track = item.pin_track || item;
+  const trackedPrice = toNumber(track.tracked_price);
+  const currentPrice = toNumber(dashboard?.quote?.price);
+  const profit = recommendationTrackProfit(trackedPrice, currentPrice);
+  const pinnedAt = track.tracked_at
+    ? formatDottedDate(track.tracked_at, "날짜 확인 중").slice(2)
+    : "날짜 확인 중";
+  const card = document.createElement("article");
+  card.className = "watch-stock-card watch-v2-stock-row watch-pinned-stock-row";
+  card.dataset.code = item.code;
+  card.dataset.marketScope = marketScopeForItem(item);
+  card.dataset.watchCard = "true";
+  card.dataset.watchStatus = "pinned";
+  card.dataset.watchGroupKind = "pinned";
+  card.dataset.trackedPrice = trackedPrice !== null ? String(trackedPrice) : "";
+  card.watchDashboard = dashboard;
+  card.watchItem = item;
+
+  const header = document.createElement("div");
+  header.className = "watch-stock-head watch-v2-stock-head";
+  const link = document.createElement("a");
+  link.className = "watch-stock-name";
+  link.href = viewStockUrl(item.code || item.name, item);
+  const nameRow = document.createElement("span");
+  nameRow.className = "watch-v2-stock-name-row";
+  nameRow.append(el("strong", "", item.name));
+  if (isUsHubContext) nameRow.append(createMarketBadge(item));
+  nameRow.append(el("span", "watch-pin-state", "핀 설정"));
+  const quote = document.createElement("span");
+  quote.className = "watch-stock-quote";
+  const price = el("strong", "watch-stock-inline-price", formatStockPrice(currentPrice, dashboard));
+  price.dataset.field = "price";
+  const today = el("strong", "watch-stock-inline-change", formatPercent(dashboard?.quote?.change_rate));
+  today.dataset.field = "change_rate";
+  setTone(today, dashboard?.quote?.change_rate);
+  quote.append(price, today);
+  link.append(nameRow, quote);
+
+  const removeButton = document.createElement("button");
+  removeButton.className = "remove-watch watch-pin-remove";
+  removeButton.type = "button";
+  removeButton.dataset.code = item.code;
+  removeButton.dataset.trackId = track.id || "";
+  removeButton.dataset.watchAction = "unpin";
+  removeButton.setAttribute("aria-label", `${item.name} 핀 해제`);
+  removeButton.setAttribute("aria-pressed", "true");
+  removeButton.title = "핀 해제";
+  removeButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 4 8 0-.8 6 2.8 3H6l2.8-3z"></path><path d="M12 13v7"></path></svg>';
+  header.append(link, removeButton);
+
+  const metrics = document.createElement("dl");
+  metrics.className = "watch-pin-metrics";
+  metrics.append(
+    createWatchReportMetric("핀 설정", pinnedAt),
+    createWatchReportMetric("핀 이후", formatPercent(profit.rate), "", "tracked_pnl_rate", profit.rate),
+    createWatchReportMetric("오늘", formatPercent(dashboard?.quote?.change_rate), "", "pin_today_rate", dashboard?.quote?.change_rate),
+  );
+
+  const footer = document.createElement("footer");
+  footer.className = "watch-v2-row-footer watch-pin-footer";
+  const detailLink = document.createElement("a");
+  detailLink.href = viewStockUrl(item.code || item.name, item);
+  detailLink.append(el("span", "", "종목 상세"), el("span", "", "›"));
+  footer.appendChild(detailLink);
+
+  card.append(header, metrics, footer);
   elements.watchlistBody.appendChild(card);
   return card;
 }
@@ -18787,31 +20103,41 @@ async function loadWatchlist(options = {}) {
   const loadSequence = ++state.watchlistLoadSequence;
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("watchlist");
+  const groupId = state.activeWatchGroup;
+  const groupName = activeWatchlistGroupName();
   closeWatchlistQuoteStreams();
-  const items = readWatchlist();
+  renderWatchlistGroupTabs();
+  const items = watchlistItemsForGroup(groupId);
+  const itemMarketScopes = new Set(items.map((item) => marketScopeForItem(item)));
+  const marketCapFxPromise = itemMarketScopes.has("kr") && itemMarketScopes.has("us")
+    ? refreshWatchMarketMapExchangeRate({ force }).then(() => {
+      if (loadSequence === state.watchlistLoadSequence) renderWatchMarketMap(state.watchlistResults);
+    })
+    : Promise.resolve();
   const itemOrder = new Map(items.map((item, index) => [item.code, index]));
   let completedCount = 0;
-  elements.watchlistMeta.textContent = `${items.length}개 종목 · 핵심 지표 확인 중`;
+  elements.watchlistMeta.textContent = `${groupName} · ${items.length}개 종목 · 핵심 지표 확인 중`;
   elements.watchlistBody.innerHTML = "";
   state.watchlistResults = [];
   applyWatchlistFilter();
   renderWatchlistStrategy();
+  renderWatchMarketMap([], { loading: true, totalCount: items.length });
   if (!items.length) {
-    elements.watchlistMeta.textContent = "0개 종목";
+    elements.watchlistMeta.textContent = `${groupName} · 0개 종목`;
     clearWatchlistLoadingOverlay();
-    renderWatchlistMessage("관심 종목 없음");
+    renderWatchlistMessage("관심 종목 없음", { groupId });
     return;
   }
   clearWatchlistLoadingOverlay();
   const pendingRows = new Map(items.map((item) => [item.code, appendWatchLoadingRow(item)]));
-  const sectorMovesPromise = refreshUsSectorMoves({ force });
-  const marketContextPromise = refreshWatchlistMarketContext({ force });
+  const sectorMovesPromise = groupId === "pinned" ? Promise.resolve(null) : refreshUsSectorMoves({ force });
+  const marketContextPromise = groupId === "pinned" ? Promise.resolve(null) : refreshWatchlistMarketContext({ force });
   const results = await mapWithConcurrency(
     items,
     6,
     async (item) => {
       try {
-        const url = marketStockDashboardUrl(item.code);
+        const url = marketStockDashboardUrl(item.code, { item });
         const dashboard = await Promise.race([
           fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs }),
           rejectAfter(15_000, "watchlist dashboard timeout"),
@@ -18819,7 +20145,9 @@ async function loadWatchlist(options = {}) {
         if (loadSequence !== state.watchlistLoadSequence) {
           return { item, dashboard: null, cancelled: true };
         }
-        const card = appendWatchRow(item, dashboard, state.usSectorMoves);
+        const card = groupId === "pinned"
+          ? appendPinnedWatchRow(item, dashboard)
+          : appendWatchRow(item, dashboard, state.usSectorMoves);
         const pendingRow = pendingRows.get(item.code);
         if (pendingRow?.isConnected) {
           pendingRow.replaceWith(card);
@@ -18832,7 +20160,8 @@ async function loadWatchlist(options = {}) {
         ].sort((left, right) => (itemOrder.get(left.item.code) || 0) - (itemOrder.get(right.item.code) || 0));
         applyWatchlistFilter();
         renderWatchlistStrategy(state.watchlistResults, state.usSectorMoves, state.watchlistMarketContext);
-        connectWatchlistQuoteStream(item.code);
+        renderWatchMarketMap(state.watchlistResults);
+        connectWatchlistQuoteStream(item.code, item);
         return { item, dashboard };
       } catch {
         if (loadSequence !== state.watchlistLoadSequence) {
@@ -18851,7 +20180,7 @@ async function loadWatchlist(options = {}) {
       } finally {
         completedCount += 1;
         if (loadSequence === state.watchlistLoadSequence && completedCount < items.length) {
-          elements.watchlistMeta.textContent = `${items.length}개 종목 · ${completedCount}/${items.length}개 확인 중`;
+          elements.watchlistMeta.textContent = `${groupName} · ${items.length}개 종목 · ${completedCount}/${items.length}개 확인 중`;
         }
       }
     }
@@ -18861,14 +20190,17 @@ async function loadWatchlist(options = {}) {
   }
   clearWatchlistLoadingOverlay();
   state.watchlistResults = results.filter((result) => result.dashboard);
-  elements.watchlistMeta.textContent = `${items.length}개 종목 · 실시간 시세`;
+  elements.watchlistMeta.textContent = `${groupName} · ${items.length}개 종목 · 실시간 시세`;
+  renderWatchlistGroupTabs();
   applyWatchlistFilter();
   renderWatchlistStrategy(state.watchlistResults, state.usSectorMoves, state.watchlistMarketContext);
+  renderWatchMarketMap(state.watchlistResults);
   connectUsSectorStream();
   sectorMovesPromise.catch(() => {});
   marketContextPromise.catch(() => {});
+  marketCapFxPromise.catch(() => {});
   if (!state.watchlistResults.length && !elements.watchlistBody.children.length) {
-    renderWatchlistMessage("데이터 없음");
+    renderWatchlistMessage("데이터 없음", { groupId });
   }
 }
 
@@ -22009,6 +23341,7 @@ function writeRecommendationTracks(items, options = {}) {
     queueRemoteRecommendationTrackSync();
   }
   updateRecommendationTrackMeta();
+  renderWatchlistGroupTabs();
 }
 
 async function fetchRemoteRecommendationTracks(shareId) {
@@ -22433,7 +23766,7 @@ async function loadRecommendationHistory(options = {}) {
   }
   for (const track of tracks) {
     elements.recommendHistoryList.appendChild(createRecommendationTrackCard(track));
-    connectRecommendationQuoteStream(track.code);
+    connectRecommendationQuoteStream(track.code, track);
   }
   await Promise.all(
     tracks.map(async (track) => {
@@ -22996,7 +24329,7 @@ function createRecommendationDecisionFlow(item = {}, options = {}) {
     section.appendChild(createRecommendationSignalTimeline(item, signal || {}, options));
     const stockLink = document.createElement("a");
     stockLink.className = "recommend-signal-stock-link";
-    stockLink.href = viewStockUrl(item.code || item.name || "");
+    stockLink.href = viewStockUrl(item.code || item.name || "", item);
     stockLink.textContent = "종목 상세에서 차트와 전략 보기";
     section.appendChild(stockLink);
   }
@@ -23091,8 +24424,11 @@ function renderRecommendationDetail(
   const signalStage = recommendationSignalStageView(effectiveSignal, item);
 
   elements.recommendDetailName.textContent = item.name || "추천 종목";
-  elements.recommendDetailCode.textContent = "";
-  elements.recommendDetailCode.hidden = true;
+  const itemScope = marketScopeForItem(item);
+  elements.recommendDetailCode.textContent = isUsHubContext
+    ? `${itemScope === "us" ? "미국" : "국내"} · ${item.code || ""}`
+    : "";
+  elements.recommendDetailCode.hidden = !isUsHubContext;
   elements.recommendDetailContent.innerHTML = "";
 
   const hero = el("section", "recommend-detail-hero");
@@ -23197,7 +24533,7 @@ async function loadRecommendationDetail(code = "") {
   let item = null;
   if (code) {
     try {
-      const payload = await fetchJsonCached(marketOverviewUrl("/market/recommendations?limit=20&candidate_limit=100"), { force: true, ttlMs: 0 });
+      const payload = await fetchRecommendationsForScope({ limit: 20, candidateLimit: 100, force: true, ttlMs: 0 });
       item = (payload.items || []).find((candidate) => candidate.code === code) || null;
     } catch {
       item = null;
@@ -23211,10 +24547,11 @@ async function loadRecommendationDetail(code = "") {
   saveRecommendationDetailItem(item);
   renderRecommendationDetail(item, null, true, item.ai_trade_signal, "loading");
   window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.scrollTo(0, 0)));
-  const aiUrl = isUsMarketContext
+  const itemIsUs = marketScopeForItem(item) === "us";
+  const aiUrl = itemIsUs
     ? `/us/stocks/${encodeURIComponent(item.code)}/ai-analysis`
     : `/stocks/${encodeURIComponent(item.code)}/ai-analysis`;
-  const signalRequest = isUsMarketContext
+  const signalRequest = itemIsUs
     ? Promise.resolve(item.ai_trade_signal || null)
     : fetchJsonCached(liveUrl(`/stocks/${encodeURIComponent(item.code)}/quant-signals`), { force: true, ttlMs: 0 });
   const [aiResult, signalResult] = await Promise.all([
@@ -23309,11 +24646,12 @@ function createRecommendationCard(item) {
   explainButton.setAttribute("aria-label", `${item.name || "추천 종목"} AI 시그널 이력 보기`);
   rankLine.append(rank);
   const name = el("a", "recommend-name");
-  name.href = viewStockUrl(item.code || item.name);
+  name.href = viewStockUrl(item.code || item.name, item);
   name.append(
-    isUsMarketContext ? createRankingStockLogo(item) : createStockListLogo(item.code),
+    marketScopeForItem(item) === "us" ? createRankingStockLogo(item) : createStockListLogo(item.code),
     createStockListCopy(item.name, item.code)
   );
+  if (isUsHubContext) name.append(createMarketBadge(item));
 
   const score = recommendationScoreDisplay(item.score);
   const reason = el("section", "recommend-card-reason");
@@ -23370,7 +24708,7 @@ function renderRecommendations(payload, options = {}) {
   }
   for (const item of items) {
     appendRecommendationCard(item);
-    connectRecommendationQuoteStream(item.code);
+    connectRecommendationQuoteStream(item.code, item);
   }
   scheduleUsSectorRefresh(state.usSectorMoves);
 }
@@ -23414,6 +24752,7 @@ function appendThreadItem(parent, item) {
     story.setAttribute("aria-label", `${item.title} 기사 원문 보기`);
   }
   const meta = el("div", "thread-meta", `${formatDate(item.published_at)} · ${item.source}`);
+  if (isUsHubContext) meta.append(createMarketBadge(item));
   const title = el("strong", "", item.title);
   const tags = el("div", "thread-tags");
   tags.append(el("span", "thread-tag", item.category), el("span", `thread-tag impact-${item.impact}`, item.impact));
@@ -23423,7 +24762,7 @@ function appendThreadItem(parent, item) {
   const leaders = el("div", "thread-leader-stocks");
   for (const stock of leaderStocks) {
     const stockLink = el("a", "thread-tag leader-stock-tag", `#${stock}`);
-    stockLink.href = viewStockUrl(stock);
+    stockLink.href = viewStockUrl(stock, item);
     stockLink.setAttribute("aria-label", `${stock} 종목 상세 보기`);
     leaders.appendChild(stockLink);
   }
@@ -23646,25 +24985,29 @@ function renderTrendWatchNews(item, dashboard) {
 }
 
 async function loadTrendWatchlistNews(options = {}) {
-  const items = readWatchlist();
+  const groupId = state.activeWatchGroup;
+  const groupName = activeWatchlistGroupName();
+  const items = watchlistItemsForGroup(groupId);
   elements.trendWatchNewsBoard.innerHTML = "";
   if (!items.length) {
     state.selectedTrendWatchCode = "";
     elements.trendWatchStockRail.innerHTML = "";
-    elements.trendWatchlistMeta.textContent = "관심종목 0개";
-    elements.trendWatchlistStatus.textContent = "관심종목을 추가하면 종목별 최신 뉴스가 표시됩니다.";
+    elements.trendWatchlistMeta.textContent = `${groupName} · 0개`;
+    elements.trendWatchlistStatus.textContent = groupId === "pinned"
+      ? "핀을 설정하면 종목별 최신 뉴스도 함께 볼 수 있습니다."
+      : "관심종목을 추가하면 종목별 최신 뉴스가 표시됩니다.";
     return;
   }
   const requestedCode = String(options.code || state.selectedTrendWatchCode || "");
   const selected = items.find((item) => item.code === requestedCode) || items[0];
   state.selectedTrendWatchCode = selected.code;
   renderTrendWatchStockRail(items, selected.code);
-  elements.trendWatchlistMeta.textContent = `${formatNumber(items.length)}개 종목`;
+  elements.trendWatchlistMeta.textContent = `${groupName} · ${formatNumber(items.length)}개 종목`;
   elements.trendWatchlistStatus.textContent = `${selected.name} 뉴스를 불러오는 중입니다.`;
   const requestId = ++state.trendWatchRequestId;
   try {
     const force = options.force === true;
-    const url = marketStockDashboardUrl(selected.code);
+    const url = marketStockDashboardUrl(selected.code, { item: selected });
     const dashboard = await fetchJsonCached(url, { force, ttlMs: force ? 0 : PAGE_ENTRY_MINUTE_MS });
     if (requestId !== state.trendWatchRequestId) {
       return;
@@ -23682,7 +25025,7 @@ async function loadTrendWatchlistNews(options = {}) {
 function trendEventAxes(item) {
   const axes = Array.isArray(item.event_axes) ? item.event_axes.filter(Boolean) : [];
   if (axes.length > 0) return axes;
-  if (isUsMarketContext && Array.isArray(item.affected_variables)) {
+  if (marketScopeForItem(item) === "us" && Array.isArray(item.affected_variables)) {
     return item.affected_variables.filter(Boolean);
   }
   return TREND_FOCUS_EVENT_AXES[item.title] || [];
@@ -24040,7 +25383,7 @@ function restoreTrendChrome(activeTab = "live") {
   }
   if (elements.trendEventsTitle) {
     elements.trendEventsTitle.hidden = false;
-    elements.trendEventsTitle.textContent = isUsMarketContext ? "미국 증시 캘린더" : "증시 캘린더";
+    elements.trendEventsTitle.textContent = isUsHubContext ? "통합 증시 캘린더" : "증시 캘린더";
   }
 }
 
@@ -24503,9 +25846,7 @@ async function loadHomeMarketIndices(options = {}) {
   if (!elements.homeMarketIndices) {
     return;
   }
-  const expectedCodes = new Set(isUsMarketContext
-    ? ["SP500", "NASDAQ", "SOX", "DOW", "GOLD", "OIL"]
-    : ["KOSPI", "KOSDAQ", "SP500", "NASDAQ", "SOX", "DOW", "GOLD", "OIL"]);
+  const expectedCodes = new Set(["KOSPI", "KOSDAQ", "SP500", "NASDAQ", "SOX", "DOW", "GOLD", "OIL"]);
   const previousItems = Array.isArray(state.homeMarketIndexItems)
     ? state.homeMarketIndexItems.filter((item) => expectedCodes.has(item?.code))
     : [];
@@ -24519,9 +25860,7 @@ async function loadHomeMarketIndices(options = {}) {
     // Array.prototype.at. Keep each request independently recoverable without
     // relying on those newer APIs so one failed feed cannot blank every card.
     const [domesticPayload, globalPayload] = await Promise.all([
-      isUsMarketContext
-        ? Promise.resolve(null)
-        : fetchHomeJsonWithRetry(liveUrl(domesticEndpoint), { force: true, ttlMs: 0 }).catch(() => null),
+      fetchHomeJsonWithRetry(liveUrl(domesticEndpoint), { force: true, ttlMs: 0 }).catch(() => null),
       fetchHomeJsonWithRetry(liveUrl("/market/global-assets?limit=30"), { force: true, ttlMs: 0 }).catch(() => null),
     ]);
     const previousByCode = new Map(previousItems.map((item) => [item.code, item]));
@@ -24566,8 +25905,8 @@ function startHomeMarketIndexRefresh() {
   if (state.view !== "home") {
     return;
   }
-  const activeMarket = isUsMarketContext
-    ? ["premarket", "regular", "afterhours"].includes(usMarketPhase())
+  const activeMarket = isUsHubContext
+    ? ["premarket", "regular", "afterhours"].includes(usMarketPhase()) || koreaMarketPhase() === "regular"
     : koreaMarketPhase() === "regular";
   const intervalMs = activeMarket ? 5_000 : 30_000;
   state.marketIndexRefreshTimer = window.setTimeout(async () => {
@@ -25044,6 +26383,7 @@ function trendEventImportanceClass(item = {}) {
 function appendTrendEvent(item, parent = elements.trendEvents) {
   const row = el("article", `trend-event event-importance-${trendEventImportanceClass(item)}`);
   row.dataset.eventId = item.id || "";
+  row.dataset.marketScope = marketScopeForItem(item);
   const button = el("button", "trend-calendar-event");
   button.type = "button";
   button.dataset.trendEventOpen = item.id || "";
@@ -25123,7 +26463,7 @@ function appendGraphNode(parent, node, stockMap = {}) {
   const stock = stockMap[stockCode];
   const item = stock ? el("a", `flow-node ${node.kind} ${node.polarity || "neutral"}`) : el("div", `flow-node ${node.kind} ${node.polarity || "neutral"}`);
   if (stock) {
-    item.href = viewStockUrl(stock.name);
+    item.href = viewStockUrl(stock.name, stock);
   }
   item.append(el("strong", "", node.label));
   if (node.detail) {
@@ -25155,7 +26495,7 @@ function appendStockImpact(parent, stock) {
   const head = el("div", "impact-stock-head");
   const identity = el("div", "impact-stock-identity");
   const title = el("a", "impact-stock-title", stock.name);
-  title.href = viewStockUrl(stock.name);
+  title.href = viewStockUrl(stock.name, stock);
   const score = el("span", "impact-stock-score", `${stock.impact_score}점 · ${stock.impact_direction}`);
   const watched = isWatched(stock.code);
   const watchButton = el("button", "impact-watch-button", watched ? "✓" : "+");
@@ -25258,7 +26598,10 @@ async function loadTrendGraph(card) {
   }
   setFlowLoading(true);
   try {
-    const graphUrl = marketOverviewUrl(`/market/trends/${encodeURIComponent(eventId)}/graph`);
+    const graphUrl = marketOverviewUrl(
+      `/market/trends/${encodeURIComponent(eventId)}/graph`,
+      card.dataset.marketScope || trendEventById(eventId)?.market_scope || state.marketScope,
+    );
     const graph = await Promise.race([
       fetchJsonCached(graphUrl, { ttlMs: 5 * 60 * 1000 }),
       rejectAfter(120_000, "trend graph timeout"),
@@ -25434,6 +26777,7 @@ function renderTrendEventDetail(item) {
   const graphHost = el("section", "event-detail-graph");
   graphHost.id = "event-detail-graph";
   graphHost.dataset.eventId = item.id || "";
+  graphHost.dataset.marketScope = marketScopeForItem(item);
   graphHost.setAttribute("aria-live", "polite");
   graphHost.appendChild(createEventGraphSkeleton());
 
@@ -25481,7 +26825,8 @@ async function loadTrendEventDetail(eventId, options = {}) {
   if (!item || String(item.id || "") !== String(eventId || item.id || "")) {
     try {
       const force = options.force === true;
-      const payload = await fetchHomeJsonWithRetry(marketOverviewUrl("/market/trends?days=7"), {
+      const payload = await fetchTrendsForScope({
+        days: 7,
         force,
         ttlMs: force ? 0 : options.ttlMs ?? pageEntryTtlMs("trend"),
       });
@@ -25535,14 +26880,46 @@ function renderTrends(payload, activeTab = "live") {
   }
 }
 
+async function fetchTrendsForScope(options = {}) {
+  const days = Math.max(1, Number(options.days) || 7);
+  const effectiveScope = isUsHubContext && state.view === "home" ? "all" : state.marketScope;
+  const scopes = !isUsHubContext || effectiveScope === "kr"
+    ? ["kr"]
+    : effectiveScope === "us" ? ["us"] : ["kr", "us"];
+  const settled = await Promise.allSettled(scopes.map(async (scope) => {
+    const base = scope === "us" ? "/us" : "";
+    const endpoint = `${base}/market/trends?days=${days}`;
+    const url = options.force ? liveUrl(`${endpoint}&refresh=true`) : endpoint;
+    const payload = await fetchHomeJsonWithRetry(url, {
+      force: options.force === true,
+      ttlMs: options.force ? 0 : options.ttlMs,
+    });
+    return {
+      ...payload,
+      events: tagMarketItems(payload.events, scope),
+      past_events: tagMarketItems(payload.past_events, scope),
+      timeline: tagMarketItems(payload.timeline, scope),
+    };
+  }));
+  const payloads = settled.filter((result) => result.status === "fulfilled").map((result) => result.value);
+  if (!payloads.length) throw settled[0]?.reason || new Error("trends unavailable");
+  const byTime = (left, right) => Date.parse(right.starts_at || right.published_at || 0) - Date.parse(left.starts_at || left.published_at || 0);
+  return {
+    window_start: payloads.map((payload) => payload.window_start).filter(Boolean).sort()[0] || null,
+    window_end: payloads.map((payload) => payload.window_end).filter(Boolean).sort().at(-1) || null,
+    as_of: payloads.map((payload) => payload.as_of).filter(Boolean).sort().at(-1) || null,
+    events: payloads.flatMap((payload) => payload.events || []).sort(byTime),
+    past_events: payloads.flatMap((payload) => payload.past_events || []).sort(byTime),
+    timeline: payloads.flatMap((payload) => payload.timeline || []).sort(byTime),
+  };
+}
+
 async function loadTrends(activeTab = state.activeTrendTab || "live", options = {}) {
   restoreTrendChrome(activeTab);
   try {
     const force = options.force === true;
     const ttlMs = options.ttlMs ?? pageEntryTtlMs(activeTab === "past" ? "trend-past" : "trend");
-    const trendsUrl = marketOverviewUrl("/market/trends?days=7");
-    const url = force ? liveUrl(`${trendsUrl}&refresh=true`) : trendsUrl;
-    const payload = await fetchHomeJsonWithRetry(url, { force, ttlMs: force ? 0 : ttlMs });
+    const payload = await fetchTrendsForScope({ days: 7, force, ttlMs: force ? 0 : ttlMs });
     state.homeTrendContext = payload;
     renderTrends(payload, activeTab);
     if (state.view === "home") {
@@ -25609,6 +26986,30 @@ async function loadMarketImpactAnalysis(options = {}) {
   }
 }
 
+async function fetchRecommendationsForScope(options = {}) {
+  const limit = Math.max(1, Number(options.limit) || RECOMMENDATION_LIMIT);
+  const candidateLimit = Math.max(limit, Number(options.candidateLimit) || 45);
+  const scopes = !isUsHubContext || state.marketScope === "kr"
+    ? ["kr"]
+    : state.marketScope === "us" ? ["us"] : ["kr", "us"];
+  const settled = await Promise.allSettled(scopes.map(async (scope) => {
+    const prefix = scope === "us" ? "/us" : "";
+    const refresh = options.recompute === true ? "&refresh=1" : "";
+    const url = `${prefix}/market/recommendations?limit=${limit}&candidate_limit=${candidateLimit}${refresh}`;
+    const payload = await fetchJsonCached(options.recompute ? liveUrl(url) : url, {
+      force: options.force === true || options.recompute === true,
+      ttlMs: options.ttlMs ?? pageEntryTtlMs("recommend"),
+    });
+    return { ...payload, items: tagMarketItems(payload.items, scope) };
+  }));
+  const payloads = settled.filter((result) => result.status === "fulfilled").map((result) => result.value);
+  if (!payloads.length) throw settled[0]?.reason || new Error("recommendations unavailable");
+  return {
+    as_of: payloads.map((payload) => payload.as_of).filter(Boolean).sort().at(-1) || null,
+    items: payloads.flatMap((payload) => payload.items || []),
+  };
+}
+
 async function loadRecommendations(options = {}) {
   if (state.recommendationLoading) {
     return;
@@ -25624,10 +27025,20 @@ async function loadRecommendations(options = {}) {
     setRecommendStatus("추천 종목을 불러오는 중입니다.");
   }
   const sectorMovesPromise = refreshUsSectorMoves(options);
-  const baseUrl = marketOverviewUrl(`/market/recommendations?limit=${RECOMMENDATION_LIMIT}&candidate_limit=45`);
-  const fetchLatestRecommendations = () => fetchJsonCached(baseUrl, { force, ttlMs: force ? 0 : ttlMs });
+  const fetchLatestRecommendations = () => fetchRecommendationsForScope({
+    limit: RECOMMENDATION_LIMIT,
+    candidateLimit: 45,
+    force,
+    ttlMs: force ? 0 : ttlMs,
+  });
   const liveRefreshPromise = recompute
-    ? fetchJsonCached(liveUrl(`${baseUrl}&refresh=1`), { force: true, ttlMs: 0 })
+    ? fetchRecommendationsForScope({
+      limit: RECOMMENDATION_LIMIT,
+      candidateLimit: 45,
+      force: true,
+      ttlMs: 0,
+      recompute: true,
+    })
     : null;
   let rendered = hadRecommendations;
   try {
@@ -25992,9 +27403,18 @@ async function resolveStock(query, options = {}) {
     return null;
   }
   try {
-    const usMarket = options.usMarket === true || isUsRootPath || /^\/us\/stock\//.test(window.location.pathname);
-    const endpoint = usMarket ? "/us/stocks/resolve" : "/stocks/resolve";
-    return await fetchJsonCached(`${endpoint}?query=${encodeURIComponent(normalized)}`, { ttlMs: 5 * UI_CACHE_TTL_MS });
+    const explicitScope = options.marketScope
+      || (options.usMarket === true ? "us" : "")
+      || (usStockPathMatch ? (/^\d{6}$/.test(usStockPathCode) ? "kr" : "us") : "")
+      || (isUsHubContext ? state.marketScope : "kr");
+    const scopes = explicitScope === "all" ? ["kr", "us"] : [explicitScope];
+    const settled = await Promise.allSettled(scopes.map(async (scope) => {
+      const endpoint = scope === "us" ? "/us/stocks/resolve" : "/stocks/resolve";
+      const payload = await fetchJsonCached(`${endpoint}?query=${encodeURIComponent(normalized)}`, { ttlMs: 5 * UI_CACHE_TTL_MS });
+      return { ...payload, market_scope: scope, currency: payload.currency || (scope === "us" ? "USD" : "KRW") };
+    }));
+    const matches = settled.filter((result) => result.status === "fulfilled").map((result) => result.value);
+    return matches.find((item) => String(item.code).toUpperCase() === normalized.toUpperCase()) || matches[0] || null;
   } catch {
     return null;
   }
@@ -26098,8 +27518,12 @@ async function loadStockRequest(query, options = {}) {
     && resolvedCandidate?.name
     && [String(resolvedCandidate.code), String(resolvedCandidate.name)].includes(normalized),
   );
-  const usStockRequest = options.usMarket === true || isUsRootPath || /^\/us\/stock\//.test(window.location.pathname);
-  const stock = candidateMatches ? resolvedCandidate : await resolveStock(normalized, { usMarket: usStockRequest });
+  const requestedScope = options.marketScope
+    || (options.usMarket === true ? "us" : "")
+    || (candidateMatches ? marketScopeForItem(resolvedCandidate) : "")
+    || (usStockPathMatch ? (/^\d{6}$/.test(usStockPathCode) ? "kr" : "us") : "")
+    || (isUsHubContext ? state.marketScope : "kr");
+  const stock = candidateMatches ? resolvedCandidate : await resolveStock(normalized, { marketScope: requestedScope });
   if (loadSequence !== state.stockLoadSequence) {
     return;
   }
@@ -26115,14 +27539,21 @@ async function loadStockRequest(query, options = {}) {
     resetAIAnalysis();
     return;
   }
-  const sameStock = previousStock?.code === stock.code;
+  const usStockRequest = marketScopeForItem(stock) === "us";
+  const sameStock = previousStock?.code === stock.code && stockDashboardIsUs(previousStock) === usStockRequest;
   if (!sameStock) {
     setLoading(stock.code);
   }
   if (previousStock?.code && !sameStock) {
     setActiveStockTab("summary", { preserveScroll: true });
   }
-  state.currentStock = { code: stock.code, name: stock.name, market: stock.market, currency: usStockRequest ? "USD" : stock.currency };
+  state.currentStock = {
+    code: stock.code,
+    name: stock.name,
+    market: stock.market,
+    currency: stock.currency || (usStockRequest ? "USD" : "KRW"),
+    market_scope: usStockRequest ? "us" : "kr",
+  };
   if (!usStockRequest && previousDashboard?.currency === "USD") {
     state.stockPricePeriod = "1D";
   }
@@ -26177,8 +27608,8 @@ async function loadStockRequest(query, options = {}) {
   if (loadSequence !== state.stockLoadSequence) {
     return;
   }
-  const stockUrl = usStockRequest
-    ? `/us/stock/${encodeURIComponent(stock.code)}`
+  const stockUrl = isUsHubContext || usStockRequest
+    ? unifiedMarketUrl(`/us/stock/${encodeURIComponent(stock.code)}`, usStockRequest ? "us" : "kr")
     : `/dashboard/${encodeURIComponent(stock.name)}`;
   if (options.historyMode !== "none") {
     writeDashboardHistory(
@@ -26212,12 +27643,23 @@ async function syncViewFromLocation() {
       setLoading(stockQuery);
     }
     setView("stock", { historyMode: "none" });
-    await load(stockQuery, { historyMode: "none", usMarket: true });
+    await load(stockQuery, {
+      historyMode: "none",
+      marketScope: /^\d{6}$/.test(stockQuery) ? "kr" : (new URLSearchParams(window.location.search).get("market_scope") || "us"),
+    });
     return;
   }
   const params = new URLSearchParams(window.location.search);
   const routeView = params.get("view") || "home";
-  const routeMarket = params.get("market") || "ALL";
+  if (isUsHubContext) {
+    state.marketScope = ["all", "kr", "us"].includes(params.get("market_scope"))
+      ? params.get("market_scope")
+      : "all";
+    document.body.dataset.marketScope = state.marketScope;
+  }
+  const routeMarket = params.get("market") || (isUsHubContext
+    ? ({ all: "MIXED", kr: "ALL", us: "NASDAQ" }[state.marketScope] || "MIXED")
+    : "ALL");
   const routeCategory = params.get("category") || DEFAULT_MARKET_RANKING_CATEGORY;
   const routeNewsFilter = params.get("filter") || "all";
   state.marketRankingMarket = normalizeHomeRankingMarket(routeMarket);
@@ -26235,6 +27677,7 @@ async function syncViewFromLocation() {
     state.trendNewsFilter = ["all", "positive", "negative"].includes(routeNewsFilter) ? routeNewsFilter : "all";
   }
   state.activeTrendEventId = params.get("event_id") || "";
+  applyUsMarketSurface();
   setView(routeView, { historyMode: "none" });
 }
 
@@ -26281,6 +27724,10 @@ for (const item of elements.appNavItems) {
     setView(item.dataset.appView);
     window.scrollTo({ top: 0, behavior: "auto" });
   });
+}
+for (const button of elements.unifiedMarketScopeButtons) {
+  button.addEventListener("click", () => setUnifiedMarketScope(button.dataset.unifiedMarketScope || "all"));
+  button.addEventListener("keydown", (event) => moveRovingTabFocus(event, elements.unifiedMarketScopeButtons, button));
 }
 elements.morningMoneyBriefingBack?.addEventListener("click", () => {
   state.morningMoneyBriefingSelection = null;
@@ -26889,6 +28336,41 @@ elements.homePastToggle?.addEventListener("click", () => {
 for (const tab of elements.portfolioTabs) {
   tab.addEventListener("click", () => setPortfolioTab(tab.dataset.portfolioTab, { load: true }));
 }
+elements.watchGroupTabs?.addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-watch-group]");
+  if (tab && elements.watchGroupTabs.contains(tab)) {
+    setActiveWatchGroup(tab.dataset.watchGroup, { load: true, reveal: true });
+  }
+});
+elements.watchGroupTabs?.addEventListener("keydown", (event) => {
+  if (event.target.closest("[data-watch-group]")) handleWatchlistGroupKeydown(event);
+});
+elements.watchGroupCreate?.addEventListener("click", () => openWatchlistGroupDialog());
+elements.watchGroupEdit?.addEventListener("click", () => openWatchlistGroupDialog(state.activeWatchGroup));
+elements.watchGroupAddStock?.addEventListener("click", () => setView("search"));
+elements.watchGroupDialogClose?.addEventListener("click", closeWatchlistGroupDialog);
+elements.watchGroupCancel?.addEventListener("click", closeWatchlistGroupDialog);
+elements.watchGroupDelete?.addEventListener("click", deleteActiveWatchlistGroup);
+elements.watchGroupForm?.addEventListener("submit", saveWatchlistGroupFromDialog);
+elements.watchGroupName?.addEventListener("input", () => {
+  if (elements.watchGroupDialogStatus) elements.watchGroupDialogStatus.textContent = "";
+});
+elements.watchGroupDialog?.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeWatchlistGroupDialog();
+});
+elements.watchGroupDialog?.addEventListener("click", (event) => {
+  if (event.target === elements.watchGroupDialog) closeWatchlistGroupDialog();
+});
+elements.watchMarketMapSheetClose?.addEventListener("click", closeWatchMarketMapSheet);
+elements.watchMarketMapSheet?.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeWatchMarketMapSheet();
+});
+elements.watchMarketMapSheet?.addEventListener("close", finishWatchMarketMapSheetClose);
+elements.watchMarketMapSheet?.addEventListener("click", (event) => {
+  if (event.target === elements.watchMarketMapSheet) closeWatchMarketMapSheet();
+});
 for (const tab of elements.watchlistContentTabs) {
   tab.addEventListener("click", () => setWatchlistContentTab(tab.dataset.watchContentTab, { load: true }));
 }
@@ -26999,7 +28481,22 @@ elements.watchlistBody.addEventListener("click", (event) => {
     return;
   }
   const code = button.dataset.code;
+  const action = button.dataset.watchAction || "remove-watchlist";
   state.watchPreopenExpanded.delete(code);
+  if (action === "unpin") {
+    const trackId = button.dataset.trackId || "";
+    if (trackId) deleteRecommendationTrack(trackId);
+    else writeRecommendationTracks(readRecommendationTracks().filter((item) => item.code !== code));
+    updateRecommendationTrackButtons();
+    void loadWatchlist();
+    return;
+  }
+  if (action === "remove-group") {
+    removeCodeFromActiveWatchlistGroup(code);
+    void loadWatchlist();
+    return;
+  }
+  removeWatchlistCodeFromGroups(code);
   writeWatchlist(readWatchlist().filter((item) => item.code !== code));
   updateWatchButton();
   void loadWatchlist();
@@ -27272,12 +28769,12 @@ document.addEventListener("visibilitychange", () => {
     connectQuoteStream(state.currentStock);
   } else if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
     elements.watchlistBody.querySelectorAll("[data-watch-card][data-code]").forEach((card) => {
-      connectWatchlistQuoteStream(card.dataset.code);
+      connectWatchlistQuoteStream(card.dataset.code, card.watchItem || {});
     });
     connectUsSectorStream();
   } else if (state.view === "search") {
     elements.recommendList.querySelectorAll(".recommend-card[data-code]").forEach((card) => {
-      connectRecommendationQuoteStream(card.dataset.code);
+      connectRecommendationQuoteStream(card.dataset.code, card.recommendationItem || {});
     });
     connectUsSectorStream();
   }

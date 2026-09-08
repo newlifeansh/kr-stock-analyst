@@ -29,7 +29,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
     ids = [case["id"] for case in payload["cases"]]
 
     assert payload["strategy_version"] == "position-lifecycle-v7.4.1"
-    assert len(ids) == 101
+    assert len(ids) == 104
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -69,6 +69,9 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-UI-019",
         "SIG-UI-020",
         "SIG-UI-021",
+        "SIG-UI-023",
+        "SIG-UI-024",
+        "SIG-UI-025",
         "SIG-CONTRACT-004",
     }.issubset(ids)
     service_update = next(case for case in payload["cases"] if case["id"] == "SIG-UI-005")
@@ -88,7 +91,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "# 데이터 연동·시그널 판단 QA 카탈로그" in first
     assert "`position-lifecycle-v7.4.1`" in first
     assert "SIG-CONTRACT-003" in first
-    assert "QA 항목: 101개" in first
+    assert "QA 항목: 104개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -931,6 +934,9 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "SIG-UI-019" in E2E_CASE_IDS
     assert "SIG-UI-020" in E2E_CASE_IDS
     assert "SIG-UI-021" in E2E_CASE_IDS
+    assert "SIG-UI-023" in E2E_CASE_IDS
+    assert "SIG-UI-024" in E2E_CASE_IDS
+    assert "SIG-UI-025" in E2E_CASE_IDS
     assert "def portfolio_production_screens_case" in source
     assert "feature-ai-signals-production.jpg" in source
     assert "매수 확정 종목의 전략 기준가와 수익률" in source
@@ -942,6 +948,16 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert 'signal_label_result["case_id"] = "SIG-UI-021"' in source
     assert "부분 매도 대기(2차)" in source
     assert "부분 수익 확정(2차)" in source
+    assert "def hot_community_market_toggle_case" in source
+    assert 'case_id="SIG-UI-023"' in source
+    assert "커뮤니티 시장 토글이 미국 국기·태극기" in source
+    assert "def watchlist_groups_case" in source
+    assert 'case_id="SIG-UI-024"' in source
+    assert "핀 이후 수익률과 오늘 등락률" in source
+    assert "def watch_market_map_case" in source
+    assert 'case_id="SIG-UI-025"' in source
+    assert "원화 환산 시가총액 순으로 정렬" in source
+    assert "focus_returned_after_live_render" in source
 
 
 def test_gpt_briefing_copy_contract_is_registered_for_e2e() -> None:
@@ -1100,7 +1116,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.4.1"
-    assert report["catalog_case_count"] == 101
+    assert report["catalog_case_count"] == 104
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1263,7 +1279,11 @@ class FakeReadOnlyApi:
                 "market": "KOSPI",
             }, self._meta(path)
         if path == "/stocks/005930/dashboard":
-            return {"stock": {"code": "005930"}}, self._meta(path)
+            return {
+                "code": "005930",
+                "stock": {"code": "005930"},
+                "quote": {"market_cap": 1_578_000_000_000_000},
+            }, self._meta(path)
         if path == "/stocks/005930/quote":
             return {
                 "code": "005930",
@@ -1295,6 +1315,14 @@ class FakeReadOnlyApi:
             }, self._meta(path)
         if path == "/us/stocks/AAPL/dashboard":
             return {"symbol": "AAPL", "as_of": "2026-08-28"}, self._meta(path)
+        if path == "/us/stocks/NVDA/dashboard":
+            return {
+                "symbol": "NVDA",
+                "name": "NVIDIA",
+                "quote": {"market_cap": 5_491_269_270_000},
+            }, self._meta(path)
+        if path == "/us/fx/usdkrw":
+            return {"rate": 1341.36, "source": "fixture"}, self._meta(path)
         return {"items": [], "status": "ready"}, self._meta(path)
 
     def get_text(self, path: str, **params: object):
@@ -1342,6 +1370,8 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     assert by_id["DATA-FUND-RESEARCH-001"]["status"] == "warn"
     assert by_id["DATA-GLOBAL-003"]["status"] == "warn"
     assert by_id["DATA-KRX-NAVER-002"]["status"] == "pass"
+    assert by_id["SIG-UI-025"]["status"] == "pass"
+    assert by_id["SIG-UI-025"]["evidence"]["fx"]["usdkrw"] == pytest.approx(1341.36)
     assert report["market_state"] == "closed"
     assert report["deployment_blocked"] is False
 

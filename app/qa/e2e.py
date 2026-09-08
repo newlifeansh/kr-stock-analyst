@@ -39,6 +39,9 @@ E2E_CASE_IDS = (
     "SIG-UI-019",
     "SIG-UI-020",
     "SIG-UI-021",
+    "SIG-UI-023",
+    "SIG-UI-024",
+    "SIG-UI-025",
 )
 
 
@@ -6638,6 +6641,1194 @@ def run_e2e_checks(
                     timeout=timeout,
                     artifact_dir=output_dir,
                     callback=staging_gpt_briefing_copy_case,
+                    storage_state=storage_state,
+                    share_id=share_id,
+                )
+            )
+
+            def hot_community_market_toggle_case(page: Any, theme: str) -> dict[str, Any]:
+                request_counts = {
+                    "kr_ranking": 0,
+                    "us_ranking": 0,
+                    "kr_feed": 0,
+                    "us_feed": 0,
+                }
+
+                def ranking_response(route: Any, market: str) -> None:
+                    key = f"{market}_ranking"
+                    request_counts[key] += 1
+                    us_market = market == "us"
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps(
+                            {
+                                "category": "surge",
+                                "as_of": "2026-09-08T12:00:00+09:00",
+                                "items": [
+                                    {
+                                        "code": "NVDA" if us_market else "005930",
+                                        "name": "엔비디아" if us_market else "삼성전자",
+                                        "change_rate": 2.34 if us_market else 1.23,
+                                        "market_cap": 4_000_000_000_000 if us_market else 600_000_000_000_000,
+                                    }
+                                ],
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+
+                def feed_response(route: Any, market: str) -> None:
+                    key = f"{market}_feed"
+                    request_counts[key] += 1
+                    us_market = market == "us"
+                    market_label = "미국" if us_market else "한국"
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps(
+                            {
+                                "code": "NVDA" if us_market else "005930",
+                                "name": "엔비디아" if us_market else "삼성전자",
+                                "providers": [
+                                    {
+                                        "key": "naver_board",
+                                        "label": "네이버 종목토론방",
+                                        "items": [
+                                            {
+                                                "title": f"{market_label} 커뮤니티 새 글 {request_counts[key]}",
+                                                "author_name": f"{market_label}픽스처",
+                                                "created_at": "2026-09-08T11:59:00+09:00",
+                                            }
+                                        ],
+                                    }
+                                ],
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+
+                page.route(
+                    re.compile(r"https?://[^/]+/market/rankings(?:\?|$)"),
+                    lambda route: ranking_response(route, "kr"),
+                )
+                page.route(
+                    re.compile(r"https?://[^/]+/us/market/rankings(?:\?|$)"),
+                    lambda route: ranking_response(route, "us"),
+                )
+                page.route(
+                    re.compile(r"https?://[^/]+/stocks/005930/community-feed(?:\?|$)"),
+                    lambda route: feed_response(route, "kr"),
+                )
+                page.route(
+                    re.compile(r"https?://[^/]+/us/stocks/NVDA/community-feed(?:\?|$)"),
+                    lambda route: feed_response(route, "us"),
+                )
+
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/dashboard",
+                        view="home",
+                        theme=theme,
+                        qa_community=datetime.now(KST).strftime("%H%M%S%f"),
+                    ),
+                    wait_until="commit",
+                    ready_selector="body[data-view='home']",
+                )
+                shell = _assert_page_shell(page, theme=theme)
+                section = page.locator(".staging-hot-community")
+                section.wait_for(state="visible")
+                section.locator(
+                    ".staging-hot-community-post-body > strong",
+                    has_text="한국 커뮤니티 새 글",
+                ).wait_for(state="visible")
+
+                toggle = section.locator(".staging-hot-community-market-toggle")
+                us_button = toggle.locator('[data-hot-community-market="us"]')
+                kr_button = toggle.locator('[data-hot-community-market="kr"]')
+                geometry = toggle.locator("button").evaluate_all(
+                    """buttons => buttons.map(button => {
+                      const rect = button.getBoundingClientRect();
+                      return {
+                        market: button.dataset.hotCommunityMarket,
+                        width: rect.width,
+                        height: rect.height,
+                        pressed: button.getAttribute('aria-pressed'),
+                        label: button.getAttribute('aria-label'),
+                        text: button.textContent.trim(),
+                      };
+                    })"""
+                )
+                if [item.get("text") for item in geometry] != ["🇺🇸", "🇰🇷"]:
+                    raise QaFailure("커뮤니티 시장 토글이 미국 국기·태극기로 표시되지 않았습니다.", {"geometry": geometry})
+                if any(float(item.get("width") or 0) < 44 or float(item.get("height") or 0) < 44 for item in geometry):
+                    raise QaFailure("커뮤니티 시장 토글의 터치 영역이 44px보다 작습니다.", {"geometry": geometry})
+                if us_button.get_attribute("aria-pressed") != "false" or kr_button.get_attribute("aria-pressed") != "true":
+                    raise QaFailure("국내 홈의 커뮤니티 기본 시장이 한국이 아닙니다.", {"geometry": geometry})
+
+                us_transition = us_button.evaluate(
+                    """button => {
+                      button.click();
+                      const section = button.closest('.staging-hot-community');
+                      return {
+                        market: section?.dataset.hotCommunityMarket,
+                        busy: section?.querySelector('.staging-hot-community-panel')?.getAttribute('aria-busy'),
+                        status: section?.querySelector('.staging-hot-community-status')?.textContent.trim(),
+                        usPressed: button.getAttribute('aria-pressed'),
+                      };
+                    }"""
+                )
+                if us_transition != {
+                    "market": "us",
+                    "busy": "true",
+                    "status": "미국 상위 종목을 불러오고 있어요.",
+                    "usPressed": "true",
+                }:
+                    raise QaFailure("미국 커뮤니티 전환 즉시 로딩·선택 상태가 표시되지 않았습니다.", us_transition)
+                section.locator(
+                    ".staging-hot-community-post-body > strong",
+                    has_text="미국 커뮤니티 새 글",
+                ).wait_for(state="visible")
+                us_snapshot = section.evaluate(
+                    """section => ({
+                      market: section.dataset.hotCommunityMarket,
+                      text: section.textContent,
+                      selectedCode: section.querySelector('.staging-hot-community-stock.active')?.dataset.hotCommunityCode,
+                      usPressed: section.querySelector('[data-hot-community-market="us"]')?.getAttribute('aria-pressed'),
+                      krPressed: section.querySelector('[data-hot-community-market="kr"]')?.getAttribute('aria-pressed'),
+                    })"""
+                )
+                if us_snapshot.get("selectedCode") != "NVDA" or "한국 커뮤니티 새 글" in us_snapshot.get("text", ""):
+                    raise QaFailure("미국 전환 후 한국 커뮤니티 정보가 남았습니다.", us_snapshot)
+
+                kr_rankings_before_return = request_counts["kr_ranking"]
+                kr_feeds_before_return = request_counts["kr_feed"]
+                kr_transition = kr_button.evaluate(
+                    """button => {
+                      button.click();
+                      const section = button.closest('.staging-hot-community');
+                      return {
+                        market: section?.dataset.hotCommunityMarket,
+                        busy: section?.querySelector('.staging-hot-community-panel')?.getAttribute('aria-busy'),
+                        status: section?.querySelector('.staging-hot-community-status')?.textContent.trim(),
+                        krPressed: button.getAttribute('aria-pressed'),
+                      };
+                    }"""
+                )
+                if kr_transition != {
+                    "market": "kr",
+                    "busy": "true",
+                    "status": "한국 상위 종목을 불러오고 있어요.",
+                    "krPressed": "true",
+                }:
+                    raise QaFailure("한국 커뮤니티 전환 즉시 로딩·선택 상태가 표시되지 않았습니다.", kr_transition)
+                section.locator(
+                    ".staging-hot-community-post-body > strong",
+                    has_text="한국 커뮤니티 새 글",
+                ).wait_for(state="visible")
+                if (
+                    request_counts["kr_ranking"] <= kr_rankings_before_return
+                    or request_counts["kr_feed"] <= kr_feeds_before_return
+                ):
+                    raise QaFailure(
+                        "한국 커뮤니티로 돌아올 때 순위·최신글을 새로고침하지 않았습니다.",
+                        {"request_counts": request_counts},
+                    )
+                kr_snapshot = section.evaluate(
+                    """section => ({
+                      market: section.dataset.hotCommunityMarket,
+                      text: section.textContent,
+                      selectedCode: section.querySelector('.staging-hot-community-stock.active')?.dataset.hotCommunityCode,
+                      rootScrollWidth: document.documentElement.scrollWidth,
+                      viewport: innerWidth,
+                    })"""
+                )
+                if kr_snapshot.get("selectedCode") != "005930" or "미국 커뮤니티 새 글" in kr_snapshot.get("text", ""):
+                    raise QaFailure("한국 전환 후 미국 커뮤니티 정보가 남았습니다.", kr_snapshot)
+                if float(kr_snapshot.get("rootScrollWidth") or 0) > float(kr_snapshot.get("viewport") or 0) + 1:
+                    raise QaFailure("커뮤니티 국기 토글이 모바일 가로 넘침을 만들었습니다.", kr_snapshot)
+
+                return {
+                    **shell,
+                    "toggle_geometry": geometry,
+                    "us_transition": us_transition,
+                    "us_snapshot": {
+                        "market": us_snapshot.get("market"),
+                        "selected_code": us_snapshot.get("selectedCode"),
+                    },
+                    "kr_transition": kr_transition,
+                    "kr_snapshot": {
+                        "market": kr_snapshot.get("market"),
+                        "selected_code": kr_snapshot.get("selectedCode"),
+                    },
+                    "request_counts": request_counts,
+                }
+
+            results.append(
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id="SIG-UI-023",
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=hot_community_market_toggle_case,
+                    storage_state=storage_state,
+                    share_id=share_id,
+                )
+            )
+
+            def watchlist_groups_case(page: Any, theme: str) -> dict[str, Any]:
+                qa_watchlist_items: list[dict[str, Any]] = [
+                    {
+                        "code": "005930",
+                        "name": "삼성전자",
+                        "market": "KOSPI",
+                        "investor_state": "not_holding",
+                        "average_buy_price": None,
+                    },
+                    {
+                        "code": "000660",
+                        "name": "SK하이닉스",
+                        "market": "KOSPI",
+                        "investor_state": "not_holding",
+                        "average_buy_price": None,
+                    },
+                ]
+                qa_tracks: list[dict[str, Any]] = [
+                    {
+                        "id": "qa-pin-up",
+                        "code": "005930",
+                        "name": "삼성전자",
+                        "market": "KOSPI",
+                        "currency": "KRW",
+                        "tracked_at": "2026-08-28T09:00:00+09:00",
+                        "tracked_price": 100_000,
+                    },
+                    {
+                        "id": "qa-pin-down",
+                        "code": "000660",
+                        "name": "SK하이닉스",
+                        "market": "KOSPI",
+                        "currency": "KRW",
+                        "tracked_at": "2026-09-02T09:00:00+09:00",
+                        "tracked_price": 200_000,
+                    },
+                ]
+                qa_groups: list[dict[str, Any]] = []
+                sync_writes = {"groups": 0, "tracks": 0}
+
+                def fulfill_json(route: Any, payload: dict[str, Any]) -> None:
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps(payload, ensure_ascii=False),
+                    )
+
+                def watchlist_route(route: Any) -> None:
+                    if str(route.request.method or "GET").upper() == "PUT":
+                        payload = json.loads(route.request.post_data or "{}")
+                        items = payload.get("items")
+                        if isinstance(items, list):
+                            qa_watchlist_items[:] = items
+                    fulfill_json(
+                        route,
+                        {"share_id": share_id, "items": qa_watchlist_items},
+                    )
+
+                def tracks_route(route: Any) -> None:
+                    if str(route.request.method or "GET").upper() == "PUT":
+                        payload = json.loads(route.request.post_data or "{}")
+                        items = payload.get("items")
+                        if isinstance(items, list):
+                            qa_tracks[:] = items
+                            sync_writes["tracks"] += 1
+                    fulfill_json(
+                        route,
+                        {
+                            "share_id": share_id,
+                            "initialized": True,
+                            "items": qa_tracks,
+                        },
+                    )
+
+                def groups_route(route: Any) -> None:
+                    if str(route.request.method or "GET").upper() == "PUT":
+                        payload = json.loads(route.request.post_data or "{}")
+                        groups = payload.get("groups")
+                        if isinstance(groups, list):
+                            qa_groups[:] = groups
+                            sync_writes["groups"] += 1
+                    fulfill_json(
+                        route,
+                        {
+                            "share_id": share_id,
+                            "initialized": True,
+                            "groups": qa_groups,
+                        },
+                    )
+
+                page.route(
+                    re.compile(
+                        rf".*/watchlists/{re.escape(share_id)}(?:\?.*)?$"
+                    ),
+                    watchlist_route,
+                )
+                page.route(
+                    re.compile(
+                        rf".*/watchlists/{re.escape(share_id)}/recommendation-tracks(?:\?.*)?$"
+                    ),
+                    tracks_route,
+                )
+                page.route(
+                    re.compile(
+                        rf".*/watchlists/{re.escape(share_id)}/groups(?:\?.*)?$"
+                    ),
+                    groups_route,
+                )
+                page.route(
+                    re.compile(r".*/session/write-token(?:\?.*)?$"),
+                    lambda route: fulfill_json(
+                        route, {"write_token": "qa-e2e-write-token"}
+                    ),
+                )
+
+                dashboard_fixtures = {
+                    "005930": {
+                        "code": "005930",
+                        "name": "삼성전자",
+                        "market": "KOSPI",
+                        "as_of": "2026-09-08T12:00:00+09:00",
+                        "quote": {
+                            "price": 110_000,
+                            "change_rate": 1.5,
+                            "change_value": 1_625,
+                            "trading_value": 1_500_000_000_000,
+                            "market_cap": 650_000_000_000_000,
+                            "as_of": "2026-09-08T12:00:00+09:00",
+                            "market_session": "regular",
+                            "is_live": True,
+                        },
+                        "momentum": {
+                            "one_month_return": 4.2,
+                            "three_month_return": 12.8,
+                        },
+                        "sentiment": {"score": 32, "latest_items": []},
+                        "flows": {},
+                        "coverage": {"price": True},
+                    },
+                    "000660": {
+                        "code": "000660",
+                        "name": "SK하이닉스",
+                        "market": "KOSPI",
+                        "as_of": "2026-09-08T12:00:00+09:00",
+                        "quote": {
+                            "price": 180_000,
+                            "change_rate": -2.0,
+                            "change_value": -3_675,
+                            "trading_value": 1_100_000_000_000,
+                            "market_cap": 130_000_000_000_000,
+                            "as_of": "2026-09-08T12:00:00+09:00",
+                            "market_session": "regular",
+                            "is_live": True,
+                        },
+                        "momentum": {
+                            "one_month_return": -2.4,
+                            "three_month_return": 8.1,
+                        },
+                        "sentiment": {"score": -18, "latest_items": []},
+                        "flows": {},
+                        "coverage": {"price": True},
+                    },
+                }
+
+                def dashboard_route(fixture: dict[str, Any]) -> Callable[[Any], None]:
+                    def route_handler(route: Any) -> None:
+                        fulfill_json(route, fixture)
+
+                    return route_handler
+
+                for code, fixture in dashboard_fixtures.items():
+                    page.route(
+                        re.compile(rf".*/stocks/{code}/dashboard(?:\?.*)?$"),
+                        dashboard_route(fixture),
+                    )
+                page.route(
+                    re.compile(r".*/market/us-sector-moves(?:\?.*)?$"),
+                    lambda route: fulfill_json(route, {"items": []}),
+                )
+                page.route(
+                    re.compile(r".*/market/impact(?:\?.*)?$"),
+                    lambda route: fulfill_json(
+                        route,
+                        {"factors": [], "as_of": "2026-09-08T12:00:00+09:00"},
+                    ),
+                )
+                page.route(
+                    re.compile(r".*/market/trends(?:\?.*)?$"),
+                    lambda route: fulfill_json(route, {"events": []}),
+                )
+
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/dashboard",
+                        view="portfolio",
+                        theme=theme,
+                        qa_groups=datetime.now(KST).strftime("%H%M%S%f"),
+                    ),
+                    wait_until="commit",
+                    ready_selector="body[data-view='portfolio']",
+                )
+                shell = _assert_page_shell(page, theme=theme)
+                page.wait_for_function(
+                    """() => (
+                      document.querySelectorAll('#watchlist-body [data-watch-card]').length === 2
+                      && document.querySelectorAll('#watchlist-body .watch-stock-loading').length === 0
+                    )""",
+                    timeout=int(timeout * 1000),
+                )
+
+                system_groups = page.locator(
+                    "#watch-group-tabs > [data-watch-group]"
+                ).evaluate_all("nodes => nodes.map(node => node.textContent.trim())")
+                if system_groups[:2] != ["기본", "핀종목"]:
+                    raise QaFailure(
+                        "기본·핀종목 시스템 배지의 이름 또는 순서가 다릅니다.",
+                        {"groups": system_groups},
+                    )
+
+                page.set_viewport_size({"width": 320, "height": 760})
+                page.wait_for_timeout(120)
+                mobile_layout = page.evaluate(
+                    """() => {
+                      const controls = [...document.querySelectorAll(
+                        '#watch-group-tabs > button, #watch-group-add-stock'
+                      )].filter(node => !node.hidden).map(node => {
+                        const rect = node.getBoundingClientRect();
+                        return {label: node.textContent.trim(), width: rect.width, height: rect.height};
+                      });
+                      return {
+                        viewport: innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                        bodyWidth: document.body.scrollWidth,
+                        controls,
+                      };
+                    }"""
+                )
+                if (
+                    mobile_layout["rootWidth"] > mobile_layout["viewport"] + 1
+                    or mobile_layout["bodyWidth"] > mobile_layout["viewport"] + 1
+                    or any(item["height"] < 44 for item in mobile_layout["controls"])
+                ):
+                    raise QaFailure(
+                        "320px 관심 그룹 배지·추가 버튼의 터치 영역 또는 가로 폭이 올바르지 않습니다.",
+                        mobile_layout,
+                    )
+
+                folder_button = page.locator("#watch-group-create")
+                folder_button.focus()
+                folder_button.click()
+                group_dialog = page.locator("#watch-group-dialog")
+                group_dialog.wait_for(state="visible")
+                page.wait_for_function(
+                    "() => document.activeElement?.id === 'watch-group-name'"
+                )
+                page.keyboard.press("Escape")
+                group_dialog.wait_for(state="hidden")
+                page.wait_for_function(
+                    "() => document.activeElement?.id === 'watch-group-create'"
+                )
+
+                page.set_viewport_size({"width": 390, "height": 844})
+                folder_button.click()
+                group_dialog.wait_for(state="visible")
+                name_input = page.locator("#watch-group-name")
+                name_input.fill("기본")
+                page.locator("#watch-group-save").click()
+                error_text = page.locator("#watch-group-dialog-status")
+                error_text.wait_for(state="visible")
+                if "기본 그룹과 다른 이름" not in error_text.inner_text():
+                    raise QaFailure("시스템 그룹과 같은 폴더 이름을 차단하지 않았습니다.")
+                name_input.fill("반도체")
+                page.locator(".watch-group-member", has_text="삼성전자").locator(
+                    "input"
+                ).check()
+                page.locator("#watch-group-save").click()
+                group_dialog.wait_for(state="hidden")
+                page.wait_for_function(
+                    """() => (
+                      document.querySelector('#watch-group-tabs [aria-selected="true"]')?.textContent.trim() === '반도체'
+                      && document.querySelectorAll('#watchlist-body [data-watch-card]').length === 1
+                      && document.querySelector('#watchlist-body [data-code="005930"]')
+                    )""",
+                    timeout=int(timeout * 1000),
+                )
+                page.wait_for_timeout(650)
+                if len(qa_groups) != 1 or qa_groups[0].get("codes") != ["005930"]:
+                    raise QaFailure(
+                        "사용자 폴더가 선택 종목과 함께 원격 상태에 저장되지 않았습니다.",
+                        {"groups": qa_groups, "writes": sync_writes},
+                    )
+
+                page.locator(
+                    '#watchlist-body [data-code="005930"] [data-watch-action="remove-group"]'
+                ).click()
+                page.wait_for_selector("#watchlist-body .watchlist-empty-card")
+                if [item.get("code") for item in qa_watchlist_items] != [
+                    "005930",
+                    "000660",
+                ]:
+                    raise QaFailure("폴더에서 종목을 뺄 때 기본 관심종목도 삭제됐습니다.")
+
+                page.locator("#watch-group-edit").click()
+                group_dialog.wait_for(state="visible")
+                name_input.fill("배당주")
+                page.locator(".watch-group-member", has_text="SK하이닉스").locator(
+                    "input"
+                ).check()
+                page.locator("#watch-group-save").click()
+                group_dialog.wait_for(state="hidden")
+                page.wait_for_function(
+                    """() => (
+                      document.querySelector('#watch-group-tabs [aria-selected="true"]')?.textContent.trim() === '배당주'
+                      && document.querySelector('#watchlist-body [data-code="000660"]')
+                    )""",
+                    timeout=int(timeout * 1000),
+                )
+                page.wait_for_timeout(650)
+
+                page.evaluate(
+                    """async () => {
+                      const shareId = state.watchlistId;
+                      localStorage.removeItem(watchlistGroupStorageKey(shareId));
+                      state.watchlistGroups = [];
+                      await applyWatchlistId(shareId, {refreshView: true});
+                    }"""
+                )
+                persisted_group = page.locator(
+                    '#watch-group-tabs [data-watch-group]:has-text("배당주")'
+                )
+                persisted_group.wait_for(state="visible", timeout=int(timeout * 1000))
+                persisted_group.click()
+                page.wait_for_selector('#watchlist-body [data-code="000660"]')
+
+                persisted_group.focus()
+                page.keyboard.press("Home")
+                page.wait_for_function(
+                    "() => document.querySelector('#watch-group-default')?.getAttribute('aria-selected') === 'true'"
+                )
+                page.keyboard.press("End")
+                page.wait_for_function(
+                    """() => document.querySelector('#watch-group-tabs [aria-selected="true"]')?.textContent.trim() === '배당주'"""
+                )
+                page.keyboard.press("ArrowLeft")
+                page.wait_for_function(
+                    "() => document.querySelector('#watch-group-pinned')?.getAttribute('aria-selected') === 'true'"
+                )
+                page.wait_for_function(
+                    """() => document.querySelectorAll('#watchlist-body [data-watch-group-kind="pinned"]').length === 2""",
+                    timeout=int(timeout * 1000),
+                )
+
+                pin_snapshot = page.evaluate(
+                    """() => [...document.querySelectorAll('#watchlist-body [data-watch-group-kind="pinned"]')].map(card => ({
+                      code: card.dataset.code,
+                      quote: card.querySelector('.watch-stock-quote')?.textContent.trim(),
+                      metrics: [...card.querySelectorAll('.watch-pin-metrics > div')].map(metric => ({
+                        label: metric.querySelector('dt')?.textContent.trim(),
+                        value: metric.querySelector('dd')?.textContent.trim(),
+                        tone: metric.querySelector('dd')?.className || '',
+                      })),
+                    }))"""
+                )
+                pin_by_code = {item["code"]: item for item in pin_snapshot}
+                expected_pin_values = {
+                    "005930": ["26.08.28", "+10.00%", "+1.50%"],
+                    "000660": ["26.09.02", "-10.00%", "-2.00%"],
+                }
+                for code, expected_values in expected_pin_values.items():
+                    metrics = pin_by_code.get(code, {}).get("metrics", [])
+                    if [item.get("label") for item in metrics] != [
+                        "핀 설정",
+                        "핀 이후",
+                        "오늘",
+                    ] or [item.get("value") for item in metrics] != expected_values:
+                        raise QaFailure(
+                            "핀 설정일·핀 이후 수익률과 오늘 등락률 표시가 다릅니다.",
+                            {"code": code, "metrics": metrics},
+                        )
+
+                page.evaluate(
+                    """() => updateWatchlistRowQuote(
+                      '005930',
+                      {price: 120000, change_rate: 2.5, trading_value: 1600000000000},
+                      {as_of: '2026-09-08T12:01:00+09:00', source: 'qa'}
+                    )"""
+                )
+                page.wait_for_function(
+                    """() => {
+                      const card = document.querySelector('#watchlist-body [data-code="005930"]');
+                      return card?.querySelector('[data-field="tracked_pnl_rate"]')?.textContent.trim() === '+20.00%'
+                        && card?.querySelector('[data-field="pin_today_rate"]')?.textContent.trim() === '+2.50%'
+                        && card?.querySelector('.watch-pin-metrics dd')?.textContent.trim() === '26.08.28';
+                    }""",
+                    timeout=int(timeout * 1000),
+                )
+
+                pinned_layout = page.evaluate(
+                    """() => {
+                      const metrics = [...document.querySelectorAll('.watch-pin-metrics > div')];
+                      return {
+                        viewport: innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                        metricWidths: metrics.map(node => node.getBoundingClientRect().width),
+                      };
+                    }"""
+                )
+                if (
+                    pinned_layout["rootWidth"] > pinned_layout["viewport"] + 1
+                    or any(width < 70 for width in pinned_layout["metricWidths"])
+                ):
+                    raise QaFailure(
+                        "좁은 화면에서 핀 지표 세 열이 잘리거나 가로 넘침을 만들었습니다.",
+                        pinned_layout,
+                    )
+
+                page.locator(
+                    '#watchlist-body [data-code="005930"] [data-watch-action="unpin"]'
+                ).click()
+                page.wait_for_function(
+                    """() => document.querySelectorAll('#watchlist-body [data-watch-group-kind="pinned"]').length === 1"""
+                )
+                page.wait_for_timeout(650)
+                if [item.get("code") for item in qa_tracks] != ["000660"]:
+                    raise QaFailure(
+                        "핀 해제가 핀 목록에만 반영되지 않았습니다.",
+                        {"tracks": qa_tracks},
+                    )
+
+                page.locator("#watch-group-default").click()
+                page.wait_for_function(
+                    "() => document.querySelectorAll('#watchlist-body [data-watch-card]').length === 2"
+                )
+                persisted_group.click()
+                page.wait_for_selector('#watchlist-body [data-code="000660"]')
+                page.locator("#watch-group-edit").click()
+                group_dialog.wait_for(state="visible")
+                page.once("dialog", lambda dialog: dialog.accept())
+                page.locator("#watch-group-delete").click()
+                group_dialog.wait_for(state="hidden")
+                page.wait_for_function(
+                    """() => (
+                      document.querySelectorAll('#watch-user-group-tabs [data-watch-group]').length === 0
+                      && document.querySelector('#watch-group-default')?.getAttribute('aria-selected') === 'true'
+                    )"""
+                )
+                page.wait_for_timeout(650)
+                if qa_groups:
+                    raise QaFailure(
+                        "사용자 폴더 삭제가 원격 상태에 반영되지 않았습니다.",
+                        {"groups": qa_groups},
+                    )
+
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.wait_for_timeout(120)
+                desktop_layout = page.evaluate(
+                    """() => ({
+                      viewport: innerWidth,
+                      rootWidth: document.documentElement.scrollWidth,
+                      bodyWidth: document.body.scrollWidth,
+                      defaultSelected: document.querySelector('#watch-group-default')?.getAttribute('aria-selected'),
+                    })"""
+                )
+                if (
+                    desktop_layout["rootWidth"] > desktop_layout["viewport"] + 1
+                    or desktop_layout["bodyWidth"] > desktop_layout["viewport"] + 1
+                ):
+                    raise QaFailure(
+                        "데스크톱 관심 그룹 화면에 가로 넘침이 있습니다.",
+                        desktop_layout,
+                    )
+                return {
+                    **shell,
+                    "system_groups": system_groups[:2],
+                    "mobile_layout": mobile_layout,
+                    "pin_rows": pin_snapshot,
+                    "live_pin_return": "+20.00%",
+                    "persisted_group": "배당주",
+                    "sync_writes": sync_writes,
+                    "desktop_layout": desktop_layout,
+                    "folder_deleted_without_watchlist_loss": len(qa_watchlist_items) == 2,
+                }
+
+            results.append(
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id="SIG-UI-024",
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=watchlist_groups_case,
+                    storage_state=storage_state,
+                    share_id=share_id,
+                )
+            )
+
+            def watch_market_map_case(page: Any, theme: str) -> dict[str, Any]:
+                fx_rate = 1_340
+                domestic_items = [
+                    ("005930", "삼성전자", "KOSPI", 1_578_000_000_000_000, 2.3, 269_500),
+                    ("000660", "SK하이닉스", "KOSPI", 500_000_000_000_000, -1.4, 710_000),
+                    ("005380", "현대차", "KOSPI", 80_000_000_000_000, 0.0, 410_000),
+                    ("207940", "삼성바이오로직스", "KOSPI", 75_000_000_000_000, 1.1, 1_720_000),
+                    ("035420", "NAVER", "KOSPI", 50_000_000_000_000, -2.1, 312_000),
+                    ("051910", "LG화학", "KOSPI", 35_000_000_000_000, -0.7, 496_000),
+                ]
+                overseas_items = [
+                    ("NVDA", "NVIDIA", "NASDAQ", 5_491_000_000_000, 4.9, 227.41),
+                    ("AAPL", "Apple", "NASDAQ", 3_950_000_000_000, -0.8, 285.12),
+                    ("MSFT", "Microsoft", "NASDAQ", 300_000_000_000, 1.6, 528.44),
+                    ("GOOGL", "Alphabet", "NASDAQ", 200_000_000_000, -3.0, 302.18),
+                    ("AMZN", "Amazon", "NASDAQ", 100_000_000_000, 0.4, 241.37),
+                    ("SMALL", "Small Cap", "NYSE", 1_000_000_000, -4.2, 12.34),
+                ]
+                expected_order = [
+                    "NVDA",
+                    "AAPL",
+                    "005930",
+                    "000660",
+                    "MSFT",
+                    "GOOGL",
+                    "AMZN",
+                    "005380",
+                    "207940",
+                    "035420",
+                    "051910",
+                    "SMALL",
+                ]
+                folder_codes = ["NVDA", "005930", "000660", "SMALL"]
+
+                def fulfill_json(route: Any, payload: dict[str, Any]) -> None:
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps(payload, ensure_ascii=False),
+                    )
+
+                def watch_item(item: tuple[Any, ...], scope: str) -> dict[str, Any]:
+                    code, name, market, _cap, _change, _price = item
+                    return {
+                        "code": code,
+                        "name": name,
+                        "market": market,
+                        "market_scope": scope,
+                        "currency": "USD" if scope == "us" else "KRW",
+                        "investor_state": "not_holding",
+                        "average_buy_price": None,
+                    }
+
+                def dashboard(item: tuple[Any, ...], scope: str) -> dict[str, Any]:
+                    code, name, market, cap, change, price = item
+                    return {
+                        "code": code,
+                        "symbol": code if scope == "us" else None,
+                        "name": name,
+                        "market": market,
+                        "currency": "USD" if scope == "us" else "KRW",
+                        "as_of": "2026-09-08T12:00:00+09:00",
+                        "quote": {
+                            "price": price,
+                            "change_rate": change,
+                            "change_value": price * change / 100,
+                            "trading_value": cap / 500,
+                            "market_cap": cap,
+                            "as_of": "2026-09-08T12:00:00+09:00",
+                            "market_session": "regular",
+                            "is_live": True,
+                        },
+                        "momentum": {"one_month_return": change, "three_month_return": change * 2},
+                        "sentiment": {"score": round(change * 5), "latest_items": []},
+                        "flows": {},
+                        "coverage": {"price": True},
+                    }
+
+                page.route(
+                    re.compile(
+                        rf".*/watchlists/us\.{re.escape(share_id)}/groups(?:\?.*)?$"
+                    ),
+                    lambda route: fulfill_json(
+                        route,
+                        {
+                            "share_id": f"us.{share_id}",
+                            "initialized": True,
+                            "groups": [
+                                {
+                                    "id": "qa-ai-semiconductor",
+                                    "name": "AI·반도체",
+                                    "codes": folder_codes,
+                                }
+                            ],
+                        },
+                    ),
+                )
+                page.route(
+                    re.compile(
+                        rf".*/watchlists/us\.{re.escape(share_id)}/recommendation-tracks(?:\?.*)?$"
+                    ),
+                    lambda route: fulfill_json(
+                        route,
+                        {
+                            "share_id": f"us.{share_id}",
+                            "initialized": True,
+                            "items": [],
+                        },
+                    ),
+                )
+                page.route(
+                    re.compile(
+                        rf"{re.escape(base_url.rstrip('/'))}/watchlists/{re.escape(share_id)}(?:\?.*)?$"
+                    ),
+                    lambda route: fulfill_json(
+                        route,
+                        {
+                            "share_id": share_id,
+                            "items": [watch_item(item, "kr") for item in domestic_items],
+                        },
+                    ),
+                )
+                page.route(
+                    re.compile(
+                        rf"{re.escape(base_url.rstrip('/'))}/us/watchlists/{re.escape(share_id)}(?:\?.*)?$"
+                    ),
+                    lambda route: fulfill_json(
+                        route,
+                        {
+                            "share_id": share_id,
+                            "items": [watch_item(item, "us") for item in overseas_items],
+                        },
+                    ),
+                )
+                for item in domestic_items:
+                    page.route(
+                        re.compile(rf".*/stocks/{item[0]}/dashboard(?:\?.*)?$"),
+                        lambda route, _request, item=item: fulfill_json(
+                            route, dashboard(item, "kr")
+                        ),
+                    )
+                for item in overseas_items:
+                    page.route(
+                        re.compile(rf".*/us/stocks/{item[0]}/dashboard(?:\?.*)?$"),
+                        lambda route, _request, item=item: fulfill_json(
+                            route, dashboard(item, "us")
+                        ),
+                    )
+                page.route(
+                    re.compile(r".*/us/fx/usdkrw(?:\?.*)?$"),
+                    lambda route: fulfill_json(
+                        route,
+                        {
+                            "rate": fx_rate,
+                            "source": "qa-fixture",
+                            "as_of": "2026-09-08T12:00:00+09:00",
+                        },
+                    ),
+                )
+                page.route(
+                    re.compile(r".*/market/us-sector-moves(?:\?.*)?$"),
+                    lambda route: fulfill_json(route, {"items": []}),
+                )
+                for path, payload in (
+                    ("impact", {"factors": [], "as_of": "2026-09-08T12:00:00+09:00"}),
+                    ("trends", {"events": []}),
+                ):
+                    page.route(
+                        re.compile(rf".*/market/{path}(?:\?.*)?$"),
+                        lambda route, _request, payload=payload: fulfill_json(
+                            route, payload
+                        ),
+                    )
+                page.route_web_socket(
+                    "**/ws/quotes",
+                    lambda socket: socket.on_message(lambda _message: None),
+                )
+                page.route_web_socket(
+                    "**/ws/market/us-sector-moves",
+                    lambda socket: socket.on_message(lambda _message: None),
+                )
+
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/us",
+                        view="portfolio",
+                        theme=theme,
+                        qa_market_map=datetime.now(KST).strftime("%H%M%S%f"),
+                    ),
+                    wait_until="commit",
+                    ready_selector="body[data-view='portfolio']",
+                )
+                shell = _assert_page_shell(page, theme=theme)
+                page.wait_for_function(
+                    """expected => (
+                      state.watchlistResults.length === expected
+                      && state.watchMarketMapUsdKrw === 1340
+                      && document.querySelector('#watch-market-map:not([hidden])')
+                      && !document.querySelector('#watch-market-map-stage')?.hasAttribute('aria-busy')
+                    )""",
+                    arg=len(domestic_items) + len(overseas_items),
+                    timeout=int(timeout * 1000),
+                )
+
+                actual_order = page.evaluate(
+                    "() => watchMarketMapEntries().map(entry => entry.item.code)"
+                )
+                if actual_order != expected_order:
+                    raise QaFailure(
+                        "국내·미국 관심종목이 원화 환산 시가총액 순으로 정렬되지 않았습니다.",
+                        {"actual": actual_order, "expected": expected_order},
+                    )
+                if page.locator("#unified-market-scope").is_visible():
+                    raise QaFailure("내 관심종목 화면에 국내·미국 시장 토글이 노출됐습니다.")
+
+                def layout_snapshot(width: int, height: int) -> dict[str, Any]:
+                    page.set_viewport_size({"width": width, "height": height})
+                    page.wait_for_timeout(180)
+                    return page.evaluate(
+                        """() => {
+                          const stage = document.querySelector('#watch-market-map-stage');
+                          const stageRect = stage.getBoundingClientRect();
+                          const tiles = [...stage.querySelectorAll('.watch-market-map-tile')].map(tile => {
+                            const rect = tile.getBoundingClientRect();
+                            return {
+                              code: tile.dataset.code || null,
+                              overflow: tile.classList.contains('is-overflow'),
+                              x: rect.x,
+                              y: rect.y,
+                              right: rect.right,
+                              bottom: rect.bottom,
+                              width: rect.width,
+                              height: rect.height,
+                            };
+                          });
+                          const overlaps = [];
+                          for (let left = 0; left < tiles.length; left += 1) {
+                            for (let right = left + 1; right < tiles.length; right += 1) {
+                              const x = Math.min(tiles[left].right, tiles[right].right)
+                                - Math.max(tiles[left].x, tiles[right].x);
+                              const y = Math.min(tiles[left].bottom, tiles[right].bottom)
+                                - Math.max(tiles[left].y, tiles[right].y);
+                              if (x > 1 && y > 1) overlaps.push([left, right]);
+                            }
+                          }
+                          return {
+                            viewport: innerWidth,
+                            rootWidth: document.documentElement.scrollWidth,
+                            stage: {
+                              x: stageRect.x,
+                              y: stageRect.y,
+                              right: stageRect.right,
+                              bottom: stageRect.bottom,
+                              width: stageRect.width,
+                              height: stageRect.height,
+                            },
+                            tiles,
+                            overlaps,
+                            hiddenCount: state.watchMarketMapHiddenEntries.length,
+                            status: document.querySelector('#watch-market-map-status')?.textContent.trim(),
+                          };
+                        }"""
+                    )
+
+                layouts: dict[str, Any] = {}
+                for width, height in ((320, 760), (390, 844), (1440, 900)):
+                    snapshot = layout_snapshot(width, height)
+                    layouts[str(width)] = snapshot
+                    stage = snapshot["stage"]
+                    outside = [
+                        tile
+                        for tile in snapshot["tiles"]
+                        if tile["x"] < stage["x"] - 2
+                        or tile["y"] < stage["y"] - 2
+                        or tile["right"] > stage["right"] + 2
+                        or tile["bottom"] > stage["bottom"] + 2
+                    ]
+                    unreadable = [
+                        tile
+                        for tile in snapshot["tiles"]
+                        if (
+                            tile["width"] < (61 if tile["overflow"] else 65)
+                            or tile["height"] < (41 if tile["overflow"] else 49)
+                        )
+                    ]
+                    if (
+                        snapshot["rootWidth"] > snapshot["viewport"] + 1
+                        or outside
+                        or snapshot["overlaps"]
+                        or unreadable
+                    ):
+                        raise QaFailure(
+                            f"{width}px 카드맵의 경계·가독성·가로 폭 계약이 깨졌습니다.",
+                            {
+                                "layout": snapshot,
+                                "outside": outside,
+                                "unreadable": unreadable,
+                            },
+                        )
+                    if width <= 390 and (
+                        snapshot["hiddenCount"] <= 0
+                        or not any(tile["overflow"] for tile in snapshot["tiles"])
+                    ):
+                        raise QaFailure(
+                            f"{width}px에서 작은 종목을 여는 더보기 카드가 없습니다.",
+                            snapshot,
+                        )
+
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.wait_for_timeout(180)
+                overflow = page.locator("#watch-market-map-stage .is-overflow")
+                overflow.focus()
+                page.keyboard.press("Enter")
+                sheet = page.locator("#watch-market-map-sheet")
+                sheet.wait_for(state="visible")
+                page.wait_for_function(
+                    "() => document.activeElement?.id === 'watch-market-map-sheet-close'"
+                )
+                sheet_snapshot = page.evaluate(
+                    """() => {
+                      const sheet = document.querySelector('#watch-market-map-sheet');
+                      const links = [...sheet.querySelectorAll('.watch-market-map-sheet-row')];
+                      const allLinks = [
+                        ...document.querySelectorAll('#watch-market-map-stage a.watch-market-map-tile'),
+                        ...links,
+                      ];
+                      return {
+                        tag: sheet.tagName,
+                        open: sheet.open,
+                        rowCount: links.length,
+                        hiddenCount: state.watchMarketMapHiddenEntries.length,
+                        hrefs: allLinks.map(link => link.getAttribute('href')),
+                        ranks: links.map(link => Number(link.querySelector('.watch-market-map-sheet-rank')?.textContent)),
+                        animationName: getComputedStyle(sheet).animationName,
+                        tileTransitionMs: Math.max(
+                          ...getComputedStyle(
+                            document.querySelector('#watch-market-map-stage .watch-market-map-tile')
+                          ).transitionDuration.split(',').map(value => parseFloat(value) * 1000),
+                        ),
+                        viewport: innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                      };
+                    }"""
+                )
+                if (
+                    sheet_snapshot["tag"] != "DIALOG"
+                    or sheet_snapshot["open"] is not True
+                    or sheet_snapshot["rowCount"] != sheet_snapshot["hiddenCount"]
+                    or sheet_snapshot["ranks"] != sorted(sheet_snapshot["ranks"])
+                    or sheet_snapshot["rootWidth"] > sheet_snapshot["viewport"] + 1
+                    or sheet_snapshot["animationName"] != "none"
+                    or sheet_snapshot["tileTransitionMs"] > 1
+                ):
+                    raise QaFailure(
+                        "작은 관심종목 바텀시트의 목록·접근성·reduced-motion 계약이 다릅니다.",
+                        sheet_snapshot,
+                    )
+                expected_scope = {
+                    code: "kr" for code, *_rest in domestic_items
+                } | {code: "us" for code, *_rest in overseas_items}
+                malformed_hrefs = []
+                for href in sheet_snapshot["hrefs"]:
+                    match = re.match(r"^/us/stock/([^?]+)\?market_scope=(kr|us)$", href or "")
+                    if not match or expected_scope.get(match.group(1)) != match.group(2):
+                        malformed_hrefs.append(href)
+                if malformed_hrefs:
+                    raise QaFailure(
+                        "카드 또는 바텀시트 행의 종목 상세 링크가 잘못됐습니다.",
+                        {"hrefs": malformed_hrefs},
+                    )
+
+                page.evaluate("() => renderWatchMarketMap(state.watchlistResults)")
+                page.locator("#watch-market-map-sheet-close").click()
+                sheet.wait_for(state="hidden")
+                page.wait_for_function(
+                    "() => document.activeElement?.matches('#watch-market-map-stage .is-overflow')"
+                )
+                page.keyboard.press("Enter")
+                sheet.wait_for(state="visible")
+                page.keyboard.press("Escape")
+                sheet.wait_for(state="hidden")
+                page.wait_for_function(
+                    "() => document.activeElement?.matches('#watch-market-map-stage .is-overflow')"
+                )
+
+                folder_tab = page.locator(
+                    '#watch-group-tabs [data-watch-group="qa-ai-semiconductor"]'
+                )
+                folder_tab.click()
+                page.wait_for_function(
+                    """() => (
+                      state.activeWatchGroup === 'qa-ai-semiconductor'
+                      && state.watchlistResults.length === 4
+                      && document.querySelector('#watch-market-map-group')?.textContent.includes('AI·반도체')
+                    )""",
+                    timeout=int(timeout * 1000),
+                )
+                folder_order = page.evaluate(
+                    "() => watchMarketMapEntries().map(entry => entry.item.code)"
+                )
+                expected_folder_order = [
+                    code for code in expected_order if code in folder_codes
+                ]
+                if folder_order != expected_folder_order:
+                    raise QaFailure(
+                        "선택한 관심종목 폴더 밖의 종목이 카드맵에 섞였습니다.",
+                        {"actual": folder_order, "expected": expected_folder_order},
+                    )
+
+                first_tile = page.locator(
+                    "#watch-market-map-stage a.watch-market-map-tile"
+                ).first
+                page.evaluate("window.__qaWatchMarketMapClick = null")
+                first_tile.evaluate(
+                    """link => link.addEventListener('click', event => {
+                      event.preventDefault();
+                      window.__qaWatchMarketMapClick = link.getAttribute('href');
+                    }, {once: true})"""
+                )
+                first_tile.click()
+                activated_href = page.evaluate("window.__qaWatchMarketMapClick")
+                if activated_href != first_tile.get_attribute("href"):
+                    raise QaFailure(
+                        "관심종목 카드를 눌러도 종목 상세 링크가 활성화되지 않았습니다.",
+                        {"activated_href": activated_href},
+                    )
+
+                return {
+                    **shell,
+                    "exchange_rate": fx_rate,
+                    "market_cap_order": actual_order,
+                    "folder_order": folder_order,
+                    "layouts": layouts,
+                    "sheet": sheet_snapshot,
+                    "focus_returned_after_live_render": True,
+                    "card_click_href": activated_href,
+                    "market_toggle_visible": False,
+                }
+
+            results.append(
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id="SIG-UI-025",
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=watch_market_map_case,
                     storage_state=storage_state,
                     share_id=share_id,
                 )

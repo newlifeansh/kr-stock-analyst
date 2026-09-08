@@ -1,6 +1,13 @@
+import json
+import subprocess
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.main import app
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_watchlist_v15_shell_and_asset_version():
@@ -8,9 +15,10 @@ def test_watchlist_v15_shell_and_asset_version():
     shell = client.get("/dashboard?view=watchlist")
 
     assert shell.status_code == 200
+    assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="4.0" data-watch-group-layout="true"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.6"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260908v492"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260908v493"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -19,6 +27,12 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'data-watch-content-tab="news">종목 뉴스</button>' in shell.text
     assert 'id="watchlist-strategy-panel"' in shell.text
     assert 'id="watchlist-news-panel"' in shell.text
+    assert 'id="watch-group-tabs" role="tablist" aria-label="관심 그룹 선택"' in shell.text
+    assert 'data-watch-group="default">기본</button>' in shell.text
+    assert 'data-watch-group="pinned">핀종목</button>' in shell.text
+    assert 'id="watch-group-create"' in shell.text
+    assert 'id="watch-group-add-stock"' in shell.text
+    assert 'id="watch-group-dialog"' in shell.text
     assert shell.text.index('data-watch-content-tab="strategy"') < shell.text.index('data-watch-content-tab="news"')
     assert shell.text.index('id="watchlist-strategy-panel"') < shell.text.index('id="watchlist-news-panel"')
 
@@ -62,9 +76,9 @@ def test_watchlist_v15_uses_progressive_real_time_cards():
         "applyWatchlistFilter();",
         'state.watchlistFilter = button.dataset.watchFilter || "all";',
         "state.watchlistResults = [",
-        'elements.watchlistMeta.textContent = `${items.length}개 종목 · ${completedCount}/${items.length}개 확인 중`;',
+        'elements.watchlistMeta.textContent = `${groupName} · ${items.length}개 종목 · ${completedCount}/${items.length}개 확인 중`;',
         'const keepExpanded = itemCode ? state.watchPreopenExpanded.has(itemCode) : false;',
-        'action.textContent = "종목 검색 열기";',
+        'action.textContent = groupId === "pinned" ? "추천 종목 보기" : customGroup ? "폴더 편집" : "종목 검색 열기";',
         "function setWatchlistContentTab",
         'const active = tabName === "news" ? "news" : "strategy";',
         'tab.addEventListener("click", () => setWatchlistContentTab(tab.dataset.watchContentTab, { load: true }));',
@@ -82,6 +96,202 @@ def test_watchlist_v15_uses_progressive_real_time_cards():
         ".watchlist-content-panel[hidden]",
         ".watch-v2-investor-state {",
         ".watch-v2-investor-state select",
+    ):
+        assert expected in styles
+
+
+def test_watchlist_market_cap_map_uses_active_folder_and_bottom_sheet_disclosure():
+    client = TestClient(app)
+    shell = client.get("/dashboard?view=watchlist").text
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+    portfolio = shell.split('id="portfolio-view"', 1)[1].split('id="chart-view"', 1)[0]
+
+    for expected in (
+        'id="watch-market-map"',
+        'id="watch-market-map-stage" role="group"',
+        'id="watch-market-map-legend"',
+        'id="watch-market-map-sheet"',
+        'id="watch-market-map-sheet-list"',
+    ):
+        assert expected in portfolio or expected in source
+    assert 'button.setAttribute("aria-haspopup", "dialog");' in source
+    assert portfolio.index('id="watch-market-map"') < portfolio.index('id="watchlist-strategy"')
+    assert 'data-unified-market-scope' not in portfolio
+
+    for expected in (
+        "function watchMarketMapEntries",
+        "function computeWatchMarketMapLayout",
+        "function renderWatchMarketMap",
+        "function openWatchMarketMapSheet",
+        "function createWatchMarketMapSheetRow",
+        'tile.href = viewStockUrl(entry.item.code || entry.item.name, entry.item);',
+        'link.href = viewStockUrl(entry.item.code || entry.item.name, entry.item);',
+        'const items = watchlistItemsForGroup(groupId);',
+        'const url = options.force ? "/us/fx/usdkrw?refresh=true" : "/us/fx/usdkrw";',
+        '["home", "stock", "portfolio", "recommend-detail"',
+        'renderWatchMarketMap([], { loading: true, totalCount: items.length });',
+        "renderWatchMarketMap(state.watchlistResults);",
+        'elements.watchMarketMapStage?.querySelector(".watch-market-map-tile.is-overflow")',
+    ):
+        assert expected in source
+
+    for expected in (
+        "/* Watch groups and market-cap map v493",
+        ".watch-market-map-stage {",
+        ".watch-market-map-tile.is-overflow",
+        ".watch-market-map-sheet::backdrop",
+        ".watch-market-map-sheet-row:focus-visible",
+        "@media (max-width: 359px)",
+        "@media (prefers-reduced-motion: reduce)",
+    ):
+        assert expected in styles
+
+
+def test_watchlist_market_cap_map_layout_converts_us_caps_sorts_and_hides_tiny_tiles():
+    script = r'''
+const fs = require("fs");
+const source = fs.readFileSync("app/static/dashboard/app.js", "utf8");
+function functionSource(name, nextName) {
+  const start = source.indexOf(`function ${name}(`);
+  const end = source.indexOf(`function ${nextName}(`, start + 1);
+  if (start < 0 || end < 0) throw new Error(`${name} not found`);
+  return source.slice(start, end);
+}
+const state = { watchlistResults: [], watchMarketMapUsdKrw: 1300 };
+function toNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+function marketScopeForItem(item = {}) {
+  return item.market_scope === "us" ? "us" : "kr";
+}
+function watchMarketMapMarketCap(result = {}) {
+  return toNumber(result.dashboard?.quote?.market_cap);
+}
+eval(functionSource("watchMarketMapEntries", "layoutWatchMarketMapNodes"));
+eval(functionSource("layoutWatchMarketMapNodes", "computeWatchMarketMapLayout"));
+eval(functionSource("computeWatchMarketMapLayout", "watchMarketMapTone"));
+const result = (code, marketScope, marketCap) => ({
+  item: { code, market_scope: marketScope },
+  dashboard: { quote: { market_cap: marketCap } },
+});
+const entries = watchMarketMapEntries([
+  result("005930", "kr", 500e12),
+  result("NVDA", "us", 3e12),
+  result("AAPL", "us", 2.5e12),
+  result("000660", "kr", 150e12),
+  result("SMALL1", "us", 1e9),
+  result("SMALL2", "us", 0.7e9),
+  result("NULL", "kr", null),
+]);
+const layout = computeWatchMarketMapLayout(entries, 320, 280);
+const overlaps = layout.nodes.some((left, leftIndex) => layout.nodes.some((right, rightIndex) => (
+  leftIndex < rightIndex
+  && left.x < right.x + right.width
+  && left.x + left.width > right.x
+  && left.y < right.y + right.height
+  && left.y + left.height > right.y
+)));
+const outside = layout.nodes.some((node) => (
+  node.x < 0 || node.y < 0 || node.x + node.width > 320.0001 || node.y + node.height > 280.0001
+));
+const responsiveSafe = [
+  [260, 276],
+  [310, 343],
+  [1070, 430],
+].every(([width, height]) => {
+  const candidate = computeWatchMarketMapLayout(entries, width, height);
+  const overlapsAtWidth = candidate.nodes.some((left, leftIndex) => candidate.nodes.some((right, rightIndex) => (
+    leftIndex < rightIndex
+    && left.x < right.x + right.width
+    && left.x + left.width > right.x
+    && left.y < right.y + right.height
+    && left.y + left.height > right.y
+  )));
+  const outsideAtWidth = candidate.nodes.some((node) => (
+    node.x < 0 || node.y < 0
+    || node.x + node.width > width + 0.0001
+    || node.y + node.height > height + 0.0001
+  ));
+  const readable = candidate.nodes.every((node) => (
+    node.width >= (node.kind === "overflow" ? 64 : width < 520 ? 70 : 82)
+    && node.height >= (node.kind === "overflow" ? 44 : width < 520 ? 54 : 58)
+  ));
+  return !overlapsAtWidth && !outsideAtWidth && readable;
+});
+console.log(JSON.stringify({
+  order: entries.map((entry) => entry.item.code),
+  visible: layout.visibleEntries.map((entry) => entry.item.code),
+  hidden: layout.hiddenEntries.map((entry) => entry.item.code),
+  hasOverflow: layout.nodes.some((node) => node.kind === "overflow"),
+  overlaps,
+  outside,
+  responsiveSafe,
+}));
+'''
+    completed = subprocess.run(
+        ["node", "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "order": ["NVDA", "AAPL", "005930", "000660", "SMALL1", "SMALL2", "NULL"],
+        "visible": ["NVDA", "AAPL", "005930"],
+        "hidden": ["000660", "SMALL1", "SMALL2", "NULL"],
+        "hasOverflow": True,
+        "overlaps": False,
+        "outside": False,
+        "responsiveSafe": True,
+    }
+
+
+def test_interest_groups_share_one_list_and_pin_rows_show_two_return_contexts():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    for expected in (
+        'const WATCHLIST_GROUP_KEY = "analyst.watchlistGroups.v1";',
+        'default: Object.freeze({ id: "default", name: "기본" })',
+        'pinned: Object.freeze({ id: "pinned", name: "핀종목" })',
+        "function watchlistItemsForGroup",
+        'if (groupId === "pinned")',
+        "function openWatchlistGroupDialog",
+        "function saveWatchlistGroupFromDialog",
+        "function removeCodeFromActiveWatchlistGroup",
+        "const focusedGroupId = elements.watchGroupTabs.contains(document.activeElement)",
+        'const currentTab = event.target.closest("[data-watch-group]");',
+        'const nextGroupId = tabs[nextIndex].dataset.watchGroup || "default";',
+        "fetchRemoteWatchlistGroups(normalizedId)",
+        "saveRemoteWatchlistGroups(localGroups, normalizedId)",
+        'state.activeWatchGroup = "pinned";',
+        'className = "watch-stock-card watch-v2-stock-row watch-pinned-stock-row"',
+        'createWatchReportMetric("핀 설정", pinnedAt)',
+        'createWatchReportMetric("핀 이후", formatPercent(profit.rate), "", "tracked_pnl_rate", profit.rate)',
+        'createWatchReportMetric("오늘", formatPercent(dashboard?.quote?.change_rate), "", "pin_today_rate"',
+        'removeButton.dataset.watchAction = "unpin";',
+        'removeButton.dataset.watchAction = customGroup ? "remove-group" : "remove-watchlist";',
+        'removeWatchlistCodeFromGroups(code);',
+        'elements.portfolioTrackingPanel.hidden = true;',
+    ):
+        assert expected in source
+
+    for expected in (
+        "/* Interest groups v493:",
+        ".watch-group-rail {",
+        ".watch-group-chip.active",
+        ".watch-group-dialog::backdrop",
+        ".watch-pin-metrics {",
+        'grid-template-columns: repeat(3, minmax(0, 1fr));',
+        '#watchlist-view[data-group-kind="pinned"] .watch-v3-tabs',
+        '.remove-watch[data-watch-action="remove-group"]',
+        "@media (max-width: 359px)",
+        "@media (prefers-reduced-motion: reduce)",
     ):
         assert expected in styles
 
@@ -147,8 +357,8 @@ def test_recommendation_detail_revalidates_current_recommendation_before_renderi
     assert "RECOMMENDATION_DETAIL_CACHE_VERSION = 2" in source
     assert "RECOMMENDATION_DETAIL_CACHE_TTL_MS = 5 * 60_000" in source
     assert 'parsed.pathname === "/market/recommendations"' in source
-    assert 'const payload = await fetchJsonCached(marketOverviewUrl("/market/recommendations?limit=20&candidate_limit=100"), { force: true, ttlMs: 0 });' in detail_loader
-    assert detail_loader.index("const payload = await fetchJsonCached") < detail_loader.index("saveRecommendationDetailItem(item)")
+    assert "const payload = await fetchRecommendationsForScope({ limit: 20, candidateLimit: 100, force: true, ttlMs: 0 });" in detail_loader
+    assert detail_loader.index("const payload = await fetchRecommendationsForScope") < detail_loader.index("saveRecommendationDetailItem(item)")
     assert "clearRecommendationDetailItem();" in detail_loader
 
 

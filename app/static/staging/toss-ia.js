@@ -8,11 +8,19 @@
 (() => {
   "use strict";
 
-  const stagingUsMarketContext = /^\/us(?:\/|$)/.test(window.location.pathname);
-  const stagingRootPath = stagingUsMarketContext ? "/us" : "/dashboard";
+  const stagingUsHubContext = /^\/us(?:\/|$)/.test(window.location.pathname);
+  const stagingQueryParams = new URLSearchParams(window.location.search);
+  const stagingMarketScope = ["all", "kr", "us"].includes(stagingQueryParams.get("market_scope"))
+    ? stagingQueryParams.get("market_scope")
+    : "all";
+  const stagingUsStockMatch = window.location.pathname.match(/^\/us\/stock\/([^/]+)\/?$/);
+  const stagingUsStockCode = stagingUsStockMatch ? decodeURIComponent(stagingUsStockMatch[1]) : "";
+  const stagingUsMarketContext = Boolean(stagingUsStockMatch && !/^\d{6}$/.test(stagingUsStockCode))
+    || (stagingUsHubContext && stagingMarketScope === "us");
+  const stagingRootPath = stagingUsHubContext ? "/us" : "/dashboard";
   const stagingStockRoute = (code) => (
-    stagingUsMarketContext
-      ? `/us/stock/${encodeURIComponent(code || "")}`
+    stagingUsHubContext
+      ? `/us/stock/${encodeURIComponent(code || "")}?market_scope=${/^\d{6}$/.test(String(code || "")) ? "kr" : "us"}`
       : `/dashboard/${encodeURIComponent(code || "")}`
   );
 
@@ -2381,11 +2389,13 @@
       signalKicker.innerHTML = `
         <span class="staging-home-signal-icon" aria-hidden="true">${svg(icons.ai)}</span>
         <strong>AI 시그널</strong>
-        <small data-staging-home-signal-meta>${stagingUsMarketContext ? "미국 종목의 최신 예비 신호를 확인하세요" : "시총 100위내 매매신호를 확인하세요"}</small>
+        <small data-staging-home-signal-meta>${stagingUsHubContext ? "한국·미국 종목의 최신 예비 신호를 확인하세요" : "시총 100위내 매매신호를 확인하세요"}</small>
       `;
       const signalChevron = document.createElement("a");
       signalChevron.className = "staging-home-signal-chevron";
-      signalChevron.href = `${stagingRootPath}?view=ai-signals`;
+      signalChevron.href = stagingUsHubContext
+        ? `${stagingRootPath}?view=ai-signals&market_scope=${stagingMarketScope}`
+        : `${stagingRootPath}?view=ai-signals`;
       signalChevron.dataset.aiSignalListLink = "true";
       signalChevron.setAttribute("aria-label", "AI 시그널 전체 목록 보기");
       signalChevron.innerHTML = svg(icons.chevron);
@@ -2927,12 +2937,124 @@
       else scheduleHomeRankingUpgrade();
     }, { once: true });
 
+    let homeUsRankingObserver = null;
+    const currentHomeUsRankingItem = (code) => {
+      try {
+        const items = typeof state === "object" && Array.isArray(state.homeUsSurgeItems)
+          ? state.homeUsSurgeItems
+          : [];
+        return items.find((item) => String(item?.code || "") === String(code || "")) || null;
+      } catch {
+        return null;
+      }
+    };
+    const upgradeHomeUsRankingRows = () => {
+      const section = document.getElementById("home-surge-us");
+      const list = document.getElementById("home-surge-list-us");
+      if (!section || !list) return;
+      section.classList.add("staging-home-top50");
+      const tabs = document.getElementById("home-ranking-category-tabs-us");
+      tabs?.classList.add("staging-primary-tabs");
+      const filters = document.getElementById("home-surge-sector-filters-us");
+      filters?.classList.add("staging-filter-chips");
+      for (const sourceRow of list.querySelectorAll(":scope > a.home-ranking-row")) {
+        const originalClassName = sourceRow.className;
+        const code = sourceRow.dataset.code || "";
+        const item = currentHomeUsRankingItem(code);
+        const rank = sourceRow.querySelector(".home-surge-rank");
+        const identity = sourceRow.querySelector(".home-surge-identity");
+        const logo = identity?.querySelector(".stock-list-logo");
+        const stockCopy = identity?.querySelector(".stock-list-copy");
+        const sourceMetric = sourceRow.querySelector(".ranking-metric-block");
+        const name = String(item?.name || stockCopy?.querySelector("strong")?.textContent?.trim() || code || "종목");
+        const detail = document.createElement("span");
+        detail.className = "staging-home-ranking-copy";
+        if (stockCopy) detail.appendChild(stockCopy);
+        else detail.appendChild(Object.assign(document.createElement("strong"), { textContent: name }));
+        const quote = document.createElement("span");
+        quote.className = "staging-home-ranking-quote";
+        const price = Object.assign(document.createElement("span"), {
+          className: "staging-home-ranking-price",
+          textContent: rankingPriceText(item?.price, "USD"),
+        });
+        const ratePresentation = rankingRatePresentation(item?.change_rate);
+        const rate = Object.assign(document.createElement("span"), {
+          className: `staging-home-ranking-rate ${ratePresentation.tone}`,
+          textContent: ratePresentation.text,
+        });
+        quote.append(price, rate);
+        detail.appendChild(quote);
+        sourceRow.className = "staging-home-ranking-main";
+        sourceRow.removeAttribute("data-code");
+        sourceRow.setAttribute("aria-label", `${name} 미국 종목 상세 보기`);
+        sourceRow.replaceChildren(...[rank, logo, detail].filter(Boolean));
+
+        const card = document.createElement("article");
+        card.className = `${originalClassName} staging-home-ranking-row is-us-market`;
+        card.dataset.code = code;
+        card.dataset.name = name;
+        card.dataset.market = String(item?.market || "NASDAQ");
+        card.dataset.currency = "USD";
+        const heart = document.createElement("button");
+        heart.className = "staging-home-ranking-watch";
+        heart.type = "button";
+        heart.innerHTML = svg(icons.interest);
+        syncHomeRankingHeart(heart, { ...item, code, name, currency: "USD", market_scope: "us" });
+        sourceRow.replaceWith(card);
+        card.append(sourceRow, heart);
+        if (sourceMetric) {
+          sourceMetric.classList.add("staging-home-ranking-source");
+          sourceMetric.hidden = true;
+          sourceMetric.setAttribute("aria-hidden", "true");
+          card.appendChild(sourceMetric);
+        }
+      }
+      for (const card of list.querySelectorAll(":scope > .staging-home-ranking-row")) {
+        const item = currentHomeUsRankingItem(card.dataset.code);
+        const price = card.querySelector(".staging-home-ranking-price");
+        const rate = card.querySelector(".staging-home-ranking-rate");
+        const heart = card.querySelector(".staging-home-ranking-watch");
+        const priceText = rankingPriceText(item?.price, "USD");
+        if (price && price.textContent !== priceText) price.textContent = priceText;
+        if (rate) {
+          const presentation = rankingRatePresentation(item?.change_rate);
+          if (rate.textContent !== presentation.text) rate.textContent = presentation.text;
+          rate.className = `staging-home-ranking-rate ${presentation.tone}`;
+        }
+        if (heart) syncHomeRankingHeart(heart, { ...item, market_scope: "us", currency: "USD" });
+      }
+      if (!homeUsRankingObserver) {
+        homeUsRankingObserver = new MutationObserver(() => window.requestAnimationFrame(upgradeHomeUsRankingRows));
+        homeUsRankingObserver.observe(list, { childList: true, subtree: true });
+        list.addEventListener("click", (event) => {
+          const button = event.target instanceof Element
+            ? event.target.closest(".staging-home-ranking-watch")
+            : null;
+          if (!button) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const item = currentHomeUsRankingItem(button.closest(".staging-home-ranking-row")?.dataset.code);
+          if (!item || typeof toggleWatchlistItem !== "function") return;
+          toggleWatchlistItem({ ...item, market_scope: "us", currency: "USD" });
+          window.requestAnimationFrame(upgradeHomeUsRankingRows);
+        });
+      }
+    };
+    const homeTop50Observer = new MutationObserver(upgradeHomeUsRankingRows);
+    homeTop50Observer.observe(homeView, { childList: true });
+    window.requestAnimationFrame(upgradeHomeUsRankingRows);
+
+    const initialHotCommunityMarket = stagingUsMarketContext ? "us" : "kr";
     const hotCommunitySection = document.createElement("section");
     hotCommunitySection.className = "staging-hot-community";
     hotCommunitySection.setAttribute("aria-labelledby", "staging-hot-community-title");
     hotCommunitySection.innerHTML = `
       <header class="staging-hot-community-head">
         <h2 id="staging-hot-community-title">핫한 커뮤니티</h2>
+        <div class="staging-hot-community-market-toggle" role="group" aria-label="커뮤니티 시장 선택">
+          <button class="${initialHotCommunityMarket === "us" ? "active" : ""}" type="button" aria-label="미국 커뮤니티 보기" aria-pressed="${initialHotCommunityMarket === "us"}" data-hot-community-market="us"><span aria-hidden="true">🇺🇸</span></button>
+          <button class="${initialHotCommunityMarket === "kr" ? "active" : ""}" type="button" aria-label="한국 커뮤니티 보기" aria-pressed="${initialHotCommunityMarket === "kr"}" data-hot-community-market="kr"><span aria-hidden="true">🇰🇷</span></button>
+        </div>
       </header>
       <nav class="staging-hot-community-tabs" role="tablist" aria-label="핫한 커뮤니티 순위 기준">
         <button id="staging-hot-community-surge-tab" class="active" type="button" role="tab" aria-selected="true" aria-controls="staging-hot-community-panel" data-hot-community-mode="surge">수익률 순</button>
@@ -2952,6 +3074,7 @@
     else homeView.appendChild(hotCommunitySection);
 
     const hotCommunityState = {
+      market: initialHotCommunityMarket,
       mode: "surge",
       selectedCode: "",
       rankings: new Map(),
@@ -2967,19 +3090,54 @@
     const hotCommunityPosts = hotCommunitySection.querySelector("[data-staging-hot-community-posts]");
     const hotCommunityPanel = hotCommunitySection.querySelector("#staging-hot-community-panel");
     const hotCommunityMore = hotCommunitySection.querySelector("[data-staging-hot-community-more]");
+    const normalizeHotCommunityMarket = (market, fallback = hotCommunityState.market) => (
+      market === "us" ? "us" : market === "kr" ? "kr" : fallback
+    );
+    const hotCommunityMarketLabel = (market = hotCommunityState.market) => (
+      market === "us" ? "미국" : "한국"
+    );
+    const hotCommunityRankingKey = (
+      market = hotCommunityState.market,
+      mode = hotCommunityState.mode,
+    ) => `${market}:${mode}`;
+    const hotCommunityFeedKey = (code, market = hotCommunityState.market) => (
+      `${market}:${String(code || "")}`
+    );
+    const hotCommunityStockRoute = (code, market = hotCommunityState.market) => (
+      stagingUsHubContext
+        ? `/us/stock/${encodeURIComponent(code || "")}?market_scope=${market}`
+        : market === "us"
+          ? `/us/stock/${encodeURIComponent(code || "")}`
+          : `/dashboard/${encodeURIComponent(code || "")}`
+    );
+    const syncHotCommunityMarketToggle = () => {
+      const label = hotCommunityMarketLabel();
+      hotCommunitySection.dataset.hotCommunityMarket = hotCommunityState.market;
+      for (const button of hotCommunitySection.querySelectorAll("[data-hot-community-market]")) {
+        const selected = button.dataset.hotCommunityMarket === hotCommunityState.market;
+        button.classList.toggle("active", selected);
+        button.setAttribute("aria-pressed", String(selected));
+      }
+      hotCommunityStocks?.setAttribute("aria-label", `${label} 상위 15개 종목`);
+      hotCommunityMore?.setAttribute("aria-label", `${label} 커뮤니티 더 보기`);
+    };
     const hotCommunityCompactNumber = new Intl.NumberFormat("ko-KR", {
       notation: "compact",
       maximumFractionDigits: 1,
     });
 
-    const hotCommunityRequest = async (url) => {
-      for (let attempt = 0; attempt < 20; attempt += 1) {
-        if (typeof fetchJsonCached === "function") {
-          return fetchJsonCached(url, { ttlMs: 60_000, timeoutMs: 20_000 });
-        }
-        await new Promise((resolve) => window.setTimeout(resolve, 25));
+    const hotCommunityRequest = async (url, options = {}) => {
+      if (typeof fetchJsonCached === "function") {
+        return fetchJsonCached(url, {
+          force: options.force === true,
+          ttlMs: options.force === true ? 0 : 60_000,
+          timeoutMs: 20_000,
+        });
       }
-      throw new Error("community data client unavailable");
+      return stagingJsonRequest(url, {
+        cache: options.force === true ? "no-store" : "default",
+        timeoutMs: 20_000,
+      });
     };
     const hotCommunityDate = (value, options = {}) => {
       if (!value) return options.fallback || "";
@@ -3004,7 +3162,7 @@
       if (mode === "market_cap") {
         const marketCap = Number(item?.market_cap);
         return Number.isFinite(marketCap)
-          ? `시총 ${stagingUsMarketContext ? "$" : ""}${hotCommunityCompactNumber.format(marketCap)}${stagingUsMarketContext ? "" : "원"}`
+          ? `시총 ${hotCommunityState.market === "us" ? "$" : ""}${hotCommunityCompactNumber.format(marketCap)}${hotCommunityState.market === "us" ? "" : "원"}`
           : "시총 확인 중";
       }
       const rate = Number(item?.change_rate);
@@ -3016,7 +3174,9 @@
       const rate = Number(item?.change_rate);
       return rate > 0 ? "positive" : rate < 0 ? "negative" : "neutral";
     };
-    const hotCommunityItems = () => hotCommunityState.rankings.get(hotCommunityState.mode)?.items || [];
+    const hotCommunityItems = () => hotCommunityState.rankings.get(
+      hotCommunityRankingKey(),
+    )?.items || [];
     const hotCommunitySelectedItem = () => hotCommunityItems().find(
       (item) => String(item?.code || "") === hotCommunityState.selectedCode,
     ) || null;
@@ -3065,6 +3225,7 @@
       if (!normalizedCode || !quote) return;
       let changed = false;
       for (const ranking of hotCommunityState.rankings.values()) {
+        if (ranking?.market !== hotCommunityState.market) continue;
         const item = (ranking?.items || []).find((entry) => String(entry?.code || "") === normalizedCode);
         if (!item) continue;
         for (const field of ["price", "change_rate", "volume", "trading_value", "market_cap"]) {
@@ -3092,11 +3253,12 @@
       hotCommunitySection.dataset.liveQuoteUpdates = String(Number(hotCommunitySection.dataset.liveQuoteUpdates || 0) + 1);
     };
     syncHotCommunityQuoteScope = () => {
-      const active = !stagingUsMarketContext
+      const active = hotCommunityState.market === "kr"
+        && !stagingUsMarketContext
         && !document.hidden
         && (document.body.dataset.view || "") === "home";
       const items = active ? hotCommunityItems().slice(0, 15) : [];
-      const signature = `${active ? hotCommunityState.mode : "off"}:${items.map((item) => item.code).join(",")}`;
+      const signature = `${active ? hotCommunityRankingKey() : "off"}:${items.map((item) => item.code).join(",")}`;
       if (signature === hotCommunityQuoteScopeSignature) return;
       hotCommunityQuoteScopeSignature = signature;
       hotCommunitySection.dataset.liveQuoteState = items.length ? "subscribing" : "idle";
@@ -3126,7 +3288,7 @@
       }
       if (hotCommunityPosts) {
         hotCommunityPosts.innerHTML = `
-          <p class="staging-hot-community-status" role="status">상위 종목을 불러오고 있어요.</p>
+          <p class="staging-hot-community-status" role="status">${hotCommunityMarketLabel()} 상위 종목을 불러오고 있어요.</p>
         `;
       }
       if (hotCommunityMore) hotCommunityMore.disabled = true;
@@ -3138,7 +3300,7 @@
       if (hotCommunityPosts) {
         hotCommunityPosts.innerHTML = `
           <div class="staging-hot-community-status is-error" role="status">
-            <strong>종목 순위를 불러오지 못했어요.</strong>
+            <strong>${hotCommunityMarketLabel()} 종목 순위를 불러오지 못했어요.</strong>
             <button type="button" data-hot-community-retry="ranking">다시 불러오기</button>
           </div>
         `;
@@ -3188,7 +3350,7 @@
       if (!items.length) {
         const empty = document.createElement("p");
         empty.className = "staging-hot-community-status";
-        empty.textContent = "현재 표시할 상위 종목이 없어요.";
+        empty.textContent = `${hotCommunityMarketLabel()} 시장에 현재 표시할 상위 종목이 없어요.`;
         hotCommunityStocks.appendChild(empty);
         return;
       }
@@ -3306,72 +3468,95 @@
       const selected = hotCommunitySelectedItem();
       if (!selected?.code) return;
       const code = String(selected.code);
+      const market = hotCommunityState.market;
+      const route = hotCommunityStockRoute(code, market);
       const activateCommunity = () => {
         const tab = document.querySelector('#stock-view [data-stock-tab="community"]');
         if (tab instanceof HTMLButtonElement) tab.click();
       };
+      if ((market === "us") !== stagingUsMarketContext) {
+        window.location.assign(`${route}#stock-community-section`);
+        return;
+      }
       if (typeof navigateToStock === "function") {
         try {
-          await navigateToStock(code, stagingStockRoute(code));
+          await navigateToStock(code, route);
           window.setTimeout(activateCommunity, 0);
           return;
         } catch {
           // Fall through to a full route change if the in-app router is unavailable.
         }
       }
-      window.location.assign(`${stagingStockRoute(code)}#stock-community-section`);
+      window.location.assign(`${route}#stock-community-section`);
     };
     const fetchHotCommunityFeed = (code, options = {}) => {
       const normalizedCode = String(code || "");
       if (!normalizedCode) return Promise.reject(new Error("missing stock code"));
-      if (!options.force && hotCommunityState.feeds.has(normalizedCode)) {
-        return Promise.resolve(hotCommunityState.feeds.get(normalizedCode));
+      const requestedMarket = normalizeHotCommunityMarket(options.market);
+      const cacheKey = hotCommunityFeedKey(normalizedCode, requestedMarket);
+      if (!options.force && hotCommunityState.feeds.has(cacheKey)) {
+        return Promise.resolve(hotCommunityState.feeds.get(cacheKey));
       }
-      if (!options.force && hotCommunityState.feedPromises.has(normalizedCode)) {
-        return hotCommunityState.feedPromises.get(normalizedCode);
+      if (!options.force && hotCommunityState.feedPromises.has(cacheKey)) {
+        return hotCommunityState.feedPromises.get(cacheKey);
       }
-      const communityPath = stagingUsMarketContext
+      const communityPath = requestedMarket === "us"
         ? `/us/stocks/${encodeURIComponent(normalizedCode)}/community-feed?limit=5`
         : `/stocks/${encodeURIComponent(normalizedCode)}/community-feed?limit=5`;
-      const request = hotCommunityRequest(communityPath)
+      const request = hotCommunityRequest(communityPath, { force: options.force === true })
         .then((payload) => {
-          hotCommunityState.feeds.set(normalizedCode, payload);
+          hotCommunityState.feeds.set(cacheKey, payload);
           return payload;
         })
         .finally(() => {
-          if (hotCommunityState.feedPromises.get(normalizedCode) === request) {
-            hotCommunityState.feedPromises.delete(normalizedCode);
+          if (hotCommunityState.feedPromises.get(cacheKey) === request) {
+            hotCommunityState.feedPromises.delete(cacheKey);
           }
         });
-      hotCommunityState.feedPromises.set(normalizedCode, request);
+      hotCommunityState.feedPromises.set(cacheKey, request);
       return request;
     };
     const prefetchHotCommunityFeeds = (items = hotCommunityItems()) => {
+      const market = hotCommunityState.market;
       for (const item of items) {
         const code = String(item?.code || "");
-        if (!code || code === hotCommunityState.selectedCode || hotCommunityState.feeds.has(code)) continue;
-        void fetchHotCommunityFeed(code).catch(() => {});
+        if (
+          !code
+          || code === hotCommunityState.selectedCode
+          || hotCommunityState.feeds.has(hotCommunityFeedKey(code, market))
+        ) continue;
+        void fetchHotCommunityFeed(code, { market }).catch(() => {});
       }
     };
     const loadHotCommunityFeed = async (item, options = {}) => {
       const code = String(item?.code || "");
       if (!code) return;
+      const requestedMarket = normalizeHotCommunityMarket(options.market);
+      const cacheKey = hotCommunityFeedKey(code, requestedMarket);
       const requestId = ++hotCommunityState.feedRequestId;
       if (hotCommunityMore) hotCommunityMore.disabled = false;
       if (hotCommunityPosts) hotCommunityPosts.setAttribute("aria-live", options.announce ? "polite" : "off");
-      if (!options.force && hotCommunityState.feeds.has(code)) {
-        renderHotCommunityPosts(hotCommunityState.feeds.get(code));
+      if (!options.force && hotCommunityState.feeds.has(cacheKey)) {
+        renderHotCommunityPosts(hotCommunityState.feeds.get(cacheKey));
         hotCommunityPanel?.setAttribute("aria-busy", "false");
         return;
       }
       hotCommunityPanel?.setAttribute("aria-busy", "true");
       renderHotCommunityFeedStatus(`${item?.name || "선택한 종목"}의 최신글을 불러오고 있어요.`);
       try {
-        const payload = await fetchHotCommunityFeed(code, options);
-        if (requestId !== hotCommunityState.feedRequestId || code !== hotCommunityState.selectedCode) return;
+        const payload = await fetchHotCommunityFeed(code, { ...options, market: requestedMarket });
+        if (
+          requestId !== hotCommunityState.feedRequestId
+          || requestedMarket !== hotCommunityState.market
+          || code !== hotCommunityState.selectedCode
+        ) return;
         renderHotCommunityPosts(payload);
       } catch {
-        if (requestId !== hotCommunityState.feedRequestId || code !== hotCommunityState.selectedCode) return;
+        if (
+          requestId !== hotCommunityState.feedRequestId
+          || requestedMarket !== hotCommunityState.market
+          || code !== hotCommunityState.selectedCode
+        ) return;
         renderHotCommunityFeedStatus("최신글을 불러오지 못했어요.", { error: true, retry: true });
       } finally {
         if (requestId === hotCommunityState.feedRequestId) hotCommunityPanel?.setAttribute("aria-busy", "false");
@@ -3388,8 +3573,11 @@
     const loadHotCommunityRankings = async (mode = hotCommunityState.mode, options = {}) => {
       clearHotCommunityRotation();
       hotCommunityState.mode = mode === "market_cap" ? "market_cap" : "surge";
+      const requestedMode = hotCommunityState.mode;
+      const requestedMarket = normalizeHotCommunityMarket(options.market);
+      const cacheKey = hotCommunityRankingKey(requestedMarket, requestedMode);
       const requestId = ++hotCommunityState.rankingRequestId;
-      const cached = hotCommunityState.rankings.get(hotCommunityState.mode);
+      const cached = hotCommunityState.rankings.get(cacheKey);
       if (!options.force && cached) {
         const items = cached.items || [];
         hotCommunityState.selectedCode = items.some((item) => String(item?.code || "") === hotCommunityState.selectedCode)
@@ -3397,7 +3585,7 @@
           : String(items[0]?.code || "");
         renderHotCommunityStocks();
         const selected = hotCommunitySelectedItem();
-        if (selected) void loadHotCommunityFeed(selected);
+        if (selected) void loadHotCommunityFeed(selected, { market: requestedMarket });
         else renderHotCommunityFeedStatus("현재 표시할 상위 종목이 없어요.");
         prefetchHotCommunityFeeds(items);
         scheduleHotCommunityRotation();
@@ -3406,21 +3594,33 @@
       renderHotCommunityStockLoading();
       try {
         const modeQuery = hotCommunityState.mode === "surge" ? "&mode=daily" : "";
-        const rankingPath = stagingUsMarketContext
+        const rankingPath = requestedMarket === "us"
           ? `/us/market/rankings?category=${hotCommunityState.mode}${modeQuery}&market=NASDAQ&limit=15`
           : `/market/rankings?category=${hotCommunityState.mode}${modeQuery}&limit=15`;
-        const payload = await hotCommunityRequest(rankingPath);
-        if (requestId !== hotCommunityState.rankingRequestId || hotCommunityState.mode !== mode) return;
+        const payload = await hotCommunityRequest(rankingPath, { force: options.force === true });
+        if (
+          requestId !== hotCommunityState.rankingRequestId
+          || hotCommunityState.market !== requestedMarket
+          || hotCommunityState.mode !== requestedMode
+        ) return;
         const items = (Array.isArray(payload?.items) ? payload.items : [])
           .filter((item) => item?.code && item?.name)
           .slice(0, 15);
-        hotCommunityState.rankings.set(hotCommunityState.mode, { ...payload, items });
+        hotCommunityState.rankings.set(cacheKey, {
+          ...payload,
+          market: requestedMarket,
+          mode: requestedMode,
+          items,
+        });
         hotCommunityState.selectedCode = items.some((item) => String(item?.code || "") === hotCommunityState.selectedCode)
           ? hotCommunityState.selectedCode
           : String(items[0]?.code || "");
         renderHotCommunityStocks();
         const selected = hotCommunitySelectedItem();
-        if (selected) void loadHotCommunityFeed(selected);
+        if (selected) void loadHotCommunityFeed(selected, {
+          force: options.force === true,
+          market: requestedMarket,
+        });
         else renderHotCommunityFeedStatus("현재 표시할 상위 종목이 없어요.");
         prefetchHotCommunityFeeds(items);
         scheduleHotCommunityRotation();
@@ -3429,7 +3629,32 @@
       }
     };
 
+    const switchHotCommunityMarket = (market) => {
+      const nextMarket = normalizeHotCommunityMarket(market);
+      if (nextMarket === hotCommunityState.market) return;
+      clearHotCommunityRotation();
+      hotCommunityState.market = nextMarket;
+      hotCommunityState.selectedCode = "";
+      hotCommunityState.feedRequestId += 1;
+      syncHotCommunityMarketToggle();
+      syncHotCommunityQuoteScope();
+      renderHotCommunityStockLoading();
+      void loadHotCommunityRankings(hotCommunityState.mode, {
+        force: true,
+        market: nextMarket,
+      });
+    };
+
+    syncHotCommunityMarketToggle();
+
     hotCommunitySection.addEventListener("click", (event) => {
+      const marketButton = event.target instanceof Element
+        ? event.target.closest("[data-hot-community-market]")
+        : null;
+      if (marketButton instanceof HTMLButtonElement) {
+        switchHotCommunityMarket(marketButton.dataset.hotCommunityMarket);
+        return;
+      }
       const modeTab = event.target instanceof Element ? event.target.closest("[data-hot-community-mode]") : null;
       if (modeTab instanceof HTMLButtonElement) {
         const mode = modeTab.dataset.hotCommunityMode === "market_cap" ? "market_cap" : "surge";
@@ -7420,8 +7645,12 @@
       if (!head || head.querySelector(".staging-watch-logo")) continue;
       head.prepend(createStockLogoFrame(row.dataset.code, "staging-watch-logo"));
       const removeButton = row.querySelector(".remove-watch");
-      if (removeButton && !removeButton.querySelector("svg")) {
-        removeButton.innerHTML = svg(icons.interest);
+      if (
+        removeButton
+        && !removeButton.querySelector("svg")
+        && removeButton.dataset.watchAction !== "remove-group"
+      ) {
+        removeButton.innerHTML = svg(removeButton.dataset.watchAction === "unpin" ? icons.pin : icons.interest);
       }
     }
   };

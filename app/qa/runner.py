@@ -1998,6 +1998,68 @@ def _live_checks(
             pass_message="미국 대표 종목 데이터 계약을 확인했습니다.",
         )
 
+        def watch_market_map_data_contract() -> dict[str, Any]:
+            domestic, domestic_meta = api.get(
+                "/stocks/005930/dashboard",
+                include_profile="false",
+                include_live="false",
+            )
+            overseas, overseas_meta = api.get("/us/stocks/NVDA/dashboard")
+            fx, fx_meta = api.get("/us/fx/usdkrw")
+
+            def positive_number(value: Any) -> float | None:
+                try:
+                    number = float(value)
+                except (TypeError, ValueError):
+                    return None
+                return number if number > 0 else None
+
+            domestic_cap = positive_number(
+                (domestic.get("quote") or {}).get("market_cap")
+                or domestic.get("market_cap")
+            )
+            overseas_cap = positive_number(
+                (overseas.get("quote") or {}).get("market_cap")
+                or overseas.get("market_cap")
+            )
+            usdkrw = positive_number(fx.get("rate"))
+            _assert(
+                domestic_cap is not None,
+                "관심종목 카드맵에 필요한 국내 시가총액이 없습니다.",
+                **domestic_meta,
+            )
+            _assert(
+                overseas_cap is not None,
+                "관심종목 카드맵에 필요한 미국 시가총액이 없습니다.",
+                **overseas_meta,
+            )
+            _assert(
+                usdkrw is not None and 500 <= usdkrw <= 3000,
+                "관심종목 카드맵의 원화 환산 환율이 유효 범위를 벗어났습니다.",
+                rate=usdkrw,
+                **fx_meta,
+            )
+            return {
+                "domestic": {
+                    **domestic_meta,
+                    "code": domestic.get("code") or "005930",
+                    "market_cap_krw": domestic_cap,
+                },
+                "overseas": {
+                    **overseas_meta,
+                    "code": overseas.get("symbol") or overseas.get("code") or "NVDA",
+                    "market_cap_usd": overseas_cap,
+                    "market_cap_krw": overseas_cap * usdkrw,
+                },
+                "fx": {**fx_meta, "usdkrw": usdkrw},
+            }
+
+        collector.check(
+            "SIG-UI-025",
+            watch_market_map_data_contract,
+            pass_message="관심종목 카드맵의 국내·미국 시총과 원화 환산 입력을 확인했습니다.",
+        )
+
         def realtime_status_contract() -> dict[str, Any]:
             payload, meta = api.get("/realtime/status")
             channels = payload.get("public_quote_channels") or {}

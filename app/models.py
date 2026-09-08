@@ -298,6 +298,17 @@ class RecommendationTrackState(Base):
     )
 
 
+class WatchlistGroupState(Base):
+    __tablename__ = "watchlist_group_state"
+
+    share_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    payload: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 class PushSubscription(Base):
     __tablename__ = "push_subscription"
     __table_args__ = (UniqueConstraint("endpoint", name="uq_push_subscription_endpoint"),)

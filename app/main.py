@@ -53,6 +53,7 @@ from app.models import (
     StockLogo,
     StockMaster,
     StockIntradaySnapshot,
+    WatchlistGroupState,
     WatchlistItem,
 )
 from app.repository import (
@@ -106,6 +107,8 @@ from app.schemas import (
     StockXFeedOut,
     TrendAnalysisOut,
     TrendEventGraphOut,
+    WatchlistGroupStateOut,
+    WatchlistGroupUpdateIn,
     WatchlistOut,
     WatchlistUpdateIn,
 )
@@ -268,7 +271,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260908v492"
+DASHBOARD_CLIENT_VERSION = "20260908v493"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -3212,6 +3215,110 @@ def put_recommendation_tracks(
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     return _recommendation_track_state_response(db, normalized_id)
+
+
+def _normalize_watchlist_groups(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    seen_names: set[str] = set()
+    for raw_group in groups:
+        if not isinstance(raw_group, dict):
+            continue
+        group_id = re.sub(r"[^0-9A-Za-z_-]", "", str(raw_group.get("id") or ""))[:40]
+        name = re.sub(r"\s+", " ", str(raw_group.get("name") or "")).strip()[:30]
+        folded_name = name.casefold()
+        if (
+            not group_id
+            or group_id in {"default", "pinned"}
+            or group_id in seen_ids
+            or not name
+            or folded_name in {"기본", "핀종목", "핀 종목"}
+            or folded_name in seen_names
+        ):
+            continue
+        seen_ids.add(group_id)
+        seen_names.add(folded_name)
+        codes: list[str] = []
+        seen_codes: set[str] = set()
+        for raw_code in raw_group.get("codes") or []:
+            code = _normalize_stock_code(str(raw_code or ""))[:12]
+            if not code or code in seen_codes:
+                continue
+            seen_codes.add(code)
+            codes.append(code)
+            if len(codes) >= 100:
+                break
+        normalized.append({"id": group_id, "name": name, "codes": codes})
+        if len(normalized) >= 12:
+            break
+    return normalized
+
+
+def _watchlist_group_state_response(db: Session, share_id: str) -> dict[str, object]:
+    row = db.get(WatchlistGroupState, share_id)
+    if row is None:
+        return {
+            "share_id": share_id,
+            "initialized": False,
+            "groups": [],
+            "updated_at": datetime.utcnow(),
+        }
+    try:
+        decoded = json.loads(row.payload or "[]")
+    except (TypeError, ValueError):
+        decoded = []
+    groups = _normalize_watchlist_groups(decoded if isinstance(decoded, list) else [])
+    return {
+        "share_id": share_id,
+        "initialized": True,
+        "groups": groups,
+        "updated_at": row.updated_at,
+    }
+
+
+@app.get(
+    "/watchlists/{share_id}/groups",
+    response_model=WatchlistGroupStateOut,
+)
+def get_watchlist_groups(
+    share_id: str,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    normalized_id = _normalize_watchlist_id(share_id)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return _watchlist_group_state_response(db, normalized_id)
+
+
+@app.put(
+    "/watchlists/{share_id}/groups",
+    response_model=WatchlistGroupStateOut,
+)
+def put_watchlist_groups(
+    share_id: str,
+    payload: WatchlistGroupUpdateIn,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    normalized_id = _normalize_watchlist_id(share_id)
+    _require_write_access(request, normalized_id)
+    groups = _normalize_watchlist_groups(payload.groups)
+    encoded = json.dumps(groups, ensure_ascii=False, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) > 250_000:
+        raise HTTPException(status_code=413, detail="관심 그룹 데이터가 너무 큽니다.")
+    row = db.get(WatchlistGroupState, normalized_id)
+    if row is None:
+        row = WatchlistGroupState(share_id=normalized_id, payload=encoded)
+    else:
+        row.payload = encoded
+        row.updated_at = datetime.utcnow()
+    db.add(row)
+    db.commit()
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return _watchlist_group_state_response(db, normalized_id)
 
 
 @app.get("/watchlists/{share_id}/quant-signals")

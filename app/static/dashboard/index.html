@@ -31,7 +31,7 @@
     <script src="/assets/staging/stock-change-copy-logic.js?v=20260908-public-signal-v103" defer></script>
     <script src="/assets/staging/toss-ia.js?v=20260908-public-signal-v103" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260908v492&amp;build=20260908v492" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260908v493&amp;build=20260908v493" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -117,6 +117,14 @@
           <p id="push-notification-status" class="sr-only" aria-live="polite"></p>
         </div>
       </header>
+      <nav class="unified-market-scope" id="unified-market-scope" aria-label="표시할 주식시장" hidden>
+        <span class="unified-market-scope-label">시장</span>
+        <div class="unified-market-scope-tabs" role="tablist" aria-label="국내·미국 종목 필터">
+          <button class="active" type="button" role="tab" aria-selected="true" data-unified-market-scope="all">전체</button>
+          <button type="button" role="tab" aria-selected="false" data-unified-market-scope="kr"><span aria-hidden="true">🇰🇷</span> 국내</button>
+          <button type="button" role="tab" aria-selected="false" data-unified-market-scope="us"><span aria-hidden="true">🇺🇸</span> 미국</button>
+        </div>
+      </nav>
       <section class="pull-refresh-indicator" id="pull-refresh-indicator" aria-live="polite" hidden>
         <div class="pull-refresh-spinner" aria-hidden="true"></div>
         <strong id="pull-refresh-label">아래로 당겨서 새로고침</strong>
@@ -1237,6 +1245,7 @@
         </header>
         <nav class="market-ranking-mode-tabs" id="market-ranking-mode-tabs" role="tablist" aria-label="순위 기간 및 기준" hidden></nav>
         <nav class="market-segment market-ranking-tabs" role="tablist" aria-label="시장 선택">
+          <button class="market-segment-button" type="button" data-market-filter="MIXED" role="tab" aria-selected="false" hidden>전체</button>
           <button class="market-segment-button active" type="button" data-market-filter="ALL" role="tab" aria-selected="true">국내</button>
           <button class="market-segment-button" type="button" data-market-filter="KOSPI" role="tab" aria-selected="false">KOSPI</button>
           <button class="market-segment-button" type="button" data-market-filter="KOSDAQ" role="tab" aria-selected="false">KOSDAQ</button>
@@ -1278,8 +1287,31 @@
         </section>
       </section>
 
-      <section id="portfolio-view" class="app-page app-portfolio" data-ui-version="3.0" hidden>
-        <section class="portfolio-tabs app-segment-tabs" role="tablist" aria-label="내 종목 보기">
+      <section id="portfolio-view" class="app-page app-portfolio" data-ui-version="4.0" data-watch-group-layout="true" hidden>
+        <section class="watch-group-shell" aria-labelledby="watch-group-heading">
+          <header class="watch-group-toolbar">
+            <h1 id="watch-group-heading">관심 그룹</h1>
+            <div class="watch-group-actions">
+              <button id="watch-group-edit" type="button" hidden>폴더 편집</button>
+              <button id="watch-group-add-stock" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+                <span>종목 추가</span>
+              </button>
+            </div>
+          </header>
+          <div class="watch-group-rail" id="watch-group-tabs" role="tablist" aria-label="관심 그룹 선택">
+            <button class="watch-group-chip active" id="watch-group-default" type="button" role="tab" aria-selected="true" aria-controls="watchlist-strategy-panel" data-watch-group="default">기본</button>
+            <button class="watch-group-chip" id="watch-group-pinned" type="button" role="tab" aria-selected="false" aria-controls="watchlist-strategy-panel" data-watch-group="pinned">핀종목</button>
+            <span id="watch-user-group-tabs"></span>
+            <button class="watch-group-create" id="watch-group-create" type="button" aria-label="새 관심 폴더 만들기">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10h-17z"></path><path d="M12 13h5M14.5 10.5v5"></path></svg>
+              <span>폴더</span>
+            </button>
+          </div>
+          <p class="watch-group-meta" id="watch-group-meta" role="status" aria-live="polite">0개</p>
+        </section>
+
+        <section class="portfolio-tabs app-segment-tabs" role="tablist" aria-label="이전 내 종목 보기" aria-hidden="true" hidden>
           <button class="portfolio-tab active" type="button" role="tab" aria-selected="true" data-portfolio-tab="watchlist">관심종목</button>
           <button class="portfolio-tab" type="button" role="tab" aria-selected="false" data-portfolio-tab="tracking">핀 종목</button>
         </section>
@@ -1292,6 +1324,18 @@
             <section id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0">
               <p id="watchlist-meta" class="sr-only">저장된 종목</p>
               <section class="watchlist-panel">
+                <section class="watch-market-map" id="watch-market-map" aria-labelledby="watch-market-map-title" hidden>
+                  <header class="watch-market-map-head">
+                    <div>
+                      <span id="watch-market-map-group">기본 · 시가총액 순</span>
+                      <h2 id="watch-market-map-title">관심종목 한눈에</h2>
+                    </div>
+                    <p id="watch-market-map-description">큰 칸일수록 시가총액이 큽니다.</p>
+                  </header>
+                  <div class="watch-market-map-stage" id="watch-market-map-stage" role="group" aria-label="시가총액 순 관심종목" aria-live="polite"></div>
+                  <div class="watch-market-map-legend" id="watch-market-map-legend" aria-label="오늘 등락 종목 수"></div>
+                  <p class="sr-only" id="watch-market-map-status" role="status" aria-live="polite"></p>
+                </section>
                 <section class="watchlist-strategy" id="watchlist-strategy" aria-live="polite" hidden></section>
                 <div class="watch-v2-filter watch-v3-tabs" role="tablist" aria-label="관심 종목 필터">
                   <button class="active" type="button" role="tab" aria-selected="true" data-watch-filter="all">전체</button>
@@ -1319,6 +1363,51 @@
             <section class="recommend-history archive-page"><div class="snapshot-list" id="recommend-history-list"></div></section>
           </section>
         </section>
+
+        <dialog class="watch-group-dialog" id="watch-group-dialog" aria-labelledby="watch-group-dialog-title" aria-describedby="watch-group-dialog-description">
+          <form class="watch-group-form" id="watch-group-form" novalidate>
+            <header class="watch-group-dialog-head">
+              <div>
+                <span>관심 폴더</span>
+                <h2 id="watch-group-dialog-title">새 폴더 만들기</h2>
+              </div>
+              <button id="watch-group-dialog-close" type="button" aria-label="관심 폴더 창 닫기">×</button>
+            </header>
+            <p id="watch-group-dialog-description">폴더 이름을 정하고 기본 관심종목에서 담을 종목을 선택하세요.</p>
+            <label class="watch-group-name-field" for="watch-group-name">
+              <span>폴더 이름</span>
+              <input id="watch-group-name" name="watch-group-name" type="text" maxlength="20" autocomplete="off" placeholder="예: 반도체" required />
+            </label>
+            <fieldset class="watch-group-members-field">
+              <legend>포함할 종목</legend>
+              <div id="watch-group-members" class="watch-group-members"></div>
+            </fieldset>
+            <p class="watch-group-dialog-status" id="watch-group-dialog-status" role="alert" aria-live="assertive"></p>
+            <footer class="watch-group-dialog-actions">
+              <button class="watch-group-delete" id="watch-group-delete" type="button" hidden>폴더 삭제</button>
+              <span></span>
+              <button class="watch-group-cancel" id="watch-group-cancel" type="button">취소</button>
+              <button class="watch-group-save" id="watch-group-save" type="submit">폴더 만들기</button>
+            </footer>
+          </form>
+        </dialog>
+
+        <dialog class="watch-market-map-sheet" id="watch-market-map-sheet" aria-labelledby="watch-market-map-sheet-title" aria-describedby="watch-market-map-sheet-description">
+          <section class="watch-market-map-sheet-card">
+            <div class="watch-market-map-sheet-handle" aria-hidden="true"></div>
+            <header class="watch-market-map-sheet-head">
+              <div>
+                <span>시가총액 순</span>
+                <h2 id="watch-market-map-sheet-title">나머지 관심종목</h2>
+                <p id="watch-market-map-sheet-description">지도에서 작아진 종목을 모아 보여드려요.</p>
+              </div>
+              <button id="watch-market-map-sheet-close" type="button" aria-label="나머지 관심종목 닫기">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
+              </button>
+            </header>
+            <div class="watch-market-map-sheet-list" id="watch-market-map-sheet-list"></div>
+          </section>
+        </dialog>
       </section>
 
       <section id="chart-view" class="app-page app-chart chart-forecast-host" data-ui-version="4.0" hidden>
@@ -1505,6 +1594,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260908v492" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260908v493" defer></script>
   </body>
 </html>

@@ -80,6 +80,17 @@ class RecommendationTrackStateOut(BaseModel):
     updated_at: datetime
 
 
+class WatchlistGroupUpdateIn(BaseModel):
+    groups: list[dict[str, Any]] = Field(default_factory=list, max_length=12)
+
+
+class WatchlistGroupStateOut(BaseModel):
+    share_id: str
+    initialized: bool
+    groups: list[dict[str, Any]]
+    updated_at: datetime
+
+
 class PushSubscriptionKeysIn(BaseModel):
     p256dh: str = Field(..., min_length=20, max_length=500)
     auth: str = Field(..., min_length=8, max_length=255)
