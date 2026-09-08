@@ -50,11 +50,12 @@ KST = ZoneInfo("Asia/Seoul")
 LEGACY_STRATEGY_VERSION = "position-lifecycle-legacy"
 V7_1_STRATEGY_VERSION = "position-lifecycle-v7.1"
 V7_3_STRATEGY_VERSION = "position-lifecycle-v7.3"
-STRATEGY_VERSION = "position-lifecycle-v7.4"
-# The released v7.4 line remains the comparison baseline until the H1
+V7_4_STRATEGY_VERSION = "position-lifecycle-v7.4"
+STRATEGY_VERSION = "position-lifecycle-v7.4.1"
+# The released v7.4.1 line remains the comparison baseline until the H1
 # candidate is explicitly promoted.  Keeping the candidate separate makes
 # yesterday's release and the new entry gate independently reproducible.
-CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc2"
+CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc3"
 STRATEGY_NAME = "독립 근거 확인·조기 추세 포착·단기 전술형 수익확정 전략"
 MIN_HISTORY_ROWS = 125
 WARMUP_ROWS = 65
@@ -78,6 +79,17 @@ PRE_ENTRY_SCORE = 54.0
 PRE_ENTRY_MOMENTUM_5_MIN = 0.0
 MAX_ENTRY_ATR_PERCENT = 0.045
 MAX_ENTRY_EXTENSION_ATR = 2.5
+# v7.4.1 blocks late entries independently from the composite score.  The
+# absolute-percent cap catches unusually volatile names while the ATR cap is
+# the primary, volatility-normalized guard.  A >10% five-session surge must
+# leave the three-bar lookback before a fresh entry can be considered.
+CHASE_GUARD_EFFECTIVE_DATE = date(2026, 9, 9)
+CHASE_MAX_ENTRY_EXTENSION_ATR = 1.5
+CHASE_MAX_ENTRY_EXTENSION_PERCENT = 0.07
+CHASE_MOMENTUM_5_MAX = 0.10
+CHASE_MOMENTUM_LOOKBACK_BARS = 3
+REENTRY_RETEST_LOOKBACK_BARS = 3
+REENTRY_RETEST_EMA20_BUFFER = 0.02
 MAX_ENTRY_GAP_ATR = 1.5
 MAX_ENTRY_GAP_PERCENT = 0.05
 MIN_AVERAGE_TRADING_VALUE = 5_000_000_000.0
@@ -117,18 +129,25 @@ STRATEGY_VERSION_HISTORY = (
         "scope": "1R·1.6R·2.5R 전술형 사다리",
     },
     {
-        "version": STRATEGY_VERSION,
+        "version": V7_4_STRATEGY_VERSION,
         "effective_from": "2026-09-04",
-        "effective_to": None,
-        "status": "baseline",
+        "effective_to": "2026-09-08",
+        "status": "historical",
         "scope": "+3%·+5% 고정 수익확정·runner 0%",
     },
     {
+        "version": STRATEGY_VERSION,
+        "effective_from": "2026-09-09",
+        "effective_to": None,
+        "status": "baseline",
+        "scope": "v7.4 수익확정 + 추격매수 veto·재진입 신규 확인",
+    },
+    {
         "version": CANDIDATE_STRATEGY_VERSION,
-        "effective_from": "2026-09-04",
+        "effective_from": "2026-09-09",
         "effective_to": None,
         "status": "candidate",
-        "scope": "v7.4 baseline + buy-filter-h1; promotion pending",
+        "scope": "v7.4.1 baseline + buy-filter-h1; promotion pending",
     },
 )
 EXIT_SCORE = 42.0
@@ -504,8 +523,10 @@ def _indicator_rows(bars: list[PriceBar]) -> list[dict[str, float]]:
 def strategy_version_for_date(strategy_date: Optional[date]) -> str:
     """Return the immutable position-lifecycle version for a decision date."""
 
-    if strategy_date is None or strategy_date >= STABLE_PROFIT_EFFECTIVE_DATE:
+    if strategy_date is None or strategy_date >= CHASE_GUARD_EFFECTIVE_DATE:
         return STRATEGY_VERSION
+    if strategy_date >= STABLE_PROFIT_EFFECTIVE_DATE:
+        return V7_4_STRATEGY_VERSION
     if strategy_date >= TACTICAL_EXIT_EFFECTIVE_DATE:
         return V7_3_STRATEGY_VERSION
     if strategy_date >= PROFIT_PRESERVATION_EFFECTIVE_DATE:
@@ -594,13 +615,13 @@ def _entry_quality_allowed(
     )
 
 
-def _entry_setup_kind(
+def _base_entry_setup_kind(
     bar: PriceBar,
     indicator: dict[str, float],
     *,
     entry_filter_version: Optional[str] = None,
 ) -> Optional[str]:
-    """Return the confirmed setup without looking beyond the current close.
+    """Return the score/price setup before the independent chase veto.
 
     ``trend_continuation`` keeps the established medium-term trend filter but
     accepts a smaller positive return so the strategy does not wait for a move
@@ -640,17 +661,66 @@ def _entry_setup_kind(
     return "early_turn" if early_turn else None
 
 
+def _chase_entry_veto_reason(
+    bar: PriceBar,
+    indicator: dict[str, float],
+    *,
+    recent_indicators: Optional[list[dict[str, float]]] = None,
+) -> Optional[str]:
+    """Return a stable internal reason code when a fresh buy would chase price."""
+
+    if bar.trade_date < CHASE_GUARD_EFFECTIVE_DATE:
+        return None
+    if indicator.get("ema20_extension_atr", 0.0) >= CHASE_MAX_ENTRY_EXTENSION_ATR:
+        return "ema20_extension_atr"
+    ema20 = float(indicator.get("ema20") or 0.0)
+    if ema20 > 0 and (bar.close / ema20) - 1.0 >= CHASE_MAX_ENTRY_EXTENSION_PERCENT:
+        return "ema20_extension_percent"
+    momentum_window = (recent_indicators or [indicator])[-CHASE_MOMENTUM_LOOKBACK_BARS:]
+    if any(
+        float(item.get("momentum5") or 0.0) > CHASE_MOMENTUM_5_MAX
+        for item in momentum_window
+    ):
+        return "momentum5_cooldown"
+    return None
+
+
+def _entry_setup_kind(
+    bar: PriceBar,
+    indicator: dict[str, float],
+    *,
+    entry_filter_version: Optional[str] = None,
+    recent_indicators: Optional[list[dict[str, float]]] = None,
+) -> Optional[str]:
+    """Return a confirmed setup only after the independent chase veto."""
+
+    setup = _base_entry_setup_kind(
+        bar,
+        indicator,
+        entry_filter_version=entry_filter_version,
+    )
+    if setup is None or _chase_entry_veto_reason(
+        bar,
+        indicator,
+        recent_indicators=recent_indicators,
+    ):
+        return None
+    return setup
+
+
 def _entry_signal(
     bar: PriceBar,
     indicator: dict[str, float],
     *,
     entry_filter_version: Optional[str] = None,
+    recent_indicators: Optional[list[dict[str, float]]] = None,
 ) -> bool:
     return (
         _entry_setup_kind(
             bar,
             indicator,
             entry_filter_version=entry_filter_version,
+            recent_indicators=recent_indicators,
         )
         is not None
     )
@@ -694,10 +764,23 @@ def compare_entry_filter_candidates(
     return result
 
 
-def _pre_entry_signal(bar: PriceBar, indicator: dict[str, float]) -> bool:
+def _pre_entry_signal(
+    bar: PriceBar,
+    indicator: dict[str, float],
+    *,
+    recent_indicators: Optional[list[dict[str, float]]] = None,
+) -> bool:
     """Identify a near-ready setup without presenting it as an executable buy."""
 
-    if _entry_signal(bar, indicator) or not _entry_quality_allowed(
+    if _chase_entry_veto_reason(
+        bar,
+        indicator,
+        recent_indicators=recent_indicators,
+    ) or _entry_signal(
+        bar,
+        indicator,
+        recent_indicators=recent_indicators,
+    ) or not _entry_quality_allowed(
         bar,
         indicator,
         strategy_date=bar.trade_date,
@@ -712,6 +795,62 @@ def _pre_entry_signal(bar: PriceBar, indicator: dict[str, float]) -> bool:
         and indicator.get("high_distance", -1.0) >= -0.08
         and indicator.get("volume_ratio", 0.0) >= 0.75
     )
+
+
+def _fresh_reentry_trigger(
+    bars: list[PriceBar],
+    indicators: list[dict[str, float]],
+    index: int,
+    last_exit_index: int,
+) -> bool:
+    """Require a new breakout or EMA20 retest after the cooldown expires."""
+
+    if bars[index].trade_date < CHASE_GUARD_EFFECTIVE_DATE:
+        return True
+    current_bar = bars[index]
+    current_indicator = indicators[index]
+    fresh_breakout = False
+    if index > 0:
+        prior_high = float(current_indicator.get("prior_high") or 0.0)
+        previous_prior_high = float(indicators[index - 1].get("prior_high") or 0.0)
+        fresh_breakout = bool(
+            prior_high > 0
+            and previous_prior_high > 0
+            and current_bar.close > prior_high
+            and bars[index - 1].close <= previous_prior_high
+        )
+
+    first_eligible_index = last_exit_index + REENTRY_COOLDOWN_BARS + 1
+    retest_start = max(
+        first_eligible_index,
+        index - REENTRY_RETEST_LOOKBACK_BARS + 1,
+        0,
+    )
+    recent_retest = any(
+        float(indicators[cursor].get("ema20") or 0.0) > 0
+        and bars[cursor].low
+        <= float(indicators[cursor]["ema20"]) * (1.0 + REENTRY_RETEST_EMA20_BUFFER)
+        for cursor in range(retest_start, index + 1)
+    )
+    pullback_recovery = bool(
+        recent_retest
+        and current_bar.close > float(current_indicator.get("ema20") or 0.0)
+        and float(current_indicator.get("momentum5") or 0.0) > 0.0
+    )
+    return fresh_breakout or pullback_recovery
+
+
+def _reentry_entry_allowed(
+    bars: list[PriceBar],
+    indicators: list[dict[str, float]],
+    index: int,
+    last_exit_index: Optional[int],
+) -> bool:
+    if last_exit_index is None:
+        return True
+    if index - last_exit_index <= REENTRY_COOLDOWN_BARS:
+        return False
+    return _fresh_reentry_trigger(bars, indicators, index, last_exit_index)
 
 
 def _pre_entry_next_confirmation(bar: PriceBar, indicator: dict[str, float]) -> str:
@@ -1512,11 +1651,20 @@ def _simulate(
                     "profit_exit": final_profit_exit,
                     "execution_cost": _execution_cost(indicator),
                 }
-        elif _entry_signal(bar, indicator) and (
-            last_exit_index is None
-            or index - last_exit_index > REENTRY_COOLDOWN_BARS
+        elif (
+            entry_setup := _entry_setup_kind(
+                bar,
+                indicator,
+                recent_indicators=indicators[
+                    max(0, index - CHASE_MOMENTUM_LOOKBACK_BARS + 1) : index + 1
+                ],
+            )
+        ) is not None and _reentry_entry_allowed(
+            bars,
+            indicators,
+            index,
+            last_exit_index,
         ):
-            entry_setup = _entry_setup_kind(bar, indicator) or "trend_continuation"
             evidence = (entry_evidence_by_date or {}).get(bar.trade_date)
             confirmation = entry_confirmation_decision(
                 evidence,
@@ -2367,6 +2515,25 @@ def _current_signal(
     entry_setup: Optional[str] = None
     entry_confirmation: Optional[dict[str, Any]] = None
     levels: list[dict[str, Any]] = []
+    current_index = len(observation_bars) - 1
+    recent_indicators = indicators[
+        max(0, current_index - CHASE_MOMENTUM_LOOKBACK_BARS + 1) : current_index + 1
+    ]
+    raw_entry_setup = _base_entry_setup_kind(bar, indicator)
+    chase_veto_reason = (
+        _chase_entry_veto_reason(
+            bar,
+            indicator,
+            recent_indicators=recent_indicators,
+        )
+        if raw_entry_setup
+        else None
+    )
+    confirmed_entry_setup = _entry_setup_kind(
+        bar,
+        indicator,
+        recent_indicators=recent_indicators,
+    )
     if position:
         peak_price = max(float(position["peak_price"]), bar.close)
         should_exit, exit_reason, position_levels, is_hard_exit = _full_exit_signal(
@@ -2536,8 +2703,23 @@ def _current_signal(
             f"전량 매도 후 재진입 유예 {REENTRY_COOLDOWN_BARS}거래일을 적용 중"
         )
         next_confirmation = f"약 {reentry_wait_bars}거래일 뒤 새 매수 조건을 다시 확인"
-    elif _entry_signal(bar, indicator):
-        entry_setup = _entry_setup_kind(bar, indicator)
+    elif raw_entry_setup and chase_veto_reason:
+        state = "entry_watch"
+        label = "추격매수 위험으로 관망"
+        reasons.append("단기 급등 또는 20일선 과도 이격으로 신규매수를 보류함")
+        next_confirmation = "과열이 해소되고 새 돌파·눌림이 확인될 때 다시 평가"
+    elif raw_entry_setup and not _reentry_entry_allowed(
+        observation_bars,
+        indicators,
+        current_index,
+        simulation.get("last_exit_index"),
+    ):
+        state = "entry_watch"
+        label = "새 재진입 확인 대기"
+        reasons.append("유예 종료 후 기존 조건을 승계하지 않고 새 돌파·눌림을 기다리는 중")
+        next_confirmation = "유예 종료 후 새로운 돌파 또는 20일선 눌림·회복을 확인"
+    elif confirmed_entry_setup:
+        entry_setup = confirmed_entry_setup
         reason_indicator = {**indicator, "entry_setup": entry_setup}
         evidence = (entry_evidence_by_date or {}).get(bar.trade_date)
         entry_confirmation = entry_confirmation_decision(
@@ -2570,12 +2752,17 @@ def _current_signal(
                     f"기존 추세·조기 전환 {ENTRY_SCORE:.0f}점 이상·"
                     "5일 흐름 0% 이상·거래량 20일 평균의 0.8배 이상·"
                     f"ATR {MAX_ENTRY_ATR_PERCENT * 100:.1f}% 이하·"
-                    f"20일선 이격 {MAX_ENTRY_EXTENSION_ATR:.1f}ATR 이하·"
+                    f"20일선 이격 {CHASE_MAX_ENTRY_EXTENSION_ATR:.1f}ATR 미만·"
+                    f"절대 이격 {CHASE_MAX_ENTRY_EXTENSION_PERCENT * 100:.0f}% 미만·"
                     f"20일 평균 거래대금 {MIN_AVERAGE_TRADING_VALUE / 100_000_000:.0f}억원 이상"
                 ),
             }
         )
-    elif _pre_entry_signal(bar, indicator):
+    elif _pre_entry_signal(
+        bar,
+        indicator,
+        recent_indicators=recent_indicators,
+    ):
         state = "entry_watch"
         label = "예비 매수 포착"
         reasons.append(
@@ -2820,6 +3007,7 @@ def build_quant_signal_payload(
             f"최초 위험폭은 ATR을 사용하되 매수가의 {MAX_INITIAL_RISK_PERCENT * 100:.0f}% 이내로 제한합니다.",
             f"초기·수익 보호선의 종가 이탈은 확인 대기 없이 다음 거래일 시가에 전량 매도하고, 일반 추세 이탈은 최소 {MIN_HOLDING_BARS}거래일 후 종가 1회로 확인합니다.",
             f"기준 v7.4 신규 진입은 {ENTRY_SCORE:.0f}점 이상과 5일 흐름 0% 이상·거래량 20일 평균의 0.8배 이상, ATR {MAX_ENTRY_ATR_PERCENT * 100:.1f}% 이하·20일선 이격 {MAX_ENTRY_EXTENSION_ATR:.1f}ATR 이하·20일 평균 거래대금 {MIN_AVERAGE_TRADING_VALUE / 100_000_000:.0f}억원 이상을 요구합니다.",
+            f"{CHASE_GUARD_EFFECTIVE_DATE.isoformat()}부터 종합점수와 무관하게 20일선 이격 {CHASE_MAX_ENTRY_EXTENSION_ATR:.1f}ATR 이상 또는 {CHASE_MAX_ENTRY_EXTENSION_PERCENT * 100:.0f}% 이상을 차단하고, 5일 급등률 {CHASE_MOMENTUM_5_MAX * 100:.0f}% 초과는 이후 2거래일까지 신규매수를 보류합니다.",
             f"후보 {CANDIDATE_STRATEGY_VERSION}의 활성 H1 매수필터는 {ENTRY_FILTER_EFFECTIVE_DATE.isoformat()}부터 5일 흐름 {0.5:.1f}% 이상·거래량 20일 평균의 {1.0:.1f}배 이상을 추가 요구하며, H2·H3({', '.join(ENTRY_FILTER_SHADOW_VERSIONS)})는 백엔드 비교만 수행합니다.",
             f"{ENTRY_EVIDENCE_EFFECTIVE_DATE.isoformat()}부터 가격 조건 뒤 실적·컨센서스, 시장·섹터 상대강도, 거래대금 정규화 수급을 독립 확인하며 기존 추세는 우호 근거 1개, 조기 전환은 2개를 요구합니다.",
             "OpenDART 중대 위험 공시와 시장 급락·고변동 국면은 점수와 무관하게 신규매수를 보류합니다.",
@@ -2828,7 +3016,7 @@ def build_quant_signal_payload(
             f"종가 신호 뒤 다음 시가가 {MAX_ENTRY_GAP_ATR:.1f}ATR 또는 {MAX_ENTRY_GAP_PERCENT * 100:.0f}% 범위를 벗어나면 오래된 진입 주문을 취소합니다.",
             "매수가 대비 +2%에 도달하면 매수·매도 예상 비용을 반영한 수익 보호선을 적용합니다.",
             "수익확정 예정 다음 시가가 이미 수익 보호선 아래면 소량만 매도하지 않고 잔여비중을 전량 매도합니다.",
-            f"전량 매도 후 {REENTRY_COOLDOWN_BARS}거래일은 동일 종목 재진입을 유예해 반복 매매를 줄입니다.",
+            f"전량 매도 후 {REENTRY_COOLDOWN_BARS}거래일은 동일 종목 재진입을 유예하고, 유예 종료 후에도 기존 조건을 즉시 승계하지 않고 새 돌파 또는 20일선 눌림·회복을 요구합니다.",
             "거래대금과 변동성에 따라 양방향 체결비용을 0.125%~0.50%로 차등 반영합니다.",
             "뉴스 키워드 수는 설명용으로만 유지하며 확정매수 점수에는 사용하지 않습니다.",
         ],
@@ -2937,6 +3125,7 @@ def build_quant_signal_payload(
     latest_setup = current.get("entry_setup") or _entry_setup_kind(
         confirmed[-1],
         indicators[-1],
+        recent_indicators=indicators[-CHASE_MOMENTUM_LOOKBACK_BARS:],
     )
     if confirmation_signal_date >= ENTRY_EVIDENCE_EFFECTIVE_DATE:
         base["confirmation"] = confirmation_response_payload(

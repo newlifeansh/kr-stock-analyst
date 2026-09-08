@@ -744,14 +744,15 @@ def test_v75_rc1_activates_h1_and_keeps_h2_h3_shadow_only():
         "average_trading_value": 5_000_000_000.0,
     }
 
-    assert quant_signals.STRATEGY_VERSION == "position-lifecycle-v7.4"
-    assert quant_signals.CANDIDATE_STRATEGY_VERSION == "position-lifecycle-v7.5-rc2"
+    assert quant_signals.STRATEGY_VERSION == "position-lifecycle-v7.4.1"
+    assert quant_signals.CANDIDATE_STRATEGY_VERSION == "position-lifecycle-v7.5-rc3"
     assert [item["version"] for item in quant_signals.STRATEGY_VERSION_HISTORY] == [
         "position-lifecycle-legacy",
         "position-lifecycle-v7.1",
         "position-lifecycle-v7.3",
         "position-lifecycle-v7.4",
-        "position-lifecycle-v7.5-rc2",
+        "position-lifecycle-v7.4.1",
+        "position-lifecycle-v7.5-rc3",
     ]
     assert quant_signals.active_entry_filter_version(bar.trade_date) == "buy-filter-h1"
     assert quant_signals._entry_signal(bar, indicator) is True
@@ -779,6 +780,172 @@ def test_strategy_version_for_date_preserves_previous_releases():
     assert quant_signals.strategy_version_for_date(date(2026, 8, 25)) == "position-lifecycle-v7.3"
     assert quant_signals.strategy_version_for_date(date(2026, 9, 3)) == "position-lifecycle-v7.3"
     assert quant_signals.strategy_version_for_date(date(2026, 9, 4)) == "position-lifecycle-v7.4"
+    assert quant_signals.strategy_version_for_date(date(2026, 9, 8)) == "position-lifecycle-v7.4"
+    assert quant_signals.strategy_version_for_date(date(2026, 9, 9)) == "position-lifecycle-v7.4.1"
+
+
+def test_v741_chase_veto_preserves_meritz_history_and_blocks_new_overheated_entries():
+    meritz_indicator = {
+        "score": 100.0,
+        "ema10": 130_000.0,
+        "ema20": 122_135.8004,
+        "ema60": 117_671.5272,
+        "ema10_slope": 0.02,
+        "ema20_slope": 0.01,
+        "momentum5": 0.1504,
+        "momentum20": 0.1370,
+        "volume_ratio": 1.7786,
+        "atr": 6_172.0,
+        "atr_percent": 0.045,
+        "ema20_extension_atr": 2.3916,
+        "average_trading_value": 50_000_000_000.0,
+    }
+    historical_bar = quant_signals.PriceBar(
+        trade_date=date(2026, 9, 3),
+        open=132_000.0,
+        high=138_000.0,
+        low=131_000.0,
+        close=136_900.0,
+        volume=1_000_000,
+        trading_value=100_000_000_000,
+    )
+    effective_bar = quant_signals.PriceBar(
+        trade_date=quant_signals.CHASE_GUARD_EFFECTIVE_DATE,
+        open=historical_bar.open,
+        high=historical_bar.high,
+        low=historical_bar.low,
+        close=historical_bar.close,
+        volume=historical_bar.volume,
+        trading_value=historical_bar.trading_value,
+    )
+
+    assert quant_signals._entry_signal(historical_bar, meritz_indicator) is True
+    assert quant_signals._base_entry_setup_kind(effective_bar, meritz_indicator) == "trend_continuation"
+    assert quant_signals._entry_signal(effective_bar, meritz_indicator) is False
+    assert (
+        quant_signals._chase_entry_veto_reason(effective_bar, meritz_indicator)
+        == "ema20_extension_atr"
+    )
+
+
+def test_v741_chase_veto_enforces_atr_percent_and_momentum_boundaries_at_score_100():
+    bar = quant_signals.PriceBar(
+        trade_date=quant_signals.CHASE_GUARD_EFFECTIVE_DATE,
+        open=105.0,
+        high=108.0,
+        low=103.0,
+        close=106.99,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    indicator = {
+        "score": 100.0,
+        "ema10": 103.0,
+        "ema20": 100.0,
+        "ema60": 99.0,
+        "ema10_slope": 0.01,
+        "ema20_slope": 0.01,
+        "momentum5": 0.10,
+        "momentum20": 0.08,
+        "volume_ratio": 1.2,
+        "atr": 5.0,
+        "atr_percent": 0.04,
+        "ema20_extension_atr": 1.49,
+        "average_trading_value": 50_000_000_000.0,
+    }
+
+    assert quant_signals._entry_signal(bar, indicator) is True
+    assert quant_signals._entry_signal(
+        bar,
+        {**indicator, "ema20_extension_atr": 1.5},
+    ) is False
+    assert quant_signals._entry_signal(
+        quant_signals.PriceBar(
+            trade_date=bar.trade_date,
+            open=bar.open,
+            high=bar.high,
+            low=bar.low,
+            close=107.0,
+            volume=bar.volume,
+            trading_value=bar.trading_value,
+        ),
+        indicator,
+    ) is False
+    assert quant_signals._entry_signal(
+        bar,
+        {**indicator, "momentum5": 0.1001},
+    ) is False
+
+
+def test_v741_five_day_spike_waits_until_it_leaves_the_three_bar_window():
+    bar = quant_signals.PriceBar(
+        trade_date=quant_signals.CHASE_GUARD_EFFECTIVE_DATE + timedelta(days=2),
+        open=101.0,
+        high=103.0,
+        low=100.0,
+        close=102.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    indicator = {
+        "score": 80.0,
+        "ema10": 101.0,
+        "ema20": 100.0,
+        "ema60": 99.0,
+        "ema10_slope": 0.01,
+        "ema20_slope": 0.01,
+        "momentum5": 0.03,
+        "momentum20": 0.04,
+        "volume_ratio": 1.2,
+        "atr": 3.0,
+        "atr_percent": 0.03,
+        "ema20_extension_atr": 0.67,
+        "average_trading_value": 50_000_000_000.0,
+    }
+    spike = {**indicator, "momentum5": 0.1001}
+
+    assert quant_signals._entry_signal(
+        bar,
+        indicator,
+        recent_indicators=[spike, indicator, indicator],
+    ) is False
+    assert quant_signals._entry_signal(
+        bar,
+        indicator,
+        recent_indicators=[indicator, indicator, indicator],
+    ) is True
+
+
+def test_v741_current_signal_exposes_chase_risk_as_watch_not_confirmed_buy(monkeypatch):
+    bars, indicators = _strategy_test_inputs(1)
+    bars[0] = quant_signals.PriceBar(
+        trade_date=quant_signals.CHASE_GUARD_EFFECTIVE_DATE,
+        open=105.0,
+        high=108.0,
+        low=103.0,
+        close=107.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    _set_entry_indicator(indicators[0])
+    indicators[0].update(
+        score=100.0,
+        ema20=100.0,
+        ema60=99.0,
+        ema20_extension_atr=quant_signals.CHASE_MAX_ENTRY_EXTENSION_ATR,
+    )
+    monkeypatch.setattr(quant_signals, "_indicator_rows", lambda _bars: indicators)
+
+    current, _factors = quant_signals._current_signal(
+        bars,
+        {"position": None, "events": [], "lifecycle_events": [], "last_exit_index": None},
+        None,
+        datetime.combine(bars[0].trade_date, time(16, 0)),
+    )
+
+    assert current["action"] == "entry_watch"
+    assert current["label"] == "추격매수 위험으로 관망"
+    assert current["entry_price"] is None
 
 
 def test_v74_fixed_targets_protect_at_two_percent_and_sell_remaining_half_at_five_percent():
@@ -1056,6 +1223,135 @@ def test_reentry_is_delayed_for_ten_trading_bars_after_exit():
         bars[66].trade_date,
         bars[79].trade_date,
     ]
+
+
+def test_v741_reentry_requires_new_breakout_or_ema20_retest_after_cooldown(monkeypatch):
+    bars, indicators = _strategy_test_inputs(90)
+    strategy_start = date(2026, 7, 1)
+    bars = [
+        quant_signals.PriceBar(
+            trade_date=strategy_start + timedelta(days=index),
+            open=bar.open,
+            high=bar.high,
+            low=bar.low,
+            close=bar.close,
+            volume=bar.volume,
+            trading_value=bar.trading_value,
+        )
+        for index, bar in enumerate(bars)
+    ]
+    _set_entry_indicator(indicators[65])
+    bars[66] = quant_signals.PriceBar(
+        trade_date=bars[66].trade_date,
+        open=100.0,
+        high=100.0,
+        low=94.0,
+        close=95.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    for index in range(67, len(indicators)):
+        _set_entry_indicator(indicators[index])
+        indicators[index]["prior_high"] = 103.0
+        indicators[index]["ema20_extension_atr"] = 1.0
+        bars[index] = quant_signals.PriceBar(
+            trade_date=bars[index].trade_date,
+            open=102.0,
+            high=103.0,
+            low=101.5,
+            close=102.0,
+            volume=1_000_000,
+            trading_value=50_000_000_000,
+        )
+    approved_evidence = {
+        bar.trade_date: {
+            "quality": {"state": "ready", "reasons": []},
+            "supportive_count": 2,
+            "caution_count": 0,
+            "vetoes": [],
+            "required_supports": {"trend_continuation": 1, "early_turn": 2},
+        }
+        for bar in bars
+    }
+
+    first_eligible_index = 78
+    assert bars[first_eligible_index].trade_date >= quant_signals.CHASE_GUARD_EFFECTIVE_DATE
+    assert quant_signals._reentry_entry_allowed(
+        bars,
+        indicators,
+        first_eligible_index,
+        67,
+    ) is False
+
+    monkeypatch.setattr(
+        quant_signals,
+        "_indicator_rows",
+        lambda candidate_bars: [dict(item) for item in indicators[: len(candidate_bars)]],
+    )
+    current_bars = bars[: first_eligible_index + 1]
+    current_simulation = quant_signals._simulate(
+        current_bars,
+        indicators[: first_eligible_index + 1],
+        approved_evidence,
+    )
+    current, _factors = quant_signals._current_signal(
+        current_bars,
+        current_simulation,
+        None,
+        datetime.combine(current_bars[-1].trade_date, time(16, 0)),
+    )
+    assert current["action"] == "entry_watch"
+    assert current["label"] == "새 재진입 확인 대기"
+
+    breakout_index = 82
+    bars[breakout_index] = quant_signals.PriceBar(
+        trade_date=bars[breakout_index].trade_date,
+        open=102.0,
+        high=104.5,
+        low=101.5,
+        close=104.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    indicators[breakout_index]["ema20_extension_atr"] = 1.4
+    bars[83] = quant_signals.PriceBar(
+        trade_date=bars[83].trade_date,
+        open=104.0,
+        high=105.0,
+        low=103.0,
+        close=104.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    assert quant_signals._reentry_entry_allowed(
+        bars,
+        indicators,
+        breakout_index,
+        67,
+    ) is True
+    result = quant_signals._simulate(bars, indicators, approved_evidence)
+    buys = [event for event in result["events"] if event["side"] == "buy"]
+    assert [event["execution_date"] for event in buys[:2]] == [
+        bars[66].trade_date,
+        bars[83].trade_date,
+    ]
+
+    pullback_bars = list(bars)
+    pullback_bars[first_eligible_index] = quant_signals.PriceBar(
+        trade_date=bars[first_eligible_index].trade_date,
+        open=102.0,
+        high=103.0,
+        low=100.5,
+        close=102.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    assert quant_signals._reentry_entry_allowed(
+        pullback_bars,
+        indicators,
+        first_eligible_index,
+        67,
+    ) is True
 
 
 def test_lifecycle_preroll_preserves_position_opened_before_performance_window():

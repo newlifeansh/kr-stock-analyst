@@ -360,12 +360,14 @@ def test_quant_lifecycle_only_schedules_v7_buy_after_evidence_approval(monkeypat
     monkeypatch.setattr(
         quant_signals,
         "_entry_signal",
-        lambda bar, _indicator: bar.trade_date == SIGNAL_DATE,
+        lambda bar, _indicator, **_kwargs: bar.trade_date == SIGNAL_DATE,
     )
     monkeypatch.setattr(
         quant_signals,
         "_entry_setup_kind",
-        lambda bar, _indicator: "trend_continuation" if bar.trade_date == SIGNAL_DATE else None,
+        lambda bar, _indicator, **_kwargs: (
+            "trend_continuation" if bar.trade_date == SIGNAL_DATE else None
+        ),
     )
 
     blocked = quant_signals._simulate(bars, indicators, {})

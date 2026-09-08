@@ -299,7 +299,7 @@ analyst collect-news-items --categories breaking,market,company --max-pages 2 --
 
 기계 판독 가능한 원본은 `app/qa/data_signal_cases.json`, 사람이 읽는 생성 문서는
 `docs/qa/data-signal-qa-matrix.md`입니다. 현재 기준 전략은
-`position-lifecycle-v7.4`입니다. 2026-09-04부터 +3% 1차·+5% 2차 수익확정, 진입필터 강화, 초기 위험 4% 상한을 적용합니다.
+`position-lifecycle-v7.4.1`입니다. 2026-09-04부터 +3% 1차·+5% 2차 수익확정, 진입필터 강화, 초기 위험 4% 상한을 적용하고, 2026-09-09부터 추격매수 veto와 재진입 신규 확인을 추가로 적용합니다.
 
 ```bash
 # PR/배포용 고정 픽스처·계약·경계값 검사

@@ -378,24 +378,45 @@ def _simulate_ohlc_proxy(
             pending_close = _schedule_close_action(bar, indicator, position, index)
             if pending_close is not None:
                 pending = pending_close
-        elif index < len(bars) - 1 and (
-            last_exit_index is None or index - last_exit_index > qs.REENTRY_COOLDOWN_BARS
+        elif index < len(bars) - 1 and qs._reentry_entry_allowed(
+            bars,
+            indicators,
+            index,
+            last_exit_index,
         ) and (
-            qs._entry_signal(bar, indicator)
+            qs._entry_signal(
+                bar,
+                indicator,
+                recent_indicators=indicators[
+                    max(0, index - qs.CHASE_MOMENTUM_LOOKBACK_BARS + 1) : index + 1
+                ],
+            )
             if entry_filter_version is None
             else qs._entry_signal(
                 bar,
                 indicator,
                 entry_filter_version=entry_filter_version,
+                recent_indicators=indicators[
+                    max(0, index - qs.CHASE_MOMENTUM_LOOKBACK_BARS + 1) : index + 1
+                ],
             )
         ):
             setup = (
-                qs._entry_setup_kind(bar, indicator)
+                qs._entry_setup_kind(
+                    bar,
+                    indicator,
+                    recent_indicators=indicators[
+                        max(0, index - qs.CHASE_MOMENTUM_LOOKBACK_BARS + 1) : index + 1
+                    ],
+                )
                 if entry_filter_version is None
                 else qs._entry_setup_kind(
                     bar,
                     indicator,
                     entry_filter_version=entry_filter_version,
+                    recent_indicators=indicators[
+                        max(0, index - qs.CHASE_MOMENTUM_LOOKBACK_BARS + 1) : index + 1
+                    ],
                 )
             ) or "trend_continuation"
             entry_action = {

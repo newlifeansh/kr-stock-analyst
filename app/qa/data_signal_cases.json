@@ -1,6 +1,6 @@
 {
   "catalog_version": "1.0",
-  "strategy_version": "position-lifecycle-v7.4",
+  "strategy_version": "position-lifecycle-v7.4.1",
   "description": "제품 전체 데이터 연동부터 시그널 계산, API, 화면까지의 QA 단일 원본",
   "cases": [
     {
@@ -50,7 +50,7 @@
       "modes": ["gate", "live"],
       "automation": "pytest 시간 픽스처 + live 응답 검사",
       "preconditions": ["KST 장중·장마감·휴장 시각과 현행 전략 버전을 준비한다."],
-      "inputs": {"timezone": "Asia/Seoul", "strategy_version": "position-lifecycle-v7.4"},
+      "inputs": {"timezone": "Asia/Seoul", "strategy_version": "position-lifecycle-v7.4.1"},
       "steps": ["as_of·trade_date·source·cache age를 시장 캘린더와 비교하고 품질 API 전략 버전을 시그널 API와 비교한다."],
       "expected": ["시각과 출처가 명시되고 만료 캐시는 최신으로 표시되지 않으며 품질 API는 현행 전략 버전을 반환한다."],
       "failure_criteria": ["미래 날짜·오래된 캐시가 최신으로 표시되거나 품질 API의 전략 버전이 현행 버전과 다르다."]
@@ -643,15 +643,15 @@
     },
     {
       "id": "SIG-ENTRY-005",
-      "title": "v7.5-rc2 H1 활성 진입필터와 H2·H3 shadow 비교",
+      "title": "v7.5-rc3 H1 활성 진입필터와 H2·H3 shadow 비교",
       "domain": "시그널 진입 판단",
       "priority": "P0",
       "modes": ["gate"],
       "automation": "pytest versioned entry-filter boundary fixture + backend shadow replay",
-      "preconditions": ["v7.4 baseline과 H1·H2·H3 후보를 동일한 가격·비용·하이브리드 체결 모델로 준비한다."],
-      "inputs": {"candidate_strategy_version": "position-lifecycle-v7.5-rc2", "active_filter": "buy-filter-h1", "shadow_filters": ["buy-filter-h2", "buy-filter-h3"], "h1_momentum5_min": "0.5%", "h1_volume_ratio_min": 1.0, "h2_momentum5_min": "1%", "h2_volume_ratio_min": 1.1, "h3_atr_max": "4%", "h3_extension_max": "2ATR"},
+      "preconditions": ["v7.4.1 baseline과 H1·H2·H3 후보를 동일한 가격·비용·하이브리드 체결 모델로 준비한다."],
+      "inputs": {"candidate_strategy_version": "position-lifecycle-v7.5-rc3", "active_filter": "buy-filter-h1", "shadow_filters": ["buy-filter-h2", "buy-filter-h3"], "h1_momentum5_min": "0.5%", "h1_volume_ratio_min": 1.0, "h2_momentum5_min": "1%", "h2_volume_ratio_min": 1.1, "h3_atr_max": "4%", "h3_extension_max": "2ATR"},
       "steps": ["H1의 0.5%·1.0배 경계를 검증하고 기본 진입 경로가 H1을 사용하는지 확인한다.", "동일 봉에서 H2·H3의 허용·거절 결과를 계산하되 사용자 상태·알림·주문에는 반영하지 않는다.", "동일 기간의 하이브리드 OHLC 프록시 백테스트에서 수익률·최대낙폭·승률·회전율을 baseline과 비교한다.", "후보 버전과 H1/H2/H3 필터 버전을 보고서에 고정한다."],
-      "expected": ["현재 후보 신호는 H1만 적용하고 H2·H3는 백엔드 비교군으로 남는다.", "v7.4 baseline·v7.5-rc2 후보·과거 날짜별 규칙은 서로 덮어쓰지 않는다.", "분봉 이력이 없으므로 결과는 일봉 OHLC 기반 하이브리드 프록시라고 명시된다."],
+      "expected": ["현재 후보 신호는 H1과 공통 추격매수 veto만 적용하고 H2·H3는 백엔드 비교군으로 남는다.", "v7.4.1 baseline·v7.5-rc3 후보·과거 날짜별 규칙은 서로 덮어쓰지 않는다.", "분봉 이력이 없으므로 결과는 일봉 OHLC 기반 하이브리드 프록시라고 명시된다."],
       "failure_criteria": ["H2·H3가 사용자 알림·매수대기·주문·보유 상태를 직접 바꾼다.", "H1 경계가 0.5%·1.0배와 다르거나 H3의 ATR·이격 제한이 누락된다.", "후보 또는 과거 버전이 baseline 캐시·체결 이력을 소급 변경한다."]
     },
     {
@@ -661,11 +661,24 @@
       "priority": "P0",
       "modes": ["gate"],
       "automation": "pytest shadow snapshot persistence fixture + collector refresh-loop contract",
-      "preconditions": ["동일한 완료 일봉 데이터와 v7.5-rc2 후보 저장 키를 준비한다."],
+      "preconditions": ["동일한 완료 일봉 데이터와 v7.5-rc3 후보 저장 키를 준비한다."],
       "inputs": {"refresh_interval_seconds": 300, "rerun_condition": "new latest completed price date", "snapshot_scope": "backend-only", "filter_versions": ["buy-filter-v7.4-baseline", "buy-filter-h1", "buy-filter-h2", "buy-filter-h3"]},
       "steps": ["collector 프로세스가 시작될 때 H1·H2·H3와 baseline을 같은 실행에서 계산하는지 확인한다.", "동일한 최신 일봉 날짜로 다시 실행해 기존 결과를 재사용하는지 확인한다.", "새 최신 일봉 날짜가 들어오면 네 필터를 모두 다시 계산하고 별도 shadow snapshot을 갱신하는지 확인한다.", "저장된 결과가 사용자용 시그널 상태·알림·주문 스냅샷과 분리되는지 확인한다."],
       "expected": ["H1·H2·H3가 빠짐없이 동일 데이터·동일 하이브리드 체결 모델로 함께 백테스트된다.", "같은 일봉 날짜에는 중복 계산하지 않고 새 날짜에서만 재실행된다.", "shadow 결과는 candidate 버전별 별도 저장 키를 사용하며 사용자용 확정매수·확정매도 상태를 변경하지 않는다."],
       "failure_criteria": ["H1만 실행되거나 H2·H3가 수동 명령 없이는 계산되지 않는다.", "같은 날짜를 반복 계산해 비용·부하가 누적되거나 새 날짜의 후보 결과가 갱신되지 않는다.", "shadow 결과가 시장 피드·알림·주문 상태를 덮어쓴다."]
+    },
+    {
+      "id": "SIG-ENTRY-007",
+      "title": "v7.4.1 추격매수 veto와 재진입 신규 확인",
+      "domain": "시그널 진입 판단",
+      "priority": "P0",
+      "modes": ["gate", "live"],
+      "automation": "pytest 메리츠 회귀·경계값·재진입 fixture + live 관망 상태 계약",
+      "preconditions": ["2026-09-03 메리츠 100점 기존 신호와 2026-09-09 이후의 동일한 과열 조건을 준비한다.", "전량 매도 후 10거래일 유예가 끝난 계속 유효 조건과 새 돌파·20일선 눌림 조건을 준비한다."],
+      "inputs": {"effective_date": "2026-09-09", "ema20_extension_atr_veto": ">=1.5ATR", "ema20_extension_percent_veto": ">=7%", "momentum5_veto": ">10%", "momentum_lookback_bars": 3, "reentry_cooldown_bars": 10, "reentry_fresh_triggers": ["새 20일 고점 돌파", "20일선 2% 이내 눌림 후 회복"], "meritz_fixture": {"code": "138040", "signal_date": "2026-09-03", "score": 100, "ema20_extension_atr": 2.3916, "momentum5": "15.04%"}},
+      "steps": ["100점이어도 ATR·절대 이격 경계에서 신규매수가 차단되는지 확인한다.", "5일 급등률이 10%를 초과한 봉과 다음 2개 봉을 차단하고 3번째 후속 봉에서 다시 평가한다.", "재진입 유예 종료 즉시의 계속 유효 조건을 차단하고 새 돌파 또는 20일선 눌림·회복에서만 허용한다.", "2026-09-03 기존 메리츠 이력이 v7.3으로 그대로 재현되는지 확인한다.", "스테이징·운영의 해당 조건 종목이 매수 확정이 아닌 관망 상태로 노출되는지 확인한다."],
+      "expected": ["종합점수가 높아도 과도 이격·최근 급등이면 매수를 확정하지 않는다.", "재진입 유예 종료는 기존 조건의 즉시 승계가 아니며 새 가격 사건이 필수다.", "적용일 이전 신호·체결·손익은 소급 변경되지 않는다.", "공개 화면은 관망 결론만 반영하고 세부 임계값과 veto 원문은 20일·60일·수급 3가지 공개 근거 밖으로 노출하지 않는다."],
+      "failure_criteria": ["100점이라는 이유로 이격·급등 veto를 무시한다.", "유예 종료 첫 날 새 돌파·눌림 없이 즉시 재진입한다.", "2026-09-09 이전 기존 이력이 새 규칙으로 다시 계산된다.", "공개 API·DOM에 세부 임계값·veto 원문이 노출된다."]
     },
 
     {
@@ -815,13 +828,13 @@
     },
     {
       "id": "SIG-EXIT-005",
-      "title": "v7.4 수익 보호와 빠른 전량 확정",
+      "title": "v7.4·v7.4.1 수익 보호와 빠른 전량 확정",
       "domain": "시그널 청산 판단",
       "priority": "P0",
       "modes": ["gate"],
       "automation": "pytest fixed-target/zero-runner fixture + staging lifecycle DOM contract",
       "preconditions": ["+2% 보호 발동, +3% 1차 매도, +5% 2차 전량 매도 시나리오를 준비한다."],
-      "inputs": {"strategy_version": "position-lifecycle-v7.4", "targets": [0.03, 0.05], "sell_fractions": [0.5, 0.5], "runner_fraction": 0.0},
+      "inputs": {"strategy_version": "position-lifecycle-v7.4.1", "targets": [0.03, 0.05], "sell_fractions": [0.5, 0.5], "runner_fraction": 0.0},
       "steps": ["고점이 +2%에 도달한 뒤 보호선을 계산한다.", "+3% 종가 신호 다음 시가에서 50% 매도를 실행한다.", "+5% 종가 신호 다음 시가에서 잔여 50%를 전량 매도하고 closed trade를 기록한다.", "기존 v7.3 포지션이 새 규칙으로 전환될 때 하루 매도 상한을 확인한다."],
       "expected": ["+2% 이후 보호선이 작동하고 +3%·+5%의 두 단계만 사용하며 +5% 후 포지션과 잔여 러너가 없다.", "기존 포지션 전환은 한 거래일 최대 30%로 제한되어 급격한 일괄 매도를 막는다."],
       "failure_criteria": ["+2% 이후 보호선이 사라지거나 +3%·+5% 목표가가 R 배수로 변동한다.", "+5% 도달 후 0%가 아닌 잔여 비중이 남거나 closed trade가 생성되지 않는다.", "기존 포지션 전환에서 하루 30%를 초과해 매도한다."]
@@ -834,8 +847,8 @@
       "priority": "P0",
       "modes": ["gate"],
       "automation": "pytest strategy-date fixture",
-      "preconditions": ["2026-08-24 이전·당일·2026-08-25 이후·2026-09-04 이전·당일 이후 신호를 준비한다."],
-      "inputs": {"versions": "legacy,v7.1,v7.2,v7.3,v7.4"},
+      "preconditions": ["2026-08-24 이전·당일·2026-08-25 이후·2026-09-04·2026-09-09 경계 신호를 준비한다."],
+      "inputs": {"versions": "legacy,v7.1,v7.2,v7.3,v7.4,v7.4.1"},
       "steps": ["각 결정일의 ladder와 보호선을 비교한다."],
       "expected": ["3R·5R·8R, 2R·4R·6R, 1R·1.6R·2.5R, +3%·+5% 규칙이 날짜별로 유지된다."],
       "failure_criteria": ["새 전략이 과거 체결·손익을 소급 변경한다."]
@@ -848,7 +861,7 @@
       "modes": ["gate", "live"],
       "automation": "catalog/health/feed version assertion",
       "preconditions": ["카탈로그와 배포 서버를 조회한다."],
-      "inputs": {"expected": "position-lifecycle-v7.4"},
+      "inputs": {"expected": "position-lifecycle-v7.4.1"},
       "steps": ["카탈로그·health·시장 피드·종목 상세 버전을 비교한다."],
       "expected": ["모두 같은 버전이며 다른 버전 캐시는 사용하지 않는다."],
       "failure_criteria": ["화면·API·카탈로그 버전이 다르다."]
@@ -869,15 +882,15 @@
     },
     {
       "id": "SIG-LIFECYCLE-002",
-      "title": "전량 매도 후 10거래일 재진입 유예",
+      "title": "전량 매도 후 10거래일 재진입 유예와 신규 확인",
       "domain": "시그널 수명주기",
       "priority": "P0",
       "modes": ["gate"],
       "automation": "pytest cooldown fixture",
-      "preconditions": ["매도 후 9·10·11번째 거래일 진입 조건을 준비한다."],
-      "inputs": {"cooldown_bars": 10},
-      "steps": ["각 날짜에서 진입 허용 여부와 다음 조건 문구를 확인한다."],
-      "expected": ["10거래일 동안 차단되고 이후 다시 평가한다."],
+      "preconditions": ["매도 후 9·10·11번째 거래일 진입 조건과 유예 종료 후 새 돌파·눌림 유무를 준비한다."],
+      "inputs": {"cooldown_bars": 10, "post_cooldown_fresh_trigger_required_from": "2026-09-09"},
+      "steps": ["각 날짜에서 진입 허용 여부와 다음 조건 문구를 확인한다.", "유예가 끝난 조건을 그대로 유지했을 때와 새 돌파·눌림이 발생했을 때를 비교한다."],
+      "expected": ["10거래일 동안 차단되고, 적용일 이후에는 유예 종료 후에도 새 돌파 또는 20일선 눌림·회복에서만 재진입한다."],
       "failure_criteria": ["유예 중 재진입하거나 종료 후에도 영구 차단된다."]
     },
     {

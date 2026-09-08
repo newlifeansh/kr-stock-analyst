@@ -105,8 +105,12 @@ def test_full_intraday_proxy_enters_at_signal_day_close(monkeypatch) -> None:
         captured_entry_prices.append(kwargs.get("entry_price"))
         return original_new_position(*args, **kwargs)
 
-    monkeypatch.setattr(qs, "_entry_signal", lambda bar, indicator: True)
-    monkeypatch.setattr(qs, "_entry_setup_kind", lambda bar, indicator: "trend_continuation")
+    monkeypatch.setattr(qs, "_entry_signal", lambda bar, indicator, **kwargs: True)
+    monkeypatch.setattr(
+        qs,
+        "_entry_setup_kind",
+        lambda bar, indicator, **kwargs: "trend_continuation",
+    )
     monkeypatch.setattr(qs, "_signal_reason", lambda indicator, side: "test entry")
     monkeypatch.setattr(mode_comparison, "_new_position", capture_entry_price)
 

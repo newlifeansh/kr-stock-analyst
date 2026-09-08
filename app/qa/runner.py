@@ -631,6 +631,147 @@ def _gate_checks(
         pass_message="v7.4 예비 포착 및 변동성·이격·모멘텀·참여·거래대금 품질 가드를 확인했습니다.",
     )
 
+    def chase_entry_guards() -> dict[str, Any]:
+        guard_bar = qs.PriceBar(
+            qs.CHASE_GUARD_EFFECTIVE_DATE,
+            105.0,
+            108.0,
+            103.0,
+            106.99,
+            2_000_000,
+            10_000_000_000,
+        )
+        guard = {
+            **common,
+            "score": 100.0,
+            "ema10": 103.0,
+            "ema20": 100.0,
+            "ema60": 99.0,
+            "momentum5": qs.CHASE_MOMENTUM_5_MAX,
+            "momentum20": 0.08,
+            "ema20_extension_atr": qs.CHASE_MAX_ENTRY_EXTENSION_ATR - 0.01,
+        }
+        _assert(qs._entry_signal(guard_bar, guard), "추격매수 정상 경계 아래 진입이 거절됐습니다.")
+        _assert(
+            not qs._entry_signal(
+                guard_bar,
+                {**guard, "ema20_extension_atr": qs.CHASE_MAX_ENTRY_EXTENSION_ATR},
+            ),
+            "1.5ATR 이상 추격매수가 100점으로 승인됐습니다.",
+        )
+        percent_bar = qs.PriceBar(
+            guard_bar.trade_date,
+            guard_bar.open,
+            108.0,
+            guard_bar.low,
+            107.0,
+            guard_bar.volume,
+            guard_bar.trading_value,
+        )
+        _assert(
+            not qs._entry_signal(percent_bar, guard),
+            "20일선 7% 이상 추격매수가 100점으로 승인됐습니다.",
+        )
+        spike = {**guard, "momentum5": qs.CHASE_MOMENTUM_5_MAX + 0.0001}
+        _assert(
+            not qs._entry_signal(
+                guard_bar,
+                guard,
+                recent_indicators=[spike, guard, guard],
+            ),
+            "5일 10% 초과 급등의 2거래일 대기가 누락됐습니다.",
+        )
+
+        historical_bar = qs.PriceBar(
+            date(2026, 9, 3),
+            132_000.0,
+            138_000.0,
+            131_000.0,
+            136_900.0,
+            1_000_000,
+            100_000_000_000,
+        )
+        historical_meritz = {
+            **guard,
+            "ema10": 130_000.0,
+            "ema20": 122_135.8004,
+            "ema60": 117_671.5272,
+            "momentum5": 0.1504,
+            "momentum20": 0.1370,
+            "ema20_extension_atr": 2.3916,
+        }
+        _assert(
+            qs._entry_signal(historical_bar, historical_meritz),
+            "2026-09-03 메리츠 기존 신호가 소급 변경됐습니다.",
+        )
+
+        reentry_bars = [
+            qs.PriceBar(
+                date(2026, 8, 29) + timedelta(days=index),
+                102.0,
+                103.0,
+                101.5,
+                102.0,
+                2_000_000,
+                10_000_000_000,
+            )
+            for index in range(qs.REENTRY_COOLDOWN_BARS + 2)
+        ]
+        reentry_indicators = [
+            {
+                **guard,
+                "ema20": 99.0,
+                "ema20_extension_atr": 1.0,
+                "momentum5": 0.03,
+                "prior_high": 103.0,
+            }
+            for _bar in reentry_bars
+        ]
+        current_index = len(reentry_bars) - 1
+        _assert(
+            not qs._reentry_entry_allowed(
+                reentry_bars,
+                reentry_indicators,
+                current_index,
+                0,
+            ),
+            "유예 종료 후 기존 진입 조건이 즉시 승계됐습니다.",
+        )
+        last_bar = reentry_bars[current_index]
+        reentry_bars[current_index] = qs.PriceBar(
+            last_bar.trade_date,
+            last_bar.open,
+            last_bar.high,
+            100.5,
+            last_bar.close,
+            last_bar.volume,
+            last_bar.trading_value,
+        )
+        _assert(
+            qs._reentry_entry_allowed(
+                reentry_bars,
+                reentry_indicators,
+                current_index,
+                0,
+            ),
+            "유예 종료 후 20일선 눌림·회복 재진입이 거절됐습니다.",
+        )
+        return {
+            "effective_date": qs.CHASE_GUARD_EFFECTIVE_DATE.isoformat(),
+            "ema20_extension_atr_veto": qs.CHASE_MAX_ENTRY_EXTENSION_ATR,
+            "ema20_extension_percent_veto": qs.CHASE_MAX_ENTRY_EXTENSION_PERCENT,
+            "momentum5_veto": qs.CHASE_MOMENTUM_5_MAX,
+            "momentum_lookback_bars": qs.CHASE_MOMENTUM_LOOKBACK_BARS,
+            "historical_meritz_preserved": True,
+            "fresh_reentry_required": True,
+        }
+
+    collector.check(
+        "SIG-ENTRY-007",
+        chase_entry_guards,
+        pass_message="v7.4.1 추격매수 veto·급등 대기·재진입 신규 확인·메리츠 이력 보존을 확인했습니다.",
+    )
+
     def versioned_entry_filters() -> dict[str, Any]:
         candidate_bar = qs.PriceBar(
             date(2026, 9, 4),
@@ -683,7 +824,7 @@ def _gate_checks(
     collector.check(
         "SIG-ENTRY-005",
         versioned_entry_filters,
-        pass_message="v7.5-rc2 H1 활성 필터와 H2·H3 백엔드 shadow 비교 계약을 확인했습니다.",
+        pass_message="v7.5-rc3 H1 활성 필터와 H2·H3 백엔드 shadow 비교 계약을 확인했습니다.",
     )
 
     def shadow_refresh_contract() -> dict[str, Any]:
