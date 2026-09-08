@@ -1951,6 +1951,7 @@ def run_e2e_checks(
                     signal_tab = page.locator('[data-stock-tab="strategy"]')
                     _select_tab(signal_tab)
                     expected_stage = {
+                        "entry_watch": "매수 관찰",
                         "exited": "매도 완료",
                     }.get(stock.get("signal_action"), stock.get("signal_label"))
                     if expected_stage:
@@ -7706,6 +7707,10 @@ def run_e2e_checks(
                               overflow: tile.classList.contains('is-overflow'),
                               classes: [...tile.classList],
                               ariaLabel: tile.getAttribute('aria-label'),
+                              text: tile.innerText.trim(),
+                              metadataNodeCount: tile.querySelectorAll(
+                                '.watch-market-map-tile-top, .watch-market-map-rank, .watch-market-map-origin, .watch-market-map-tile-copy small'
+                              ).length,
                               backgroundColor: getComputedStyle(tile).backgroundColor,
                               x: rect.x,
                               y: rect.y,
@@ -7783,6 +7788,12 @@ def run_e2e_checks(
                             or abs(tile["width"] - tile["height"]) > 1.25
                         )
                     ]
+                    metadata_leaks = [
+                        tile
+                        for tile in snapshot["tiles"]
+                        if tile["metadataNodeCount"]
+                        or any(label in tile["text"] for label in ("시총", "국내", "미국"))
+                    ]
                     timeline = snapshot["timeline"]
                     timeline_ratio = (
                         timeline["fillWidth"] / timeline["trackWidth"]
@@ -7794,6 +7805,7 @@ def run_e2e_checks(
                         or outside
                         or snapshot["overlaps"]
                         or unreadable
+                        or metadata_leaks
                         or timeline["hidden"]
                         or timeline["valueNow"] != 720
                         or "오늘 12:00" not in (timeline["label"] or "")
@@ -7806,6 +7818,7 @@ def run_e2e_checks(
                                 "layout": snapshot,
                                 "outside": outside,
                                 "unreadable": unreadable,
+                                "metadata_leaks": metadata_leaks,
                                 "timeline_ratio": timeline_ratio,
                             },
                         )
@@ -7901,8 +7914,19 @@ def run_e2e_checks(
                         open: sheet.open,
                         rowCount: links.length,
                         hiddenCount: state.watchMarketMapHiddenEntries.length,
+                        rowCodes: links.map(link => link.dataset.code),
+                        hiddenCodes: state.watchMarketMapHiddenEntries.map(entry => entry.item.code),
                         hrefs: allLinks.map(link => link.getAttribute('href')),
-                        ranks: links.map(link => Number(link.querySelector('.watch-market-map-sheet-rank')?.textContent)),
+                        metadataLeaks: links.map(link => ({
+                          code: link.dataset.code,
+                          text: link.innerText.trim(),
+                          rankCount: link.querySelectorAll('.watch-market-map-sheet-rank').length,
+                          originCount: link.querySelectorAll('.watch-market-map-sheet-name em').length,
+                        })).filter(row => (
+                          row.rankCount
+                          || row.originCount
+                          || /시총|국내|미국/.test(row.text)
+                        )),
                         animationName: getComputedStyle(sheet).animationName,
                         tileTransitionMs: Math.max(
                           ...getComputedStyle(
@@ -7918,7 +7942,8 @@ def run_e2e_checks(
                     sheet_snapshot["tag"] != "DIALOG"
                     or sheet_snapshot["open"] is not True
                     or sheet_snapshot["rowCount"] != sheet_snapshot["hiddenCount"]
-                    or sheet_snapshot["ranks"] != sorted(sheet_snapshot["ranks"])
+                    or sheet_snapshot["rowCodes"] != sheet_snapshot["hiddenCodes"]
+                    or sheet_snapshot["metadataLeaks"]
                     or sheet_snapshot["rootWidth"] > sheet_snapshot["viewport"] + 1
                     or sheet_snapshot["animationName"] != "none"
                     or sheet_snapshot["tileTransitionMs"] > 1
@@ -7937,7 +7962,7 @@ def run_e2e_checks(
                         malformed_hrefs.append(href)
                 if malformed_hrefs:
                     raise QaFailure(
-                        "카드 또는 바텀시트 행의 종목 상세 링크가 잘못됐습니다.",
+                        "버블 또는 바텀시트 행의 종목 상세 링크가 잘못됐습니다.",
                         {"hrefs": malformed_hrefs},
                     )
 
