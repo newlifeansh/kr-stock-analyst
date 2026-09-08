@@ -7919,11 +7919,26 @@ function quotePayloadIsStoredFallbackDuringActiveSession(payload = {}, now = new
   return koreaExtendedQuoteLive(currentTime) || aiSignalQuoteUsesActiveSession(payload.quote || {});
 }
 
+function quotePayloadHasOpeningAuctionPrice(payload = {}) {
+  const quote = payload.quote || {};
+  if (String(quote.market_session || "") !== "krx_opening_auction") return false;
+  const price = Number(quote.pre_market_price);
+  return Number.isFinite(price)
+    && price > 0
+    && Boolean(String(quote.pre_market_as_of || "").trim())
+    && Boolean(String(quote.pre_market_status || "").trim());
+}
+
 function stockQuotePayloadIsDisplayReady(payload = {}, now = Date.now()) {
   if (!quoteStreamPayloadHasUsablePrice(payload)) return false;
   const currentTime = now instanceof Date ? now : new Date(now);
   const activeSession = koreaExtendedQuoteLive(currentTime)
     || aiSignalQuoteUsesActiveSession(payload.quote || {});
+  // During KRX opening auction the REST payload intentionally keeps the last
+  // completed close as its base price and adds today's indicative auction
+  // price separately. Treat that combined payload as display-ready so stocks
+  // without an accepted realtime tick do not remain blank.
+  if (activeSession && quotePayloadHasOpeningAuctionPrice(payload)) return true;
   if (quotePayloadIsStoredFallbackDuringActiveSession(payload, currentTime)) return false;
   if (!activeSession) return true;
   const observedAt = quoteFrameTimestamp(payload);

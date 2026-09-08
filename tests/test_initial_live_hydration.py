@@ -92,6 +92,19 @@ const result = {{
   activeStored: stockQuotePayloadIsDisplayReady(
     frame("stored_daily_price", "2026-08-31T15:30:00+09:00"), now,
   ),
+  openingAuctionWithIndicativePrice: stockQuotePayloadIsDisplayReady({{
+    type: "quote",
+    code: "003490",
+    source: "stored_daily_price",
+    as_of: "2026-08-31T15:30:00+09:00",
+    quote: {{
+      price: 30350,
+      market_session: "krx_opening_auction",
+      pre_market_price: 30500,
+      pre_market_as_of: "08:55:31",
+      pre_market_status: "장전 예상체결",
+    }},
+  }}, now),
 }};
 marketLive = false;
 result.closedStored = stockQuotePayloadIsDisplayReady(
@@ -114,6 +127,7 @@ process.stdout.write(JSON.stringify(result));
         "staleRealtime": False,
         "delayedRest": True,
         "activeStored": False,
+        "openingAuctionWithIndicativePrice": True,
         "closedStored": True,
         "openingAuctionStored": False,
     }
