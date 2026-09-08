@@ -1111,7 +1111,7 @@ class QuantReturnBasisOut(BaseModel):
 class QuantCurrentSignalOut(BaseModel):
     action: str
     label: str
-    score: Decimal
+    score: Optional[Decimal] = None
     price: Optional[int] = None
     as_of: datetime
     live_observation: bool
@@ -1272,7 +1272,7 @@ class RecommendationItemOut(BaseModel):
 class RecommendationAiTradeSignalCurrentOut(BaseModel):
     action: str
     label: str
-    score: Decimal
+    score: Optional[Decimal] = None
     price: Optional[int] = None
     as_of: datetime
     live_observation: bool

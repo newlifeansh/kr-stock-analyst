@@ -1323,7 +1323,7 @@
         "current_metric_limit": 3,
         "initial_visible_sections": ["current_decision", "three_public_reasons", "collapsed_details_control"],
         "collapsed_details": ["20일·60일 가격 차트", "20거래일 수급 차트", "최근 1년 신호 기록", "최근 1년 전략 결과", "매매내역"],
-        "forbidden_public_fields": ["entry_score_threshold", "strategy_version_history", "entry_setup", "entry_confirmation", "source_checks", "vetoes", "component_scores", "weights", "detailed_methodology"],
+        "forbidden_public_fields": ["score", "entry_score_threshold", "strategy_version_history", "entry_setup", "entry_confirmation", "source_checks", "vetoes", "component_scores", "weights", "detailed_methodology"],
         "price_chart": ["최근 66거래일 일봉", "거래량", "20일선", "60일선"],
         "flow_chart": ["외국인 순매수 대금", "기관 순매수 대금", "0원 기준선", "20거래일 누적"],
         "viewports": [320, 390, 1440],

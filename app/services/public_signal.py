@@ -24,6 +24,19 @@ def _items(value: object) -> list[Mapping[str, Any]]:
     return [item for item in value if isinstance(item, Mapping)]
 
 
+def _hide_numeric_signal_scores(value: object) -> object:
+    """Keep response shapes stable while removing public numeric signal scores."""
+
+    if isinstance(value, Mapping):
+        return {
+            key: None if key == "score" else _hide_numeric_signal_scores(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_hide_numeric_signal_scores(item) for item in value]
+    return value
+
+
 def _normalized_state(value: object, *, available: bool = True) -> str:
     state = str(value or "neutral").strip().lower()
     if not available or state in _UNAVAILABLE_STATES:
@@ -352,7 +365,7 @@ def public_quant_signal_payload(
                 public_trade["exit_reason"] = PUBLIC_SIGNAL_DECISION_REASON
             trades.append(public_trade)
         result["trades"] = trades
-    return result
+    return dict(_mapping(_hide_numeric_signal_scores(result)))
 
 
 def public_market_signal_payload(payload: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -386,7 +399,7 @@ def public_market_signal_payload(payload: Mapping[str, Any] | None) -> dict[str,
             _redact_preliminary_signal(item)
             for item in _items(result.get("preliminary_history"))
         ]
-    return result
+    return dict(_mapping(_hide_numeric_signal_scores(result)))
 
 
 def public_recommendation_signal_payload(
@@ -443,4 +456,4 @@ def public_stock_ai_analysis_payload(
     result["trade_levels"] = None
     if "generation_note" in result:
         result["generation_note"] = PUBLIC_SIGNAL_SCOPE_NOTE
-    return result
+    return dict(_mapping(_hide_numeric_signal_scores(result)))

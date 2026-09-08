@@ -69,13 +69,20 @@ def _private_quant_payload() -> dict[str, object]:
         "current": {
             "action": "entry_watch",
             "label": "진입 관찰",
+            "score": 80.04,
             "entry_setup": "private-entry-setup",
             "entry_confirmation": {"private": "confirmation"},
             "reasons": ["private-current-reason"],
             "next_confirmation": "private-next-condition",
             "levels": [{"key": "entry", "label": "진입", "price": 77_000, "condition": "private-level-condition"}],
         },
-        "events": [{"reason": "private-event-reason", "entry_setup": "private-event-setup"}],
+        "events": [
+            {
+                "reason": "private-event-reason",
+                "entry_setup": "private-event-setup",
+                "score": "100",
+            }
+        ],
         "signal_reconciliations": [{"reason": "private-reconciliation"}],
         "trades": [{"exit_reason": "private-exit-reason"}],
         "methodology": ["private-methodology"],
@@ -104,10 +111,12 @@ def test_quant_projection_exposes_only_three_public_reasons_and_keeps_input_immu
     assert public["strategy_version_history"] == []
     assert public["current"]["entry_setup"] is None
     assert public["current"]["entry_confirmation"] is None
+    assert public["current"]["score"] is None
     assert public["current"]["reasons"] == [
         item["summary"] for item in public["public_reasons"]
     ]
     assert public["events"][0]["reason"] == PUBLIC_SIGNAL_DECISION_REASON
+    assert public["events"][0]["score"] is None
     assert public["trades"][0]["exit_reason"] == PUBLIC_SIGNAL_DECISION_REASON
 
     serialized = json.dumps(public, ensure_ascii=False)
@@ -132,6 +141,7 @@ def test_market_projection_redacts_live_and_preliminary_history_reasons() -> Non
             "items": [
                 {
                     "code": "005930",
+                    "score": 99,
                     "reason": "private-market-reason",
                     "public_reasons": [
                         {"key": "trend_20d", "state": "positive"},
@@ -139,24 +149,34 @@ def test_market_projection_redacts_live_and_preliminary_history_reasons() -> Non
                         {"key": "flow", "state": "negative"},
                     ],
                     "current": {
+                        "score": 88,
                         "reasons": ["private-current"],
                         "next_confirmation": "private-next",
                     },
-                    "latest_preliminary": {"reason": "private-latest"},
+                    "latest_preliminary": {
+                        "reason": "private-latest",
+                        "score": 77,
+                    },
                 }
             ],
-            "preliminary_history": [{"reason": "private-history"}],
+            "preliminary_history": [
+                {"reason": "private-history", "score": 66}
+            ],
         }
     )
 
     item = public["items"][0]
     assert [reason["key"] for reason in item["public_reasons"]] == list(PUBLIC_SIGNAL_REASON_KEYS)
     assert item["reason"] == PUBLIC_SIGNAL_DECISION_REASON
+    assert item["score"] is None
+    assert item["current"]["score"] is None
     assert item["current"]["reasons"] == [
         reason["summary"] for reason in item["public_reasons"]
     ]
     assert item["latest_preliminary"]["reason"] == PUBLIC_SIGNAL_DECISION_REASON
+    assert item["latest_preliminary"]["score"] is None
     assert public["preliminary_history"][0]["reason"] == PUBLIC_SIGNAL_DECISION_REASON
+    assert public["preliminary_history"][0]["score"] is None
 
 
 def test_recommendation_projection_removes_component_and_nested_reason_details() -> None:
@@ -165,6 +185,7 @@ def test_recommendation_projection_removes_component_and_nested_reason_details()
             "items": [
                 {
                     "code": "005930",
+                    "score": 93,
                     "one_month_return": 5,
                     "three_month_return": -2,
                     "component_scores": {"chart": 75, "research": 90},
@@ -179,6 +200,8 @@ def test_recommendation_projection_removes_component_and_nested_reason_details()
     )
 
     item = public["items"][0]
+    assert item["score"] == 93
+    assert item["ai_trade_signal"]["current"]["score"] is None
     assert item["component_scores"] == {}
     assert item["risks"] == []
     assert item["decision_reason"] == PUBLIC_SIGNAL_DECISION_REASON
@@ -191,6 +214,7 @@ def test_recommendation_projection_removes_component_and_nested_reason_details()
 def test_generated_ai_analysis_projection_replaces_sections_and_trade_levels() -> None:
     public = public_stock_ai_analysis_payload(
         {
+            "score": 72,
             "summary": "private-summary",
             "key_points": ["private-key-point"],
             "strategy": ["private-strategy"],
@@ -215,5 +239,6 @@ def test_generated_ai_analysis_projection_replaces_sections_and_trade_levels() -
         {"title": "공개 판단 근거", "items": public["key_points"]}
     ]
     assert public["trade_levels"] is None
+    assert public["score"] is None
     assert public["risks"] == []
     assert "private" not in json.dumps(public, ensure_ascii=False)
