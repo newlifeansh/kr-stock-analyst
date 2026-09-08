@@ -5831,7 +5831,7 @@ def run_e2e_checks(
                 page.route(
                     "**/stock-logos/*.png*",
                     lambda route: route.fulfill(
-                        path=str(Path("app/static/stock-logos/005930.png").resolve())
+                        path=str(Path("app/static/stock-logos/AAPL.png").resolve())
                     ),
                 )
                 signal = {

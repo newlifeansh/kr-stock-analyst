@@ -1117,7 +1117,7 @@ def test_layout_and_copy_e2e_cases_isolate_unrelated_market_data_failures() -> N
     assert '"**/stocks/005930/intraday*"' in compact_case_source
     assert '"source": "qa_fixture"' in compact_case_source
     assert '"**/stock-logos/*.png*"' in copy_case_source
-    assert 'Path("app/static/stock-logos/005930.png").resolve()' in copy_case_source
+    assert 'Path("app/static/stock-logos/AAPL.png").resolve()' in copy_case_source
 
 
 @pytest.mark.qa_gate
