@@ -31,7 +31,7 @@
     <script src="/assets/staging/stock-change-copy-logic.js?v=20260909-unified-market-v105" defer></script>
     <script src="/assets/staging/toss-ia.js?v=20260909-unified-market-v105" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260909v494&amp;build=20260909v494" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260909v495&amp;build=20260909v495" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -1328,12 +1328,25 @@
                   <header class="watch-market-map-head">
                     <div>
                       <span id="watch-market-map-group">기본 · 시가총액 순</span>
-                      <h2 id="watch-market-map-title">관심종목 한눈에</h2>
+                      <h2 id="watch-market-map-title">관심종목 버블</h2>
                     </div>
-                    <p id="watch-market-map-description">큰 칸일수록 시가총액이 큽니다.</p>
+                    <p id="watch-market-map-description">원 크기는 시가총액, 색과 농도는 오늘 등락률입니다.</p>
                   </header>
-                  <div class="watch-market-map-stage" id="watch-market-map-stage" role="group" aria-label="시가총액 순 관심종목" aria-live="polite"></div>
+                  <div class="watch-market-map-stage" id="watch-market-map-stage" role="group" aria-label="시가총액과 오늘 등락률로 표시한 관심종목 버블" aria-live="polite"></div>
                   <div class="watch-market-map-legend" id="watch-market-map-legend" aria-label="오늘 등락 종목 수"></div>
+                  <div class="watch-market-map-timeline" id="watch-market-map-timeline" hidden>
+                    <div class="watch-market-map-timeline-head">
+                      <span>오늘</span>
+                      <time id="watch-market-map-timeline-time">현재 시세 기준</time>
+                    </div>
+                    <div class="watch-market-map-timeline-track" id="watch-market-map-timeline-track" role="progressbar" aria-label="오늘 시세 기준 시각" aria-valuemin="0" aria-valuemax="1439" aria-valuenow="0" aria-valuetext="오늘 현재 시세 기준">
+                      <span id="watch-market-map-timeline-fill"><i aria-hidden="true"></i></span>
+                    </div>
+                    <div class="watch-market-map-timeline-labels" aria-hidden="true">
+                      <span>00:00</span>
+                      <span>24:00</span>
+                    </div>
+                  </div>
                   <p class="sr-only" id="watch-market-map-status" role="status" aria-live="polite"></p>
                 </section>
                 <section class="watchlist-strategy" id="watchlist-strategy" aria-live="polite" hidden></section>
@@ -1399,7 +1412,7 @@
               <div>
                 <span>시가총액 순</span>
                 <h2 id="watch-market-map-sheet-title">나머지 관심종목</h2>
-                <p id="watch-market-map-sheet-description">지도에서 작아진 종목을 모아 보여드려요.</p>
+                <p id="watch-market-map-sheet-description">버블에 담기 어려운 종목을 모아 보여드려요.</p>
               </div>
               <button id="watch-market-map-sheet-close" type="button" aria-label="나머지 관심종목 닫기">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
@@ -1594,6 +1607,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260909v494" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260909v495" defer></script>
   </body>
 </html>

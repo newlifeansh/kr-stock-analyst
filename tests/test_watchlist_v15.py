@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="4.0" data-watch-group-layout="true"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.6"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260909v494"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260909v495"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -100,7 +100,7 @@ def test_watchlist_v15_uses_progressive_real_time_cards():
         assert expected in styles
 
 
-def test_watchlist_market_cap_map_uses_active_folder_and_bottom_sheet_disclosure():
+def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_sheet():
     client = TestClient(app)
     shell = client.get("/dashboard?view=watchlist").text
     source = client.get("/assets/dashboard/app.js").text
@@ -111,6 +111,9 @@ def test_watchlist_market_cap_map_uses_active_folder_and_bottom_sheet_disclosure
         'id="watch-market-map"',
         'id="watch-market-map-stage" role="group"',
         'id="watch-market-map-legend"',
+        'id="watch-market-map-timeline"',
+        'id="watch-market-map-timeline-track" role="progressbar"',
+        'id="watch-market-map-timeline-time"',
         'id="watch-market-map-sheet"',
         'id="watch-market-map-sheet-list"',
     ):
@@ -121,7 +124,10 @@ def test_watchlist_market_cap_map_uses_active_folder_and_bottom_sheet_disclosure
 
     for expected in (
         "function watchMarketMapEntries",
+        "function packWatchMarketMapBubbles",
         "function computeWatchMarketMapLayout",
+        "function watchMarketMapTimelineSnapshot",
+        "function renderWatchMarketMapTimeline",
         "function renderWatchMarketMap",
         "function openWatchMarketMapSheet",
         "function createWatchMarketMapSheetRow",
@@ -137,9 +143,11 @@ def test_watchlist_market_cap_map_uses_active_folder_and_bottom_sheet_disclosure
         assert expected in source
 
     for expected in (
-        "/* Watch groups and market-cap map v493",
+        "/* Watch groups and market-cap bubbles v495",
         ".watch-market-map-stage {",
         ".watch-market-map-tile.is-overflow",
+        ".watch-market-map-timeline-track {",
+        ".watch-market-map-timeline-track i {",
         ".watch-market-map-sheet::backdrop",
         ".watch-market-map-sheet-row:focus-visible",
         "@media (max-width: 359px)",
@@ -148,7 +156,7 @@ def test_watchlist_market_cap_map_uses_active_folder_and_bottom_sheet_disclosure
         assert expected in styles
 
 
-def test_watchlist_market_cap_map_layout_converts_us_caps_sorts_and_hides_tiny_tiles():
+def test_watchlist_market_cap_bubbles_pack_without_overlap_and_hide_overflow():
     script = r'''
 const fs = require("fs");
 const source = fs.readFileSync("app/static/dashboard/app.js", "utf8");
@@ -170,9 +178,11 @@ function marketScopeForItem(item = {}) {
 function watchMarketMapMarketCap(result = {}) {
   return toNumber(result.dashboard?.quote?.market_cap);
 }
-eval(functionSource("watchMarketMapEntries", "layoutWatchMarketMapNodes"));
-eval(functionSource("layoutWatchMarketMapNodes", "computeWatchMarketMapLayout"));
-eval(functionSource("computeWatchMarketMapLayout", "watchMarketMapTone"));
+eval(functionSource("watchMarketMapEntries", "packWatchMarketMapBubbles"));
+eval(functionSource("packWatchMarketMapBubbles", "computeWatchMarketMapLayout"));
+eval(functionSource("computeWatchMarketMapLayout", "watchMarketMapTimeParts"));
+eval(functionSource("watchMarketMapTimeParts", "watchMarketMapTimelineSnapshot"));
+eval(functionSource("watchMarketMapTimelineSnapshot", "renderWatchMarketMapTimeline"));
 const result = (code, marketScope, marketCap) => ({
   item: { code, market_scope: marketScope },
   dashboard: { quote: { market_cap: marketCap } },
@@ -182,45 +192,48 @@ const entries = watchMarketMapEntries([
   result("NVDA", "us", 3e12),
   result("AAPL", "us", 2.5e12),
   result("000660", "kr", 150e12),
+  result("MSFT", "us", 0.1e12),
+  result("GOOGL", "us", 0.08e12),
+  result("AMZN", "us", 0.06e12),
+  result("035420", "kr", 50e12),
+  result("005380", "kr", 40e12),
   result("SMALL1", "us", 1e9),
   result("SMALL2", "us", 0.7e9),
   result("NULL", "kr", null),
 ]);
-const layout = computeWatchMarketMapLayout(entries, 320, 280);
+const layout = computeWatchMarketMapLayout(entries, 320, 300);
 const overlaps = layout.nodes.some((left, leftIndex) => layout.nodes.some((right, rightIndex) => (
   leftIndex < rightIndex
-  && left.x < right.x + right.width
-  && left.x + left.width > right.x
-  && left.y < right.y + right.height
-  && left.y + left.height > right.y
+  && Math.hypot(left.cx - right.cx, left.cy - right.cy)
+    < left.radius + right.radius + 4.9
 )));
 const outside = layout.nodes.some((node) => (
-  node.x < 0 || node.y < 0 || node.x + node.width > 320.0001 || node.y + node.height > 280.0001
+  node.x < 0 || node.y < 0 || node.x + node.width > 320.0001 || node.y + node.height > 300.0001
 ));
 const responsiveSafe = [
-  [260, 276],
+  [260, 286],
   [310, 343],
-  [1070, 430],
+  [1070, 460],
 ].every(([width, height]) => {
   const candidate = computeWatchMarketMapLayout(entries, width, height);
   const overlapsAtWidth = candidate.nodes.some((left, leftIndex) => candidate.nodes.some((right, rightIndex) => (
     leftIndex < rightIndex
-    && left.x < right.x + right.width
-    && left.x + left.width > right.x
-    && left.y < right.y + right.height
-    && left.y + left.height > right.y
+    && Math.hypot(left.cx - right.cx, left.cy - right.cy)
+      < left.radius + right.radius + 4.9
   )));
   const outsideAtWidth = candidate.nodes.some((node) => (
     node.x < 0 || node.y < 0
     || node.x + node.width > width + 0.0001
     || node.y + node.height > height + 0.0001
   ));
-  const readable = candidate.nodes.every((node) => (
-    node.width >= (node.kind === "overflow" ? 64 : width < 520 ? 70 : 82)
-    && node.height >= (node.kind === "overflow" ? 44 : width < 520 ? 54 : 58)
-  ));
+  const readable = candidate.nodes.every((node) => node.radius >= (node.kind === "overflow" ? 26 : width < 520 ? 22 : 31));
   return !overlapsAtWidth && !outsideAtWidth && readable;
 });
+const stockRadii = layout.nodes.filter((node) => node.kind === "stock").map((node) => node.radius);
+const sizesDescending = stockRadii.every((radius, index) => index === 0 || stockRadii[index - 1] >= radius);
+const timeline = watchMarketMapTimelineSnapshot([
+  {dashboard: {quote: {as_of: "2026-09-09T05:30:00+09:00"}}},
+]);
 console.log(JSON.stringify({
   order: entries.map((entry) => entry.item.code),
   visible: layout.visibleEntries.map((entry) => entry.item.code),
@@ -229,6 +242,8 @@ console.log(JSON.stringify({
   overlaps,
   outside,
   responsiveSafe,
+  sizesDescending,
+  timelineMinutes: timeline.minutes,
 }));
 '''
     completed = subprocess.run(
@@ -240,13 +255,15 @@ console.log(JSON.stringify({
     )
 
     assert json.loads(completed.stdout) == {
-        "order": ["NVDA", "AAPL", "005930", "000660", "SMALL1", "SMALL2", "NULL"],
-        "visible": ["NVDA", "AAPL", "005930"],
-        "hidden": ["000660", "SMALL1", "SMALL2", "NULL"],
+        "order": ["NVDA", "AAPL", "005930", "000660", "MSFT", "GOOGL", "AMZN", "035420", "005380", "SMALL1", "SMALL2", "NULL"],
+        "visible": ["NVDA", "AAPL", "005930", "000660", "MSFT", "GOOGL"],
+        "hidden": ["AMZN", "035420", "005380", "SMALL1", "SMALL2", "NULL"],
         "hasOverflow": True,
         "overlaps": False,
         "outside": False,
         "responsiveSafe": True,
+        "sizesDescending": True,
+        "timelineMinutes": 330,
     }
 
 

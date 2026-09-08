@@ -2025,17 +2025,17 @@ def _live_checks(
             usdkrw = positive_number(fx.get("rate"))
             _assert(
                 domestic_cap is not None,
-                "관심종목 카드맵에 필요한 국내 시가총액이 없습니다.",
+                "관심종목 버블맵에 필요한 국내 시가총액이 없습니다.",
                 **domestic_meta,
             )
             _assert(
                 overseas_cap is not None,
-                "관심종목 카드맵에 필요한 미국 시가총액이 없습니다.",
+                "관심종목 버블맵에 필요한 미국 시가총액이 없습니다.",
                 **overseas_meta,
             )
             _assert(
                 usdkrw is not None and 500 <= usdkrw <= 3000,
-                "관심종목 카드맵의 원화 환산 환율이 유효 범위를 벗어났습니다.",
+                "관심종목 버블맵의 원화 환산 환율이 유효 범위를 벗어났습니다.",
                 rate=usdkrw,
                 **fx_meta,
             )
@@ -2057,7 +2057,7 @@ def _live_checks(
         collector.check(
             "SIG-UI-025",
             watch_market_map_data_contract,
-            pass_message="관심종목 카드맵의 국내·미국 시총과 원화 환산 입력을 확인했습니다.",
+            pass_message="관심종목 버블맵의 국내·미국 시총과 원화 환산 입력을 확인했습니다.",
         )
 
         def realtime_status_contract() -> dict[str, Any]:

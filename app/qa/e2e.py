@@ -1951,7 +1951,7 @@ def run_e2e_checks(
                     signal_tab = page.locator('[data-stock-tab="strategy"]')
                     _select_tab(signal_tab)
                     expected_stage = {
-                        "exited": "전량 매도 후 대기중",
+                        "exited": "매도 완료",
                     }.get(stock.get("signal_action"), stock.get("signal_label"))
                     if expected_stage:
                         _wait_for_ui_contract(
@@ -3055,6 +3055,45 @@ def run_e2e_checks(
             )
 
             def compact_content_flow_case(page: Any, theme: str) -> dict[str, Any]:
+                page.route(
+                    "**/stocks/005930/intraday*",
+                    lambda route: route.fulfill(
+                        json={
+                            "code": "005930",
+                            "source": "qa_fixture",
+                            "as_of": "2026-09-08T15:30:00+09:00",
+                            "market_state": "closed",
+                            "market_session": "closed",
+                            "market_session_label": "장 마감",
+                            "market_venue": "KRX",
+                            "cache_state": "qa_fixture",
+                            "trade_date": "2026-09-08",
+                            "message": None,
+                            "points": [
+                                {
+                                    "trade_date": "20260908",
+                                    "trade_time": "090000",
+                                    "price": 250_000,
+                                    "open": 250_000,
+                                    "high": 250_000,
+                                    "low": 250_000,
+                                    "volume": 1_000,
+                                    "trading_value": 250_000_000,
+                                },
+                                {
+                                    "trade_date": "20260908",
+                                    "trade_time": "153000",
+                                    "price": 255_500,
+                                    "open": 255_500,
+                                    "high": 255_500,
+                                    "low": 255_500,
+                                    "volume": 2_000,
+                                    "trading_value": 511_000_000,
+                                },
+                            ],
+                        }
+                    ),
+                )
                 _navigate_page(
                     page,
                     _page_url(
@@ -5789,6 +5828,12 @@ def run_e2e_checks(
             )
 
             def staging_gpt_detail_copy_case(page: Any, theme: str) -> dict[str, Any]:
+                page.route(
+                    "**/stock-logos/*.png*",
+                    lambda route: route.fulfill(
+                        path=str(Path("app/static/stock-logos/005930.png").resolve())
+                    ),
+                )
                 signal = {
                     "data_state": "ready",
                     "as_of": "2026-08-31T16:00:00+09:00",
@@ -7414,13 +7459,19 @@ def run_e2e_checks(
 
             def watch_market_map_case(page: Any, theme: str) -> dict[str, Any]:
                 fx_rate = 1_340
+                qa_as_of = datetime.now(KST).replace(
+                    hour=12,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                ).isoformat()
                 domestic_items = [
                     ("005930", "삼성전자", "KOSPI", 1_578_000_000_000_000, 2.3, 269_500),
                     ("000660", "SK하이닉스", "KOSPI", 500_000_000_000_000, -1.4, 710_000),
                     ("005380", "현대차", "KOSPI", 80_000_000_000_000, 0.0, 410_000),
                     ("207940", "삼성바이오로직스", "KOSPI", 75_000_000_000_000, 1.1, 1_720_000),
                     ("035420", "NAVER", "KOSPI", 50_000_000_000_000, -2.1, 312_000),
-                    ("051910", "LG화학", "KOSPI", 35_000_000_000_000, -0.7, 496_000),
+                    ("051910", "LG화학", "KOSPI", 35_000_000_000_000, -4.2, 496_000),
                 ]
                 overseas_items = [
                     ("NVDA", "NVIDIA", "NASDAQ", 5_491_000_000_000, 4.9, 227.41),
@@ -7428,7 +7479,7 @@ def run_e2e_checks(
                     ("MSFT", "Microsoft", "NASDAQ", 300_000_000_000, 1.6, 528.44),
                     ("GOOGL", "Alphabet", "NASDAQ", 200_000_000_000, -3.0, 302.18),
                     ("AMZN", "Amazon", "NASDAQ", 100_000_000_000, 0.4, 241.37),
-                    ("SMALL", "Small Cap", "NYSE", 1_000_000_000, -4.2, 12.34),
+                    ("SMALL", "Small Cap", "NYSE", 1_000_000_000, -0.7, 12.34),
                 ]
                 expected_order = [
                     "NVDA",
@@ -7473,14 +7524,14 @@ def run_e2e_checks(
                         "name": name,
                         "market": market,
                         "currency": "USD" if scope == "us" else "KRW",
-                        "as_of": "2026-09-08T12:00:00+09:00",
+                        "as_of": qa_as_of,
                         "quote": {
                             "price": price,
                             "change_rate": change,
                             "change_value": price * change / 100,
                             "trading_value": cap / 500,
                             "market_cap": cap,
-                            "as_of": "2026-09-08T12:00:00+09:00",
+                            "as_of": qa_as_of,
                             "market_session": "regular",
                             "is_live": True,
                         },
@@ -7567,7 +7618,19 @@ def run_e2e_checks(
                         {
                             "rate": fx_rate,
                             "source": "qa-fixture",
-                            "as_of": "2026-09-08T12:00:00+09:00",
+                            "as_of": qa_as_of,
+                        },
+                    ),
+                )
+                page.route(
+                    "**/stocks/quotes*",
+                    lambda route: fulfill_json(
+                        route,
+                        {
+                            "type": "quotes",
+                            "as_of": qa_as_of,
+                            "items": [],
+                            "rejected_codes": [],
                         },
                     ),
                 )
@@ -7576,7 +7639,7 @@ def run_e2e_checks(
                     lambda route: fulfill_json(route, {"items": []}),
                 )
                 for path, payload in (
-                    ("impact", {"factors": [], "as_of": "2026-09-08T12:00:00+09:00"}),
+                    ("impact", {"factors": [], "as_of": qa_as_of}),
                     ("trends", {"events": []}),
                 ):
                     page.route(
@@ -7641,24 +7704,37 @@ def run_e2e_checks(
                             return {
                               code: tile.dataset.code || null,
                               overflow: tile.classList.contains('is-overflow'),
+                              classes: [...tile.classList],
+                              ariaLabel: tile.getAttribute('aria-label'),
+                              backgroundColor: getComputedStyle(tile).backgroundColor,
                               x: rect.x,
                               y: rect.y,
                               right: rect.right,
                               bottom: rect.bottom,
                               width: rect.width,
                               height: rect.height,
+                              cx: rect.x + rect.width / 2,
+                              cy: rect.y + rect.height / 2,
+                              radius: Math.min(rect.width, rect.height) / 2,
                             };
                           });
                           const overlaps = [];
                           for (let left = 0; left < tiles.length; left += 1) {
                             for (let right = left + 1; right < tiles.length; right += 1) {
-                              const x = Math.min(tiles[left].right, tiles[right].right)
-                                - Math.max(tiles[left].x, tiles[right].x);
-                              const y = Math.min(tiles[left].bottom, tiles[right].bottom)
-                                - Math.max(tiles[left].y, tiles[right].y);
-                              if (x > 1 && y > 1) overlaps.push([left, right]);
+                              const distance = Math.hypot(
+                                tiles[left].cx - tiles[right].cx,
+                                tiles[left].cy - tiles[right].cy,
+                              );
+                              if (distance < tiles[left].radius + tiles[right].radius + 2) {
+                                overlaps.push([left, right]);
+                              }
                             }
                           }
+                          const timeline = document.querySelector('#watch-market-map-timeline');
+                          const timelineTrack = document.querySelector('#watch-market-map-timeline-track');
+                          const timelineFill = document.querySelector('#watch-market-map-timeline-fill');
+                          const timelineTrackRect = timelineTrack?.getBoundingClientRect();
+                          const timelineFillRect = timelineFill?.getBoundingClientRect();
                           return {
                             viewport: innerWidth,
                             rootWidth: document.documentElement.scrollWidth,
@@ -7674,6 +7750,14 @@ def run_e2e_checks(
                             overlaps,
                             hiddenCount: state.watchMarketMapHiddenEntries.length,
                             status: document.querySelector('#watch-market-map-status')?.textContent.trim(),
+                            timeline: {
+                              hidden: timeline?.hidden ?? true,
+                              label: document.querySelector('#watch-market-map-timeline-time')?.textContent.trim(),
+                              valueNow: Number(timelineTrack?.getAttribute('aria-valuenow')),
+                              valueText: timelineTrack?.getAttribute('aria-valuetext'),
+                              trackWidth: timelineTrackRect?.width || 0,
+                              fillWidth: timelineFillRect?.width || 0,
+                            },
                           };
                         }"""
                     )
@@ -7695,22 +7779,34 @@ def run_e2e_checks(
                         tile
                         for tile in snapshot["tiles"]
                         if (
-                            tile["width"] < (61 if tile["overflow"] else 65)
-                            or tile["height"] < (41 if tile["overflow"] else 49)
+                            tile["radius"] < (24.5 if tile["overflow"] else 20.5)
+                            or abs(tile["width"] - tile["height"]) > 1.25
                         )
                     ]
+                    timeline = snapshot["timeline"]
+                    timeline_ratio = (
+                        timeline["fillWidth"] / timeline["trackWidth"]
+                        if timeline["trackWidth"]
+                        else 0
+                    )
                     if (
                         snapshot["rootWidth"] > snapshot["viewport"] + 1
                         or outside
                         or snapshot["overlaps"]
                         or unreadable
+                        or timeline["hidden"]
+                        or timeline["valueNow"] != 720
+                        or "오늘 12:00" not in (timeline["label"] or "")
+                        or "오늘 12:00" not in (timeline["valueText"] or "")
+                        or not 0.49 <= timeline_ratio <= 0.51
                     ):
                         raise QaFailure(
-                            f"{width}px 카드맵의 경계·가독성·가로 폭 계약이 깨졌습니다.",
+                            f"{width}px 버블맵의 경계·가독성·오늘 타임라인 계약이 깨졌습니다.",
                             {
                                 "layout": snapshot,
                                 "outside": outside,
                                 "unreadable": unreadable,
+                                "timeline_ratio": timeline_ratio,
                             },
                         )
                     if width <= 390 and (
@@ -7718,12 +7814,68 @@ def run_e2e_checks(
                         or not any(tile["overflow"] for tile in snapshot["tiles"])
                     ):
                         raise QaFailure(
-                            f"{width}px에서 작은 종목을 여는 더보기 카드가 없습니다.",
+                            f"{width}px에서 작은 종목을 여는 더보기 버블이 없습니다.",
                             snapshot,
                         )
 
+                desktop_tiles = {
+                    tile["code"]: tile for tile in layouts["1440"]["tiles"] if tile["code"]
+                }
+                expected_tones = {
+                    "NVDA": {"is-positive", "is-strong"},
+                    "MSFT": {"is-positive", "is-medium"},
+                    "AMZN": {"is-positive", "is-soft"},
+                    "AAPL": {"is-negative", "is-soft"},
+                    "GOOGL": {"is-negative", "is-medium"},
+                    "051910": {"is-negative", "is-strong"},
+                    "005380": {"is-flat"},
+                }
+                invalid_tones = {
+                    code: desktop_tiles.get(code)
+                    for code, required in expected_tones.items()
+                    if code not in desktop_tiles
+                    or not required.issubset(set(desktop_tiles[code]["classes"]))
+                    or "오늘" not in (desktop_tiles[code]["ariaLabel"] or "")
+                }
+                positive_colors = {
+                    desktop_tiles[code]["backgroundColor"]
+                    for code in ("NVDA", "MSFT", "AMZN")
+                    if code in desktop_tiles
+                }
+                negative_colors = {
+                    desktop_tiles[code]["backgroundColor"]
+                    for code in ("AAPL", "GOOGL", "051910")
+                    if code in desktop_tiles
+                }
+                if invalid_tones or len(positive_colors) != 3 or len(negative_colors) != 3:
+                    raise QaFailure(
+                        "오늘 등락 방향·강도별 버블 색상 단계가 올바르지 않습니다.",
+                        {
+                            "invalid_tones": invalid_tones,
+                            "positive_colors": sorted(positive_colors),
+                            "negative_colors": sorted(negative_colors),
+                        },
+                    )
+
                 page.set_viewport_size({"width": 390, "height": 844})
                 page.wait_for_timeout(180)
+                capture_overlay_style = page.add_style_tag(
+                    content="#bottom-nav, #morning-money-popover { visibility: hidden !important; }"
+                )
+                page.locator("#watch-market-map").screenshot(
+                    path=str(output_dir / f"SIG-UI-025-{theme}-bubbles.png"),
+                    animations="disabled",
+                )
+                timeline_locator = page.locator("#watch-market-map-timeline")
+                timeline_locator.evaluate(
+                    "element => element.scrollIntoView({block: 'center', inline: 'nearest'})"
+                )
+                page.wait_for_timeout(120)
+                timeline_locator.screenshot(
+                    path=str(output_dir / f"SIG-UI-025-{theme}-timeline.png"),
+                    animations="disabled",
+                )
+                capture_overlay_style.evaluate("element => element.remove()")
                 overflow = page.locator("#watch-market-map-stage .is-overflow")
                 overflow.focus()
                 page.keyboard.press("Enter")
@@ -7731,6 +7883,10 @@ def run_e2e_checks(
                 sheet.wait_for(state="visible")
                 page.wait_for_function(
                     "() => document.activeElement?.id === 'watch-market-map-sheet-close'"
+                )
+                page.screenshot(
+                    path=str(output_dir / f"SIG-UI-025-{theme}-sheet.png"),
+                    animations="disabled",
                 )
                 sheet_snapshot = page.evaluate(
                     """() => {
@@ -7819,7 +7975,7 @@ def run_e2e_checks(
                 ]
                 if folder_order != expected_folder_order:
                     raise QaFailure(
-                        "선택한 관심종목 폴더 밖의 종목이 카드맵에 섞였습니다.",
+                        "선택한 관심종목 폴더 밖의 종목이 버블맵에 섞였습니다.",
                         {"actual": folder_order, "expected": expected_folder_order},
                     )
 
@@ -7837,7 +7993,7 @@ def run_e2e_checks(
                 activated_href = page.evaluate("window.__qaWatchMarketMapClick")
                 if activated_href != first_tile.get_attribute("href"):
                     raise QaFailure(
-                        "관심종목 카드를 눌러도 종목 상세 링크가 활성화되지 않았습니다.",
+                        "관심종목 버블을 눌러도 종목 상세 링크가 활성화되지 않았습니다.",
                         {"activated_href": activated_href},
                     )
 
@@ -7847,9 +8003,14 @@ def run_e2e_checks(
                     "market_cap_order": actual_order,
                     "folder_order": folder_order,
                     "layouts": layouts,
+                    "timeline": layouts["390"]["timeline"],
+                    "color_intensity_steps": {
+                        "positive": sorted(positive_colors),
+                        "negative": sorted(negative_colors),
+                    },
                     "sheet": sheet_snapshot,
                     "focus_returned_after_live_render": True,
-                    "card_click_href": activated_href,
+                    "bubble_click_href": activated_href,
                     "market_toggle_visible": False,
                 }
 

@@ -393,6 +393,10 @@ const elements = {
   watchMarketMapDescription: $("watch-market-map-description"),
   watchMarketMapStage: $("watch-market-map-stage"),
   watchMarketMapLegend: $("watch-market-map-legend"),
+  watchMarketMapTimeline: $("watch-market-map-timeline"),
+  watchMarketMapTimelineTime: $("watch-market-map-timeline-time"),
+  watchMarketMapTimelineTrack: $("watch-market-map-timeline-track"),
+  watchMarketMapTimelineFill: $("watch-market-map-timeline-fill"),
   watchMarketMapStatus: $("watch-market-map-status"),
   watchMarketMapSheet: $("watch-market-map-sheet"),
   watchMarketMapSheetTitle: $("watch-market-map-sheet-title"),
@@ -19301,61 +19305,107 @@ function watchMarketMapEntries(results = state.watchlistResults) {
     .map((entry, index) => ({ ...entry, rank: index + 1 }));
 }
 
-function layoutWatchMarketMapNodes(nodes, width, height) {
-  const laidOut = [];
-  const visit = (group, x, y, groupWidth, groupHeight) => {
-    if (!group.length) return;
-    if (group.length === 1) {
-      laidOut.push({ ...group[0], x, y, width: groupWidth, height: groupHeight });
-      return;
+function packWatchMarketMapBubbles(nodes, width, height) {
+  const padding = 4;
+  const gap = 5;
+  const center = { x: width / 2, y: height / 2 };
+  const ordered = nodes
+    .map((node, sourceOrder) => ({ ...node, sourceOrder }))
+    .sort((left, right) => right.radius - left.radius || left.sourceOrder - right.sourceOrder);
+  const placed = [];
+  const fits = (candidate, radius) => {
+    if (
+      candidate.x - radius < padding
+      || candidate.y - radius < padding
+      || candidate.x + radius > width - padding
+      || candidate.y + radius > height - padding
+    ) {
+      return false;
     }
-    const totalWeight = group.reduce((sum, node) => sum + Math.max(Number(node.weight) || 0, 0.000001), 0);
-    const targetWeight = totalWeight / 2;
-    let accumulated = 0;
-    let splitIndex = 1;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-    for (let index = 1; index < group.length; index += 1) {
-      accumulated += Math.max(Number(group[index - 1].weight) || 0, 0.000001);
-      const distance = Math.abs(targetWeight - accumulated);
-      if (distance <= nearestDistance) {
-        nearestDistance = distance;
-        splitIndex = index;
-      } else {
-        break;
+    return placed.every((bubble) => (
+      Math.hypot(candidate.x - bubble.cx, candidate.y - bubble.cy)
+      >= radius + bubble.radius + gap - 0.1
+    ));
+  };
+  const score = (candidate) => (
+    Math.hypot(candidate.x - center.x, candidate.y - center.y)
+    + Math.abs(candidate.y - center.y) * 0.015
+  );
+
+  for (const node of ordered) {
+    const candidates = [{ ...center, score: 0 }];
+    const angleOffset = node.sourceOrder * 0.61803398875 * Math.PI * 2;
+    for (const anchor of placed) {
+      const tangentDistance = node.radius + anchor.radius + gap;
+      for (let index = 0; index < 48; index += 1) {
+        const angle = angleOffset + (index / 48) * Math.PI * 2;
+        const candidate = {
+          x: anchor.cx + Math.cos(angle) * tangentDistance,
+          y: anchor.cy + Math.sin(angle) * tangentDistance,
+        };
+        candidates.push({ ...candidate, score: score(candidate) });
       }
     }
-    const first = group.slice(0, splitIndex);
-    const second = group.slice(splitIndex);
-    const firstWeight = first.reduce((sum, node) => sum + Math.max(Number(node.weight) || 0, 0.000001), 0);
-    const share = Math.min(0.999999, Math.max(0.000001, firstWeight / totalWeight));
-    if (groupWidth >= groupHeight) {
-      const firstWidth = groupWidth * share;
-      visit(first, x, y, firstWidth, groupHeight);
-      visit(second, x + firstWidth, y, groupWidth - firstWidth, groupHeight);
-    } else {
-      const firstHeight = groupHeight * share;
-      visit(first, x, y, groupWidth, firstHeight);
-      visit(second, x, y + firstHeight, groupWidth, groupHeight - firstHeight);
+    candidates.sort((left, right) => left.score - right.score || left.y - right.y || left.x - right.x);
+    let selected = candidates.find((candidate) => fits(candidate, node.radius)) || null;
+
+    if (!selected) {
+      const step = Math.max(4, Math.min(7, node.radius / 4));
+      let bestScore = Number.POSITIVE_INFINITY;
+      for (let y = node.radius + padding; y <= height - node.radius - padding; y += step) {
+        for (let x = node.radius + padding; x <= width - node.radius - padding; x += step) {
+          const candidate = { x, y };
+          const candidateScore = score(candidate);
+          if (candidateScore < bestScore && fits(candidate, node.radius)) {
+            selected = candidate;
+            bestScore = candidateScore;
+          }
+        }
+      }
     }
-  };
-  visit(nodes, 0, 0, Math.max(1, width), Math.max(1, height));
-  return laidOut;
+    if (!selected) return null;
+    placed.push({
+      ...node,
+      sourceOrder: node.sourceOrder,
+      cx: selected.x,
+      cy: selected.y,
+      x: selected.x - node.radius,
+      y: selected.y - node.radius,
+      width: node.radius * 2,
+      height: node.radius * 2,
+    });
+  }
+  return placed.sort((left, right) => left.sourceOrder - right.sourceOrder);
 }
 
 function computeWatchMarketMapLayout(entries, width, height) {
   const source = Array.isArray(entries) ? entries : [];
   if (!source.length) return { nodes: [], visibleEntries: [], hiddenEntries: [] };
-  const knownCaps = source.map((entry) => entry.comparableMarketCap).filter((value) => value !== null && value > 0);
+  const compact = width < 520;
+  const knownCaps = source
+    .map((entry) => entry.comparableMarketCap)
+    .filter((value) => value !== null && value > 0);
   const fallbackWeight = knownCaps.length ? Math.max(1, Math.min(...knownCaps) * 0.08) : 1;
-  const weighted = source.map((entry) => ({
-    entry,
-    weight: entry.comparableMarketCap === null ? fallbackWeight : entry.comparableMarketCap,
-  }));
-  const sourceWeight = weighted.reduce((sum, node) => sum + node.weight, 0);
-  const maxVisible = width < 360 ? 5 : width < 520 ? 7 : width < 840 ? 10 : 12;
-  const minWidth = width < 520 ? 70 : 82;
-  const minHeight = width < 520 ? 54 : 58;
-  const minArea = minWidth * minHeight;
+  const minLog = knownCaps.length ? Math.log(Math.min(...knownCaps)) : 0;
+  const maxLog = knownCaps.length ? Math.log(Math.max(...knownCaps)) : 0;
+  const logSpan = Math.max(0.000001, maxLog - minLog);
+  const minRadius = compact ? 22 : 31;
+  const maxRadius = Math.max(
+    minRadius + 8,
+    Math.min(compact ? 62 : 102, Math.min(width, height) * (compact ? 0.18 : 0.24)),
+  );
+  const weighted = source.map((entry) => {
+    const weight = entry.comparableMarketCap === null ? fallbackWeight : entry.comparableMarketCap;
+    const normalized = entry.comparableMarketCap === null
+      ? 0
+      : Math.max(0, Math.min(1, (Math.log(weight) - minLog) / logSpan));
+    return {
+      entry,
+      weight,
+      radius: minRadius + Math.pow(normalized, 0.82) * (maxRadius - minRadius),
+    };
+  });
+  const maxVisible = width < 360 ? 9 : width < 520 ? 11 : width < 840 ? 15 : 20;
   let visibleCount = Math.min(maxVisible, weighted.length);
 
   while (visibleCount >= 1) {
@@ -19365,23 +19415,12 @@ function computeWatchMarketMapLayout(entries, width, height) {
     if (hidden.length) {
       nodes.push({
         kind: "overflow",
-        weight: Math.max(
-          hidden.reduce((sum, node) => sum + node.weight, 0),
-          sourceWeight * 0.05,
-        ),
+        radius: compact ? 26 : 35,
         entries: hidden.map((node) => node.entry),
       });
     }
-    const laidOut = layoutWatchMarketMapNodes(nodes, width, height);
-    const readable = laidOut.every((node) => {
-      const targetWidth = node.kind === "overflow" ? 64 : minWidth;
-      const targetHeight = node.kind === "overflow" ? 44 : minHeight;
-      const targetArea = node.kind === "overflow" ? 64 * 44 : minArea;
-      return node.width >= targetWidth
-        && node.height >= targetHeight
-        && node.width * node.height >= targetArea;
-    });
-    if (readable || visibleCount === 1) {
+    const laidOut = packWatchMarketMapBubbles(nodes, width, height);
+    if (laidOut) {
       return {
         nodes: laidOut,
         visibleEntries: visible.map((node) => node.entry),
@@ -19391,6 +19430,69 @@ function computeWatchMarketMapLayout(entries, width, height) {
     visibleCount -= 1;
   }
   return { nodes: [], visibleEntries: [], hiddenEntries: source };
+}
+
+function watchMarketMapTimeParts(value) {
+  const parts = {};
+  for (const part of new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(value)) {
+    if (part.type !== "literal") parts[part.type] = part.value;
+  }
+  return parts;
+}
+
+function watchMarketMapTimelineSnapshot(entries = []) {
+  const timestamps = entries
+    .flatMap((entry) => [entry.dashboard?.quote?.as_of, entry.dashboard?.as_of])
+    .map((value) => Date.parse(String(value || "")))
+    .filter(Number.isFinite);
+  const hasQuoteTime = timestamps.length > 0;
+  const snapshotDate = new Date(hasQuoteTime ? Math.max(...timestamps) : Date.now());
+  const snapshot = watchMarketMapTimeParts(snapshotDate);
+  const today = watchMarketMapTimeParts(new Date());
+  const isToday = snapshot.year === today.year
+    && snapshot.month === today.month
+    && snapshot.day === today.day;
+  const minutes = Math.max(0, Math.min(1439, Number(snapshot.hour || 0) * 60 + Number(snapshot.minute || 0)));
+  const timeLabel = `${snapshot.hour || "00"}:${snapshot.minute || "00"}`;
+  const label = isToday
+    ? `오늘 ${timeLabel} ${hasQuoteTime ? "시세 기준" : "현재"}`
+    : `${Number(snapshot.month)}.${Number(snapshot.day)} ${timeLabel} 최근 시세`;
+  return {
+    dateTime: snapshotDate.toISOString(),
+    label,
+    minutes,
+    progress: (minutes / 1439) * 100,
+  };
+}
+
+function renderWatchMarketMapTimeline(entries = []) {
+  if (
+    !elements.watchMarketMapTimeline
+    || !elements.watchMarketMapTimelineTime
+    || !elements.watchMarketMapTimelineTrack
+    || !elements.watchMarketMapTimelineFill
+  ) {
+    return;
+  }
+  if (!entries.length) {
+    elements.watchMarketMapTimeline.hidden = true;
+    return;
+  }
+  const snapshot = watchMarketMapTimelineSnapshot(entries);
+  elements.watchMarketMapTimeline.hidden = false;
+  elements.watchMarketMapTimelineTime.textContent = snapshot.label;
+  elements.watchMarketMapTimelineTime.dateTime = snapshot.dateTime;
+  elements.watchMarketMapTimelineTrack.setAttribute("aria-valuenow", String(snapshot.minutes));
+  elements.watchMarketMapTimelineTrack.setAttribute("aria-valuetext", snapshot.label);
+  elements.watchMarketMapTimelineFill.style.width = `${Math.max(0, Math.min(100, snapshot.progress))}%`;
 }
 
 function watchMarketMapTone(changeRate) {
@@ -19414,17 +19516,14 @@ function formatWatchMarketCap(entry = {}) {
 }
 
 function positionWatchMarketMapTile(tile, node, width, height) {
-  const gap = 3;
-  const left = node.x + gap / 2;
-  const top = node.y + gap / 2;
-  const tileWidth = Math.max(1, node.width - gap);
-  const tileHeight = Math.max(1, node.height - gap);
-  tile.style.left = `${(left / width) * 100}%`;
-  tile.style.top = `${(top / height) * 100}%`;
-  tile.style.width = `${(tileWidth / width) * 100}%`;
-  tile.style.height = `${(tileHeight / height) * 100}%`;
-  tile.classList.toggle("is-compact", node.width < 128 || node.height < 92);
-  tile.classList.toggle("is-micro", node.width < 94 || node.height < 68);
+  tile.classList.add("is-bubble");
+  tile.style.left = `${(node.x / width) * 100}%`;
+  tile.style.top = `${(node.y / height) * 100}%`;
+  tile.style.width = `${(node.width / width) * 100}%`;
+  tile.style.height = `${(node.height / height) * 100}%`;
+  tile.style.setProperty("--watch-bubble-diameter", `${node.radius * 2}px`);
+  tile.classList.toggle("is-compact", node.radius < 42);
+  tile.classList.toggle("is-micro", node.radius < 32);
 }
 
 function createWatchMarketMapTile(node, width, height) {
@@ -19433,7 +19532,7 @@ function createWatchMarketMapTile(node, width, height) {
     button.type = "button";
     button.className = "watch-market-map-tile is-overflow";
     button.setAttribute("aria-haspopup", "dialog");
-    button.setAttribute("aria-label", `지도에서 생략된 관심종목 ${node.entries.length}개를 시가총액 순으로 보기`);
+    button.setAttribute("aria-label", `버블에서 생략된 관심종목 ${node.entries.length}개를 시가총액 순으로 보기`);
     button.append(
       el("strong", "", `${formatNumber(node.entries.length)}개`),
       el("span", "", "더보기"),
@@ -19521,19 +19620,23 @@ function renderWatchMarketMap(results = state.watchlistResults, options = {}) {
   elements.watchMarketMapGroup.textContent = mixedMarkets
     ? `${groupName} · 시가총액 순 · ${state.watchMarketMapUsdKrw ? "원화 환산" : "환율 확인 중"}`
     : `${groupName} · 시가총액 순`;
+  elements.watchMarketMapDescription.textContent = "원 크기는 시가총액, 색과 농도는 오늘 등락률입니다.";
 
   if (!entries.length) {
     state.watchMarketMapHiddenEntries = [];
     renderWatchMarketMapLegend([]);
+    renderWatchMarketMapTimeline([]);
     closeWatchMarketMapSheet();
     if (options.loading && Number(options.totalCount) > 0) {
       elements.watchMarketMap.hidden = false;
-      elements.watchMarketMapStage.className = "watch-market-map-stage is-loading";
+      elements.watchMarketMapStage.className = "watch-market-map-stage is-bubble-map is-loading";
       elements.watchMarketMapStage.setAttribute("aria-busy", "true");
       elements.watchMarketMapStage.replaceChildren(
         el("span", "watch-market-map-skeleton is-large"),
         el("span", "watch-market-map-skeleton"),
         el("span", "watch-market-map-skeleton"),
+        el("span", "watch-market-map-skeleton is-small"),
+        el("span", "watch-market-map-skeleton is-small"),
       );
       elements.watchMarketMapStatus.textContent = `${groupName} 종목의 시가총액을 확인하고 있습니다.`;
       return;
@@ -19545,7 +19648,7 @@ function renderWatchMarketMap(results = state.watchlistResults, options = {}) {
   }
 
   elements.watchMarketMap.hidden = false;
-  elements.watchMarketMapStage.className = "watch-market-map-stage";
+  elements.watchMarketMapStage.className = "watch-market-map-stage is-bubble-map";
   elements.watchMarketMapStage.removeAttribute("aria-busy");
   const bounds = elements.watchMarketMapStage.getBoundingClientRect();
   const width = Math.max(1, bounds.width || elements.watchMarketMapStage.clientWidth || 1);
@@ -19556,9 +19659,10 @@ function renderWatchMarketMap(results = state.watchlistResults, options = {}) {
     ...layout.nodes.map((node) => createWatchMarketMapTile(node, width, height)),
   );
   renderWatchMarketMapLegend(entries);
+  renderWatchMarketMapTimeline(entries);
   elements.watchMarketMapStatus.textContent = layout.hiddenEntries.length
-    ? `${groupName} ${entries.length}개 중 시가총액이 큰 ${layout.visibleEntries.length}개를 지도에 표시하고, 나머지 ${layout.hiddenEntries.length}개는 더보기에 정리했습니다.`
-    : `${groupName} ${entries.length}개를 시가총액 순으로 지도에 표시했습니다.`;
+    ? `${groupName} ${entries.length}개 중 시가총액이 큰 ${layout.visibleEntries.length}개를 버블로 표시하고, 나머지 ${layout.hiddenEntries.length}개는 더보기에 정리했습니다.`
+    : `${groupName} ${entries.length}개를 시가총액 순 버블로 표시했습니다.`;
   ensureWatchMarketMapResizeObserver();
   if (elements.watchMarketMapSheet?.open) renderWatchMarketMapSheet(layout.hiddenEntries);
 }
@@ -19596,8 +19700,8 @@ function renderWatchMarketMapSheet(entries = state.watchMarketMapHiddenEntries) 
   const source = Array.isArray(entries) ? entries : [];
   elements.watchMarketMapSheetTitle.textContent = `${activeWatchlistGroupName()}의 나머지 종목`;
   elements.watchMarketMapSheetDescription.textContent = source.length
-    ? `지도에서 작아진 ${formatNumber(source.length)}개 종목을 시가총액 순으로 정리했어요.`
-    : "지도에 모든 종목이 표시되어 있어요.";
+    ? `버블에 담기 어려운 ${formatNumber(source.length)}개 종목을 시가총액 순으로 정리했어요.`
+    : "모든 종목이 버블에 표시되어 있어요.";
   elements.watchMarketMapSheetList.replaceChildren();
   if (!source.length) {
     elements.watchMarketMapSheetList.append(el("p", "watch-market-map-sheet-empty", "더 보여드릴 종목이 없습니다."));

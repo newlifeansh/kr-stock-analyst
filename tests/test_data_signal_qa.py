@@ -957,6 +957,8 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "def watch_market_map_case" in source
     assert 'case_id="SIG-UI-025"' in source
     assert "원화 환산 시가총액 순으로 정렬" in source
+    assert "오늘 등락 방향·강도별 버블 색상 단계" in source
+    assert "오늘 타임라인 계약" in source
     assert "focus_returned_after_live_render" in source
 
 
@@ -1100,6 +1102,22 @@ def test_stock_detail_e2e_waits_for_visible_news_controls_and_settled_logo() -> 
     assert "image?.complete" in logo_case_source
     assert "image.naturalWidth > 0" in logo_case_source
     assert 'stage=f"{code} 종목명·로고 준비"' in logo_case_source
+    assert '"exited": "매도 완료"' in stock_case_source
+
+
+def test_layout_and_copy_e2e_cases_isolate_unrelated_market_data_failures() -> None:
+    source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
+    compact_case_source = source.split("def compact_content_flow_case", 1)[1].split(
+        "def community_mobile_shortcut_case", 1
+    )[0]
+    copy_case_source = source.split("def staging_gpt_detail_copy_case", 1)[1].split(
+        "def staging_gpt_briefing_copy_case", 1
+    )[0]
+
+    assert '"**/stocks/005930/intraday*"' in compact_case_source
+    assert '"source": "qa_fixture"' in compact_case_source
+    assert '"**/stock-logos/*.png*"' in copy_case_source
+    assert 'Path("app/static/stock-logos/005930.png").resolve()' in copy_case_source
 
 
 @pytest.mark.qa_gate
