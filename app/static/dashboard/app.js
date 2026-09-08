@@ -19508,13 +19508,6 @@ function watchMarketMapStrength(changeRate) {
   return "soft";
 }
 
-function formatWatchMarketCap(entry = {}) {
-  if (entry.marketCap === null) return "시총 확인 중";
-  return stockDashboardIsUs(entry.dashboard)
-    ? `시총 ${formatUsdCompact(entry.marketCap)}`
-    : `시총 ${formatMoney(entry.marketCap)}원`;
-}
-
 function positionWatchMarketMapTile(tile, node, width, height) {
   tile.classList.add("is-bubble");
   tile.style.left = `${(node.x / width) * 100}%`;
@@ -19532,11 +19525,10 @@ function createWatchMarketMapTile(node, width, height) {
     button.type = "button";
     button.className = "watch-market-map-tile is-overflow";
     button.setAttribute("aria-haspopup", "dialog");
-    button.setAttribute("aria-label", `버블에서 생략된 관심종목 ${node.entries.length}개를 시가총액 순으로 보기`);
+    button.setAttribute("aria-label", `숨겨진 관심종목 ${node.entries.length}개 보기`);
     button.append(
       el("strong", "", `${formatNumber(node.entries.length)}개`),
       el("span", "", "더보기"),
-      el("small", "", "시총 순 목록"),
     );
     button.addEventListener("click", () => openWatchMarketMapSheet(button));
     positionWatchMarketMapTile(button, node, width, height);
@@ -19553,25 +19545,15 @@ function createWatchMarketMapTile(node, width, height) {
   tile.dataset.marketScope = marketScopeForItem(entry.item);
   tile.setAttribute(
     "aria-label",
-    `${entry.item.name}, ${formatWatchMarketCap(entry)}, 오늘 ${tone.label} ${formatPercent(change)}, 종목 상세 보기`,
+    `${entry.item.name}, 오늘 ${tone.label} ${formatPercent(change)}, 종목 상세 보기`,
   );
 
-  const top = el("span", "watch-market-map-tile-top");
-  top.append(el("span", "watch-market-map-rank", String(entry.rank)));
-  if (isUsHubContext) {
-    top.append(el(
-      "span",
-      "watch-market-map-origin",
-      marketScopeForItem(entry.item) === "us" ? "미국" : "국내",
-    ));
-  }
   const copy = el("span", "watch-market-map-tile-copy");
   copy.append(
     el("strong", "", entry.item.name),
     el("span", "watch-market-map-change", formatPercent(change)),
-    el("small", "", formatWatchMarketCap(entry)),
   );
-  tile.append(top, copy);
+  tile.append(copy);
   positionWatchMarketMapTile(tile, node, width, height);
   return tile;
 }
@@ -19671,18 +19653,11 @@ function createWatchMarketMapSheetRow(entry) {
   const link = document.createElement("a");
   link.className = "watch-market-map-sheet-row";
   link.href = viewStockUrl(entry.item.code || entry.item.name, entry.item);
-  const rank = el("span", "watch-market-map-sheet-rank", String(entry.rank));
+  link.dataset.code = entry.item.code || "";
   const identity = el("span", "watch-market-map-sheet-identity");
   const nameRow = el("span", "watch-market-map-sheet-name");
   nameRow.append(el("strong", "", entry.item.name));
-  if (isUsHubContext) {
-    nameRow.append(el(
-      "em",
-      `is-${marketScopeForItem(entry.item)}`,
-      marketScopeForItem(entry.item) === "us" ? "미국" : "국내",
-    ));
-  }
-  identity.append(nameRow, el("small", "", `${entry.item.code} · ${formatWatchMarketCap(entry)}`));
+  identity.append(nameRow, el("small", "", entry.item.code || ""));
   const values = el("span", "watch-market-map-sheet-values");
   const change = toNumber(entry.dashboard?.quote?.change_rate);
   const tone = watchMarketMapTone(change);
@@ -19690,8 +19665,8 @@ function createWatchMarketMapSheetRow(entry) {
     el("strong", "", formatStockPrice(entry.dashboard?.quote?.price, entry.dashboard)),
     el("small", `is-${tone.id}`, `${tone.label} ${formatPercent(change)}`),
   );
-  link.append(rank, identity, values);
-  link.setAttribute("aria-label", `${entry.rank}위 ${entry.item.name}, ${formatWatchMarketCap(entry)}, 종목 상세 보기`);
+  link.append(identity, values);
+  link.setAttribute("aria-label", `${entry.item.name}, 오늘 ${tone.label} ${formatPercent(change)}, 종목 상세 보기`);
   return link;
 }
 
@@ -19700,7 +19675,7 @@ function renderWatchMarketMapSheet(entries = state.watchMarketMapHiddenEntries) 
   const source = Array.isArray(entries) ? entries : [];
   elements.watchMarketMapSheetTitle.textContent = `${activeWatchlistGroupName()}의 나머지 종목`;
   elements.watchMarketMapSheetDescription.textContent = source.length
-    ? `버블에 담기 어려운 ${formatNumber(source.length)}개 종목을 시가총액 순으로 정리했어요.`
+    ? `버블에 담기 어려운 ${formatNumber(source.length)}개 종목을 정리했어요.`
     : "모든 종목이 버블에 표시되어 있어요.";
   elements.watchMarketMapSheetList.replaceChildren();
   if (!source.length) {

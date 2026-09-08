@@ -42491,7 +42491,7 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   display: none !important;
 }
 
-/* Watch groups and market-cap bubbles v495: size encodes market cap, color
+/* Watch groups and market-cap bubbles v496: size encodes market cap, color
    encodes today's move, and overflow stays reachable in a bottom sheet. */
 #portfolio-view[data-watch-group-layout="true"] {
   --watch-group-panel: light-dark(#ffffff, #202126);
@@ -42775,38 +42775,6 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   text-align: center;
 }
 
-#portfolio-view .watch-market-map-tile-top {
-  position: absolute;
-  top: 9px;
-  left: 50%;
-  min-width: max-content;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  transform: translateX(-50%);
-}
-
-#portfolio-view :is(.watch-market-map-rank, .watch-market-map-origin) {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  min-height: 18px;
-  border-radius: 999px;
-  padding: 0 6px;
-  background: rgba(0, 0, 0, 0.18);
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 10px !important;
-  font-weight: 750 !important;
-  line-height: 1 !important;
-  white-space: nowrap;
-}
-
-#portfolio-view .watch-market-map-origin {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 #portfolio-view .watch-market-map-tile-copy {
   min-width: 0;
   width: 100%;
@@ -42838,25 +42806,9 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   line-height: 1.2 !important;
 }
 
-#portfolio-view .watch-market-map-tile-copy small,
-#portfolio-view .watch-market-map-tile.is-overflow > small {
-  overflow: hidden;
-  color: rgba(255, 255, 255, 0.76);
-  font-size: 10px !important;
-  font-weight: 650 !important;
-  line-height: 1.25 !important;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 #portfolio-view .watch-market-map-tile.is-compact {
   justify-content: center;
   padding: 6px;
-}
-
-#portfolio-view .watch-market-map-tile.is-compact .watch-market-map-tile-top,
-#portfolio-view .watch-market-map-tile.is-compact .watch-market-map-tile-copy small {
-  display: none;
 }
 
 #portfolio-view .watch-market-map-tile.is-compact .watch-market-map-tile-copy {
@@ -43159,19 +43111,12 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   min-width: 0;
   min-height: 78px;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   border-bottom: 1px solid light-dark(#edf0f2, #34353c);
   color: light-dark(#191f28, #f2f4f6);
   text-decoration: none;
-}
-
-.watch-market-map-sheet-rank {
-  color: light-dark(#8b95a1, #8b95a1);
-  font-size: 13px !important;
-  font-weight: 750 !important;
-  text-align: center;
 }
 
 .watch-market-map-sheet-identity,
@@ -43196,25 +43141,6 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   line-height: 1.3 !important;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.watch-market-map-sheet-name em {
-  min-height: 20px;
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  padding: 0 7px;
-  background: light-dark(#eef6ff, rgba(49, 130, 246, 0.16));
-  color: light-dark(#1b64da, #74a8ff);
-  font-size: 10px !important;
-  font-style: normal;
-  font-weight: 800 !important;
-}
-
-.watch-market-map-sheet-name em.is-kr {
-  background: light-dark(#f2f4f6, rgba(139, 149, 161, 0.16));
-  color: light-dark(#4e5968, #b0b8c1);
 }
 
 .watch-market-map-sheet-identity > small {

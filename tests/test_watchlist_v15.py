@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="4.0" data-watch-group-layout="true"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.6"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260909v495"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260909v496"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -142,8 +142,25 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
     ):
         assert expected in source
 
+    bubble_source = source.split("function createWatchMarketMapTile", 1)[1].split(
+        "function renderWatchMarketMapLegend", 1
+    )[0]
+    sheet_source = source.split("function createWatchMarketMapSheetRow", 1)[1].split(
+        "function watchMarketMapSheetOpen", 1
+    )[0]
+    for removed in (
+        "watch-market-map-rank",
+        "watch-market-map-origin",
+        "watch-market-map-tile-top",
+        "formatWatchMarketCap",
+    ):
+        assert removed not in bubble_source
+        assert removed not in sheet_source
+    assert 'identity.append(nameRow, el("small", "", entry.item.code || ""));' in sheet_source
+    assert '`${entry.item.name}, 오늘 ${tone.label} ${formatPercent(change)}, 종목 상세 보기`' in source
+
     for expected in (
-        "/* Watch groups and market-cap bubbles v495",
+        "/* Watch groups and market-cap bubbles v496",
         ".watch-market-map-stage {",
         ".watch-market-map-tile.is-overflow",
         ".watch-market-map-timeline-track {",
@@ -154,6 +171,13 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         "@media (prefers-reduced-motion: reduce)",
     ):
         assert expected in styles
+    for removed in (
+        ".watch-market-map-rank",
+        ".watch-market-map-origin",
+        ".watch-market-map-sheet-rank",
+        ".watch-market-map-sheet-name em",
+    ):
+        assert removed not in styles
 
 
 def test_watchlist_market_cap_bubbles_pack_without_overlap_and_hide_overflow():
