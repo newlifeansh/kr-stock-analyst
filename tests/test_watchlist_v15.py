@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="4.0" data-watch-group-layout="true"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.6"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260909v497"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260909v498"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
     assert 'class="watch-v3-stock-section"' in shell.text
@@ -135,7 +135,7 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         'link.href = viewStockUrl(entry.item.code || entry.item.name, entry.item);',
         'const items = watchlistItemsForGroup(groupId);',
         'const url = options.force ? "/us/fx/usdkrw?refresh=true" : "/us/fx/usdkrw";',
-        '["home", "stock", "portfolio", "recommend-detail"',
+        '["home", "ai-signals", "stock", "portfolio", "recommend-detail"',
         'renderWatchMarketMap([], { loading: true, totalCount: items.length });',
         "renderWatchMarketMap(state.watchlistResults);",
         'elements.watchMarketMapStage?.querySelector(".watch-market-map-tile.is-overflow")',

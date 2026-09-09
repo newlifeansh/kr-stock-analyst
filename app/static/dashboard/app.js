@@ -977,9 +977,14 @@ const isUsRootPath = /^\/us\/?$/.test(window.location.pathname);
 const usStockPathMatch = window.location.pathname.match(/^\/us\/stock\/([^/]+)\/?$/);
 const usStockPathCode = usStockPathMatch ? decodeURIComponent(usStockPathMatch[1]) : "";
 const isUsHubContext = isUsRootPath || Boolean(usStockPathMatch);
-const requestedMarketScope = ["all", "kr", "us"].includes(dashboardQueryParams.get("market_scope"))
+const requestedMarketScopeValue = ["all", "kr", "us"].includes(dashboardQueryParams.get("market_scope"))
   ? dashboardQueryParams.get("market_scope")
   : "all";
+const requestedMarketScope = isUsRootPath
+  && requestedView === "ai-signals"
+  && requestedMarketScopeValue === "all"
+  ? "kr"
+  : requestedMarketScopeValue;
 const requestedMarketRankingMarket = dashboardQueryParams.get("market") || (isUsRootPath ? "MIXED" : "ALL");
 const requestedMarketRankingCategory = dashboardQueryParams.get("category") || "volume";
 const requestedMarketRankingMode = dashboardQueryParams.get("mode") || "";
@@ -1404,7 +1409,10 @@ function applyUsMarketSurface() {
     elements.input.placeholder = "국내 종목명·코드 또는 미국 티커";
   }
   const signalListLink = document.querySelector("a[data-ai-signal-list-link]");
-  if (signalListLink) signalListLink.href = "/us?view=ai-signals";
+  if (signalListLink) {
+    const signalMarketScope = state.marketScope === "us" ? "us" : "kr";
+    signalListLink.href = `/us?view=ai-signals&market_scope=${signalMarketScope}`;
+  }
   const brand = document.querySelector(".mobile-brand");
   const brandMarket = brand?.querySelector(":scope > span:last-child");
   if (brand) brand.setAttribute("aria-label", "비밀노트 통합증시");
@@ -1422,6 +1430,7 @@ function applyUsMarketSurface() {
   if (elements.unifiedMarketScope) {
     elements.unifiedMarketScope.hidden = [
       "home",
+      "ai-signals",
       "stock",
       "portfolio",
       "recommend-detail",
@@ -1431,9 +1440,16 @@ function applyUsMarketSurface() {
   }
   for (const button of elements.unifiedMarketScopeButtons) {
     const active = button.dataset.unifiedMarketScope === state.marketScope;
+    const compactSignalToggle = Boolean(button.closest("[data-ai-signal-market-toggle]"));
     button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", String(active));
-    button.tabIndex = active ? 0 : -1;
+    if (compactSignalToggle) {
+      button.setAttribute("aria-pressed", String(active));
+      button.removeAttribute("aria-selected");
+      button.removeAttribute("tabindex");
+    } else {
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    }
   }
   for (const button of elements.marketTabs) {
     const market = button.dataset.marketFilter;
@@ -1499,7 +1515,7 @@ function setUnifiedMarketScope(marketScope) {
 
 function syncUnifiedMarketScopeVisibility(view = state.view) {
   if (!elements.unifiedMarketScope) return;
-  elements.unifiedMarketScope.hidden = !isUsHubContext || ["home", "stock", "portfolio", "recommend-detail", "event-detail", "morning-briefing"].includes(view);
+  elements.unifiedMarketScope.hidden = !isUsHubContext || ["home", "ai-signals", "stock", "portfolio", "recommend-detail", "event-detail", "morning-briefing"].includes(view);
 }
 
 function ensureUnifiedHomeTop50() {
@@ -27766,9 +27782,12 @@ async function syncViewFromLocation() {
   const params = new URLSearchParams(window.location.search);
   const routeView = params.get("view") || "home";
   if (isUsHubContext) {
-    state.marketScope = ["all", "kr", "us"].includes(params.get("market_scope"))
+    const routeMarketScope = ["all", "kr", "us"].includes(params.get("market_scope"))
       ? params.get("market_scope")
       : "all";
+    state.marketScope = routeView === "ai-signals" && routeMarketScope === "all"
+      ? "kr"
+      : routeMarketScope;
     document.body.dataset.marketScope = state.marketScope;
   }
   const routeMarket = params.get("market") || (isUsHubContext
@@ -27841,7 +27860,12 @@ for (const item of elements.appNavItems) {
 }
 for (const button of elements.unifiedMarketScopeButtons) {
   button.addEventListener("click", () => setUnifiedMarketScope(button.dataset.unifiedMarketScope || "all"));
-  button.addEventListener("keydown", (event) => moveRovingTabFocus(event, elements.unifiedMarketScopeButtons, button));
+  button.addEventListener("keydown", (event) => {
+    const groupButtons = Array.from(
+      button.closest('[role="tablist"], [role="group"]')?.querySelectorAll("[data-unified-market-scope]") || [],
+    );
+    moveRovingTabFocus(event, groupButtons, button);
+  });
 }
 elements.morningMoneyBriefingBack?.addEventListener("click", () => {
   state.morningMoneyBriefingSelection = null;
@@ -27851,6 +27875,11 @@ elements.morningMoneyPopoverOpen?.addEventListener("click", openMorningMoneyBrie
 elements.morningMoneyPopoverClose?.addEventListener("click", () => dismissMorningMoneyBriefing());
 elements.homeInstallButton?.addEventListener("click", handleHomeInstall);
 function openAiSignalsPage() {
+  if (isUsHubContext && state.marketScope === "all") {
+    state.marketScope = "kr";
+    document.body.dataset.marketScope = state.marketScope;
+    applyUsMarketSurface();
+  }
   setAiSignalMode("current", { render: false });
   setAiSignalStage("all", { render: false });
   setAiSignalHistorySide("all", { render: false });

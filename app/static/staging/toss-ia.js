@@ -3959,7 +3959,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260909-unified-market-v105`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260909-unified-market-v106`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -6034,10 +6034,17 @@
     if (modeTabs && !aiSignalsView.querySelector(".staging-ai-signals-intro")) {
       const intro = document.createElement("header");
       intro.className = "staging-ai-signals-intro";
+      if (stagingUsHubContext) intro.classList.add("has-market-toggle");
       intro.setAttribute("aria-labelledby", "staging-ai-signals-title");
       intro.innerHTML = `
         <span>${stagingUsMarketContext ? "미국 대표 대형주에서" : "시총 Top 100 에서"}</span>
         <h2 id="staging-ai-signals-title">AI는 무엇을 사고 팔까?</h2>
+        ${stagingUsHubContext ? `
+          <nav class="staging-hot-community-market-toggle staging-ai-signal-market-toggle" data-ai-signal-market-toggle role="group" aria-label="AI 시그널 시장 선택">
+            <button type="button" aria-label="미국 시그널 보기" aria-pressed="false" data-unified-market-scope="us"><span aria-hidden="true">🇺🇸</span></button>
+            <button type="button" aria-label="한국 시그널 보기" aria-pressed="false" data-unified-market-scope="kr"><span aria-hidden="true">🇰🇷</span></button>
+          </nav>
+        ` : ""}
       `;
       modeTabs.insertAdjacentElement("beforebegin", intro);
     }

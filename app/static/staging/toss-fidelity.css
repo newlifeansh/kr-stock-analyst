@@ -20097,3 +20097,29 @@ body[data-staging-ia="tds-video"] .staging-hot-community-market-toggle > button:
     transition: none !important;
   }
 }
+
+/* v158 — match the /us AI signal market switch to the compact community toggle. */
+body[data-staging-ia="tds-video"] #ai-signals-view .staging-ai-signals-intro.has-market-toggle {
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  grid-template-rows: auto auto !important;
+  align-items: center !important;
+  column-gap: 12px !important;
+}
+
+body[data-staging-ia="tds-video"] #ai-signals-view .staging-ai-signals-intro.has-market-toggle > :is(span, h2) {
+  grid-column: 1 !important;
+}
+
+body[data-staging-ia="tds-video"] #ai-signals-view .staging-ai-signal-market-toggle {
+  grid-column: 2 !important;
+  grid-row: 1 / span 2 !important;
+  align-self: center !important;
+  justify-self: end !important;
+  margin: 0 !important;
+}
+
+@media (max-width: 359px) {
+  body[data-staging-ia="tds-video"] #ai-signals-view .staging-ai-signals-intro.has-market-toggle {
+    column-gap: 10px !important;
+  }
+}
