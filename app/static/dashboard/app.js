@@ -23485,9 +23485,10 @@ async function saveRemoteRecommendationTracks(items, shareId = state.watchlistId
       },
       body: requestPayload,
     });
-  let response = await requestOnce(await ensureWriteToken(normalizedId));
+  const tokenOptions = { marketScope: isUsMarketContext ? "us" : "kr" };
+  let response = await requestOnce(await ensureWriteToken(normalizedId, tokenOptions));
   if (response.status === 403) {
-    response = await requestOnce(await ensureWriteToken(normalizedId, { force: true }));
+    response = await requestOnce(await ensureWriteToken(normalizedId, { ...tokenOptions, force: true }));
   }
   if (!response.ok) {
     throw new Error("recommendation tracks save failed");
