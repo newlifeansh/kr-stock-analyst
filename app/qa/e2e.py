@@ -7970,16 +7970,20 @@ def run_e2e_checks(
                     return page.evaluate(
                         """() => {
                           const stage = document.querySelector('#watch-market-map-stage');
-                          const animations = document.getAnimations({subtree: true})
-                            .filter(animation => animation.id === 'watch-market-map-layout');
+                          const physics = state.watchMarketMapPhysics;
                           return {
                             stageMotion: stage?.dataset.motion,
-                            activeCount: animations.length,
+                            motionModel: stage?.dataset.motionModel,
+                            gravity: Number(stage?.dataset.gravity),
+                            splitSeries: stage?.dataset.splitSeries,
+                            frameActive: physics?.frame !== null,
                             activeKinds: [...stage.querySelectorAll('[data-watch-motion]')]
                               .map(tile => tile.dataset.watchMotion),
-                            durations: animations.map(animation => animation.effect?.getTiming().duration),
-                            delays: animations.map(animation => animation.effect?.getTiming().delay),
                             movingTiles: stage.querySelectorAll('[data-watch-motion]').length,
+                            collisionCount: physics?.collisionCount || 0,
+                            maxDistance: Math.max(0, ...(physics?.nodes || []).map(node => (
+                              Math.hypot(node.targetX - node.x, node.targetY - node.y)
+                            ))),
                           };
                         }"""
                     )
@@ -7995,6 +7999,7 @@ def run_e2e_checks(
                 page.wait_for_function(
                     """() => (
                       document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settling'
+                      && state.watchMarketMapPhysics?.collisionCount > 0
                       && [...document.querySelectorAll(
                         '#watch-market-map-stage [data-watch-motion]'
                       )].some(tile => tile.dataset.watchMotion === 'entering')
@@ -8003,13 +8008,15 @@ def run_e2e_checks(
                 )
                 entry_motion_snapshot = bubble_motion_snapshot()
                 if (
-                    entry_motion_snapshot["activeCount"] <= 0
+                    entry_motion_snapshot["motionModel"] != "packedbubble-physics"
+                    or entry_motion_snapshot["gravity"] != 0.02
+                    or entry_motion_snapshot["splitSeries"] != "false"
+                    or entry_motion_snapshot["frameActive"] is not True
                     or "entering" not in entry_motion_snapshot["activeKinds"]
-                    or max(entry_motion_snapshot["durations"] or [0]) > 620
-                    or max(entry_motion_snapshot["delays"] or [0]) > 128
+                    or entry_motion_snapshot["collisionCount"] <= 0
                 ):
                     raise QaFailure(
-                        "관심종목 버블의 중앙 순차 진입 모션이 실행되지 않았습니다.",
+                        "관심종목 버블의 단일 클러스터 중력·충돌 진입 모션이 실행되지 않았습니다.",
                         entry_motion_snapshot,
                     )
                 page.wait_for_function(
@@ -8029,34 +8036,76 @@ def run_e2e_checks(
                 )
                 reposition_motion_snapshot = bubble_motion_snapshot()
                 if (
-                    reposition_motion_snapshot["activeCount"] <= 0
+                    reposition_motion_snapshot["frameActive"] is not True
                     or "repositioning" not in reposition_motion_snapshot["activeKinds"]
-                    or max(reposition_motion_snapshot["durations"] or [0]) > 460
-                    or max(reposition_motion_snapshot["delays"] or [0]) > 64
                 ):
                     raise QaFailure(
-                        "관심종목 버블의 FLIP 스프링 재배치 모션이 실행되지 않았습니다.",
+                        "관심종목 버블의 packed-bubble 중력 재배치 모션이 실행되지 않았습니다.",
                         reposition_motion_snapshot,
                     )
                 page.wait_for_function(
-                    """() => (
-                      document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settled'
-                      && !document.getAnimations({subtree: true}).some(
-                        animation => animation.id === 'watch-market-map-layout'
-                          && ['running', 'pending'].includes(animation.playState)
-                      )
-                    )""",
+                    """() => document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settled'
+                      && state.watchMarketMapPhysics?.frame === null""",
                     timeout=2000,
                 )
                 motion_settled = bubble_motion_snapshot()
+
+                drag_tile = page.locator(
+                    "#watch-market-map-stage a.watch-market-map-tile"
+                ).first
+                drag_tile.scroll_into_view_if_needed()
+                drag_box = drag_tile.bounding_box()
+                stage_box = page.locator("#watch-market-map-stage").bounding_box()
+                if not drag_box or not stage_box:
+                    raise QaFailure("드래그할 관심종목 버블의 위치를 찾지 못했습니다.")
+                start_x = drag_box["x"] + drag_box["width"] / 2
+                start_y = drag_box["y"] + drag_box["height"] / 2
+                stage_center_x = stage_box["x"] + stage_box["width"] / 2
+                stage_center_y = stage_box["y"] + stage_box["height"] / 2
+                drag_x = start_x + (-34 if start_x > stage_center_x else 34)
+                drag_y = start_y + (-22 if start_y > stage_center_y else 22)
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.mouse.move(drag_x, drag_y, steps=5)
+                page.wait_for_function(
+                    """() => (
+                      document.querySelector('#watch-market-map-stage')?.dataset.motion === 'dragging'
+                      && document.querySelector('#watch-market-map-stage .is-dragging')
+                      && state.watchMarketMapPhysics?.frame !== null
+                    )""",
+                    timeout=2000,
+                )
+                drag_motion_snapshot = bubble_motion_snapshot()
+                page.mouse.up()
+                page.wait_for_function(
+                    """() => document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settled'
+                      && state.watchMarketMapPhysics?.frame === null
+                      && !document.querySelector('#watch-market-map-stage .is-dragging')""",
+                    timeout=2000,
+                )
+                drag_settled_snapshot = bubble_motion_snapshot()
+                if (
+                    drag_motion_snapshot["stageMotion"] != "dragging"
+                    or drag_motion_snapshot["frameActive"] is not True
+                    or "dragging" not in drag_motion_snapshot["activeKinds"]
+                    or drag_settled_snapshot["stageMotion"] != "settled"
+                    or drag_settled_snapshot["frameActive"] is not False
+                ):
+                    raise QaFailure(
+                        "버블 드래그와 충돌 후 원위치 정착 동작이 올바르지 않습니다.",
+                        {
+                            "dragging": drag_motion_snapshot,
+                            "settled": drag_settled_snapshot,
+                        },
+                    )
+
                 page.emulate_media(reduced_motion="reduce")
                 page.set_viewport_size({"width": 320, "height": 760})
                 page.wait_for_timeout(180)
                 reduced_motion_snapshot = page.evaluate(
                     """() => ({
                       stageMotion: document.querySelector('#watch-market-map-stage')?.dataset.motion,
-                      activeCount: document.getAnimations({subtree: true})
-                        .filter(animation => animation.id === 'watch-market-map-layout').length,
+                      frameActive: state.watchMarketMapPhysics?.frame !== null,
                       movingTiles: document.querySelectorAll(
                         '#watch-market-map-stage [data-watch-motion]'
                       ).length,
@@ -8064,14 +8113,14 @@ def run_e2e_checks(
                 )
                 if (
                     motion_settled["stageMotion"] != "settled"
-                    or motion_settled["activeCount"] != 0
+                    or motion_settled["frameActive"] is not False
                     or motion_settled["movingTiles"] != 0
                     or reduced_motion_snapshot["stageMotion"] != "settled"
-                    or reduced_motion_snapshot["activeCount"] != 0
+                    or reduced_motion_snapshot["frameActive"] is not False
                     or reduced_motion_snapshot["movingTiles"] != 0
                 ):
                     raise QaFailure(
-                        "버블 모션이 1초 안에 정지하지 않거나 reduced-motion에서 실행됐습니다.",
+                        "버블 물리 모션이 제한 시간 안에 정지하지 않거나 reduced-motion에서 실행됐습니다.",
                         {
                             "settled": motion_settled,
                             "reduced_motion": reduced_motion_snapshot,
@@ -8248,6 +8297,8 @@ def run_e2e_checks(
                         "entry": entry_motion_snapshot,
                         "reposition": reposition_motion_snapshot,
                         "settled": motion_settled,
+                        "dragging": drag_motion_snapshot,
+                        "drag_settled": drag_settled_snapshot,
                         "reduced_motion": reduced_motion_snapshot,
                     },
                     "sheet": sheet_snapshot,

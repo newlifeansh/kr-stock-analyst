@@ -1180,6 +1180,7 @@ const state = {
   watchMarketMapResizeObserver: null,
   watchMarketMapRenderFrame: null,
   watchMarketMapMotionGeneration: 0,
+  watchMarketMapPhysics: null,
   watchlistContentTab: "strategy",
   aiSignalMode: "current",
   aiSignalStage: "all",
@@ -19992,66 +19993,93 @@ function positionWatchMarketMapTile(tile, node, width, height) {
   tile.style.width = `${(node.width / width) * 100}%`;
   tile.style.height = `${(node.height / height) * 100}%`;
   tile.style.setProperty("--watch-bubble-diameter", `${node.radius * 2}px`);
+  tile.style.setProperty("--watch-bubble-name-size", `${Math.max(11, Math.min(20, node.radius * 0.25))}px`);
+  tile.style.setProperty("--watch-bubble-rate-size", `${Math.max(10, Math.min(17, node.radius * 0.2))}px`);
+  tile.dataset.watchBubbleRadius = String(node.radius);
+  tile.dataset.watchBubbleTargetX = String(node.cx);
+  tile.dataset.watchBubbleTargetY = String(node.cy);
   tile.classList.toggle("is-compact", node.radius < 42);
   tile.classList.toggle("is-micro", node.radius < 32);
 }
 
-function watchMarketMapMotionPlan(previousRect, finalRect, stageRect, order = 0) {
-  if (!finalRect?.width || !finalRect?.height || !stageRect?.width || !stageRect?.height) return null;
-  const entering = !previousRect;
-  const finalCenterX = finalRect.left + finalRect.width / 2;
-  const finalCenterY = finalRect.top + finalRect.height / 2;
-  const fromX = entering
-    ? stageRect.left + stageRect.width / 2 - finalCenterX
-    : previousRect.left - finalRect.left;
-  const fromY = entering
-    ? stageRect.top + stageRect.height / 2 - finalCenterY
-    : previousRect.top - finalRect.top;
-  const fromScale = entering
-    ? 0.18
-    : Math.max(0.55, Math.min(1.75, previousRect.width / finalRect.width));
-  if (
-    !entering
-    && Math.abs(fromX) < 0.5
-    && Math.abs(fromY) < 0.5
-    && Math.abs(fromScale - 1) < 0.01
-  ) {
-    return null;
-  }
-  const settleX = -fromX * 0.035;
-  const settleY = -fromY * 0.035;
+function watchMarketMapPhysicsConfig(width = 0) {
   return {
-    kind: entering ? "entering" : "repositioning",
-    keyframes: [
-      {
-        opacity: entering ? 0 : 1,
-        filter: entering ? "brightness(0.86) saturate(0.72)" : "none",
-        transform: `translate3d(${fromX}px, ${fromY}px, 0) scale(${fromScale})`,
-      },
-      {
-        opacity: 1,
-        filter: "brightness(1.06) saturate(1.06)",
-        offset: 0.76,
-        transform: `translate3d(${settleX}px, ${settleY}px, 0) scale(1.035)`,
-      },
-      {
-        opacity: 1,
-        filter: "none",
-        offset: 0.9,
-        transform: `translate3d(${fromX * 0.012}px, ${fromY * 0.012}px, 0) scale(0.992)`,
-      },
-      {
-        opacity: 1,
-        filter: "none",
-        transform: "translate3d(0, 0, 0) scale(1)",
-      },
-    ],
-    timing: {
-      duration: entering ? 620 : 460,
-      delay: entering ? Math.min(Math.max(0, order) * 16, 128) : Math.min(Math.max(0, order) * 8, 64),
-      easing: "cubic-bezier(0.2, 0.82, 0.2, 1)",
-    },
+    // Mirrors the single-cluster Highcharts packedbubble setup used by the reference.
+    splitSeries: false,
+    gravitationalConstant: 0.02,
+    collisionPadding: width < 520 ? 4 : 5,
+    stagePadding: 4,
+    damping: width < 520 ? 0.84 : 0.86,
+    entryScale: 0.18,
+    maxDurationMs: 960,
+    settleDistance: 0.65,
+    settleSpeed: 0.08,
   };
+}
+
+function watchMarketMapClamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function resolveWatchMarketMapCollisions(nodes, width, height, config = watchMarketMapPhysicsConfig(width)) {
+  let collisionCount = 0;
+  const source = Array.isArray(nodes) ? nodes : [];
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (let leftIndex = 0; leftIndex < source.length; leftIndex += 1) {
+      const left = source[leftIndex];
+      for (let rightIndex = leftIndex + 1; rightIndex < source.length; rightIndex += 1) {
+        const right = source[rightIndex];
+        const leftRadius = left.radius * Math.max(0.42, left.scale || 1);
+        const rightRadius = right.radius * Math.max(0.42, right.scale || 1);
+        const minimumDistance = leftRadius + rightRadius + config.collisionPadding;
+        let deltaX = right.x - left.x;
+        let deltaY = right.y - left.y;
+        let distance = Math.hypot(deltaX, deltaY);
+        if (distance >= minimumDistance) continue;
+        collisionCount += 1;
+        if (distance < 0.001) {
+          const angle = ((leftIndex + 1) * (rightIndex + 2) * 2.399963229728653) % (Math.PI * 2);
+          deltaX = Math.cos(angle);
+          deltaY = Math.sin(angle);
+          distance = 1;
+        }
+        const normalX = deltaX / distance;
+        const normalY = deltaY / distance;
+        const overlap = minimumDistance - distance;
+        const leftPinned = left.dragging === true;
+        const rightPinned = right.dragging === true;
+        if (leftPinned && rightPinned) continue;
+        if (leftPinned) {
+          right.x += normalX * overlap;
+          right.y += normalY * overlap;
+        } else if (rightPinned) {
+          left.x -= normalX * overlap;
+          left.y -= normalY * overlap;
+        } else {
+          const leftMass = Math.max(1, left.radius * left.radius);
+          const rightMass = Math.max(1, right.radius * right.radius);
+          const totalMass = leftMass + rightMass;
+          const leftShift = overlap * (rightMass / totalMass);
+          const rightShift = overlap * (leftMass / totalMass);
+          left.x -= normalX * leftShift;
+          left.y -= normalY * leftShift;
+          right.x += normalX * rightShift;
+          right.y += normalY * rightShift;
+          const impulse = Math.min(2.4, overlap * 0.055);
+          left.vx = (left.vx || 0) - normalX * impulse;
+          left.vy = (left.vy || 0) - normalY * impulse;
+          right.vx = (right.vx || 0) + normalX * impulse;
+          right.vy = (right.vy || 0) + normalY * impulse;
+        }
+      }
+    }
+    for (const node of source) {
+      const radius = node.radius;
+      node.x = watchMarketMapClamp(node.x, radius + config.stagePadding, width - radius - config.stagePadding);
+      node.y = watchMarketMapClamp(node.y, radius + config.stagePadding, height - radius - config.stagePadding);
+    }
+  }
+  return collisionCount;
 }
 
 function watchMarketMapMotionKey(tile) {
@@ -20063,53 +20091,274 @@ function watchMarketMapMotionKey(tile) {
 function watchMarketMapMotionSnapshot(stage = elements.watchMarketMapStage) {
   const tiles = new Map();
   if (!stage) return { tiles };
+  const stageRect = stage.getBoundingClientRect();
   for (const tile of stage.querySelectorAll(".watch-market-map-tile")) {
     const key = watchMarketMapMotionKey(tile);
     if (!key) continue;
     const rect = tile.getBoundingClientRect();
     tiles.set(key, {
-      left: rect.left,
-      top: rect.top,
-      width: rect.width,
-      height: rect.height,
+      centerXRatio: stageRect.width ? (rect.left - stageRect.left + rect.width / 2) / stageRect.width : 0.5,
+      centerYRatio: stageRect.height ? (rect.top - stageRect.top + rect.height / 2) / stageRect.height : 0.5,
+      widthRatio: stageRect.width ? rect.width / stageRect.width : 1,
     });
   }
   return { tiles };
 }
 
+function applyWatchMarketMapPhysicsNode(node) {
+  if (!node?.tile?.isConnected) return;
+  const translateX = node.x - node.targetX;
+  const translateY = node.y - node.targetY;
+  node.tile.style.transform = `translate3d(${translateX.toFixed(2)}px, ${translateY.toFixed(2)}px, 0) scale(${node.scale.toFixed(3)})`;
+  node.tile.style.opacity = String(watchMarketMapClamp(node.opacity, 0, 1));
+}
+
+function settleWatchMarketMapPhysics(physics = state.watchMarketMapPhysics) {
+  if (!physics) return;
+  if (physics.frame !== null) window.cancelAnimationFrame(physics.frame);
+  physics.frame = null;
+  physics.stableFrames = 0;
+  for (const node of physics.nodes) {
+    node.x = node.targetX;
+    node.y = node.targetY;
+    node.vx = 0;
+    node.vy = 0;
+    node.scale = 1;
+    node.opacity = 1;
+    node.dragging = false;
+    if (!node.tile?.isConnected) continue;
+    node.tile.style.transform = "translate3d(0, 0, 0) scale(1)";
+    node.tile.style.opacity = "1";
+    node.tile.classList.remove("is-dragging");
+    node.tile.removeAttribute("data-watch-motion");
+  }
+  if (physics.stage?.isConnected) physics.stage.dataset.motion = "settled";
+}
+
+function stopWatchMarketMapPhysics() {
+  state.watchMarketMapMotionGeneration += 1;
+  const physics = state.watchMarketMapPhysics;
+  if (physics?.frame != null) window.cancelAnimationFrame(physics.frame);
+  state.watchMarketMapPhysics = null;
+}
+
+function runWatchMarketMapPhysicsFrame(physics, timestamp) {
+  if (state.watchMarketMapPhysics !== physics || physics.generation !== state.watchMarketMapMotionGeneration) return;
+  const delta = watchMarketMapClamp((timestamp - (physics.lastTimestamp || timestamp)) / (1000 / 60), 0.5, 2);
+  physics.lastTimestamp = timestamp;
+  const dragging = physics.nodes.some((node) => node.dragging);
+  let maxSpeed = 0;
+  let maxDistance = 0;
+  for (const node of physics.nodes) {
+    if (!node.dragging) {
+      node.vx += (node.targetX - node.x) * physics.config.gravitationalConstant * delta;
+      node.vy += (node.targetY - node.y) * physics.config.gravitationalConstant * delta;
+      const damping = Math.pow(physics.config.damping, delta);
+      node.vx *= damping;
+      node.vy *= damping;
+      node.x += node.vx * delta;
+      node.y += node.vy * delta;
+      node.scale += (1 - node.scale) * Math.min(1, 0.16 * delta);
+      node.opacity += (1 - node.opacity) * Math.min(1, 0.22 * delta);
+    }
+  }
+  physics.collisionCount += resolveWatchMarketMapCollisions(
+    physics.nodes,
+    physics.width,
+    physics.height,
+    physics.config,
+  );
+  for (const node of physics.nodes) {
+    applyWatchMarketMapPhysicsNode(node);
+    maxSpeed = Math.max(maxSpeed, Math.hypot(node.vx || 0, node.vy || 0));
+    maxDistance = Math.max(maxDistance, Math.hypot(node.targetX - node.x, node.targetY - node.y));
+  }
+  const elapsed = timestamp - physics.startedAt;
+  if (!dragging && maxSpeed <= physics.config.settleSpeed && maxDistance <= physics.config.settleDistance) {
+    physics.stableFrames += 1;
+  } else {
+    physics.stableFrames = 0;
+  }
+  if (!dragging && (physics.stableFrames >= 4 || elapsed >= physics.config.maxDurationMs)) {
+    settleWatchMarketMapPhysics(physics);
+    return;
+  }
+  physics.frame = window.requestAnimationFrame((nextTimestamp) => runWatchMarketMapPhysicsFrame(physics, nextTimestamp));
+}
+
+function startWatchMarketMapPhysics(physics, motionKind = "repositioning") {
+  if (!physics || state.watchMarketMapPhysics !== physics) return;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+  if (reduceMotion) {
+    settleWatchMarketMapPhysics(physics);
+    return;
+  }
+  if (physics.frame !== null) window.cancelAnimationFrame(physics.frame);
+  physics.startedAt = performance.now();
+  physics.lastTimestamp = physics.startedAt;
+  physics.stableFrames = 0;
+  physics.stage.dataset.motion = motionKind === "dragging" ? "dragging" : "settling";
+  for (const node of physics.nodes) {
+    if (node.dragging) {
+      node.tile.dataset.watchMotion = "dragging";
+    } else if (Math.hypot(node.targetX - node.x, node.targetY - node.y) > 0.5 || node.scale < 0.99) {
+      node.tile.dataset.watchMotion = motionKind;
+    }
+  }
+  physics.frame = window.requestAnimationFrame((timestamp) => runWatchMarketMapPhysicsFrame(physics, timestamp));
+}
+
 function animateWatchMarketMapLayout(snapshot = null) {
   const stage = elements.watchMarketMapStage;
-  if (!stage) return [];
-  const generation = ++state.watchMarketMapMotionGeneration;
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
-  const tiles = [...stage.querySelectorAll(".watch-market-map-tile")];
-  stage.dataset.motion = "settled";
-  if (reduceMotion || typeof Element === "undefined" || typeof Element.prototype.animate !== "function") {
-    for (const tile of tiles) tile.removeAttribute("data-watch-motion");
-    return [];
-  }
+  if (!stage) return null;
+  stopWatchMarketMapPhysics();
+  const generation = state.watchMarketMapMotionGeneration;
   const stageRect = stage.getBoundingClientRect();
-  const animations = [];
-  for (const [order, tile] of tiles.entries()) {
+  const width = Math.max(1, stageRect.width);
+  const height = Math.max(1, stageRect.height);
+  const config = watchMarketMapPhysicsConfig(width);
+  const tiles = [...stage.querySelectorAll(".watch-market-map-tile")];
+  const nodes = tiles.map((tile, order) => {
     const key = watchMarketMapMotionKey(tile);
-    const finalRect = tile.getBoundingClientRect();
-    const plan = watchMarketMapMotionPlan(snapshot?.tiles?.get(key) || null, finalRect, stageRect, order);
-    if (!plan) continue;
-    tile.dataset.watchMotion = plan.kind;
-    const animation = tile.animate(plan.keyframes, plan.timing);
-    animation.id = "watch-market-map-layout";
-    animation.addEventListener("finish", () => tile.removeAttribute("data-watch-motion"), { once: true });
-    animation.addEventListener("cancel", () => tile.removeAttribute("data-watch-motion"), { once: true });
-    animations.push(animation);
-  }
-  if (!animations.length) return animations;
-  stage.dataset.motion = "settling";
-  Promise.all(animations.map((animation) => animation.finished.catch(() => null))).then(() => {
-    if (generation === state.watchMarketMapMotionGeneration && stage.isConnected) {
-      stage.dataset.motion = "settled";
-    }
+    const previous = snapshot?.tiles?.get(key) || null;
+    const radius = Math.max(1, Number(tile.dataset.watchBubbleRadius) || tile.getBoundingClientRect().width / 2);
+    const targetX = Number(tile.dataset.watchBubbleTargetX) || width / 2;
+    const targetY = Number(tile.dataset.watchBubbleTargetY) || height / 2;
+    const angle = order * 2.399963229728653 - Math.PI / 2;
+    const entryDistance = Math.min(Math.min(width, height) * 0.09, 12 + order * 2.5);
+    const entering = !previous;
+    const x = previous
+      ? watchMarketMapClamp(previous.centerXRatio * width, radius + config.stagePadding, width - radius - config.stagePadding)
+      : watchMarketMapClamp(width / 2 + Math.cos(angle) * entryDistance, radius + config.stagePadding, width - radius - config.stagePadding);
+    const y = previous
+      ? watchMarketMapClamp(previous.centerYRatio * height, radius + config.stagePadding, height - radius - config.stagePadding)
+      : watchMarketMapClamp(height / 2 + Math.sin(angle) * entryDistance, radius + config.stagePadding, height - radius - config.stagePadding);
+    return {
+      key,
+      tile,
+      radius,
+      targetX,
+      targetY,
+      x,
+      y,
+      vx: (targetX - x) * (entering ? 0.016 : 0.008),
+      vy: (targetY - y) * (entering ? 0.016 : 0.008),
+      scale: entering ? config.entryScale : watchMarketMapClamp((previous.widthRatio * width) / (radius * 2), 0.58, 1.55),
+      opacity: entering ? 0 : 1,
+      entering,
+      dragging: false,
+    };
   });
-  return animations;
+  const physics = {
+    stage,
+    nodes,
+    width,
+    height,
+    config,
+    generation,
+    frame: null,
+    startedAt: performance.now(),
+    lastTimestamp: 0,
+    stableFrames: 0,
+    collisionCount: 0,
+  };
+  state.watchMarketMapPhysics = physics;
+  stage.dataset.motionModel = "packedbubble-physics";
+  stage.dataset.splitSeries = String(config.splitSeries);
+  stage.dataset.gravity = String(config.gravitationalConstant);
+  const changed = nodes.some((node) => (
+    node.entering
+    || Math.hypot(node.targetX - node.x, node.targetY - node.y) > 0.5
+    || Math.abs(node.scale - 1) > 0.01
+  ));
+  if (!changed) {
+    settleWatchMarketMapPhysics(physics);
+    return physics;
+  }
+  for (const node of nodes) applyWatchMarketMapPhysicsNode(node);
+  startWatchMarketMapPhysics(physics, nodes.some((node) => node.entering) ? "entering" : "repositioning");
+  return physics;
+}
+
+function bindWatchMarketMapDrag(tile) {
+  let gesture = null;
+  tile.draggable = false;
+  tile.addEventListener("pointerdown", (event) => {
+    if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+    const physics = state.watchMarketMapPhysics;
+    const node = physics?.nodes.find((candidate) => candidate.tile === tile);
+    if (!node) return;
+    gesture = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      offsetX: 0,
+      offsetY: 0,
+      previousX: node.x,
+      previousY: node.y,
+      dragging: false,
+    };
+    tile.setPointerCapture?.(event.pointerId);
+  });
+  tile.addEventListener("pointermove", (event) => {
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const physics = state.watchMarketMapPhysics;
+    const node = physics?.nodes.find((candidate) => candidate.tile === tile);
+    if (!physics || !node) return;
+    const travel = Math.hypot(event.clientX - gesture.startClientX, event.clientY - gesture.startClientY);
+    if (!gesture.dragging && travel >= 6) {
+      gesture.dragging = true;
+      gesture.offsetX = event.clientX - (physics.stage.getBoundingClientRect().left + node.x);
+      gesture.offsetY = event.clientY - (physics.stage.getBoundingClientRect().top + node.y);
+      node.dragging = true;
+      node.scale = 1.04;
+      node.opacity = 1;
+      tile.classList.add("is-dragging");
+      startWatchMarketMapPhysics(physics, "dragging");
+    }
+    if (!gesture.dragging) return;
+    event.preventDefault();
+    const stageRect = physics.stage.getBoundingClientRect();
+    const nextX = watchMarketMapClamp(
+      event.clientX - stageRect.left - gesture.offsetX,
+      node.radius + physics.config.stagePadding,
+      physics.width - node.radius - physics.config.stagePadding,
+    );
+    const nextY = watchMarketMapClamp(
+      event.clientY - stageRect.top - gesture.offsetY,
+      node.radius + physics.config.stagePadding,
+      physics.height - node.radius - physics.config.stagePadding,
+    );
+    node.vx = watchMarketMapClamp(nextX - gesture.previousX, -8, 8);
+    node.vy = watchMarketMapClamp(nextY - gesture.previousY, -8, 8);
+    node.x = nextX;
+    node.y = nextY;
+    gesture.previousX = nextX;
+    gesture.previousY = nextY;
+    applyWatchMarketMapPhysicsNode(node);
+  });
+  const finishGesture = (event) => {
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const wasDragging = gesture.dragging;
+    const physics = state.watchMarketMapPhysics;
+    const node = physics?.nodes.find((candidate) => candidate.tile === tile);
+    gesture = null;
+    if (!wasDragging || !physics || !node) return;
+    event.preventDefault();
+    node.dragging = false;
+    node.scale = 1;
+    tile.classList.remove("is-dragging");
+    tile.dataset.suppressClick = "true";
+    window.setTimeout(() => tile.removeAttribute("data-suppress-click"), 360);
+    startWatchMarketMapPhysics(physics, "repositioning");
+  };
+  tile.addEventListener("pointerup", finishGesture);
+  tile.addEventListener("pointercancel", finishGesture);
+  tile.addEventListener("click", (event) => {
+    if (tile.dataset.suppressClick !== "true") return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
 }
 
 function createWatchMarketMapTile(node, width, height) {
@@ -20125,6 +20374,7 @@ function createWatchMarketMapTile(node, width, height) {
     );
     button.addEventListener("click", () => openWatchMarketMapSheet(button));
     positionWatchMarketMapTile(button, node, width, height);
+    bindWatchMarketMapDrag(button);
     return button;
   }
 
@@ -20148,6 +20398,7 @@ function createWatchMarketMapTile(node, width, height) {
   );
   tile.append(copy);
   positionWatchMarketMapTile(tile, node, width, height);
+  bindWatchMarketMapDrag(tile);
   return tile;
 }
 
@@ -20190,10 +20441,11 @@ function renderWatchMarketMap(results = state.watchMarketMapResults, options = {
   if (!elements.watchMarketMap || !elements.watchMarketMapStage) return;
   const groupName = activeWatchlistGroupName();
   const entries = watchMarketMapEntries(results);
-  elements.watchMarketMapGroup.textContent = `${groupName} · 종목 규모 순`;
-  elements.watchMarketMapDescription.textContent = "원 크기는 종목 규모, 색과 농도는 오늘 등락률을 나타냅니다.";
+  elements.watchMarketMapGroup.textContent = groupName;
+  elements.watchMarketMapDescription.textContent = "오늘 등락률을 색과 농도로 보여드려요. 버블을 끌어 움직일 수 있어요.";
 
   if (!entries.length) {
+    stopWatchMarketMapPhysics();
     state.watchMarketMapHiddenEntries = [];
     renderWatchMarketMapLegend([]);
     renderWatchMarketMapTimeline([]);

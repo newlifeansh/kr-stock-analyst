@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.6"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260910v503"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260910v505"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -111,9 +111,11 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         "function watchMarketMapEntries",
         "function packWatchMarketMapBubbles",
         "function computeWatchMarketMapLayout",
-        "function watchMarketMapMotionPlan",
+        "function watchMarketMapPhysicsConfig",
+        "function resolveWatchMarketMapCollisions",
         "function watchMarketMapMotionSnapshot",
         "function animateWatchMarketMapLayout",
+        "function bindWatchMarketMapDrag",
         "function watchMarketMapTimelineSnapshot",
         "function renderWatchMarketMapTimeline",
         "function renderWatchMarketMap",
@@ -127,8 +129,10 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         'const url = options.force ? "/us/fx/usdkrw?refresh=true" : "/us/fx/usdkrw";',
         'renderWatchMarketMap([], { loading: true, totalCount: items.length });',
         "renderWatchMarketMap(state.watchMarketMapResults);",
-        'animation.id = "watch-market-map-layout";',
-        'stage.dataset.motion = "settling";',
+        'gravitationalConstant: 0.02,',
+        'stage.dataset.motionModel = "packedbubble-physics";',
+        'tile.setPointerCapture?.(event.pointerId);',
+        'physics.stage.dataset.motion = motionKind === "dragging" ? "dragging" : "settling";',
         '"(prefers-reduced-motion: reduce)"',
         'elements.watchMarketMapStage?.querySelector(".watch-market-map-tile.is-overflow")',
     ):
@@ -152,11 +156,12 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
     assert '`${entry.item.name}, 오늘 ${tone.label} ${formatPercent(change)}, 종목 상세 보기`' in source
 
     for expected in (
-        "/* Watch groups and market-cap bubbles v496",
+        "/* Watch groups and packed-bubble physics v505",
         "#home-view .watch-market-map {",
         ".watch-market-map-stage {",
         ".watch-market-map-tile.is-overflow",
         ".watch-market-map-tile[data-watch-motion]",
+        ".watch-market-map-tile.is-dragging",
         ".watch-market-map-timeline-track {",
         ".watch-market-map-timeline-track i {",
         ".watch-market-map-sheet::backdrop",
@@ -199,7 +204,7 @@ function watchMarketMapMarketCap(result = {}) {
 eval(functionSource("watchMarketMapEntries", "packWatchMarketMapBubbles"));
 eval(functionSource("packWatchMarketMapBubbles", "computeWatchMarketMapLayout"));
 eval(functionSource("computeWatchMarketMapLayout", "watchMarketMapTimeParts"));
-eval(functionSource("watchMarketMapMotionPlan", "watchMarketMapMotionKey"));
+eval(functionSource("watchMarketMapPhysicsConfig", "watchMarketMapMotionKey"));
 eval(functionSource("watchMarketMapTimeParts", "watchMarketMapTimelineSnapshot"));
 eval(functionSource("watchMarketMapTimelineSnapshot", "renderWatchMarketMapTimeline"));
 const result = (code, marketScope, marketCap) => ({
@@ -254,23 +259,20 @@ const singleLayout = computeWatchMarketMapLayout([
   watchMarketMapEntries([result("ONLY", "kr", 500e12)])[0],
 ], 320, 300);
 const singleBubbleReadable = singleLayout.nodes.length === 1 && singleLayout.nodes[0].radius >= 50;
-const enteringMotion = watchMarketMapMotionPlan(
-  null,
-  {left: 100, top: 80, width: 80, height: 80},
-  {left: 0, top: 0, width: 320, height: 300},
-  2,
+const physicsConfig = watchMarketMapPhysicsConfig(320);
+const collisionNodes = [
+  {x: 100, y: 100, radius: 30, scale: 1, vx: 0, vy: 0},
+  {x: 120, y: 100, radius: 30, scale: 1, vx: 0, vy: 0},
+];
+const collisionCount = resolveWatchMarketMapCollisions(
+  collisionNodes,
+  320,
+  300,
+  physicsConfig,
 );
-const repositionMotion = watchMarketMapMotionPlan(
-  {left: 48, top: 70, width: 72, height: 72},
-  {left: 92, top: 96, width: 80, height: 80},
-  {left: 0, top: 0, width: 320, height: 300},
-  1,
-);
-const unchangedMotion = watchMarketMapMotionPlan(
-  {left: 92, top: 96, width: 80, height: 80},
-  {left: 92, top: 96, width: 80, height: 80},
-  {left: 0, top: 0, width: 320, height: 300},
-  1,
+const collisionDistance = Math.hypot(
+  collisionNodes[0].x - collisionNodes[1].x,
+  collisionNodes[0].y - collisionNodes[1].y,
 );
 const timeline = watchMarketMapTimelineSnapshot([
   {dashboard: {quote: {as_of: "2026-09-09T05:30:00+09:00"}}},
@@ -285,15 +287,12 @@ console.log(JSON.stringify({
   responsiveSafe,
   sizesDescending,
   singleBubbleReadable,
-  motion: {
-    enteringKind: enteringMotion.kind,
-    enteringDuration: enteringMotion.timing.duration,
-    enteringDelay: enteringMotion.timing.delay,
-    enteringOpacity: enteringMotion.keyframes[0].opacity,
-    enteringFinalTransform: enteringMotion.keyframes.at(-1).transform,
-    repositionKind: repositionMotion.kind,
-    repositionDuration: repositionMotion.timing.duration,
-    unchangedSkipped: unchangedMotion === null,
+  physics: {
+    splitSeries: physicsConfig.splitSeries,
+    gravitationalConstant: physicsConfig.gravitationalConstant,
+    maxDurationMs: physicsConfig.maxDurationMs,
+    collisionCount,
+    collisionDistance,
   },
   timelineMinutes: timeline.minutes,
 }));
@@ -316,15 +315,12 @@ console.log(JSON.stringify({
         "responsiveSafe": True,
         "sizesDescending": True,
         "singleBubbleReadable": True,
-        "motion": {
-            "enteringKind": "entering",
-            "enteringDuration": 620,
-            "enteringDelay": 32,
-            "enteringOpacity": 0,
-            "enteringFinalTransform": "translate3d(0, 0, 0) scale(1)",
-            "repositionKind": "repositioning",
-            "repositionDuration": 460,
-            "unchangedSkipped": True,
+        "physics": {
+            "splitSeries": False,
+            "gravitationalConstant": 0.02,
+            "maxDurationMs": 960,
+            "collisionCount": 1,
+            "collisionDistance": 64,
         },
         "timelineMinutes": 330,
     }

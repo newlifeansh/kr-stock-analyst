@@ -960,10 +960,11 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "원화 환산 시가총액 순으로 정렬" in source
     assert "오늘 등락 방향·강도별 버블 색상 단계" in source
     assert "오늘 타임라인 계약" in source
-    assert "중앙 순차 진입 모션" in source
-    assert "FLIP 스프링 재배치 모션" in source
+    assert "단일 클러스터 중력·충돌 진입 모션" in source
+    assert "packed-bubble 중력 재배치 모션" in source
+    assert "버블 드래그와 충돌 후 원위치 정착" in source
     assert "reduced-motion에서 실행" in source
-    assert "animation.id === 'watch-market-map-layout'" in source
+    assert "state.watchMarketMapPhysics" in source
     assert "metadata_leaks" in source
     assert "metadataLeaks" in source
     assert "focus_returned_after_live_render" in source
