@@ -51,11 +51,13 @@ LEGACY_STRATEGY_VERSION = "position-lifecycle-legacy"
 V7_1_STRATEGY_VERSION = "position-lifecycle-v7.1"
 V7_3_STRATEGY_VERSION = "position-lifecycle-v7.3"
 V7_4_STRATEGY_VERSION = "position-lifecycle-v7.4"
-STRATEGY_VERSION = "position-lifecycle-v7.4.1"
-# The released v7.4.1 line remains the comparison baseline until the H1
+V7_4_1_STRATEGY_VERSION = "position-lifecycle-v7.4.1"
+STRATEGY_VERSION = "position-lifecycle-v7.4.2"
+# The released v7.4.2 line remains the comparison baseline until the H1
 # candidate is explicitly promoted.  Keeping the candidate separate makes
-# yesterday's release and the new entry gate independently reproducible.
-CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc3"
+# the released baseline and the new entry gate independently reproducible.
+V7_5_RC3_CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc3"
+CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc4"
 STRATEGY_NAME = "독립 근거 확인·조기 추세 포착·단기 전술형 수익확정 전략"
 MIN_HISTORY_ROWS = 125
 WARMUP_ROWS = 65
@@ -90,6 +92,11 @@ CHASE_MOMENTUM_5_MAX = 0.10
 CHASE_MOMENTUM_LOOKBACK_BARS = 3
 REENTRY_RETEST_LOOKBACK_BARS = 3
 REENTRY_RETEST_EMA20_BUFFER = 0.02
+# v7.4.2 removes the calendar-like re-entry delay. A post-exit entry can be
+# reconsidered on the next completed bar, but only after a new breakout or an
+# EMA20 retest-and-recovery. The independent chase guard above is evaluated
+# first, so removing elapsed-time waiting does not permit late entries.
+REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE = date(2026, 9, 9)
 MAX_ENTRY_GAP_ATR = 1.5
 MAX_ENTRY_GAP_PERCENT = 0.05
 MIN_AVERAGE_TRADING_VALUE = 5_000_000_000.0
@@ -136,18 +143,32 @@ STRATEGY_VERSION_HISTORY = (
         "scope": "+3%·+5% 고정 수익확정·runner 0%",
     },
     {
-        "version": STRATEGY_VERSION,
+        "version": V7_4_1_STRATEGY_VERSION,
         "effective_from": "2026-09-08",
-        "effective_to": None,
-        "status": "baseline",
+        "effective_to": "2026-09-08",
+        "status": "historical",
         "scope": "v7.4 수익확정 + 추격매수 veto·재진입 신규 확인",
     },
     {
-        "version": CANDIDATE_STRATEGY_VERSION,
+        "version": V7_5_RC3_CANDIDATE_STRATEGY_VERSION,
         "effective_from": "2026-09-08",
+        "effective_to": "2026-09-08",
+        "status": "historical_candidate",
+        "scope": "v7.4.1 baseline + buy-filter-h1",
+    },
+    {
+        "version": STRATEGY_VERSION,
+        "effective_from": "2026-09-09",
+        "effective_to": None,
+        "status": "baseline",
+        "scope": "v7.4.1 추격매수 veto + 고정 유예 없는 이벤트 기반 재진입",
+    },
+    {
+        "version": CANDIDATE_STRATEGY_VERSION,
+        "effective_from": "2026-09-09",
         "effective_to": None,
         "status": "candidate",
-        "scope": "v7.4.1 baseline + buy-filter-h1; promotion pending",
+        "scope": "v7.4.2 baseline + buy-filter-h1; promotion pending",
     },
 )
 EXIT_SCORE = 42.0
@@ -190,7 +211,7 @@ MAX_INITIAL_RISK_PERCENT = 0.04
 BASE_TRAILING_STOP_ATR = 3.4
 PRE_TACTICAL_MIN_HOLDING_BARS = 5
 MIN_HOLDING_BARS = 3
-REENTRY_COOLDOWN_BARS = 10
+LEGACY_REENTRY_COOLDOWN_BARS = 10
 PRE_TACTICAL_EXIT_CONFIRMATION_BARS = 2
 EXIT_CONFIRMATION_BARS = 1
 MIN_COMPLETED_TRADES_FOR_SAMPLE = 20
@@ -210,7 +231,7 @@ MARKET_SIGNAL_EXTENDED_EFFECTIVE_DATE = date(2026, 8, 27)
 # silently discard events that are also eligible for push notifications.
 MARKET_SIGNAL_FEED_LIMIT = 0
 MARKET_SIGNAL_RECENT_DAYS = 30
-MARKET_SIGNAL_SNAPSHOT_VERSION = "v31"
+MARKET_SIGNAL_SNAPSHOT_VERSION = "v32"
 SNAPSHOT_MAX_FUTURE_SKEW_SECONDS = 60
 
 POSITIVE_WORDS = (
@@ -523,8 +544,13 @@ def _indicator_rows(bars: list[PriceBar]) -> list[dict[str, float]]:
 def strategy_version_for_date(strategy_date: Optional[date]) -> str:
     """Return the immutable position-lifecycle version for a decision date."""
 
-    if strategy_date is None or strategy_date >= CHASE_GUARD_EFFECTIVE_DATE:
+    if (
+        strategy_date is None
+        or strategy_date >= REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE
+    ):
         return STRATEGY_VERSION
+    if strategy_date >= CHASE_GUARD_EFFECTIVE_DATE:
+        return V7_4_1_STRATEGY_VERSION
     if strategy_date >= STABLE_PROFIT_EFFECTIVE_DATE:
         return V7_4_STRATEGY_VERSION
     if strategy_date >= TACTICAL_EXIT_EFFECTIVE_DATE:
@@ -803,7 +829,7 @@ def _fresh_reentry_trigger(
     index: int,
     last_exit_index: int,
 ) -> bool:
-    """Require a new breakout or EMA20 retest after the cooldown expires."""
+    """Require a new breakout or EMA20 retest after the last exit."""
 
     if bars[index].trade_date < CHASE_GUARD_EFFECTIVE_DATE:
         return True
@@ -820,7 +846,12 @@ def _fresh_reentry_trigger(
             and bars[index - 1].close <= previous_prior_high
         )
 
-    first_eligible_index = last_exit_index + REENTRY_COOLDOWN_BARS + 1
+    legacy_cooldown_applies = (
+        current_bar.trade_date < REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE
+    )
+    first_eligible_index = last_exit_index + (
+        LEGACY_REENTRY_COOLDOWN_BARS + 1 if legacy_cooldown_applies else 1
+    )
     retest_start = max(
         first_eligible_index,
         index - REENTRY_RETEST_LOOKBACK_BARS + 1,
@@ -848,7 +879,10 @@ def _reentry_entry_allowed(
 ) -> bool:
     if last_exit_index is None:
         return True
-    if index - last_exit_index <= REENTRY_COOLDOWN_BARS:
+    if (
+        bars[index].trade_date < REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE
+        and index - last_exit_index <= LEGACY_REENTRY_COOLDOWN_BARS
+    ):
         return False
     return _fresh_reentry_trigger(bars, indicators, index, last_exit_index)
 
@@ -2481,8 +2515,10 @@ def _reentry_cooldown_remaining(
     last_exit_index = simulation.get("last_exit_index")
     if last_exit_index is None or not observation_bars:
         return 0
+    if observation_bars[-1].trade_date >= REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE:
+        return 0
     elapsed_bars = (len(observation_bars) - 1) - int(last_exit_index)
-    return max(0, REENTRY_COOLDOWN_BARS - elapsed_bars + 1)
+    return max(0, LEGACY_REENTRY_COOLDOWN_BARS - elapsed_bars + 1)
 
 
 def _current_signal(
@@ -2700,7 +2736,7 @@ def _current_signal(
         state = "exited"
         label = "전량 매도 후 재진입 유예"
         reasons.append(
-            f"전량 매도 후 재진입 유예 {REENTRY_COOLDOWN_BARS}거래일을 적용 중"
+            f"전량 매도 후 재진입 유예 {LEGACY_REENTRY_COOLDOWN_BARS}거래일을 적용 중"
         )
         next_confirmation = f"약 {reentry_wait_bars}거래일 뒤 새 매수 조건을 다시 확인"
     elif raw_entry_setup and chase_veto_reason:
@@ -2716,8 +2752,8 @@ def _current_signal(
     ):
         state = "entry_watch"
         label = "새 재진입 확인 대기"
-        reasons.append("유예 종료 후 기존 조건을 승계하지 않고 새 돌파·눌림을 기다리는 중")
-        next_confirmation = "유예 종료 후 새로운 돌파 또는 20일선 눌림·회복을 확인"
+        reasons.append("전량 매도 뒤 기존 조건을 승계하지 않고 새 돌파·눌림을 기다리는 중")
+        next_confirmation = "새로운 돌파 또는 20일선 눌림·회복을 확인"
     elif confirmed_entry_setup:
         entry_setup = confirmed_entry_setup
         reason_indicator = {**indicator, "entry_setup": entry_setup}
@@ -3016,7 +3052,7 @@ def build_quant_signal_payload(
             f"종가 신호 뒤 다음 시가가 {MAX_ENTRY_GAP_ATR:.1f}ATR 또는 {MAX_ENTRY_GAP_PERCENT * 100:.0f}% 범위를 벗어나면 오래된 진입 주문을 취소합니다.",
             "매수가 대비 +2%에 도달하면 매수·매도 예상 비용을 반영한 수익 보호선을 적용합니다.",
             "수익확정 예정 다음 시가가 이미 수익 보호선 아래면 소량만 매도하지 않고 잔여비중을 전량 매도합니다.",
-            f"전량 매도 후 {REENTRY_COOLDOWN_BARS}거래일은 동일 종목 재진입을 유예하고, 유예 종료 후에도 기존 조건을 즉시 승계하지 않고 새 돌파 또는 20일선 눌림·회복을 요구합니다.",
+            f"{REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE.isoformat()}부터 전량 매도 후 고정 재진입 유예를 적용하지 않습니다. 다만 기존 조건을 그대로 승계하지 않고 새 돌파 또는 20일선 눌림·회복을 요구합니다.",
             "거래대금과 변동성에 따라 양방향 체결비용을 0.125%~0.50%로 차등 반영합니다.",
             "뉴스 키워드 수는 설명용으로만 유지하며 확정매수 점수에는 사용하지 않습니다.",
         ],
