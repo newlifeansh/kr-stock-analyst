@@ -212,7 +212,7 @@ process.stdout.write(JSON.stringify({{ pending, activeStoredFallback, checkingWi
 
 
 @pytest.mark.qa_gate
-def test_ai_signal_navigation_clears_previous_surface_before_reloading() -> None:
+def test_ai_signal_navigation_keeps_complete_snapshot_and_skeletons_only_first_load() -> None:
     source = DASHBOARD_SOURCE.read_text(encoding="utf-8")
     prepare_source = _function_source(
         source, "prepareAiSignalEntrySurface", "activeAiSignalList"
@@ -221,7 +221,12 @@ def test_ai_signal_navigation_clears_previous_surface_before_reloading() -> None
 
     assert "state.aiSignalLiveQuotes.clear();" in prepare_source
     assert "state.aiSignalQuoteStatuses.clear();" in prepare_source
-    assert "elements.aiSignalsPageList.replaceChildren(pending);" in prepare_source
+    assert 'if (view === "ai-signals" && aiSignalHasCompleteMarketSnapshot())' in prepare_source
+    assert prepare_source.index("renderAiSignalsPage();") < prepare_source.index(
+        "state.aiSignalLiveQuotes.clear();"
+    )
+    assert "renderAiSignalsSkeleton();" in prepare_source
+    assert "elements.aiSignalsPageList.replaceChildren(pending);" not in prepare_source
     assert "renderPendingHomeAiSignals();" in prepare_source
     assert '["home", "ai-signals"].includes(view) && previousView !== view' in set_view_source
     assert set_view_source.index("prepareAiSignalEntrySurface(view);") < set_view_source.index(
