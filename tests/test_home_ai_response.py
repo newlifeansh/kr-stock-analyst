@@ -102,15 +102,19 @@ def test_signal_snapshot_is_immutable_accepts_newer_http_token_and_prunes_full_e
 "use strict";
 const state = {{
   aiSignalItems: [], aiSignalMarketStatus: "loading", aiSignalRevision: null,
+  aiSignalLoadedMarketScopes: new Set(), aiSignalSnapshotSignature: "",
   aiSignalPendingRevision: 101, aiSignalReconcilePending: true,
   aiSignalSnapshotReceivedAt: 0, aiSignalSnapshotAsOf: "",
   aiSignalLiveQuotes: new Map([["005930", {{}}], ["000660", {{}}]]),
   aiSignalQuoteStatuses: new Map([["005930", {{ status: "fallback" }}]]),
   aiSignalLastStaleState: true, aiSignalRevisionRetryCount: 2,
 }};
+const isUsHubContext = false;
 let renders = 0;
 function currentAiSignalItems(items) {{ return items; }}
 function isCurrentAiSignalHolding(item) {{ return item?.current?.position_open === true; }}
+function marketScopeForItem() {{ return "kr"; }}
+function aiSignalSnapshotSignature() {{ return "kr-snapshot"; }}
 function renderAiSignalLiveStatus() {{ renders += 1; }}
 {snapshot_source}
 const holding = {{ code: "005930", name: "삼성전자", current: {{ position_open: true }} }};

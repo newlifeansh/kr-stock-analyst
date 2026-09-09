@@ -1186,6 +1186,8 @@ const state = {
   aiSignalHistorySide: "all",
   aiSignalItems: [],
   aiSignalMarketStatus: "loading",
+  aiSignalLoadedMarketScopes: new Set(),
+  aiSignalSnapshotSignature: "",
   aiSignalsPageRetryTimer: null,
   aiSignalLoadSequence: 0,
   aiSignalRevision: null,
@@ -1511,6 +1513,44 @@ function itemMatchesMarketScope(item, marketScope = state.marketScope) {
   return marketScope === "all" || marketScopeForItem(item) === marketScope;
 }
 
+function aiSignalRequiredMarketScopes() {
+  return isUsHubContext ? ["kr", "us"] : ["kr"];
+}
+
+function aiSignalHasCompleteMarketSnapshot() {
+  return Boolean(state.aiSignalSnapshotSignature)
+    && aiSignalRequiredMarketScopes().every((scope) => state.aiSignalLoadedMarketScopes.has(scope));
+}
+
+function aiSignalSnapshotSignature(items = [], payload = {}) {
+  const scopes = Array.from(new Set(
+    payload.market_scopes_received || payload.market_scopes_ready || [],
+  ))
+    .map((scope) => String(scope || "").toLowerCase())
+    .filter((scope) => ["kr", "us"].includes(scope))
+    .sort();
+  const revisions = Object.entries(payload.market_revision_by_scope || {})
+    .map(([scope, value]) => [String(scope || "").toLowerCase(), Number(value) || 0])
+    .filter(([scope]) => ["kr", "us"].includes(scope))
+    .sort(([left], [right]) => left.localeCompare(right));
+  const revision = aiSignalRevisionFromPayload(payload);
+  return JSON.stringify({
+    scopes,
+    revisions,
+    revision,
+    items: (Array.isArray(items) ? items : []).map((item) => [
+      marketScopeForItem(item),
+      String(item.code || item.name || ""),
+      String(item.name || ""),
+      String(item.status || item.current?.action || ""),
+      String(item.signal_at || item.signal_date || item.updated_at || ""),
+      Number(item.price ?? item.current?.price) || 0,
+      Number(item.score) || 0,
+      Number(item.return_rate ?? item.current?.unrealized_return) || 0,
+    ]),
+  });
+}
+
 function createMarketBadge(item = {}) {
   const scope = marketScopeForItem(item);
   const badge = el("span", `market-origin-badge is-${scope}`, scope === "us" ? "미국" : "국내");
@@ -1532,6 +1572,15 @@ function setUnifiedMarketScope(marketScope) {
   target.searchParams.set("market_scope", marketScope);
   target.searchParams.delete("market");
   target.searchParams.delete("snapshot");
+  if (state.view === "ai-signals" && ["kr", "us"].includes(marketScope)) {
+    state.marketScope = marketScope;
+    document.body.dataset.marketScope = state.marketScope;
+    window.history.replaceState(window.history.state, "", `${target.pathname}${target.search}${target.hash}`);
+    applyUsMarketSurface();
+    if (aiSignalHasCompleteMarketSnapshot()) renderAiSignalsPage();
+    renderAiSignalLiveStatus();
+    return;
+  }
   window.location.assign(`${target.pathname}${target.search}${target.hash}`);
 }
 
@@ -13832,7 +13881,7 @@ function setView(requestedViewName, options = {}) {
       limit: 50,
     }));
   } else if (view === "ai-signals") {
-    launchBriefPageLoading("AI 시그널을 불러오는 중", () => loadAiSignalsPage(pageEntryRefreshOptions("watchlist", "ai-signals")));
+    void loadAiSignalsPage(pageEntryRefreshOptions("watchlist", "ai-signals"));
   } else if (view === "portfolio") {
     setPortfolioTab(state.portfolioTab, { load: true });
   } else if (view === "chart") {
@@ -14617,6 +14666,11 @@ function combineAiSignalPayloads(watchlistPayload = {}, marketPayload = {}) {
     snapshot_generated_at: marketPayload.snapshot_generated_at || null,
     signal_revision: signalRevision,
     signal_revision_as_of: marketPayload.signal_revision_as_of || null,
+    market_scopes_requested: marketPayload.market_scopes_requested || [],
+    market_scopes_received: marketPayload.market_scopes_received || [],
+    market_scopes_ready: marketPayload.market_scopes_ready || [],
+    market_status_by_scope: marketPayload.market_status_by_scope || {},
+    market_revision_by_scope: marketPayload.market_revision_by_scope || {},
     recent_days: marketPayload.recent_days || null,
     market_status: marketPayload.status || "ready",
     universe_count: marketPayload.universe_count || 0,
@@ -15071,6 +15125,18 @@ function commitAiSignalSnapshot(items, payload = {}, options = {}) {
   );
   state.aiSignalItems = frozenItems;
   state.aiSignalMarketStatus = payload.market_status || payload.status || "ready";
+  const loadedScopes = Array.isArray(payload.market_scopes_received)
+    ? payload.market_scopes_received
+    : (Array.isArray(payload.market_scopes_ready)
+      ? payload.market_scopes_ready
+      : frozenItems.map((item) => marketScopeForItem(item)));
+  state.aiSignalLoadedMarketScopes = new Set(
+    loadedScopes
+      .map((scope) => String(scope || "").toLowerCase())
+      .filter((scope) => ["kr", "us"].includes(scope)),
+  );
+  if (!isUsHubContext) state.aiSignalLoadedMarketScopes.add("kr");
+  state.aiSignalSnapshotSignature = options.signature || aiSignalSnapshotSignature(frozenItems, payload);
   state.aiSignalRevision = responseRevision ?? expectedRevision ?? state.aiSignalRevision;
   state.aiSignalPendingRevision = null;
   state.aiSignalReconcilePending = false;
@@ -15517,21 +15583,61 @@ function applyStockQuantSignalLiveQuote(quote = {}, quotePayload = {}) {
   return true;
 }
 
+function renderAiSignalsSkeleton(options = {}) {
+  if (!elements.aiSignalsPageList) return;
+  const marketLabel = isUsHubContext ? "한국과 미국" : "국내";
+  const status = el(
+    "p",
+    "sr-only",
+    options.delayed === true
+      ? `${marketLabel} AI 시그널 준비가 지연되고 있습니다. 자동으로 다시 확인합니다.`
+      : `${marketLabel} AI 시그널을 준비하고 있습니다.`,
+  );
+  status.setAttribute("role", "status");
+  const rows = Array.from({ length: 6 }, (_, index) => {
+    const row = el("div", "ai-signal-skeleton-row");
+    row.setAttribute("aria-hidden", "true");
+    row.innerHTML = `
+      <span class="ai-signal-skeleton-logo"></span>
+      <span class="ai-signal-skeleton-copy">
+        <span class="ai-signal-skeleton-line is-name" style="--skeleton-width: ${index % 2 ? "42%" : "54%"}"></span>
+        <span class="ai-signal-skeleton-line is-meta" style="--skeleton-width: ${index % 3 ? "64%" : "72%"}"></span>
+      </span>
+      <span class="ai-signal-skeleton-line is-status"></span>
+    `;
+    return row;
+  });
+  elements.aiSignalsPageList.dataset.loading = options.delayed === true ? "delayed" : "initial";
+  elements.aiSignalsPageList.setAttribute("aria-busy", "true");
+  elements.aiSignalsPageList.replaceChildren(status, ...rows);
+}
+
+function markAiSignalsPageReady() {
+  if (!elements.aiSignalsPageList) return;
+  delete elements.aiSignalsPageList.dataset.loading;
+  elements.aiSignalsPageList.removeAttribute("aria-busy");
+}
+
 function prepareAiSignalEntrySurface(view) {
+  if (view === "ai-signals" && aiSignalHasCompleteMarketSnapshot()) {
+    renderAiSignalsPage();
+    renderAiSignalLiveStatus();
+    return;
+  }
   state.aiSignalLiveQuotes.clear();
   state.aiSignalQuoteStatuses.clear();
   state.aiSignalLiveAsOf = "";
   state.aiSignalSnapshotReceivedAt = 0;
   state.aiSignalSnapshotAsOf = "";
   state.aiSignalMarketStatus = "loading";
+  state.aiSignalLoadedMarketScopes.clear();
+  state.aiSignalSnapshotSignature = "";
   if (view === "ai-signals" && elements.aiSignalsPageList) {
     for (const tab of [...elements.aiSignalModeTabs, ...elements.aiSignalStageTabs, ...elements.aiSignalHistorySideButtons]) {
       const count = tab.querySelector("span");
       if (count) count.textContent = "0";
     }
-    const pending = el("p", "muted", "최근 30일 시장 AI 시그널을 불러오는 중입니다.");
-    pending.setAttribute("role", "status");
-    elements.aiSignalsPageList.replaceChildren(pending);
+    renderAiSignalsSkeleton();
   } else if (view === "home") {
     renderPendingHomeAiSignals();
   }
@@ -17655,7 +17761,8 @@ function renderAiSignalsPage() {
   if (!elements.aiSignalsPageList) {
     return;
   }
-  const items = normalizedAiSignalItems(state.aiSignalItems);
+  const items = normalizedAiSignalItems(state.aiSignalItems)
+    .filter((item) => !isUsHubContext || itemMatchesMarketScope(item, state.marketScope));
   const modeCounts = aiSignalModeCounts(items);
   for (const tab of elements.aiSignalModeTabs) {
     const countNode = tab.querySelector("span");
@@ -17678,7 +17785,7 @@ function renderAiSignalsPage() {
       }
     }
     const visibleHistory = modeItems.filter((item) => aiSignalMatchesHistorySide(item, state.aiSignalHistorySide));
-    elements.aiSignalsPageList.innerHTML = "";
+    const nextRows = [];
     if (!visibleHistory.length) {
       const sideLabel = { all: "", buy: "매수 ", sell: "매도 " }[state.aiSignalHistorySide] || "";
       const message = isAiSignalMarketUpdating()
@@ -17686,13 +17793,14 @@ function renderAiSignalsPage() {
         : `오늘 ${sideLabel}조건 해제 이력이 없습니다.`;
       const emptyState = el("p", "muted", message);
       emptyState.setAttribute("role", "status");
-      elements.aiSignalsPageList.append(emptyState);
-      if (state.view === "ai-signals") connectAiSignalQuoteStreams(state.aiSignalItems);
-      return;
+      nextRows.push(emptyState);
+    } else {
+      nextRows.push(...visibleHistory.map((item) => (
+        createHomeAiSignalRow(item, { detail: true, released: true })
+      )));
     }
-    visibleHistory.forEach((item) => elements.aiSignalsPageList.appendChild(
-      createHomeAiSignalRow(item, { detail: true, released: true }),
-    ));
+    markAiSignalsPageReady();
+    elements.aiSignalsPageList.replaceChildren(...nextRows);
     if (state.view === "ai-signals") connectAiSignalQuoteStreams(state.aiSignalItems);
     return;
   }
@@ -17704,16 +17812,7 @@ function renderAiSignalsPage() {
     }
   }
   const visible = modeItems.filter((item) => aiSignalMatchesStage(item, state.aiSignalStage));
-  elements.aiSignalsPageList.innerHTML = "";
-  if (state.aiSignalMarketStatus === "refreshing") {
-    const notice = el(
-      "p",
-      "muted ai-signal-refreshing",
-      "장중 시장 신호를 최신 시세로 다시 계산하고 있습니다. 확정된 이력만 먼저 표시합니다.",
-    );
-    notice.setAttribute("role", "status");
-    elements.aiSignalsPageList.append(notice);
-  }
+  const nextRows = [];
   if (!visible.length) {
     const labels = {
       all: "전체",
@@ -17729,46 +17828,78 @@ function renderAiSignalsPage() {
         : `최근 30일 ${labels[state.aiSignalStage]} 신호가 없습니다.`;
     const emptyState = el("p", "muted", message);
     emptyState.setAttribute("role", "status");
-    elements.aiSignalsPageList.append(emptyState);
-    if (state.view === "ai-signals") connectAiSignalQuoteStreams(state.aiSignalItems);
-    return;
+    nextRows.push(emptyState);
+  } else {
+    nextRows.push(...visible.map((item) => createHomeAiSignalRow(item, { detail: true })));
   }
-  visible.forEach((item) => elements.aiSignalsPageList.appendChild(createHomeAiSignalRow(item, { detail: true })));
+  markAiSignalsPageReady();
+  elements.aiSignalsPageList.replaceChildren(...nextRows);
   if (state.view === "ai-signals") connectAiSignalQuoteStreams(state.aiSignalItems);
 }
 
 async function loadAiSignalsPage(options = {}) {
   const requestSequence = ++state.aiSignalLoadSequence;
+  const hadCompleteSnapshot = aiSignalHasCompleteMarketSnapshot();
+  const retryCount = Number(options.preparingRetry || 0);
   window.clearTimeout(state.aiSignalsPageRetryTimer);
   state.aiSignalsPageRetryTimer = null;
-  if (options.silent !== true) {
-    elements.aiSignalsPageList.innerHTML = '<p class="muted">최근 30일 시장 AI 시그널을 불러오는 중입니다.</p>';
+  if (!hadCompleteSnapshot && options.silent !== true) {
+    renderAiSignalsSkeleton();
   }
+  const scheduleRetry = () => {
+    if (retryCount >= 3) return false;
+    state.aiSignalsPageRetryTimer = window.setTimeout(() => {
+      if (state.view === "ai-signals") {
+        void loadAiSignalsPage({
+          force: true,
+          ttlMs: 0,
+          silent: true,
+          expectedRevision: options.expectedRevision,
+          preparingRetry: retryCount + 1,
+        });
+      }
+    }, 3000);
+    return true;
+  };
   try {
-    const payload = await fetchCombinedAiSignals(options);
+    const payload = await fetchCombinedAiSignals({
+      ...options,
+      requireCompleteMarkets: isUsHubContext,
+    });
     if (requestSequence !== state.aiSignalLoadSequence || state.view !== "ai-signals") return false;
+    const settledScopes = new Set(
+      (Array.isArray(payload.market_scopes_received) ? payload.market_scopes_received : [])
+        .map((scope) => String(scope || "").toLowerCase()),
+    );
+    const completePayload = aiSignalRequiredMarketScopes()
+      .every((scope) => settledScopes.has(scope));
+    if (!completePayload) {
+      state.aiSignalMarketStatus = payload.market_status || "refreshing";
+      state.aiSignalReconcilePending = true;
+      renderAiSignalLiveStatus();
+      if (!scheduleRetry() && !hadCompleteSnapshot) renderAiSignalsSkeleton({ delayed: true });
+      return false;
+    }
     const items = normalizedAiSignalItems(mergeAiSignalArchiveItems(
       payload.items || [],
       payload.preliminary_history || [],
     ));
-    if (!commitAiSignalSnapshot(items, payload, { expectedRevision: options.expectedRevision })) {
+    const signature = aiSignalSnapshotSignature(items, payload);
+    const snapshotChanged = signature !== state.aiSignalSnapshotSignature;
+    if (!commitAiSignalSnapshot(items, payload, {
+      expectedRevision: options.expectedRevision,
+      signature,
+    })) {
       scheduleAiSignalRevisionReconcile(options.expectedRevision);
       return false;
     }
-    setAiSignalMode(state.aiSignalMode);
-    if (isAiSignalMarketUpdating() && Number(options.preparingRetry || 0) < 3) {
-      state.aiSignalsPageRetryTimer = window.setTimeout(() => {
-        if (state.view === "ai-signals") {
-          void loadAiSignalsPage({
-            force: true,
-            ttlMs: 0,
-            silent: options.silent === true,
-            expectedRevision: options.expectedRevision,
-            preparingRetry: Number(options.preparingRetry || 0) + 1,
-          });
-        }
-      }, 3000);
+    if (!hadCompleteSnapshot || snapshotChanged) {
+      setAiSignalMode(state.aiSignalMode);
+    } else {
+      renderAiSignalLiveStatus();
+      connectAiSignalQuoteStreams(state.aiSignalItems);
     }
+    if (isAiSignalMarketUpdating()) scheduleRetry();
     return true;
   } catch {
     if (requestSequence !== state.aiSignalLoadSequence || state.view !== "ai-signals") return false;
@@ -17776,8 +17907,13 @@ async function loadAiSignalsPage(options = {}) {
       scheduleAiSignalRevisionReconcile(options.expectedRevision);
     }
     refreshAiSignalLiveRows();
-    if (options.silent !== true) {
-      elements.aiSignalsPageList.innerHTML = '<p class="muted">AI 시그널을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>';
+    if (!hadCompleteSnapshot && scheduleRetry()) {
+      renderAiSignalsSkeleton({ delayed: retryCount > 0 });
+    } else if (!hadCompleteSnapshot) {
+      markAiSignalsPageReady();
+      const errorState = el("p", "muted", "AI 시그널을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.");
+      errorState.setAttribute("role", "status");
+      elements.aiSignalsPageList.replaceChildren(errorState);
     }
     return false;
   }
@@ -17785,12 +17921,14 @@ async function loadAiSignalsPage(options = {}) {
 
 async function fetchMarketAiSignals(options = {}) {
   const recentDays = Number(options.recentDays) || AI_SIGNAL_HISTORY_DAYS;
-  const effectiveScope = isUsHubContext && state.view === "home" ? "all" : state.marketScope;
+  const effectiveScope = isUsHubContext && ["home", "ai-signals"].includes(state.view)
+    ? "all"
+    : state.marketScope;
   const fetchScope = async (marketScope) => {
     const url = marketScope === "us"
       ? `/us/market/quant-signals?limit=20&recent_days=${recentDays}`
       : `/market/quant-signals?universe_limit=150&limit=0&recent_days=${recentDays}`;
-    const retryDelays = [0, 1200, 2500];
+    const retryDelays = options.requireCompleteMarkets === true ? [0] : [0, 1200, 2500];
     let payload = null;
     for (let index = 0; index < retryDelays.length; index += 1) {
       if (retryDelays[index]) await delay(retryDelays[index]);
@@ -17800,8 +17938,17 @@ async function fetchMarketAiSignals(options = {}) {
       });
       if (!isAiSignalMarketUpdating(payload?.status)) break;
     }
+    const normalizedPayload = payload || { status: "preparing", recent_days: recentDays };
+    const ready = !isAiSignalMarketUpdating(normalizedPayload.status);
     return {
-      ...(payload || { status: "preparing", recent_days: recentDays }),
+      ...normalizedPayload,
+      market_scope: marketScope,
+      market_scopes_requested: [marketScope],
+      market_scopes_received: [marketScope],
+      market_scopes_ready: ready ? [marketScope] : [],
+      market_revision_by_scope: {
+        [marketScope]: aiSignalRevisionFromPayload(normalizedPayload) ?? 0,
+      },
       items: tagMarketItems(payload?.items, marketScope),
       preliminary_history: tagMarketItems(payload?.preliminary_history, marketScope),
     };
@@ -17809,11 +17956,30 @@ async function fetchMarketAiSignals(options = {}) {
   if (!isUsHubContext || effectiveScope !== "all") {
     return fetchScope(isUsHubContext ? effectiveScope : "kr");
   }
-  const settled = await Promise.allSettled([fetchScope("kr"), fetchScope("us")]);
-  const payloads = settled.filter((result) => result.status === "fulfilled").map((result) => result.value);
-  if (!payloads.length) throw settled[0]?.reason || new Error("market signal request failed");
+  const requestedScopes = ["kr", "us"];
+  let payloads;
+  if (options.requireCompleteMarkets === true) {
+    payloads = await Promise.all(requestedScopes.map((scope) => fetchScope(scope)));
+  } else {
+    const settled = await Promise.allSettled(requestedScopes.map((scope) => fetchScope(scope)));
+    payloads = settled.filter((result) => result.status === "fulfilled").map((result) => result.value);
+    if (!payloads.length) throw settled[0]?.reason || new Error("market signal request failed");
+  }
+  const receivedScopes = payloads.map((payload) => payload.market_scope).filter(Boolean);
+  const readyScopes = payloads
+    .filter((payload) => !isAiSignalMarketUpdating(payload.status))
+    .map((payload) => payload.market_scope)
+    .filter(Boolean);
+  const complete = requestedScopes.every((scope) => readyScopes.includes(scope));
   return {
-    status: payloads.some((payload) => isAiSignalMarketUpdating(payload.status)) ? "refreshing" : "ready",
+    status: complete ? "ready" : "refreshing",
+    market_scopes_requested: requestedScopes,
+    market_scopes_received: receivedScopes,
+    market_scopes_ready: readyScopes,
+    market_status_by_scope: Object.fromEntries(payloads.map((payload) => [payload.market_scope, payload.status || "ready"])),
+    market_revision_by_scope: Object.fromEntries(
+      payloads.map((payload) => [payload.market_scope, aiSignalRevisionFromPayload(payload) ?? 0]),
+    ),
     as_of: payloads.map((payload) => payload.as_of).filter(Boolean).sort().at(-1) || null,
     signal_revision: Math.max(0, ...payloads.map((payload) => Number(payload.signal_revision) || 0)),
     recent_days: recentDays,
@@ -17829,16 +17995,24 @@ async function fetchCombinedAiSignals(options = {}) {
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? PAGE_ENTRY_MINUTE_MS;
   const recentDays = Number(options.recentDays) || AI_SIGNAL_HISTORY_DAYS;
-  const watchlistUrl = (!isUsHubContext || state.marketScope !== "us") && state.watchlistId
+  const loadWatchlistSignals = state.view === "home"
+    && (!isUsHubContext || state.marketScope !== "us")
+    && state.watchlistId;
+  const watchlistUrl = loadWatchlistSignals
     ? `/watchlists/${encodeURIComponent(state.watchlistId)}/quant-signals${force ? "?refresh=1" : ""}`
     : "";
-  const watchlistRequest = (!isUsHubContext || state.marketScope !== "us") && state.watchlistId
+  const watchlistRequest = loadWatchlistSignals
     ? fetchJsonCached(
       watchlistUrl,
       { force, ttlMs: force ? 0 : ttlMs },
     )
     : Promise.resolve({ items: [] });
-  const marketRequest = fetchMarketAiSignals({ force, ttlMs: force ? 0 : ttlMs, recentDays });
+  const marketRequest = fetchMarketAiSignals({
+    force,
+    ttlMs: force ? 0 : ttlMs,
+    recentDays,
+    requireCompleteMarkets: options.requireCompleteMarkets === true,
+  });
   const [watchlistResult, marketResult] = await Promise.all([
     watchlistRequest.then((value) => ({ ok: true, value })).catch((error) => ({ ok: false, error })),
     marketRequest.then((value) => ({ ok: true, value })).catch((error) => ({ ok: false, error })),
@@ -18063,6 +18237,8 @@ function resetHomeAiSignalsForIdentity() {
   state.aiSignalLoadSequence += 1;
   state.aiSignalItems = [];
   state.aiSignalMarketStatus = "loading";
+  state.aiSignalLoadedMarketScopes.clear();
+  state.aiSignalSnapshotSignature = "";
   state.homeAiSignalsAsOf = "";
   state.aiSignalLiveAsOf = "";
   state.aiSignalRevision = null;

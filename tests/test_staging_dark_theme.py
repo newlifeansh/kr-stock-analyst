@@ -2778,7 +2778,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20260909v501' in shell
+    assert 'dashboard-app-v170.js?v=20260910v502' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 
@@ -3844,7 +3844,7 @@ def test_staging_v156_keeps_public_signals_short_and_hides_numeric_scores():
     css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert STAGING_IA_VERSION == "20260909-unified-market-v108"
-    assert "signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160" in shell
+    assert "signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161" in shell
     outcome_source = dashboard_source[
         dashboard_source.index("function aiSignalOutcomeMetrics(")
         : dashboard_source.index("function aiSignalOutcomeLine(")

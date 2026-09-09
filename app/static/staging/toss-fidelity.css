@@ -20589,3 +20589,70 @@ body[data-staging-ia="tds-video"] #portfolio-view[data-watchlist-layout="compact
     animation: none !important;
   }
 }
+
+/* v161 — keep AI signal loading stable while both markets prepare off-screen. */
+body[data-staging-ia="tds-video"] #ai-signals-view .ai-signals-page-list[data-loading] {
+  min-height: 528px !important;
+}
+
+body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-skeleton-row {
+  min-height: 88px !important;
+  display: grid !important;
+  grid-template-columns: 42px minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 11px !important;
+  padding: 11px 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+}
+
+body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-skeleton-logo,
+body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-skeleton-line {
+  display: block !important;
+  background: linear-gradient(
+    100deg,
+    light-dark(#e9ecf0, #2c2b32) 25%,
+    light-dark(#f4f5f7, #37363e) 42%,
+    light-dark(#e9ecf0, #2c2b32) 60%
+  ) !important;
+  background-size: 220% 100% !important;
+  animation: ai-signal-skeleton-shift 1.25s ease-in-out infinite !important;
+}
+
+body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-skeleton-logo {
+  width: 42px !important;
+  height: 42px !important;
+  border-radius: 50% !important;
+}
+
+body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-skeleton-copy {
+  min-width: 0 !important;
+  display: grid !important;
+  gap: 9px !important;
+}
+
+body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-skeleton-line {
+  width: var(--skeleton-width, 64%) !important;
+  max-width: 100% !important;
+  height: 11px !important;
+  border-radius: 999px !important;
+}
+
+body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-skeleton-line.is-name {
+  height: 15px !important;
+}
+
+body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-skeleton-line.is-status {
+  width: 68px !important;
+  height: 24px !important;
+}
+
+@keyframes ai-signal-skeleton-shift {
+  from { background-position: 100% 0; }
+  to { background-position: -120% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-staging-ia="tds-video"] #ai-signals-view :is(.ai-signal-skeleton-logo, .ai-signal-skeleton-line) {
+    animation: none !important;
+  }
+}
