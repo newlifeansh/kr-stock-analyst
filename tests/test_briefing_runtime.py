@@ -1,8 +1,99 @@
+import asyncio
 from datetime import date, datetime, timedelta
+from threading import Event
 from types import SimpleNamespace
 
 from app.config import Settings
 from app.services import briefing
+
+
+def test_short_cadence_sources_refresh_while_main_collector_is_blocked(monkeypatch):
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            briefing_poll_seconds=1,
+            research_enabled=True,
+            disclosure_enabled=True,
+            news_enabled=False,
+            price_enabled=False,
+            stock_universe_enabled=False,
+            investor_flow_enabled=False,
+            financials_enabled=False,
+            fundamental_snapshot_enabled=False,
+            stock_news_snapshot_enabled=False,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=False,
+        )
+    )
+    runtime.last_research_backfill_at = datetime.utcnow()
+    main_started = Event()
+    release_main = Event()
+    research_refreshed = Event()
+    disclosure_refreshed = Event()
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    def block_main_cycle():
+        main_started.set()
+        release_main.wait(timeout=2)
+
+    monkeypatch.setattr(runtime, "run_once", block_main_cycle)
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        briefing,
+        "collect_research_reports",
+        lambda *_args, **_kwargs: research_refreshed.set() or 1,
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_disclosures",
+        lambda *_args, **_kwargs: (
+            disclosure_refreshed.set()
+            or SimpleNamespace(resolved_source="dart_api", message=None)
+        ),
+    )
+    monkeypatch.setattr(
+        briefing, "collect_home_briefing", lambda *_args, **_kwargs: None
+    )
+
+    async def exercise_runtime():
+        try:
+            await runtime.start()
+            assert await asyncio.to_thread(main_started.wait, 1)
+            assert await asyncio.to_thread(research_refreshed.wait, 1)
+            assert await asyncio.to_thread(disclosure_refreshed.wait, 1)
+        finally:
+            release_main.set()
+            await runtime.stop()
+
+    asyncio.run(exercise_runtime())
+
+
+def test_short_cadence_lane_does_not_overlap_itself():
+    runtime = briefing.BriefingRuntime(Settings())
+    runtime._freshness_lock.acquire()
+    try:
+        assert runtime.run_freshness_once() is False
+    finally:
+        runtime._freshness_lock.release()
+
+
+def test_short_cadence_lane_uses_the_fastest_enabled_interval():
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_poll_seconds=900,
+            research_poll_seconds=600,
+            disclosure_poll_seconds=300,
+            news_poll_seconds=1200,
+        )
+    )
+
+    assert runtime._freshness_poll_seconds() == 300
 
 
 def test_research_backfill_runs_daily_not_every_poll():

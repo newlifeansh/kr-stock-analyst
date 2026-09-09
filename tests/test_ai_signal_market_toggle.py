@@ -11,8 +11,8 @@ def test_us_ai_signal_uses_compact_community_market_toggle_contract():
     staging_css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert shell.status_code == 200
-    assert 'src="/dashboard-app-v170.js?v=20260909v498"' in shell.text
-    assert 'src="/assets/staging/toss-ia.js?v=20260909-unified-market-v106"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260909v501"' in shell.text
+    assert 'src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108"' in shell.text
 
     intro_contract = staging_js.split(
         'intro.className = "staging-ai-signals-intro";',
@@ -30,12 +30,12 @@ def test_us_ai_signal_uses_compact_community_market_toggle_contract():
     assert 'data-unified-market-scope="all"' not in intro_contract
 
     for contract in (
-        'requestedView === "ai-signals"',
+        '["ai-signals", "news"].includes(requestedView)',
         'requestedMarketScopeValue === "all"',
         'const compactSignalToggle = Boolean(button.closest("[data-ai-signal-market-toggle]"));',
         'button.setAttribute("aria-pressed", String(active));',
         '["home", "ai-signals", "stock", "portfolio"',
-        'state.marketScope = routeView === "ai-signals" && routeMarketScope === "all"',
+        'state.marketScope = ["ai-signals", "news"].includes(routeView) && routeMarketScope === "all"',
         'if (isUsHubContext && state.marketScope === "all")',
         'state.marketScope = "kr";',
     ):
@@ -65,3 +65,50 @@ def test_us_ai_signal_uses_compact_community_market_toggle_contract():
         "> button:focus-visible",
     ):
         assert contract in shared_toggle_rules
+
+
+def test_us_feed_replaces_the_wide_country_tabs_with_a_compact_flag_toggle():
+    client = TestClient(app, base_url="https://secretnote.cloud")
+    shell = client.get("/us?view=news")
+    dashboard_js = client.get("/dashboard-app-v170.js").text
+    dashboard_css = client.get("/assets/dashboard/styles.css").text
+
+    assert shell.status_code == 200
+    scope_markup = shell.text.split('id="unified-market-scope"', 1)[1].split("</nav>", 1)[0]
+    for contract in (
+        'data-unified-market-scope="all"',
+        'data-unified-market-scope="us"><span aria-hidden="true">🇺🇸</span>',
+        'data-unified-market-scope="kr"><span aria-hidden="true">🇰🇷</span>',
+        'class="unified-market-scope-button-label"',
+    ):
+        assert contract in scope_markup
+
+    for contract in (
+        '["ai-signals", "news"].includes(requestedView)',
+        'const compactFeedToggle = isUsHubContext && view === "news";',
+        'compactFeedToggle ? "오늘의 피드" : "시장"',
+        'tabs.setAttribute("role", compactFeedToggle ? "group" : "tablist");',
+        'tabs.toggleAttribute("data-market-toggle-style", compactFeedToggle);',
+        'const orderedScopes = compactFeedToggle ? ["us", "kr"] : ["all", "kr", "us"];',
+        'button.hidden = compactFeedToggle && scope === "all";',
+        'scope === "us" ? "미국 피드 보기" : "한국 피드 보기"',
+        '["ai-signals", "news"].includes(routeView) && routeMarketScope === "all"',
+    ):
+        assert contract in dashboard_js
+
+    feed_toggle_rules = dashboard_css.split(
+        "/* Feed market scope: compact country switch aligned with the feed heading. */",
+        1,
+    )[1]
+    for contract in (
+        '.unified-market-scope[data-presentation="feed-toggle"]',
+        "top: var(--tc-header-height, 78px);",
+        "grid-template-columns: repeat(2, minmax(0, 1fr));",
+        "flex: 0 0 100px;",
+        "min-height: 44px;",
+        'button[data-unified-market-scope="us"]',
+        '[aria-pressed="true"]',
+        ".unified-market-scope-button-label",
+        "@media (prefers-reduced-motion: reduce)",
+    ):
+        assert contract in feed_toggle_rules

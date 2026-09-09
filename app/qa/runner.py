@@ -707,7 +707,7 @@ def _gate_checks(
 
         reentry_bars = [
             qs.PriceBar(
-                date(2026, 8, 29) + timedelta(days=index),
+                date(2026, 9, 8) + timedelta(days=index),
                 102.0,
                 103.0,
                 101.5,
@@ -715,7 +715,7 @@ def _gate_checks(
                 2_000_000,
                 10_000_000_000,
             )
-            for index in range(qs.REENTRY_COOLDOWN_BARS + 2)
+            for index in range(2)
         ]
         reentry_indicators = [
             {
@@ -727,7 +727,14 @@ def _gate_checks(
             }
             for _bar in reentry_bars
         ]
-        current_index = len(reentry_bars) - 1
+        current_index = 1
+        _assert(
+            qs._reentry_cooldown_remaining(
+                {"last_exit_index": 0},
+                reentry_bars,
+            ) == 0,
+            "고정 재진입 유예가 적용일 이후에도 남아 있습니다.",
+        )
         _assert(
             not qs._reentry_entry_allowed(
                 reentry_bars,
@@ -735,7 +742,7 @@ def _gate_checks(
                 current_index,
                 0,
             ),
-            "유예 종료 후 기존 진입 조건이 즉시 승계됐습니다.",
+            "전량 매도 다음 날 기존 진입 조건이 새 가격 사건 없이 승계됐습니다.",
         )
         last_bar = reentry_bars[current_index]
         reentry_bars[current_index] = qs.PriceBar(
@@ -754,7 +761,7 @@ def _gate_checks(
                 current_index,
                 0,
             ),
-            "유예 종료 후 20일선 눌림·회복 재진입이 거절됐습니다.",
+            "전량 매도 다음 날 20일선 눌림·회복 재진입이 거절됐습니다.",
         )
         return {
             "effective_date": qs.CHASE_GUARD_EFFECTIVE_DATE.isoformat(),
@@ -763,13 +770,16 @@ def _gate_checks(
             "momentum5_veto": qs.CHASE_MOMENTUM_5_MAX,
             "momentum_lookback_bars": qs.CHASE_MOMENTUM_LOOKBACK_BARS,
             "historical_meritz_preserved": True,
+            "fixed_reentry_cooldown_bars": 0,
+            "legacy_reentry_cooldown_bars": qs.LEGACY_REENTRY_COOLDOWN_BARS,
+            "reentry_rule_effective_date": qs.REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE.isoformat(),
             "fresh_reentry_required": True,
         }
 
     collector.check(
         "SIG-ENTRY-007",
         chase_entry_guards,
-        pass_message="v7.4.1 추격매수 veto·급등 대기·재진입 신규 확인·메리츠 이력 보존을 확인했습니다.",
+        pass_message="v7.4.2 추격매수 veto·고정 유예 없는 이벤트 재진입·메리츠 이력 보존을 확인했습니다.",
     )
 
     def versioned_entry_filters() -> dict[str, Any]:
@@ -824,7 +834,7 @@ def _gate_checks(
     collector.check(
         "SIG-ENTRY-005",
         versioned_entry_filters,
-        pass_message="v7.5-rc3 H1 활성 필터와 H2·H3 백엔드 shadow 비교 계약을 확인했습니다.",
+        pass_message="v7.5-rc4 H1 활성 필터와 H2·H3 백엔드 shadow 비교 계약을 확인했습니다.",
     )
 
     def shadow_refresh_contract() -> dict[str, Any]:
@@ -948,14 +958,28 @@ def _gate_checks(
     )
 
     def lifecycle_contract() -> dict[str, Any]:
-        _assert(qs.REENTRY_COOLDOWN_BARS == 10, "재진입 유예 기간이 변경되었습니다.")
+        _assert(qs.LEGACY_REENTRY_COOLDOWN_BARS == 10, "과거 재진입 유예 이력이 변경되었습니다.")
+        current_bars = [
+            qs.PriceBar(date(2026, 9, 8), 100, 101, 99, 100, 1_000_000, 10_000_000_000),
+            qs.PriceBar(date(2026, 9, 9), 100, 101, 99, 100, 1_000_000, 10_000_000_000),
+        ]
+        _assert(
+            qs._reentry_cooldown_remaining({"last_exit_index": 0}, current_bars) == 0,
+            "현행 전략에 고정 재진입 유예가 남아 있습니다.",
+        )
         _assert(qs.EXIT_SCORE == 42.0, "일반 이탈 점수가 변경되었습니다.")
-        return {"cooldown_bars": qs.REENTRY_COOLDOWN_BARS, "exit_score": qs.EXIT_SCORE}
+        return {
+            "fixed_cooldown_bars": 0,
+            "legacy_cooldown_bars": qs.LEGACY_REENTRY_COOLDOWN_BARS,
+            "effective_date": qs.REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE.isoformat(),
+            "fresh_reentry_required": True,
+            "exit_score": qs.EXIT_SCORE,
+        }
 
     collector.check(
         "SIG-LIFECYCLE-002",
         lifecycle_contract,
-        pass_message="전량 매도 후 10거래일 재진입 유예를 확인했습니다.",
+        pass_message="현행 고정 유예 제거·이벤트 기반 재진입과 과거 10거래일 규칙 보존을 확인했습니다.",
     )
     collector.check(
         "SIG-EXIT-004",

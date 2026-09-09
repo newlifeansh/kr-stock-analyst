@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date, datetime, time, timedelta, timezone
+from threading import Lock
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -85,6 +86,8 @@ class BriefingRuntime:
         self.market_provider = KisRestBriefingProvider(self.settings)
         self.disclosure_provider = DartDisclosureProvider(self.settings)
         self.task: Optional[asyncio.Task] = None
+        self.freshness_task: Optional[asyncio.Task] = None
+        self._freshness_lock = Lock()
         self.running = False
         self.last_success_at: Optional[datetime] = None
         self.last_error: Optional[str] = None
@@ -174,31 +177,123 @@ class BriefingRuntime:
             return
         self.running = True
         self.task = asyncio.create_task(self._loop())
+        if any(
+            (
+                self.settings.research_enabled,
+                self.settings.disclosure_enabled,
+                self.settings.news_enabled,
+            )
+        ):
+            self.freshness_task = asyncio.create_task(self._freshness_loop())
 
     async def stop(self) -> None:
         self.running = False
-        if self.task:
-            self.task.cancel()
+        tasks = [task for task in (self.task, self.freshness_task) if task]
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
             try:
-                await self.task
+                await task
             except asyncio.CancelledError:
                 pass
-            self.task = None
+        self.task = None
+        self.freshness_task = None
 
     async def _loop(self) -> None:
         while self.running:
             try:
                 await asyncio.to_thread(self.run_once)
                 self.last_success_at = datetime.utcnow()
-                self.last_error = "; ".join(f"{source}: {message}" for source, message in self.source_errors.items()) or None
+                self.last_error = (
+                    "; ".join(
+                        f"{source}: {message}"
+                        for source, message in self.source_errors.items()
+                    )
+                    or None
+                )
             except Exception as exc:
                 self.last_error = str(exc)
             await asyncio.sleep(self.settings.briefing_poll_seconds)
 
+    def _freshness_poll_seconds(self) -> int:
+        intervals = [max(1, int(self.settings.briefing_poll_seconds))]
+        if self.settings.research_enabled:
+            intervals.append(max(1, int(self.settings.research_poll_seconds)))
+        if self.settings.disclosure_enabled:
+            intervals.append(max(1, int(self.settings.disclosure_poll_seconds)))
+        if self.settings.news_enabled:
+            intervals.append(max(1, int(self.settings.news_poll_seconds)))
+        return min(intervals)
+
+    async def _freshness_loop(self) -> None:
+        """Refresh short-cadence sources independently of long market jobs."""
+        while self.running:
+            try:
+                await asyncio.to_thread(self.run_freshness_once)
+            except Exception as exc:
+                self.last_error = str(exc)
+            await asyncio.sleep(self._freshness_poll_seconds())
+
+    def run_freshness_once(self, *, refresh_briefing: bool = True) -> bool:
+        """Run research, disclosure, and news without overlapping another run.
+
+        A full price or per-stock snapshot collection can take longer than the
+        freshness SLA for these sources. The runtime therefore calls this from
+        a dedicated lane as well as at the start of the main collector cycle.
+        """
+        if not self._freshness_lock.acquire(blocking=False):
+            return False
+        try:
+            with SessionLocal() as db:
+                refreshed_any = False
+                if self.settings.research_enabled and self._research_due():
+                    try:
+                        collect_research_reports(db, settings=self.settings)
+                        self.last_research_at = datetime.utcnow()
+                        self.source_errors.pop("research", None)
+                        refreshed_any = True
+                    except Exception as exc:
+                        self.source_errors["research"] = str(exc)
+                if self.settings.disclosure_enabled and self._disclosure_due():
+                    try:
+                        result = collect_disclosures(db, settings=self.settings)
+                        self.last_disclosure_at = datetime.utcnow()
+                        self.last_disclosure_source = result.resolved_source
+                        self.last_disclosure_message = result.message
+                        self.source_errors.pop("disclosure", None)
+                        refreshed_any = True
+                    except Exception as exc:
+                        self.source_errors["disclosure"] = str(exc)
+                if self.settings.news_enabled and self._news_due():
+                    try:
+                        collect_news_items(db, settings=self.settings)
+                        self.last_news_at = datetime.utcnow()
+                        self.source_errors.pop("news", None)
+                        refreshed_any = True
+                    except Exception as exc:
+                        self.source_errors["news"] = str(exc)
+                if refresh_briefing and (
+                    refreshed_any
+                    or (
+                        self.settings.briefing_realtime_enabled
+                        and self._briefing_snapshot_due()
+                    )
+                ):
+                    collect_home_briefing(
+                        db,
+                        settings=self.settings,
+                        market_provider=self.market_provider,
+                        disclosure_provider=self.disclosure_provider,
+                    )
+                    self.last_briefing_at = datetime.utcnow()
+                return refreshed_any
+        finally:
+            self._freshness_lock.release()
+
     def run_once(self) -> None:
         self.source_errors = {}
+        refreshed_any = self.run_freshness_once(refresh_briefing=False)
         with SessionLocal() as db:
-            refreshed_any = False
             if self.settings.research_enabled and self._research_backfill_due():
                 try:
                     collect_research_reports(
@@ -210,32 +305,10 @@ class BriefingRuntime:
                         include_detail=False,
                     )
                     self.last_research_backfill_at = datetime.utcnow()
+                    self.source_errors.pop("research_backfill", None)
                     refreshed_any = True
                 except Exception as exc:
                     self.source_errors["research_backfill"] = str(exc)
-            if self.settings.research_enabled and self._research_due():
-                try:
-                    collect_research_reports(db, settings=self.settings)
-                    self.last_research_at = datetime.utcnow()
-                    refreshed_any = True
-                except Exception as exc:
-                    self.source_errors["research"] = str(exc)
-            if self.settings.disclosure_enabled and self._disclosure_due():
-                try:
-                    result = collect_disclosures(db, settings=self.settings)
-                    self.last_disclosure_at = datetime.utcnow()
-                    self.last_disclosure_source = result.resolved_source
-                    self.last_disclosure_message = result.message
-                    refreshed_any = True
-                except Exception as exc:
-                    self.source_errors["disclosure"] = str(exc)
-            if self.settings.news_enabled and self._news_due():
-                try:
-                    collect_news_items(db, settings=self.settings)
-                    self.last_news_at = datetime.utcnow()
-                    refreshed_any = True
-                except Exception as exc:
-                    self.source_errors["news"] = str(exc)
             if self.settings.stock_universe_enabled and self._stock_universe_due():
                 try:
                     loaded = collect_stocks(

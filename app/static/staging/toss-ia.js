@@ -3959,7 +3959,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260909-unified-market-v106`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260909-unified-market-v108`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -5090,7 +5090,11 @@
       tab.addEventListener("click", resetPortfolioScroll);
     }
 
-    if (watchlistStockSection && !watchlistStockSection.querySelector(".staging-watchlist-list-head")) {
+    if (
+      watchlistStockSection
+      && portfolioView.dataset.watchlistLayout !== "compact"
+      && !watchlistStockSection.querySelector(".staging-watchlist-list-head")
+    ) {
       const listHead = document.createElement("header");
       listHead.className = "staging-watchlist-list-head";
       listHead.innerHTML = `
@@ -6040,7 +6044,7 @@
         <span>${stagingUsMarketContext ? "미국 대표 대형주에서" : "시총 Top 100 에서"}</span>
         <h2 id="staging-ai-signals-title">AI는 무엇을 사고 팔까?</h2>
         ${stagingUsHubContext ? `
-          <nav class="staging-hot-community-market-toggle staging-ai-signal-market-toggle" data-ai-signal-market-toggle role="group" aria-label="AI 시그널 시장 선택">
+          <nav class="staging-hot-community-market-toggle staging-ai-signal-market-toggle" data-ai-signal-market-toggle role="group" aria-label="AI 시그널 시장 선택" data-market-toggle-style="compact">
             <button type="button" aria-label="미국 시그널 보기" aria-pressed="false" data-unified-market-scope="us"><span aria-hidden="true">🇺🇸</span></button>
             <button type="button" aria-label="한국 시그널 보기" aria-pressed="false" data-unified-market-scope="kr"><span aria-hidden="true">🇰🇷</span></button>
           </nav>

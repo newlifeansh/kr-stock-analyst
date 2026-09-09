@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import parse_qs, quote, quote_plus, urlparse
 
@@ -16,6 +16,11 @@ NAVER_BOARD_SOURCE = "naver_finance_board"
 NAVER_WORLD_DISCUSSION_URL = "https://m.stock.naver.com/front-api/discussion/list"
 NAVER_WORLD_STOCK_URL = "https://m.stock.naver.com/worldstock/stock"
 NAVER_WORLD_BOARD_SOURCE = "naver_world_stock_board"
+NAVER_DOMESTIC_DISCUSSION_TYPE = "domesticStock"
+NAVER_WORLD_DISCUSSION_TYPE = "foreignStock"
+NAVER_DISCUSSION_PAGE_SIZE = 100
+NAVER_POPULAR_MAX_PAGES = 50
+KST = timezone(timedelta(hours=9))
 THREADS_API_SOURCE = "threads_api"
 THREADS_SEARCH_SOURCE = "threads_search"
 THREADS_SEARCH_URL = "https://www.threads.com/search?q={query}"
@@ -65,7 +70,7 @@ def _impact(text: str) -> str:
     return "중립"
 
 
-def _to_int(value: str) -> int:
+def _to_int(value: object) -> int:
     digits = "".join(char for char in str(value or "") if char.isdigit())
     return int(digits) if digits else 0
 
@@ -91,6 +96,26 @@ def _parse_naver_world_datetime(value: object) -> Optional[datetime]:
     if parsed.tzinfo is not None:
         parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
     return parsed
+
+
+def _parse_naver_discussion_source_datetime(value: object) -> datetime | None:
+    """Parse Naver discussion timestamps on their KST calendar day."""
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    normalized = f"{text[:-1]}+00:00" if text.endswith("Z") else text
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(KST)
+    return parsed
+
+
+def _today_kst() -> date:
+    return datetime.now(KST).date()
 
 
 def _naver_board_post_id(href: str) -> str:
@@ -341,6 +366,139 @@ def _fetch_naver_board_rows(stock: StockMaster, limit: int, timeout_seconds: int
     return rows
 
 
+def _naver_discussion_post_row(
+    item_code: str,
+    post: dict[str, object],
+    *,
+    world: bool,
+) -> dict[str, object] | None:
+    post_id = str(post.get("id") or "").strip()
+    title = " ".join(str(post.get("title") or "").split()).strip()
+    if not post_id or not title:
+        return None
+    writer = post.get("writer") or {}
+    if not isinstance(writer, dict):
+        writer = {}
+    return {
+        "provider_key": "naver_board",
+        "post_id": post_id,
+        "title": title,
+        "text": title,
+        "author_name": str(
+            writer.get("nickname")
+            or ("네이버 미국증시 종토방" if world else "네이버 종토방")
+        ).strip(),
+        "username": None,
+        "author_profile_image_url": writer.get("imageUrl") or None,
+        "url": (
+            naver_world_discussion_url(item_code, post_id)
+            if world
+            else (
+                f"{NAVER_MOBILE_STOCK_URL}/{quote(item_code, safe='')}"
+                f"/discussion/{quote(post_id, safe='')}"
+            )
+        ),
+        "created_at": _parse_naver_world_datetime(post.get("writtenAt")),
+        "like_count": _to_int(post.get("recommendCount")),
+        "dislike_count": _to_int(post.get("notRecommendCount")),
+        "reply_count": _to_int(post.get("commentCount")),
+        "repost_count": 0,
+        "view_count": _to_int(post.get("viewCount")),
+        "impact": _impact(title),
+    }
+
+
+def _fetch_naver_popular_discussion_rows(
+    item_code: str,
+    discussion_type: str,
+    limit: int,
+    timeout_seconds: int,
+    *,
+    world: bool,
+) -> tuple[list[dict[str, object]], bool]:
+    """Return today's Naver posts ordered by recommendations, then views."""
+
+    today = _today_kst()
+    offset = ""
+    seen: set[str] = set()
+    rows: list[dict[str, object]] = []
+    found_source_posts = False
+    for _ in range(NAVER_POPULAR_MAX_PAGES):
+        params: dict[str, object] = {
+            "itemCode": item_code,
+            "discussionType": discussion_type,
+            "pageSize": NAVER_DISCUSSION_PAGE_SIZE,
+        }
+        if offset:
+            params["offset"] = offset
+        try:
+            response = requests.get(
+                NAVER_WORLD_DISCUSSION_URL,
+                params=params,
+                headers=NAVER_WORLD_HEADERS if world else NAVER_HEADERS,
+                timeout=timeout_seconds,
+            )
+            response.raise_for_status()
+            result = response.json().get("result") or {}
+            posts = result.get("posts") or []
+        except Exception:
+            if not found_source_posts:
+                raise
+            break
+        if not isinstance(posts, list) or not posts:
+            break
+        found_source_posts = True
+        reached_previous_day = False
+        for post in posts:
+            if not isinstance(post, dict):
+                continue
+            post_id = str(post.get("id") or "").strip()
+            if not post_id or post_id in seen:
+                continue
+            seen.add(post_id)
+            source_datetime = _parse_naver_discussion_source_datetime(post.get("writtenAt"))
+            if source_datetime is None:
+                continue
+            if source_datetime.date() < today:
+                reached_previous_day = True
+                continue
+            if source_datetime.date() != today:
+                continue
+            row = _naver_discussion_post_row(item_code, post, world=world)
+            if row is not None:
+                rows.append(row)
+        next_offset = str(result.get("lastOffset") or "").strip()
+        if reached_previous_day or not next_offset or next_offset == offset:
+            break
+        offset = next_offset
+
+    rows.sort(
+        key=lambda row: (
+            _to_int(row.get("like_count")),
+            _to_int(row.get("view_count")),
+            _to_int(row.get("reply_count")),
+            str(row.get("created_at") or ""),
+        ),
+        reverse=True,
+    )
+    return rows[:limit], found_source_posts
+
+
+def _fetch_naver_popular_board_rows(
+    stock: StockMaster,
+    limit: int,
+    timeout_seconds: int,
+) -> list[dict[str, object]]:
+    rows, _ = _fetch_naver_popular_discussion_rows(
+        stock.code,
+        NAVER_DOMESTIC_DISCUSSION_TYPE,
+        limit,
+        timeout_seconds,
+        world=False,
+    )
+    return rows
+
+
 def _naver_world_item_code_candidates(stock: dict[str, object]) -> list[str]:
     """Return Naver's exchange-suffixed US symbol candidates."""
     base = str(stock.get("code") or "").strip().upper().replace(".", "-")
@@ -378,7 +536,7 @@ def _fetch_naver_world_board_rows(
             response.raise_for_status()
             result = response.json().get("result") or {}
             posts = result.get("posts") or []
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - try the next exchange-specific symbol.
             last_error = exc
             continue
         if posts or not selected_item_code:
@@ -418,10 +576,40 @@ def _fetch_naver_world_board_rows(
     return rows
 
 
+def _fetch_naver_world_popular_board_rows(
+    stock: dict[str, object],
+    limit: int,
+    timeout_seconds: int,
+) -> tuple[list[dict[str, object]], str]:
+    selected_item_code = ""
+    last_error: Exception | None = None
+    for item_code in _naver_world_item_code_candidates(stock):
+        try:
+            rows, found_source_posts = _fetch_naver_popular_discussion_rows(
+                item_code,
+                NAVER_WORLD_DISCUSSION_TYPE,
+                limit,
+                timeout_seconds,
+                world=True,
+            )
+        except Exception as exc:  # noqa: BLE001 - try the next exchange-specific symbol.
+            last_error = exc
+            continue
+        if not selected_item_code:
+            selected_item_code = item_code
+        if found_source_posts:
+            return rows, item_code
+    if not selected_item_code and last_error is not None:
+        raise last_error
+    return [], selected_item_code
+
+
 def _build_naver_world_provider(
     stock: dict[str, object],
     limit: int,
     timeout_seconds: int,
+    *,
+    mode: str = "latest",
 ) -> dict[str, object]:
     candidates = _naver_world_item_code_candidates(stock)
     search_url = (
@@ -430,7 +618,18 @@ def _build_naver_world_provider(
         else "https://m.stock.naver.com/worldstock"
     )
     try:
-        items = _fetch_naver_world_board_rows(stock, limit, timeout_seconds)
+        if mode == "popular":
+            items, selected_item_code = _fetch_naver_world_popular_board_rows(
+                stock,
+                limit,
+                timeout_seconds,
+            )
+            if selected_item_code:
+                search_url = (
+                    f"{NAVER_WORLD_STOCK_URL}/{quote(selected_item_code, safe='')}/discussion"
+                )
+        else:
+            items = _fetch_naver_world_board_rows(stock, limit, timeout_seconds)
         if items:
             search_url = str(items[0].get("url") or search_url).rsplit("/", 1)[0]
         return {
@@ -441,9 +640,13 @@ def _build_naver_world_provider(
             "search_url": search_url,
             "more_label": "미국 종토방 더 보기",
             "message": (
-                f"최근 글 {len(items)}건"
+                f"{'오늘 인기글' if mode == 'popular' else '최근 글'} {len(items)}건"
                 if items
-                else "최근 글을 찾지 못했습니다. 미국 종토방 바로가기에서 직접 확인해 주세요."
+                else (
+                    "오늘 작성된 인기글이 아직 없습니다."
+                    if mode == "popular"
+                    else "최근 글을 찾지 못했습니다. 미국 종토방 바로가기에서 직접 확인해 주세요."
+                )
             ),
             "items": items,
         }
@@ -455,15 +658,29 @@ def _build_naver_world_provider(
             "configured": False,
             "search_url": search_url,
             "more_label": "미국 종토방 더 보기",
-            "message": "네이버 미국 종토방을 불러오지 못했습니다. 종토방 바로가기에서 직접 확인해 주세요.",
+            "message": (
+                "오늘 인기글을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요."
+                if mode == "popular"
+                else "네이버 미국 종토방을 불러오지 못했습니다. 종토방 바로가기에서 직접 확인해 주세요."
+            ),
             "items": [],
         }
 
 
-def _build_naver_provider(stock: StockMaster, limit: int, timeout_seconds: int) -> dict[str, object]:
+def _build_naver_provider(
+    stock: StockMaster,
+    limit: int,
+    timeout_seconds: int,
+    *,
+    mode: str = "latest",
+) -> dict[str, object]:
     search_url = f"{NAVER_MOBILE_STOCK_URL}/{quote(stock.code, safe='')}/discussion"
     try:
-        items = _fetch_naver_board_rows(stock, limit, timeout_seconds)
+        items = (
+            _fetch_naver_popular_board_rows(stock, limit, timeout_seconds)
+            if mode == "popular"
+            else _fetch_naver_board_rows(stock, limit, timeout_seconds)
+        )
         return {
             "key": "naver_board",
             "label": "네이버",
@@ -472,9 +689,13 @@ def _build_naver_provider(stock: StockMaster, limit: int, timeout_seconds: int) 
             "search_url": search_url,
             "more_label": "종토방 더 보기",
             "message": (
-                f"최근 글 {len(items)}건"
+                f"{'오늘 인기글' if mode == 'popular' else '최근 글'} {len(items)}건"
                 if items
-                else "최근 글을 찾지 못했습니다. 종토방 바로가기에서 직접 확인해 주세요."
+                else (
+                    "오늘 작성된 인기글이 아직 없습니다."
+                    if mode == "popular"
+                    else "최근 글을 찾지 못했습니다. 종토방 바로가기에서 직접 확인해 주세요."
+                )
             ),
             "items": items,
         }
@@ -486,7 +707,11 @@ def _build_naver_provider(stock: StockMaster, limit: int, timeout_seconds: int) 
             "configured": False,
             "search_url": search_url,
             "more_label": "종토방 더 보기",
-            "message": "네이버 종토방을 불러오지 못했습니다. 종토방 바로가기에서 직접 확인해 주세요.",
+            "message": (
+                "오늘 인기글을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요."
+                if mode == "popular"
+                else "네이버 종토방을 불러오지 못했습니다. 종토방 바로가기에서 직접 확인해 주세요."
+            ),
             "items": [],
         }
 
@@ -497,16 +722,31 @@ def build_stock_community_feed(
     *,
     limit: int = 12,
     timeout_seconds: int = 8,
+    mode: str = "latest",
 ) -> dict[str, object]:
     limit = max(1, min(20, limit))
+    mode = "popular" if mode == "popular" else "latest"
     providers = [
-        _build_naver_provider(stock, min(limit, 8), timeout_seconds),
-        _build_threads_provider(stock, settings, min(limit, settings.threads_feed_max_results)),
+        _build_naver_provider(
+            stock,
+            min(limit, 20 if mode == "popular" else 8),
+            timeout_seconds,
+            mode=mode,
+        )
     ]
+    if mode == "latest":
+        providers.append(
+            _build_threads_provider(
+                stock,
+                settings,
+                min(limit, settings.threads_feed_max_results),
+            )
+        )
     return {
         "code": stock.code,
         "name": stock.name,
         "as_of": datetime.utcnow(),
+        "mode": mode,
         "message": "커뮤니티 글은 사실 확인 전 시장 반응 참고용으로만 확인하세요.",
         "providers": providers,
     }
@@ -517,12 +757,26 @@ def build_us_stock_community_feed(
     *,
     limit: int = 12,
     timeout_seconds: int = 8,
+    mode: str = "latest",
 ) -> dict[str, object]:
     limit = max(1, min(20, int(limit)))
+    mode = "popular" if mode == "popular" else "latest"
     return {
         "code": str(stock.get("code") or ""),
         "name": str(stock.get("name") or stock.get("code") or ""),
         "as_of": datetime.now(timezone.utc),
-        "message": "네이버 미국증시 종목토론방의 최신 글입니다. 투자 판단 전 원문과 사실관계를 확인하세요.",
-        "providers": [_build_naver_world_provider(stock, limit, timeout_seconds)],
+        "mode": mode,
+        "message": (
+            "네이버 미국증시 종목토론방의 오늘 인기글입니다. 투자 판단 전 원문과 사실관계를 확인하세요."
+            if mode == "popular"
+            else "네이버 미국증시 종목토론방의 최신 글입니다. 투자 판단 전 원문과 사실관계를 확인하세요."
+        ),
+        "providers": [
+            _build_naver_world_provider(
+                stock,
+                limit,
+                timeout_seconds,
+                mode=mode,
+            )
+        ],
     }

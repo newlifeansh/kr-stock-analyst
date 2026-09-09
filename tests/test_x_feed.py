@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -185,6 +185,112 @@ def test_stock_community_feed_endpoint_uses_naver_board_and_threads(monkeypatch)
         db.close()
 
 
+def test_stock_community_popular_mode_scans_today_and_orders_recommendations_then_views(monkeypatch):
+    db = _session()
+    db.add(StockMaster(code="215601", name="인기테스트", market="KOSDAQ", is_active=True))
+    db.commit()
+    calls = []
+
+    class Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        assert url == community_feed.NAVER_WORLD_DISCUSSION_URL
+        params = kwargs["params"]
+        assert params["itemCode"] == "215601"
+        assert params["discussionType"] == "domesticStock"
+        assert params["pageSize"] == 100
+        if "offset" not in params:
+            return Response({
+                "result": {
+                    "lastOffset": "-next",
+                    "posts": [
+                        {
+                            "id": "popular-1",
+                            "writtenAt": "2026-09-09T10:00:00",
+                            "title": "조회가 높은 글",
+                            "writer": {"nickname": "작성자1"},
+                            "recommendCount": 5,
+                            "notRecommendCount": 1,
+                            "commentCount": 2,
+                            "viewCount": 1000,
+                        },
+                        {
+                            "id": "popular-2",
+                            "writtenAt": "2026-09-09T11:00:00",
+                            "title": "공감이 높은 글",
+                            "writer": {"nickname": "작성자2"},
+                            "recommendCount": 20,
+                            "notRecommendCount": 0,
+                            "commentCount": 1,
+                            "viewCount": 100,
+                        },
+                    ],
+                }
+            })
+        assert params["offset"] == "-next"
+        return Response({
+            "result": {
+                "lastOffset": "-done",
+                "posts": [
+                    {
+                        "id": "popular-3",
+                        "writtenAt": "2026-09-09T09:00:00",
+                        "title": "공감과 조회가 모두 높은 글",
+                        "writer": {"nickname": "작성자3"},
+                        "recommendCount": 20,
+                        "notRecommendCount": 2,
+                        "commentCount": 3,
+                        "viewCount": 800,
+                    },
+                    {
+                        "id": "yesterday",
+                        "writtenAt": "2026-09-08T23:59:59",
+                        "title": "어제 글",
+                        "writer": {"nickname": "작성자4"},
+                        "recommendCount": 999,
+                        "viewCount": 99999,
+                    },
+                ],
+            }
+        })
+
+    def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    monkeypatch.setattr(main_module.settings, "threads_access_token", None)
+    monkeypatch.setattr(community_feed, "_today_kst", lambda: date(2026, 9, 9))
+    monkeypatch.setattr(community_feed.requests, "get", fake_get)
+    try:
+        response = TestClient(app).get(
+            "/stocks/215601/community-feed?limit=12&mode=popular"
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["mode"] == "popular"
+        assert len(payload["providers"]) == 1
+        assert [item["post_id"] for item in payload["providers"][0]["items"]] == [
+            "popular-3",
+            "popular-2",
+            "popular-1",
+        ]
+        assert payload["providers"][0]["message"] == "오늘 인기글 3건"
+        assert len(calls) == 2
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
 def test_us_stock_community_feed_uses_naver_world_board(monkeypatch):
     calls = []
 
@@ -228,6 +334,64 @@ def test_us_stock_community_feed_uses_naver_world_board(monkeypatch):
     assert item["url"] == "https://m.stock.naver.com/worldstock/stock/NVDA.O/discussion/428998231"
     assert item["like_count"] == 12
     assert item["reply_count"] == 3
+
+
+def test_us_stock_community_popular_mode_uses_today_only(monkeypatch):
+    class Response:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return {
+                "result": {
+                    "lastOffset": "-done",
+                    "posts": [
+                        {
+                            "id": "us-popular-1",
+                            "writtenAt": "2026-09-09T08:30:00",
+                            "title": "오늘 미국 인기글",
+                            "writer": {"nickname": "미국주식러"},
+                            "recommendCount": 14,
+                            "notRecommendCount": 1,
+                            "commentCount": 4,
+                            "viewCount": 500,
+                        },
+                        {
+                            "id": "us-old",
+                            "writtenAt": "2026-09-08T23:30:00",
+                            "title": "어제 미국 글",
+                            "writer": {"nickname": "어제작성자"},
+                            "recommendCount": 100,
+                            "viewCount": 5000,
+                        },
+                    ],
+                }
+            }
+
+    def fake_get(url, **kwargs):
+        assert url == community_feed.NAVER_WORLD_DISCUSSION_URL
+        assert kwargs["params"] == {
+            "itemCode": "NVDA.O",
+            "discussionType": "foreignStock",
+            "pageSize": 100,
+        }
+        return Response()
+
+    monkeypatch.setattr(community_feed, "_today_kst", lambda: date(2026, 9, 9))
+    monkeypatch.setattr(community_feed.requests, "get", fake_get)
+    payload = community_feed.build_us_stock_community_feed(
+        {"code": "NVDA", "name": "NVIDIA", "market": "NASDAQ", "markets": ["NASDAQ"]},
+        limit=12,
+        mode="popular",
+    )
+
+    assert payload["mode"] == "popular"
+    assert [item["post_id"] for item in payload["providers"][0]["items"]] == [
+        "us-popular-1"
+    ]
+    assert payload["providers"][0]["message"] == "오늘 인기글 1건"
 
 
 def test_us_stock_community_feed_endpoint_is_market_scoped(monkeypatch):
@@ -381,3 +545,25 @@ def test_stock_detail_contains_community_ui():
     assert "stock-community-original" not in source
     assert "stock-community-original" not in styles
     assert '"원문 ↗"' not in source
+
+
+def test_stock_detail_community_has_latest_and_popular_badge_filters():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    assert '[["latest", "최신글"], ["popular", "인기글"]]' in source
+    assert 'group.setAttribute("role", "group")' in source
+    assert 'group.setAttribute("aria-label", "커뮤니티 글 정렬")' in source
+    assert 'button.setAttribute("aria-pressed", active ? "true" : "false")' in source
+    assert "function setStockCommunityMode(mode)" in source
+    assert "state.stockCommunityPopularLoading" in source
+    assert "/community-feed?limit=12&mode=popular" in source
+    assert "오늘 인기글을 불러오는 중입니다." in source
+    assert ".stock-community-mode-filter button" in styles
+    mode_filter_styles = styles.split(
+        "#stock-view.stock-detail-v3 .stock-community-mode-filter button {", 1
+    )[1].split("}", 1)[0]
+    assert "min-height: 44px" in mode_filter_styles
+    assert "border-radius: 999px" in mode_filter_styles
+    assert ".stock-community-mode-filter button:focus-visible" in styles

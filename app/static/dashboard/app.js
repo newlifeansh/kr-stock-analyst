@@ -376,6 +376,9 @@ const elements = {
   watchGroupCreate: $("watch-group-create"),
   watchGroupEdit: $("watch-group-edit"),
   watchGroupAddStock: $("watch-group-add-stock"),
+  watchlistSearch: $("watchlist-search"),
+  watchGroupShare: $("watch-group-share"),
+  watchGroupShareStatus: $("watch-group-share-status"),
   watchGroupMeta: $("watch-group-meta"),
   watchGroupDialog: $("watch-group-dialog"),
   watchGroupForm: $("watch-group-form"),
@@ -548,7 +551,7 @@ const WATCHLIST_KEY = "analyst.watchlist";
 const WATCHLIST_ID_KEY = "analyst.watchlistId";
 const WATCHLIST_GROUP_KEY = "analyst.watchlistGroups.v1";
 const WATCHLIST_SYSTEM_GROUPS = Object.freeze({
-  default: Object.freeze({ id: "default", name: "기본" }),
+  default: Object.freeze({ id: "default", name: "기본그룹" }),
   pinned: Object.freeze({ id: "pinned", name: "핀종목" }),
 });
 const WATCHLIST_GROUP_LIMIT = 12;
@@ -981,7 +984,7 @@ const requestedMarketScopeValue = ["all", "kr", "us"].includes(dashboardQueryPar
   ? dashboardQueryParams.get("market_scope")
   : "all";
 const requestedMarketScope = isUsRootPath
-  && requestedView === "ai-signals"
+  && ["ai-signals", "news"].includes(requestedView)
   && requestedMarketScopeValue === "all"
   ? "kr"
   : requestedMarketScopeValue;
@@ -1176,6 +1179,7 @@ const state = {
   watchMarketMapSheetTrigger: null,
   watchMarketMapResizeObserver: null,
   watchMarketMapRenderFrame: null,
+  watchMarketMapMotionGeneration: 0,
   watchlistContentTab: "strategy",
   aiSignalMode: "current",
   aiSignalStage: "all",
@@ -1289,6 +1293,10 @@ const state = {
   quoteStreamEpoch: 0,
   watchlistLoadSequence: 0,
   watchlistResults: [],
+  homeWatchMarketMapLoadSequence: 0,
+  watchMarketMapResults: [],
+  watchlistEditing: false,
+  watchGroupShareStatusTimer: null,
   watchlistMarketContext: null,
   watchlistStrategyRenderTimer: null,
   watchlistFilter: "all",
@@ -1311,6 +1319,10 @@ const state = {
   stockNewsTab: "domestic",
   stockCommunity: null,
   stockCommunityProviderKey: "naver_board",
+  stockCommunityMode: "latest",
+  stockCommunityPopular: null,
+  stockCommunityPopularLoading: false,
+  stockCommunityModeRequestId: 0,
   stockEtfProfile: null,
   stockEtfProfileStatus: "idle",
   stockEtfProfileRequestId: 0,
@@ -1438,11 +1450,21 @@ function applyUsMarketSurface() {
       "morning-briefing",
     ].includes(state.view);
   }
+  syncUnifiedMarketScopePresentation(state.view);
   for (const button of elements.unifiedMarketScopeButtons) {
     const active = button.dataset.unifiedMarketScope === state.marketScope;
     const compactSignalToggle = Boolean(button.closest("[data-ai-signal-market-toggle]"));
+    const compactMarketToggle = compactSignalToggle
+      || Boolean(button.closest('[data-market-toggle-style="compact"]'));
     button.classList.toggle("active", active);
-    if (compactSignalToggle) {
+    if (button.hidden) {
+      button.removeAttribute("role");
+      button.removeAttribute("aria-pressed");
+      button.removeAttribute("aria-selected");
+      button.removeAttribute("tabindex");
+      continue;
+    }
+    if (compactMarketToggle) {
       button.setAttribute("aria-pressed", String(active));
       button.removeAttribute("aria-selected");
       button.removeAttribute("tabindex");
@@ -1516,6 +1538,58 @@ function setUnifiedMarketScope(marketScope) {
 function syncUnifiedMarketScopeVisibility(view = state.view) {
   if (!elements.unifiedMarketScope) return;
   elements.unifiedMarketScope.hidden = !isUsHubContext || ["home", "ai-signals", "stock", "portfolio", "recommend-detail", "event-detail", "morning-briefing"].includes(view);
+  syncUnifiedMarketScopePresentation(view);
+}
+
+function syncUnifiedMarketScopePresentation(view = state.view) {
+  if (!elements.unifiedMarketScope) return;
+  const compactFeedToggle = isUsHubContext && view === "news";
+  const label = elements.unifiedMarketScope.querySelector(".unified-market-scope-label");
+  const tabs = elements.unifiedMarketScope.querySelector(".unified-market-scope-tabs");
+  elements.unifiedMarketScope.dataset.presentation = compactFeedToggle ? "feed-toggle" : "tabs";
+  elements.unifiedMarketScope.setAttribute(
+    "aria-label",
+    compactFeedToggle ? "피드 시장 선택" : "표시할 주식시장",
+  );
+  if (label) label.textContent = compactFeedToggle ? "오늘의 피드" : "시장";
+  if (tabs) {
+    tabs.setAttribute("role", compactFeedToggle ? "group" : "tablist");
+    tabs.setAttribute("aria-label", compactFeedToggle ? "피드 시장 선택" : "국내·미국 종목 필터");
+    tabs.toggleAttribute("data-market-toggle-style", compactFeedToggle);
+    const orderedScopes = compactFeedToggle ? ["us", "kr"] : ["all", "kr", "us"];
+    for (const scope of orderedScopes) {
+      const button = elements.unifiedMarketScopeButtons.find(
+        (candidate) => candidate.dataset.unifiedMarketScope === scope,
+      );
+      if (button) tabs.appendChild(button);
+    }
+  }
+  for (const button of elements.unifiedMarketScopeButtons) {
+    const scope = button.dataset.unifiedMarketScope;
+    const active = scope === state.marketScope;
+    button.hidden = compactFeedToggle && scope === "all";
+    button.classList.toggle("active", active);
+    if (button.hidden) {
+      button.removeAttribute("role");
+      button.removeAttribute("aria-pressed");
+      button.removeAttribute("aria-selected");
+      button.removeAttribute("tabindex");
+      continue;
+    }
+    if (compactFeedToggle && scope !== "all") {
+      button.removeAttribute("role");
+      button.removeAttribute("aria-selected");
+      button.removeAttribute("tabindex");
+      button.setAttribute("aria-pressed", String(active));
+      button.setAttribute("aria-label", scope === "us" ? "미국 피드 보기" : "한국 피드 보기");
+    } else {
+      button.setAttribute("role", "tab");
+      button.removeAttribute("aria-pressed");
+      button.removeAttribute("aria-label");
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    }
+  }
 }
 
 function ensureUnifiedHomeTop50() {
@@ -6675,7 +6749,23 @@ function stockCommunityShortcutUrl(providerKey, row, stockCode) {
   return `https://m.stock.naver.com/domestic/stock/${encodeURIComponent(resolvedStockCode)}/discussion/${encodeURIComponent(postId)}`;
 }
 
-function renderStockCommunity(payload) {
+function createStockCommunityModeFilter() {
+  const group = el("div", "stock-community-mode-filter");
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", "커뮤니티 글 정렬");
+  for (const [mode, label] of [["latest", "최신글"], ["popular", "인기글"]]) {
+    const active = state.stockCommunityMode === mode;
+    const button = el("button", active ? "active" : "", label);
+    button.type = "button";
+    button.dataset.stockCommunityMode = mode;
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.addEventListener("click", () => setStockCommunityMode(mode));
+    group.appendChild(button);
+  }
+  return group;
+}
+
+function renderStockCommunity(payload, options = {}) {
   if (!elements.stockCommunityProviders || !elements.stockCommunityStatus) {
     return;
   }
@@ -6683,11 +6773,24 @@ function renderStockCommunity(payload) {
   const providers = (Array.isArray(payload?.providers) ? payload.providers : [])
     .filter((provider) => provider?.key !== "threads");
   const totalItems = providers.reduce((sum, provider) => sum + (Array.isArray(provider?.items) ? provider.items.length : 0), 0);
+  const emptyMessage = providers.find((provider) => provider?.key === state.stockCommunityProviderKey)?.message
+    || providers[0]?.message
+    || payload?.message
+    || "관련 커뮤니티 글을 찾지 못했습니다.";
   elements.stockCommunityProviders.innerHTML = "";
-  elements.stockCommunityStatus.hidden = totalItems > 0;
-  elements.stockCommunityStatus.textContent = totalItems
-    ? ""
-    : (payload?.message || "관련 커뮤니티 글을 찾지 못했습니다.");
+  elements.stockCommunityStatus.hidden = !options.loading && totalItems > 0;
+  elements.stockCommunityStatus.textContent = options.loading
+    ? (state.stockCommunityMode === "popular" ? "오늘 인기글을 불러오는 중입니다." : "최신글을 불러오는 중입니다.")
+    : (totalItems ? "" : emptyMessage);
+
+  const board = el("section", "stock-community-board");
+  board.appendChild(createStockCommunityModeFilter());
+  elements.stockCommunityProviders.appendChild(board);
+
+  if (options.loading) {
+    board.setAttribute("aria-busy", "true");
+    return;
+  }
 
   if (!providers.length) {
     return;
@@ -6696,7 +6799,6 @@ function renderStockCommunity(payload) {
   const selected = providers.find((provider) => provider.key === state.stockCommunityProviderKey) || providers[0];
   state.stockCommunityProviderKey = selected.key;
 
-  const board = el("section", "stock-community-board");
   if (providers.length > 1) {
     const tabs = el("div", "stock-community-tabs stock-v3-segment");
     tabs.setAttribute("role", "tablist");
@@ -6720,7 +6822,10 @@ function renderStockCommunity(payload) {
   const summary = el("div", "stock-community-board-summary");
   if (items.length) {
     const landingOnly = items.every((row) => row?.external_landing);
-    summary.appendChild(el("strong", "", landingOnly ? "원문 커뮤니티로 이동해요" : `최근 글 ${formatNumber(items.length)}건`));
+    const itemSummary = state.stockCommunityMode === "popular"
+      ? `오늘 인기글 ${formatNumber(items.length)}건`
+      : `최근 글 ${formatNumber(items.length)}건`;
+    summary.appendChild(el("strong", "", landingOnly ? "원문 커뮤니티로 이동해요" : itemSummary));
     board.appendChild(summary);
   }
 
@@ -6789,7 +6894,6 @@ function renderStockCommunity(payload) {
     list.appendChild(empty);
   }
   board.appendChild(list);
-  elements.stockCommunityProviders.appendChild(board);
 }
 
 function usStockCommunityPayload(data) {
@@ -7584,6 +7688,10 @@ function resetStockHomeDetails() {
   state.stockNewsRows = [];
   state.stockNewsTab = "domestic";
   state.stockCommunity = null;
+  state.stockCommunityMode = "latest";
+  state.stockCommunityPopular = null;
+  state.stockCommunityPopularLoading = false;
+  state.stockCommunityModeRequestId += 1;
   state.stockIssueKeyword = "";
   state.stockFlowHistoryLoading = false;
   state.stockFlowHistoryTargetCount = 0;
@@ -7737,6 +7845,82 @@ async function loadStockIntraday(code, requestId) {
   }
 }
 
+async function loadStockCommunityMode(mode) {
+  const normalizedMode = mode === "popular" ? "popular" : "latest";
+  state.stockCommunityMode = normalizedMode;
+  if (normalizedMode === "latest") {
+    renderStockCommunity(
+      state.stockCommunity || { message: "최신글을 불러오는 중입니다.", providers: [] },
+      { loading: !state.stockCommunity },
+    );
+    return;
+  }
+  if (state.stockCommunityPopular) {
+    renderStockCommunity(state.stockCommunityPopular);
+    return;
+  }
+  if (state.stockCommunityPopularLoading) {
+    renderStockCommunity({ providers: [] }, { loading: true });
+    return;
+  }
+
+  const data = state.currentDashboard || state.currentStock;
+  const code = String(data?.code || state.currentStock?.code || "").trim();
+  if (!code) {
+    renderStockCommunity({ message: "인기글을 불러올 종목을 확인하지 못했습니다.", providers: [] });
+    return;
+  }
+  const usStock = stockDashboardIsUs(data);
+  const requestId = ++state.stockCommunityModeRequestId;
+  state.stockCommunityPopularLoading = true;
+  renderStockCommunity({ providers: [] }, { loading: true });
+  try {
+    const endpoint = usStock
+      ? `/us/stocks/${encodeURIComponent(code)}/community-feed?limit=12&mode=popular`
+      : `/stocks/${encodeURIComponent(code)}/community-feed?limit=12&mode=popular`;
+    const payload = await fetchJsonCached(endpoint, { ttlMs: 5 * UI_CACHE_TTL_MS });
+    if (requestId !== state.stockCommunityModeRequestId || state.currentStock?.code !== code) {
+      return;
+    }
+    const providers = Array.isArray(payload?.providers) ? payload.providers : [];
+    const sourceAvailable = providers.some((provider) => provider?.configured !== false);
+    if (!sourceAvailable) {
+      state.responseCache.delete(endpoint);
+      if (state.stockCommunityMode === "popular") {
+        renderStockCommunity(payload);
+      }
+      return;
+    }
+    state.stockCommunityPopular = payload;
+    if (state.stockCommunityMode === "popular") {
+      renderStockCommunity(payload);
+    }
+  } catch {
+    if (
+      requestId === state.stockCommunityModeRequestId
+      && state.currentStock?.code === code
+      && state.stockCommunityMode === "popular"
+    ) {
+      renderStockCommunity({ message: "오늘 인기글을 불러오지 못했습니다. 잠시 후 다시 눌러주세요.", providers: [] });
+    }
+  } finally {
+    if (requestId === state.stockCommunityModeRequestId) {
+      state.stockCommunityPopularLoading = false;
+    }
+  }
+}
+
+function setStockCommunityMode(mode) {
+  const normalizedMode = mode === "popular" ? "popular" : "latest";
+  if (
+    normalizedMode === state.stockCommunityMode
+    && (normalizedMode !== "popular" || state.stockCommunityPopular || state.stockCommunityPopularLoading)
+  ) {
+    return;
+  }
+  void loadStockCommunityMode(normalizedMode);
+}
+
 async function loadStockCommunity(data, requestId) {
   const code = data?.code;
   if (!code) {
@@ -7755,14 +7939,18 @@ async function loadStockCommunity(data, requestId) {
       return;
     }
     state.stockCommunity = payload;
-    renderStockCommunity(payload);
+    if (state.stockCommunityMode === "latest") {
+      renderStockCommunity(payload);
+    }
   } catch {
     if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
       return;
     }
-    renderStockCommunity(usStock
-      ? usStockCommunityPayload(data)
-      : { message: "커뮤니티 글을 불러오지 못했습니다.", providers: [] });
+    if (state.stockCommunityMode === "latest") {
+      renderStockCommunity(usStock
+        ? usStockCommunityPayload(data)
+        : { message: "커뮤니티 글을 불러오지 못했습니다.", providers: [] });
+    }
   }
 }
 
@@ -7846,7 +8034,9 @@ async function loadStockHomeDetails(data, options = {}) {
     state.stockDisclosureRows = Array.isArray(payload.disclosures) ? payload.disclosures : [];
     state.stockNewsRows = Array.isArray(payload.news_items) ? payload.news_items : [];
     state.stockCommunity = payload.community || null;
-    renderStockCommunity(state.stockCommunity);
+    if (state.stockCommunityMode === "latest") {
+      renderStockCommunity(state.stockCommunity);
+    }
     renderStockResearchSummary(data);
     renderStockV2Flow(data);
     renderEvidenceSummary(data);
@@ -8593,6 +8783,10 @@ function updateWatchlistRowQuote(code, quote, payload = null) {
   }
   if (tradingValueCell && quote.trading_value !== null && quote.trading_value !== undefined && quote.trading_value !== "") {
     flashTextUpdate(tradingValueCell, formatMoney(quote.trading_value), quote.trading_value);
+  }
+  if (card.classList.contains("watch-compact-row")) {
+    syncWatchMarketMapResults(state.watchlistResults);
+    return true;
   }
   if (card.watchDashboard && card.dataset.watchGroupKind !== "pinned") {
     const point = renderWatchPreOpenPoint(card, card.watchDashboard, card.watchDashboard.quote, card.watchItem, card.usSectorMoves || state.usSectorMoves);
@@ -10146,7 +10340,7 @@ function normalizeWatchlistGroups(groups) {
       || ["default", "pinned"].includes(id)
       || seenIds.has(id)
       || !name
-      || ["기본", "핀종목", "핀 종목"].includes(nameKey)
+      || ["기본", "기본그룹", "핀종목", "핀 종목"].includes(nameKey)
       || seenNames.has(nameKey)
     ) {
       continue;
@@ -10220,9 +10414,7 @@ function activeWatchlistGroupName() {
 
 function watchlistGroupMetaText(groupId = state.activeWatchGroup) {
   const count = watchlistItemsForGroup(groupId).length;
-  return groupId === "pinned"
-    ? `${formatNumber(count)}개 · 핀 설정일 기준`
-    : `${formatNumber(count)}개`;
+  return `${formatNumber(count)}개`;
 }
 
 function createWatchlistGroupTab(group) {
@@ -10254,7 +10446,21 @@ function renderWatchlistGroupTabs() {
     tab.tabIndex = selected ? 0 : -1;
   }
   const customSelected = Boolean(watchlistGroupById());
-  elements.watchGroupEdit.hidden = !customSelected;
+  if (elements.watchGroupEdit) {
+    elements.watchGroupEdit.hidden = false;
+    elements.watchGroupEdit.textContent = state.watchlistEditing ? "완료" : "편집";
+    elements.watchGroupEdit.setAttribute("aria-pressed", String(state.watchlistEditing));
+    if (customSelected) {
+      elements.watchGroupEdit.setAttribute("aria-haspopup", "dialog");
+      elements.watchGroupEdit.setAttribute("aria-label", `${activeWatchlistGroupName()} 폴더 편집`);
+    } else {
+      elements.watchGroupEdit.removeAttribute("aria-haspopup");
+      elements.watchGroupEdit.setAttribute(
+        "aria-label",
+        state.watchlistEditing ? `${activeWatchlistGroupName()} 편집 완료` : `${activeWatchlistGroupName()} 종목 편집`,
+      );
+    }
+  }
   elements.watchGroupCreate.disabled = state.watchlistGroups.length >= WATCHLIST_GROUP_LIMIT;
   elements.watchGroupCreate.setAttribute(
     "aria-label",
@@ -10266,7 +10472,10 @@ function renderWatchlistGroupTabs() {
   if (elements.watchlistMeta) {
     elements.watchlistMeta.textContent = `${activeWatchlistGroupName()} · ${watchlistGroupMetaText()}`;
   }
-  if (elements.portfolioView) elements.portfolioView.dataset.activeWatchGroup = state.activeWatchGroup;
+  if (elements.portfolioView) {
+    elements.portfolioView.dataset.activeWatchGroup = state.activeWatchGroup;
+    elements.portfolioView.dataset.watchEditing = String(state.watchlistEditing);
+  }
   if (elements.watchlistView) {
     elements.watchlistView.dataset.groupKind = state.activeWatchGroup === "pinned"
       ? "pinned"
@@ -10306,7 +10515,9 @@ function setActiveWatchGroup(groupId, options = {}) {
   state.activeWatchGroup = valid ? requested : "default";
   state.portfolioTab = "watchlist";
   state.watchlistFilter = "all";
+  state.watchlistEditing = false;
   state.selectedTrendWatchCode = "";
+  setWatchGroupShareStatus("");
   closeWatchMarketMapSheet();
   renderWatchlistGroupTabs();
   if (options.reveal === true) {
@@ -10324,6 +10535,56 @@ function setActiveWatchGroup(groupId, options = {}) {
     launchBriefPageLoading(PAGE_LOADING_LABELS.watchlist, () => loadWatchlist(pageEntryRefreshOptions("watchlist", state.activeWatchGroup)));
   }
   return state.activeWatchGroup;
+}
+
+function toggleWatchlistEditing() {
+  const customGroup = watchlistGroupById();
+  if (customGroup) {
+    openWatchlistGroupDialog(customGroup.id);
+    return;
+  }
+  state.watchlistEditing = !state.watchlistEditing;
+  renderWatchlistGroupTabs();
+  if (!state.watchlistEditing) elements.watchGroupEdit?.focus();
+}
+
+function activeWatchlistGroupShareText() {
+  const groupName = activeWatchlistGroupName();
+  const items = watchlistItemsForGroup();
+  const rows = items.map((item) => `${item.name}${item.code ? ` (${item.code})` : ""}`);
+  return [`${groupName} 관심종목`, ...rows].join("\n");
+}
+
+function setWatchGroupShareStatus(message = "") {
+  if (!elements.watchGroupShareStatus) return;
+  window.clearTimeout(state.watchGroupShareStatusTimer);
+  elements.watchGroupShareStatus.textContent = message;
+  state.watchGroupShareStatusTimer = message
+    ? window.setTimeout(() => {
+      elements.watchGroupShareStatus.textContent = "";
+      state.watchGroupShareStatusTimer = null;
+    }, 2600)
+    : null;
+}
+
+async function shareActiveWatchlistGroup() {
+  const text = activeWatchlistGroupShareText();
+  const title = `${activeWatchlistGroupName()} 관심종목`;
+  try {
+    if (typeof navigator.share === "function") {
+      await navigator.share({ title, text });
+      setWatchGroupShareStatus("그룹을 공유했습니다.");
+      return;
+    }
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      setWatchGroupShareStatus("그룹 종목을 복사했습니다.");
+      return;
+    }
+    setWatchGroupShareStatus("이 브라우저에서는 공유를 지원하지 않습니다.");
+  } catch (error) {
+    if (error?.name !== "AbortError") setWatchGroupShareStatus("공유하지 못했습니다. 다시 시도해주세요.");
+  }
 }
 
 function watchlistGroupDialogOpen() {
@@ -10396,7 +10657,7 @@ function selectedWatchlistGroupMemberCodes() {
 function watchlistGroupNameError(name, editingId = "") {
   if (!name) return "폴더 이름을 입력해주세요.";
   if (name.length > 20) return "폴더 이름은 20자까지 입력할 수 있습니다.";
-  if (["기본", "핀종목", "핀 종목"].includes(name)) return "기본 그룹과 다른 이름을 사용해주세요.";
+  if (["기본", "기본그룹", "핀종목", "핀 종목"].includes(name)) return "기본 그룹과 다른 이름을 사용해주세요.";
   const duplicate = state.watchlistGroups.some(
     (group) => group.id !== editingId && group.name.toLocaleLowerCase("ko-KR") === name.toLocaleLowerCase("ko-KR"),
   );
@@ -11180,7 +11441,10 @@ async function logoutWatchlistIdentity() {
   updateRecommendationTrackMeta();
   state.watchlistGroups = [];
   state.activeWatchGroup = "default";
+  state.watchMarketMapResults = [];
+  state.homeWatchMarketMapLoadSequence += 1;
   renderWatchlistGroupTabs();
+  if (state.view === "home") renderWatchMarketMap([], { empty: true });
   if (elements.watchlistBody) {
     elements.watchlistBody.innerHTML = '<p class="muted">로그인 후 관심 종목을 불러옵니다.</p>';
   }
@@ -13362,6 +13626,7 @@ function setPortfolioTab(tabName, options = {}) {
   const requestedGroup = tabName === "tracking" ? "pinned" : state.activeWatchGroup;
   const active = "watchlist";
   state.portfolioTab = active;
+  state.watchlistContentTab = "strategy";
   for (const tab of elements.portfolioTabs) {
     const selected = tab.dataset.portfolioTab === (tabName === "tracking" ? "tracking" : "watchlist");
     tab.classList.toggle("active", selected);
@@ -13380,6 +13645,10 @@ function setPortfolioTab(tabName, options = {}) {
 function setView(requestedViewName, options = {}) {
   const requestedRoute = String(requestedViewName || "home");
   const view = canonicalAppView(requestedRoute);
+  if (isUsHubContext && ["ai-signals", "news"].includes(view) && state.marketScope === "all") {
+    state.marketScope = "kr";
+    document.body.dataset.marketScope = state.marketScope;
+  }
   const previousView = state.view;
   const historyMode = options.historyMode || "push";
   if (historyMode !== "none") {
@@ -13406,7 +13675,7 @@ function setView(requestedViewName, options = {}) {
     setAIAnalysisButtonsLoading(false);
   }
   state.view = view;
-  if (view !== "portfolio") closeWatchMarketMapSheet();
+  if (view !== "home") closeWatchMarketMapSheet();
   if (["home", "ai-signals"].includes(view) && previousView !== view) {
     prepareAiSignalEntrySurface(view);
   }
@@ -13504,6 +13773,7 @@ function setView(requestedViewName, options = {}) {
   } else if (view === "home") {
     const activeTab = state.activeTrendTab || "live";
     startHomeMarketCarouselMotion();
+    void loadHomeWatchMarketMap(pageEntryRefreshOptions("watchlist", `home-map-${state.activeWatchGroup}`, { forceOnFirst: false }));
     void refreshHomeAiResponseContext({
       force: true,
       includeIdentityData: options.deferIdentityData !== true,
@@ -17785,6 +18055,7 @@ function refreshHomeAiSignalsAfterLogin() {
   // before the login gate is hidden and the forced refresh continues in parallel.
   resetHomeAiSignalsForIdentity();
   void loadHomeAiSignals({ force: true, ttlMs: 0, restartTicker: true });
+  void loadHomeWatchMarketMap({ force: true, ttlMs: 0 });
 }
 
 function resetHomeAiSignalsForIdentity() {
@@ -18766,7 +19037,7 @@ function scheduleWatchlistStrategyRender() {
     state.watchlistStrategyRenderTimer = null;
     if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
       renderWatchlistStrategy(state.watchlistResults, state.usSectorMoves, state.watchlistMarketContext);
-      renderWatchMarketMap(state.watchlistResults);
+      syncWatchMarketMapResults(state.watchlistResults);
     }
   }, 350);
 }
@@ -19027,7 +19298,7 @@ function createWatchUsSectorStrip(item = {}, dashboard = {}, usSectorMoves = sta
 
 function updateWatchPreOpenPoints(usSectorMoves = state.usSectorMoves) {
   for (const card of elements.watchlistBody.querySelectorAll("[data-watch-card]")) {
-    if (!card.watchDashboard) {
+    if (!card.watchDashboard || card.classList.contains("watch-compact-row")) {
       continue;
     }
     card.usSectorMoves = usSectorMoves;
@@ -19115,6 +19386,11 @@ async function refreshWatchlistMarketContext(options = {}) {
 function renderWatchlistStrategy(results = state.watchlistResults, usSectorMoves = state.usSectorMoves, marketContext = state.watchlistMarketContext) {
   const section = elements.watchlistStrategy;
   if (!section) {
+    return;
+  }
+  if (elements.portfolioView?.dataset.watchlistLayout === "compact") {
+    section.hidden = true;
+    section.replaceChildren();
     return;
   }
   if (state.activeWatchGroup === "pinned") {
@@ -19289,7 +19565,7 @@ async function refreshWatchMarketMapExchangeRate(options = {}) {
   return state.watchMarketMapFxPromise;
 }
 
-function watchMarketMapEntries(results = state.watchlistResults) {
+function watchMarketMapEntries(results = state.watchMarketMapResults) {
   const validResults = (results || []).filter((result) => result?.item && result?.dashboard);
   const marketScopes = new Set(validResults.map((result) => marketScopeForItem(result.item)));
   const mixedMarkets = marketScopes.has("kr") && marketScopes.has("us");
@@ -19317,8 +19593,14 @@ function watchMarketMapEntries(results = state.watchlistResults) {
       if (left.comparableMarketCap !== null) return -1;
       if (right.comparableMarketCap !== null) return 1;
       return left.sourceIndex - right.sourceIndex;
-    })
-    .map((entry, index) => ({ ...entry, rank: index + 1 }));
+    });
+}
+
+function syncWatchMarketMapResults(results = []) {
+  state.watchMarketMapResults = (Array.isArray(results) ? results : [])
+    .filter((result) => result?.item && result?.dashboard);
+  if (state.view === "home") renderWatchMarketMap(state.watchMarketMapResults, { empty: true });
+  return state.watchMarketMapResults;
 }
 
 function packWatchMarketMapBubbles(nodes, width, height) {
@@ -19404,7 +19686,8 @@ function computeWatchMarketMapLayout(entries, width, height) {
   const fallbackWeight = knownCaps.length ? Math.max(1, Math.min(...knownCaps) * 0.08) : 1;
   const minLog = knownCaps.length ? Math.log(Math.min(...knownCaps)) : 0;
   const maxLog = knownCaps.length ? Math.log(Math.max(...knownCaps)) : 0;
-  const logSpan = Math.max(0.000001, maxLog - minLog);
+  const rawLogSpan = maxLog - minLog;
+  const logSpan = Math.max(0.000001, rawLogSpan);
   const minRadius = compact ? 22 : 31;
   const maxRadius = Math.max(
     minRadius + 8,
@@ -19414,7 +19697,9 @@ function computeWatchMarketMapLayout(entries, width, height) {
     const weight = entry.comparableMarketCap === null ? fallbackWeight : entry.comparableMarketCap;
     const normalized = entry.comparableMarketCap === null
       ? 0
-      : Math.max(0, Math.min(1, (Math.log(weight) - minLog) / logSpan));
+      : rawLogSpan < 0.000001
+        ? source.length === 1 ? 1 : 0.5
+        : Math.max(0, Math.min(1, (Math.log(weight) - minLog) / logSpan));
     return {
       entry,
       weight,
@@ -19535,6 +19820,122 @@ function positionWatchMarketMapTile(tile, node, width, height) {
   tile.classList.toggle("is-micro", node.radius < 32);
 }
 
+function watchMarketMapMotionPlan(previousRect, finalRect, stageRect, order = 0) {
+  if (!finalRect?.width || !finalRect?.height || !stageRect?.width || !stageRect?.height) return null;
+  const entering = !previousRect;
+  const finalCenterX = finalRect.left + finalRect.width / 2;
+  const finalCenterY = finalRect.top + finalRect.height / 2;
+  const fromX = entering
+    ? stageRect.left + stageRect.width / 2 - finalCenterX
+    : previousRect.left - finalRect.left;
+  const fromY = entering
+    ? stageRect.top + stageRect.height / 2 - finalCenterY
+    : previousRect.top - finalRect.top;
+  const fromScale = entering
+    ? 0.18
+    : Math.max(0.55, Math.min(1.75, previousRect.width / finalRect.width));
+  if (
+    !entering
+    && Math.abs(fromX) < 0.5
+    && Math.abs(fromY) < 0.5
+    && Math.abs(fromScale - 1) < 0.01
+  ) {
+    return null;
+  }
+  const settleX = -fromX * 0.035;
+  const settleY = -fromY * 0.035;
+  return {
+    kind: entering ? "entering" : "repositioning",
+    keyframes: [
+      {
+        opacity: entering ? 0 : 1,
+        filter: entering ? "brightness(0.86) saturate(0.72)" : "none",
+        transform: `translate3d(${fromX}px, ${fromY}px, 0) scale(${fromScale})`,
+      },
+      {
+        opacity: 1,
+        filter: "brightness(1.06) saturate(1.06)",
+        offset: 0.76,
+        transform: `translate3d(${settleX}px, ${settleY}px, 0) scale(1.035)`,
+      },
+      {
+        opacity: 1,
+        filter: "none",
+        offset: 0.9,
+        transform: `translate3d(${fromX * 0.012}px, ${fromY * 0.012}px, 0) scale(0.992)`,
+      },
+      {
+        opacity: 1,
+        filter: "none",
+        transform: "translate3d(0, 0, 0) scale(1)",
+      },
+    ],
+    timing: {
+      duration: entering ? 620 : 460,
+      delay: entering ? Math.min(Math.max(0, order) * 16, 128) : Math.min(Math.max(0, order) * 8, 64),
+      easing: "cubic-bezier(0.2, 0.82, 0.2, 1)",
+    },
+  };
+}
+
+function watchMarketMapMotionKey(tile) {
+  const code = String(tile.dataset.code || "").trim();
+  if (code) return `${tile.dataset.marketScope || "kr"}:${code}`;
+  return tile.classList.contains("is-overflow") ? "overflow" : "";
+}
+
+function watchMarketMapMotionSnapshot(stage = elements.watchMarketMapStage) {
+  const tiles = new Map();
+  if (!stage) return { tiles };
+  for (const tile of stage.querySelectorAll(".watch-market-map-tile")) {
+    const key = watchMarketMapMotionKey(tile);
+    if (!key) continue;
+    const rect = tile.getBoundingClientRect();
+    tiles.set(key, {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    });
+  }
+  return { tiles };
+}
+
+function animateWatchMarketMapLayout(snapshot = null) {
+  const stage = elements.watchMarketMapStage;
+  if (!stage) return [];
+  const generation = ++state.watchMarketMapMotionGeneration;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+  const tiles = [...stage.querySelectorAll(".watch-market-map-tile")];
+  stage.dataset.motion = "settled";
+  if (reduceMotion || typeof Element === "undefined" || typeof Element.prototype.animate !== "function") {
+    for (const tile of tiles) tile.removeAttribute("data-watch-motion");
+    return [];
+  }
+  const stageRect = stage.getBoundingClientRect();
+  const animations = [];
+  for (const [order, tile] of tiles.entries()) {
+    const key = watchMarketMapMotionKey(tile);
+    const finalRect = tile.getBoundingClientRect();
+    const plan = watchMarketMapMotionPlan(snapshot?.tiles?.get(key) || null, finalRect, stageRect, order);
+    if (!plan) continue;
+    tile.dataset.watchMotion = plan.kind;
+    const animation = tile.animate(plan.keyframes, plan.timing);
+    animation.id = "watch-market-map-layout";
+    animation.addEventListener("finish", () => tile.removeAttribute("data-watch-motion"), { once: true });
+    animation.addEventListener("cancel", () => tile.removeAttribute("data-watch-motion"), { once: true });
+    animations.push(animation);
+  }
+  if (!animations.length) return animations;
+  stage.dataset.motion = "settling";
+  Promise.all(animations.map((animation) => animation.finished.catch(() => null))).then(() => {
+    if (generation === state.watchMarketMapMotionGeneration && stage.isConnected) {
+      stage.dataset.motion = "settled";
+    }
+  });
+  return animations;
+}
+
 function createWatchMarketMapTile(node, width, height) {
   if (node.kind === "overflow") {
     const button = document.createElement("button");
@@ -19601,24 +20002,20 @@ function ensureWatchMarketMapResizeObserver() {
     window.cancelAnimationFrame(state.watchMarketMapRenderFrame);
     state.watchMarketMapRenderFrame = window.requestAnimationFrame(() => {
       state.watchMarketMapRenderFrame = null;
-      if (state.view === "portfolio" && state.watchlistContentTab === "strategy") {
-        renderWatchMarketMap(state.watchlistResults);
+      if (state.view === "home") {
+        renderWatchMarketMap(state.watchMarketMapResults, { empty: true });
       }
     });
   });
   state.watchMarketMapResizeObserver.observe(elements.watchMarketMapStage);
 }
 
-function renderWatchMarketMap(results = state.watchlistResults, options = {}) {
+function renderWatchMarketMap(results = state.watchMarketMapResults, options = {}) {
   if (!elements.watchMarketMap || !elements.watchMarketMapStage) return;
   const groupName = activeWatchlistGroupName();
   const entries = watchMarketMapEntries(results);
-  const marketScopes = new Set(entries.map((entry) => marketScopeForItem(entry.item)));
-  const mixedMarkets = marketScopes.has("kr") && marketScopes.has("us");
-  elements.watchMarketMapGroup.textContent = mixedMarkets
-    ? `${groupName} · 시가총액 순 · ${state.watchMarketMapUsdKrw ? "원화 환산" : "환율 확인 중"}`
-    : `${groupName} · 시가총액 순`;
-  elements.watchMarketMapDescription.textContent = "원 크기는 시가총액, 색과 농도는 오늘 등락률입니다.";
+  elements.watchMarketMapGroup.textContent = `${groupName} · 종목 규모 순`;
+  elements.watchMarketMapDescription.textContent = "원 크기는 종목 규모, 색과 농도는 오늘 등락률을 나타냅니다.";
 
   if (!entries.length) {
     state.watchMarketMapHiddenEntries = [];
@@ -19636,7 +20033,24 @@ function renderWatchMarketMap(results = state.watchlistResults, options = {}) {
         el("span", "watch-market-map-skeleton is-small"),
         el("span", "watch-market-map-skeleton is-small"),
       );
-      elements.watchMarketMapStatus.textContent = `${groupName} 종목의 시가총액을 확인하고 있습니다.`;
+      elements.watchMarketMapStatus.textContent = `${groupName} 종목 규모를 확인하고 있습니다.`;
+      return;
+    }
+    if (options.empty) {
+      elements.watchMarketMap.hidden = false;
+      elements.watchMarketMapStage.className = "watch-market-map-stage is-empty";
+      elements.watchMarketMapStage.removeAttribute("aria-busy");
+      const empty = el("div", "watch-market-map-empty");
+      empty.append(
+        el("strong", "", options.emptyTitle || "관심종목을 추가해보세요"),
+        el("p", "", options.emptyDescription || "추가한 종목은 오늘 등락 흐름을 버블로 모아 보여드려요."),
+      );
+      const add = el("button", "", "관심종목 추가");
+      add.type = "button";
+      add.addEventListener("click", () => setView("search"));
+      empty.appendChild(add);
+      elements.watchMarketMapStage.replaceChildren(empty);
+      elements.watchMarketMapStatus.textContent = options.emptyTitle || "관심종목이 없습니다.";
       return;
     }
     elements.watchMarketMap.hidden = true;
@@ -19648,6 +20062,7 @@ function renderWatchMarketMap(results = state.watchlistResults, options = {}) {
   elements.watchMarketMap.hidden = false;
   elements.watchMarketMapStage.className = "watch-market-map-stage is-bubble-map";
   elements.watchMarketMapStage.removeAttribute("aria-busy");
+  const motionSnapshot = watchMarketMapMotionSnapshot(elements.watchMarketMapStage);
   const bounds = elements.watchMarketMapStage.getBoundingClientRect();
   const width = Math.max(1, bounds.width || elements.watchMarketMapStage.clientWidth || 1);
   const height = Math.max(1, bounds.height || elements.watchMarketMapStage.clientHeight || 1);
@@ -19656,13 +20071,68 @@ function renderWatchMarketMap(results = state.watchlistResults, options = {}) {
   elements.watchMarketMapStage.replaceChildren(
     ...layout.nodes.map((node) => createWatchMarketMapTile(node, width, height)),
   );
+  animateWatchMarketMapLayout(motionSnapshot);
   renderWatchMarketMapLegend(entries);
   renderWatchMarketMapTimeline(entries);
   elements.watchMarketMapStatus.textContent = layout.hiddenEntries.length
-    ? `${groupName} ${entries.length}개 중 시가총액이 큰 ${layout.visibleEntries.length}개를 버블로 표시하고, 나머지 ${layout.hiddenEntries.length}개는 더보기에 정리했습니다.`
-    : `${groupName} ${entries.length}개를 시가총액 순 버블로 표시했습니다.`;
+    ? `${groupName} ${entries.length}개 중 ${layout.visibleEntries.length}개를 버블로 표시하고, 나머지 ${layout.hiddenEntries.length}개는 더보기에 정리했습니다.`
+    : `${groupName} ${entries.length}개를 버블로 표시했습니다.`;
   ensureWatchMarketMapResizeObserver();
   if (elements.watchMarketMapSheet?.open) renderWatchMarketMapSheet(layout.hiddenEntries);
+}
+
+async function loadHomeWatchMarketMap(options = {}) {
+  const loadSequence = ++state.homeWatchMarketMapLoadSequence;
+  const force = options.force === true;
+  const ttlMs = options.ttlMs ?? pageEntryTtlMs("watchlist");
+  const groupId = state.activeWatchGroup;
+  const items = watchlistItemsForGroup(groupId);
+  const itemOrder = new Map(items.map((item, index) => [item.code, index]));
+  state.watchMarketMapResults = [];
+  if (!items.length) {
+    renderWatchMarketMap([], { empty: true });
+    return [];
+  }
+  renderWatchMarketMap([], { loading: true, totalCount: items.length });
+  const marketScopes = new Set(items.map((item) => marketScopeForItem(item)));
+  const exchangeRatePromise = marketScopes.has("kr") && marketScopes.has("us")
+    ? refreshWatchMarketMapExchangeRate({ force }).then(() => {
+      if (loadSequence === state.homeWatchMarketMapLoadSequence && state.view === "home") {
+        renderWatchMarketMap(state.watchMarketMapResults);
+      }
+    })
+    : Promise.resolve();
+  const results = await mapWithConcurrency(items, 6, async (item) => {
+    try {
+      const dashboard = await Promise.race([
+        fetchJsonCached(marketStockDashboardUrl(item.code, { item }), {
+          force,
+          ttlMs: force ? 0 : ttlMs,
+        }),
+        rejectAfter(15_000, "home watch market map timeout"),
+      ]);
+      if (loadSequence !== state.homeWatchMarketMapLoadSequence) return { item, dashboard: null, cancelled: true };
+      state.watchMarketMapResults = [
+        ...state.watchMarketMapResults.filter((result) => result.item.code !== item.code),
+        { item, dashboard },
+      ].sort((left, right) => (itemOrder.get(left.item.code) || 0) - (itemOrder.get(right.item.code) || 0));
+      if (state.view === "home") renderWatchMarketMap(state.watchMarketMapResults);
+      return { item, dashboard };
+    } catch {
+      return { item, dashboard: null };
+    }
+  });
+  if (loadSequence !== state.homeWatchMarketMapLoadSequence) return [];
+  state.watchMarketMapResults = results.filter((result) => result.dashboard);
+  if (state.view === "home") {
+    renderWatchMarketMap(state.watchMarketMapResults, {
+      empty: true,
+      emptyTitle: state.watchMarketMapResults.length ? "" : "관심종목 시세를 불러오지 못했습니다",
+      emptyDescription: state.watchMarketMapResults.length ? "" : "잠시 후 다시 확인해주세요.",
+    });
+  }
+  exchangeRatePromise.catch(() => {});
+  return state.watchMarketMapResults;
 }
 
 function createWatchMarketMapSheetRow(entry) {
@@ -19953,7 +20423,7 @@ function appendInlineLoadingState(card, title, message = "") {
 
 function renderWatchlistMessage(text, options = {}) {
   clearWatchlistLoadingOverlay();
-  renderWatchMarketMap([]);
+  syncWatchMarketMapResults([]);
   elements.watchlistBody.innerHTML = "";
   const message = document.createElement("article");
   message.className = "watchlist-empty-card";
@@ -19972,10 +20442,10 @@ function renderWatchlistMessage(text, options = {}) {
   description.textContent = !isEmpty
     ? "잠시 후 다시 열거나 새로고침해 주세요."
     : groupId === "pinned"
-      ? "추천 종목에서 핀을 설정하면 설정일과 그날 가격 대비 수익률을 이곳에서 함께 볼 수 있습니다."
+      ? "핀한 종목의 현재가와 오늘 등락률을 이곳에서 확인할 수 있습니다."
       : customGroup
         ? "폴더 편집에서 기본 관심종목을 골라 담아보세요."
-        : "종목 검색에서 관심 추가를 누르면 시황과 대응 정보를 한 번에 볼 수 있습니다.";
+        : "종목을 추가하면 최근 가격 흐름과 오늘 등락률을 한눈에 보여드려요.";
   message.append(title, description);
   if (isEmpty) {
     const actions = document.createElement("div");
@@ -20030,196 +20500,141 @@ function showWatchlistLoadingOverlay() {
   elements.watchlistView.classList.add("is-loading");
 }
 
-function appendWatchRow(item, dashboard, usSectorMoves = state.usSectorMoves) {
+function watchCompactSeries(prices = [], dashboard = {}) {
+  const rows = (Array.isArray(prices) ? prices : [])
+    .map((row) => ({ date: String(row?.date || row?.datetime || ""), close: toNumber(row?.close ?? row?.price) }))
+    .filter((row) => row.close !== null)
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .slice(-24);
+  const closes = rows.map((row) => row.close);
+  if (closes.length >= 2) return closes;
+  const price = toNumber(dashboard?.quote?.price);
+  const changeRate = toNumber(dashboard?.quote?.change_rate);
+  if (price === null) return [];
+  const previous = changeRate === null || changeRate <= -100 ? price : price / (1 + (changeRate / 100));
+  return [previous, price];
+}
+
+function createWatchCompactSparkline(item, dashboard, prices = []) {
+  const series = watchCompactSeries(prices, dashboard);
+  const changeRate = toNumber(dashboard?.quote?.change_rate);
+  const tone = watchMarketMapTone(changeRate);
+  const frame = el("span", `watch-compact-sparkline is-${tone.id}`);
+  frame.setAttribute("role", "img");
+  frame.setAttribute("aria-label", `${item.name} 최근 가격 흐름, 오늘 ${tone.label} ${formatPercent(changeRate)}`);
+  if (series.length < 2) {
+    frame.classList.add("is-empty");
+    frame.append(el("span", "sr-only", "가격 흐름 데이터 없음"));
+    return frame;
+  }
+  const width = 96;
+  const height = 42;
+  const padding = 3;
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const span = max - min || Math.max(Math.abs(max) * 0.01, 1);
+  const points = series.map((value, index) => {
+    const x = padding + (index / Math.max(1, series.length - 1)) * (width - (padding * 2));
+    const y = padding + ((max - value) / span) * (height - (padding * 2));
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("aria-hidden", "true");
+  const baseline = document.createElementNS(svg.namespaceURI, "line");
+  baseline.setAttribute("x1", "0");
+  baseline.setAttribute("x2", String(width));
+  baseline.setAttribute("y1", String(height / 2));
+  baseline.setAttribute("y2", String(height / 2));
+  const line = document.createElementNS(svg.namespaceURI, "polyline");
+  line.setAttribute("points", points);
+  svg.append(baseline, line);
+  frame.appendChild(svg);
+  return frame;
+}
+
+function appendWatchCompactRow(item, dashboard, prices = [], options = {}) {
+  const pinned = options.pinned === true;
+  const track = item.pin_track || item;
+  const customGroup = watchlistGroupById();
   const card = document.createElement("article");
-  card.className = "watch-stock-card watch-v2-stock-row";
+  card.className = `watch-compact-row${pinned ? " is-pinned" : ""}`;
   card.dataset.code = item.code;
   card.dataset.marketScope = marketScopeForItem(item);
   card.dataset.watchCard = "true";
+  card.dataset.watchStatus = pinned ? "pinned" : watchStatusView(dashboard).id;
+  if (pinned) {
+    card.dataset.watchGroupKind = "pinned";
+    card.dataset.trackedPrice = toNumber(track.tracked_price) ?? "";
+  }
   card.watchDashboard = dashboard;
   card.watchItem = item;
-  card.usSectorMoves = usSectorMoves;
-  const statusView = watchStatusView(dashboard);
-  card.dataset.watchStatus = statusView.id;
 
-  const header = document.createElement("div");
-  header.className = "watch-stock-head watch-v2-stock-head";
   const link = document.createElement("a");
-  link.className = "watch-stock-name";
+  link.className = "watch-compact-link";
   link.href = viewStockUrl(item.code || item.name, item);
-  const nameRow = document.createElement("span");
-  nameRow.className = "watch-v2-stock-name-row";
-  const strong = document.createElement("strong");
-  strong.textContent = item.name;
-  const status = document.createElement("span");
-  status.className = `watch-v2-status ${statusView.tone}`;
-  status.dataset.field = "watch_status";
-  status.append(el("i", ""), document.createTextNode(statusView.label));
-  nameRow.append(strong);
-  if (isUsHubContext) nameRow.append(createMarketBadge(item));
-  nameRow.append(status);
-  const meta = document.createElement("span");
-  meta.className = "watch-stock-quote";
-  const inlinePrice = document.createElement("strong");
-  inlinePrice.className = "watch-stock-inline-price";
-  inlinePrice.dataset.field = "price";
-  inlinePrice.textContent = formatStockPrice(dashboard.quote.price, dashboard);
-  const inlineChange = document.createElement("strong");
-  inlineChange.className = "watch-stock-inline-change";
-  inlineChange.dataset.field = "change_rate";
-  inlineChange.textContent = formatPercent(dashboard.quote.change_rate);
-  setTone(inlineChange, dashboard.quote.change_rate);
-  meta.append(inlinePrice, inlineChange);
-  link.append(nameRow, meta);
+  const identity = el("span", "watch-compact-identity");
+  const logo = createStockListLogo(item.code, "watch-compact-logo");
+  if (marketScopeForItem(item) === "us") logo.classList.add("is-us-stock-logo");
+  const copy = el("span", "watch-compact-copy");
+  copy.append(el("strong", "", item.name), el("small", "", item.code || ""));
+  identity.append(logo, copy);
+
+  const quote = el("span", "watch-stock-quote watch-compact-quote");
+  const price = el("strong", "watch-stock-inline-price", formatStockPrice(dashboard?.quote?.price, dashboard));
+  price.dataset.field = "price";
+  const today = el("small", "watch-stock-inline-change", formatPercent(dashboard?.quote?.change_rate));
+  today.dataset.field = "change_rate";
+  setTone(today, dashboard?.quote?.change_rate);
+  quote.append(price, today);
+  link.append(identity, createWatchCompactSparkline(item, dashboard, prices), quote);
+  link.setAttribute(
+    "aria-label",
+    `${item.name}, ${item.code || "종목코드 없음"}, 현재가 ${price.textContent}, 오늘 ${today.textContent}, 종목 상세 보기`,
+  );
 
   const removeButton = document.createElement("button");
-  removeButton.className = "remove-watch";
+  removeButton.className = "remove-watch watch-compact-remove";
   removeButton.type = "button";
-  const customGroup = watchlistGroupById();
-  removeButton.textContent = customGroup ? "−" : "★";
+  removeButton.textContent = "−";
   removeButton.dataset.code = item.code;
-  removeButton.dataset.watchAction = customGroup ? "remove-group" : "remove-watchlist";
-  removeButton.setAttribute("aria-label", customGroup ? `${item.name} ${customGroup.name} 폴더에서 제거` : `${item.name} 관심 해제`);
-  removeButton.setAttribute("aria-pressed", String(!customGroup));
-  removeButton.title = customGroup ? "폴더에서 제거" : "관심 해제";
-  header.append(link, removeButton);
-
-  const metrics = document.createElement("dl");
-  metrics.className = "watch-v15-metrics watch-v2-metrics";
-  metrics.append(
-    createWatchReportMetric("거래대금", formatStockMoney(dashboard.quote.trading_value, dashboard), "", "trading_value"),
-    createWatchReportMetric("1개월", formatPercent(dashboard.momentum.one_month_return), "", "one_month", dashboard.momentum.one_month_return),
-    createWatchReportMetric("3개월", formatPercent(dashboard.momentum.three_month_return), "", "three_month", dashboard.momentum.three_month_return),
-    createWatchReportMetric("뉴스", formatPercent(dashboard.sentiment.score), "", "sentiment", dashboard.sentiment.score)
-  );
-
-  const investorStateControl = document.createElement("label");
-  investorStateControl.className = "watch-v2-investor-state";
-  const investorStateCopy = document.createElement("span");
-  const averageBuyPrice = normalizeWatchlistAverageBuyPrice(item.average_buy_price);
-  investorStateCopy.append(
-    Object.assign(document.createElement("strong"), { textContent: "내 상황" }),
-    Object.assign(document.createElement("small"), {
-      textContent: normalizeWatchlistInvestorState(item.investor_state) === "holding"
-        ? averageBuyPrice
-          ? `평균 매수가 ${formatStockPrice(averageBuyPrice, dashboard)} 기준으로 설명해요`
-          : "상세에서 평균 매수가를 입력하면 손익별로 설명해요"
-        : "관망 이유와 매수 전환 조건을 설명해요",
-    }),
-  );
-  const investorStateSelect = document.createElement("select");
-  investorStateSelect.dataset.watchInvestorState = item.code;
-  investorStateSelect.setAttribute("aria-label", `${item.name} 내 상황`);
-  for (const option of Object.values(WATCHLIST_INVESTOR_STATES)) {
-    investorStateSelect.appendChild(Object.assign(document.createElement("option"), {
-      value: option.value,
-      textContent: option.label,
-    }));
-  }
-  investorStateSelect.value = normalizeWatchlistInvestorState(item.investor_state);
-  investorStateControl.append(investorStateCopy, investorStateSelect);
-
-  const preOpenPoint = renderWatchPreOpenPoint(card, dashboard, null, item, usSectorMoves);
-
-  const footer = document.createElement("footer");
-  footer.className = "watch-v2-row-footer";
-  const detailLink = document.createElement("a");
-  detailLink.href = viewStockUrl(item.code || item.name, item);
-  detailLink.append(el("span", "", "종목 상세"), el("span", "", "›"));
-  footer.appendChild(detailLink);
-
-  card.append(header, investorStateControl, preOpenPoint, metrics, footer);
+  removeButton.dataset.watchAction = pinned ? "unpin" : customGroup ? "remove-group" : "remove-watchlist";
+  if (pinned) removeButton.dataset.trackId = track.id || "";
+  const removeLabel = pinned
+    ? `${item.name} 핀 해제`
+    : customGroup
+      ? `${item.name} ${customGroup.name} 폴더에서 제거`
+      : `${item.name} 관심 해제`;
+  removeButton.setAttribute("aria-label", removeLabel);
+  removeButton.title = removeLabel;
+  card.append(link, removeButton);
   elements.watchlistBody.appendChild(card);
   return card;
 }
 
-function appendPinnedWatchRow(item, dashboard) {
-  const track = item.pin_track || item;
-  const trackedPrice = toNumber(track.tracked_price);
-  const currentPrice = toNumber(dashboard?.quote?.price);
-  const profit = recommendationTrackProfit(trackedPrice, currentPrice);
-  const pinnedAt = track.tracked_at
-    ? formatDottedDate(track.tracked_at, "날짜 확인 중").slice(2)
-    : "날짜 확인 중";
-  const card = document.createElement("article");
-  card.className = "watch-stock-card watch-v2-stock-row watch-pinned-stock-row";
-  card.dataset.code = item.code;
-  card.dataset.marketScope = marketScopeForItem(item);
-  card.dataset.watchCard = "true";
-  card.dataset.watchStatus = "pinned";
-  card.dataset.watchGroupKind = "pinned";
-  card.dataset.trackedPrice = trackedPrice !== null ? String(trackedPrice) : "";
-  card.watchDashboard = dashboard;
-  card.watchItem = item;
+function appendWatchRow(item, dashboard, prices = []) {
+  return appendWatchCompactRow(item, dashboard, prices);
+}
 
-  const header = document.createElement("div");
-  header.className = "watch-stock-head watch-v2-stock-head";
-  const link = document.createElement("a");
-  link.className = "watch-stock-name";
-  link.href = viewStockUrl(item.code || item.name, item);
-  const nameRow = document.createElement("span");
-  nameRow.className = "watch-v2-stock-name-row";
-  nameRow.append(el("strong", "", item.name));
-  if (isUsHubContext) nameRow.append(createMarketBadge(item));
-  nameRow.append(el("span", "watch-pin-state", "핀 설정"));
-  const quote = document.createElement("span");
-  quote.className = "watch-stock-quote";
-  const price = el("strong", "watch-stock-inline-price", formatStockPrice(currentPrice, dashboard));
-  price.dataset.field = "price";
-  const today = el("strong", "watch-stock-inline-change", formatPercent(dashboard?.quote?.change_rate));
-  today.dataset.field = "change_rate";
-  setTone(today, dashboard?.quote?.change_rate);
-  quote.append(price, today);
-  link.append(nameRow, quote);
-
-  const removeButton = document.createElement("button");
-  removeButton.className = "remove-watch watch-pin-remove";
-  removeButton.type = "button";
-  removeButton.dataset.code = item.code;
-  removeButton.dataset.trackId = track.id || "";
-  removeButton.dataset.watchAction = "unpin";
-  removeButton.setAttribute("aria-label", `${item.name} 핀 해제`);
-  removeButton.setAttribute("aria-pressed", "true");
-  removeButton.title = "핀 해제";
-  removeButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 4 8 0-.8 6 2.8 3H6l2.8-3z"></path><path d="M12 13v7"></path></svg>';
-  header.append(link, removeButton);
-
-  const metrics = document.createElement("dl");
-  metrics.className = "watch-pin-metrics";
-  metrics.append(
-    createWatchReportMetric("핀 설정", pinnedAt),
-    createWatchReportMetric("핀 이후", formatPercent(profit.rate), "", "tracked_pnl_rate", profit.rate),
-    createWatchReportMetric("오늘", formatPercent(dashboard?.quote?.change_rate), "", "pin_today_rate", dashboard?.quote?.change_rate),
-  );
-
-  const footer = document.createElement("footer");
-  footer.className = "watch-v2-row-footer watch-pin-footer";
-  const detailLink = document.createElement("a");
-  detailLink.href = viewStockUrl(item.code || item.name, item);
-  detailLink.append(el("span", "", "종목 상세"), el("span", "", "›"));
-  footer.appendChild(detailLink);
-
-  card.append(header, metrics, footer);
-  elements.watchlistBody.appendChild(card);
-  return card;
+function appendPinnedWatchRow(item, dashboard, prices = []) {
+  return appendWatchCompactRow(item, dashboard, prices, { pinned: true });
 }
 
 function appendWatchLoadingRow(item) {
   const card = document.createElement("article");
-  card.className = "watch-stock-card watch-v2-stock-row watch-stock-loading";
+  card.className = "watch-compact-row watch-stock-loading";
   card.dataset.code = item.code || "";
   card.setAttribute("aria-label", `${item.name || item.code || "종목"} · ${PAGE_LOADING_LABELS.watchlist}`);
-  const name = document.createElement("strong");
-  name.textContent = item.name || item.code || "종목";
-  const status = document.createElement("div");
-  status.className = "watch-stock-loading-status";
-  const spinner = document.createElement("span");
-  spinner.className = "inline-loading-spinner";
+  const content = el("span", "watch-compact-link watch-compact-loading-content");
+  const identity = el("span", "watch-compact-identity");
+  identity.append(el("span", "watch-compact-loading-logo"), el("span", "watch-compact-loading-name", item.name || item.code || "종목"));
+  const status = el("span", "watch-stock-loading-status");
+  const spinner = el("span", "inline-loading-spinner");
   spinner.setAttribute("aria-hidden", "true");
-  const label = document.createElement("span");
-  label.textContent = "핵심 지표 확인 중";
-  status.append(spinner, label);
-  card.append(name, status);
+  status.append(spinner, el("span", "", "시세 확인 중"));
+  content.append(identity, el("span", "watch-compact-loading-chart"), status);
+  card.appendChild(content);
   elements.watchlistBody.appendChild(card);
   return card;
 }
@@ -20236,7 +20651,7 @@ async function loadWatchlist(options = {}) {
   const itemMarketScopes = new Set(items.map((item) => marketScopeForItem(item)));
   const marketCapFxPromise = itemMarketScopes.has("kr") && itemMarketScopes.has("us")
     ? refreshWatchMarketMapExchangeRate({ force }).then(() => {
-      if (loadSequence === state.watchlistLoadSequence) renderWatchMarketMap(state.watchlistResults);
+      if (loadSequence === state.watchlistLoadSequence) syncWatchMarketMapResults(state.watchlistResults);
     })
     : Promise.resolve();
   const itemOrder = new Map(items.map((item, index) => [item.code, index]));
@@ -20246,7 +20661,7 @@ async function loadWatchlist(options = {}) {
   state.watchlistResults = [];
   applyWatchlistFilter();
   renderWatchlistStrategy();
-  renderWatchMarketMap([], { loading: true, totalCount: items.length });
+  syncWatchMarketMapResults([]);
   if (!items.length) {
     elements.watchlistMeta.textContent = `${groupName} · 0개 종목`;
     clearWatchlistLoadingOverlay();
@@ -20263,16 +20678,22 @@ async function loadWatchlist(options = {}) {
     async (item) => {
       try {
         const url = marketStockDashboardUrl(item.code, { item });
-        const dashboard = await Promise.race([
-          fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs }),
+        const [dashboard, prices] = await Promise.race([
+          Promise.all([
+            fetchJsonCached(url, { force, ttlMs: force ? 0 : ttlMs }),
+            fetchJsonCached(marketStockPricesUrl(item.code, 40, item), {
+              force,
+              ttlMs: force ? 0 : Math.max(ttlMs, 60_000),
+            }).catch(() => []),
+          ]),
           rejectAfter(15_000, "watchlist dashboard timeout"),
         ]);
         if (loadSequence !== state.watchlistLoadSequence) {
           return { item, dashboard: null, cancelled: true };
         }
         const card = groupId === "pinned"
-          ? appendPinnedWatchRow(item, dashboard)
-          : appendWatchRow(item, dashboard, state.usSectorMoves);
+          ? appendPinnedWatchRow(item, dashboard, prices)
+          : appendWatchRow(item, dashboard, prices);
         const pendingRow = pendingRows.get(item.code);
         if (pendingRow?.isConnected) {
           pendingRow.replaceWith(card);
@@ -20281,13 +20702,13 @@ async function loadWatchlist(options = {}) {
         }
         state.watchlistResults = [
           ...state.watchlistResults.filter((result) => result.item.code !== item.code),
-          { item, dashboard },
+          { item, dashboard, prices },
         ].sort((left, right) => (itemOrder.get(left.item.code) || 0) - (itemOrder.get(right.item.code) || 0));
         applyWatchlistFilter();
         renderWatchlistStrategy(state.watchlistResults, state.usSectorMoves, state.watchlistMarketContext);
-        renderWatchMarketMap(state.watchlistResults);
+        syncWatchMarketMapResults(state.watchlistResults);
         connectWatchlistQuoteStream(item.code, item);
-        return { item, dashboard };
+        return { item, dashboard, prices };
       } catch {
         if (loadSequence !== state.watchlistLoadSequence) {
           return { item, dashboard: null, cancelled: true };
@@ -20319,7 +20740,7 @@ async function loadWatchlist(options = {}) {
   renderWatchlistGroupTabs();
   applyWatchlistFilter();
   renderWatchlistStrategy(state.watchlistResults, state.usSectorMoves, state.watchlistMarketContext);
-  renderWatchMarketMap(state.watchlistResults);
+  syncWatchMarketMapResults(state.watchlistResults);
   connectUsSectorStream();
   sectorMovesPromise.catch(() => {});
   marketContextPromise.catch(() => {});
@@ -27785,7 +28206,7 @@ async function syncViewFromLocation() {
     const routeMarketScope = ["all", "kr", "us"].includes(params.get("market_scope"))
       ? params.get("market_scope")
       : "all";
-    state.marketScope = routeView === "ai-signals" && routeMarketScope === "all"
+    state.marketScope = ["ai-signals", "news"].includes(routeView) && routeMarketScope === "all"
       ? "kr"
       : routeMarketScope;
     document.body.dataset.marketScope = state.marketScope;
@@ -28489,8 +28910,10 @@ elements.watchGroupTabs?.addEventListener("keydown", (event) => {
   if (event.target.closest("[data-watch-group]")) handleWatchlistGroupKeydown(event);
 });
 elements.watchGroupCreate?.addEventListener("click", () => openWatchlistGroupDialog());
-elements.watchGroupEdit?.addEventListener("click", () => openWatchlistGroupDialog(state.activeWatchGroup));
+elements.watchGroupEdit?.addEventListener("click", toggleWatchlistEditing);
 elements.watchGroupAddStock?.addEventListener("click", () => setView("search"));
+elements.watchlistSearch?.addEventListener("click", () => setView("search"));
+elements.watchGroupShare?.addEventListener("click", shareActiveWatchlistGroup);
 elements.watchGroupDialogClose?.addEventListener("click", closeWatchlistGroupDialog);
 elements.watchGroupCancel?.addEventListener("click", closeWatchlistGroupDialog);
 elements.watchGroupDelete?.addEventListener("click", deleteActiveWatchlistGroup);
@@ -28897,6 +29320,7 @@ document.addEventListener("visibilitychange", () => {
   if (state.view === "home") {
     startHomeMarketCarouselMotion();
     void loadHomeSurgeRankings({ force: true, ttlMs: 0 });
+    void loadHomeWatchMarketMap({ force: true, ttlMs: 0 });
     void loadHomeMarketIndices({ force: true, silent: true });
     void refreshHomeAiResponseContext({ force: true });
     startHomeAiResponseRefresh();

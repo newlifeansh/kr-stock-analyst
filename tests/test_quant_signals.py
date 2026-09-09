@@ -617,7 +617,7 @@ def test_weekend_synthetic_kis_quote_does_not_change_completed_signal(monkeypatc
     assert observed["price_through"] == latest_trade_date
 
 
-def test_current_buy_signal_respects_the_same_reentry_cooldown_as_simulation(monkeypatch):
+def test_legacy_current_buy_signal_respects_the_same_reentry_cooldown_as_simulation(monkeypatch):
     bars, indicators = _strategy_test_inputs(80)
     _set_entry_indicator(indicators[65])
     bars[67] = quant_signals.PriceBar(
@@ -718,7 +718,7 @@ def test_v74_entry_filter_and_initial_risk_cap():
     assert quant_signals._initial_risk(100.0, 20.0, strategy_date=bar.trade_date) == 4.0
 
 
-def test_v75_rc1_activates_h1_and_keeps_h2_h3_shadow_only():
+def test_v75_rc4_activates_h1_and_keeps_h2_h3_shadow_only():
     bar = quant_signals.PriceBar(
         trade_date=date(2026, 9, 4),
         open=100.0,
@@ -744,8 +744,8 @@ def test_v75_rc1_activates_h1_and_keeps_h2_h3_shadow_only():
         "average_trading_value": 5_000_000_000.0,
     }
 
-    assert quant_signals.STRATEGY_VERSION == "position-lifecycle-v7.4.1"
-    assert quant_signals.CANDIDATE_STRATEGY_VERSION == "position-lifecycle-v7.5-rc3"
+    assert quant_signals.STRATEGY_VERSION == "position-lifecycle-v7.4.2"
+    assert quant_signals.CANDIDATE_STRATEGY_VERSION == "position-lifecycle-v7.5-rc4"
     assert [item["version"] for item in quant_signals.STRATEGY_VERSION_HISTORY] == [
         "position-lifecycle-legacy",
         "position-lifecycle-v7.1",
@@ -753,6 +753,8 @@ def test_v75_rc1_activates_h1_and_keeps_h2_h3_shadow_only():
         "position-lifecycle-v7.4",
         "position-lifecycle-v7.4.1",
         "position-lifecycle-v7.5-rc3",
+        "position-lifecycle-v7.4.2",
+        "position-lifecycle-v7.5-rc4",
     ]
     assert quant_signals.active_entry_filter_version(bar.trade_date) == "buy-filter-h1"
     assert quant_signals._entry_signal(bar, indicator) is True
@@ -782,6 +784,7 @@ def test_strategy_version_for_date_preserves_previous_releases():
     assert quant_signals.strategy_version_for_date(date(2026, 9, 4)) == "position-lifecycle-v7.4"
     assert quant_signals.strategy_version_for_date(date(2026, 9, 7)) == "position-lifecycle-v7.4"
     assert quant_signals.strategy_version_for_date(date(2026, 9, 8)) == "position-lifecycle-v7.4.1"
+    assert quant_signals.strategy_version_for_date(date(2026, 9, 9)) == "position-lifecycle-v7.4.2"
 
 
 def test_v741_chase_veto_preserves_meritz_history_and_blocks_new_overheated_entries():
@@ -1201,7 +1204,7 @@ def test_hard_stop_exits_without_waiting_for_minimum_holding():
     assert sell["reason"] == "초기 급락 위험선 이탈"
 
 
-def test_reentry_is_delayed_for_ten_trading_bars_after_exit():
+def test_legacy_reentry_is_delayed_for_ten_trading_bars_after_exit():
     bars, indicators = _strategy_test_inputs(90)
     _set_entry_indicator(indicators[65])
     bars[66] = quant_signals.PriceBar(
@@ -1225,9 +1228,9 @@ def test_reentry_is_delayed_for_ten_trading_bars_after_exit():
     ]
 
 
-def test_v741_reentry_requires_new_breakout_or_ema20_retest_after_cooldown(monkeypatch):
+def test_v742_reentry_has_no_fixed_delay_but_requires_new_breakout_or_ema20_retest(monkeypatch):
     bars, indicators = _strategy_test_inputs(90)
-    strategy_start = date(2026, 7, 1)
+    strategy_start = date(2026, 7, 3)
     bars = [
         quant_signals.PriceBar(
             trade_date=strategy_start + timedelta(days=index),
@@ -1274,8 +1277,13 @@ def test_v741_reentry_requires_new_breakout_or_ema20_retest_after_cooldown(monke
         for bar in bars
     }
 
-    first_eligible_index = 78
-    assert bars[first_eligible_index].trade_date >= quant_signals.CHASE_GUARD_EFFECTIVE_DATE
+    first_eligible_index = 68
+    assert bars[67].trade_date == date(2026, 9, 8)
+    assert bars[first_eligible_index].trade_date == quant_signals.REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE
+    assert quant_signals._reentry_cooldown_remaining(
+        {"last_exit_index": 67},
+        bars[: first_eligible_index + 1],
+    ) == 0
     assert quant_signals._reentry_entry_allowed(
         bars,
         indicators,
@@ -1303,7 +1311,7 @@ def test_v741_reentry_requires_new_breakout_or_ema20_retest_after_cooldown(monke
     assert current["action"] == "entry_watch"
     assert current["label"] == "새 재진입 확인 대기"
 
-    breakout_index = 82
+    breakout_index = 72
     bars[breakout_index] = quant_signals.PriceBar(
         trade_date=bars[breakout_index].trade_date,
         open=102.0,
@@ -1314,8 +1322,8 @@ def test_v741_reentry_requires_new_breakout_or_ema20_retest_after_cooldown(monke
         trading_value=50_000_000_000,
     )
     indicators[breakout_index]["ema20_extension_atr"] = 1.4
-    bars[83] = quant_signals.PriceBar(
-        trade_date=bars[83].trade_date,
+    bars[73] = quant_signals.PriceBar(
+        trade_date=bars[73].trade_date,
         open=104.0,
         high=105.0,
         low=103.0,
@@ -1333,7 +1341,7 @@ def test_v741_reentry_requires_new_breakout_or_ema20_retest_after_cooldown(monke
     buys = [event for event in result["events"] if event["side"] == "buy"]
     assert [event["execution_date"] for event in buys[:2]] == [
         bars[66].trade_date,
-        bars[83].trade_date,
+        bars[73].trade_date,
     ]
 
     pullback_bars = list(bars)
@@ -3493,7 +3501,7 @@ def test_trade_metadata_requires_entry_price_and_uses_new_snapshot_namespace():
     assert quant_signals.market_payload_has_trade_metadata(market_payload) is True
     del market_payload["items"][0]["entry_price"]
     assert quant_signals.market_payload_has_trade_metadata(market_payload) is False
-    assert quant_signals.market_quant_signal_snapshot_key(150, 0, 30) == "v31:150:0:30"
+    assert quant_signals.market_quant_signal_snapshot_key(150, 0, 30) == "v32:150:0:30"
 
 
 def test_market_preliminary_history_keeps_cleared_signals_for_same_day():

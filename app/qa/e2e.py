@@ -6960,6 +6960,15 @@ def run_e2e_checks(
             )
 
             def watchlist_groups_case(page: Any, theme: str) -> dict[str, Any]:
+                page.add_init_script(
+                    """
+                    window.__qaSharedWatchGroup = null;
+                    Object.defineProperty(navigator, 'share', {
+                      configurable: true,
+                      value: async payload => { window.__qaSharedWatchGroup = payload; },
+                    });
+                    """
+                )
                 qa_watchlist_items: list[dict[str, Any]] = [
                     {
                         "code": "005930",
@@ -6998,6 +7007,12 @@ def run_e2e_checks(
                 ]
                 qa_groups: list[dict[str, Any]] = []
                 sync_writes = {"groups": 0, "tracks": 0}
+                page.add_init_script(
+                    """Object.defineProperty(navigator, 'share', {
+                      configurable: true,
+                      value: async payload => { window.__qaSharedWatchGroup = payload; },
+                    });"""
+                )
 
                 def fulfill_json(route: Any, payload: dict[str, Any]) -> None:
                     route.fulfill(
@@ -7134,6 +7149,16 @@ def run_e2e_checks(
                         re.compile(rf".*/stocks/{code}/dashboard(?:\?.*)?$"),
                         dashboard_route(fixture),
                     )
+                    page.route(
+                        re.compile(rf".*/stocks/{code}/prices(?:\?.*)?$"),
+                        lambda route, _request, fixture=fixture: fulfill_json(
+                            route,
+                            [
+                                {"date": "2026-09-05", "close": fixture["quote"]["price"] * 0.97},
+                                {"date": "2026-09-08", "close": fixture["quote"]["price"]},
+                            ],
+                        ),
+                    )
                 page.route(
                     re.compile(r".*/market/us-sector-moves(?:\?.*)?$"),
                     lambda route: fulfill_json(route, {"items": []}),
@@ -7174,11 +7199,46 @@ def run_e2e_checks(
                 system_groups = page.locator(
                     "#watch-group-tabs > [data-watch-group]"
                 ).evaluate_all("nodes => nodes.map(node => node.textContent.trim())")
-                if system_groups[:2] != ["기본", "핀종목"]:
+                if system_groups[:2] != ["기본그룹", "핀종목"]:
                     raise QaFailure(
                         "기본·핀종목 시스템 배지의 이름 또는 순서가 다릅니다.",
                         {"groups": system_groups},
                     )
+
+                compact_rows = page.evaluate(
+                    """() => [...document.querySelectorAll('#watchlist-body .watch-compact-row')].map(row => ({
+                      code: row.dataset.code,
+                      name: row.querySelector('.watch-compact-copy strong')?.textContent.trim(),
+                      ticker: row.querySelector('.watch-compact-copy small')?.textContent.trim(),
+                      price: row.querySelector('[data-field="price"]')?.textContent.trim(),
+                      change: row.querySelector('[data-field="change_rate"]')?.textContent.trim(),
+                      hasLogo: Boolean(row.querySelector('.watch-compact-logo')),
+                      hasSparkline: Boolean(row.querySelector('.watch-compact-sparkline svg')),
+                      legacyMetricCount: row.querySelectorAll('.watch-v15-metrics, .watch-pin-metrics, [data-field="market_cap"]').length,
+                    }))"""
+                )
+                if (
+                    [row["code"] for row in compact_rows] != ["005930", "000660"]
+                    or any(
+                        not row["hasLogo"]
+                        or not row["hasSparkline"]
+                        or row["legacyMetricCount"]
+                        for row in compact_rows
+                    )
+                ):
+                    raise QaFailure(
+                        "관심종목 로고·스파크라인·현재가·등락률 컴팩트 행이 올바르지 않습니다.",
+                        {"rows": compact_rows},
+                    )
+                page.locator("#watch-group-share").click()
+                page.wait_for_function("() => Boolean(window.__qaSharedWatchGroup)")
+                shared_group = page.evaluate("window.__qaSharedWatchGroup")
+                if (
+                    shared_group.get("title") != "기본그룹 관심종목"
+                    or "삼성전자 (005930)" not in shared_group.get("text", "")
+                    or "시총" in shared_group.get("text", "")
+                ):
+                    raise QaFailure("관심 그룹 공유 내용이 올바르지 않습니다.", shared_group)
 
                 page.set_viewport_size({"width": 320, "height": 760})
                 page.wait_for_timeout(120)
@@ -7226,7 +7286,7 @@ def run_e2e_checks(
                 folder_button.click()
                 group_dialog.wait_for(state="visible")
                 name_input = page.locator("#watch-group-name")
-                name_input.fill("기본")
+                name_input.fill("기본그룹")
                 page.locator("#watch-group-save").click()
                 error_text = page.locator("#watch-group-dialog-status")
                 error_text.wait_for(state="visible")
@@ -7253,9 +7313,13 @@ def run_e2e_checks(
                         {"groups": qa_groups, "writes": sync_writes},
                     )
 
-                page.locator(
-                    '#watchlist-body [data-code="005930"] [data-watch-action="remove-group"]'
-                ).click()
+                page.locator("#watch-group-edit").click()
+                group_dialog.wait_for(state="visible")
+                page.locator(".watch-group-member", has_text="삼성전자").locator(
+                    "input"
+                ).uncheck()
+                page.locator("#watch-group-save").click()
+                group_dialog.wait_for(state="hidden")
                 page.wait_for_selector("#watchlist-body .watchlist-empty-card")
                 if [item.get("code") for item in qa_watchlist_items] != [
                     "005930",
@@ -7314,31 +7378,35 @@ def run_e2e_checks(
                 )
 
                 pin_snapshot = page.evaluate(
-                    """() => [...document.querySelectorAll('#watchlist-body [data-watch-group-kind="pinned"]')].map(card => ({
-                      code: card.dataset.code,
-                      quote: card.querySelector('.watch-stock-quote')?.textContent.trim(),
-                      metrics: [...card.querySelectorAll('.watch-pin-metrics > div')].map(metric => ({
-                        label: metric.querySelector('dt')?.textContent.trim(),
-                        value: metric.querySelector('dd')?.textContent.trim(),
-                        tone: metric.querySelector('dd')?.className || '',
-                      })),
+                    """() => [...document.querySelectorAll('#watchlist-body [data-watch-group-kind="pinned"]')].map(row => ({
+                      code: row.dataset.code,
+                      name: row.querySelector('.watch-compact-copy strong')?.textContent.trim(),
+                      ticker: row.querySelector('.watch-compact-copy small')?.textContent.trim(),
+                      price: row.querySelector('[data-field="price"]')?.textContent.trim(),
+                      change: row.querySelector('[data-field="change_rate"]')?.textContent.trim(),
+                      hasSparkline: Boolean(row.querySelector('.watch-compact-sparkline svg')),
+                      hasLogo: Boolean(row.querySelector('.watch-compact-logo')),
+                      legacyMetricCount: row.querySelectorAll('.watch-pin-metrics, .watch-v15-metrics').length,
                     }))"""
                 )
                 pin_by_code = {item["code"]: item for item in pin_snapshot}
                 expected_pin_values = {
-                    "005930": ["26.08.28", "+10.00%", "+1.50%"],
-                    "000660": ["26.09.02", "-10.00%", "-2.00%"],
+                    "005930": {"price": "110,000", "change": "+1.50%"},
+                    "000660": {"price": "180,000", "change": "-2.00%"},
                 }
                 for code, expected_values in expected_pin_values.items():
-                    metrics = pin_by_code.get(code, {}).get("metrics", [])
-                    if [item.get("label") for item in metrics] != [
-                        "핀 설정",
-                        "핀 이후",
-                        "오늘",
-                    ] or [item.get("value") for item in metrics] != expected_values:
+                    row = pin_by_code.get(code, {})
+                    if (
+                        row.get("ticker") != code
+                        or row.get("price") != expected_values["price"]
+                        or row.get("change") != expected_values["change"]
+                        or not row.get("hasSparkline")
+                        or not row.get("hasLogo")
+                        or row.get("legacyMetricCount")
+                    ):
                         raise QaFailure(
-                            "핀 설정일·핀 이후 수익률과 오늘 등락률 표시가 다릅니다.",
-                            {"code": code, "metrics": metrics},
+                            "핀종목의 로고·스파크라인·현재가·오늘 등락률 행이 다릅니다.",
+                            {"code": code, "row": row},
                         )
 
                 page.evaluate(
@@ -7351,32 +7419,34 @@ def run_e2e_checks(
                 page.wait_for_function(
                     """() => {
                       const card = document.querySelector('#watchlist-body [data-code="005930"]');
-                      return card?.querySelector('[data-field="tracked_pnl_rate"]')?.textContent.trim() === '+20.00%'
-                        && card?.querySelector('[data-field="pin_today_rate"]')?.textContent.trim() === '+2.50%'
-                        && card?.querySelector('.watch-pin-metrics dd')?.textContent.trim() === '26.08.28';
+                      return card?.querySelector('[data-field="price"]')?.textContent.trim() === '120,000'
+                        && card?.querySelector('[data-field="change_rate"]')?.textContent.trim() === '+2.50%';
                     }""",
                     timeout=int(timeout * 1000),
                 )
 
                 pinned_layout = page.evaluate(
                     """() => {
-                      const metrics = [...document.querySelectorAll('.watch-pin-metrics > div')];
+                      const rows = [...document.querySelectorAll('#watchlist-body .watch-compact-row')];
                       return {
                         viewport: innerWidth,
                         rootWidth: document.documentElement.scrollWidth,
-                        metricWidths: metrics.map(node => node.getBoundingClientRect().width),
+                        rowWidths: rows.map(node => node.getBoundingClientRect().width),
+                        linkHeights: rows.map(node => node.querySelector('.watch-compact-link')?.getBoundingClientRect().height || 0),
                       };
                     }"""
                 )
                 if (
                     pinned_layout["rootWidth"] > pinned_layout["viewport"] + 1
-                    or any(width < 70 for width in pinned_layout["metricWidths"])
+                    or any(width > pinned_layout["viewport"] + 1 for width in pinned_layout["rowWidths"])
+                    or any(height < 44 for height in pinned_layout["linkHeights"])
                 ):
                     raise QaFailure(
-                        "좁은 화면에서 핀 지표 세 열이 잘리거나 가로 넘침을 만들었습니다.",
+                        "좁은 화면에서 핀종목 컴팩트 행이 잘리거나 가로 넘침을 만들었습니다.",
                         pinned_layout,
                     )
 
+                page.locator("#watch-group-edit").click()
                 page.locator(
                     '#watchlist-body [data-code="005930"] [data-watch-action="unpin"]'
                 ).click()
@@ -7435,9 +7505,11 @@ def run_e2e_checks(
                 return {
                     **shell,
                     "system_groups": system_groups[:2],
+                    "compact_rows": compact_rows,
                     "mobile_layout": mobile_layout,
                     "pin_rows": pin_snapshot,
-                    "live_pin_return": "+20.00%",
+                    "live_daily_return": "+2.50%",
+                    "shared_group": shared_group,
                     "persisted_group": "배당주",
                     "sync_writes": sync_writes,
                     "desktop_layout": desktop_layout,
@@ -7663,17 +7735,17 @@ def run_e2e_checks(
                     _page_url(
                         base_url,
                         "/us",
-                        view="portfolio",
+                        view="home",
                         theme=theme,
                         qa_market_map=datetime.now(KST).strftime("%H%M%S%f"),
                     ),
                     wait_until="commit",
-                    ready_selector="body[data-view='portfolio']",
+                    ready_selector="body[data-view='home']",
                 )
                 shell = _assert_page_shell(page, theme=theme)
                 page.wait_for_function(
                     """expected => (
-                      state.watchlistResults.length === expected
+                      state.watchMarketMapResults.length === expected
                       && state.watchMarketMapUsdKrw === 1340
                       && document.querySelector('#watch-market-map:not([hidden])')
                       && !document.querySelector('#watch-market-map-stage')?.hasAttribute('aria-busy')
@@ -7690,8 +7762,32 @@ def run_e2e_checks(
                         "국내·미국 관심종목이 원화 환산 시가총액 순으로 정렬되지 않았습니다.",
                         {"actual": actual_order, "expected": expected_order},
                     )
-                if page.locator("#unified-market-scope").is_visible():
-                    raise QaFailure("내 관심종목 화면에 국내·미국 시장 토글이 노출됐습니다.")
+                placement = page.evaluate(
+                    """() => {
+                      const home = document.querySelector('#home-view');
+                      const marketMap = document.querySelector('#watch-market-map');
+                      const top50 = document.querySelector('#home-surge');
+                      const portfolio = document.querySelector('#portfolio-view');
+                      return {
+                        mapCount: document.querySelectorAll('#watch-market-map').length,
+                        inHome: Boolean(home?.contains(marketMap)),
+                        immediatelyBeforeTop50: marketMap?.nextElementSibling === top50,
+                        inPortfolio: Boolean(portfolio?.contains(marketMap)),
+                        marketToggleVisible: Boolean(document.querySelector('#unified-market-scope')?.offsetParent),
+                      };
+                    }"""
+                )
+                if (
+                    placement["mapCount"] != 1
+                    or not placement["inHome"]
+                    or not placement["immediatelyBeforeTop50"]
+                    or placement["inPortfolio"]
+                    or placement["marketToggleVisible"]
+                ):
+                    raise QaFailure(
+                        "관심종목 버블이 증권 홈 TOP 50 직전에 유일하게 배치되지 않았습니다.",
+                        placement,
+                    )
 
                 def layout_snapshot(width: int, height: int) -> dict[str, Any]:
                     page.set_viewport_size({"width": width, "height": height})
@@ -7870,6 +7966,118 @@ def run_e2e_checks(
                         },
                     )
 
+                def bubble_motion_snapshot() -> dict[str, Any]:
+                    return page.evaluate(
+                        """() => {
+                          const stage = document.querySelector('#watch-market-map-stage');
+                          const animations = document.getAnimations({subtree: true})
+                            .filter(animation => animation.id === 'watch-market-map-layout');
+                          return {
+                            stageMotion: stage?.dataset.motion,
+                            activeCount: animations.length,
+                            activeKinds: [...stage.querySelectorAll('[data-watch-motion]')]
+                              .map(tile => tile.dataset.watchMotion),
+                            durations: animations.map(animation => animation.effect?.getTiming().duration),
+                            delays: animations.map(animation => animation.effect?.getTiming().delay),
+                            movingTiles: stage.querySelectorAll('[data-watch-motion]').length,
+                          };
+                        }"""
+                    )
+
+                page.emulate_media(reduced_motion="no-preference")
+                page.evaluate(
+                    """() => {
+                      const results = [...state.watchMarketMapResults];
+                      renderWatchMarketMap([], {loading: true, totalCount: results.length});
+                      renderWatchMarketMap(results);
+                    }"""
+                )
+                page.wait_for_function(
+                    """() => (
+                      document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settling'
+                      && [...document.querySelectorAll(
+                        '#watch-market-map-stage [data-watch-motion]'
+                      )].some(tile => tile.dataset.watchMotion === 'entering')
+                    )""",
+                    timeout=2000,
+                )
+                entry_motion_snapshot = bubble_motion_snapshot()
+                if (
+                    entry_motion_snapshot["activeCount"] <= 0
+                    or "entering" not in entry_motion_snapshot["activeKinds"]
+                    or max(entry_motion_snapshot["durations"] or [0]) > 620
+                    or max(entry_motion_snapshot["delays"] or [0]) > 128
+                ):
+                    raise QaFailure(
+                        "관심종목 버블의 중앙 순차 진입 모션이 실행되지 않았습니다.",
+                        entry_motion_snapshot,
+                    )
+                page.wait_for_function(
+                    "() => document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settled'",
+                    timeout=2000,
+                )
+
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.wait_for_function(
+                    """() => (
+                      document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settling'
+                      && [...document.querySelectorAll(
+                        '#watch-market-map-stage [data-watch-motion]'
+                      )].some(tile => tile.dataset.watchMotion === 'repositioning')
+                    )""",
+                    timeout=2000,
+                )
+                reposition_motion_snapshot = bubble_motion_snapshot()
+                if (
+                    reposition_motion_snapshot["activeCount"] <= 0
+                    or "repositioning" not in reposition_motion_snapshot["activeKinds"]
+                    or max(reposition_motion_snapshot["durations"] or [0]) > 460
+                    or max(reposition_motion_snapshot["delays"] or [0]) > 64
+                ):
+                    raise QaFailure(
+                        "관심종목 버블의 FLIP 스프링 재배치 모션이 실행되지 않았습니다.",
+                        reposition_motion_snapshot,
+                    )
+                page.wait_for_function(
+                    """() => (
+                      document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settled'
+                      && !document.getAnimations({subtree: true}).some(
+                        animation => animation.id === 'watch-market-map-layout'
+                          && ['running', 'pending'].includes(animation.playState)
+                      )
+                    )""",
+                    timeout=2000,
+                )
+                motion_settled = bubble_motion_snapshot()
+                page.emulate_media(reduced_motion="reduce")
+                page.set_viewport_size({"width": 320, "height": 760})
+                page.wait_for_timeout(180)
+                reduced_motion_snapshot = page.evaluate(
+                    """() => ({
+                      stageMotion: document.querySelector('#watch-market-map-stage')?.dataset.motion,
+                      activeCount: document.getAnimations({subtree: true})
+                        .filter(animation => animation.id === 'watch-market-map-layout').length,
+                      movingTiles: document.querySelectorAll(
+                        '#watch-market-map-stage [data-watch-motion]'
+                      ).length,
+                    })"""
+                )
+                if (
+                    motion_settled["stageMotion"] != "settled"
+                    or motion_settled["activeCount"] != 0
+                    or motion_settled["movingTiles"] != 0
+                    or reduced_motion_snapshot["stageMotion"] != "settled"
+                    or reduced_motion_snapshot["activeCount"] != 0
+                    or reduced_motion_snapshot["movingTiles"] != 0
+                ):
+                    raise QaFailure(
+                        "버블 모션이 1초 안에 정지하지 않거나 reduced-motion에서 실행됐습니다.",
+                        {
+                            "settled": motion_settled,
+                            "reduced_motion": reduced_motion_snapshot,
+                        },
+                    )
+
                 page.set_viewport_size({"width": 390, "height": 844})
                 page.wait_for_timeout(180)
                 capture_overlay_style = page.add_style_tag(
@@ -7966,7 +8174,7 @@ def run_e2e_checks(
                         {"hrefs": malformed_hrefs},
                     )
 
-                page.evaluate("() => renderWatchMarketMap(state.watchlistResults)")
+                page.evaluate("() => renderWatchMarketMap(state.watchMarketMapResults)")
                 page.locator("#watch-market-map-sheet-close").click()
                 sheet.wait_for(state="hidden")
                 page.wait_for_function(
@@ -7980,14 +8188,16 @@ def run_e2e_checks(
                     "() => document.activeElement?.matches('#watch-market-map-stage .is-overflow')"
                 )
 
-                folder_tab = page.locator(
-                    '#watch-group-tabs [data-watch-group="qa-ai-semiconductor"]'
+                page.evaluate(
+                    """async () => {
+                      setActiveWatchGroup('qa-ai-semiconductor', {load: false});
+                      await loadHomeWatchMarketMap({force: true, ttlMs: 0});
+                    }"""
                 )
-                folder_tab.click()
                 page.wait_for_function(
                     """() => (
                       state.activeWatchGroup === 'qa-ai-semiconductor'
-                      && state.watchlistResults.length === 4
+                      && state.watchMarketMapResults.length === 4
                       && document.querySelector('#watch-market-map-group')?.textContent.includes('AI·반도체')
                     )""",
                     timeout=int(timeout * 1000),
@@ -8024,6 +8234,7 @@ def run_e2e_checks(
 
                 return {
                     **shell,
+                    "placement": placement,
                     "exchange_rate": fx_rate,
                     "market_cap_order": actual_order,
                     "folder_order": folder_order,
@@ -8032,6 +8243,12 @@ def run_e2e_checks(
                     "color_intensity_steps": {
                         "positive": sorted(positive_colors),
                         "negative": sorted(negative_colors),
+                    },
+                    "motion": {
+                        "entry": entry_motion_snapshot,
+                        "reposition": reposition_motion_snapshot,
+                        "settled": motion_settled,
+                        "reduced_motion": reduced_motion_snapshot,
                     },
                     "sheet": sheet_snapshot,
                     "focus_returned_after_live_render": True,

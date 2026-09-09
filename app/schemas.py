@@ -647,6 +647,7 @@ class StockCommunityFeedOut(BaseModel):
     code: str
     name: str
     as_of: datetime
+    mode: str = "latest"
     message: Optional[str] = None
     providers: list[StockCommunityProviderOut] = Field(default_factory=list)
 

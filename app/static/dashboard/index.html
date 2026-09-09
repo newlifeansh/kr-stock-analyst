@@ -25,13 +25,13 @@
       }
     </script>
     <script src="/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts" data-staging-theme-bootstrap></script>
-    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
-    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158" />
-    <script src="/assets/staging/ai-stock-response-logic.js?v=20260909-unified-market-v106" defer></script>
-    <script src="/assets/staging/stock-change-copy-logic.js?v=20260909-unified-market-v106" defer></script>
-    <script src="/assets/staging/toss-ia.js?v=20260909-unified-market-v106" defer></script>
+    <link rel="stylesheet" href="/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160" media="(prefers-color-scheme: dark)" data-staging-dark-fallback />
+    <link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160" />
+    <script src="/assets/staging/ai-stock-response-logic.js?v=20260909-unified-market-v108" defer></script>
+    <script src="/assets/staging/stock-change-copy-logic.js?v=20260909-unified-market-v108" defer></script>
+    <script src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260909v498&amp;build=20260909v498" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260909v501&amp;build=20260909v501" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -121,8 +121,8 @@
         <span class="unified-market-scope-label">시장</span>
         <div class="unified-market-scope-tabs" role="tablist" aria-label="국내·미국 종목 필터">
           <button class="active" type="button" role="tab" aria-selected="true" data-unified-market-scope="all">전체</button>
-          <button type="button" role="tab" aria-selected="false" data-unified-market-scope="kr"><span aria-hidden="true">🇰🇷</span> 국내</button>
-          <button type="button" role="tab" aria-selected="false" data-unified-market-scope="us"><span aria-hidden="true">🇺🇸</span> 미국</button>
+          <button type="button" role="tab" aria-selected="false" data-unified-market-scope="kr"><span aria-hidden="true">🇰🇷</span><span class="unified-market-scope-button-label">국내</span></button>
+          <button type="button" role="tab" aria-selected="false" data-unified-market-scope="us"><span aria-hidden="true">🇺🇸</span><span class="unified-market-scope-button-label">미국</span></button>
         </div>
       </nav>
       <section class="pull-refresh-indicator" id="pull-refresh-indicator" aria-live="polite" hidden>
@@ -1020,6 +1020,32 @@
           </div>
         </section>
 
+        <section class="watch-market-map home-watch-market-map" id="watch-market-map" aria-labelledby="watch-market-map-title" hidden>
+          <header class="watch-market-map-head">
+            <div>
+              <span id="watch-market-map-group">기본 그룹</span>
+              <h2 id="watch-market-map-title">관심종목 버블</h2>
+            </div>
+            <p id="watch-market-map-description">원 크기는 종목 규모, 색과 농도는 오늘 등락률을 나타냅니다.</p>
+          </header>
+          <div class="watch-market-map-stage" id="watch-market-map-stage" role="group" aria-label="종목 규모와 오늘 등락률로 표시한 관심종목 버블" aria-live="polite"></div>
+          <div class="watch-market-map-legend" id="watch-market-map-legend" aria-label="오늘 등락 종목 수"></div>
+          <div class="watch-market-map-timeline" id="watch-market-map-timeline" hidden>
+            <div class="watch-market-map-timeline-head">
+              <span>오늘</span>
+              <time id="watch-market-map-timeline-time">현재 시세 기준</time>
+            </div>
+            <div class="watch-market-map-timeline-track" id="watch-market-map-timeline-track" role="progressbar" aria-label="오늘 시세 기준 시각" aria-valuemin="0" aria-valuemax="1439" aria-valuenow="0" aria-valuetext="오늘 현재 시세 기준">
+              <span id="watch-market-map-timeline-fill"><i aria-hidden="true"></i></span>
+            </div>
+            <div class="watch-market-map-timeline-labels" aria-hidden="true">
+              <span>00:00</span>
+              <span>24:00</span>
+            </div>
+          </div>
+          <p class="sr-only" id="watch-market-map-status" role="status" aria-live="polite"></p>
+        </section>
+
         <section class="home-surge home-top50" id="home-surge" data-ui-version="6.0" aria-labelledby="home-surge-title">
           <header class="home-surge-head">
             <div><span id="home-surge-meta">실시간 순위 확인 중</span><h2 id="home-surge-title">TOP 50</h2></div>
@@ -1050,6 +1076,23 @@
           <div class="home-surge-list" id="home-surge-list" role="tabpanel" aria-live="polite"><p class="muted">거래량 상위 종목을 불러오는 중입니다.</p></div>
           <button class="home-ranking-more" id="home-surge-more" type="button">더보기</button>
         </section>
+
+        <dialog class="watch-market-map-sheet" id="watch-market-map-sheet" aria-labelledby="watch-market-map-sheet-title" aria-describedby="watch-market-map-sheet-description">
+          <section class="watch-market-map-sheet-card">
+            <div class="watch-market-map-sheet-handle" aria-hidden="true"></div>
+            <header class="watch-market-map-sheet-head">
+              <div>
+                <span>관심종목</span>
+                <h2 id="watch-market-map-sheet-title">나머지 관심종목</h2>
+                <p id="watch-market-map-sheet-description">버블에 담기 어려운 종목을 모아 보여드려요.</p>
+              </div>
+              <button id="watch-market-map-sheet-close" type="button" aria-label="나머지 관심종목 닫기">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
+              </button>
+            </header>
+            <div class="watch-market-map-sheet-list" id="watch-market-map-sheet-list"></div>
+          </section>
+        </dialog>
 
         <section id="trend-view" class="home-market-sections" aria-label="증시 캘린더와 뉴스">
           <header class="topbar" id="trend-topbar" hidden>
@@ -1287,28 +1330,29 @@
         </section>
       </section>
 
-      <section id="portfolio-view" class="app-page app-portfolio" data-ui-version="4.0" data-watch-group-layout="true" hidden>
-        <section class="watch-group-shell" aria-labelledby="watch-group-heading">
-          <header class="watch-group-toolbar">
-            <h1 id="watch-group-heading">관심 그룹</h1>
+      <section id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact" hidden>
+        <section class="watch-group-shell watch-hub-shell" aria-labelledby="watch-group-heading">
+          <header class="watch-group-toolbar watch-hub-toolbar">
+            <h1 id="watch-group-heading">관심</h1>
             <div class="watch-group-actions">
-              <button id="watch-group-edit" type="button" hidden>폴더 편집</button>
-              <button id="watch-group-add-stock" type="button">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
-                <span>종목 추가</span>
+              <button id="watch-group-edit" type="button" aria-pressed="false">편집</button>
+              <button class="watchlist-search" id="watchlist-search" type="button" aria-label="관심종목 검색">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg>
               </button>
             </div>
           </header>
-          <div class="watch-group-rail" id="watch-group-tabs" role="tablist" aria-label="관심 그룹 선택">
-            <button class="watch-group-chip active" id="watch-group-default" type="button" role="tab" aria-selected="true" aria-controls="watchlist-strategy-panel" data-watch-group="default">기본</button>
-            <button class="watch-group-chip" id="watch-group-pinned" type="button" role="tab" aria-selected="false" aria-controls="watchlist-strategy-panel" data-watch-group="pinned">핀종목</button>
-            <span id="watch-user-group-tabs"></span>
-            <button class="watch-group-create" id="watch-group-create" type="button" aria-label="새 관심 폴더 만들기">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10h-17z"></path><path d="M12 13h5M14.5 10.5v5"></path></svg>
-              <span>폴더</span>
-            </button>
+          <div class="watch-group-selection">
+            <div class="watch-group-rail" id="watch-group-tabs" role="tablist" aria-label="관심 그룹 선택">
+              <button class="watch-group-chip active" id="watch-group-default" type="button" role="tab" aria-selected="true" aria-controls="watchlist-strategy-panel" data-watch-group="default">기본그룹</button>
+              <button class="watch-group-chip" id="watch-group-pinned" type="button" role="tab" aria-selected="false" aria-controls="watchlist-strategy-panel" data-watch-group="pinned">핀종목</button>
+              <span id="watch-user-group-tabs"></span>
+              <button class="watch-group-create" id="watch-group-create" type="button" aria-label="새 관심 폴더 만들기">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10h-17z"></path><path d="M12 13h5M14.5 10.5v5"></path></svg>
+                <span>폴더 추가</span>
+              </button>
+            </div>
+            <p class="watch-group-meta" id="watch-group-meta" role="status" aria-live="polite">0개</p>
           </div>
-          <p class="watch-group-meta" id="watch-group-meta" role="status" aria-live="polite">0개</p>
         </section>
 
         <section class="portfolio-tabs app-segment-tabs" role="tablist" aria-label="이전 내 종목 보기" aria-hidden="true" hidden>
@@ -1316,7 +1360,7 @@
           <button class="portfolio-tab" type="button" role="tab" aria-selected="false" data-portfolio-tab="tracking">핀 종목</button>
         </section>
         <section class="portfolio-tab-panel" id="portfolio-watchlist-panel" role="tabpanel">
-          <div class="watchlist-content-tabs" id="watchlist-content-tabs" role="tablist" aria-label="관심종목 정보">
+          <div class="watchlist-content-tabs" id="watchlist-content-tabs" role="tablist" aria-label="관심종목 정보" aria-hidden="true" hidden>
             <button id="watchlist-strategy-tab" class="active" type="button" role="tab" aria-selected="true" aria-controls="watchlist-strategy-panel" data-watch-content-tab="strategy">AI 전략</button>
             <button id="watchlist-news-tab" type="button" role="tab" aria-selected="false" aria-controls="watchlist-news-panel" data-watch-content-tab="news">종목 뉴스</button>
           </div>
@@ -1324,39 +1368,22 @@
             <section id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0">
               <p id="watchlist-meta" class="sr-only">저장된 종목</p>
               <section class="watchlist-panel">
-                <section class="watch-market-map" id="watch-market-map" aria-labelledby="watch-market-map-title" hidden>
-                  <header class="watch-market-map-head">
-                    <div>
-                      <span id="watch-market-map-group">기본 · 시가총액 순</span>
-                      <h2 id="watch-market-map-title">관심종목 버블</h2>
-                    </div>
-                    <p id="watch-market-map-description">원 크기는 시가총액, 색과 농도는 오늘 등락률입니다.</p>
-                  </header>
-                  <div class="watch-market-map-stage" id="watch-market-map-stage" role="group" aria-label="시가총액과 오늘 등락률로 표시한 관심종목 버블" aria-live="polite"></div>
-                  <div class="watch-market-map-legend" id="watch-market-map-legend" aria-label="오늘 등락 종목 수"></div>
-                  <div class="watch-market-map-timeline" id="watch-market-map-timeline" hidden>
-                    <div class="watch-market-map-timeline-head">
-                      <span>오늘</span>
-                      <time id="watch-market-map-timeline-time">현재 시세 기준</time>
-                    </div>
-                    <div class="watch-market-map-timeline-track" id="watch-market-map-timeline-track" role="progressbar" aria-label="오늘 시세 기준 시각" aria-valuemin="0" aria-valuemax="1439" aria-valuenow="0" aria-valuetext="오늘 현재 시세 기준">
-                      <span id="watch-market-map-timeline-fill"><i aria-hidden="true"></i></span>
-                    </div>
-                    <div class="watch-market-map-timeline-labels" aria-hidden="true">
-                      <span>00:00</span>
-                      <span>24:00</span>
-                    </div>
-                  </div>
-                  <p class="sr-only" id="watch-market-map-status" role="status" aria-live="polite"></p>
-                </section>
                 <section class="watchlist-strategy" id="watchlist-strategy" aria-live="polite" hidden></section>
-                <div class="watch-v2-filter watch-v3-tabs" role="tablist" aria-label="관심 종목 필터">
+                <div class="watch-v2-filter watch-v3-tabs" role="tablist" aria-label="관심 종목 필터" aria-hidden="true" hidden>
                   <button class="active" type="button" role="tab" aria-selected="true" data-watch-filter="all">전체</button>
                   <button type="button" role="tab" aria-selected="false" data-watch-filter="attention">확인 필요</button>
                   <button type="button" role="tab" aria-selected="false" data-watch-filter="positive">흐름 양호</button>
                 </div>
-                <section class="watch-v3-stock-section">
-                  <section class="watchlist-card-list watch-v2-list-surface" id="watchlist-body" aria-live="polite"></section>
+                <section class="watch-v3-stock-section watch-compact-stock-section">
+                  <section class="watchlist-card-list watch-v2-list-surface watch-compact-list" id="watchlist-body" aria-live="polite"></section>
+                  <footer class="watch-compact-actions">
+                    <button class="watch-group-share" id="watch-group-share" type="button">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12.5 16.5 7v10z"></path><circle cx="6" cy="12.5" r="2.5"></circle></svg>
+                      <span>이 그룹 공유하기</span>
+                    </button>
+                    <button class="watch-group-add-stock" id="watch-group-add-stock" type="button">+ 관심 추가</button>
+                    <p class="watch-group-share-status" id="watch-group-share-status" role="status" aria-live="polite"></p>
+                  </footer>
                 </section>
               </section>
             </section>
@@ -1405,22 +1432,6 @@
           </form>
         </dialog>
 
-        <dialog class="watch-market-map-sheet" id="watch-market-map-sheet" aria-labelledby="watch-market-map-sheet-title" aria-describedby="watch-market-map-sheet-description">
-          <section class="watch-market-map-sheet-card">
-            <div class="watch-market-map-sheet-handle" aria-hidden="true"></div>
-            <header class="watch-market-map-sheet-head">
-              <div>
-                <span>시가총액 순</span>
-                <h2 id="watch-market-map-sheet-title">나머지 관심종목</h2>
-                <p id="watch-market-map-sheet-description">버블에 담기 어려운 종목을 모아 보여드려요.</p>
-              </div>
-              <button id="watch-market-map-sheet-close" type="button" aria-label="나머지 관심종목 닫기">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
-              </button>
-            </header>
-            <div class="watch-market-map-sheet-list" id="watch-market-map-sheet-list"></div>
-          </section>
-        </dialog>
       </section>
 
       <section id="chart-view" class="app-page app-chart chart-forecast-host" data-ui-version="4.0" hidden>
@@ -1607,6 +1618,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260909v498" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260909v501" defer></script>
   </body>
 </html>

@@ -28,8 +28,8 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
     payload = load_qa_catalog()
     ids = [case["id"] for case in payload["cases"]]
 
-    assert payload["strategy_version"] == "position-lifecycle-v7.4.1"
-    assert len(ids) == 104
+    assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
+    assert len(ids) == 105
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -89,9 +89,9 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
 
     assert first == second
     assert "# 데이터 연동·시그널 판단 QA 카탈로그" in first
-    assert "`position-lifecycle-v7.4.1`" in first
+    assert "`position-lifecycle-v7.4.2`" in first
     assert "SIG-CONTRACT-003" in first
-    assert "QA 항목: 104개" in first
+    assert "QA 항목: 105개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -953,12 +953,17 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "커뮤니티 시장 토글이 미국 국기·태극기" in source
     assert "def watchlist_groups_case" in source
     assert 'case_id="SIG-UI-024"' in source
-    assert "핀 이후 수익률과 오늘 등락률" in source
+    assert "핀종목의 로고·스파크라인·현재가·오늘 등락률" in source
     assert "def watch_market_map_case" in source
     assert 'case_id="SIG-UI-025"' in source
+    assert "증권 홈 TOP 50 직전에 유일하게 배치" in source
     assert "원화 환산 시가총액 순으로 정렬" in source
     assert "오늘 등락 방향·강도별 버블 색상 단계" in source
     assert "오늘 타임라인 계약" in source
+    assert "중앙 순차 진입 모션" in source
+    assert "FLIP 스프링 재배치 모션" in source
+    assert "reduced-motion에서 실행" in source
+    assert "animation.id === 'watch-market-map-layout'" in source
     assert "metadata_leaks" in source
     assert "metadataLeaks" in source
     assert "focus_returned_after_live_render" in source
@@ -1156,8 +1161,8 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     by_id = {item["id"]: item for item in report["checks"]}
 
     assert report["schema_version"] == "1.0"
-    assert report["strategy_version"] == "position-lifecycle-v7.4.1"
-    assert report["catalog_case_count"] == 104
+    assert report["strategy_version"] == "position-lifecycle-v7.4.2"
+    assert report["catalog_case_count"] == 105
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1237,7 +1242,7 @@ class FakeReadOnlyApi:
         if path == "/health":
             return {
                 "status": "ok",
-                "strategy_version": "position-lifecycle-v7.4.1",
+                "strategy_version": "position-lifecycle-v7.4.2",
             }, self._meta(path)
         if path == "/readyz":
             return {"status": "ok", "database_ok": True}, self._meta(path)
@@ -1252,7 +1257,7 @@ class FakeReadOnlyApi:
             }
             return {
                 "status": "degraded",
-                "strategy_version": "position-lifecycle-v7.4.1",
+                "strategy_version": "position-lifecycle-v7.4.2",
                 "as_of": "2026-08-29T10:00:00+09:00",
                 "datasets": {
                     "price": {**ready, "state": self.quality_price_state},
@@ -1295,7 +1300,7 @@ class FakeReadOnlyApi:
         if path == "/market/quant-signals":
             return {
                 "status": "ready",
-                "strategy_version": "position-lifecycle-v7.4.1",
+                "strategy_version": "position-lifecycle-v7.4.2",
                 "as_of": "2026-08-29T10:00:00+09:00",
                 "snapshot_generated_at": "2026-08-29T10:00:00+09:00",
                 "signal_revision": 7,
@@ -1335,7 +1340,7 @@ class FakeReadOnlyApi:
             return {"points": []}, self._meta(path)
         if path == "/stocks/005930/quant-signals":
             return {
-                "strategy_version": "position-lifecycle-v7.4.1",
+                "strategy_version": "position-lifecycle-v7.4.2",
                 "current": {"action": "hold"},
                 "as_of": "2026-08-29T10:00:00+09:00",
             }, self._meta(path)

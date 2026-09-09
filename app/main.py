@@ -271,7 +271,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260909v498"
+DASHBOARD_CLIENT_VERSION = "20260909v501"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -3950,13 +3950,14 @@ def us_stock_community_feed(
     symbol: str,
     response: Response,
     limit: int = Query(default=12, ge=1, le=20),
+    mode: str = Query(default="latest", pattern="^(latest|popular)$"),
 ):
     try:
         stock = resolve_us_stock(symbol)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="US stock not found") from exc
     code = _normalize_us_symbol(str(stock.get("code") or symbol))
-    key = ("us_stock_community_feed", code, limit)
+    key = ("us_stock_community_feed", code, limit, mode)
     payload = api_cache.get_or_set(
         key,
         max(30, settings.threads_feed_cache_seconds),
@@ -3964,6 +3965,7 @@ def us_stock_community_feed(
             stock,
             limit=limit,
             timeout_seconds=settings.threads_feed_timeout_seconds,
+            mode=mode,
         ),
     )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
@@ -5630,6 +5632,7 @@ def stock_community_feed(
     code: str,
     response: Response,
     limit: int = Query(default=12, ge=1, le=20),
+    mode: str = Query(default="latest", pattern="^(latest|popular)$"),
     db: Session = Depends(get_db),
 ):
     code = _normalize_stock_code(code)
@@ -5643,6 +5646,7 @@ def stock_community_feed(
         "stock_community_feed",
         code,
         limit,
+        mode,
         bool(settings.threads_feed_enabled and settings.threads_access_token),
     )
     payload = api_cache.get_or_set(
@@ -5653,6 +5657,7 @@ def stock_community_feed(
             settings,
             limit=limit,
             timeout_seconds=settings.threads_feed_timeout_seconds,
+            mode=mode,
         ),
     )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"

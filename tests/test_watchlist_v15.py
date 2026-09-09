@@ -15,87 +15,70 @@ def test_watchlist_v15_shell_and_asset_version():
     shell = client.get("/dashboard?view=watchlist")
 
     assert shell.status_code == 200
-    assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="4.0" data-watch-group-layout="true"' in shell.text
+    assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.6"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260909v498"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260909v501"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
-    assert 'class="watch-v2-filter watch-v3-tabs"' in shell.text
-    assert 'class="watch-v3-stock-section"' in shell.text
-    assert 'id="watchlist-content-tabs"' in shell.text
-    assert 'data-watch-content-tab="strategy">AI 전략</button>' in shell.text
-    assert 'data-watch-content-tab="news">종목 뉴스</button>' in shell.text
-    assert 'id="watchlist-strategy-panel"' in shell.text
-    assert 'id="watchlist-news-panel"' in shell.text
+    assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
+    assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
+    assert 'id="watchlist-search" type="button" aria-label="관심종목 검색"' in shell.text
     assert 'id="watch-group-tabs" role="tablist" aria-label="관심 그룹 선택"' in shell.text
-    assert 'data-watch-group="default">기본</button>' in shell.text
+    assert 'data-watch-group="default">기본그룹</button>' in shell.text
     assert 'data-watch-group="pinned">핀종목</button>' in shell.text
+    assert 'id="watch-group-meta" role="status" aria-live="polite">0개</p>' in shell.text
     assert 'id="watch-group-create"' in shell.text
     assert 'id="watch-group-add-stock"' in shell.text
+    assert 'id="watch-group-share"' in shell.text
     assert 'id="watch-group-dialog"' in shell.text
-    assert shell.text.index('data-watch-content-tab="strategy"') < shell.text.index('data-watch-content-tab="news"')
-    assert shell.text.index('id="watchlist-strategy-panel"') < shell.text.index('id="watchlist-news-panel"')
+    assert 'class="watchlist-card-list watch-v2-list-surface watch-compact-list"' in shell.text
 
     styles = client.get("/assets/dashboard/styles.css").text
-    assert "Recommendation metrics use the same continuous table language as stock detail" in styles
-    assert "#recommend-view .recommend-metrics > div:last-child" in styles
+    assert "Compact interest hub v499" in styles
+    assert '#portfolio-view[data-watchlist-layout="compact"] .watch-compact-row' in styles
     assert 'class="watch-v2-list-head"' not in shell.text
     assert 'id="watchlist-filter-summary"' not in shell.text
-    assert shell.text.index('id="watchlist-strategy"') < shell.text.index('class="watch-v2-filter watch-v3-tabs"')
 
     for view_id in ("home-view", "search-view", "portfolio-view", "chart-view"):
         view_markup = shell.text.split(f'id="{view_id}"', 1)[1].split("</section>", 1)[0]
         assert 'class="app-page-intro' not in view_markup
-    assert shell.text.index('class="watch-v2-filter watch-v3-tabs"') < shell.text.index('class="watch-v3-stock-section"')
 
 
-def test_watchlist_v15_uses_progressive_real_time_cards():
+def test_watchlist_v15_uses_compact_logo_sparkline_price_rows():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text
 
     for expected in (
-        'className = "watch-stock-card watch-v2-stock-row"',
-        'className = "watch-v15-metrics watch-v2-metrics"',
-        'evidence.className = "watch-v2-evidence"',
-        'footer.className = "watch-v2-row-footer"',
-        'investorStateControl.className = "watch-v2-investor-state"',
-        'investorStateSelect.dataset.watchInvestorState = item.code',
-        'label: "미보유"',
-        'label: "보유 중"',
-        'average_buy_price: investorState === "holding"',
-        'textContent: "내 상황"',
-        'const investorState = normalizeWatchlistInvestorState(item.investor_state);',
-        'investor_state: investorState',
-        'investor_state: "not_holding"',
-        'window.SecretNoteWatchlistInvestorState = Object.freeze({',
-        'updateAverageBuyPrice: updateWatchlistAverageBuyPrice',
-        'updateWatchlistInvestorState(select.dataset.watchInvestorState || "", select.value);',
-        'el("h2", "", headline)',
-        'el("h3", "", "먼저 볼 종목")',
-        "scheduleWatchlistStrategyRender();",
-        "applyWatchlistFilter();",
-        'state.watchlistFilter = button.dataset.watchFilter || "all";',
-        "state.watchlistResults = [",
-        'elements.watchlistMeta.textContent = `${groupName} · ${items.length}개 종목 · ${completedCount}/${items.length}개 확인 중`;',
-        'const keepExpanded = itemCode ? state.watchPreopenExpanded.has(itemCode) : false;',
-        'action.textContent = groupId === "pinned" ? "추천 종목 보기" : customGroup ? "폴더 편집" : "종목 검색 열기";',
-        "function setWatchlistContentTab",
-        'const active = tabName === "news" ? "news" : "strategy";',
-        'tab.addEventListener("click", () => setWatchlistContentTab(tab.dataset.watchContentTab, { load: true }));',
+        "function watchCompactSeries",
+        "function createWatchCompactSparkline",
+        "function appendWatchCompactRow",
+        'card.className = `watch-compact-row${pinned ? " is-pinned" : ""}`;',
+        'link.className = "watch-compact-link";',
+        'const logo = createStockListLogo(item.code, "watch-compact-logo");',
+        'copy.append(el("strong", "", item.name), el("small", "", item.code || ""));',
+        'const quote = el("span", "watch-stock-quote watch-compact-quote");',
+        'price.dataset.field = "price";',
+        'today.dataset.field = "change_rate";',
+        "link.append(identity, createWatchCompactSparkline(item, dashboard, prices), quote);",
+        'removeButton.dataset.watchAction = pinned ? "unpin" : customGroup ? "remove-group" : "remove-watchlist";',
+        "async function loadHomeWatchMarketMap",
+        "async function loadWatchlist",
     ):
         assert expected in source
 
-    assert "watchDetailsExpanded" not in source
-    assert 'className = "watch-stock-details"' not in source
+    compact_source = source.split("function appendWatchCompactRow", 1)[1].split(
+        "function appendWatchRow", 1
+    )[0]
+    for removed in ("watch-v15-metrics", "watch-pin-metrics", "market_cap", "rank"):
+        assert removed not in compact_source
 
     styles = client.get("/assets/dashboard/styles.css").text
     for expected in (
-        "/* Portfolio 4.9: separate AI strategy from stock news without stacking both feeds. */",
-        "grid-template-columns: repeat(2, minmax(0, 1fr));",
-        ".watchlist-content-tabs button.active",
-        ".watchlist-content-panel[hidden]",
-        ".watch-v2-investor-state {",
-        ".watch-v2-investor-state select",
+        '#portfolio-view[data-watchlist-layout="compact"] .watch-compact-link',
+        "grid-template-columns: minmax(118px, 1fr) clamp(64px, 18vw, 96px) minmax(82px, auto);",
+        '#portfolio-view[data-watchlist-layout="compact"] .watch-compact-sparkline',
+        '#portfolio-view[data-watchlist-layout="compact"] .watch-compact-quote',
+        '#portfolio-view[data-watchlist-layout="compact"][data-watch-editing="true"] .watch-compact-remove',
     ):
         assert expected in styles
 
@@ -105,6 +88,7 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
     shell = client.get("/dashboard?view=watchlist").text
     source = client.get("/assets/dashboard/app.js").text
     styles = client.get("/assets/dashboard/styles.css").text
+    home = shell.split('id="home-view"', 1)[1].split('id="search-view"', 1)[0]
     portfolio = shell.split('id="portfolio-view"', 1)[1].split('id="chart-view"', 1)[0]
 
     for expected in (
@@ -117,27 +101,35 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         'id="watch-market-map-sheet"',
         'id="watch-market-map-sheet-list"',
     ):
-        assert expected in portfolio or expected in source
+        assert expected in home or expected in source
     assert 'button.setAttribute("aria-haspopup", "dialog");' in source
-    assert portfolio.index('id="watch-market-map"') < portfolio.index('id="watchlist-strategy"')
+    assert home.index('id="watch-market-map"') < home.index('id="home-surge"')
+    assert 'id="watch-market-map"' not in portfolio
     assert 'data-unified-market-scope' not in portfolio
 
     for expected in (
         "function watchMarketMapEntries",
         "function packWatchMarketMapBubbles",
         "function computeWatchMarketMapLayout",
+        "function watchMarketMapMotionPlan",
+        "function watchMarketMapMotionSnapshot",
+        "function animateWatchMarketMapLayout",
         "function watchMarketMapTimelineSnapshot",
         "function renderWatchMarketMapTimeline",
         "function renderWatchMarketMap",
+        "async function loadHomeWatchMarketMap",
         "function openWatchMarketMapSheet",
         "function createWatchMarketMapSheetRow",
         'tile.href = viewStockUrl(entry.item.code || entry.item.name, entry.item);',
         'link.href = viewStockUrl(entry.item.code || entry.item.name, entry.item);',
+        'const groupId = state.activeWatchGroup;',
         'const items = watchlistItemsForGroup(groupId);',
         'const url = options.force ? "/us/fx/usdkrw?refresh=true" : "/us/fx/usdkrw";',
-        '["home", "ai-signals", "stock", "portfolio", "recommend-detail"',
         'renderWatchMarketMap([], { loading: true, totalCount: items.length });',
-        "renderWatchMarketMap(state.watchlistResults);",
+        "renderWatchMarketMap(state.watchMarketMapResults);",
+        'animation.id = "watch-market-map-layout";',
+        'stage.dataset.motion = "settling";',
+        '"(prefers-reduced-motion: reduce)"',
         'elements.watchMarketMapStage?.querySelector(".watch-market-map-tile.is-overflow")',
     ):
         assert expected in source
@@ -161,8 +153,10 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
 
     for expected in (
         "/* Watch groups and market-cap bubbles v496",
+        "#home-view .watch-market-map {",
         ".watch-market-map-stage {",
         ".watch-market-map-tile.is-overflow",
+        ".watch-market-map-tile[data-watch-motion]",
         ".watch-market-map-timeline-track {",
         ".watch-market-map-timeline-track i {",
         ".watch-market-map-sheet::backdrop",
@@ -190,7 +184,7 @@ function functionSource(name, nextName) {
   if (start < 0 || end < 0) throw new Error(`${name} not found`);
   return source.slice(start, end);
 }
-const state = { watchlistResults: [], watchMarketMapUsdKrw: 1300 };
+const state = { watchMarketMapResults: [], watchMarketMapUsdKrw: 1300 };
 function toNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
@@ -205,6 +199,7 @@ function watchMarketMapMarketCap(result = {}) {
 eval(functionSource("watchMarketMapEntries", "packWatchMarketMapBubbles"));
 eval(functionSource("packWatchMarketMapBubbles", "computeWatchMarketMapLayout"));
 eval(functionSource("computeWatchMarketMapLayout", "watchMarketMapTimeParts"));
+eval(functionSource("watchMarketMapMotionPlan", "watchMarketMapMotionKey"));
 eval(functionSource("watchMarketMapTimeParts", "watchMarketMapTimelineSnapshot"));
 eval(functionSource("watchMarketMapTimelineSnapshot", "renderWatchMarketMapTimeline"));
 const result = (code, marketScope, marketCap) => ({
@@ -255,6 +250,28 @@ const responsiveSafe = [
 });
 const stockRadii = layout.nodes.filter((node) => node.kind === "stock").map((node) => node.radius);
 const sizesDescending = stockRadii.every((radius, index) => index === 0 || stockRadii[index - 1] >= radius);
+const singleLayout = computeWatchMarketMapLayout([
+  watchMarketMapEntries([result("ONLY", "kr", 500e12)])[0],
+], 320, 300);
+const singleBubbleReadable = singleLayout.nodes.length === 1 && singleLayout.nodes[0].radius >= 50;
+const enteringMotion = watchMarketMapMotionPlan(
+  null,
+  {left: 100, top: 80, width: 80, height: 80},
+  {left: 0, top: 0, width: 320, height: 300},
+  2,
+);
+const repositionMotion = watchMarketMapMotionPlan(
+  {left: 48, top: 70, width: 72, height: 72},
+  {left: 92, top: 96, width: 80, height: 80},
+  {left: 0, top: 0, width: 320, height: 300},
+  1,
+);
+const unchangedMotion = watchMarketMapMotionPlan(
+  {left: 92, top: 96, width: 80, height: 80},
+  {left: 92, top: 96, width: 80, height: 80},
+  {left: 0, top: 0, width: 320, height: 300},
+  1,
+);
 const timeline = watchMarketMapTimelineSnapshot([
   {dashboard: {quote: {as_of: "2026-09-09T05:30:00+09:00"}}},
 ]);
@@ -267,6 +284,17 @@ console.log(JSON.stringify({
   outside,
   responsiveSafe,
   sizesDescending,
+  singleBubbleReadable,
+  motion: {
+    enteringKind: enteringMotion.kind,
+    enteringDuration: enteringMotion.timing.duration,
+    enteringDelay: enteringMotion.timing.delay,
+    enteringOpacity: enteringMotion.keyframes[0].opacity,
+    enteringFinalTransform: enteringMotion.keyframes.at(-1).transform,
+    repositionKind: repositionMotion.kind,
+    repositionDuration: repositionMotion.timing.duration,
+    unchangedSkipped: unchangedMotion === null,
+  },
   timelineMinutes: timeline.minutes,
 }));
 '''
@@ -287,38 +315,49 @@ console.log(JSON.stringify({
         "outside": False,
         "responsiveSafe": True,
         "sizesDescending": True,
+        "singleBubbleReadable": True,
+        "motion": {
+            "enteringKind": "entering",
+            "enteringDuration": 620,
+            "enteringDelay": 32,
+            "enteringOpacity": 0,
+            "enteringFinalTransform": "translate3d(0, 0, 0) scale(1)",
+            "repositionKind": "repositioning",
+            "repositionDuration": 460,
+            "unchangedSkipped": True,
+        },
         "timelineMinutes": 330,
     }
 
 
-def test_interest_groups_share_one_list_and_pin_rows_show_two_return_contexts():
+def test_interest_groups_share_compact_list_and_edit_actions():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text
     styles = client.get("/assets/dashboard/styles.css").text
 
     for expected in (
         'const WATCHLIST_GROUP_KEY = "analyst.watchlistGroups.v1";',
-        'default: Object.freeze({ id: "default", name: "기본" })',
+        'default: Object.freeze({ id: "default", name: "기본그룹" })',
         'pinned: Object.freeze({ id: "pinned", name: "핀종목" })',
         "function watchlistItemsForGroup",
         'if (groupId === "pinned")',
         "function openWatchlistGroupDialog",
         "function saveWatchlistGroupFromDialog",
         "function removeCodeFromActiveWatchlistGroup",
+        "function shareActiveWatchlistGroup",
         "const focusedGroupId = elements.watchGroupTabs.contains(document.activeElement)",
         'const currentTab = event.target.closest("[data-watch-group]");',
         'const nextGroupId = tabs[nextIndex].dataset.watchGroup || "default";',
         "fetchRemoteWatchlistGroups(normalizedId)",
         "saveRemoteWatchlistGroups(localGroups, normalizedId)",
         'state.activeWatchGroup = "pinned";',
-        'className = "watch-stock-card watch-v2-stock-row watch-pinned-stock-row"',
-        'createWatchReportMetric("핀 설정", pinnedAt)',
-        'createWatchReportMetric("핀 이후", formatPercent(profit.rate), "", "tracked_pnl_rate", profit.rate)',
-        'createWatchReportMetric("오늘", formatPercent(dashboard?.quote?.change_rate), "", "pin_today_rate"',
-        'removeButton.dataset.watchAction = "unpin";',
-        'removeButton.dataset.watchAction = customGroup ? "remove-group" : "remove-watchlist";',
+        'card.className = `watch-compact-row${pinned ? " is-pinned" : ""}`;',
+        'card.dataset.watchGroupKind = "pinned";',
+        'removeButton.dataset.watchAction = pinned ? "unpin" : customGroup ? "remove-group" : "remove-watchlist";',
         'removeWatchlistCodeFromGroups(code);',
-        'elements.portfolioTrackingPanel.hidden = true;',
+        'elements.portfolioView.dataset.watchEditing = String(state.watchlistEditing);',
+        'elements.watchGroupMeta.textContent = watchlistGroupMetaText();',
+        'elements.watchlistSearch?.addEventListener("click", () => setView("search"));',
     ):
         assert expected in source
 
@@ -327,10 +366,10 @@ def test_interest_groups_share_one_list_and_pin_rows_show_two_return_contexts():
         ".watch-group-rail {",
         ".watch-group-chip.active",
         ".watch-group-dialog::backdrop",
-        ".watch-pin-metrics {",
-        'grid-template-columns: repeat(3, minmax(0, 1fr));',
-        '#watchlist-view[data-group-kind="pinned"] .watch-v3-tabs',
-        '.remove-watch[data-watch-action="remove-group"]',
+        '#portfolio-view[data-watchlist-layout="compact"] .watch-hub-toolbar',
+        '#portfolio-view[data-watchlist-layout="compact"] .watch-compact-row',
+        '#portfolio-view[data-watchlist-layout="compact"] .watch-group-share',
+        '#portfolio-view[data-watchlist-layout="compact"][data-watch-editing="true"] .watch-compact-remove',
         "@media (max-width: 359px)",
         "@media (prefers-reduced-motion: reduce)",
     ):
