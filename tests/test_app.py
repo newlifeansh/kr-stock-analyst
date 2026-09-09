@@ -30,7 +30,7 @@ def test_health():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["strategy_version"] == "position-lifecycle-v7.4.1"
+    assert response.json()["strategy_version"] == "position-lifecycle-v7.4.2"
     assert response.json()["dashboard_version"] == "20260908v492"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
@@ -1166,7 +1166,7 @@ def test_market_quant_signal_preparing_payload_includes_active_reconciliation(mo
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "preparing"
-        assert payload["strategy_version"] == "position-lifecycle-v7.4.1"
+        assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
         oci = next(item for item in payload["items"] if item["code"] == "010060")
         assert oci["status"] == "confirmed"
         assert oci["side"] == "sell"

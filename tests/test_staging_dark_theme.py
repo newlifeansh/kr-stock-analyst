@@ -2492,7 +2492,7 @@ def test_staging_quality_proxy_keeps_upstream_data_and_uses_candidate_strategy()
         )
     )
 
-    assert rewritten["strategy_version"] == "position-lifecycle-v7.4.1"
+    assert rewritten["strategy_version"] == "position-lifecycle-v7.4.2"
     assert rewritten["datasets"]["fundamentals"]["state"] == "ready"
 
 
