@@ -562,13 +562,19 @@ class BriefingRuntime:
             current = current.replace(tzinfo=KST)
         else:
             current = current.astimezone(KST)
-        target_yyyymmdd = current.strftime("%Y%m%d")
-        if not is_korea_market_session_date(current.date(), current):
+        is_current_session = is_korea_market_session_date(current.date(), current)
+        use_completed_session = not is_current_session or current.time() < time(9, 0)
+        target_date = current.date()
+        if use_completed_session:
             completed_target = latest_completed_korea_market_session_date(current)
-            if (
-                completed_target
-                and self.last_post_close_price_repair_date != completed_target
-            ):
+            if completed_target is None:
+                return {
+                    "source": "market_closed",
+                    "rows_loaded": 0,
+                    "message": f"date={current.strftime('%Y%m%d')} skipped_non_trading_day",
+                }
+            target_date = completed_target
+            if self.last_post_close_price_repair_date != completed_target:
                 repaired = self._repair_signal_price_ohlc(db, completed_target)
                 self.last_post_close_price_repair_date = completed_target
                 if repaired:
@@ -577,21 +583,27 @@ class BriefingRuntime:
                         "rows_loaded": repaired,
                         "message": f"date={completed_target.isoformat()} repaired_after_close",
                     }
-            return {
-                "source": "market_closed",
-                "rows_loaded": 0,
-                "message": f"date={target_yyyymmdd} skipped_non_trading_day",
-            }
+        target_yyyymmdd = target_date.strftime("%Y%m%d")
         coverage = self._latest_price_coverage(db, target_yyyymmdd)
         if coverage["total"] and coverage["coverage_ratio"] >= 0.95:
+            if use_completed_session:
+                return {
+                    "source": "market_closed",
+                    "rows_loaded": 0,
+                    "message": (
+                        f"date={target_yyyymmdd} completed_session_ready "
+                        f"fresh={coverage['fresh']}/{coverage['total']} "
+                        f"coverage={coverage['coverage_ratio']:.2%}"
+                    ),
+                }
             if self._post_close_price_repair_due(current):
                 repaired = self._repair_signal_price_ohlc(
                     db,
-                    current.date(),
+                    target_date,
                     force=True,
                 )
                 if repaired:
-                    self.last_post_close_price_repair_date = current.date()
+                    self.last_post_close_price_repair_date = target_date
                 return {
                     "source": "post_close_price_ohlc_finalize",
                     "rows_loaded": repaired,
@@ -616,7 +628,7 @@ class BriefingRuntime:
             except Exception as exc:
                 market_errors[market] = str(exc)
         if total_rows:
-            repaired = self._repair_signal_price_ohlc(db, current.date())
+            repaired = self._repair_signal_price_ohlc(db, target_date)
             return {
                 "source": "krx_market+naver_ohlc_repair" if repaired else "krx_market",
                 "rows_loaded": total_rows + repaired,
@@ -638,11 +650,11 @@ class BriefingRuntime:
                 must_finalize_close = self._post_close_price_repair_due(current)
                 repaired = self._repair_signal_price_ohlc(
                     db,
-                    current.date(),
+                    target_date,
                     force=must_finalize_close,
                 )
                 if must_finalize_close and repaired:
-                    self.last_post_close_price_repair_date = current.date()
+                    self.last_post_close_price_repair_date = target_date
                 return {
                     "source": "naver_quotes+naver_ohlc_repair" if repaired else "naver_full_quotes",
                     "rows_loaded": naver_rows + repaired,
@@ -780,6 +792,8 @@ class BriefingRuntime:
             row.code
             for row in target_rows
             if _has_complete_price_ohlc(row)
+            and row.market_cap is not None
+            and row.market_cap > 0
         }
         fresh = len(fresh_codes)
         return {

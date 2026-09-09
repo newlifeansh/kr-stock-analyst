@@ -544,6 +544,11 @@ def test_collect_prices_does_not_create_weekend_rows(monkeypatch):
     )
     monkeypatch.setattr(
         briefing,
+        "latest_completed_korea_market_session_date",
+        lambda _now=None: None,
+    )
+    monkeypatch.setattr(
+        briefing,
         "collect_market_prices",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("market collector must not run")),
     )
@@ -634,6 +639,57 @@ def test_collect_prices_repairs_previous_session_ohlc_after_midnight(monkeypatch
     assert calls == [date(2026, 8, 20)]
 
 
+def test_collect_prices_uses_completed_session_before_market_open(monkeypatch):
+    runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
+    monkeypatch.setattr(
+        briefing,
+        "is_korea_market_session_date",
+        lambda *_args: True,
+    )
+    monkeypatch.setattr(
+        briefing,
+        "latest_completed_korea_market_session_date",
+        lambda _now=None: date(2026, 8, 20),
+    )
+    repair_calls = []
+    monkeypatch.setattr(
+        runtime,
+        "_repair_signal_price_ohlc",
+        lambda _db, target, **_kwargs: repair_calls.append(target) or 0,
+    )
+    coverage_calls = []
+    monkeypatch.setattr(
+        runtime,
+        "_latest_price_coverage",
+        lambda _db, target: coverage_calls.append(target)
+        or {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
+    )
+    market_calls = []
+
+    def fake_market(_db, yyyymmdd, market):
+        market_calls.append((yyyymmdd, market))
+        raise RuntimeError("KRX unavailable")
+
+    naver_calls = []
+    monkeypatch.setattr(briefing, "collect_market_prices", fake_market)
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_quotes",
+        lambda _db, yyyymmdd, **_kwargs: naver_calls.append(yyyymmdd) or 1232,
+    )
+
+    result = runtime._collect_prices(
+        object(),
+        now=datetime(2026, 8, 21, 6, 30),
+    )
+
+    assert result["source"] == "naver_full_quotes"
+    assert coverage_calls == ["20260820"]
+    assert market_calls == [("20260820", "KOSPI"), ("20260820", "KOSDAQ")]
+    assert naver_calls == ["20260820"]
+    assert repair_calls == [date(2026, 8, 20), date(2026, 8, 20)]
+
+
 def test_price_coverage_requires_a_complete_coherent_daily_candle():
     runtime = briefing.BriefingRuntime(Settings())
 
@@ -653,6 +709,7 @@ def test_price_coverage_requires_a_complete_coherent_daily_candle():
                     high=81_000,
                     low=79_000,
                     close=80_500,
+                    market_cap=500_000_000_000_000,
                 ),
                 SimpleNamespace(
                     code="096770",
@@ -660,10 +717,51 @@ def test_price_coverage_requires_a_complete_coherent_daily_candle():
                     high=None,
                     low=None,
                     close=128_700,
+                    market_cap=25_000_000_000_000,
                 ),
             ]
 
     coverage = runtime._latest_price_coverage(Database(), "20260811")
+
+    assert coverage == {
+        "total": 2,
+        "fresh": 1,
+        "coverage_ratio": 0.5,
+    }
+
+
+def test_price_coverage_requires_positive_market_cap_for_signal_universe():
+    runtime = briefing.BriefingRuntime(Settings())
+
+    class Rows:
+        def all(self):
+            return [("005930",), ("000660",)]
+
+    class Database:
+        def execute(self, _statement):
+            return Rows()
+
+        def scalars(self, _statement):
+            return [
+                SimpleNamespace(
+                    code="005930",
+                    open=80_000,
+                    high=81_000,
+                    low=79_000,
+                    close=80_500,
+                    market_cap=500_000_000_000_000,
+                ),
+                SimpleNamespace(
+                    code="000660",
+                    open=270_000,
+                    high=275_000,
+                    low=265_000,
+                    close=272_000,
+                    market_cap=None,
+                ),
+            ]
+
+    coverage = runtime._latest_price_coverage(Database(), "20260820")
 
     assert coverage == {
         "total": 2,
