@@ -456,6 +456,12 @@ def test_etf_holdings_refresh_is_due_at_midnight_and_noon_kst():
 
 
 def test_etf_profile_endpoint_and_stock_home_shell(monkeypatch):
+    resolved_stock = main_module.StockMaster(
+        code="005930",
+        name="삼성전자",
+        market="KOSPI",
+        is_active=True,
+    )
     monkeypatch.setattr(main_module, "get_complete_snapshot", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         main_module,
@@ -473,6 +479,11 @@ def test_etf_profile_endpoint_and_stock_home_shell(monkeypatch):
             "source_label": "FnGuide ETF",
             "source_url": None,
         },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ensure_stock_master_from_naver",
+        lambda *_args, **_kwargs: resolved_stock,
     )
     client = TestClient(app)
     response = client.get("/stocks/005930/etf-profile")

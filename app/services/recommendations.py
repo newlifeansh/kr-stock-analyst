@@ -982,6 +982,10 @@ def build_recommendations(
         for item in base_items
         if str(item.get("code") or "") in eligible_snapshot_items
     ][: min(len(base_items), score_pool_limit)]
+    candidate_by_code = {
+        str(item.get("code") or ""): item
+        for item in candidates
+    }
     scored = []
     if refresh_live:
         if _uses_runtime_database(db):
@@ -1020,6 +1024,11 @@ def build_recommendations(
     else:
         grouped_prices = universe.get("price_groups") or {}
         scored = [_score_fast_candidate(item, grouped_prices.get(str(item["code"]), [])) for item in candidates]
+
+    for item in scored:
+        fallback = candidate_by_code.get(str(item.get("code") or ""))
+        if fallback and not item.get("trading_value"):
+            item["trading_value"] = fallback.get("trading_value")
 
     scored.sort(key=lambda item: item["score"], reverse=True)
     preliminary_states = _latest_preliminary_states(

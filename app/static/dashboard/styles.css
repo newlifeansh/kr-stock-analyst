@@ -45301,9 +45301,18 @@ body[data-staging-ia="tds-video"] #watchlist-view .watch-pin-state {
   border: 0;
   outline: 0;
   color: light-dark(#191f28, #f2f4f6);
-  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent !important;
+  box-shadow: none !important;
   font: inherit;
   font-size: 16px;
+}
+
+body[data-staging-ia="tds-video"] .watch-stock-search-form > input:is(:focus, :focus-visible) {
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .watch-stock-search-form input::placeholder {
