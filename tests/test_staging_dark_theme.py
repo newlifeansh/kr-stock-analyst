@@ -593,6 +593,17 @@ def test_staging_tds_palette_has_no_unpaired_theme_colors():
     assert css.count("var(--tc-focus)") >= 3
 
 
+def test_amazon_logo_keeps_its_white_mark_visible_and_centered():
+    client = TestClient(staging_app)
+    styles = client.get("/assets/dashboard/styles.css").text
+    rules = styles[styles.index("/* Amazon logo centering v516") :]
+
+    assert 'img[src*="/stock-logos/AMZN.png"]' in rules
+    assert "background: #111111 !important;" in rules
+    assert "object-position: 50% 50% !important;" in rules
+    assert "transform-origin: 50% 50% !important;" in rules
+
+
 def test_staging_tds_ia_asset_preserves_data_contracts_and_remaps_navigation():
     client = TestClient(staging_app)
     response = client.get("/assets/staging/toss-ia.js")
@@ -2778,7 +2789,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20260910v514' in shell
+    assert 'dashboard-app-v170.js?v=20260910v516' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 

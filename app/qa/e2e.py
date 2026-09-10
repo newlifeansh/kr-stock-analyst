@@ -6804,6 +6804,23 @@ def run_e2e_checks(
                     key = f"{market}_ranking"
                     request_counts[key] += 1
                     us_market = market == "us"
+                    items = [
+                        {
+                            "code": "NVDA" if us_market else "005930",
+                            "name": "엔비디아" if us_market else "삼성전자",
+                            "change_rate": 2.34 if us_market else 1.23,
+                            "market_cap": 4_000_000_000_000 if us_market else 600_000_000_000_000,
+                        }
+                    ]
+                    if us_market:
+                        items.append(
+                            {
+                                "code": "AMZN",
+                                "name": "Amazon",
+                                "change_rate": 1.08,
+                                "market_cap": 2_700_000_000_000,
+                            }
+                        )
                     route.fulfill(
                         status=200,
                         content_type="application/json",
@@ -6811,14 +6828,7 @@ def run_e2e_checks(
                             {
                                 "category": "surge",
                                 "as_of": "2026-09-08T12:00:00+09:00",
-                                "items": [
-                                    {
-                                        "code": "NVDA" if us_market else "005930",
-                                        "name": "엔비디아" if us_market else "삼성전자",
-                                        "change_rate": 2.34 if us_market else 1.23,
-                                        "market_cap": 4_000_000_000_000 if us_market else 600_000_000_000_000,
-                                    }
-                                ],
+                                "items": items,
                             },
                             ensure_ascii=False,
                         ),
@@ -6937,6 +6947,33 @@ def run_e2e_checks(
                     ".staging-hot-community-post-body > strong",
                     has_text="미국 커뮤니티 새 글",
                 ).wait_for(state="visible")
+                amazon_logo = section.locator(
+                    '[data-hot-community-code="AMZN"] .staging-stock-logo-image'
+                )
+                amazon_logo.wait_for(state="visible")
+                page.wait_for_function(
+                    """() => document.querySelector(
+                      '[data-hot-community-code="AMZN"] .staging-stock-logo'
+                    )?.classList.contains('has-stock-logo')"""
+                )
+                amazon_logo_style = amazon_logo.evaluate(
+                    """image => {
+                      const style = getComputedStyle(image);
+                      return {
+                        backgroundColor: style.backgroundColor,
+                        objectPosition: style.objectPosition,
+                        transformOrigin: style.transformOrigin,
+                      };
+                    }"""
+                )
+                if (
+                    amazon_logo_style.get("backgroundColor") != "rgb(17, 17, 17)"
+                    or amazon_logo_style.get("objectPosition") != "50% 50%"
+                ):
+                    raise QaFailure(
+                        "Amazon 로고의 흰색 마크 대비 또는 중앙 정렬이 깨졌습니다.",
+                        amazon_logo_style,
+                    )
                 us_snapshot = section.evaluate(
                     """section => ({
                       market: section.dataset.hotCommunityMarket,
@@ -7003,6 +7040,7 @@ def run_e2e_checks(
                     "us_snapshot": {
                         "market": us_snapshot.get("market"),
                         "selected_code": us_snapshot.get("selectedCode"),
+                        "amazon_logo": amazon_logo_style,
                     },
                     "kr_transition": kr_transition,
                     "kr_snapshot": {
