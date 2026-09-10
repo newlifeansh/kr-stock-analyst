@@ -10548,7 +10548,7 @@ function watchlistGroupById(groupId = state.activeWatchGroup) {
 
 function watchlistItemsForGroup(groupId = state.activeWatchGroup) {
   if (groupId === "pinned") {
-    return readRecommendationTracks().map((track) => ({
+    const pinnedItems = readRecommendationTracks().map((track) => ({
       code: track.code,
       name: track.name,
       market: track.market || "",
@@ -10556,8 +10556,10 @@ function watchlistItemsForGroup(groupId = state.activeWatchGroup) {
       currency: track.currency || (marketScopeForItem(track) === "us" ? "USD" : "KRW"),
       pin_track: track,
     }));
+    const effectiveScope = state.view === "home" ? "all" : state.marketScope;
+    return pinnedItems.filter((item) => itemMatchesMarketScope(item, effectiveScope));
   }
-  const items = readWatchlist({ allMarkets: isUsHubContext });
+  const items = readWatchlist();
   if (groupId === "default") return items;
   const group = watchlistGroupById(groupId);
   if (!group) return items;
