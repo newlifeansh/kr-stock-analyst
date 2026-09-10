@@ -233,7 +233,7 @@
       "domain": "펀더멘털·리서치 연동",
       "priority": "P0",
       "modes": ["gate", "live"],
-      "automation": "pytest malformed/cutoff/partial-retry/canonical Top100 fallback fixtures + data-quality/runtime-status endpoint",
+      "automation": "pytest malformed/cutoff/partial-retry/canonical Top100 and research fallback fixtures + data-quality/runtime-status endpoint",
       "preconditions": ["정상·빈 값·손상 JSON 스냅샷을 준비한다.", "미국 운영 수집기의 네이버 기업실적 응답이 비어 있고 기준 서비스 대시보드에 정규화된 실적이 있는 상태를 준비한다."],
       "inputs": {"fresh_days": 2, "minimum_ready_coverage": 0.95, "poll_seconds": 86400, "collection_headroom_days": 1, "priority_universe": 100, "partial_retry_seconds": 3600, "canonical_fallback_scope": "signal Top100 only"},
       "steps": ["파싱 가능 여부·fetched_at·동일 종가일 기준 시총 상위 100개 최신 커버리지·마지막 성공 시각을 검사한다.", "상위 100 수집 cutoff를 품질 SLA보다 폴링 주기만큼 앞당기고 전체 종목 cutoff는 기존 SLA로 유지한다.", "상위 또는 전체 수집의 개별 실패를 주입해 degraded 상태·실패 건수·다음 재시도 시각을 확인한다.", "네이버 기업실적이 비었을 때만 기준 서비스 대시보드에서 허용된 밸류에이션·성장률·재무 시계열을 Top100에 보강하고 다른 필드와 종목 코드는 거부한다.", "기준 서비스가 완성 스냅샷 준비 중 503을 반환하면 2·4·6·8초 간격의 제한된 재시도 후 성공 또는 명시적 부분 실패로 기록한다."],
@@ -246,12 +246,12 @@
       "domain": "펀더멘털·리서치 연동",
       "priority": "P1",
       "modes": ["gate", "live"],
-      "automation": "pytest report fixture + dedicated freshness-lane fixture + research endpoint",
-      "preconditions": ["기업·산업·시장 리포트를 준비한다."],
-      "inputs": {"lookback_days": 180, "fresh_minutes": 45, "isolated_from_long_cycle": true},
-      "steps": ["종목 매핑, 발행일, 최근 성공 수집 시각과 커버리지를 확인한다.", "전 종목 가격·스냅샷 수집을 인위적으로 지연시킨 동안에도 리서치 고빈도 레인이 실행되는지 확인한다."],
-      "expected": ["60% 미만은 stale, 60~80%는 caution, 80% 이상은 ready다.", "느린 수집 사이클과 무관하게 리서치 수집이 설정 주기로 계속된다."],
-      "failure_criteria": ["오래된 수집이 ready이거나 발행일 이후 신호에 소급 사용된다.", "가격·전 종목 스냅샷 작업이 길어져 리서치 수집이 최신성 한계를 넘긴다."]
+      "automation": "pytest report fixture + dedicated freshness-lane/canonical fallback fixtures + research endpoint",
+      "preconditions": ["기업·산업·시장 리포트를 준비한다.", "지역 수집기가 신규 리포트 0건을 반환하고 기준 서비스에는 정규화된 최근 리포트가 있는 상태를 준비한다."],
+      "inputs": {"lookback_days": 180, "fresh_minutes": 45, "isolated_from_long_cycle": true, "canonical_limit": 500, "canonical_fallback": "explicitly enabled, zero direct rows only"},
+      "steps": ["종목 매핑, 발행일, 최근 성공 수집 시각과 커버리지를 확인한다.", "전 종목 가격·스냅샷 수집을 인위적으로 지연시킨 동안에도 리서치 고빈도 레인이 실행되는지 확인한다.", "직접 수집이 0건일 때 기준 서비스의 허용된 원천·카테고리·종목코드·발행일을 검증해 최근 리포트를 동기화한다."],
+      "expected": ["60% 미만은 stale, 60~80%는 caution, 80% 이상은 ready다.", "느린 수집 사이클과 무관하게 리서치 수집이 설정 주기로 계속된다.", "명시적으로 활성화된 지역 수집기만 기준 리포트를 보강하고 직접 수집 자료와 같은 중복 키로 갱신한다."],
+      "failure_criteria": ["오래된 수집이 ready이거나 발행일 이후 신호에 소급 사용된다.", "가격·전 종목 스냅샷 작업이 길어져 리서치 수집이 최신성 한계를 넘긴다.", "정상 직접 수집 후 기준 서비스를 불필요하게 호출하거나 미허용 원천·카테고리·손상 발행일·잘못된 종목코드를 저장한다."]
     },
     {
       "id": "DATA-FUND-RESEARCH-003",

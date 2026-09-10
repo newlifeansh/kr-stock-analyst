@@ -31,6 +31,7 @@ CATEGORY_PATHS = {
     "invest": "invest_list.naver",
     "debenture": "debenture_list.naver",
 }
+CANONICAL_RESEARCH_SOURCES = {"naver_finance", "stockhub"}
 
 
 def naver_mobile_research_url(stock_code: object, external_id: object) -> Optional[str]:
@@ -549,6 +550,96 @@ def collect_research_reports(
         count = upsert_many(db, ResearchReport, [item.as_row() for item in items])
         db.commit()
         finish_ingestion(db, run, "success", rows_loaded=count, message=f"categories={','.join(categories)}")
+        return count
+    except Exception as exc:
+        db.rollback()
+        finish_ingestion(db, run, "failed", 0, str(exc))
+        raise
+
+
+def _canonical_research_row(payload: object) -> Optional[dict[str, object]]:
+    if not isinstance(payload, dict):
+        return None
+    source = str(payload.get("source") or "").strip()
+    source_category = str(payload.get("source_category") or "").strip()
+    external_id = str(payload.get("external_id") or "").strip()
+    title = str(payload.get("title") or "").strip()
+    if (
+        source not in CANONICAL_RESEARCH_SOURCES
+        or source_category not in CATEGORY_PATHS
+        or not external_id
+        or not title
+    ):
+        return None
+
+    published_at = None
+    if payload.get("published_at"):
+        try:
+            published_at = datetime.fromisoformat(str(payload["published_at"]))
+        except ValueError:
+            return None
+        if published_at.tzinfo is not None:
+            published_at = published_at.astimezone(KST).replace(tzinfo=None)
+
+    stock_code = str(payload.get("stock_code") or "").strip() or None
+    if stock_code is not None and not re.fullmatch(r"[0-9A-Z]{6}", stock_code):
+        return None
+    target_price = _parse_decimal(str(payload.get("target_price") or ""))
+    views = _parse_int(str(payload.get("views") or ""))
+    return {
+        "source": source,
+        "source_category": source_category,
+        "external_id": external_id,
+        "title": title,
+        "subject_name": str(payload.get("subject_name") or "").strip() or None,
+        "company_name": str(payload.get("company_name") or "").strip() or None,
+        "stock_code": stock_code,
+        "broker_name": str(payload.get("broker_name") or "").strip() or None,
+        "opinion": str(payload.get("opinion") or "").strip() or None,
+        "target_price": target_price,
+        "detail_url": str(payload.get("detail_url") or "").strip() or None,
+        "pdf_url": str(payload.get("pdf_url") or "").strip() or None,
+        "published_at": published_at,
+        "views": views,
+        "raw": None,
+    }
+
+
+def collect_canonical_research_reports(
+    db: Session,
+    *,
+    base_url: str,
+    limit: int = 500,
+    timeout: int = 12,
+) -> int:
+    """Mirror normalized public reports when the regional collector sees no rows."""
+
+    run = start_ingestion(db, "research", "canonical")
+    try:
+        response = requests.get(
+            f"{base_url.rstrip('/')}/research-reports",
+            params={"limit": max(1, min(int(limit), 500))},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise ValueError("Canonical research response must be a list")
+        rows = [
+            row
+            for item in payload
+            if (row := _canonical_research_row(item)) is not None
+        ]
+        count = upsert_many(db, ResearchReport, rows)
+        db.commit()
+        finish_ingestion(
+            db,
+            run,
+            "success",
+            rows_loaded=count,
+            message=f"canonical_limit={max(1, min(int(limit), 500))}",
+        )
         return count
     except Exception as exc:
         db.rollback()

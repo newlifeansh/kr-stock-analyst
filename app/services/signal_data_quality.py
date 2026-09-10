@@ -324,7 +324,7 @@ def signal_data_quality_status(
     research_api = _run_freshness(
         db,
         source="research",
-        datasets=("naver_finance",),
+        datasets=("naver_finance", "canonical"),
         now=current,
         max_age_seconds=max(1800, int(settings.research_poll_seconds) * 3),
     )

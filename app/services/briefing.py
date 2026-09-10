@@ -37,7 +37,10 @@ from app.collectors.naver_quotes import (
     collect_naver_realtime_market_caps,
 )
 from app.collectors.news import collect_news_items
-from app.collectors.research import collect_research_reports
+from app.collectors.research import (
+    collect_canonical_research_reports,
+    collect_research_reports,
+)
 from app.collectors.stock_snapshots import (
     collect_stock_company_snapshots,
     collect_stock_fundamental_snapshots,
@@ -252,7 +255,17 @@ class BriefingRuntime:
                 refreshed_any = False
                 if self.settings.research_enabled and self._research_due():
                     try:
-                        collect_research_reports(db, settings=self.settings)
+                        research_rows = collect_research_reports(db, settings=self.settings)
+                        if (
+                            research_rows == 0
+                            and self.settings.canonical_domestic_sync_enabled
+                        ):
+                            collect_canonical_research_reports(
+                                db,
+                                base_url=self.settings.canonical_public_base_url,
+                                limit=self.settings.canonical_domestic_sync_research_limit,
+                                timeout=self.settings.canonical_domestic_sync_timeout_seconds,
+                            )
                         self.last_research_at = datetime.utcnow()
                         self.source_errors.pop("research", None)
                         refreshed_any = True

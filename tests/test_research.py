@@ -1,11 +1,17 @@
+from sqlalchemy import create_engine, func
+from sqlalchemy.orm import sessionmaker
+
 from app.collectors import research
 from app.collectors.research import (
+    collect_canonical_research_reports,
     fetch_naver_company_reports_for_stock,
     fetch_stockhub_reports_for_stock,
     naver_mobile_research_url,
     parse_naver_listing_html,
     preferred_research_url,
 )
+from app.db import Base
+from app.models import IngestionRun, ResearchReport
 
 
 COMPANY_HTML = """
@@ -64,6 +70,58 @@ COMPANY_DETAIL_HTML = """
 STOCKHUB_HTML = r'''
 <script>\"analystReports\":[{\"id\":13793,\"ticker\":\"078930\",\"broker\":\"DB증권\",\"report_title\":\"GS 목표가 120,000원 상향\",\"target_price\":120000,\"opinion_raw\":\"매수-유지\",\"report_date\":\"2026-07-20\",\"source_url\":\"https://www.db-fi.com/bbs/board.php?bo_table=research\",\"pdf_url\":null}],\"usConsensus\":null</script>
 '''
+
+
+def _session():
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+
+
+def test_collect_canonical_research_reports_validates_and_upserts(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [
+                {
+                    "source": "stockhub",
+                    "source_category": "company",
+                    "external_id": "stockhub-16480",
+                    "title": "한미약품 목표가 상향",
+                    "stock_code": "128940",
+                    "broker_name": "KB증권",
+                    "target_price": "650000.00",
+                    "published_at": "2026-09-10T00:00:00",
+                },
+                {
+                    "source": "untrusted",
+                    "source_category": "company",
+                    "external_id": "bad",
+                    "title": "거부",
+                },
+            ]
+
+    monkeypatch.setattr(research.requests, "get", lambda *args, **kwargs: Response())
+
+    with _session() as db:
+        count = collect_canonical_research_reports(
+            db,
+            base_url="https://canonical.example/",
+            limit=900,
+            timeout=7,
+        )
+
+        assert count == 1
+        assert db.query(func.count(ResearchReport.id)).scalar() == 1
+        report = db.query(ResearchReport).one()
+        assert report.stock_code == "128940"
+        assert report.target_price == 650000
+        run = db.query(IngestionRun).one()
+        assert run.source == "research"
+        assert run.dataset == "canonical"
+        assert run.message == "canonical_limit=500"
 
 
 def test_parse_company_listing_html():

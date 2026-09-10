@@ -83,6 +83,54 @@ def test_short_cadence_lane_does_not_overlap_itself():
         runtime._freshness_lock.release()
 
 
+def test_short_cadence_research_uses_canonical_when_direct_source_is_empty(monkeypatch):
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=True,
+            disclosure_enabled=False,
+            news_enabled=False,
+            price_enabled=False,
+            stock_universe_enabled=False,
+            investor_flow_enabled=False,
+            financials_enabled=False,
+            fundamental_snapshot_enabled=False,
+            stock_news_snapshot_enabled=False,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=False,
+            canonical_domestic_sync_enabled=True,
+            canonical_public_base_url="https://canonical.example",
+            canonical_domestic_sync_research_limit=400,
+            canonical_domestic_sync_timeout_seconds=7,
+        )
+    )
+    calls = []
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(briefing, "collect_research_reports", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(
+        briefing,
+        "collect_canonical_research_reports",
+        lambda *_args, **kwargs: calls.append(kwargs) or 300,
+    )
+
+    assert runtime.run_freshness_once(refresh_briefing=False) is True
+    assert calls == [
+        {
+            "base_url": "https://canonical.example",
+            "limit": 400,
+            "timeout": 7,
+        }
+    ]
+
+
 def test_short_cadence_lane_uses_the_fastest_enabled_interval():
     runtime = briefing.BriefingRuntime(
         Settings(

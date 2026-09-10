@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     canonical_domestic_sync_enabled: bool = False
     canonical_domestic_sync_timeout_seconds: int = 12
     canonical_domestic_sync_flow_limit: int = 40
+    canonical_domestic_sync_research_limit: int = 500
     financials_enabled: bool = True
     financials_poll_seconds: int = 21600
     financials_year: Optional[str] = None
