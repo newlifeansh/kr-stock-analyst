@@ -1007,7 +1007,11 @@ def run_e2e_checks(
                           ? state.aiSignalRevision
                           : null,
                         status: state.aiSignalMarketStatus || '',
-                        modeCounts: aiSignalModeCounts(state.aiSignalItems),
+                        modeCounts: aiSignalModeCounts(
+                          normalizedAiSignalItems(state.aiSignalItems).filter(
+                            item => !isUsHubContext || itemMatchesMarketScope(item, state.marketScope)
+                          )
+                        ),
                         itemCount: Array.isArray(state.aiSignalItems) ? state.aiSignalItems.length : -1,
                         domModeCounts: {
                           current: buttonCount(document.querySelector('[data-ai-signal-mode="current"]')),
@@ -2892,7 +2896,10 @@ def run_e2e_checks(
                       return {
                         title: section?.querySelector('h3')?.textContent?.trim(),
                         description: section?.querySelector('header p')?.textContent?.trim(),
-                        codes: rows.map(row => row.getAttribute('href')?.split('/').pop()),
+                        codes: rows.map(row => {
+                          const href = row.getAttribute('href');
+                          return href ? new URL(href, location.href).pathname.split('/').pop() : null;
+                        }),
                         reasons: rows.map(row => row.querySelector(':scope > p')?.textContent?.trim()),
                         overflow: section ? section.scrollWidth > section.clientWidth + 1 : true,
                       };
@@ -3045,10 +3052,10 @@ def run_e2e_checks(
                         failed.append("content_above_safe_boundary")
                     if contextual and state.get("header_display") == "none":
                         failed.append("contextual_header_hidden")
-                    if contextual and abs(
+                    if contextual and (
                         float((state.get("page") or {}).get("top") or 0)
-                        - float((state.get("header") or {}).get("bottom") or 0)
-                    ) > 1:
+                        < float((state.get("header") or {}).get("bottom") or 0) - 1
+                    ):
                         failed.append("contextual_page_overlap")
                     if failed:
                         raise QaFailure(
@@ -6715,7 +6722,10 @@ def run_e2e_checks(
                         sourceLinks: [...view.querySelectorAll('.morning-money-news-title a')]
                           .map(node => node.getAttribute('href')),
                         preliminaryCodes: [...view.querySelectorAll('.staging-article-preliminary-buy')]
-                          .map(node => node.getAttribute('href')?.split('/').pop()),
+                          .map(node => {
+                            const href = node.getAttribute('href');
+                            return href ? new URL(href, location.href).pathname.split('/').pop() : null;
+                          }),
                         contentText: view?.querySelector('#morning-money-briefing-content')?.textContent
                           ?.replace(/\s+/g, ' ').trim(),
                         errorText: view?.querySelector('.morning-money-error-state')?.textContent
@@ -7065,6 +7075,12 @@ def run_e2e_checks(
             )
 
             def watchlist_groups_case(page: Any, theme: str) -> dict[str, Any]:
+                page.add_init_script(
+                    """
+                    localStorage.removeItem('analyst.watchlist');
+                    localStorage.removeItem('analyst.watchlist.us');
+                    """
+                )
                 qa_watchlist_items: list[dict[str, Any]] = [
                     {
                         "code": "005930",
@@ -7305,6 +7321,7 @@ def run_e2e_checks(
                         base_url,
                         "/dashboard",
                         view="portfolio",
+                        market_scope="kr",
                         theme=theme,
                         qa_groups=datetime.now(KST).strftime("%H%M%S%f"),
                     ),

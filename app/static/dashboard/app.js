@@ -27464,7 +27464,11 @@ function holdHomeMarketCarouselMotion(durationMs = HOME_MARKET_CAROUSEL_INTERACT
 function useNativeHomeMarketCarouselScroll() {
   const carousel = elements.homeMarketCarousel;
   const track = homeMarketCarouselTrack(carousel);
-  if (!carousel || !track || state.homeMarketCarouselUsesNativeScroll) {
+  if (!carousel || !track) {
+    return;
+  }
+  if (state.homeMarketCarouselUsesNativeScroll) {
+    carousel.classList.add("is-user-scrolling");
     return;
   }
   const position = homeMarketCarouselProgress();
@@ -27605,6 +27609,7 @@ function prepareHomeMarketCarouselMotion(previousProgress = 0) {
   if (cards.length < 2 || homeMarketCarouselReducedMotion()) {
     track.style.transform = "none";
     state.homeMarketCarouselUsesNativeScroll = true;
+    carousel.classList.add("is-user-scrolling");
     carousel.scrollLeft = Math.max(0, previousProgress);
     state.homeMarketCarouselPosition = carousel.scrollLeft;
     return;

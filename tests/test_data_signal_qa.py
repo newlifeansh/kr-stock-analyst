@@ -1079,7 +1079,8 @@ def test_ai_signal_e2e_compares_one_live_revision_instead_of_stale_counts() -> N
     )[0]
 
     assert "ui_signal_snapshot = page.evaluate(" in case_source
-    assert "aiSignalModeCounts(state.aiSignalItems)" in case_source
+    assert "normalizedAiSignalItems(state.aiSignalItems).filter(" in case_source
+    assert "itemMatchesMarketScope(item, state.marketScope)" in case_source
     assert "domModeCounts" in case_source
     assert "stageCounts" in case_source
     assert "Number.isSafeInteger(state.aiSignalRevision)" in case_source
