@@ -1,3 +1,5 @@
+from datetime import date
+
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 
@@ -11,7 +13,7 @@ from app.collectors.research import (
     preferred_research_url,
 )
 from app.db import Base
-from app.models import IngestionRun, ResearchReport
+from app.models import DailyPrice, IngestionRun, ResearchReport, StockMaster
 
 
 COMPANY_HTML = """
@@ -106,6 +108,19 @@ def test_collect_canonical_research_reports_validates_and_upserts(monkeypatch):
     monkeypatch.setattr(research.requests, "get", lambda *args, **kwargs: Response())
 
     with _session() as db:
+        db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI"))
+        db.add(
+            DailyPrice(
+                code="005930",
+                trade_date=date(2026, 9, 10),
+                open=100,
+                high=110,
+                low=90,
+                close=105,
+                market_cap=1_000_000,
+            )
+        )
+        db.commit()
         count = collect_canonical_research_reports(
             db,
             base_url="https://canonical.example/",
@@ -121,7 +136,9 @@ def test_collect_canonical_research_reports_validates_and_upserts(monkeypatch):
         run = db.query(IngestionRun).one()
         assert run.source == "research"
         assert run.dataset == "canonical"
-        assert run.message == "canonical_limit=500"
+        assert run.message == (
+            "canonical_limit=500 targeted_codes=1 targeted_failures=0"
+        )
 
 
 def test_parse_company_listing_html():

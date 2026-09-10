@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -11,11 +11,12 @@ from urllib.parse import urlencode, urljoin
 
 import requests
 from bs4 import BeautifulSoup
+from sqlalchemy import desc, distinct, func, select
 from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
 
 from app.config import Settings, get_settings
-from app.models import ResearchReport
+from app.models import DailyPrice, ResearchReport, StockMaster
 from app.repository import finish_ingestion, latest_research_reports, start_ingestion, upsert_many
 
 KST = ZoneInfo("Asia/Seoul")
@@ -32,6 +33,7 @@ CATEGORY_PATHS = {
     "debenture": "debenture_list.naver",
 }
 CANONICAL_RESEARCH_SOURCES = {"naver_finance", "stockhub"}
+CANONICAL_STOCK_REPORT_LIMIT = 20
 
 
 def naver_mobile_research_url(stock_code: object, external_id: object) -> Optional[str]:
@@ -616,9 +618,10 @@ def collect_canonical_research_reports(
 
     run = start_ingestion(db, "research", "canonical")
     try:
+        normalized_limit = max(1, min(int(limit), 500))
         response = requests.get(
             f"{base_url.rstrip('/')}/research-reports",
-            params={"limit": max(1, min(int(limit), 500))},
+            params={"limit": normalized_limit},
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=timeout,
         )
@@ -633,12 +636,79 @@ def collect_canonical_research_reports(
         ]
         count = upsert_many(db, ResearchReport, rows)
         db.commit()
+
+        latest_price_date = db.scalar(select(func.max(DailyPrice.trade_date)))
+        top_codes = (
+            list(
+                db.scalars(
+                    select(DailyPrice.code)
+                    .join(StockMaster, StockMaster.code == DailyPrice.code)
+                    .where(
+                        DailyPrice.trade_date == latest_price_date,
+                        DailyPrice.market_cap.is_not(None),
+                        DailyPrice.market_cap > 0,
+                        StockMaster.is_active.is_(True),
+                        StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+                    )
+                    .order_by(desc(DailyPrice.market_cap), DailyPrice.code)
+                    .limit(100)
+                )
+            )
+            if latest_price_date
+            else []
+        )
+        covered_codes = set(
+            db.scalars(
+                select(distinct(ResearchReport.stock_code)).where(
+                    ResearchReport.stock_code.in_(tuple(top_codes)),
+                    ResearchReport.published_at >= datetime.now(KST).replace(tzinfo=None)
+                    - timedelta(days=180),
+                )
+            )
+        )
+        missing_codes = [code for code in top_codes if code not in covered_codes]
+        targeted_rows: list[dict[str, object]] = []
+        targeted_failures = 0
+
+        def fetch_stock(code: str) -> list[dict[str, object]]:
+            stock_response = requests.get(
+                f"{base_url.rstrip('/')}/research-reports",
+                params={"limit": CANONICAL_STOCK_REPORT_LIMIT, "stock_code": code},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=timeout,
+            )
+            stock_response.raise_for_status()
+            stock_payload = stock_response.json()
+            if not isinstance(stock_payload, list):
+                raise ValueError("Canonical stock research response must be a list")
+            return [
+                row
+                for item in stock_payload
+                if (row := _canonical_research_row(item)) is not None
+                and row.get("stock_code") == code
+            ]
+
+        if missing_codes:
+            with ThreadPoolExecutor(max_workers=min(8, len(missing_codes))) as executor:
+                futures = [executor.submit(fetch_stock, code) for code in missing_codes]
+                for future in as_completed(futures):
+                    try:
+                        targeted_rows.extend(future.result())
+                    except Exception:
+                        targeted_failures += 1
+        if targeted_rows:
+            count += upsert_many(db, ResearchReport, targeted_rows)
+            db.commit()
         finish_ingestion(
             db,
             run,
             "success",
             rows_loaded=count,
-            message=f"canonical_limit={max(1, min(int(limit), 500))}",
+            message=(
+                f"canonical_limit={normalized_limit} "
+                f"targeted_codes={len(missing_codes)} "
+                f"targeted_failures={targeted_failures}"
+            ),
         )
         return count
     except Exception as exc:
