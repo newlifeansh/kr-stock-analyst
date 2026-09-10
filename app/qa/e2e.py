@@ -54,6 +54,31 @@ def _safe_name(case_id: str, theme: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "-", f"{case_id}-{theme}")
 
 
+def _chart_study_payload_with_recent_pattern(
+    payload: dict[str, Any],
+    *,
+    pattern_key: str,
+    latest_trade_date: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return an isolated UI fixture with one live pattern made recent.
+
+    The API integrity assertions run against the untouched live response. The
+    browser study check needs the selected pattern inside the product's
+    10-session display window, otherwise a valid but older boundary pattern is
+    intentionally absent from the DOM and the test becomes date-dependent.
+    """
+
+    routed_payload = json.loads(json.dumps(payload, ensure_ascii=False))
+    patterns = ((routed_payload.get("chart_analysis") or {}).get("patterns") or [])
+    for pattern in patterns:
+        if str(pattern.get("key") or "") != pattern_key:
+            continue
+        pattern["signal_date"] = latest_trade_date
+        pattern["age_days"] = 0
+        return routed_payload, pattern
+    raise ValueError(f"chart pattern not found: {pattern_key}")
+
+
 def _is_playwright_timeout(exc: Exception) -> bool:
     try:
         from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -5562,12 +5587,48 @@ def run_e2e_checks(
                         }
                     )
                     if patterns and (selected is None or line_patterns):
+                        fixture_pattern = line_patterns[0] if line_patterns else patterns[0]
+                        price_response = page.request.get(
+                            _page_url(
+                                base_url,
+                                f"/stocks/{code}/prices",
+                                limit="260",
+                            ),
+                            timeout=timeout * 1000,
+                        )
+                        if not price_response.ok:
+                            raise QaFailure(
+                                "차트 공부 픽스처의 최신 거래일을 확인하지 못했습니다.",
+                                {"code": code, "http_status": price_response.status},
+                            )
+                        price_rows = price_response.json()
+                        fixture_signal_date = max(
+                            (
+                                str(row.get("trade_date") or row.get("date") or "")[:10]
+                                for row in price_rows
+                                if isinstance(row, dict)
+                            ),
+                            default="",
+                        )
+                        if not fixture_signal_date:
+                            raise QaFailure(
+                                "차트 공부 픽스처의 최신 거래일이 비어 있습니다.",
+                                {"code": code},
+                            )
+                        routed_payload, routed_fixture_pattern = (
+                            _chart_study_payload_with_recent_pattern(
+                                payload,
+                                pattern_key=str(fixture_pattern.get("key") or ""),
+                                latest_trade_date=fixture_signal_date,
+                            )
+                        )
                         selected = {
                             "code": code,
                             "patterns": patterns,
                             "has_line": bool(line_patterns),
-                            "line_pattern": line_patterns[0] if line_patterns else None,
-                            "payload": payload,
+                            "line_pattern": routed_fixture_pattern if line_patterns else None,
+                            "payload": routed_payload,
+                            "fixture_signal_date": fixture_signal_date,
                         }
                     if selected and selected["has_line"]:
                         break
@@ -5640,6 +5701,7 @@ def run_e2e_checks(
                     **shell,
                     "selected_code": selected["code"],
                     "has_line_pattern": selected["has_line"],
+                    "fixture_signal_date": selected["fixture_signal_date"],
                     "boundary_count": boundary_count,
                     "api": api_evidence,
                 }

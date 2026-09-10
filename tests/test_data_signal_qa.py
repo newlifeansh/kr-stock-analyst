@@ -9,7 +9,12 @@ from typer.testing import CliRunner
 
 from app.cli import app
 from app.qa.catalog import load_qa_catalog, render_qa_catalog_markdown
-from app.qa.e2e import E2E_CASE_IDS, _navigate_page, _page_url
+from app.qa.e2e import (
+    E2E_CASE_IDS,
+    _chart_study_payload_with_recent_pattern,
+    _navigate_page,
+    _page_url,
+)
 from app.qa.runner import (
     QaFailure,
     ResultCollector,
@@ -93,6 +98,35 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "SIG-CONTRACT-003" in first
     assert "QA 항목: 106개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
+
+
+@pytest.mark.qa_gate
+def test_chart_study_e2e_fixture_pins_live_pattern_without_mutating_api_evidence() -> None:
+    payload = {
+        "chart_analysis": {
+            "patterns": [
+                {
+                    "key": "rising-wedge",
+                    "name": "상승 쐐기",
+                    "signal_date": "2026-08-20",
+                    "age_days": 14,
+                },
+                {"key": "doji", "name": "도지", "age_days": 1},
+            ]
+        }
+    }
+
+    routed, selected = _chart_study_payload_with_recent_pattern(
+        payload,
+        pattern_key="rising-wedge",
+        latest_trade_date="2026-09-10",
+    )
+
+    assert selected["signal_date"] == "2026-09-10"
+    assert selected["age_days"] == 0
+    assert routed["chart_analysis"]["patterns"][1]["age_days"] == 1
+    assert payload["chart_analysis"]["patterns"][0]["signal_date"] == "2026-08-20"
+    assert payload["chart_analysis"]["patterns"][0]["age_days"] == 14
 
 
 @pytest.mark.qa_gate
