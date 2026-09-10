@@ -6960,15 +6960,6 @@ def run_e2e_checks(
             )
 
             def watchlist_groups_case(page: Any, theme: str) -> dict[str, Any]:
-                page.add_init_script(
-                    """
-                    window.__qaSharedWatchGroup = null;
-                    Object.defineProperty(navigator, 'share', {
-                      configurable: true,
-                      value: async payload => { window.__qaSharedWatchGroup = payload; },
-                    });
-                    """
-                )
                 qa_watchlist_items: list[dict[str, Any]] = [
                     {
                         "code": "005930",
@@ -6985,6 +6976,13 @@ def run_e2e_checks(
                         "average_buy_price": None,
                     },
                 ]
+                qa_search_item = {
+                    "code": "035720",
+                    "name": "카카오",
+                    "market": "KOSPI",
+                    "market_scope": "kr",
+                    "currency": "KRW",
+                }
                 qa_tracks: list[dict[str, Any]] = [
                     {
                         "id": "qa-pin-up",
@@ -7007,12 +7005,6 @@ def run_e2e_checks(
                 ]
                 qa_groups: list[dict[str, Any]] = []
                 sync_writes = {"groups": 0, "tracks": 0}
-                page.add_init_script(
-                    """Object.defineProperty(navigator, 'share', {
-                      configurable: true,
-                      value: async payload => { window.__qaSharedWatchGroup = payload; },
-                    });"""
-                )
 
                 def fulfill_json(route: Any, payload: dict[str, Any]) -> None:
                     route.fulfill(
@@ -7088,6 +7080,10 @@ def run_e2e_checks(
                         route, {"write_token": "qa-e2e-write-token"}
                     ),
                 )
+                page.route(
+                    re.compile(r".*/stocks/search(?:\?.*)?$"),
+                    lambda route: fulfill_json(route, [qa_search_item]),
+                )
 
                 dashboard_fixtures = {
                     "005930": {
@@ -7133,6 +7129,29 @@ def run_e2e_checks(
                             "three_month_return": 8.1,
                         },
                         "sentiment": {"score": -18, "latest_items": []},
+                        "flows": {},
+                        "coverage": {"price": True},
+                    },
+                    "035720": {
+                        "code": "035720",
+                        "name": "카카오",
+                        "market": "KOSPI",
+                        "as_of": "2026-09-08T12:00:00+09:00",
+                        "quote": {
+                            "price": 62_500,
+                            "change_rate": 0.8,
+                            "change_value": 500,
+                            "trading_value": 480_000_000_000,
+                            "market_cap": 27_000_000_000_000,
+                            "as_of": "2026-09-08T12:00:00+09:00",
+                            "market_session": "regular",
+                            "is_live": True,
+                        },
+                        "momentum": {
+                            "one_month_return": 1.2,
+                            "three_month_return": 3.4,
+                        },
+                        "sentiment": {"score": 8, "latest_items": []},
                         "flows": {},
                         "coverage": {"price": True},
                     },
@@ -7230,30 +7249,128 @@ def run_e2e_checks(
                         "관심종목 로고·스파크라인·현재가·등락률 컴팩트 행이 올바르지 않습니다.",
                         {"rows": compact_rows},
                     )
-                page.locator("#watch-group-share").click()
-                page.wait_for_function("() => Boolean(window.__qaSharedWatchGroup)")
-                shared_group = page.evaluate("window.__qaSharedWatchGroup")
                 if (
-                    shared_group.get("title") != "기본그룹 관심종목"
-                    or "삼성전자 (005930)" not in shared_group.get("text", "")
-                    or "시총" in shared_group.get("text", "")
+                    page.locator("#watch-group-share").count()
+                    or page.locator("#watch-group-add-stock").count()
+                    or page.get_by_text("이 그룹 공유하기", exact=True).count()
+                    or page.get_by_text("+ 관심 추가", exact=True).count()
                 ):
-                    raise QaFailure("관심 그룹 공유 내용이 올바르지 않습니다.", shared_group)
+                    raise QaFailure("삭제 요청한 관심목록 하단 공유·추가 액션이 남아 있습니다.")
+
+                page.set_viewport_size({"width": 390, "height": 844})
+                search_trigger = page.locator("#watchlist-search")
+                search_trigger.focus()
+                search_trigger.click()
+                add_dialog = page.locator("#watch-stock-add-dialog")
+                add_dialog.wait_for(state="visible")
+                page.wait_for_function(
+                    "() => document.activeElement?.id === 'watch-stock-search-input'"
+                )
+                search_input = page.locator("#watch-stock-search-input")
+                search_input.fill("카카오")
+                add_result = page.locator(
+                    '#watch-stock-add-results [data-code="035720"]'
+                )
+                add_result.wait_for(state="visible", timeout=int(timeout * 1000))
+                search_sheet = page.evaluate(
+                    """() => {
+                      const dialog = document.querySelector('#watch-stock-add-dialog');
+                      const input = document.querySelector('#watch-stock-search-input');
+                      const button = document.querySelector('[data-watch-stock-result-index="0"]');
+                      const dialogRect = dialog.getBoundingClientRect();
+                      const inputRect = input.getBoundingClientRect();
+                      const buttonRect = button.getBoundingClientRect();
+                      return {
+                        step: dialog.dataset.step,
+                        dialogLeft: dialogRect.left,
+                        dialogRight: dialogRect.right,
+                        inputFontSize: parseFloat(getComputedStyle(input).fontSize),
+                        buttonWidth: buttonRect.width,
+                        buttonHeight: buttonRect.height,
+                        inputVisible: inputRect.width > 0 && inputRect.height >= 44,
+                      };
+                    }"""
+                )
+                if (
+                    search_sheet["step"] != "search"
+                    or search_sheet["dialogLeft"] < -1
+                    or search_sheet["dialogRight"] > 391
+                    or search_sheet["inputFontSize"] < 16
+                    or search_sheet["buttonWidth"] < 44
+                    or search_sheet["buttonHeight"] < 44
+                    or not search_sheet["inputVisible"]
+                ):
+                    raise QaFailure(
+                        "모바일 종목 검색 시트의 폭·입력·추가 터치 영역이 올바르지 않습니다.",
+                        search_sheet,
+                    )
+                add_result.locator("[data-watch-stock-result-index]").click()
+                page.wait_for_function(
+                    "() => document.querySelector('#watch-stock-add-dialog')?.dataset.step === 'groups'"
+                )
+                group_choice = page.evaluate(
+                    """() => {
+                      const defaultInput = document.querySelector(
+                        '#watch-stock-group-options input[value="default"]'
+                      );
+                      return {
+                        title: document.querySelector('#watch-stock-add-title')?.textContent.trim(),
+                        defaultChecked: defaultInput?.checked,
+                        defaultDisabled: defaultInput?.disabled,
+                        footerRemoved: !document.querySelector('#watch-group-share, #watch-group-add-stock'),
+                      };
+                    }"""
+                )
+                if group_choice != {
+                    "title": "관심 그룹 선택",
+                    "defaultChecked": True,
+                    "defaultDisabled": True,
+                    "footerRemoved": True,
+                }:
+                    raise QaFailure(
+                        "검색 결과 뒤 관심 그룹 선택 기본 상태가 올바르지 않습니다.",
+                        group_choice,
+                    )
+                page.locator("#watch-stock-group-complete").click()
+                add_dialog.wait_for(state="hidden", timeout=int(timeout * 1000))
+                page.wait_for_function(
+                    """() => (
+                      document.querySelectorAll('#watchlist-body [data-watch-card]').length === 3
+                      && document.querySelector('#watchlist-body [data-code="035720"]')
+                      && document.activeElement?.id === 'watchlist-search'
+                    )""",
+                    timeout=int(timeout * 1000),
+                )
+                page.wait_for_timeout(650)
+                if [item.get("code") for item in qa_watchlist_items] != [
+                    "005930",
+                    "000660",
+                    "035720",
+                ]:
+                    raise QaFailure(
+                        "페이지 내 검색으로 추가한 종목이 기본 관심목록에 한 번만 저장되지 않았습니다.",
+                        {"items": qa_watchlist_items},
+                    )
 
                 page.set_viewport_size({"width": 320, "height": 760})
                 page.wait_for_timeout(120)
                 mobile_layout = page.evaluate(
                     """() => {
                       const controls = [...document.querySelectorAll(
-                        '#watch-group-tabs > button, #watch-group-add-stock'
+                        '#watch-group-tabs > button'
                       )].filter(node => !node.hidden).map(node => {
                         const rect = node.getBoundingClientRect();
                         return {label: node.textContent.trim(), width: rect.width, height: rect.height};
                       });
+                      const titleRect = document.querySelector('#watch-group-heading').getBoundingClientRect();
+                      const railRect = document.querySelector('#watch-group-tabs').getBoundingClientRect();
                       return {
                         viewport: innerWidth,
                         rootWidth: document.documentElement.scrollWidth,
                         bodyWidth: document.body.scrollWidth,
+                        titleLeft: titleRect.left,
+                        railLeft: railRect.left,
+                        railRight: railRect.right,
                         controls,
                       };
                     }"""
@@ -7261,10 +7378,13 @@ def run_e2e_checks(
                 if (
                     mobile_layout["rootWidth"] > mobile_layout["viewport"] + 1
                     or mobile_layout["bodyWidth"] > mobile_layout["viewport"] + 1
+                    or mobile_layout["titleLeft"] < 19
+                    or mobile_layout["railLeft"] < 19
+                    or mobile_layout["railRight"] > mobile_layout["viewport"] - 19
                     or any(item["height"] < 44 for item in mobile_layout["controls"])
                 ):
                     raise QaFailure(
-                        "320px 관심 그룹 배지·추가 버튼의 터치 영역 또는 가로 폭이 올바르지 않습니다.",
+                        "320px 관심 제목·그룹 레일 여백 또는 배지 터치 영역이 올바르지 않습니다.",
                         mobile_layout,
                     )
 
@@ -7324,6 +7444,7 @@ def run_e2e_checks(
                 if [item.get("code") for item in qa_watchlist_items] != [
                     "005930",
                     "000660",
+                    "035720",
                 ]:
                     raise QaFailure("폴더에서 종목을 뺄 때 기본 관심종목도 삭제됐습니다.")
 
@@ -7462,7 +7583,7 @@ def run_e2e_checks(
 
                 page.locator("#watch-group-default").click()
                 page.wait_for_function(
-                    "() => document.querySelectorAll('#watchlist-body [data-watch-card]').length === 2"
+                    "() => document.querySelectorAll('#watchlist-body [data-watch-card]').length === 3"
                 )
                 persisted_group.click()
                 page.wait_for_selector('#watchlist-body [data-code="000660"]')
@@ -7507,13 +7628,17 @@ def run_e2e_checks(
                     "system_groups": system_groups[:2],
                     "compact_rows": compact_rows,
                     "mobile_layout": mobile_layout,
+                    "inline_add": {
+                        "search_sheet": search_sheet,
+                        "group_choice": group_choice,
+                        "added_code": "035720",
+                    },
                     "pin_rows": pin_snapshot,
                     "live_daily_return": "+2.50%",
-                    "shared_group": shared_group,
                     "persisted_group": "배당주",
                     "sync_writes": sync_writes,
                     "desktop_layout": desktop_layout,
-                    "folder_deleted_without_watchlist_loss": len(qa_watchlist_items) == 2,
+                    "folder_deleted_without_watchlist_loss": len(qa_watchlist_items) == 3,
                 }
 
             results.append(

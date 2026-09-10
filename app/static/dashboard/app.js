@@ -375,10 +375,7 @@ const elements = {
   watchUserGroupTabs: $("watch-user-group-tabs"),
   watchGroupCreate: $("watch-group-create"),
   watchGroupEdit: $("watch-group-edit"),
-  watchGroupAddStock: $("watch-group-add-stock"),
   watchlistSearch: $("watchlist-search"),
-  watchGroupShare: $("watch-group-share"),
-  watchGroupShareStatus: $("watch-group-share-status"),
   watchGroupMeta: $("watch-group-meta"),
   watchGroupDialog: $("watch-group-dialog"),
   watchGroupForm: $("watch-group-form"),
@@ -391,6 +388,21 @@ const elements = {
   watchGroupDelete: $("watch-group-delete"),
   watchGroupCancel: $("watch-group-cancel"),
   watchGroupSave: $("watch-group-save"),
+  watchStockAddDialog: $("watch-stock-add-dialog"),
+  watchStockAddTitle: $("watch-stock-add-title"),
+  watchStockAddBack: $("watch-stock-add-back"),
+  watchStockAddClose: $("watch-stock-add-close"),
+  watchStockSearchStep: $("watch-stock-search-step"),
+  watchStockSearchForm: $("watch-stock-search-form"),
+  watchStockSearchInput: $("watch-stock-search-input"),
+  watchStockSearchClear: $("watch-stock-search-clear"),
+  watchStockSearchStatus: $("watch-stock-search-status"),
+  watchStockAddResults: $("watch-stock-add-results"),
+  watchStockGroupStep: $("watch-stock-group-step"),
+  watchStockSelected: $("watch-stock-selected"),
+  watchStockGroupOptions: $("watch-stock-group-options"),
+  watchStockGroupStatus: $("watch-stock-group-status"),
+  watchStockGroupComplete: $("watch-stock-group-complete"),
   watchMarketMap: $("watch-market-map"),
   watchMarketMapGroup: $("watch-market-map-group"),
   watchMarketMapDescription: $("watch-market-map-description"),
@@ -1308,7 +1320,14 @@ const state = {
   homeWatchMarketMapLoadSequence: 0,
   watchMarketMapResults: [],
   watchlistEditing: false,
-  watchGroupShareStatusTimer: null,
+  watchStockAddTrigger: null,
+  watchStockAddLastResultTrigger: null,
+  watchStockAddSelectedItem: null,
+  watchStockAddResults: [],
+  watchStockAddSearchTimer: null,
+  watchStockAddSearchController: null,
+  watchStockAddSearchSequence: 0,
+  watchStockAddCloseTimer: null,
   watchlistMarketContext: null,
   watchlistStrategyRenderTimer: null,
   watchlistFilter: "all",
@@ -10576,7 +10595,6 @@ function setActiveWatchGroup(groupId, options = {}) {
   state.watchlistFilter = "all";
   state.watchlistEditing = false;
   state.selectedTrendWatchCode = "";
-  setWatchGroupShareStatus("");
   closeWatchMarketMapSheet();
   renderWatchlistGroupTabs();
   if (options.reveal === true) {
@@ -10607,43 +10625,309 @@ function toggleWatchlistEditing() {
   if (!state.watchlistEditing) elements.watchGroupEdit?.focus();
 }
 
-function activeWatchlistGroupShareText() {
-  const groupName = activeWatchlistGroupName();
-  const items = watchlistItemsForGroup();
-  const rows = items.map((item) => `${item.name}${item.code ? ` (${item.code})` : ""}`);
-  return [`${groupName} 관심종목`, ...rows].join("\n");
+function watchStockAddDialogOpen() {
+  return Boolean(elements.watchStockAddDialog?.open || elements.watchStockAddDialog?.hasAttribute("open"));
 }
 
-function setWatchGroupShareStatus(message = "") {
-  if (!elements.watchGroupShareStatus) return;
-  window.clearTimeout(state.watchGroupShareStatusTimer);
-  elements.watchGroupShareStatus.textContent = message;
-  state.watchGroupShareStatusTimer = message
-    ? window.setTimeout(() => {
-      elements.watchGroupShareStatus.textContent = "";
-      state.watchGroupShareStatusTimer = null;
-    }, 2600)
-    : null;
+function watchStockItemKey(item = {}) {
+  const code = String(item?.code || "").trim();
+  return code ? `${marketScopeForItem(item)}:${code}` : "";
 }
 
-async function shareActiveWatchlistGroup() {
-  const text = activeWatchlistGroupShareText();
-  const title = `${activeWatchlistGroupName()} 관심종목`;
-  try {
-    if (typeof navigator.share === "function") {
-      await navigator.share({ title, text });
-      setWatchGroupShareStatus("그룹을 공유했습니다.");
-      return;
-    }
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      setWatchGroupShareStatus("그룹 종목을 복사했습니다.");
-      return;
-    }
-    setWatchGroupShareStatus("이 브라우저에서는 공유를 지원하지 않습니다.");
-  } catch (error) {
-    if (error?.name !== "AbortError") setWatchGroupShareStatus("공유하지 못했습니다. 다시 시도해주세요.");
+function watchStockIsSaved(item, items = readWatchlist({ allMarkets: true })) {
+  const key = watchStockItemKey(item);
+  return Boolean(key) && items.some((candidate) => watchStockItemKey(candidate) === key);
+}
+
+function applyWatchStockAddSelection(item, selectedGroupIds, items, groups) {
+  const stock = normalizeWatchlistItems([item])[0] || null;
+  if (!stock) return null;
+  const existingItems = normalizeWatchlistItems(items);
+  const stockKey = watchStockItemKey(stock);
+  const alreadySaved = existingItems.some((candidate) => watchStockItemKey(candidate) === stockKey);
+  const nextItems = alreadySaved ? existingItems : normalizeWatchlistItems([...existingItems, stock]);
+  const selected = new Set(selectedGroupIds || []);
+  const nextGroups = normalizeWatchlistGroups(groups).map((group) => {
+    const withoutStock = group.codes.filter((code) => code !== stock.code);
+    return {
+      ...group,
+      codes: selected.has(group.id) ? [...withoutStock, stock.code].slice(0, 100) : withoutStock,
+    };
+  });
+  return { stock, nextItems, nextGroups, alreadySaved };
+}
+
+function renderWatchStockAddEmpty() {
+  if (!elements.watchStockAddResults) return;
+  const empty = el("div", "watch-stock-add-empty");
+  const icon = el("span", "watch-stock-add-empty-icon", "+");
+  icon.setAttribute("aria-hidden", "true");
+  empty.append(
+    icon,
+    el("strong", "", "관심 종목을 직접 추가해보세요"),
+    el("p", "", "종목명이나 코드를 입력하면 이 화면에서 바로 추가할 수 있어요."),
+  );
+  elements.watchStockAddResults.replaceChildren(empty);
+  elements.watchStockAddResults.removeAttribute("aria-busy");
+  if (elements.watchStockSearchStatus) elements.watchStockSearchStatus.textContent = "";
+}
+
+function renderWatchStockAddLoading() {
+  if (!elements.watchStockAddResults) return;
+  const loading = el("div", "watch-stock-search-loading");
+  for (let index = 0; index < 3; index += 1) {
+    const row = el("span", "watch-stock-search-loading-row");
+    row.append(el("span", "watch-stock-search-loading-logo"), el("span", "watch-stock-search-loading-copy"));
+    loading.appendChild(row);
   }
+  elements.watchStockAddResults.replaceChildren(loading);
+  elements.watchStockAddResults.setAttribute("aria-busy", "true");
+  if (elements.watchStockSearchStatus) elements.watchStockSearchStatus.textContent = "종목을 검색하고 있어요.";
+}
+
+function createWatchStockSearchRow(item, index) {
+  const row = document.createElement("article");
+  row.className = "watch-stock-search-row";
+  row.dataset.code = item.code || "";
+  row.dataset.marketScope = marketScopeForItem(item);
+  const identity = el("div", "watch-stock-search-identity");
+  const logo = createStockListLogo(item.code, "watch-stock-search-logo");
+  if (marketScopeForItem(item) === "us") logo.classList.add("is-us-stock-logo");
+  const copy = el("div", "watch-stock-search-copy");
+  const meta = el("span", "watch-stock-search-meta");
+  meta.append(el("span", "", item.code || "종목코드 없음"));
+  if (isUsHubContext) meta.append(createMarketBadge(item));
+  copy.append(el("strong", "", item.name || item.code || "종목"), meta);
+  identity.append(logo, copy);
+
+  const saved = watchStockIsSaved(item);
+  const button = el("button", `watch-stock-search-add${saved ? " is-saved" : ""}`, saved ? "✓" : "+");
+  button.type = "button";
+  button.dataset.watchStockResultIndex = String(index);
+  button.setAttribute("aria-label", saved ? `${item.name} 관심 그룹 변경` : `${item.name} 관심종목 추가`);
+  row.append(identity, button);
+  return row;
+}
+
+function renderWatchStockAddResults(items, query) {
+  if (!elements.watchStockAddResults) return;
+  state.watchStockAddResults = Array.isArray(items) ? items.slice(0, 24) : [];
+  elements.watchStockAddResults.removeAttribute("aria-busy");
+  if (!state.watchStockAddResults.length) {
+    const empty = el("div", "watch-stock-search-no-results");
+    empty.append(
+      el("strong", "", "검색 결과가 없어요"),
+      el("p", "", "종목명이나 코드를 다시 확인해주세요."),
+    );
+    elements.watchStockAddResults.replaceChildren(empty);
+    if (elements.watchStockSearchStatus) elements.watchStockSearchStatus.textContent = `‘${query}’ 검색 결과가 없습니다.`;
+    return;
+  }
+  elements.watchStockAddResults.replaceChildren(
+    ...state.watchStockAddResults.map((item, index) => createWatchStockSearchRow(item, index)),
+  );
+  if (elements.watchStockSearchStatus) {
+    elements.watchStockSearchStatus.textContent = `${formatNumber(state.watchStockAddResults.length)}개 종목을 찾았어요.`;
+  }
+}
+
+async function searchWatchStockAdd(query) {
+  const normalized = String(query || "").trim();
+  if (!normalized) {
+    state.watchStockAddSearchSequence += 1;
+    state.watchStockAddSearchController?.abort();
+    state.watchStockAddSearchController = null;
+    renderWatchStockAddEmpty();
+    return;
+  }
+  state.watchStockAddSearchController?.abort();
+  const controller = new AbortController();
+  const sequence = ++state.watchStockAddSearchSequence;
+  state.watchStockAddSearchController = controller;
+  renderWatchStockAddLoading();
+  try {
+    const items = await fetchUnifiedStockSearch(normalized, 24, controller.signal, "all");
+    if (sequence !== state.watchStockAddSearchSequence || !watchStockAddDialogOpen()) return;
+    renderWatchStockAddResults(items, normalized);
+  } catch (error) {
+    if (error?.name === "AbortError" || sequence !== state.watchStockAddSearchSequence) return;
+    elements.watchStockAddResults?.removeAttribute("aria-busy");
+    const failure = el("div", "watch-stock-search-no-results");
+    failure.append(
+      el("strong", "", "검색하지 못했어요"),
+      el("p", "", "네트워크를 확인한 뒤 다시 입력해주세요."),
+    );
+    elements.watchStockAddResults?.replaceChildren(failure);
+    if (elements.watchStockSearchStatus) elements.watchStockSearchStatus.textContent = "종목 검색에 실패했습니다.";
+  }
+}
+
+function scheduleWatchStockAddSearch() {
+  window.clearTimeout(state.watchStockAddSearchTimer);
+  const query = String(elements.watchStockSearchInput?.value || "").trim();
+  if (elements.watchStockSearchClear) elements.watchStockSearchClear.hidden = !query;
+  if (!query) {
+    void searchWatchStockAdd("");
+    return;
+  }
+  state.watchStockAddSearchTimer = window.setTimeout(() => void searchWatchStockAdd(query), 180);
+}
+
+function setWatchStockAddStep(step = "search") {
+  const groupStep = step === "groups";
+  if (elements.watchStockSearchStep) elements.watchStockSearchStep.hidden = groupStep;
+  if (elements.watchStockGroupStep) elements.watchStockGroupStep.hidden = !groupStep;
+  if (elements.watchStockAddBack) elements.watchStockAddBack.hidden = !groupStep;
+  if (elements.watchStockAddTitle) elements.watchStockAddTitle.textContent = groupStep ? "관심 그룹 선택" : "종목 추가";
+  elements.watchStockAddDialog?.setAttribute("data-step", groupStep ? "groups" : "search");
+}
+
+function createWatchStockGroupOption(group, item, options = {}) {
+  const label = document.createElement("label");
+  label.className = "watch-stock-group-option";
+  label.dataset.watchStockGroup = group.id;
+  const icon = el("span", "watch-stock-group-folder");
+  icon.setAttribute("aria-hidden", "true");
+  const copy = el("span", "watch-stock-group-copy");
+  copy.append(
+    el("strong", "", group.name),
+    el("small", "", `${formatNumber(options.count || 0)} / 100`),
+  );
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.name = "watch-stock-add-group";
+  input.value = group.id;
+  input.checked = options.checked === true;
+  input.disabled = options.disabled === true;
+  input.setAttribute("aria-label", `${group.name}에 ${item.name} 추가`);
+  label.append(icon, copy, input);
+  return label;
+}
+
+function openWatchStockGroupStep(item, trigger = null) {
+  if (!item?.code || !item?.name) return;
+  state.watchStockAddSelectedItem = item;
+  state.watchStockAddLastResultTrigger = trigger instanceof HTMLElement ? trigger : null;
+  const selected = el("div", "watch-stock-selected-identity");
+  const logo = createStockListLogo(item.code, "watch-stock-selected-logo");
+  if (marketScopeForItem(item) === "us") logo.classList.add("is-us-stock-logo");
+  const copy = el("span", "watch-stock-selected-copy");
+  copy.append(el("strong", "", item.name), el("small", "", item.code));
+  selected.append(logo, copy);
+  elements.watchStockSelected?.replaceChildren(selected);
+
+  const allItems = readWatchlist({ allMarkets: true });
+  const customGroups = normalizeWatchlistGroups(state.watchlistGroups);
+  const options = [createWatchStockGroupOption(
+    WATCHLIST_SYSTEM_GROUPS.default,
+    item,
+    { count: allItems.length, checked: true, disabled: true },
+  )];
+  for (const group of customGroups) {
+    options.push(createWatchStockGroupOption(group, item, {
+      count: group.codes.length,
+      checked: group.codes.includes(item.code) || state.activeWatchGroup === group.id,
+    }));
+  }
+  elements.watchStockGroupOptions?.replaceChildren(...options);
+  if (elements.watchStockGroupStatus) elements.watchStockGroupStatus.textContent = "";
+  if (elements.watchStockGroupComplete) {
+    elements.watchStockGroupComplete.disabled = false;
+    elements.watchStockGroupComplete.textContent = "완료";
+  }
+  setWatchStockAddStep("groups");
+  window.setTimeout(() => {
+    const firstOptionalGroup = elements.watchStockGroupOptions?.querySelector('input:not([disabled])');
+    if (firstOptionalGroup) firstOptionalGroup.focus();
+    else elements.watchStockGroupComplete?.focus();
+  }, 20);
+}
+
+function returnToWatchStockSearch() {
+  state.watchStockAddSelectedItem = null;
+  setWatchStockAddStep("search");
+  window.setTimeout(() => {
+    if (state.watchStockAddLastResultTrigger?.isConnected) state.watchStockAddLastResultTrigger.focus();
+    else elements.watchStockSearchInput?.focus();
+  }, 20);
+}
+
+function openWatchStockAddDialog(trigger = null) {
+  if (!elements.watchStockAddDialog || !elements.watchStockSearchInput) return;
+  window.clearTimeout(state.watchStockAddCloseTimer);
+  state.watchStockAddSearchSequence += 1;
+  state.watchStockAddSearchController?.abort();
+  state.watchStockAddSearchController = null;
+  state.watchStockAddTrigger = trigger instanceof HTMLElement
+    ? trigger
+    : document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+  state.watchStockAddLastResultTrigger = null;
+  state.watchStockAddSelectedItem = null;
+  state.watchStockAddResults = [];
+  elements.watchStockSearchInput.value = "";
+  if (elements.watchStockSearchClear) elements.watchStockSearchClear.hidden = true;
+  setWatchStockAddStep("search");
+  renderWatchStockAddEmpty();
+  if (typeof elements.watchStockAddDialog.showModal === "function") elements.watchStockAddDialog.showModal();
+  else elements.watchStockAddDialog.setAttribute("open", "");
+  window.setTimeout(() => elements.watchStockSearchInput?.focus(), 20);
+}
+
+function closeWatchStockAddDialog() {
+  if (!elements.watchStockAddDialog || !watchStockAddDialogOpen()) return;
+  window.clearTimeout(state.watchStockAddSearchTimer);
+  window.clearTimeout(state.watchStockAddCloseTimer);
+  state.watchStockAddSearchSequence += 1;
+  state.watchStockAddSearchController?.abort();
+  state.watchStockAddSearchController = null;
+  if (typeof elements.watchStockAddDialog.close === "function") elements.watchStockAddDialog.close();
+  else elements.watchStockAddDialog.removeAttribute("open");
+  const trigger = state.watchStockAddTrigger;
+  state.watchStockAddTrigger = null;
+  state.watchStockAddSelectedItem = null;
+  window.setTimeout(() => {
+    if (trigger?.isConnected) trigger.focus();
+    else elements.watchlistSearch?.focus();
+  }, 20);
+}
+
+function completeWatchStockAdd(event) {
+  event.preventDefault();
+  const item = state.watchStockAddSelectedItem;
+  if (!item) return;
+  const allItems = readWatchlist({ allMarkets: true });
+  if (!watchStockIsSaved(item, allItems) && allItems.length >= 100) {
+    if (elements.watchStockGroupStatus) elements.watchStockGroupStatus.textContent = "관심종목은 최대 100개까지 추가할 수 있어요.";
+    return;
+  }
+  const selectedGroupIds = Array.from(
+    elements.watchStockGroupOptions?.querySelectorAll('input[name="watch-stock-add-group"]:checked:not([disabled])') || [],
+  ).map((input) => input.value);
+  const mutation = applyWatchStockAddSelection(item, selectedGroupIds, allItems, state.watchlistGroups);
+  if (!mutation) return;
+  if (JSON.stringify(mutation.nextItems) !== JSON.stringify(allItems)) {
+    writeWatchlist(mutation.nextItems, { replaceAll: true });
+  }
+  if (JSON.stringify(mutation.nextGroups) !== JSON.stringify(state.watchlistGroups)) {
+    writeWatchlistGroups(mutation.nextGroups);
+  } else {
+    renderWatchlistGroupTabs();
+  }
+  if (state.activeWatchGroup === "pinned") state.activeWatchGroup = "default";
+  updateWatchButton();
+  updateRecommendationWatchButtons();
+  updateImpactWatchButtons();
+  if (elements.watchStockGroupStatus) {
+    elements.watchStockGroupStatus.textContent = `${mutation.stock.name} 종목을 관심목록에 추가했어요.`;
+  }
+  if (elements.watchStockGroupComplete) {
+    elements.watchStockGroupComplete.disabled = true;
+    elements.watchStockGroupComplete.textContent = "추가됨";
+  }
+  if (state.view === "portfolio") void loadWatchlist({ force: false });
+  state.watchStockAddCloseTimer = window.setTimeout(closeWatchStockAddDialog, 520);
 }
 
 function watchlistGroupDialogOpen() {
@@ -21277,28 +21561,28 @@ function renderWatchlistMessage(text, options = {}) {
     : groupId === "pinned"
       ? "핀한 종목의 현재가와 오늘 등락률을 이곳에서 확인할 수 있습니다."
       : customGroup
-        ? "폴더 편집에서 기본 관심종목을 골라 담아보세요."
+        ? "종목 추가에서 검색해 이 폴더에 바로 담아보세요."
         : "종목을 추가하면 최근 가격 흐름과 오늘 등락률을 한눈에 보여드려요.";
   message.append(title, description);
   if (isEmpty) {
     const actions = document.createElement("div");
     actions.className = "watchlist-empty-actions";
+    if (customGroup) {
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "secondary";
+      edit.textContent = "폴더 편집";
+      edit.addEventListener("click", () => openWatchlistGroupDialog(customGroup.id));
+      actions.appendChild(edit);
+    }
     const action = document.createElement("button");
     action.type = "button";
-    action.textContent = groupId === "pinned" ? "추천 종목 보기" : customGroup ? "폴더 편집" : "종목 검색 열기";
+    action.textContent = groupId === "pinned" ? "추천 종목 보기" : "종목 추가";
     action.addEventListener("click", () => {
-      if (customGroup) openWatchlistGroupDialog(customGroup.id);
-      else setView("search");
+      if (groupId === "pinned") setView("search");
+      else openWatchStockAddDialog(action);
     });
     actions.appendChild(action);
-    if (customGroup) {
-      const add = document.createElement("button");
-      add.type = "button";
-      add.className = "secondary";
-      add.textContent = "종목 추가";
-      add.addEventListener("click", () => setView("search"));
-      actions.appendChild(add);
-    }
     message.appendChild(actions);
   }
   elements.watchlistBody.appendChild(message);
@@ -29744,9 +30028,37 @@ elements.watchGroupTabs?.addEventListener("keydown", (event) => {
 });
 elements.watchGroupCreate?.addEventListener("click", () => openWatchlistGroupDialog());
 elements.watchGroupEdit?.addEventListener("click", toggleWatchlistEditing);
-elements.watchGroupAddStock?.addEventListener("click", () => setView("search"));
-elements.watchlistSearch?.addEventListener("click", () => setView("search"));
-elements.watchGroupShare?.addEventListener("click", shareActiveWatchlistGroup);
+elements.watchlistSearch?.addEventListener("click", () => openWatchStockAddDialog(elements.watchlistSearch));
+elements.watchStockAddClose?.addEventListener("click", closeWatchStockAddDialog);
+elements.watchStockAddBack?.addEventListener("click", returnToWatchStockSearch);
+elements.watchStockSearchForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  window.clearTimeout(state.watchStockAddSearchTimer);
+  void searchWatchStockAdd(elements.watchStockSearchInput?.value);
+});
+elements.watchStockSearchInput?.addEventListener("input", scheduleWatchStockAddSearch);
+elements.watchStockSearchClear?.addEventListener("click", () => {
+  if (!elements.watchStockSearchInput) return;
+  elements.watchStockSearchInput.value = "";
+  elements.watchStockSearchClear.hidden = true;
+  void searchWatchStockAdd("");
+  elements.watchStockSearchInput.focus();
+});
+elements.watchStockAddResults?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-watch-stock-result-index]");
+  if (!button) return;
+  const item = state.watchStockAddResults[Number(button.dataset.watchStockResultIndex)];
+  if (item) openWatchStockGroupStep(item, button);
+});
+elements.watchStockGroupStep?.addEventListener("submit", completeWatchStockAdd);
+elements.watchStockAddDialog?.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  if (elements.watchStockAddDialog?.dataset.step === "groups") returnToWatchStockSearch();
+  else closeWatchStockAddDialog();
+});
+elements.watchStockAddDialog?.addEventListener("click", (event) => {
+  if (event.target === elements.watchStockAddDialog) closeWatchStockAddDialog();
+});
 elements.watchGroupDialogClose?.addEventListener("click", closeWatchlistGroupDialog);
 elements.watchGroupCancel?.addEventListener("click", closeWatchlistGroupDialog);
 elements.watchGroupDelete?.addEventListener("click", deleteActiveWatchlistGroup);

@@ -12,7 +12,7 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="5.6" />
+    <meta name="application-version" content="5.7" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
@@ -31,7 +31,7 @@
     <script src="/assets/staging/stock-change-copy-logic.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260910v506&amp;build=20260910v506" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260910v507&amp;build=20260910v507" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -1339,7 +1339,7 @@
             <h1 id="watch-group-heading">관심</h1>
             <div class="watch-group-actions">
               <button id="watch-group-edit" type="button" aria-pressed="false">편집</button>
-              <button class="watchlist-search" id="watchlist-search" type="button" aria-label="관심종목 검색">
+              <button class="watchlist-search" id="watchlist-search" type="button" aria-label="관심종목 검색해서 추가">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg>
               </button>
             </div>
@@ -1379,14 +1379,6 @@
                 </div>
                 <section class="watch-v3-stock-section watch-compact-stock-section">
                   <section class="watchlist-card-list watch-v2-list-surface watch-compact-list" id="watchlist-body" aria-live="polite"></section>
-                  <footer class="watch-compact-actions">
-                    <button class="watch-group-share" id="watch-group-share" type="button">
-                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12.5 16.5 7v10z"></path><circle cx="6" cy="12.5" r="2.5"></circle></svg>
-                      <span>이 그룹 공유하기</span>
-                    </button>
-                    <button class="watch-group-add-stock" id="watch-group-add-stock" type="button">+ 관심 추가</button>
-                    <p class="watch-group-share-status" id="watch-group-share-status" role="status" aria-live="polite"></p>
-                  </footer>
                 </section>
               </section>
             </section>
@@ -1433,6 +1425,43 @@
               <button class="watch-group-save" id="watch-group-save" type="submit">폴더 만들기</button>
             </footer>
           </form>
+        </dialog>
+
+        <dialog class="watch-stock-add-dialog" id="watch-stock-add-dialog" aria-labelledby="watch-stock-add-title">
+          <section class="watch-stock-add-sheet">
+            <header class="watch-stock-add-head">
+              <button class="watch-stock-add-back" id="watch-stock-add-back" type="button" aria-label="종목 검색 결과로 돌아가기" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5-7 7 7 7"></path></svg>
+              </button>
+              <div>
+                <span>관심종목</span>
+                <h2 id="watch-stock-add-title">종목 추가</h2>
+              </div>
+              <button class="watch-stock-add-close" id="watch-stock-add-close" type="button" aria-label="종목 추가 창 닫기">×</button>
+            </header>
+
+            <section class="watch-stock-search-step" id="watch-stock-search-step">
+              <form class="watch-stock-search-form" id="watch-stock-search-form" role="search" autocomplete="off">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg>
+                <label class="sr-only" for="watch-stock-search-input">추가할 종목 검색</label>
+                <input id="watch-stock-search-input" type="search" placeholder="종목명 또는 종목코드 검색" aria-controls="watch-stock-add-results" aria-describedby="watch-stock-search-status" />
+                <button class="watch-stock-search-clear" id="watch-stock-search-clear" type="button" aria-label="검색어 지우기" hidden>×</button>
+              </form>
+              <p class="watch-stock-search-status" id="watch-stock-search-status" role="status" aria-live="polite"></p>
+              <section class="watch-stock-add-results" id="watch-stock-add-results" aria-live="polite"></section>
+            </section>
+
+            <form class="watch-stock-group-step" id="watch-stock-group-step" hidden>
+              <div class="watch-stock-selected" id="watch-stock-selected"></div>
+              <fieldset class="watch-stock-group-field">
+                <legend>추가할 관심 그룹</legend>
+                <div class="watch-stock-group-options" id="watch-stock-group-options"></div>
+              </fieldset>
+              <p class="watch-stock-group-help">기본그룹에는 항상 저장되며, 원하는 폴더를 함께 선택할 수 있어요.</p>
+              <p class="watch-stock-group-status" id="watch-stock-group-status" role="alert" aria-live="assertive"></p>
+              <button class="watch-stock-group-complete" id="watch-stock-group-complete" type="submit">완료</button>
+            </form>
+          </section>
         </dialog>
 
       </section>
@@ -1621,6 +1650,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260910v506" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260910v507" defer></script>
   </body>
 </html>

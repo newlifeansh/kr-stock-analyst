@@ -17,20 +17,27 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
-    assert 'name="application-version" content="5.6"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260910v506"' in shell.text
+    assert 'name="application-version" content="5.7"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260910v507"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
-    assert 'id="watchlist-search" type="button" aria-label="관심종목 검색"' in shell.text
+    assert 'id="watchlist-search" type="button" aria-label="관심종목 검색해서 추가"' in shell.text
     assert 'id="watch-group-tabs" role="tablist" aria-label="관심 그룹 선택"' in shell.text
     assert 'data-watch-group="default">기본그룹</button>' in shell.text
     assert 'data-watch-group="pinned">핀종목</button>' in shell.text
     assert 'id="watch-group-meta" role="status" aria-live="polite">0개</p>' in shell.text
     assert 'id="watch-group-create"' in shell.text
-    assert 'id="watch-group-add-stock"' in shell.text
-    assert 'id="watch-group-share"' in shell.text
     assert 'id="watch-group-dialog"' in shell.text
+    assert 'id="watch-stock-add-dialog"' in shell.text
+    assert 'id="watch-stock-search-input"' in shell.text
+    assert 'id="watch-stock-add-results"' in shell.text
+    assert 'id="watch-stock-group-options"' in shell.text
+    assert 'id="watch-stock-group-complete"' in shell.text
+    assert 'id="watch-group-add-stock"' not in shell.text
+    assert 'id="watch-group-share"' not in shell.text
+    assert "이 그룹 공유하기" not in shell.text
+    assert "+ 관심 추가" not in shell.text
     assert 'class="watchlist-card-list watch-v2-list-surface watch-compact-list"' in shell.text
 
     styles = client.get("/assets/dashboard/styles.css").text
@@ -486,7 +493,7 @@ console.log(JSON.stringify({
     }
 
 
-def test_interest_groups_share_compact_list_and_edit_actions():
+def test_interest_groups_inline_add_compact_list_and_edit_actions():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text
     styles = client.get("/assets/dashboard/styles.css").text
@@ -500,7 +507,11 @@ def test_interest_groups_share_compact_list_and_edit_actions():
         "function openWatchlistGroupDialog",
         "function saveWatchlistGroupFromDialog",
         "function removeCodeFromActiveWatchlistGroup",
-        "function shareActiveWatchlistGroup",
+        "function openWatchStockAddDialog",
+        "function searchWatchStockAdd",
+        "function openWatchStockGroupStep",
+        "function applyWatchStockAddSelection",
+        "function completeWatchStockAdd",
         "const focusedGroupId = elements.watchGroupTabs.contains(document.activeElement)",
         'const currentTab = event.target.closest("[data-watch-group]");',
         'const nextGroupId = tabs[nextIndex].dataset.watchGroup || "default";',
@@ -513,9 +524,21 @@ def test_interest_groups_share_compact_list_and_edit_actions():
         'removeWatchlistCodeFromGroups(code);',
         'elements.portfolioView.dataset.watchEditing = String(state.watchlistEditing);',
         'elements.watchGroupMeta.textContent = watchlistGroupMetaText();',
-        'elements.watchlistSearch?.addEventListener("click", () => setView("search"));',
+        'elements.watchlistSearch?.addEventListener("click", () => openWatchStockAddDialog',
+        'action.textContent = groupId === "pinned" ? "추천 종목 보기" : "종목 추가";',
+        'else openWatchStockAddDialog(action);',
     ):
         assert expected in source
+
+    empty_state_source = source[
+        source.index("function renderWatchlistMessage")
+        : source.index("function clearWatchlistLoadingOverlay")
+    ]
+    assert "종목 추가에서 검색해 이 폴더에 바로 담아보세요." in empty_state_source
+    assert empty_state_source.index('edit.textContent = "폴더 편집"') < empty_state_source.index(
+        'action.textContent = groupId === "pinned" ? "추천 종목 보기" : "종목 추가"'
+    )
+    assert "else openWatchStockAddDialog(action);" in empty_state_source
 
     for expected in (
         "/* Interest groups v493:",
@@ -524,12 +547,104 @@ def test_interest_groups_share_compact_list_and_edit_actions():
         ".watch-group-dialog::backdrop",
         '#portfolio-view[data-watchlist-layout="compact"] .watch-hub-toolbar',
         '#portfolio-view[data-watchlist-layout="compact"] .watch-compact-row',
-        '#portfolio-view[data-watchlist-layout="compact"] .watch-group-share',
+        "/* Watchlist inline add v507:",
+        ".watch-stock-add-dialog::backdrop",
+        ".watch-stock-search-form:focus-within",
+        ".watch-stock-search-row",
+        ".watch-stock-group-option",
+        ".watch-stock-group-complete",
+        'margin-inline: auto !important;',
+        'padding-right: max(var(--tc-gutter), env(safe-area-inset-right, 0px)) !important;',
         '#portfolio-view[data-watchlist-layout="compact"][data-watch-editing="true"] .watch-compact-remove',
         "@media (max-width: 359px)",
         "@media (prefers-reduced-motion: reduce)",
     ):
         assert expected in styles
+
+    shell = client.get("/dashboard?view=watchlist").text
+    for removed in (
+        'id="watch-group-share"',
+        'id="watch-group-add-stock"',
+        "이 그룹 공유하기",
+        "+ 관심 추가",
+        "function shareActiveWatchlistGroup",
+    ):
+        assert removed not in shell
+        assert removed not in source
+
+
+def test_inline_watchlist_add_selection_updates_only_selected_custom_groups():
+    script = r'''
+const fs = require("fs");
+const source = fs.readFileSync("app/static/dashboard/app.js", "utf8");
+function functionSource(name, nextName) {
+  const start = source.indexOf(`function ${name}(`);
+  const end = source.indexOf(`function ${nextName}(`, start + 1);
+  if (start < 0 || end < 0) throw new Error(`${name} not found`);
+  return source.slice(start, end);
+}
+function marketScopeForItem(item = {}) {
+  return item.market_scope === "us" ? "us" : "kr";
+}
+function normalizeWatchlistItems(items = []) {
+  const seen = new Set();
+  return items.filter(item => {
+    const key = `${marketScopeForItem(item)}:${item.code}`;
+    if (!item.code || !item.name || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 100);
+}
+function normalizeWatchlistGroups(groups = []) {
+  return groups.map(group => ({...group, codes: [...new Set(group.codes || [])].slice(0, 100)}));
+}
+eval(functionSource("watchStockItemKey", "watchStockIsSaved"));
+eval(functionSource("applyWatchStockAddSelection", "renderWatchStockAddEmpty"));
+const items = [
+  {code: "005930", name: "삼성전자", market_scope: "kr"},
+  {code: "000660", name: "SK하이닉스", market_scope: "kr"},
+];
+const groups = [
+  {id: "chips", name: "반도체", codes: ["005930"]},
+  {id: "income", name: "배당주", codes: ["000660"]},
+];
+const added = applyWatchStockAddSelection(
+  {code: "035720", name: "카카오", market_scope: "kr"},
+  ["chips"],
+  items,
+  groups,
+);
+const moved = applyWatchStockAddSelection(items[0], ["income"], added.nextItems, added.nextGroups);
+console.log(JSON.stringify({added, moved}));
+'''
+    result = subprocess.run(
+        ["node", "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert [item["code"] for item in payload["added"]["nextItems"]] == [
+        "005930",
+        "000660",
+        "035720",
+    ]
+    assert payload["added"]["nextGroups"] == [
+        {"id": "chips", "name": "반도체", "codes": ["005930", "035720"]},
+        {"id": "income", "name": "배당주", "codes": ["000660"]},
+    ]
+    assert payload["moved"]["alreadySaved"] is True
+    assert [item["code"] for item in payload["moved"]["nextItems"]] == [
+        "005930",
+        "000660",
+        "035720",
+    ]
+    assert payload["moved"]["nextGroups"] == [
+        {"id": "chips", "name": "반도체", "codes": ["035720"]},
+        {"id": "income", "name": "배당주", "codes": ["000660", "005930"]},
+    ]
 
 
 def test_recommendation_cards_use_one_compact_action_row():
