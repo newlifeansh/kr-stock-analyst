@@ -7834,13 +7834,19 @@ def run_e2e_checks(
             )
 
             def watch_market_map_case(page: Any, theme: str) -> dict[str, Any]:
-                fx_rate = 1_340
-                qa_as_of = datetime.now(KST).replace(
+                domestic_as_of = datetime.now(KST).replace(
                     hour=12,
-                    minute=0,
+                    minute=15,
                     second=0,
                     microsecond=0,
                 ).isoformat()
+                us_as_of = datetime.now(ZoneInfo("America/New_York")).replace(
+                    hour=12,
+                    minute=45,
+                    second=0,
+                    microsecond=0,
+                ).isoformat()
+                qa_as_of = domestic_as_of
                 domestic_items = [
                     ("005930", "삼성전자", "KOSPI", 1_578_000_000_000_000, 2.3, 269_500),
                     ("000660", "SK하이닉스", "KOSPI", 500_000_000_000_000, -1.4, 710_000),
@@ -7852,25 +7858,21 @@ def run_e2e_checks(
                 overseas_items = [
                     ("NVDA", "NVIDIA", "NASDAQ", 5_491_000_000_000, 4.9, 227.41),
                     ("AAPL", "Apple", "NASDAQ", 3_950_000_000_000, -0.8, 285.12),
-                    ("MSFT", "Microsoft", "NASDAQ", 300_000_000_000, 1.6, 528.44),
-                    ("GOOGL", "Alphabet", "NASDAQ", 200_000_000_000, -3.0, 302.18),
-                    ("AMZN", "Amazon", "NASDAQ", 100_000_000_000, 0.4, 241.37),
+                    ("MSFT", "Microsoft", "NASDAQ", 3_800_000_000_000, 2.2, 528.44),
+                    ("AMZN", "Amazon", "NASDAQ", 2_600_000_000_000, -1.2, 241.37),
+                    ("GOOGL", "Alphabet", "NASDAQ", 2_300_000_000_000, 0.9, 302.18),
+                    ("META", "Meta", "NASDAQ", 2_000_000_000_000, 0.0, 748.10),
+                    ("TSLA", "Tesla", "NASDAQ", 1_500_000_000_000, -4.2, 455.20),
+                    ("AVGO", "Broadcom", "NASDAQ", 1_400_000_000_000, 1.6, 364.50),
+                    ("NFLX", "Netflix", "NASDAQ", 500_000_000_000, 0.4, 98.22),
+                    ("COST", "Costco", "NASDAQ", 420_000_000_000, -3.0, 972.33),
+                    ("AMD", "AMD", "NASDAQ", 390_000_000_000, 1.1, 207.18),
                     ("SMALL", "Small Cap", "NYSE", 1_000_000_000, -0.7, 12.34),
                 ]
-                expected_order = [
-                    "NVDA",
-                    "AAPL",
-                    "005930",
-                    "000660",
-                    "MSFT",
-                    "GOOGL",
-                    "AMZN",
-                    "005380",
-                    "207940",
-                    "035420",
-                    "051910",
-                    "SMALL",
-                ]
+                expected_orders = {
+                    "kr": [item[0] for item in domestic_items],
+                    "us": [item[0] for item in overseas_items],
+                }
                 folder_codes = ["NVDA", "005930", "000660", "SMALL"]
 
                 def fulfill_json(route: Any, payload: dict[str, Any]) -> None:
@@ -7894,20 +7896,21 @@ def run_e2e_checks(
 
                 def dashboard(item: tuple[Any, ...], scope: str) -> dict[str, Any]:
                     code, name, market, cap, change, price = item
+                    as_of = us_as_of if scope == "us" else domestic_as_of
                     return {
                         "code": code,
                         "symbol": code if scope == "us" else None,
                         "name": name,
                         "market": market,
                         "currency": "USD" if scope == "us" else "KRW",
-                        "as_of": qa_as_of,
+                        "as_of": as_of,
                         "quote": {
                             "price": price,
                             "change_rate": change,
                             "change_value": price * change / 100,
                             "trading_value": cap / 500,
                             "market_cap": cap,
-                            "as_of": qa_as_of,
+                            "as_of": as_of,
                             "market_session": "regular",
                             "is_live": True,
                         },
@@ -7926,29 +7929,32 @@ def run_e2e_checks(
                         rates = (4.5, -0.5, change)
                     else:
                         rates = (change * 0.35, change * 0.72, change)
-                    market_timezone = ZoneInfo("America/New_York") if scope == "us" else KST
+                    market_timezone = "America/New_York" if scope == "us" else "Asia/Seoul"
+                    trade_times = ("093000", "103000", "124500") if scope == "us" else (
+                        "090000",
+                        "100000",
+                        "121500",
+                    )
+                    trade_date = (
+                        datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+                        if scope == "us"
+                        else datetime.now(KST).date().isoformat()
+                    )
                     points = []
-                    for trade_time, rate in zip(("090000", "100000", "120000"), rates):
-                        display_time = datetime.now(KST).replace(
-                            hour=int(trade_time[:2]),
-                            minute=int(trade_time[2:4]),
-                            second=0,
-                            microsecond=0,
-                        )
-                        source_time = display_time.astimezone(market_timezone)
+                    for trade_time, rate in zip(trade_times, rates):
                         points.append(
                             {
-                                "trade_date": source_time.date().isoformat(),
-                                "trade_time": source_time.strftime("%H%M%S"),
+                                "trade_date": trade_date,
+                                "trade_time": trade_time,
                                 "price": reference * (1 + rate / 100),
                             }
                         )
                     return {
                         "code": code,
                         "source": "qa-fixture",
-                        "as_of": qa_as_of,
+                        "as_of": us_as_of if scope == "us" else domestic_as_of,
                         "market_state": "open",
-                        "market_timezone": str(market_timezone),
+                        "market_timezone": market_timezone,
                         "trade_date": points[-1]["trade_date"],
                         "reference_price": reference,
                         "points": points,
@@ -8037,17 +8043,6 @@ def run_e2e_checks(
                         ),
                     )
                 page.route(
-                    re.compile(r".*/us/fx/usdkrw(?:\?.*)?$"),
-                    lambda route: fulfill_json(
-                        route,
-                        {
-                            "rate": fx_rate,
-                            "source": "qa-fixture",
-                            "as_of": qa_as_of,
-                        },
-                    ),
-                )
-                page.route(
                     "**/stocks/quotes*",
                     lambda route: fulfill_json(
                         route,
@@ -8098,9 +8093,9 @@ def run_e2e_checks(
                 page.wait_for_function(
                     """expected => (
                       state.watchMarketMapResults.length === expected
-                      && state.watchMarketMapUsdKrw === 1340
                       && state.watchMarketMapIntradayByKey.size === expected
                       && state.watchMarketMapTimelineLoading === false
+                      && state.watchMarketMapMarketScope === 'us'
                       && document.querySelector('#watch-market-map:not([hidden])')
                       && !document.querySelector('#watch-market-map-stage')?.hasAttribute('aria-busy')
                     )""",
@@ -8108,13 +8103,26 @@ def run_e2e_checks(
                     timeout=int(timeout * 1000),
                 )
 
-                actual_order = page.evaluate(
+                actual_orders = {
+                    "us": page.evaluate(
+                        "() => watchMarketMapEntries().map(entry => entry.item.code)"
+                    )
+                }
+                page.locator('[data-watch-market-scope="kr"]').click()
+                page.wait_for_function(
+                    "() => state.watchMarketMapMarketScope === 'kr' && document.querySelector('#watch-market-map')?.dataset.marketScope === 'kr'"
+                )
+                actual_orders["kr"] = page.evaluate(
                     "() => watchMarketMapEntries().map(entry => entry.item.code)"
                 )
-                if actual_order != expected_order:
+                page.locator('[data-watch-market-scope="us"]').click()
+                page.wait_for_function(
+                    "() => state.watchMarketMapMarketScope === 'us' && document.querySelector('#watch-market-map')?.dataset.marketScope === 'us'"
+                )
+                if actual_orders != expected_orders:
                     raise QaFailure(
-                        "국내·미국 관심종목이 원화 환산 시가총액 순으로 정렬되지 않았습니다.",
-                        {"actual": actual_order, "expected": expected_order},
+                        "국내·미국 관심종목이 선택 시장 안의 시가총액 순으로 분리되지 않았습니다.",
+                        {"actual": actual_orders, "expected": expected_orders},
                     )
                 placement = page.evaluate(
                     """() => {
@@ -8122,12 +8130,17 @@ def run_e2e_checks(
                       const marketMap = document.querySelector('#watch-market-map');
                       const top50 = document.querySelector('#home-surge');
                       const portfolio = document.querySelector('#portfolio-view');
+                      const localToggle = document.querySelector('#watch-market-map-market-toggle');
+                      const localButtons = [...document.querySelectorAll('[data-watch-market-scope]')];
                       return {
                         mapCount: document.querySelectorAll('#watch-market-map').length,
                         inHome: Boolean(home?.contains(marketMap)),
                         immediatelyBeforeTop50: marketMap?.nextElementSibling === top50,
                         inPortfolio: Boolean(portfolio?.contains(marketMap)),
                         marketToggleVisible: Boolean(document.querySelector('#unified-market-scope')?.offsetParent),
+                        localToggleVisible: Boolean(localToggle?.offsetParent),
+                        selectedScope: localButtons.find(button => button.getAttribute('aria-pressed') === 'true')?.dataset.watchMarketScope,
+                        touchHeights: localButtons.map(button => button.getBoundingClientRect().height),
                       };
                     }"""
                 )
@@ -8137,6 +8150,9 @@ def run_e2e_checks(
                     or not placement["immediatelyBeforeTop50"]
                     or placement["inPortfolio"]
                     or placement["marketToggleVisible"]
+                    or not placement["localToggleVisible"]
+                    or placement["selectedScope"] != "us"
+                    or min(placement["touchHeights"], default=0) < 44
                 ):
                     raise QaFailure(
                         "관심종목 버블이 증권 홈 TOP 50 직전에 유일하게 배치되지 않았습니다.",
@@ -8154,6 +8170,7 @@ def run_e2e_checks(
                             const rect = tile.getBoundingClientRect();
                             return {
                               code: tile.dataset.code || null,
+                              marketScope: tile.dataset.marketScope || null,
                               overflow: tile.classList.contains('is-overflow'),
                               classes: [...tile.classList],
                               ariaLabel: tile.getAttribute('aria-label'),
@@ -8208,12 +8225,17 @@ def run_e2e_checks(
                             status: document.querySelector('#watch-market-map-status')?.textContent.trim(),
                             timeline: {
                               hidden: timeline?.hidden ?? true,
+                              marketScope: timeline?.dataset.marketScope,
+                              session: document.querySelector('#watch-market-map-timeline-session')?.textContent.trim(),
                               label: document.querySelector('#watch-market-map-timeline-time')?.textContent.trim(),
                               type: timelineTrack?.type,
                               disabled: timelineTrack?.disabled,
+                              valueMin: Number(timelineTrack?.min),
                               valueNow: Number(timelineTrack?.value),
                               valueMax: Number(timelineTrack?.max),
                               valueText: timelineTrack?.getAttribute('aria-valuetext'),
+                              openLabel: document.querySelector('#watch-market-map-timeline-open')?.textContent.trim(),
+                              closeLabel: document.querySelector('#watch-market-map-timeline-close')?.textContent.trim(),
                               trackWidth: timelineRailRect?.width || 0,
                               fillWidth: timelineFillRect?.width || 0,
                             },
@@ -8248,6 +8270,10 @@ def run_e2e_checks(
                         if tile["metadataNodeCount"]
                         or any(label in tile["text"] for label in ("시총", "국내", "미국"))
                     ]
+                    wrong_market_tiles = [
+                        tile for tile in snapshot["tiles"]
+                        if not tile["overflow"] and tile["marketScope"] != "us"
+                    ]
                     timeline = snapshot["timeline"]
                     timeline_ratio = (
                         timeline["fillWidth"] / timeline["trackWidth"]
@@ -8260,13 +8286,19 @@ def run_e2e_checks(
                         or snapshot["overlaps"]
                         or unreadable
                         or metadata_leaks
+                        or wrong_market_tiles
                         or timeline["hidden"]
                         or timeline["type"] != "range"
                         or timeline["disabled"]
-                        or timeline["valueNow"] != 720
-                        or timeline["valueMax"] != 720
-                        or "오늘 12:00 최신 시세 기준" not in (timeline["label"] or "")
-                        or "오늘 12:00 최신 시세 기준" not in (timeline["valueText"] or "")
+                        or timeline["marketScope"] != "us"
+                        or timeline["session"] != "미국 정규장 · 뉴욕시간"
+                        or timeline["valueMin"] != 570
+                        or timeline["valueNow"] != 765
+                        or timeline["valueMax"] != 765
+                        or timeline["openLabel"] != "09:30"
+                        or timeline["closeLabel"] != "16:00"
+                        or "오늘 뉴욕 12:45 최신 시세 기준" not in (timeline["label"] or "")
+                        or "오늘 뉴욕 12:45 최신 시세 기준" not in (timeline["valueText"] or "")
                         or not 0.49 <= timeline_ratio <= 0.51
                     ):
                         raise QaFailure(
@@ -8276,6 +8308,7 @@ def run_e2e_checks(
                                 "outside": outside,
                                 "unreadable": unreadable,
                                 "metadata_leaks": metadata_leaks,
+                                "wrong_market_tiles": wrong_market_tiles,
                                 "timeline_ratio": timeline_ratio,
                             },
                         )
@@ -8293,12 +8326,12 @@ def run_e2e_checks(
                 }
                 expected_tones = {
                     "NVDA": {"is-positive", "is-strong"},
-                    "MSFT": {"is-positive", "is-medium"},
-                    "AMZN": {"is-positive", "is-soft"},
+                    "AVGO": {"is-positive", "is-medium"},
+                    "NFLX": {"is-positive", "is-soft"},
                     "AAPL": {"is-negative", "is-soft"},
-                    "GOOGL": {"is-negative", "is-medium"},
-                    "051910": {"is-negative", "is-strong"},
-                    "005380": {"is-flat"},
+                    "COST": {"is-negative", "is-medium"},
+                    "TSLA": {"is-negative", "is-strong"},
+                    "META": {"is-flat"},
                 }
                 invalid_tones = {
                     code: desktop_tiles.get(code)
@@ -8309,12 +8342,12 @@ def run_e2e_checks(
                 }
                 positive_colors = {
                     desktop_tiles[code]["backgroundColor"]
-                    for code in ("NVDA", "MSFT", "AMZN")
+                    for code in ("NVDA", "AVGO", "NFLX")
                     if code in desktop_tiles
                 }
                 negative_colors = {
                     desktop_tiles[code]["backgroundColor"]
-                    for code in ("AAPL", "GOOGL", "051910")
+                    for code in ("AAPL", "COST", "TSLA")
                     if code in desktop_tiles
                 }
                 if invalid_tones or len(positive_colors) != 3 or len(negative_colors) != 3:
@@ -8359,7 +8392,11 @@ def run_e2e_checks(
                         })"""
                     )
 
-                def scrub_timeline(minute: int) -> tuple[dict[str, Any], dict[str, Any]]:
+                def scrub_timeline(
+                    minute: int,
+                    expected_minute: int | None = None,
+                ) -> tuple[dict[str, Any], dict[str, Any]]:
+                    expected = minute if expected_minute is None else expected_minute
                     page.evaluate(
                         """minute => {
                           const slider = document.querySelector('#watch-market-map-timeline-track');
@@ -8375,7 +8412,7 @@ def run_e2e_checks(
                           && document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settling'
                           && state.watchMarketMapPhysics?.frame !== null
                         )""",
-                        arg=minute,
+                        arg=expected,
                         timeout=2000,
                     )
                     moving = timeline_bubble_snapshot()
@@ -8385,25 +8422,20 @@ def run_e2e_checks(
                     )
                     return moving, timeline_bubble_snapshot()
 
-                ten_moving, ten_snapshot = scrub_timeline(600)
-                nine_moving, nine_snapshot = scrub_timeline(540)
-                _before_open_moving, before_open_snapshot = scrub_timeline(480)
+                ten_moving, ten_snapshot = scrub_timeline(630)
+                nine_moving, nine_snapshot = scrub_timeline(480, 570)
+                before_open_snapshot = nine_snapshot
                 ten_nvda = ten_snapshot["tiles"].get("NVDA", {})
                 ten_aapl = ten_snapshot["tiles"].get("AAPL", {})
                 nine_nvda = nine_snapshot["tiles"].get("NVDA", {})
                 nine_aapl = nine_snapshot["tiles"].get("AAPL", {})
-                unavailable_tiles = [
-                    tile
-                    for tile in before_open_snapshot["tiles"].values()
-                    if "is-unavailable" not in tile["classes"] or tile["change"] is not None
-                ]
                 timeline_scrub_invalid = (
                     ten_snapshot["sizeEncoding"] != "absolute-return"
-                    or ten_snapshot["minute"] != 600
-                    or ten_snapshot["sliderValue"] != 600
-                    or ten_snapshot["sliderMax"] != 720
-                    or "오늘 10:00 선택 시세 기준" not in (ten_snapshot["label"] or "")
-                    or "오늘 10:00 선택 시세 기준" not in (ten_snapshot["valueText"] or "")
+                    or ten_snapshot["minute"] != 630
+                    or ten_snapshot["sliderValue"] != 630
+                    or ten_snapshot["sliderMax"] != 765
+                    or "오늘 뉴욕 10:30 선택 시세 기준" not in (ten_snapshot["label"] or "")
+                    or "오늘 뉴욕 10:30 선택 시세 기준" not in (ten_snapshot["valueText"] or "")
                     or abs(ten_nvda.get("change", 999) - 4.8) > 0.02
                     or abs(ten_aapl.get("change", 999) - (-0.5)) > 0.02
                     or ten_nvda.get("radius", 0) <= ten_aapl.get("radius", 0)
@@ -8414,10 +8446,10 @@ def run_e2e_checks(
                     or nine_aapl.get("radius", 0) <= nine_nvda.get("radius", 0)
                     or not {"is-negative", "is-soft"}.issubset(set(nine_nvda.get("classes", [])))
                     or not {"is-positive", "is-strong"}.issubset(set(nine_aapl.get("classes", [])))
-                    or unavailable_tiles
-                    or "시세 없음 12" not in (before_open_snapshot["legend"] or "")
-                    or ten_moving["minute"] != 600
-                    or nine_moving["minute"] != 540
+                    or before_open_snapshot["minute"] != 570
+                    or before_open_snapshot["sliderValue"] != 570
+                    or ten_moving["minute"] != 630
+                    or nine_moving["minute"] != 570
                 )
                 if timeline_scrub_invalid:
                     raise QaFailure(
@@ -8426,7 +8458,6 @@ def run_e2e_checks(
                             "ten": ten_snapshot,
                             "nine": nine_snapshot,
                             "before_open": before_open_snapshot,
-                            "unavailable_tiles": unavailable_tiles,
                         },
                     )
 
@@ -8435,8 +8466,8 @@ def run_e2e_checks(
                 page.keyboard.press("End")
                 page.wait_for_function(
                     """() => (
-                      document.querySelector('#watch-market-map-stage')?.dataset.timelineMinute === '720'
-                      && document.querySelector('#watch-market-map-timeline-track')?.value === '720'
+                      document.querySelector('#watch-market-map-stage')?.dataset.timelineMinute === '765'
+                      && document.querySelector('#watch-market-map-timeline-track')?.value === '765'
                     )""",
                     timeout=2000,
                 )
@@ -8445,7 +8476,7 @@ def run_e2e_checks(
                     timeout=2000,
                 )
                 timeline_latest_snapshot = timeline_bubble_snapshot()
-                if "오늘 12:00 최신 시세 기준" not in (timeline_latest_snapshot["label"] or ""):
+                if "오늘 뉴욕 12:45 최신 시세 기준" not in (timeline_latest_snapshot["label"] or ""):
                     raise QaFailure(
                         "타임라인 End 키가 최신 시세로 복귀하지 않습니다.",
                         timeline_latest_snapshot,
@@ -8654,6 +8685,7 @@ def run_e2e_checks(
                       return {
                         tag: sheet.tagName,
                         open: sheet.open,
+                        title: document.querySelector('#watch-market-map-sheet-title')?.textContent.trim(),
                         rowCount: links.length,
                         hiddenCount: state.watchMarketMapHiddenEntries.length,
                         rowCodes: links.map(link => link.dataset.code),
@@ -8683,6 +8715,7 @@ def run_e2e_checks(
                 if (
                     sheet_snapshot["tag"] != "DIALOG"
                     or sheet_snapshot["open"] is not True
+                    or "미국 나머지 종목" not in (sheet_snapshot["title"] or "")
                     or sheet_snapshot["rowCount"] != sheet_snapshot["hiddenCount"]
                     or sheet_snapshot["rowCodes"] != sheet_snapshot["hiddenCodes"]
                     or sheet_snapshot["metadataLeaks"]
@@ -8740,7 +8773,7 @@ def run_e2e_checks(
                     "() => watchMarketMapEntries().map(entry => entry.item.code)"
                 )
                 expected_folder_order = [
-                    code for code in expected_order if code in folder_codes
+                    code for code in expected_orders["us"] if code in folder_codes
                 ]
                 if folder_order != expected_folder_order:
                     raise QaFailure(
@@ -8769,8 +8802,7 @@ def run_e2e_checks(
                 return {
                     **shell,
                     "placement": placement,
-                    "exchange_rate": fx_rate,
-                    "market_cap_order": actual_order,
+                    "market_scope_orders": actual_orders,
                     "folder_order": folder_order,
                     "layouts": layouts,
                     "timeline": layouts["390"]["timeline"],
@@ -8795,7 +8827,7 @@ def run_e2e_checks(
                     "sheet": sheet_snapshot,
                     "focus_returned_after_live_render": True,
                     "bubble_click_href": activated_href,
-                    "market_toggle_visible": False,
+                    "market_toggle_visible": True,
                 }
 
             results.append(

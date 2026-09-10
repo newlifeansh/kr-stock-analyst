@@ -31,7 +31,7 @@
     <script src="/assets/staging/stock-change-copy-logic.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260910v517&amp;build=20260910v517" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260910v518&amp;build=20260910v518" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -1025,24 +1025,28 @@
               <span id="watch-market-map-group">기본 그룹</span>
               <h2 id="watch-market-map-title">관심종목 버블</h2>
             </div>
+            <nav class="watch-market-map-market-toggle" id="watch-market-map-market-toggle" aria-label="관심종목 시장 선택">
+              <button class="active" type="button" aria-label="국내 관심종목 보기" aria-pressed="true" data-watch-market-scope="kr">국내</button>
+              <button type="button" aria-label="미국 관심종목 보기" aria-pressed="false" data-watch-market-scope="us">미국</button>
+            </nav>
             <p id="watch-market-map-description">오늘 등락률을 색과 농도로 보여드려요. 버블을 끌어 움직일 수 있어요.</p>
           </header>
           <div class="watch-market-map-stage" id="watch-market-map-stage" role="group" aria-label="선택한 시각의 수익률로 표시한 관심종목 버블. 끌어서 움직이거나 눌러 종목 상세를 볼 수 있습니다."></div>
           <div class="watch-market-map-legend" id="watch-market-map-legend" aria-label="오늘 등락 종목 수"></div>
           <div class="watch-market-map-timeline" id="watch-market-map-timeline" hidden>
             <div class="watch-market-map-timeline-head">
-              <span>오늘</span>
+              <span id="watch-market-map-timeline-session">국내 정규장 · 한국시간</span>
               <time id="watch-market-map-timeline-time">현재 시세 기준</time>
             </div>
             <div class="watch-market-map-timeline-control">
               <span class="watch-market-map-timeline-rail" aria-hidden="true"><span id="watch-market-map-timeline-fill"></span></span>
               <span class="watch-market-map-timeline-input-zone" id="watch-market-map-timeline-input-zone">
-                <input id="watch-market-map-timeline-track" type="range" min="0" max="1439" step="1" value="0" aria-label="오늘 수익률 기준 시각" aria-valuetext="오늘 현재 시세 기준" />
+                <input id="watch-market-map-timeline-track" type="range" min="540" max="930" step="1" value="930" aria-label="국내 정규장 수익률 기준 시각" aria-valuetext="국내 정규장 현재 시세 기준" />
               </span>
             </div>
             <div class="watch-market-map-timeline-labels" aria-hidden="true">
-              <span>00:00</span>
-              <span>24:00</span>
+              <span id="watch-market-map-timeline-open">09:00</span>
+              <span id="watch-market-map-timeline-close">15:30</span>
             </div>
           </div>
           <p class="sr-only" id="watch-market-map-status" role="status" aria-live="polite"></p>
@@ -1661,6 +1665,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260910v517" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260910v518" defer></script>
   </body>
 </html>

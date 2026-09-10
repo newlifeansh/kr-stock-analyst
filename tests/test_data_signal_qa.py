@@ -1004,7 +1004,10 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "def watch_market_map_case" in source
     assert 'case_id="SIG-UI-025"' in source
     assert "증권 홈 TOP 50 직전에 유일하게 배치" in source
-    assert "원화 환산 시가총액 순으로 정렬" in source
+    assert "선택 시장 안의 시가총액 순으로 분리" in source
+    assert 'timeline["session"] != "미국 정규장 · 뉴욕시간"' in source
+    assert 'timeline["openLabel"] != "09:30"' in source
+    assert 'timeline["closeLabel"] != "16:00"' in source
     assert "오늘 등락 방향·강도별 버블 색상 단계" in source
     assert "오늘 타임라인 계약" in source
     assert "시간 스크러빙에 따른 버블 수익률·크기·색·접근성 전환" in source
@@ -1504,9 +1507,18 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     assert by_id["DATA-GLOBAL-003"]["status"] == "warn"
     assert by_id["DATA-KRX-NAVER-002"]["status"] == "pass"
     assert by_id["SIG-UI-025"]["status"] == "pass"
-    assert by_id["SIG-UI-025"]["evidence"]["fx"]["usdkrw"] == pytest.approx(1341.36)
-    assert by_id["SIG-UI-025"]["evidence"]["intraday"]["domestic"]["points"] == 1
-    assert by_id["SIG-UI-025"]["evidence"]["intraday"]["overseas"]["reference_price"] == pytest.approx(170.25)
+    watch_map_evidence = by_id["SIG-UI-025"]["evidence"]
+    assert watch_map_evidence["domestic"]["market_scope"] == "kr"
+    assert watch_map_evidence["domestic"]["market_cap_krw"] == pytest.approx(
+        1_578_000_000_000_000
+    )
+    assert watch_map_evidence["overseas"]["market_scope"] == "us"
+    assert watch_map_evidence["overseas"]["market_cap_usd"] == pytest.approx(
+        5_491_269_270_000
+    )
+    assert "fx" not in watch_map_evidence
+    assert watch_map_evidence["intraday"]["domestic"]["points"] == 1
+    assert watch_map_evidence["intraday"]["overseas"]["reference_price"] == pytest.approx(170.25)
     assert by_id["SIG-UI-026"]["status"] == "pass"
     assert by_id["SIG-UI-026"]["evidence"]["item_count"] == 1
     assert report["market_state"] == "closed"

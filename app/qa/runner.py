@@ -2035,7 +2035,6 @@ def _live_checks(
                 include_live="false",
             )
             overseas, overseas_meta = api.get("/us/stocks/NVDA/dashboard")
-            fx, fx_meta = api.get("/us/fx/usdkrw")
             domestic_intraday, domestic_intraday_meta = api.get(
                 "/stocks/005930/intraday",
                 limit="390",
@@ -2061,7 +2060,6 @@ def _live_checks(
                 (overseas.get("quote") or {}).get("market_cap")
                 or overseas.get("market_cap")
             )
-            usdkrw = positive_number(fx.get("rate"))
             _assert(
                 domestic_cap is not None,
                 "관심종목 버블맵에 필요한 국내 시가총액이 없습니다.",
@@ -2071,12 +2069,6 @@ def _live_checks(
                 overseas_cap is not None,
                 "관심종목 버블맵에 필요한 미국 시가총액이 없습니다.",
                 **overseas_meta,
-            )
-            _assert(
-                usdkrw is not None and 500 <= usdkrw <= 3000,
-                "관심종목 버블맵의 원화 환산 환율이 유효 범위를 벗어났습니다.",
-                rate=usdkrw,
-                **fx_meta,
             )
             for label, payload, meta in (
                 ("국내", domestic_intraday, domestic_intraday_meta),
@@ -2105,15 +2097,15 @@ def _live_checks(
                 "domestic": {
                     **domestic_meta,
                     "code": domestic.get("code") or "005930",
+                    "market_scope": "kr",
                     "market_cap_krw": domestic_cap,
                 },
                 "overseas": {
                     **overseas_meta,
                     "code": overseas.get("symbol") or overseas.get("code") or "NVDA",
+                    "market_scope": "us",
                     "market_cap_usd": overseas_cap,
-                    "market_cap_krw": overseas_cap * usdkrw,
                 },
-                "fx": {**fx_meta, "usdkrw": usdkrw},
                 "intraday": {
                     "domestic": {
                         **domestic_intraday_meta,
@@ -2132,7 +2124,7 @@ def _live_checks(
         collector.check(
             "SIG-UI-025",
             watch_market_map_data_contract,
-            pass_message="관심종목 버블맵의 국내·미국 시총·환율·분봉 스크러빙 입력을 확인했습니다.",
+            pass_message="관심종목 버블맵의 국내·미국 분리 시총·분봉 스크러빙 입력을 확인했습니다.",
         )
 
         def domestic_community_latest_contract() -> dict[str, Any]:
