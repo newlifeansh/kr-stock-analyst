@@ -2135,6 +2135,68 @@ def _live_checks(
             pass_message="관심종목 버블맵의 국내·미국 시총·환율·분봉 스크러빙 입력을 확인했습니다.",
         )
 
+        def domestic_community_latest_contract() -> dict[str, Any]:
+            payload, meta = api.get(
+                "/stocks/005930/community-feed",
+                limit=5,
+                mode="latest",
+            )
+            providers = payload.get("providers") if isinstance(payload, dict) else None
+            _assert(
+                isinstance(providers, list),
+                "국내 커뮤니티 공급자 응답이 배열이 아닙니다.",
+                **meta,
+            )
+            provider = next(
+                (
+                    item
+                    for item in providers
+                    if isinstance(item, dict) and item.get("key") == "naver_board"
+                ),
+                None,
+            )
+            items = provider.get("items") if isinstance(provider, dict) else None
+            _assert(
+                isinstance(items, list) and items,
+                "삼성전자 최신 커뮤니티 글이 비어 있습니다.",
+                provider_configured=(
+                    provider.get("configured") if isinstance(provider, dict) else None
+                ),
+                provider_message=(
+                    provider.get("message") if isinstance(provider, dict) else None
+                ),
+                **meta,
+            )
+            first = items[0] if isinstance(items[0], dict) else {}
+            _assert(
+                bool(first.get("post_id"))
+                and bool(first.get("title"))
+                and bool(first.get("author_name"))
+                and str(first.get("url") or "").startswith(
+                    "https://m.stock.naver.com/domestic/stock/005930/discussion/"
+                ),
+                "국내 커뮤니티 최신글 필드 또는 원문 링크가 잘못됐습니다.",
+                post_id=first.get("post_id"),
+                has_title=bool(first.get("title")),
+                has_author=bool(first.get("author_name")),
+                url=first.get("url"),
+                **meta,
+            )
+            return {
+                **meta,
+                "provider": provider.get("source"),
+                "provider_configured": provider.get("configured"),
+                "item_count": len(items),
+                "first_post_id": first.get("post_id"),
+                "first_post_url": first.get("url"),
+            }
+
+        collector.check(
+            "SIG-UI-026",
+            domestic_community_latest_contract,
+            pass_message="삼성전자 최신 커뮤니티 글과 모바일 원문 링크를 확인했습니다.",
+        )
+
         def realtime_status_contract() -> dict[str, Any]:
             payload, meta = api.get("/realtime/status")
             channels = payload.get("public_quote_channels") or {}

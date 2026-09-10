@@ -314,7 +314,13 @@ def _build_threads_provider(
     }
 
 
-def _fetch_naver_board_rows(stock: StockMaster, limit: int, timeout_seconds: int) -> list[dict[str, object]]:
+def _fetch_naver_legacy_board_rows(
+    stock: StockMaster,
+    limit: int,
+    timeout_seconds: int,
+) -> list[dict[str, object]]:
+    """Read the retired desktop board when Naver's discussion API is unavailable."""
+
     response = requests.get(
         NAVER_BOARD_URL,
         params={"code": stock.code, "page": 1},
@@ -406,6 +412,66 @@ def _naver_discussion_post_row(
         "view_count": _to_int(post.get("viewCount")),
         "impact": _impact(title),
     }
+
+
+def _fetch_naver_latest_discussion_rows(
+    item_code: str,
+    discussion_type: str,
+    limit: int,
+    timeout_seconds: int,
+    *,
+    world: bool,
+) -> list[dict[str, object]]:
+    """Return the latest posts from Naver's current mobile discussion API."""
+
+    response = requests.get(
+        NAVER_WORLD_DISCUSSION_URL,
+        params={
+            "itemCode": item_code,
+            "discussionType": discussion_type,
+            "pageSize": max(1, min(NAVER_DISCUSSION_PAGE_SIZE, int(limit))),
+        },
+        headers=NAVER_WORLD_HEADERS if world else NAVER_HEADERS,
+        timeout=timeout_seconds,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or payload.get("isSuccess") is False:
+        raise ValueError("Naver discussion response was unsuccessful")
+    result = payload.get("result") or {}
+    if not isinstance(result, dict):
+        raise ValueError("Naver discussion response has no result object")
+    posts = result.get("posts") or []
+    if not isinstance(posts, list):
+        raise ValueError("Naver discussion response has no posts list")
+
+    rows: list[dict[str, object]] = []
+    for post in posts:
+        if not isinstance(post, dict):
+            continue
+        row = _naver_discussion_post_row(item_code, post, world=world)
+        if row is not None:
+            rows.append(row)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def _fetch_naver_board_rows(
+    stock: StockMaster,
+    limit: int,
+    timeout_seconds: int,
+) -> list[dict[str, object]]:
+    try:
+        return _fetch_naver_latest_discussion_rows(
+            stock.code,
+            NAVER_DOMESTIC_DISCUSSION_TYPE,
+            limit,
+            timeout_seconds,
+            world=False,
+        )
+    except Exception:  # noqa: BLE001 - retain compatibility during upstream API incidents.
+        return _fetch_naver_legacy_board_rows(stock, limit, timeout_seconds)
 
 
 def _fetch_naver_popular_discussion_rows(

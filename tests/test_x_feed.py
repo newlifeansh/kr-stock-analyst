@@ -129,29 +129,44 @@ def test_stock_community_feed_endpoint_uses_naver_board_and_threads(monkeypatch)
     db = _session()
     db.add(StockMaster(code="215600", name="신라젠", market="KOSDAQ", is_active=True))
     db.commit()
+    calls = []
 
     class Response:
-        text = """
-        <table class="type2">
-          <tr><th>날짜</th><th>제목</th><th>글쓴이</th><th>조회</th><th>추천</th><th>비추천</th></tr>
-          <tr align="center">
-            <td><span>2026.07.25 12:13</span></td>
-            <td class="title"><a href="/item/board_read.naver?code=215600&nid=426298204&page=1" title="신라젠 다시 상승 준비">신라젠 다시 상승 준비</a></td>
-            <td class="p11 align_right">개미투자자</td>
-            <td><span>27</span></td>
-            <td><strong>3</strong></td>
-            <td><strong>0</strong></td>
-          </tr>
-        </table>
-        """
-
         @staticmethod
         def raise_for_status():
             return None
 
+        @staticmethod
+        def json():
+            return {
+                "isSuccess": True,
+                "result": {
+                    "posts": [
+                        {
+                            "id": "426298204",
+                            "writtenAt": "2026-07-25T12:13:00",
+                            "title": "신라젠 다시 상승 준비",
+                            "writer": {
+                                "nickname": "개미투자자",
+                                "imageUrl": "https://example.test/profile.png",
+                            },
+                            "recommendCount": 3,
+                            "notRecommendCount": 0,
+                            "commentCount": 2,
+                            "viewCount": 27,
+                        }
+                    ]
+                },
+            }
+
     def fake_get(url, **kwargs):
-        assert url == community_feed.NAVER_BOARD_URL
-        assert kwargs["params"]["code"] == "215600"
+        calls.append((url, kwargs))
+        assert url == community_feed.NAVER_WORLD_DISCUSSION_URL
+        assert kwargs["params"] == {
+            "itemCode": "215600",
+            "discussionType": "domesticStock",
+            "pageSize": 8,
+        }
         return Response()
 
     def override_db():
@@ -177,12 +192,81 @@ def test_stock_community_feed_endpoint_uses_naver_board_and_threads(monkeypatch)
             == "https://m.stock.naver.com/domestic/stock/215600/discussion/426298204"
         )
         assert payload["providers"][0]["items"][0]["view_count"] == 27
+        assert payload["providers"][0]["items"][0]["reply_count"] == 2
         assert payload["providers"][1]["key"] == "threads"
         assert payload["providers"][1]["label"] == "쓰레드"
         assert payload["providers"][1]["search_url"].startswith("https://www.threads.com/search?q=")
+        assert len(calls) == 1
     finally:
         app.dependency_overrides.pop(get_db, None)
         db.close()
+
+
+def test_stock_community_latest_api_falls_back_to_legacy_board(monkeypatch):
+    stock = StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True)
+    calls = []
+
+    class LegacyResponse:
+        text = """
+        <table class="type2">
+          <tr><th>날짜</th><th>제목</th><th>글쓴이</th><th>조회</th><th>추천</th><th>비추천</th></tr>
+          <tr align="center">
+            <td><span>2026.09.10 20:30</span></td>
+            <td class="title"><a href="/item/board_read.naver?code=005930&amp;nid=429247260&amp;page=1" title="삼성전자 최신 의견">삼성전자 최신 의견</a></td>
+            <td class="p11 align_right">개미투자자</td>
+            <td><span>31</span></td>
+            <td><strong>4</strong></td>
+            <td><strong>1</strong></td>
+          </tr>
+        </table>
+        """
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        if url == community_feed.NAVER_WORLD_DISCUSSION_URL:
+            raise RuntimeError("discussion API unavailable")
+        assert url == community_feed.NAVER_BOARD_URL
+        assert kwargs["params"] == {"code": "005930", "page": 1}
+        return LegacyResponse()
+
+    monkeypatch.setattr(community_feed.requests, "get", fake_get)
+
+    rows = community_feed._fetch_naver_board_rows(stock, 5, 8)
+
+    assert [call[0] for call in calls] == [
+        community_feed.NAVER_WORLD_DISCUSSION_URL,
+        community_feed.NAVER_BOARD_URL,
+    ]
+    assert rows[0]["post_id"] == "429247260"
+    assert rows[0]["title"] == "삼성전자 최신 의견"
+    assert rows[0]["url"].endswith("/005930/discussion/429247260")
+
+
+def test_stock_community_latest_api_keeps_a_valid_empty_result(monkeypatch):
+    stock = StockMaster(code="999999", name="게시물없음", market="KOSPI", is_active=True)
+    calls = []
+
+    class EmptyResponse:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return {"isSuccess": True, "result": {"posts": []}}
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return EmptyResponse()
+
+    monkeypatch.setattr(community_feed.requests, "get", fake_get)
+
+    assert community_feed._fetch_naver_board_rows(stock, 5, 8) == []
+    assert [call[0] for call in calls] == [community_feed.NAVER_WORLD_DISCUSSION_URL]
 
 
 def test_stock_community_popular_mode_scans_today_and_orders_recommendations_then_views(monkeypatch):

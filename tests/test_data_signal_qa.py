@@ -1394,6 +1394,28 @@ class FakeReadOnlyApi:
                     {"trade_date": "2026-08-29", "trade_time": "100000", "price": 100},
                 ],
             }, self._meta(path)
+        if path == "/stocks/005930/community-feed":
+            return {
+                "code": "005930",
+                "name": "삼성전자",
+                "mode": "latest",
+                "providers": [
+                    {
+                        "key": "naver_board",
+                        "source": "naver_finance_board",
+                        "configured": True,
+                        "message": "최근 글 1건",
+                        "items": [
+                            {
+                                "post_id": "429247260",
+                                "title": "삼성전자 최신 의견",
+                                "author_name": "개미투자자",
+                                "url": "https://m.stock.naver.com/domestic/stock/005930/discussion/429247260",
+                            }
+                        ],
+                    }
+                ],
+            }, self._meta(path)
         if path == "/stocks/005930/quant-signals":
             return {
                 "strategy_version": "position-lifecycle-v7.4.2",
@@ -1485,8 +1507,44 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     assert by_id["SIG-UI-025"]["evidence"]["fx"]["usdkrw"] == pytest.approx(1341.36)
     assert by_id["SIG-UI-025"]["evidence"]["intraday"]["domestic"]["points"] == 1
     assert by_id["SIG-UI-025"]["evidence"]["intraday"]["overseas"]["reference_price"] == pytest.approx(170.25)
+    assert by_id["SIG-UI-026"]["status"] == "pass"
+    assert by_id["SIG-UI-026"]["evidence"]["item_count"] == 1
     assert report["market_state"] == "closed"
     assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_live
+def test_live_report_fails_empty_domestic_community(monkeypatch) -> None:
+    from app.qa import runner
+
+    class EmptyCommunityApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            if path == "/stocks/005930/community-feed":
+                return {
+                    "code": "005930",
+                    "name": "삼성전자",
+                    "mode": "latest",
+                    "providers": [
+                        {
+                            "key": "naver_board",
+                            "source": "naver_finance_board",
+                            "configured": True,
+                            "message": "최근 글을 찾지 못했습니다.",
+                            "items": [],
+                        }
+                    ],
+                }, self._meta(path)
+            return super().get(path, **params)
+
+    FakeReadOnlyApi.quality_price_state = "ready"
+    monkeypatch.setattr(runner, "ReadOnlyApi", EmptyCommunityApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    by_id = {item["id"]: item for item in report["checks"]}
+
+    assert by_id["SIG-UI-026"]["status"] == "fail"
+    assert "비어" in by_id["SIG-UI-026"]["message"]
 
 
 @pytest.mark.qa_live
