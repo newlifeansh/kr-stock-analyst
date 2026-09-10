@@ -1008,14 +1008,16 @@ const BINARY_MARKET_SCOPE_ROUTES = new Set([
 ]);
 const requestedMarketRankingSnapshotId = dashboardQueryParams.get("snapshot") || "";
 const isUsRootPath = /^\/us\/?$/.test(window.location.pathname);
+const isDashboardRootPath = /^\/dashboard\/?$/.test(window.location.pathname);
+const isUnifiedRootPath = isUsRootPath || isDashboardRootPath;
 const usStockPathMatch = window.location.pathname.match(/^\/us\/stock\/([^/]+)\/?$/);
 const usStockPathCode = usStockPathMatch ? decodeURIComponent(usStockPathMatch[1]) : "";
-const isUsHubContext = isUsRootPath || Boolean(usStockPathMatch);
-const requestedMarketRankingMarket = dashboardQueryParams.get("market") || (isUsRootPath ? "MIXED" : "ALL");
+const isUsHubContext = isUnifiedRootPath || Boolean(usStockPathMatch);
+const requestedMarketRankingMarket = dashboardQueryParams.get("market") || (isUnifiedRootPath ? "MIXED" : "ALL");
 const requestedMarketScopeValue = ["all", "kr", "us"].includes(dashboardQueryParams.get("market_scope"))
   ? dashboardQueryParams.get("market_scope")
   : "all";
-const requestedMarketScope = isUsRootPath
+const requestedMarketScope = isUnifiedRootPath
   && BINARY_MARKET_SCOPE_ROUTES.has(requestedView)
   && requestedMarketScopeValue === "all"
   ? (["movers", "market"].includes(requestedView) && ["NASDAQ", "SP500"].includes(requestedMarketRankingMarket.toUpperCase()) ? "us" : "kr")
@@ -1268,7 +1270,7 @@ const state = {
   homeSurgeSector: "all",
   homeRankingCategory: DEFAULT_MARKET_RANKING_CATEGORY,
   homeRankingMode: "",
-  homeRankingMarket: isUsRootPath ? "ALL" : (MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL"),
+  homeRankingMarket: isUnifiedRootPath ? "ALL" : (MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL"),
   homeRankingRequestId: 0,
   homeUsRankingRequestId: 0,
   homeSurgeItems: [],
@@ -1315,7 +1317,7 @@ const state = {
   selectedWatchChartCode: "",
   marketRankingCache: new Map(),
   marketRankingSnapshotId: requestedMarketRankingSnapshotId,
-  marketRankingMarket: isUsRootPath && !dashboardQueryParams.has("market")
+  marketRankingMarket: isUnifiedRootPath && !dashboardQueryParams.has("market")
     ? ({ all: "MIXED", kr: "ALL", us: "NASDAQ" }[requestedMarketScope] || "MIXED")
     : (MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL"),
   marketRankingSnapshotAsOf: "",
@@ -1658,7 +1660,7 @@ function syncUnifiedMarketScopeVisibility(view = state.view) {
 
 function syncMarketRankingCountryToggle(view = state.view) {
   if (!elements.marketRankingCountryToggle) return;
-  const visible = isUsRootPath && view === "movers";
+  const visible = isUnifiedRootPath && view === "movers";
   elements.marketRankingCountryToggle.hidden = !visible;
   elements.marketRankingCountryToggle.dataset.marketScope = state.marketScope;
   for (const button of elements.marketRankingCountryButtons) {
@@ -1732,7 +1734,7 @@ function syncUnifiedMarketScopePresentation(view = state.view) {
 }
 
 function ensureUnifiedHomeTop50() {
-  if (!isUsRootPath || document.getElementById("home-surge-us")) return;
+  if (!isUnifiedRootPath || document.getElementById("home-surge-us")) return;
   const domestic = document.getElementById("home-surge");
   if (!domestic) return;
   domestic.dataset.marketScope = "kr";
@@ -12060,7 +12062,7 @@ function dashboardLocationRoute() {
 
 function dashboardRouteUrl(routeName) {
   const route = String(routeName || "home");
-  const root = isUsHubContext ? "/us" : "/dashboard";
+  const root = isDashboardRootPath || !isUsHubContext ? "/dashboard" : "/us";
   const scopedRoute = (url) => (isUsHubContext ? unifiedMarketUrl(url, state.marketScope) : url);
   if (route === "stock" && state.currentStock?.name) {
     return viewStockUrl(state.currentStock.name, state.currentStock);
@@ -14087,7 +14089,7 @@ function setView(requestedViewName, options = {}) {
   if (normalizedBinaryMarketScope) {
     applyUsMarketSurface();
   }
-  if (isUsRootPath && historyMode === "none" && BINARY_MARKET_SCOPE_ROUTES.has(requestedRoute)) {
+  if (isUnifiedRootPath && historyMode === "none" && BINARY_MARKET_SCOPE_ROUTES.has(requestedRoute)) {
     const canonicalUrl = new URL(window.location.href);
     if (canonicalUrl.searchParams.get("market_scope") !== state.marketScope) {
       canonicalUrl.searchParams.set("market_scope", state.marketScope);
@@ -14228,7 +14230,7 @@ function setView(requestedViewName, options = {}) {
     });
     startHomeAiResponseRefresh();
     void loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home", { forceOnFirst: false }));
-    if (isUsRootPath) {
+    if (isUnifiedRootPath) {
       void loadHomeUsRankings(pageEntryRefreshOptions("market", "home-us", { forceOnFirst: false }));
     }
     connectUsSectorStream();
@@ -18954,7 +18956,7 @@ function setHomeSurgeSector(mode, options = {}) {
   }
   if (options.load !== false) {
     void loadHomeSurgeRankings({ force: true, ttlMs: 0 });
-    if (isUsRootPath) void loadHomeUsRankings({ force: true, ttlMs: 0 });
+    if (isUnifiedRootPath) void loadHomeUsRankings({ force: true, ttlMs: 0 });
   }
 }
 
@@ -19067,7 +19069,7 @@ function setHomeRankingCategory(category, options = {}) {
   closeHomeRankingQuoteStreams();
   if (options.load !== false) {
     void loadHomeSurgeRankings({ force: options.force !== false, ttlMs: 0 });
-    if (isUsRootPath) void loadHomeUsRankings({ force: options.force !== false, ttlMs: 0 });
+    if (isUnifiedRootPath) void loadHomeUsRankings({ force: options.force !== false, ttlMs: 0 });
   }
 }
 
@@ -19077,7 +19079,7 @@ function normalizeHomeRankingMarket(market) {
 
 function marketRankingMarketForScope(market, marketScope = state.marketScope) {
   const normalized = normalizeHomeRankingMarket(market);
-  if (!isUsRootPath) return normalized;
+  if (!isUnifiedRootPath) return normalized;
   if (marketScope === "us") {
     return US_MARKET_RANKING_MARKETS.has(normalized) ? normalized : "NASDAQ";
   }
@@ -19096,7 +19098,7 @@ function homeRankingRequestMarket(category = state.homeRankingCategory) {
 }
 
 function homeRankingMarketLabel(market) {
-  if (isUsRootPath && market === "ALL") return "전체";
+  if (isUnifiedRootPath && market === "ALL") return "전체";
   return ({ MIXED: "전체", ALL: "국내 전체", KOSPI: "코스피", KOSDAQ: "코스닥", NASDAQ: "나스닥", SP500: "S&P 500" })[market]
     || "국내 전체";
 }
@@ -29048,7 +29050,7 @@ function configureStockMarketExperience(data) {
   const serviceIntro = document.getElementById("service-intro-title")?.closest("section, article, div");
   const serviceMarketCopy = Array.from(serviceIntro?.querySelectorAll("li") || [])
     .find((node) => node.textContent.includes("국내 주식시장"));
-  const usMarketSource = usStock || isUsRootPath;
+  const usMarketSource = usStock || isUnifiedRootPath;
   if (serviceMarketCopy && usMarketSource) {
     serviceMarketCopy.textContent = "AI 분석과 공개 데이터를 활용해 미국 주식시장 정보를 이해하기 쉽게 정리합니다.";
   }
@@ -29737,7 +29739,7 @@ elements.homeSurgeMore?.addEventListener("click", () => {
   if (state.rankingCategory !== "surge" || state.marketRankingMode !== "daily") {
     state.marketRankingSnapshotId = "";
   }
-  if (isUsRootPath) {
+  if (isUnifiedRootPath) {
     state.marketScope = "kr";
     document.body.dataset.marketScope = state.marketScope;
   }

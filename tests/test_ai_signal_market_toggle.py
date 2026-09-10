@@ -3,15 +3,18 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-def test_us_ai_signal_uses_compact_community_market_toggle_contract():
+def test_unified_roots_use_compact_community_market_toggle_contract():
     client = TestClient(app, base_url="https://secretnote.cloud")
     shell = client.get("/us?view=ai-signals")
+    dashboard_shell = client.get("/dashboard?view=ai-signals")
     dashboard_js = client.get("/dashboard-app-v170.js").text
     staging_js = client.get("/assets/staging/toss-ia.js").text
     staging_css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert shell.status_code == 200
-    assert 'src="/dashboard-app-v170.js?v=20260910v518"' in shell.text
+    assert dashboard_shell.status_code == 200
+    assert dashboard_shell.text == shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260911v519"' in shell.text
     assert 'src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108"' in shell.text
 
     intro_contract = staging_js.split(
@@ -67,7 +70,7 @@ def test_us_ai_signal_uses_compact_community_market_toggle_contract():
         assert contract in shared_toggle_rules
 
 
-def test_us_shared_country_selector_is_a_binary_toggle_on_every_scoped_page():
+def test_unified_roots_share_a_binary_country_selector_on_every_scoped_page():
     client = TestClient(app, base_url="https://secretnote.cloud")
     shell = client.get("/us?view=news")
     dashboard_js = client.get("/dashboard-app-v170.js").text
@@ -88,6 +91,7 @@ def test_us_shared_country_selector_is_a_binary_toggle_on_every_scoped_page():
 
     for contract in (
         'const BINARY_MARKET_SCOPE_ROUTES = new Set([',
+        'const isUnifiedRootPath = isUsRootPath || isDashboardRootPath;',
         'elements.unifiedMarketScope.hidden = !["news", "search", "portfolio", "chart"].includes(state.view);',
         'elements.unifiedMarketScope.hidden = !isUsHubContext || !["news", "search", "portfolio", "chart"].includes(view);',
         'news: { heading: "오늘의 피드", item: "피드" }',
@@ -151,7 +155,7 @@ def test_us_top50_uses_title_flag_toggle_and_country_scoped_rankings():
         'BINARY_MARKET_SCOPE_ROUTES.has(requestedView)',
         'BINARY_MARKET_SCOPE_ROUTES.has(routeView)',
         '["news", "search", "portfolio", "chart"].includes(state.view)',
-        'const visible = isUsRootPath && view === "movers";',
+        'const visible = isUnifiedRootPath && view === "movers";',
         'button.setAttribute("aria-pressed", String(active));',
         'button.hidden = state.marketScope === "us"',
         '? ["MIXED", "ALL", "KOSPI", "KOSDAQ"].includes(market)',

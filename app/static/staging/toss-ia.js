@@ -8,7 +8,9 @@
 (() => {
   "use strict";
 
-  const stagingUsHubContext = /^\/us(?:\/|$)/.test(window.location.pathname);
+  const stagingDashboardRootContext = /^\/dashboard\/?$/.test(window.location.pathname);
+  const stagingUsHubContext = /^\/us(?:\/|$)/.test(window.location.pathname)
+    || stagingDashboardRootContext;
   const stagingQueryParams = new URLSearchParams(window.location.search);
   const stagingMarketScope = ["all", "kr", "us"].includes(stagingQueryParams.get("market_scope"))
     ? stagingQueryParams.get("market_scope")
@@ -17,7 +19,7 @@
   const stagingUsStockCode = stagingUsStockMatch ? decodeURIComponent(stagingUsStockMatch[1]) : "";
   const stagingUsMarketContext = Boolean(stagingUsStockMatch && !/^\d{6}$/.test(stagingUsStockCode))
     || (stagingUsHubContext && stagingMarketScope === "us");
-  const stagingRootPath = stagingUsHubContext ? "/us" : "/dashboard";
+  const stagingRootPath = stagingDashboardRootContext ? "/dashboard" : (stagingUsHubContext ? "/us" : "/dashboard");
   const stagingStockRoute = (code) => (
     stagingUsHubContext
       ? `/us/stock/${encodeURIComponent(code || "")}?market_scope=${/^\d{6}$/.test(String(code || "")) ? "kr" : "us"}`
