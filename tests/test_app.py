@@ -32,7 +32,7 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["strategy_version"] == "position-lifecycle-v7.4.2"
-    assert response.json()["dashboard_version"] == "20260910v508"
+    assert response.json()["dashboard_version"] == "20260910v512"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -225,12 +225,13 @@ def test_us_path_serves_unified_dashboard_shell_without_changing_domestic_root()
     assert 'id="home-view"' in response.text
     assert 'id="home-surge"' in response.text
     assert 'id="unified-market-scope"' in response.text
-    assert 'data-unified-market-scope="all"' in response.text
     assert 'data-unified-market-scope="kr"' in response.text
     assert 'data-unified-market-scope="us"' in response.text
+    assert 'data-unified-market-scope="all"' not in response.text
+    assert 'class="unified-market-scope-toggle" role="group"' in response.text
     assert 'data-market-filter="MIXED"' in response.text
     assert 'data-home-ranking-market="NASDAQ"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260910v508"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260910v512"' in response.text
     assert "시장 한눈에" not in response.text
 
 
@@ -267,9 +268,9 @@ def test_us_surface_combines_markets_with_scoped_navigation_and_preserves_dashbo
     assert 'if (usSource) usSource.hidden = false;' in source
     assert source.count('if (!code || marketScopeForItem(item) === "us") return;') >= 2
     assert 'return `/dashboard/${encodeURIComponent(name)}`;' in source
-    unified_scope_styles = styles[styles.index("/* /us unified market hub") :]
+    unified_scope_styles = styles[styles.index("/* /us country scope") :]
     assert unified_scope_styles.count("min-height: 44px;") >= 2
-    assert ".unified-market-scope-tabs button:focus-visible" in unified_scope_styles
+    assert ".unified-market-scope-toggle > button:focus-visible" in unified_scope_styles
 
 
 def test_us_first_login_uses_us_write_scope_for_recommendation_track_initialization():
@@ -379,7 +380,7 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="us-stock-ai-content"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260910v508"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260910v512"' in stock_shell.text
     assert 'src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108"' in stock_shell.text
     assert "NASDAQ Intelligence" not in stock_shell.text
     assert search_api.status_code == 200
@@ -646,7 +647,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260910v508"}
+    assert version.json() == {"version": "20260910v512"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search")
@@ -654,9 +655,9 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert refresh.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert '["/dashboard-sw.js", "/us-sw.js"].includes' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260910v508" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&app_build=20260910v512" in refresh.text
     assert 'params.get("market") === "us"' in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260910v508" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260910v512" in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -669,7 +670,7 @@ def test_legacy_us_service_worker_retires_its_scope_and_routes_clients_to_curren
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'CURRENT_DASHBOARD_BUILD = "20260910v508"' in worker.text
+    assert 'CURRENT_DASHBOARD_BUILD = "20260910v512"' in worker.text
     assert r"/^secret-note-static-\d{8}us/" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert 'url.pathname.startsWith("/us")' in worker.text
@@ -2097,7 +2098,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260910v508' in shell
+    assert 'styles.css?v=20260910v512' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -2184,7 +2185,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260910v508"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260910v512"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -2222,7 +2223,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260910v508"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260910v512"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert 'return [-timestamp, view?.preliminary ? 0 : 1' in source

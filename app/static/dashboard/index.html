@@ -31,7 +31,7 @@
     <script src="/assets/staging/stock-change-copy-logic.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260910v508&amp;build=20260910v508" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260910v512&amp;build=20260910v512" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -117,12 +117,11 @@
           <p id="push-notification-status" class="sr-only" aria-live="polite"></p>
         </div>
       </header>
-      <nav class="unified-market-scope" id="unified-market-scope" aria-label="표시할 주식시장" hidden>
-        <span class="unified-market-scope-label">시장</span>
-        <div class="unified-market-scope-tabs" role="tablist" aria-label="국내·미국 종목 필터">
-          <button class="active" type="button" role="tab" aria-selected="true" data-unified-market-scope="all">전체</button>
-          <button type="button" role="tab" aria-selected="false" data-unified-market-scope="kr"><span aria-hidden="true">🇰🇷</span><span class="unified-market-scope-button-label">국내</span></button>
-          <button type="button" role="tab" aria-selected="false" data-unified-market-scope="us"><span aria-hidden="true">🇺🇸</span><span class="unified-market-scope-button-label">미국</span></button>
+      <nav class="unified-market-scope" id="unified-market-scope" aria-label="국가 선택" hidden>
+        <span class="unified-market-scope-label">국가</span>
+        <div class="unified-market-scope-toggle" role="group" aria-label="한국·미국 국가 선택" data-market-toggle-style="compact">
+          <button type="button" aria-label="미국 종목 보기" aria-pressed="false" data-unified-market-scope="us"><span aria-hidden="true">🇺🇸</span></button>
+          <button class="active" type="button" aria-label="한국 종목 보기" aria-pressed="true" data-unified-market-scope="kr"><span aria-hidden="true">🇰🇷</span></button>
         </div>
       </nav>
       <section class="pull-refresh-indicator" id="pull-refresh-indicator" aria-live="polite" hidden>
@@ -1285,7 +1284,13 @@
           <span class="secondary-commandbar-spacer" aria-hidden="true"></span>
         </header>
         <header class="market-ranking-hero">
-          <h2 id="market-ranking-title">거래량</h2>
+          <div class="market-ranking-heading-row">
+            <h2 id="market-ranking-title">거래량</h2>
+            <div class="market-ranking-country-toggle" id="market-ranking-country-toggle" role="group" aria-label="TOP 50 국가 선택" hidden>
+              <button type="button" aria-label="미국 TOP 50 보기" aria-pressed="false" data-top50-market-scope="us"><span aria-hidden="true">🇺🇸</span></button>
+              <button type="button" aria-label="한국 TOP 50 보기" aria-pressed="false" data-top50-market-scope="kr"><span aria-hidden="true">🇰🇷</span></button>
+            </div>
+          </div>
           <p id="market-ranking-description">오늘 거래가 가장 활발한 종목 순위예요.</p>
           <time id="market-ranking-meta">실시간 순위 확인 중</time>
         </header>
@@ -1656,6 +1661,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260910v508" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260910v512" defer></script>
   </body>
 </html>
