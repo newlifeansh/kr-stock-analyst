@@ -11,7 +11,7 @@ def test_us_ai_signal_uses_compact_community_market_toggle_contract():
     staging_css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert shell.status_code == 200
-    assert 'src="/dashboard-app-v170.js?v=20260910v512"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260910v513"' in shell.text
     assert 'src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108"' in shell.text
 
     intro_contract = staging_js.split(
@@ -127,66 +127,52 @@ def test_us_shared_country_selector_is_a_binary_toggle_on_every_scoped_page():
         assert contract in shared_toggle_rules
 
 
-def test_us_top50_uses_title_flag_toggle_and_country_scoped_rankings():
+def test_us_top50_locks_home_entry_country_without_country_selector():
     client = TestClient(app, base_url="https://secretnote.cloud")
     shell = client.get("/us?view=movers&category=surge&mode=daily")
     dashboard_js = client.get("/dashboard-app-v170.js").text
-    dashboard_css = client.get("/assets/dashboard/styles.css").text
 
     assert shell.status_code == 200
     hero = shell.text.split('<header class="market-ranking-hero">', 1)[1].split("</header>", 1)[0]
-    toggle = hero.split('id="market-ranking-country-toggle"', 1)[1].split("</div>", 1)[0]
-    assert hero.index('id="market-ranking-title"') < hero.index('id="market-ranking-country-toggle"')
-    assert hero.index('id="market-ranking-country-toggle"') < hero.index('id="market-ranking-description"')
-    for contract in (
-        'role="group" aria-label="TOP 50 국가 선택" hidden',
-        'aria-label="미국 TOP 50 보기" aria-pressed="false" data-top50-market-scope="us"',
-        '<span aria-hidden="true">🇺🇸</span>',
-        'aria-label="한국 TOP 50 보기" aria-pressed="false" data-top50-market-scope="kr"',
-        '<span aria-hidden="true">🇰🇷</span>',
-    ):
-        assert contract in toggle
+    assert hero.index('id="market-ranking-title"') < hero.index('id="market-ranking-description"')
+    assert hero.index('id="market-ranking-description"') < hero.index('id="market-ranking-meta"')
+    assert 'id="market-ranking-country-toggle"' not in shell.text
+    assert 'data-top50-market-scope' not in shell.text
+    assert 'aria-label="TOP 50 국가 선택"' not in shell.text
 
     for contract in (
         'BINARY_MARKET_SCOPE_ROUTES.has(requestedView)',
         'BINARY_MARKET_SCOPE_ROUTES.has(routeView)',
         '["news", "search", "portfolio", "chart"].includes(state.view)',
-        'const visible = isUsRootPath && view === "movers";',
-        'button.setAttribute("aria-pressed", String(active));',
+        'function syncMarketRankingExchangeFilters(view = state.view)',
         'button.hidden = state.marketScope === "us"',
         '? ["MIXED", "ALL", "KOSPI", "KOSDAQ"].includes(market)',
         ': ["MIXED", "NASDAQ", "SP500"].includes(market);',
         'function marketRankingMarketForScope(market, marketScope = state.marketScope)',
         'return US_MARKET_RANKING_MARKETS.has(normalized) ? normalized : "NASDAQ";',
         'return ["ALL", "KOSPI", "KOSDAQ"].includes(normalized) ? normalized : "ALL";',
-        'button.addEventListener("click", () => setUnifiedMarketScope(button.dataset.top50MarketScope || "kr"));',
+        'const countryLabel = isUsHubContext ? (state.marketScope === "us" ? "미국" : "한국") : "";',
+        'elements.marketRankingCommandTitle.textContent = countryLabel ? `${countryLabel} TOP 50` : "TOP 50";',
         'const url = `${usMarket ? "/us/market/rankings" : "/market/rankings"}?${params.toString()}`;',
     ):
         assert contract in dashboard_js
+    for removed_contract in (
+        "marketRankingCountryToggle",
+        "marketRankingCountryButtons",
+        "syncMarketRankingCountryToggle",
+        "dataset.top50MarketScope",
+    ):
+        assert removed_contract not in dashboard_js
 
     domestic_more = dashboard_js.split('elements.homeSurgeMore?.addEventListener("click", () => {', 1)[1]
     domestic_more = domestic_more.split('elements.homeRankingMarketTrigger?.addEventListener', 1)[0]
     assert 'state.marketScope = "kr";' in domestic_more
-    us_more = dashboard_js.split('usSection.querySelector("#home-surge-more-us")?.addEventListener("click", () => {', 1)[1]
+    assert 'domesticMore.setAttribute("aria-label", "한국 TOP 50 전체 보기");' in dashboard_js
+    us_more = dashboard_js.split('usMore?.addEventListener("click", () => {', 1)[1]
     us_more = us_more.split('domestic.insertAdjacentElement', 1)[0]
     assert 'state.marketScope = "us";' in us_more
     assert 'setMarketFilter("NASDAQ");' in us_more
-
-    toggle_rules = dashboard_css.split(
-        "/* TOP 50 country scope: compact flag switch beside the ranking title. */",
-        1,
-    )[1]
-    for contract in (
-        ".market-ranking-heading-row",
-        ".market-ranking-country-toggle[hidden]",
-        "grid-template-columns: repeat(2, minmax(0, 1fr));",
-        "min-height: 44px;",
-        '[aria-pressed="true"]',
-        "> button:focus-visible",
-        "@media (max-width: 359px)",
-        "@media (prefers-reduced-motion: reduce)",
-    ):
-        assert contract in toggle_rules
+    assert 'usMore.setAttribute("aria-label", "미국 TOP 50 전체 보기");' in dashboard_js
 
 
 def test_us_ai_signal_waits_for_both_markets_then_toggles_cached_snapshot_without_skeleton():
