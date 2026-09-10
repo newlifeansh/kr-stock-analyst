@@ -9093,6 +9093,22 @@ function el(tag, className = "", text = "") {
   return node;
 }
 
+const WATCH_UI_ICON_SPRITE_PATH = "/assets/staging/streamline-plump-icons.svg?v=20260910-v65";
+
+function createWatchUiIcon(symbol, className = "") {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 36 36");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.dataset.stagingIcon = symbol;
+  svg.classList.add("staging-plump-icon", "watch-ui-icon");
+  if (className) svg.classList.add(...className.split(/\s+/).filter(Boolean));
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", `${WATCH_UI_ICON_SPRITE_PATH}#${symbol}`);
+  svg.appendChild(use);
+  return svg;
+}
+
 function createStockListLogo(code, className = "") {
   const normalizedCode = String(code || "").trim().toUpperCase();
   const frame = el("span", ["stock-list-logo", className].filter(Boolean).join(" "));
@@ -10660,8 +10676,9 @@ function applyWatchStockAddSelection(item, selectedGroupIds, items, groups) {
 function renderWatchStockAddEmpty() {
   if (!elements.watchStockAddResults) return;
   const empty = el("div", "watch-stock-add-empty");
-  const icon = el("span", "watch-stock-add-empty-icon", "+");
+  const icon = el("span", "watch-stock-add-empty-icon");
   icon.setAttribute("aria-hidden", "true");
+  icon.appendChild(createWatchUiIcon("interest", "watch-stock-add-empty-glyph"));
   empty.append(
     icon,
     el("strong", "", "관심 종목을 직접 추가해보세요"),
@@ -10701,10 +10718,11 @@ function createWatchStockSearchRow(item, index) {
   identity.append(logo, copy);
 
   const saved = watchStockIsSaved(item);
-  const button = el("button", `watch-stock-search-add${saved ? " is-saved" : ""}`, saved ? "✓" : "+");
+  const button = el("button", `watch-stock-search-add${saved ? " is-saved" : ""}`);
   button.type = "button";
   button.dataset.watchStockResultIndex = String(index);
   button.setAttribute("aria-label", saved ? `${item.name} 관심 그룹 변경` : `${item.name} 관심종목 추가`);
+  button.appendChild(createWatchUiIcon(saved ? "check" : "add", "watch-stock-search-action-icon"));
   row.append(identity, button);
   return row;
 }
@@ -10786,8 +10804,7 @@ function createWatchStockGroupOption(group, item, options = {}) {
   const label = document.createElement("label");
   label.className = "watch-stock-group-option";
   label.dataset.watchStockGroup = group.id;
-  const icon = el("span", "watch-stock-group-folder");
-  icon.setAttribute("aria-hidden", "true");
+  const icon = createWatchUiIcon("folder", "watch-stock-group-folder");
   const copy = el("span", "watch-stock-group-copy");
   copy.append(
     el("strong", "", group.name),
@@ -10800,7 +10817,10 @@ function createWatchStockGroupOption(group, item, options = {}) {
   input.checked = options.checked === true;
   input.disabled = options.disabled === true;
   input.setAttribute("aria-label", `${group.name}에 ${item.name} 추가`);
-  label.append(icon, copy, input);
+  const check = el("span", "watch-stock-group-check");
+  check.setAttribute("aria-hidden", "true");
+  check.appendChild(createWatchUiIcon("check", "watch-stock-group-check-icon"));
+  label.append(icon, copy, input, check);
   return label;
 }
 
@@ -21714,7 +21734,7 @@ function appendWatchCompactRow(item, dashboard, prices = [], options = {}) {
   const removeButton = document.createElement("button");
   removeButton.className = "remove-watch watch-compact-remove";
   removeButton.type = "button";
-  removeButton.textContent = "−";
+  removeButton.appendChild(createWatchUiIcon("remove", "watch-compact-remove-icon"));
   removeButton.dataset.code = item.code;
   removeButton.dataset.watchAction = pinned ? "unpin" : customGroup ? "remove-group" : "remove-watchlist";
   if (pinned) removeButton.dataset.trackId = track.id || "";

@@ -78,6 +78,26 @@
   <symbol id="interest" viewBox="0 0 36 36" data-source="custom-plump-heart">
     <path d="M18 32.05c-.53 0-1.06-.14-1.53-.43C11.04 28.28 3.6 22.32 3.6 13.75 3.6 8.33 7.39 4.5 12.16 4.5c2.4 0 4.45 1.07 5.84 2.95a7.1 7.1 0 0 1 5.84-2.95c4.77 0 8.56 3.83 8.56 9.25 0 8.57-7.44 14.53-12.87 17.87-.47.29-1 .43-1.53.43Z" fill="currentColor"/>
   </symbol>
+  <symbol id="folder" viewBox="0 0 36 36" data-source="custom-plump-folder">
+    <path d="M7.2 4.2A4.2 4.2 0 0 0 3 8.4v18.4A5.2 5.2 0 0 0 8.2 32h19.6a5.2 5.2 0 0 0 5.2-5.2V12.25A4.25 4.25 0 0 0 28.75 8h-10.2l-1.78-2.22a4.2 4.2 0 0 0-3.29-1.58H7.2Z" fill="currentColor"/>
+  </symbol>
+  <symbol id="folder-add" viewBox="0 0 36 36" data-source="custom-plump-folder-add">
+    <path d="M7.2 4.2A4.2 4.2 0 0 0 3 8.4v18.4A5.2 5.2 0 0 0 8.2 32h19.6a5.2 5.2 0 0 0 5.2-5.2V13.2A4.2 4.2 0 0 0 28.8 9h-10.2l-1.83-2.22a4.2 4.2 0 0 0-3.29-1.58H7.2Z" fill="currentColor"/>
+    <path d="M27.5 1.5a2.25 2.25 0 0 1 2.25 2.25V5h1.25a2.25 2.25 0 0 1 0 4.5h-1.25v1.25a2.25 2.25 0 0 1-4.5 0V9H24a2.25 2.25 0 0 1 0-4.5h1.25V3.75A2.25 2.25 0 0 1 27.5 1.5Z" fill="currentColor"/>
+  </symbol>
+  <symbol id="add" viewBox="0 0 36 36" data-source="custom-plump-add-circle">
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M18 34A16 16 0 1 0 18 2a16 16 0 0 0 0 32ZM15.55 9.5h4.9v6.05h6.05v4.9h-6.05v6.05h-4.9v-6.05H9.5v-4.9h6.05V9.5Z" fill="currentColor"/>
+  </symbol>
+  <symbol id="check" viewBox="0 0 36 36" data-source="custom-plump-check">
+    <path d="M13.95 30.1a3 3 0 0 1-2.12-.88L4.9 22.3a3 3 0 1 1 4.24-4.24l4.78 4.78L27.4 8.55a3 3 0 1 1 4.36 4.12L16.13 29.15a3 3 0 0 1-2.18.95Z" fill="currentColor"/>
+  </symbol>
+  <symbol id="close" viewBox="0 0 36 36" data-source="custom-plump-close">
+    <rect x="15.4" y="4" width="5.2" height="28" rx="2.6" transform="rotate(45 18 18)" fill="currentColor"/>
+    <rect x="15.4" y="4" width="5.2" height="28" rx="2.6" transform="rotate(-45 18 18)" fill="currentColor"/>
+  </symbol>
+  <symbol id="remove" viewBox="0 0 36 36" data-source="custom-plump-remove">
+    <rect x="5" y="15.4" width="26" height="5.2" rx="2.6" fill="currentColor"/>
+  </symbol>
   <symbol id="back" viewBox="0 0 36 36" data-source="custom-plump-chevron-left">
     <path d="M21.9 5.85a3 3 0 0 1 0 4.24L14 18l7.9 7.91a3 3 0 0 1-4.24 4.24L7.63 20.12a3 3 0 0 1 0-4.24L17.66 5.85a3 3 0 0 1 4.24 0Z" fill="currentColor"/>
   </symbol>

@@ -44266,10 +44266,18 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   padding: 0;
   border: 0;
   border-radius: 50%;
+  display: grid;
+  place-items: center;
   color: light-dark(#6b7684, #b0b8c1);
   background: transparent;
   font-size: 25px;
   cursor: pointer;
+}
+
+#watch-group-dialog-close .watch-ui-icon {
+  width: 20px;
+  height: 20px;
+  margin: auto;
 }
 
 #watch-group-dialog-description {
@@ -45216,14 +45224,12 @@ body[data-staging-ia="tds-video"] #watchlist-view .watch-pin-state {
   display: inline-flex !important;
 }
 
-.watch-stock-add-back svg {
-  width: 24px;
-  height: 24px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.9;
+.watch-stock-add-head .watch-ui-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+  fill: currentColor;
+  stroke: none;
 }
 
 .watch-stock-search-step {
@@ -45252,13 +45258,12 @@ body[data-staging-ia="tds-video"] #watchlist-view .watch-pin-state {
   box-shadow: 0 0 0 3px light-dark(rgba(49, 130, 246, 0.12), rgba(109, 165, 255, 0.14));
 }
 
-.watch-stock-search-form > svg {
+.watch-stock-search-form > svg.watch-ui-icon {
   width: 22px;
   height: 22px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-width: 1.9;
+  display: block;
+  fill: currentColor;
+  stroke: none;
 }
 
 .watch-stock-search-form input {
@@ -45289,12 +45294,20 @@ body[data-staging-ia="tds-video"] #watchlist-view .watch-pin-state {
   padding: 0;
   border: 0;
   border-radius: 50%;
-  color: light-dark(#ffffff, #202126);
-  background: light-dark(#8b95a1, #6b737d);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: light-dark(#8b95a1, #a8b0ba);
+  background: transparent;
   font: inherit;
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
+}
+
+.watch-stock-search-clear .watch-ui-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .watch-stock-search-status {
@@ -45340,6 +45353,11 @@ body[data-staging-ia="tds-video"] #watchlist-view .watch-pin-state {
   background: #3182f6;
   font-size: 30px;
   font-weight: 500;
+}
+
+.watch-stock-add-empty-icon .watch-stock-add-empty-glyph {
+  width: 28px;
+  height: 28px;
 }
 
 .watch-stock-add-empty strong,
@@ -45436,10 +45454,20 @@ body[data-staging-ia="tds-video"] #watchlist-view .watch-pin-state {
   cursor: pointer;
 }
 
+.watch-stock-search-add .watch-stock-search-action-icon {
+  width: 23px;
+  height: 23px;
+}
+
 .watch-stock-search-add.is-saved {
   color: light-dark(#4e5968, #d1d6dc);
   background: light-dark(#f2f4f6, #303138);
   font-size: 18px;
+}
+
+.watch-stock-search-add.is-saved .watch-stock-search-action-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .watch-stock-search-loading {
@@ -45524,6 +45552,7 @@ body[data-staging-ia="tds-video"] #watchlist-view .watch-pin-state {
 }
 
 .watch-stock-group-option {
+  position: relative;
   min-height: 70px;
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) 28px;
@@ -45533,60 +45562,57 @@ body[data-staging-ia="tds-video"] #watchlist-view .watch-pin-state {
 }
 
 .watch-stock-group-folder {
-  position: relative;
-  width: 34px;
-  height: 27px;
+  width: 32px;
+  height: 32px;
   display: block;
-  border-radius: 4px;
-  background: light-dark(#ffd33d, #ffcf33);
-}
-
-.watch-stock-group-folder::before {
-  position: absolute;
-  top: -5px;
-  left: 2px;
-  width: 15px;
-  height: 8px;
-  border-radius: 4px 4px 0 0;
-  background: inherit;
-  content: "";
+  color: light-dark(#3182f6, #6da5ff);
 }
 
 .watch-stock-group-option input {
-  width: 26px;
-  height: 26px;
+  position: absolute;
+  right: 0;
+  width: 28px;
+  height: 28px;
   margin: 0;
-  appearance: none;
-  display: grid;
-  place-content: center;
-  border: 2px solid light-dark(#b0b8c1, #5f6670);
-  border-radius: 50%;
-  background: transparent;
+  opacity: 0;
   cursor: pointer;
 }
 
-.watch-stock-group-option input::before {
-  width: 8px;
-  height: 13px;
-  border: solid #ffffff;
-  border-width: 0 2px 2px 0;
-  content: "";
-  opacity: 0;
-  transform: translateY(-1px) rotate(45deg);
+.watch-stock-group-check {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 2px solid light-dark(#b0b8c1, #5f6670);
+  border-radius: 50%;
+  color: transparent;
+  background: transparent;
+  pointer-events: none;
 }
 
-.watch-stock-group-option input:checked {
+.watch-stock-group-check .watch-stock-group-check-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.watch-stock-group-option input:checked + .watch-stock-group-check {
   border-color: #3182f6;
+  color: #ffffff;
   background: #3182f6;
 }
 
-.watch-stock-group-option input:checked::before {
-  opacity: 1;
+.watch-stock-group-option input:focus-visible + .watch-stock-group-check {
+  outline: 3px solid rgba(49, 130, 246, 0.38);
+  outline-offset: 2px;
 }
 
 .watch-stock-group-option input:disabled {
   cursor: default;
-  opacity: 1;
+  opacity: 0;
+}
+
+.watch-stock-group-option input:disabled + .watch-stock-group-check {
+  opacity: 0.72;
 }
 
 .watch-stock-group-help,
@@ -45690,4 +45716,50 @@ body[data-staging-ia="tds-video"] .watch-stock-search-form input {
   .watch-stock-search-loading-copy {
     animation: none;
   }
+}
+
+/* Interest icon system v508: use the same optical header and Plump glyphs as
+   the rest of the product instead of text symbols and one-off CSS drawings. */
+#portfolio-view[data-watchlist-layout="compact"] .watchlist-search > svg.staging-top-action-icon {
+  width: 26px !important;
+  height: 26px !important;
+  display: block !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 2.6px !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  shape-rendering: geometricPrecision !important;
+  pointer-events: none !important;
+}
+
+#portfolio-view[data-watchlist-layout="compact"] .watchlist-search > svg.staging-top-action-icon > :is(path, circle) {
+  fill: none !important;
+  stroke: inherit !important;
+  stroke-width: inherit !important;
+  stroke-linecap: inherit !important;
+  stroke-linejoin: inherit !important;
+}
+
+body[data-staging-ia="tds-video"] #portfolio-view[data-watchlist-layout="compact"] .watch-group-create > svg.staging-plump-icon,
+#portfolio-view[data-watchlist-layout="compact"] .watch-group-create > svg.staging-plump-icon {
+  width: 23px !important;
+  height: 23px !important;
+  fill: currentColor !important;
+  stroke: none !important;
+}
+
+.watch-stock-group-folder {
+  color: light-dark(#3182f6, #6da5ff) !important;
+}
+
+body[data-staging-ia="tds-video"] .watch-stock-group-option > svg.watch-stock-group-folder {
+  color: light-dark(#3182f6, #6da5ff) !important;
+}
+
+#portfolio-view[data-watchlist-layout="compact"] .watch-compact-remove .watch-compact-remove-icon {
+  width: 18px !important;
+  height: 18px !important;
 }

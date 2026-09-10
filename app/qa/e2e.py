@@ -7266,6 +7266,26 @@ def run_e2e_checks(
                 page.wait_for_function(
                     "() => document.activeElement?.id === 'watch-stock-search-input'"
                 )
+                initial_icon_snapshot = page.evaluate(
+                    """() => ({
+                      headerSearch: document.querySelector('#watchlist-search [data-staging-top-icon]')?.dataset.stagingTopIcon,
+                      folderCreate: document.querySelector('#watch-group-create [data-staging-icon]')?.dataset.stagingIcon,
+                      dialogClose: document.querySelector('#watch-stock-add-close [data-staging-icon]')?.dataset.stagingIcon,
+                      fieldSearch: document.querySelector('#watch-stock-search-form > [data-staging-icon]')?.dataset.stagingIcon,
+                      emptyInterest: document.querySelector('.watch-stock-add-empty-icon [data-staging-icon]')?.dataset.stagingIcon,
+                    })"""
+                )
+                if initial_icon_snapshot != {
+                    "headerSearch": "search",
+                    "folderCreate": "folder-add",
+                    "dialogClose": "close",
+                    "fieldSearch": "search",
+                    "emptyInterest": "interest",
+                }:
+                    raise QaFailure(
+                        "관심 화면 상단·폴더·검색 시트 아이콘이 공용 제품 규격과 다릅니다.",
+                        initial_icon_snapshot,
+                    )
                 search_input = page.locator("#watch-stock-search-input")
                 search_input.fill("카카오")
                 add_result = page.locator(
@@ -7288,6 +7308,8 @@ def run_e2e_checks(
                         buttonWidth: buttonRect.width,
                         buttonHeight: buttonRect.height,
                         inputVisible: inputRect.width > 0 && inputRect.height >= 44,
+                        clearIcon: document.querySelector('#watch-stock-search-clear [data-staging-icon]')?.dataset.stagingIcon,
+                        resultIcon: button.querySelector('[data-staging-icon]')?.dataset.stagingIcon,
                       };
                     }"""
                 )
@@ -7299,6 +7321,8 @@ def run_e2e_checks(
                     or search_sheet["buttonWidth"] < 44
                     or search_sheet["buttonHeight"] < 44
                     or not search_sheet["inputVisible"]
+                    or search_sheet["clearIcon"] != "close"
+                    or search_sheet["resultIcon"] != "add"
                 ):
                     raise QaFailure(
                         "모바일 종목 검색 시트의 폭·입력·추가 터치 영역이 올바르지 않습니다.",
@@ -7318,6 +7342,10 @@ def run_e2e_checks(
                         defaultChecked: defaultInput?.checked,
                         defaultDisabled: defaultInput?.disabled,
                         footerRemoved: !document.querySelector('#watch-group-share, #watch-group-add-stock'),
+                        folderIcons: [...document.querySelectorAll('#watch-stock-group-options .watch-stock-group-folder')].map(node => node.dataset.stagingIcon),
+                        checkIcons: [...document.querySelectorAll('#watch-stock-group-options .watch-stock-group-check-icon')].map(node => node.dataset.stagingIcon),
+                        backIcon: document.querySelector('#watch-stock-add-back [data-staging-icon]')?.dataset.stagingIcon,
+                        closeIcon: document.querySelector('#watch-stock-add-close [data-staging-icon]')?.dataset.stagingIcon,
                       };
                     }"""
                 )
@@ -7326,6 +7354,10 @@ def run_e2e_checks(
                     "defaultChecked": True,
                     "defaultDisabled": True,
                     "footerRemoved": True,
+                    "folderIcons": ["folder"],
+                    "checkIcons": ["check"],
+                    "backIcon": "back",
+                    "closeIcon": "close",
                 }:
                     raise QaFailure(
                         "검색 결과 뒤 관심 그룹 선택 기본 상태가 올바르지 않습니다.",
@@ -7393,6 +7425,13 @@ def run_e2e_checks(
                 folder_button.click()
                 group_dialog = page.locator("#watch-group-dialog")
                 group_dialog.wait_for(state="visible")
+                if (
+                    page.locator("#watch-group-dialog-close [data-staging-icon]").get_attribute(
+                        "data-staging-icon"
+                    )
+                    != "close"
+                ):
+                    raise QaFailure("관심 폴더 편집창 닫기 아이콘이 공용 제품 규격과 다릅니다.")
                 page.wait_for_function(
                     "() => document.activeElement?.id === 'watch-group-name'"
                 )
@@ -7568,9 +7607,17 @@ def run_e2e_checks(
                     )
 
                 page.locator("#watch-group-edit").click()
-                page.locator(
+                remove_control = page.locator(
                     '#watchlist-body [data-code="005930"] [data-watch-action="unpin"]'
-                ).click()
+                )
+                if (
+                    remove_control.locator("[data-staging-icon]").get_attribute(
+                        "data-staging-icon"
+                    )
+                    != "remove"
+                ):
+                    raise QaFailure("관심종목 편집 제거 아이콘이 공용 제품 규격과 다릅니다.")
+                remove_control.click()
                 page.wait_for_function(
                     """() => document.querySelectorAll('#watchlist-body [data-watch-group-kind="pinned"]').length === 1"""
                 )
@@ -7629,6 +7676,7 @@ def run_e2e_checks(
                     "compact_rows": compact_rows,
                     "mobile_layout": mobile_layout,
                     "inline_add": {
+                        "icons": initial_icon_snapshot,
                         "search_sheet": search_sheet,
                         "group_choice": group_choice,
                         "added_code": "035720",

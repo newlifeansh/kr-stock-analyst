@@ -17,8 +17,8 @@ def test_watchlist_v15_shell_and_asset_version():
     assert shell.status_code == 200
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
-    assert 'name="application-version" content="5.7"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260910v507"' in shell.text
+    assert 'name="application-version" content="5.8"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260910v508"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -49,6 +49,55 @@ def test_watchlist_v15_shell_and_asset_version():
     for view_id in ("home-view", "search-view", "portfolio-view", "chart-view"):
         view_markup = shell.text.split(f'id="{view_id}"', 1)[1].split("</section>", 1)[0]
         assert 'class="app-page-intro' not in view_markup
+
+
+def test_watchlist_v508_uses_shared_product_icon_system():
+    client = TestClient(app)
+    shell = client.get("/dashboard?view=portfolio").text
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+    sprite = client.get("/assets/staging/streamline-plump-icons.svg").text
+    portfolio = shell.split('id="portfolio-view"', 1)[1].split('id="chart-view"', 1)[0]
+
+    assert 'data-staging-top-icon="search"' in portfolio
+    assert 'streamline-plump-icons.svg?v=20260910-v65#folder-add' in portfolio
+    assert 'streamline-plump-icons.svg?v=20260910-v65#back' in portfolio
+    assert 'streamline-plump-icons.svg?v=20260910-v65#search' in portfolio
+    assert portfolio.count('streamline-plump-icons.svg?v=20260910-v65#close') == 3
+    assert ">×</button>" not in portfolio
+
+    for icon_name in ("folder", "folder-add", "add", "check", "close", "remove"):
+        assert f'id="{icon_name}"' in sprite
+    for expected in (
+        'const WATCH_UI_ICON_SPRITE_PATH = "/assets/staging/streamline-plump-icons.svg?v=20260910-v65";',
+        "function createWatchUiIcon(symbol, className = \"\")",
+        'createWatchUiIcon("interest", "watch-stock-add-empty-glyph")',
+        'createWatchUiIcon(saved ? "check" : "add", "watch-stock-search-action-icon")',
+        'createWatchUiIcon("folder", "watch-stock-group-folder")',
+        'createWatchUiIcon("check", "watch-stock-group-check-icon")',
+        'createWatchUiIcon("remove", "watch-compact-remove-icon")',
+        ".watch-stock-group-option input:checked + .watch-stock-group-check",
+        ".watch-stock-group-option input:disabled + .watch-stock-group-check",
+    ):
+        assert expected in source or expected in styles
+    disabled_input_rules = styles.split(
+        ".watch-stock-group-option input:disabled {", 1
+    )[1].split("}", 1)[0]
+    assert "opacity: 0;" in disabled_input_rules
+    assert "opacity: 1;" not in disabled_input_rules
+    for removed in (
+        'el("span", "watch-stock-add-empty-icon", "+")',
+        'saved ? "✓" : "+"',
+        'removeButton.textContent = "−"',
+        ".watch-stock-group-folder::before",
+    ):
+        assert removed not in source
+        assert removed not in styles
+
+    assert "/* Interest icon system v508" in styles
+    assert ".watchlist-search > svg.staging-top-action-icon" in styles
+    assert "stroke-width: 2.6px !important;" in styles
+    assert ".watch-stock-group-option input:focus-visible + .watch-stock-group-check" in styles
 
 
 def test_watchlist_v15_uses_compact_logo_sparkline_price_rows():

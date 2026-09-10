@@ -12,7 +12,7 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="application-version" content="5.7" />
+    <meta name="application-version" content="5.8" />
     <link rel="manifest" href="/dashboard.webmanifest" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
@@ -31,7 +31,7 @@
     <script src="/assets/staging/stock-change-copy-logic.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260910v507&amp;build=20260910v507" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260910v508&amp;build=20260910v508" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -1340,7 +1340,7 @@
             <div class="watch-group-actions">
               <button id="watch-group-edit" type="button" aria-pressed="false">편집</button>
               <button class="watchlist-search" id="watchlist-search" type="button" aria-label="관심종목 검색해서 추가">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg>
+                <svg class="staging-top-action-icon" viewBox="0 0 36 36" data-staging-top-icon="search" aria-hidden="true" focusable="false"><circle cx="15.8" cy="15.8" r="9.3"></circle><path d="m22.7 22.7 7.8 7.8"></path></svg>
               </button>
             </div>
           </header>
@@ -1350,7 +1350,7 @@
               <button class="watch-group-chip" id="watch-group-pinned" type="button" role="tab" aria-selected="false" aria-controls="watchlist-strategy-panel" data-watch-group="pinned">핀종목</button>
               <span id="watch-user-group-tabs"></span>
               <button class="watch-group-create" id="watch-group-create" type="button" aria-label="새 관심 폴더 만들기">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10h-17z"></path><path d="M12 13h5M14.5 10.5v5"></path></svg>
+                <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="folder-add" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#folder-add"></use></svg>
                 <span>폴더 추가</span>
               </button>
             </div>
@@ -1406,7 +1406,9 @@
                 <span>관심 폴더</span>
                 <h2 id="watch-group-dialog-title">새 폴더 만들기</h2>
               </div>
-              <button id="watch-group-dialog-close" type="button" aria-label="관심 폴더 창 닫기">×</button>
+              <button id="watch-group-dialog-close" type="button" aria-label="관심 폴더 창 닫기">
+                <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="close" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#close"></use></svg>
+              </button>
             </header>
             <p id="watch-group-dialog-description">폴더 이름을 정하고 기본 관심종목에서 담을 종목을 선택하세요.</p>
             <label class="watch-group-name-field" for="watch-group-name">
@@ -1431,21 +1433,25 @@
           <section class="watch-stock-add-sheet">
             <header class="watch-stock-add-head">
               <button class="watch-stock-add-back" id="watch-stock-add-back" type="button" aria-label="종목 검색 결과로 돌아가기" hidden>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5-7 7 7 7"></path></svg>
+                <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="back" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#back"></use></svg>
               </button>
               <div>
                 <span>관심종목</span>
                 <h2 id="watch-stock-add-title">종목 추가</h2>
               </div>
-              <button class="watch-stock-add-close" id="watch-stock-add-close" type="button" aria-label="종목 추가 창 닫기">×</button>
+              <button class="watch-stock-add-close" id="watch-stock-add-close" type="button" aria-label="종목 추가 창 닫기">
+                <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="close" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#close"></use></svg>
+              </button>
             </header>
 
             <section class="watch-stock-search-step" id="watch-stock-search-step">
               <form class="watch-stock-search-form" id="watch-stock-search-form" role="search" autocomplete="off">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg>
+                <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="search" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#search"></use></svg>
                 <label class="sr-only" for="watch-stock-search-input">추가할 종목 검색</label>
                 <input id="watch-stock-search-input" type="search" placeholder="종목명 또는 종목코드 검색" aria-controls="watch-stock-add-results" aria-describedby="watch-stock-search-status" />
-                <button class="watch-stock-search-clear" id="watch-stock-search-clear" type="button" aria-label="검색어 지우기" hidden>×</button>
+                <button class="watch-stock-search-clear" id="watch-stock-search-clear" type="button" aria-label="검색어 지우기" hidden>
+                  <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="close" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#close"></use></svg>
+                </button>
               </form>
               <p class="watch-stock-search-status" id="watch-stock-search-status" role="status" aria-live="polite"></p>
               <section class="watch-stock-add-results" id="watch-stock-add-results" aria-live="polite"></section>
@@ -1650,6 +1656,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260910v507" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260910v508" defer></script>
   </body>
 </html>

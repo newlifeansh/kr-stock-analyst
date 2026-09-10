@@ -2895,6 +2895,14 @@ def test_market_quant_signal_feed_admits_only_qualified_extended_candidate(monke
     db = _session()
     current_date = date(2026, 8, 27)
     current_time = datetime(2026, 8, 27, 16, 0)
+    # This case verifies extended-universe liquidity, not the live Naver market
+    # calendar. Pin the historical session so the fixture stays deterministic
+    # after Naver's rolling 10-session response moves beyond 2026-08-27.
+    monkeypatch.setattr(
+        quant_signals,
+        "is_korea_market_session_date",
+        lambda target, _now=None: target == current_date,
+    )
     core_stocks = [
         _stock(f"{index:06d}", f"핵심{index}")
         for index in range(1, 101)

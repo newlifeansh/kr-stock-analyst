@@ -11,7 +11,7 @@ def test_us_ai_signal_uses_compact_community_market_toggle_contract():
     staging_css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert shell.status_code == 200
-    assert 'src="/dashboard-app-v170.js?v=20260910v507"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260910v508"' in shell.text
     assert 'src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108"' in shell.text
 
     intro_contract = staging_js.split(
