@@ -1490,6 +1490,64 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
 
 
 @pytest.mark.qa_live
+def test_live_recommendation_contract_accepts_redacted_entered_today_evidence(
+    monkeypatch,
+) -> None:
+    from app.qa import runner
+
+    class PublicEnteredTodayApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            if path == "/market/recommendations":
+                return {
+                    "as_of": "2026-08-29T10:00:00+09:00",
+                    "selection_rule": "confirmed_entry_pending_or_entered_today",
+                    "qualified_count": 1,
+                    "pending_count": 0,
+                    "entered_today_count": 1,
+                    "items": [
+                        {
+                            "code": "003550",
+                            "action": "보유 유지",
+                            "recommendation_state": "entered_today",
+                            "buy_condition_met": True,
+                            "rank": 1,
+                            "strategy_entry_price": 118_500,
+                            "ai_trade_signal": {
+                                "current": {
+                                    "action": "entered",
+                                    "position_open": True,
+                                    "live_observation": False,
+                                    "entry_date": "2026-08-29",
+                                    "entry_price": 118_500,
+                                    "entry_confirmation": None,
+                                    "lifecycle": {
+                                        "latest_transition": {
+                                            "side": "buy",
+                                            "transition_date": "2026-08-29",
+                                        }
+                                    },
+                                }
+                            },
+                        }
+                    ],
+                }, self._meta(path)
+            return super().get(path, **params)
+
+    FakeReadOnlyApi.quality_price_state = "ready"
+    monkeypatch.setattr(runner, "ReadOnlyApi", PublicEnteredTodayApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    by_id = {item["id"]: item for item in report["checks"]}
+
+    assert by_id["SIG-CONTRACT-002"]["status"] == "pass", json.dumps(
+        by_id["SIG-CONTRACT-002"], ensure_ascii=False
+    )
+    assert by_id["SIG-CONTRACT-002"]["evidence"]["entered_today_count"] == 1
+    assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_live
 def test_live_report_blocks_stale_core_price(monkeypatch) -> None:
     from app.qa import runner
 

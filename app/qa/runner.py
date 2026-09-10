@@ -1617,8 +1617,11 @@ def _live_checks(
                         and str(transition.get("transition_date") or "")[:10]
                         == recommendation_date
                         and str(transition.get("side") or "").lower() == "buy"
-                        and isinstance(confirmation, dict)
-                        and confirmation.get("allowed") is True
+                        # The public recommendation projection deliberately
+                        # redacts the internal entry-confirmation evidence.
+                        # Eligibility was already derived before projection;
+                        # verify that derived contract and the redaction here.
+                        and confirmation is None
                         and item.get("strategy_entry_price") == current.get("entry_price")
                     )
                     if (
@@ -1636,6 +1639,9 @@ def _live_checks(
                                 "position_open": current.get("position_open"),
                                 "live_observation": current.get("live_observation"),
                                 "entry_date": current.get("entry_date"),
+                                "entry_confirmation_redacted": confirmation is None,
+                                "strategy_entry_price": item.get("strategy_entry_price"),
+                                "current_entry_price": current.get("entry_price"),
                                 "transition": transition,
                             }
                         )
