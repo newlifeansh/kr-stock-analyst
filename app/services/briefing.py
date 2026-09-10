@@ -26,11 +26,15 @@ from app.collectors.krx import (
     is_supported_price_code,
 )
 from app.collectors.macro import DEFAULT_MACRO_SERIES, collect_yahoo_macro_observations
-from app.collectors.naver_flows import collect_naver_investor_flows
+from app.collectors.naver_flows import (
+    collect_canonical_investor_flows,
+    collect_naver_investor_flows,
+)
 from app.collectors.naver_quotes import (
     collect_naver_krx_price_rows_for_codes,
     collect_naver_price_history_for_codes,
     collect_naver_quotes,
+    collect_naver_realtime_market_caps,
 )
 from app.collectors.news import collect_news_items
 from app.collectors.research import collect_research_reports
@@ -354,12 +358,24 @@ class BriefingRuntime:
                             limit=FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT,
                             max_workers=self.settings.fundamental_snapshot_max_workers,
                             refresh_days=self._fundamental_snapshot_collection_refresh_days(),
+                            canonical_base_url=(
+                                self.settings.canonical_public_base_url
+                                if self.settings.canonical_domestic_sync_enabled
+                                else None
+                            ),
+                            canonical_timeout=self.settings.canonical_domestic_sync_timeout_seconds,
                         )
-                    snapshot_result = collect_stock_fundamental_snapshots(
-                        db,
-                        max_workers=self.settings.fundamental_snapshot_max_workers,
-                        refresh_days=self.settings.fundamental_snapshot_refresh_days,
-                    )
+                    snapshot_result = {
+                        "rows_loaded": 0,
+                        "failed": 0,
+                        "message": "priority_only_canonical_mirror",
+                    }
+                    if not self.settings.canonical_domestic_sync_enabled:
+                        snapshot_result = collect_stock_fundamental_snapshots(
+                            db,
+                            max_workers=self.settings.fundamental_snapshot_max_workers,
+                            refresh_days=self.settings.fundamental_snapshot_refresh_days,
+                        )
                     if priority_snapshot_result["rows_loaded"] or snapshot_result["rows_loaded"]:
                         refreshed_any = True
                     self.last_fundamental_snapshot_message = (
@@ -647,6 +663,18 @@ class BriefingRuntime:
                 max_workers=self.settings.price_max_workers,
             )
             if naver_rows:
+                market_cap_rows = 0
+                if self.settings.canonical_domestic_sync_enabled:
+                    try:
+                        market_cap_rows = collect_naver_realtime_market_caps(
+                            db,
+                            target_yyyymmdd,
+                            markets="KOSPI,KOSDAQ",
+                            limit=None,
+                            max_workers=self.settings.price_max_workers,
+                        )
+                    except Exception as exc:
+                        market_errors["naver_realtime_market_caps"] = str(exc)
                 must_finalize_close = self._post_close_price_repair_due(current)
                 repaired = self._repair_signal_price_ohlc(
                     db,
@@ -655,12 +683,18 @@ class BriefingRuntime:
                 )
                 if must_finalize_close and repaired:
                     self.last_post_close_price_repair_date = target_date
+                source_parts = ["naver_quotes"]
+                if market_cap_rows:
+                    source_parts.append("naver_realtime_market_caps")
+                if repaired:
+                    source_parts.append("naver_ohlc_repair")
                 return {
-                    "source": "naver_quotes+naver_ohlc_repair" if repaired else "naver_full_quotes",
-                    "rows_loaded": naver_rows + repaired,
+                    "source": "+".join(source_parts) if len(source_parts) > 1 else "naver_full_quotes",
+                    "rows_loaded": naver_rows + market_cap_rows + repaired,
                     "message": (
                         f"date={target_yyyymmdd} markets=KOSPI,KOSDAQ "
-                        f"krx_errors={len(market_errors)} repaired={repaired}"
+                        f"krx_errors={len(market_errors)} market_caps={market_cap_rows} "
+                        f"repaired={repaired}"
                     ),
                 }
         except Exception as exc:
@@ -832,8 +866,24 @@ class BriefingRuntime:
                 }
             )
         rows = collect_naver_investor_flows(db, **collector_kwargs)
+        source = "naver_investor_flow"
+        if (
+            rows == 0
+            and self.settings.canonical_domestic_sync_enabled
+            and has_exact_stale_codes
+            and target_codes
+        ):
+            rows = collect_canonical_investor_flows(
+                db,
+                base_url=self.settings.canonical_public_base_url,
+                codes=target_codes,
+                limit=self.settings.canonical_domestic_sync_flow_limit,
+                timeout=self.settings.canonical_domestic_sync_timeout_seconds,
+                max_workers=self.settings.investor_flow_max_workers,
+            )
+            source = "canonical_investor_flow"
         return {
-            "source": "naver_investor_flow",
+            "source": source,
             "rows_loaded": rows,
             "message": (
                 f"pages={self.settings.investor_flow_pages} target={coverage['target_date']} "
@@ -1098,6 +1148,7 @@ class BriefingRuntime:
             "stock_universe_poll_seconds": self.settings.stock_universe_poll_seconds,
             "investor_flow_enabled": self.settings.investor_flow_enabled,
             "investor_flow_poll_seconds": self.settings.investor_flow_poll_seconds,
+            "canonical_domestic_sync_enabled": self.settings.canonical_domestic_sync_enabled,
             "financials_enabled": self.settings.financials_enabled,
             "financials_poll_seconds": self.settings.financials_poll_seconds,
             "fundamental_snapshot_enabled": self.settings.fundamental_snapshot_enabled,

@@ -19,6 +19,7 @@ from app.services.stock_dashboard import _market_cap_from_korean, _to_int
 NAVER_MAIN_URL = "https://finance.naver.com/item/main.naver"
 NAVER_DAILY_URL = "https://finance.naver.com/item/sise_day.naver"
 NAVER_KRX_CHART_URL = "https://api.stock.naver.com/chart/domestic/item/{code}"
+NAVER_REALTIME_QUOTES_URL = "https://polling.finance.naver.com/api/realtime/domestic/stock"
 REQUEST_HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
@@ -133,6 +134,110 @@ def collect_naver_quotes(
     except Exception as exc:
         db.rollback()
         finish_ingestion(db, run, "failed", 0, str(exc))
+        raise
+
+
+def _realtime_market_cap_rows(
+    codes: list[str],
+    trade_date,
+    timeout: int = 12,
+) -> list[dict[str, Any]]:
+    normalized = list(
+        dict.fromkeys(code for code in codes if re.fullmatch(r"[0-9A-Z]{6}", code))
+    )
+    if not normalized:
+        return []
+    response = requests.get(
+        f"{NAVER_REALTIME_QUOTES_URL}/{','.join(normalized)}",
+        headers={**REQUEST_HEADERS, "Referer": "https://finance.naver.com/"},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    raw_rows = payload.get("datas") if isinstance(payload, dict) else None
+    if not isinstance(raw_rows, list):
+        result = payload.get("result") if isinstance(payload, dict) else None
+        raw_rows = result.get("datas") if isinstance(result, dict) else None
+    if not isinstance(raw_rows, list):
+        raise ValueError("Naver realtime quote response must contain a datas list")
+    allowed_codes = set(normalized)
+    rows: list[dict[str, Any]] = []
+    for raw in raw_rows:
+        if not isinstance(raw, dict):
+            continue
+        code = str(raw.get("itemCode") or raw.get("code") or "").strip().upper()
+        close = _to_int(raw.get("closePriceRaw"))
+        market_cap = _to_int(raw.get("marketValueFullRaw"))
+        if code not in allowed_codes or close is None or market_cap is None or market_cap <= 0:
+            continue
+        rows.append(
+            {
+                "code": code,
+                "trade_date": trade_date,
+                "open": None,
+                "high": None,
+                "low": None,
+                "close": close,
+                "volume": _to_int(raw.get("accumulatedTradingVolumeRaw")),
+                "trading_value": _to_int(raw.get("accumulatedTradingValueRaw")),
+                "market_cap": market_cap,
+                "listed_shares": None,
+            }
+        )
+    return rows
+
+
+def collect_naver_realtime_market_caps(
+    db: Session,
+    yyyymmdd: str,
+    markets: str = "KOSPI,KOSDAQ",
+    limit: Optional[int] = None,
+    max_workers: int = 8,
+    request_batch_size: int = 50,
+    write_batch_size: int = 500,
+) -> int:
+    """Fill market caps without replacing a stored complete OHLC candle."""
+
+    trade_date = datetime.strptime(yyyymmdd, "%Y%m%d").date()
+    codes = _codes_for_markets(db, markets, limit)
+    request_batches = [
+        codes[start : start + max(1, request_batch_size)]
+        for start in range(0, len(codes), max(1, request_batch_size))
+    ]
+    run = start_ingestion(db, "naver_realtime", f"market_cap:{markets}:{yyyymmdd}")
+    total_count = 0
+    pending_rows: list[dict[str, Any]] = []
+    errors: list[str] = []
+    try:
+        worker_count = max(1, min(max_workers, len(request_batches) or 1))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(_realtime_market_cap_rows, batch, trade_date): batch
+                for batch in request_batches
+            }
+            for future in as_completed(futures):
+                try:
+                    pending_rows.extend(future.result())
+                except Exception as exc:
+                    errors.append(str(exc))
+                    continue
+                if len(pending_rows) >= write_batch_size:
+                    total_count += upsert_many(db, DailyPrice, pending_rows)
+                    db.commit()
+                    pending_rows = []
+
+        if pending_rows:
+            total_count += upsert_many(db, DailyPrice, pending_rows)
+            db.commit()
+
+        message = f"failed_batches={len(errors)}" if errors else None
+        if not total_count and errors:
+            raise RuntimeError(message or "Naver realtime market-cap collection failed")
+        finish_ingestion(db, run, "success", total_count, message)
+        return total_count
+    except Exception as exc:
+        db.rollback()
+        finish_ingestion(db, run, "failed", total_count, str(exc))
         raise
 
 

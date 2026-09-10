@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
+import time
 from typing import Optional
 
+import requests
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 
@@ -26,6 +28,23 @@ from app.services.stock_dashboard import (
 from app.services.etf_profiles import is_likely_etf_name
 
 NON_OPERATING_INSTRUMENT_WORDS = ("리츠", "인프라", "리얼티", "코크렙")
+CANONICAL_FUNDAMENTAL_KEYS = {
+    "per",
+    "eps",
+    "estimated_per",
+    "estimated_eps",
+    "pbr",
+    "bps",
+    "dividend_yield",
+    "industry_per",
+}
+CANONICAL_SURPRISE_KEYS = {
+    "latest_revenue",
+    "latest_operating_profit",
+    "latest_eps",
+    "revenue_growth",
+    "operating_profit_growth",
+}
 
 
 def _not_applicable_payload(name: str) -> Optional[dict[str, object]]:
@@ -44,6 +63,68 @@ def _not_applicable_payload(name: str) -> Optional[dict[str, object]]:
     }
 
 
+def _fetch_canonical_fundamental_snapshot(
+    code: str,
+    base_url: str,
+    timeout: int,
+) -> dict[str, object]:
+    response = None
+    for attempt in range(5):
+        response = requests.get(
+            f"{base_url.rstrip('/')}/stocks/{code}/dashboard",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=timeout,
+        )
+        if getattr(response, "status_code", 200) != 503 or attempt == 4:
+            break
+        # A first request can enqueue a canonical complete-snapshot build. Give
+        # that bounded background job time to publish before trying again.
+        time.sleep(2 * (attempt + 1))
+    if response is None:
+        return {}
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or str(payload.get("code") or "").strip() != code:
+        return {}
+    valuation = payload.get("valuation")
+    surprise = payload.get("surprise")
+    financial_series = payload.get("financial_series")
+    snapshot: dict[str, object] = {}
+    if isinstance(valuation, dict):
+        snapshot.update(
+            {
+                key: valuation[key]
+                for key in CANONICAL_FUNDAMENTAL_KEYS
+                if valuation.get(key) is not None
+            }
+        )
+    if isinstance(surprise, dict):
+        snapshot.update(
+            {
+                key: surprise[key]
+                for key in CANONICAL_SURPRISE_KEYS
+                if surprise.get(key) is not None
+            }
+        )
+    if isinstance(financial_series, dict):
+        snapshot["financial_series"] = financial_series
+        estimated_annual = next(
+            (
+                item
+                for item in reversed(financial_series.get("annual") or [])
+                if isinstance(item, dict) and item.get("estimated")
+            ),
+            None,
+        )
+        if estimated_annual:
+            snapshot["financial_period"] = estimated_annual.get("period")
+            snapshot["estimated_revenue"] = estimated_annual.get("revenue")
+            snapshot["estimated_operating_profit"] = estimated_annual.get(
+                "operating_profit"
+            )
+    return fundamental_snapshot_payload(snapshot)
+
+
 def collect_stock_fundamental_snapshots(
     db: Session,
     *,
@@ -52,6 +133,8 @@ def collect_stock_fundamental_snapshots(
     max_workers: int = 8,
     refresh_days: int = 7,
     batch_size: int = 200,
+    canonical_base_url: Optional[str] = None,
+    canonical_timeout: int = 12,
 ) -> dict[str, object]:
     market_values = [value.strip().upper() for value in markets.split(",") if value.strip()]
     latest_price_statement = (
@@ -111,6 +194,7 @@ def collect_stock_fundamental_snapshots(
     pending_codes = [code for code in codes if code not in fresh_codes]
     run = start_ingestion(db, "naver_finance", "stock_fundamental_snapshot")
     rows_loaded = 0
+    canonical_rows = 0
     failures: dict[str, str] = {}
     pending_rows: list[dict[str, object]] = []
 
@@ -130,16 +214,26 @@ def collect_stock_fundamental_snapshots(
                 code = futures[future]
                 try:
                     payload = fundamental_snapshot_payload(future.result())
+                    source = "naver_finance"
+                    if not payload and canonical_base_url:
+                        payload = _fetch_canonical_fundamental_snapshot(
+                            code,
+                            canonical_base_url,
+                            canonical_timeout,
+                        )
+                        source = "canonical"
                     if not payload:
                         payload = _not_applicable_payload(names_by_code.get(code, ""))
                     if not payload:
                         failures[code] = "fundamental data unavailable"
                         continue
+                    if source == "canonical":
+                        canonical_rows += 1
                     now = datetime.utcnow()
                     pending_rows.append(
                         {
                             "stock_code": code,
-                            "source": "naver_finance",
+                            "source": source,
                             "payload": json.dumps(payload, ensure_ascii=False, default=_json_default),
                             "fetched_at": now,
                             "updated_at": now,
@@ -153,7 +247,7 @@ def collect_stock_fundamental_snapshots(
         flush()
         message = (
             f"target={len(codes)} refreshed={rows_loaded} skipped={len(fresh_codes)} "
-            f"unavailable={len(failures)}"
+            f"canonical={canonical_rows} unavailable={len(failures)}"
         )
         finish_ingestion(
             db,

@@ -207,6 +207,53 @@ def test_briefing_runtime_passes_fundamental_refresh_headroom_to_collector(monke
     )
 
 
+def test_briefing_runtime_limits_canonical_fundamental_sync_to_signal_top100(monkeypatch):
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=False,
+            disclosure_enabled=False,
+            news_enabled=False,
+            price_enabled=False,
+            stock_universe_enabled=False,
+            investor_flow_enabled=False,
+            financials_enabled=False,
+            fundamental_snapshot_enabled=True,
+            fundamental_snapshot_refresh_days=2,
+            stock_news_snapshot_enabled=False,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=False,
+            canonical_domestic_sync_enabled=True,
+            canonical_public_base_url="https://canonical.example",
+            canonical_domestic_sync_timeout_seconds=7,
+        )
+    )
+    calls = []
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        briefing,
+        "collect_stock_fundamental_snapshots",
+        lambda db, **kwargs: calls.append((db, kwargs))
+        or {"rows_loaded": 0, "failed": 0, "message": "canonical=100"},
+    )
+
+    runtime.run_once()
+
+    assert len(calls) == 1
+    assert calls[0][1]["limit"] == briefing.FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT
+    assert calls[0][1]["canonical_base_url"] == "https://canonical.example"
+    assert calls[0][1]["canonical_timeout"] == 7
+    assert "priority_only_canonical_mirror" in runtime.last_fundamental_snapshot_message
+
+
 def test_fundamental_snapshot_partial_failure_is_degraded_and_retried(monkeypatch):
     runtime = briefing.BriefingRuntime(
         Settings(
@@ -399,6 +446,38 @@ def test_collect_prices_force_finalizes_naver_fallback_after_close(monkeypatch):
     assert result["rows_loaded"] == 2809
     assert calls == [(date(2026, 8, 21), True)]
     assert runtime.last_post_close_price_repair_date == date(2026, 8, 21)
+
+
+def test_collect_prices_fills_market_caps_for_us_domestic_sync(monkeypatch):
+    runtime = briefing.BriefingRuntime(
+        Settings(canonical_domestic_sync_enabled=True, price_max_workers=5)
+    )
+    monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
+    monkeypatch.setattr(
+        runtime,
+        "_latest_price_coverage",
+        lambda _db, _target: {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_market_prices",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("KRX unavailable")),
+    )
+    monkeypatch.setattr(briefing, "collect_naver_quotes", lambda *_args, **_kwargs: 2710)
+    calls = []
+
+    def collect_caps(db, yyyymmdd, markets, limit, max_workers):
+        calls.append((yyyymmdd, markets, limit, max_workers))
+        return 2700
+
+    monkeypatch.setattr(briefing, "collect_naver_realtime_market_caps", collect_caps)
+    monkeypatch.setattr(runtime, "_repair_signal_price_ohlc", lambda *_args, **_kwargs: 0)
+
+    result = runtime._collect_prices(object(), now=datetime(2026, 8, 21, 12, 0))
+
+    assert result["source"] == "naver_quotes+naver_realtime_market_caps"
+    assert result["rows_loaded"] == 5410
+    assert calls == [("20260821", "KOSPI,KOSDAQ", None, 5)]
 
 
 def test_collect_prices_skips_when_latest_coverage_is_already_high(monkeypatch):
@@ -841,6 +920,107 @@ def test_collect_investor_flows_fetches_only_stale_codes(monkeypatch):
     assert result["rows_loaded"] == 2
     assert result["message"].endswith("stale=1")
     assert calls == [(["005930"], 1, 3)]
+
+
+def test_collect_investor_flows_uses_canonical_fallback_when_naver_is_empty(monkeypatch):
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            canonical_domestic_sync_enabled=True,
+            canonical_public_base_url="https://canonical.example",
+            canonical_domestic_sync_flow_limit=44,
+            canonical_domestic_sync_timeout_seconds=7,
+            investor_flow_max_workers=3,
+        )
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_latest_investor_flow_coverage",
+        lambda db: {
+            "target_date": date(2026, 9, 10),
+            "total": 2,
+            "fresh": 0,
+            "coverage_ratio": 0.0,
+            "stale_codes": ["005930", "000660"],
+        },
+    )
+    monkeypatch.setattr(briefing, "collect_naver_investor_flows", lambda *args, **kwargs: 0)
+    calls = []
+
+    def fake_canonical(db, **kwargs):
+        calls.append(kwargs)
+        return 4
+
+    monkeypatch.setattr(briefing, "collect_canonical_investor_flows", fake_canonical)
+
+    result = runtime._collect_investor_flows(object())
+
+    assert result["source"] == "canonical_investor_flow"
+    assert result["rows_loaded"] == 4
+    assert calls == [
+        {
+            "base_url": "https://canonical.example",
+            "codes": ["005930", "000660"],
+            "limit": 44,
+            "timeout": 7,
+            "max_workers": 3,
+        }
+    ]
+
+
+def test_collect_investor_flows_does_not_fallback_when_naver_loaded_rows(monkeypatch):
+    runtime = briefing.BriefingRuntime(Settings(canonical_domestic_sync_enabled=True))
+    monkeypatch.setattr(
+        runtime,
+        "_latest_investor_flow_coverage",
+        lambda db: {
+            "target_date": date(2026, 9, 10),
+            "total": 1,
+            "fresh": 0,
+            "coverage_ratio": 0.0,
+            "stale_codes": ["005930"],
+        },
+    )
+    monkeypatch.setattr(briefing, "collect_naver_investor_flows", lambda *args, **kwargs: 2)
+    monkeypatch.setattr(
+        briefing,
+        "collect_canonical_investor_flows",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Canonical fallback should not be called")
+        ),
+    )
+
+    result = runtime._collect_investor_flows(object())
+
+    assert result["source"] == "naver_investor_flow"
+    assert result["rows_loaded"] == 2
+
+
+def test_collect_investor_flows_does_not_fallback_when_disabled(monkeypatch):
+    runtime = briefing.BriefingRuntime(Settings(canonical_domestic_sync_enabled=False))
+    monkeypatch.setattr(
+        runtime,
+        "_latest_investor_flow_coverage",
+        lambda db: {
+            "target_date": date(2026, 9, 10),
+            "total": 1,
+            "fresh": 0,
+            "coverage_ratio": 0.0,
+            "stale_codes": ["005930"],
+        },
+    )
+    monkeypatch.setattr(briefing, "collect_naver_investor_flows", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(
+        briefing,
+        "collect_canonical_investor_flows",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Disabled canonical fallback should not be called")
+        ),
+    )
+
+    result = runtime._collect_investor_flows(object())
+
+    assert result["source"] == "naver_investor_flow"
+    assert result["rows_loaded"] == 0
 
 
 def test_investor_flow_coverage_uses_market_calendar_when_prices_are_stale(monkeypatch):

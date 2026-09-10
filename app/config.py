@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     investor_flow_pages: int = 1
     investor_flow_code_limit: Optional[int] = None
     investor_flow_max_workers: int = 8
+    canonical_domestic_sync_enabled: bool = False
+    canonical_domestic_sync_timeout_seconds: int = 12
+    canonical_domestic_sync_flow_limit: int = 40
     financials_enabled: bool = True
     financials_poll_seconds: int = 21600
     financials_year: Optional[str] = None

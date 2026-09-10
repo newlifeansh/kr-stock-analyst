@@ -105,6 +105,92 @@ def test_collect_naver_investor_flows_commits_batches_and_skips_failed_codes(mon
         assert run.message == "failed_codes=1"
 
 
+def test_collect_canonical_investor_flows_normalizes_and_upserts(monkeypatch):
+    def fake_fetch(base_url: str, code: str, limit: int, timeout: int):
+        assert base_url == "https://canonical.example"
+        assert limit == 40
+        assert timeout == 7
+        return [
+            {
+                "code": code,
+                "trade_date": date(2026, 9, 10),
+                "investor_type": "외국인",
+                "buy_volume": None,
+                "sell_volume": None,
+                "net_buy_volume": -10,
+                "buy_value": None,
+                "sell_value": None,
+                "net_buy_value": -1000,
+            }
+        ]
+
+    monkeypatch.setattr(naver_flows, "_fetch_canonical_rows_for_code", fake_fetch)
+
+    with _session() as db:
+        count = naver_flows.collect_canonical_investor_flows(
+            db,
+            base_url="https://canonical.example",
+            codes=["005930", "005930", "000660"],
+            timeout=7,
+            max_workers=2,
+            batch_size=1,
+        )
+
+        assert count == 2
+        assert db.query(func.count(InvestorFlow.id)).scalar() == 2
+        run = db.query(IngestionRun).one()
+        assert run.source == "canonical"
+        assert run.dataset == "investor_flow"
+        assert run.status == "success"
+
+
+def test_fetch_canonical_rows_rejects_untrusted_shape(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [
+                {
+                    "code": "005930",
+                    "trade_date": "2026-09-10",
+                    "investor_type": "외국인",
+                    "net_buy_volume": "-5,769,453",
+                    "net_buy_value": -1_551_982_857_000,
+                },
+                {
+                    "code": "OTHER",
+                    "trade_date": "2026-09-10",
+                    "investor_type": "외국인",
+                },
+                {
+                    "code": "005930",
+                    "trade_date": "bad-date",
+                    "investor_type": "기관합계",
+                },
+            ]
+
+    monkeypatch.setattr(naver_flows.requests, "get", lambda *args, **kwargs: Response())
+
+    rows = naver_flows._fetch_canonical_rows_for_code(
+        "https://canonical.example/", "005930", 40, 7
+    )
+
+    assert rows == [
+        {
+            "code": "005930",
+            "trade_date": date(2026, 9, 10),
+            "investor_type": "외국인",
+            "buy_volume": None,
+            "sell_volume": None,
+            "net_buy_volume": -5_769_453,
+            "buy_value": None,
+            "sell_value": None,
+            "net_buy_value": -1_551_982_857_000,
+        }
+    ]
+
+
 def test_stock_detail_refreshes_stale_flow_once_per_latest_session(monkeypatch):
     calls = []
     main_module.stock_investor_flow_refresh_cache.clear()

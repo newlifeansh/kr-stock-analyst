@@ -244,6 +244,114 @@ def test_etf_fundamental_snapshot_is_recorded_as_not_applicable(monkeypatch):
     }
 
 
+def test_fundamental_snapshot_uses_canonical_fallback_only_when_primary_is_empty(monkeypatch):
+    monkeypatch.setattr(stock_snapshots, "_fetch_naver_snapshot", lambda _code: {})
+    calls = []
+
+    def canonical(code, base_url, timeout):
+        calls.append((code, base_url, timeout))
+        return {
+            "per": "12.07",
+            "revenue_growth": "28.11",
+            "operating_profit_growth": "56.37",
+        }
+
+    monkeypatch.setattr(stock_snapshots, "_fetch_canonical_fundamental_snapshot", canonical)
+    with _session() as db:
+        db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI"))
+        db.commit()
+
+        result = stock_snapshots.collect_stock_fundamental_snapshots(
+            db,
+            refresh_days=0,
+            max_workers=1,
+            canonical_base_url="https://canonical.example",
+            canonical_timeout=7,
+        )
+        snapshot = db.get(StockFundamentalSnapshot, "005930")
+
+    assert result["rows_loaded"] == 1
+    assert result["failed"] == 0
+    assert "canonical=1" in result["message"]
+    assert calls == [("005930", "https://canonical.example", 7)]
+    assert snapshot.source == "canonical"
+    assert json.loads(snapshot.payload)["operating_profit_growth"] == "56.37"
+
+
+def test_canonical_fundamental_parser_keeps_only_normalized_dashboard_fields(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "code": "005930",
+                "valuation": {"per": "12.07", "pbr": "3.13", "ignored": "secret"},
+                "surprise": {
+                    "revenue_growth": "28.11",
+                    "operating_profit_growth": "56.37",
+                    "latest_events": [{"title": "not mirrored"}],
+                },
+                "financial_series": {
+                    "annual": [
+                        {
+                            "period": "2026.12 (E)",
+                            "estimated": True,
+                            "revenue": "7396375",
+                            "operating_profit": "3912503",
+                        }
+                    ],
+                    "quarterly": [],
+                    "unit": "억원",
+                },
+            }
+
+    monkeypatch.setattr(stock_snapshots.requests, "get", lambda *args, **kwargs: Response())
+
+    payload = stock_snapshots._fetch_canonical_fundamental_snapshot(
+        "005930", "https://canonical.example/", 7
+    )
+
+    assert payload["per"] == "12.07"
+    assert payload["revenue_growth"] == "28.11"
+    assert payload["financial_period"] == "2026.12 (E)"
+    assert payload["estimated_revenue"] == "7396375"
+    assert "ignored" not in payload
+    assert "latest_events" not in payload
+
+
+def test_canonical_fundamental_retries_bounded_snapshot_preparation(monkeypatch):
+    calls = []
+    sleeps = []
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"HTTP {self.status_code}")
+
+        def json(self):
+            return {"code": "005930", "valuation": {"per": "12.07"}}
+
+    responses = iter([Response(503), Response(503), Response(200)])
+    monkeypatch.setattr(
+        stock_snapshots.requests,
+        "get",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or next(responses),
+    )
+    monkeypatch.setattr(stock_snapshots.time, "sleep", sleeps.append)
+
+    payload = stock_snapshots._fetch_canonical_fundamental_snapshot(
+        "005930", "https://canonical.example", 7
+    )
+
+    assert payload == {"per": "12.07"}
+    assert len(calls) == 3
+    assert sleeps == [2, 4]
+
+
 def test_signal_inputs_refresh_largest_market_caps_first(monkeypatch):
     fetched_codes = []
 

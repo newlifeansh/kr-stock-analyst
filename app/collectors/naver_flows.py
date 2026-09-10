@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import date, datetime
 import re
 from typing import Iterable, Optional
 
@@ -16,6 +16,7 @@ from app.repository import finish_ingestion, start_ingestion, upsert_many
 NAVER_FLOW_URL = "https://finance.naver.com/item/frgn.naver"
 NAVER_HEADERS = {"User-Agent": "Mozilla/5.0"}
 MARKET_SET = {"KOSPI", "KOSDAQ"}
+CANONICAL_FLOW_TYPES = {"외국인", "기관합계"}
 
 
 def _to_int(value: object) -> Optional[int]:
@@ -91,6 +92,52 @@ def _fetch_rows_for_code(code: str, pages: int = 1) -> list[dict[str, object]]:
     return rows
 
 
+def _parse_canonical_flow_row(code: str, payload: object) -> Optional[dict[str, object]]:
+    if not isinstance(payload, dict) or str(payload.get("code") or "").strip() != code:
+        return None
+    try:
+        trade_date = date.fromisoformat(str(payload.get("trade_date") or ""))
+    except ValueError:
+        return None
+    investor_type = str(payload.get("investor_type") or "").strip()
+    if investor_type not in CANONICAL_FLOW_TYPES:
+        return None
+    return {
+        "code": code,
+        "trade_date": trade_date,
+        "investor_type": investor_type,
+        "buy_volume": _to_int(payload.get("buy_volume")),
+        "sell_volume": _to_int(payload.get("sell_volume")),
+        "net_buy_volume": _to_int(payload.get("net_buy_volume")),
+        "buy_value": _to_int(payload.get("buy_value")),
+        "sell_value": _to_int(payload.get("sell_value")),
+        "net_buy_value": _to_int(payload.get("net_buy_value")),
+    }
+
+
+def _fetch_canonical_rows_for_code(
+    base_url: str,
+    code: str,
+    limit: int,
+    timeout: int,
+) -> list[dict[str, object]]:
+    response = requests.get(
+        f"{base_url.rstrip('/')}/stocks/{code}/flows",
+        params={"limit": limit},
+        headers=NAVER_HEADERS,
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, list):
+        raise ValueError("Canonical investor flow response must be a list")
+    return [
+        row
+        for item in payload
+        if (row := _parse_canonical_flow_row(code, item)) is not None
+    ]
+
+
 def _market_codes(db: Session, markets: str, limit: Optional[int]) -> list[str]:
     market_values = [market.strip().upper() for market in markets.split(",") if market.strip()]
     if not market_values:
@@ -147,6 +194,64 @@ def collect_naver_investor_flows(
         if not rows_loaded and errors:
             finish_ingestion(db, run, "failed", 0, message)
             raise RuntimeError(message or "Naver investor flow collection failed")
+        finish_ingestion(db, run, "success", rows_loaded, message)
+        return rows_loaded
+    except Exception as exc:
+        db.rollback()
+        finish_ingestion(db, run, "failed", rows_loaded, str(exc))
+        raise
+
+
+def collect_canonical_investor_flows(
+    db: Session,
+    *,
+    base_url: str,
+    codes: Iterable[str],
+    limit: int = 40,
+    timeout: int = 12,
+    max_workers: int = 8,
+    batch_size: int = 500,
+) -> int:
+    """Mirror normalized flow rows when the US collector cannot read Naver directly."""
+
+    code_list = list(dict.fromkeys(code for code in codes if code))
+    run = start_ingestion(db, "canonical", "investor_flow")
+    rows_loaded = 0
+    pending_rows: list[dict[str, object]] = []
+    errors: dict[str, str] = {}
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
+            futures = {
+                executor.submit(
+                    _fetch_canonical_rows_for_code,
+                    base_url,
+                    code,
+                    limit,
+                    timeout,
+                ): code
+                for code in code_list
+            }
+            for future in as_completed(futures):
+                code = futures[future]
+                try:
+                    pending_rows.extend(future.result())
+                except Exception as exc:
+                    errors[code] = str(exc)
+                    continue
+
+                if len(pending_rows) >= batch_size:
+                    rows_loaded += upsert_many(db, InvestorFlow, pending_rows)
+                    db.commit()
+                    pending_rows = []
+
+        if pending_rows:
+            rows_loaded += upsert_many(db, InvestorFlow, pending_rows)
+            db.commit()
+
+        message = f"failed_codes={len(errors)}" if errors else None
+        if not rows_loaded and errors:
+            finish_ingestion(db, run, "failed", 0, message)
+            raise RuntimeError(message or "Canonical investor flow sync failed")
         finish_ingestion(db, run, "success", rows_loaded, message)
         return rows_loaded
     except Exception as exc:

@@ -180,12 +180,12 @@
       "domain": "국내 시세·수급 연동",
       "priority": "P0",
       "modes": ["gate", "live"],
-      "automation": "pytest candle fixture + data-quality endpoint",
-      "preconditions": ["정상·불완전·목표일 누락·거래량 0 행과 장중 먼저 저장된 당일 부분 가격 행을 준비한다."],
-      "inputs": {"ohlc": "open,high,low,close", "scope": "all active KOSPI/KOSDAQ stocks", "quality_universe_date": "latest completed Korea market session"},
-      "steps": ["고가·저가 범위와 거래량·거래대금을 전 활성 종목에서 검증한다.", "종가 수집 후 불완전 OHLC와 목표일 행이 없는 종목이 일봉 원천으로 보정되는지 확인한다.", "장중 당일 부분 가격을 저장한 뒤 품질 유니버스와 가격·수급·펀더멘털·리서치 커버리지가 직전 완료 거래일에 유지되는지 확인한다.", "오전 9시 전 수집에서 당일 세션 표식이 먼저 노출돼도 직전 완료 거래일을 저장 목표로 사용하고, 완전 OHLC와 양수 시가총액을 함께 충족할 때만 가격 커버리지를 ready로 판정하는지 확인한다."],
-      "expected": ["전 활성 종목의 완전 일봉만 차트·신호에 사용되고 거래정지성 행은 캔들에서 제외된다.", "당일 부분 가격은 완료 거래일의 시총 Top100 품질 기준일을 선점하지 않으며 서로 다른 데이터셋의 커버리지를 동시에 0%로 만들지 않는다.", "장 시작 전 전일 종가가 당일 날짜로 잘못 저장되지 않고 전일 시총 Top100 기준이 유지되며, 시총 누락 행은 네이버 보완 수집 대상으로 남는다."],
-      "failure_criteria": ["한 종목이라도 0가격·역전 고저가·거래가 있는 불완전 캔들이 남거나 차트·신호 계산에 들어간다.", "장중 첫 부분 가격 날짜가 품질 유니버스 기준일이 되어 저장 데이터가 정상인데도 P0 가격·수급 품질이 stale로 판정된다.", "오전 9시 전 전일 종가가 당일 행으로 저장되거나 시총이 없는 완전 OHLC를 ready로 오인해 시총 Top100 유니버스가 비워진다."]
+      "automation": "pytest candle/realtime market-cap fixture + data-quality endpoint",
+      "preconditions": ["정상·불완전·목표일 누락·거래량 0 행과 장중 먼저 저장된 당일 부분 가격 행을 준비한다.", "KRX 시가총액 수집이 차단되고 네이버 종목별 종가·완전 OHLC만 저장된 미국 운영 수집기 상태를 준비한다."],
+      "inputs": {"ohlc": "open,high,low,close", "scope": "all active KOSPI/KOSDAQ stocks", "quality_universe_date": "latest completed Korea market session", "market_cap_fallback": "Naver realtime quote batches"},
+      "steps": ["고가·저가 범위와 거래량·거래대금을 전 활성 종목에서 검증한다.", "종가 수집 후 불완전 OHLC와 목표일 행이 없는 종목이 일봉 원천으로 보정되는지 확인한다.", "장중 당일 부분 가격을 저장한 뒤 품질 유니버스와 가격·수급·펀더멘털·리서치 커버리지가 직전 완료 거래일에 유지되는지 확인한다.", "오전 9시 전 수집에서 당일 세션 표식이 먼저 노출돼도 직전 완료 거래일을 저장 목표로 사용하고, 완전 OHLC와 양수 시가총액을 함께 충족할 때만 가격 커버리지를 ready로 판정하는지 확인한다.", "미국 운영 수집기에서 KRX 시가총액이 없으면 네이버 실시간 묶음 응답의 종목 코드·양수 시가총액을 검증해 보강하고 이미 저장된 완전 OHLC를 보존하는지 확인한다."],
+      "expected": ["전 활성 종목의 완전 일봉만 차트·신호에 사용되고 거래정지성 행은 캔들에서 제외된다.", "당일 부분 가격은 완료 거래일의 시총 Top100 품질 기준일을 선점하지 않으며 서로 다른 데이터셋의 커버리지를 동시에 0%로 만들지 않는다.", "장 시작 전 전일 종가가 당일 날짜로 잘못 저장되지 않고 전일 시총 Top100 기준이 유지되며, 시총 누락 행은 네이버 보완 수집 대상으로 남는다.", "보강된 시가총액으로 신호용 Top100이 복구되고 부분 시세가 완전 캔들의 시가·고가·저가·종가·거래량을 덮어쓰지 않는다."],
+      "failure_criteria": ["한 종목이라도 0가격·역전 고저가·거래가 있는 불완전 캔들이 남거나 차트·신호 계산에 들어간다.", "장중 첫 부분 가격 날짜가 품질 유니버스 기준일이 되어 저장 데이터가 정상인데도 P0 가격·수급 품질이 stale로 판정된다.", "오전 9시 전 전일 종가가 당일 행으로 저장되거나 시총이 없는 완전 OHLC를 ready로 오인해 시총 Top100 유니버스가 비워진다.", "다른 종목·0 이하 시가총액을 저장하거나 시가총액 보강이 기존 완전 OHLC를 부분 시세로 손상한다."]
     },
     {
       "id": "DATA-KRX-NAVER-003",
@@ -219,12 +219,12 @@
       "domain": "국내 시세·수급 연동",
       "priority": "P0",
       "modes": ["gate", "live"],
-      "automation": "pytest investor fixture + data-quality coverage",
-      "preconditions": ["기관합계와 세부 주체가 함께 있는 응답을 준비한다."],
-      "inputs": {"window": 20, "naver_publication_sla_kst": "19:00"},
-      "steps": ["외국인·기관합계 우선 및 거래대금 정규화를 계산한다.", "장 마감 가격 확정과 네이버 당일 수급 공개 사이에는 직전 공개 완료 거래일을 수급 최신성 목표로 사용한다."],
-      "expected": ["세부 주체가 중복 합산되지 않고 같은 20일 거래대금이 분모로 사용된다.", "19시 전 공개 지연 구간에는 직전 거래일 수급이 ready이고, 19시 이후에는 당일 수급을 요구한다."],
-      "failure_criteria": ["기관 수급이 이중 집계되거나 날짜·분모가 다르다.", "원천 공개 전 존재하지 않는 당일 수급을 요구해 정상 배포를 P0 stale로 차단한다."]
+      "automation": "pytest investor fixture + canonical mirror fallback fixture + data-quality coverage",
+      "preconditions": ["기관합계와 세부 주체가 함께 있는 응답을 준비한다.", "미국 운영 수집기의 네이버 응답이 비어 있고 기준 서비스에는 정규화된 수급이 있는 상태를 준비한다."],
+      "inputs": {"window": 20, "naver_publication_sla_kst": "19:00", "canonical_fallback": "explicitly enabled, empty Naver result only"},
+      "steps": ["외국인·기관합계 우선 및 거래대금 정규화를 계산한다.", "장 마감 가격 확정과 네이버 당일 수급 공개 사이에는 직전 공개 완료 거래일을 수급 최신성 목표로 사용한다.", "네이버 수집 결과가 0건일 때만 설정된 기준 서비스의 정규화 수급을 종목별로 동기화하고 원천 응답이 있으면 보강 경로를 호출하지 않는다."],
+      "expected": ["세부 주체가 중복 합산되지 않고 같은 20일 거래대금이 분모로 사용된다.", "19시 전 공개 지연 구간에는 직전 거래일 수급이 ready이고, 19시 이후에는 당일 수급을 요구한다.", "미국 운영 배포에서도 기준 서비스와 같은 최신 거래일·수급 값이 저장되며 보강 경로는 명시적으로 활성화된 수집기에만 적용된다."],
+      "failure_criteria": ["기관 수급이 이중 집계되거나 날짜·분모가 다르다.", "원천 공개 전 존재하지 않는 당일 수급을 요구해 정상 배포를 P0 stale로 차단한다.", "정상 네이버 응답을 기준 서비스 값으로 덮거나, 비활성 환경에서 외부 동기화를 호출하거나, 종목·날짜·투자자 유형이 다른 행을 저장한다."]
     },
 
     {
@@ -233,12 +233,12 @@
       "domain": "펀더멘털·리서치 연동",
       "priority": "P0",
       "modes": ["gate", "live"],
-      "automation": "pytest malformed/cutoff/partial-retry fixtures + data-quality/runtime-status endpoint",
-      "preconditions": ["정상·빈 값·손상 JSON 스냅샷을 준비한다."],
-      "inputs": {"fresh_days": 2, "minimum_ready_coverage": 0.95, "poll_seconds": 86400, "collection_headroom_days": 1, "priority_universe": 100, "partial_retry_seconds": 3600},
-      "steps": ["파싱 가능 여부·fetched_at·동일 종가일 기준 시총 상위 100개 최신 커버리지·마지막 성공 시각을 검사한다.", "상위 100 수집 cutoff를 품질 SLA보다 폴링 주기만큼 앞당기고 전체 종목 cutoff는 기존 SLA로 유지한다.", "상위 또는 전체 수집의 개별 실패를 주입해 degraded 상태·실패 건수·다음 재시도 시각을 확인한다."],
-      "expected": ["손상 JSON은 품질 오류이며 2일 이내 커버리지 95% 이상은 ready, caution은 경고로 분리된다.", "하루 폴링에서는 시총 상위 100개의 1일 이상 된 스냅샷을 선제 갱신하고, 전체 종목은 기존 2일 주기를 유지한다.", "부분 실패는 success로 오인되지 않고 최대 1시간 안에 재시도되며 성공 후 ready로 복구된다.", "설정 폴링이 SLA 이상이면 유효 폴링을 SLA 절반으로 제한하고 refresh_days=0에서는 중복 Top100 호출을 하지 않는다."],
-      "failure_criteria": ["손상·stale 자료가 정상 실적으로 사용된다.", "수집 skip 경계와 품질 cutoff가 같아 폴링 사이에 ready 커버리지가 급락한다.", "개별 실패 후 정상 상태·24시간 대기로 기록되거나 비활성 미래 가격이 Top100 기준일을 왜곡한다."]
+      "automation": "pytest malformed/cutoff/partial-retry/canonical Top100 fallback fixtures + data-quality/runtime-status endpoint",
+      "preconditions": ["정상·빈 값·손상 JSON 스냅샷을 준비한다.", "미국 운영 수집기의 네이버 기업실적 응답이 비어 있고 기준 서비스 대시보드에 정규화된 실적이 있는 상태를 준비한다."],
+      "inputs": {"fresh_days": 2, "minimum_ready_coverage": 0.95, "poll_seconds": 86400, "collection_headroom_days": 1, "priority_universe": 100, "partial_retry_seconds": 3600, "canonical_fallback_scope": "signal Top100 only"},
+      "steps": ["파싱 가능 여부·fetched_at·동일 종가일 기준 시총 상위 100개 최신 커버리지·마지막 성공 시각을 검사한다.", "상위 100 수집 cutoff를 품질 SLA보다 폴링 주기만큼 앞당기고 전체 종목 cutoff는 기존 SLA로 유지한다.", "상위 또는 전체 수집의 개별 실패를 주입해 degraded 상태·실패 건수·다음 재시도 시각을 확인한다.", "네이버 기업실적이 비었을 때만 기준 서비스 대시보드에서 허용된 밸류에이션·성장률·재무 시계열을 Top100에 보강하고 다른 필드와 종목 코드는 거부한다.", "기준 서비스가 완성 스냅샷 준비 중 503을 반환하면 2·4·6·8초 간격의 제한된 재시도 후 성공 또는 명시적 부분 실패로 기록한다."],
+      "expected": ["손상 JSON은 품질 오류이며 2일 이내 커버리지 95% 이상은 ready, caution은 경고로 분리된다.", "하루 폴링에서는 시총 상위 100개의 1일 이상 된 스냅샷을 선제 갱신하고, 전체 종목은 기존 2일 주기를 유지한다.", "부분 실패는 success로 오인되지 않고 최대 1시간 안에 재시도되며 성공 후 ready로 복구된다.", "설정 폴링이 SLA 이상이면 유효 폴링을 SLA 절반으로 제한하고 refresh_days=0에서는 중복 Top100 호출을 하지 않는다.", "미국 운영의 시그널 Top100 실적 커버리지가 기준 서비스와 동일한 최신성으로 복구되고, 전체 종목을 기준 서비스에 반복 요청하지 않는다."],
+      "failure_criteria": ["손상·stale 자료가 정상 실적으로 사용된다.", "수집 skip 경계와 품질 cutoff가 같아 폴링 사이에 ready 커버리지가 급락한다.", "개별 실패 후 정상 상태·24시간 대기로 기록되거나 비활성 미래 가격이 Top100 기준일을 왜곡한다.", "정상 네이버 실적을 덮어쓰거나 기준 서비스의 임의 필드를 저장하거나 Top100을 넘어 전 종목 동기화를 실행한다.", "준비 중 응답을 즉시 영구 실패로 처리하거나 제한 없이 재시도해 기준 서비스를 과부하시킨다."]
     },
     {
       "id": "DATA-FUND-RESEARCH-002",

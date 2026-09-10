@@ -94,6 +94,123 @@ def test_partial_quote_upsert_preserves_existing_daily_ohlc():
         assert (row.close, row.volume) == (1050, 100)
 
 
+def test_realtime_market_cap_parser_rejects_other_codes_and_missing_caps(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "datas": [
+                    {
+                        "itemCode": "005930",
+                        "closePriceRaw": "269000",
+                        "accumulatedTradingVolumeRaw": "21,010,910",
+                        "accumulatedTradingValueRaw": "5,629,002,551,500",
+                        "marketValueFullRaw": "1,572,648,945,552,000",
+                    },
+                    {
+                        "itemCode": "OTHER",
+                        "closePriceRaw": "1000",
+                        "marketValueFullRaw": "1000000",
+                    },
+                    {"itemCode": "000660", "closePriceRaw": "1853000"},
+                ]
+            }
+
+    monkeypatch.setattr(naver_quotes.requests, "get", lambda *args, **kwargs: Response())
+    target = date(2026, 9, 10)
+
+    rows = naver_quotes._realtime_market_cap_rows(["005930", "000660"], target)
+
+    assert rows == [
+        {
+            "code": "005930",
+            "trade_date": target,
+            "open": None,
+            "high": None,
+            "low": None,
+            "close": 269000,
+            "volume": 21_010_910,
+            "trading_value": 5_629_002_551_500,
+            "market_cap": 1_572_648_945_552_000,
+            "listed_shares": None,
+        }
+    ]
+
+
+def test_collect_realtime_market_caps_preserves_complete_ohlc(monkeypatch):
+    target = date(2026, 9, 10)
+
+    def fake_rows(codes, trade_date, timeout=12):
+        assert trade_date == target
+        return [
+            {
+                "code": code,
+                "trade_date": target,
+                "open": None,
+                "high": None,
+                "low": None,
+                "close": 2000,
+                "volume": 200,
+                "trading_value": 400_000,
+                "market_cap": 2_000_000,
+                "listed_shares": None,
+            }
+            for code in codes
+        ]
+
+    monkeypatch.setattr(naver_quotes, "_realtime_market_cap_rows", fake_rows)
+    with _session() as db:
+        db.add_all(
+            [
+                StockMaster(code="005930", name="삼성전자", market="KOSPI"),
+                StockMaster(code="000660", name="SK하이닉스", market="KOSPI"),
+            ]
+        )
+        upsert_many(
+            db,
+            DailyPrice,
+            [
+                {
+                    "code": "005930",
+                    "trade_date": target,
+                    "open": 1000,
+                    "high": 1100,
+                    "low": 900,
+                    "close": 1050,
+                    "volume": 100,
+                    "trading_value": 105_000,
+                    "market_cap": None,
+                    "listed_shares": None,
+                }
+            ],
+        )
+        db.commit()
+
+        count = naver_quotes.collect_naver_realtime_market_caps(
+            db,
+            "20260910",
+            max_workers=2,
+            request_batch_size=1,
+            write_batch_size=1,
+        )
+
+        assert count == 2
+        row = db.query(DailyPrice).filter(DailyPrice.code == "005930").one()
+        assert (row.open, row.high, row.low, row.close, row.volume) == (
+            1000,
+            1100,
+            900,
+            1050,
+            100,
+        )
+        assert row.market_cap == 2_000_000
+        run = db.query(IngestionRun).one()
+        assert run.source == "naver_realtime"
+        assert run.status == "success"
+
+
 def test_complete_daily_candle_replaces_a_partial_quote_atomically():
     trade_date = date(2026, 6, 19)
     with _session() as db:
