@@ -12060,10 +12060,10 @@ function dashboardLocationRoute() {
   };
 }
 
-function dashboardRouteUrl(routeName) {
+function dashboardRouteUrl(routeName, marketScope = state.marketScope) {
   const route = String(routeName || "home");
   const root = isDashboardRootPath || !isUsHubContext ? "/dashboard" : "/us";
-  const scopedRoute = (url) => (isUsHubContext ? unifiedMarketUrl(url, state.marketScope) : url);
+  const scopedRoute = (url) => (isUsHubContext ? unifiedMarketUrl(url, marketScope) : url);
   if (route === "stock" && state.currentStock?.name) {
     return viewStockUrl(state.currentStock.name, state.currentStock);
   }
@@ -17746,7 +17746,9 @@ function createHomeAiSignalRow(item, options = {}) {
     && item.current?.live_observation === true;
   const row = document.createElement("a");
   row.className = `home-ai-signal-row is-${view.tone}${view.preliminary && !released ? " is-preliminary" : ""}${livePreliminary ? " is-live-preliminary" : ""}${released ? " is-released" : ""}`;
-  row.href = options.linkToList ? dashboardRouteUrl("ai-signals") : viewStockUrl(item.code || item.name || "", item);
+  row.href = options.linkToList
+    ? dashboardRouteUrl("ai-signals", marketScopeForItem(item))
+    : viewStockUrl(item.code || item.name || "", item);
   row.dataset.marketScope = marketScopeForItem(item);
   row.dataset.code = item.code || "";
   row.aiSignalItem = item;
@@ -18738,7 +18740,8 @@ function homeHoldingSignalItems(items = []) {
 function createHomeMarketSignalTickerRow(item) {
   const row = document.createElement("a");
   row.className = "home-market-signal-row";
-  row.href = dashboardRouteUrl("ai-signals");
+  row.dataset.marketScope = marketScopeForItem(item);
+  row.href = dashboardRouteUrl("ai-signals", row.dataset.marketScope);
   row.dataset.aiSignalListLink = "true";
   row.setAttribute("aria-label", "AI 시그널 전체 목록 보기");
   const signal = item.tickerSignal || { label: "매수", side: "buy", date: "날짜 확인 중" };
@@ -30617,6 +30620,12 @@ document.addEventListener("click", (event) => {
     && !event.altKey
   ) {
     event.preventDefault();
+    const targetMarketScope = aiSignalListLink.dataset.marketScope;
+    if (isUsHubContext && ["kr", "us"].includes(targetMarketScope)) {
+      state.marketScope = targetMarketScope;
+      document.body.dataset.marketScope = targetMarketScope;
+      applyUsMarketSurface();
+    }
     openAiSignalsPage();
     return;
   }

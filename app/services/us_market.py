@@ -2305,6 +2305,22 @@ def _financial_snapshot(
     }
 
 
+def _market_cap_with_quote_fallback(
+    symbol: str,
+    financials: dict[str, object],
+    refresh: bool = False,
+) -> Optional[Decimal]:
+    financial_market_cap = _to_decimal(financials.get("market_cap"))
+    if financial_market_cap is not None and financial_market_cap > 0:
+        return financial_market_cap
+    try:
+        quote = fetch_us_quote_batch([symbol], refresh=refresh).get(_symbol(symbol), {})
+    except Exception:
+        return None
+    quote_market_cap = _to_decimal(quote.get("marketCap"))
+    return quote_market_cap if quote_market_cap is not None and quote_market_cap > 0 else None
+
+
 def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
     stock = resolve_us_stock(symbol)
     meta, prices = chart_prices(stock["code"], refresh=refresh, limit=250)
@@ -2339,6 +2355,11 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
     except Exception:
         fundamentals = {}
     financials = _financial_snapshot(fundamentals, price) if fundamentals else {}
+    financials["market_cap"] = _market_cap_with_quote_fallback(
+        stock["code"],
+        financials,
+        refresh=refresh,
+    )
     peer_stats = _industry_valuation_stats(_peer_group_key(stock)) if financials else {}
     per_zscore = _zscore(financials.get("per"), financials.get("per_series") or []) or _zscore(
         financials.get("per"), peer_stats.get("per_values") or []

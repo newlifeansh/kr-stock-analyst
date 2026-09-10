@@ -33,6 +33,37 @@ def test_resolve_korean_alias_keeps_original_us_name(monkeypatch):
     assert stock["name"] == "Apple"
 
 
+def test_us_market_cap_uses_quote_fallback_for_class_share_mismatch(monkeypatch):
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_batch",
+        lambda symbols, refresh=False: {
+            "BRK.B": {"marketCap": Decimal("1085339860992")}
+        },
+    )
+
+    market_cap = us_market._market_cap_with_quote_fallback(
+        "BRK.B",
+        {"market_cap": None},
+    )
+
+    assert market_cap == Decimal("1085339860992")
+
+
+def test_us_market_cap_keeps_valid_financial_value_without_quote_request(monkeypatch):
+    def fail_quote_request(*args, **kwargs):
+        raise AssertionError("valid financial market cap must not fetch a fallback")
+
+    monkeypatch.setattr(us_market, "fetch_us_quote_batch", fail_quote_request)
+
+    market_cap = us_market._market_cap_with_quote_fallback(
+        "AAPL",
+        {"market_cap": Decimal("4000000000000")},
+    )
+
+    assert market_cap == Decimal("4000000000000")
+
+
 def test_us_rankings_scan_full_universe(monkeypatch):
     calls = []
 
