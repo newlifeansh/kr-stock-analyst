@@ -14,9 +14,11 @@ from app.models import InvestorFlow, StockMaster
 from app.repository import finish_ingestion, start_ingestion, upsert_many
 
 NAVER_FLOW_URL = "https://finance.naver.com/item/frgn.naver"
+NAVER_TREND_URL = "https://stock.naver.com/api/domestic/detail/{code}/trend"
 NAVER_HEADERS = {"User-Agent": "Mozilla/5.0"}
 MARKET_SET = {"KOSPI", "KOSDAQ"}
 CANONICAL_FLOW_TYPES = {"외국인", "기관합계"}
+NAVER_TREND_PAGE_SIZE = 20
 
 
 def _to_int(value: object) -> Optional[int]:
@@ -77,7 +79,74 @@ def parse_naver_investor_flow_html(code: str, html: str) -> list[dict[str, objec
     return rows
 
 
+def parse_naver_investor_trend_json(code: str, payload: object) -> list[dict[str, object]]:
+    if not isinstance(payload, list):
+        return []
+
+    rows: list[dict[str, object]] = []
+    for item in payload:
+        if not isinstance(item, dict) or str(item.get("itemCode") or "").strip() != code:
+            continue
+        try:
+            trade_date = datetime.strptime(str(item.get("bizdate") or ""), "%Y%m%d").date()
+        except ValueError:
+            continue
+        close = _to_int(item.get("closePrice"))
+        if close is None or close <= 0:
+            continue
+
+        for investor_type, field in (
+            ("기관합계", "organPureBuyQuant"),
+            ("외국인", "foreignerPureBuyQuant"),
+        ):
+            net_buy_volume = _to_int(item.get(field))
+            if net_buy_volume is None:
+                continue
+            rows.append(
+                {
+                    "code": code,
+                    "trade_date": trade_date,
+                    "investor_type": investor_type,
+                    "buy_volume": None,
+                    "sell_volume": None,
+                    "net_buy_volume": net_buy_volume,
+                    "buy_value": None,
+                    "sell_value": None,
+                    "net_buy_value": net_buy_volume * close,
+                }
+            )
+    return rows
+
+
+def _fetch_trend_rows_for_code(code: str, pages: int) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for page in range(max(1, pages)):
+        response = requests.get(
+            NAVER_TREND_URL.format(code=code),
+            params={
+                "tradeType": "KRX",
+                "startIdx": page * NAVER_TREND_PAGE_SIZE,
+                "pageSize": NAVER_TREND_PAGE_SIZE,
+            },
+            headers=NAVER_HEADERS,
+            timeout=10,
+        )
+        response.raise_for_status()
+        page_rows = parse_naver_investor_trend_json(code, response.json())
+        rows.extend(page_rows)
+        if len(page_rows) < NAVER_TREND_PAGE_SIZE * len(CANONICAL_FLOW_TYPES):
+            break
+    return rows
+
+
 def _fetch_rows_for_code(code: str, pages: int = 1) -> list[dict[str, object]]:
+    try:
+        trend_rows = _fetch_trend_rows_for_code(code, pages)
+        if trend_rows:
+            return trend_rows
+    except (requests.RequestException, ValueError):
+        pass
+
     rows: list[dict[str, object]] = []
     for page in range(1, pages + 1):
         response = requests.get(

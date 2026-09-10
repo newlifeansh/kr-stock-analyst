@@ -54,6 +54,96 @@ def test_parse_naver_investor_flow_html():
     ]
 
 
+def test_parse_naver_investor_trend_json_normalizes_new_api():
+    rows = naver_flows.parse_naver_investor_trend_json(
+        "267270",
+        [
+            {
+                "itemCode": "267270",
+                "bizdate": "20260910",
+                "organPureBuyQuant": "65,996",
+                "foreignerPureBuyQuant": "-41,436",
+                "closePrice": "141,200",
+            },
+            {
+                "itemCode": "OTHER",
+                "bizdate": "20260910",
+                "organPureBuyQuant": "1",
+                "foreignerPureBuyQuant": "2",
+                "closePrice": "3",
+            },
+            {
+                "itemCode": "267270",
+                "bizdate": "bad-date",
+                "organPureBuyQuant": "1",
+                "foreignerPureBuyQuant": "2",
+                "closePrice": "3",
+            },
+        ],
+    )
+
+    assert rows == [
+        {
+            "code": "267270",
+            "trade_date": date(2026, 9, 10),
+            "investor_type": "기관합계",
+            "buy_volume": None,
+            "sell_volume": None,
+            "net_buy_volume": 65_996,
+            "buy_value": None,
+            "sell_value": None,
+            "net_buy_value": 9_318_635_200,
+        },
+        {
+            "code": "267270",
+            "trade_date": date(2026, 9, 10),
+            "investor_type": "외국인",
+            "buy_volume": None,
+            "sell_volume": None,
+            "net_buy_volume": -41_436,
+            "buy_value": None,
+            "sell_value": None,
+            "net_buy_value": -5_850_763_200,
+        },
+    ]
+
+
+def test_fetch_rows_prefers_new_trend_api_and_does_not_call_legacy(monkeypatch):
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [
+                {
+                    "itemCode": "267270",
+                    "bizdate": "20260910",
+                    "organPureBuyQuant": "10",
+                    "foreignerPureBuyQuant": "-5",
+                    "closePrice": "1000",
+                }
+            ]
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        assert url == naver_flows.NAVER_TREND_URL.format(code="267270")
+        return Response()
+
+    monkeypatch.setattr(naver_flows.requests, "get", fake_get)
+
+    rows = naver_flows._fetch_rows_for_code("267270", pages=2)
+
+    assert len(rows) == 2
+    assert len(calls) == 1
+    assert calls[0][1]["params"] == {
+        "tradeType": "KRX",
+        "startIdx": 0,
+        "pageSize": 20,
+    }
+
+
 def test_collect_naver_investor_flows_commits_batches_and_skips_failed_codes(monkeypatch):
     def fake_fetch(code: str, pages: int):
         if code == "000660":

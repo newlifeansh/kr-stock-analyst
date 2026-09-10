@@ -219,12 +219,12 @@
       "domain": "국내 시세·수급 연동",
       "priority": "P0",
       "modes": ["gate", "live"],
-      "automation": "pytest investor fixture + canonical mirror fallback fixture + data-quality coverage",
-      "preconditions": ["기관합계와 세부 주체가 함께 있는 응답을 준비한다.", "미국 운영 수집기의 네이버 응답이 비어 있고 기준 서비스에는 정규화된 수급이 있는 상태를 준비한다."],
-      "inputs": {"window": 20, "naver_publication_sla_kst": "19:00", "canonical_fallback": "explicitly enabled, empty Naver result only"},
-      "steps": ["외국인·기관합계 우선 및 거래대금 정규화를 계산한다.", "장 마감 가격 확정과 네이버 당일 수급 공개 사이에는 직전 공개 완료 거래일을 수급 최신성 목표로 사용한다.", "네이버 수집 결과가 0건일 때만 설정된 기준 서비스의 정규화 수급을 종목별로 동기화하고 원천 응답이 있으면 보강 경로를 호출하지 않는다."],
-      "expected": ["세부 주체가 중복 합산되지 않고 같은 20일 거래대금이 분모로 사용된다.", "19시 전 공개 지연 구간에는 직전 거래일 수급이 ready이고, 19시 이후에는 당일 수급을 요구한다.", "미국 운영 배포에서도 기준 서비스와 같은 최신 거래일·수급 값이 저장되며 보강 경로는 명시적으로 활성화된 수집기에만 적용된다."],
-      "failure_criteria": ["기관 수급이 이중 집계되거나 날짜·분모가 다르다.", "원천 공개 전 존재하지 않는 당일 수급을 요구해 정상 배포를 P0 stale로 차단한다.", "정상 네이버 응답을 기준 서비스 값으로 덮거나, 비활성 환경에서 외부 동기화를 호출하거나, 종목·날짜·투자자 유형이 다른 행을 저장한다."]
+      "automation": "pytest investor HTML/JSON fixtures + canonical mirror fallback fixture + data-quality coverage",
+      "preconditions": ["기관합계와 세부 주체가 함께 있는 기존 HTML 및 신규 투자자 동향 JSON 응답을 준비한다.", "미국 운영 수집기의 네이버 응답이 비어 있고 기준 서비스에는 정규화된 수급이 있는 상태를 준비한다."],
+      "inputs": {"window": 20, "naver_publication_sla_kst": "19:00", "naver_trend_api": "/api/domestic/detail/{code}/trend?tradeType=KRX", "canonical_fallback": "explicitly enabled, empty Naver result only"},
+      "steps": ["신규 네이버 투자자 동향 JSON에서 종목·날짜·종가·외국인·기관합계 순매수를 검증하고 거래대금으로 정규화한다.", "신규 API가 비거나 일시 실패하면 기존 HTML 호환 경로를 확인한다.", "장 마감 가격 확정과 네이버 당일 수급 공개 사이에는 직전 공개 완료 거래일을 수급 최신성 목표로 사용한다.", "네이버 수집 결과가 0건일 때만 설정된 기준 서비스의 정규화 수급을 종목별로 동기화하고 원천 응답이 있으면 보강 경로를 호출하지 않는다."],
+      "expected": ["세부 주체가 중복 합산되지 않고 같은 20일 거래대금이 분모로 사용된다.", "신규 API의 외국인·기관합계 순매수 수량과 종가로 계산한 순매수 거래대금이 저장된다.", "19시 전 공개 지연 구간에는 직전 거래일 수급이 ready이고, 19시 이후에는 당일 수급을 요구한다.", "미국 운영 배포에서도 기준 서비스와 같은 최신 거래일·수급 값이 저장되며 보강 경로는 명시적으로 활성화된 수집기에만 적용된다."],
+      "failure_criteria": ["기관 수급이 이중 집계되거나 날짜·분모가 다르다.", "리다이렉트된 HTML을 정상 수급으로 오인하거나 신규 API의 다른 종목·손상 날짜·무효 종가를 저장한다.", "원천 공개 전 존재하지 않는 당일 수급을 요구해 정상 배포를 P0 stale로 차단한다.", "정상 네이버 응답을 기준 서비스 값으로 덮거나, 비활성 환경에서 외부 동기화를 호출하거나, 종목·날짜·투자자 유형이 다른 행을 저장한다."]
     },
 
     {
