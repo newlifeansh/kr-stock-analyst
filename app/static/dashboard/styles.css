@@ -42541,8 +42541,8 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   display: none !important;
 }
 
-/* Watch groups and packed-bubble physics v505: one draggable cluster encodes
-   today's move, while overflow stays reachable in a bottom sheet. */
+/* Watch groups and return timeline v506: one draggable cluster morphs with
+   the selected intraday return, while overflow stays reachable in a sheet. */
 :is(#portfolio-view[data-watch-group-layout="true"], #home-view) {
   --watch-group-panel: light-dark(#ffffff, #202126);
   --watch-group-panel-soft: light-dark(#f7f8fa, #28292f);
@@ -42832,6 +42832,11 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
 #home-view .watch-market-map-tile.is-negative.is-strong { background: var(--watch-map-negative-strong); }
 #home-view .watch-market-map-tile.is-flat { background: var(--watch-map-flat); }
 
+#home-view .watch-market-map-tile.is-unavailable {
+  border-style: dashed;
+  background: light-dark(#788493, #50535c);
+}
+
 #home-view .watch-market-map-tile.is-overflow {
   align-items: center;
   justify-content: center;
@@ -42953,6 +42958,7 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
 
 #home-view .watch-market-map-legend .is-positive i { background: var(--watch-map-positive-medium); }
 #home-view .watch-market-map-legend .is-negative i { background: var(--watch-map-negative-strong); }
+#home-view .watch-market-map-legend .is-unavailable i { background: light-dark(#788493, #646872); }
 
 #home-view .watch-market-map-timeline {
   min-width: 0;
@@ -42985,33 +42991,98 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   font-weight: 700 !important;
 }
 
-#home-view .watch-market-map-timeline-track {
+#home-view .watch-market-map-timeline-control {
   position: relative;
-  height: 8px;
-  border-radius: 999px;
-  background: light-dark(#dfe5ec, #343942);
+  height: 44px;
+  margin-block: -11px;
 }
 
-#home-view .watch-market-map-timeline-track > span {
+#home-view .watch-market-map-timeline-rail {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: light-dark(#dfe5ec, #343942);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+#home-view #watch-market-map-timeline-fill {
   position: absolute;
   inset: 0 auto 0 0;
   min-width: 2px;
   border-radius: inherit;
   background: linear-gradient(90deg, #4f8df7, #2f6fe4);
-  transition: width 520ms cubic-bezier(0.2, 0.82, 0.2, 1);
+  transition: width 120ms linear;
 }
 
-#home-view .watch-market-map-timeline-track i {
+#home-view .watch-market-map-timeline-input-zone {
   position: absolute;
-  top: 50%;
-  right: 0;
-  width: 18px;
-  height: 18px;
+  inset: 0 auto 0 0;
+  min-width: 22px;
+}
+
+#home-view #watch-market-map-timeline-track {
+  width: 100%;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #397cf0;
+  cursor: ew-resize;
+  appearance: none;
+  -webkit-appearance: none;
+  touch-action: pan-y;
+}
+
+#home-view #watch-market-map-timeline-track::-webkit-slider-runnable-track {
+  height: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+#home-view #watch-market-map-timeline-track::-moz-range-track {
+  height: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+#home-view #watch-market-map-timeline-track::-webkit-slider-thumb {
+  width: 22px;
+  height: 22px;
+  margin-top: -7px;
   border: 4px solid #ffffff;
   border-radius: 50%;
   background: #397cf0;
   box-shadow: 0 2px 8px rgba(25, 80, 170, 0.34);
-  transform: translate(50%, -50%);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+#home-view #watch-market-map-timeline-track::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 4px solid #ffffff;
+  border-radius: 50%;
+  background: #397cf0;
+  box-shadow: 0 2px 8px rgba(25, 80, 170, 0.34);
+}
+
+#home-view #watch-market-map-timeline-track:focus-visible {
+  outline: 3px solid rgba(49, 130, 246, 0.38);
+  outline-offset: -7px;
+  border-radius: 12px;
+}
+
+#home-view #watch-market-map-timeline-track:disabled {
+  cursor: progress;
+  opacity: 0.55;
 }
 
 #home-view .watch-market-map-timeline-labels {
@@ -43679,7 +43750,7 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
     will-change: auto;
   }
 
-  #home-view .watch-market-map-timeline-track > span {
+  #home-view #watch-market-map-timeline-fill {
     transition: none;
   }
 

@@ -7614,6 +7614,43 @@ def run_e2e_checks(
                         "coverage": {"price": True},
                     }
 
+                def intraday(item: tuple[Any, ...], scope: str) -> dict[str, Any]:
+                    code, _name, _market, _cap, change, price = item
+                    reference = price / (1 + change / 100) if change != -100 else price
+                    if code == "NVDA":
+                        rates = (-0.7, 4.8, change)
+                    elif code == "AAPL":
+                        rates = (4.5, -0.5, change)
+                    else:
+                        rates = (change * 0.35, change * 0.72, change)
+                    market_timezone = ZoneInfo("America/New_York") if scope == "us" else KST
+                    points = []
+                    for trade_time, rate in zip(("090000", "100000", "120000"), rates):
+                        display_time = datetime.now(KST).replace(
+                            hour=int(trade_time[:2]),
+                            minute=int(trade_time[2:4]),
+                            second=0,
+                            microsecond=0,
+                        )
+                        source_time = display_time.astimezone(market_timezone)
+                        points.append(
+                            {
+                                "trade_date": source_time.date().isoformat(),
+                                "trade_time": source_time.strftime("%H%M%S"),
+                                "price": reference * (1 + rate / 100),
+                            }
+                        )
+                    return {
+                        "code": code,
+                        "source": "qa-fixture",
+                        "as_of": qa_as_of,
+                        "market_state": "open",
+                        "market_timezone": str(market_timezone),
+                        "trade_date": points[-1]["trade_date"],
+                        "reference_price": reference,
+                        "points": points,
+                    }
+
                 page.route(
                     re.compile(
                         rf".*/watchlists/us\.{re.escape(share_id)}/groups(?:\?.*)?$"
@@ -7677,11 +7714,23 @@ def run_e2e_checks(
                             route, dashboard(item, "kr")
                         ),
                     )
+                    page.route(
+                        re.compile(rf".*/stocks/{item[0]}/intraday(?:\?.*)?$"),
+                        lambda route, _request, item=item: fulfill_json(
+                            route, intraday(item, "kr")
+                        ),
+                    )
                 for item in overseas_items:
                     page.route(
                         re.compile(rf".*/us/stocks/{item[0]}/dashboard(?:\?.*)?$"),
                         lambda route, _request, item=item: fulfill_json(
                             route, dashboard(item, "us")
+                        ),
+                    )
+                    page.route(
+                        re.compile(rf".*/us/stocks/{item[0]}/intraday(?:\?.*)?$"),
+                        lambda route, _request, item=item: fulfill_json(
+                            route, intraday(item, "us")
                         ),
                     )
                 page.route(
@@ -7747,6 +7796,8 @@ def run_e2e_checks(
                     """expected => (
                       state.watchMarketMapResults.length === expected
                       && state.watchMarketMapUsdKrw === 1340
+                      && state.watchMarketMapIntradayByKey.size === expected
+                      && state.watchMarketMapTimelineLoading === false
                       && document.querySelector('#watch-market-map:not([hidden])')
                       && !document.querySelector('#watch-market-map-stage')?.hasAttribute('aria-busy')
                     )""",
@@ -7833,8 +7884,9 @@ def run_e2e_checks(
                           }
                           const timeline = document.querySelector('#watch-market-map-timeline');
                           const timelineTrack = document.querySelector('#watch-market-map-timeline-track');
+                          const timelineRail = document.querySelector('.watch-market-map-timeline-rail');
                           const timelineFill = document.querySelector('#watch-market-map-timeline-fill');
-                          const timelineTrackRect = timelineTrack?.getBoundingClientRect();
+                          const timelineRailRect = timelineRail?.getBoundingClientRect();
                           const timelineFillRect = timelineFill?.getBoundingClientRect();
                           return {
                             viewport: innerWidth,
@@ -7854,9 +7906,12 @@ def run_e2e_checks(
                             timeline: {
                               hidden: timeline?.hidden ?? true,
                               label: document.querySelector('#watch-market-map-timeline-time')?.textContent.trim(),
-                              valueNow: Number(timelineTrack?.getAttribute('aria-valuenow')),
+                              type: timelineTrack?.type,
+                              disabled: timelineTrack?.disabled,
+                              valueNow: Number(timelineTrack?.value),
+                              valueMax: Number(timelineTrack?.max),
                               valueText: timelineTrack?.getAttribute('aria-valuetext'),
-                              trackWidth: timelineTrackRect?.width || 0,
+                              trackWidth: timelineRailRect?.width || 0,
                               fillWidth: timelineFillRect?.width || 0,
                             },
                           };
@@ -7903,9 +7958,12 @@ def run_e2e_checks(
                         or unreadable
                         or metadata_leaks
                         or timeline["hidden"]
+                        or timeline["type"] != "range"
+                        or timeline["disabled"]
                         or timeline["valueNow"] != 720
-                        or "오늘 12:00" not in (timeline["label"] or "")
-                        or "오늘 12:00" not in (timeline["valueText"] or "")
+                        or timeline["valueMax"] != 720
+                        or "오늘 12:00 최신 시세 기준" not in (timeline["label"] or "")
+                        or "오늘 12:00 최신 시세 기준" not in (timeline["valueText"] or "")
                         or not 0.49 <= timeline_ratio <= 0.51
                     ):
                         raise QaFailure(
@@ -7964,6 +8022,130 @@ def run_e2e_checks(
                             "positive_colors": sorted(positive_colors),
                             "negative_colors": sorted(negative_colors),
                         },
+                    )
+
+                page.emulate_media(reduced_motion="no-preference")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.wait_for_function(
+                    "() => document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settled'",
+                    timeout=2000,
+                )
+
+                def timeline_bubble_snapshot() -> dict[str, Any]:
+                    return page.evaluate(
+                        """() => ({
+                          minute: Number(document.querySelector('#watch-market-map-stage')?.dataset.timelineMinute),
+                          sizeEncoding: document.querySelector('#watch-market-map-stage')?.dataset.sizeEncoding,
+                          label: document.querySelector('#watch-market-map-timeline-time')?.textContent.trim(),
+                          sliderValue: Number(document.querySelector('#watch-market-map-timeline-track')?.value),
+                          sliderMax: Number(document.querySelector('#watch-market-map-timeline-track')?.max),
+                          valueText: document.querySelector('#watch-market-map-timeline-track')?.getAttribute('aria-valuetext'),
+                          legend: document.querySelector('#watch-market-map-legend')?.innerText.trim(),
+                          status: document.querySelector('#watch-market-map-status')?.textContent.trim(),
+                          hiddenCount: state.watchMarketMapHiddenEntries.length,
+                          tiles: Object.fromEntries(
+                            [...document.querySelectorAll('#watch-market-map-stage a.watch-market-map-tile')]
+                              .map(tile => [tile.dataset.code, {
+                                radius: Number(tile.dataset.watchBubbleRadius),
+                                change: tile.dataset.changeRate === '' ? null : Number(tile.dataset.changeRate),
+                                classes: [...tile.classList],
+                                text: tile.innerText.trim(),
+                                backgroundColor: getComputedStyle(tile).backgroundColor,
+                              }])
+                          ),
+                        })"""
+                    )
+
+                def scrub_timeline(minute: int) -> tuple[dict[str, Any], dict[str, Any]]:
+                    page.evaluate(
+                        """minute => {
+                          const slider = document.querySelector('#watch-market-map-timeline-track');
+                          slider.value = String(minute);
+                          slider.dispatchEvent(new Event('input', {bubbles: true}));
+                          slider.dispatchEvent(new Event('change', {bubbles: true}));
+                        }""",
+                        minute,
+                    )
+                    page.wait_for_function(
+                        """minute => (
+                          document.querySelector('#watch-market-map-stage')?.dataset.timelineMinute === String(minute)
+                          && document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settling'
+                          && state.watchMarketMapPhysics?.frame !== null
+                        )""",
+                        arg=minute,
+                        timeout=2000,
+                    )
+                    moving = timeline_bubble_snapshot()
+                    page.wait_for_function(
+                        "() => document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settled'",
+                        timeout=2000,
+                    )
+                    return moving, timeline_bubble_snapshot()
+
+                ten_moving, ten_snapshot = scrub_timeline(600)
+                nine_moving, nine_snapshot = scrub_timeline(540)
+                _before_open_moving, before_open_snapshot = scrub_timeline(480)
+                ten_nvda = ten_snapshot["tiles"].get("NVDA", {})
+                ten_aapl = ten_snapshot["tiles"].get("AAPL", {})
+                nine_nvda = nine_snapshot["tiles"].get("NVDA", {})
+                nine_aapl = nine_snapshot["tiles"].get("AAPL", {})
+                unavailable_tiles = [
+                    tile
+                    for tile in before_open_snapshot["tiles"].values()
+                    if "is-unavailable" not in tile["classes"] or tile["change"] is not None
+                ]
+                timeline_scrub_invalid = (
+                    ten_snapshot["sizeEncoding"] != "absolute-return"
+                    or ten_snapshot["minute"] != 600
+                    or ten_snapshot["sliderValue"] != 600
+                    or ten_snapshot["sliderMax"] != 720
+                    or "오늘 10:00 선택 시세 기준" not in (ten_snapshot["label"] or "")
+                    or "오늘 10:00 선택 시세 기준" not in (ten_snapshot["valueText"] or "")
+                    or abs(ten_nvda.get("change", 999) - 4.8) > 0.02
+                    or abs(ten_aapl.get("change", 999) - (-0.5)) > 0.02
+                    or ten_nvda.get("radius", 0) <= ten_aapl.get("radius", 0)
+                    or not {"is-positive", "is-strong"}.issubset(set(ten_nvda.get("classes", [])))
+                    or not {"is-negative", "is-soft"}.issubset(set(ten_aapl.get("classes", [])))
+                    or abs(nine_nvda.get("change", 999) - (-0.7)) > 0.02
+                    or abs(nine_aapl.get("change", 999) - 4.5) > 0.02
+                    or nine_aapl.get("radius", 0) <= nine_nvda.get("radius", 0)
+                    or not {"is-negative", "is-soft"}.issubset(set(nine_nvda.get("classes", [])))
+                    or not {"is-positive", "is-strong"}.issubset(set(nine_aapl.get("classes", [])))
+                    or unavailable_tiles
+                    or "시세 없음 12" not in (before_open_snapshot["legend"] or "")
+                    or ten_moving["minute"] != 600
+                    or nine_moving["minute"] != 540
+                )
+                if timeline_scrub_invalid:
+                    raise QaFailure(
+                        "시간 스크러빙에 따른 버블 수익률·크기·색·접근성 전환이 올바르지 않습니다.",
+                        {
+                            "ten": ten_snapshot,
+                            "nine": nine_snapshot,
+                            "before_open": before_open_snapshot,
+                            "unavailable_tiles": unavailable_tiles,
+                        },
+                    )
+
+                slider = page.locator("#watch-market-map-timeline-track")
+                slider.focus()
+                page.keyboard.press("End")
+                page.wait_for_function(
+                    """() => (
+                      document.querySelector('#watch-market-map-stage')?.dataset.timelineMinute === '720'
+                      && document.querySelector('#watch-market-map-timeline-track')?.value === '720'
+                    )""",
+                    timeout=2000,
+                )
+                page.wait_for_function(
+                    "() => document.querySelector('#watch-market-map-stage')?.dataset.motion === 'settled'",
+                    timeout=2000,
+                )
+                timeline_latest_snapshot = timeline_bubble_snapshot()
+                if "오늘 12:00 최신 시세 기준" not in (timeline_latest_snapshot["label"] or ""):
+                    raise QaFailure(
+                        "타임라인 End 키가 최신 시세로 복귀하지 않습니다.",
+                        timeline_latest_snapshot,
                     )
 
                 def bubble_motion_snapshot() -> dict[str, Any]:
@@ -8289,6 +8471,12 @@ def run_e2e_checks(
                     "folder_order": folder_order,
                     "layouts": layouts,
                     "timeline": layouts["390"]["timeline"],
+                    "timeline_scrub": {
+                        "at_10_00": ten_snapshot,
+                        "at_09_00": nine_snapshot,
+                        "before_open": before_open_snapshot,
+                        "keyboard_end": timeline_latest_snapshot,
+                    },
                     "color_intensity_steps": {
                         "positive": sorted(positive_colors),
                         "negative": sorted(negative_colors),

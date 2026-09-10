@@ -960,6 +960,8 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "원화 환산 시가총액 순으로 정렬" in source
     assert "오늘 등락 방향·강도별 버블 색상 단계" in source
     assert "오늘 타임라인 계약" in source
+    assert "시간 스크러빙에 따른 버블 수익률·크기·색·접근성 전환" in source
+    assert "#watch-market-map-timeline-track" in source
     assert "단일 클러스터 중력·충돌 진입 모션" in source
     assert "packed-bubble 중력 재배치 모션" in source
     assert "버블 드래그와 충돌 후 원위치 정착" in source
@@ -1338,7 +1340,13 @@ class FakeReadOnlyApi:
                 "market_state": "closed",
             }, self._meta(path)
         if path == "/stocks/005930/intraday":
-            return {"points": []}, self._meta(path)
+            return {
+                "source": "fixture",
+                "trade_date": "2026-08-29",
+                "points": [
+                    {"trade_date": "2026-08-29", "trade_time": "100000", "price": 100},
+                ],
+            }, self._meta(path)
         if path == "/stocks/005930/quant-signals":
             return {
                 "strategy_version": "position-lifecycle-v7.4.2",
@@ -1367,6 +1375,15 @@ class FakeReadOnlyApi:
                 "symbol": "NVDA",
                 "name": "NVIDIA",
                 "quote": {"market_cap": 5_491_269_270_000},
+            }, self._meta(path)
+        if path == "/us/stocks/NVDA/intraday":
+            return {
+                "source": "fixture",
+                "trade_date": "2026-08-28",
+                "reference_price": 170.25,
+                "points": [
+                    {"trade_date": "2026-08-28", "trade_time": "100000", "price": 172.0},
+                ],
             }, self._meta(path)
         if path == "/us/fx/usdkrw":
             return {"rate": 1341.36, "source": "fixture"}, self._meta(path)
@@ -1419,6 +1436,8 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     assert by_id["DATA-KRX-NAVER-002"]["status"] == "pass"
     assert by_id["SIG-UI-025"]["status"] == "pass"
     assert by_id["SIG-UI-025"]["evidence"]["fx"]["usdkrw"] == pytest.approx(1341.36)
+    assert by_id["SIG-UI-025"]["evidence"]["intraday"]["domestic"]["points"] == 1
+    assert by_id["SIG-UI-025"]["evidence"]["intraday"]["overseas"]["reference_price"] == pytest.approx(170.25)
     assert report["market_state"] == "closed"
     assert report["deployment_blocked"] is False
 

@@ -399,6 +399,7 @@ const elements = {
   watchMarketMapTimeline: $("watch-market-map-timeline"),
   watchMarketMapTimelineTime: $("watch-market-map-timeline-time"),
   watchMarketMapTimelineTrack: $("watch-market-map-timeline-track"),
+  watchMarketMapTimelineInputZone: $("watch-market-map-timeline-input-zone"),
   watchMarketMapTimelineFill: $("watch-market-map-timeline-fill"),
   watchMarketMapStatus: $("watch-market-map-status"),
   watchMarketMapSheet: $("watch-market-map-sheet"),
@@ -1181,6 +1182,14 @@ const state = {
   watchMarketMapRenderFrame: null,
   watchMarketMapMotionGeneration: 0,
   watchMarketMapPhysics: null,
+  watchMarketMapIntradayByKey: new Map(),
+  watchMarketMapIntradayLoadSequence: 0,
+  watchMarketMapTimelineLoading: false,
+  watchMarketMapTimelineGroupId: "",
+  watchMarketMapTimelineMinutes: null,
+  watchMarketMapTimelineLatestMinutes: null,
+  watchMarketMapTimelineRenderFrame: null,
+  watchMarketMapTimelineAnnouncePending: false,
   watchlistContentTab: "strategy",
   aiSignalMode: "current",
   aiSignalStage: "all",
@@ -11493,6 +11502,12 @@ async function logoutWatchlistIdentity() {
   state.activeWatchGroup = "default";
   state.watchMarketMapResults = [];
   state.homeWatchMarketMapLoadSequence += 1;
+  state.watchMarketMapIntradayLoadSequence += 1;
+  state.watchMarketMapIntradayByKey.clear();
+  state.watchMarketMapTimelineLoading = false;
+  state.watchMarketMapTimelineGroupId = "";
+  state.watchMarketMapTimelineMinutes = null;
+  state.watchMarketMapTimelineLatestMinutes = null;
   renderWatchlistGroupTabs();
   if (state.view === "home") renderWatchMarketMap([], { empty: true });
   if (elements.watchlistBody) {
@@ -19780,6 +19795,181 @@ function syncWatchMarketMapResults(results = []) {
   return state.watchMarketMapResults;
 }
 
+function watchMarketMapEntryKey(entry = {}) {
+  const item = entry.item || entry;
+  const code = String(item?.code || item?.symbol || "").trim().toUpperCase();
+  return code ? `${marketScopeForItem(item)}:${code}` : "";
+}
+
+function watchMarketMapIntradayEndpoint(entry = {}) {
+  const item = entry.item || entry;
+  const code = encodeURIComponent(String(item?.code || item?.symbol || "").trim());
+  if (!code) return "";
+  return marketScopeForItem(item) === "us"
+    ? `/us/stocks/${code}/intraday?range=1d&interval=1m`
+    : `/stocks/${code}/intraday?limit=390`;
+}
+
+function watchMarketMapMinuteFromTradeTime(value) {
+  const digits = String(value || "").replace(/\D/g, "").padStart(6, "0").slice(-6);
+  const hour = Number(digits.slice(0, 2));
+  const minute = Number(digits.slice(2, 4));
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour > 23 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+function watchMarketMapCanonicalTradeDate(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length < 8) return "";
+  const year = Number(digits.slice(0, 4));
+  const month = Number(digits.slice(4, 6));
+  const day = Number(digits.slice(6, 8));
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    !Number.isInteger(year)
+    || candidate.getUTCFullYear() !== year
+    || candidate.getUTCMonth() !== month - 1
+    || candidate.getUTCDate() !== day
+  ) {
+    return "";
+  }
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function watchMarketMapZoneParts(value, timeZone) {
+  const cache = watchMarketMapZoneParts.formatters
+    || (watchMarketMapZoneParts.formatters = new Map());
+  let formatter = cache.get(timeZone);
+  if (!formatter) {
+    try {
+      formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      });
+    } catch (_error) {
+      formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Seoul",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      });
+    }
+    cache.set(timeZone, formatter);
+  }
+  const parts = {};
+  for (const part of formatter.formatToParts(value)) {
+    if (part.type !== "literal") parts[part.type] = Number(part.value);
+  }
+  return parts;
+}
+
+function watchMarketMapZonedEpoch(tradeDate, tradeTime, timeZone) {
+  const dateKey = watchMarketMapCanonicalTradeDate(tradeDate);
+  const minuteOfDay = watchMarketMapMinuteFromTradeTime(tradeTime);
+  if (!dateKey || minuteOfDay === null) return null;
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const digits = String(tradeTime || "").replace(/\D/g, "").padStart(6, "0").slice(-6);
+  const hour = Math.floor(minuteOfDay / 60);
+  const minute = minuteOfDay % 60;
+  const second = Number(digits.slice(4, 6));
+  const desiredAsUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+  let epoch = desiredAsUtc;
+  for (let index = 0; index < 3; index += 1) {
+    const zoned = watchMarketMapZoneParts(new Date(epoch), timeZone);
+    const representedAsUtc = Date.UTC(
+      zoned.year,
+      zoned.month - 1,
+      zoned.day,
+      zoned.hour,
+      zoned.minute,
+      zoned.second,
+    );
+    const correction = desiredAsUtc - representedAsUtc;
+    epoch += correction;
+    if (Math.abs(correction) < 1000) break;
+  }
+  return Number.isFinite(epoch) ? epoch : null;
+}
+
+function normalizeWatchMarketMapIntraday(payload = {}, entry = {}) {
+  const source = Array.isArray(payload?.points) ? payload.points : [];
+  const marketTimezone = String(
+    payload?.market_timezone
+    || (marketScopeForItem(entry.item || entry) === "us" ? "America/New_York" : "Asia/Seoul"),
+  );
+  const payloadTradeDate = watchMarketMapCanonicalTradeDate(payload?.trade_date);
+  const dated = source
+    .map((point, sourceIndex) => {
+      const sourceTradeDate = watchMarketMapCanonicalTradeDate(point?.trade_date) || payloadTradeDate;
+      const epoch = watchMarketMapZonedEpoch(sourceTradeDate, point?.trade_time, marketTimezone);
+      const display = epoch === null ? null : watchMarketMapTimeParts(new Date(epoch));
+      return {
+        sourceIndex,
+        sourceTradeDate,
+        dateKey: display ? `${display.year}-${display.month}-${display.day}` : "",
+        minute: display ? Number(display.hour) * 60 + Number(display.minute) : null,
+        epoch,
+        price: toNumber(point?.price ?? point?.close),
+      };
+    })
+    .filter((point) => point.minute !== null && point.price !== null && point.price > 0);
+  const latestTradeDate = payloadTradeDate
+    || dated.reduce((latest, point) => point.sourceTradeDate > latest ? point.sourceTradeDate : latest, "");
+  const pointsByMinute = new Map();
+  for (const point of dated) {
+    if (latestTradeDate && point.sourceTradeDate && point.sourceTradeDate !== latestTradeDate) continue;
+    pointsByMinute.set(`${point.dateKey}:${point.minute}`, point);
+  }
+  const points = [...pointsByMinute.values()]
+    .sort((left, right) => left.epoch - right.epoch || left.sourceIndex - right.sourceIndex)
+    .map(({ minute, price, dateKey, sourceTradeDate, epoch }) => ({
+      minute,
+      price,
+      dateKey,
+      sourceTradeDate,
+      epoch,
+    }));
+  const quote = entry.dashboard?.quote || {};
+  const referencePrice = toNumber(payload?.reference_price)
+    ?? previousCloseFromQuote(quote)
+    ?? points[0]?.price
+    ?? null;
+  return {
+    code: String(payload?.code || entry.item?.code || ""),
+    marketTimezone,
+    tradeDate: latestTradeDate || points.at(-1)?.sourceTradeDate || "",
+    referencePrice,
+    points,
+    source: String(payload?.source || ""),
+    loaded: true,
+  };
+}
+
+function watchMarketMapIntradaySeries(entry = {}) {
+  const key = watchMarketMapEntryKey(entry);
+  return key ? state.watchMarketMapIntradayByKey.get(key) || null : null;
+}
+
+function watchMarketMapDisplayChange(entry = {}) {
+  if (entry.marketMapSnapshot) return toNumber(entry.marketMapSnapshot.changeRate);
+  return toNumber(entry.dashboard?.quote?.change_rate);
+}
+
+function watchMarketMapDisplayPrice(entry = {}) {
+  if (entry.marketMapSnapshot) return toNumber(entry.marketMapSnapshot.price);
+  return toNumber(entry.dashboard?.quote?.price);
+}
+
 function packWatchMarketMapBubbles(nodes, width, height) {
   const padding = 4;
   const gap = 5;
@@ -19857,30 +20047,19 @@ function computeWatchMarketMapLayout(entries, width, height) {
   const source = Array.isArray(entries) ? entries : [];
   if (!source.length) return { nodes: [], visibleEntries: [], hiddenEntries: [] };
   const compact = width < 520;
-  const knownCaps = source
-    .map((entry) => entry.comparableMarketCap)
-    .filter((value) => value !== null && value > 0);
-  const fallbackWeight = knownCaps.length ? Math.max(1, Math.min(...knownCaps) * 0.08) : 1;
-  const minLog = knownCaps.length ? Math.log(Math.min(...knownCaps)) : 0;
-  const maxLog = knownCaps.length ? Math.log(Math.max(...knownCaps)) : 0;
-  const rawLogSpan = maxLog - minLog;
-  const logSpan = Math.max(0.000001, rawLogSpan);
   const minRadius = compact ? 22 : 31;
   const maxRadius = Math.max(
     minRadius + 8,
     Math.min(compact ? 62 : 102, Math.min(width, height) * (compact ? 0.18 : 0.24)),
   );
   const weighted = source.map((entry) => {
-    const weight = entry.comparableMarketCap === null ? fallbackWeight : entry.comparableMarketCap;
-    const normalized = entry.comparableMarketCap === null
-      ? 0
-      : rawLogSpan < 0.000001
-        ? source.length === 1 ? 1 : 0.5
-        : Math.max(0, Math.min(1, (Math.log(weight) - minLog) / logSpan));
+    const change = watchMarketMapDisplayChange(entry);
+    const magnitude = change === null ? 0 : Math.abs(change);
+    const normalized = Math.max(0, Math.min(1, magnitude / 5));
     return {
       entry,
-      weight,
-      radius: minRadius + Math.pow(normalized, 0.82) * (maxRadius - minRadius),
+      weight: magnitude,
+      radius: minRadius + Math.pow(normalized, 0.62) * (maxRadius - minRadius),
     };
   });
   const maxVisible = width < 360 ? 9 : width < 520 ? 11 : width < 840 ? 15 : 20;
@@ -19938,6 +20117,7 @@ function watchMarketMapTimelineSnapshot(entries = []) {
   const isToday = snapshot.year === today.year
     && snapshot.month === today.month
     && snapshot.day === today.day;
+  const dateKey = `${snapshot.year}-${snapshot.month}-${snapshot.day}`;
   const minutes = Math.max(0, Math.min(1439, Number(snapshot.hour || 0) * 60 + Number(snapshot.minute || 0)));
   const timeLabel = `${snapshot.hour || "00"}:${snapshot.minute || "00"}`;
   const label = isToday
@@ -19945,17 +20125,110 @@ function watchMarketMapTimelineSnapshot(entries = []) {
     : `${Number(snapshot.month)}.${Number(snapshot.day)} ${timeLabel} 최근 시세`;
   return {
     dateTime: snapshotDate.toISOString(),
+    dateKey,
+    isToday,
     label,
     minutes,
     progress: (minutes / 1439) * 100,
   };
 }
 
-function renderWatchMarketMapTimeline(entries = []) {
+function watchMarketMapTimelineRange(entries = []) {
+  const quoteSnapshot = watchMarketMapTimelineSnapshot(entries);
+  const series = entries
+    .map((entry) => watchMarketMapIntradaySeries(entry))
+    .filter(Boolean);
+  const pointsForDate = series.flatMap((item) => (
+    item.points.filter((point) => point.dateKey === quoteSnapshot.dateKey)
+  ));
+  const pointCount = pointsForDate.length;
+  const seriesLatestMinutes = series
+    .flatMap((item) => item.points
+      .filter((point) => point.dateKey === quoteSnapshot.dateKey)
+      .map((point) => point.minute))
+    .filter((value) => Number.isFinite(value));
+  const latestMinutes = Math.max(
+    0,
+    Math.min(1439, Math.max(quoteSnapshot.minutes, ...seriesLatestMinutes)),
+  );
+  const requestedMinutes = toNumber(state.watchMarketMapTimelineMinutes);
+  const selectedMinutes = Math.round(Math.max(
+    0,
+    Math.min(latestMinutes, requestedMinutes === null ? latestMinutes : requestedMinutes),
+  ));
+  const hour = String(Math.floor(selectedMinutes / 60)).padStart(2, "0");
+  const minute = String(selectedMinutes % 60).padStart(2, "0");
+  const isLatest = selectedMinutes >= latestMinutes;
+  const dateLabel = quoteSnapshot.isToday
+    ? "오늘"
+    : `${Number(quoteSnapshot.month)}.${Number(quoteSnapshot.day)}`;
+  const label = `${dateLabel} ${hour}:${minute} ${isLatest ? "최신 시세" : "선택 시세"} 기준`;
+  state.watchMarketMapTimelineLatestMinutes = latestMinutes;
+  return {
+    ...quoteSnapshot,
+    label,
+    latestMinutes,
+    selectedMinutes,
+    isLatest,
+    hasHistory: pointCount > 0,
+    pointCount,
+    progress: (selectedMinutes / 1439) * 100,
+    latestProgress: (latestMinutes / 1439) * 100,
+  };
+}
+
+function watchMarketMapEntrySnapshot(entry, timeline) {
+  const latestMinutes = Number(timeline?.latestMinutes) || 0;
+  const selectedMinutes = Math.max(0, Number(timeline?.selectedMinutes) || 0);
+  const quote = entry.dashboard?.quote || {};
+  if (selectedMinutes >= latestMinutes) {
+    return {
+      changeRate: toNumber(quote.change_rate),
+      price: toNumber(quote.price),
+      pointMinute: latestMinutes,
+      available: toNumber(quote.price) !== null,
+      source: "quote",
+    };
+  }
+  const series = watchMarketMapIntradaySeries(entry);
+  const point = [...(series?.points || [])]
+    .reverse()
+    .find((candidate) => (
+      candidate.dateKey === timeline?.dateKey
+      && candidate.minute <= selectedMinutes
+    )) || null;
+  const referencePrice = toNumber(series?.referencePrice) ?? previousCloseFromQuote(quote);
+  if (!point || referencePrice === null || referencePrice <= 0) {
+    return {
+      changeRate: null,
+      price: null,
+      pointMinute: null,
+      available: false,
+      source: "unavailable",
+    };
+  }
+  return {
+    changeRate: ((point.price / referencePrice) - 1) * 100,
+    price: point.price,
+    pointMinute: point.minute,
+    available: true,
+    source: "intraday",
+  };
+}
+
+function watchMarketMapEntriesAtTimeline(entries, timeline) {
+  return (Array.isArray(entries) ? entries : []).map((entry) => ({
+    ...entry,
+    marketMapSnapshot: watchMarketMapEntrySnapshot(entry, timeline),
+  }));
+}
+
+function renderWatchMarketMapTimeline(entries = [], timeline = watchMarketMapTimelineRange(entries)) {
   if (
     !elements.watchMarketMapTimeline
     || !elements.watchMarketMapTimelineTime
     || !elements.watchMarketMapTimelineTrack
+    || !elements.watchMarketMapTimelineInputZone
     || !elements.watchMarketMapTimelineFill
   ) {
     return;
@@ -19964,18 +20237,51 @@ function renderWatchMarketMapTimeline(entries = []) {
     elements.watchMarketMapTimeline.hidden = true;
     return;
   }
-  const snapshot = watchMarketMapTimelineSnapshot(entries);
   elements.watchMarketMapTimeline.hidden = false;
-  elements.watchMarketMapTimelineTime.textContent = snapshot.label;
-  elements.watchMarketMapTimelineTime.dateTime = snapshot.dateTime;
-  elements.watchMarketMapTimelineTrack.setAttribute("aria-valuenow", String(snapshot.minutes));
-  elements.watchMarketMapTimelineTrack.setAttribute("aria-valuetext", snapshot.label);
-  elements.watchMarketMapTimelineFill.style.width = `${Math.max(0, Math.min(100, snapshot.progress))}%`;
+  elements.watchMarketMapTimeline.toggleAttribute("aria-busy", state.watchMarketMapTimelineLoading);
+  elements.watchMarketMapTimeline.dataset.selection = timeline.isLatest ? "latest" : "historical";
+  elements.watchMarketMapTimelineTime.textContent = state.watchMarketMapTimelineLoading
+    ? `${timeline.label} · 시간별 시세 불러오는 중`
+    : timeline.label;
+  elements.watchMarketMapTimelineTime.dateTime = timeline.dateTime;
+  elements.watchMarketMapTimelineTrack.max = String(Math.max(1, timeline.latestMinutes));
+  elements.watchMarketMapTimelineTrack.value = String(timeline.selectedMinutes);
+  elements.watchMarketMapTimelineTrack.disabled = !timeline.hasHistory || state.watchMarketMapTimelineLoading;
+  elements.watchMarketMapTimelineTrack.setAttribute("aria-valuetext", timeline.label);
+  elements.watchMarketMapTimelineInputZone.style.width = `${Math.max(1.5, Math.min(100, timeline.latestProgress))}%`;
+  elements.watchMarketMapTimelineFill.style.width = `${Math.max(0, Math.min(100, timeline.progress))}%`;
+}
+
+function scheduleWatchMarketMapTimelineRender(options = {}) {
+  state.watchMarketMapTimelineAnnouncePending = state.watchMarketMapTimelineAnnouncePending
+    || options.announce === true;
+  if (state.watchMarketMapTimelineRenderFrame !== null) return;
+  state.watchMarketMapTimelineRenderFrame = window.requestAnimationFrame(() => {
+    const announceTimeline = state.watchMarketMapTimelineAnnouncePending;
+    state.watchMarketMapTimelineRenderFrame = null;
+    state.watchMarketMapTimelineAnnouncePending = false;
+    if (state.view === "home") {
+      renderWatchMarketMap(state.watchMarketMapResults, {
+        empty: true,
+        timelineScrub: true,
+        announceTimeline,
+      });
+    }
+  });
+}
+
+function handleWatchMarketMapTimelineInput(event, options = {}) {
+  const latestMinutes = Math.max(0, Number(state.watchMarketMapTimelineLatestMinutes) || 0);
+  const requestedMinutes = Math.round(Number(event?.currentTarget?.value) || 0);
+  state.watchMarketMapTimelineMinutes = Math.max(0, Math.min(latestMinutes, requestedMinutes));
+  if (event?.currentTarget) event.currentTarget.value = String(state.watchMarketMapTimelineMinutes);
+  scheduleWatchMarketMapTimelineRender({ announce: options.announce === true });
 }
 
 function watchMarketMapTone(changeRate) {
   const change = toNumber(changeRate);
-  if (change === null || Math.abs(change) < 0.005) return { id: "flat", label: "보합" };
+  if (change === null) return { id: "unavailable", label: "시세 없음" };
+  if (Math.abs(change) < 0.005) return { id: "flat", label: "보합" };
   return change > 0 ? { id: "positive", label: "상승" } : { id: "negative", label: "하락" };
 }
 
@@ -20100,6 +20406,7 @@ function watchMarketMapMotionSnapshot(stage = elements.watchMarketMapStage) {
       centerXRatio: stageRect.width ? (rect.left - stageRect.left + rect.width / 2) / stageRect.width : 0.5,
       centerYRatio: stageRect.height ? (rect.top - stageRect.top + rect.height / 2) / stageRect.height : 0.5,
       widthRatio: stageRect.width ? rect.width / stageRect.width : 1,
+      backgroundColor: getComputedStyle(tile).backgroundColor,
     });
   }
   return { tiles };
@@ -20201,7 +20508,11 @@ function startWatchMarketMapPhysics(physics, motionKind = "repositioning") {
   for (const node of physics.nodes) {
     if (node.dragging) {
       node.tile.dataset.watchMotion = "dragging";
-    } else if (Math.hypot(node.targetX - node.x, node.targetY - node.y) > 0.5 || node.scale < 0.99) {
+    } else if (
+      node.colorChanged
+      || Math.hypot(node.targetX - node.x, node.targetY - node.y) > 0.5
+      || node.scale < 0.99
+    ) {
       node.tile.dataset.watchMotion = motionKind;
     }
   }
@@ -20217,6 +20528,7 @@ function animateWatchMarketMapLayout(snapshot = null) {
   const width = Math.max(1, stageRect.width);
   const height = Math.max(1, stageRect.height);
   const config = watchMarketMapPhysicsConfig(width);
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
   const tiles = [...stage.querySelectorAll(".watch-market-map-tile")];
   const nodes = tiles.map((tile, order) => {
     const key = watchMarketMapMotionKey(tile);
@@ -20227,6 +20539,17 @@ function animateWatchMarketMapLayout(snapshot = null) {
     const angle = order * 2.399963229728653 - Math.PI / 2;
     const entryDistance = Math.min(Math.min(width, height) * 0.09, 12 + order * 2.5);
     const entering = !previous;
+    const backgroundColor = getComputedStyle(tile).backgroundColor;
+    const colorChanged = Boolean(previous?.backgroundColor && previous.backgroundColor !== backgroundColor);
+    if (colorChanged && !reduceMotion && typeof tile.animate === "function") {
+      tile.animate(
+        [
+          { backgroundColor: previous.backgroundColor },
+          { backgroundColor },
+        ],
+        { duration: 260, easing: "cubic-bezier(0.2, 0.82, 0.2, 1)" },
+      );
+    }
     const x = previous
       ? watchMarketMapClamp(previous.centerXRatio * width, radius + config.stagePadding, width - radius - config.stagePadding)
       : watchMarketMapClamp(width / 2 + Math.cos(angle) * entryDistance, radius + config.stagePadding, width - radius - config.stagePadding);
@@ -20246,6 +20569,7 @@ function animateWatchMarketMapLayout(snapshot = null) {
       scale: entering ? config.entryScale : watchMarketMapClamp((previous.widthRatio * width) / (radius * 2), 0.58, 1.55),
       opacity: entering ? 0 : 1,
       entering,
+      colorChanged,
       dragging: false,
     };
   });
@@ -20268,6 +20592,7 @@ function animateWatchMarketMapLayout(snapshot = null) {
   stage.dataset.gravity = String(config.gravitationalConstant);
   const changed = nodes.some((node) => (
     node.entering
+    || node.colorChanged
     || Math.hypot(node.targetX - node.x, node.targetY - node.y) > 0.5
     || Math.abs(node.scale - 1) > 0.01
   ));
@@ -20379,16 +20704,23 @@ function createWatchMarketMapTile(node, width, height) {
   }
 
   const entry = node.entry;
-  const change = toNumber(entry.dashboard?.quote?.change_rate);
+  const change = watchMarketMapDisplayChange(entry);
   const tone = watchMarketMapTone(change);
+  const timeLabel = entry.marketMapTimeline?.isLatest
+    ? "오늘 최신"
+    : `오늘 ${entry.marketMapTimeline?.label?.match(/\d{2}:\d{2}/)?.[0] || "선택 시각"}`;
   const tile = document.createElement("a");
   tile.className = `watch-market-map-tile is-${tone.id} is-${watchMarketMapStrength(change)}`;
+  if (!entry.marketMapSnapshot?.available) tile.classList.add("is-unavailable");
   tile.href = viewStockUrl(entry.item.code || entry.item.name, entry.item);
   tile.dataset.code = entry.item.code || "";
   tile.dataset.marketScope = marketScopeForItem(entry.item);
+  tile.dataset.changeRate = change === null ? "" : String(change);
   tile.setAttribute(
     "aria-label",
-    `${entry.item.name}, 오늘 ${tone.label} ${formatPercent(change)}, 종목 상세 보기`,
+    change === null
+      ? `${entry.item.name}, ${timeLabel} 시세 없음, 종목 상세 보기`
+      : `${entry.item.name}, ${timeLabel} ${tone.label} ${formatPercent(change)}, 종목 상세 보기`,
   );
 
   const copy = el("span", "watch-market-map-tile-copy");
@@ -20404,12 +20736,13 @@ function createWatchMarketMapTile(node, width, height) {
 
 function renderWatchMarketMapLegend(entries) {
   if (!elements.watchMarketMapLegend) return;
-  const counts = { positive: 0, flat: 0, negative: 0 };
+  const counts = { positive: 0, flat: 0, negative: 0, unavailable: 0 };
   for (const entry of entries) {
-    counts[watchMarketMapTone(entry.dashboard?.quote?.change_rate).id] += 1;
+    counts[watchMarketMapTone(watchMarketMapDisplayChange(entry)).id] += 1;
   }
   elements.watchMarketMapLegend.replaceChildren();
-  for (const [id, label] of [["positive", "상승"], ["flat", "보합"], ["negative", "하락"]]) {
+  for (const [id, label] of [["positive", "상승"], ["flat", "보합"], ["negative", "하락"], ["unavailable", "시세 없음"]]) {
+    if (id === "unavailable" && !counts[id]) continue;
     const item = el("span", `is-${id}`);
     item.append(el("i", ""), document.createTextNode(`${label} ${formatNumber(counts[id])}`));
     elements.watchMarketMapLegend.appendChild(item);
@@ -20440,15 +20773,20 @@ function ensureWatchMarketMapResizeObserver() {
 function renderWatchMarketMap(results = state.watchMarketMapResults, options = {}) {
   if (!elements.watchMarketMap || !elements.watchMarketMapStage) return;
   const groupName = activeWatchlistGroupName();
-  const entries = watchMarketMapEntries(results);
+  const baseEntries = watchMarketMapEntries(results);
+  const timeline = watchMarketMapTimelineRange(baseEntries);
+  const entries = watchMarketMapEntriesAtTimeline(baseEntries, timeline).map((entry) => ({
+    ...entry,
+    marketMapTimeline: timeline,
+  }));
   elements.watchMarketMapGroup.textContent = groupName;
-  elements.watchMarketMapDescription.textContent = "오늘 등락률을 색과 농도로 보여드려요. 버블을 끌어 움직일 수 있어요.";
+  elements.watchMarketMapDescription.textContent = "시간을 움직이면 해당 시각 수익률에 맞춰 크기와 색이 바뀌어요.";
 
   if (!entries.length) {
     stopWatchMarketMapPhysics();
     state.watchMarketMapHiddenEntries = [];
     renderWatchMarketMapLegend([]);
-    renderWatchMarketMapTimeline([]);
+    renderWatchMarketMapTimeline([], timeline);
     closeWatchMarketMapSheet();
     if (options.loading && Number(options.totalCount) > 0) {
       elements.watchMarketMap.hidden = false;
@@ -20490,6 +20828,8 @@ function renderWatchMarketMap(results = state.watchMarketMapResults, options = {
   elements.watchMarketMap.hidden = false;
   elements.watchMarketMapStage.className = "watch-market-map-stage is-bubble-map";
   elements.watchMarketMapStage.removeAttribute("aria-busy");
+  elements.watchMarketMapStage.dataset.sizeEncoding = "absolute-return";
+  elements.watchMarketMapStage.dataset.timelineMinute = String(timeline.selectedMinutes);
   const motionSnapshot = watchMarketMapMotionSnapshot(elements.watchMarketMapStage);
   const bounds = elements.watchMarketMapStage.getBoundingClientRect();
   const width = Math.max(1, bounds.width || elements.watchMarketMapStage.clientWidth || 1);
@@ -20501,23 +20841,76 @@ function renderWatchMarketMap(results = state.watchMarketMapResults, options = {
   );
   animateWatchMarketMapLayout(motionSnapshot);
   renderWatchMarketMapLegend(entries);
-  renderWatchMarketMapTimeline(entries);
-  elements.watchMarketMapStatus.textContent = layout.hiddenEntries.length
-    ? `${groupName} ${entries.length}개 중 ${layout.visibleEntries.length}개를 버블로 표시하고, 나머지 ${layout.hiddenEntries.length}개는 더보기에 정리했습니다.`
-    : `${groupName} ${entries.length}개를 버블로 표시했습니다.`;
+  renderWatchMarketMapTimeline(baseEntries, timeline);
+  if (!options.timelineScrub || options.announceTimeline) {
+    const prefix = `${timeline.label}, `;
+    elements.watchMarketMapStatus.textContent = layout.hiddenEntries.length
+      ? `${prefix}${groupName} ${entries.length}개 중 ${layout.visibleEntries.length}개를 버블로 표시하고, 나머지 ${layout.hiddenEntries.length}개는 더보기에 정리했습니다.`
+      : `${prefix}${groupName} ${entries.length}개를 버블로 표시했습니다.`;
+  }
   ensureWatchMarketMapResizeObserver();
   if (elements.watchMarketMapSheet?.open) renderWatchMarketMapSheet(layout.hiddenEntries);
 }
 
+async function loadWatchMarketMapIntraday(entries, options = {}) {
+  const generation = Number(options.generation);
+  const homeLoadSequence = Number(options.homeLoadSequence);
+  const force = options.force === true;
+  const source = Array.isArray(entries) ? entries : [];
+  await mapWithConcurrency(source, 4, async (entry) => {
+    const key = watchMarketMapEntryKey(entry);
+    const endpoint = watchMarketMapIntradayEndpoint(entry);
+    if (!key || !endpoint) return null;
+    try {
+      const payload = await Promise.race([
+        fetchJsonCached(endpoint, {
+          force,
+          ttlMs: force ? 0 : PAGE_ENTRY_MINUTE_MS,
+        }),
+        rejectAfter(12_000, "watch market map intraday timeout"),
+      ]);
+      if (
+        generation !== state.watchMarketMapIntradayLoadSequence
+        || homeLoadSequence !== state.homeWatchMarketMapLoadSequence
+      ) return null;
+      const normalized = normalizeWatchMarketMapIntraday(payload, entry);
+      state.watchMarketMapIntradayByKey.set(key, normalized);
+      return normalized;
+    } catch {
+      if (
+        generation === state.watchMarketMapIntradayLoadSequence
+        && homeLoadSequence === state.homeWatchMarketMapLoadSequence
+      ) {
+        state.watchMarketMapIntradayByKey.set(key, normalizeWatchMarketMapIntraday({}, entry));
+      }
+      return null;
+    }
+  });
+  if (
+    generation !== state.watchMarketMapIntradayLoadSequence
+    || homeLoadSequence !== state.homeWatchMarketMapLoadSequence
+  ) return [];
+  state.watchMarketMapTimelineLoading = false;
+  if (state.view === "home") renderWatchMarketMap(state.watchMarketMapResults, { empty: true });
+  return source;
+}
+
 async function loadHomeWatchMarketMap(options = {}) {
   const loadSequence = ++state.homeWatchMarketMapLoadSequence;
+  const intradayLoadSequence = ++state.watchMarketMapIntradayLoadSequence;
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("watchlist");
   const groupId = state.activeWatchGroup;
+  if (state.watchMarketMapTimelineGroupId !== groupId) {
+    state.watchMarketMapTimelineGroupId = groupId;
+    state.watchMarketMapTimelineMinutes = null;
+  }
+  state.watchMarketMapTimelineLoading = true;
   const items = watchlistItemsForGroup(groupId);
   const itemOrder = new Map(items.map((item, index) => [item.code, index]));
   state.watchMarketMapResults = [];
   if (!items.length) {
+    state.watchMarketMapTimelineLoading = false;
     renderWatchMarketMap([], { empty: true });
     return [];
   }
@@ -20559,6 +20952,11 @@ async function loadHomeWatchMarketMap(options = {}) {
       emptyDescription: state.watchMarketMapResults.length ? "" : "잠시 후 다시 확인해주세요.",
     });
   }
+  await loadWatchMarketMapIntraday(state.watchMarketMapResults, {
+    force,
+    generation: intradayLoadSequence,
+    homeLoadSequence: loadSequence,
+  });
   exchangeRatePromise.catch(() => {});
   return state.watchMarketMapResults;
 }
@@ -20573,14 +20971,20 @@ function createWatchMarketMapSheetRow(entry) {
   nameRow.append(el("strong", "", entry.item.name));
   identity.append(nameRow, el("small", "", entry.item.code || ""));
   const values = el("span", "watch-market-map-sheet-values");
-  const change = toNumber(entry.dashboard?.quote?.change_rate);
+  const change = watchMarketMapDisplayChange(entry);
+  const price = watchMarketMapDisplayPrice(entry);
   const tone = watchMarketMapTone(change);
   values.append(
-    el("strong", "", formatStockPrice(entry.dashboard?.quote?.price, entry.dashboard)),
-    el("small", `is-${tone.id}`, `${tone.label} ${formatPercent(change)}`),
+    el("strong", "", price === null ? "시세 없음" : formatStockPrice(price, entry.dashboard)),
+    el("small", `is-${tone.id}`, change === null ? "해당 시각 데이터 없음" : `${tone.label} ${formatPercent(change)}`),
   );
   link.append(identity, values);
-  link.setAttribute("aria-label", `${entry.item.name}, 오늘 ${tone.label} ${formatPercent(change)}, 종목 상세 보기`);
+  link.setAttribute(
+    "aria-label",
+    change === null
+      ? `${entry.item.name}, 해당 시각 시세 없음, 종목 상세 보기`
+      : `${entry.item.name}, 선택 시각 ${tone.label} ${formatPercent(change)}, 종목 상세 보기`,
+  );
   return link;
 }
 
@@ -20588,8 +20992,9 @@ function renderWatchMarketMapSheet(entries = state.watchMarketMapHiddenEntries) 
   if (!elements.watchMarketMapSheetList) return;
   const source = Array.isArray(entries) ? entries : [];
   elements.watchMarketMapSheetTitle.textContent = `${activeWatchlistGroupName()}의 나머지 종목`;
+  const timelineLabel = source[0]?.marketMapTimeline?.label || "오늘 최신 시세 기준";
   elements.watchMarketMapSheetDescription.textContent = source.length
-    ? `버블에 담기 어려운 ${formatNumber(source.length)}개 종목을 정리했어요.`
+    ? `${timelineLabel}, 버블에 담기 어려운 ${formatNumber(source.length)}개 종목이에요.`
     : "모든 종목이 버블에 표시되어 있어요.";
   elements.watchMarketMapSheetList.replaceChildren();
   if (!source.length) {
@@ -29364,6 +29769,10 @@ elements.watchMarketMapSheet?.addEventListener("cancel", (event) => {
 elements.watchMarketMapSheet?.addEventListener("close", finishWatchMarketMapSheetClose);
 elements.watchMarketMapSheet?.addEventListener("click", (event) => {
   if (event.target === elements.watchMarketMapSheet) closeWatchMarketMapSheet();
+});
+elements.watchMarketMapTimelineTrack?.addEventListener("input", handleWatchMarketMapTimelineInput);
+elements.watchMarketMapTimelineTrack?.addEventListener("change", (event) => {
+  handleWatchMarketMapTimelineInput(event, { announce: true });
 });
 for (const tab of elements.watchlistContentTabs) {
   tab.addEventListener("click", () => setWatchlistContentTab(tab.dataset.watchContentTab, { load: true }));

@@ -2030,6 +2030,15 @@ def _live_checks(
             )
             overseas, overseas_meta = api.get("/us/stocks/NVDA/dashboard")
             fx, fx_meta = api.get("/us/fx/usdkrw")
+            domestic_intraday, domestic_intraday_meta = api.get(
+                "/stocks/005930/intraday",
+                limit="390",
+            )
+            overseas_intraday, overseas_intraday_meta = api.get(
+                "/us/stocks/NVDA/intraday",
+                range="1d",
+                interval="1m",
+            )
 
             def positive_number(value: Any) -> float | None:
                 try:
@@ -2063,6 +2072,29 @@ def _live_checks(
                 rate=usdkrw,
                 **fx_meta,
             )
+            for label, payload, meta in (
+                ("국내", domestic_intraday, domestic_intraday_meta),
+                ("미국", overseas_intraday, overseas_intraday_meta),
+            ):
+                points = payload.get("points")
+                _assert(
+                    isinstance(points, list) and bool(points),
+                    f"관심종목 시간 스크러빙에 필요한 {label} 분봉이 없습니다.",
+                    source=payload.get("source"),
+                    **meta,
+                )
+                sample = points[-1]
+                _assert(
+                    bool(sample.get("trade_time")) and positive_number(sample.get("price")) is not None,
+                    f"{label} 분봉의 시각·가격 계약이 불완전합니다.",
+                    sample=sample,
+                    **meta,
+                )
+            _assert(
+                positive_number(overseas_intraday.get("reference_price")) is not None,
+                "미국 관심종목 분봉의 전일 기준가가 없습니다.",
+                **overseas_intraday_meta,
+            )
             return {
                 "domestic": {
                     **domestic_meta,
@@ -2076,12 +2108,25 @@ def _live_checks(
                     "market_cap_krw": overseas_cap * usdkrw,
                 },
                 "fx": {**fx_meta, "usdkrw": usdkrw},
+                "intraday": {
+                    "domestic": {
+                        **domestic_intraday_meta,
+                        "points": len(domestic_intraday.get("points") or []),
+                        "trade_date": domestic_intraday.get("trade_date"),
+                    },
+                    "overseas": {
+                        **overseas_intraday_meta,
+                        "points": len(overseas_intraday.get("points") or []),
+                        "trade_date": overseas_intraday.get("trade_date"),
+                        "reference_price": overseas_intraday.get("reference_price"),
+                    },
+                },
             }
 
         collector.check(
             "SIG-UI-025",
             watch_market_map_data_contract,
-            pass_message="관심종목 버블맵의 국내·미국 시총과 원화 환산 입력을 확인했습니다.",
+            pass_message="관심종목 버블맵의 국내·미국 시총·환율·분봉 스크러빙 입력을 확인했습니다.",
         )
 
         def realtime_status_contract() -> dict[str, Any]:

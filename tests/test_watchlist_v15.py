@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.6"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260910v505"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260910v506"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -96,7 +96,8 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         'id="watch-market-map-stage" role="group"',
         'id="watch-market-map-legend"',
         'id="watch-market-map-timeline"',
-        'id="watch-market-map-timeline-track" role="progressbar"',
+        'id="watch-market-map-timeline-input-zone"',
+        'id="watch-market-map-timeline-track" type="range"',
         'id="watch-market-map-timeline-time"',
         'id="watch-market-map-sheet"',
         'id="watch-market-map-sheet-list"',
@@ -117,7 +118,15 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         "function animateWatchMarketMapLayout",
         "function bindWatchMarketMapDrag",
         "function watchMarketMapTimelineSnapshot",
+        "function watchMarketMapTimelineRange",
+        "function watchMarketMapEntrySnapshot",
+        "function watchMarketMapEntriesAtTimeline",
         "function renderWatchMarketMapTimeline",
+        "function handleWatchMarketMapTimelineInput",
+        "function watchMarketMapCanonicalTradeDate",
+        "function watchMarketMapZonedEpoch",
+        "function normalizeWatchMarketMapIntraday",
+        "async function loadWatchMarketMapIntraday",
         "function renderWatchMarketMap",
         "async function loadHomeWatchMarketMap",
         "function openWatchMarketMapSheet",
@@ -133,6 +142,10 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         'stage.dataset.motionModel = "packedbubble-physics";',
         'tile.setPointerCapture?.(event.pointerId);',
         'physics.stage.dataset.motion = motionKind === "dragging" ? "dragging" : "settling";',
+        'elements.watchMarketMapStage.dataset.sizeEncoding = "absolute-return";',
+        '? `/us/stocks/${code}/intraday?range=1d&interval=1m`',
+        ': `/stocks/${code}/intraday?limit=390`;',
+        'elements.watchMarketMapTimelineTrack?.addEventListener("input", handleWatchMarketMapTimelineInput);',
         '"(prefers-reduced-motion: reduce)"',
         'elements.watchMarketMapStage?.querySelector(".watch-market-map-tile.is-overflow")',
     ):
@@ -153,17 +166,18 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         assert removed not in bubble_source
         assert removed not in sheet_source
     assert 'identity.append(nameRow, el("small", "", entry.item.code || ""));' in sheet_source
-    assert '`${entry.item.name}, 오늘 ${tone.label} ${formatPercent(change)}, 종목 상세 보기`' in source
+    assert '`${entry.item.name}, ${timeLabel} ${tone.label} ${formatPercent(change)}, 종목 상세 보기`' in source
 
     for expected in (
-        "/* Watch groups and packed-bubble physics v505",
+        "/* Watch groups and return timeline v506",
         "#home-view .watch-market-map {",
         ".watch-market-map-stage {",
         ".watch-market-map-tile.is-overflow",
         ".watch-market-map-tile[data-watch-motion]",
         ".watch-market-map-tile.is-dragging",
-        ".watch-market-map-timeline-track {",
-        ".watch-market-map-timeline-track i {",
+        ".watch-market-map-timeline-control {",
+        "#watch-market-map-timeline-track::-webkit-slider-thumb",
+        "#watch-market-map-timeline-track:focus-visible",
         ".watch-market-map-sheet::backdrop",
         ".watch-market-map-sheet-row:focus-visible",
         "@media (max-width: 359px)",
@@ -179,7 +193,7 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         assert removed not in styles
 
 
-def test_watchlist_market_cap_bubbles_pack_without_overlap_and_hide_overflow():
+def test_watchlist_return_timeline_recomputes_bubble_size_color_inputs_and_overflow():
     script = r'''
 const fs = require("fs");
 const source = fs.readFileSync("app/static/dashboard/app.js", "utf8");
@@ -189,7 +203,13 @@ function functionSource(name, nextName) {
   if (start < 0 || end < 0) throw new Error(`${name} not found`);
   return source.slice(start, end);
 }
-const state = { watchMarketMapResults: [], watchMarketMapUsdKrw: 1300 };
+const state = {
+  watchMarketMapResults: [],
+  watchMarketMapUsdKrw: 1300,
+  watchMarketMapIntradayByKey: new Map(),
+  watchMarketMapTimelineMinutes: 600,
+  watchMarketMapTimelineLatestMinutes: null,
+};
 function toNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
@@ -201,29 +221,46 @@ function marketScopeForItem(item = {}) {
 function watchMarketMapMarketCap(result = {}) {
   return toNumber(result.dashboard?.quote?.market_cap);
 }
+function previousCloseFromQuote(quote) {
+  const price = toNumber(quote?.price);
+  const changeValue = toNumber(quote?.change_value);
+  if (price !== null && changeValue !== null) return price - changeValue;
+  const changeRate = toNumber(quote?.change_rate);
+  return price !== null && changeRate !== null && changeRate !== -100
+    ? price / (1 + changeRate / 100)
+    : null;
+}
 eval(functionSource("watchMarketMapEntries", "packWatchMarketMapBubbles"));
 eval(functionSource("packWatchMarketMapBubbles", "computeWatchMarketMapLayout"));
 eval(functionSource("computeWatchMarketMapLayout", "watchMarketMapTimeParts"));
 eval(functionSource("watchMarketMapPhysicsConfig", "watchMarketMapMotionKey"));
 eval(functionSource("watchMarketMapTimeParts", "watchMarketMapTimelineSnapshot"));
 eval(functionSource("watchMarketMapTimelineSnapshot", "renderWatchMarketMapTimeline"));
-const result = (code, marketScope, marketCap) => ({
+const result = (code, marketScope, marketCap, changeRate = 0) => ({
   item: { code, market_scope: marketScope },
-  dashboard: { quote: { market_cap: marketCap } },
+  dashboard: {
+    quote: {
+      market_cap: marketCap,
+      price: 100 * (1 + changeRate / 100),
+      change_rate: changeRate,
+      change_value: changeRate,
+      as_of: "2026-09-09T12:00:00+09:00",
+    },
+  },
 });
 const entries = watchMarketMapEntries([
-  result("005930", "kr", 500e12),
-  result("NVDA", "us", 3e12),
-  result("AAPL", "us", 2.5e12),
-  result("000660", "kr", 150e12),
-  result("MSFT", "us", 0.1e12),
-  result("GOOGL", "us", 0.08e12),
-  result("AMZN", "us", 0.06e12),
-  result("035420", "kr", 50e12),
-  result("005380", "kr", 40e12),
-  result("SMALL1", "us", 1e9),
-  result("SMALL2", "us", 0.7e9),
-  result("NULL", "kr", null),
+  result("005930", "kr", 500e12, 2.1),
+  result("NVDA", "us", 3e12, 4.8),
+  result("AAPL", "us", 2.5e12, -0.8),
+  result("000660", "kr", 150e12, -3.2),
+  result("MSFT", "us", 0.1e12, 1.5),
+  result("GOOGL", "us", 0.08e12, -2.3),
+  result("AMZN", "us", 0.06e12, 0.4),
+  result("035420", "kr", 50e12, 3.7),
+  result("005380", "kr", 40e12, 0),
+  result("SMALL1", "us", 1e9, -1.1),
+  result("SMALL2", "us", 0.7e9, 0.2),
+  result("NULL", "kr", null, 0),
 ]);
 const layout = computeWatchMarketMapLayout(entries, 320, 300);
 const overlaps = layout.nodes.some((left, leftIndex) => layout.nodes.some((right, rightIndex) => (
@@ -253,12 +290,93 @@ const responsiveSafe = [
   const readable = candidate.nodes.every((node) => node.radius >= (node.kind === "overflow" ? 26 : width < 520 ? 22 : 31));
   return !overlapsAtWidth && !outsideAtWidth && readable;
 });
-const stockRadii = layout.nodes.filter((node) => node.kind === "stock").map((node) => node.radius);
-const sizesDescending = stockRadii.every((radius, index) => index === 0 || stockRadii[index - 1] >= radius);
 const singleLayout = computeWatchMarketMapLayout([
-  watchMarketMapEntries([result("ONLY", "kr", 500e12)])[0],
+  watchMarketMapEntries([result("ONLY", "kr", 500e12, 0)])[0],
 ], 320, 300);
-const singleBubbleReadable = singleLayout.nodes.length === 1 && singleLayout.nodes[0].radius >= 50;
+const singleBubbleReadable = singleLayout.nodes.length === 1 && singleLayout.nodes[0].radius >= 22;
+
+const dynamicEntries = watchMarketMapEntries([
+  result("FAST", "kr", 300e12, 2),
+  result("SLOW", "us", 200e12, -3),
+  result("FLAT", "kr", 100e12, 0),
+]);
+const intradayPayloads = {
+  FAST: {
+    code: "FAST",
+    trade_date: "20260909",
+    reference_price: 100,
+    points: [
+      {trade_date: "20260909", trade_time: "090000", price: 101},
+      {trade_date: "20260909", trade_time: "100000", price: 103},
+      {trade_date: "20260909", trade_time: "100000", price: 104},
+      {trade_date: "20260909", trade_time: "120000", price: 102},
+    ],
+  },
+  SLOW: {
+    code: "SLOW",
+    trade_date: "2026-09-09",
+    market_timezone: "Asia/Seoul",
+    reference_price: 100,
+    points: [
+      {trade_date: "2026-09-09", trade_time: "090000", price: 96},
+      {trade_date: "2026-09-09", trade_time: "100000", price: 99.5},
+      {trade_date: "2026-09-09", trade_time: "120000", price: 97},
+    ],
+  },
+  FLAT: {
+    code: "FLAT",
+    trade_date: "2026-09-09",
+    reference_price: 100,
+    points: [
+      {trade_date: "2026-09-09", trade_time: "090000", price: 100},
+      {trade_date: "2026-09-09", trade_time: "120000", price: 100},
+    ],
+  },
+};
+for (const entry of dynamicEntries) {
+  state.watchMarketMapIntradayByKey.set(
+    watchMarketMapEntryKey(entry),
+    normalizeWatchMarketMapIntraday(intradayPayloads[entry.item.code], entry),
+  );
+}
+const timezoneEntry = result("TZ", "us", 1e12, 0);
+const timezoneSeries = normalizeWatchMarketMapIntraday({
+  code: "TZ",
+  trade_date: "2026-09-09",
+  market_timezone: "America/New_York",
+  reference_price: 100,
+  points: [
+    {trade_date: "2026-09-09", trade_time: "093000", price: 101},
+    {trade_date: "2026-09-09", trade_time: "110000", price: 102},
+    {trade_date: "2026-09-09", trade_time: "160000", price: 103},
+  ],
+}, timezoneEntry);
+state.watchMarketMapIntradayByKey.set(watchMarketMapEntryKey(timezoneEntry), timezoneSeries);
+const timezoneAfterClose = watchMarketMapEntrySnapshot(timezoneEntry, {
+  dateKey: "2026-09-10",
+  latestMinutes: 720,
+  selectedMinutes: 480,
+});
+const timelineAtTen = watchMarketMapTimelineRange(dynamicEntries);
+const entriesAtTen = watchMarketMapEntriesAtTimeline(dynamicEntries, timelineAtTen);
+const layoutAtTen = computeWatchMarketMapLayout(entriesAtTen, 620, 400);
+const radiiAtTen = Object.fromEntries(
+  layoutAtTen.nodes.filter(node => node.kind === "stock").map(node => [node.entry.item.code, node.radius]),
+);
+state.watchMarketMapTimelineMinutes = 540;
+const timelineAtNine = watchMarketMapTimelineRange(dynamicEntries);
+const entriesAtNine = watchMarketMapEntriesAtTimeline(dynamicEntries, timelineAtNine);
+const layoutAtNine = computeWatchMarketMapLayout(entriesAtNine, 620, 400);
+const radiiAtNine = Object.fromEntries(
+  layoutAtNine.nodes.filter(node => node.kind === "stock").map(node => [node.entry.item.code, node.radius]),
+);
+state.watchMarketMapTimelineMinutes = 615;
+const nearestPrior = watchMarketMapEntrySnapshot(dynamicEntries[0], watchMarketMapTimelineRange(dynamicEntries));
+state.watchMarketMapTimelineMinutes = 480;
+const unavailableBeforeOpen = watchMarketMapEntriesAtTimeline(
+  dynamicEntries,
+  watchMarketMapTimelineRange(dynamicEntries),
+).every(entry => entry.marketMapSnapshot.available === false);
 const physicsConfig = watchMarketMapPhysicsConfig(320);
 const collisionNodes = [
   {x: 100, y: 100, radius: 30, scale: 1, vx: 0, vy: 0},
@@ -285,8 +403,31 @@ console.log(JSON.stringify({
   overlaps,
   outside,
   responsiveSafe,
-  sizesDescending,
   singleBubbleReadable,
+  timelineLatestMinutes: timelineAtTen.latestMinutes,
+  timelineSelectedMinutes: timelineAtTen.selectedMinutes,
+  intradayReturnsAtTen: Object.fromEntries(entriesAtTen.map(entry => [
+    entry.item.code,
+    Number(entry.marketMapSnapshot.changeRate.toFixed(2)),
+  ])),
+  intradayReturnsAtNine: Object.fromEntries(entriesAtNine.map(entry => [
+    entry.item.code,
+    Number(entry.marketMapSnapshot.changeRate.toFixed(2)),
+  ])),
+  returnSizingSwaps: radiiAtTen.FAST > radiiAtTen.SLOW && radiiAtNine.SLOW > radiiAtNine.FAST,
+  dedupedMinuteUsesLatestPoint: entriesAtTen.find(entry => entry.item.code === "FAST").marketMapSnapshot.price === 104,
+  nearestPriorMinute: nearestPrior.pointMinute,
+  unavailableBeforeOpen,
+  compactDomesticDateNormalized: state.watchMarketMapIntradayByKey.get("kr:FAST").tradeDate,
+  newYorkToSeoul: timezoneSeries.points.map(point => ({
+    dateKey: point.dateKey,
+    minute: point.minute,
+  })),
+  newYorkAfterCloseCarry: {
+    minute: timezoneAfterClose.pointMinute,
+    change: Number(timezoneAfterClose.changeRate.toFixed(2)),
+  },
+  endpoints: Object.fromEntries(dynamicEntries.map(entry => [entry.item.code, watchMarketMapIntradayEndpoint(entry)])),
   physics: {
     splitSeries: physicsConfig.splitSeries,
     gravitationalConstant: physicsConfig.gravitationalConstant,
@@ -307,14 +448,33 @@ console.log(JSON.stringify({
 
     assert json.loads(completed.stdout) == {
         "order": ["NVDA", "AAPL", "005930", "000660", "MSFT", "GOOGL", "AMZN", "035420", "005380", "SMALL1", "SMALL2", "NULL"],
-        "visible": ["NVDA", "AAPL", "005930", "000660", "MSFT", "GOOGL"],
-        "hidden": ["AMZN", "035420", "005380", "SMALL1", "SMALL2", "NULL"],
+        "visible": ["NVDA", "AAPL", "005930", "000660", "MSFT", "GOOGL", "AMZN", "035420", "005380"],
+        "hidden": ["SMALL1", "SMALL2", "NULL"],
         "hasOverflow": True,
         "overlaps": False,
         "outside": False,
         "responsiveSafe": True,
-        "sizesDescending": True,
         "singleBubbleReadable": True,
+        "timelineLatestMinutes": 720,
+        "timelineSelectedMinutes": 600,
+        "intradayReturnsAtTen": {"SLOW": -0.5, "FAST": 4, "FLAT": 0},
+        "intradayReturnsAtNine": {"SLOW": -4, "FAST": 1, "FLAT": 0},
+        "returnSizingSwaps": True,
+        "dedupedMinuteUsesLatestPoint": True,
+        "nearestPriorMinute": 600,
+        "unavailableBeforeOpen": True,
+        "compactDomesticDateNormalized": "2026-09-09",
+        "newYorkToSeoul": [
+            {"dateKey": "2026-09-09", "minute": 1350},
+            {"dateKey": "2026-09-10", "minute": 0},
+            {"dateKey": "2026-09-10", "minute": 300},
+        ],
+        "newYorkAfterCloseCarry": {"minute": 300, "change": 3},
+        "endpoints": {
+            "SLOW": "/us/stocks/SLOW/intraday?range=1d&interval=1m",
+            "FAST": "/stocks/FAST/intraday?limit=390",
+            "FLAT": "/stocks/FLAT/intraday?limit=390",
+        },
         "physics": {
             "splitSeries": False,
             "gravitationalConstant": 0.02,
