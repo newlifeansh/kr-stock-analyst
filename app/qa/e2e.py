@@ -7362,19 +7362,33 @@ def run_e2e_checks(
                 search_sheet = page.evaluate(
                     """() => {
                       const dialog = document.querySelector('#watch-stock-add-dialog');
+                      const form = document.querySelector('#watch-stock-search-form');
                       const input = document.querySelector('#watch-stock-search-input');
+                      const fieldIcon = form.querySelector(':scope > [data-staging-icon]');
+                      const clearButton = document.querySelector('#watch-stock-search-clear');
                       const button = document.querySelector('[data-watch-stock-result-index="0"]');
                       const dialogRect = dialog.getBoundingClientRect();
                       const inputRect = input.getBoundingClientRect();
                       const buttonRect = button.getBoundingClientRect();
+                      const formStyle = getComputedStyle(form);
+                      const inputStyle = getComputedStyle(input);
                       return {
                         step: dialog.dataset.step,
                         dialogLeft: dialogRect.left,
                         dialogRight: dialogRect.right,
-                        inputFontSize: parseFloat(getComputedStyle(input).fontSize),
+                        inputFontSize: parseFloat(inputStyle.fontSize),
                         buttonWidth: buttonRect.width,
                         buttonHeight: buttonRect.height,
                         inputVisible: inputRect.width > 0 && inputRect.height >= 44,
+                        surface: {
+                          formBackground: formStyle.backgroundColor,
+                          formFocusRing: formStyle.boxShadow,
+                          inputBackground: inputStyle.backgroundColor,
+                          inputBoxShadow: inputStyle.boxShadow,
+                          inputAppearance: inputStyle.appearance,
+                          iconBackground: getComputedStyle(fieldIcon).backgroundColor,
+                          clearBackground: getComputedStyle(clearButton).backgroundColor,
+                        },
                         clearIcon: document.querySelector('#watch-stock-search-clear [data-staging-icon]')?.dataset.stagingIcon,
                         resultIcon: button.querySelector('[data-staging-icon]')?.dataset.stagingIcon,
                       };
@@ -7388,11 +7402,22 @@ def run_e2e_checks(
                     or search_sheet["buttonWidth"] < 44
                     or search_sheet["buttonHeight"] < 44
                     or not search_sheet["inputVisible"]
+                    or search_sheet["surface"]["formBackground"]
+                    == "rgba(0, 0, 0, 0)"
+                    or search_sheet["surface"]["formFocusRing"] == "none"
+                    or search_sheet["surface"]["inputBackground"]
+                    != "rgba(0, 0, 0, 0)"
+                    or search_sheet["surface"]["inputBoxShadow"] != "none"
+                    or search_sheet["surface"]["inputAppearance"] != "none"
+                    or search_sheet["surface"]["iconBackground"]
+                    != "rgba(0, 0, 0, 0)"
+                    or search_sheet["surface"]["clearBackground"]
+                    != "rgba(0, 0, 0, 0)"
                     or search_sheet["clearIcon"] != "close"
                     or search_sheet["resultIcon"] != "add"
                 ):
                     raise QaFailure(
-                        "모바일 종목 검색 시트의 폭·입력·추가 터치 영역이 올바르지 않습니다.",
+                        "모바일 종목 검색 시트의 폭·단일 표면·외곽 포커스·터치 영역이 올바르지 않습니다.",
                         search_sheet,
                     )
                 add_result.locator("[data-watch-stock-result-index]").click()

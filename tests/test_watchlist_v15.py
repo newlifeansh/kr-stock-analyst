@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260910v514"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260910v515"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -620,6 +620,29 @@ def test_interest_groups_inline_add_compact_list_and_edit_actions():
     ):
         assert removed not in shell
         assert removed not in source
+
+
+def test_inline_watchlist_search_uses_one_surface_and_outer_focus_ring():
+    client = TestClient(app)
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    input_rule = styles[
+        styles.index(".watch-stock-search-form input {")
+        : styles.index(".watch-stock-search-form input::placeholder")
+    ]
+    assert "-webkit-appearance: none;" in input_rule
+    assert "appearance: none;" in input_rule
+    assert "background: transparent !important;" in input_rule
+    assert "box-shadow: none !important;" in input_rule
+
+    focused_input_rule = styles[
+        styles.index('body[data-staging-ia="tds-video"] .watch-stock-search-form > input:is(:focus, :focus-visible)')
+        : styles.index(".watch-stock-search-form input::placeholder")
+    ]
+    assert "border-radius: 0 !important;" in focused_input_rule
+    assert "background: transparent !important;" in focused_input_rule
+    assert "box-shadow: none !important;" in focused_input_rule
+    assert ".watch-stock-search-form:focus-within" in styles
 
 
 def test_inline_watchlist_add_selection_updates_only_selected_custom_groups():
