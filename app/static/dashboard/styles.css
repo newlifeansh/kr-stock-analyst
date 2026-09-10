@@ -45794,7 +45794,8 @@ body[data-staging-ia="tds-video"] .watch-stock-group-option > svg.watch-stock-gr
 /* Amazon logo centering v516: the transparent source uses a white "a". The
    shared white image background hid that mark and made the orange smile look
    bottom-aligned, so retain Amazon's dark brand tile in every circular frame. */
-img[src*="/stock-logos/AMZN.png"] {
+body[data-staging-ia="tds-video"] img[src*="/stock-logos/AMZN.png"],
+body[data-staging-ia="tds-video"] #stock-view img[src*="/stock-logos/AMZN.png"] {
   background: #111111 !important;
   object-position: 50% 50% !important;
   transform-origin: 50% 50% !important;

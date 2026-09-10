@@ -598,7 +598,8 @@ def test_amazon_logo_keeps_its_white_mark_visible_and_centered():
     styles = client.get("/assets/dashboard/styles.css").text
     rules = styles[styles.index("/* Amazon logo centering v516") :]
 
-    assert 'img[src*="/stock-logos/AMZN.png"]' in rules
+    assert 'body[data-staging-ia="tds-video"] img[src*="/stock-logos/AMZN.png"]' in rules
+    assert 'body[data-staging-ia="tds-video"] #stock-view img[src*="/stock-logos/AMZN.png"]' in rules
     assert "background: #111111 !important;" in rules
     assert "object-position: 50% 50% !important;" in rules
     assert "transform-origin: 50% 50% !important;" in rules
