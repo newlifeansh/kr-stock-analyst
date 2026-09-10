@@ -130,6 +130,19 @@ def test_chart_study_e2e_fixture_pins_live_pattern_without_mutating_api_evidence
 
 
 @pytest.mark.qa_gate
+def test_signal_filter_e2e_waits_for_a_ready_revision_before_comparing_counts() -> None:
+    source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
+    signal_filter_case = source.split("def signal_filter_case", 1)[1].split(
+        "mode_tabs = page.locator", 1
+    )[0]
+
+    assert "const snapshotReady = state.aiSignalMarketStatus === 'ready'" in signal_filter_case
+    assert "Number.isSafeInteger(state.aiSignalRevision)" in signal_filter_case
+    assert "state.aiSignalRevision >= 0" in signal_filter_case
+    assert "return snapshotReady" in signal_filter_case
+
+
+@pytest.mark.qa_gate
 def test_live_ai_signal_cases_trace_order_revision_freeze_and_accessibility() -> None:
     cases = {case["id"]: case for case in load_qa_catalog()["cases"]}
     kis_socket = json.dumps(cases["DATA-KIS-005"], ensure_ascii=False)

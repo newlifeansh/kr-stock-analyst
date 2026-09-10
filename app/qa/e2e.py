@@ -949,7 +949,12 @@ def run_e2e_checks(
                       );
                       const loading = document.querySelector('#ai-signals-page-list')?.textContent
                         ?.includes('불러오는 중입니다.');
-                      return tabs.length === 5
+                      const snapshotReady = state.aiSignalMarketStatus === 'ready'
+                        && Number.isSafeInteger(state.aiSignalRevision)
+                        && state.aiSignalRevision >= 0
+                        && Array.isArray(state.aiSignalItems);
+                      return snapshotReady
+                        && tabs.length === 5
                         && !loading
                         && count(tabs[0]) === current
                         && tabs.slice(1).reduce((sum, tab) => sum + count(tab), 0) === current;
