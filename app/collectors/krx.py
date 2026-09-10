@@ -72,14 +72,20 @@ def _stock_rows_from_fdr(markets: list[str], seen_date: date) -> list[dict[str, 
     except ImportError as exc:
         raise RuntimeError("FinanceDataReader is required. Run `pip install -e .`.") from exc
 
-    frame = fdr.StockListing("KRX")
+    frame = fdr.StockListing("KRX").copy()
+    frame["NormalizedMarket"] = frame["Market"].replace(
+        {
+            "KOSDAQ GLOBAL": "KOSDAQ",
+            "KOSDAQ GLOBAL SEGMENT": "KOSDAQ",
+        }
+    )
     if markets:
-        frame = frame[frame["Market"].isin(markets)]
+        frame = frame[frame["NormalizedMarket"].isin(markets)]
     return [
         {
             "code": row["Code"],
             "name": row["Name"],
-            "market": row["Market"],
+            "market": row["NormalizedMarket"],
             "is_active": True,
             "isin": row.get("ISU_CD"),
             "last_seen_date": seen_date,

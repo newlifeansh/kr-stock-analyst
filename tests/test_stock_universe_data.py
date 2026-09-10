@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta
 import json
+import sys
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
@@ -21,6 +23,7 @@ from app.models import (
     StockMaster,
     StockNewsSnapshot,
 )
+from app.services import briefing
 from app.services.briefing import BriefingRuntime
 from app.services.stock_data_coverage import stock_data_coverage
 
@@ -54,6 +57,55 @@ def test_stock_master_refresh_marks_delisted_rows_inactive(monkeypatch):
         assert krx.collect_stocks(db, "20260724", "KOSDAQ") == 1
         assert db.get(StockMaster, "215600").is_active is True
         assert db.get(StockMaster, "999999").is_active is False
+
+
+def test_fdr_master_fallback_normalizes_kosdaq_global_and_excludes_konex(monkeypatch):
+    frame = krx.pd.DataFrame(
+        [
+            {"Code": "095610", "Name": "테스", "Market": "KOSDAQ GLOBAL", "ISU_CD": "KR7095610008"},
+            {"Code": "195940", "Name": "HK이노엔", "Market": "KOSDAQ GLOBAL SEGMENT", "ISU_CD": "KR7195940002"},
+            {"Code": "223220", "Name": "로지스몬", "Market": "KONEX", "ISU_CD": "KR7223220005"},
+        ]
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "FinanceDataReader",
+        SimpleNamespace(StockListing=lambda _market: frame),
+    )
+
+    rows = krx._stock_rows_from_fdr(["KOSDAQ"], date(2026, 9, 10))
+
+    assert [(row["code"], row["market"]) for row in rows] == [
+        ("095610", "KOSDAQ"),
+        ("195940", "KOSDAQ"),
+    ]
+
+
+def test_recent_event_price_codes_are_limited_to_active_supported_master(monkeypatch):
+    monkeypatch.setattr(
+        briefing,
+        "latest_research_reports",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(stock_code="095610"),
+            SimpleNamespace(stock_code="223220"),
+            SimpleNamespace(stock_code="999999"),
+        ],
+    )
+    monkeypatch.setattr(briefing, "latest_disclosures", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(briefing, "latest_news_items", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(briefing, "build_company_briefs", lambda *_args, **_kwargs: [])
+
+    with _session() as db:
+        db.add_all(
+            [
+                StockMaster(code="095610", name="테스", market="KOSDAQ", is_active=True),
+                StockMaster(code="223220", name="로지스몬", market="KONEX", is_active=False),
+                StockMaster(code="999999", name="상장종료", market="KOSDAQ", is_active=False),
+            ]
+        )
+        db.commit()
+
+        assert BriefingRuntime(Settings())._recent_price_codes(db) == ["095610"]
 
 
 def test_stock_master_refresh_preserves_active_latest_session_price_universe(monkeypatch):

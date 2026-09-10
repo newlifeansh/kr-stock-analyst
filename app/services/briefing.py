@@ -1116,10 +1116,22 @@ class BriefingRuntime:
 
         codes: list[str] = []
         seen: set[str] = set()
+        supported_codes = set(
+            db.scalars(
+                select(StockMaster.code).where(
+                    StockMaster.is_active.is_(True),
+                    StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+                )
+            )
+        )
 
         def push(code: Optional[str]) -> None:
             normalized = (code or "").strip()
-            if not is_supported_price_code(normalized) or normalized in seen:
+            if (
+                not is_supported_price_code(normalized)
+                or normalized not in supported_codes
+                or normalized in seen
+            ):
                 return
             codes.append(normalized)
             seen.add(normalized)
