@@ -1615,7 +1615,8 @@ def run_e2e_checks(
                 )
                 if (
                     cta_contract.get("tagName") != "A"
-                    or cta_contract.get("href") != "/dashboard?view=ai-signals"
+                    or cta_contract.get("href")
+                    != "/dashboard?view=ai-signals&market_scope=kr"
                     or cta_contract.get("ariaLabel") != "AI 시그널 전체 목록 보기"
                     or float(button_bounds.get("width") or 0) < 44
                     or float(button_bounds.get("height") or 0) < 44
@@ -7412,7 +7413,7 @@ def run_e2e_checks(
                 search_input = page.locator("#watch-stock-search-input")
                 search_input.fill("카카오")
                 add_result = page.locator(
-                    '#watch-stock-add-results [data-code="035720"]'
+                    '#watch-stock-add-results [data-code="035720"][data-market-scope="kr"]'
                 )
                 add_result.wait_for(state="visible", timeout=int(timeout * 1000))
                 search_sheet = page.evaluate(

@@ -12,9 +12,10 @@
   const stagingUsHubContext = /^\/us(?:\/|$)/.test(window.location.pathname)
     || stagingDashboardRootContext;
   const stagingQueryParams = new URLSearchParams(window.location.search);
-  const stagingMarketScope = ["all", "kr", "us"].includes(stagingQueryParams.get("market_scope"))
-    ? stagingQueryParams.get("market_scope")
-    : "all";
+  const stagingRequestedMarketScope = stagingQueryParams.get("market_scope");
+  const stagingMarketScope = stagingUsHubContext
+    ? (stagingRequestedMarketScope === "us" ? "us" : "kr")
+    : "kr";
   const stagingUsStockMatch = window.location.pathname.match(/^\/us\/stock\/([^/]+)\/?$/);
   const stagingUsStockCode = stagingUsStockMatch ? decodeURIComponent(stagingUsStockMatch[1]) : "";
   const stagingUsMarketContext = Boolean(stagingUsStockMatch && !/^\d{6}$/.test(stagingUsStockCode))
