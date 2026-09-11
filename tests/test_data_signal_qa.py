@@ -1001,6 +1001,8 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "def watchlist_groups_case" in source
     assert 'case_id="SIG-UI-024"' in source
     assert '[data-code="035720"][data-market-scope="kr"]' in source
+    assert "qa_us_watchlist_items: list[dict[str, Any]] = []" in source
+    assert 'if "/us/watchlists/" in str(route.request.url)' in source
     assert "핀종목의 로고·스파크라인·현재가·오늘 등락률" in source
     assert "def watch_market_map_case" in source
     assert 'case_id="SIG-UI-025"' in source

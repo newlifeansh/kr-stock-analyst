@@ -7099,6 +7099,7 @@ def run_e2e_checks(
                         "average_buy_price": None,
                     },
                 ]
+                qa_us_watchlist_items: list[dict[str, Any]] = []
                 qa_search_item = {
                     "code": "035720",
                     "name": "카카오",
@@ -7137,14 +7138,19 @@ def run_e2e_checks(
                     )
 
                 def watchlist_route(route: Any) -> None:
+                    items_state = (
+                        qa_us_watchlist_items
+                        if "/us/watchlists/" in str(route.request.url)
+                        else qa_watchlist_items
+                    )
                     if str(route.request.method or "GET").upper() == "PUT":
                         payload = json.loads(route.request.post_data or "{}")
                         items = payload.get("items")
                         if isinstance(items, list):
-                            qa_watchlist_items[:] = items
+                            items_state[:] = items
                     fulfill_json(
                         route,
-                        {"share_id": share_id, "items": qa_watchlist_items},
+                        {"share_id": share_id, "items": items_state},
                     )
 
                 def tracks_route(route: Any) -> None:
