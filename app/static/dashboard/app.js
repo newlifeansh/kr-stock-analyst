@@ -404,6 +404,7 @@ const elements = {
   watchStockSelected: $("watch-stock-selected"),
   watchStockGroupOptions: $("watch-stock-group-options"),
   watchStockGroupStatus: $("watch-stock-group-status"),
+  watchStockGroupCreate: $("watch-stock-group-create"),
   watchStockGroupComplete: $("watch-stock-group-complete"),
   watchMarketMap: $("watch-market-map"),
   watchMarketMapGroup: $("watch-market-map-group"),
@@ -1365,6 +1366,7 @@ const state = {
   watchStockAddTrigger: null,
   watchStockAddLastResultTrigger: null,
   watchStockAddSelectedItem: null,
+  watchStockAddEntryMode: "search",
   watchStockAddResults: [],
   watchStockAddSearchTimer: null,
   watchStockAddSearchController: null,
@@ -10884,11 +10886,14 @@ function scheduleWatchStockAddSearch() {
 
 function setWatchStockAddStep(step = "search") {
   const groupStep = step === "groups";
+  const directGroupStep = groupStep && state.watchStockAddEntryMode === "detail";
   if (elements.watchStockSearchStep) elements.watchStockSearchStep.hidden = groupStep;
   if (elements.watchStockGroupStep) elements.watchStockGroupStep.hidden = !groupStep;
-  if (elements.watchStockAddBack) elements.watchStockAddBack.hidden = !groupStep;
+  if (elements.watchStockAddBack) elements.watchStockAddBack.hidden = !groupStep || directGroupStep;
+  if (elements.watchStockSelected) elements.watchStockSelected.hidden = directGroupStep;
   if (elements.watchStockAddTitle) elements.watchStockAddTitle.textContent = groupStep ? "관심 그룹 선택" : "종목 추가";
   elements.watchStockAddDialog?.setAttribute("data-step", groupStep ? "groups" : "search");
+  elements.watchStockAddDialog?.setAttribute("data-entry", state.watchStockAddEntryMode);
 }
 
 function createWatchStockGroupOption(group, item, options = {}) {
@@ -10963,12 +10968,14 @@ function returnToWatchStockSearch() {
   }, 20);
 }
 
-function openWatchStockAddDialog(trigger = null) {
+function openWatchStockAddDialog(trigger = null, options = {}) {
   if (!elements.watchStockAddDialog || !elements.watchStockSearchInput) return;
+  const selectedItem = options.item?.code && options.item?.name ? options.item : null;
   window.clearTimeout(state.watchStockAddCloseTimer);
   state.watchStockAddSearchSequence += 1;
   state.watchStockAddSearchController?.abort();
   state.watchStockAddSearchController = null;
+  state.watchStockAddEntryMode = selectedItem ? "detail" : "search";
   state.watchStockAddTrigger = trigger instanceof HTMLElement
     ? trigger
     : document.activeElement instanceof HTMLElement
@@ -10979,11 +10986,15 @@ function openWatchStockAddDialog(trigger = null) {
   state.watchStockAddResults = [];
   elements.watchStockSearchInput.value = "";
   if (elements.watchStockSearchClear) elements.watchStockSearchClear.hidden = true;
-  setWatchStockAddStep("search");
-  renderWatchStockAddEmpty();
   if (typeof elements.watchStockAddDialog.showModal === "function") elements.watchStockAddDialog.showModal();
   else elements.watchStockAddDialog.setAttribute("open", "");
-  window.setTimeout(() => elements.watchStockSearchInput?.focus(), 20);
+  if (selectedItem) {
+    openWatchStockGroupStep(selectedItem);
+  } else {
+    setWatchStockAddStep("search");
+    renderWatchStockAddEmpty();
+    window.setTimeout(() => elements.watchStockSearchInput?.focus(), 20);
+  }
 }
 
 function closeWatchStockAddDialog() {
@@ -10998,6 +11009,7 @@ function closeWatchStockAddDialog() {
   const trigger = state.watchStockAddTrigger;
   state.watchStockAddTrigger = null;
   state.watchStockAddSelectedItem = null;
+  state.watchStockAddEntryMode = "search";
   window.setTimeout(() => {
     if (trigger?.isConnected) trigger.focus();
     else elements.watchlistSearch?.focus();
@@ -11144,6 +11156,9 @@ function saveWatchlistGroupFromDialog(event) {
   state.activeWatchGroup = groupId;
   writeWatchlistGroups(groups);
   closeWatchlistGroupDialog();
+  if (watchStockAddDialogOpen() && state.watchStockAddSelectedItem) {
+    openWatchStockGroupStep(state.watchStockAddSelectedItem, state.watchStockAddLastResultTrigger);
+  }
   if (state.view === "portfolio") void loadWatchlist({ force: false });
 }
 
@@ -11980,7 +11995,7 @@ function toggleWatchCurrent() {
     return;
   }
   if (!watchStockIsSaved(state.currentStock)) {
-    openWatchStockAddDialog(elements.watchToggle);
+    openWatchStockAddDialog(elements.watchToggle, { item: state.currentStock });
     return;
   }
   toggleWatchlistItem(state.currentStock);
@@ -30388,9 +30403,13 @@ elements.watchStockAddResults?.addEventListener("click", (event) => {
   if (item) openWatchStockGroupStep(item, button);
 });
 elements.watchStockGroupStep?.addEventListener("submit", completeWatchStockAdd);
+elements.watchStockGroupCreate?.addEventListener("click", () => openWatchlistGroupDialog());
 elements.watchStockAddDialog?.addEventListener("cancel", (event) => {
   event.preventDefault();
-  if (elements.watchStockAddDialog?.dataset.step === "groups") returnToWatchStockSearch();
+  if (
+    elements.watchStockAddDialog?.dataset.step === "groups"
+    && state.watchStockAddEntryMode !== "detail"
+  ) returnToWatchStockSearch();
   else closeWatchStockAddDialog();
 });
 elements.watchStockAddDialog?.addEventListener("click", (event) => {

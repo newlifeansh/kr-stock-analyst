@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260911v531"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260911v532"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -33,6 +33,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="watch-stock-search-input"' in shell.text
     assert 'id="watch-stock-add-results"' in shell.text
     assert 'id="watch-stock-group-options"' in shell.text
+    assert 'id="watch-stock-group-create"' in shell.text
     assert 'id="watch-stock-group-complete"' in shell.text
     assert 'id="watch-group-add-stock"' not in shell.text
     assert 'id="watch-group-share"' not in shell.text
@@ -774,15 +775,21 @@ console.log(JSON.stringify({added, moved}));
     ]
 
 
-def test_stock_detail_heart_opens_add_sheet_and_keeps_market_scoped_state():
+def test_stock_detail_heart_opens_direct_group_sheet_and_keeps_market_scoped_state():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text
     shell = client.get("/dashboard?view=portfolio").text
+    styles = client.get("/assets/dashboard/styles.css").text
 
     assert (
-        '</section>\n\n      <dialog class="watch-stock-add-dialog" '
+        '</section>\n\n      <dialog class="watch-group-dialog" '
+        'id="watch-group-dialog" aria-labelledby="watch-group-dialog-title"'
+    ) in shell
+    assert (
+        '</dialog>\n\n      <dialog class="watch-stock-add-dialog" '
         'id="watch-stock-add-dialog" aria-labelledby="watch-stock-add-title">'
     ) in shell
+    assert shell.index('id="watch-group-dialog"') < shell.index('id="watch-stock-add-dialog"')
     assert shell.index('id="watch-stock-add-dialog"') < shell.index('id="chart-view"')
 
     update_button = source[
@@ -797,13 +804,50 @@ def test_stock_detail_heart_opens_add_sheet_and_keeps_market_scoped_state():
         source.index("function toggleWatchlistItem")
         : source.index("function updateRecommendationWatchButtons")
     ]
+    set_add_step = source[
+        source.index("function setWatchStockAddStep")
+        : source.index("function createWatchStockGroupOption")
+    ]
+    open_add_dialog = source[
+        source.index("function openWatchStockAddDialog")
+        : source.index("function closeWatchStockAddDialog")
+    ]
+    save_group = source[
+        source.index("function saveWatchlistGroupFromDialog")
+        : source.index("function deleteActiveWatchlistGroup")
+    ]
 
     assert "const active = watchStockIsSaved(state.currentStock);" in update_button
     assert "if (!watchStockIsSaved(state.currentStock))" in toggle_current
-    assert "openWatchStockAddDialog(elements.watchToggle);" in toggle_current
-    assert toggle_current.index("openWatchStockAddDialog(elements.watchToggle);") < toggle_current.index(
+    assert "openWatchStockAddDialog(elements.watchToggle, { item: state.currentStock });" in toggle_current
+    assert toggle_current.index(
+        "openWatchStockAddDialog(elements.watchToggle, { item: state.currentStock });"
+    ) < toggle_current.index(
         "toggleWatchlistItem(state.currentStock);"
     )
+    assert 'state.watchStockAddEntryMode = selectedItem ? "detail" : "search";' in open_add_dialog
+    assert "if (selectedItem) {" in open_add_dialog
+    assert "openWatchStockGroupStep(selectedItem);" in open_add_dialog
+    assert open_add_dialog.index("openWatchStockGroupStep(selectedItem);") < open_add_dialog.index(
+        'setWatchStockAddStep("search");'
+    )
+    assert 'const directGroupStep = groupStep && state.watchStockAddEntryMode === "detail";' in set_add_step
+    assert "elements.watchStockAddBack.hidden = !groupStep || directGroupStep;" in set_add_step
+    assert "elements.watchStockSelected.hidden = directGroupStep;" in set_add_step
+    assert 'setAttribute("data-entry", state.watchStockAddEntryMode)' in set_add_step
+    assert 'id="watch-stock-group-create" type="button">그룹 추가</button>' in shell
+    assert "elements.watchStockGroupCreate?.addEventListener" in source
+    assert "openWatchlistGroupDialog()" in source
+    assert "watchStockAddDialogOpen() && state.watchStockAddSelectedItem" in save_group
+    assert "openWatchStockGroupStep(state.watchStockAddSelectedItem" in save_group
+    for expected in (
+        '.watch-stock-add-dialog[data-entry="detail"] .watch-stock-add-sheet',
+        '.watch-stock-add-dialog[data-entry="detail"] .watch-stock-add-head .watch-stock-add-back',
+        '.watch-stock-add-dialog[data-entry="detail"] :is(.watch-stock-selected, .watch-stock-group-field legend, .watch-stock-group-help)',
+        ".watch-stock-group-actions",
+        ".watch-stock-group-create,",
+    ):
+        assert expected in styles
     assert "const items = readWatchlist({ allMarkets: true });" in toggle_item
     assert "const stockKey = watchStockItemKey(stock);" in toggle_item
     assert "writeWatchlist(nextItems, { replaceAll: true });" in toggle_item

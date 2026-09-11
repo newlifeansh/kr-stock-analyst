@@ -7504,10 +7504,124 @@ def run_e2e_checks(
                     raise QaFailure("삭제 요청한 관심목록 하단 공유·추가 액션이 남아 있습니다.")
 
                 page.set_viewport_size({"width": 390, "height": 844})
+                page.evaluate(
+                    """() => {
+                      state.currentStock = {
+                        code: 'AAPL',
+                        name: 'Apple',
+                        market: 'NASDAQ',
+                        market_scope: 'us',
+                        currency: 'USD',
+                      };
+                      setView('stock', {historyMode: 'none'});
+                      updateWatchButton();
+                    }"""
+                )
+                detail_heart = page.locator("#watch-toggle")
+                detail_heart.focus()
+                detail_heart.click()
+                add_dialog = page.locator("#watch-stock-add-dialog")
+                add_dialog.wait_for(state="visible")
+                page.wait_for_function(
+                    """() => (
+                      document.querySelector('#watch-stock-add-dialog')?.dataset.step === 'groups'
+                      && document.querySelector('#watch-stock-add-dialog')?.dataset.entry === 'detail'
+                    )"""
+                )
+                page.wait_for_function(
+                    "() => document.activeElement?.id === 'watch-stock-group-complete'"
+                )
+                detail_group_sheet = page.evaluate(
+                    """() => {
+                      const dialog = document.querySelector('#watch-stock-add-dialog');
+                      const defaultInput = document.querySelector(
+                        '#watch-stock-group-options input[value="default"]'
+                      );
+                      const createButton = document.querySelector('#watch-stock-group-create');
+                      const completeButton = document.querySelector('#watch-stock-group-complete');
+                      const createRect = createButton.getBoundingClientRect();
+                      const completeRect = completeButton.getBoundingClientRect();
+                      const dialogRect = dialog.getBoundingClientRect();
+                      return {
+                        step: dialog.dataset.step,
+                        entry: dialog.dataset.entry,
+                        title: document.querySelector('#watch-stock-add-title')?.textContent.trim(),
+                        searchHidden: document.querySelector('#watch-stock-search-step')?.hidden,
+                        backHidden: document.querySelector('#watch-stock-add-back')?.hidden,
+                        selectedHidden: document.querySelector('#watch-stock-selected')?.hidden,
+                        defaultChecked: defaultInput?.checked,
+                        defaultDisabled: defaultInput?.disabled,
+                        createLabel: createButton.textContent.trim(),
+                        completeLabel: completeButton.textContent.trim(),
+                        createHeight: createRect.height,
+                        completeHeight: completeRect.height,
+                        dialogLeft: dialogRect.left,
+                        dialogRight: dialogRect.right,
+                        focusedId: document.activeElement?.id,
+                      };
+                    }"""
+                )
+                if (
+                    detail_group_sheet["step"] != "groups"
+                    or detail_group_sheet["entry"] != "detail"
+                    or detail_group_sheet["title"] != "관심 그룹 선택"
+                    or not detail_group_sheet["searchHidden"]
+                    or not detail_group_sheet["backHidden"]
+                    or not detail_group_sheet["selectedHidden"]
+                    or not detail_group_sheet["defaultChecked"]
+                    or not detail_group_sheet["defaultDisabled"]
+                    or detail_group_sheet["createLabel"] != "그룹 추가"
+                    or detail_group_sheet["completeLabel"] != "완료"
+                    or detail_group_sheet["createHeight"] < 44
+                    or detail_group_sheet["completeHeight"] < 44
+                    or detail_group_sheet["dialogLeft"] < -1
+                    or detail_group_sheet["dialogRight"] > 391
+                    or detail_group_sheet["focusedId"] != "watch-stock-group-complete"
+                ):
+                    raise QaFailure(
+                        "종목 상세 하트의 직접 그룹 선택 시트가 올바르지 않습니다.",
+                        detail_group_sheet,
+                    )
+                page.locator("#watch-stock-group-create").click()
+                detail_group_dialog = page.locator("#watch-group-dialog")
+                detail_group_dialog.wait_for(state="visible")
+                if not add_dialog.is_visible():
+                    raise QaFailure("그룹 추가 창을 열 때 현재 종목 그룹 선택 시트가 닫혔습니다.")
+                page.keyboard.press("Escape")
+                detail_group_dialog.wait_for(state="hidden")
+                page.locator("#watch-stock-group-complete").click()
+                add_dialog.wait_for(state="hidden", timeout=int(timeout * 1000))
+                page.wait_for_function(
+                    "() => document.querySelector('#watch-toggle')?.getAttribute('aria-label') === '관심종목 해제'"
+                )
+                page.wait_for_timeout(650)
+                if [item.get("code") for item in qa_us_watchlist_items] != ["AAPL"]:
+                    raise QaFailure(
+                        "미국 종목 상세 하트 완료가 미국 관심목록에 저장되지 않았습니다.",
+                        {"items": qa_us_watchlist_items},
+                    )
+                detail_heart.click()
+                page.wait_for_function(
+                    "() => document.querySelector('#watch-toggle')?.getAttribute('aria-label') === '관심종목 추가'"
+                )
+                page.wait_for_timeout(650)
+                if qa_us_watchlist_items:
+                    raise QaFailure(
+                        "채워진 미국 종목 상세 하트가 미국 관심목록에서 해제되지 않았습니다.",
+                        {"items": qa_us_watchlist_items},
+                    )
+                page.evaluate("() => setView('portfolio', {historyMode: 'none'})")
+                page.wait_for_function(
+                    """() => (
+                      document.body.dataset.view === 'portfolio'
+                      && document.querySelectorAll('#watchlist-body [data-watch-card]').length === 2
+                    )""",
+                    timeout=int(timeout * 1000),
+                )
+
                 search_trigger = page.locator("#watchlist-search")
                 search_trigger.focus()
                 search_trigger.click()
-                add_dialog = page.locator("#watch-stock-add-dialog")
                 add_dialog.wait_for(state="visible")
                 page.wait_for_function(
                     "() => document.activeElement?.id === 'watch-stock-search-input'"
@@ -7952,6 +8066,8 @@ def run_e2e_checks(
                         "group_choice": group_choice,
                         "added_code": "035720",
                     },
+                    "detail_heart_group_sheet": detail_group_sheet,
+                    "us_detail_add_remove": not qa_us_watchlist_items,
                     "pin_rows": pin_snapshot,
                     "live_daily_return": "+2.50%",
                     "persisted_group": "배당주",

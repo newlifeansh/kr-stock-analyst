@@ -31,7 +31,7 @@
     <script src="/assets/staging/stock-change-copy-logic.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260911v531&amp;build=20260911v531" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260911v532&amp;build=20260911v532" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -1406,37 +1406,37 @@
           </section>
         </section>
 
-        <dialog class="watch-group-dialog" id="watch-group-dialog" aria-labelledby="watch-group-dialog-title" aria-describedby="watch-group-dialog-description">
-          <form class="watch-group-form" id="watch-group-form" novalidate>
-            <header class="watch-group-dialog-head">
-              <div>
-                <span>관심 폴더</span>
-                <h2 id="watch-group-dialog-title">새 폴더 만들기</h2>
-              </div>
-              <button id="watch-group-dialog-close" type="button" aria-label="관심 폴더 창 닫기">
-                <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="close" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#close"></use></svg>
-              </button>
-            </header>
-            <p id="watch-group-dialog-description">폴더 이름을 정하고 기본 관심종목에서 담을 종목을 선택하세요.</p>
-            <label class="watch-group-name-field" for="watch-group-name">
-              <span>폴더 이름</span>
-              <input id="watch-group-name" name="watch-group-name" type="text" maxlength="20" autocomplete="off" placeholder="예: 반도체" required />
-            </label>
-            <fieldset class="watch-group-members-field">
-              <legend>포함할 종목</legend>
-              <div id="watch-group-members" class="watch-group-members"></div>
-            </fieldset>
-            <p class="watch-group-dialog-status" id="watch-group-dialog-status" role="alert" aria-live="assertive"></p>
-            <footer class="watch-group-dialog-actions">
-              <button class="watch-group-delete" id="watch-group-delete" type="button" hidden>폴더 삭제</button>
-              <span></span>
-              <button class="watch-group-cancel" id="watch-group-cancel" type="button">취소</button>
-              <button class="watch-group-save" id="watch-group-save" type="submit">폴더 만들기</button>
-            </footer>
-          </form>
-        </dialog>
-
       </section>
+
+      <dialog class="watch-group-dialog" id="watch-group-dialog" aria-labelledby="watch-group-dialog-title" aria-describedby="watch-group-dialog-description">
+        <form class="watch-group-form" id="watch-group-form" novalidate>
+          <header class="watch-group-dialog-head">
+            <div>
+              <span>관심 폴더</span>
+              <h2 id="watch-group-dialog-title">새 폴더 만들기</h2>
+            </div>
+            <button id="watch-group-dialog-close" type="button" aria-label="관심 폴더 창 닫기">
+              <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="close" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#close"></use></svg>
+            </button>
+          </header>
+          <p id="watch-group-dialog-description">폴더 이름을 정하고 기본 관심종목에서 담을 종목을 선택하세요.</p>
+          <label class="watch-group-name-field" for="watch-group-name">
+            <span>폴더 이름</span>
+            <input id="watch-group-name" name="watch-group-name" type="text" maxlength="20" autocomplete="off" placeholder="예: 반도체" required />
+          </label>
+          <fieldset class="watch-group-members-field">
+            <legend>포함할 종목</legend>
+            <div id="watch-group-members" class="watch-group-members"></div>
+          </fieldset>
+          <p class="watch-group-dialog-status" id="watch-group-dialog-status" role="alert" aria-live="assertive"></p>
+          <footer class="watch-group-dialog-actions">
+            <button class="watch-group-delete" id="watch-group-delete" type="button" hidden>폴더 삭제</button>
+            <span></span>
+            <button class="watch-group-cancel" id="watch-group-cancel" type="button">취소</button>
+            <button class="watch-group-save" id="watch-group-save" type="submit">폴더 만들기</button>
+          </footer>
+        </form>
+      </dialog>
 
       <dialog class="watch-stock-add-dialog" id="watch-stock-add-dialog" aria-labelledby="watch-stock-add-title">
         <section class="watch-stock-add-sheet">
@@ -1474,7 +1474,10 @@
             </fieldset>
             <p class="watch-stock-group-help">기본그룹에는 항상 저장되며, 원하는 폴더를 함께 선택할 수 있어요.</p>
             <p class="watch-stock-group-status" id="watch-stock-group-status" role="alert" aria-live="assertive"></p>
-            <button class="watch-stock-group-complete" id="watch-stock-group-complete" type="submit">완료</button>
+            <div class="watch-stock-group-actions">
+              <button class="watch-stock-group-create" id="watch-stock-group-create" type="button">그룹 추가</button>
+              <button class="watch-stock-group-complete" id="watch-stock-group-complete" type="submit">완료</button>
+            </div>
           </form>
         </section>
       </dialog>
@@ -1663,6 +1666,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260911v531" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260911v532" defer></script>
   </body>
 </html>
