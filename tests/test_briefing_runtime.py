@@ -1158,6 +1158,62 @@ def test_investor_flow_coverage_applies_configured_signal_universe_limit(monkeyp
     assert coverage["stale_codes"] == ["005930", "000660"]
 
 
+def test_investor_flow_coverage_uses_completed_session_universe_during_market_hours(monkeypatch):
+    runtime = briefing.BriefingRuntime(Settings(investor_flow_code_limit=100))
+    observed_price_target_statements = []
+
+    class Rows:
+        def __init__(self, values):
+            self.values = values
+
+        def all(self):
+            return self.values
+
+    class Database:
+        def __init__(self):
+            self.execute_calls = 0
+
+        def scalar(self, statement):
+            observed_price_target_statements.append(statement)
+            return date(2026, 9, 10)
+
+        def execute(self, _statement):
+            self.execute_calls += 1
+            if self.execute_calls == 1:
+                return Rows([("267270",), ("005930",)])
+            return Rows([
+                ("267270", date(2026, 9, 9)),
+                ("005930", date(2026, 9, 10)),
+            ])
+
+    monkeypatch.setattr(
+        briefing,
+        "latest_completed_korea_market_session_date",
+        lambda _now=None: date(2026, 9, 10),
+    )
+    monkeypatch.setattr(
+        briefing,
+        "latest_published_korea_investor_flow_date",
+        lambda _now=None: date(2026, 9, 10),
+    )
+
+    coverage = runtime._latest_investor_flow_coverage(
+        Database(),
+        now=datetime(2026, 9, 11, 13, 0),
+    )
+
+    statement = observed_price_target_statements[0]
+    assert statement._where_criteria
+    assert date(2026, 9, 10) in statement.compile().params.values()
+    assert coverage == {
+        "target_date": date(2026, 9, 10),
+        "total": 2,
+        "fresh": 1,
+        "coverage_ratio": 0.5,
+        "stale_codes": ["267270"],
+    }
+
+
 def test_collect_macro_skips_when_default_series_are_fresh(monkeypatch):
     runtime = briefing.BriefingRuntime(Settings(macro_range="1y"))
     monkeypatch.setattr(

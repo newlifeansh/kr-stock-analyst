@@ -911,7 +911,13 @@ class BriefingRuntime:
     ) -> dict[str, object]:
         current = now or datetime.now(KST)
         calendar_target = latest_published_korea_investor_flow_date(current)
-        stored_price_target = db.scalar(select(func.max(DailyPrice.trade_date)))
+        completed_price_target = latest_completed_korea_market_session_date(current)
+        price_target_statement = select(func.max(DailyPrice.trade_date))
+        if completed_price_target is not None:
+            price_target_statement = price_target_statement.where(
+                DailyPrice.trade_date <= completed_price_target
+            )
+        stored_price_target = db.scalar(price_target_statement)
         target_date = calendar_target or stored_price_target or current.date()
         code_statement = select(StockMaster.code).where(
             StockMaster.is_active.is_(True),
