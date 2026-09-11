@@ -42547,6 +42547,7 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   --watch-group-panel: light-dark(#ffffff, #202126);
   --watch-group-panel-soft: light-dark(#f7f8fa, #28292f);
   --watch-group-text: light-dark(#191f28, #f2f4f6);
+  --watch-group-contrast: light-dark(#ffffff, #17181c);
   --watch-group-muted: light-dark(#6b7684, #a8b0ba);
   --watch-group-line: light-dark(#e5e8eb, #383940);
   --watch-map-stage: light-dark(#f4f6f8, #15171c);
@@ -42660,7 +42661,7 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
 #portfolio-view .watch-group-chip.active {
   border-color: var(--watch-group-text);
   background: var(--watch-group-text);
-  color: light-dark(#ffffff, #17181c);
+  color: var(--watch-group-contrast) !important;
 }
 
 #portfolio-view .watch-group-create {
@@ -43179,7 +43180,7 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   border-radius: 12px;
   padding: 0 16px;
   background: var(--watch-group-text);
-  color: light-dark(#ffffff, #17181c);
+  color: var(--watch-group-contrast) !important;
   font: inherit;
   font-size: 13px !important;
   font-weight: 750 !important;
@@ -43910,103 +43911,6 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
 
 @media (prefers-reduced-motion: reduce) {
   .unified-market-scope[data-presentation="country-toggle"] .unified-market-scope-toggle > button {
-    transition: none;
-  }
-}
-
-/* TOP 50 country scope: compact flag switch beside the ranking title. */
-#market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-heading-row {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-#market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-heading-row > h2 {
-  min-width: 0;
-  order: 0 !important;
-}
-
-#market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-country-toggle[hidden] {
-  display: none !important;
-}
-
-#market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-country-toggle {
-  width: 100px;
-  min-width: 100px;
-  min-height: 52px;
-  flex: 0 0 100px;
-  order: 1;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
-  padding: 4px;
-  border-radius: 17px;
-  background: light-dark(#eef0f3, #2c2b32);
-  box-shadow: inset 0 0 0 1px light-dark(rgba(25, 31, 40, 0.03), rgba(255, 255, 255, 0.025));
-}
-
-#market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-country-toggle > button {
-  width: 46px;
-  min-width: 46px;
-  height: 44px;
-  min-height: 44px;
-  display: grid;
-  place-items: center;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 13px;
-  color: inherit;
-  background: transparent;
-  box-shadow: none;
-  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
-  font-size: 22px;
-  line-height: 1;
-  opacity: 0.5;
-  transition: background-color 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
-}
-
-#market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-country-toggle > button > span {
-  width: 28px;
-  min-width: 28px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  line-height: 1;
-}
-
-#market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-country-toggle > button:is(.active, [aria-pressed="true"]) {
-  background: light-dark(#ffffff, #4a4953);
-  box-shadow: 0 1px 3px light-dark(rgba(25, 31, 40, 0.12), rgba(0, 0, 0, 0.3));
-  opacity: 1;
-}
-
-#market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-country-toggle > button:focus-visible {
-  outline: 2px solid #3182f6;
-  outline-offset: 2px;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  #market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-country-toggle > button:not([aria-pressed="true"]):hover {
-    background: light-dark(rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.055));
-    opacity: 0.78;
-  }
-}
-
-@media (max-width: 359px) {
-  #market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-heading-row {
-    gap: 10px;
-  }
-
-  #market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-heading-row > h2 {
-    font-size: 26px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  #market-view.app-market-rankings[data-ui-version="6.0"] .market-ranking-country-toggle > button {
     transition: none;
   }
 }

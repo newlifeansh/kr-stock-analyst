@@ -459,8 +459,6 @@ const elements = {
   marketRankingMeta: $("market-ranking-meta"),
   marketRankingTitle: $("market-ranking-title"),
   marketRankingDescription: $("market-ranking-description"),
-  marketRankingCountryToggle: $("market-ranking-country-toggle"),
-  marketRankingCountryButtons: Array.from(document.querySelectorAll("[data-top50-market-scope]")),
   marketRankingModeTabs: $("market-ranking-mode-tabs"),
   marketRankingColumnHead: $("market-ranking-column-head"),
   rankingBody: $("ranking-body"),
@@ -1279,7 +1277,9 @@ const state = {
   homeTrendContext: null,
   homeMarketImpact: null,
   marketSignalTickerItems: [],
+  marketSignalTickerBaseItems: [],
   marketSignalTickerIndex: 0,
+  marketSignalTickerPriorityMarket: "",
   marketSignalTickerTimer: null,
   marketIndexRefreshTimer: null,
   homeMarketCarouselAnimation: null,
@@ -1541,15 +1541,7 @@ function applyUsMarketSurface() {
       button.tabIndex = active ? 0 : -1;
     }
   }
-  for (const button of elements.marketTabs) {
-    const market = button.dataset.marketFilter;
-    button.hidden = state.marketScope === "kr"
-      ? ["MIXED", "NASDAQ", "SP500"].includes(market)
-      : state.marketScope === "us"
-        ? ["MIXED", "ALL", "KOSPI", "KOSDAQ"].includes(market)
-        : false;
-  }
-  syncMarketRankingCountryToggle();
+  syncMarketRankingExchangeFilters(state.view);
   ensureUnifiedHomeTop50();
 }
 
@@ -1655,20 +1647,11 @@ function syncUnifiedMarketScopeVisibility(view = state.view) {
   if (!elements.unifiedMarketScope) return;
   elements.unifiedMarketScope.hidden = !isUsHubContext || !["news", "search", "portfolio", "chart"].includes(view);
   syncUnifiedMarketScopePresentation(view);
-  syncMarketRankingCountryToggle(view);
+  syncMarketRankingExchangeFilters(view);
 }
 
-function syncMarketRankingCountryToggle(view = state.view) {
-  if (!elements.marketRankingCountryToggle) return;
-  const visible = isUnifiedRootPath && view === "movers";
-  elements.marketRankingCountryToggle.hidden = !visible;
-  elements.marketRankingCountryToggle.dataset.marketScope = state.marketScope;
-  for (const button of elements.marketRankingCountryButtons) {
-    const active = button.dataset.top50MarketScope === state.marketScope;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", String(active));
-  }
-  if (!visible) return;
+function syncMarketRankingExchangeFilters(view = state.view) {
+  if (!isUnifiedRootPath || view !== "movers") return;
   for (const button of elements.marketTabs) {
     const market = button.dataset.marketFilter;
     if (market === "ALL") button.textContent = "전체";
@@ -1748,6 +1731,8 @@ function ensureUnifiedHomeTop50() {
   }
   const domesticMarketLabel = domestic.querySelector("#home-ranking-market-trigger-label");
   if (domesticMarketLabel) domesticMarketLabel.textContent = "전체";
+  const domesticMore = domestic.querySelector("#home-surge-more");
+  if (domesticMore) domesticMore.setAttribute("aria-label", "한국 TOP 50 전체 보기");
 
   const usSection = domestic.cloneNode(true);
   const idMap = new Map();
@@ -1787,7 +1772,9 @@ function ensureUnifiedHomeTop50() {
     }
     button.addEventListener("click", () => setHomeRankingCategory(category));
   }
-  usSection.querySelector("#home-surge-more-us")?.addEventListener("click", () => {
+  const usMore = usSection.querySelector("#home-surge-more-us");
+  if (usMore) usMore.setAttribute("aria-label", "미국 TOP 50 전체 보기");
+  usMore?.addEventListener("click", () => {
     state.rankingCategory = state.homeRankingCategory;
     state.marketRankingMode = normalizeMarketRankingMode(state.rankingCategory, state.homeRankingMode);
     state.marketScope = "us";
@@ -14284,6 +14271,7 @@ function setView(requestedViewName, options = {}) {
       limit: 50,
     }));
   } else if (view === "ai-signals") {
+    resetAiSignalLandingViewport();
     void loadAiSignalsPage(pageEntryRefreshOptions("watchlist", "ai-signals"));
   } else if (view === "portfolio") {
     setPortfolioTab(state.portfolioTab, { load: true });
@@ -14307,6 +14295,27 @@ function setView(requestedViewName, options = {}) {
       void maybeShowPushNotificationEntryPrompt();
     });
   }
+}
+
+function syncAiSignalLandingHeaderClearance() {
+  const intro = document.querySelector("#ai-signals-view .staging-ai-signals-intro");
+  if (!intro || state.view !== "ai-signals") {
+    return;
+  }
+  const header = document.querySelector(".app-topbar.is-staging-contextual");
+  const overlap = header
+    ? Math.max(0, Math.ceil(header.getBoundingClientRect().bottom - intro.getBoundingClientRect().top))
+    : 0;
+  intro.style.setProperty("--staging-ai-signal-header-overlap", `${overlap}px`);
+  intro.dataset.headerOverlap = String(overlap);
+}
+
+function resetAiSignalLandingViewport() {
+  window.scrollTo({ top: 0, behavior: "auto" });
+  window.requestAnimationFrame(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+    syncAiSignalLandingHeaderClearance();
+  });
 }
 
 function renderEvents(listNode, items) {
@@ -18705,8 +18714,42 @@ function compactSignalDate(value) {
   return formatDottedDate(value, "날짜 확인 중");
 }
 
+function homeSignalOpeningPriorityMarket(now = new Date()) {
+  const korea = koreaClockParts(now);
+  const koreaWeekday = new Date(Date.UTC(korea.year, korea.month - 1, korea.day)).getUTCDay();
+  const koreaMinutes = korea.hour * 60 + korea.minute;
+  if (koreaWeekday >= 1 && koreaWeekday <= 5 && koreaMinutes >= 8 * 60 && koreaMinutes < 10 * 60) {
+    return "kr";
+  }
+
+  const newYork = newYorkClockParts(now);
+  const newYorkMinutes = newYork.hour * 60 + newYork.minute;
+  if (
+    !["Sat", "Sun"].includes(newYork.weekday)
+    && newYorkMinutes >= 8 * 60 + 30
+    && newYorkMinutes < 10 * 60 + 30
+  ) {
+    return "us";
+  }
+  return "";
+}
+
+function prioritizeHomeMarketSignalItems(items = [], priorityMarket = "") {
+  if (!priorityMarket) {
+    return Array.from(items);
+  }
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const leftPriority = marketScopeForItem(left.item) === priorityMarket ? 0 : 1;
+      const rightPriority = marketScopeForItem(right.item) === priorityMarket ? 0 : 1;
+      return leftPriority - rightPriority || left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
+
 function homeMarketSignalItems(items = [], options = {}) {
-  return currentAiSignalItems(normalizedAiSignalItems(
+  const normalizedItems = currentAiSignalItems(normalizedAiSignalItems(
     items,
     { includeHistorical: options.includeHistorical === true },
   ))
@@ -18733,6 +18776,10 @@ function homeMarketSignalItems(items = [], options = {}) {
         };
       })(),
     }));
+  const priorityMarket = Object.prototype.hasOwnProperty.call(options, "priorityMarket")
+    ? options.priorityMarket
+    : homeSignalOpeningPriorityMarket(options.now);
+  return prioritizeHomeMarketSignalItems(normalizedItems, priorityMarket);
 }
 
 function homeHoldingSignalItems(items = []) {
@@ -18779,6 +18826,20 @@ function startHomeMarketSignalTicker() {
       if (state.view !== "home") {
         return;
       }
+      const priorityMarket = homeSignalOpeningPriorityMarket();
+      if (priorityMarket !== state.marketSignalTickerPriorityMarket) {
+        state.marketSignalTickerPriorityMarket = priorityMarket;
+        state.marketSignalTickerItems = prioritizeHomeMarketSignalItems(
+          state.marketSignalTickerBaseItems,
+          priorityMarket,
+        );
+        state.marketSignalTickerIndex = 0;
+        if (elements.homeMarketSignalTicker) {
+          elements.homeMarketSignalTicker.dataset.priorityMarket = priorityMarket || "feed";
+        }
+        showHomeMarketSignalTickerItem();
+        return;
+      }
       state.marketSignalTickerIndex = (state.marketSignalTickerIndex + 1) % state.marketSignalTickerItems.length;
       showHomeMarketSignalTickerItem();
     }, 3000);
@@ -18786,10 +18847,18 @@ function startHomeMarketSignalTicker() {
 }
 
 function renderHomeMarketSignalTicker(payload = {}) {
-  state.marketSignalTickerItems = homeMarketSignalItems(
+  state.marketSignalTickerBaseItems = homeMarketSignalItems(
     Array.isArray(payload.items) ? payload.items : [],
-    { includeHistorical: payload.includeHistorical === true },
+    { includeHistorical: payload.includeHistorical === true, priorityMarket: "" },
   );
+  state.marketSignalTickerPriorityMarket = homeSignalOpeningPriorityMarket(payload.now);
+  state.marketSignalTickerItems = prioritizeHomeMarketSignalItems(
+    state.marketSignalTickerBaseItems,
+    state.marketSignalTickerPriorityMarket,
+  );
+  if (elements.homeMarketSignalTicker) {
+    elements.homeMarketSignalTicker.dataset.priorityMarket = state.marketSignalTickerPriorityMarket || "feed";
+  }
   state.marketSignalTickerIndex = 0;
   showHomeMarketSignalTickerItem();
   startHomeMarketSignalTicker();
@@ -19333,7 +19402,10 @@ function renderMarketRankingModeTabs() {
 
 function renderMarketRankingHeader(payload = null) {
   const config = marketRankingConfig(state.rankingCategory);
-  if (elements.marketRankingCommandTitle) elements.marketRankingCommandTitle.textContent = "TOP 50";
+  if (elements.marketRankingCommandTitle) {
+    const countryLabel = isUnifiedRootPath ? (state.marketScope === "us" ? "미국" : "한국") : "";
+    elements.marketRankingCommandTitle.textContent = countryLabel ? `${countryLabel} TOP 50` : "TOP 50";
+  }
   if (elements.marketRankingTitle) elements.marketRankingTitle.textContent = config.title;
   if (elements.marketRankingDescription) elements.marketRankingDescription.textContent = config.description;
   if (elements.marketRankingMeta) {
@@ -29594,6 +29666,12 @@ window.addEventListener("popstate", (event) => {
   void handleDashboardPopState(event);
 });
 
+window.addEventListener("pageshow", () => {
+  if (state.view === "ai-signals") {
+    resetAiSignalLandingViewport();
+  }
+});
+
 for (const item of elements.appNavItems) {
   item.addEventListener("click", () => {
     setView(item.dataset.appView);
@@ -29608,14 +29686,6 @@ for (const button of elements.unifiedMarketScopeButtons) {
     );
     moveRovingTabFocus(event, groupButtons, button);
   });
-}
-for (const button of elements.marketRankingCountryButtons) {
-  button.addEventListener("click", () => setUnifiedMarketScope(button.dataset.top50MarketScope || "kr"));
-  button.addEventListener("keydown", (event) => moveRovingTabFocus(
-    event,
-    elements.marketRankingCountryButtons,
-    button,
-  ));
 }
 elements.morningMoneyBriefingBack?.addEventListener("click", () => {
   state.morningMoneyBriefingSelection = null;

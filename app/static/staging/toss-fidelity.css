@@ -20124,6 +20124,18 @@ body[data-staging-ia="tds-video"] #ai-signals-view .staging-ai-signal-market-tog
   }
 }
 
+/* v165 — keep the AI signal landing hierarchy below contextual browser chrome. */
+body[data-staging-ia="tds-video"] #ai-signals-view .staging-ai-signals-intro {
+  box-sizing: border-box !important;
+  padding-top: calc(28px + var(--staging-ai-signal-header-overlap, 0px)) !important;
+}
+
+@media (max-width: 360px) {
+  body[data-staging-ia="tds-video"] #ai-signals-view .staging-ai-signals-intro {
+    padding-top: calc(24px + var(--staging-ai-signal-header-overlap, 0px)) !important;
+  }
+}
+
 /* v160 — home interest bubbles above TOP 50 and compact group watchlist. */
 body[data-staging-ia="tds-video"] #home-view > .home-watch-market-map {
   width: 100% !important;

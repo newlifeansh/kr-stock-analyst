@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260911v526"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260911v527"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -1188,6 +1188,34 @@ def test_market_lists_share_stock_logo_identity():
         ".recommend-name .stock-list-copy",
     ):
         assert expected in styles
+
+
+def test_watch_market_empty_cta_overrides_adaptive_dark_button_color():
+    client = TestClient(app)
+    styles = client.get("/assets/dashboard/styles.css").text
+    dark_theme = client.get("/assets/staging/dark-theme.css").text
+
+    tokens = styles[styles.index("/* Watch groups and return timeline v506") :]
+    empty_cta = tokens[
+        tokens.index("#home-view .watch-market-map-empty button {") :
+        tokens.index("#home-view .watch-market-map-empty button:focus-visible")
+    ]
+    empty_cta_focus = tokens[
+        tokens.index("#home-view .watch-market-map-empty button:focus-visible") :
+        tokens.index("#home-view .watch-market-map-skeleton {")
+    ]
+    active_group = tokens[
+        tokens.index("#portfolio-view .watch-group-chip.active {") :
+        tokens.index("#portfolio-view .watch-group-create {")
+    ]
+
+    assert "--watch-group-contrast: light-dark(#ffffff, #17181c);" in tokens
+    assert "color: var(--watch-group-contrast) !important;" in empty_cta
+    assert "outline: 3px solid rgba(49, 130, 246, 0.34);" in empty_cta_focus
+    assert "outline-offset: 2px;" in empty_cta_focus
+    assert "color: var(--watch-group-contrast) !important;" in active_group
+    assert "body :is(a, button, label)" in dark_theme
+    assert "color: var(--dark-text) !important;" in dark_theme
 
 
 def test_market_ranking_tabs_reserve_their_full_mobile_grid_row():

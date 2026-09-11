@@ -844,6 +844,8 @@ def test_home_market_ticker_uses_current_preliminary_date_over_old_transition() 
     script = f"""
 function normalizedAiSignalItems(items) {{ return items; }}
 function currentAiSignalItems(items) {{ return items; }}
+function homeSignalOpeningPriorityMarket() {{ return ""; }}
+function prioritizeHomeMarketSignalItems(items) {{ return items; }}
 function compactSignalDate(value) {{
   const match = String(value || "").match(/^(\\d{{4}})-(\\d{{2}})-(\\d{{2}})/);
   return match ? `${{match[1]}}.${{match[2]}}.${{match[3]}}` : "날짜 확인 중";
@@ -889,6 +891,61 @@ console.log(JSON.stringify(result.tickerSignal));
         "side": "buy",
         "date": "2026.08.18",
         "preliminary": True,
+    }
+
+
+def test_home_market_ticker_prioritizes_each_market_around_its_open() -> None:
+    source = app_source()
+    market_start = source.index("function marketScopeForItem(")
+    market_end = source.index("function tagMarketItems(", market_start)
+    new_york_start = source.index("function newYorkClockParts(")
+    new_york_end = source.index("function usMarketPhase(", new_york_start)
+    korea_start = source.index("function koreaClockParts(")
+    korea_end = source.index("function morningMoneyEdition(", korea_start)
+    priority_start = source.index("function homeSignalOpeningPriorityMarket(")
+    priority_end = source.index("function homeMarketSignalItems(", priority_start)
+    function_source = "\n".join((
+        source[market_start:market_end],
+        source[new_york_start:new_york_end],
+        source[korea_start:korea_end],
+        source[priority_start:priority_end],
+    ))
+    script = f"""
+const MORNING_MONEY_BRIEFING_TIMEZONE = "Asia/Seoul";
+{function_source}
+const items = [
+  {{ code: "005930", market_scope: "kr" }},
+  {{ code: "NVDA", market_scope: "us" }},
+  {{ code: "000660", market_scope: "kr" }},
+  {{ code: "AAPL", market_scope: "us" }},
+];
+const order = (market) => prioritizeHomeMarketSignalItems(items, market).map(item => item.code);
+console.log(JSON.stringify({{
+  koreaOpen: homeSignalOpeningPriorityMarket(new Date("2026-09-10T00:00:00Z")),
+  usOpenSummer: homeSignalOpeningPriorityMarket(new Date("2026-09-10T13:30:00Z")),
+  usOpenWinter: homeSignalOpeningPriorityMarket(new Date("2026-01-12T14:30:00Z")),
+  outsideOpenWindows: homeSignalOpeningPriorityMarket(new Date("2026-09-10T08:00:00Z")),
+  koreaOrder: order("kr"),
+  usOrder: order("us"),
+  feedOrder: order(""),
+}}));
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "koreaOpen": "kr",
+        "usOpenSummer": "us",
+        "usOpenWinter": "us",
+        "outsideOpenWindows": "",
+        "koreaOrder": ["005930", "000660", "NVDA", "AAPL"],
+        "usOrder": ["NVDA", "AAPL", "005930", "000660"],
+        "feedOrder": ["005930", "NVDA", "000660", "AAPL"],
     }
 
 

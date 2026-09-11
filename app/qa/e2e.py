@@ -1575,6 +1575,52 @@ def run_e2e_checks(
                     "#home-market-signal-window .home-market-signal-row",
                     state="visible",
                 )
+                opening_priority = page.evaluate(
+                    """() => {
+                      const items = [
+                        { code: '005930', market_scope: 'kr' },
+                        { code: 'NVDA', market_scope: 'us' },
+                        { code: '000660', market_scope: 'kr' },
+                        { code: 'AAPL', market_scope: 'us' },
+                      ];
+                      const order = market => prioritizeHomeMarketSignalItems(items, market)
+                        .map(item => item.code);
+                      return {
+                        koreaOpen: homeSignalOpeningPriorityMarket(
+                          new Date('2026-09-10T00:00:00Z')
+                        ),
+                        usOpenSummer: homeSignalOpeningPriorityMarket(
+                          new Date('2026-09-10T13:30:00Z')
+                        ),
+                        usOpenWinter: homeSignalOpeningPriorityMarket(
+                          new Date('2026-01-12T14:30:00Z')
+                        ),
+                        outsideOpenWindows: homeSignalOpeningPriorityMarket(
+                          new Date('2026-09-10T08:00:00Z')
+                        ),
+                        koreaOrder: order('kr'),
+                        usOrder: order('us'),
+                        feedOrder: order(''),
+                      };
+                    }"""
+                )
+                expected_opening_priority = {
+                    "koreaOpen": "kr",
+                    "usOpenSummer": "us",
+                    "usOpenWinter": "us",
+                    "outsideOpenWindows": "",
+                    "koreaOrder": ["005930", "000660", "NVDA", "AAPL"],
+                    "usOrder": ["NVDA", "AAPL", "005930", "000660"],
+                    "feedOrder": ["005930", "NVDA", "000660", "AAPL"],
+                }
+                if opening_priority != expected_opening_priority:
+                    raise QaFailure(
+                        "한국·미국 장 시작 전후 홈 시그널 우선순위가 잘못됐습니다.",
+                        {
+                            "expected": expected_opening_priority,
+                            "actual": opening_priority,
+                        },
+                    )
                 signal_cta = page.locator(".staging-home-signal-chevron")
                 signal_cta.wait_for(state="visible")
                 cta_contract = signal_cta.evaluate(
@@ -1717,6 +1763,7 @@ def run_e2e_checks(
                     "live_return_contract": live_return_contract,
                     "weekend_close_basis": weekend_basis,
                     "home_copy": "한국·미국 종목의 최신 예비 신호를 확인하세요",
+                    "opening_market_priority": opening_priority,
                     "home_cta": cta_contract,
                     "signal_entry_frames": signal_entry_frames,
                 }
@@ -3422,37 +3469,75 @@ def run_e2e_checks(
                 if notification_sheet.is_visible():
                     page.locator("#push-notification-sheet-close").click()
                     notification_sheet.wait_for(state="hidden")
-                page.evaluate(
+                entry_scroll_y = page.evaluate(
                     """() => {
                       document.body.style.setProperty('--tc-safe-area-top', '47px', 'important');
                       document.documentElement.style.setProperty('scroll-behavior', 'auto', 'important');
                       document.body.style.setProperty('scroll-behavior', 'auto', 'important');
                       const list = document.querySelector('#ai-signals-page-list');
                       if (list) list.style.setProperty('min-height', 'calc(100vh + 1200px)', 'important');
-                      window.scrollTo(0, 0);
+                      window.scrollTo(0, 500);
+                      const previousScrollY = window.scrollY;
+                      setView('ai-signals', { historyMode: 'none' });
+                      return previousScrollY;
                     }"""
+                )
+                page.wait_for_function(
+                    """() => {
+                      const header = document.querySelector('.app-topbar.is-staging-contextual');
+                      const intro = document.querySelector('#ai-signals-view .staging-ai-signals-intro');
+                      const eyebrow = intro?.querySelector(':scope > span');
+                      if (!header || !intro || !eyebrow) return false;
+                      return window.scrollY === 0
+                        && intro.getBoundingClientRect().top >= header.getBoundingClientRect().bottom - 1
+                        && eyebrow.getBoundingClientRect().top >= header.getBoundingClientRect().bottom - 1;
+                    }""",
+                    timeout=5_000,
                 )
 
                 initial_spacing = page.evaluate(
                     """() => {
                       const round = value => Math.round(value * 10) / 10;
+                      const header = document.querySelector('.app-topbar.is-staging-contextual');
+                      const intro = document.querySelector('#ai-signals-view .staging-ai-signals-intro');
+                      const eyebrow = intro.querySelector(':scope > span');
                       const title = document.querySelector('#staging-ai-signals-title');
                       const modeTabs = document.querySelector('#ai-signal-mode-tabs');
                       const currentTab = document.querySelector('#ai-signal-mode-current');
+                      const headerRect = header.getBoundingClientRect();
+                      const introRect = intro.getBoundingClientRect();
+                      const eyebrowRect = eyebrow.getBoundingClientRect();
                       const titleRect = title.getBoundingClientRect();
                       const modeRect = modeTabs.getBoundingClientRect();
                       const tabRect = currentTab.getBoundingClientRect();
                       return {
+                        scrollY: round(window.scrollY),
+                        headerBottom: round(headerRect.bottom),
+                        introTop: round(introRect.top),
+                        eyebrowTop: round(eyebrowRect.top),
+                        titleTop: round(titleRect.top),
                         titleBottom: round(titleRect.bottom),
                         modeTop: round(modeRect.top),
                         modeHeight: round(modeRect.height),
                         tabTop: round(tabRect.top),
                         titleToTabsGap: round(modeRect.top - titleRect.bottom),
                         modePaddingTop: getComputedStyle(modeTabs).paddingTop,
+                        measuredHeaderOverlap: intro.dataset.headerOverlap || '',
                       };
                     }"""
                 )
                 initial_failures = []
+                if float(entry_scroll_y or 0) < 400:
+                    initial_failures.append("entry_fixture_scroll")
+                if float(initial_spacing.get("scrollY") or 0) != 0:
+                    initial_failures.append("landing_scroll_reset")
+                header_bottom = float(initial_spacing.get("headerBottom") or 0)
+                if float(initial_spacing.get("introTop") or 0) < header_bottom - 1:
+                    initial_failures.append("intro_header_overlap")
+                if float(initial_spacing.get("eyebrowTop") or 0) < header_bottom - 1:
+                    initial_failures.append("eyebrow_header_overlap")
+                if float(initial_spacing.get("titleTop") or 0) < header_bottom - 1:
+                    initial_failures.append("title_header_overlap")
                 initial_gap = float(initial_spacing.get("titleToTabsGap") or 0)
                 if initial_gap < 16 or initial_gap > 24:
                     initial_failures.append("title_tab_gap")
@@ -3467,9 +3552,10 @@ def run_e2e_checks(
                     initial_failures.append("tab_inset")
                 if initial_failures:
                     raise QaFailure(
-                        "AI 시그널 타이틀과 모드 탭의 최초 간격이 너무 넓습니다.",
+                        "AI 시그널 첫 진입 위치 또는 타이틀·모드 탭 간격이 계약과 다릅니다.",
                         {
                             "failed_contracts": initial_failures,
+                            "entry_scroll_y": entry_scroll_y,
                             "initial_spacing": initial_spacing,
                         },
                     )
@@ -3657,6 +3743,7 @@ def run_e2e_checks(
                         )
                 return {
                     **shell,
+                    "entry_scroll_y": entry_scroll_y,
                     "initial_spacing": initial_spacing,
                     "sell_guidance": sell_guidance,
                     "price_alignment": price_alignment,
@@ -8853,6 +8940,81 @@ def run_e2e_checks(
                         {"activated_href": activated_href},
                     )
 
+                empty_cta_ready = page.evaluate(
+                    """() => {
+                      state.watchMarketMapResizeObserver?.disconnect();
+                      state.watchMarketMapResizeObserver = null;
+                      window.cancelAnimationFrame(state.watchMarketMapRenderFrame);
+                      state.watchMarketMapRenderFrame = null;
+                      renderWatchMarketMap([], {empty: true});
+                      const element = document.querySelector(
+                        '#watch-market-map-stage.is-empty .watch-market-map-empty button'
+                      );
+                      const previous = document.querySelector(
+                        '#watch-market-map-market-toggle [data-watch-market-scope="us"]'
+                      );
+                      if (!element || !previous) return false;
+                      previous.focus();
+                      return true;
+                    }"""
+                )
+                if not empty_cta_ready:
+                    raise QaFailure(
+                        "관심종목 빈 상태 CTA를 렌더링하지 못했습니다.",
+                        {"empty_cta_ready": empty_cta_ready},
+                    )
+                page.keyboard.press("Tab")
+                empty_cta_snapshot = page.locator(
+                    "#watch-market-map-stage.is-empty .watch-market-map-empty button"
+                ).evaluate(
+                    """element => {
+                      const style = getComputedStyle(element);
+                      const rect = element.getBoundingClientRect();
+                      const rgb = value => {
+                        const channels = String(value).match(/[0-9.]+/g)?.slice(0, 3).map(Number) || [];
+                        return channels.length === 3 ? channels : [0, 0, 0];
+                      };
+                      const luminance = value => rgb(value)
+                        .map(channel => channel / 255)
+                        .map(channel => channel <= 0.04045
+                          ? channel / 12.92
+                          : Math.pow((channel + 0.055) / 1.055, 2.4))
+                        .reduce((sum, channel, index) => (
+                          sum + channel * [0.2126, 0.7152, 0.0722][index]
+                        ), 0);
+                      const foreground = style.color;
+                      const background = style.backgroundColor;
+                      const lighter = Math.max(luminance(foreground), luminance(background));
+                      const darker = Math.min(luminance(foreground), luminance(background));
+                      return {
+                        label: element.innerText.trim(),
+                        foreground,
+                        background,
+                        contrastRatio: Number(((lighter + 0.05) / (darker + 0.05)).toFixed(2)),
+                        width: rect.width,
+                        height: rect.height,
+                        focused: document.activeElement === element,
+                      };
+                    }"""
+                )
+                if (
+                    not empty_cta_snapshot
+                    or empty_cta_snapshot["label"] != "관심종목 추가"
+                    or empty_cta_snapshot["contrastRatio"] < 4.5
+                    or empty_cta_snapshot["height"] < 44
+                    or not empty_cta_snapshot["focused"]
+                ):
+                    raise QaFailure(
+                        "관심종목 빈 상태 CTA의 문구·대비·터치·포커스 계약이 다릅니다.",
+                        empty_cta_snapshot,
+                    )
+                page.locator("#watch-market-map").screenshot(
+                    path=str(output_dir / f"SIG-UI-025-{theme}-empty.png"),
+                    animations="disabled",
+                )
+                page.keyboard.press("Enter")
+                page.wait_for_function("() => state.view === 'search'")
+
                 return {
                     **shell,
                     "placement": placement,
@@ -8881,6 +9043,10 @@ def run_e2e_checks(
                     "sheet": sheet_snapshot,
                     "focus_returned_after_live_render": True,
                     "bubble_click_href": activated_href,
+                    "empty_state_cta": {
+                        **empty_cta_snapshot,
+                        "keyboard_activated_search": True,
+                    },
                     "market_toggle_visible": True,
                 }
 

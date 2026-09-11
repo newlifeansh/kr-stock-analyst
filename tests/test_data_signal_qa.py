@@ -160,6 +160,11 @@ def test_live_ai_signal_cases_trace_order_revision_freeze_and_accessibility() ->
     assert "보유 N개 모두 실시간" in signal_ui
     assert "예외 행만 개별 배지" in signal_ui
     assert "해제 이력에서는 현재 목록 요약을 숨긴다" in signal_ui
+    assert "08:00<=Asia/Seoul<10:00" in signal_ui
+    assert "08:30<=America/New_York<10:30" in signal_ui
+    signal_landing = json.dumps(cases["SIG-UI-010"], ensure_ascii=False)
+    assert "entry_scroll_y" in signal_landing
+    assert "landing_header_clearance_min_px" in signal_landing
 
 
 @pytest.mark.qa_gate
@@ -1027,6 +1032,9 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "metadata_leaks" in source
     assert "metadataLeaks" in source
     assert "focus_returned_after_live_render" in source
+    assert "empty_state_cta" in source
+    assert "contrastRatio" in source
+    assert "keyboard_activated_search" in source
 
 
 def test_gpt_briefing_copy_contract_is_registered_for_e2e() -> None:

@@ -2790,7 +2790,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20260911v526' in shell
+    assert 'dashboard-app-v170.js?v=20260911v527' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 
@@ -3336,6 +3336,33 @@ def test_staging_v133_compacts_ai_signal_title_gap_without_losing_safe_area():
         "top: var(--tc-safe-area-top) !important",
         "min-height: 57px !important",
         "padding: 0 var(--tc-gutter) !important",
+    ):
+        assert contract in rules
+
+
+def test_staging_v165_resets_ai_signal_landing_and_clears_contextual_header():
+    client = TestClient(staging_app)
+    dashboard_js = client.get("/dashboard-app-v170.js").text
+    css = client.get("/assets/staging/toss-fidelity.css").text
+    rules = css.split(
+        "/* v165 — keep the AI signal landing hierarchy below contextual browser chrome. */",
+        1,
+    )[1]
+
+    for contract in (
+        "function syncAiSignalLandingHeaderClearance()",
+        "function resetAiSignalLandingViewport()",
+        'window.scrollTo({ top: 0, behavior: "auto" });',
+        "header.getBoundingClientRect().bottom - intro.getBoundingClientRect().top",
+        'intro.style.setProperty("--staging-ai-signal-header-overlap", `${overlap}px`);',
+        'window.addEventListener("pageshow", () =>',
+    ):
+        assert contract in dashboard_js
+    for contract in (
+        ".staging-ai-signals-intro",
+        "box-sizing: border-box !important",
+        "padding-top: calc(28px + var(--staging-ai-signal-header-overlap, 0px)) !important",
+        "padding-top: calc(24px + var(--staging-ai-signal-header-overlap, 0px)) !important",
     ):
         assert contract in rules
 
