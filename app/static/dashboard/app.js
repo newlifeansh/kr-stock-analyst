@@ -13489,7 +13489,7 @@ function registerDashboardServiceWorker() {
     window.setTimeout(() => {
       const url = new URL(window.location.href);
       const currentBuild = url.searchParams.get("app_build");
-      if (!currentBuild || currentBuild === DASHBOARD_CLIENT_VERSION) {
+      if (currentBuild === DASHBOARD_CLIENT_VERSION) {
         return;
       }
       url.searchParams.set("app_build", DASHBOARD_CLIENT_VERSION);
@@ -13523,6 +13523,9 @@ function dashboardRefreshUrl() {
     }
   } else {
     url.searchParams.set("view", state.view || "home");
+    if (isUsHubContext && ["kr", "us"].includes(state.marketScope)) {
+      url.searchParams.set("market_scope", state.marketScope);
+    }
   }
   return url.href;
 }

@@ -271,7 +271,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260911v528"
+DASHBOARD_CLIENT_VERSION = "20260911v529"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -2613,6 +2613,9 @@ def stock_dashboard_refresh():
           ? params.get("view")
           : "search";
         const market = params.get("market") === "us" ? "us" : "kr";
+        const marketScope = ["kr", "us"].includes(params.get("market_scope"))
+          ? params.get("market_scope")
+          : "kr";
         const requestedCode = String(params.get("code") || "").trim().toUpperCase();
         const code = market === "us"
           ? (/^[A-Z][A-Z0-9.-]{{0,9}}$/.test(requestedCode) ? requestedCode : "")
@@ -2621,7 +2624,7 @@ def stock_dashboard_refresh():
           ? `/us/stock/${{encodeURIComponent(code)}}?app_build={DASHBOARD_CLIENT_VERSION}`
           : code
             ? `/dashboard/${{code}}?app_build={DASHBOARD_CLIENT_VERSION}`
-            : `/dashboard?view=${{encodeURIComponent(view)}}&app_build={DASHBOARD_CLIENT_VERSION}`;
+            : `/dashboard?view=${{encodeURIComponent(view)}}&market_scope=${{encodeURIComponent(marketScope)}}&app_build={DASHBOARD_CLIENT_VERSION}`;
         location.replace(destination);
       }})();
     </script>
