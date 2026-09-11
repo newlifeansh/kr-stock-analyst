@@ -14,7 +14,7 @@ def test_unified_roots_use_compact_community_market_toggle_contract():
     assert shell.status_code == 200
     assert dashboard_shell.status_code == 200
     assert dashboard_shell.text == shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260911v529"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260911v530"' in shell.text
     assert 'src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108"' in shell.text
 
     intro_contract = staging_js.split(
@@ -37,7 +37,8 @@ def test_unified_roots_use_compact_community_market_toggle_contract():
         'requestedMarketScopeValue === "all"',
         'const compactSignalToggle = Boolean(button.closest("[data-ai-signal-market-toggle]"));',
         'button.setAttribute("aria-pressed", String(active));',
-        '["news", "search", "portfolio", "chart"].includes(state.view)',
+        '["news", "portfolio", "chart"].includes(state.view)',
+        'elements.recommendMarketScope.hidden = state.view !== "search";',
         'state.marketScope = BINARY_MARKET_SCOPE_ROUTES.has(routeView) && routeMarketScope === "all"',
         'if (isUsHubContext && state.marketScope === "all")',
         'state.marketScope = "kr";',
@@ -70,7 +71,7 @@ def test_unified_roots_use_compact_community_market_toggle_contract():
         assert contract in shared_toggle_rules
 
 
-def test_unified_roots_share_a_binary_country_selector_on_every_scoped_page():
+def test_unified_roots_keep_search_global_and_place_binary_selector_on_recommendations():
     client = TestClient(app, base_url="https://secretnote.cloud")
     shell = client.get("/us?view=news")
     dashboard_js = client.get("/dashboard-app-v170.js").text
@@ -89,18 +90,35 @@ def test_unified_roots_share_a_binary_country_selector_on_every_scoped_page():
     assert 'role="tablist"' not in scope_markup
     assert scope_markup.index('data-unified-market-scope="us"') < scope_markup.index('data-unified-market-scope="kr"')
 
+    recommend_scope_markup = shell.text.split('id="recommend-market-scope"', 1)[1].split("</nav>", 1)[0]
+    for contract in (
+        'role="group" aria-label="추천 종목 시장 선택"',
+        'aria-label="미국 추천 종목 보기" aria-pressed="false" data-recommend-market-scope="us"',
+        'aria-label="한국 추천 종목 보기" aria-pressed="true" data-recommend-market-scope="kr"',
+    ):
+        assert contract in recommend_scope_markup
+    assert 'data-recommend-market-scope="all"' not in recommend_scope_markup
+
     for contract in (
         'const BINARY_MARKET_SCOPE_ROUTES = new Set([',
         'const isUnifiedRootPath = isUsRootPath || isDashboardRootPath;',
-        'elements.unifiedMarketScope.hidden = !["news", "search", "portfolio", "chart"].includes(state.view);',
-        'elements.unifiedMarketScope.hidden = !isUsHubContext || !["news", "search", "portfolio", "chart"].includes(view);',
+        'elements.unifiedMarketScope.hidden = !["news", "portfolio", "chart"].includes(state.view);',
+        'elements.unifiedMarketScope.hidden = !isUsHubContext || !["news", "portfolio", "chart"].includes(view);',
+        'elements.recommendMarketScope.hidden = state.view !== "search";',
+        'elements.recommendMarketScope.hidden = !isUsHubContext || view !== "search";',
         'news: { heading: "오늘의 피드", item: "피드" }',
         'search: { heading: "종목 찾기", item: "종목" }',
         'portfolio: { heading: "관심 종목", item: "관심 종목" }',
         'chart: { heading: "차트 분석", item: "차트 분석" }',
         'const selectedMarketLabel = state.marketScope === "us"',
         'setCopy("recommend-stage-title", `${selectedMarketLabel} 추천 종목`);',
-        'elements.discoverySearchInput.setAttribute("aria-label", `${selectedMarketLabel} 종목 검색`);',
+        'elements.discoverySearchInput.placeholder = "한국·미국 종목명 또는 코드";',
+        'elements.discoverySearchInput.setAttribute("aria-label", "한국·미국 전체 종목 검색");',
+        'const searchScope = isChart ? state.marketScope : (isUsHubContext ? "all" : "kr");',
+        'fetchUnifiedStockSearch(normalized, 12, controller.signal, searchScope)',
+        'async function resolveAndLoadDiscoveryStock(query)',
+        'fetchUnifiedStockSearch(query, 12, undefined, searchScope)',
+        'await load(selected.name || selected.code, { resolvedStock: selected });',
         'elements.unifiedMarketScope.dataset.presentation = "country-toggle";',
         'toggle.setAttribute("role", "group");',
         'const orderedScopes = ["us", "kr"];',
@@ -130,6 +148,16 @@ def test_unified_roots_share_a_binary_country_selector_on_every_scoped_page():
     ):
         assert contract in shared_toggle_rules
 
+    recommendation_rules = dashboard_css.split("#recommend-view .recommend-market-scope[hidden]", 1)[1]
+    for contract in (
+        "#recommend-view .recommend-market-scope",
+        "grid-template-columns: repeat(2, minmax(0, 1fr));",
+        "min-height: 44px;",
+        '[aria-pressed="true"]',
+        "> button:focus-visible",
+    ):
+        assert contract in recommendation_rules
+
 
 def test_unified_top50_locks_home_entry_country_without_country_selector():
     client = TestClient(app, base_url="https://secretnote.cloud")
@@ -147,7 +175,7 @@ def test_unified_top50_locks_home_entry_country_without_country_selector():
     for contract in (
         'BINARY_MARKET_SCOPE_ROUTES.has(requestedView)',
         'BINARY_MARKET_SCOPE_ROUTES.has(routeView)',
-        '["news", "search", "portfolio", "chart"].includes(state.view)',
+        '["news", "portfolio", "chart"].includes(state.view)',
         'function syncMarketRankingExchangeFilters(view = state.view)',
         'button.hidden = state.marketScope === "us"',
         '? ["MIXED", "ALL", "KOSPI", "KOSDAQ"].includes(market)',

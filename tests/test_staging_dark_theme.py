@@ -1111,6 +1111,11 @@ def test_staging_v40_renews_discovery_hierarchy_and_responsive_cards():
     assert 'recommendationTitle.textContent = "지금 확인할 추천 종목"' in js
     assert 'description.className = "staging-recommend-description"' in js
     assert "새로 살 차례인지, 보유할 차례인지 먼저 확인해 보세요." in js
+    assert '#recommend-view .recommend-market-scope' in css
+    assert 'grid-template-columns: minmax(0, 1fr) auto !important' in css
+    assert 'grid-row: 1 / span 3 !important' in css
+    assert '#recommend-view .staging-recommend-description' in css
+    assert 'grid-column: 1 / -1 !important' in css
     assert '.staging-discovery-shortcuts.staging-shortcut-rail' in css
     assert 'grid-template-columns: repeat(3, minmax(0, 1fr)) !important' in css
     assert '.staging-discovery-signal-copy > small' in css
@@ -2790,7 +2795,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20260911v529' in shell
+    assert 'dashboard-app-v170.js?v=20260911v530' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 

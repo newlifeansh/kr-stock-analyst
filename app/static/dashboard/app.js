@@ -25,6 +25,8 @@ const elements = {
   appFrame: document.querySelector(".app-frame"),
   unifiedMarketScope: $("unified-market-scope"),
   unifiedMarketScopeButtons: Array.from(document.querySelectorAll("[data-unified-market-scope]")),
+  recommendMarketScope: $("recommend-market-scope"),
+  recommendMarketScopeButtons: Array.from(document.querySelectorAll("[data-recommend-market-scope]")),
   loginGate: $("login-gate"),
   loginSplash: $("login-splash"),
   loginForm: $("login-form"),
@@ -1488,10 +1490,8 @@ function applyUsMarketSurface() {
   setCopy("news-page-title", `${selectedMarketLabel} 시장 뉴스`);
   setCopy("recommend-stage-title", `${selectedMarketLabel} 추천 종목`);
   if (elements.discoverySearchInput) {
-    elements.discoverySearchInput.placeholder = state.marketScope === "us"
-      ? "미국 종목명 또는 티커"
-      : state.marketScope === "kr" ? "국내 종목명 또는 코드" : "국내 종목명·코드 또는 미국 티커";
-    elements.discoverySearchInput.setAttribute("aria-label", `${selectedMarketLabel} 종목 검색`);
+    elements.discoverySearchInput.placeholder = "한국·미국 종목명 또는 코드";
+    elements.discoverySearchInput.setAttribute("aria-label", "한국·미국 전체 종목 검색");
   }
   if (elements.input) {
     elements.input.placeholder = "국내 종목명·코드 또는 미국 티커";
@@ -1516,7 +1516,15 @@ function applyUsMarketSurface() {
   if (domesticSource) domesticSource.hidden = false;
   if (usSource) usSource.hidden = false;
   if (elements.unifiedMarketScope) {
-    elements.unifiedMarketScope.hidden = !["news", "search", "portfolio", "chart"].includes(state.view);
+    elements.unifiedMarketScope.hidden = !["news", "portfolio", "chart"].includes(state.view);
+  }
+  if (elements.recommendMarketScope) {
+    elements.recommendMarketScope.hidden = state.view !== "search";
+    for (const button of elements.recommendMarketScopeButtons) {
+      const active = button.dataset.recommendMarketScope === state.marketScope;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
   }
   syncUnifiedMarketScopePresentation(state.view);
   for (const button of elements.unifiedMarketScopeButtons) {
@@ -1644,8 +1652,12 @@ function setUnifiedMarketScope(marketScope) {
 }
 
 function syncUnifiedMarketScopeVisibility(view = state.view) {
-  if (!elements.unifiedMarketScope) return;
-  elements.unifiedMarketScope.hidden = !isUsHubContext || !["news", "search", "portfolio", "chart"].includes(view);
+  if (elements.unifiedMarketScope) {
+    elements.unifiedMarketScope.hidden = !isUsHubContext || !["news", "portfolio", "chart"].includes(view);
+  }
+  if (elements.recommendMarketScope) {
+    elements.recommendMarketScope.hidden = !isUsHubContext || view !== "search";
+  }
   syncUnifiedMarketScopePresentation(view);
   syncMarketRankingExchangeFilters(view);
 }
@@ -10192,7 +10204,8 @@ async function fetchStandaloneSuggestions(kind, query) {
   const controller = new AbortController();
   state[controllerKey] = controller;
   try {
-    const items = await fetchUnifiedStockSearch(normalized, 12, controller.signal);
+    const searchScope = isChart ? state.marketScope : (isUsHubContext ? "all" : "kr");
+    const items = await fetchUnifiedStockSearch(normalized, 12, controller.signal, searchScope);
     if (document.activeElement !== input) {
       hideStandaloneSuggestions(input, container);
       return;
@@ -10214,6 +10227,30 @@ async function fetchStandaloneSuggestions(kind, query) {
       hideStandaloneSuggestions(input, container);
     }
   }
+}
+
+async function resolveAndLoadDiscoveryStock(query) {
+  const normalized = String(query || "").trim().toLocaleLowerCase("ko-KR");
+  const exactSuggestion = (state.discoverySuggestions || []).find((item) => (
+    [item.code, item.name].some((value) => String(value || "").trim().toLocaleLowerCase("ko-KR") === normalized)
+  ));
+  let selected = exactSuggestion;
+  if (!selected) {
+    try {
+      const searchScope = isUsHubContext ? "all" : "kr";
+      const matches = await fetchUnifiedStockSearch(query, 12, undefined, searchScope);
+      selected = matches.find((item) => (
+        [item.code, item.name].some((value) => String(value || "").trim().toLocaleLowerCase("ko-KR") === normalized)
+      )) || matches[0];
+    } catch {
+      selected = null;
+    }
+  }
+  if (selected) {
+    await load(selected.name || selected.code, { resolvedStock: selected });
+    return;
+  }
+  await load(query);
 }
 
 function scheduleStandaloneSuggestions(kind) {
@@ -29690,6 +29727,12 @@ for (const button of elements.unifiedMarketScopeButtons) {
     moveRovingTabFocus(event, groupButtons, button);
   });
 }
+for (const button of elements.recommendMarketScopeButtons) {
+  button.addEventListener("click", () => setUnifiedMarketScope(button.dataset.recommendMarketScope || "kr"));
+  button.addEventListener("keydown", (event) => {
+    moveRovingTabFocus(event, elements.recommendMarketScopeButtons, button);
+  });
+}
 elements.morningMoneyBriefingBack?.addEventListener("click", () => {
   state.morningMoneyBriefingSelection = null;
   navigateBackOrFallback("home");
@@ -30433,8 +30476,11 @@ elements.discoverySearchForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   const query = elements.discoverySearchInput.value.trim();
   if (query) {
+    window.clearTimeout(state.discoverySuggestionTimer);
+    state.discoverySuggestionController?.abort();
     hideStandaloneSuggestions(elements.discoverySearchInput, elements.discoverySearchSuggestions);
-    void load(query);
+    elements.discoverySearchInput.blur();
+    void resolveAndLoadDiscoveryStock(query);
   }
 });
 elements.discoverySearchInput?.addEventListener("input", () => scheduleStandaloneSuggestions("discovery"));

@@ -9427,14 +9427,28 @@ body[data-staging-ia="tds-video"] #recommend-view.discovery-module {
   background: var(--tc-bg) !important;
 }
 
-body[data-staging-ia="tds-video"] #recommend-view .discovery-module-head,
-body[data-staging-ia="tds-video"] #recommend-view .discovery-module-head > div {
+body[data-staging-ia="tds-video"] #recommend-view .discovery-module-head {
   width: 100% !important;
   min-width: 0 !important;
   display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: start !important;
   justify-items: start !important;
-  gap: 0 !important;
+  column-gap: 12px !important;
+  row-gap: 0 !important;
   margin: 0 !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .discovery-module-head > div {
+  min-width: 0 !important;
+  display: contents !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-market-scope {
+  grid-column: 2 !important;
+  grid-row: 1 / span 3 !important;
+  justify-self: end !important;
+  align-self: start !important;
 }
 
 body[data-staging-ia="tds-video"] #recommend-view .staging-recommend-kicker {
@@ -9464,6 +9478,7 @@ body[data-staging-ia="tds-video"] #recommend-view #recommend-meta {
 }
 
 body[data-staging-ia="tds-video"] #recommend-view .staging-recommend-description {
+  grid-column: 1 / -1 !important;
   max-width: 330px !important;
   margin: 12px 0 0 !important;
   color: var(--tc-sub) !important;

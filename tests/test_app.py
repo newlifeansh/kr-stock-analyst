@@ -32,7 +32,7 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["strategy_version"] == "position-lifecycle-v7.4.2"
-    assert response.json()["dashboard_version"] == "20260911v529"
+    assert response.json()["dashboard_version"] == "20260911v530"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -232,9 +232,13 @@ def test_us_and_dashboard_paths_serve_the_unified_market_shell():
     assert 'data-unified-market-scope="us"' in response.text
     assert 'data-unified-market-scope="all"' not in response.text
     assert 'class="unified-market-scope-toggle" role="group"' in response.text
+    assert 'id="recommend-market-scope" role="group" aria-label="추천 종목 시장 선택" hidden' in response.text
+    assert 'data-recommend-market-scope="kr"' in response.text
+    assert 'data-recommend-market-scope="us"' in response.text
+    assert 'data-recommend-market-scope="all"' not in response.text
     assert 'data-market-filter="MIXED"' in response.text
     assert 'data-home-ranking-market="NASDAQ"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260911v529"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260911v530"' in response.text
     assert "시장 한눈에" not in response.text
 
 
@@ -258,6 +262,12 @@ def test_us_and_dashboard_surfaces_combine_markets_and_preserve_their_root_route
     assert 'title.textContent = "미국 TOP 50";' in source
     assert 'function fetchUnifiedStockSearch(query, limit, signal, marketScope = state.marketScope)' in source
     assert 'const endpoint = scope === "us" ? "/us/stocks/search" : "/stocks/search";' in source
+    assert 'const searchScope = isChart ? state.marketScope : (isUsHubContext ? "all" : "kr");' in source
+    assert 'const matches = await fetchUnifiedStockSearch(query, 12, undefined, searchScope);' in source
+    assert 'await load(selected.name || selected.code, { resolvedStock: selected });' in source
+    assert 'elements.unifiedMarketScope.hidden = !["news", "portfolio", "chart"].includes(state.view);' in source
+    assert 'elements.recommendMarketScope.hidden = state.view !== "search";' in source
+    assert 'elements.discoverySearchInput.setAttribute("aria-label", "한국·미국 전체 종목 검색");' in source
     assert 'const base = marketScope === "us" ? "/us/watchlists" : "/watchlists";' in source
     assert '`/us/market/quant-signals?limit=20&recent_days=${recentDays}`' in source
     assert 'const settled = await Promise.allSettled([fetchScope("kr"), fetchScope("us")]);' in source
@@ -389,7 +399,7 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="us-stock-ai-content"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260911v529"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260911v530"' in stock_shell.text
     assert 'src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108"' in stock_shell.text
     assert "NASDAQ Intelligence" not in stock_shell.text
     assert search_api.status_code == 200
@@ -658,7 +668,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260911v529"}
+    assert version.json() == {"version": "20260911v530"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search&market_scope=us")
@@ -667,9 +677,9 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert '["/dashboard-sw.js", "/us-sw.js"].includes' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
     assert '["kr", "us"].includes(params.get("market_scope"))' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=${encodeURIComponent(marketScope)}&app_build=20260911v529" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=${encodeURIComponent(marketScope)}&app_build=20260911v530" in refresh.text
     assert 'params.get("market") === "us"' in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260911v529" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260911v530" in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -682,7 +692,7 @@ def test_legacy_us_service_worker_retires_its_scope_and_routes_clients_to_curren
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'CURRENT_DASHBOARD_BUILD = "20260911v529"' in worker.text
+    assert 'CURRENT_DASHBOARD_BUILD = "20260911v530"' in worker.text
     assert r"/^secret-note-static-\d{8}us/" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert 'url.pathname.startsWith("/us")' in worker.text
@@ -2114,7 +2124,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260911v529' in shell
+    assert 'styles.css?v=20260911v530' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -2201,7 +2211,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260911v529"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260911v530"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -2239,7 +2249,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260911v529"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260911v530"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" not in service_worker
