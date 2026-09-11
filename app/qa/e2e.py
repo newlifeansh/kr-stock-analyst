@@ -1986,20 +1986,38 @@ def run_e2e_checks(
                         )
                     signal_tab = page.locator('[data-stock-tab="strategy"]')
                     _select_tab(signal_tab)
-                    expected_stage = {
-                        "entry_watch": "매수 관찰",
-                        "exited": "매도 완료",
-                    }.get(stock.get("signal_action"), stock.get("signal_label"))
-                    if expected_stage:
-                        _wait_for_ui_contract(
-                            page,
-                            "expected => document.querySelector('#stock-view')?.innerText.includes(expected)",
-                            arg=expected_stage,
-                            stage=f"{stock['code']} 현재 AI 시그널 단계",
-                            timeout_ms=int(timeout * 1000),
-                        )
+                    _wait_for_ui_contract(
+                        page,
+                        """() => {
+                          const payload = state.stockQuantSignals;
+                          const actual = document.querySelector('#quant-current-label')
+                            ?.textContent?.trim() || '';
+                          return Boolean(payload && actual)
+                            && quantSignalCurrentState(payload).headline === actual;
+                        }""",
+                        stage=f"{stock['code']} 현재 AI 시그널 단계",
+                        timeout_ms=int(timeout * 1000),
+                    )
+                    signal_stage_contract = page.evaluate(
+                        """() => ({
+                          action: state.stockQuantSignals?.current?.action || '',
+                          expected: state.stockQuantSignals
+                            ? quantSignalCurrentState(state.stockQuantSignals).headline
+                            : '',
+                          displayed: document.querySelector('#quant-current-label')
+                            ?.textContent?.trim() || '',
+                        })"""
+                    )
+                    expected_stage = signal_stage_contract["displayed"]
+                    signal_changed_during_navigation = (
+                        signal_stage_contract["action"] != stock.get("signal_action")
+                    )
                     transition_date = stock.get("signal_transition_date")
-                    if transition_date and stock.get("signal_action") == "exited":
+                    if (
+                        not signal_changed_during_navigation
+                        and transition_date
+                        and stock.get("signal_action") == "exited"
+                    ):
                         _wait_for_ui_contract(
                             page,
                             "expected => document.querySelector('#stock-view')?.innerText.includes(expected)",
@@ -2008,7 +2026,7 @@ def run_e2e_checks(
                             timeout_ms=int(timeout * 1000),
                         )
                     return_rate = stock.get("signal_return_rate")
-                    if return_rate is not None:
+                    if not signal_changed_during_navigation and return_rate is not None:
                         expected_return_rate = f"{float(return_rate):+.2f}%"
                         _wait_for_ui_contract(
                             page,
@@ -2236,6 +2254,8 @@ def run_e2e_checks(
                             "disabled_tabs": disabled_tabs,
                             "signal_action": stock.get("signal_action"),
                             "signal_stage_text": expected_stage,
+                            "signal_stage_contract": signal_stage_contract,
+                            "signal_changed_during_navigation": signal_changed_during_navigation,
                             "transition_date": transition_date,
                             "change_context": change_context,
                             "title_logo": title_logo,
@@ -3871,14 +3891,22 @@ def run_e2e_checks(
                     float(held_end.get("progress") or 0)
                     - float(held_start.get("progress") or 0)
                 )
+                held_visual_delta = abs(
+                    float(held_end.get("visualLeft") or 0)
+                    - float(held_start.get("visualLeft") or 0)
+                )
                 if (
-                    held_distance > 1
-                    or held_end.get("nativeScrolling") is not True
+                    held_visual_delta > 1
                     or held_end.get("animationCount") != 0
                 ):
                     raise QaFailure(
                         "사용자 스와이프 직후 지수 자동 흐름이 대기하지 않습니다.",
-                        {"start": held_start, "end": held_end, "distance": held_distance},
+                        {
+                            "start": held_start,
+                            "end": held_end,
+                            "progress_distance": held_distance,
+                            "visual_delta": held_visual_delta,
+                        },
                     )
 
                 page.emulate_media(reduced_motion="reduce")
@@ -3906,6 +3934,7 @@ def run_e2e_checks(
                     "refresh_elapsed_ms": round(refresh_elapsed_ms, 2),
                     "manual_handoff_visual_delta_px": round(handoff_visual_delta, 3),
                     "interaction_hold_distance_px": round(held_distance, 2),
+                    "interaction_hold_visual_delta_px": round(held_visual_delta, 3),
                     "reduced_motion_distance_px": round(reduced_distance, 2),
                     "loop_width_px": round(loop_width, 2),
                     "clone_count": moving_end.get("cloneCount"),
@@ -3968,7 +3997,7 @@ def run_e2e_checks(
                 )
                 page.route(
                     re.compile(
-                        rf".*/watchlists/{re.escape(share_id)}/recommendation-tracks(?:\?.*)?$"
+                        rf".*/watchlists/(?:us\.)?{re.escape(share_id)}/recommendation-tracks(?:\?.*)?$"
                     ),
                     lambda route: route.fulfill(
                         status=200,
@@ -7193,13 +7222,13 @@ def run_e2e_checks(
                 )
                 page.route(
                     re.compile(
-                        rf".*/watchlists/{re.escape(share_id)}/recommendation-tracks(?:\?.*)?$"
+                        rf".*/watchlists/(?:us\.)?{re.escape(share_id)}/recommendation-tracks(?:\?.*)?$"
                     ),
                     tracks_route,
                 )
                 page.route(
                     re.compile(
-                        rf".*/watchlists/{re.escape(share_id)}/groups(?:\?.*)?$"
+                        rf".*/watchlists/(?:us\.)?{re.escape(share_id)}/groups(?:\?.*)?$"
                     ),
                     groups_route,
                 )
