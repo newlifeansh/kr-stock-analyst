@@ -11967,7 +11967,7 @@ function updateWatchButton() {
     elements.watchToggle.title = "관심종목 추가";
     return;
   }
-  const active = isWatched(state.currentStock.code);
+  const active = watchStockIsSaved(state.currentStock);
   elements.watchToggle.disabled = false;
   elements.watchToggle.classList.toggle("active", active);
   elements.watchToggle.textContent = active ? "★" : "☆";
@@ -11977,6 +11977,10 @@ function updateWatchButton() {
 
 function toggleWatchCurrent() {
   if (!state.currentStock) {
+    return;
+  }
+  if (!watchStockIsSaved(state.currentStock)) {
+    openWatchStockAddDialog(elements.watchToggle);
     return;
   }
   toggleWatchlistItem(state.currentStock);
@@ -11990,10 +11994,11 @@ function toggleWatchlistItem(stock) {
   if (!stock || !stock.code || !stock.name) {
     return false;
   }
-  const items = readWatchlist();
-  const exists = items.some((item) => item.code === stock.code);
+  const items = readWatchlist({ allMarkets: true });
+  const stockKey = watchStockItemKey(stock);
+  const exists = items.some((item) => watchStockItemKey(item) === stockKey);
   const nextItems = exists
-    ? items.filter((item) => item.code !== stock.code)
+    ? items.filter((item) => watchStockItemKey(item) !== stockKey)
     : [...items, {
       code: stock.code,
       name: stock.name,
@@ -12004,7 +12009,7 @@ function toggleWatchlistItem(stock) {
       average_buy_price: null,
     }];
   if (exists) removeWatchlistCodeFromGroups(stock.code);
-  writeWatchlist(nextItems);
+  writeWatchlist(nextItems, { replaceAll: true });
   return !exists;
 }
 

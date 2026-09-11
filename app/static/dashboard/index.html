@@ -31,7 +31,7 @@
     <script src="/assets/staging/stock-change-copy-logic.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260911v530&amp;build=20260911v530" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260911v531&amp;build=20260911v531" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="splash" role="dialog" aria-modal="true" aria-labelledby="login-title">
@@ -1436,48 +1436,48 @@
           </form>
         </dialog>
 
-        <dialog class="watch-stock-add-dialog" id="watch-stock-add-dialog" aria-labelledby="watch-stock-add-title">
-          <section class="watch-stock-add-sheet">
-            <header class="watch-stock-add-head">
-              <button class="watch-stock-add-back" id="watch-stock-add-back" type="button" aria-label="종목 검색 결과로 돌아가기" hidden>
-                <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="back" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#back"></use></svg>
-              </button>
-              <div>
-                <span>관심종목</span>
-                <h2 id="watch-stock-add-title">종목 추가</h2>
-              </div>
-              <button class="watch-stock-add-close" id="watch-stock-add-close" type="button" aria-label="종목 추가 창 닫기">
+      </section>
+
+      <dialog class="watch-stock-add-dialog" id="watch-stock-add-dialog" aria-labelledby="watch-stock-add-title">
+        <section class="watch-stock-add-sheet">
+          <header class="watch-stock-add-head">
+            <button class="watch-stock-add-back" id="watch-stock-add-back" type="button" aria-label="종목 검색 결과로 돌아가기" hidden>
+              <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="back" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#back"></use></svg>
+            </button>
+            <div>
+              <span>관심종목</span>
+              <h2 id="watch-stock-add-title">종목 추가</h2>
+            </div>
+            <button class="watch-stock-add-close" id="watch-stock-add-close" type="button" aria-label="종목 추가 창 닫기">
+              <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="close" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#close"></use></svg>
+            </button>
+          </header>
+
+          <section class="watch-stock-search-step" id="watch-stock-search-step">
+            <form class="watch-stock-search-form" id="watch-stock-search-form" role="search" autocomplete="off">
+              <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="search" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#search"></use></svg>
+              <label class="sr-only" for="watch-stock-search-input">추가할 종목 검색</label>
+              <input id="watch-stock-search-input" type="search" placeholder="종목명 또는 종목코드 검색" aria-controls="watch-stock-add-results" aria-describedby="watch-stock-search-status" />
+              <button class="watch-stock-search-clear" id="watch-stock-search-clear" type="button" aria-label="검색어 지우기" hidden>
                 <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="close" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#close"></use></svg>
               </button>
-            </header>
-
-            <section class="watch-stock-search-step" id="watch-stock-search-step">
-              <form class="watch-stock-search-form" id="watch-stock-search-form" role="search" autocomplete="off">
-                <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="search" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#search"></use></svg>
-                <label class="sr-only" for="watch-stock-search-input">추가할 종목 검색</label>
-                <input id="watch-stock-search-input" type="search" placeholder="종목명 또는 종목코드 검색" aria-controls="watch-stock-add-results" aria-describedby="watch-stock-search-status" />
-                <button class="watch-stock-search-clear" id="watch-stock-search-clear" type="button" aria-label="검색어 지우기" hidden>
-                  <svg class="staging-plump-icon watch-ui-icon" viewBox="0 0 36 36" data-staging-icon="close" aria-hidden="true" focusable="false"><use href="/assets/staging/streamline-plump-icons.svg?v=20260910-v65#close"></use></svg>
-                </button>
-              </form>
-              <p class="watch-stock-search-status" id="watch-stock-search-status" role="status" aria-live="polite"></p>
-              <section class="watch-stock-add-results" id="watch-stock-add-results" aria-live="polite"></section>
-            </section>
-
-            <form class="watch-stock-group-step" id="watch-stock-group-step" hidden>
-              <div class="watch-stock-selected" id="watch-stock-selected"></div>
-              <fieldset class="watch-stock-group-field">
-                <legend>추가할 관심 그룹</legend>
-                <div class="watch-stock-group-options" id="watch-stock-group-options"></div>
-              </fieldset>
-              <p class="watch-stock-group-help">기본그룹에는 항상 저장되며, 원하는 폴더를 함께 선택할 수 있어요.</p>
-              <p class="watch-stock-group-status" id="watch-stock-group-status" role="alert" aria-live="assertive"></p>
-              <button class="watch-stock-group-complete" id="watch-stock-group-complete" type="submit">완료</button>
             </form>
+            <p class="watch-stock-search-status" id="watch-stock-search-status" role="status" aria-live="polite"></p>
+            <section class="watch-stock-add-results" id="watch-stock-add-results" aria-live="polite"></section>
           </section>
-        </dialog>
 
-      </section>
+          <form class="watch-stock-group-step" id="watch-stock-group-step" hidden>
+            <div class="watch-stock-selected" id="watch-stock-selected"></div>
+            <fieldset class="watch-stock-group-field">
+              <legend>추가할 관심 그룹</legend>
+              <div class="watch-stock-group-options" id="watch-stock-group-options"></div>
+            </fieldset>
+            <p class="watch-stock-group-help">기본그룹에는 항상 저장되며, 원하는 폴더를 함께 선택할 수 있어요.</p>
+            <p class="watch-stock-group-status" id="watch-stock-group-status" role="alert" aria-live="assertive"></p>
+            <button class="watch-stock-group-complete" id="watch-stock-group-complete" type="submit">완료</button>
+          </form>
+        </section>
+      </dialog>
 
       <section id="chart-view" class="app-page app-chart chart-forecast-host" data-ui-version="4.0" hidden>
         <form class="discovery-search chart-stock-search" id="chart-stock-search-form" autocomplete="off">
@@ -1663,6 +1663,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260911v530" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260911v531" defer></script>
   </body>
 </html>

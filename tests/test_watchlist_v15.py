@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260911v530"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260911v531"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -772,6 +772,91 @@ console.log(JSON.stringify({added, moved}));
         {"id": "chips", "name": "반도체", "codes": ["035720"]},
         {"id": "income", "name": "배당주", "codes": ["000660", "005930"]},
     ]
+
+
+def test_stock_detail_heart_opens_add_sheet_and_keeps_market_scoped_state():
+    client = TestClient(app)
+    source = client.get("/assets/dashboard/app.js").text
+    shell = client.get("/dashboard?view=portfolio").text
+
+    assert (
+        '</section>\n\n      <dialog class="watch-stock-add-dialog" '
+        'id="watch-stock-add-dialog" aria-labelledby="watch-stock-add-title">'
+    ) in shell
+    assert shell.index('id="watch-stock-add-dialog"') < shell.index('id="chart-view"')
+
+    update_button = source[
+        source.index("function updateWatchButton")
+        : source.index("function toggleWatchCurrent")
+    ]
+    toggle_current = source[
+        source.index("function toggleWatchCurrent")
+        : source.index("function toggleWatchlistItem")
+    ]
+    toggle_item = source[
+        source.index("function toggleWatchlistItem")
+        : source.index("function updateRecommendationWatchButtons")
+    ]
+
+    assert "const active = watchStockIsSaved(state.currentStock);" in update_button
+    assert "if (!watchStockIsSaved(state.currentStock))" in toggle_current
+    assert "openWatchStockAddDialog(elements.watchToggle);" in toggle_current
+    assert toggle_current.index("openWatchStockAddDialog(elements.watchToggle);") < toggle_current.index(
+        "toggleWatchlistItem(state.currentStock);"
+    )
+    assert "const items = readWatchlist({ allMarkets: true });" in toggle_item
+    assert "const stockKey = watchStockItemKey(stock);" in toggle_item
+    assert "writeWatchlist(nextItems, { replaceAll: true });" in toggle_item
+
+    script = r'''
+const fs = require("fs");
+const source = fs.readFileSync("app/static/dashboard/app.js", "utf8");
+function functionSource(name, nextName) {
+  const start = source.indexOf(`function ${name}(`);
+  const end = source.indexOf(`function ${nextName}(`, start + 1);
+  if (start < 0 || end < 0) throw new Error(`${name} not found`);
+  return source.slice(start, end);
+}
+function marketScopeForItem(item = {}) {
+  return item.market_scope === "us" || item.currency === "USD" ? "us" : "kr";
+}
+let stored = [
+  {code: "005930", name: "삼성전자", market_scope: "kr", currency: "KRW"},
+  {code: "AAPL", name: "Apple", market_scope: "us", currency: "USD"},
+];
+const writes = [];
+const removedCodes = [];
+function readWatchlist() { return stored.map(item => ({...item})); }
+function writeWatchlist(items, options = {}) {
+  stored = items.map(item => ({...item}));
+  writes.push({items: stored, options});
+}
+function removeWatchlistCodeFromGroups(code) { removedCodes.push(code); }
+eval(functionSource("watchStockItemKey", "watchStockIsSaved"));
+eval(functionSource("watchStockIsSaved", "applyWatchStockAddSelection"));
+eval(functionSource("toggleWatchlistItem", "updateRecommendationWatchButtons"));
+const apple = {code: "AAPL", name: "Apple", market_scope: "us", currency: "USD"};
+const removed = toggleWatchlistItem(apple);
+const afterRemoval = stored.map(item => `${marketScopeForItem(item)}:${item.code}`);
+const added = toggleWatchlistItem(apple);
+const afterAdd = stored.map(item => `${marketScopeForItem(item)}:${item.code}`);
+console.log(JSON.stringify({removed, added, afterRemoval, afterAdd, writes, removedCodes}));
+'''
+    result = subprocess.run(
+        ["node", "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["removed"] is False
+    assert payload["added"] is True
+    assert payload["afterRemoval"] == ["kr:005930"]
+    assert payload["afterAdd"] == ["kr:005930", "us:AAPL"]
+    assert payload["removedCodes"] == ["AAPL"]
+    assert all(write["options"] == {"replaceAll": True} for write in payload["writes"])
 
 
 def test_recommendation_cards_use_one_compact_action_row():
