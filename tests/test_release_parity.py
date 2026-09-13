@@ -117,4 +117,10 @@ def test_deployment_workflow_enforces_staging_before_production() -> None:
     assert '"$STAGING_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100"' in workflow
     assert workflow.count('"$us_rollout_mode" == "shadow"') == 2
     assert workflow.count('"$us_execution_enabled" == "false"') == 2
+    assert workflow.count(
+        '"$us_recommendation_signal_eligible_count" == "$us_signal_eligible_count"'
+    ) == 2
+    assert workflow.count(
+        '"$us_recommendation_insufficient_history_count" == "$us_insufficient_history_count"'
+    ) == 2
     assert "Wait for the staging signal APIs and canonical bridge" in workflow

@@ -131,18 +131,27 @@ jobs:
             us_version="$(jq -r '.strategy_version // empty' <<<"$us_payload" 2>/dev/null || true)"
             us_rollout_mode="$(jq -r '.rollout_mode // empty' <<<"$us_payload" 2>/dev/null || true)"
             us_execution_enabled="$(jq -r 'if has("execution_enabled") then (.execution_enabled | tostring) else "" end' <<<"$us_payload" 2>/dev/null || true)"
-            us_recommendation_version="$(curl -fsS --max-time 20 "$PRODUCTION_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100" | jq -r '.strategy_version // empty' 2>/dev/null || true)"
+            us_signal_eligible_count="$(jq -r 'if (.signal_eligible_count | type) == "number" then (.signal_eligible_count | tostring) else "" end' <<<"$us_payload" 2>/dev/null || true)"
+            us_insufficient_history_count="$(jq -r 'if (.insufficient_history_count | type) == "number" then (.insufficient_history_count | tostring) else "" end' <<<"$us_payload" 2>/dev/null || true)"
+            us_recommendation_payload="$(curl -fsS --max-time 20 "$PRODUCTION_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100" 2>/dev/null || true)"
+            us_recommendation_version="$(jq -r '.strategy_version // empty' <<<"$us_recommendation_payload" 2>/dev/null || true)"
+            us_recommendation_signal_eligible_count="$(jq -r 'if (.signal_eligible_count | type) == "number" then (.signal_eligible_count | tostring) else "" end' <<<"$us_recommendation_payload" 2>/dev/null || true)"
+            us_recommendation_insufficient_history_count="$(jq -r 'if (.insufficient_history_count | type) == "number" then (.insufficient_history_count | tostring) else "" end' <<<"$us_recommendation_payload" 2>/dev/null || true)"
             if [[ "$market_version" == "$expected_strategy_version" &&
                   "$stock_version" == "$expected_strategy_version" &&
                   "$health_us_version" == "$expected_us_strategy_version" &&
                   "$us_version" == "$expected_us_strategy_version" &&
                   "$us_recommendation_version" == "$expected_us_strategy_version" &&
                   "$us_rollout_mode" == "shadow" &&
-                  "$us_execution_enabled" == "false" ]]; then
+                  "$us_execution_enabled" == "false" &&
+                  -n "$us_recommendation_signal_eligible_count" &&
+                  "$us_recommendation_signal_eligible_count" == "$us_signal_eligible_count" &&
+                  -n "$us_recommendation_insufficient_history_count" &&
+                  "$us_recommendation_insufficient_history_count" == "$us_insufficient_history_count" ]]; then
               echo "Canonical signal APIs are ready: kr=$expected_strategy_version us=$expected_us_strategy_version shadow"
               exit 0
             fi
-            echo "Waiting for canonical signal APIs ($attempt/60): kr_market=$market_version kr_stock=$stock_version expected_kr=$expected_strategy_version health_us=$health_us_version us_feed=$us_version us_recommendations=$us_recommendation_version rollout=$us_rollout_mode execution=$us_execution_enabled expected_us=$expected_us_strategy_version"
+            echo "Waiting for canonical signal APIs ($attempt/60): kr_market=$market_version kr_stock=$stock_version expected_kr=$expected_strategy_version health_us=$health_us_version us_feed=$us_version us_recommendations=$us_recommendation_version feed_eligible=$us_signal_eligible_count recommendation_eligible=$us_recommendation_signal_eligible_count feed_insufficient=$us_insufficient_history_count recommendation_insufficient=$us_recommendation_insufficient_history_count rollout=$us_rollout_mode execution=$us_execution_enabled expected_us=$expected_us_strategy_version"
             sleep 10
           done
           echo "Canonical signal APIs did not serve both checked-out strategies in safe shadow mode within the readiness window."
@@ -201,17 +210,26 @@ jobs:
             us_version="$(jq -r '.strategy_version // empty' <<<"$us_payload" 2>/dev/null || true)"
             us_rollout_mode="$(jq -r '.rollout_mode // empty' <<<"$us_payload" 2>/dev/null || true)"
             us_execution_enabled="$(jq -r 'if has("execution_enabled") then (.execution_enabled | tostring) else "" end' <<<"$us_payload" 2>/dev/null || true)"
-            us_recommendation_version="$(curl -fsS --max-time 20 "$STAGING_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100" | jq -r '.strategy_version // empty' 2>/dev/null || true)"
+            us_signal_eligible_count="$(jq -r 'if (.signal_eligible_count | type) == "number" then (.signal_eligible_count | tostring) else "" end' <<<"$us_payload" 2>/dev/null || true)"
+            us_insufficient_history_count="$(jq -r 'if (.insufficient_history_count | type) == "number" then (.insufficient_history_count | tostring) else "" end' <<<"$us_payload" 2>/dev/null || true)"
+            us_recommendation_payload="$(curl -fsS --max-time 20 "$STAGING_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100" 2>/dev/null || true)"
+            us_recommendation_version="$(jq -r '.strategy_version // empty' <<<"$us_recommendation_payload" 2>/dev/null || true)"
+            us_recommendation_signal_eligible_count="$(jq -r 'if (.signal_eligible_count | type) == "number" then (.signal_eligible_count | tostring) else "" end' <<<"$us_recommendation_payload" 2>/dev/null || true)"
+            us_recommendation_insufficient_history_count="$(jq -r 'if (.insufficient_history_count | type) == "number" then (.insufficient_history_count | tostring) else "" end' <<<"$us_recommendation_payload" 2>/dev/null || true)"
             if [[ "$health_strategy_version" == "$expected_strategy_version" &&
                   "$health_us_version" == "$expected_us_strategy_version" &&
                   "$us_version" == "$expected_us_strategy_version" &&
                   "$us_recommendation_version" == "$expected_us_strategy_version" &&
                   "$us_rollout_mode" == "shadow" &&
-                  "$us_execution_enabled" == "false" ]]; then
+                  "$us_execution_enabled" == "false" &&
+                  -n "$us_recommendation_signal_eligible_count" &&
+                  "$us_recommendation_signal_eligible_count" == "$us_signal_eligible_count" &&
+                  -n "$us_recommendation_insufficient_history_count" &&
+                  "$us_recommendation_insufficient_history_count" == "$us_insufficient_history_count" ]]; then
               echo "Staging signal APIs and canonical bridge are ready: kr=$expected_strategy_version us=$expected_us_strategy_version shadow"
               exit 0
             fi
-            echo "Waiting for staging signal APIs ($attempt/60): health_kr=$health_strategy_version expected_kr=$expected_strategy_version health_us=$health_us_version us_feed=$us_version us_recommendations=$us_recommendation_version rollout=$us_rollout_mode execution=$us_execution_enabled expected_us=$expected_us_strategy_version"
+            echo "Waiting for staging signal APIs ($attempt/60): health_kr=$health_strategy_version expected_kr=$expected_strategy_version health_us=$health_us_version us_feed=$us_version us_recommendations=$us_recommendation_version feed_eligible=$us_signal_eligible_count recommendation_eligible=$us_recommendation_signal_eligible_count feed_insufficient=$us_insufficient_history_count recommendation_insufficient=$us_recommendation_insufficient_history_count rollout=$us_rollout_mode execution=$us_execution_enabled expected_us=$expected_us_strategy_version"
             sleep 10
           done
           echo "Staging signal APIs did not serve both checked-out strategies in safe shadow mode within the readiness window."
