@@ -942,7 +942,7 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="us-stock-ai-content"' in stock_shell.text
     assert 'src="/dashboard-app-v170.js?v=20260913v534"' in stock_shell.text
-    assert 'src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108"' in stock_shell.text
+    assert 'src="/assets/staging/toss-ia.js?v=20260913-recommendation-overview-v109"' in stock_shell.text
     assert "NASDAQ Intelligence" not in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -982,7 +982,7 @@ def test_us_stock_detail_frontend_uses_us_contract_without_domestic_quote_subscr
     assert 'formatUsdPrice' in source
     assert '미국 동부시간 기준' in source
     assert 'stagingStockPriceText' in toss
-    assert '20260909-unified-market-v108' in toss
+    assert '20260913-recommendation-overview-v109' in toss
     assert 'body[data-stock-market="us"] [data-stock-tab="community"]' not in styles
     assert 'body[data-stock-market="us"] #stock-summary-section > .stock-v3-two-column' not in styles
     assert 'body[data-stock-market="us"] #stock-view [data-staging-chart-period="1D"]' not in styles

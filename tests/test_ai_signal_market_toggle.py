@@ -15,7 +15,7 @@ def test_unified_roots_use_compact_community_market_toggle_contract():
     assert dashboard_shell.status_code == 200
     assert dashboard_shell.text == shell.text
     assert 'src="/dashboard-app-v170.js?v=20260913v534"' in shell.text
-    assert 'src="/assets/staging/toss-ia.js?v=20260909-unified-market-v108"' in shell.text
+    assert 'src="/assets/staging/toss-ia.js?v=20260913-recommendation-overview-v109"' in shell.text
 
     intro_contract = staging_js.split(
         'intro.className = "staging-ai-signals-intro";',
