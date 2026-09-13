@@ -496,10 +496,8 @@ def test_collect_prices_force_finalizes_naver_fallback_after_close(monkeypatch):
     assert runtime.last_post_close_price_repair_date == date(2026, 8, 21)
 
 
-def test_collect_prices_fills_market_caps_for_us_domestic_sync(monkeypatch):
-    runtime = briefing.BriefingRuntime(
-        Settings(canonical_domestic_sync_enabled=True, price_max_workers=5)
-    )
+def test_collect_prices_fills_market_caps_after_naver_fallback_in_every_collector_mode(monkeypatch):
+    runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
     monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
     monkeypatch.setattr(
         runtime,
