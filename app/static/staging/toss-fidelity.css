@@ -20683,3 +20683,212 @@ body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-skeleton-line.is-s
     animation: none !important;
   }
 }
+
+/* v166 — recommendation overview: honest empty states and collision-free metric rows. */
+body[data-staging-ia="tds-video"] #recommend-view.discovery-module {
+  width: min(100%, 680px) !important;
+  max-width: 680px !important;
+  margin-inline: auto !important;
+  padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px)) !important;
+  scroll-margin-top: 92px !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .discovery-module-head { padding-bottom: 2px !important; }
+body[data-staging-ia="tds-video"] #recommend-view .staging-recommend-description { max-width: 430px !important; }
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary:not([hidden]) {
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary > p {
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: baseline !important;
+  gap: 4px 12px !important;
+  margin: 0 !important;
+  color: var(--tc-sub) !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary > p > strong {
+  color: var(--tc-text) !important;
+  font-size: 14px !important;
+  font-weight: 780 !important;
+  line-height: 1.5 !important;
+  white-space: nowrap !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary > p > span {
+  min-width: 0 !important;
+  color: var(--tc-muted) !important;
+  font-size: 12px !important;
+  font-weight: 620 !important;
+  line-height: 1.55 !important;
+  overflow-wrap: break-word !important;
+  word-break: keep-all !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="empty"] > p,
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="error"] > p,
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="loading"] > p {
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 6px 14px !important;
+  padding: 18px !important;
+  border-radius: 18px !important;
+  background: var(--tc-surface) !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="empty"] > p > strong,
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="error"] > p > strong,
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="loading"] > p > strong,
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="empty"] > p > span,
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="error"] > p > span,
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="loading"] > p > span { grid-column: 1 / -1 !important; }
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary > p > button {
+  grid-column: 1 / -1 !important;
+  justify-self: start !important;
+  min-height: 44px !important;
+  margin-top: 4px !important;
+  padding: 0 14px !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  color: light-dark(#ffffff, #111318) !important;
+  background: light-dark(#191f28, #f2f3f5) !important;
+  font-size: 13px !important;
+  font-weight: 760 !important;
+  line-height: 1.35 !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary > p > button:focus-visible {
+  outline: 2px solid var(--tc-blue) !important;
+  outline-offset: 2px !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-list:not(:empty) {
+  gap: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid var(--tc-line) !important;
+  border-radius: 20px !important;
+  background: light-dark(#ffffff, #211f25) !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-card,
+body[data-staging-ia="tds-video"] #recommend-view .recommend-card:first-child {
+  padding: 20px !important;
+  overflow: visible !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-card:last-child { border-bottom: 0 !important; }
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-head {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-areas:
+    "rank"
+    "name"
+    "score"
+    "reason"
+    "stage"
+    "actions" !important;
+  gap: 14px !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-name {
+  width: 100% !important;
+  min-width: 0 !important;
+  grid-template-columns: 48px minmax(0, 1fr) !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-name .stock-list-copy {
+  min-width: 0 !important;
+  align-content: center !important;
+  justify-items: start !important;
+  gap: 6px !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-name strong {
+  max-width: 100% !important;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+  hyphens: auto !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-name .stock-list-copy > .market-badge {
+  min-height: 24px !important;
+  margin: 0 !important;
+  padding: 2px 8px !important;
+  font-size: 11px !important;
+  line-height: 1.35 !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-score {
+  width: 100% !important;
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  grid-template-areas:
+    "label value"
+    "status status" !important;
+  align-items: center !important;
+  justify-items: stretch !important;
+  gap: 8px 12px !important;
+  padding: 14px 0 0 !important;
+  border-top: 1px solid var(--tc-line) !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .staging-recommend-score-label {
+  grid-area: label !important;
+  color: var(--tc-sub) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  line-height: 1.45 !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-score-value { grid-area: value !important; min-width: 0 !important; }
+body[data-staging-ia="tds-video"] #recommend-view .recommend-score-value strong { font-size: 25px !important; }
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-score-level {
+  grid-area: status !important;
+  min-width: 0 !important;
+  min-height: 28px !important;
+  justify-content: flex-start !important;
+  flex-wrap: wrap !important;
+  gap: 4px !important;
+  white-space: normal !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-score-level .recommend-score-help { margin-left: auto !important; }
+body[data-staging-ia="tds-video"] #recommend-view .recommend-card-reason,
+body[data-staging-ia="tds-video"] #recommend-view .recommend-decision-flow { padding-top: 14px !important; }
+
+@media (max-width: 480px) {
+  body[data-staging-ia="tds-video"] #recommend-view.discovery-module { padding-top: 24px !important; }
+  body[data-staging-ia="tds-video"] #recommend-view .recommend-summary > p { grid-template-columns: minmax(0, 1fr) !important; gap: 3px !important; }
+  body[data-staging-ia="tds-video"] #recommend-view .recommend-summary > p > strong { white-space: normal !important; }
+  body[data-staging-ia="tds-video"] #recommend-view .recommend-card,
+  body[data-staging-ia="tds-video"] #recommend-view .recommend-card:first-child { padding: 18px !important; }
+  body[data-staging-ia="tds-video"] #recommend-view .recommend-score-level .recommend-score-help {
+    width: 32px !important;
+    min-width: 32px !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    flex-basis: 32px !important;
+  }
+}
+
+@media (max-width: 359px) {
+  body[data-staging-ia="tds-video"] #recommend-view .recommend-card,
+  body[data-staging-ia="tds-video"] #recommend-view .recommend-card:first-child { padding: 16px !important; }
+  body[data-staging-ia="tds-video"] #recommend-view .recommend-name { grid-template-columns: 44px minmax(0, 1fr) !important; gap: 10px !important; }
+  body[data-staging-ia="tds-video"] #recommend-view .recommend-name .stock-list-logo { width: 44px !important; height: 44px !important; }
+}

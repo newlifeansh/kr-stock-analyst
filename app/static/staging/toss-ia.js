@@ -3962,7 +3962,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260909-unified-market-v108`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260913-recommendation-overview-v109`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -4466,17 +4466,85 @@
     return base;
   };
 
-  const decorateRecommendationCards = () => {
+  const recommendationMarketLabel = () => (
+    stagingUsHubContext && document.body.dataset.marketScope === "us" ? "미국" : "한국"
+  );
+
+  const recommendationOverviewModel = ({ sourceMessage = "", cardCount = 0, marketLabel = "한국" } = {}) => {
+    const count = Math.max(0, Number(cardCount) || 0);
+    if (count) return { stateKey: "ready", heading: `추천 후보 ${count}개`, detail: "점수는 후보 안의 우선순위이고, 상태 배지는 지금의 AI 판단이에요.", actionLabel: "", actionKind: "" };
+    if (/불러오는 중|확인 중/.test(sourceMessage)) return { stateKey: "loading", heading: `${marketLabel} 추천 종목을 확인하고 있어요`, detail: "최신 시장 판단을 불러오는 동안 잠시만 기다려 주세요.", actionLabel: "", actionKind: "" };
+    if (/불러오지 못|오류|실패/.test(sourceMessage)) return { stateKey: "error", heading: "추천 데이터를 불러오지 못했어요", detail: "연결 상태를 확인한 뒤 다시 시도해 주세요.", actionLabel: "다시 불러오기", actionKind: "retry" };
+    if (sourceMessage) return { stateKey: "empty", heading: "지금은 새로 살 종목이 없어요", detail: `${marketLabel} 추천 조건을 모두 통과한 종목이 0개예요. 조건이 충족되면 자동으로 이곳에 표시됩니다.`, actionLabel: "조건 확인 중인 종목 보기", actionKind: "signals" };
+    return { stateKey: "initial", heading: "", detail: "", actionLabel: "", actionKind: "" };
+  };
+
+  const decorateRecommendationOverview = () => {
+    const module = document.getElementById("recommend-view");
     const status = document.getElementById("recommend-status");
-    if (status?.textContent?.includes("추천 후보를 찾지 못했습니다")) {
-      status.textContent = "지금 새로 매수를 검토할 종목이 없어요. 추천 기준을 통과하면 현재 AI 판단과 함께 이곳에 표시됩니다.";
+    const summary = status?.closest(".recommend-summary");
+    const list = document.getElementById("recommend-list");
+    if (!module || !status || !summary || !list) return;
+    const cards = Array.from(list.querySelectorAll(":scope > .recommend-card"));
+    const marketLabel = recommendationMarketLabel();
+    const alreadyDecorated = Boolean(status.querySelector("[data-recommendation-status-title]"));
+    const rawMessage = alreadyDecorated ? "" : status.textContent.trim();
+    if (rawMessage) status.dataset.sourceMessage = rawMessage;
+    else if (cards.length) status.dataset.sourceMessage = "";
+    const sourceMessage = status.dataset.sourceMessage || rawMessage;
+    const title = document.getElementById("recommend-stage-title");
+    if (title) title.textContent = `${marketLabel} 추천 종목`;
+    const description = module.querySelector(".staging-recommend-description");
+    if (description) description.textContent = "추천 점수와 현재 AI 판단, 선정 근거를 한 흐름으로 확인해 보세요.";
+    const { stateKey, heading, detail, actionLabel, actionKind } = recommendationOverviewModel({ sourceMessage, cardCount: cards.length, marketLabel });
+    if (stateKey === "initial") return;
+    const signature = [stateKey, marketLabel, cards.length, heading, detail].join("|");
+    if (summary.dataset.recommendationSignature !== signature) {
+      const headingNode = document.createElement("strong");
+      headingNode.dataset.recommendationStatusTitle = "true";
+      headingNode.textContent = heading;
+      const detailNode = document.createElement("span");
+      detailNode.textContent = detail;
+      const children = [headingNode, detailNode];
+      if (actionLabel) {
+        const action = document.createElement("button");
+        action.type = "button";
+        action.dataset.recommendationStateAction = actionKind;
+        action.textContent = actionLabel;
+        action.addEventListener("click", () => {
+          if (actionKind === "retry" && typeof loadRecommendations === "function") {
+            void loadRecommendations({ force: true, ttlMs: 0, recompute: false });
+            return;
+          }
+          if (actionKind === "signals" && typeof setView === "function") {
+            setView("ai-signals");
+            window.scrollTo({ top: 0, behavior: "auto" });
+          }
+        });
+        children.push(action);
+      }
+      status.replaceChildren(...children);
+      summary.dataset.recommendationSignature = signature;
     }
+    summary.dataset.state = stateKey;
+    summary.hidden = false;
+    module.dataset.recommendationState = stateKey;
+    module.dataset.recommendationMarket = marketLabel === "미국" ? "us" : "kr";
+    module.setAttribute("aria-busy", String(stateKey === "loading"));
+    list.setAttribute("aria-busy", String(stateKey === "loading"));
+  };
+
+  const decorateRecommendationCards = () => {
+    decorateRecommendationOverview();
     for (const card of document.querySelectorAll("#recommend-view .recommend-card")) {
       const item = card.recommendationItem || {};
       const customerState = recommendationCustomerState(item);
       card.dataset.recommendationState = item.recommendation_state === "entered_today" ? "entered-today" : "entry-confirmed";
       card.dataset.customerState = customerState.key;
       const itemName = card.querySelector(".recommend-name strong")?.textContent?.trim() || "추천 종목";
+      const nameCopy = card.querySelector(".recommend-name .stock-list-copy");
+      const marketBadge = card.querySelector(".recommend-name > .market-badge");
+      if (nameCopy && marketBadge) nameCopy.appendChild(marketBadge);
       const rank = card.querySelector(".recommend-rank");
       if (rank) {
         rank.textContent = `#${item.rank || "-"} · ${customerState.label}`;
@@ -4496,10 +4564,21 @@
       const scoreLevelRow = card.querySelector(".recommend-score-level");
       const scoreLevel = scoreLevelRow?.querySelector("b") || card.querySelector(".recommend-score em");
       const scoreGuide = scoreLevelRow?.querySelector("span");
-      if (scoreLevel) scoreLevel.textContent = "추천 기준 통과";
-      if (scoreGuide) scoreGuide.textContent = `· ${customerState.guide}`;
+      if (scoreLevel) scoreLevel.textContent = "기준 통과";
+      if (scoreGuide) {
+        scoreGuide.textContent = customerState.key === "new-buy-wait" && stagingUsMarketContext
+          ? "· 미국장 종가 재확인"
+          : `· ${customerState.guide}`;
+      }
       scoreLevelRow?.classList.remove("high", "watch", "cautious");
       scoreLevelRow?.classList.add("qualified");
+      const score = card.querySelector(".recommend-score");
+      if (score && !score.querySelector(".staging-recommend-score-label")) {
+        const scoreLabel = document.createElement("span");
+        scoreLabel.className = "staging-recommend-score-label";
+        scoreLabel.textContent = "추천 점수";
+        score.prepend(scoreLabel);
+      }
       const detailButton = card.querySelector(".recommend-ai-button");
       if (detailButton) {
         detailButton.textContent = "자세히 보기";
@@ -5071,6 +5150,17 @@
     recommendationHeading?.setAttribute("aria-describedby", "staging-recommend-description");
     const recommendationDescription = recommendationHeading?.querySelector(".staging-recommend-description");
     if (recommendationDescription) recommendationDescription.id = "staging-recommend-description";
+    for (const marketButton of document.querySelectorAll("[data-unified-market-scope]")) {
+      if (marketButton.dataset.recommendationScrollAnchor === "true") continue;
+      marketButton.dataset.recommendationScrollAnchor = "true";
+      marketButton.addEventListener("click", () => {
+        if ((document.body.dataset.view || "") !== "search" || !recommendationModule) return;
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+          const top = window.scrollY + recommendationModule.getBoundingClientRect().top - 92;
+          window.scrollTo({ top: Math.max(0, top), behavior: "auto" });
+        }));
+      });
+    }
   }
 
   let syncStagingWatchlist = () => {};
