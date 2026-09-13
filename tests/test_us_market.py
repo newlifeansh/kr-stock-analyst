@@ -439,6 +439,10 @@ def test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed():
             "reentry_runtime_enabled": False,
             "universe_as_of": date(2026, 9, 6),
             "universe_count": 100,
+            "evaluated_count": 100,
+            "data_coverage_count": 100,
+            "signal_eligible_count": 98,
+            "insufficient_history_count": 2,
             "methodology": ["완료 정규장 시총 상위 100종목"],
             "items": [
                 {
@@ -471,6 +475,10 @@ def test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed():
     assert payload["snapshot_id"] == "us-rc1-snapshot"
     assert payload["snapshot_checksum"] == "feed-checksum"
     assert payload["universe_count"] == 100
+    assert payload["evaluated_count"] == 100
+    assert payload["data_coverage_count"] == 100
+    assert payload["signal_eligible_count"] == 98
+    assert payload["insufficient_history_count"] == 2
     assert payload["strategy_version"] == "position-lifecycle-us-v1-rc1"
     assert payload["baseline_strategy_version"] == "us-momentum-watch-v1"
     assert payload["sector_classification_version"] == "us-sector-etf-cik-v3"

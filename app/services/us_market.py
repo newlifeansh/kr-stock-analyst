@@ -2908,6 +2908,8 @@ def build_us_recommendations(
         "universe_count": canonical.get("universe_count", 0),
         "evaluated_count": canonical.get("evaluated_count", 0),
         "data_coverage_count": canonical.get("data_coverage_count", 0),
+        "signal_eligible_count": canonical.get("signal_eligible_count", 0),
+        "insufficient_history_count": canonical.get("insufficient_history_count", 0),
         "sector_classification_error_count": canonical.get(
             "sector_classification_error_count", 0
         ),
