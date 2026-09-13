@@ -677,17 +677,20 @@ class BriefingRuntime:
             )
             if naver_rows:
                 market_cap_rows = 0
-                if self.settings.canonical_domestic_sync_enabled:
-                    try:
-                        market_cap_rows = collect_naver_realtime_market_caps(
-                            db,
-                            target_yyyymmdd,
-                            markets="KOSPI,KOSDAQ",
-                            limit=None,
-                            max_workers=self.settings.price_max_workers,
-                        )
-                    except Exception as exc:
-                        market_errors["naver_realtime_market_caps"] = str(exc)
+                try:
+                    # Naver's full quote fallback provides complete OHLC but
+                    # does not include market cap. Backfill it in every
+                    # collector mode so the completed-session Top100 universe
+                    # cannot collapse to zero when KRX is unavailable.
+                    market_cap_rows = collect_naver_realtime_market_caps(
+                        db,
+                        target_yyyymmdd,
+                        markets="KOSPI,KOSDAQ",
+                        limit=None,
+                        max_workers=self.settings.price_max_workers,
+                    )
+                except Exception as exc:
+                    market_errors["naver_realtime_market_caps"] = str(exc)
                 must_finalize_close = self._post_close_price_repair_due(current)
                 repaired = self._repair_signal_price_ohlc(
                     db,
