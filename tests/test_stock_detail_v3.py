@@ -805,7 +805,9 @@ def test_stock_detail_v3_shell_and_controls():
     assert ".stock-v3-news-thumb" in styles
     assert "min-height: 74px;" in styles
     assert "html.has-saved-watchlist-id .login-gate" not in styles
-    assert 'id="login-gate" data-phase="splash"' in shell.text
+    assert 'id="login-gate" data-phase="loading"' in shell.text
+    assert 'id="login-loading"' in shell.text
+    assert 'id="login-splash"' not in shell.text
 
 
 def test_stock_detail_commandbar_reveals_quote_after_mobile_scroll_without_interrupting_search():
