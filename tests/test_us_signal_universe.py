@@ -52,7 +52,7 @@ def _candidates(count: int) -> list[dict[str, object]]:
             "name": f"Issuer {index} Common Stock",
             "sector": "Technology",
             "industry": "Software",
-            "screen_exchange": "NASDAQ",
+            "screen_exchange": "NASDAQ" if index % 2 == 0 else "NYSE",
             "screen_market_cap": 1_000_000 - index,
             "screen_as_of": "2026-09-08",
         }
@@ -62,9 +62,112 @@ def _candidates(count: int) -> list[dict[str, object]]:
 
 def _cik_map(candidates: list[dict[str, object]]) -> dict[str, str]:
     return {
-        str(item["code"]): f"{index + 1:010d}"
-        for index, item in enumerate(candidates)
+        str(item["code"]): f"{index + 1:010d}" for index, item in enumerate(candidates)
     }
+
+
+def _valid_audit_metadata(
+    items: list[dict[str, object]],
+    *,
+    source_candidate_count: int = 101,
+    validated_quote_count: int = 101,
+    universe_as_of: str = "2026-09-08",
+) -> tuple[dict[str, object], dict[str, object], str]:
+    digest = universe._canonical_digest
+    source_audit = {
+        "version": universe.US_SIGNAL_UNIVERSE_AUDIT_VERSION,
+        "trust_model": "trusted_database_integrity_checksum_not_external_signature",
+        "screen": {
+            "exchanges": [
+                {
+                    "exchange": "NASDAQ",
+                    "raw_count": 60,
+                    "eligible_count": 51,
+                    "ranking_dataset_digest": digest({"exchange": "NASDAQ", "raw": 60}),
+                    "eligible_dataset_digest": digest(
+                        {"exchange": "NASDAQ", "eligible": 51}
+                    ),
+                    "classification_dataset_digest": digest(
+                        {"exchange": "NASDAQ", "classification": 51}
+                    ),
+                    "classification_as_of": None,
+                    "classification_date_state": "provider_unreported",
+                    "classification_missing_count": 0,
+                },
+                {
+                    "exchange": "NYSE",
+                    "raw_count": 60,
+                    "eligible_count": 50,
+                    "ranking_dataset_digest": digest({"exchange": "NYSE", "raw": 60}),
+                    "eligible_dataset_digest": digest(
+                        {"exchange": "NYSE", "eligible": 50}
+                    ),
+                    "classification_dataset_digest": digest(
+                        {"exchange": "NYSE", "classification": 50}
+                    ),
+                    "classification_as_of": None,
+                    "classification_date_state": "provider_unreported",
+                    "classification_missing_count": 0,
+                },
+            ],
+            "prefilter_candidate_count": source_candidate_count,
+            "prefilter_candidate_digest": digest(
+                {"candidate_count": source_candidate_count}
+            ),
+        },
+        "quotes": {
+            "requested_count": source_candidate_count,
+            "returned_count": validated_quote_count,
+            "observation_digest": digest(
+                {"quote_observation_count": source_candidate_count}
+            ),
+        },
+        "sec_identities": {
+            "requested_count": source_candidate_count,
+            "mapped_count": source_candidate_count,
+            "identity_digest": digest({"sec_identity_count": source_candidate_count}),
+        },
+    }
+    rank_100 = items[-1]
+    rank_100_cap = int(str(rank_100["market_cap"]))
+    boundary_evidence = {
+        "ranking_authority": "nasdaq_screener_market_cap",
+        "issuer_identity": "sec_cik",
+        "proven_issuer_count": source_candidate_count,
+        "rank_100": {
+            "rank": 100,
+            "issuer_key": rank_100["issuer_key"],
+            "market_cap": str(rank_100_cap),
+            "candidate_codes": [rank_100["code"]],
+            "selected_code": rank_100["code"],
+        },
+        "rank_101": {
+            "rank": 101,
+            "issuer_key": "cik:0000000101",
+            "market_cap": str(rank_100_cap - 1),
+            "candidate_codes": ["Z101"],
+        },
+        "tie": {
+            "applied": False,
+            "market_cap": None,
+            "tie_breaker": "sec_cik_ascending",
+            "issuer_keys": [],
+            "selected_issuer_keys": [],
+            "excluded_issuer_keys": [],
+        },
+    }
+    member_checksum = universe._snapshot_checksum(items)
+    return (
+        source_audit,
+        boundary_evidence,
+        universe._snapshot_audit_checksum(
+            source_audit,
+            boundary_evidence,
+            member_checksum=member_checksum,
+            universe_version=universe.US_SIGNAL_UNIVERSE_VERSION,
+            universe_as_of=universe_as_of,
+        ),
+    )
 
 
 def _valid_payload(
@@ -89,6 +192,10 @@ def _valid_payload(
         }
         for rank in range(1, 101)
     ]
+    source_audit, boundary_evidence, audit_checksum = _valid_audit_metadata(
+        items,
+        universe_as_of=as_of,
+    )
     return {
         "status": "ready",
         "data_state": "ready",
@@ -98,10 +205,23 @@ def _valid_payload(
         "source_candidate_count": 101,
         "validated_quote_count": 101,
         "checksum": universe._snapshot_checksum(items),
+        "source_audit": source_audit,
+        "boundary_evidence": boundary_evidence,
+        "audit_checksum": audit_checksum,
         "generated_at": f"{as_of}T21:00:00+00:00",
         "new_entries_allowed": True,
         "items": items,
     }
+
+
+def _audit_checksum(payload: dict[str, object]) -> str:
+    return universe._snapshot_audit_checksum(
+        payload["source_audit"],
+        payload["boundary_evidence"],
+        member_checksum=str(payload["checksum"]),
+        universe_version=str(payload["universe_version"]),
+        universe_as_of=payload["universe_as_of"],
+    )
 
 
 def _add_snapshot(
@@ -169,7 +289,9 @@ def test_us_signal_universe_is_exact_top100_and_deduplicates_share_classes(monke
     quotes["GOOG"] = _quote("GOOG", 3_000_000_000, volume=2_000_000)
     quotes["GOOGL"] = _quote("GOOGL", 3_000_000_000, volume=3_000_000)
     monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
-    monkeypatch.setattr(us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes)
+    monkeypatch.setattr(
+        us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes
+    )
     cik_by_code = _cik_map(candidates)
     cik_by_code.update({"GOOG": "0001652044", "GOOGL": "0001652044"})
     monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: cik_by_code)
@@ -239,7 +361,11 @@ def test_exactly_100_screen_issuers_cannot_claim_a_proven_top100_boundary(monkey
 
 
 def test_us_signal_universe_security_name_filter_rejects_non_common_equity():
-    allowed = {"symbol": "TSM", "name": "Taiwan Semiconductor ADR", "marketCap": "$1.2T"}
+    allowed = {
+        "symbol": "TSM",
+        "name": "Taiwan Semiconductor ADR",
+        "marketCap": "$1.2T",
+    }
     assert universe._screen_row_allowed(allowed) is True
     for name in (
         "Example 5.25% Preferred Stock",
@@ -248,9 +374,12 @@ def test_us_signal_universe_security_name_filter_rejects_non_common_equity():
         "Example Notes due 2030",
         "Example ETF",
     ):
-        assert universe._screen_row_allowed(
-            {"symbol": "BAD", "name": name, "marketCap": "$10B"}
-        ) is False
+        assert (
+            universe._screen_row_allowed(
+                {"symbol": "BAD", "name": name, "marketCap": "$10B"}
+            )
+            is False
+        )
 
 
 def test_exchange_screen_paginates_table_rows_and_preserves_as_of(monkeypatch):
@@ -288,9 +417,20 @@ def test_exchange_screen_paginates_table_rows_and_preserves_as_of(monkeypatch):
         def json(self):
             return {
                 "data": {
+                    "asOf": "Last price as of Sep 8, 2026",
                     "rows": [
-                        {"symbol": "AAA", "sector": "Technology"},
-                        {"symbol": "BBB", "sector": "Health Care"},
+                        {
+                            "symbol": "AAA",
+                            "sector": "Technology",
+                            "industry": "Software",
+                            "country": "United States",
+                        },
+                        {
+                            "symbol": "BBB",
+                            "sector": "Health Care",
+                            "industry": "Biotechnology",
+                            "country": "United States",
+                        },
                     ]
                 }
             }
@@ -303,12 +443,213 @@ def test_exchange_screen_paginates_table_rows_and_preserves_as_of(monkeypatch):
 
     monkeypatch.setattr(universe.requests, "get", fake_get)
 
-    rows = universe._fetch_exchange_screen("nasdaq", refresh=True)
+    audit: dict[str, object] = {}
+    rows = universe._fetch_exchange_screen(
+        "nasdaq",
+        refresh=True,
+        audit_out=audit,
+    )
 
     assert calls == [(0, None), (1, None), (0, "true")]
     assert [item["symbol"] for item in rows] == ["AAA", "BBB"]
     assert [item["sector"] for item in rows] == ["Technology", "Health Care"]
     assert {item["_screen_as_of"].isoformat() for item in rows} == {"2026-09-08"}
+    assert audit["exchange"] == "NASDAQ"
+    assert audit["raw_count"] == 2
+    assert audit["eligible_count"] == 2
+    assert universe._sha256_digest_is_valid(audit["ranking_dataset_digest"])
+    assert universe._sha256_digest_is_valid(audit["eligible_dataset_digest"])
+    assert universe._sha256_digest_is_valid(audit["classification_dataset_digest"])
+    assert audit["classification_as_of"] == "2026-09-08"
+    assert audit["classification_date_state"] == "reported_match"
+    assert audit["classification_missing_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "invalidity",
+    ["date_mismatch", "invalid_date", "missing_field", "duplicate_ticker"],
+)
+def test_exchange_screen_rejects_invalid_classification_contract(
+    monkeypatch,
+    invalidity,
+):
+    class Response:
+        def __init__(self, *, detail: bool):
+            self.detail = detail
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            if not self.detail:
+                return {
+                    "data": {
+                        "table": {
+                            "rows": [
+                                {
+                                    "symbol": "AAA",
+                                    "name": "AAA Common Stock",
+                                    "marketCap": "$10B",
+                                }
+                            ]
+                        },
+                        "totalrecords": 1,
+                        "asof": "Last price as of Sep 8, 2026",
+                    }
+                }
+            row = {
+                "symbol": "AAA",
+                "name": "AAA Common Stock",
+                "marketCap": "$10B",
+                "sector": "Technology",
+                "industry": "Software",
+                "country": "United States",
+            }
+            if invalidity == "missing_field":
+                row.pop("industry")
+            rows = [row, dict(row)] if invalidity == "duplicate_ticker" else [row]
+            return {
+                "data": {
+                    "rows": rows,
+                    "asOf": (
+                        "not-a-date"
+                        if invalidity == "invalid_date"
+                        else "Last price as of Sep 7, 2026"
+                        if invalidity == "date_mismatch"
+                        else "Last price as of Sep 8, 2026"
+                    ),
+                }
+            }
+
+    monkeypatch.setattr(
+        universe.requests,
+        "get",
+        lambda _url, *, params, **_kwargs: Response(
+            detail=params.get("download") == "true"
+        ),
+    )
+
+    with pytest.raises(ValueError):
+        universe._fetch_exchange_screen("nasdaq", refresh=True)
+
+
+def test_exchange_screen_audits_unreported_date_and_blank_classification(
+    monkeypatch,
+):
+    class Response:
+        def __init__(self, *, detail: bool):
+            self.detail = detail
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            if self.detail:
+                return {
+                    "data": {
+                        "asOf": None,
+                        "rows": [
+                            {
+                                "symbol": "BRK.B",
+                                "name": "Berkshire Hathaway Inc. Common Stock",
+                                "marketCap": "$1T",
+                                "sector": "",
+                                "industry": "",
+                                "country": "United States",
+                            }
+                        ],
+                    }
+                }
+            return {
+                "data": {
+                    "table": {
+                        "rows": [
+                            {
+                                "symbol": "BRK/B",
+                                "name": "Berkshire Hathaway Inc. Common Stock",
+                                "marketCap": "$1T",
+                            }
+                        ]
+                    },
+                    "totalrecords": 1,
+                    "asof": "Last price as of Sep 8, 2026",
+                }
+            }
+
+    monkeypatch.setattr(
+        universe.requests,
+        "get",
+        lambda _url, *, params, **_kwargs: Response(
+            detail=params.get("download") == "true"
+        ),
+    )
+    audit: dict[str, object] = {}
+
+    rows = universe._fetch_exchange_screen(
+        "nyse",
+        refresh=True,
+        audit_out=audit,
+    )
+
+    assert [row["symbol"] for row in rows] == ["BRK/B"]
+    assert audit["classification_as_of"] is None
+    assert audit["classification_date_state"] == "provider_unreported"
+    assert audit["classification_missing_count"] == 1
+
+
+def test_source_digests_are_canonical_over_normalized_observations():
+    candidates = [
+        {
+            "code": " AAA ",
+            "name": "Issuer   One Common Stock",
+            "sector": "Technology",
+            "industry": "Software",
+            "country": "United States",
+            "screen_exchange": "nasdaq",
+            "screen_market_cap": "$10B",
+            "screen_as_of": "2026-09-08",
+        }
+    ]
+    equivalent_candidates = [
+        {
+            **candidates[0],
+            "code": "AAA",
+            "name": "Issuer One Common Stock",
+            "screen_exchange": "NASDAQ",
+            "screen_market_cap": Decimal("10000000000.00"),
+        }
+    ]
+    quotes = {"AAA": _quote("AAA", 10_000_000_000)}
+    equivalent_quotes = {
+        "AAA": {
+            **quotes["AAA"],
+            "marketCap": Decimal("10000000000.0"),
+            "regularMarketPrice": Decimal("100.00"),
+            "longName": "AAA  Corporation Common Stock",
+        }
+    }
+
+    first_screen = universe._screen_source_audit(candidates)
+    second_screen = universe._screen_source_audit(equivalent_candidates)
+    first_quotes = universe._quote_source_audit(equivalent_candidates, quotes)
+    second_quotes = universe._quote_source_audit(
+        equivalent_candidates,
+        equivalent_quotes,
+    )
+
+    assert (
+        first_screen["prefilter_candidate_digest"]
+        == second_screen["prefilter_candidate_digest"]
+    )
+    assert (
+        first_screen["exchanges"][0]["eligible_dataset_digest"]
+        == second_screen["exchanges"][0]["eligible_dataset_digest"]
+    )
+    assert (
+        first_screen["exchanges"][0]["classification_dataset_digest"]
+        == second_screen["exchanges"][0]["classification_dataset_digest"]
+    )
+    assert first_quotes["observation_digest"] == second_quotes["observation_digest"]
 
 
 def test_exchange_screen_allows_detail_to_omit_proven_excluded_rank_instrument(
@@ -353,8 +694,11 @@ def test_exchange_screen_allows_detail_to_omit_proven_excluded_rank_instrument(
                             "name": "AAA Common Stock",
                             "marketCap": "$10B",
                             "sector": "Technology",
+                            "industry": "Software",
+                            "country": "United States",
                         }
-                    ]
+                    ],
+                    "asOf": "Last price as of Sep 8, 2026",
                 }
             }
 
@@ -439,7 +783,9 @@ def test_top_cap_quote_failure_does_not_promote_issuer_101(monkeypatch, failure)
     else:
         quotes["A000"]["currency"] = "CAD"
     monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
-    monkeypatch.setattr(us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes)
+    monkeypatch.setattr(
+        us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes
+    )
     monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
 
     payload = universe.build_us_signal_universe(
@@ -467,7 +813,9 @@ def test_top_cap_missing_class_allows_valid_alternate_class(monkeypatch):
         if item["code"] != "A000"
     }
     monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
-    monkeypatch.setattr(us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes)
+    monkeypatch.setattr(
+        us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes
+    )
     cik_by_code = _cik_map(candidates)
     cik_by_code.update({"A000": "0000000001", "A000.B": "0000000001"})
     monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: cik_by_code)
@@ -480,7 +828,9 @@ def test_top_cap_missing_class_allows_valid_alternate_class(monkeypatch):
     assert payload["universe_count"] == 100
     assert "A000.B" in {item["code"] for item in payload["items"]}
     assert "A000" not in {item["code"] for item in payload["items"]}
-    alternate_member = next(item for item in payload["items"] if item["code"] == "A000.B")
+    alternate_member = next(
+        item for item in payload["items"] if item["code"] == "A000.B"
+    )
     assert alternate_member["market_cap"] == 1_000_000
 
 
@@ -492,7 +842,9 @@ def test_nasdaq_screen_is_the_only_market_cap_ranking_source(monkeypatch):
     }
     quotes["A100"] = _quote("A100", 99_000_000_000)
     monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
-    monkeypatch.setattr(us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes)
+    monkeypatch.setattr(
+        us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes
+    )
     monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
 
     payload = universe.build_us_signal_universe(
@@ -510,6 +862,111 @@ def test_nasdaq_screen_is_the_only_market_cap_ranking_source(monkeypatch):
     )
 
 
+def test_snapshot_records_deterministic_boundary_tie_and_source_evidence(
+    monkeypatch,
+    sqlite_db,
+):
+    candidates = _candidates(103)
+    for item in candidates[98:]:
+        item["screen_market_cap"] = 900_000
+    quotes = {
+        str(item["code"]): _quote(str(item["code"]), 2_000_000_000 - index)
+        for index, item in enumerate(candidates)
+    }
+    monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
+    monkeypatch.setattr(
+        us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes
+    )
+    monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
+
+    payload = universe.build_us_signal_universe(
+        db=sqlite_db,
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["boundary_evidence"]["rank_100"] == {
+        "rank": 100,
+        "issuer_key": "cik:0000000100",
+        "market_cap": "900000",
+        "candidate_codes": ["A099"],
+        "selected_code": "A099",
+    }
+    assert payload["boundary_evidence"]["rank_101"] == {
+        "rank": 101,
+        "issuer_key": "cik:0000000101",
+        "market_cap": "900000",
+        "candidate_codes": ["A100"],
+    }
+    assert payload["boundary_evidence"]["tie"] == {
+        "applied": True,
+        "market_cap": "900000",
+        "tie_breaker": "sec_cik_ascending",
+        "issuer_keys": [
+            "cik:0000000099",
+            "cik:0000000100",
+            "cik:0000000101",
+            "cik:0000000102",
+            "cik:0000000103",
+        ],
+        "selected_issuer_keys": ["cik:0000000099", "cik:0000000100"],
+        "excluded_issuer_keys": [
+            "cik:0000000101",
+            "cik:0000000102",
+            "cik:0000000103",
+        ],
+    }
+    assert [
+        item["exchange"] for item in payload["source_audit"]["screen"]["exchanges"]
+    ] == [
+        "NASDAQ",
+        "NYSE",
+    ]
+    assert payload["audit_checksum"] == _audit_checksum(payload)
+    assert universe._snapshot_payload_is_valid(
+        payload,
+        snapshot_id=f"{universe.US_SIGNAL_UNIVERSE_VERSION}:2026-09-08",
+    )
+
+    forged = deepcopy(payload)
+    forged["items"][-1].update(
+        {
+            "code": "A100",
+            "issuer_key": "cik:0000000101",
+            "cik": "0000000101",
+        }
+    )
+    forged["boundary_evidence"]["rank_100"] = {
+        "rank": 100,
+        "issuer_key": "cik:0000000101",
+        "market_cap": "900000",
+        "candidate_codes": ["A100"],
+        "selected_code": "A100",
+    }
+    forged["boundary_evidence"]["rank_101"] = {
+        "rank": 101,
+        "issuer_key": "cik:0000000100",
+        "market_cap": "900000",
+        "candidate_codes": ["A099"],
+    }
+    forged["boundary_evidence"]["tie"]["selected_issuer_keys"] = [
+        "cik:0000000099",
+        "cik:0000000101",
+    ]
+    forged["boundary_evidence"]["tie"]["excluded_issuer_keys"] = [
+        "cik:0000000100",
+        "cik:0000000102",
+        "cik:0000000103",
+    ]
+    forged["checksum"] = universe._snapshot_checksum(forged["items"])
+    forged["audit_checksum"] = _audit_checksum(forged)
+
+    assert not universe._snapshot_payload_is_valid(
+        forged,
+        snapshot_id=f"{universe.US_SIGNAL_UNIVERSE_VERSION}:2026-09-08",
+    )
+
+
 @pytest.mark.parametrize("failure", ["unavailable", "boundary_missing"])
 def test_sec_cik_failure_at_top100_boundary_fails_closed(monkeypatch, failure):
     candidates = _candidates(101)
@@ -518,7 +975,9 @@ def test_sec_cik_failure_at_top100_boundary_fails_closed(monkeypatch, failure):
         for index, item in enumerate(candidates)
     }
     monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
-    monkeypatch.setattr(us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes)
+    monkeypatch.setattr(
+        us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes
+    )
     if failure == "unavailable":
         monkeypatch.setattr(
             us_market,
@@ -574,7 +1033,9 @@ def test_forming_regular_session_never_publishes_current_day_snapshot(monkeypatc
         for index, item in enumerate(candidates)
     }
     monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
-    monkeypatch.setattr(us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes)
+    monkeypatch.setattr(
+        us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes
+    )
     monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
 
     payload = universe.build_us_signal_universe(
@@ -594,7 +1055,9 @@ def test_completed_session_waits_for_provider_publication_grace(monkeypatch):
         for index, item in enumerate(candidates)
     }
     monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
-    monkeypatch.setattr(us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes)
+    monkeypatch.setattr(
+        us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes
+    )
     monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
 
     payload = universe.build_us_signal_universe(
@@ -623,6 +1086,14 @@ def test_completed_session_waits_for_provider_publication_grace(monkeypatch):
         "validated_quote_count",
         "currency",
         "cik",
+        "audit_checksum",
+        "audit_trust_model",
+        "source_digest",
+        "classification_digest",
+        "classification_date",
+        "exchange_counts",
+        "boundary_rank_101",
+        "tie_evidence",
     ],
 )
 def test_persisted_snapshot_validation_is_strict(case):
@@ -662,11 +1133,45 @@ def test_persisted_snapshot_validation_is_strict(case):
         payload["items"][0]["cik"] = "not-a-cik"
         payload["items"][0]["issuer_key"] = "cik:not-a-cik"
         payload["checksum"] = universe._snapshot_checksum(payload["items"])
+    elif case == "audit_checksum":
+        payload["audit_checksum"] = "0" * 64
+    elif case == "audit_trust_model":
+        payload["source_audit"]["trust_model"] = "external_signature"
+        payload["audit_checksum"] = _audit_checksum(payload)
+    elif case == "source_digest":
+        payload["source_audit"]["quotes"]["observation_digest"] = "f" * 64
+    elif case == "classification_digest":
+        payload["source_audit"]["screen"]["exchanges"][0][
+            "classification_dataset_digest"
+        ] = "invalid"
+        payload["audit_checksum"] = _audit_checksum(payload)
+    elif case == "classification_date":
+        exchange = payload["source_audit"]["screen"]["exchanges"][0]
+        exchange["classification_date_state"] = "reported_match"
+        exchange["classification_as_of"] = "2026-09-07"
+        payload["audit_checksum"] = _audit_checksum(payload)
+    elif case == "exchange_counts":
+        payload["source_audit"]["screen"]["exchanges"][0]["raw_count"] = 0
+        payload["audit_checksum"] = _audit_checksum(payload)
+    elif case == "boundary_rank_101":
+        payload["boundary_evidence"]["rank_101"]["market_cap"] = str(
+            int(payload["boundary_evidence"]["rank_100"]["market_cap"]) + 1
+        )
+        payload["audit_checksum"] = _audit_checksum(payload)
+    elif case == "tie_evidence":
+        payload["boundary_evidence"]["tie"]["applied"] = True
+        payload["boundary_evidence"]["tie"]["market_cap"] = payload[
+            "boundary_evidence"
+        ]["rank_100"]["market_cap"]
+        payload["audit_checksum"] = _audit_checksum(payload)
 
-    assert universe._snapshot_payload_is_valid(
-        payload,
-        snapshot_id=snapshot_id,
-    ) is False
+    assert (
+        universe._snapshot_payload_is_valid(
+            payload,
+            snapshot_id=snapshot_id,
+        )
+        is False
+    )
 
 
 def test_snapshot_checksum_covers_sector_and_rank_caps_are_non_increasing():
@@ -677,15 +1182,17 @@ def test_snapshot_checksum_covers_sector_and_rank_caps_are_non_increasing():
     payload["items"][0]["sector"] = "Energy"
 
     assert universe._snapshot_checksum(payload["items"]) != original_checksum
-    assert universe._snapshot_payload_is_valid(payload, snapshot_id=snapshot_id) is False
+    assert (
+        universe._snapshot_payload_is_valid(payload, snapshot_id=snapshot_id) is False
+    )
 
     payload = _valid_payload()
-    payload["items"][1]["market_cap"] = str(
-        int(payload["items"][0]["market_cap"]) + 1
-    )
+    payload["items"][1]["market_cap"] = str(int(payload["items"][0]["market_cap"]) + 1)
     payload["checksum"] = universe._snapshot_checksum(payload["items"])
 
-    assert universe._snapshot_payload_is_valid(payload, snapshot_id=snapshot_id) is False
+    assert (
+        universe._snapshot_payload_is_valid(payload, snapshot_id=snapshot_id) is False
+    )
 
 
 def test_source_failure_uses_valid_stale_snapshot_and_blocks_entries(
@@ -886,7 +1393,9 @@ def test_commit_failure_rolls_back_before_valid_stale_fallback(
         for index, item in enumerate(candidates)
     }
     monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
-    monkeypatch.setattr(us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes)
+    monkeypatch.setattr(
+        us_market, "fetch_us_quote_batch", lambda symbols, **_kwargs: quotes
+    )
     monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
     rollback_events: list[str] = []
     real_rollback = sqlite_db.rollback
@@ -935,3 +1444,23 @@ def test_complete_daily_snapshot_is_not_rewritten(sqlite_db):
     assert persisted["generated_at"] == first["generated_at"]
     assert row.payload == original_payload
     assert row.captured_at == original_captured_at
+
+
+def test_complete_daily_snapshot_rejects_audit_only_rewrite(sqlite_db):
+    first = _valid_payload()
+    row = _add_snapshot(
+        sqlite_db,
+        first,
+        captured_at=datetime(2026, 9, 9, 1, 0),
+    )
+    original_payload = row.payload
+    repeated = deepcopy(first)
+    repeated["source_audit"]["quotes"]["observation_digest"] = "f" * 64
+    repeated["audit_checksum"] = _audit_checksum(repeated)
+
+    assert repeated["checksum"] == first["checksum"]
+    with pytest.raises(ValueError, match="immutable"):
+        universe._persist_snapshot(sqlite_db, repeated)
+
+    sqlite_db.refresh(row)
+    assert row.payload == original_payload

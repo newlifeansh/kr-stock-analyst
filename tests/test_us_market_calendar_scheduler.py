@@ -14,6 +14,7 @@ from app.services import us_signal_universe as universe
 from app.services.us_market_calendar import USMarketCalendarUnavailable
 from tests.test_us_position_lifecycle_runtime import (
     _complete_feed as _runtime_complete_feed,
+    _universe_audit_metadata,
 )
 
 
@@ -72,6 +73,7 @@ def _seed_authoritative_universe(
                     "source_candidate_count": 101,
                     "validated_quote_count": 100,
                     "checksum": payload["universe_checksum"],
+                    **_universe_audit_metadata(payload["universe_members"]),
                     "new_entries_allowed": True,
                     "items": payload["universe_members"],
                 }

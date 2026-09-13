@@ -124,6 +124,38 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_malformed_exact_daily_snapshot_is_never_overwritten",
         "tests.test_us_signal_universe."
         "test_completed_session_waits_for_provider_publication_grace",
+        "tests.test_us_signal_universe."
+        "test_source_digests_are_canonical_over_normalized_observations",
+        "tests.test_us_signal_universe."
+        "test_exchange_screen_rejects_invalid_classification_contract[date_mismatch]",
+        "tests.test_us_signal_universe."
+        "test_exchange_screen_rejects_invalid_classification_contract[invalid_date]",
+        "tests.test_us_signal_universe."
+        "test_exchange_screen_rejects_invalid_classification_contract[missing_field]",
+        "tests.test_us_signal_universe."
+        "test_exchange_screen_rejects_invalid_classification_contract[duplicate_ticker]",
+        "tests.test_us_signal_universe."
+        "test_exchange_screen_audits_unreported_date_and_blank_classification",
+        "tests.test_us_signal_universe."
+        "test_snapshot_records_deterministic_boundary_tie_and_source_evidence",
+        "tests.test_us_signal_universe."
+        "test_persisted_snapshot_validation_is_strict[audit_checksum]",
+        "tests.test_us_signal_universe."
+        "test_persisted_snapshot_validation_is_strict[source_digest]",
+        "tests.test_us_signal_universe."
+        "test_persisted_snapshot_validation_is_strict[audit_trust_model]",
+        "tests.test_us_signal_universe."
+        "test_persisted_snapshot_validation_is_strict[classification_digest]",
+        "tests.test_us_signal_universe."
+        "test_persisted_snapshot_validation_is_strict[classification_date]",
+        "tests.test_us_signal_universe."
+        "test_persisted_snapshot_validation_is_strict[exchange_counts]",
+        "tests.test_us_signal_universe."
+        "test_persisted_snapshot_validation_is_strict[boundary_rank_101]",
+        "tests.test_us_signal_universe."
+        "test_persisted_snapshot_validation_is_strict[tie_evidence]",
+        "tests.test_us_signal_universe."
+        "test_complete_daily_snapshot_rejects_audit_only_rewrite",
     ),
     "DATA-US-SIGNAL-INPUT-001": (
         "tests.test_us_market."
@@ -967,8 +999,8 @@ def _gate_checks(
         )
         _assert(
             US_SIGNAL_UNIVERSE_LIMIT == 100
-            and US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v1",
-            "미국 시그널 유니버스 정책이 Top 100 v1과 다릅니다.",
+            and US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v2",
+            "미국 시그널 유니버스 정책이 Top 100 v2와 다릅니다.",
         )
         _assert(
             US_ROLLOUT_MODE == "shadow"

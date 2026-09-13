@@ -16,6 +16,86 @@ from app.services import us_signal_universe as universe
 UTC = timezone.utc
 
 
+def _universe_audit_metadata(
+    members: list[dict[str, object]],
+) -> dict[str, object]:
+    digest = universe._canonical_digest
+    source_audit = {
+        "version": universe.US_SIGNAL_UNIVERSE_AUDIT_VERSION,
+        "trust_model": "trusted_database_integrity_checksum_not_external_signature",
+        "screen": {
+            "exchanges": [
+                {
+                    "exchange": exchange,
+                    "raw_count": count,
+                    "eligible_count": count,
+                    "ranking_dataset_digest": digest([exchange, "ranking", count]),
+                    "eligible_dataset_digest": digest([exchange, "eligible", count]),
+                    "classification_dataset_digest": digest(
+                        [exchange, "classification", count]
+                    ),
+                    "classification_as_of": None,
+                    "classification_date_state": "provider_unreported",
+                    "classification_missing_count": 0,
+                }
+                for exchange, count in (("NASDAQ", 51), ("NYSE", 50))
+            ],
+            "prefilter_candidate_count": 101,
+            "prefilter_candidate_digest": digest(["candidates", 101]),
+        },
+        "quotes": {
+            "requested_count": 101,
+            "returned_count": 100,
+            "observation_digest": digest(["quotes", 100]),
+        },
+        "sec_identities": {
+            "requested_count": 101,
+            "mapped_count": 101,
+            "identity_digest": digest(["sec", 101]),
+        },
+    }
+    rank_100 = members[-1]
+    boundary_evidence = {
+        "ranking_authority": "nasdaq_screener_market_cap",
+        "issuer_identity": "sec_cik",
+        "proven_issuer_count": 101,
+        "rank_100": {
+            "rank": 100,
+            "issuer_key": rank_100["issuer_key"],
+            "market_cap": str(rank_100["market_cap"]),
+            "candidate_codes": [rank_100["code"]],
+            "selected_code": rank_100["code"],
+        },
+        "rank_101": {
+            "rank": 101,
+            "issuer_key": "cik:0000000101",
+            "market_cap": str(int(str(rank_100["market_cap"])) - 1),
+            "candidate_codes": ["Z101"],
+        },
+        "tie": {
+            "applied": False,
+            "market_cap": None,
+            "tie_breaker": "sec_cik_ascending",
+            "issuer_keys": [],
+            "selected_issuer_keys": [],
+            "excluded_issuer_keys": [],
+        },
+    }
+    member_checksum = universe._snapshot_checksum(members)
+    universe_as_of = members[0]["screen_as_of"]
+    return {
+        "source_audit": source_audit,
+        "boundary_evidence": boundary_evidence,
+        "audit_checksum": universe._snapshot_audit_checksum(
+            source_audit,
+            boundary_evidence,
+            member_checksum=member_checksum,
+            universe_version=universe.US_SIGNAL_UNIVERSE_VERSION,
+            universe_as_of=universe_as_of,
+        ),
+    }
+
+
 @pytest.fixture
 def snapshot_db():
     engine = create_engine("sqlite:///:memory:")
@@ -42,6 +122,7 @@ def snapshot_db():
                         "source_candidate_count": 101,
                         "validated_quote_count": 100,
                         "checksum": feed["universe_checksum"],
+                        **_universe_audit_metadata(feed["universe_members"]),
                         "new_entries_allowed": True,
                         "items": feed["universe_members"],
                     }
