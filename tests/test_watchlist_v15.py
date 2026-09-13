@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260914v534"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260914v535"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -606,9 +606,9 @@ def test_interest_groups_inline_add_compact_list_and_edit_actions():
         'pinned: Object.freeze({ id: "pinned", name: "핀종목" })',
         "function watchlistItemsForGroup",
         'if (groupId === "pinned")',
-        'const effectiveScope = state.view === "home" ? "all" : state.marketScope;',
-        'return pinnedItems.filter((item) => itemMatchesMarketScope(item, effectiveScope));',
-        "const items = readWatchlist();",
+        'const effectiveScope = isUsHubContext && state.view !== "home" ? state.marketScope : "all";',
+        '.filter((item) => itemMatchesMarketScope(item, effectiveScope));',
+        'const items = readWatchlist({ allMarkets: effectiveScope === "all" });',
         "function openWatchlistGroupDialog",
         "function saveWatchlistGroupFromDialog",
         "function removeCodeFromActiveWatchlistGroup",

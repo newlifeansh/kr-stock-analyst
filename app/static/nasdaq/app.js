@@ -2,9 +2,8 @@ const $ = (id) => document.getElementById(id);
 
 const elements = {
   appFrame: document.querySelector(".app-frame"),
-  appSplash: $("app-splash"),
+  appLoading: $("app-loading"),
   loginGate: $("login-gate"),
-  loginSplash: $("login-splash"),
   loginForm: $("login-form"),
   loginInput: $("login-id-input"),
   loginStatus: $("login-status"),
@@ -222,8 +221,6 @@ const RECOMMENDATION_TRACK_KEY = "analyst.us.recommendationTracks";
 const RECOMMENDATION_COOLDOWN_KEY = "analyst.us.recommendationCooldown";
 const CHART_SNAPSHOT_KEY = "analyst.us.chartSnapshots";
 const CURRENCY_MODE_KEY = "analyst.us.currencyMode";
-const LOGIN_SPLASH_DURATION_MS = 5_000;
-const APP_SPLASH_DURATION_MS = 5_000;
 const DEFAULT_USDKRW_RATE = 1400;
 const UI_CACHE_TTL_MS = 60_000;
 const PAGE_ENTRY_MINUTE_MS = 60_000;
@@ -461,8 +458,6 @@ const state = {
   presenceHundredsDigit: null,
   presenceHundredsHourKey: "",
   presenceHourTimer: null,
-  loginGateTimer: null,
-  loginSplashSeen: false,
   pullRefreshTracking: false,
   pullRefreshReady: false,
   pullRefreshRefreshing: false,
@@ -470,9 +465,7 @@ const state = {
   pullRefreshStartX: 0,
   pullRefreshStartY: 0,
   pullRefreshHideTimer: null,
-  appSplashTimer: null,
-  appSplashHideTimer: null,
-  appSplashResolve: null,
+  appLoadingHideTimer: null,
 };
 
 const VIEW_NAV_SECTION = {
@@ -493,33 +486,20 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function showAppSplash(duration = APP_SPLASH_DURATION_MS) {
-  if (!elements.appSplash) {
-    return delay(duration);
+function setAppLoading(open) {
+  if (!elements.appLoading) return;
+  window.clearTimeout(state.appLoadingHideTimer);
+  if (open) {
+    elements.appLoading.hidden = false;
+    elements.appLoading.setAttribute("aria-busy", "true");
+    window.requestAnimationFrame(() => elements.appLoading?.classList.add("visible"));
+    return;
   }
-  if (state.appSplashResolve) {
-    state.appSplashResolve();
-    state.appSplashResolve = null;
-  }
-  window.clearTimeout(state.appSplashTimer);
-  window.clearTimeout(state.appSplashHideTimer);
-  elements.appSplash.hidden = false;
-  window.requestAnimationFrame(() => {
-    elements.appSplash?.classList.add("visible");
-  });
-  return new Promise((resolve) => {
-    state.appSplashResolve = resolve;
-    state.appSplashTimer = window.setTimeout(() => {
-      elements.appSplash?.classList.remove("visible");
-      state.appSplashHideTimer = window.setTimeout(() => {
-        if (elements.appSplash) {
-          elements.appSplash.hidden = true;
-        }
-        state.appSplashResolve = null;
-        resolve();
-      }, 340);
-    }, duration);
-  });
+  elements.appLoading.classList.remove("visible");
+  elements.appLoading.removeAttribute("aria-busy");
+  state.appLoadingHideTimer = window.setTimeout(() => {
+    if (elements.appLoading) elements.appLoading.hidden = true;
+  }, 150);
 }
 
 function rejectAfter(ms, message) {
@@ -3384,11 +3364,11 @@ async function triggerPullRefresh() {
   }
   state.pullRefreshRefreshing = true;
   setPullRefreshIndicator(PULL_REFRESH_TRIGGER_DISTANCE, { ready: true, refreshing: true });
-  const refreshPromise = refreshCurrentView().catch(() => null);
-  const splashPromise = showAppSplash(APP_SPLASH_DURATION_MS);
+  setAppLoading(true);
   try {
-    await Promise.all([refreshPromise, splashPromise]);
+    await refreshCurrentView().catch(() => null);
   } finally {
+    setAppLoading(false);
     state.pullRefreshRefreshing = false;
     resetPullRefreshIndicator();
   }
@@ -3628,35 +3608,29 @@ function setLoginGatePhase(phase) {
     return;
   }
   elements.loginGate.dataset.phase = phase;
+  elements.loginGate.setAttribute("aria-labelledby", phase === "loading" ? "login-loading-label" : "login-title");
+  if (phase === "loading") {
+    elements.loginGate.setAttribute("aria-busy", "true");
+  } else {
+    elements.loginGate.removeAttribute("aria-busy");
+  }
 }
 
-function showLoginGate(message = "2~40자 한글, 영문, 숫자, ., _, - 사용 가능", options = {}) {
+function showLoginGate(message = "2~40자 한글, 영문, 숫자, ., _, - 사용 가능") {
   if (!elements.loginGate) {
     return;
   }
-  const skipSplash = options.skipSplash ?? state.loginSplashSeen;
-  window.clearTimeout(state.loginGateTimer);
   elements.loginGate.hidden = false;
   setLoginStatus(message);
-  if (skipSplash) {
-    setLoginGatePhase("form");
-    window.setTimeout(() => elements.loginInput?.focus(), 50);
-    return;
-  }
-  setLoginGatePhase("splash");
-  state.loginSplashSeen = true;
-  state.loginGateTimer = window.setTimeout(() => {
-    setLoginGatePhase("form");
-    window.setTimeout(() => elements.loginInput?.focus(), 40);
-  }, LOGIN_SPLASH_DURATION_MS);
+  setLoginGatePhase("form");
+  window.setTimeout(() => elements.loginInput?.focus(), 50);
 }
 
 function hideLoginGate() {
   if (!elements.loginGate) {
     return;
   }
-  window.clearTimeout(state.loginGateTimer);
-  state.loginGateTimer = null;
+  elements.loginGate.removeAttribute("aria-busy");
   elements.loginGate.hidden = true;
 }
 
@@ -3818,7 +3792,7 @@ function logoutWatchlistIdentity() {
     elements.watchChartList.innerHTML = '<p class="muted">로그인 후 AI 차트 분석을 불러옵니다.</p>';
   }
   setWatchlistIdStatus("로그아웃됨");
-  showLoginGate("로그아웃되었습니다. 다시 ID로 시작해주세요.", { skipSplash: true });
+  showLoginGate("로그아웃되었습니다. 다시 ID로 시작해주세요.");
 }
 
 async function initializeWatchlistIdentity() {
@@ -3836,7 +3810,7 @@ async function initializeWatchlistIdentity() {
     if (ok) {
       hideLoginGate();
     } else {
-      showLoginGate("저장된 ID를 불러오지 못했습니다. 다시 입력해주세요.", { skipSplash: true });
+      showLoginGate("저장된 ID를 불러오지 못했습니다. 다시 입력해주세요.");
     }
   } else {
     setWatchlistIdStatus("로컬 저장 중");
@@ -7831,7 +7805,7 @@ elements.loginForm?.addEventListener("submit", async (event) => {
     setLoginStatus("입장 완료", "success");
     hideLoginGate();
   } else {
-    showLoginGate("ID를 확인해주세요. 2~40자 한글/영문/숫자/._-만 가능합니다.", { skipSplash: true });
+    showLoginGate("ID를 확인해주세요. 2~40자 한글/영문/숫자/._-만 가능합니다.");
   }
   if (button) {
     button.disabled = false;

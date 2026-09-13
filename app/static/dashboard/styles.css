@@ -2598,7 +2598,7 @@ a {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: #000000;
+  background: #f5f7fb;
   transition: background 320ms ease;
 }
 
@@ -2610,7 +2610,7 @@ a {
   background: #f5f7fb;
 }
 
-.login-splash {
+.login-loading {
   position: absolute;
   inset: 0;
   display: grid;
@@ -2623,16 +2623,15 @@ a {
     visibility 320ms ease;
 }
 
-.login-gate[data-phase="form"] .login-splash {
+.login-gate[data-phase="form"] .login-loading {
   opacity: 0;
   visibility: hidden;
 }
 
-.login-splash-logo {
-  width: clamp(92px, 16vw, 132px);
-  height: clamp(92px, 16vw, 132px);
-  border-radius: 30px;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 24px 80px rgba(207, 19, 34, 0.24);
+.login-loading .loading-spinner {
+  width: 42px;
+  height: 42px;
+  border-width: 4px;
 }
 
 .login-card {
@@ -3868,10 +3867,15 @@ body:not([data-view="stock"]) .home-ranking-row:focus-visible,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .login-loading {
+    transition: none;
+  }
+
   .page-loading {
     transition: none;
   }
 
+  .login-loading .loading-spinner,
   .page-loading .loading-spinner {
     animation-duration: 1.6s;
   }
