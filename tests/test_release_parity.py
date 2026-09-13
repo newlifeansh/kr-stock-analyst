@@ -106,3 +106,15 @@ def test_deployment_workflow_enforces_staging_before_production() -> None:
     assert "railway up --ci" not in workflow
     assert "name: production" in workflow
     assert "--production-url \"$PRODUCTION_BASE_URL\"" in workflow
+    assert workflow.count(
+        "expected_us_strategy_version=\"$(sed -n 's/^US_STRATEGY_VERSION"
+    ) == 2
+    assert '"$PRODUCTION_BASE_URL/health"' in workflow
+    assert '"$PRODUCTION_BASE_URL/us/market/quant-signals?limit=1&recent_days=30"' in workflow
+    assert '"$PRODUCTION_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100"' in workflow
+    assert '"$STAGING_BASE_URL/health"' in workflow
+    assert '"$STAGING_BASE_URL/us/market/quant-signals?limit=1&recent_days=30"' in workflow
+    assert '"$STAGING_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100"' in workflow
+    assert workflow.count('"$us_rollout_mode" == "shadow"') == 2
+    assert workflow.count('"$us_execution_enabled" == "false"') == 2
+    assert "Wait for the staging signal APIs and canonical bridge" in workflow
