@@ -450,6 +450,11 @@ def test_collect_prices_falls_back_to_naver_full_quotes(monkeypatch):
 
     monkeypatch.setattr(briefing, "collect_market_prices", fake_market)
     monkeypatch.setattr(briefing, "collect_naver_quotes", fake_naver)
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_realtime_market_caps",
+        lambda *_args, **_kwargs: 0,
+    )
     monkeypatch.setattr(briefing, "collect_prices_for_codes", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Code fallback should not be called")))
 
     result = runtime._collect_prices(
@@ -477,6 +482,11 @@ def test_collect_prices_force_finalizes_naver_fallback_after_close(monkeypatch):
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("KRX unavailable")),
     )
     monkeypatch.setattr(briefing, "collect_naver_quotes", lambda *_args, **_kwargs: 2710)
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_realtime_market_caps",
+        lambda *_args, **_kwargs: 0,
+    )
     calls = []
 
     def finalize(_db, target, *, force=False):
@@ -801,6 +811,11 @@ def test_collect_prices_uses_completed_session_before_market_open(monkeypatch):
         briefing,
         "collect_naver_quotes",
         lambda _db, yyyymmdd, **_kwargs: naver_calls.append(yyyymmdd) or 1232,
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_realtime_market_caps",
+        lambda *_args, **_kwargs: 0,
     )
 
     result = runtime._collect_prices(
