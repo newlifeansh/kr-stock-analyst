@@ -44,6 +44,13 @@ from app.services.signal_entry_evidence import (
     load_entry_evidence_timeline,
 )
 from app.services.public_signal import build_public_signal_reasons
+from app.services.position_lifecycle_core import (
+    ChasePolicy as CoreChasePolicy,
+    ReentryPolicy as CoreReentryPolicy,
+    calculate_indicators as calculate_lifecycle_indicators,
+    chase_entry_veto_reason as core_chase_entry_veto_reason,
+    fresh_reentry_trigger as core_fresh_reentry_trigger,
+)
 
 
 KST = ZoneInfo("Asia/Seoul")
@@ -422,123 +429,8 @@ def _forming_bar_quote(bars: list[PriceBar], now: datetime) -> Optional[dict[str
     }
 
 
-def _ema(values: list[float], period: int) -> list[float]:
-    if not values:
-        return []
-    alpha = 2.0 / (period + 1.0)
-    result = [values[0]]
-    for value in values[1:]:
-        result.append((value * alpha) + (result[-1] * (1.0 - alpha)))
-    return result
-
-
-def _rolling_average(values: list[float], window: int) -> list[Optional[float]]:
-    result: list[Optional[float]] = []
-    total = 0.0
-    for index, value in enumerate(values):
-        total += value
-        if index >= window:
-            total -= values[index - window]
-        result.append(total / window if index >= window - 1 else None)
-    return result
-
-
 def _indicator_rows(bars: list[PriceBar]) -> list[dict[str, float]]:
-    closes = [bar.close for bar in bars]
-    volumes = [bar.volume for bar in bars]
-    trading_values = [bar.trading_value for bar in bars]
-    ema10 = _ema(closes, 10)
-    ema20 = _ema(closes, 20)
-    ema60 = _ema(closes, 60)
-
-    true_ranges: list[float] = []
-    for index, bar in enumerate(bars):
-        previous_close = closes[index - 1] if index else bar.close
-        true_ranges.append(
-            max(
-                bar.high - bar.low,
-                abs(bar.high - previous_close),
-                abs(bar.low - previous_close),
-            )
-        )
-    atr14 = _ema(true_ranges, 14)
-    volume20 = _rolling_average(volumes, 20)
-    trading_value20 = _rolling_average(trading_values, 20)
-
-    indicators: list[dict[str, float]] = []
-    for index, bar in enumerate(bars):
-        reference5 = closes[index - 5] if index >= 5 else closes[0]
-        reference10 = closes[index - 10] if index >= 10 else closes[0]
-        reference20 = closes[index - 20] if index >= 20 else closes[0]
-        momentum5 = (bar.close / reference5) - 1.0 if reference5 else 0.0
-        momentum10 = (bar.close / reference10) - 1.0 if reference10 else 0.0
-        momentum20 = (bar.close / reference20) - 1.0 if reference20 else 0.0
-        prior_highs = [item.high for item in bars[max(0, index - 20) : index]]
-        prior_high = max(prior_highs) if prior_highs else bar.high
-        high_distance = (bar.close / prior_high) - 1.0 if prior_high else 0.0
-        average_volume = volume20[index] or 0.0
-        volume_ratio = bar.volume / average_volume if average_volume > 0 else 1.0
-        atr_percent = atr14[index] / bar.close if bar.close else 0.0
-        ema20_extension_atr = (
-            (bar.close - ema20[index]) / atr14[index]
-            if atr14[index] > 0
-            else 0.0
-        )
-        ema20_slope = (
-            (ema20[index] / ema20[index - 5]) - 1.0
-            if index >= 5 and ema20[index - 5]
-            else 0.0
-        )
-        ema10_slope = (
-            (ema10[index] / ema10[index - 3]) - 1.0
-            if index >= 3 and ema10[index - 3]
-            else 0.0
-        )
-
-        trend_raw = 0.0
-        trend_raw += 0.45 if bar.close >= ema20[index] else -0.45
-        trend_raw += 0.35 if ema20[index] >= ema60[index] else -0.35
-        trend_raw += 0.20 if ema20_slope >= 0 else -0.20
-        trend_score = _clamp(trend_raw, -1.0, 1.0)
-        momentum_score = _clamp(momentum20 / 0.12, -1.0, 1.0)
-        breakout_score = _clamp((high_distance + 0.04) / 0.04, -1.0, 1.0)
-        volume_score = _clamp((volume_ratio - 1.0) / 1.2, -0.5, 1.0)
-        volatility_penalty = _clamp((atr_percent - 0.035) / 0.065, 0.0, 1.0)
-        total_score = _clamp(
-            50.0
-            + (trend_score * 24.0)
-            + (momentum_score * 18.0)
-            + (breakout_score * 10.0)
-            + (volume_score * 6.0)
-            - (volatility_penalty * 8.0),
-            0.0,
-            100.0,
-        )
-        indicators.append(
-            {
-                "score": total_score,
-                "ema10": ema10[index],
-                "ema20": ema20[index],
-                "ema60": ema60[index],
-                "ema10_slope": ema10_slope,
-                "ema20_slope": ema20_slope,
-                "momentum5": momentum5,
-                "momentum10": momentum10,
-                "momentum20": momentum20,
-                "prior_high": prior_high,
-                "high_distance": high_distance,
-                "volume_ratio": volume_ratio,
-                "atr": atr14[index],
-                "atr_percent": atr_percent,
-                "ema20_extension_atr": ema20_extension_atr,
-                "trend_score": trend_score,
-                "momentum_score": momentum_score,
-                "breakout_score": breakout_score,
-                "volume_score": volume_score,
-                "average_trading_value": trading_value20[index] or 0.0,
-            }
-        )
-    return indicators
+    return calculate_lifecycle_indicators(bars)
 
 
 def strategy_version_for_date(strategy_date: Optional[date]) -> str:
@@ -695,20 +587,18 @@ def _chase_entry_veto_reason(
 ) -> Optional[str]:
     """Return a stable internal reason code when a fresh buy would chase price."""
 
-    if bar.trade_date < CHASE_GUARD_EFFECTIVE_DATE:
-        return None
-    if indicator.get("ema20_extension_atr", 0.0) >= CHASE_MAX_ENTRY_EXTENSION_ATR:
-        return "ema20_extension_atr"
-    ema20 = float(indicator.get("ema20") or 0.0)
-    if ema20 > 0 and (bar.close / ema20) - 1.0 >= CHASE_MAX_ENTRY_EXTENSION_PERCENT:
-        return "ema20_extension_percent"
-    momentum_window = (recent_indicators or [indicator])[-CHASE_MOMENTUM_LOOKBACK_BARS:]
-    if any(
-        float(item.get("momentum5") or 0.0) > CHASE_MOMENTUM_5_MAX
-        for item in momentum_window
-    ):
-        return "momentum5_cooldown"
-    return None
+    return core_chase_entry_veto_reason(
+        bar,
+        indicator,
+        recent_indicators or [indicator],
+        CoreChasePolicy(
+            effective_date=CHASE_GUARD_EFFECTIVE_DATE,
+            max_extension_atr=CHASE_MAX_ENTRY_EXTENSION_ATR,
+            max_extension_percent=CHASE_MAX_ENTRY_EXTENSION_PERCENT,
+            momentum5_max=CHASE_MOMENTUM_5_MAX,
+            momentum_lookback_bars=CHASE_MOMENTUM_LOOKBACK_BARS,
+        ),
+    )
 
 
 def _entry_setup_kind(
@@ -833,42 +723,18 @@ def _fresh_reentry_trigger(
 
     if bars[index].trade_date < CHASE_GUARD_EFFECTIVE_DATE:
         return True
-    current_bar = bars[index]
-    current_indicator = indicators[index]
-    fresh_breakout = False
-    if index > 0:
-        prior_high = float(current_indicator.get("prior_high") or 0.0)
-        previous_prior_high = float(indicators[index - 1].get("prior_high") or 0.0)
-        fresh_breakout = bool(
-            prior_high > 0
-            and previous_prior_high > 0
-            and current_bar.close > prior_high
-            and bars[index - 1].close <= previous_prior_high
-        )
-
-    legacy_cooldown_applies = (
-        current_bar.trade_date < REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE
+    return core_fresh_reentry_trigger(
+        bars,
+        indicators,
+        index,
+        last_exit_index,
+        CoreReentryPolicy(
+            event_effective_date=REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE,
+            legacy_cooldown_bars=LEGACY_REENTRY_COOLDOWN_BARS,
+            retest_lookback_bars=REENTRY_RETEST_LOOKBACK_BARS,
+            retest_ema20_buffer=REENTRY_RETEST_EMA20_BUFFER,
+        ),
     )
-    first_eligible_index = last_exit_index + (
-        LEGACY_REENTRY_COOLDOWN_BARS + 1 if legacy_cooldown_applies else 1
-    )
-    retest_start = max(
-        first_eligible_index,
-        index - REENTRY_RETEST_LOOKBACK_BARS + 1,
-        0,
-    )
-    recent_retest = any(
-        float(indicators[cursor].get("ema20") or 0.0) > 0
-        and bars[cursor].low
-        <= float(indicators[cursor]["ema20"]) * (1.0 + REENTRY_RETEST_EMA20_BUFFER)
-        for cursor in range(retest_start, index + 1)
-    )
-    pullback_recovery = bool(
-        recent_retest
-        and current_bar.close > float(current_indicator.get("ema20") or 0.0)
-        and float(current_indicator.get("momentum5") or 0.0) > 0.0
-    )
-    return fresh_breakout or pullback_recovery
 
 
 def _reentry_entry_allowed(

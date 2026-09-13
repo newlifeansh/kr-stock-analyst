@@ -38,6 +38,339 @@ QUOTE_STREAM_META_RE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
+# Gate evidence is intentionally traceable at the pytest testcase level. New
+# cases must be added here with every deterministic test that is required to
+# clear the corresponding QA case. Existing catalog entries keep the legacy
+# suite-level evidence contract until they are migrated incrementally.
+PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-UI-022": (
+        "tests.test_public_signal."
+        "test_quant_projection_exposes_only_three_public_reasons_and_keeps_input_immutable",
+        "tests.test_public_signal."
+        "test_market_projection_redacts_live_and_preliminary_history_reasons",
+        "tests.test_public_signal."
+        "test_recommendation_projection_removes_component_and_nested_reason_details",
+        "tests.test_public_signal."
+        "test_us_candidate_projection_hides_shadow_diagnostics_and_numeric_evidence",
+        "tests.test_public_signal."
+        "test_us_recommendation_projection_hides_nested_internal_evidence",
+        "tests.test_public_signal."
+        "test_us_non_ready_market_and_recommendation_projections_are_no_signal",
+        "tests.test_public_signal."
+        "test_us_ready_snapshot_with_incomplete_public_reasons_fails_closed",
+        "tests.test_app."
+        "test_us_market_recommendations_endpoint_hides_us_outer_and_nested_scores",
+        "tests.test_home_ai_response."
+        "test_us_public_ui_never_renders_private_scores_or_synthesized_trade_levels",
+    ),
+    "DATA-US-UNIVERSE-001": (
+        "tests.test_us_signal_universe."
+        "test_us_signal_universe_is_exact_top100_and_deduplicates_share_classes",
+        "tests.test_us_signal_universe."
+        "test_us_signal_universe_fails_closed_when_fewer_than_100_validate",
+        "tests.test_us_signal_universe."
+        "test_exactly_100_screen_issuers_cannot_claim_a_proven_top100_boundary",
+        "tests.test_us_signal_universe."
+        "test_us_signal_universe_security_name_filter_rejects_non_common_equity",
+        "tests.test_us_signal_universe."
+        "test_exchange_screen_paginates_table_rows_and_preserves_as_of",
+        "tests.test_us_signal_universe."
+        "test_exchange_screen_allows_detail_to_omit_proven_excluded_rank_instrument",
+        "tests.test_us_signal_universe."
+        "test_exchange_screen_rejects_incomplete_or_date_misaligned_pages[missing_total]",
+        "tests.test_us_signal_universe."
+        "test_exchange_screen_rejects_incomplete_or_date_misaligned_pages[changed_date]",
+        "tests.test_us_signal_universe."
+        "test_exchange_screen_rejects_incomplete_or_date_misaligned_pages[classification_set]",
+        "tests.test_us_signal_universe."
+        "test_top_cap_quote_failure_does_not_promote_issuer_101[missing]",
+        "tests.test_us_signal_universe."
+        "test_top_cap_quote_failure_does_not_promote_issuer_101[stale]",
+        "tests.test_us_signal_universe."
+        "test_top_cap_quote_failure_does_not_promote_issuer_101[non_usd]",
+        "tests.test_us_signal_universe."
+        "test_cross_exchange_duplicate_ticker_is_rejected",
+        "tests.test_us_signal_universe."
+        "test_nasdaq_screen_is_the_only_market_cap_ranking_source",
+        "tests.test_us_signal_universe."
+        "test_sec_cik_failure_at_top100_boundary_fails_closed[unavailable]",
+        "tests.test_us_signal_universe."
+        "test_sec_cik_failure_at_top100_boundary_fails_closed[boundary_missing]",
+        "tests.test_us_signal_universe."
+        "test_screener_as_of_must_match_quotes_and_completed_session[stale]",
+        "tests.test_us_signal_universe."
+        "test_screener_as_of_must_match_quotes_and_completed_session[mixed_exchange_dates]",
+        "tests.test_us_signal_universe."
+        "test_forming_regular_session_never_publishes_current_day_snapshot",
+        "tests.test_us_signal_universe."
+        "test_source_failure_uses_valid_stale_snapshot_and_blocks_entries",
+        "tests.test_us_signal_universe."
+        "test_persisted_snapshot_validation_is_strict[checksum]",
+        "tests.test_us_signal_universe."
+        "test_persisted_snapshot_validation_is_strict[new_entries_allowed]",
+        "tests.test_us_signal_universe."
+        "test_persisted_snapshot_validation_is_strict[source_candidate_count]",
+        "tests.test_us_signal_universe."
+        "test_persisted_snapshot_validation_is_strict[validated_quote_count]",
+        "tests.test_us_signal_universe."
+        "test_snapshot_checksum_covers_sector_and_rank_caps_are_non_increasing",
+        "tests.test_us_market."
+        "test_sec_request_identity_contains_configured_contact",
+        "tests.test_us_signal_universe."
+        "test_commit_failure_rolls_back_before_valid_stale_fallback",
+        "tests.test_us_signal_universe."
+        "test_exact_completed_daily_snapshot_is_reused_without_remote_calls",
+        "tests.test_us_signal_universe."
+        "test_malformed_exact_daily_snapshot_is_never_overwritten",
+        "tests.test_us_signal_universe."
+        "test_completed_session_waits_for_provider_publication_grace",
+    ),
+    "DATA-US-SIGNAL-INPUT-001": (
+        "tests.test_us_market."
+        "test_chart_price_rows_use_adjusted_ohlc_but_raw_dollar_notional",
+        "tests.test_us_market."
+        "test_signal_chart_rows_fail_closed_without_adjusted_complete_ohlcv",
+        "tests.test_us_market."
+        "test_signal_chart_range_rejects_non_usd_or_mismatched_instrument[meta0-AAPL]",
+        "tests.test_us_market."
+        "test_signal_chart_range_rejects_non_usd_or_mismatched_instrument[meta1-AAPL]",
+        "tests.test_us_market."
+        "test_signal_chart_range_rejects_non_usd_or_mismatched_instrument[meta2-AAPL]",
+        "tests.test_us_market."
+        "test_sector_snapshot_pairs_last_valid_close_with_its_new_york_date",
+        "tests.test_us_market."
+        "test_signal_chart_rows_reject_invalid_adjusted_ohlc_geometry[100.0-99.0-90.0-100.0-50.0]",
+        "tests.test_us_market."
+        "test_signal_chart_rows_reject_invalid_adjusted_ohlc_geometry[100.0-110.0-101.0-100.0-50.0]",
+        "tests.test_us_market."
+        "test_signal_chart_rows_reject_invalid_adjusted_ohlc_geometry[0.0-110.0-90.0-100.0-50.0]",
+        "tests.test_us_market."
+        "test_signal_chart_rows_reject_invalid_adjusted_ohlc_geometry[100.0-110.0-90.0-100.0-0.0]",
+        "tests.test_us_position_lifecycle."
+        "test_us_price_bars_drop_forming_and_explicitly_unadjusted_rows",
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_publication_history_loader_bypasses_any_preclose_chart_cache",
+        "tests.test_us_market_calendar."
+        "test_us_calendar_rejects_holiday_and_weekend",
+        "tests.test_us_market_calendar."
+        "test_us_market_display_session_stays_closed_on_xnys_holiday",
+        "tests.test_us_market_calendar."
+        "test_latest_completed_session_changes_at_early_close",
+        "tests.test_us_market_calendar."
+        "test_us_market_display_session_switches_to_afterhours_at_early_close",
+        "tests.test_us_market_calendar."
+        "test_signal_publication_waits_for_post_close_provider_grace",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_canonical_snapshot_waits_for_provider_grace_after_official_close",
+        "tests.test_app."
+        "test_us_market_regular_session_request_never_enqueues_publication",
+        "tests.test_home_ai_response."
+        "test_dashboard_us_market_session_payload_overrides_fixed_clock_phase",
+        "tests.test_home_ai_response."
+        "test_nasdaq_us_market_session_sources_override_clock_and_drive_live_labels",
+        "tests.test_home_ai_response."
+        "test_dashboard_us_intraday_cache_policy_uses_safe_server_session_source",
+    ),
+    "DATA-US-EVIDENCE-001": (
+        "tests.test_us_position_lifecycle."
+        "test_us_entry_requires_market_relative_strength_and_dollar_volume_evidence",
+        "tests.test_us_position_lifecycle."
+        "test_us_entry_is_not_pending_when_evidence_dates_are_misaligned",
+        "tests.test_us_position_lifecycle."
+        "test_us_entry_fails_closed_when_a_recent_session_is_missing_mid_series",
+        "tests.test_us_position_lifecycle."
+        "test_common_non_session_date_cannot_pass_alignment",
+        "tests.test_us_market_calendar."
+        "test_recent_session_vector_uses_only_consecutive_official_xnys_sessions",
+        "tests.test_us_position_lifecycle."
+        "test_us_entry_requires_stock_strength_relative_to_its_sector",
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy",
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_sector_etf_taxonomy_is_versioned_complete_data_and_unknown_fails_closed",
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_one_missing_member_history_blocks_every_new_entry",
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_one_unreviewed_issuer_sector_blocks_every_new_entry",
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_one_mid_series_session_gap_blocks_every_new_entry",
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_contiguous_short_listing_history_blocks_only_that_member",
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_gapped_short_history_still_blocks_all_new_entries",
+        "tests.test_us_market."
+        "test_us_liquidity_proxy_uses_explicit_dollar_volume_names",
+        "tests.test_public_signal."
+        "test_us_candidate_projection_hides_shadow_diagnostics_and_numeric_evidence",
+        "tests.test_public_signal."
+        "test_us_recommendation_projection_hides_nested_internal_evidence",
+        "tests.test_public_signal."
+        "test_us_ai_analysis_projection_labels_dollar_volume_proxy_without_investor_flow",
+    ),
+    "SIG-US-VERSION-001": (
+        "tests.test_us_position_lifecycle."
+        "test_us_feed_is_top100_shadow_only_and_never_creates_a_position",
+        "tests.test_us_market."
+        "test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_canonical_snapshot_round_trip_and_stale_state_blocks_entries",
+    ),
+    "SIG-US-LIFECYCLE-001": (
+        "tests.test_quant_signals."
+        "test_shared_lifecycle_indicator_core_matches_v742_domestic_golden_vector",
+        "tests.test_us_position_lifecycle."
+        "test_us_entry_requires_market_relative_strength_and_dollar_volume_evidence",
+        "tests.test_quant_signals."
+        "test_v742_reentry_has_no_fixed_delay_but_requires_new_breakout_or_ema20_retest",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_incomplete_refresh_never_overwrites_last_good",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_older_worker_cannot_overwrite_newer_canonical_snapshot",
+        "tests.test_us_position_lifecycle."
+        "test_us_entry_fails_closed_when_a_recent_session_is_missing_mid_series",
+    ),
+    "SIG-US-CHASE-001": (
+        "tests.test_us_position_lifecycle."
+        "test_us_chase_guard_blocks_high_score_entry_independently",
+        "tests.test_us_position_lifecycle."
+        "test_us_chase_guard_boundaries_and_three_bar_lookback_are_exact",
+        "tests.test_us_position_lifecycle."
+        "test_us_next_open_gap_guard_uses_atr_and_percent_cap",
+    ),
+    "SIG-US-REENTRY-001": (
+        "tests.test_us_position_lifecycle."
+        "test_us_reentry_has_no_fixed_wait_but_requires_new_price_event",
+        "tests.test_us_position_lifecycle."
+        "test_us_reentry_allows_ema20_retest_recovery_without_fixed_wait",
+        "tests.test_us_position_lifecycle."
+        "test_us_feed_is_top100_shadow_only_and_never_creates_a_position",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[stateful_lifecycle_replay_enabled-True]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[reentry_runtime_enabled-True]",
+    ),
+    "SIG-US-SHADOW-001": (
+        "tests.test_us_position_lifecycle."
+        "test_legacy_us_momentum_baseline_reproduces_rounded_entry_boundary",
+        "tests.test_us_position_lifecycle."
+        "test_legacy_us_momentum_baseline_uses_point_in_time_quote_valuation",
+        "tests.test_us_position_lifecycle."
+        "test_legacy_us_momentum_baseline_preserves_rounding_and_quote_volume_semantics",
+        "tests.test_us_position_lifecycle."
+        "test_us_feed_is_top100_shadow_only_and_never_creates_a_position",
+        "tests.test_us_market."
+        "test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_failed_refresh_keeps_last_good_snapshot_and_blocks_returned_entries",
+    ),
+    "SIG-US-CONTRACT-001": (
+        "tests.test_us_position_lifecycle."
+        "test_us_feed_is_top100_shadow_only_and_never_creates_a_position",
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy",
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_sector_etf_taxonomy_is_versioned_complete_data_and_unknown_fails_closed",
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_one_missing_member_history_blocks_every_new_entry",
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_one_unreviewed_issuer_sector_blocks_every_new_entry",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_future_dated_snapshot_is_blocked_and_refresh_is_due",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[top_level_coverage-99]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[nested_coverage-99]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[status-degraded]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[execution_enabled-True]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[entry_pending_count-999]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[preliminary_count-999]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[policy-False]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[coverage_percent-99.0]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[sector_classification_error_count-1]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[coverage_sector_classification_error_count-1]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[stateful_lifecycle_replay_enabled-True]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[reentry_runtime_enabled-True]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[item_currency-KRW]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[item_rank-101]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[item_position-true]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[item_exposure-100]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[item_status-confirmed]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[item_action-holding]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[item_events-nonempty]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[temporal_metadata-future]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[item_sector_etf-cik-mismatch]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[item_public_reasons-missing]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[item_public_reason_available-false]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_snapshot_identity_must_match_strategy_date_and_checksum",
+        "tests.test_us_signal_universe."
+        "test_snapshot_checksum_covers_sector_and_rank_caps_are_non_increasing",
+        "tests.test_us_market."
+        "test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed",
+        "tests.test_us_market."
+        "test_us_quant_signals_expose_only_usd_preliminary_candidates",
+        "tests.test_public_signal."
+        "test_us_candidate_projection_hides_shadow_diagnostics_and_numeric_evidence",
+        "tests.test_public_signal."
+        "test_us_recommendation_projection_hides_nested_internal_evidence",
+        "tests.test_public_signal."
+        "test_us_non_ready_market_and_recommendation_projections_are_no_signal",
+        "tests.test_public_signal."
+        "test_us_ready_snapshot_with_incomplete_public_reasons_fails_closed",
+        "tests.test_app."
+        "test_us_market_recommendations_endpoint_hides_us_outer_and_nested_scores",
+        "tests.test_app."
+        "test_us_market_cold_request_returns_preparing_and_only_enqueues_refresh",
+        "tests.test_app."
+        "test_us_market_refresh_query_serves_fresh_snapshot_while_enqueuing",
+        "tests.test_app."
+        "test_us_market_regular_session_request_never_enqueues_publication",
+        "tests.test_app."
+        "test_us_market_refresh_queue_is_process_single_flight",
+        "tests.test_app."
+        "test_us_stock_ai_analysis_endpoint_labels_dollar_volume_proxy",
+        "tests.test_app."
+        "test_us_stock_ai_analysis_fails_closed_without_canonical_candidate[preparing]",
+        "tests.test_app."
+        "test_us_stock_ai_analysis_fails_closed_without_canonical_candidate[outside_top100]",
+        "tests.test_app."
+        "test_us_stock_ai_analysis_keeps_top100_member_ready_without_signal[share_class_alias]",
+        "tests.test_app."
+        "test_us_stock_ai_analysis_keeps_top100_member_ready_without_signal[exact_symbol]",
+        "tests.test_home_ai_response."
+        "test_us_ai_signal_composition_preserves_identity_and_fails_closed",
+        "tests.test_home_ai_response."
+        "test_us_ai_analysis_display_preserves_canonical_fields_and_fails_closed",
+        "tests.test_home_ai_response."
+        "test_us_recommendation_detail_requires_matching_ready_snapshot_identity",
+        "tests.test_home_ai_response."
+        "test_nasdaq_ai_renderer_and_recommendation_history_keep_canonical_snapshot",
+        "tests.test_home_ai_response."
+        "test_us_public_ui_never_renders_private_scores_or_synthesized_trade_levels",
+    ),
+}
+
 
 @dataclass
 class QaCheckResult:
@@ -81,6 +414,27 @@ def redact(value: Any) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     return str(value)
+
+
+def _forbidden_key_paths(
+    value: Any,
+    forbidden: set[str],
+    *,
+    path: str = "$",
+) -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            child_path = f"{path}.{key}"
+            if str(key) in forbidden:
+                paths.append(child_path)
+            paths.extend(_forbidden_key_paths(item, forbidden, path=child_path))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            paths.extend(
+                _forbidden_key_paths(item, forbidden, path=f"{path}[{index}]")
+            )
+    return paths
 
 
 class ResultCollector:
@@ -465,7 +819,82 @@ def _pytest_evidence(pytest_junit: Path | str | None) -> dict[str, Any] | None:
         for key in ("tests", "failures", "errors", "skipped")
     }
     totals["path"] = str(path)
+    testcase_statuses: dict[str, str] = {}
+    severity = {"pass": 0, "skip": 1, "failure": 2, "error": 3}
+    for testcase in root.iter():
+        if str(testcase.tag).rsplit("}", 1)[-1] != "testcase":
+            continue
+        classname = str(testcase.attrib.get("classname") or "").strip()
+        name = str(testcase.attrib.get("name") or "").strip()
+        if not classname or not name:
+            continue
+        status = "pass"
+        for child in testcase:
+            child_tag = str(child.tag).rsplit("}", 1)[-1]
+            if child_tag in {"failure", "error", "skipped"}:
+                candidate = "skip" if child_tag == "skipped" else child_tag
+                if severity[candidate] > severity[status]:
+                    status = candidate
+        testcase_id = f"{classname}.{name}"
+        previous = testcase_statuses.get(testcase_id)
+        if previous is None or severity[status] > severity[previous]:
+            testcase_statuses[testcase_id] = status
+    totals["recorded_testcases"] = len(testcase_statuses)
+    totals["_testcase_statuses"] = testcase_statuses
     return totals
+
+
+def _pytest_summary(pytest_result: dict[str, Any] | None) -> dict[str, Any] | None:
+    if pytest_result is None:
+        return None
+    return {
+        key: value
+        for key, value in pytest_result.items()
+        if not str(key).startswith("_")
+    }
+
+
+def _mapped_pytest_evidence(
+    case_id: str,
+    pytest_result: dict[str, Any] | None,
+) -> tuple[QaStatus, str, dict[str, Any]]:
+    expected = list(PYTEST_QA_CASE_TESTS[case_id])
+    evidence: dict[str, Any] = {
+        "delegated_to": "pytest",
+        "required_testcases": expected,
+        "pytest": _pytest_summary(pytest_result),
+    }
+    if pytest_result is None:
+        return (
+            "skip",
+            "pytest JUnit 증거가 없어 필수 테스트를 확인하지 못했습니다.",
+            evidence,
+        )
+    if pytest_result.get("error"):
+        return "fail", "pytest JUnit 증거를 읽지 못했습니다.", evidence
+
+    statuses = pytest_result.get("_testcase_statuses") or {}
+    observed = {test_id: statuses.get(test_id) for test_id in expected}
+    missing = [test_id for test_id, status in observed.items() if status is None]
+    not_passed = {
+        test_id: status
+        for test_id, status in observed.items()
+        if status is not None and status != "pass"
+    }
+    evidence["observed_testcases"] = observed
+    if missing or not_passed:
+        evidence["missing_testcases"] = missing
+        evidence["not_passed_testcases"] = not_passed
+        return (
+            "fail",
+            "QA 항목에 필요한 pytest 테스트 증적이 누락되었거나 통과하지 않았습니다.",
+            evidence,
+        )
+    return (
+        "pass",
+        "QA 항목에 연결된 pytest 테스트가 모두 통과했습니다.",
+        evidence,
+    )
 
 
 def _gate_checks(
@@ -475,6 +904,16 @@ def _gate_checks(
     pytest_junit: Path | str | None,
 ) -> None:
     from app.services import quant_signals as qs
+    from app.services.us_position_lifecycle import (
+        US_BASELINE_STRATEGY_VERSION,
+        US_CHASE_POLICY,
+        US_ROLLOUT_MODE,
+        US_STRATEGY_VERSION,
+    )
+    from app.services.us_signal_universe import (
+        US_SIGNAL_UNIVERSE_LIMIT,
+        US_SIGNAL_UNIVERSE_VERSION,
+    )
 
     def catalog_contract() -> dict[str, Any]:
         ids = [case["id"] for case in catalog["cases"]]
@@ -519,6 +958,41 @@ def _gate_checks(
         "SIG-VERSION-002",
         strategy_contract,
         pass_message="전략 버전과 QA 카탈로그 버전이 일치합니다.",
+    )
+
+    def us_strategy_contract() -> dict[str, Any]:
+        _assert(
+            US_STRATEGY_VERSION == catalog.get("us_strategy_version"),
+            "미국 후보 전략 버전이 QA 카탈로그와 다릅니다.",
+        )
+        _assert(
+            US_SIGNAL_UNIVERSE_LIMIT == 100
+            and US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v1",
+            "미국 시그널 유니버스 정책이 Top 100 v1과 다릅니다.",
+        )
+        _assert(
+            US_ROLLOUT_MODE == "shadow"
+            and US_BASELINE_STRATEGY_VERSION == "us-momentum-watch-v1",
+            "미국 RC1 shadow 비교 계약이 다릅니다.",
+        )
+        _assert(
+            US_CHASE_POLICY.max_extension_atr == 1.5
+            and US_CHASE_POLICY.max_extension_percent == 0.07
+            and US_CHASE_POLICY.momentum5_max == 0.10,
+            "미국 추격매수 차단 정책이 고정값과 다릅니다.",
+        )
+        return {
+            "strategy_version": US_STRATEGY_VERSION,
+            "baseline_strategy_version": US_BASELINE_STRATEGY_VERSION,
+            "rollout_mode": US_ROLLOUT_MODE,
+            "universe_version": US_SIGNAL_UNIVERSE_VERSION,
+            "universe_limit": US_SIGNAL_UNIVERSE_LIMIT,
+        }
+
+    collector.check(
+        "SIG-US-VERSION-001",
+        us_strategy_contract,
+        pass_message="미국 RC1·baseline·Top 100 shadow 버전 계약을 확인했습니다.",
     )
 
     def input_contract() -> dict[str, Any]:
@@ -1022,9 +1496,10 @@ def _gate_checks(
         pass_message="예비 신호의 매수가·목표가·수익률 비노출 계약을 확인했습니다.",
     )
 
-    # Remaining gate-only cases are executed in pytest fixtures. A JUnit file
-    # is the machine-verifiable evidence; without it P0 cases remain skipped
-    # and therefore block a gate report.
+    # Remaining gate-only cases are executed in pytest fixtures. Explicitly
+    # mapped cases require their named testcase records; suite totals alone
+    # cannot clear them. Unmapped legacy cases retain suite-level evidence
+    # while their traceability mappings are migrated incrementally.
     try:
         pytest_result = _pytest_evidence(pytest_junit)
     except QaFailure as exc:
@@ -1038,10 +1513,25 @@ def _gate_checks(
     )
     executed = {item.id for item in collector.results}
     for case in catalog["cases"]:
-        if "gate" not in case["modes"] or case["id"] in executed:
+        case_id = case["id"]
+        if "gate" not in case["modes"]:
+            continue
+        if case_id in PYTEST_QA_CASE_TESTS:
+            status, message, evidence = _mapped_pytest_evidence(
+                case_id,
+                pytest_result,
+            )
+            collector.add(
+                case_id,
+                status,
+                message,
+                evidence={"automation": case["automation"], **evidence},
+            )
+            continue
+        if case_id in executed:
             continue
         collector.add(
-            case["id"],
+            case_id,
             "pass" if pytest_ok else "fail" if pytest_result else "skip",
             (
                 "pytest JUnit 증거에서 고정 픽스처·계약 테스트 통과를 확인했습니다."
@@ -1053,7 +1543,7 @@ def _gate_checks(
             evidence={
                 "automation": case["automation"],
                 "delegated_to": "pytest",
-                "pytest": pytest_result,
+                "pytest": _pytest_summary(pytest_result),
             },
         )
 
@@ -1124,6 +1614,394 @@ def _live_checks(
             "DATA-COM-002",
             health_contract,
             pass_message="헬스·준비 상태와 HTTP 타임아웃 계약을 확인했습니다.",
+        )
+
+        def us_market_payloads() -> dict[str, Any]:
+            cached = context.get("us_market_contract")
+            if isinstance(cached, dict):
+                return cached
+            feed, feed_meta = api.get(
+                "/us/market/quant-signals", limit=50, recent_days=30
+            )
+            recommendations, recommendation_meta = api.get(
+                "/us/market/recommendations", limit=20, candidate_limit=100
+            )
+            _assert(isinstance(feed, dict), "미국 시그널 응답이 객체가 아닙니다.")
+            _assert(
+                isinstance(recommendations, dict),
+                "미국 추천 응답이 객체가 아닙니다.",
+            )
+            expected_version = str(catalog.get("us_strategy_version") or "")
+            _assert(
+                feed.get("strategy_version") == expected_version
+                and recommendations.get("strategy_version") == expected_version,
+                "미국 시그널·추천 전략 버전이 RC1과 다릅니다.",
+                feed_version=feed.get("strategy_version"),
+                recommendation_version=recommendations.get("strategy_version"),
+                expected_version=expected_version,
+            )
+            _assert(
+                feed.get("rollout_mode") == "shadow"
+                and feed.get("execution_enabled") is False
+                and feed.get("stateful_lifecycle_replay_enabled") is False
+                and feed.get("reentry_runtime_enabled") is False
+                and int(feed.get("confirmed_count") or 0) == 0,
+                "미국 RC1이 shadow 예비 전용 계약을 벗어났습니다.",
+            )
+            items = feed.get("items") or []
+            _assert(isinstance(items, list), "미국 시그널 items가 배열이 아닙니다.")
+            invalid_items: list[str] = []
+            entry_pending_count = 0
+            for item in items:
+                if not isinstance(item, dict):
+                    invalid_items.append("non_object")
+                    continue
+                current_signal = item.get("current") or {}
+                if current_signal.get("action") == "entry_pending":
+                    entry_pending_count += 1
+                try:
+                    rank = int(item.get("market_cap_rank"))
+                except (TypeError, ValueError):
+                    rank = 0
+                if (
+                    item.get("currency") != "USD"
+                    or item.get("status") != "preliminary"
+                    or item.get("is_preliminary") is not True
+                    or current_signal.get("position_open") is not False
+                    or current_signal.get("model_exposure_percent") not in (0, 0.0, "0", "0.0", None)
+                    or not 1 <= rank <= 100
+                ):
+                    invalid_items.append(str(item.get("code") or "unknown"))
+            _assert(
+                not invalid_items,
+                "미국 공개 예비 신호의 USD·Top100·미체결 계약이 깨졌습니다.",
+                invalid_items=invalid_items,
+            )
+            recommendation_items = recommendations.get("items") or []
+            _assert(
+                isinstance(recommendation_items, list),
+                "미국 추천 items가 배열이 아닙니다.",
+            )
+            recommendation_entry_pending_count = sum(
+                1
+                for item in recommendation_items
+                if isinstance(item, dict)
+                and (
+                    str(item.get("action") or "") == "entry_pending"
+                    or (
+                        isinstance(item.get("ai_trade_signal"), dict)
+                        and isinstance(item["ai_trade_signal"].get("current"), dict)
+                        and item["ai_trade_signal"]["current"].get("action")
+                        == "entry_pending"
+                    )
+                )
+            )
+            universe_state = str(feed.get("universe_data_state") or "unavailable")
+            universe_count = int(feed.get("universe_count") or 0)
+            evaluated_count = int(feed.get("evaluated_count") or 0)
+            data_coverage_count = int(feed.get("data_coverage_count") or 0)
+            signal_eligible_raw = feed.get("signal_eligible_count")
+            insufficient_history_raw = feed.get("insufficient_history_count")
+            _assert(
+                type(signal_eligible_raw) is int
+                and type(insufficient_history_raw) is int
+                and signal_eligible_raw >= 0
+                and insufficient_history_raw >= 0,
+                "미국 신호 적격·신규 상장 이력 수가 정수 계약이 아닙니다.",
+                signal_eligible_count=signal_eligible_raw,
+                insufficient_history_count=insufficient_history_raw,
+            )
+            signal_eligible_count = int(signal_eligible_raw)
+            insufficient_history_count = int(insufficient_history_raw)
+            coverage = feed.get("coverage") or {}
+            _assert(isinstance(coverage, dict), "미국 커버리가 객체가 아닙니다.")
+            coverage_complete = bool(
+                universe_state == "ready"
+                and universe_count == 100
+                and evaluated_count == 100
+                and data_coverage_count == 100
+                and signal_eligible_count + insufficient_history_count == 100
+                and coverage.get("signal_eligible_count")
+                == signal_eligible_count
+                and coverage.get("insufficient_history_count")
+                == insufficient_history_count
+                and coverage.get("complete") is True
+                and int(coverage.get("history_error_count") or 0) == 0
+                and int(coverage.get("sector_classification_error_count") or 0)
+                == 0
+            )
+            feed_state = str(feed.get("data_state") or feed.get("status") or "unavailable")
+            recommendation_state = str(
+                recommendations.get("data_state")
+                or recommendations.get("status")
+                or "unavailable"
+            )
+            operational_ready = bool(
+                feed.get("status") == "ready"
+                and feed_state == "ready"
+                and recommendations.get("status") == "ready"
+                and recommendation_state == "ready"
+            )
+            entry_ready = bool(operational_ready and coverage_complete)
+            try:
+                from app.services.us_market_calendar import (
+                    latest_completed_us_market_session,
+                )
+
+                expected_universe_as_of = (
+                    latest_completed_us_market_session().session_date.isoformat()
+                )
+            except Exception as exc:
+                raise QaFailure(
+                    "XNYS 마지막 완료 세션을 확인할 수 없습니다.",
+                    {"error_type": type(exc).__name__},
+                ) from exc
+            _assert(
+                feed_state == recommendation_state
+                and feed.get("status") == recommendations.get("status"),
+                "미국 추천과 시그널의 상태가 다릅니다.",
+                feed_status=feed.get("status"),
+                recommendation_status=recommendations.get("status"),
+                feed_state=feed_state,
+                recommendation_state=recommendation_state,
+            )
+            _assert(
+                feed.get("new_entries_allowed") is entry_ready
+                and recommendations.get("new_entries_allowed") is entry_ready,
+                "미국 신규 진입 허용 상태가 ready·100/100/100 커버리와 다릅니다.",
+                entry_ready=entry_ready,
+                feed_new_entries_allowed=feed.get("new_entries_allowed"),
+                recommendation_new_entries_allowed=recommendations.get(
+                    "new_entries_allowed"
+                ),
+                universe_count=universe_count,
+                evaluated_count=evaluated_count,
+                data_coverage_count=data_coverage_count,
+                signal_eligible_count=signal_eligible_count,
+                insufficient_history_count=insufficient_history_count,
+                coverage_complete=coverage.get("complete"),
+            )
+            if entry_ready:
+                _assert(
+                    feed.get("universe_as_of")
+                    and feed.get("universe_checksum")
+                    and feed.get("snapshot_id")
+                    and feed.get("snapshot_checksum"),
+                    "미국 ready Top 100 canonical 스냅샷 identity가 누락됐습니다.",
+                    universe_as_of=feed.get("universe_as_of"),
+                    snapshot_id=feed.get("snapshot_id"),
+                )
+                _assert(
+                    str(feed.get("universe_as_of") or "")[:10]
+                    == expected_universe_as_of,
+                    "미국 ready 스냅샷이 XNYS 마지막 완료 세션일과 다릅니다.",
+                    universe_as_of=feed.get("universe_as_of"),
+                    expected_universe_as_of=expected_universe_as_of,
+                )
+            else:
+                non_ready_actions = [
+                    str((item.get("current") or {}).get("action") or "")
+                    for item in items
+                    if isinstance(item, dict)
+                ]
+                non_ready_recommendation_actions = [
+                    str(
+                        item.get("action")
+                        or (
+                            ((item.get("ai_trade_signal") or {}).get("current") or {}).get(
+                                "action"
+                            )
+                            if isinstance(item.get("ai_trade_signal"), dict)
+                            else ""
+                        )
+                        or ""
+                    )
+                    for item in recommendation_items
+                    if isinstance(item, dict)
+                ]
+                _assert(
+                    entry_pending_count == 0
+                    and int(feed.get("entry_pending_count") or 0) == 0
+                    and recommendation_entry_pending_count == 0,
+                    "미국 non-ready·불완전 커버리에서 신규 매수대기가 생성됐습니다.",
+                    universe_state=universe_state,
+                    feed_state=feed_state,
+                    coverage_complete=coverage_complete,
+                    entry_pending_count=entry_pending_count,
+                    feed_entry_pending_count=feed.get("entry_pending_count"),
+                    recommendation_entry_pending_count=recommendation_entry_pending_count,
+                )
+                _assert(
+                    not ({"entry_watch", "entry_pending"} & set(non_ready_actions))
+                    and not (
+                        {"entry_watch", "entry_pending"}
+                        & set(non_ready_recommendation_actions)
+                    ),
+                    "미국 non-ready·불완전 스냅샷이 관망/no_signal로 닫히지 않았습니다.",
+                    feed_actions=non_ready_actions,
+                    recommendation_actions=non_ready_recommendation_actions,
+                )
+            _assert(
+                recommendations.get("universe_as_of") == feed.get("universe_as_of")
+                and int(recommendations.get("universe_count") or 0) == universe_count
+                and int(recommendations.get("evaluated_count") or 0)
+                == evaluated_count
+                and int(recommendations.get("data_coverage_count") or 0)
+                == data_coverage_count
+                and recommendations.get("signal_eligible_count")
+                == signal_eligible_count
+                and recommendations.get("insufficient_history_count")
+                == insufficient_history_count
+                and recommendations.get("snapshot_id") == feed.get("snapshot_id")
+                and recommendations.get("snapshot_checksum")
+                == feed.get("snapshot_checksum"),
+                "미국 추천과 시그널이 다른 canonical 스냅샷을 사용합니다.",
+                feed_snapshot_id=feed.get("snapshot_id"),
+                recommendation_snapshot_id=recommendations.get("snapshot_id"),
+                feed_snapshot_checksum=feed.get("snapshot_checksum"),
+                recommendation_snapshot_checksum=recommendations.get(
+                    "snapshot_checksum"
+                ),
+            )
+            _assert(
+                recommendations.get("baseline_strategy_version")
+                == feed.get("baseline_strategy_version")
+                and recommendations.get("sector_classification_version")
+                == feed.get("sector_classification_version")
+                and recommendations.get("stateful_lifecycle_replay_enabled")
+                is False
+                and recommendations.get("reentry_runtime_enabled") is False,
+                "미국 추천과 시그널의 baseline·섹터분류·runtime 계약이 다릅니다.",
+            )
+            public_case = next(
+                (case for case in catalog["cases"] if case.get("id") == "SIG-UI-022"),
+                {},
+            )
+            forbidden_fields = set(
+                public_case.get("inputs", {}).get("forbidden_public_fields") or []
+            )
+            forbidden_paths = _forbidden_key_paths(
+                {"feed": feed, "recommendations": recommendations},
+                forbidden_fields,
+            )
+            _assert(
+                not forbidden_paths,
+                "미국 공개 응답에 내부 점수·필터 키가 남았습니다.",
+                forbidden_paths=forbidden_paths,
+            )
+            invalid_public_reasons: list[str] = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                reasons = item.get("public_reasons")
+                if (
+                    not isinstance(reasons, list)
+                    or [reason.get("key") for reason in reasons if isinstance(reason, dict)]
+                    != ["trend_20d", "trend_60d", "flow"]
+                    or any(
+                        not isinstance(reason, dict)
+                        or reason.get("available") is not True
+                        for reason in reasons
+                    )
+                ):
+                    invalid_public_reasons.append(str(item.get("code") or "unknown"))
+            _assert(
+                not invalid_public_reasons,
+                "미국 공개 근거가 20일·60일·거래대금 세 개의 준비된 근거가 아닙니다.",
+                invalid_codes=invalid_public_reasons,
+            )
+            result = {
+                "feed": feed_meta,
+                "recommendations": recommendation_meta,
+                "strategy_version": expected_version,
+                "universe_state": universe_state,
+                "data_state": feed_state,
+                "universe_count": universe_count,
+                "evaluated_count": evaluated_count,
+                "data_coverage_count": data_coverage_count,
+                "signal_eligible_count": signal_eligible_count,
+                "insufficient_history_count": insufficient_history_count,
+                "sector_classification_error_count": int(
+                    feed.get("sector_classification_error_count") or 0
+                ),
+                "coverage_complete": coverage_complete,
+                "universe_as_of": feed.get("universe_as_of"),
+                "expected_universe_as_of": expected_universe_as_of,
+                "universe_checksum": feed.get("universe_checksum"),
+                "snapshot_id": feed.get("snapshot_id"),
+                "snapshot_checksum": feed.get("snapshot_checksum"),
+                "preliminary_count": len(items),
+                "entry_pending_count": entry_pending_count,
+                "recommendation_entry_pending_count": recommendation_entry_pending_count,
+                "forbidden_public_paths": forbidden_paths,
+                "methodology": feed.get("methodology"),
+            }
+            context["us_market_contract"] = result
+            return result
+
+        def us_version_contract() -> dict[str, Any]:
+            health = context.get("health") or {}
+            _assert(
+                health.get("us_strategy_version") == catalog.get("us_strategy_version"),
+                "health 미국 전략 버전이 RC1과 다릅니다.",
+                health_version=health.get("us_strategy_version"),
+            )
+            return us_market_payloads()
+
+        collector.check(
+            "SIG-US-VERSION-001",
+            us_version_contract,
+            pass_message="health·미국 시그널·추천의 RC1 버전을 확인했습니다.",
+        )
+
+        def us_universe_contract() -> dict[str, Any]:
+            evidence = us_market_payloads()
+            if evidence["universe_state"] != "ready":
+                raise QaWarning(
+                    "미국 Top 100 원천은 일시적으로 준비되지 않았지만 신규 진입은 차단됐습니다.",
+                    evidence,
+                )
+            return evidence
+
+        collector.check(
+            "DATA-US-UNIVERSE-001",
+            us_universe_contract,
+            pass_message="미국 완료 세션 시총 Top 100 스냅샷을 확인했습니다.",
+        )
+
+        def us_evidence_contract() -> dict[str, Any]:
+            evidence = us_market_payloads()
+            methodology = " ".join(str(item) for item in evidence.get("methodology") or [])
+            _assert(
+                all(token in methodology for token in ("수정 OHLC", "SPY·QQQ", "거래대금")),
+                "미국 수정주가·시장·거래대금 근거 설명이 누락됐습니다.",
+            )
+            if evidence["data_state"] != "ready" or not evidence["coverage_complete"]:
+                raise QaWarning(
+                    "미국 근거 원천은 일시적으로 준비되지 않았지만 매수 승격은 차단됐습니다.",
+                    evidence,
+                )
+            return evidence
+
+        collector.check(
+            "DATA-US-SIGNAL-INPUT-001",
+            us_evidence_contract,
+            pass_message="미국 수정 일봉·완료 세션 입력 계약을 확인했습니다.",
+        )
+        collector.check(
+            "DATA-US-EVIDENCE-001",
+            us_evidence_contract,
+            pass_message="미국 시장·상대강도·달러 거래대금 근거 계약을 확인했습니다.",
+        )
+        collector.check(
+            "SIG-US-CONTRACT-001",
+            us_market_payloads,
+            pass_message="미국 Top100 예비 시그널·추천 공개 계약을 확인했습니다.",
+        )
+        collector.check(
+            "SIG-UI-022",
+            us_market_payloads,
+            pass_message="미국 공개 근거 3개·내부 수치 비노출·non-ready 관망 계약을 확인했습니다.",
         )
 
         def staging_page_summary_contract() -> dict[str, Any]:
@@ -2664,6 +3542,7 @@ def run_data_signal_qa(
         "as_of": datetime.now(KST).isoformat(),
         "market_state": market_state,
         "strategy_version": catalog["strategy_version"],
+        "us_strategy_version": catalog.get("us_strategy_version"),
         "catalog_version": catalog["catalog_version"],
         "catalog_case_count": len(catalog["cases"]),
         "checks": [asdict(result) for result in results],

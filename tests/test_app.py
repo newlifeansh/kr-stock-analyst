@@ -3,6 +3,7 @@ from pathlib import Path
 import time
 from zoneinfo import ZoneInfo
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, func, select
 
@@ -42,6 +43,7 @@ def test_health():
     readyz = client.get("/readyz")
     assert readyz.status_code == 200
     assert readyz.json()["database_ok"] is True
+    assert readyz.json()["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
 
 
 def test_market_recommendations_do_not_keep_empty_payload_for_full_cache_window(monkeypatch):
@@ -365,11 +367,35 @@ def test_us_market_quant_signals_endpoint_returns_preliminary_us_candidates(monk
     from app import main as main_module
 
     calls = []
+    canonical = {
+        "status": "ready",
+        "data_state": "ready",
+        "strategy_version": "position-lifecycle-us-v1-rc1",
+        "snapshot_id": "us-rc1-snapshot",
+        "snapshot_checksum": "feed-checksum",
+        "refresh_required": False,
+        "items": [],
+    }
+    monkeypatch.setattr(
+        main_module,
+        "load_us_position_lifecycle_snapshot",
+        lambda *_args, **_kwargs: canonical,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "us_position_lifecycle_refresh_due",
+        lambda *_args, **_kwargs: False,
+    )
     monkeypatch.setattr(
         main_module,
         "build_us_quant_signals",
-        lambda limit, recent_days: calls.append((limit, recent_days)) or {
+        lambda limit, recent_days, feed=None: calls.append(
+            (limit, recent_days, feed.get("snapshot_id"))
+        ) or {
             "status": "ready",
+            "strategy_version": "position-lifecycle-us-v1-rc1",
+            "methodology": ["1.5ATR private threshold"],
+            "snapshot_id": feed.get("snapshot_id"),
             "confirmed_count": 0,
             "preliminary_count": 1,
             "items": [{
@@ -377,6 +403,11 @@ def test_us_market_quant_signals_endpoint_returns_preliminary_us_candidates(monk
                 "name": "NVIDIA",
                 "currency": "USD",
                 "status": "preliminary",
+                "score": 72,
+                "entry_score_threshold": 65,
+                "entry_setup": "trend_continuation",
+                "chase_veto": None,
+                "flow_semantics": "dollar_volume_participation_proxy",
                 "current": {"action": "entry_watch", "position_open": False},
             }],
         },
@@ -385,9 +416,520 @@ def test_us_market_quant_signals_endpoint_returns_preliminary_us_candidates(monk
     response = TestClient(app).get("/us/market/quant-signals?limit=7&recent_days=21")
 
     assert response.status_code == 200
-    assert calls == [(7, 21)]
+    assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
+    assert calls == [(7, 21, "us-rc1-snapshot")]
+    assert response.json()["snapshot_id"] == "us-rc1-snapshot"
     assert response.json()["items"][0]["currency"] == "USD"
     assert response.json()["items"][0]["current"]["position_open"] is False
+    assert "score" not in response.json()["items"][0]
+    assert "entry_score_threshold" not in response.json()["items"][0]
+    assert "entry_setup" not in response.json()["items"][0]
+    assert "chase_veto" not in response.json()["items"][0]
+    assert all(
+        token in response.json()["methodology"][0]
+        for token in ("수정 OHLC", "SPY·QQQ", "거래대금")
+    )
+    assert "1.5ATR" not in response.text
+
+
+def test_us_market_recommendations_endpoint_hides_us_outer_and_nested_scores(
+    monkeypatch,
+):
+    from app import main as main_module
+
+    canonical = {
+        "status": "ready",
+        "data_state": "ready",
+        "strategy_version": "position-lifecycle-us-v1-rc1",
+        "snapshot_id": "us-rc1-snapshot",
+        "snapshot_checksum": "feed-checksum",
+        "items": [],
+    }
+    monkeypatch.setattr(
+        main_module,
+        "load_us_position_lifecycle_snapshot",
+        lambda *_args, **_kwargs: canonical,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "us_position_lifecycle_refresh_due",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_us_recommendations",
+        lambda **_kwargs: {
+            "status": "ready",
+            "strategy_version": "position-lifecycle-us-v1-rc1",
+            "methodology": ["1.5ATR private threshold"],
+            "universe_members": [{"code": "PRIVATE", "cik": "private-cik"}],
+            "items": [
+                {
+                    "code": "NVDA",
+                    "score": 72,
+                    "entry_score_threshold": 65,
+                    "entry_setup": "trend_continuation",
+                    "chase_veto": None,
+                    "ai_trade_signal": {
+                        "code": "NVDA",
+                        "strategy_version": "position-lifecycle-us-v1-rc1",
+                        "score": 72,
+                        "entry_score_threshold": 65,
+                        "entry_setup": "trend_continuation",
+                        "chase_veto": None,
+                        "flow_semantics": "dollar_volume_participation_proxy",
+                        "current": {
+                            "action": "entry_watch",
+                            "position_open": False,
+                        },
+                    },
+                }
+            ],
+        },
+    )
+
+    response = TestClient(app).get("/us/market/recommendations")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert "score" not in item
+    assert "entry_score_threshold" not in item
+    assert "entry_setup" not in item
+    assert "chase_veto" not in item
+    assert "score" not in item["ai_trade_signal"]
+    assert "entry_score_threshold" not in item["ai_trade_signal"]
+    assert "entry_setup" not in item["ai_trade_signal"]
+    assert "chase_veto" not in item["ai_trade_signal"]
+    assert "universe_members" not in response.json()
+    assert "1.5ATR" not in response.text
+
+
+def test_us_stock_ai_analysis_endpoint_labels_dollar_volume_proxy(monkeypatch):
+    from app import main as main_module
+
+    canonical = {
+        "status": "ready",
+        "data_state": "ready",
+        "strategy_version": "position-lifecycle-us-v1-rc1",
+        "rollout_mode": "shadow",
+        "execution_enabled": False,
+        "snapshot_id": "us-rc1-snapshot",
+        "snapshot_checksum": "feed-checksum",
+        "new_entries_allowed": True,
+        "universe_as_of": "2026-09-09",
+        "universe_members": [{"code": "NVDA"}],
+        "items": [
+            {
+                "code": "NVDA",
+                "signal_at": "2026-09-09T20:00:00+00:00",
+                "flow_semantics": "dollar_volume_participation_proxy",
+                "public_reasons": [
+                    {"key": "trend_20d", "state": "positive", "available": True},
+                    {"key": "trend_60d", "state": "positive", "available": True},
+                    {"key": "flow", "state": "positive", "available": True},
+                ],
+                "current": {
+                    "action": "entry_pending",
+                    "label": "예비 매수",
+                    "score": 72,
+                    "private_threshold": 65,
+                },
+            }
+        ],
+    }
+    dashboard = {
+        "code": "NVDA",
+        "name": "NVIDIA",
+        "market": "NASDAQ",
+        "currency": "USD",
+        "flow_semantics": "dollar_volume_participation_proxy",
+        "momentum": {
+            "one_month_return": -50.0,
+            "three_month_return": -60.0,
+            "trading_value_change": -80.0,
+        },
+    }
+    monkeypatch.setattr(
+        main_module,
+        "us_stock_dashboard",
+        lambda *_args, **_kwargs: dashboard,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_us_position_lifecycle_snapshot",
+        lambda *_args, **_kwargs: canonical,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "us_position_lifecycle_refresh_due",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_stock_ai_analysis",
+        lambda _dashboard: {
+            "code": "NVDA",
+            "name": "NVIDIA",
+            "market": "NASDAQ",
+            "as_of": "2026-09-09T20:00:00+00:00",
+            "generated_at": "2026-09-09T20:01:00+00:00",
+            "stance": "watch",
+            "confidence": 72,
+            "score": 72,
+            "summary": "private US analysis",
+            "key_points": ["private flow detail"],
+            "strategy": ["private strategy"],
+            "risks": ["private risk"],
+        },
+    )
+
+    response = TestClient(app).get("/us/stocks/NVDA/ai-analysis")
+
+    assert response.status_code == 200
+    payload = response.json()
+    flow = payload["public_reasons"][2]
+    assert flow["label"] == "거래대금 참여도"
+    assert [reason["state"] for reason in payload["public_reasons"]] == [
+        "positive",
+        "positive",
+        "positive",
+    ]
+    assert "가격×거래량" in flow["summary"]
+    assert "투자자 순매수나 ETF 순유입이 아닙니다" in flow["note"]
+    assert payload["strategy_version"] == "position-lifecycle-us-v1-rc1"
+    assert payload["rollout_mode"] == "shadow"
+    assert payload["execution_enabled"] is False
+    assert payload["snapshot_id"] == "us-rc1-snapshot"
+    assert payload["snapshot_checksum"] == "feed-checksum"
+    assert payload["new_entries_allowed"] is True
+    assert payload["is_current_universe_member"] is True
+    assert payload["confidence"] is None
+    assert (payload["data_covered"], payload["data_total"]) == (3, 3)
+    assert payload["stance"] == "예비 매수"
+    assert payload["current"] == {
+        "action": "entry_pending",
+        "label": "예비 매수",
+        "position_open": False,
+        "live_observation": False,
+        "as_of": "2026-09-09T20:00:00+00:00",
+    }
+    assert "수급" not in payload["summary"]
+    assert "수급" not in payload["strategy"][0]
+    assert "투자자 순매수나 ETF 순유입이 아닙니다" in payload["generation_note"]
+    assert "private_threshold" not in response.text
+    assert "private" not in response.text
+
+
+@pytest.mark.parametrize("case", ["preparing", "missing_identity", "outside_top100"])
+def test_us_stock_ai_analysis_fails_closed_without_canonical_candidate(
+    monkeypatch,
+    case,
+):
+    from app import main as main_module
+
+    feed = {
+        "status": "preparing" if case == "preparing" else "ready",
+        "data_state": "preparing" if case == "preparing" else "ready",
+        "strategy_version": "position-lifecycle-us-v1-rc1",
+        "rollout_mode": "shadow",
+        "execution_enabled": False,
+        "snapshot_id": None if case in {"preparing", "missing_identity"} else "us-rc1-snapshot",
+        "snapshot_checksum": None if case in {"preparing", "missing_identity"} else "feed-checksum",
+        "new_entries_allowed": case != "preparing",
+        "universe_as_of": None if case == "preparing" else "2026-09-09",
+        "universe_members": (
+            []
+            if case == "preparing"
+            else [{"code": "TSLA" if case == "missing_identity" else "NVDA"}]
+        ),
+        "items": [],
+    }
+    monkeypatch.setattr(
+        main_module,
+        "load_us_position_lifecycle_snapshot",
+        lambda *_args, **_kwargs: feed,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "us_position_lifecycle_refresh_due",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "us_stock_dashboard",
+        lambda *_args, **_kwargs: {
+            "code": "TSLA",
+            "name": "Tesla",
+            "market": "NASDAQ",
+            "currency": "USD",
+            "flow_semantics": "dollar_volume_participation_proxy",
+            "momentum": {
+                "one_month_return": 30.0,
+                "three_month_return": 50.0,
+                "trading_value_change": 80.0,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_stock_ai_analysis",
+        lambda _dashboard: {
+            "code": "TSLA",
+            "name": "Tesla",
+            "market": "NASDAQ",
+            "as_of": "2026-09-09T20:00:00+00:00",
+            "generated_at": "2026-09-09T20:01:00+00:00",
+            "stance": "관심 매수 후보",
+            "confidence": 99,
+            "summary": "private buy now",
+            "key_points": ["private live evidence"],
+            "strategy": ["private actionable entry"],
+            "risks": [],
+        },
+    )
+
+    response = TestClient(app).get("/us/stocks/TSLA/ai-analysis")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["stance"] == "관망 우선"
+    assert payload["new_entries_allowed"] is False
+    assert payload["is_current_universe_member"] is (
+        None if case in {"preparing", "missing_identity"} else False
+    )
+    assert payload["confidence"] is None
+    assert (payload["data_covered"], payload["data_total"]) == (0, 3)
+    assert payload["current"]["action"] == "no_signal"
+    assert all(reason["available"] is False for reason in payload["public_reasons"])
+    assert "관망" in payload["summary"]
+    if case in {"preparing", "missing_identity"}:
+        assert "준비" in payload["summary"]
+    assert "private" not in response.text
+    assert "관심 매수 후보" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("request_symbol", "member_code", "dashboard_code"),
+    [
+        ("BRK-B", "BRK.B", "BRK-B"),
+        ("NVDA", "NVDA", "NVDA"),
+    ],
+    ids=["share_class_alias", "exact_symbol"],
+)
+def test_us_stock_ai_analysis_keeps_top100_member_ready_without_signal(
+    monkeypatch,
+    request_symbol,
+    member_code,
+    dashboard_code,
+):
+    from app import main as main_module
+
+    feed = {
+        "status": "ready",
+        "data_state": "ready",
+        "strategy_version": "position-lifecycle-us-v1-rc1",
+        "rollout_mode": "shadow",
+        "execution_enabled": False,
+        "snapshot_id": "us-rc1-snapshot",
+        "snapshot_checksum": "feed-checksum",
+        "new_entries_allowed": True,
+        "universe_as_of": "2026-09-09",
+        "universe_members": [
+            {"code": member_code, "name": "Top 100 Company", "market": "NYSE"}
+        ],
+        "items": [],
+    }
+    monkeypatch.setattr(
+        main_module,
+        "load_us_position_lifecycle_snapshot",
+        lambda *_args, **_kwargs: feed,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "us_position_lifecycle_refresh_due",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "us_stock_dashboard",
+        lambda *_args, **_kwargs: {
+            "code": dashboard_code,
+            "name": "Top 100 Company",
+            "market": "NYSE",
+            "currency": "USD",
+            "flow_semantics": "dollar_volume_participation_proxy",
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_stock_ai_analysis",
+        lambda _dashboard: {
+            "code": dashboard_code,
+            "name": "Top 100 Company",
+            "market": "NYSE",
+            "as_of": "2026-09-09T20:00:00+00:00",
+            "generated_at": "2026-09-09T20:01:00+00:00",
+            "stance": "관심 매수 후보",
+            "confidence": 99,
+            "summary": "private live buy case",
+            "key_points": [],
+            "strategy": [],
+            "risks": [],
+        },
+    )
+
+    response = TestClient(app).get(
+        f"/us/stocks/{request_symbol}/ai-analysis"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["code"] == member_code
+    assert payload["is_current_universe_member"] is True
+    assert payload["new_entries_allowed"] is True
+    assert payload["current"]["action"] == "no_signal"
+    assert payload["stance"] == "관망 우선"
+    assert all(reason["available"] is False for reason in payload["public_reasons"])
+    assert "private" not in response.text
+
+
+def test_us_market_cold_request_returns_preparing_and_only_enqueues_refresh(monkeypatch):
+    from app import main as main_module
+    from app.services import us_position_lifecycle
+
+    enqueued = []
+    monkeypatch.setattr(main_module, "_enforce_rate_limit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main_module,
+        "_us_position_lifecycle_refresh_allowed",
+        lambda _now: True,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_us_position_lifecycle_snapshot",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_enqueue_us_position_lifecycle_refresh",
+        lambda _tasks: enqueued.append(True) or True,
+    )
+    monkeypatch.setattr(
+        us_position_lifecycle,
+        "build_us_position_lifecycle_feed",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("GET must not run the 100-name upstream scan")
+        ),
+    )
+
+    response = TestClient(app).get("/us/market/quant-signals?limit=7")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "preparing"
+    assert response.json()["data_state"] == "preparing"
+    assert response.json()["items"] == []
+    assert response.json()["refresh_enqueued"] is True
+    assert enqueued == [True]
+
+
+def test_us_market_refresh_query_serves_fresh_snapshot_while_enqueuing(monkeypatch):
+    from app import main as main_module
+
+    canonical = {
+        "status": "ready",
+        "data_state": "ready",
+        "strategy_version": "position-lifecycle-us-v1-rc1",
+        "snapshot_id": "us-rc1-snapshot",
+        "snapshot_checksum": "feed-checksum",
+        "refresh_required": False,
+        "items": [],
+    }
+    enqueued = []
+    monkeypatch.setattr(main_module, "_enforce_rate_limit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main_module,
+        "_us_position_lifecycle_refresh_allowed",
+        lambda _now: True,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_us_position_lifecycle_snapshot",
+        lambda *_args, **_kwargs: canonical,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "us_position_lifecycle_refresh_due",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_enqueue_us_position_lifecycle_refresh",
+        lambda _tasks: enqueued.append(True) or True,
+    )
+
+    response = TestClient(app).get("/us/market/recommendations?refresh=true")
+
+    assert response.status_code == 200
+    assert response.json()["snapshot_id"] == "us-rc1-snapshot"
+    assert response.json()["refresh_requested"] is True
+    assert response.json()["refresh_enqueued"] is True
+    assert enqueued == [True]
+
+
+def test_us_market_regular_session_request_never_enqueues_publication(monkeypatch):
+    from app import main as main_module
+
+    monkeypatch.setattr(main_module, "_enforce_rate_limit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main_module,
+        "load_us_position_lifecycle_snapshot",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_us_position_lifecycle_refresh_allowed",
+        lambda _now: False,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_enqueue_us_position_lifecycle_refresh",
+        lambda _tasks: (_ for _ in ()).throw(
+            AssertionError("regular-session GET must not enqueue publication")
+        ),
+    )
+
+    response = TestClient(app).get("/us/market/quant-signals?refresh=true")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "preparing"
+    assert response.json()["refresh_requested"] is True
+    assert response.json()["refresh_enqueued"] is False
+    assert response.json()["entry_pending_count"] == 0
+
+
+def test_us_market_refresh_queue_is_process_single_flight(monkeypatch):
+    from fastapi import BackgroundTasks
+    from app import main as main_module
+
+    completed = []
+    monkeypatch.setattr(
+        main_module,
+        "_refresh_us_position_lifecycle_snapshot",
+        lambda: completed.append(True) or {"status": "ready"},
+    )
+    first = BackgroundTasks()
+    second = BackgroundTasks()
+
+    assert main_module._enqueue_us_position_lifecycle_refresh(first) is True
+    try:
+        assert main_module._enqueue_us_position_lifecycle_refresh(second) is False
+        result = main_module._run_reserved_us_position_lifecycle_refresh()
+        assert result == {"status": "ready"}
+        assert completed == [True]
+        assert main_module._enqueue_us_position_lifecycle_refresh(second) is True
+    finally:
+        if main_module.us_position_lifecycle_refresh_lock.locked():
+            main_module.us_position_lifecycle_refresh_lock.release()
 
 
 def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
@@ -705,7 +1247,7 @@ def test_legacy_us_service_worker_retires_its_scope_and_routes_clients_to_curren
     legacy_worker = client.get("/nasdaq-sw.js")
     assert legacy_worker.status_code == 200
     assert legacy_worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
-    assert 'DASHBOARD_SW_VERSION = "20260905us92"' in legacy_worker.text
+    assert 'DASHBOARD_SW_VERSION = "20260909us93"' in legacy_worker.text
 
 
 def test_android_back_navigation_restores_history_and_confirms_exit_at_home():

@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 APP_JS = Path(__file__).parents[1] / "app" / "static" / "dashboard" / "app.js"
+NASDAQ_JS = Path(__file__).parents[1] / "app" / "static" / "nasdaq" / "app.js"
 DASHBOARD_CSS = Path(__file__).parents[1] / "app" / "static" / "dashboard" / "styles.css"
 
 
@@ -13,6 +14,204 @@ def app_source() -> str:
 
 def dashboard_styles() -> str:
     return DASHBOARD_CSS.read_text(encoding="utf-8")
+
+
+def test_dashboard_us_market_session_payload_overrides_fixed_clock_phase() -> None:
+    source = app_source()
+    phase_start = source.index("function newYorkClockParts(")
+    phase_end = source.index("function formatPreMarketDisplay(", phase_start)
+    home_start = source.index("const HOME_MARKET_INDEX_CODES")
+    home_end = source.index("function formatHomeMarketCardDate(", home_start)
+    function_source = source[phase_start:phase_end] + source[home_start:home_end]
+    script = f"""
+{function_source}
+const holidayRegularClock = new Date("2026-07-03T15:00:00Z");
+const earlyCloseRegularClock = new Date("2026-11-27T19:00:00Z");
+console.log(JSON.stringify({{
+  holidayClockOnly: usMarketPhase(holidayRegularClock),
+  holidayServer: usMarketPhase(holidayRegularClock, {{ market_session: "closed" }}),
+  holidayCard: homeMarketIndexDisplayPhase({{
+    code: "NASDAQ", is_realtime: true, market_session: "closed",
+  }}, holidayRegularClock),
+  earlyCloseClockOnly: usMarketPhase(earlyCloseRegularClock),
+  earlyCloseServer: usMarketPhase(earlyCloseRegularClock, {{
+    quote: {{ market_session: "afterhours" }},
+  }}),
+  earlyCloseCard: homeMarketIndexDisplayPhase({{
+    code: "SP500", is_realtime: true, quote: {{ market_session: "afterhours" }},
+  }}, earlyCloseRegularClock),
+}}));
+"""
+
+    completed = subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True)
+
+    assert "const phase = usMarketPhase(now, item);" in function_source
+    assert json.loads(completed.stdout) == {
+        "holidayClockOnly": "regular",
+        "holidayServer": "closed",
+        "holidayCard": "closed",
+        "earlyCloseClockOnly": "regular",
+        "earlyCloseServer": "afterhours",
+        "earlyCloseCard": "closed",
+    }
+
+
+def test_nasdaq_us_market_session_sources_override_clock_and_drive_live_labels() -> None:
+    source = NASDAQ_JS.read_text(encoding="utf-8")
+    phase_start = source.index("function newYorkClockParts(")
+    phase_end = source.index("function recommendationCooldownStorageKey(", phase_start)
+    ttl_start = source.index("function pageEntryTtlMs(")
+    ttl_end = source.index("function pageEntryRefreshOptions(", ttl_start)
+    cooldown_start = source.index("function recommendationCooldownMs(")
+    cooldown_end = source.index("function readRecommendationCooldown(", cooldown_start)
+    summary_start = source.index("function renderStockLiveSummary(")
+    summary_end = source.index("function renderStockSummaryFallback(", summary_start)
+    function_source = "\n".join(
+        (
+            source[phase_start:phase_end],
+            source[ttl_start:ttl_end],
+            source[cooldown_start:cooldown_end],
+            source[summary_start:summary_end],
+        )
+    )
+    script = f"""
+const PAGE_ENTRY_MINUTE_MS = 60000;
+const RECOMMENDATION_REGULAR_COOLDOWN_MS = 600000;
+const RECOMMENDATION_OFFHOURS_COOLDOWN_MS = 1800000;
+const state = {{ usSectorMoves: null, currentDashboard: null }};
+const elements = {{
+  stockLiveBadge: {{}}, stockPreMarket: {{}}, stockVolume: {{}},
+  stockVolumeDetail: {{}}, stockTradingValueDetail: {{}}, stockMarketCapDetail: {{}},
+}};
+function setText(node, value) {{ node.textContent = value; }}
+function formatDate(value) {{ return String(value || "-"); }}
+function formatNumber(value) {{ return String(value ?? "-"); }}
+function formatMoney(value) {{ return String(value ?? "-"); }}
+{function_source}
+const holidayRegularClock = new Date("2026-07-03T15:00:00Z");
+const earlyCloseRegularClock = new Date("2026-11-27T19:00:00Z");
+const result = {{
+  holidayClockOnly: usRecommendationMarketPhase(holidayRegularClock),
+  holidayExplicit: usRecommendationMarketPhase(
+    holidayRegularClock, {{ market_session: "closed" }},
+  ),
+  earlyCloseClockOnly: usRecommendationMarketPhase(earlyCloseRegularClock),
+}};
+state.usSectorMoves = {{ market_session: "afterhours" }};
+state.currentDashboard = {{ quote: {{ market_session: "regular" }} }};
+result.earlyCloseSector = usRecommendationMarketPhase(earlyCloseRegularClock);
+result.explicitPriority = usRecommendationMarketPhase(
+  earlyCloseRegularClock, {{ market_session: "closed" }},
+);
+state.usSectorMoves = null;
+state.currentDashboard = {{ quote: {{ market_session: "afterhours" }} }};
+result.earlyCloseQuote = usRecommendationMarketPhase(earlyCloseRegularClock);
+result.earlyCloseStockTtl = pageEntryTtlMs("stock");
+result.earlyCloseCooldown = recommendationCooldownMs(earlyCloseRegularClock);
+state.currentDashboard = {{ quote: {{ market_session: "closed" }} }};
+result.holidayStockTtl = pageEntryTtlMs("stock");
+result.holidayCooldown = recommendationCooldownMs(holidayRegularClock);
+state.currentDashboard = {{ quote: {{ market_session: "regular" }} }};
+result.regularStockTtl = pageEntryTtlMs("stock");
+result.regularCooldown = recommendationCooldownMs(holidayRegularClock);
+state.currentDashboard = {{ quote: {{ market_session: "afterhours" }} }};
+renderStockLiveSummary({{
+  as_of: "2026-11-27T14:05:00-05:00",
+  quote: {{
+    market_session: "afterhours",
+    market_session_label: "미국 조기폐장 후 애프터장",
+    volume: 10,
+    trading_value: 20,
+    market_cap: 30,
+  }},
+}});
+result.liveBadge = elements.stockLiveBadge.textContent;
+result.liveSummary = elements.stockPreMarket.textContent;
+console.log(JSON.stringify(result));
+"""
+
+    completed = subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True)
+
+    assert "[source, state.currentDashboard?.quote, state.usSectorMoves]" in function_source
+    assert "quote.market_session_label" in function_source
+    assert json.loads(completed.stdout) == {
+        "holidayClockOnly": "regular",
+        "holidayExplicit": "closed",
+        "earlyCloseClockOnly": "regular",
+        "earlyCloseSector": "regular",
+        "explicitPriority": "closed",
+        "earlyCloseQuote": "afterhours",
+        "earlyCloseStockTtl": 15_000,
+        "earlyCloseCooldown": 1_800_000,
+        "holidayStockTtl": 60_000,
+        "holidayCooldown": 1_800_000,
+        "regularStockTtl": 15_000,
+        "regularCooldown": 600_000,
+        "liveBadge": "미국 조기폐장 후 애프터장",
+        "liveSummary": "미국 조기폐장 후 애프터장 · 2026-11-27T14:05:00-05:00",
+    }
+
+
+def test_dashboard_us_intraday_cache_policy_uses_safe_server_session_source() -> None:
+    source = app_source()
+    phase_start = source.index("function newYorkClockParts(")
+    phase_end = source.index("function formatPreMarketDisplay(", phase_start)
+    intraday_start = source.index("async function loadStockIntraday(")
+    intraday_end = source.index("async function loadStockCommunity(", intraday_start)
+    function_source = source[phase_start:phase_end] + source[intraday_start:intraday_end]
+    script = f"""
+const PAGE_ENTRY_MINUTE_MS = 60000;
+const calls = [];
+const state = {{
+  currentDashboard: {{ quote: {{ market_session: "closed" }} }},
+  currentStock: {{ code: "NVDA" }},
+  stockHomeDetailsRequestId: 1,
+  stockIntradayPending: new Map(),
+  stockIntradayRows: [],
+  stockIntradayMeta: null,
+  stockPricePeriod: "1D",
+  stockPriceRows: [],
+  responseCache: new Map(),
+}};
+function stockDashboardIsUs() {{ return true; }}
+function koreaExtendedQuoteLive() {{ return false; }}
+function liveUrl(value) {{ return `live:${{value}}`; }}
+function fetchJsonCached(url, options) {{
+  calls.push({{ url, options }});
+  return Promise.resolve({{ points: [] }});
+}}
+function renderStockMiniChart() {{}}
+{function_source}
+(async () => {{
+  await loadStockIntraday("NVDA", 1);
+  state.currentDashboard = {{ quote: {{ market_session: "afterhours" }} }};
+  await loadStockIntraday("NVDA", 1);
+  state.currentDashboard = null;
+  await loadStockIntraday("NVDA", 1);
+  console.log(JSON.stringify(calls));
+}})();
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    calls = json.loads(completed.stdout)
+    assert calls[:2] == [
+        {
+            "url": "/us/stocks/NVDA/intraday?range=1d&interval=1m",
+            "options": {"force": False, "ttlMs": 30 * 60_000},
+        },
+        {
+            "url": "live:/us/stocks/NVDA/intraday?range=1d&interval=1m",
+            "options": {"force": True, "ttlMs": 0},
+        },
+    ]
+    assert len(calls) == 3
+    assert "state.currentDashboard?.quote || quote" not in function_source
 
 
 def test_quote_stream_rejects_same_epoch_sequence_regressions_and_old_http_fallbacks() -> None:
@@ -1072,6 +1271,7 @@ function formatPercent(value) {{
   return `${{number >= 0 ? "+" : ""}}${{number.toFixed(2)}}%`;
 }}
 function formatNumber(value) {{ return String(Number(value)); }}
+function marketScopeForItem(item = {{}}) {{ return item.currency === "USD" ? "us" : "kr"; }}
 {function_source}
 console.log(recommendationReasonSummary({{
   one_month_return: 44.85,
@@ -1236,6 +1436,8 @@ console.log(JSON.stringify({{
 
 def test_public_ai_signal_items_are_identical_for_different_accounts() -> None:
     source = app_source()
+    market_scope_start = source.index("function marketScopeForItem(")
+    market_scope_end = source.index("function itemMatchesMarketScope(", market_scope_start)
     preliminary_start = source.index("function isPreliminaryAiSignal(")
     preliminary_end = source.index("function isSignalReconciliation(", preliminary_start)
     market_start = source.index("function marketAiSignalItems(")
@@ -1243,6 +1445,7 @@ def test_public_ai_signal_items_are_identical_for_different_accounts() -> None:
     combine_start = source.index("function combineAiSignalPayloads(")
     combine_end = source.index("function preliminaryHistoryAiSignalItems(", combine_start)
     function_source = "\n".join((
+        source[market_scope_start:market_scope_end],
         source[preliminary_start:preliminary_end],
         source[market_start:market_end],
         source[combine_start:combine_end],
@@ -1296,6 +1499,305 @@ console.log(JSON.stringify({{
         "otherCodes": ["090430"],
         "personalizedCodes": ["088350", "005930"],
         "staleCodes": ["090430"],
+    }
+
+
+def test_us_ai_signal_composition_preserves_identity_and_fails_closed() -> None:
+    source = app_source()
+    market_scope_start = source.index("function marketScopeForItem(")
+    market_scope_end = source.index("function itemMatchesMarketScope(", market_scope_start)
+    preliminary_start = source.index("function isPreliminaryAiSignal(")
+    preliminary_end = source.index("function isSignalReconciliation(", preliminary_start)
+    market_start = source.index("function marketAiSignalItems(")
+    market_end = source.index("function preliminaryHistoryAiSignalItems(", market_start)
+    function_source = "\n".join((
+        source[market_scope_start:market_scope_end],
+        source[preliminary_start:preliminary_end],
+        source[market_start:market_end],
+    ))
+    script = f"""
+{function_source}
+function usPayload(status = "ready", itemSnapshotId = "us-snapshot-1") {{
+  const payload = {{
+    market_scope: "us",
+    us_market_included: true,
+    status,
+    data_state: status === "ready" ? "ready" : "preparing",
+    snapshot_id: "us-snapshot-1",
+    snapshot_checksum: "checksum-1",
+    universe_as_of: "2026-09-09",
+    as_of: "2026-09-09T20:00:00Z",
+  }};
+  payload.items = tagMarketItems([{{
+    code: "NVDA",
+    name: "NVIDIA",
+    status: "preliminary",
+    snapshot_id: itemSnapshotId,
+    current: {{
+      action: "entry_pending",
+      label: "매수 대기",
+      position_open: false,
+      as_of: "2026-09-09T20:00:00Z",
+    }},
+  }}], "us", payload);
+  return payload;
+}}
+const matched = combineAiSignalPayloads({{ items: [] }}, usPayload());
+const mismatched = combineAiSignalPayloads({{ items: [] }}, usPayload("ready", "other-snapshot"));
+const preparing = combineAiSignalPayloads({{ items: [] }}, usPayload("preparing"));
+const crossSnapshot = combineAiSignalPayloads({{
+  market_scope: "us", us_market_included: true, status: "ready", data_state: "ready",
+  snapshot_id: "other-snapshot", snapshot_checksum: "other-checksum", items: [],
+}}, usPayload());
+console.log(JSON.stringify({{
+  matchedIdentity: [matched.snapshot_id, matched.snapshot_checksum, matched.status, matched.data_state],
+  matchedAction: matched.items[0].current.action,
+  matchedPendingCount: matched.entry_pending_count,
+  mismatchedAction: mismatched.items[0].current.action,
+  mismatchedPendingCount: mismatched.entry_pending_count,
+  preparingState: [preparing.status, preparing.data_state, preparing.items[0].current.action, preparing.entry_pending_count],
+  crossAction: crossSnapshot.items[0].current.action,
+  crossPendingCount: crossSnapshot.entry_pending_count,
+}}));
+"""
+
+    completed = subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True)
+
+    assert json.loads(completed.stdout) == {
+        "matchedIdentity": ["us-snapshot-1", "checksum-1", "ready", "ready"],
+        "matchedAction": "entry_pending",
+        "matchedPendingCount": 1,
+        "mismatchedAction": "no_signal",
+        "mismatchedPendingCount": 0,
+        "preparingState": ["preparing", "preparing", "no_signal", 0],
+        "crossAction": "no_signal",
+        "crossPendingCount": 0,
+    }
+
+
+def test_us_ai_analysis_display_preserves_canonical_fields_and_fails_closed() -> None:
+    source = app_source()
+    metadata_start = source.index("function canonicalUsSnapshotMetadata(")
+    metadata_end = source.index("function tagMarketItems(", metadata_start)
+    normalize_start = source.index("function normalizeUsAIAnalysisForDisplay(")
+    normalize_end = source.index("function renderUsAIAnalysis(", normalize_start)
+    function_source = "\n".join((
+        source[metadata_start:metadata_end],
+        source[normalize_start:normalize_end],
+    ))
+    script = f"""
+{function_source}
+const base = {{
+  status: "ready", data_state: "ready",
+  snapshot_id: "us-snapshot-1", snapshot_checksum: "checksum-1",
+  is_current_universe_member: true, new_entries_allowed: true, execution_enabled: false,
+  stance: "예비 매수", strategy: ["신규 매수: 다음 시가 확인"],
+  trade_levels: {{ actionable: true, buy_low: 100, buy_high: 101 }},
+  current: {{ action: "entry_pending", label: "예비 매수", position_open: false, evidence: "keep" }},
+}};
+const ready = normalizeUsAIAnalysisForDisplay(base);
+const preparing = normalizeUsAIAnalysisForDisplay({{
+  ...base, status: "preparing", data_state: "preparing", snapshot_id: null, snapshot_checksum: null,
+  is_current_universe_member: null, new_entries_allowed: false,
+}});
+const outside = normalizeUsAIAnalysisForDisplay({{
+  ...base, is_current_universe_member: false, new_entries_allowed: false,
+}});
+console.log(JSON.stringify({{
+  ready: [ready.status, ready.data_state, ready.snapshot_id, ready.snapshot_checksum, ready.current.action, ready.current.evidence, ready.stance],
+  preparing: [preparing.status, preparing.data_state, preparing.snapshot_id, preparing.is_current_universe_member, preparing.current.action, preparing.stance, preparing.trade_levels, preparing.current.next_confirmation],
+  outside: [outside.is_current_universe_member, outside.new_entries_allowed, outside.current.action, outside.stance, outside.trade_levels, outside.current.next_confirmation],
+}}));
+"""
+
+    completed = subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True)
+
+    assert json.loads(completed.stdout) == {
+        "ready": ["ready", "ready", "us-snapshot-1", "checksum-1", "entry_pending", "keep", "예비 매수"],
+        "preparing": ["preparing", "preparing", None, None, "no_signal", "관망 우선", None, "준비 완료된 동일 스냅샷을 확인한 뒤 신규 진입을 다시 판단합니다."],
+        "outside": [False, False, "no_signal", "관망 우선", None, "현재 미국 시가총액 Top100 유니버스 밖 종목이어서 신규 진입을 판단하지 않습니다."],
+    }
+    renderer = source[source.index("function renderUsAIAnalysis("):source.index("function renderAIAnalysis(")]
+    assert "data_state: \"ready\"" not in renderer
+    assert "current: { action: \"waiting\"" not in renderer
+    assert "snapshot_id: displayPayload.snapshot_id" in renderer
+    assert "snapshot_checksum: displayPayload.snapshot_checksum" in renderer
+    assert "20일·60일·수급" not in renderer
+    assert 'action: "no_signal"' in source[source.index("function normalizeUsAIAnalysisForDisplay("):source.index("function renderUsAIAnalysis(")]
+
+
+def test_us_recommendation_detail_requires_matching_ready_snapshot_identity() -> None:
+    source = app_source()
+    composition = source[
+        source.index("function composeUsRecommendationDetail("):
+        source.index("async function loadRecommendationDetail(")
+    ]
+    loader = source[
+        source.index("async function loadRecommendationDetail("):
+        source.index("function openRecommendationDetail(")
+    ]
+
+    assert composition.count("isCanonicalUsSnapshotReady(") >= 3
+    assert "canonicalUsSnapshotIdentityMatches(item, aiAnalysis)" in composition
+    assert "canonicalUsSnapshotIdentityMatches(item, signal)" in composition
+    assert "aiAnalysis.is_current_universe_member === true" in composition
+    assert "aiAnalysis.new_entries_allowed === true" in composition
+    assert "signal: failClosedEntryPendingSignal(signal || {}, reason)" in composition
+    assert 'signalState: "error"' in composition
+    assert "composeUsRecommendationDetail(item, aiAnalysis, fullSignal)" in loader
+
+
+def test_nasdaq_ai_renderer_and_recommendation_history_keep_canonical_snapshot() -> None:
+    source = NASDAQ_JS.read_text(encoding="utf-8")
+    normalize_start = source.index("function normalizeCanonicalUsAIAnalysis(")
+    normalize_end = source.index("function renderAIAnalysis(", normalize_start)
+    normalize_source = source[normalize_start:normalize_end]
+    script = f"""
+{normalize_source}
+const base = {{
+  status: "ready", data_state: "ready",
+  snapshot_id: "us-snapshot-1", snapshot_checksum: "checksum-1",
+  is_current_universe_member: true, new_entries_allowed: true, execution_enabled: false,
+  stance: "예비 매수", strategy: ["신규 매수"], trade_levels: {{ actionable: true }},
+  current: {{ action: "entry_pending", label: "예비 매수", position_open: false }},
+}};
+const ready = normalizeCanonicalUsAIAnalysis(base);
+const preparing = normalizeCanonicalUsAIAnalysis({{
+  ...base, status: "preparing", data_state: "preparing", snapshot_id: null, snapshot_checksum: null,
+  is_current_universe_member: null, new_entries_allowed: false,
+}});
+const outside = normalizeCanonicalUsAIAnalysis({{ ...base, is_current_universe_member: false, new_entries_allowed: false }});
+console.log(JSON.stringify({{
+  ready: [ready.snapshot_id, ready.snapshot_checksum, ready.status, ready.data_state, ready.current.action, ready.stance],
+  preparing: [preparing.is_current_universe_member, preparing.current.action, preparing.stance, preparing.trade_levels, preparing.current.next_confirmation, preparing.canonical_display_ready],
+  outside: [outside.current.action, outside.stance, outside.trade_levels, outside.current.next_confirmation, outside.canonical_display_ready],
+}}));
+"""
+
+    completed = subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True)
+
+    assert json.loads(completed.stdout) == {
+        "ready": ["us-snapshot-1", "checksum-1", "ready", "ready", "entry_pending", "예비 매수"],
+        "preparing": [None, "no_signal", "관망 우선", None, "준비 완료된 동일 스냅샷을 확인한 뒤 신규 진입을 다시 판단합니다.", False],
+        "outside": ["no_signal", "관망 우선", None, "현재 미국 시가총액 Top100 유니버스 밖 종목이라 신규 진입을 판단하지 않습니다.", False],
+    }
+    renderer = source[source.index("function renderAIAnalysis("):source.index("async function loadAIAnalysis(")]
+    history = source[source.index("function saveRecommendationSnapshot("):source.index("function newYorkClockParts(")]
+    assert "dataset.snapshotId = payload.snapshot_id" in renderer
+    assert "dataset.snapshotChecksum = payload.snapshot_checksum" in renderer
+    assert "dataset.status = payload.status" in renderer
+    assert "dataset.dataState = payload.data_state" in renderer
+    assert "id: payload.snapshot_id" in history
+    assert "snapshot_checksum: payload.snapshot_checksum" in history
+    assert "Date.now()" not in history
+
+
+def test_us_public_ui_never_renders_private_scores_or_synthesized_trade_levels() -> None:
+    dashboard = app_source()
+    dashboard_decision = dashboard[
+        dashboard.index("function renderAIDecisionSummary("):
+        dashboard.index("function stockPriceRowsWithLiveQuote(")
+    ]
+    dashboard_strategy = dashboard[
+        dashboard.index("function renderStockStrategyVisual("):
+        dashboard.index("function closeQuoteStream(")
+    ]
+    dashboard_explanation = dashboard[
+        dashboard.index("function buildRecommendationAIExplanation("):
+        dashboard.index("function recommendationReasonFacts(")
+    ]
+    dashboard_detail = dashboard[
+        dashboard.index("function renderRecommendationDetail("):
+        dashboard.index("function composeUsRecommendationDetail(")
+    ]
+    dashboard_card = dashboard[
+        dashboard.index("function createRecommendationCard("):
+        dashboard.index("function appendRecommendationCard(")
+    ]
+
+    assert "if (stockDashboardIsUs())" in dashboard_decision
+    assert dashboard_decision.index("if (stockDashboardIsUs())") < dashboard_decision.index("payload?.trade_levels")
+    assert "if (stockDashboardIsUs())" in dashboard_strategy
+    assert dashboard_strategy.index("if (stockDashboardIsUs())") < dashboard_strategy.index("payload?.trade_levels")
+    assert "entryLow: null" in dashboard_explanation
+    assert "entryHigh: null" in dashboard_explanation
+    assert "score: null" in dashboard_explanation
+    assert "if (!isUsItem)" in dashboard_detail
+    assert "detailSections.splice(3, 0, levels, snapshot)" in dashboard_detail
+    assert "if (!isUsItem)" in dashboard_card
+    assert "head.append(recommendationScoreDisplay(item.score))" in dashboard_card
+
+    nasdaq = NASDAQ_JS.read_text(encoding="utf-8")
+    nasdaq_decision = nasdaq[
+        nasdaq.index("function renderAIDecisionSummary("):
+        nasdaq.index("function resetStockMiniChart(")
+    ]
+    nasdaq_strategy = nasdaq[
+        nasdaq.index("function renderStockStrategyVisual("):
+        nasdaq.index("function closeQuoteStream(")
+    ]
+    nasdaq_explanation = nasdaq[
+        nasdaq.index("function buildRecommendationAIExplanation("):
+        nasdaq.index("function renderRecommendationAIExplanation(")
+    ]
+    nasdaq_card = nasdaq[
+        nasdaq.index("function createRecommendationCard("):
+        nasdaq.index("function appendRecommendationCard(")
+    ]
+
+    assert "trade_levels" not in nasdaq_decision
+    assert "trade_levels" not in nasdaq_strategy
+    assert "price *" not in nasdaq_strategy
+    assert "item.score" not in nasdaq_explanation
+    assert "component_scores" not in nasdaq_explanation
+    assert "chart_analysis" not in nasdaq_explanation
+    assert "item.score" not in nasdaq_card
+    assert "component_scores" not in nasdaq_card
+    assert "chart_analysis" not in nasdaq_card
+
+    nasdaq_identity = nasdaq[
+        nasdaq.index("function canonicalUsRecommendationSnapshotMetadata("):
+        nasdaq.index("function renderRecommendationAIExplanation(")
+    ]
+    script = f"""
+{nasdaq_identity}
+const item = {{
+  snapshot_id: "us-snapshot-1", snapshot_checksum: "checksum-1",
+  snapshot_status: "ready", snapshot_data_state: "ready",
+  ai_trade_signal: {{
+    snapshot_id: "us-snapshot-1", snapshot_checksum: "checksum-1",
+    snapshot_status: "ready", snapshot_data_state: "ready",
+    public_reasons: [{{ summary: "공개 근거" }}],
+    current: {{ action: "entry_pending", next_confirmation: "다음 정규장 확인" }},
+  }},
+}};
+const matched = buildRecommendationAIExplanation(item);
+const mismatched = buildRecommendationAIExplanation({{
+  ...item,
+  ai_trade_signal: {{
+    ...item.ai_trade_signal,
+    snapshot_id: "other-snapshot",
+    current: {{ action: "entry_pending", next_confirmation: "private buy now" }},
+  }},
+}});
+console.log(JSON.stringify({{
+  matched: [matched.decision, matched.summary, matched.plain],
+  mismatched: [mismatched.decision, mismatched.summary, mismatched.plain],
+}}));
+"""
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(completed.stdout) == {
+        "matched": ["예비 매수", "다음 정규장 확인", ["공개 근거"]],
+        "mismatched": [
+            "관망",
+            "준비 완료된 동일 스냅샷을 확인한 뒤 공개 근거를 다시 판단합니다.",
+            ["준비 완료된 동일 스냅샷을 확인한 뒤 공개 근거를 다시 판단합니다."],
+        ],
     }
 
 

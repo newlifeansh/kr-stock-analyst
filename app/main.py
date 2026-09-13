@@ -16,7 +16,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 import re
-from threading import RLock
+from threading import Lock, RLock
 from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
 from zoneinfo import ZoneInfo
@@ -255,6 +255,13 @@ from app.services.us_market import (
     us_prices,
     us_sector_moves,
 )
+from app.services.us_position_lifecycle import (
+    US_STRATEGY_VERSION,
+    load_us_position_lifecycle_snapshot,
+    refresh_us_position_lifecycle_snapshot,
+    us_position_lifecycle_preparing_payload,
+    us_position_lifecycle_refresh_due,
+)
 from app.repository import latest_disclosures, latest_news_items
 
 settings = get_settings()
@@ -289,6 +296,7 @@ MORNING_MONEY_BRIEFING_CACHE_SECONDS = 30
 MORNING_MONEY_HISTORY_CACHE_SECONDS = 120
 complete_snapshot_runtime: Optional[SnapshotRuntime] = None
 market_quant_signal_refresh_lock = RLock()
+us_position_lifecycle_refresh_lock = Lock()
 entry_filter_shadow_refresh_lock = RLock()
 MARKET_QUANT_SIGNAL_ACTIVE_MAX_AGE_SECONDS = 10 * 60
 MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS = 6 * 60 * 60
@@ -1020,6 +1028,42 @@ def _refresh_market_quant_signal_snapshot(
         market_quant_signal_refresh_lock.release()
 
 
+def _refresh_us_position_lifecycle_snapshot() -> Optional[dict[str, Any]]:
+    """Refresh the full US scan in a worker-owned database session."""
+
+    try:
+        current = datetime.now(timezone.utc)
+        if not _us_position_lifecycle_refresh_allowed(current):
+            return None
+        with SessionLocal() as db:
+            return refresh_us_position_lifecycle_snapshot(db, now=current)
+    except Exception:  # pragma: no cover - operational safeguard
+        logger.exception("US position-lifecycle snapshot refresh failed")
+        return None
+
+
+def _run_reserved_us_position_lifecycle_refresh() -> Optional[dict[str, Any]]:
+    try:
+        return _refresh_us_position_lifecycle_snapshot()
+    finally:
+        us_position_lifecycle_refresh_lock.release()
+
+
+def _enqueue_us_position_lifecycle_refresh(
+    background_tasks: BackgroundTasks,
+) -> bool:
+    """Reserve the process-wide US refresh before adding a background task."""
+
+    if not us_position_lifecycle_refresh_lock.acquire(blocking=False):
+        return False
+    try:
+        background_tasks.add_task(_run_reserved_us_position_lifecycle_refresh)
+    except Exception:
+        us_position_lifecycle_refresh_lock.release()
+        raise
+    return True
+
+
 def _refresh_entry_filter_shadow_snapshot() -> Optional[dict[str, Any]]:
     if not entry_filter_shadow_refresh_lock.acquire(blocking=False):
         return None
@@ -1260,6 +1304,43 @@ async def _run_market_quant_signal_refresh_loop() -> None:
         await asyncio.sleep(300)
 
 
+def _us_position_lifecycle_snapshot_due(now: datetime) -> bool:
+    try:
+        with SessionLocal() as db:
+            payload = load_us_position_lifecycle_snapshot(db, now=now)
+        return us_position_lifecycle_refresh_due(payload, now=now)
+    except Exception:  # pragma: no cover - operational safeguard
+        logger.exception("US position-lifecycle snapshot freshness check failed")
+        return True
+
+
+def _us_position_lifecycle_refresh_allowed(now: datetime) -> bool:
+    try:
+        from app.services.us_market_calendar import us_signal_refresh_allowed
+
+        return us_signal_refresh_allowed(now)
+    except Exception:  # pragma: no cover - operational safeguard
+        logger.exception("US position-lifecycle calendar availability check failed")
+        return False
+
+
+async def _run_us_position_lifecycle_refresh_loop() -> None:
+    """Collect once a completed US session is available, never in a GET path."""
+
+    while True:
+        current = datetime.now(timezone.utc)
+        try:
+            due = await asyncio.to_thread(_us_position_lifecycle_snapshot_due, current)
+            allowed = _us_position_lifecycle_refresh_allowed(current)
+            if due and allowed and us_position_lifecycle_refresh_lock.acquire(
+                blocking=False
+            ):
+                await asyncio.to_thread(_run_reserved_us_position_lifecycle_refresh)
+        except Exception:  # pragma: no cover - operational safeguard
+            logger.exception("US position-lifecycle scheduling failed")
+        await asyncio.sleep(300)
+
+
 async def _run_stock_logo_sync_loop() -> None:
     await asyncio.sleep(max(0, settings.stock_logo_initial_delay_seconds))
     while True:
@@ -1473,6 +1554,7 @@ async def lifespan(_: FastAPI):
     bootstrap_task: asyncio.Task | None = None
     intraday_warmup_task: asyncio.Task | None = None
     market_quant_signal_task: asyncio.Task | None = None
+    us_position_lifecycle_task: asyncio.Task | None = None
     entry_filter_shadow_task: asyncio.Task | None = None
     stock_logo_task: asyncio.Task | None = None
     complete_snapshot_schedule_task: asyncio.Task | None = None
@@ -1490,6 +1572,9 @@ async def lifespan(_: FastAPI):
             )
             intraday_warmup_task = asyncio.create_task(_run_intraday_warmup_loop())
             market_quant_signal_task = asyncio.create_task(_run_market_quant_signal_refresh_loop())
+            us_position_lifecycle_task = asyncio.create_task(
+                _run_us_position_lifecycle_refresh_loop()
+            )
             entry_filter_shadow_task = asyncio.create_task(
                 _run_entry_filter_shadow_backtest_loop()
             )
@@ -1512,6 +1597,10 @@ async def lifespan(_: FastAPI):
                 market_quant_signal_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await market_quant_signal_task
+            if us_position_lifecycle_task is not None:
+                us_position_lifecycle_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await us_position_lifecycle_task
             if entry_filter_shadow_task is not None:
                 entry_filter_shadow_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -2790,6 +2879,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "app": settings.app_name,
         "strategy_version": STRATEGY_VERSION,
+        "us_strategy_version": US_STRATEGY_VERSION,
         "dashboard_version": DASHBOARD_CLIENT_VERSION,
         "canonical_base_url": settings.canonical_public_base_url,
     }
@@ -2804,6 +2894,7 @@ def readyz() -> dict[str, object]:
         "app": settings.app_name,
         "database_ok": True,
         "strategy_version": STRATEGY_VERSION,
+        "us_strategy_version": US_STRATEGY_VERSION,
         "dashboard_version": DASHBOARD_CLIENT_VERSION,
         "canonical_base_url": settings.canonical_public_base_url,
     }
@@ -3872,7 +3963,8 @@ def delete_push_subscription(
 
 
 def _normalize_us_symbol(value: str) -> str:
-    return "".join(ch for ch in value.strip().upper() if ch.isalnum() or ch in ".-")[:12]
+    normalized = value.strip().upper().replace("/", ".")
+    return "".join(ch for ch in normalized if ch.isalnum() or ch in ".-")[:12]
 
 
 def _us_watchlist_id(share_id: str) -> str:
@@ -4166,13 +4258,185 @@ def us_stock_intraday(
 def us_stock_ai_analysis(
     symbol: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     refresh: bool = Query(default=False),
+    db: Session = Depends(get_db),
 ):
     _enforce_rate_limit(request, "us_stock_ai_analysis", limit=20, window_seconds=60)
+    current_time = datetime.now(timezone.utc)
+    try:
+        feed = load_us_position_lifecycle_snapshot(db, now=current_time)
+    except Exception:
+        db.rollback()
+        logger.exception("US stock AI analysis snapshot read failed")
+        feed = None
+    if feed is None:
+        feed = us_position_lifecycle_preparing_payload(now=current_time)
+    if (
+        (refresh or us_position_lifecycle_refresh_due(feed, now=current_time))
+        and _us_position_lifecycle_refresh_allowed(current_time)
+    ):
+        _enqueue_us_position_lifecycle_refresh(background_tasks)
+
+    normalized_symbol = _normalize_us_symbol(symbol)
+    normalized_signal_key = normalized_symbol.replace("-", ".")
+    universe_members = [
+        item
+        for item in list(feed.get("universe_members") or [])
+        if isinstance(item, dict)
+    ]
+    universe_member = next(
+        (
+            item
+            for item in universe_members
+            if _normalize_us_symbol(str(item.get("code") or "")).replace("-", ".")
+            == normalized_signal_key
+        ),
+        None,
+    )
+    snapshot_ready = bool(
+        feed.get("status") == "ready"
+        and feed.get("data_state") == "ready"
+        and str(feed.get("snapshot_id") or "").strip()
+        and str(feed.get("snapshot_checksum") or "").strip()
+    )
+    is_current_universe_member = (
+        universe_member is not None if snapshot_ready else None
+    )
+    signal = next(
+        (
+            item
+            for item in list(feed.get("items") or [])
+            if isinstance(item, dict)
+            and _normalize_us_symbol(str(item.get("code") or "")).replace("-", ".")
+            == normalized_signal_key
+        ),
+        None,
+    )
+    feed_ready = bool(snapshot_ready and feed.get("new_entries_allowed") is True)
+    signal_reasons = (
+        list(signal.get("public_reasons") or []) if isinstance(signal, dict) else []
+    )
+    canonical_reasons_valid = bool(
+        [item.get("key") for item in signal_reasons if isinstance(item, dict)]
+        == ["trend_20d", "trend_60d", "flow"]
+        and all(
+            isinstance(item, dict) and item.get("available") is True
+            for item in signal_reasons
+        )
+    )
+    canonical_candidate_ready = bool(
+        feed_ready
+        and is_current_universe_member
+        and isinstance(signal, dict)
+        and canonical_reasons_valid
+    )
+    canonical_member_ready = bool(
+        feed_ready
+        and is_current_universe_member
+        and (signal is None or canonical_reasons_valid)
+    )
+    source_current = (
+        dict(signal.get("current") or {}) if isinstance(signal, dict) else {}
+    )
+    source_action = str(source_current.get("action") or "")
+    action = (
+        source_action
+        if canonical_candidate_ready
+        and source_action in {"entry_pending", "entry_watch"}
+        else "no_signal"
+    )
+    label_by_action = {
+        "entry_pending": "예비 매수",
+        "entry_watch": "예비 포착",
+        "no_signal": "관망",
+    }
+    canonical_current = {
+        "action": action,
+        "label": label_by_action[action],
+        "position_open": False,
+        "live_observation": False,
+        "as_of": (
+            signal.get("signal_at") or signal.get("signal_date")
+            if isinstance(signal, dict)
+            else feed.get("universe_as_of")
+        ),
+    }
+    canonical_as_of = (
+        signal.get("signal_at")
+        if isinstance(signal, dict) and signal.get("signal_at")
+        else feed.get("as_of") or current_time
+    )
+    canonical_reasons = (
+        signal_reasons
+        if canonical_candidate_ready
+        else [
+            {
+                "key": key,
+                "state": "unavailable",
+                "available": False,
+                "as_of": feed.get("universe_as_of"),
+            }
+            for key in ("trend_20d", "trend_60d", "flow")
+        ]
+    )
+
     dashboard = us_stock_dashboard(symbol, refresh=refresh)
+    analysis = dict(build_stock_ai_analysis(dashboard))
+    analysis.update(
+        {
+            "code": (
+                str(signal.get("code"))
+                if isinstance(signal, dict) and signal.get("code")
+                else str(universe_member.get("code"))
+                if isinstance(universe_member, dict) and universe_member.get("code")
+                else normalized_symbol
+            ),
+            "name": (
+                signal.get("name")
+                if isinstance(signal, dict) and signal.get("name")
+                else universe_member.get("name")
+                if isinstance(universe_member, dict) and universe_member.get("name")
+                else dashboard.get("name") or normalized_symbol
+            ),
+            "market": (
+                signal.get("market")
+                if isinstance(signal, dict) and signal.get("market")
+                else universe_member.get("market")
+                if isinstance(universe_member, dict) and universe_member.get("market")
+                else dashboard.get("market") or "NASDAQ"
+            ),
+            "as_of": canonical_as_of,
+            "confidence": None,
+            "data_covered": 3 if canonical_candidate_ready else 0,
+            "data_total": 3,
+            "stance": (
+                "예비 매수"
+                if action == "entry_pending"
+                else "예비 포착"
+                if action == "entry_watch"
+                else "관망 우선"
+            ),
+            "strategy_version": feed.get("strategy_version"),
+            "rollout_mode": feed.get("rollout_mode"),
+            "execution_enabled": False,
+            "status": feed.get("status"),
+            "data_state": feed.get("data_state"),
+            "snapshot_id": feed.get("snapshot_id"),
+            "snapshot_checksum": feed.get("snapshot_checksum"),
+            "new_entries_allowed": canonical_member_ready,
+            "is_current_universe_member": is_current_universe_member,
+            "current": canonical_current,
+            "flow_semantics": "dollar_volume_participation_proxy",
+            "public_reasons": canonical_reasons,
+        }
+    )
     return public_stock_ai_analysis_payload(
-        build_stock_ai_analysis(dashboard),
-        context=dashboard,
+        analysis,
+        context={
+            "as_of": canonical_as_of,
+            "flow_semantics": "dollar_volume_participation_proxy",
+        },
     )
 
 
@@ -4194,15 +4458,36 @@ def us_market_rankings(
 @app.get("/us/market/recommendations")
 def us_market_recommendations(
     request: Request,
+    background_tasks: BackgroundTasks,
+    response: Response,
     limit: int = Query(default=8, ge=1, le=20),
     candidate_limit: int = Query(default=30, ge=5, le=100),
+    refresh: bool = Query(default=False),
+    db: Session = Depends(get_db),
 ):
     _enforce_rate_limit(request, "us_market_recommendations", limit=10, window_seconds=60)
-    key = ("us_market_recommendations", limit, candidate_limit)
-    payload = api_cache.get_or_set(
-        key,
-        RECOMMENDATION_TTL_SECONDS,
-        lambda: build_us_recommendations(limit=limit, candidate_limit=candidate_limit),
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    current = datetime.now(timezone.utc)
+    try:
+        feed = load_us_position_lifecycle_snapshot(db, now=current)
+    except Exception:
+        db.rollback()
+        logger.exception("US recommendation snapshot read failed")
+        feed = None
+    if feed is None:
+        feed = us_position_lifecycle_preparing_payload(now=current)
+    refresh_enqueued = False
+    if (
+        (refresh or us_position_lifecycle_refresh_due(feed, now=current))
+        and _us_position_lifecycle_refresh_allowed(current)
+    ):
+        refresh_enqueued = _enqueue_us_position_lifecycle_refresh(background_tasks)
+    feed["refresh_requested"] = refresh
+    feed["refresh_enqueued"] = refresh_enqueued
+    payload = build_us_recommendations(
+        limit=limit,
+        candidate_limit=candidate_limit,
+        feed=feed,
     )
     return public_recommendation_signal_payload(payload)
 
@@ -4210,15 +4495,36 @@ def us_market_recommendations(
 @app.get("/us/market/quant-signals")
 def us_market_quant_signals(
     request: Request,
+    background_tasks: BackgroundTasks,
+    response: Response,
     limit: int = Query(default=20, ge=1, le=50),
     recent_days: int = Query(default=30, ge=1, le=90),
+    refresh: bool = Query(default=False),
+    db: Session = Depends(get_db),
 ):
     _enforce_rate_limit(request, "us_market_quant_signals", limit=12, window_seconds=60)
-    key = ("us_market_quant_signals", limit, recent_days)
-    payload = api_cache.get_or_set(
-        key,
-        RECOMMENDATION_TTL_SECONDS,
-        lambda: build_us_quant_signals(limit=limit, recent_days=recent_days),
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    current = datetime.now(timezone.utc)
+    try:
+        feed = load_us_position_lifecycle_snapshot(db, now=current)
+    except Exception:
+        db.rollback()
+        logger.exception("US quant snapshot read failed")
+        feed = None
+    if feed is None:
+        feed = us_position_lifecycle_preparing_payload(now=current)
+    refresh_enqueued = False
+    if (
+        (refresh or us_position_lifecycle_refresh_due(feed, now=current))
+        and _us_position_lifecycle_refresh_allowed(current)
+    ):
+        refresh_enqueued = _enqueue_us_position_lifecycle_refresh(background_tasks)
+    feed["refresh_requested"] = refresh
+    feed["refresh_enqueued"] = refresh_enqueued
+    payload = build_us_quant_signals(
+        limit=limit,
+        recent_days=recent_days,
+        feed=feed,
     )
     return public_market_signal_payload(payload)
 

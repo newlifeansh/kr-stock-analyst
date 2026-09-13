@@ -131,6 +131,7 @@ class Settings(BaseSettings):
     web_push_vapid_private_key: Optional[str] = None
     web_push_vapid_public_key: Optional[str] = None
     web_push_vapid_subject: str = "mailto:admin@secret-note.app"
+    sec_user_agent: str = "SecretNote Stock Analyst admin@secret-note.app"
     market_quant_signal_source_url: Optional[str] = None
     market_quant_signal_source_timeout_seconds: int = 12
     canonical_public_base_url: str = "https://secretnote.cloud"
