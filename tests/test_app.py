@@ -32,7 +32,7 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["strategy_version"] == "position-lifecycle-v7.4.2"
-    assert response.json()["dashboard_version"] == "20260914v534"
+    assert response.json()["dashboard_version"] == "20260914v535"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -238,7 +238,7 @@ def test_us_and_dashboard_paths_serve_the_unified_market_shell():
     assert 'data-recommend-market-scope="all"' not in response.text
     assert 'data-market-filter="MIXED"' in response.text
     assert 'data-home-ranking-market="NASDAQ"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260914v534"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260914v535"' in response.text
     assert "시장 한눈에" not in response.text
 
 
@@ -399,7 +399,7 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="us-stock-ai-content"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260914v534"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260914v535"' in stock_shell.text
     assert 'src="/assets/staging/toss-ia.js?v=20260913-recommendation-overview-v109"' in stock_shell.text
     assert "NASDAQ Intelligence" not in stock_shell.text
     assert search_api.status_code == 200
@@ -668,7 +668,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260914v534"}
+    assert version.json() == {"version": "20260914v535"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search&market_scope=us")
@@ -677,9 +677,9 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert '["/dashboard-sw.js", "/us-sw.js"].includes' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
     assert '["kr", "us"].includes(params.get("market_scope"))' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=${encodeURIComponent(marketScope)}&app_build=20260914v534" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=${encodeURIComponent(marketScope)}&app_build=20260914v535" in refresh.text
     assert 'params.get("market") === "us"' in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260914v534" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260914v535" in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -692,7 +692,7 @@ def test_legacy_us_service_worker_retires_its_scope_and_routes_clients_to_curren
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'CURRENT_DASHBOARD_BUILD = "20260914v534"' in worker.text
+    assert 'CURRENT_DASHBOARD_BUILD = "20260914v535"' in worker.text
     assert r"/^secret-note-static-\d{8}us/" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert 'url.pathname.startsWith("/us")' in worker.text
@@ -705,7 +705,7 @@ def test_legacy_us_service_worker_retires_its_scope_and_routes_clients_to_curren
     legacy_worker = client.get("/nasdaq-sw.js")
     assert legacy_worker.status_code == 200
     assert legacy_worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
-    assert 'DASHBOARD_SW_VERSION = "20260905us92"' in legacy_worker.text
+    assert 'DASHBOARD_SW_VERSION = "20260913us93"' in legacy_worker.text
 
 
 def test_android_back_navigation_restores_history_and_confirms_exit_at_home():
@@ -1912,6 +1912,72 @@ def test_dashboard_shows_shared_loading_state_for_navigation_and_stock_lookup():
         assert f"PAGE_LOADING_LABELS.{view.replace('-', '_')}" in source or f'PAGE_LOADING_LABELS["{view}"]' in source
 
 
+def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
+    client = TestClient(app)
+    dashboard_routes = (
+        "/dashboard?view=home",
+        "/dashboard?view=news",
+        "/dashboard?view=search",
+        "/dashboard?view=portfolio",
+        "/dashboard?view=movers",
+        "/dashboard?view=ai-signals",
+        "/dashboard?view=chart",
+        "/dashboard/005930",
+        "/us?view=home",
+        "/us?view=news",
+        "/us?view=search",
+        "/us?view=portfolio",
+        "/us?view=movers",
+        "/us?view=ai-signals",
+        "/us?view=chart",
+        "/us/stock/NVDA",
+    )
+    for route in dashboard_routes:
+        shell = client.get(route)
+        assert shell.status_code == 200, route
+        assert 'id="login-gate" data-phase="loading"' in shell.text, route
+        assert 'class="login-loading" id="login-loading" role="status"' in shell.text, route
+        assert 'id="login-loading-label">앱을 준비하는 중</strong>' in shell.text, route
+        assert '<div class="loading-spinner" aria-hidden="true"></div>' in shell.text, route
+        assert "login-splash" not in shell.text, route
+        assert "login-splash-logo" not in shell.text, route
+
+    dashboard_source = client.get("/assets/dashboard/app.js").text
+    dashboard_styles = client.get("/assets/dashboard/styles.css").text
+    login_gate_source = dashboard_source.split("function showLoginGate", 1)[1].split(
+        "function hideLoginGate",
+        1,
+    )[0]
+    assert 'setLoginGatePhase("form");' in login_gate_source
+    assert "setTimeout" in login_gate_source
+    assert "splash" not in dashboard_source.lower()
+    assert ".login-loading .loading-spinner" in dashboard_styles
+    assert '.login-gate[data-phase="form"] .login-loading' in dashboard_styles
+    assert "@media (prefers-reduced-motion: reduce)" in dashboard_styles
+
+    nasdaq_shell = client.get("/nasdaq")
+    nasdaq_source = client.get("/assets/nasdaq/app.js").text
+    nasdaq_styles = client.get("/assets/nasdaq/styles.css").text
+    assert nasdaq_shell.status_code == 200
+    assert 'id="login-gate" data-phase="loading"' in nasdaq_shell.text
+    assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
+    assert 'class="app-loading" id="app-loading" role="status"' in nasdaq_shell.text
+    assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 3
+    assert "splash" not in nasdaq_shell.text.lower()
+    assert "splash" not in nasdaq_source.lower()
+    assert "splash" not in nasdaq_styles.lower()
+    assert "function setAppLoading(open)" in nasdaq_source
+    assert ".sr-only {" in nasdaq_styles
+    pull_refresh_source = nasdaq_source.split("async function triggerPullRefresh", 1)[1].split(
+        "function handlePullRefreshStart",
+        1,
+    )[0]
+    assert "setAppLoading(true);" in pull_refresh_source
+    assert "await refreshCurrentView().catch(() => null);" in pull_refresh_source
+    assert "setAppLoading(false);" in pull_refresh_source
+    assert "@media (prefers-reduced-motion: reduce)" in nasdaq_styles
+
+
 def test_home_market_indices_move_left_continuously_and_respect_user_motion_preferences():
     client = TestClient(app)
     source = client.get("/assets/dashboard/app.js").text
@@ -2124,7 +2190,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260914v534' in shell
+    assert 'styles.css?v=20260914v535' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -2211,7 +2277,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260914v534"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260914v535"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -2249,7 +2315,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260914v534"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260914v535"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" not in service_worker

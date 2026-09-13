@@ -1,6 +1,13 @@
+import json
+import subprocess
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.main import app
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_unified_roots_use_compact_community_market_toggle_contract():
@@ -14,7 +21,7 @@ def test_unified_roots_use_compact_community_market_toggle_contract():
     assert shell.status_code == 200
     assert dashboard_shell.status_code == 200
     assert dashboard_shell.text == shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260914v534"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260914v535"' in shell.text
     assert 'src="/assets/staging/toss-ia.js?v=20260913-recommendation-overview-v109"' in shell.text
 
     intro_contract = staging_js.split(
@@ -307,3 +314,127 @@ def test_us_ai_signal_waits_for_both_markets_then_toggles_cached_snapshot_withou
         "animation: none !important",
     ):
         assert contract in skeleton_rules
+
+
+def test_us_watchlist_market_toggle_updates_in_place_without_replaying_splash():
+    dashboard_js = (ROOT / "app/static/dashboard/app.js").read_text(encoding="utf-8")
+    handler = "function setUnifiedMarketScope" + dashboard_js.split(
+        "function setUnifiedMarketScope",
+        1,
+    )[1].split("function syncUnifiedMarketScopeVisibility", 1)[0]
+
+    assert "window.location.assign" not in handler
+    for contract in (
+        "state.marketScope = marketScope;",
+        "document.body.dataset.marketScope = marketScope;",
+        "applyUsMarketSurface();",
+        'if (nextView === "portfolio") clearPageLoading();',
+        'setView(nextView, { historyMode: "push", marketScopeChange: true });',
+    ):
+        assert contract in handler
+
+    portfolio_entry = dashboard_js.split(
+        '} else if (view === "portfolio") {',
+        1,
+    )[1].split('} else if (view === "chart") {', 1)[0]
+    assert "options.marketScopeChange === true" in portfolio_entry
+    assert 'setPortfolioTab(state.portfolioTab, { load: false });' in portfolio_entry
+    assert 'void loadWatchlist(pageEntryRefreshOptions("watchlist", `strategy-${state.activeWatchGroup}`));' in portfolio_entry
+    assert "launchBriefPageLoading" not in portfolio_entry
+
+    script = f"""
+const calls = [];
+const isUsHubContext = true;
+const state = {{
+  view: "portfolio",
+  marketScope: "kr",
+  marketRankingSnapshotId: "saved-snapshot",
+  marketRankingMarket: "ALL",
+}};
+const document = {{ body: {{ dataset: {{ marketScope: "kr" }} }} }};
+const window = {{ location: {{ pathname: "/us", origin: "https://secretnote.cloud" }} }};
+function marketRankingMarketForScope(market, scope) {{ return scope === "us" ? "NASDAQ" : "ALL"; }}
+function applyUsMarketSurface() {{ calls.push("surface"); }}
+function clearPageLoading() {{ calls.push("clear-page-loading"); }}
+function setView(view, options) {{ calls.push({{ view, options }}); }}
+{handler}
+setUnifiedMarketScope("us");
+setUnifiedMarketScope("us");
+process.stdout.write(JSON.stringify({{ state, marketScope: document.body.dataset.marketScope, calls }}));
+"""
+    result = subprocess.run(
+        ["node", "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+    assert payload["state"] == {
+        "view": "portfolio",
+        "marketScope": "us",
+        "marketRankingSnapshotId": "",
+        "marketRankingMarket": "NASDAQ",
+    }
+    assert payload["marketScope"] == "us"
+    assert payload["calls"] == [
+        "surface",
+        "clear-page-loading",
+        {"view": "portfolio", "options": {"historyMode": "push", "marketScopeChange": True}},
+    ]
+
+
+def test_us_watchlist_group_items_follow_active_market_scope():
+    dashboard_js = (ROOT / "app/static/dashboard/app.js").read_text(encoding="utf-8")
+    handler = "function watchlistItemsForGroup" + dashboard_js.split(
+        "function watchlistItemsForGroup",
+        1,
+    )[1].split("function activeWatchlistGroupName", 1)[0]
+
+    for contract in (
+        'const effectiveScope = isUsHubContext && state.view !== "home" ? state.marketScope : "all";',
+        ".filter((item) => itemMatchesMarketScope(item, effectiveScope));",
+        'readWatchlist({ allMarkets: effectiveScope === "all" });',
+    ):
+        assert contract in handler
+
+    script = f"""
+const isUsHubContext = true;
+const state = {{ activeWatchGroup: "default", marketScope: "us", view: "portfolio" }};
+const items = [
+  {{ code: "005930", name: "삼성전자", market_scope: "kr", currency: "KRW" }},
+  {{ code: "NVDA", name: "엔비디아", market_scope: "us", currency: "USD" }},
+];
+const tracks = items.map((item) => ({{ ...item, id: `track-${{item.code}}` }}));
+function marketScopeForItem(item) {{ return item.market_scope; }}
+function itemMatchesMarketScope(item, scope) {{ return scope === "all" || item.market_scope === scope; }}
+function readWatchlist(options = {{}}) {{
+  const scope = state.view === "home" || options.allMarkets === true ? "all" : state.marketScope;
+  return items.filter((item) => itemMatchesMarketScope(item, scope));
+}}
+function readRecommendationTracks() {{ return tracks; }}
+function watchlistGroupById(groupId) {{
+  return groupId === "mixed" ? {{ id: "mixed", codes: ["005930", "NVDA"] }} : null;
+}}
+{handler}
+const usDefault = watchlistItemsForGroup("default").map((item) => item.code);
+const usPinned = watchlistItemsForGroup("pinned").map((item) => item.code);
+state.marketScope = "kr";
+const krCustom = watchlistItemsForGroup("mixed").map((item) => item.code);
+state.view = "home";
+const homePinned = watchlistItemsForGroup("pinned").map((item) => item.code);
+process.stdout.write(JSON.stringify({{ usDefault, usPinned, krCustom, homePinned }}));
+"""
+    result = subprocess.run(
+        ["node", "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(result.stdout) == {
+        "usDefault": ["NVDA"],
+        "usPinned": ["NVDA"],
+        "krCustom": ["005930"],
+        "homePinned": ["005930", "NVDA"],
+    }

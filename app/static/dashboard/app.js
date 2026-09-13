@@ -28,7 +28,6 @@ const elements = {
   recommendMarketScope: $("recommend-market-scope"),
   recommendMarketScopeButtons: Array.from(document.querySelectorAll("[data-recommend-market-scope]")),
   loginGate: $("login-gate"),
-  loginSplash: $("login-splash"),
   loginForm: $("login-form"),
   loginInput: $("login-id-input"),
   loginDescription: $("login-description"),
@@ -605,7 +604,6 @@ const UI_CACHE_TTL_MS = 60_000;
 const PAGE_ENTRY_MINUTE_MS = 60_000;
 const STOCK_DASHBOARD_WARMING_SOURCE = "stored_database_warming";
 const STOCK_DASHBOARD_WARM_RETRY_BASE_MS = 2_000;
-const LOGIN_SPLASH_DURATION_MS = 700;
 const HOME_MARKET_SIGNAL_RECENT_DAYS = 30;
 const AI_SIGNAL_HISTORY_DAYS = 30;
 const AI_SIGNAL_RECONCILE_TICK_MS = 30_000;
@@ -1450,8 +1448,6 @@ const state = {
   morningMoneyBriefingLoading: false,
   morningMoneyBriefingError: "",
   morningMoneyBriefingRefreshTimer: null,
-  loginGateTimer: null,
-  loginSplashSeen: false,
   pushConfig: null,
   pushNotificationBusy: false,
   pushNotificationEnabled: false,
@@ -1635,22 +1631,26 @@ function unifiedMarketUrl(url, marketScope = state.marketScope) {
 
 function setUnifiedMarketScope(marketScope) {
   if (!isUsHubContext || !["kr", "us"].includes(marketScope)) return;
-  const target = /^\/us\/stock\//.test(window.location.pathname)
-    ? new URL("/us?view=search", window.location.origin)
-    : new URL(window.location.href);
-  target.searchParams.set("market_scope", marketScope);
-  target.searchParams.delete("market");
-  target.searchParams.delete("snapshot");
+  if (state.marketScope === marketScope) return;
+  const nextView = /^\/us\/stock\//.test(window.location.pathname) ? "search" : state.view;
+  state.marketScope = marketScope;
+  state.marketRankingSnapshotId = "";
+  state.marketRankingMarket = marketRankingMarketForScope(state.marketRankingMarket, marketScope);
+  document.body.dataset.marketScope = marketScope;
   if (state.view === "ai-signals" && ["kr", "us"].includes(marketScope)) {
-    state.marketScope = marketScope;
-    document.body.dataset.marketScope = state.marketScope;
-    window.history.replaceState(window.history.state, "", `${target.pathname}${target.search}${target.hash}`);
     applyUsMarketSurface();
+    const target = new URL(window.location.href);
+    target.searchParams.set("market_scope", marketScope);
+    target.searchParams.delete("market");
+    target.searchParams.delete("snapshot");
+    window.history.replaceState(window.history.state, "", `${target.pathname}${target.search}${target.hash}`);
     if (aiSignalHasCompleteMarketSnapshot()) renderAiSignalsPage();
     renderAiSignalLiveStatus();
     return;
   }
-  window.location.assign(`${target.pathname}${target.search}${target.hash}`);
+  applyUsMarketSurface();
+  if (nextView === "portfolio") clearPageLoading();
+  setView(nextView, { historyMode: "push", marketScopeChange: true });
 }
 
 function syncUnifiedMarketScopeVisibility(view = state.view) {
@@ -10573,19 +10573,20 @@ function watchlistGroupById(groupId = state.activeWatchGroup) {
 }
 
 function watchlistItemsForGroup(groupId = state.activeWatchGroup) {
+  const effectiveScope = isUsHubContext && state.view !== "home" ? state.marketScope : "all";
   if (groupId === "pinned") {
-    const pinnedItems = readRecommendationTracks().map((track) => ({
-      code: track.code,
-      name: track.name,
-      market: track.market || "",
-      market_scope: marketScopeForItem(track),
-      currency: track.currency || (marketScopeForItem(track) === "us" ? "USD" : "KRW"),
-      pin_track: track,
-    }));
-    const effectiveScope = state.view === "home" ? "all" : state.marketScope;
-    return pinnedItems.filter((item) => itemMatchesMarketScope(item, effectiveScope));
+    return readRecommendationTracks()
+      .map((track) => ({
+        code: track.code,
+        name: track.name,
+        market: track.market || "",
+        market_scope: marketScopeForItem(track),
+        currency: track.currency || (marketScopeForItem(track) === "us" ? "USD" : "KRW"),
+        pin_track: track,
+      }))
+      .filter((item) => itemMatchesMarketScope(item, effectiveScope));
   }
-  const items = readWatchlist();
+  const items = readWatchlist({ allMarkets: effectiveScope === "all" });
   if (groupId === "default") return items;
   const group = watchlistGroupById(groupId);
   if (!group) return items;
@@ -11301,6 +11302,12 @@ function setLoginGatePhase(phase) {
     return;
   }
   elements.loginGate.dataset.phase = phase;
+  elements.loginGate.setAttribute("aria-labelledby", phase === "loading" ? "login-loading-label" : "login-title");
+  if (phase === "loading") {
+    elements.loginGate.setAttribute("aria-busy", "true");
+  } else {
+    elements.loginGate.removeAttribute("aria-busy");
+  }
 }
 
 function updateInviteField() {
@@ -11554,33 +11561,19 @@ function showLoginGate(message = "", options = {}) {
     return;
   }
   document.documentElement.classList.remove("has-saved-watchlist-id");
-  const skipSplash = options.skipSplash ?? state.loginSplashSeen;
-  window.clearTimeout(state.loginGateTimer);
   elements.loginGate.hidden = false;
   setLoginStatus(message, options.tone || "");
-  if (skipSplash) {
-    setLoginGatePhase("form");
-    window.setTimeout(() => {
-      elements.loginInput?.focus();
-    }, 50);
-    return;
-  }
-  setLoginGatePhase("splash");
-  state.loginSplashSeen = true;
-  state.loginGateTimer = window.setTimeout(() => {
-    setLoginGatePhase("form");
-    window.setTimeout(() => {
-      elements.loginInput?.focus();
-    }, 40);
-  }, LOGIN_SPLASH_DURATION_MS);
+  setLoginGatePhase("form");
+  window.setTimeout(() => {
+    elements.loginInput?.focus();
+  }, 50);
 }
 
 function hideLoginGate() {
   if (!elements.loginGate) {
     return;
   }
-  window.clearTimeout(state.loginGateTimer);
-  state.loginGateTimer = null;
+  elements.loginGate.removeAttribute("aria-busy");
   elements.loginGate.hidden = true;
   document.documentElement.classList.add("has-saved-watchlist-id");
   void maybeShowPushNotificationEntryPrompt();
@@ -11931,7 +11924,7 @@ async function logoutWatchlistIdentity() {
   }
   setWatchlistIdStatus("로그아웃됨");
   updatePushNotificationButton({ hidden: true });
-  showLoginGate("로그아웃되었습니다. 다시 아이디를 입력해주세요.", { skipSplash: true });
+  showLoginGate("로그아웃되었습니다. 다시 아이디를 입력해주세요.");
 }
 
 async function initializeWatchlistIdentity() {
@@ -11948,7 +11941,7 @@ async function initializeWatchlistIdentity() {
     setLoginStatus("저장된 ID로 불러오는 중");
     const accessResult = await authorizeDashboardIdentity(savedId);
     if (!accessResult.ok) {
-      showLoginGate(accessResult.message, { skipSplash: true, tone: "error" });
+      showLoginGate(accessResult.message, { tone: "error" });
       if (accessResult.capacityFull) {
         showAccessCapacityModal(accessResult.limit);
       }
@@ -11959,7 +11952,7 @@ async function initializeWatchlistIdentity() {
       refreshHomeAiSignalsAfterLogin();
       hideLoginGate();
     } else {
-      showLoginGate("저장된 아이디를 불러오지 못했습니다. 다시 입력해주세요.", { skipSplash: true, tone: "error" });
+      showLoginGate("저장된 아이디를 불러오지 못했습니다. 다시 입력해주세요.", { tone: "error" });
     }
   } else {
     state.watchlistGroups = readWatchlistGroups();
@@ -14334,7 +14327,12 @@ function setView(requestedViewName, options = {}) {
     resetAiSignalLandingViewport();
     void loadAiSignalsPage(pageEntryRefreshOptions("watchlist", "ai-signals"));
   } else if (view === "portfolio") {
-    setPortfolioTab(state.portfolioTab, { load: true });
+    if (options.marketScopeChange === true) {
+      setPortfolioTab(state.portfolioTab, { load: false });
+      void loadWatchlist(pageEntryRefreshOptions("watchlist", `strategy-${state.activeWatchGroup}`));
+    } else {
+      setPortfolioTab(state.portfolioTab, { load: true });
+    }
   } else if (view === "chart") {
     clearWatchChartLoadingOverlay();
     if (!state.watchChartResults.length) {
@@ -30089,7 +30087,7 @@ elements.loginForm?.addEventListener("submit", async (event) => {
     if (!/^[0-9A-Za-z가-힣_.-]{2,40}$/.test(normalizedId)) {
       showLoginGate(
         "아이디를 확인해주세요. 2~40자 한글/영문/숫자/._-만 가능합니다.",
-        { skipSplash: true, tone: "error" }
+        { tone: "error" }
       );
       return;
     }
@@ -30097,7 +30095,7 @@ elements.loginForm?.addEventListener("submit", async (event) => {
       setLoginStatus("초대 코드를 확인하는 중");
       const inviteResult = await authorizeInviteCode(elements.loginInviteInput?.value);
       if (!inviteResult.ok) {
-        showLoginGate(inviteResult.message, { skipSplash: true, tone: "error" });
+        showLoginGate(inviteResult.message, { tone: "error" });
         elements.loginInviteInput?.focus();
         return;
       }
@@ -30105,7 +30103,7 @@ elements.loginForm?.addEventListener("submit", async (event) => {
     setLoginStatus("이용 가능 인원을 확인하는 중");
     const accessResult = await authorizeDashboardIdentity(normalizedId);
     if (!accessResult.ok) {
-      showLoginGate(accessResult.message, { skipSplash: true, tone: "error" });
+      showLoginGate(accessResult.message, { tone: "error" });
       if (accessResult.capacityFull) {
         showAccessCapacityModal();
       }
@@ -30120,13 +30118,12 @@ elements.loginForm?.addEventListener("submit", async (event) => {
     } else {
       showLoginGate(
         "아이디를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
-        { skipSplash: true, tone: "error" }
+        { tone: "error" }
       );
     }
   } catch (error) {
     console.error("Login flow failed", error);
     showLoginGate("로그인 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.", {
-      skipSplash: true,
       tone: "error",
     });
   } finally {
