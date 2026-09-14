@@ -22,6 +22,9 @@ from app.repository import finish_ingestion, latest_research_reports, start_inge
 KST = ZoneInfo("Asia/Seoul")
 NAVER_FINANCE_BASE = "https://finance.naver.com/research/"
 NAVER_MOBILE_RESEARCH_BASE = "https://m.stock.naver.com/domestic/stock"
+NAVER_RESEARCH_API_BASE = "https://stock.naver.com/api/stockSecurity/researches/v2"
+NAVER_RESEARCH_WEB_BASE = "https://stock.naver.com/research"
+NAVER_RESEARCH_PAGE_SIZE = 20
 STOCKHUB_STOCK_BASE = "https://www.stockhub.kr/stock/"
 
 CATEGORY_PATHS = {
@@ -106,6 +109,21 @@ def _naver_get_html(url: str) -> str:
     return response.content.decode("euc-kr", errors="ignore")
 
 
+def _naver_get_json(
+    url: str,
+    *,
+    params: Optional[dict[str, object]] = None,
+) -> object:
+    response = requests.get(
+        url,
+        params=params,
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
 def _stockhub_get_html(url: str) -> str:
     """Fetch the public stockhub page used as a supplementary report index."""
     response = requests.get(
@@ -121,13 +139,15 @@ def _parse_naver_date(value: str) -> Optional[datetime]:
     cleaned = value.strip()
     if not cleaned:
         return None
-    try:
-        parsed = datetime.strptime(cleaned, "%y.%m.%d")
-    except ValueError:
+    parsed = None
+    for date_format in ("%y.%m.%d", "%Y.%m.%d", "%Y-%m-%d"):
         try:
-            parsed = datetime.strptime(cleaned, "%Y.%m.%d")
+            parsed = datetime.strptime(cleaned, date_format)
+            break
         except ValueError:
-            return None
+            continue
+    if parsed is None:
+        return None
     return parsed.replace(tzinfo=KST).replace(tzinfo=None)
 
 
@@ -239,6 +259,101 @@ def parse_naver_listing_html(html: str, category: str) -> list[ResearchListItem]
     return items
 
 
+def parse_naver_research_json(payload: object, category: str) -> list[ResearchListItem]:
+    """Normalize Naver's current research API without storing report bodies."""
+    if category not in CATEGORY_PATHS or not isinstance(payload, dict):
+        return []
+    rows = payload.get("items")
+    if not isinstance(rows, list):
+        return []
+
+    items: list[ResearchListItem] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        external_id = str(row.get("nid") or "").strip()
+        title = str(row.get("title") or "").strip()
+        broker_name = str(row.get("brokerName") or "").strip() or None
+        published_at = _parse_naver_date(str(row.get("writeDate") or ""))
+        if not external_id or not title or published_at is None:
+            continue
+
+        stock_code = str(row.get("itemCode") or "").strip() or None
+        if stock_code is not None and not re.fullmatch(r"\d{6}", stock_code):
+            stock_code = None
+        company_name = str(row.get("itemName") or "").strip() or None
+        subject_name = (
+            str(row.get("industryKoreanName") or row.get("industry") or "").strip()
+            or None
+            if category == "industry"
+            else None
+        )
+        if category == "company" and stock_code:
+            detail_url = naver_mobile_research_url(stock_code, external_id)
+        else:
+            route_category = "daily" if category == "market" else category
+            detail_url = f"{NAVER_RESEARCH_WEB_BASE}/{route_category}/{external_id}"
+
+        opinion = str(row.get("opinionText") or "").strip() or None
+        goal_price = row.get("goalPrice")
+        target_price = (
+            _parse_decimal(str(goal_price))
+            if goal_price not in (None, "")
+            else None
+        )
+        items.append(
+            ResearchListItem(
+                source="naver_finance",
+                source_category=category,
+                external_id=external_id,
+                title=title,
+                subject_name=subject_name,
+                company_name=company_name,
+                stock_code=stock_code,
+                broker_name=broker_name,
+                detail_url=detail_url,
+                pdf_url=None,
+                published_at=published_at,
+                views=_parse_int(str(row.get("readCount") or "")),
+                opinion=opinion,
+                target_price=target_price,
+                raw=json.dumps(
+                    {
+                        "source": "naver_stock_research_api",
+                        "category": category,
+                        "nid": external_id,
+                        "broker_code": str(row.get("brokerCode") or "").strip() or None,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        )
+    return items
+
+
+def _fetch_naver_research_json_page(
+    category: str,
+    *,
+    index: int,
+    item_code: Optional[str] = None,
+) -> tuple[list[ResearchListItem], bool]:
+    params: dict[str, object] = {
+        "index": max(0, index),
+        "size": NAVER_RESEARCH_PAGE_SIZE,
+    }
+    if item_code:
+        params["itemCodes"] = item_code
+    payload = _naver_get_json(
+        f"{NAVER_RESEARCH_API_BASE}/{category}",
+        params=params,
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("Naver research API response must be an object")
+    items = parse_naver_research_json(payload, category)
+    has_next = payload.get("hasNext") is True
+    return items, has_next
+
+
 def fetch_company_detail_fields(detail_url: str) -> dict[str, object]:
     html = _naver_get_html(detail_url)
     soup = BeautifulSoup(html, "html.parser")
@@ -294,23 +409,53 @@ def fetch_naver_research_reports(
         if not path:
             continue
 
-        stop_category = False
-        for page in range(1, max_pages + 1):
-            html = _naver_get_html(f"{NAVER_FINANCE_BASE}{path}?page={page}")
-            page_items = parse_naver_listing_html(html, category)
-            if not page_items:
-                break
+        json_failed = False
+        category_reports: list[ResearchListItem] = []
+        try:
+            for index in range(max(1, max_pages)):
+                page_items, has_next = _fetch_naver_research_json_page(
+                    category,
+                    index=index,
+                )
+                if not page_items:
+                    break
+                stop_category = False
+                for item in page_items:
+                    if item.published_at and item.published_at < cutoff:
+                        stop_category = True
+                        continue
+                    category_reports.append(item)
+                if stop_category or not has_next:
+                    break
+        except (requests.RequestException, ValueError):
+            json_failed = True
 
-            for item in page_items:
-                if item.published_at and item.published_at < cutoff:
-                    stop_category = True
-                    continue
-                if include_detail and category == "company":
-                    item = enrich_company_detail(item)
-                reports.append(item)
+        if category_reports:
+            reports.extend(category_reports)
+            continue
 
-            if stop_category:
-                break
+        # Retain the legacy parser as a regression fallback while Naver's old
+        # route remains reachable. Redirected app-shell HTML yields no rows and
+        # is deliberately not treated as a successful ingestion.
+        try:
+            for page in range(1, max_pages + 1):
+                html = _naver_get_html(f"{NAVER_FINANCE_BASE}{path}?page={page}")
+                page_items = parse_naver_listing_html(html, category)
+                if not page_items:
+                    break
+                stop_category = False
+                for item in page_items:
+                    if item.published_at and item.published_at < cutoff:
+                        stop_category = True
+                        continue
+                    if include_detail and category == "company":
+                        item = enrich_company_detail(item)
+                    reports.append(item)
+                if stop_category:
+                    break
+        except requests.RequestException:
+            if json_failed:
+                raise
 
     return reports
 
@@ -336,6 +481,31 @@ def fetch_naver_company_reports_for_stock(
     cutoff = (now - timedelta(days=max(1, int(days_back)))).replace(tzinfo=None)
     reports: list[ResearchListItem] = []
     page_limit = max(1, min(int(max_pages), 20))
+    try:
+        for index in range(page_limit):
+            page_items, has_next = _fetch_naver_research_json_page(
+                "company",
+                index=index,
+                item_code=code,
+            )
+            if not page_items:
+                break
+            stop = False
+            for item in page_items:
+                if item.stock_code != code:
+                    continue
+                if item.published_at and item.published_at < cutoff:
+                    stop = True
+                    continue
+                reports.append(item)
+            if stop or not has_next:
+                break
+    except (requests.RequestException, ValueError):
+        reports = []
+
+    if reports:
+        return reports
+
     for page in range(1, page_limit + 1):
         query = urlencode({"searchType": "itemCode", "itemCode": code, "page": page})
         html = _naver_get_html(f"{NAVER_FINANCE_BASE}{CATEGORY_PATHS['company']}?{query}")
@@ -549,6 +719,15 @@ def collect_research_reports(
             days_back=days_back,
             include_detail=include_detail,
         )
+        if not items:
+            finish_ingestion(
+                db,
+                run,
+                "failed",
+                0,
+                "Naver research collection returned no usable reports",
+            )
+            return 0
         count = upsert_many(db, ResearchReport, [item.as_row() for item in items])
         db.commit()
         finish_ingestion(db, run, "success", rows_loaded=count, message=f"categories={','.join(categories)}")

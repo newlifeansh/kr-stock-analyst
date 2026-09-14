@@ -654,11 +654,33 @@ def probe_signal_source_apis(
         return b'data="' in response.content
 
     def research_has_rows(response: requests.Response) -> bool:
-        return "type_1" in response.content.decode("euc-kr", errors="ignore")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            return False
+        items = payload.get("items")
+        return bool(
+            isinstance(items, list)
+            and any(
+                isinstance(item, dict)
+                and str(item.get("nid") or "").strip()
+                and str(item.get("writeDate") or "").strip()
+                for item in items
+            )
+        )
 
     def flow_has_rows(response: requests.Response) -> bool:
-        text = response.content.decode("euc-kr", errors="ignore")
-        return "기관" in text and "외국인" in text
+        payload = response.json()
+        return bool(
+            isinstance(payload, list)
+            and any(
+                isinstance(item, dict)
+                and str(item.get("itemCode") or "").strip() == sample_code
+                and str(item.get("bizdate") or "").strip()
+                and item.get("foreignerPureBuyQuant") is not None
+                and item.get("organPureBuyQuant") is not None
+                for item in payload
+            )
+        )
 
     def yahoo_has_rows(response: requests.Response) -> bool:
         payload = response.json()
@@ -674,16 +696,16 @@ def probe_signal_source_apis(
         ),
         (
             "flow",
-            "Naver investor flow",
-            "https://finance.naver.com/item/frgn.naver",
-            {"code": sample_code, "page": 1},
+            "Naver investor trend API",
+            f"https://stock.naver.com/api/domestic/detail/{sample_code}/trend",
+            {"tradeType": "KRX", "startIdx": 0, "pageSize": 20},
             flow_has_rows,
         ),
         (
             "research",
-            "Naver research",
-            "https://finance.naver.com/research/company_list.naver",
-            {"page": 1},
+            "Naver research API",
+            "https://stock.naver.com/api/stockSecurity/researches/v2/company",
+            {"index": 0, "size": 3},
             research_has_rows,
         ),
         (

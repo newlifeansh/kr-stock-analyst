@@ -10,6 +10,7 @@ from app.collectors.research import (
     fetch_stockhub_reports_for_stock,
     naver_mobile_research_url,
     parse_naver_listing_html,
+    parse_naver_research_json,
     preferred_research_url,
 )
 from app.db import Base
@@ -72,6 +73,29 @@ COMPANY_DETAIL_HTML = """
 STOCKHUB_HTML = r'''
 <script>\"analystReports\":[{\"id\":13793,\"ticker\":\"078930\",\"broker\":\"DB증권\",\"report_title\":\"GS 목표가 120,000원 상향\",\"target_price\":120000,\"opinion_raw\":\"매수-유지\",\"report_date\":\"2026-07-20\",\"source_url\":\"https://www.db-fi.com/bbs/board.php?bo_table=research\",\"pdf_url\":null}],\"usConsensus\":null</script>
 '''
+
+
+COMPANY_JSON = {
+    "hasNext": False,
+    "totalCount": "1",
+    "size": 20,
+    "index": 0,
+    "items": [
+        {
+            "nid": "96144",
+            "title": "LNG운반선과 FLNG의 분산효과",
+            "content": "<p>저장하지 않는 보고서 본문</p>",
+            "brokerName": "IBK투자증권",
+            "brokerCode": "40",
+            "writeDate": "2026-09-15",
+            "readCount": "12",
+            "itemCode": "010140",
+            "itemName": "삼성중공업",
+            "goalPrice": "37000",
+            "opinionText": "매수",
+        }
+    ],
+}
 
 
 def _session():
@@ -163,6 +187,48 @@ def test_parse_industry_listing_html():
     assert item.external_id == "54321"
 
 
+def test_parse_naver_research_json_normalizes_current_api_without_report_body():
+    items = parse_naver_research_json(COMPANY_JSON, "company")
+
+    assert len(items) == 1
+    item = items[0]
+    assert item.external_id == "96144"
+    assert item.stock_code == "010140"
+    assert item.company_name == "삼성중공업"
+    assert item.target_price == 37000
+    assert item.opinion == "매수"
+    assert item.detail_url == (
+        "https://m.stock.naver.com/domestic/stock/010140/research/96144"
+    )
+    assert "저장하지 않는 보고서 본문" not in str(item.raw)
+
+
+def test_fetch_naver_research_reports_prefers_current_json_feed(monkeypatch):
+    calls = []
+
+    def fake_page(category, *, index, item_code=None):
+        calls.append((category, index, item_code))
+        return parse_naver_research_json(COMPANY_JSON, category), False
+
+    monkeypatch.setattr(research, "_fetch_naver_research_json_page", fake_page)
+    monkeypatch.setattr(
+        research,
+        "_naver_get_html",
+        lambda _url: (_ for _ in ()).throw(AssertionError("legacy HTML should not be called")),
+    )
+
+    reports = research.fetch_naver_research_reports(
+        ["company"],
+        max_pages=2,
+        days_back=3,
+        include_detail=True,
+        now=research.datetime(2026, 9, 15),
+    )
+
+    assert len(reports) == 1
+    assert calls == [("company", 0, None)]
+
+
 def test_fetch_company_detail_fields(monkeypatch):
     monkeypatch.setattr(research, "_naver_get_html", lambda url: COMPANY_DETAIL_HTML)
 
@@ -176,16 +242,59 @@ def test_fetch_company_detail_fields(monkeypatch):
 def test_fetch_company_reports_for_stock_uses_item_code_filter(monkeypatch):
     calls = []
 
-    def fake_get_html(url):
-        calls.append(url)
-        return COMPANY_HTML
+    def fake_get_json(url, *, params=None):
+        calls.append((url, params))
+        payload = {**COMPANY_JSON, "items": [{**COMPANY_JSON["items"][0], "itemCode": "005930"}]}
+        return payload
 
-    monkeypatch.setattr(research, "_naver_get_html", fake_get_html)
+    monkeypatch.setattr(research, "_naver_get_json", fake_get_json)
+    monkeypatch.setattr(
+        research,
+        "_naver_get_html",
+        lambda _url: (_ for _ in ()).throw(AssertionError("legacy HTML should not be called")),
+    )
     reports = fetch_naver_company_reports_for_stock("005930", days_back=180, max_pages=1, include_detail=False)
 
     assert len(reports) == 1
     assert reports[0].stock_code == "005930"
+    assert calls[0][0].endswith("/company")
+    assert calls[0][1]["itemCodes"] == "005930"
+
+
+def test_fetch_company_reports_for_stock_retains_legacy_html_fallback(monkeypatch):
+    calls = []
+
+    def unavailable_json(*_args, **_kwargs):
+        raise research.requests.RequestException("temporary API failure")
+
+    def fake_get_html(url):
+        calls.append(url)
+        return COMPANY_HTML
+
+    monkeypatch.setattr(research, "_naver_get_json", unavailable_json)
+    monkeypatch.setattr(research, "_naver_get_html", fake_get_html)
+
+    reports = fetch_naver_company_reports_for_stock(
+        "005930",
+        days_back=180,
+        max_pages=1,
+        include_detail=False,
+    )
+
+    assert len(reports) == 1
     assert calls and "searchType=itemCode" in calls[0] and "itemCode=005930" in calls[0]
+
+
+def test_collect_research_reports_marks_zero_row_source_as_failed(monkeypatch):
+    monkeypatch.setattr(research, "fetch_naver_research_reports", lambda **_kwargs: [])
+
+    with _session() as db:
+        assert research.collect_research_reports(db) == 0
+
+        run = db.query(IngestionRun).one()
+        assert run.status == "failed"
+        assert run.rows_loaded == 0
+        assert "no usable reports" in str(run.message)
 
 
 def test_fetch_stockhub_reports_for_stock_parses_broker_metadata():

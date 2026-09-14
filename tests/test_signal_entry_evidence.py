@@ -26,7 +26,11 @@ from app.models import (
 from app.services.sector_taxonomy import investment_sector_fields
 from app.services import quant_signals
 from app.services import briefing
-from app.services.signal_data_quality import _http_probe, signal_data_quality_status
+from app.services.signal_data_quality import (
+    _http_probe,
+    probe_signal_source_apis,
+    signal_data_quality_status,
+)
 from app.services.signal_entry_evidence import (
     ENTRY_EVIDENCE_EFFECTIVE_DATE,
     ENTRY_EVIDENCE_STRATEGY_VERSION,
@@ -717,6 +721,64 @@ def test_entry_market_context_prefers_confirmed_naver_index_close():
     assert context["source"] == "naver_finance"
     assert context["as_of"] == SIGNAL_DATE.isoformat()
     assert context["current"] == 3064.0
+
+
+def test_source_probe_uses_current_naver_json_endpoints(monkeypatch):
+    calls = []
+
+    class Response:
+        status_code = 200
+        content = b'data="20260915|100|110|90|105|1"'
+        text = "공시"
+
+        def __init__(self, url):
+            self.url = url
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            if self.url.endswith("/trend"):
+                return [
+                    {
+                        "itemCode": "005930",
+                        "bizdate": "20260915",
+                        "foreignerPureBuyQuant": "10",
+                        "organPureBuyQuant": "20",
+                    }
+                ]
+            if self.url.endswith("/company"):
+                return {"items": [{"nid": "96144", "writeDate": "2026-09-15"}]}
+            if "finance/chart" in self.url:
+                return {"chart": {"result": [{"timestamp": [1]}]}}
+            raise AssertionError(f"unexpected JSON probe: {self.url}")
+
+    def fake_get(url, *, params=None, headers=None, timeout=None):
+        calls.append((url, params))
+        return Response(url)
+
+    monkeypatch.setattr(
+        "app.services.signal_data_quality.requests.get",
+        fake_get,
+    )
+
+    result = probe_signal_source_apis(
+        Settings(dart_api_key=None),
+        sample_code="005930",
+        now=datetime(2026, 9, 15, 8, 0),
+    )
+
+    assert result["status"] == "ready"
+    assert {item["state"] for item in result["items"]} == {"ready"}
+    flow_call = next(call for call in calls if call[0].endswith("/trend"))
+    assert flow_call[1] == {
+        "tradeType": "KRX",
+        "startIdx": 0,
+        "pageSize": 20,
+    }
+    assert any(call[0].endswith("/researches/v2/company") for call in calls)
+    assert not any("finance.naver.com/item/frgn.naver" in call[0] for call in calls)
+    assert not any("company_list.naver" in call[0] for call in calls)
 
 
 def test_source_probe_never_echoes_a_credential_from_request_error(monkeypatch):
