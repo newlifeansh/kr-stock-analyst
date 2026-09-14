@@ -42,6 +42,7 @@ E2E_CASE_IDS = (
     "SIG-UI-023",
     "SIG-UI-024",
     "SIG-UI-025",
+    "SIG-UI-028",
 )
 
 
@@ -9634,6 +9635,249 @@ def run_e2e_checks(
                     storage_state=storage_state,
                     share_id=share_id,
                     dismiss_service_update=False,
+                )
+            )
+
+            def recommendation_public_evidence_case(page: Any, theme: str) -> dict[str, Any]:
+                now = datetime.now(KST).isoformat()
+                snapshot_id = "position-lifecycle-us-public-test:2026-09-14:qa-public-evidence"
+                snapshot_checksum = "qa-public-evidence-checksum"
+                public_reasons = [
+                    {
+                        "key": "trend_20d",
+                        "label": "20일",
+                        "state": "positive",
+                        "summary": "최근 20일 가격 흐름이 우호적입니다.",
+                        "as_of": now[:10],
+                        "available": True,
+                    },
+                    {
+                        "key": "trend_60d",
+                        "label": "60일",
+                        "state": "neutral",
+                        "summary": "20일선과 60일선의 방향이 뚜렷하지 않습니다.",
+                        "as_of": now[:10],
+                        "available": True,
+                    },
+                    {
+                        "key": "flow",
+                        "label": "거래대금 참여도",
+                        "state": "positive",
+                        "summary": "최근 가격×거래량 기반 거래대금 참여도가 우호적입니다.",
+                        "as_of": now[:10],
+                        "available": True,
+                    },
+                ]
+                canonical = {
+                    "status": "ready",
+                    "data_state": "ready",
+                    "snapshot_id": snapshot_id,
+                    "snapshot_checksum": snapshot_checksum,
+                    "strategy_version": "position-lifecycle-us-public-test",
+                }
+                us_item = {
+                    **canonical,
+                    "rank": 1,
+                    "code": "IBM",
+                    "name": "International Business Machines Corporation",
+                    "market": "NYSE",
+                    "currency": "USD",
+                    "score": None,
+                    "action": "관망",
+                    "price": 243.29,
+                    "change_rate": 3.96,
+                    "one_month_return": 4.2,
+                    "three_month_return": 7.8,
+                    "decision_reason": "20일·60일·거래대금 참여도를 함께 확인한 AI 판단입니다.",
+                    "reasons": [reason["summary"] for reason in public_reasons],
+                    "risks": [],
+                    "ai_trade_signal": {
+                        **canonical,
+                        "as_of": now,
+                        "price_through": now[:10],
+                        "public_reasons": public_reasons,
+                        "current": {
+                            "action": "entry_watch",
+                            "label": "예비 포착",
+                            "position_open": False,
+                            "price": 243.29,
+                            "as_of": now,
+                            "levels": [],
+                            "reasons": [reason["summary"] for reason in public_reasons],
+                            "next_confirmation": "다음 미국 정규장 종가에서 추세와 거래량 조건을 확인해요.",
+                        },
+                    },
+                }
+                us_payload = {
+                    **canonical,
+                    "as_of": now,
+                    "selection_state": "ready",
+                    "selection_message": "미국 추천 후보를 공개 근거와 함께 보여드립니다.",
+                    "universe_count": 1,
+                    "candidate_count": 1,
+                    "qualified_count": 1,
+                    "methodology": ["공개 근거 기준"],
+                    "items": [us_item],
+                }
+                kr_payload = {
+                    "as_of": now,
+                    "selection_state": "unavailable",
+                    "selection_message": "최신 국내 가격·수급 자료가 아직 완성되지 않아 추천 종목을 표시하지 않습니다.",
+                    "universe_count": 100,
+                    "candidate_count": 0,
+                    "qualified_count": 0,
+                    "methodology": [],
+                    "items": [],
+                }
+
+                def recommendation_route(route: Any) -> None:
+                    payload = us_payload if "/us/market/recommendations" in route.request.url else kr_payload
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps(payload, ensure_ascii=False),
+                    )
+
+                page.route("**/market/recommendations*", recommendation_route)
+                page.route(
+                    "**/stocks/IBM/ai-analysis*",
+                    lambda route: route.fulfill(
+                        json={
+                            **canonical,
+                            "is_current_universe_member": True,
+                            "new_entries_allowed": True,
+                            "generation_mode": "rules",
+                            "summary": us_item["decision_reason"],
+                            "generation_note": "공개 근거로 현재 판단을 설명합니다.",
+                        }
+                    ),
+                )
+                page.route(
+                    "**/ai/page-summary*",
+                    lambda route: route.fulfill(
+                        json={
+                            **(route.request.post_data_json.get("fallback") or {}),
+                            "generation_mode": "rules",
+                        }
+                    ),
+                )
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/us",
+                        view="search",
+                        market_scope="us",
+                        theme=theme,
+                        qa_recommendation_public_evidence=now[-12:],
+                    ),
+                    ready_selector="body[data-view='search']",
+                )
+                page.wait_for_selector("#recommend-list .recommend-card", state="visible")
+                card = page.locator("#recommend-list .recommend-card").first
+                card_contract = card.evaluate(
+                    """card => ({
+                      text: card.innerText,
+                      label: card.querySelector('.staging-recommend-score-label')?.textContent.trim(),
+                      reasonCount: Number(card.querySelector('.recommend-score-value strong')?.textContent.trim()),
+                      rootWidth: document.documentElement.scrollWidth,
+                      viewport: innerWidth,
+                    })"""
+                )
+                if (
+                    card_contract["label"] != "공개 판단 근거"
+                    or card_contract["reasonCount"] != 3
+                    or "확인 중" in card_contract["text"]
+                    or card_contract["rootWidth"] > card_contract["viewport"] + 1
+                ):
+                    raise QaFailure(
+                        "미국 추천 카드가 비공개 점수를 공개 근거로 대체하지 못했습니다.",
+                        card_contract,
+                    )
+
+                card.locator(".recommend-ai-button").click()
+                page.wait_for_selector(
+                    "#recommend-detail-content .recommend-detail-public-evidence-row",
+                    state="visible",
+                )
+                detail_contract = page.evaluate(
+                    """() => {
+                      const content = document.querySelector('#recommend-detail-content');
+                      const rows = [...content.querySelectorAll('.recommend-detail-public-evidence-row')];
+                      return {
+                        text: content?.innerText || '',
+                        labels: rows.map(row => row.querySelector('.recommend-detail-public-evidence-title > span')?.textContent.trim()),
+                        states: rows.map(row => row.querySelector('.recommend-detail-public-evidence-title > strong')?.textContent.trim()),
+                        summaries: rows.map(row => row.querySelector(':scope > p')?.textContent.trim()),
+                        dates: rows.map(row => row.querySelector(':scope > time')?.textContent.trim()),
+                        scoreTrack: Boolean(content.querySelector('.staging-recommend-detail-score-track')),
+                        rootWidth: document.documentElement.scrollWidth,
+                        viewport: innerWidth,
+                      };
+                    }"""
+                )
+                if (
+                    detail_contract["labels"] != ["20일", "60일", "거래대금 참여도"]
+                    or len(detail_contract["states"]) != 3
+                    or any(not value for value in detail_contract["summaries"])
+                    or any(not value for value in detail_contract["dates"])
+                    or detail_contract["scoreTrack"]
+                    or "추천 점수\n확인 중" in detail_contract["text"]
+                    or detail_contract["rootWidth"] > detail_contract["viewport"] + 1
+                ):
+                    raise QaFailure(
+                        "미국 추천 상세 공개 근거 구조가 화면 계약과 다릅니다.",
+                        detail_contract,
+                    )
+
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/us",
+                        view="search",
+                        market_scope="kr",
+                        theme=theme,
+                        qa_recommendation_unavailable=now[-12:],
+                    ),
+                    ready_selector="body[data-view='search']",
+                )
+                page.wait_for_selector(
+                    '#recommend-view .recommend-summary[data-state="unavailable"]',
+                    state="visible",
+                )
+                unavailable_contract = page.locator("#recommend-view .recommend-summary").evaluate(
+                    """node => ({
+                      text: node.innerText,
+                      action: node.querySelector('button')?.textContent.trim(),
+                    })"""
+                )
+                if (
+                    "추천 자료를 갱신하고 있어요" not in unavailable_contract["text"]
+                    or unavailable_contract["action"] != "다시 불러오기"
+                    or "추천 조건을 모두 통과한 종목이 0개" in unavailable_contract["text"]
+                ):
+                    raise QaFailure(
+                        "국내 자료 미완성 상태가 정상 추천 0건과 구분되지 않았습니다.",
+                        unavailable_contract,
+                    )
+                return {
+                    "card": card_contract,
+                    "detail": detail_contract,
+                    "unavailable": unavailable_contract,
+                }
+
+            results.append(
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id="SIG-UI-028",
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=recommendation_public_evidence_case,
+                    storage_state=storage_state,
+                    share_id=share_id,
                 )
             )
         finally:

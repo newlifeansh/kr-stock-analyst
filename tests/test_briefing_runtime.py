@@ -146,6 +146,51 @@ def test_main_collector_refreshes_signal_flow_before_full_fundamental_backfill(
     assert calls[:3] == ["price", "flow", "fundamental"]
 
 
+def test_main_collector_keeps_degraded_prices_retryable(monkeypatch):
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=False,
+            disclosure_enabled=False,
+            news_enabled=False,
+            stock_universe_enabled=False,
+            price_enabled=True,
+            investor_flow_enabled=False,
+            financials_enabled=False,
+            fundamental_snapshot_enabled=False,
+            stock_news_snapshot_enabled=False,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=False,
+        )
+    )
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(runtime, "run_freshness_once", lambda **_kwargs: False)
+    monkeypatch.setattr(
+        runtime,
+        "_collect_prices",
+        lambda _db: {
+            "source": "degraded",
+            "rows_loaded": 25,
+            "message": "fresh=25/100 coverage=25.00%",
+        },
+    )
+    monkeypatch.setattr(briefing, "collect_home_briefing", lambda *_args, **_kwargs: None)
+
+    runtime.run_once()
+
+    assert runtime.last_price_at is None
+    assert runtime.last_price_source == "degraded"
+    assert runtime.source_errors["prices"] == "fresh=25/100 coverage=25.00%"
+
+
 def test_short_cadence_research_uses_canonical_when_direct_source_is_empty(monkeypatch):
     runtime = briefing.BriefingRuntime(
         Settings(
@@ -470,7 +515,11 @@ def test_collect_prices_uses_krx_market_before_fallback(monkeypatch):
     calls = []
     runtime = briefing.BriefingRuntime(Settings(price_max_workers=3))
     monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
-    monkeypatch.setattr(runtime, "_latest_price_coverage", lambda db, target: {"total": 100, "fresh": 0, "coverage_ratio": 0.0})
+    coverage = iter([
+        {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
+        {"total": 100, "fresh": 100, "coverage_ratio": 1.0},
+    ])
+    monkeypatch.setattr(runtime, "_latest_price_coverage", lambda db, target: next(coverage))
     monkeypatch.setattr(
         runtime,
         "_repair_signal_price_ohlc",
@@ -496,7 +545,11 @@ def test_collect_prices_falls_back_to_naver_full_quotes(monkeypatch):
     runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
     monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
     calls = []
-    monkeypatch.setattr(runtime, "_latest_price_coverage", lambda db, target: {"total": 100, "fresh": 0, "coverage_ratio": 0.0})
+    coverage = iter([
+        {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
+        {"total": 100, "fresh": 100, "coverage_ratio": 1.0},
+    ])
+    monkeypatch.setattr(runtime, "_latest_price_coverage", lambda db, target: next(coverage))
     monkeypatch.setattr(
         runtime,
         "_repair_signal_price_ohlc",
@@ -534,11 +587,11 @@ def test_collect_prices_falls_back_to_naver_full_quotes(monkeypatch):
 def test_collect_prices_force_finalizes_naver_fallback_after_close(monkeypatch):
     runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
     monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
-    monkeypatch.setattr(
-        runtime,
-        "_latest_price_coverage",
-        lambda _db, _target: {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
-    )
+    coverage = iter([
+        {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
+        {"total": 100, "fresh": 100, "coverage_ratio": 1.0},
+    ])
+    monkeypatch.setattr(runtime, "_latest_price_coverage", lambda _db, _target: next(coverage))
     monkeypatch.setattr(
         briefing,
         "collect_market_prices",
@@ -572,11 +625,11 @@ def test_collect_prices_force_finalizes_naver_fallback_after_close(monkeypatch):
 def test_collect_prices_prefers_batched_realtime_quotes_in_every_collector_mode(monkeypatch):
     runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
     monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
-    monkeypatch.setattr(
-        runtime,
-        "_latest_price_coverage",
-        lambda _db, _target: {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
-    )
+    coverage = iter([
+        {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
+        {"total": 100, "fresh": 100, "coverage_ratio": 1.0},
+    ])
+    monkeypatch.setattr(runtime, "_latest_price_coverage", lambda _db, _target: next(coverage))
     monkeypatch.setattr(
         briefing,
         "collect_market_prices",
@@ -603,6 +656,43 @@ def test_collect_prices_prefers_batched_realtime_quotes_in_every_collector_mode(
     assert result["source"] == "naver_realtime_quotes"
     assert result["rows_loaded"] == 2700
     assert calls == [("20260821", "KOSPI,KOSDAQ", None, 5)]
+
+
+def test_collect_prices_continues_after_partial_krx_until_coverage_is_ready(monkeypatch):
+    runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
+    monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
+    coverage = iter([
+        {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
+        {"total": 100, "fresh": 50, "coverage_ratio": 0.5},
+        {"total": 100, "fresh": 99, "coverage_ratio": 0.99},
+    ])
+    monkeypatch.setattr(runtime, "_latest_price_coverage", lambda *_args: next(coverage))
+    monkeypatch.setattr(runtime, "_repair_signal_price_ohlc", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(
+        briefing,
+        "collect_market_prices",
+        lambda _db, _date, market: 25 if market == "KOSPI" else 0,
+    )
+    realtime_calls = []
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_realtime_market_caps",
+        lambda *_args, **_kwargs: realtime_calls.append(True) or 74,
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_quotes",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("ready realtime coverage must stop before HTML")
+        ),
+    )
+
+    result = runtime._collect_prices(object(), now=datetime(2026, 8, 21, 12, 0))
+
+    assert result["source"] == "krx_market+naver_realtime_quotes"
+    assert result["rows_loaded"] == 99
+    assert realtime_calls == [True]
+    assert "coverage=99.00%" in result["message"]
 
 
 def test_collect_prices_skips_when_latest_coverage_is_already_high(monkeypatch):
@@ -862,11 +952,14 @@ def test_collect_prices_uses_completed_session_before_market_open(monkeypatch):
         lambda _db, target, **_kwargs: repair_calls.append(target) or 0,
     )
     coverage_calls = []
+    coverage_results = iter([
+        {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
+        {"total": 100, "fresh": 100, "coverage_ratio": 1.0},
+    ])
     monkeypatch.setattr(
         runtime,
         "_latest_price_coverage",
-        lambda _db, target: coverage_calls.append(target)
-        or {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
+        lambda _db, target: coverage_calls.append(target) or next(coverage_results),
     )
     market_calls = []
 
@@ -893,7 +986,7 @@ def test_collect_prices_uses_completed_session_before_market_open(monkeypatch):
     )
 
     assert result["source"] == "naver_html_quotes"
-    assert coverage_calls == ["20260820"]
+    assert coverage_calls == ["20260820", "20260820"]
     assert market_calls == [("20260820", "KOSPI"), ("20260820", "KOSDAQ")]
     assert naver_calls == ["20260820"]
     assert repair_calls == [date(2026, 8, 20), date(2026, 8, 20)]

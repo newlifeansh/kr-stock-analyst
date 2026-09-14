@@ -20892,3 +20892,54 @@ body[data-staging-ia="tds-video"] #recommend-view .recommend-decision-flow { pad
   body[data-staging-ia="tds-video"] #recommend-view .recommend-name { grid-template-columns: 44px minmax(0, 1fr) !important; gap: 10px !important; }
   body[data-staging-ia="tds-video"] #recommend-view .recommend-name .stock-list-logo { width: 44px !important; height: 44px !important; }
 }
+
+/* v167 — public recommendation evidence and unavailable-data recovery. */
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="unavailable"] > p {
+  min-height: 172px !important;
+  display: grid !important;
+  align-content: center !important;
+  gap: 8px !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="unavailable"] > p > :is(strong, span) {
+  display: block !important;
+  white-space: normal !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="unavailable"] button {
+  min-height: 44px !important;
+  margin-top: 12px !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-public-evidence {
+  padding-block: 28px !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-public-evidence-head {
+  gap: 8px !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-public-evidence-eyebrow {
+  color: var(--tc-accent) !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-public-evidence-list {
+  border-color: var(--tc-line) !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-public-evidence-row {
+  padding: 17px 0 !important;
+  border-color: var(--tc-line) !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-public-evidence-title > span,
+body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-public-evidence-row > time,
+body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-public-evidence-head > p {
+  color: var(--tc-sub) !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-public-evidence-title > strong,
+body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-public-evidence-row > p {
+  color: var(--tc-text) !important;
+}

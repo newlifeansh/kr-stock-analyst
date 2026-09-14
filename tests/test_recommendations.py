@@ -144,6 +144,53 @@ def test_recommendations_treat_future_signal_snapshot_as_stale():
     ) is True
 
 
+def test_recommendations_treat_previous_completed_price_snapshot_as_stale(monkeypatch):
+    now = datetime(2026, 9, 3, 10, 0, tzinfo=recommendations.KST)
+    monkeypatch.setattr(
+        recommendations,
+        "latest_completed_korea_market_session_date",
+        lambda _now=None: date(2026, 9, 2),
+    )
+
+    assert recommendations._recommendation_signal_snapshot_needs_refresh(
+        {
+            "status": "ready",
+            "snapshot_generated_at": now.isoformat(),
+            "price_through": "2026-09-01",
+        },
+        now=now,
+    ) is True
+    assert recommendations._recommendation_signal_snapshot_needs_refresh(
+        {
+            "status": "ready",
+            "snapshot_generated_at": now.isoformat(),
+            "price_through": "2026-09-02",
+        },
+        now=now,
+    ) is False
+
+
+def test_recommendations_report_unavailable_when_selection_snapshot_is_not_ready(monkeypatch):
+    monkeypatch.setattr(
+        recommendations,
+        "_top_market_cap_universe",
+        lambda *_args, **_kwargs: {"universe_count": 100, "base_items": [], "price_groups": {}},
+    )
+    monkeypatch.setattr(
+        recommendations,
+        "_eligible_recommendation_snapshot_items",
+        lambda *_args, **_kwargs: ({}, False),
+    )
+
+    with _session() as db:
+        payload = build_recommendations(db, ensure_signal_history=False)
+
+    assert payload["items"] == []
+    assert payload["selection_state"] == "unavailable"
+    assert payload["selection_refreshing"] is False
+    assert "표시하지 않습니다" in payload["selection_message"]
+
+
 def _session() -> Session:
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)

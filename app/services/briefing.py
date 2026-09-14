@@ -345,7 +345,11 @@ class BriefingRuntime:
                         refreshed_any = True
                     self.last_price_source = str(price_result["source"])
                     self.last_price_message = str(price_result["message"])
-                    self.last_price_at = datetime.utcnow()
+                    if price_result["source"] == "degraded":
+                        self.source_errors["prices"] = self.last_price_message
+                    else:
+                        self.source_errors.pop("prices", None)
+                        self.last_price_at = datetime.utcnow()
                 except Exception as exc:
                     self.source_errors["prices"] = str(exc)
             # Flow is signal-critical P0 data. Run it immediately after price
@@ -659,16 +663,21 @@ class BriefingRuntime:
                 total_rows += collect_market_prices(db, target_yyyymmdd, market)
             except Exception as exc:
                 market_errors[market] = str(exc)
+        repair_rows = 0
         if total_rows:
-            repaired = self._repair_signal_price_ohlc(db, target_date)
-            return {
-                "source": "krx_market+naver_ohlc_repair" if repaired else "krx_market",
-                "rows_loaded": total_rows + repaired,
-                "message": (
-                    f"date={target_yyyymmdd} markets=KOSPI,KOSDAQ "
-                    f"errors={len(market_errors)} repaired={repaired}"
-                ),
-            }
+            repair_rows += self._repair_signal_price_ohlc(db, target_date)
+            coverage = self._latest_price_coverage(db, target_yyyymmdd)
+            if coverage["total"] and coverage["coverage_ratio"] >= 0.95:
+                return {
+                    "source": "krx_market+naver_ohlc_repair" if repair_rows else "krx_market",
+                    "rows_loaded": total_rows + repair_rows,
+                    "message": (
+                        f"date={target_yyyymmdd} markets=KOSPI,KOSDAQ "
+                        f"errors={len(market_errors)} repaired={repair_rows} "
+                        f"fresh={coverage['fresh']}/{coverage['total']} "
+                        f"coverage={coverage['coverage_ratio']:.2%}"
+                    ),
+                }
 
         realtime_rows = 0
         try:
@@ -687,25 +696,28 @@ class BriefingRuntime:
 
         if realtime_rows:
             must_finalize_close = self._post_close_price_repair_due(current)
-            repaired = self._repair_signal_price_ohlc(
+            repair_rows += self._repair_signal_price_ohlc(
                 db,
                 target_date,
                 force=must_finalize_close,
             )
-            if must_finalize_close and repaired:
+            if must_finalize_close and repair_rows:
                 self.last_post_close_price_repair_date = target_date
-            source = "naver_realtime_quotes"
-            if repaired:
-                source += "+naver_ohlc_repair"
-            return {
-                "source": source,
-                "rows_loaded": realtime_rows + repaired,
-                "message": (
-                    f"date={target_yyyymmdd} markets=KOSPI,KOSDAQ "
-                    f"krx_errors={len(market_errors)} realtime={realtime_rows} "
-                    f"repaired={repaired}"
-                ),
-            }
+            coverage = self._latest_price_coverage(db, target_yyyymmdd)
+            if coverage["total"] and coverage["coverage_ratio"] >= 0.95:
+                source = "krx_market+naver_realtime_quotes" if total_rows else "naver_realtime_quotes"
+                if repair_rows:
+                    source += "+naver_ohlc_repair"
+                return {
+                    "source": source,
+                    "rows_loaded": total_rows + realtime_rows + repair_rows,
+                    "message": (
+                        f"date={target_yyyymmdd} markets=KOSPI,KOSDAQ "
+                        f"krx_errors={len(market_errors)} realtime={realtime_rows} "
+                        f"repaired={repair_rows} fresh={coverage['fresh']}/{coverage['total']} "
+                        f"coverage={coverage['coverage_ratio']:.2%}"
+                    ),
+                }
 
         try:
             naver_rows = collect_naver_quotes(
@@ -717,34 +729,44 @@ class BriefingRuntime:
             )
             if naver_rows:
                 must_finalize_close = self._post_close_price_repair_due(current)
-                repaired = self._repair_signal_price_ohlc(
+                repair_rows += self._repair_signal_price_ohlc(
                     db,
                     target_date,
                     force=must_finalize_close,
                 )
-                if must_finalize_close and repaired:
+                if must_finalize_close and repair_rows:
                     self.last_post_close_price_repair_date = target_date
-                source = "naver_html_quotes"
-                if repaired:
-                    source += "+naver_ohlc_repair"
-                return {
-                    "source": source,
-                    "rows_loaded": naver_rows + repaired,
-                    "message": (
-                        f"date={target_yyyymmdd} markets=KOSPI,KOSDAQ "
-                        f"krx_errors={len(market_errors)} html={naver_rows} "
-                        f"repaired={repaired}"
-                    ),
-                }
+                coverage = self._latest_price_coverage(db, target_yyyymmdd)
+                if coverage["total"] and coverage["coverage_ratio"] >= 0.95:
+                    source = "naver_html_quotes"
+                    if total_rows or realtime_rows:
+                        source = f"krx_market+{source}" if total_rows else f"naver_realtime_quotes+{source}"
+                    if repair_rows:
+                        source += "+naver_ohlc_repair"
+                    return {
+                        "source": source,
+                        "rows_loaded": total_rows + realtime_rows + naver_rows + repair_rows,
+                        "message": (
+                            f"date={target_yyyymmdd} markets=KOSPI,KOSDAQ "
+                            f"krx_errors={len(market_errors)} html={naver_rows} "
+                            f"repaired={repair_rows} fresh={coverage['fresh']}/{coverage['total']} "
+                            f"coverage={coverage['coverage_ratio']:.2%}"
+                        ),
+                    }
         except Exception as exc:
             market_errors["naver_html_quotes"] = str(exc)
 
         codes = self._recent_price_codes(db)
         if not codes:
+            coverage = self._latest_price_coverage(db, target_yyyymmdd)
             return {
-                "source": "none",
-                "rows_loaded": 0,
-                "message": f"date={target_yyyymmdd} no_supported_codes errors={market_errors}",
+                "source": "degraded",
+                "rows_loaded": total_rows + realtime_rows + repair_rows,
+                "message": (
+                    f"date={target_yyyymmdd} no_supported_codes errors={len(market_errors)} "
+                    f"fresh={coverage['fresh']}/{coverage['total']} "
+                    f"coverage={coverage['coverage_ratio']:.2%}"
+                ),
             }
         rows = collect_prices_for_codes(
             db,
@@ -753,10 +775,16 @@ class BriefingRuntime:
             to_yyyymmdd=target_yyyymmdd,
             max_workers=self.settings.price_max_workers,
         )
+        coverage = self._latest_price_coverage(db, target_yyyymmdd)
+        ready = bool(coverage["total"] and coverage["coverage_ratio"] >= 0.95)
         return {
-            "source": "event_code_history",
-            "rows_loaded": rows,
-            "message": f"date={target_yyyymmdd} codes={len(codes)} krx_errors={len(market_errors)}",
+            "source": "event_code_history" if ready else "degraded",
+            "rows_loaded": total_rows + realtime_rows + rows + repair_rows,
+            "message": (
+                f"date={target_yyyymmdd} codes={len(codes)} krx_errors={len(market_errors)} "
+                f"fresh={coverage['fresh']}/{coverage['total']} "
+                f"coverage={coverage['coverage_ratio']:.2%}"
+            ),
         }
 
     def _repair_signal_price_ohlc(

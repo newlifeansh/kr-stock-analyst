@@ -1358,6 +1358,9 @@ class MarketRecommendationOut(BaseModel):
     pending_count: int = 0
     entered_today_count: int = 0
     selection_rule: str = "confirmed_entry_pending_or_entered_today"
+    selection_state: str = "ready"
+    selection_refreshing: bool = False
+    selection_message: str = ""
     methodology: list[str]
     items: list[RecommendationItemOut]
 

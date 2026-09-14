@@ -1778,8 +1778,14 @@ def test_us_public_ui_never_renders_private_scores_or_synthesized_trade_levels()
     assert "score: null" in dashboard_explanation
     assert "if (!isUsItem)" in dashboard_detail
     assert "detailSections.splice(3, 0, levels, snapshot)" in dashboard_detail
-    assert "if (!isUsItem)" in dashboard_card
-    assert "head.append(recommendationScoreDisplay(item.score))" in dashboard_card
+    assert "const score = recommendationScoreDisplay(item.score, item)" in dashboard_card
+    assert "head.append(rankLine, name, score, reason" in dashboard_card
+    score_display = dashboard[
+        dashboard.index("function recommendationScoreDisplay("):
+        dashboard.index("function componentTermLabel(")
+    ]
+    assert 'const numericScore = toNumber(value)' in score_display
+    assert 'numericScore === null ? formatNumber(publicReasonCount)' in score_display
 
     nasdaq = NASDAQ_JS.read_text(encoding="utf-8")
     nasdaq_decision = nasdaq[

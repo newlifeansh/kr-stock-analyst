@@ -45973,3 +45973,100 @@ body[data-staging-ia="tds-video"] #stock-view img[src*="/stock-logos/AMZN.png"] 
   object-position: 50% 50% !important;
   transform-origin: 50% 50% !important;
 }
+
+/* Recommendation public-evidence hierarchy v542. */
+.recommend-detail-public-evidence {
+  display: grid;
+  gap: 18px;
+}
+
+.recommend-detail-public-evidence-head {
+  display: grid;
+  gap: 7px;
+}
+
+.recommend-detail-public-evidence-eyebrow {
+  color: var(--accent, #6d5dfc);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.recommend-detail-public-evidence-head > :is(h2, p) {
+  margin: 0;
+}
+
+.recommend-detail-public-evidence-head > p {
+  color: var(--muted, #6b7280);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.recommend-detail-public-evidence-list {
+  display: grid;
+  border-block: 1px solid var(--line, #e5e7eb);
+}
+
+.recommend-detail-public-evidence-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 16px;
+  padding: 16px 0;
+}
+
+.recommend-detail-public-evidence-row + .recommend-detail-public-evidence-row {
+  border-top: 1px solid var(--line, #e5e7eb);
+}
+
+.recommend-detail-public-evidence-title {
+  display: contents;
+}
+
+.recommend-detail-public-evidence-title > span {
+  color: var(--muted, #6b7280);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.recommend-detail-public-evidence-title > strong {
+  justify-self: end;
+  color: var(--text, #111827);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.recommend-detail-public-evidence-row.positive .recommend-detail-public-evidence-title > strong {
+  color: var(--positive, #d9233f);
+}
+
+.recommend-detail-public-evidence-row.negative .recommend-detail-public-evidence-title > strong {
+  color: var(--negative, #1769d2);
+}
+
+.recommend-detail-public-evidence-row > p,
+.recommend-detail-public-evidence-row > time {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.recommend-detail-public-evidence-row > p {
+  color: var(--text, #111827);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.recommend-detail-public-evidence-row > time {
+  color: var(--muted, #6b7280);
+  font-size: 11px;
+}
+
+#recommend-view .recommend-score.is-public-evidence .recommend-score-value > span {
+  font-size: 12px !important;
+}
+
+@media (max-width: 480px) {
+  .recommend-detail-public-evidence-row {
+    gap: 6px 12px;
+  }
+}

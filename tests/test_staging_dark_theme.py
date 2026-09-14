@@ -641,7 +641,7 @@ def test_staging_tds_ia_asset_preserves_data_contracts_and_remaps_navigation():
     assert "실제 계좌·보유·주문 내역이 아닙니다." not in response.text
     assert 'aiSignalsView.querySelector(".ai-signals-commandbar")?.remove()' not in response.text
     assert 'source.classList.add("staging-proxied-commandbar")' in response.text
-    assert 'image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260914-domestic-data-integrity-v111`' in response.text
+    assert 'image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260915-recommendation-data-details-v112`' in response.text
     assert 'className = "staging-pinned-empty"' in response.text
     assert "현재 AI 전략 비중은" in response.text
     for role in (
@@ -932,7 +932,7 @@ def test_staging_v122_keeps_feed_root_header_and_bottom_navigation_visible():
     css = client.get("/assets/staging/toss-fidelity.css").text
     js = client.get("/assets/staging/toss-ia.js").text
 
-    assert STAGING_IA_VERSION == "20260914-domestic-data-integrity-v111"
+    assert STAGING_IA_VERSION == "20260915-recommendation-data-details-v112"
     rules = css.split(
         "/* v122 — Feed is a primary route: keep the global header and bottom navigation. */",
         1,
@@ -996,7 +996,7 @@ def test_staging_v128_falls_back_for_ios_standalone_chart_headers():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert "contextual-safe-area-v128" in shell
-    assert "20260914-domestic-data-integrity-v111" in shell
+    assert "20260915-recommendation-data-details-v112" in shell
     for contract in (
         'const isIosDevice = /iP(?:hone|ad|od)/.test(navigator.userAgent)',
         'navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1',
@@ -1407,7 +1407,7 @@ def test_staging_v49_renews_recommendation_cards_and_live_detail():
         'addConditionMetric("현재가"',
         'addConditionMetric("추가 매수", customerState.additionalBuyLabel)',
         'scoreLevelRow?.querySelector("b")',
-        'scoreLevel.textContent = "기준 통과"',
+            'scoreLevel.textContent = numericScore === null ? "공개 근거" : "기준 통과"',
         '? "· 미국장 종가 재확인"',
         ': `· ${customerState.guide}`',
         'scoreLevelRow?.classList.add("qualified")',
@@ -1417,7 +1417,7 @@ def test_staging_v49_renews_recommendation_cards_and_live_detail():
         "item?.ai_trade_signal?.current?.price,",
         "price: initialPrice === undefined ? null : Number(initialPrice)",
         "condition_price: item?.condition_price ?? item?.price",
-        "const conditionPrice = Number(item.condition_price ?? item.price)",
+            "const conditionPrice = typeof toNumber === \"function\" ? toNumber(item.condition_price ?? item.price) : null",
         '["초기 위험선과 1차 계단형 수익을 나눠 확인하는 단계 기준", "처음 정한 위험 기준과 첫 수익 확인 기준"]',
         "recommendationDetailFriendlyText(summary.next_check)",
         'journeyStage.textContent = customerState.label',
@@ -2121,7 +2121,7 @@ def test_staging_v69_rolls_the_header_through_major_market_indices():
     css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260914-domestic-data-integrity-v111"
+    assert STAGING_IA_VERSION == "20260915-recommendation-data-details-v112"
     for contract in (
         'data-staging-index-ticker aria-live="off"',
         'const STAGING_MARKET_CONTEXT_CODES = ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "DOW", "SOX"]',
@@ -2212,7 +2212,7 @@ def test_staging_v74_removes_exchange_metadata_and_aligns_ai_signal_rows():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260914-domestic-data-integrity-v111"
+    assert STAGING_IA_VERSION == "20260915-recommendation-data-details-v112"
     assert 'codeLine.className = "staging-ai-code"' not in js
     assert 'identity?.querySelector(".staging-ai-code")?.remove()' in js
 
@@ -2797,7 +2797,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20260914v541' in shell
+    assert 'dashboard-app-v170.js?v=20260915v542' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 
@@ -2841,13 +2841,21 @@ def test_staging_event_detail_uses_scan_first_scenarios_and_disclosures():
 
 def test_staging_us_recommendation_detail_uses_public_evidence_when_scores_are_redacted():
     client = TestClient(staging_app)
+    dashboard_source = client.get("/dashboard-app-v170.js").text
     staging_js = client.get("/assets/staging/toss-ia.js").text
 
-    assert "item?.ai_trade_signal?.public_reasons" in staging_js
-    assert "const usePublicReasonsForScores =" in staging_js
-    assert "addQuickMetric(label, summary)" in staging_js
-    assert "scoreTrack.hidden = true" in staging_js
-    assert 'scoreTrack.setAttribute("aria-hidden", "true")' in staging_js
+    for contract in (
+        "function recommendationPublicReasons(item = {})",
+        '["trend_20d", "trend_60d", "flow"]',
+        "function createRecommendationPublicEvidence(item = {})",
+        'el("article", `recommend-detail-public-evidence-row ${state.tone}`)',
+        'el("time", "", formatDataBasis(reason.as_of))',
+    ):
+        assert contract in dashboard_source
+    assert 'if (score !== null) {' in staging_js
+    assert 'addQuickMetric("추천 순위", `#${item.rank || "-"}`)' in staging_js
+    assert 'addQuickMetric("공개 판단 근거", `${formatNumber(publicReasonCount)}개`)' in staging_js
+    assert 'scoreTrack.setAttribute("aria-valuenow"' in staging_js
 
 
 def test_staging_stock_quote_uses_reference_hierarchy_and_orderability_status():
@@ -3049,8 +3057,10 @@ def test_staging_recommendation_help_is_compact_and_follows_score_threshold():
     score_end = dashboard_source.index("function componentTermLabel", score_start)
     score_source = dashboard_source[score_start:score_end]
 
-    assert 'valueRow.append(el("strong", "", formatNumber(value)), el("span", "", "/ 100"));' in score_source
-    assert 'levelRow.append(el("b", "", level.label), el("span", "", `· ${level.guide}`), help);' in score_source
+    assert 'numericScore === null ? formatNumber(publicReasonCount) : formatNumber(value)' in score_source
+    assert 'numericScore === null ? "개 근거" : "/ 100"' in score_source
+    assert 'numericScore === null ? "공개 근거" : level.label' in score_source
+    assert 'numericScore === null ? "· 상세에서 확인" : `· ${level.guide}`' in score_source
     assert score_source.index("const levelRow") < score_source.index("levelRow.append")
 
     card_start = dashboard_source.index("function createRecommendationCard")
@@ -3391,8 +3401,8 @@ def test_staging_v166_distinguishes_recommendation_states_and_reflows_mobile_car
     js = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
 
-    assert STAGING_IA_VERSION == "20260914-domestic-data-integrity-v111"
-    assert "recommendation-overview-v166" in shell
+    assert STAGING_IA_VERSION == "20260915-recommendation-data-details-v112"
+    assert "recommendation-overview-v166-recommendation-evidence-v167" in shell
     model_source = "const recommendationOverviewModel" + js.split(
         "const recommendationOverviewModel", 1,
     )[1].split("const decorateRecommendationOverview", 1)[0]
@@ -3401,6 +3411,7 @@ def test_staging_v166_distinguishes_recommendation_states_and_reflows_mobile_car
 const inputs = [
   {{sourceMessage: '추천 종목을 불러오는 중입니다.', cardCount: 0, marketLabel: '한국'}},
   {{sourceMessage: '추천 후보를 찾지 못했습니다.', cardCount: 0, marketLabel: '한국'}},
+  {{sourceMessage: '최신 가격·수급 자료가 아직 완성되지 않았습니다.', selectionState: 'unavailable', selectionMessage: '수집 완료 후 자동으로 다시 계산합니다.', cardCount: 0, marketLabel: '한국'}},
   {{sourceMessage: '추천 종목을 불러오지 못했습니다.', cardCount: 0, marketLabel: '미국'}},
   {{sourceMessage: '', cardCount: 8, marketLabel: '미국'}},
 ];
@@ -3408,12 +3419,14 @@ process.stdout.write(JSON.stringify(inputs.map(recommendationOverviewModel)));
 """
     result = subprocess.run(["node", "-e", script], cwd=ROOT, check=True, capture_output=True, text=True)
     states = json.loads(result.stdout)
-    assert [item["stateKey"] for item in states] == ["loading", "empty", "error", "ready"]
+    assert [item["stateKey"] for item in states] == ["loading", "empty", "unavailable", "error", "ready"]
     assert states[1]["heading"] == "지금은 새로 살 종목이 없어요"
     assert "한국 추천 조건을 모두 통과한 종목이 0개" in states[1]["detail"]
     assert states[1]["actionKind"] == "signals"
+    assert states[2]["heading"] == "한국 추천 자료를 갱신하고 있어요"
     assert states[2]["actionKind"] == "retry"
-    assert states[3]["heading"] == "추천 후보 8개"
+    assert states[3]["actionKind"] == "retry"
+    assert states[4]["heading"] == "추천 후보 8개"
 
     for contract in (
         'module.setAttribute("aria-busy", String(stateKey === "loading"))',
@@ -3431,6 +3444,7 @@ process.stdout.write(JSON.stringify(inputs.map(recommendationOverviewModel)));
     for contract in (
         "padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px)) !important",
         '.recommend-summary[data-state="empty"] > p',
+        '.recommend-summary[data-state="unavailable"] > p',
         "min-height: 44px !important",
         'grid-template-areas:\n    "rank"\n    "name"\n    "score"',
         'grid-template-areas:\n    "label value"\n    "status status"',
@@ -3481,7 +3495,7 @@ def test_staging_v132_uses_home_only_notification_action_and_compact_sheet_rows(
     js = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v132 — make notifications the home action") :]
-    assert STAGING_IA_VERSION == "20260914-domestic-data-integrity-v111"
+    assert STAGING_IA_VERSION == "20260915-recommendation-data-details-v112"
     assert "notification-sheet-v132" in shell
     assert 'bell: \'<path d="M27.5 16.5a9.5 9.5 0 0 0-19 0' in js
     for contract in (
@@ -3518,7 +3532,7 @@ def test_staging_v143_unifies_root_header_action_icon_geometry():
     js = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v143 — one optical outline system") :]
-    assert STAGING_IA_VERSION == "20260914-domestic-data-integrity-v111"
+    assert STAGING_IA_VERSION == "20260915-recommendation-data-details-v112"
     assert "header-action-icons-v143" in shell
     for contract in (
         "const topActionGlyphs = Object.freeze({",
@@ -3555,7 +3569,7 @@ def test_staging_v146_explains_two_detail_pages_without_exposing_model_provenanc
     js = staging_client.get("/assets/staging/toss-ia.js").text
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v146 — the model stays invisible") :]
-    assert STAGING_IA_VERSION == "20260914-domestic-data-integrity-v111"
+    assert STAGING_IA_VERSION == "20260915-recommendation-data-details-v112"
     assert "plain-language-detail-v146" in staging_shell
     assert "investor-action-copy-v147" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
@@ -3677,7 +3691,7 @@ def test_staging_v151_shows_live_quote_and_separates_pullback_from_breakout_conf
     logic = client.get("/assets/staging/ai-stock-response-logic.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v151 — live quote context") :]
-    assert STAGING_IA_VERSION == "20260914-domestic-data-integrity-v111"
+    assert STAGING_IA_VERSION == "20260915-recommendation-data-details-v112"
     assert "position-input-v150-live-quote-decision-plan-v151" in shell
     for contract in (
         "현재 주당 가격",
@@ -3747,7 +3761,7 @@ def test_staging_v152_requires_manual_reanalysis_and_adds_personal_strategy_pric
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v152 — manual quote reanalysis") :]
 
-    assert STAGING_IA_VERSION == "20260914-domestic-data-integrity-v111"
+    assert STAGING_IA_VERSION == "20260915-recommendation-data-details-v112"
     assert "live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154" in shell
     for contract in (
         'data-staging-response-analysis-refresh data-analysis-state="loading"',
@@ -3824,7 +3838,7 @@ def test_staging_v145_refines_three_daily_briefings_without_changing_news_or_sig
     js = staging_client.get("/assets/staging/toss-ia.js").text
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v145 — GPT refines the current morning") :]
-    assert STAGING_IA_VERSION == "20260914-domestic-data-integrity-v111"
+    assert STAGING_IA_VERSION == "20260915-recommendation-data-details-v112"
     assert "gpt-briefing-v145" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' not in production_shell
@@ -3956,7 +3970,7 @@ def test_staging_v156_keeps_public_signals_short_and_hides_numeric_scores():
     staging_source = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
 
-    assert STAGING_IA_VERSION == "20260914-domestic-data-integrity-v111"
+    assert STAGING_IA_VERSION == "20260915-recommendation-data-details-v112"
     assert "signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161" in shell
     outcome_source = dashboard_source[
         dashboard_source.index("function aiSignalOutcomeMetrics(")

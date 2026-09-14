@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import DailyPrice, StockMaster
+from app.services.market_calendar import latest_completed_korea_market_session_date
 from app.services.market_rankings import _base_item, _row_value
 from app.services.quant_signals import (
     ENTRY_SCORE,
@@ -252,23 +253,32 @@ def _recommendation_signal_snapshot_needs_refresh(
     # usable rather than treating an unknown age as a reason to block cards.
     generated_at = str(snapshot.get("snapshot_generated_at") or "").strip()
     if not generated_at:
-        return False
-    try:
-        generated = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
-    except ValueError:
+        generated_is_stale = False
+    else:
+        try:
+            generated = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+        except ValueError:
+            return True
+        if generated.tzinfo is None:
+            generated = generated.replace(tzinfo=timezone.utc)
+        current_utc = (
+            now.astimezone(timezone.utc)
+            if now.tzinfo is not None
+            else now.replace(tzinfo=timezone.utc)
+        )
+        age_seconds = (current_utc - generated.astimezone(timezone.utc)).total_seconds()
+        generated_is_stale = (
+            age_seconds > RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_AGE_SECONDS
+            or age_seconds < -RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_FUTURE_SKEW_SECONDS
+        )
+    if generated_is_stale:
         return True
-    if generated.tzinfo is None:
-        generated = generated.replace(tzinfo=timezone.utc)
-    current_utc = (
-        now.astimezone(timezone.utc)
-        if now.tzinfo is not None
-        else now.replace(tzinfo=timezone.utc)
-    )
-    age_seconds = (current_utc - generated.astimezone(timezone.utc)).total_seconds()
-    return (
-        age_seconds > RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_AGE_SECONDS
-        or age_seconds < -RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_FUTURE_SKEW_SECONDS
-    )
+
+    price_through = _date_value(snapshot.get("price_through"))
+    completed_session = latest_completed_korea_market_session_date(now)
+    if price_through is not None and completed_session is not None:
+        return price_through < completed_session
+    return False
 
 
 def _refresh_recommendation_signal_snapshot_if_stale(
@@ -322,13 +332,18 @@ def _refresh_recommendation_signal_snapshot_if_stale(
                 )
             payload = apply_market_signal_reconciliations(payload, now=now) or payload
             payload = enrich_market_quant_signal_sectors(db, payload)
-            return save_market_quant_signal_snapshot(
+            saved = save_market_quant_signal_snapshot(
                 db,
                 payload,
                 universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
                 limit=MARKET_SIGNAL_FEED_LIMIT,
                 recent_days=MARKET_SIGNAL_RECENT_DAYS,
                 generated_at=now,
+            )
+            return (
+                None
+                if _recommendation_signal_snapshot_needs_refresh(saved, now=now)
+                else saved
             )
         except Exception:
             db.rollback()
@@ -339,7 +354,7 @@ def _eligible_recommendation_snapshot_items(
     db: Session,
     *,
     today: date,
-) -> dict[str, tuple[str, dict[str, object]]]:
+) -> tuple[dict[str, tuple[str, dict[str, object]]], bool]:
     """Return close-confirmed pending entries and entries executed today.
 
     The persisted market snapshot is the point-in-time membership gate. A
@@ -354,9 +369,9 @@ def _eligible_recommendation_snapshot_items(
             now=_now_kst(),
         )
     except Exception:
-        return {}
+        return {}, False
     if not isinstance(snapshot, dict) or snapshot.get("status") != "ready":
-        return {}
+        return {}, False
 
     eligible: dict[str, tuple[str, dict[str, object]]] = {}
     for raw_item in snapshot.get("items") or []:
@@ -369,7 +384,7 @@ def _eligible_recommendation_snapshot_items(
         code = str(raw_item.get("code") or "").strip()
         if code:
             eligible[code] = (state, raw_item)
-    return eligible
+    return eligible, True
 
 
 def _clamp(value: Decimal, low: Decimal = Decimal("0"), high: Decimal = Decimal("100")) -> Decimal:
@@ -970,7 +985,7 @@ def build_recommendations(
     recommendation_date = recommendation_as_of.date()
     universe = _top_market_cap_universe(db, refresh_live=refresh_live)
     base_items = list(universe["base_items"])
-    eligible_snapshot_items = _eligible_recommendation_snapshot_items(
+    eligible_snapshot_items, selection_ready = _eligible_recommendation_snapshot_items(
         db,
         today=recommendation_date,
     )
@@ -1180,6 +1195,13 @@ def build_recommendations(
         "pending_count": pending_count,
         "entered_today_count": entered_today_count,
         "selection_rule": RECOMMENDATION_SELECTION_RULE,
+        "selection_state": "ready" if selection_ready else "unavailable",
+        "selection_refreshing": False,
+        "selection_message": (
+            "추천 기준을 통과한 종목을 신규 매수 대기와 보유 유지 상태로 나눠 보여드립니다."
+            if selection_ready
+            else "최신 국내 가격·수급 자료가 아직 완성되지 않아 추천 종목을 표시하지 않습니다. 수집 완료 후 자동으로 다시 계산합니다."
+        ),
         "methodology": METHODOLOGY,
         "items": selected,
     }

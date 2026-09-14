@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260914v541"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260915v542"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -1320,7 +1320,7 @@ def test_recommendation_score_explains_scale_and_interpretation():
 
     for expected in (
         'el("span", "", "/ 100")',
-        'help.setAttribute("aria-label", "추천 점수 설명")',
+        'help.setAttribute("aria-label", numericScore === null ? "공개 판단 근거 설명" : "추천 점수 설명")',
         '"70점 이상은 우수, 55~69점은 관찰, 55점 미만은 신중 구간입니다."',
         '"매수 확정이나 수익률 보장을 뜻하지 않습니다."',
         'return { label: "우수", guide: "70점 이상", className: "high" };',

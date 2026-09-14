@@ -24705,17 +24705,31 @@ function recommendationScoreLevel(value) {
   return { label: "신중", guide: "55점 미만", className: "cautious" };
 }
 
-function recommendationScoreDisplay(value) {
+function recommendationScoreDisplay(value, item = {}) {
+  const numericScore = toNumber(value);
   const level = recommendationScoreLevel(value);
-  const wrapper = el("div", "recommend-score");
+  const publicReasonCount = recommendationPublicReasons(item).length;
+  const wrapper = el("div", `recommend-score${numericScore === null ? " is-public-evidence" : ""}`);
   const valueRow = el("div", "recommend-score-value");
   const help = el("button", "term-help recommend-score-help", "?");
   help.type = "button";
-  help.setAttribute("aria-label", "추천 점수 설명");
-  help.setAttribute("data-tooltip", RECOMMEND_SCORE_HELP);
-  valueRow.append(el("strong", "", formatNumber(value)), el("span", "", "/ 100"));
-  const levelRow = el("div", `recommend-score-level ${level.className}`);
-  levelRow.append(el("b", "", level.label), el("span", "", `· ${level.guide}`), help);
+  help.setAttribute("aria-label", numericScore === null ? "공개 판단 근거 설명" : "추천 점수 설명");
+  help.setAttribute(
+    "data-tooltip",
+    numericScore === null
+      ? "내부 계산 점수 대신 20일·60일 가격 흐름과 거래 참여 흐름을 보여드려요."
+      : RECOMMEND_SCORE_HELP,
+  );
+  valueRow.append(
+    el("strong", "", numericScore === null ? formatNumber(publicReasonCount) : formatNumber(value)),
+    el("span", "", numericScore === null ? "개 근거" : "/ 100"),
+  );
+  const levelRow = el("div", `recommend-score-level ${numericScore === null ? "public" : level.className}`);
+  levelRow.append(
+    el("b", "", numericScore === null ? "공개 근거" : level.label),
+    el("span", "", numericScore === null ? "· 상세에서 확인" : `· ${level.guide}`),
+    help,
+  );
   wrapper.append(valueRow, levelRow);
   return wrapper;
 }
@@ -26517,6 +26531,44 @@ function buildRecommendationAIExplanation(item) {
   };
 }
 
+function recommendationPublicReasons(item = {}) {
+  const signal = item.ai_trade_signal && typeof item.ai_trade_signal === "object"
+    ? item.ai_trade_signal
+    : {};
+  if (
+    marketScopeForItem(item) === "us"
+    && !(
+      isCanonicalUsSnapshotReady(item)
+      && isCanonicalUsSnapshotReady(signal)
+      && canonicalUsSnapshotIdentityMatches(item, signal)
+    )
+  ) {
+    return [];
+  }
+  const source = Array.isArray(signal.public_reasons)
+    ? signal.public_reasons
+    : Array.isArray(item.public_reasons)
+      ? item.public_reasons
+      : [];
+  return source
+    .filter((reason) => reason && ["trend_20d", "trend_60d", "flow"].includes(String(reason.key || "")))
+    .slice(0, 3);
+}
+
+function recommendationPublicReasonState(reason = {}) {
+  const state = String(reason.state || "neutral").toLowerCase();
+  if (reason.available === false || state === "unavailable") {
+    return { label: "자료 부족", tone: "unavailable" };
+  }
+  if (state === "positive") {
+    return { label: "우호", tone: "positive" };
+  }
+  if (state === "negative") {
+    return { label: "주의", tone: "negative" };
+  }
+  return { label: "중립", tone: "neutral" };
+}
+
 function recommendationReasonFacts(item = {}) {
   if (marketScopeForItem(item) === "us") {
     const signal = item.ai_trade_signal && typeof item.ai_trade_signal === "object"
@@ -27061,6 +27113,37 @@ function recommendationDetailMetric(label, value, rawValue = null) {
   return row;
 }
 
+function createRecommendationPublicEvidence(item = {}) {
+  const reasons = recommendationPublicReasons(item);
+  if (!reasons.length) {
+    return null;
+  }
+  const section = el("section", "recommend-detail-section recommend-detail-public-evidence");
+  const head = el("div", "recommend-detail-public-evidence-head");
+  head.append(
+    el("span", "recommend-detail-public-evidence-eyebrow", "공개 판단 근거"),
+    el("h2", "", "지금 확인한 세 가지 흐름"),
+    el("p", "", "내부 계산 점수 대신 가격과 거래 참여 흐름을 같은 기준으로 보여드려요."),
+  );
+  const list = el("div", "recommend-detail-public-evidence-list");
+  for (const reason of reasons) {
+    const state = recommendationPublicReasonState(reason);
+    const row = el("article", `recommend-detail-public-evidence-row ${state.tone}`);
+    const title = el("div", "recommend-detail-public-evidence-title");
+    title.append(
+      el("span", "", reason.label || reason.key || "근거"),
+      el("strong", "", state.label),
+    );
+    row.append(title, el("p", "", reason.summary || "자료를 확인하고 있습니다."));
+    if (reason.as_of) {
+      row.append(el("time", "", formatDataBasis(reason.as_of)));
+    }
+    list.appendChild(row);
+  }
+  section.append(head, list);
+  return section;
+}
+
 function renderRecommendationDetail(
   item,
   aiAnalysis = null,
@@ -27074,11 +27157,12 @@ function renderRecommendationDetail(
   const itemScope = marketScopeForItem(item);
   const isUsItem = itemScope === "us";
   const explanation = buildRecommendationAIExplanation(item);
+  const numericScore = toNumber(item.score);
   if (isUsItem && signalState !== "ready") {
     explanation.decision = "관망";
     explanation.summary = "준비 완료된 동일 스냅샷을 확인할 때까지 신규 진입을 판단하지 않습니다.";
   }
-  const level = isUsItem ? null : recommendationScoreLevel(item.score);
+  const level = numericScore === null ? null : recommendationScoreLevel(numericScore);
   const generationMode = aiAnalysis?.generation_mode || "";
   const providerText = loading
     ? "Ollama AI 분석 중"
@@ -27111,9 +27195,9 @@ function renderRecommendationDetail(
   const rankLabel = Number(item.rank) === 1 ? "현재 1위 근거" : `추천 #${item.rank || "-"} 근거`;
   titleWrap.append(el("span", "recommend-detail-eyebrow", rankLabel), el("h1", "", "추천한 핵심 이유"));
   heroHead.append(titleWrap);
-  if (!isUsItem) {
+  if (numericScore !== null) {
     const scoreWrap = el("div", `recommend-detail-score ${level.className}`);
-    scoreWrap.append(el("strong", "", formatNumber(item.score)), el("span", "", "/ 100"), el("em", "", level.label));
+    scoreWrap.append(el("strong", "", formatNumber(numericScore)), el("span", "", "/ 100"), el("em", "", level.label));
     heroHead.append(scoreWrap);
   }
   hero.append(
@@ -27172,24 +27256,24 @@ function renderRecommendationDetail(
   );
   snapshot.appendChild(snapshotGrid);
 
-  const evidence = el("section", "recommend-detail-section");
-  evidence.appendChild(el("h2", "", "세부 근거"));
-  const columns = el("div", "recommend-detail-evidence");
-  const evidenceGroups = isUsItem
-    ? [["공개 판단 근거", recommendationReasonFacts(item), "완료된 공개 근거를 확인 중입니다."]]
-    : [
+  const publicEvidence = isUsItem ? createRecommendationPublicEvidence(item) : null;
+  const evidence = isUsItem ? publicEvidence : el("section", "recommend-detail-section");
+  if (!isUsItem) {
+    evidence.appendChild(el("h2", "", "세부 근거"));
+    const columns = el("div", "recommend-detail-evidence");
+    for (const [title, values, fallback] of [
       ["긍정 근거", item.reasons, "확인된 긍정 근거가 부족합니다."],
       ["주의할 점", item.risks, "두드러진 위험 신호는 없습니다."],
-    ];
-  for (const [title, values, fallback] of evidenceGroups) {
-    const column = el("section");
-    column.appendChild(el("h3", "", title));
-    const list = document.createElement("ul");
-    appendListItems(list, (values || []).slice(0, 5), fallback);
-    column.appendChild(list);
-    columns.appendChild(column);
+    ]) {
+      const column = el("section");
+      column.appendChild(el("h3", "", title));
+      const list = document.createElement("ul");
+      appendListItems(list, (values || []).slice(0, 5), fallback);
+      column.appendChild(list);
+      columns.appendChild(column);
+    }
+    evidence.appendChild(columns);
   }
-  evidence.appendChild(columns);
 
   const source = el("p", "recommend-detail-source", isUsItem
     ? aiAnalysis?.generation_note || "미국 공개 화면은 20일·60일 가격 흐름과 거래대금 참여도, 현재 단계만 표시합니다."
@@ -27205,7 +27289,7 @@ function renderRecommendationDetail(
       signalState,
     }),
     action,
-    evidence,
+    ...(evidence ? [evidence] : []),
     source,
   ];
   if (!isUsItem) {
@@ -27376,7 +27460,7 @@ function createRecommendationCard(item) {
   );
   if (isUsHubContext) name.append(createMarketBadge(item));
 
-  const isUsItem = marketScopeForItem(item) === "us";
+  const score = recommendationScoreDisplay(item.score, item);
   const reason = el("section", "recommend-card-reason");
   reason.append(
     el("span", "recommend-card-reason-label", Number(item.rank) === 1 ? "현재 1위 근거" : "추천 이유"),
@@ -27385,11 +27469,7 @@ function createRecommendationCard(item) {
 
   const actions = el("div", "recommend-card-actions");
   actions.append(watchButton, trackButton, explainButton);
-  head.append(rankLine, name);
-  if (!isUsItem) {
-    head.append(recommendationScoreDisplay(item.score));
-  }
-  head.append(reason, createRecommendationDecisionFlow(item), actions);
+  head.append(rankLine, name, score, reason, createRecommendationDecisionFlow(item), actions);
   card.append(head);
   return card;
 }
@@ -27421,9 +27501,15 @@ function renderRecommendations(payload, options = {}) {
   elements.recommendMeta.hidden = !recommendMetaText;
   setRecommendStatus("");
   elements.recommendList.innerHTML = "";
+  elements.recommendList.dataset.selectionState = payload.selection_state || "ready";
+  elements.recommendList.dataset.selectionMessage = payload.selection_message || "";
   const items = rankedItems.slice(0, RECOMMENDATION_LIMIT);
   if (items.length === 0) {
-    setRecommendStatus("추천 후보를 찾지 못했습니다.");
+    setRecommendStatus(
+      payload.selection_state && payload.selection_state !== "ready"
+        ? payload.selection_message || "최신 추천 자료를 다시 확인하고 있습니다."
+        : "추천 후보를 찾지 못했습니다.",
+    );
     return;
   }
   for (const item of items) {
@@ -29747,6 +29833,9 @@ async function fetchRecommendationsForScope(options = {}) {
   const items = canComposeUs
     ? rawItems
     : failClosedUsEntryPendingItems(rawItems);
+  const unavailablePayload = payloads.find(
+    (payload) => payload.selection_state && payload.selection_state !== "ready",
+  );
   return {
     status: includesUs ? (usPayload?.status || "unavailable") : (payloads[0]?.status || "ready"),
     data_state: includesUs ? (usPayload?.data_state || "unavailable") : (payloads[0]?.data_state || null),
@@ -29757,6 +29846,8 @@ async function fetchRecommendationsForScope(options = {}) {
     us_market_included: includesUs,
     as_of: payloads.map((payload) => payload.as_of).filter(Boolean).sort().at(-1) || null,
     entry_pending_count: entryPendingItemCount(items),
+    selection_state: items.length ? "ready" : unavailablePayload?.selection_state || "ready",
+    selection_message: items.length ? "" : unavailablePayload?.selection_message || "",
     items,
   };
 }
