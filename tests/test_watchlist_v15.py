@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260914v536"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260914v537"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -215,6 +215,9 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         '? `/us/stocks/${code}/intraday?range=1d&interval=1m`',
         ': `/stocks/${code}/intraday?limit=390`;',
         'elements.watchMarketMapTimelineTrack?.addEventListener("input", handleWatchMarketMapTimelineInput);',
+        'elements.watchMarketMapTimelineTrack.disabled = !timeline.hasHistory',
+        'usesPreviousSession: Boolean(latestSeriesDateKey && latestSeriesDateKey !== currentDateKey)',
+        '직전 정규장 ${isLatest ? "마감" : "선택 시세"} 기준',
         '"(prefers-reduced-motion: reduce)"',
         'elements.watchMarketMapStage?.querySelector(".watch-market-map-tile.is-overflow")',
         'watchMarketMapMarketScope: requestedMarketScopeValue === "us" ? "us" : "kr",',
@@ -493,15 +496,52 @@ const collisionDistance = Math.hypot(
   collisionNodes[0].y - collisionNodes[1].y,
 );
 state.watchMarketMapTimelineMinutes = null;
-const usPreopen = watchMarketMapTimelineRange([
-  {item: {code: "PRE", market_scope: "us"}, dashboard: {quote: {as_of: "2026-09-09T08:00:00-04:00", market_session: "premarket"}}},
-], "us", new Date("2026-09-09T08:00:00-04:00"));
-const usAfterhours = watchMarketMapTimelineRange([
-  {item: {code: "AFTER", market_scope: "us"}, dashboard: {quote: {as_of: "2026-09-09T17:00:00-04:00", market_session: "afterhours"}}},
-], "us", new Date("2026-09-09T17:00:00-04:00"));
-const usClosed = watchMarketMapTimelineRange([
-  {item: {code: "CLOSED", market_scope: "us"}, dashboard: {quote: {as_of: "2026-09-09T21:00:00-04:00", market_session: "closed"}}},
-], "us", new Date("2026-09-09T21:00:00-04:00"));
+const usPreopenEntry = result("TZ", "us", 1e12, 0, "2026-09-10T08:00:00-04:00");
+usPreopenEntry.dashboard.quote.market_session = "premarket";
+const usPreopen = watchMarketMapTimelineRange(
+  [usPreopenEntry],
+  "us",
+  new Date("2026-09-10T08:00:00-04:00"),
+);
+const usPreopenSnapshot = watchMarketMapEntrySnapshot(usPreopenEntry, usPreopen);
+state.watchMarketMapTimelineMinutes = 660;
+const usPreopenScrubbed = watchMarketMapTimelineRange(
+  [usPreopenEntry],
+  "us",
+  new Date("2026-09-10T08:00:00-04:00"),
+);
+const usAfterhoursEntry = result("TZ", "us", 1e12, 0, "2026-09-09T17:00:00-04:00");
+usAfterhoursEntry.dashboard.quote.market_session = "afterhours";
+state.watchMarketMapTimelineMinutes = null;
+const usAfterhours = watchMarketMapTimelineRange(
+  [usAfterhoursEntry],
+  "us",
+  new Date("2026-09-09T17:00:00-04:00"),
+);
+const usClosedEntry = result("TZ", "us", 1e12, 0, "2026-09-09T21:00:00-04:00");
+usClosedEntry.dashboard.quote.market_session = "closed";
+const usClosed = watchMarketMapTimelineRange(
+  [usClosedEntry],
+  "us",
+  new Date("2026-09-09T21:00:00-04:00"),
+);
+const usWeekendEntry = result("WEEKEND", "us", 1e12, 0, "2026-09-13T23:00:00-04:00");
+usWeekendEntry.dashboard.quote.market_session = "closed";
+state.watchMarketMapIntradayByKey.set(watchMarketMapEntryKey(usWeekendEntry), normalizeWatchMarketMapIntraday({
+  code: "WEEKEND",
+  trade_date: "2026-09-11",
+  market_timezone: "America/New_York",
+  reference_price: 100,
+  points: [
+    {trade_date: "2026-09-11", trade_time: "093000", price: 101},
+    {trade_date: "2026-09-11", trade_time: "160000", price: 104},
+  ],
+}, usWeekendEntry));
+const usWeekend = watchMarketMapTimelineRange(
+  [usWeekendEntry],
+  "us",
+  new Date("2026-09-13T23:00:00-04:00"),
+);
 console.log(JSON.stringify({
   krOrder: krEntries.map((entry) => entry.item.code),
   usOrder: usEntries.map((entry) => entry.item.code),
@@ -553,8 +593,14 @@ console.log(JSON.stringify({
       status: usPreopen.statusLabel,
       label: usPreopen.label,
       description: usPreopen.description,
+      dateKey: usPreopen.dateKey,
+      hasHistory: usPreopen.hasHistory,
       latest: usPreopen.latestMinutes,
       progress: usPreopen.progress,
+      latestPrice: usPreopenSnapshot.price,
+      latestSource: usPreopenSnapshot.source,
+      scrubbedMinute: usPreopenScrubbed.selectedMinutes,
+      scrubbedLabel: usPreopenScrubbed.label,
     },
     afterhours: {
       state: usAfterhours.sessionState,
@@ -567,6 +613,14 @@ console.log(JSON.stringify({
       state: usClosed.sessionState,
       status: usClosed.statusLabel,
       label: usClosed.label,
+    },
+    weekend: {
+      state: usWeekend.sessionState,
+      status: usWeekend.statusLabel,
+      label: usWeekend.label,
+      dateKey: usWeekend.dateKey,
+      hasHistory: usWeekend.hasHistory,
+      latest: usWeekend.latestMinutes,
     },
   },
 }));
@@ -627,10 +681,16 @@ console.log(JSON.stringify({
             "preopen": {
                 "state": "preopen",
                 "status": "장전",
-                "label": "정규장 시작 전",
-                "description": "정규장은 09:30에 시작해요. 버블은 최근 정규장 마감 기준이에요.",
-                "latest": 570,
-                "progress": 0,
+                "label": "9.9 뉴욕 16:00 직전 정규장 마감 기준",
+                "description": "정규장은 09:30에 시작해요. 타임바를 좌우로 옮기면 9.9 정규장 흐름을 볼 수 있어요.",
+                "dateKey": "2026-09-09",
+                "hasHistory": True,
+                "latest": 960,
+                "progress": 100,
+                "latestPrice": 103,
+                "latestSource": "intraday",
+                "scrubbedMinute": 660,
+                "scrubbedLabel": "9.9 뉴욕 11:00 직전 정규장 선택 시세 기준",
             },
             "afterhours": {
                 "state": "afterhours",
@@ -643,6 +703,14 @@ console.log(JSON.stringify({
                 "state": "closed",
                 "status": "장 마감",
                 "label": "16:00 정규장 마감 기준",
+            },
+            "weekend": {
+                "state": "closed",
+                "status": "장 마감",
+                "label": "9.11 16:00 정규장 마감 기준",
+                "dateKey": "2026-09-11",
+                "hasHistory": True,
+                "latest": 960,
             },
         },
     }

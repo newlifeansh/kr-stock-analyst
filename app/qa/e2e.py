@@ -8427,12 +8427,24 @@ def run_e2e_checks(
                 session_states = page.evaluate(
                     """() => {
                       const priorMinute = state.watchMarketMapTimelineMinutes;
-                      const snapshot = (asOf, marketSession) => {
+                      const priorSeries = state.watchMarketMapIntradayByKey.get('us:QA');
+                      const snapshot = (asOf, marketSession, tradeDate) => {
                         state.watchMarketMapTimelineMinutes = null;
-                        const timeline = watchMarketMapTimelineRange([{
+                        const entry = {
                           item: {code: 'QA', market_scope: 'us'},
                           dashboard: {quote: {as_of: asOf, market_session: marketSession}},
-                        }], 'us', new Date(asOf));
+                        };
+                        state.watchMarketMapIntradayByKey.set('us:QA', normalizeWatchMarketMapIntraday({
+                          code: 'QA',
+                          trade_date: tradeDate,
+                          market_timezone: 'America/New_York',
+                          reference_price: 100,
+                          points: [
+                            {trade_date: tradeDate, trade_time: '093000', price: 101},
+                            {trade_date: tradeDate, trade_time: '160000', price: 104},
+                          ],
+                        }, entry));
+                        const timeline = watchMarketMapTimelineRange([entry], 'us', new Date(asOf));
                         return {
                           state: timeline.sessionState,
                           status: timeline.statusLabel,
@@ -8442,29 +8454,38 @@ def run_e2e_checks(
                           latest: timeline.latestMinutes,
                           selected: timeline.selectedMinutes,
                           progress: timeline.progress,
+                          dateKey: timeline.dateKey,
+                          canScrub: timeline.hasHistory && timeline.latestMinutes > timeline.openMinutes,
                         };
                       };
                       const result = {
-                        preopen: snapshot('2026-09-09T08:00:00-04:00', 'premarket'),
-                        regular: snapshot('2026-09-09T12:45:00-04:00', 'regular'),
-                        afterhours: snapshot('2026-09-09T17:00:00-04:00', 'afterhours'),
-                        closed: snapshot('2026-09-09T21:00:00-04:00', 'closed'),
+                        preopen: snapshot('2026-09-09T08:00:00-04:00', 'premarket', '2026-09-08'),
+                        regular: snapshot('2026-09-09T12:45:00-04:00', 'regular', '2026-09-09'),
+                        afterhours: snapshot('2026-09-09T17:00:00-04:00', 'afterhours', '2026-09-09'),
+                        closed: snapshot('2026-09-13T21:00:00-04:00', 'closed', '2026-09-11'),
                       };
+                      if (priorSeries) state.watchMarketMapIntradayByKey.set('us:QA', priorSeries);
+                      else state.watchMarketMapIntradayByKey.delete('us:QA');
                       state.watchMarketMapTimelineMinutes = priorMinute;
                       return result;
                     }"""
                 )
                 if (
                     session_states["preopen"]["status"] != "장전"
-                    or session_states["preopen"]["label"] != "정규장 시작 전"
-                    or session_states["preopen"]["latest"] != 570
-                    or session_states["preopen"]["selected"] != 570
-                    or session_states["preopen"]["progress"] != 0
+                    or session_states["preopen"]["label"]
+                    != "9.8 뉴욕 16:00 직전 정규장 마감 기준"
+                    or session_states["preopen"]["latest"] != 960
+                    or session_states["preopen"]["selected"] != 960
+                    or session_states["preopen"]["progress"] != 100
+                    or session_states["preopen"]["dateKey"] != "2026-09-08"
+                    or not session_states["preopen"]["canScrub"]
                     or "09:30에 시작" not in session_states["preopen"]["description"]
                     or session_states["regular"]["status"] != "장중"
                     or session_states["afterhours"]["status"] != "시간외"
                     or session_states["afterhours"]["label"] != "16:00 정규장 마감 기준"
                     or session_states["closed"]["status"] != "장 마감"
+                    or session_states["closed"]["dateKey"] != "2026-09-11"
+                    or not session_states["closed"]["canScrub"]
                 ):
                     raise QaFailure(
                         "장전·장중·시간외·장 마감 상태 계약이 올바르지 않습니다.",
@@ -8801,6 +8822,40 @@ def run_e2e_checks(
                         "타임라인 End 키가 최신 시세로 복귀하지 않습니다.",
                         timeline_latest_snapshot,
                     )
+
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.wait_for_timeout(180)
+                slider_box = slider.bounding_box()
+                if not slider_box or slider_box["width"] < 44 or slider_box["height"] < 44:
+                    raise QaFailure(
+                        "타임바의 포인터 드래그 영역이 44px 조작 기준보다 작습니다.",
+                        {"slider_box": slider_box},
+                    )
+                drag_y = slider_box["y"] + slider_box["height"] / 2
+                page.mouse.move(slider_box["x"] + slider_box["width"] - 3, drag_y)
+                page.mouse.down()
+                page.mouse.move(
+                    slider_box["x"] + slider_box["width"] * 0.35,
+                    drag_y,
+                    steps=8,
+                )
+                page.mouse.up()
+                page.wait_for_function(
+                    """() => {
+                      const value = Number(document.querySelector('#watch-market-map-timeline-track')?.value);
+                      return value > 570 && value < 765;
+                    }""",
+                    timeout=2000,
+                )
+                pointer_drag_snapshot = timeline_bubble_snapshot()
+                slider.focus()
+                page.keyboard.press("End")
+                page.wait_for_function(
+                    "() => document.querySelector('#watch-market-map-timeline-track')?.value === '765'",
+                    timeout=2000,
+                )
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.wait_for_timeout(180)
 
                 def bubble_motion_snapshot() -> dict[str, Any]:
                     return page.evaluate(
@@ -9208,6 +9263,7 @@ def run_e2e_checks(
                         "at_09_00": nine_snapshot,
                         "before_open": before_open_snapshot,
                         "keyboard_end": timeline_latest_snapshot,
+                        "pointer_drag": pointer_drag_snapshot,
                     },
                     "color_intensity_steps": {
                         "positive": sorted(positive_colors),

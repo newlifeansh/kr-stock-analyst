@@ -20765,59 +20765,95 @@ function watchMarketMapTimelineRange(
   const series = entries
     .map((entry) => watchMarketMapIntradaySeries(entry))
     .filter(Boolean);
+  const session = WATCH_MARKET_MAP_SESSIONS[quoteSnapshot.marketScope];
+  const currentDate = now instanceof Date ? now : new Date(now);
+  const current = watchMarketMapTimeParts(currentDate, session.timeZone);
+  const currentDateKey = `${current.year}-${current.month}-${current.day}`;
+  const latestSeriesDateKey = series
+    .flatMap((item) => item.points
+      .filter((point) => (
+        point.dateKey
+        && point.minute >= quoteSnapshot.openMinutes
+        && point.minute <= quoteSnapshot.closeMinutes
+      ))
+      .map((point) => point.dateKey))
+    .sort()
+    .at(-1) || "";
+  const dataDateKey = latestSeriesDateKey || quoteSnapshot.dateKey;
+  const [dataYear, dataMonth, dataDay] = dataDateKey.split("-");
+  const timelineSnapshot = {
+    ...quoteSnapshot,
+    year: dataYear || quoteSnapshot.year,
+    month: dataMonth || quoteSnapshot.month,
+    day: dataDay || quoteSnapshot.day,
+    dateKey: dataDateKey,
+    isToday: dataDateKey === currentDateKey,
+    usesPreviousSession: Boolean(latestSeriesDateKey && latestSeriesDateKey !== currentDateKey),
+  };
   const pointsForDate = series.flatMap((item) => (
     item.points.filter((point) => (
-      point.dateKey === quoteSnapshot.dateKey
-      && point.minute >= quoteSnapshot.openMinutes
-      && point.minute <= quoteSnapshot.closeMinutes
+      point.dateKey === timelineSnapshot.dateKey
+      && point.minute >= timelineSnapshot.openMinutes
+      && point.minute <= timelineSnapshot.closeMinutes
     ))
   ));
   const pointCount = pointsForDate.length;
   const seriesLatestMinutes = series
     .flatMap((item) => item.points
-      .filter((point) => point.dateKey === quoteSnapshot.dateKey)
+      .filter((point) => point.dateKey === timelineSnapshot.dateKey)
       .map((point) => point.minute))
     .filter((value) => Number.isFinite(value));
-  const latestMinutes = quoteSnapshot.sessionState === "preopen"
-    ? quoteSnapshot.openMinutes
-    : quoteSnapshot.sessionState === "regular"
+  const latestHistoricalMinute = seriesLatestMinutes.length
+    ? Math.max(
+      timelineSnapshot.openMinutes,
+      Math.min(timelineSnapshot.closeMinutes, Math.max(...seriesLatestMinutes)),
+    )
+    : timelineSnapshot.openMinutes;
+  const latestMinutes = timelineSnapshot.sessionState === "regular"
       ? Math.max(
-        quoteSnapshot.openMinutes,
+        timelineSnapshot.openMinutes,
         Math.min(
-          quoteSnapshot.closeMinutes,
-          Math.max(quoteSnapshot.minutes, ...seriesLatestMinutes),
+          timelineSnapshot.closeMinutes,
+          Math.max(timelineSnapshot.minutes, ...seriesLatestMinutes),
         ),
       )
-      : quoteSnapshot.closeMinutes;
+      : pointCount
+        ? latestHistoricalMinute
+        : timelineSnapshot.openMinutes;
   const requestedMinutes = toNumber(state.watchMarketMapTimelineMinutes);
   const selectedMinutes = Math.round(Math.max(
-    quoteSnapshot.openMinutes,
+    timelineSnapshot.openMinutes,
     Math.min(latestMinutes, requestedMinutes === null ? latestMinutes : requestedMinutes),
   ));
   const hour = String(Math.floor(selectedMinutes / 60)).padStart(2, "0");
   const minute = String(selectedMinutes % 60).padStart(2, "0");
   const isLatest = selectedMinutes >= latestMinutes;
-  const dateLabel = quoteSnapshot.isToday
+  const dateLabel = timelineSnapshot.isToday
     ? "오늘"
-    : `${Number(quoteSnapshot.month)}.${Number(quoteSnapshot.day)}`;
-  const zoneLabel = quoteSnapshot.marketScope === "us" ? "뉴욕 " : "";
-  const label = quoteSnapshot.sessionState === "preopen"
-    ? "정규장 시작 전"
-    : quoteSnapshot.sessionState === "afterhours"
-      ? `${quoteSnapshot.closeLabel} 정규장 마감 기준`
-      : quoteSnapshot.sessionState === "closed"
-        ? `${quoteSnapshot.isToday ? "" : `${dateLabel} `}${quoteSnapshot.closeLabel} 정규장 마감 기준`
-        : `${dateLabel} ${zoneLabel}${hour}:${minute} ${isLatest ? "최신 시세" : "선택 시세"} 기준`;
-  const description = quoteSnapshot.sessionState === "preopen"
-    ? `정규장은 ${quoteSnapshot.openLabel}에 시작해요. 버블은 최근 정규장 마감 기준이에요.`
-    : quoteSnapshot.sessionState === "regular"
-      ? "장중이에요. 타임바를 옮기면 시각별 등락률을 볼 수 있어요."
-      : quoteSnapshot.sessionState === "afterhours"
-        ? "정규장은 마감됐고 현재 시간외 거래 중이에요. 버블은 정규장 종가 기준이에요."
-        : "현재 장이 마감됐어요. 타임바를 옮기면 최근 장중 등락률을 볼 수 있어요.";
+    : `${Number(timelineSnapshot.month)}.${Number(timelineSnapshot.day)}`;
+  const zoneLabel = timelineSnapshot.marketScope === "us" ? "뉴욕 " : "";
+  let label = `${dateLabel} ${zoneLabel}${hour}:${minute} ${isLatest ? "최신 시세" : "선택 시세"} 기준`;
+  if (timelineSnapshot.sessionState === "preopen") {
+    label = pointCount
+      ? `${dateLabel} ${zoneLabel}${hour}:${minute} 직전 정규장 ${isLatest ? "마감" : "선택 시세"} 기준`
+      : "정규장 시작 전";
+  } else if (timelineSnapshot.sessionState === "afterhours" && isLatest) {
+    label = `${timelineSnapshot.closeLabel} 정규장 마감 기준`;
+  } else if (timelineSnapshot.sessionState === "closed" && isLatest) {
+    label = `${timelineSnapshot.isToday ? "" : `${dateLabel} `}${timelineSnapshot.closeLabel} 정규장 마감 기준`;
+  }
+  const description = timelineSnapshot.sessionState === "preopen"
+    ? pointCount
+      ? `정규장은 ${timelineSnapshot.openLabel}에 시작해요. 타임바를 좌우로 옮기면 ${dateLabel} 정규장 흐름을 볼 수 있어요.`
+      : `정규장은 ${timelineSnapshot.openLabel}에 시작해요. 직전 정규장 시간별 시세를 불러오지 못했어요.`
+    : timelineSnapshot.sessionState === "regular"
+      ? "장중이에요. 타임바를 좌우로 옮기면 시각별 등락률을 볼 수 있어요."
+      : timelineSnapshot.sessionState === "afterhours"
+        ? "정규장은 마감됐고 현재 시간외 거래 중이에요. 타임바를 좌우로 옮기면 정규장 흐름을 볼 수 있어요."
+        : "현재 장이 마감됐어요. 타임바를 좌우로 옮기면 최근 장중 등락률을 볼 수 있어요.";
   state.watchMarketMapTimelineLatestMinutes = latestMinutes;
   return {
-    ...quoteSnapshot,
+    ...timelineSnapshot,
     label,
     description,
     latestMinutes,
@@ -20825,10 +20861,10 @@ function watchMarketMapTimelineRange(
     isLatest,
     hasHistory: pointCount > 0,
     pointCount,
-    progress: ((selectedMinutes - quoteSnapshot.openMinutes)
-      / (quoteSnapshot.closeMinutes - quoteSnapshot.openMinutes)) * 100,
-    latestProgress: ((latestMinutes - quoteSnapshot.openMinutes)
-      / (quoteSnapshot.closeMinutes - quoteSnapshot.openMinutes)) * 100,
+    progress: ((selectedMinutes - timelineSnapshot.openMinutes)
+      / (timelineSnapshot.closeMinutes - timelineSnapshot.openMinutes)) * 100,
+    latestProgress: ((latestMinutes - timelineSnapshot.openMinutes)
+      / (timelineSnapshot.closeMinutes - timelineSnapshot.openMinutes)) * 100,
   };
 }
 
@@ -20836,7 +20872,7 @@ function watchMarketMapEntrySnapshot(entry, timeline) {
   const latestMinutes = Number(timeline?.latestMinutes) || 0;
   const selectedMinutes = Math.max(0, Number(timeline?.selectedMinutes) || 0);
   const quote = entry.dashboard?.quote || {};
-  if (selectedMinutes >= latestMinutes) {
+  if (selectedMinutes >= latestMinutes && timeline?.sessionState === "regular") {
     return {
       changeRate: toNumber(quote.change_rate),
       price: toNumber(quote.price),
@@ -20855,6 +20891,15 @@ function watchMarketMapEntrySnapshot(entry, timeline) {
     )) || null;
   const referencePrice = toNumber(series?.referencePrice) ?? previousCloseFromQuote(quote);
   if (!point || referencePrice === null || referencePrice <= 0) {
+    if (selectedMinutes >= latestMinutes && toNumber(quote.price) !== null) {
+      return {
+        changeRate: toNumber(quote.change_rate),
+        price: toNumber(quote.price),
+        pointMinute: latestMinutes,
+        available: true,
+        source: "quote",
+      };
+    }
     return {
       changeRate: null,
       price: null,
@@ -20916,8 +20961,7 @@ function renderWatchMarketMapTimeline(entries = [], timeline = watchMarketMapTim
   elements.watchMarketMapTimelineTrack.min = String(timeline.openMinutes);
   elements.watchMarketMapTimelineTrack.max = String(Math.max(timeline.openMinutes, timeline.latestMinutes));
   elements.watchMarketMapTimelineTrack.value = String(timeline.selectedMinutes);
-  elements.watchMarketMapTimelineTrack.disabled = timeline.sessionState === "preopen"
-    || !timeline.hasHistory
+  elements.watchMarketMapTimelineTrack.disabled = !timeline.hasHistory
     || state.watchMarketMapTimelineLoading;
   elements.watchMarketMapTimelineTrack.setAttribute("aria-label", `${timeline.sessionLabel} ${timeline.statusLabel}, 수익률 기준 시각`);
   elements.watchMarketMapTimelineTrack.setAttribute("aria-valuetext", timeline.label);
