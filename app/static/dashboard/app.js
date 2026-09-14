@@ -414,7 +414,9 @@ const elements = {
   watchMarketMapLegend: $("watch-market-map-legend"),
   watchMarketMapTimeline: $("watch-market-map-timeline"),
   watchMarketMapTimelineSession: $("watch-market-map-timeline-session"),
+  watchMarketMapTimelineStatus: $("watch-market-map-timeline-status"),
   watchMarketMapTimelineTime: $("watch-market-map-timeline-time"),
+  watchMarketMapTimelineDescription: $("watch-market-map-timeline-description"),
   watchMarketMapTimelineTrack: $("watch-market-map-timeline-track"),
   watchMarketMapTimelineInputZone: $("watch-market-map-timeline-input-zone"),
   watchMarketMapTimelineFill: $("watch-market-map-timeline-fill"),
@@ -1225,7 +1227,7 @@ const state = {
   watchlistGroupSyncTimer: null,
   watchlistGroupSyncing: false,
   watchlistGroupSyncPending: false,
-  watchMarketMapMarketScope: isUsHubContext && requestedMarketScope !== "kr" ? "us" : "kr",
+  watchMarketMapMarketScope: requestedMarketScopeValue === "us" ? "us" : "kr",
   watchMarketMapHiddenEntries: [],
   watchMarketMapSheetTrigger: null,
   watchMarketMapResizeObserver: null,
@@ -20666,9 +20668,55 @@ function watchMarketMapTimeParts(value, timeZone = "Asia/Seoul") {
   return parts;
 }
 
+function watchMarketMapSessionState(
+  marketScope = state.watchMarketMapMarketScope,
+  now = new Date(),
+  marketSession = "",
+) {
+  const normalizedScope = WATCH_MARKET_MAP_SESSIONS[marketScope] ? marketScope : "kr";
+  const session = WATCH_MARKET_MAP_SESSIONS[normalizedScope];
+  const current = watchMarketMapTimeParts(now, session.timeZone);
+  const minutes = Math.max(0, Math.min(1439, Number(current.hour || 0) * 60 + Number(current.minute || 0)));
+  const calendarDay = new Date(Date.UTC(
+    Number(current.year || 0),
+    Math.max(0, Number(current.month || 1) - 1),
+    Number(current.day || 1),
+  )).getUTCDay();
+  let key = "closed";
+  if (![0, 6].includes(calendarDay)) {
+    if (minutes < session.openMinutes) {
+      key = "preopen";
+    } else if (minutes < session.closeMinutes) {
+      key = "regular";
+    } else if (normalizedScope === "us" && minutes < 20 * 60) {
+      key = "afterhours";
+    }
+  }
+  const normalizedMarketSession = String(marketSession || "").trim().toLowerCase();
+  if (normalizedMarketSession) {
+    if (normalizedMarketSession.includes("reference") || normalizedMarketSession === "closed") {
+      key = "closed";
+    } else if (normalizedMarketSession.includes("pre") || normalizedMarketSession.includes("opening_auction")) {
+      key = "preopen";
+    } else if (normalizedMarketSession.includes("after")) {
+      key = "afterhours";
+    } else if (normalizedMarketSession.includes("regular") || normalizedMarketSession === "open") {
+      key = "regular";
+    }
+  }
+  const presentation = {
+    preopen: { label: "장전", tone: "waiting" },
+    regular: { label: "장중", tone: "live" },
+    afterhours: { label: "시간외", tone: "afterhours" },
+    closed: { label: "장 마감", tone: "closed" },
+  }[key];
+  return { key, minutes, source: normalizedMarketSession ? "quote" : "clock", ...presentation };
+}
+
 function watchMarketMapTimelineSnapshot(
   entries = [],
   marketScope = state.watchMarketMapMarketScope,
+  now = new Date(),
 ) {
   const normalizedScope = WATCH_MARKET_MAP_SESSIONS[marketScope] ? marketScope : "kr";
   const session = WATCH_MARKET_MAP_SESSIONS[normalizedScope];
@@ -20677,42 +20725,43 @@ function watchMarketMapTimelineSnapshot(
     .map((value) => Date.parse(String(value || "")))
     .filter(Number.isFinite);
   const hasQuoteTime = timestamps.length > 0;
-  const snapshotDate = new Date(hasQuoteTime ? Math.max(...timestamps) : Date.now());
+  const currentDate = now instanceof Date ? now : new Date(now);
+  const snapshotDate = new Date(hasQuoteTime ? Math.max(...timestamps) : currentDate.getTime());
   const snapshot = watchMarketMapTimeParts(snapshotDate, session.timeZone);
-  const today = watchMarketMapTimeParts(new Date(), session.timeZone);
+  const today = watchMarketMapTimeParts(currentDate, session.timeZone);
   const isToday = snapshot.year === today.year
     && snapshot.month === today.month
     && snapshot.day === today.day;
   const dateKey = `${snapshot.year}-${snapshot.month}-${snapshot.day}`;
   const minutes = Math.max(0, Math.min(1439, Number(snapshot.hour || 0) * 60 + Number(snapshot.minute || 0)));
-  const timeLabel = `${snapshot.hour || "00"}:${snapshot.minute || "00"}`;
-  const zoneLabel = normalizedScope === "us" ? "뉴욕 " : "";
-  const label = isToday
-    ? `오늘 ${zoneLabel}${timeLabel} ${hasQuoteTime ? "시세 기준" : "현재"}`
-    : `${Number(snapshot.month)}.${Number(snapshot.day)} ${zoneLabel}${timeLabel} 최근 시세`;
+  const marketSession = isToday
+    ? entries.map((entry) => entry.dashboard?.quote?.market_session).find(Boolean) || ""
+    : "";
+  const sessionState = watchMarketMapSessionState(normalizedScope, currentDate, marketSession);
   return {
     ...snapshot,
     dateTime: snapshotDate.toISOString(),
     dateKey,
     isToday,
-    label,
     marketScope: normalizedScope,
     sessionLabel: session.sessionLabel,
+    sessionState: sessionState.key,
+    statusLabel: sessionState.label,
+    statusTone: sessionState.tone,
     openLabel: session.openLabel,
     closeLabel: session.closeLabel,
     openMinutes: session.openMinutes,
     closeMinutes: session.closeMinutes,
     minutes,
-    progress: ((Math.max(session.openMinutes, Math.min(session.closeMinutes, minutes)) - session.openMinutes)
-      / (session.closeMinutes - session.openMinutes)) * 100,
   };
 }
 
 function watchMarketMapTimelineRange(
   entries = [],
   marketScope = state.watchMarketMapMarketScope,
+  now = new Date(),
 ) {
-  const quoteSnapshot = watchMarketMapTimelineSnapshot(entries, marketScope);
+  const quoteSnapshot = watchMarketMapTimelineSnapshot(entries, marketScope, now);
   const series = entries
     .map((entry) => watchMarketMapIntradaySeries(entry))
     .filter(Boolean);
@@ -20729,13 +20778,17 @@ function watchMarketMapTimelineRange(
       .filter((point) => point.dateKey === quoteSnapshot.dateKey)
       .map((point) => point.minute))
     .filter((value) => Number.isFinite(value));
-  const latestMinutes = Math.max(
-    quoteSnapshot.openMinutes,
-    Math.min(
-      quoteSnapshot.closeMinutes,
-      Math.max(quoteSnapshot.minutes, ...seriesLatestMinutes),
-    ),
-  );
+  const latestMinutes = quoteSnapshot.sessionState === "preopen"
+    ? quoteSnapshot.openMinutes
+    : quoteSnapshot.sessionState === "regular"
+      ? Math.max(
+        quoteSnapshot.openMinutes,
+        Math.min(
+          quoteSnapshot.closeMinutes,
+          Math.max(quoteSnapshot.minutes, ...seriesLatestMinutes),
+        ),
+      )
+      : quoteSnapshot.closeMinutes;
   const requestedMinutes = toNumber(state.watchMarketMapTimelineMinutes);
   const selectedMinutes = Math.round(Math.max(
     quoteSnapshot.openMinutes,
@@ -20748,11 +20801,25 @@ function watchMarketMapTimelineRange(
     ? "오늘"
     : `${Number(quoteSnapshot.month)}.${Number(quoteSnapshot.day)}`;
   const zoneLabel = quoteSnapshot.marketScope === "us" ? "뉴욕 " : "";
-  const label = `${dateLabel} ${zoneLabel}${hour}:${minute} ${isLatest ? "최신 시세" : "선택 시세"} 기준`;
+  const label = quoteSnapshot.sessionState === "preopen"
+    ? "정규장 시작 전"
+    : quoteSnapshot.sessionState === "afterhours"
+      ? `${quoteSnapshot.closeLabel} 정규장 마감 기준`
+      : quoteSnapshot.sessionState === "closed"
+        ? `${quoteSnapshot.isToday ? "" : `${dateLabel} `}${quoteSnapshot.closeLabel} 정규장 마감 기준`
+        : `${dateLabel} ${zoneLabel}${hour}:${minute} ${isLatest ? "최신 시세" : "선택 시세"} 기준`;
+  const description = quoteSnapshot.sessionState === "preopen"
+    ? `정규장은 ${quoteSnapshot.openLabel}에 시작해요. 버블은 최근 정규장 마감 기준이에요.`
+    : quoteSnapshot.sessionState === "regular"
+      ? "장중이에요. 타임바를 옮기면 시각별 등락률을 볼 수 있어요."
+      : quoteSnapshot.sessionState === "afterhours"
+        ? "정규장은 마감됐고 현재 시간외 거래 중이에요. 버블은 정규장 종가 기준이에요."
+        : "현재 장이 마감됐어요. 타임바를 옮기면 최근 장중 등락률을 볼 수 있어요.";
   state.watchMarketMapTimelineLatestMinutes = latestMinutes;
   return {
     ...quoteSnapshot,
     label,
+    description,
     latestMinutes,
     selectedMinutes,
     isLatest,
@@ -20816,7 +20883,9 @@ function renderWatchMarketMapTimeline(entries = [], timeline = watchMarketMapTim
   if (
     !elements.watchMarketMapTimeline
     || !elements.watchMarketMapTimelineSession
+    || !elements.watchMarketMapTimelineStatus
     || !elements.watchMarketMapTimelineTime
+    || !elements.watchMarketMapTimelineDescription
     || !elements.watchMarketMapTimelineTrack
     || !elements.watchMarketMapTimelineInputZone
     || !elements.watchMarketMapTimelineFill
@@ -20833,18 +20902,24 @@ function renderWatchMarketMapTimeline(entries = [], timeline = watchMarketMapTim
   elements.watchMarketMapTimeline.toggleAttribute("aria-busy", state.watchMarketMapTimelineLoading);
   elements.watchMarketMapTimeline.dataset.selection = timeline.isLatest ? "latest" : "historical";
   elements.watchMarketMapTimeline.dataset.marketScope = timeline.marketScope;
+  elements.watchMarketMapTimeline.dataset.marketState = timeline.sessionState;
   elements.watchMarketMapTimelineSession.textContent = timeline.sessionLabel;
+  elements.watchMarketMapTimelineStatus.textContent = timeline.statusLabel;
+  elements.watchMarketMapTimelineStatus.dataset.tone = timeline.statusTone;
   elements.watchMarketMapTimelineTime.textContent = state.watchMarketMapTimelineLoading
     ? `${timeline.label} · 시간별 시세 불러오는 중`
     : timeline.label;
   elements.watchMarketMapTimelineTime.dateTime = timeline.dateTime;
+  elements.watchMarketMapTimelineDescription.textContent = timeline.description;
   elements.watchMarketMapTimelineOpen.textContent = timeline.openLabel;
   elements.watchMarketMapTimelineClose.textContent = timeline.closeLabel;
   elements.watchMarketMapTimelineTrack.min = String(timeline.openMinutes);
   elements.watchMarketMapTimelineTrack.max = String(Math.max(timeline.openMinutes, timeline.latestMinutes));
   elements.watchMarketMapTimelineTrack.value = String(timeline.selectedMinutes);
-  elements.watchMarketMapTimelineTrack.disabled = !timeline.hasHistory || state.watchMarketMapTimelineLoading;
-  elements.watchMarketMapTimelineTrack.setAttribute("aria-label", `${timeline.sessionLabel} 수익률 기준 시각`);
+  elements.watchMarketMapTimelineTrack.disabled = timeline.sessionState === "preopen"
+    || !timeline.hasHistory
+    || state.watchMarketMapTimelineLoading;
+  elements.watchMarketMapTimelineTrack.setAttribute("aria-label", `${timeline.sessionLabel} ${timeline.statusLabel}, 수익률 기준 시각`);
   elements.watchMarketMapTimelineTrack.setAttribute("aria-valuetext", timeline.label);
   elements.watchMarketMapTimelineInputZone.style.width = `${Math.max(1.5, Math.min(100, timeline.latestProgress))}%`;
   elements.watchMarketMapTimelineFill.style.width = `${Math.max(0, Math.min(100, timeline.progress))}%`;

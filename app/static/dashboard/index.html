@@ -31,7 +31,7 @@
     <script src="/assets/staging/stock-change-copy-logic.js?v=20260913-recommendation-overview-v109" defer></script>
     <script src="/assets/staging/toss-ia.js?v=20260913-recommendation-overview-v109" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260914v535&amp;build=20260914v535" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260914v536&amp;build=20260914v536" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="loading" role="dialog" aria-modal="true" aria-labelledby="login-loading-label" aria-busy="true">
@@ -1036,13 +1036,17 @@
           <div class="watch-market-map-legend" id="watch-market-map-legend" aria-label="오늘 등락 종목 수"></div>
           <div class="watch-market-map-timeline" id="watch-market-map-timeline" hidden>
             <div class="watch-market-map-timeline-head">
-              <span id="watch-market-map-timeline-session">국내 정규장 · 한국시간</span>
+              <div class="watch-market-map-timeline-session">
+                <span id="watch-market-map-timeline-session">국내 정규장 · 한국시간</span>
+                <strong id="watch-market-map-timeline-status" data-tone="waiting">장전</strong>
+              </div>
               <time id="watch-market-map-timeline-time">현재 시세 기준</time>
             </div>
+            <p class="watch-market-map-timeline-description" id="watch-market-map-timeline-description">정규장은 09:00에 시작해요. 버블은 최근 정규장 마감 기준이에요.</p>
             <div class="watch-market-map-timeline-control">
               <span class="watch-market-map-timeline-rail" aria-hidden="true"><span id="watch-market-map-timeline-fill"></span></span>
               <span class="watch-market-map-timeline-input-zone" id="watch-market-map-timeline-input-zone">
-                <input id="watch-market-map-timeline-track" type="range" min="540" max="930" step="1" value="930" aria-label="국내 정규장 수익률 기준 시각" aria-valuetext="국내 정규장 현재 시세 기준" />
+                <input id="watch-market-map-timeline-track" type="range" min="540" max="930" step="1" value="540" aria-label="국내 정규장 장전, 수익률 기준 시각" aria-describedby="watch-market-map-timeline-description" aria-valuetext="정규장 시작 전" />
               </span>
             </div>
             <div class="watch-market-map-timeline-labels" aria-hidden="true">
@@ -1667,6 +1671,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260914v535" defer></script>
+    <script src="/dashboard-app-v170.js?v=20260914v536" defer></script>
   </body>
 </html>

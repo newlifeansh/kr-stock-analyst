@@ -8352,7 +8352,7 @@ def run_e2e_checks(
                       state.watchMarketMapResults.length === expected
                       && state.watchMarketMapIntradayByKey.size === expected
                       && state.watchMarketMapTimelineLoading === false
-                      && state.watchMarketMapMarketScope === 'us'
+                      && state.watchMarketMapMarketScope === 'kr'
                       && document.querySelector('#watch-market-map:not([hidden])')
                       && !document.querySelector('#watch-market-map-stage')?.hasAttribute('aria-busy')
                     )""",
@@ -8360,21 +8360,29 @@ def run_e2e_checks(
                     timeout=int(timeout * 1000),
                 )
 
+                default_landing = page.evaluate(
+                    """() => ({
+                      marketScope: state.watchMarketMapMarketScope,
+                      selectedScope: [...document.querySelectorAll('[data-watch-market-scope]')]
+                        .find(button => button.getAttribute('aria-pressed') === 'true')?.dataset.watchMarketScope,
+                    })"""
+                )
+                if default_landing != {"marketScope": "kr", "selectedScope": "kr"}:
+                    raise QaFailure(
+                        "첫 홈 랜딩의 관심종목 기본 시장이 국내가 아닙니다.",
+                        default_landing,
+                    )
                 actual_orders = {
-                    "us": page.evaluate(
+                    "kr": page.evaluate(
                         "() => watchMarketMapEntries().map(entry => entry.item.code)"
                     )
                 }
-                page.locator('[data-watch-market-scope="kr"]').click()
-                page.wait_for_function(
-                    "() => state.watchMarketMapMarketScope === 'kr' && document.querySelector('#watch-market-map')?.dataset.marketScope === 'kr'"
-                )
-                actual_orders["kr"] = page.evaluate(
-                    "() => watchMarketMapEntries().map(entry => entry.item.code)"
-                )
                 page.locator('[data-watch-market-scope="us"]').click()
                 page.wait_for_function(
                     "() => state.watchMarketMapMarketScope === 'us' && document.querySelector('#watch-market-map')?.dataset.marketScope === 'us'"
+                )
+                actual_orders["us"] = page.evaluate(
+                    "() => watchMarketMapEntries().map(entry => entry.item.code)"
                 )
                 if actual_orders != expected_orders:
                     raise QaFailure(
@@ -8414,6 +8422,53 @@ def run_e2e_checks(
                     raise QaFailure(
                         "관심종목 버블이 증권 홈 TOP 50 직전에 유일하게 배치되지 않았습니다.",
                         placement,
+                    )
+
+                session_states = page.evaluate(
+                    """() => {
+                      const priorMinute = state.watchMarketMapTimelineMinutes;
+                      const snapshot = (asOf, marketSession) => {
+                        state.watchMarketMapTimelineMinutes = null;
+                        const timeline = watchMarketMapTimelineRange([{
+                          item: {code: 'QA', market_scope: 'us'},
+                          dashboard: {quote: {as_of: asOf, market_session: marketSession}},
+                        }], 'us', new Date(asOf));
+                        return {
+                          state: timeline.sessionState,
+                          status: timeline.statusLabel,
+                          tone: timeline.statusTone,
+                          label: timeline.label,
+                          description: timeline.description,
+                          latest: timeline.latestMinutes,
+                          selected: timeline.selectedMinutes,
+                          progress: timeline.progress,
+                        };
+                      };
+                      const result = {
+                        preopen: snapshot('2026-09-09T08:00:00-04:00', 'premarket'),
+                        regular: snapshot('2026-09-09T12:45:00-04:00', 'regular'),
+                        afterhours: snapshot('2026-09-09T17:00:00-04:00', 'afterhours'),
+                        closed: snapshot('2026-09-09T21:00:00-04:00', 'closed'),
+                      };
+                      state.watchMarketMapTimelineMinutes = priorMinute;
+                      return result;
+                    }"""
+                )
+                if (
+                    session_states["preopen"]["status"] != "장전"
+                    or session_states["preopen"]["label"] != "정규장 시작 전"
+                    or session_states["preopen"]["latest"] != 570
+                    or session_states["preopen"]["selected"] != 570
+                    or session_states["preopen"]["progress"] != 0
+                    or "09:30에 시작" not in session_states["preopen"]["description"]
+                    or session_states["regular"]["status"] != "장중"
+                    or session_states["afterhours"]["status"] != "시간외"
+                    or session_states["afterhours"]["label"] != "16:00 정규장 마감 기준"
+                    or session_states["closed"]["status"] != "장 마감"
+                ):
+                    raise QaFailure(
+                        "장전·장중·시간외·장 마감 상태 계약이 올바르지 않습니다.",
+                        session_states,
                     )
 
                 def layout_snapshot(width: int, height: int) -> dict[str, Any]:
@@ -8483,8 +8538,12 @@ def run_e2e_checks(
                             timeline: {
                               hidden: timeline?.hidden ?? true,
                               marketScope: timeline?.dataset.marketScope,
+                              marketState: timeline?.dataset.marketState,
                               session: document.querySelector('#watch-market-map-timeline-session')?.textContent.trim(),
+                              statusLabel: document.querySelector('#watch-market-map-timeline-status')?.textContent.trim(),
+                              statusTone: document.querySelector('#watch-market-map-timeline-status')?.dataset.tone,
                               label: document.querySelector('#watch-market-map-timeline-time')?.textContent.trim(),
+                              description: document.querySelector('#watch-market-map-timeline-description')?.textContent.trim(),
                               type: timelineTrack?.type,
                               disabled: timelineTrack?.disabled,
                               valueMin: Number(timelineTrack?.min),
@@ -8548,7 +8607,11 @@ def run_e2e_checks(
                         or timeline["type"] != "range"
                         or timeline["disabled"]
                         or timeline["marketScope"] != "us"
+                        or timeline["marketState"] != "regular"
                         or timeline["session"] != "미국 정규장 · 뉴욕시간"
+                        or timeline["statusLabel"] != "장중"
+                        or timeline["statusTone"] != "live"
+                        or "장중이에요" not in (timeline["description"] or "")
                         or timeline["valueMin"] != 570
                         or timeline["valueNow"] != 765
                         or timeline["valueMax"] != 765
@@ -9133,7 +9196,9 @@ def run_e2e_checks(
 
                 return {
                     **shell,
+                    "default_landing": default_landing,
                     "placement": placement,
+                    "session_states": session_states,
                     "market_scope_orders": actual_orders,
                     "folder_order": folder_order,
                     "layouts": layouts,

@@ -43096,16 +43096,65 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   gap: 12px;
 }
 
-#home-view .watch-market-map-timeline-head span {
+#home-view .watch-market-map-timeline-session {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+#home-view .watch-market-map-timeline-session > span {
+  min-width: 0;
   color: var(--watch-group-text);
   font-size: 13px !important;
   font-weight: 800 !important;
 }
 
+#home-view .watch-market-map-timeline-session > strong {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: light-dark(#53606f, #c4cad3);
+  background: light-dark(#edf0f4, #2d3139);
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  line-height: 1;
+}
+
+#home-view .watch-market-map-timeline-session > strong[data-tone="waiting"] {
+  color: light-dark(#8a5b00, #ffd180);
+  background: light-dark(#fff3d6, rgba(184, 119, 0, 0.24));
+}
+
+#home-view .watch-market-map-timeline-session > strong[data-tone="live"] {
+  color: light-dark(#126c42, #76dda8);
+  background: light-dark(#e2f7eb, rgba(28, 135, 82, 0.25));
+}
+
+#home-view .watch-market-map-timeline-session > strong[data-tone="afterhours"] {
+  color: light-dark(#375ca8, #9ebcff);
+  background: light-dark(#e8efff, rgba(62, 105, 192, 0.25));
+}
+
 #home-view .watch-market-map-timeline-head time {
+  min-width: 0;
   color: var(--watch-group-muted);
   font-size: 12px !important;
   font-weight: 700 !important;
+  text-align: right;
+  word-break: keep-all;
+}
+
+#home-view .watch-market-map-timeline-description {
+  margin: 0;
+  color: var(--watch-group-muted);
+  font-size: 11px !important;
+  font-weight: 650 !important;
+  line-height: 1.45;
+  word-break: keep-all;
 }
 
 #home-view .watch-market-map-timeline-control {
@@ -43134,6 +43183,20 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   border-radius: inherit;
   background: linear-gradient(90deg, #4f8df7, #2f6fe4);
   transition: width 120ms linear;
+}
+
+#home-view .watch-market-map-timeline[data-market-state="preopen"] #watch-market-map-timeline-fill {
+  background: light-dark(#aeb7c4, #59616d);
+}
+
+#home-view .watch-market-map-timeline[data-market-state="preopen"] #watch-market-map-timeline-track::-webkit-slider-thumb {
+  background: light-dark(#8995a5, #778190);
+  box-shadow: 0 2px 8px rgba(61, 72, 89, 0.24);
+}
+
+#home-view .watch-market-map-timeline[data-market-state="preopen"] #watch-market-map-timeline-track::-moz-range-thumb {
+  background: light-dark(#8995a5, #778190);
+  box-shadow: 0 2px 8px rgba(61, 72, 89, 0.24);
 }
 
 #home-view .watch-market-map-timeline-input-zone {
@@ -43198,8 +43261,8 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
 }
 
 #home-view #watch-market-map-timeline-track:disabled {
-  cursor: progress;
-  opacity: 0.55;
+  cursor: default;
+  opacity: 0.72;
 }
 
 #home-view .watch-market-map-timeline-labels {

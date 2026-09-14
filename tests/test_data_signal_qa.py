@@ -1018,7 +1018,10 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "def watch_market_map_case" in source
     assert 'case_id="SIG-UI-025"' in source
     assert "증권 홈 TOP 50 직전에 유일하게 배치" in source
+    assert "첫 홈 랜딩의 관심종목 기본 시장이 국내가 아닙니다." in source
     assert "선택 시장 안의 시가총액 순으로 분리" in source
+    assert "장전·장중·시간외·장 마감 상태 계약" in source
+    assert "정규장 시작 전" in source
     assert 'timeline["session"] != "미국 정규장 · 뉴욕시간"' in source
     assert 'timeline["openLabel"] != "09:30"' in source
     assert 'timeline["closeLabel"] != "16:00"' in source

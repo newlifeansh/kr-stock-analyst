@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260914v535"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260914v536"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -157,6 +157,8 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         'data-watch-market-scope="kr"',
         'data-watch-market-scope="us"',
         'id="watch-market-map-timeline-session"',
+        'id="watch-market-map-timeline-status"',
+        'id="watch-market-map-timeline-description"',
         'id="watch-market-map-timeline-input-zone"',
         'id="watch-market-map-timeline-track" type="range"',
         'id="watch-market-map-timeline-time"',
@@ -183,6 +185,7 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         "function watchMarketMapMotionSnapshot",
         "function animateWatchMarketMapLayout",
         "function bindWatchMarketMapDrag",
+        "function watchMarketMapSessionState",
         "function watchMarketMapTimelineSnapshot",
         "function watchMarketMapTimelineRange",
         "function watchMarketMapEntrySnapshot",
@@ -214,6 +217,7 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         'elements.watchMarketMapTimelineTrack?.addEventListener("input", handleWatchMarketMapTimelineInput);',
         '"(prefers-reduced-motion: reduce)"',
         'elements.watchMarketMapStage?.querySelector(".watch-market-map-tile.is-overflow")',
+        'watchMarketMapMarketScope: requestedMarketScopeValue === "us" ? "us" : "kr",',
     ):
         assert expected in source
 
@@ -246,6 +250,9 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         ".watch-market-map-tile[data-watch-motion]",
         ".watch-market-map-tile.is-dragging",
         ".watch-market-map-timeline-control {",
+        ".watch-market-map-timeline-session {",
+        ".watch-market-map-timeline-description {",
+        '[data-market-state="preopen"]',
         "#watch-market-map-timeline-track::-webkit-slider-thumb",
         "#watch-market-map-timeline-track:focus-visible",
         ".watch-market-map-sheet::backdrop",
@@ -314,7 +321,8 @@ eval(functionSource("watchMarketMapEntries", "packWatchMarketMapBubbles"));
 eval(functionSource("packWatchMarketMapBubbles", "computeWatchMarketMapLayout"));
 eval(functionSource("computeWatchMarketMapLayout", "watchMarketMapTimeParts"));
 eval(functionSource("watchMarketMapPhysicsConfig", "watchMarketMapMotionKey"));
-eval(functionSource("watchMarketMapTimeParts", "watchMarketMapTimelineSnapshot"));
+eval(functionSource("watchMarketMapTimeParts", "watchMarketMapSessionState"));
+eval(functionSource("watchMarketMapSessionState", "watchMarketMapTimelineSnapshot"));
 eval(functionSource("watchMarketMapTimelineSnapshot", "renderWatchMarketMapTimeline"));
 const result = (code, marketScope, marketCap, changeRate = 0, asOf = null) => ({
   item: { code, market_scope: marketScope },
@@ -444,27 +452,29 @@ const timezoneSeries = normalizeWatchMarketMapIntraday({
   ],
 }, timezoneEntry);
 state.watchMarketMapIntradayByKey.set(watchMarketMapEntryKey(timezoneEntry), timezoneSeries);
-const timelineAtTen = watchMarketMapTimelineRange(dynamicEntries);
+const krRegularNow = new Date("2026-09-09T12:15:00+09:00");
+const usRegularNow = new Date("2026-09-09T12:45:00-04:00");
+const timelineAtTen = watchMarketMapTimelineRange(dynamicEntries, "kr", krRegularNow);
 const entriesAtTen = watchMarketMapEntriesAtTimeline(dynamicEntries, timelineAtTen);
 const layoutAtTen = computeWatchMarketMapLayout(entriesAtTen, 620, 400);
 const radiiAtTen = Object.fromEntries(
   layoutAtTen.nodes.filter(node => node.kind === "stock").map(node => [node.entry.item.code, node.radius]),
 );
 state.watchMarketMapTimelineMinutes = 540;
-const timelineAtNine = watchMarketMapTimelineRange(dynamicEntries);
+const timelineAtNine = watchMarketMapTimelineRange(dynamicEntries, "kr", krRegularNow);
 const entriesAtNine = watchMarketMapEntriesAtTimeline(dynamicEntries, timelineAtNine);
 const layoutAtNine = computeWatchMarketMapLayout(entriesAtNine, 620, 400);
 const radiiAtNine = Object.fromEntries(
   layoutAtNine.nodes.filter(node => node.kind === "stock").map(node => [node.entry.item.code, node.radius]),
 );
 state.watchMarketMapTimelineMinutes = 615;
-const nearestPrior = watchMarketMapEntrySnapshot(dynamicEntries[0], watchMarketMapTimelineRange(dynamicEntries));
+const nearestPrior = watchMarketMapEntrySnapshot(dynamicEntries[0], watchMarketMapTimelineRange(dynamicEntries, "kr", krRegularNow));
 state.watchMarketMapTimelineMinutes = 480;
-const beforeOpenTimeline = watchMarketMapTimelineRange(dynamicEntries);
+const beforeOpenTimeline = watchMarketMapTimelineRange(dynamicEntries, "kr", krRegularNow);
 const beforeOpenClamped = beforeOpenTimeline.selectedMinutes === 540;
 state.watchMarketMapMarketScope = "us";
 state.watchMarketMapTimelineMinutes = null;
-const usTimeline = watchMarketMapTimelineRange([timezoneEntry]);
+const usTimeline = watchMarketMapTimelineRange([timezoneEntry], "us", usRegularNow);
 const usSnapshot = watchMarketMapEntrySnapshot(timezoneEntry, usTimeline);
 state.watchMarketMapMarketScope = "kr";
 const physicsConfig = watchMarketMapPhysicsConfig(320);
@@ -482,12 +492,16 @@ const collisionDistance = Math.hypot(
   collisionNodes[0].x - collisionNodes[1].x,
   collisionNodes[0].y - collisionNodes[1].y,
 );
-const domesticBeforeOpen = watchMarketMapTimelineSnapshot([
-  {dashboard: {quote: {as_of: "2026-09-09T05:30:00+09:00"}}},
-], "kr");
-const domesticAfterClose = watchMarketMapTimelineSnapshot([
-  {dashboard: {quote: {as_of: "2026-09-09T17:00:00+09:00"}}},
-], "kr");
+state.watchMarketMapTimelineMinutes = null;
+const usPreopen = watchMarketMapTimelineRange([
+  {item: {code: "PRE", market_scope: "us"}, dashboard: {quote: {as_of: "2026-09-09T08:00:00-04:00", market_session: "premarket"}}},
+], "us", new Date("2026-09-09T08:00:00-04:00"));
+const usAfterhours = watchMarketMapTimelineRange([
+  {item: {code: "AFTER", market_scope: "us"}, dashboard: {quote: {as_of: "2026-09-09T17:00:00-04:00", market_session: "afterhours"}}},
+], "us", new Date("2026-09-09T17:00:00-04:00"));
+const usClosed = watchMarketMapTimelineRange([
+  {item: {code: "CLOSED", market_scope: "us"}, dashboard: {quote: {as_of: "2026-09-09T21:00:00-04:00", market_session: "closed"}}},
+], "us", new Date("2026-09-09T21:00:00-04:00"));
 console.log(JSON.stringify({
   krOrder: krEntries.map((entry) => entry.item.code),
   usOrder: usEntries.map((entry) => entry.item.code),
@@ -534,8 +548,26 @@ console.log(JSON.stringify({
     collisionDistance,
   },
   sessionClamping: {
-    beforeOpenProgress: domesticBeforeOpen.progress,
-    afterCloseProgress: domesticAfterClose.progress,
+    preopen: {
+      state: usPreopen.sessionState,
+      status: usPreopen.statusLabel,
+      label: usPreopen.label,
+      description: usPreopen.description,
+      latest: usPreopen.latestMinutes,
+      progress: usPreopen.progress,
+    },
+    afterhours: {
+      state: usAfterhours.sessionState,
+      status: usAfterhours.statusLabel,
+      label: usAfterhours.label,
+      latest: usAfterhours.latestMinutes,
+      progress: usAfterhours.progress,
+    },
+    closed: {
+      state: usClosed.sessionState,
+      status: usClosed.statusLabel,
+      label: usClosed.label,
+    },
   },
 }));
 '''
@@ -591,7 +623,28 @@ console.log(JSON.stringify({
             "collisionCount": 1,
             "collisionDistance": 64,
         },
-        "sessionClamping": {"beforeOpenProgress": 0, "afterCloseProgress": 100},
+        "sessionClamping": {
+            "preopen": {
+                "state": "preopen",
+                "status": "장전",
+                "label": "정규장 시작 전",
+                "description": "정규장은 09:30에 시작해요. 버블은 최근 정규장 마감 기준이에요.",
+                "latest": 570,
+                "progress": 0,
+            },
+            "afterhours": {
+                "state": "afterhours",
+                "status": "시간외",
+                "label": "16:00 정규장 마감 기준",
+                "latest": 960,
+                "progress": 100,
+            },
+            "closed": {
+                "state": "closed",
+                "status": "장 마감",
+                "label": "16:00 정규장 마감 기준",
+            },
+        },
     }
 
 
