@@ -94,6 +94,8 @@ GUIDANCE_WORDS = ("전망", "가이던스", "목표", "계획", "IR", "기업설
 FOREIGN_TYPES = ("외국인", "외국인합계", "외국계")
 INSTITUTION_TYPES = ("기관합계", "기관", "금융투자", "투신", "연기금")
 NAVER_ITEM_URL = "https://finance.naver.com/item/main.naver"
+NAVER_MOBILE_INTEGRATION_URL = "https://m.stock.naver.com/api/stock/{code}/integration"
+NAVER_MOBILE_ANNUAL_FINANCE_URL = "https://m.stock.naver.com/api/stock/{code}/finance/annual"
 NAVER_COMPANY_INFO_URL = "https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx"
 NAVER_CACHE = TTLCache(maxsize=2048)
 PRICE_HISTORY_BACKFILL_CACHE = TTLCache(maxsize=2048)
@@ -184,6 +186,157 @@ def _safe_cell(row: list[Optional[Decimal]], index: int) -> Optional[Decimal]:
     if index < 0 or index >= len(row):
         return None
     return row[index]
+
+
+def _mobile_decimal(value: object) -> Optional[Decimal]:
+    if value is None:
+        return None
+    return _to_decimal(str(value))
+
+
+def _parse_naver_mobile_fundamental_payloads(
+    code: str,
+    integration_payload: object,
+    annual_payload: object,
+) -> dict[str, object]:
+    """Normalize Naver's maintained mobile JSON into the stored contract."""
+
+    snapshot: dict[str, object] = {}
+    if (
+        isinstance(integration_payload, dict)
+        and str(integration_payload.get("itemCode") or "").strip() == code
+    ):
+        info_by_code = {
+            str(item.get("code") or "").strip(): item.get("value")
+            for item in integration_payload.get("totalInfos") or []
+            if isinstance(item, dict) and item.get("code")
+        }
+        for source_key, target_key in (
+            ("per", "per"),
+            ("eps", "eps"),
+            ("cnsPer", "estimated_per"),
+            ("cnsEps", "estimated_eps"),
+            ("pbr", "pbr"),
+            ("bps", "bps"),
+            ("dividendYieldRatio", "dividend_yield"),
+        ):
+            value = _mobile_decimal(info_by_code.get(source_key))
+            if value is not None:
+                snapshot[target_key] = value
+
+    if (
+        not isinstance(annual_payload, dict)
+        or str(annual_payload.get("itemCode") or "").strip() != code
+    ):
+        return snapshot
+    finance_info = annual_payload.get("financeInfo")
+    if not isinstance(finance_info, dict):
+        return snapshot
+    titles = [
+        item
+        for item in finance_info.get("trTitleList") or []
+        if isinstance(item, dict) and str(item.get("key") or "").strip()
+    ]
+    row_values = {
+        str(item.get("title") or "").replace("(원)", "").replace("(배)", "").strip(): (
+            item.get("columns") if isinstance(item.get("columns"), dict) else {}
+        )
+        for item in finance_info.get("rowList") or []
+        if isinstance(item, dict)
+    }
+    if not titles:
+        return snapshot
+
+    def cell(row_name: str, index: int) -> Optional[Decimal]:
+        if index < 0 or index >= len(titles):
+            return None
+        key = str(titles[index].get("key") or "")
+        raw = row_values.get(row_name, {}).get(key)
+        value = raw.get("value") if isinstance(raw, dict) else raw
+        return _mobile_decimal(value)
+
+    def period_label(index: int) -> str:
+        label = str(titles[index].get("title") or titles[index].get("key") or "").strip()
+        return f"{label}(E)" if str(titles[index].get("isConsensus") or "").upper() == "Y" else label
+
+    def financial_point(index: int) -> dict[str, object]:
+        return {
+            "period": period_label(index),
+            "estimated": str(titles[index].get("isConsensus") or "").upper() == "Y",
+            "revenue": cell("매출액", index),
+            "operating_profit": cell("영업이익", index),
+            "net_income": cell("당기순이익", index),
+            "operating_margin": cell("영업이익률", index),
+            "net_margin": cell("순이익률", index),
+            "eps": cell("EPS", index),
+        }
+
+    snapshot["financial_series"] = {
+        "annual": [financial_point(index) for index in range(len(titles))],
+        "quarterly": [],
+        "unit": "억원",
+        "source": "네이버 금융 모바일 JSON",
+    }
+    actual_indices = [
+        index
+        for index, title in enumerate(titles)
+        if str(title.get("isConsensus") or "").upper() != "Y"
+    ]
+    estimate_indices = [
+        index
+        for index, title in enumerate(titles)
+        if str(title.get("isConsensus") or "").upper() == "Y"
+    ]
+    latest_actual = actual_indices[-1] if actual_indices else None
+    previous_actual = actual_indices[-2] if len(actual_indices) >= 2 else None
+    latest_estimate = estimate_indices[-1] if estimate_indices else None
+    if latest_actual is not None:
+        snapshot["latest_revenue"] = cell("매출액", latest_actual)
+        snapshot["latest_operating_profit"] = cell("영업이익", latest_actual)
+        snapshot["latest_eps"] = cell("EPS", latest_actual)
+        snapshot["financial_period"] = period_label(latest_actual)
+        snapshot["per_series"] = [
+            value
+            for index in actual_indices
+            if (value := cell("PER", index)) is not None
+        ]
+        snapshot["pbr_series"] = [
+            value
+            for index in actual_indices
+            if (value := cell("PBR", index)) is not None
+        ]
+        snapshot.setdefault("per", cell("PER", latest_actual))
+        snapshot.setdefault("pbr", cell("PBR", latest_actual))
+        snapshot.setdefault("bps", cell("BPS", latest_actual))
+    if latest_actual is not None and previous_actual is not None:
+        snapshot["revenue_growth"] = _rate(
+            cell("매출액", latest_actual), cell("매출액", previous_actual)
+        )
+        snapshot["operating_profit_growth"] = _rate(
+            cell("영업이익", latest_actual), cell("영업이익", previous_actual)
+        )
+    if latest_estimate is not None:
+        snapshot["estimated_revenue"] = cell("매출액", latest_estimate)
+        snapshot["estimated_operating_profit"] = cell("영업이익", latest_estimate)
+        snapshot.setdefault("estimated_eps", cell("EPS", latest_estimate))
+        snapshot.setdefault("estimated_per", cell("PER", latest_estimate))
+    return {key: value for key, value in snapshot.items() if value is not None}
+
+
+def _fetch_naver_mobile_fundamental_snapshot(code: str) -> dict[str, object]:
+    payloads: list[object] = []
+    for template in (NAVER_MOBILE_INTEGRATION_URL, NAVER_MOBILE_ANNUAL_FINANCE_URL):
+        try:
+            response = requests.get(
+                template.format(code=code),
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=10,
+            )
+            response.raise_for_status()
+            payloads.append(response.json())
+        except Exception:
+            payloads.append({})
+    return _parse_naver_mobile_fundamental_payloads(code, *payloads)
 
 
 def _fetch_naver_snapshot(code: str) -> dict[str, object]:
@@ -406,6 +559,15 @@ def _fetch_naver_snapshot(code: str) -> dict[str, object]:
         pass
 
     return snapshot
+
+
+def _fetch_naver_fundamental_snapshot(code: str) -> dict[str, object]:
+    """Fetch fundamentals from JSON first, retaining legacy HTML compatibility."""
+
+    mobile = _fetch_naver_mobile_fundamental_snapshot(code)
+    if fundamental_snapshot_payload(mobile):
+        return mobile
+    return _fetch_naver_snapshot(code)
 
 
 def _fetch_naver_company_snapshot(code: str, *, strict: bool = False) -> dict[str, object]:

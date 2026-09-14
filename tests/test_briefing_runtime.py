@@ -83,6 +83,69 @@ def test_short_cadence_lane_does_not_overlap_itself():
         runtime._freshness_lock.release()
 
 
+def test_main_collector_refreshes_signal_flow_before_full_fundamental_backfill(
+    monkeypatch,
+):
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=False,
+            disclosure_enabled=False,
+            news_enabled=False,
+            stock_universe_enabled=False,
+            price_enabled=True,
+            investor_flow_enabled=True,
+            financials_enabled=False,
+            fundamental_snapshot_enabled=True,
+            stock_news_snapshot_enabled=False,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=False,
+        )
+    )
+    calls = []
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        runtime,
+        "run_freshness_once",
+        lambda **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_collect_prices",
+        lambda _db: calls.append("price")
+        or {"source": "naver_realtime_quotes", "rows_loaded": 100, "message": "ready"},
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_collect_investor_flows",
+        lambda _db: calls.append("flow")
+        or {"source": "naver_investor_flow", "rows_loaded": 200, "message": "ready"},
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_stock_fundamental_snapshots",
+        lambda *_args, **_kwargs: calls.append("fundamental")
+        or {"rows_loaded": 100, "failed": 0, "message": "ready"},
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_home_briefing",
+        lambda *_args, **_kwargs: None,
+    )
+
+    runtime.run_once()
+
+    assert calls[:3] == ["price", "flow", "fundamental"]
+
+
 def test_short_cadence_research_uses_canonical_when_direct_source_is_empty(monkeypatch):
     runtime = briefing.BriefingRuntime(
         Settings(
@@ -462,7 +525,7 @@ def test_collect_prices_falls_back_to_naver_full_quotes(monkeypatch):
         now=datetime(2026, 8, 21, 12, 0),
     )
 
-    assert result["source"] == "naver_full_quotes"
+    assert result["source"] == "naver_html_quotes"
     assert result["rows_loaded"] == 2710
     assert calls[:2] == [("krx", "KOSPI"), ("krx", "KOSDAQ")]
     assert calls[2] == ("naver", "KOSPI,KOSDAQ", None, 5)
@@ -500,13 +563,13 @@ def test_collect_prices_force_finalizes_naver_fallback_after_close(monkeypatch):
         now=datetime(2026, 8, 21, 16, 40),
     )
 
-    assert result["source"] == "naver_quotes+naver_ohlc_repair"
+    assert result["source"] == "naver_html_quotes+naver_ohlc_repair"
     assert result["rows_loaded"] == 2809
     assert calls == [(date(2026, 8, 21), True)]
     assert runtime.last_post_close_price_repair_date == date(2026, 8, 21)
 
 
-def test_collect_prices_fills_market_caps_after_naver_fallback_in_every_collector_mode(monkeypatch):
+def test_collect_prices_prefers_batched_realtime_quotes_in_every_collector_mode(monkeypatch):
     runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
     monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
     monkeypatch.setattr(
@@ -519,7 +582,13 @@ def test_collect_prices_fills_market_caps_after_naver_fallback_in_every_collecto
         "collect_market_prices",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("KRX unavailable")),
     )
-    monkeypatch.setattr(briefing, "collect_naver_quotes", lambda *_args, **_kwargs: 2710)
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_quotes",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("legacy HTML must not run after a complete realtime batch")
+        ),
+    )
     calls = []
 
     def collect_caps(db, yyyymmdd, markets, limit, max_workers):
@@ -531,8 +600,8 @@ def test_collect_prices_fills_market_caps_after_naver_fallback_in_every_collecto
 
     result = runtime._collect_prices(object(), now=datetime(2026, 8, 21, 12, 0))
 
-    assert result["source"] == "naver_quotes+naver_realtime_market_caps"
-    assert result["rows_loaded"] == 5410
+    assert result["source"] == "naver_realtime_quotes"
+    assert result["rows_loaded"] == 2700
     assert calls == [("20260821", "KOSPI,KOSDAQ", None, 5)]
 
 
@@ -823,7 +892,7 @@ def test_collect_prices_uses_completed_session_before_market_open(monkeypatch):
         now=datetime(2026, 8, 21, 6, 30),
     )
 
-    assert result["source"] == "naver_full_quotes"
+    assert result["source"] == "naver_html_quotes"
     assert coverage_calls == ["20260820"]
     assert market_calls == [("20260820", "KOSPI"), ("20260820", "KOSDAQ")]
     assert naver_calls == ["20260820"]

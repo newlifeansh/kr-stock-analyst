@@ -94,7 +94,7 @@ def test_partial_quote_upsert_preserves_existing_daily_ohlc():
         assert (row.close, row.volume) == (1050, 100)
 
 
-def test_realtime_market_cap_parser_rejects_other_codes_and_missing_caps(monkeypatch):
+def test_realtime_batch_parser_keeps_complete_ohlc_and_rejects_bad_rows(monkeypatch):
     class Response:
         def raise_for_status(self):
             return None
@@ -104,6 +104,10 @@ def test_realtime_market_cap_parser_rejects_other_codes_and_missing_caps(monkeyp
                 "datas": [
                     {
                         "itemCode": "005930",
+                        "localTradedAt": "2026-09-10T15:30:00+09:00",
+                        "openPriceRaw": "265000",
+                        "highPriceRaw": "271000",
+                        "lowPriceRaw": "263500",
                         "closePriceRaw": "269000",
                         "accumulatedTradingVolumeRaw": "21,010,910",
                         "accumulatedTradingValueRaw": "5,629,002,551,500",
@@ -114,7 +118,15 @@ def test_realtime_market_cap_parser_rejects_other_codes_and_missing_caps(monkeyp
                         "closePriceRaw": "1000",
                         "marketValueFullRaw": "1000000",
                     },
-                    {"itemCode": "000660", "closePriceRaw": "1853000"},
+                    {
+                        "itemCode": "000660",
+                        "localTradedAt": "2026-09-11T15:30:00+09:00",
+                        "openPriceRaw": "1800000",
+                        "highPriceRaw": "1900000",
+                        "lowPriceRaw": "1790000",
+                        "closePriceRaw": "1853000",
+                        "marketValueFullRaw": "1000000",
+                    },
                 ]
             }
 
@@ -127,9 +139,9 @@ def test_realtime_market_cap_parser_rejects_other_codes_and_missing_caps(monkeyp
         {
             "code": "005930",
             "trade_date": target,
-            "open": None,
-            "high": None,
-            "low": None,
+            "open": 265000,
+            "high": 271000,
+            "low": 263500,
             "close": 269000,
             "volume": 21_010_910,
             "trading_value": 5_629_002_551_500,
@@ -137,6 +149,43 @@ def test_realtime_market_cap_parser_rejects_other_codes_and_missing_caps(monkeyp
             "listed_shares": None,
         }
     ]
+
+
+def test_realtime_batch_parser_does_not_promote_incoherent_ohlc(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "datas": [
+                    {
+                        "itemCode": "005930",
+                        "localTradedAt": "2026-09-10T15:30:00+09:00",
+                        "openPriceRaw": "265000",
+                        "highPriceRaw": "260000",
+                        "lowPriceRaw": "263500",
+                        "closePriceRaw": "269000",
+                        "accumulatedTradingVolumeRaw": "21010910",
+                        "accumulatedTradingValueRaw": "5629002551500",
+                        "marketValueFullRaw": "1572648945552000",
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(naver_quotes.requests, "get", lambda *args, **kwargs: Response())
+
+    rows = naver_quotes._realtime_market_cap_rows(
+        ["005930"], date(2026, 9, 10)
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["close"] == 269000
+    assert (rows[0]["open"], rows[0]["high"], rows[0]["low"]) == (
+        None,
+        None,
+        None,
+    )
 
 
 def test_collect_realtime_market_caps_preserves_complete_ohlc(monkeypatch):

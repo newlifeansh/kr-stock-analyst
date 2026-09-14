@@ -23,7 +23,7 @@ from app.models import (
     StockMaster,
     StockNewsSnapshot,
 )
-from app.services import briefing
+from app.services import briefing, stock_dashboard
 from app.services.briefing import BriefingRuntime
 from app.services.stock_data_coverage import stock_data_coverage
 
@@ -294,6 +294,145 @@ def test_etf_fundamental_snapshot_is_recorded_as_not_applicable(monkeypatch):
         "instrument_type": "exchange_traded_fund",
         "unavailable_reason": "ETF는 일반 상장기업용 재무·밸류에이션 표 적용 대상이 아닙니다.",
     }
+
+
+def test_naver_mobile_fundamental_json_normalizes_valuation_and_financial_series():
+    integration_payload = {
+        "itemCode": "005930",
+        "totalInfos": [
+            {"code": "per", "value": "11.15배"},
+            {"code": "eps", "value": "22,292원"},
+            {"code": "cnsPer", "value": "5.15배"},
+            {"code": "cnsEps", "value": "48,239원"},
+            {"code": "pbr", "value": "2.89배"},
+            {"code": "bps", "value": "86,052원"},
+            {"code": "dividendYieldRatio", "value": "0.67%"},
+        ],
+    }
+    annual_payload = {
+        "itemCode": "005930",
+        "financeInfo": {
+            "trTitleList": [
+                {"isConsensus": "N", "title": "2024.12.", "key": "202412"},
+                {"isConsensus": "N", "title": "2025.12.", "key": "202512"},
+                {"isConsensus": "Y", "title": "2026.12.", "key": "202612"},
+            ],
+            "rowList": [
+                {
+                    "title": "매출액",
+                    "columns": {
+                        "202412": {"value": "100"},
+                        "202512": {"value": "120"},
+                        "202612": {"value": "150"},
+                    },
+                },
+                {
+                    "title": "영업이익",
+                    "columns": {
+                        "202412": {"value": "10"},
+                        "202512": {"value": "20"},
+                        "202612": {"value": "30"},
+                    },
+                },
+                {
+                    "title": "당기순이익",
+                    "columns": {
+                        "202412": {"value": "8"},
+                        "202512": {"value": "16"},
+                        "202612": {"value": "24"},
+                    },
+                },
+                {
+                    "title": "영업이익률",
+                    "columns": {
+                        "202412": {"value": "10"},
+                        "202512": {"value": "16.67"},
+                        "202612": {"value": "20"},
+                    },
+                },
+                {
+                    "title": "순이익률",
+                    "columns": {
+                        "202412": {"value": "8"},
+                        "202512": {"value": "13.33"},
+                        "202612": {"value": "16"},
+                    },
+                },
+                {
+                    "title": "EPS",
+                    "columns": {
+                        "202412": {"value": "1000"},
+                        "202512": {"value": "2000"},
+                        "202612": {"value": "3000"},
+                    },
+                },
+                {
+                    "title": "PER",
+                    "columns": {
+                        "202412": {"value": "14"},
+                        "202512": {"value": "12"},
+                        "202612": {"value": "10"},
+                    },
+                },
+                {
+                    "title": "PBR",
+                    "columns": {
+                        "202412": {"value": "3.1"},
+                        "202512": {"value": "2.9"},
+                        "202612": {"value": "2.5"},
+                    },
+                },
+                {
+                    "title": "BPS",
+                    "columns": {
+                        "202412": {"value": "80000"},
+                        "202512": {"value": "86052"},
+                        "202612": {"value": "90000"},
+                    },
+                },
+            ],
+        },
+    }
+
+    payload = stock_dashboard._parse_naver_mobile_fundamental_payloads(
+        "005930", integration_payload, annual_payload
+    )
+
+    assert str(payload["per"]) == "11.15"
+    assert str(payload["eps"]) == "22292"
+    assert str(payload["estimated_per"]) == "5.15"
+    assert str(payload["estimated_eps"]) == "48239"
+    assert payload["financial_period"] == "2025.12."
+    assert str(payload["latest_revenue"]) == "120"
+    assert str(payload["revenue_growth"]) == "20.00"
+    assert str(payload["operating_profit_growth"]) == "100.00"
+    assert str(payload["estimated_revenue"]) == "150"
+    assert payload["financial_series"]["annual"][-1]["estimated"] is True
+
+
+def test_naver_fundamental_fetch_prefers_mobile_json_and_falls_back_to_html(monkeypatch):
+    legacy_calls = []
+    monkeypatch.setattr(
+        stock_dashboard,
+        "_fetch_naver_mobile_fundamental_snapshot",
+        lambda _code: {"per": "11.15"},
+    )
+    monkeypatch.setattr(
+        stock_dashboard,
+        "_fetch_naver_snapshot",
+        lambda code: legacy_calls.append(code) or {"per": "12.00"},
+    )
+
+    assert stock_dashboard._fetch_naver_fundamental_snapshot("005930") == {"per": "11.15"}
+    assert legacy_calls == []
+
+    monkeypatch.setattr(
+        stock_dashboard,
+        "_fetch_naver_mobile_fundamental_snapshot",
+        lambda _code: {},
+    )
+    assert stock_dashboard._fetch_naver_fundamental_snapshot("005930") == {"per": "12.00"}
+    assert legacy_calls == ["005930"]
 
 
 def test_fundamental_snapshot_uses_canonical_fallback_only_when_primary_is_empty(monkeypatch):

@@ -21,7 +21,7 @@ from app.repository import finish_ingestion, start_ingestion, upsert_many
 from app.services.stock_dashboard import (
     _fetch_naver_company_snapshot,
     _fetch_naver_item_news,
-    _fetch_naver_snapshot,
+    _fetch_naver_fundamental_snapshot as _fetch_naver_snapshot,
     _json_default,
     fundamental_snapshot_payload,
 )

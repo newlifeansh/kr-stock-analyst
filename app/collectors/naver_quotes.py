@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import date, datetime
 import re
 import time
 from typing import Any, Optional
@@ -170,13 +170,36 @@ def _realtime_market_cap_rows(
         market_cap = _to_int(raw.get("marketValueFullRaw"))
         if code not in allowed_codes or close is None or market_cap is None or market_cap <= 0:
             continue
+        observed_date: Optional[date] = None
+        observed_at = str(raw.get("localTradedAt") or "").strip()
+        if observed_at:
+            try:
+                observed_date = datetime.fromisoformat(
+                    observed_at.replace("Z", "+00:00")
+                ).date()
+            except ValueError:
+                continue
+            if observed_date != trade_date:
+                # Never relabel a previous close as today's completed candle,
+                # or today's in-progress quote as a previous session.
+                continue
+
+        open_price = _to_int(raw.get("openPriceRaw"))
+        high = _to_int(raw.get("highPriceRaw"))
+        low = _to_int(raw.get("lowPriceRaw"))
+        complete_ohlc = bool(
+            None not in (open_price, high, low)
+            and min(int(open_price), int(high), int(low), int(close)) > 0
+            and int(high) >= max(int(open_price), int(close))
+            and int(low) <= min(int(open_price), int(close))
+        )
         rows.append(
             {
                 "code": code,
                 "trade_date": trade_date,
-                "open": None,
-                "high": None,
-                "low": None,
+                "open": open_price if complete_ohlc else None,
+                "high": high if complete_ohlc else None,
+                "low": low if complete_ohlc else None,
                 "close": close,
                 "volume": _to_int(raw.get("accumulatedTradingVolumeRaw")),
                 "trading_value": _to_int(raw.get("accumulatedTradingValueRaw")),
@@ -196,7 +219,13 @@ def collect_naver_realtime_market_caps(
     request_batch_size: int = 50,
     write_batch_size: int = 500,
 ) -> int:
-    """Fill market caps without replacing a stored complete OHLC candle."""
+    """Fill validated batched quotes without damaging a stored complete candle.
+
+    Naver's realtime batch response includes regular-session OHLC as well as
+    market cap. Keeping the historical function name preserves the collector
+    contract while allowing a KRX/legacy-HTML outage to recover the full daily
+    universe in a bounded number of requests.
+    """
 
     trade_date = datetime.strptime(yyyymmdd, "%Y%m%d").date()
     codes = _codes_for_markets(db, markets, limit)

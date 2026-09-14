@@ -348,6 +348,19 @@ class BriefingRuntime:
                     self.last_price_at = datetime.utcnow()
                 except Exception as exc:
                     self.source_errors["prices"] = str(exc)
+            # Flow is signal-critical P0 data. Run it immediately after price
+            # establishes the completed-session market-cap universe instead of
+            # making it wait behind full-universe fundamental/news backfills.
+            if self.settings.investor_flow_enabled and self._investor_flow_due():
+                try:
+                    flow_result = self._collect_investor_flows(db)
+                    if flow_result["rows_loaded"]:
+                        refreshed_any = True
+                    self.last_investor_flow_source = str(flow_result["source"])
+                    self.last_investor_flow_message = str(flow_result["message"])
+                    self.last_investor_flow_at = datetime.utcnow()
+                except Exception as exc:
+                    self.source_errors["investor_flow"] = str(exc)
             if self.settings.financials_enabled and self._financials_due():
                 try:
                     financials_result = self._collect_financials(db)
@@ -458,16 +471,6 @@ class BriefingRuntime:
                     self.last_macro_at = datetime.utcnow()
                 except Exception as exc:
                     self.source_errors["macro"] = str(exc)
-            if self.settings.investor_flow_enabled and self._investor_flow_due():
-                try:
-                    flow_result = self._collect_investor_flows(db)
-                    if flow_result["rows_loaded"]:
-                        refreshed_any = True
-                    self.last_investor_flow_source = str(flow_result["source"])
-                    self.last_investor_flow_message = str(flow_result["message"])
-                    self.last_investor_flow_at = datetime.utcnow()
-                except Exception as exc:
-                    self.source_errors["investor_flow"] = str(exc)
             if refreshed_any or (
                 self.settings.briefing_realtime_enabled and self._briefing_snapshot_due()
             ):
@@ -667,6 +670,43 @@ class BriefingRuntime:
                 ),
             }
 
+        realtime_rows = 0
+        try:
+            # The batched endpoint currently carries regular-session OHLC,
+            # volume, trading value, and market cap. Prefer it over thousands
+            # of legacy HTML requests when KRX is unavailable.
+            realtime_rows = collect_naver_realtime_market_caps(
+                db,
+                target_yyyymmdd,
+                markets="KOSPI,KOSDAQ",
+                limit=None,
+                max_workers=self.settings.price_max_workers,
+            )
+        except Exception as exc:
+            market_errors["naver_realtime_quotes"] = str(exc)
+
+        if realtime_rows:
+            must_finalize_close = self._post_close_price_repair_due(current)
+            repaired = self._repair_signal_price_ohlc(
+                db,
+                target_date,
+                force=must_finalize_close,
+            )
+            if must_finalize_close and repaired:
+                self.last_post_close_price_repair_date = target_date
+            source = "naver_realtime_quotes"
+            if repaired:
+                source += "+naver_ohlc_repair"
+            return {
+                "source": source,
+                "rows_loaded": realtime_rows + repaired,
+                "message": (
+                    f"date={target_yyyymmdd} markets=KOSPI,KOSDAQ "
+                    f"krx_errors={len(market_errors)} realtime={realtime_rows} "
+                    f"repaired={repaired}"
+                ),
+            }
+
         try:
             naver_rows = collect_naver_quotes(
                 db,
@@ -676,21 +716,6 @@ class BriefingRuntime:
                 max_workers=self.settings.price_max_workers,
             )
             if naver_rows:
-                market_cap_rows = 0
-                try:
-                    # Naver's full quote fallback provides complete OHLC but
-                    # does not include market cap. Backfill it in every
-                    # collector mode so the completed-session Top100 universe
-                    # cannot collapse to zero when KRX is unavailable.
-                    market_cap_rows = collect_naver_realtime_market_caps(
-                        db,
-                        target_yyyymmdd,
-                        markets="KOSPI,KOSDAQ",
-                        limit=None,
-                        max_workers=self.settings.price_max_workers,
-                    )
-                except Exception as exc:
-                    market_errors["naver_realtime_market_caps"] = str(exc)
                 must_finalize_close = self._post_close_price_repair_due(current)
                 repaired = self._repair_signal_price_ohlc(
                     db,
@@ -699,22 +724,20 @@ class BriefingRuntime:
                 )
                 if must_finalize_close and repaired:
                     self.last_post_close_price_repair_date = target_date
-                source_parts = ["naver_quotes"]
-                if market_cap_rows:
-                    source_parts.append("naver_realtime_market_caps")
+                source = "naver_html_quotes"
                 if repaired:
-                    source_parts.append("naver_ohlc_repair")
+                    source += "+naver_ohlc_repair"
                 return {
-                    "source": "+".join(source_parts) if len(source_parts) > 1 else "naver_full_quotes",
-                    "rows_loaded": naver_rows + market_cap_rows + repaired,
+                    "source": source,
+                    "rows_loaded": naver_rows + repaired,
                     "message": (
                         f"date={target_yyyymmdd} markets=KOSPI,KOSDAQ "
-                        f"krx_errors={len(market_errors)} market_caps={market_cap_rows} "
+                        f"krx_errors={len(market_errors)} html={naver_rows} "
                         f"repaired={repaired}"
                     ),
                 }
         except Exception as exc:
-            market_errors["naver_full_quotes"] = str(exc)
+            market_errors["naver_html_quotes"] = str(exc)
 
         codes = self._recent_price_codes(db)
         if not codes:
