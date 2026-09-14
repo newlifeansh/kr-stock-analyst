@@ -1,9 +1,28 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
 from app.services import us_market
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_sec_request_identity_contains_configured_contact(monkeypatch):
+    headers = us_market._sec_request_headers()
+
+    assert "@" in headers["User-Agent"]
+    assert headers["Accept"] == "application/json"
+
+    class InvalidSettings:
+        sec_user_agent = "anonymous-client"
+
+    monkeypatch.setattr(us_market, "get_settings", lambda: InvalidSettings())
+
+    with pytest.raises(ValueError, match="contact email"):
+        us_market._sec_request_headers()
 
 
 class _FakeNewsResponse:
@@ -13,6 +32,210 @@ class _FakeNewsResponse:
 
     def raise_for_status(self):
         return None
+
+
+def test_chart_price_rows_use_adjusted_ohlc_but_raw_dollar_notional():
+    timestamp = 1788888600
+    result = {
+        "meta": {},
+        "timestamp": [timestamp],
+        "indicators": {
+            "quote": [{
+                "open": [100.0],
+                "high": [110.0],
+                "low": [90.0],
+                "close": [100.0],
+                "volume": [1_000],
+            }],
+            "adjclose": [{"adjclose": [50.0]}],
+        },
+    }
+
+    _meta, rows = us_market._chart_price_rows("TEST", result, limit=10)
+
+    assert rows[0].open == Decimal("50.0")
+    assert rows[0].high == Decimal("55.0")
+    assert rows[0].low == Decimal("45.0")
+    assert rows[0].close == Decimal("50.0")
+    assert rows[0].trading_value == Decimal("100000.0")
+    assert rows[0].adjusted_ohlc_complete is True
+
+
+def test_signal_chart_rows_fail_closed_without_adjusted_complete_ohlcv():
+    result = {
+        "meta": {},
+        "timestamp": [1788888600, 1788975000],
+        "indicators": {
+            "quote": [{
+                "open": [None, 100.0],
+                "high": [None, 110.0],
+                "low": [None, 90.0],
+                "close": [100.0, 100.0],
+                "volume": [1_000, 1_000],
+            }],
+            "adjclose": [{"adjclose": [None, 50.0]}],
+        },
+    }
+
+    _meta, strict_rows = us_market._chart_price_rows(
+        "TEST",
+        result,
+        limit=10,
+        require_adjusted_ohlc=True,
+    )
+    _meta, display_rows = us_market._chart_price_rows("TEST", result, limit=10)
+
+    assert len(strict_rows) == 1
+    assert strict_rows[0].adjusted_ohlc_complete is True
+    assert strict_rows[0].close == Decimal("50.0")
+    assert len(display_rows) == 2
+    assert display_rows[0].adjusted_ohlc_complete is False
+
+
+@pytest.mark.parametrize(
+    ("open_price", "high", "low", "close", "adjusted_close"),
+    [
+        (100.0, 99.0, 90.0, 100.0, 50.0),
+        (100.0, 110.0, 101.0, 100.0, 50.0),
+        (0.0, 110.0, 90.0, 100.0, 50.0),
+        (100.0, 110.0, 90.0, 100.0, 0.0),
+    ],
+)
+def test_signal_chart_rows_reject_invalid_adjusted_ohlc_geometry(
+    open_price,
+    high,
+    low,
+    close,
+    adjusted_close,
+):
+    result = {
+        "meta": {},
+        "timestamp": [1788888600],
+        "indicators": {
+            "quote": [{
+                "open": [open_price],
+                "high": [high],
+                "low": [low],
+                "close": [close],
+                "volume": [1_000],
+            }],
+            "adjclose": [{"adjclose": [adjusted_close]}],
+        },
+    }
+
+    _meta, rows = us_market._chart_price_rows(
+        "TEST",
+        result,
+        limit=10,
+        require_adjusted_ohlc=True,
+    )
+
+    assert rows == []
+
+
+@pytest.mark.parametrize(
+    ("meta", "symbol"),
+    [
+        ({"symbol": "AAPL", "currency": "CAD", "instrumentType": "EQUITY"}, "AAPL"),
+        ({"symbol": "MSFT", "currency": "USD", "instrumentType": "EQUITY"}, "AAPL"),
+        ({"symbol": "AAPL", "currency": "USD", "instrumentType": "CRYPTOCURRENCY"}, "AAPL"),
+    ],
+)
+def test_signal_chart_range_rejects_non_usd_or_mismatched_instrument(
+    monkeypatch,
+    meta,
+    symbol,
+):
+    result = {
+        "meta": meta,
+        "timestamp": [1788888600],
+        "indicators": {
+            "quote": [
+                {
+                    "open": [100.0],
+                    "high": [110.0],
+                    "low": [90.0],
+                    "close": [100.0],
+                    "volume": [1_000],
+                }
+            ],
+            "adjclose": [{"adjclose": [100.0]}],
+        },
+    }
+    monkeypatch.setattr(us_market, "fetch_chart_range", lambda *_args, **_kwargs: result)
+
+    with pytest.raises(ValueError, match="matching USD equity"):
+        us_market.chart_prices_range(
+            symbol,
+            range_="2y",
+            require_adjusted_ohlc=True,
+        )
+
+
+def test_sector_snapshot_pairs_last_valid_close_with_its_new_york_date(monkeypatch):
+    valid_timestamp = int(datetime(2026, 9, 8, 20, 0, tzinfo=UTC).timestamp())
+    null_timestamp = int(datetime(2026, 9, 9, 20, 0, tzinfo=UTC).timestamp())
+    monkeypatch.setattr(
+        us_market,
+        "_fetch_chart",
+        lambda *_args, **_kwargs: {
+            "meta": {},
+            "timestamp": [valid_timestamp, null_timestamp],
+            "indicators": {"quote": [{"close": [100.0, None]}]},
+        },
+    )
+
+    payload = us_market._sector_etf_snapshot(
+        {"symbol": "XLK", "label": "Technology", "sector": "Technology"},
+        live=True,
+    )
+
+    assert payload["price"] == Decimal("100.0")
+    assert payload["trade_date"] == date(2026, 9, 8)
+
+
+def test_us_liquidity_proxy_uses_explicit_dollar_volume_names(monkeypatch):
+    monkeypatch.setattr(us_market, "chart_prices", lambda *args, **kwargs: ({}, []))
+    monkeypatch.setattr(
+        us_market,
+        "_momentum",
+        lambda rows: {
+            "latest_trading_value": Decimal("120"),
+            "baseline_trading_value": Decimal("100"),
+            "trading_value_change": Decimal("20"),
+        },
+    )
+
+    flows = us_market._us_liquidity_proxy(
+        {"sector": "Technology", "market": "NASDAQ"},
+        {
+            "latest_trading_value": Decimal("150"),
+            "baseline_trading_value": Decimal("100"),
+            "trading_value_change": Decimal("50"),
+        },
+    )
+
+    assert flows["stock_dollar_volume_delta"] == Decimal("50.0")
+    assert flows["sector_etf_dollar_volume_change"] == Decimal("20")
+    assert flows["flow_type"] == "price_volume_participation_proxy"
+    assert flows["flow_semantics"] == "dollar_volume_participation_proxy"
+    assert "순매수" in flows["proxy_notice"]
+    assert "foreign_net_buy_20d" not in flows
+    assert "institution_net_buy_20d" not in flows
+
+
+def test_us_dashboard_clients_render_explicit_dollar_volume_proxy_fields():
+    nasdaq_source = (ROOT / "app/static/nasdaq/app.js").read_text()
+    dashboard_source = (ROOT / "app/static/dashboard/app.js").read_text()
+
+    for field in (
+        "stock_dollar_volume_delta",
+        "sector_etf_dollar_volume_delta",
+        "stock_dollar_volume_change",
+        "sector_etf_dollar_volume_change",
+    ):
+        assert f"data.flows.{field}" in nasdaq_source
+        assert f"data.flows.{field}" in dashboard_source
 
 
 def test_resolve_compact_apple_company_name_without_koreanizing(monkeypatch):
@@ -199,87 +422,157 @@ def test_us_surge_ranking_honors_week_and_month_modes(monkeypatch):
     assert week["items"][0]["one_week_return"] == Decimal("9")
 
 
-def test_us_recommendations_use_the_batch_ranking_snapshot_without_per_stock_fetches(monkeypatch):
+def test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed():
     as_of = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
-    monkeypatch.setattr(
-        us_market,
-        "build_us_rankings",
-        lambda *args, **kwargs: {
+    canonical_feed = {
+            "status": "ready",
+            "data_state": "ready",
             "as_of": as_of,
+            "snapshot_id": "us-rc1-snapshot",
+            "snapshot_checksum": "feed-checksum",
+            "strategy_version": "position-lifecycle-us-v1-rc1",
+            "baseline_strategy_version": "us-momentum-watch-v1",
+            "sector_classification_version": "us-sector-etf-cik-v3",
+            "rollout_mode": "shadow",
+            "execution_enabled": False,
+            "stateful_lifecycle_replay_enabled": False,
+            "reentry_runtime_enabled": False,
+            "universe_as_of": date(2026, 9, 6),
+            "universe_count": 100,
+            "evaluated_count": 100,
+            "data_coverage_count": 100,
+            "signal_eligible_count": 98,
+            "insufficient_history_count": 2,
+            "methodology": ["완료 정규장 시총 상위 100종목"],
             "items": [
                 {
                     "code": "NVDA",
                     "name": "NVIDIA",
                     "market": "NASDAQ",
                     "currency": "USD",
+                    "sector": "Technology",
+                    "market_cap_rank": 2,
+                    "score": Decimal("68"),
                     "price": Decimal("168.25"),
-                    "change_rate": Decimal("2.4"),
-                    "one_month_return": Decimal("12.5"),
-                    "three_month_return": Decimal("24.0"),
-                    "trading_value": Decimal("12000000000"),
-                    "per": Decimal("36"),
-                    "pbr": Decimal("20"),
-                    "sentiment_score": Decimal("0"),
+                    "public_reasons": [{"summary": "상대강도 확인"}],
+                    "current": {
+                        "action": "entry_pending",
+                        "position_open": False,
+                        "next_confirmation": "다음 정규장 확인",
+                    },
+                    "status": "preliminary",
                 }
             ],
-        },
-    )
-    monkeypatch.setattr(
-        us_market,
-        "_dashboard_cached",
-        lambda symbol: (_ for _ in ()).throw(AssertionError(f"unexpected detail fetch: {symbol}")),
-    )
+        }
 
-    payload = us_market.build_us_recommendations(limit=1, candidate_limit=5)
+    payload = us_market.build_us_recommendations(
+        limit=1,
+        candidate_limit=5,
+        feed=canonical_feed,
+    )
 
     assert payload["candidate_count"] == 1
+    assert payload["snapshot_id"] == "us-rc1-snapshot"
+    assert payload["snapshot_checksum"] == "feed-checksum"
+    assert payload["universe_count"] == 100
+    assert payload["evaluated_count"] == 100
+    assert payload["data_coverage_count"] == 100
+    assert payload["signal_eligible_count"] == 98
+    assert payload["insufficient_history_count"] == 2
+    assert payload["strategy_version"] == "position-lifecycle-us-v1-rc1"
+    assert payload["baseline_strategy_version"] == "us-momentum-watch-v1"
+    assert payload["sector_classification_version"] == "us-sector-etf-cik-v3"
+    assert payload["stateful_lifecycle_replay_enabled"] is False
+    assert payload["reentry_runtime_enabled"] is False
     assert payload["items"][0]["code"] == "NVDA"
     assert payload["items"][0]["currency"] == "USD"
     assert payload["items"][0]["ai_trade_signal"]["status"] == "preliminary"
     assert payload["items"][0]["ai_trade_signal"]["current"]["position_open"] is False
-    assert "배치 시세" in payload["methodology"][0]
+    assert "상위 100" in payload["methodology"][0]
 
 
-def test_us_quant_signals_expose_only_usd_preliminary_candidates(monkeypatch):
+def test_us_quant_signals_expose_only_usd_preliminary_candidates():
     as_of = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
-    monkeypatch.setattr(
-        us_market,
-        "build_us_recommendations",
-        lambda **kwargs: {
+    canonical_feed = {
+            "status": "ready",
+            "data_state": "ready",
             "as_of": as_of,
-            "universe_count": 2,
+            "snapshot_id": "us-rc1-snapshot",
+            "snapshot_checksum": "feed-checksum",
+            "strategy_version": "position-lifecycle-us-v1-rc1",
+            "rollout_mode": "shadow",
+            "execution_enabled": False,
+            "universe_count": 100,
+            "confirmed_count": 0,
+            "preliminary_count": 1,
             "items": [
                 {
                     "code": "NVDA",
                     "name": "NVIDIA",
                     "market": "NASDAQ",
                     "sector": "Technology",
-                    "ai_trade_signal": {
-                        "data_state": "ready",
-                        "side": "buy",
-                        "status": "preliminary",
-                        "is_preliminary": True,
-                        "signal_date": date(2026, 9, 7),
-                        "current": {
-                            "action": "entry_watch",
-                            "position_open": False,
-                            "model_exposure_percent": Decimal("0"),
-                        },
+                    "currency": "USD",
+                    "data_state": "ready",
+                    "side": "buy",
+                    "status": "preliminary",
+                    "is_preliminary": True,
+                    "signal_date": date(2026, 9, 7),
+                    "current": {
+                        "action": "entry_watch",
+                        "position_open": False,
+                        "model_exposure_percent": Decimal("0"),
                     },
                 },
             ],
-        },
+        }
+
+    payload = us_market.build_us_quant_signals(
+        limit=20,
+        recent_days=30,
+        feed=canonical_feed,
     )
 
-    payload = us_market.build_us_quant_signals(limit=20, recent_days=30)
-
     assert payload["status"] == "ready"
+    assert payload["snapshot_id"] == "us-rc1-snapshot"
+    assert payload["strategy_version"] == "position-lifecycle-us-v1-rc1"
     assert payload["confirmed_count"] == 0
     assert payload["preliminary_count"] == 1
     assert payload["items"][0]["code"] == "NVDA"
     assert payload["items"][0]["currency"] == "USD"
     assert payload["items"][0]["current"]["position_open"] is False
     assert payload["items"][0]["current"]["model_exposure_percent"] == Decimal("0")
+
+
+def test_us_recommendation_and_quant_projections_share_one_member_result():
+    signal = {
+        "code": "NVDA",
+        "name": "NVIDIA",
+        "market": "NASDAQ",
+        "currency": "USD",
+        "status": "preliminary",
+        "score": Decimal("68"),
+        "current": {
+            "action": "entry_watch",
+            "position_open": False,
+            "next_confirmation": "next close",
+        },
+    }
+    feed = {
+        "status": "ready",
+        "data_state": "ready",
+        "strategy_version": "position-lifecycle-us-v1-rc1",
+        "rollout_mode": "shadow",
+        "snapshot_id": "shared-snapshot",
+        "snapshot_checksum": "shared-checksum",
+        "items": [signal],
+    }
+
+    recommendations = us_market.build_us_recommendations(feed=feed, limit=1)
+    quant = us_market.build_us_quant_signals(feed=feed, limit=1)
+
+    assert recommendations["snapshot_id"] == quant["snapshot_id"] == "shared-snapshot"
+    assert recommendations["snapshot_checksum"] == quant["snapshot_checksum"] == "shared-checksum"
+    assert recommendations["items"][0]["ai_trade_signal"] == quant["items"][0]
 
 
 def test_research_from_quote_summary_fills_analyst_fields():

@@ -96,6 +96,11 @@ def render_qa_catalog_markdown(payload: dict[str, Any]) -> str:
         "",
         f"- 카탈로그 버전: `{payload['catalog_version']}`",
         f"- 기준 전략: `{payload['strategy_version']}`",
+        *(
+            [f"- 미국 후보 전략: `{payload['us_strategy_version']}`"]
+            if payload.get("us_strategy_version")
+            else []
+        ),
         f"- QA 항목: {len(payload['cases'])}개",
         "- 상태 규칙: `PASS` 정상, `WARN` 외부 원천 일시 장애 또는 허용된 caution, `FAIL` 계약 위반",
         "",

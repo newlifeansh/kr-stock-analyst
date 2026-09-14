@@ -923,6 +923,7 @@ class PublicSignalReasonOut(BaseModel):
     summary: str
     as_of: Optional[datetime | date] = None
     available: bool = True
+    note: Optional[str] = None
 
 
 class StockAIAnalysisOut(BaseModel):
@@ -932,7 +933,7 @@ class StockAIAnalysisOut(BaseModel):
     as_of: datetime
     generated_at: datetime
     stance: str
-    confidence: Decimal
+    confidence: Optional[Decimal] = None
     data_covered: int = 0
     data_total: int = 0
     summary: str
@@ -945,6 +946,16 @@ class StockAIAnalysisOut(BaseModel):
     generation_mode: str = "rules"
     model_name: Optional[str] = None
     generation_note: Optional[str] = None
+    strategy_version: Optional[str] = None
+    rollout_mode: Optional[str] = None
+    execution_enabled: Optional[bool] = None
+    status: Optional[str] = None
+    data_state: Optional[str] = None
+    snapshot_id: Optional[str] = None
+    snapshot_checksum: Optional[str] = None
+    new_entries_allowed: Optional[bool] = None
+    is_current_universe_member: Optional[bool] = None
+    current: Optional[dict[str, Any]] = None
 
 
 class QuantFactorOut(BaseModel):

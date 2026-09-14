@@ -16,10 +16,16 @@ from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
+from sqlalchemy.orm import Session
 
-from app.services.stock_dashboard import _chart_analysis, _rate, _round_decimal
+from app.config import get_settings
 from app.services.public_signal import build_public_signal_reasons
+from app.services.stock_dashboard import _chart_analysis, _rate, _round_decimal
 from app.services.ttl_cache import TTLCache
+from app.services.us_market_calendar import (
+    USMarketCalendarUnavailable,
+    us_market_session as official_us_market_session,
+)
 
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 YAHOO_CHART_FALLBACK_URL = "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -43,9 +49,19 @@ US_FX_TTL_SECONDS = 300
 US_SECTOR_OPEN_TTL_SECONDS = 30
 US_SECTOR_CLOSED_TTL_SECONDS = 300
 US_HEADERS = {"User-Agent": "Mozilla/5.0"}
-SEC_HEADERS = {"User-Agent": "secret-note-us-dashboard/0.1 local research app"}
 NEW_YORK_TZ = ZoneInfo("America/New_York")
 KOREA_TZ = ZoneInfo("Asia/Seoul")
+
+
+def _sec_request_headers() -> dict[str, str]:
+    user_agent = str(get_settings().sec_user_agent or "").strip()
+    if not re.search(r"[^\s@]+@[^\s@]+\.[^\s@]+", user_agent):
+        raise ValueError("SEC_USER_AGENT must include a contact email address")
+    return {
+        "User-Agent": user_agent,
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip, deflate",
+    }
 
 US_FUNDAMENTAL_TYPES: tuple[str, ...] = (
     "trailingPeRatio",
@@ -416,6 +432,7 @@ class USPrice:
     trading_value: Optional[Decimal]
     market_cap: Optional[int] = None
     listed_shares: Optional[int] = None
+    adjusted_ohlc_complete: Optional[bool] = None
 
 
 def _symbol(value: str) -> str:
@@ -866,7 +883,11 @@ def _sec_ticker_map(refresh: bool = False) -> dict[str, str]:
     key = ("sec_ticker_map", "all")
     if not refresh:
         return US_CACHE.get_or_set(key, 60 * 60 * 24, lambda: _sec_ticker_map(refresh=True))
-    response = requests.get(SEC_TICKERS_URL, headers=SEC_HEADERS, timeout=20)
+    response = requests.get(
+        SEC_TICKERS_URL,
+        headers=_sec_request_headers(),
+        timeout=20,
+    )
     response.raise_for_status()
     payload = response.json()
     mapping = {
@@ -896,7 +917,11 @@ def sec_filings(symbol: str, limit: int = 8, refresh: bool = False) -> list[dict
     cik = _sec_cik_for_symbol(code)
     if not cik:
         return []
-    response = requests.get(SEC_SUBMISSIONS_URL.format(cik=cik), headers=SEC_HEADERS, timeout=20)
+    response = requests.get(
+        SEC_SUBMISSIONS_URL.format(cik=cik),
+        headers=_sec_request_headers(),
+        timeout=20,
+    )
     response.raise_for_status()
     recent = ((response.json() or {}).get("filings") or {}).get("recent") or {}
     filings: list[dict[str, object]] = []
@@ -1419,22 +1444,37 @@ def _fetch_chart(symbol: str, range_: str = "1y", interval: str = "1d", include_
 
 
 def _us_market_session(now: Optional[datetime] = None) -> dict[str, object]:
-    current = (now or datetime.now(timezone.utc)).astimezone(NEW_YORK_TZ)
-    premarket_start = time(4, 0)
-    regular_start = time(9, 30)
-    regular_end = time(16, 0)
-    afterhours_end = time(20, 0)
-    is_weekday = current.weekday() < 5
-    current_time = current.time()
-    if is_weekday and premarket_start <= current_time < regular_start:
+    current_value = now or datetime.now(timezone.utc)
+    if current_value.tzinfo is None or current_value.utcoffset() is None:
+        current_value = current_value.replace(tzinfo=timezone.utc)
+    current_utc = current_value.astimezone(timezone.utc)
+    current = current_utc.astimezone(NEW_YORK_TZ)
+    premarket_start = current.replace(hour=4, minute=0, second=0, microsecond=0)
+    afterhours_end = current.replace(hour=20, minute=0, second=0, microsecond=0)
+    try:
+        exchange_session = official_us_market_session(current.date())
+    except USMarketCalendarUnavailable:
+        exchange_session = None
+
+    if (
+        exchange_session is not None
+        and premarket_start <= current < exchange_session.open_at.astimezone(NEW_YORK_TZ)
+    ):
         session = "premarket"
         label = "미국 프리장 진행 중"
         is_live = True
-    elif is_weekday and regular_start <= current_time < regular_end:
+    elif (
+        exchange_session is not None
+        and exchange_session.open_at <= current_utc < exchange_session.close_at
+    ):
         session = "regular"
         label = "미국 정규장 진행 중"
         is_live = True
-    elif is_weekday and regular_end <= current_time < afterhours_end:
+    elif (
+        exchange_session is not None
+        and exchange_session.close_at <= current_utc
+        and current < afterhours_end
+    ):
         session = "afterhours"
         label = "미국 애프터장 진행 중"
         is_live = True
@@ -1461,17 +1501,28 @@ def _sector_etf_snapshot(item: dict[str, str], live: bool = False) -> dict[str, 
     )
     meta = result.get("meta") or {}
     quote = (result.get("indicators", {}).get("quote") or [{}])[0]
-    closes = [value for value in quote.get("close") or [] if value is not None]
+    close_points = [
+        (index, parsed)
+        for index, value in enumerate(quote.get("close") or [])
+        if (parsed := _to_decimal(value)) is not None
+    ]
     timestamps = result.get("timestamp") or []
-    price = _to_decimal(closes[-1]) if live and closes else _to_decimal(meta.get("regularMarketPrice"))
+    price = close_points[-1][1] if live and close_points else _to_decimal(meta.get("regularMarketPrice"))
     previous = _to_decimal(meta.get("chartPreviousClose")) or _to_decimal(meta.get("previousClose"))
-    if price is None and closes:
-        price = _to_decimal(closes[-1])
-    if previous is None and len(closes) >= 2:
-        previous = _to_decimal(closes[-2])
+    if price is None and close_points:
+        price = close_points[-1][1]
+    if previous is None and len(close_points) >= 2:
+        previous = close_points[-2][1]
     trade_date = None
-    if timestamps:
-        trade_date = datetime.fromtimestamp(timestamps[-1], timezone.utc).date()
+    if close_points:
+        timestamp_index = close_points[-1][0]
+        timestamp = _list_get(timestamps, timestamp_index)
+        if timestamp is not None:
+            trade_date = (
+                datetime.fromtimestamp(timestamp, timezone.utc)
+                .astimezone(NEW_YORK_TZ)
+                .date()
+            )
     return {
         "symbol": item["symbol"],
         "label": item["label"],
@@ -1562,27 +1613,64 @@ def _usdkrw_rate_payload() -> dict[str, object]:
     }
 
 
-def _chart_price_rows(symbol: str, result: dict[str, object], limit: int) -> tuple[dict[str, object], list[USPrice]]:
+def _chart_price_rows(
+    symbol: str,
+    result: dict[str, object],
+    limit: int,
+    *,
+    require_adjusted_ohlc: bool = False,
+) -> tuple[dict[str, object], list[USPrice]]:
     meta = result.get("meta") or {}
     quote = (result.get("indicators", {}).get("quote") or [{}])[0]
+    adjusted = (result.get("indicators", {}).get("adjclose") or [{}])[0]
+    adjusted_closes = adjusted.get("adjclose") or []
     timestamps = result.get("timestamp") or []
     rows: list[USPrice] = []
     for index, ts in enumerate(timestamps):
-        close = _to_decimal(_list_get(quote.get("close") or [], index))
-        if close is None:
-            continue
+        raw_close = _to_decimal(_list_get(quote.get("close") or [], index))
+        adjusted_close = _to_decimal(_list_get(adjusted_closes, index))
+        raw_open = _to_decimal(_list_get(quote.get("open") or [], index))
+        raw_high = _to_decimal(_list_get(quote.get("high") or [], index))
+        raw_low = _to_decimal(_list_get(quote.get("low") or [], index))
         volume = _list_get(quote.get("volume") or [], index)
-        trading_value = close * Decimal(str(volume)) if close is not None and volume is not None else None
+        adjusted_ohlc_complete = bool(
+            adjusted_close is not None
+            and adjusted_close > 0
+            and raw_close is not None
+            and raw_close > 0
+            and raw_open is not None
+            and raw_open > 0
+            and raw_high is not None
+            and raw_high >= max(raw_open, raw_close)
+            and raw_low is not None
+            and raw_low > 0
+            and raw_low <= min(raw_open, raw_close)
+            and volume is not None
+            and int(volume) > 0
+        )
+        if require_adjusted_ohlc and not adjusted_ohlc_complete:
+            continue
+        close = adjusted_close or raw_close
+        if close is None or raw_close in (None, Decimal("0")):
+            continue
+        adjustment_factor = close / raw_close if raw_close is not None else Decimal("1")
+        open_price = (raw_open or raw_close) * adjustment_factor
+        high = (raw_high or raw_close) * adjustment_factor
+        low = (raw_low or raw_close) * adjustment_factor
+        # Dollar-volume participation reflects traded notional on that date,
+        # so it uses the raw close even though signals use adjusted OHLC.
+        trading_value = raw_close * Decimal(str(volume)) if volume is not None else None
         rows.append(
             USPrice(
                 code=_symbol(symbol),
-                trade_date=datetime.fromtimestamp(ts, timezone.utc).date(),
-                open=_to_decimal(_list_get(quote.get("open") or [], index)) or close,
-                high=_to_decimal(_list_get(quote.get("high") or [], index)) or close,
-                low=_to_decimal(_list_get(quote.get("low") or [], index)) or close,
+                trade_date=datetime.fromtimestamp(ts, timezone.utc).astimezone(NEW_YORK_TZ).date(),
+                open=open_price,
+                high=max(high, open_price, close),
+                low=min(low, open_price, close),
                 close=close,
                 volume=int(volume) if volume is not None else None,
                 trading_value=trading_value,
+                adjusted_ohlc_complete=adjusted_ohlc_complete,
             )
         )
     return meta, rows[-limit:]
@@ -1599,9 +1687,27 @@ def chart_prices_range(
     interval: str = "1d",
     refresh: bool = False,
     limit: int = 2000,
+    require_adjusted_ohlc: bool = False,
 ) -> tuple[dict[str, object], list[USPrice]]:
     result = fetch_chart_range(symbol, range_=range_, interval=interval, refresh=refresh)
-    return _chart_price_rows(symbol, result, limit)
+    if require_adjusted_ohlc:
+        meta = result.get("meta") or {}
+        expected_symbol = _symbol(symbol).replace("-", ".")
+        observed_symbol = _symbol(str(meta.get("symbol") or "")).replace("-", ".")
+        currency = str(meta.get("currency") or "").upper()
+        instrument_type = str(meta.get("instrumentType") or "").upper()
+        if (
+            observed_symbol != expected_symbol
+            or currency != "USD"
+            or instrument_type not in {"EQUITY", "ETF"}
+        ):
+            raise ValueError("Yahoo signal chart metadata is not a matching USD equity")
+    return _chart_price_rows(
+        symbol,
+        result,
+        limit,
+        require_adjusted_ohlc=require_adjusted_ohlc,
+    )
 
 
 def _price_dict(row: USPrice) -> dict[str, object]:
@@ -1789,11 +1895,14 @@ def _us_liquidity_proxy(
     stock_flow = _trading_value_flow(stock_momentum)
     etf_flow = _trading_value_flow(etf_momentum)
     return {
-        "foreign_net_buy_20d": stock_flow,
-        "institution_net_buy_20d": etf_flow,
-        "foreign_intensity": stock_momentum.get("trading_value_change"),
-        "institution_intensity": etf_momentum.get("trading_value_change"),
+        "flow_semantics": "dollar_volume_participation_proxy",
+        "stock_dollar_volume_delta": stock_flow,
+        "sector_etf_dollar_volume_delta": etf_flow,
+        "stock_dollar_volume_change": stock_momentum.get("trading_value_change"),
+        "sector_etf_dollar_volume_change": etf_momentum.get("trading_value_change"),
         "source": "Yahoo Finance volume proxy",
+        "flow_type": "price_volume_participation_proxy",
+        "proxy_notice": "투자자 순매수나 ETF 순유입이 아닌 가격·거래량 기반 거래대금 변화입니다.",
         "stock_liquidity_label": "개별 종목 거래대금 변화",
         "etf_symbol": etf_symbol,
         "etf_liquidity_label": f"{etf_symbol} 거래대금 변화",
@@ -2385,6 +2494,7 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
         "name": stock["name"],
         "market": stock["market"],
         "currency": "USD",
+        "flow_semantics": "dollar_volume_participation_proxy",
         "as_of": datetime.now(timezone.utc),
         "company_profile": {
             "short_summary": (
@@ -2483,10 +2593,10 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
         "coverage": {
             "price": bool(prices),
             "investor_flow": bool(
-                flows.get("foreign_net_buy_20d") is not None
-                or flows.get("institution_net_buy_20d") is not None
-                or flows.get("foreign_intensity") is not None
-                or flows.get("institution_intensity") is not None
+                flows.get("stock_dollar_volume_delta") is not None
+                or flows.get("sector_etf_dollar_volume_delta") is not None
+                or flows.get("stock_dollar_volume_change") is not None
+                or flows.get("sector_etf_dollar_volume_change") is not None
             ),
             "research_proxy": bool(research.get("report_count_90d")),
             "disclosure": bool(filings),
@@ -2523,15 +2633,12 @@ def _us_market_label(market: str = "ALL") -> str:
 
 
 def _us_recommendation_universe() -> list[dict[str, object]]:
-    preferred_codes = list(dict.fromkeys(
-        str(item["code"])
-        for item in [*_FALLBACK_NASDAQ_UNIVERSE, *_FALLBACK_SP500_UNIVERSE]
-    ))
-    return [
-        US_UNIVERSE_BY_CODE[code]
-        for code in preferred_codes
-        if code in US_UNIVERSE_BY_CODE
-    ]
+    """Return the completed-session top-100 signal universe, or no fallback."""
+
+    from app.services.us_signal_universe import build_us_signal_universe
+
+    payload = build_us_signal_universe()
+    return list(payload.get("items") or [])
 
 
 def _quote_batch_dashboards(universe: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -2723,200 +2830,144 @@ def build_us_rankings(
     }
 
 
-def build_us_recommendations(limit: int = 8, candidate_limit: int = 30) -> dict[str, object]:
-    now = datetime.now(timezone.utc)
-    rankings = build_us_rankings(
-        "momentum",
-        limit=max(candidate_limit, limit),
-        market="ALL",
-        universe_override=_us_recommendation_universe(),
+def build_us_recommendations(
+    limit: int = 8,
+    candidate_limit: int = 30,
+    *,
+    db: Optional[Session] = None,
+    feed: Optional[dict[str, object]] = None,
+) -> dict[str, object]:
+    """Project recommendations from the persisted canonical RC1 feed."""
+
+    from copy import deepcopy
+
+    from app.services.us_position_lifecycle import (
+        load_us_position_lifecycle_snapshot,
+        us_position_lifecycle_preparing_payload,
     )
-    items = []
-    for payload in rankings["items"][:candidate_limit]:
-        one_month_return = Decimal(str(payload.get("one_month_return") or 0))
-        three_month_return = Decimal(str(payload.get("three_month_return") or 0))
-        change_rate = Decimal(str(payload.get("change_rate") or 0))
-        price_momentum_score = max(
-            Decimal("0"),
-            min(
-                Decimal("100"),
-                Decimal("50")
-                + one_month_return * Decimal("1.2")
-                + three_month_return * Decimal("0.35")
-                + change_rate * Decimal("0.25"),
-            ),
-        )
-        valuation = {"per": payload.get("per"), "pbr": payload.get("pbr")}
-        value_score = _valuation_score(valuation)
-        liquidity_score = Decimal("60") if payload.get("trading_value") else Decimal("45")
-        sentiment_score = max(
-            Decimal("0"),
-            min(Decimal("100"), Decimal("50") + Decimal(str(payload.get("sentiment_score") or 0))),
-        )
-        score = (
-            price_momentum_score * Decimal("0.65")
-            + value_score * Decimal("0.15")
-            + liquidity_score * Decimal("0.12")
-            + sentiment_score * Decimal("0.08")
-        )
-        score = _round_decimal(min(Decimal("100"), score)) or Decimal("0")
-        trend = "상승" if price_momentum_score >= Decimal("58") else "조정" if price_momentum_score < Decimal("45") else "중립"
-        chart = {
-            "score": _round_decimal(price_momentum_score),
-            "trend": trend,
-            "risks": ["배치 시세 기반 예비 판단이라 종목 상세에서 최신 차트와 뉴스를 다시 확인해야 합니다."],
-        }
-        reasons = [
-            f"차트 점수 {chart.get('score')}점, {chart.get('trend')} 흐름",
-            f"1개월 {one_month_return}%, 3개월 {three_month_return}% 모멘텀",
-            "Nasdaq-100·S&P 500 대표 대형주 후보군 안에서 계산",
-        ]
-        risks = list(chart.get("risks") or [])[:3] or ["무료 데이터 기반이라 실적 추정·ETF/펀드 플로우는 제한적으로 반영"]
-        public_reasons = build_public_signal_reasons(
-            {},
-            context={
-                "as_of": now,
-                "one_month_return": one_month_return,
-                "three_month_return": three_month_return,
-                "trading_value_change": payload.get("trading_value_change"),
-            },
-        )
-        signal_action = "entry_pending" if score >= Decimal("60") else "entry_watch"
-        signal_label = "예비 매수" if signal_action == "entry_pending" else "예비 포착"
-        signal = {
-            "data_state": "ready",
-            "side": "buy",
-            "status": "preliminary",
-            "is_preliminary": True,
-            "signal": signal_label,
-            "signal_date": now.date(),
-            "signal_at": now,
-            "updated_at": now,
-            "price": payload.get("price"),
-            "score": score,
-            "reason": reasons[0],
-            "entry_score_threshold": Decimal("60"),
-            "public_reasons": public_reasons,
-            "events": [],
-            "current": {
-                "action": signal_action,
-                "label": signal_label,
-                "position_open": False,
-                "model_exposure_percent": Decimal("0"),
-                "live_observation": False,
-                "score": score,
-                "price": payload.get("price"),
-                "as_of": now,
-                "reasons": reasons[:3],
-                "next_confirmation": "다음 미국 정규장 종가에서 추세와 거래량 조건을 다시 확인합니다.",
-                "lifecycle": {
-                    "latest_transition": {
-                        "label": signal_label,
-                        "side": "buy",
-                        "signal_at": now,
-                        "signal_date": now.date(),
-                        "transition_date": now.date(),
-                        "price": payload.get("price"),
-                    }
-                },
-            },
-        }
+
+    canonical = deepcopy(feed) if isinstance(feed, dict) else None
+    if canonical is None and db is not None:
+        canonical = load_us_position_lifecycle_snapshot(db)
+    if canonical is None:
+        canonical = us_position_lifecycle_preparing_payload()
+    normalized_candidate_limit = max(5, min(100, int(candidate_limit)))
+    canonical_items = list(canonical.get("items") or [])
+    candidate_items = canonical_items[:normalized_candidate_limit]
+    items: list[dict[str, object]] = []
+    for signal in candidate_items:
+        current = dict(signal.get("current") or {})
+        action = str(current.get("action") or "entry_watch")
         items.append(
             {
                 "rank": 0,
-                "code": payload["code"],
-                "name": payload["name"],
-                "market": payload["market"],
+                "code": signal["code"],
+                "name": signal["name"],
+                "market": signal.get("market") or "NASDAQ",
                 "currency": "USD",
-                "sector": (US_UNIVERSE_BY_CODE.get(str(payload["code"])) or {}).get("sector"),
-                "score": score,
-                "action": "관심 매수후보" if score >= 60 else "관망",
-                "price": payload.get("price"),
-                "change_rate": payload.get("change_rate"),
-                "one_month_return": payload.get("one_month_return"),
-                "three_month_return": payload.get("three_month_return"),
-                "trading_value": payload.get("trading_value"),
-                "trading_value_change": payload.get("trading_value_change"),
-                "component_scores": {
-                    "estimate_revision": Decimal("45"),
-                    "analyst_revision_ratio": Decimal("45"),
-                    "surprise": Decimal("45"),
-                    "guidance": Decimal("45"),
-                    "price_momentum": _round_decimal(price_momentum_score),
-                    "trading_value": liquidity_score,
-                    "valuation": value_score,
-                    "macro": Decimal("55"),
-                    "flows": Decimal("45"),
-                    "sentiment": sentiment_score,
+                "sector": signal.get("sector"),
+                "market_cap_rank": signal.get("market_cap_rank"),
+                "score": signal.get("score"),
+                "action": "관심 매수후보" if action == "entry_pending" else "관망",
+                "price": signal.get("price"),
+                "change_rate": signal.get("change_rate"),
+                "one_month_return": signal.get("one_month_return"),
+                "three_month_return": signal.get("three_month_return"),
+                "trading_value": signal.get("trading_value"),
+                "trading_value_change": signal.get("trading_value_change"),
+                "component_scores": {},
+                "chart_analysis": {
+                    "trend": "상승 후보" if action == "entry_pending" else "확인 중",
+                    "risks": [current.get("next_confirmation")],
                 },
-                "chart_analysis": chart,
-                "reasons": reasons,
-                "risks": risks,
+                "reasons": [item.get("summary") for item in signal.get("public_reasons", [])],
+                "risks": [current.get("next_confirmation")],
                 "ai_trade_signal": signal,
             }
         )
-    selected = sorted(items, key=lambda item: item["score"], reverse=True)[:limit]
+    selected = items[: max(1, min(20, int(limit)))]
     for index, item in enumerate(selected, start=1):
         item["rank"] = index
     return {
-        "as_of": now,
-        "universe_count": len(US_EQUITY_UNIVERSE),
-        "candidate_count": min(candidate_limit, len(items)),
-        "methodology": [
-            "무료 Yahoo Finance 대표 대형주 배치 시세 기반 예비 후보",
-            "1개월/3개월 모멘텀, 거래대금, 밸류에이션 중심",
-            "미국 개별주 13F·애널리스트 세부 데이터는 현재 무료 대체값으로 처리",
-        ],
+        "status": canonical.get("status"),
+        "data_state": canonical.get("data_state"),
+        "as_of": canonical.get("as_of"),
+        "snapshot_generated_at": canonical.get("snapshot_generated_at"),
+        "snapshot_id": canonical.get("snapshot_id"),
+        "snapshot_checksum": canonical.get("snapshot_checksum"),
+        "strategy_version": canonical.get("strategy_version"),
+        "baseline_strategy_version": canonical.get("baseline_strategy_version"),
+        "sector_classification_version": canonical.get("sector_classification_version"),
+        "rollout_mode": canonical.get("rollout_mode"),
+        "execution_enabled": canonical.get("execution_enabled", False),
+        "stateful_lifecycle_replay_enabled": canonical.get(
+            "stateful_lifecycle_replay_enabled", False
+        ),
+        "reentry_runtime_enabled": canonical.get("reentry_runtime_enabled", False),
+        "universe_as_of": canonical.get("universe_as_of"),
+        "universe_count": canonical.get("universe_count", 0),
+        "evaluated_count": canonical.get("evaluated_count", 0),
+        "data_coverage_count": canonical.get("data_coverage_count", 0),
+        "signal_eligible_count": canonical.get("signal_eligible_count", 0),
+        "insufficient_history_count": canonical.get("insufficient_history_count", 0),
+        "sector_classification_error_count": canonical.get(
+            "sector_classification_error_count", 0
+        ),
+        "coverage": deepcopy(canonical.get("coverage") or {}),
+        "new_entries_allowed": canonical.get("new_entries_allowed", False),
+        "refresh_required": canonical.get("refresh_required", True),
+        "state_reason": canonical.get("state_reason"),
+        "refresh_requested": canonical.get("refresh_requested", False),
+        "refresh_enqueued": canonical.get("refresh_enqueued", False),
+        "candidate_count": len(items),
+        "total_candidate_count": len(canonical_items),
+        "methodology": list(canonical.get("methodology") or []),
         "items": selected,
     }
 
 
-def build_us_quant_signals(limit: int = 20, recent_days: int = 30) -> dict[str, object]:
-    """Expose US recommendation momentum as explicit preliminary signal candidates.
+def build_us_quant_signals(
+    limit: int = 20,
+    recent_days: int = 30,
+    *,
+    db: Optional[Session] = None,
+    feed: Optional[dict[str, object]] = None,
+) -> dict[str, object]:
+    from copy import deepcopy
 
-    The US feed deliberately does not invent filled positions or realized returns.
-    Until a dedicated persisted US execution lifecycle exists, every row remains a
-    preliminary candidate backed by the same chart, momentum, and news evidence as
-    the recommendation surface.
-    """
-    normalized_limit = max(1, min(50, int(limit)))
-    payload = build_us_recommendations(
-        limit=normalized_limit,
-        candidate_limit=max(30, normalized_limit),
+    from app.services.us_position_lifecycle import (
+        load_us_position_lifecycle_snapshot,
+        us_position_lifecycle_preparing_payload,
     )
-    as_of = payload.get("as_of") or datetime.now(timezone.utc)
-    items: list[dict[str, object]] = []
-    for recommendation in payload.get("items", []):
-        signal = dict(recommendation.get("ai_trade_signal") or {})
-        current = dict(signal.get("current") or {})
-        if not signal or not current:
-            continue
-        items.append(
-            {
-                **signal,
-                "code": recommendation["code"],
-                "name": recommendation["name"],
-                "market": recommendation.get("market") or "NASDAQ",
-                "currency": "USD",
-                "sector": recommendation.get("sector"),
-                "signal_scope": "market",
-                "price_through": str(signal.get("signal_date") or as_of)[:10],
-                "as_of": as_of,
-                "current": current,
-            }
+
+    canonical = deepcopy(feed) if isinstance(feed, dict) else None
+    if canonical is None and db is not None:
+        canonical = load_us_position_lifecycle_snapshot(db)
+    if canonical is None:
+        canonical = us_position_lifecycle_preparing_payload()
+    normalized_limit = max(1, min(50, int(limit)))
+    normalized_recent_days = max(1, min(90, int(recent_days)))
+    full_items = list(canonical.get("items") or [])
+    canonical["items"] = full_items[:normalized_limit]
+    history = list(canonical.get("preliminary_history") or [])
+    through_date = canonical.get("universe_as_of")
+    try:
+        history_cutoff = date.fromisoformat(str(through_date)[:10]) - timedelta(
+            days=normalized_recent_days
         )
-    return {
-        "status": "ready",
-        "strategy_version": "us-momentum-watch-v1",
-        "as_of": as_of,
-        "snapshot_generated_at": as_of,
-        "universe_count": payload.get("universe_count", len(US_EQUITY_UNIVERSE)),
-        "recent_days": max(1, min(90, int(recent_days))),
-        "preliminary_count": len(items),
-        "confirmed_count": 0,
-        "preliminary_history": [],
-        "items": items,
-    }
+        canonical["preliminary_history"] = [
+            item
+            for item in history
+            if not isinstance(item, dict)
+            or not item.get("signal_date")
+            or date.fromisoformat(str(item["signal_date"])[:10]) >= history_cutoff
+        ]
+    except ValueError:
+        canonical["preliminary_history"] = history
+    canonical["recent_days"] = normalized_recent_days
+    canonical["total_preliminary_count"] = len(full_items)
+    canonical["preliminary_count"] = len(canonical["items"])
+    return canonical
 
 
 def build_us_trends(days: int = 7) -> dict[str, object]:

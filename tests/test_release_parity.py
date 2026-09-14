@@ -11,7 +11,7 @@ from app.qa.release_parity import (
 def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     contract = local_release_contract()
 
-    assert contract["dashboard_version"] == "20260914v538"
+    assert contract["dashboard_version"] == "20260914v539"
     assert len(contract["assets"]) == 8
     assert len(contract["asset_sha256"]) == 8
     assert set(contract["asset_sha256"]) == {
@@ -106,3 +106,21 @@ def test_deployment_workflow_enforces_staging_before_production() -> None:
     assert "railway up --ci" not in workflow
     assert "name: production" in workflow
     assert "--production-url \"$PRODUCTION_BASE_URL\"" in workflow
+    assert workflow.count(
+        "expected_us_strategy_version=\"$(sed -n 's/^US_STRATEGY_VERSION"
+    ) == 2
+    assert '"$PRODUCTION_BASE_URL/health"' in workflow
+    assert '"$PRODUCTION_BASE_URL/us/market/quant-signals?limit=1&recent_days=30"' in workflow
+    assert '"$PRODUCTION_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100"' in workflow
+    assert '"$STAGING_BASE_URL/health"' in workflow
+    assert '"$STAGING_BASE_URL/us/market/quant-signals?limit=1&recent_days=30"' in workflow
+    assert '"$STAGING_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100"' in workflow
+    assert workflow.count('"$us_rollout_mode" == "shadow"') == 2
+    assert workflow.count('"$us_execution_enabled" == "false"') == 2
+    assert workflow.count(
+        '"$us_recommendation_signal_eligible_count" == "$us_signal_eligible_count"'
+    ) == 2
+    assert workflow.count(
+        '"$us_recommendation_insufficient_history_count" == "$us_insufficient_history_count"'
+    ) == 2
+    assert "Wait for the staging signal APIs and canonical bridge" in workflow

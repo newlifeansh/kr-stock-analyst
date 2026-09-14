@@ -21,8 +21,8 @@ def test_unified_roots_use_compact_community_market_toggle_contract():
     assert shell.status_code == 200
     assert dashboard_shell.status_code == 200
     assert dashboard_shell.text == shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260914v538"' in shell.text
-    assert 'src="/assets/staging/toss-ia.js?v=20260913-recommendation-overview-v109"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260914v539"' in shell.text
+    assert 'src="/assets/staging/toss-ia.js?v=20260914-us-signal-integrity-v110"' in shell.text
 
     intro_contract = staging_js.split(
         'intro.className = "staging-ai-signals-intro";',
@@ -76,6 +76,44 @@ def test_unified_roots_use_compact_community_market_toggle_contract():
         "> button:focus-visible",
     ):
         assert contract in shared_toggle_rules
+
+
+def test_ai_signal_labels_follow_in_place_market_toggle_and_keep_mixed_candidate_tab_honest():
+    client = TestClient(app, base_url="https://secretnote.cloud")
+    staging_js = client.get("/assets/staging/toss-ia.js").text
+    shell = client.get("/us?view=ai-signals&market_scope=us").text
+    helper_start = staging_js.index("  const stagingUsesUsMarketLabels")
+    helper_end = staging_js.index("  const stagingRootPath", helper_start)
+    compact_start = staging_js.index("  const compactAiSignalLabel")
+    compact_end = staging_js.index("  const selectAiSignalSummaryMetrics", compact_start)
+    script = f"""
+const stagingUsStockMatch = null;
+const stagingUsHubContext = true;
+const stagingMarketScope = "kr";
+const document = {{ body: {{ dataset: {{ marketScope: "kr" }} }} }};
+{staging_js[helper_start:helper_end]}
+{staging_js[compact_start:compact_end]}
+const kr = [compactAiSignalLabel("예비 포착"), compactAiSignalLabel("예비 매수")];
+document.body.dataset.marketScope = "us";
+const us = [compactAiSignalLabel("예비 포착"), compactAiSignalLabel("예비 매수")];
+console.log(JSON.stringify({{ kr, us }}));
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "kr": ["매수 관찰", "매수 대기"],
+        "us": ["예비 포착", "예비 매수"],
+    }
+    assert 'data-ai-signal-stage="preliminary-buy">매수 후보 <span>0</span>' in shell
+    assert '"preliminary-buy": "매수 후보"' in staging_js
+    assert "data-staging-ai-market-eyebrow" in staging_js
+    assert 'marketEyebrow.textContent = stagingUsesUsMarketLabels()' in staging_js
 
 
 def test_unified_roots_keep_search_global_and_place_binary_selector_on_recommendations():

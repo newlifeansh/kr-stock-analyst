@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from xml.etree import ElementTree
 
 import pytest
 from typer.testing import CliRunner
@@ -16,6 +17,7 @@ from app.qa.e2e import (
     _page_url,
 )
 from app.qa.runner import (
+    PYTEST_QA_CASE_TESTS,
     QaFailure,
     ResultCollector,
     _public_websocket_check,
@@ -28,13 +30,64 @@ from app.qa.runner import (
 )
 
 
+def _write_pytest_junit(
+    path: Path,
+    testcase_ids: list[str],
+    *,
+    statuses: dict[str, str] | None = None,
+) -> None:
+    statuses = statuses or {}
+    counts = {
+        "failure": sum(statuses.get(item) == "failure" for item in testcase_ids),
+        "error": sum(statuses.get(item) == "error" for item in testcase_ids),
+        "skip": sum(statuses.get(item) == "skip" for item in testcase_ids),
+    }
+    root = ElementTree.Element("testsuites")
+    suite = ElementTree.SubElement(
+        root,
+        "testsuite",
+        {
+            "tests": str(len(testcase_ids)),
+            "failures": str(counts["failure"]),
+            "errors": str(counts["error"]),
+            "skipped": str(counts["skip"]),
+        },
+    )
+    for testcase_id in testcase_ids:
+        classname, name = testcase_id.rsplit(".", 1)
+        testcase = ElementTree.SubElement(
+            suite,
+            "testcase",
+            {"classname": classname, "name": name},
+        )
+        status = statuses.get(testcase_id, "pass")
+        if status == "failure":
+            ElementTree.SubElement(testcase, "failure", {"message": "fixture failure"})
+        elif status == "error":
+            ElementTree.SubElement(testcase, "error", {"message": "fixture error"})
+        elif status == "skip":
+            ElementTree.SubElement(testcase, "skipped", {"message": "fixture skip"})
+    ElementTree.ElementTree(root).write(path, encoding="unicode")
+
+
+def _all_mapped_pytest_testcases() -> list[str]:
+    return sorted(
+        {
+            testcase_id
+            for testcase_ids in PYTEST_QA_CASE_TESTS.values()
+            for testcase_id in testcase_ids
+        }
+    )
+
+
 @pytest.mark.qa_gate
 def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
     payload = load_qa_catalog()
     ids = [case["id"] for case in payload["cases"]]
 
     assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
-    assert len(ids) == 108
+    assert payload["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
+    assert len(ids) == 117
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -47,6 +100,9 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "DATA-FUND-ANALYSIS-002",
         "DATA-US-RANKING-LOGO-001",
         "DATA-US-DETAIL-001",
+        "DATA-US-UNIVERSE-001",
+        "DATA-US-SIGNAL-INPUT-001",
+        "DATA-US-EVIDENCE-001",
         "DATA-CALENDAR-CONTENT-004",
         "DATA-CALENDAR-CONTENT-005",
         "DATA-CALENDAR-CONTENT-006",
@@ -55,6 +111,12 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-ENTRY-005",
         "SIG-ENTRY-006",
         "SIG-ENTRY-007",
+        "SIG-US-VERSION-001",
+        "SIG-US-LIFECYCLE-001",
+        "SIG-US-CHASE-001",
+        "SIG-US-REENTRY-001",
+        "SIG-US-SHADOW-001",
+        "SIG-US-CONTRACT-001",
         "SIG-EXIT-001",
         "SIG-EXIT-005",
         "SIG-UI-003",
@@ -109,7 +171,8 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "# 데이터 연동·시그널 판단 QA 카탈로그" in first
     assert "`position-lifecycle-v7.4.2`" in first
     assert "SIG-CONTRACT-003" in first
-    assert "QA 항목: 108개" in first
+    assert "`position-lifecycle-us-v1-rc1`" in first
+    assert "QA 항목: 117개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -153,6 +216,48 @@ def test_signal_filter_e2e_waits_for_a_ready_revision_before_comparing_counts() 
     assert "Number.isSafeInteger(state.aiSignalRevision)" in signal_filter_case
     assert "state.aiSignalRevision >= 0" in signal_filter_case
     assert "return snapshotReady" in signal_filter_case
+
+@pytest.mark.qa_gate
+def test_us_rc1_catalog_covers_calendar_snapshot_and_real_shadow_comparison() -> None:
+    cases = {case["id"]: case for case in load_qa_catalog()["cases"]}
+    signal_input = json.dumps(cases["DATA-US-SIGNAL-INPUT-001"], ensure_ascii=False)
+    evidence = json.dumps(cases["DATA-US-EVIDENCE-001"], ensure_ascii=False)
+    shadow = cases["SIG-US-SHADOW-001"]
+    contract = json.dumps(cases["SIG-US-CONTRACT-001"], ensure_ascii=False)
+
+    assert "exchange_calendars XNYS" in signal_input
+    assert "조기종료" in signal_input
+    assert all(token in evidence for token in ("XLP", "XLY", "XLC", "XLRE"))
+    assert "미검토 CIK을 SPY·QQQ나 표시 sector로 대체하지 않는다" in evidence
+    assert "전체 new_entries_allowed=false" in evidence
+    assert shadow["inputs"]["comparison_fields"] == [
+        "same_snapshot_evaluated_count",
+        "comparison_complete",
+        "candidate_action_counts",
+        "baseline_action_counts",
+        "candidate_entry_pending_count",
+        "baseline_entry_pending_count",
+        "entry_pending_overlap_count",
+        "candidate_only_entry_pending_count",
+        "baseline_only_entry_pending_count",
+        "action_agreement_count",
+        "action_agreement_rate",
+        "action_disagreement_codes",
+    ]
+    assert "버전명만" in json.dumps(shadow, ensure_ascii=False)
+    assert all(
+        token in contract
+        for token in (
+            "snapshot_id",
+            "snapshot_checksum",
+            "cold",
+            "preparing",
+            "single-flight",
+            "100/100/100",
+            "future generated_at",
+            "checksum-valid structural incompleteness",
+        )
+    )
 
 
 @pytest.mark.qa_gate
@@ -1240,9 +1345,7 @@ def test_report_redaction_removes_nested_credentials() -> None:
 @pytest.mark.qa_gate
 def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> None:
     junit = tmp_path / "pytest.xml"
-    junit.write_text(
-        '<testsuite tests="700" failures="0" errors="0" skipped="0"/>', encoding="utf-8"
-    )
+    _write_pytest_junit(junit, _all_mapped_pytest_testcases())
     report = run_data_signal_qa(
         mode="gate",
         base_url="http://testserver",
@@ -1252,14 +1355,79 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.4.2"
-    assert report["catalog_case_count"] == 108
+    assert report["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
+    assert report["catalog_case_count"] == 117
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
     assert by_id["SIG-EXECUTION-002"]["status"] == "pass"
     assert by_id["SIG-EXIT-001"]["status"] == "pass"
     assert by_id["SIG-CONTRACT-001"]["status"] == "pass"
+    assert all(by_id[case_id]["status"] == "pass" for case_id in PYTEST_QA_CASE_TESTS)
     assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_gate
+def test_us_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -> None:
+    expected_case_ids = {
+        "DATA-US-UNIVERSE-001",
+        "DATA-US-SIGNAL-INPUT-001",
+        "DATA-US-EVIDENCE-001",
+        "SIG-US-VERSION-001",
+        "SIG-US-LIFECYCLE-001",
+        "SIG-US-CHASE-001",
+        "SIG-US-REENTRY-001",
+            "SIG-US-SHADOW-001",
+            "SIG-US-CONTRACT-001",
+            "SIG-UI-022",
+        }
+    assert set(PYTEST_QA_CASE_TESTS) == expected_case_ids
+    assert all(PYTEST_QA_CASE_TESTS.values())
+    assert all(
+        testcase_id.startswith("tests.") and ".test_" in testcase_id
+        for testcase_ids in PYTEST_QA_CASE_TESTS.values()
+        for testcase_id in testcase_ids
+    )
+
+    junit = tmp_path / "one-test.xml"
+    _write_pytest_junit(
+        junit,
+        ["tests.test_data_signal_qa.test_report_redaction_removes_nested_credentials"],
+    )
+    report = run_data_signal_qa(
+        mode="gate",
+        base_url="http://testserver",
+        pytest_junit=junit,
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+
+    assert all(by_id[case_id]["status"] == "fail" for case_id in expected_case_ids)
+    assert report["deployment_blocked"] is True
+
+
+@pytest.mark.qa_gate
+def test_mapped_junit_failure_cannot_clear_its_qa_case(tmp_path: Path) -> None:
+    failing_testcase = PYTEST_QA_CASE_TESTS["SIG-US-CHASE-001"][0]
+    junit = tmp_path / "failed-mapped-test.xml"
+    _write_pytest_junit(
+        junit,
+        _all_mapped_pytest_testcases(),
+        statuses={failing_testcase: "failure"},
+    )
+
+    report = run_data_signal_qa(
+        mode="gate",
+        base_url="http://testserver",
+        pytest_junit=junit,
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+    chase = by_id["SIG-US-CHASE-001"]
+
+    assert chase["status"] == "fail"
+    assert chase["evidence"]["not_passed_testcases"] == {
+        failing_testcase: "failure"
+    }
+    assert report["deployment_blocked"] is True
 
 
 @pytest.mark.qa_gate
@@ -1328,14 +1496,27 @@ class FakeReadOnlyApi:
             "cache_control": "no-store",
         }
 
+    @staticmethod
+    def _us_universe_as_of() -> str:
+        from app.services.us_market_calendar import (
+            latest_completed_us_market_session,
+        )
+
+        return latest_completed_us_market_session().session_date.isoformat()
+
     def get(self, path: str, **params: object):
         if path == "/health":
             return {
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
+                "us_strategy_version": "position-lifecycle-us-v1-rc1",
             }, self._meta(path)
         if path == "/readyz":
-            return {"status": "ok", "database_ok": True}, self._meta(path)
+            return {
+                "status": "ok",
+                "database_ok": True,
+                "us_strategy_version": "position-lifecycle-us-v1-rc1",
+            }, self._meta(path)
         if path == "/meta/integrations":
             return [{"name": "kis_market_data", "configured": True}], self._meta(path)
         if path == "/meta/signal-data-quality":
@@ -1406,6 +1587,90 @@ class FakeReadOnlyApi:
                 "qualified_count": 0,
                 "pending_count": 0,
                 "entered_today_count": 0,
+                "items": [],
+            }, self._meta(path)
+        if path == "/us/market/quant-signals":
+            universe_as_of = self._us_universe_as_of()
+            return {
+                "status": "ready",
+                "data_state": "ready",
+                "strategy_version": "position-lifecycle-us-v1-rc1",
+                "baseline_strategy_version": "us-momentum-watch-v1",
+                "rollout_mode": "shadow",
+                "execution_enabled": False,
+                "stateful_lifecycle_replay_enabled": False,
+                "reentry_runtime_enabled": False,
+                "sector_classification_version": "us-sector-etf-cik-v3",
+                "sector_classification_error_count": 0,
+                "confirmed_count": 0,
+                "preliminary_count": 0,
+                "entry_pending_count": 0,
+                "new_entries_allowed": True,
+                "snapshot_id": (
+                    f"position-lifecycle-us-v1-rc1:{universe_as_of}:fixture"
+                ),
+                "snapshot_checksum": "canonical-fixture-checksum",
+                "universe_data_state": "ready",
+                "universe_count": 100,
+                "evaluated_count": 100,
+                "data_coverage_count": 100,
+                "signal_eligible_count": 98,
+                "insufficient_history_count": 2,
+                "universe_as_of": universe_as_of,
+                "universe_checksum": "fixture-checksum",
+                "coverage": {
+                    "universe_count": 100,
+                    "evaluated_count": 100,
+                    "data_coverage_count": 100,
+                    "signal_eligible_count": 98,
+                    "insufficient_history_count": 2,
+                    "history_error_count": 0,
+                    "sector_classification_error_count": 0,
+                    "coverage_percent": 100.0,
+                    "complete": True,
+                },
+                "methodology": [
+                    "분할·배당 수정 OHLC를 사용합니다.",
+                    "SPY·QQQ 시장 국면을 확인합니다.",
+                    "USD 거래대금 참여도를 확인합니다.",
+                ],
+                "items": [],
+            }, self._meta(path)
+        if path == "/us/market/recommendations":
+            universe_as_of = self._us_universe_as_of()
+            return {
+                "status": "ready",
+                "data_state": "ready",
+                "strategy_version": "position-lifecycle-us-v1-rc1",
+                "baseline_strategy_version": "us-momentum-watch-v1",
+                "sector_classification_version": "us-sector-etf-cik-v3",
+                "rollout_mode": "shadow",
+                "execution_enabled": False,
+                "stateful_lifecycle_replay_enabled": False,
+                "reentry_runtime_enabled": False,
+                "new_entries_allowed": True,
+                "snapshot_id": (
+                    f"position-lifecycle-us-v1-rc1:{universe_as_of}:fixture"
+                ),
+                "snapshot_checksum": "canonical-fixture-checksum",
+                "universe_count": 100,
+                "evaluated_count": 100,
+                "data_coverage_count": 100,
+                "signal_eligible_count": 98,
+                "insufficient_history_count": 2,
+                "universe_as_of": universe_as_of,
+                "coverage": {
+                    "universe_count": 100,
+                    "evaluated_count": 100,
+                    "data_coverage_count": 100,
+                    "signal_eligible_count": 98,
+                    "insufficient_history_count": 2,
+                    "history_error_count": 0,
+                    "sector_classification_error_count": 0,
+                    "coverage_percent": 100.0,
+                    "complete": True,
+                },
+                "candidate_count": 0,
                 "items": [],
             }, self._meta(path)
         if path == "/stocks/005930":
@@ -1655,6 +1920,109 @@ def test_live_recommendation_contract_accepts_redacted_entered_today_evidence(
 
 
 @pytest.mark.qa_live
+def test_live_us_contract_blocks_mismatched_canonical_snapshot_identity(
+    monkeypatch,
+) -> None:
+    from app.qa import runner
+
+    class MismatchedUsSnapshotApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/us/market/recommendations":
+                payload = {**payload, "snapshot_checksum": "different-checksum"}
+            return payload, meta
+
+    FakeReadOnlyApi.quality_price_state = "ready"
+    monkeypatch.setattr(runner, "ReadOnlyApi", MismatchedUsSnapshotApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    by_id = {item["id"]: item for item in report["checks"]}
+
+    assert by_id["SIG-US-CONTRACT-001"]["status"] == "fail"
+    assert "different-checksum" in json.dumps(
+        by_id["SIG-US-CONTRACT-001"]["evidence"]
+    )
+    assert report["deployment_blocked"] is True
+
+
+@pytest.mark.qa_live
+@pytest.mark.parametrize("with_pending", [False, True])
+def test_live_us_contract_fails_closed_for_incomplete_coverage(
+    monkeypatch,
+    with_pending: bool,
+) -> None:
+    from app.qa import runner
+
+    class IncompleteUsCoverageApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path not in {
+                "/us/market/quant-signals",
+                "/us/market/recommendations",
+            }:
+                return payload, meta
+            payload = {
+                **payload,
+                "status": "degraded",
+                "data_state": "degraded",
+                "new_entries_allowed": False,
+                "data_coverage_count": 99,
+                "coverage": {
+                    **dict(payload.get("coverage") or {}),
+                    "data_coverage_count": 99,
+                    "coverage_percent": 99.0,
+                    "complete": False,
+                },
+            }
+            if path == "/us/market/quant-signals":
+                payload["entry_pending_count"] = 1 if with_pending else 0
+                payload["items"] = (
+                    [
+                        {
+                            "code": "AAPL",
+                            "currency": "USD",
+                            "status": "preliminary",
+                            "is_preliminary": True,
+                            "market_cap_rank": 1,
+                            "current": {
+                                "action": "entry_pending",
+                                "position_open": False,
+                                "model_exposure_percent": 0,
+                            },
+                        }
+                    ]
+                    if with_pending
+                    else []
+                )
+            elif with_pending:
+                payload["items"] = [
+                    {
+                        "code": "AAPL",
+                        "action": "관심 매수후보",
+                        "ai_trade_signal": {
+                            "current": {"action": "entry_pending"}
+                        },
+                    }
+                ]
+            return payload, meta
+
+    FakeReadOnlyApi.quality_price_state = "ready"
+    monkeypatch.setattr(runner, "ReadOnlyApi", IncompleteUsCoverageApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    by_id = {item["id"]: item for item in report["checks"]}
+
+    if with_pending:
+        assert by_id["SIG-US-CONTRACT-001"]["status"] == "fail"
+        assert report["deployment_blocked"] is True
+    else:
+        assert by_id["SIG-US-CONTRACT-001"]["status"] == "pass"
+        assert by_id["DATA-US-EVIDENCE-001"]["status"] == "warn"
+        assert "SIG-US-CONTRACT-001" not in report["summary"]["p0_failures"]
+
+@pytest.mark.qa_live
 def test_live_report_blocks_stale_core_price(monkeypatch) -> None:
     from app.qa import runner
 
@@ -1845,9 +2213,7 @@ def test_live_report_blocks_nonholding_signal_outside_recent_window(monkeypatch)
 def test_cli_writes_gate_json_report(tmp_path: Path) -> None:
     output = tmp_path / "gate.json"
     junit = tmp_path / "pytest.xml"
-    junit.write_text(
-        '<testsuite tests="700" failures="0" errors="0" skipped="0"/>', encoding="utf-8"
-    )
+    _write_pytest_junit(junit, _all_mapped_pytest_testcases())
     result = CliRunner().invoke(
         app,
         [

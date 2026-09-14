@@ -140,6 +140,12 @@ def test_us_stock_ai_analysis_keeps_cent_prices_and_usd_money_labels():
         "trading_value_change": 6.46,
     }
     dashboard["valuation"] = {**dashboard["valuation"], "pbr_zscore": 0.4}
+    dashboard["flows"] = {
+        "stock_dollar_volume_change": 4.25,
+        "sector_etf_dollar_volume_change": 1.75,
+        "etf_symbol": "XLK",
+        "proxy_notice": "투자자 순매수가 아닌 거래대금 프록시",
+    }
 
     payload = build_stock_ai_analysis(dashboard)
     summary_and_strategy = " ".join([payload["summary"], *payload["strategy"]])
@@ -150,6 +156,9 @@ def test_us_stock_ai_analysis_keeps_cent_prices_and_usd_money_labels():
     assert "B이고 변화율" in " ".join(payload["key_points"])
     assert payload["trade_levels"]["buy_low"] != round(payload["trade_levels"]["buy_low"])
     assert "억원" not in " ".join(payload["key_points"])
+    assert "개별 거래대금 변화 +4.25%" in " ".join(payload["key_points"])
+    assert "외국인" not in " ".join(payload["key_points"])
+    assert "기관" not in " ".join(payload["key_points"])
     validated = StockAIAnalysisOut.model_validate(payload)
     assert validated.trade_levels is not None
     assert isinstance(validated.trade_levels.buy_low, float)

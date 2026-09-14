@@ -20,6 +20,11 @@
   const stagingUsStockCode = stagingUsStockMatch ? decodeURIComponent(stagingUsStockMatch[1]) : "";
   const stagingUsMarketContext = Boolean(stagingUsStockMatch && !/^\d{6}$/.test(stagingUsStockCode))
     || (stagingUsHubContext && stagingMarketScope === "us");
+  const stagingUsesUsMarketLabels = () => {
+    if (stagingUsStockMatch && !/^\d{6}$/.test(stagingUsStockCode)) return true;
+    const activeScope = document.body?.dataset.marketScope;
+    return stagingUsHubContext && (activeScope === "us" || (!activeScope && stagingMarketScope === "us"));
+  };
   const stagingRootPath = stagingDashboardRootContext ? "/dashboard" : (stagingUsHubContext ? "/us" : "/dashboard");
   const stagingStockRoute = (code) => (
     stagingUsHubContext
@@ -3962,7 +3967,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260913-recommendation-overview-v109`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260914-us-signal-integrity-v110`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -6134,7 +6139,7 @@
       if (stagingUsHubContext) intro.classList.add("has-market-toggle");
       intro.setAttribute("aria-labelledby", "staging-ai-signals-title");
       intro.innerHTML = `
-        <span>${stagingUsMarketContext ? "미국 대표 대형주에서" : "시총 Top 100 에서"}</span>
+        <span data-staging-ai-market-eyebrow>${stagingUsesUsMarketLabels() ? "미국 대표 대형주에서" : "시총 Top 100 에서"}</span>
         <h2 id="staging-ai-signals-title">AI는 무엇을 사고 팔까?</h2>
         ${stagingUsHubContext ? `
           <nav class="staging-hot-community-market-toggle staging-ai-signal-market-toggle" data-ai-signal-market-toggle role="group" aria-label="AI 시그널 시장 선택" data-market-toggle-style="compact">
@@ -6145,11 +6150,15 @@
       `;
       modeTabs.insertAdjacentElement("beforebegin", intro);
     }
+    const marketEyebrow = aiSignalsView.querySelector("[data-staging-ai-market-eyebrow]");
+    if (marketEyebrow) {
+      marketEyebrow.textContent = stagingUsesUsMarketLabels() ? "미국 대표 대형주에서" : "시총 Top 100 에서";
+    }
     const stageLabels = {
       all: "전체",
       "buy-holding": "매수 확정",
       "recent-sell": "매도 확정",
-      "preliminary-buy": stagingUsMarketContext ? "예비 매수" : "매수 대기",
+      "preliminary-buy": "매수 후보",
       "preliminary-sell": "매도 대기",
     };
     for (const tab of aiSignalsView.querySelectorAll("[data-ai-signal-stage]")) {
@@ -7771,8 +7780,8 @@
     if (/^전량 매도/.test(label)) return "전량 매도 확정";
     if (/^확정 매수/.test(label)) return "매수 확정";
     if (/^확정 매도/.test(label)) return "전량 매도 확정";
-    if (/^예비 포착/.test(label)) return stagingUsMarketContext ? "예비 포착" : "매수 관찰";
-    if (/^예비 매수/.test(label)) return stagingUsMarketContext ? "예비 매수" : "매수 대기";
+    if (/^예비 포착/.test(label)) return stagingUsesUsMarketLabels() ? "예비 포착" : "매수 관찰";
+    if (/^예비 매수/.test(label)) return stagingUsesUsMarketLabels() ? "예비 매수" : "매수 대기";
     if (/^예비 매도/.test(label)) return "매도 대기";
     if (/매수 조건 해제/.test(label)) return "매수 해제";
     if (/매도 조건 해제/.test(label)) return "매도 해제";
@@ -7807,9 +7816,10 @@
       identity?.querySelector(".staging-ai-code")?.remove();
 
       const state = headline.querySelector(".home-ai-signal-state");
-      if (state && !state.dataset.stagingFullLabel) {
-        state.dataset.stagingFullLabel = state.textContent.trim();
-        state.textContent = compactAiSignalLabel(state.textContent);
+      if (state) {
+        const fullLabel = state.dataset.stagingFullLabel || state.textContent.trim();
+        state.dataset.stagingFullLabel = fullLabel;
+        state.textContent = compactAiSignalLabel(fullLabel);
       }
 
       const status = headline.querySelector(".home-ai-signal-status");

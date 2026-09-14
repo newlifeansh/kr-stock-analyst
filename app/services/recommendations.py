@@ -1011,6 +1011,19 @@ def build_recommendations(
                 )
             ]
 
+        # A live dashboard can temporarily omit accumulated trading value.
+        # Preserve the complete daily-price fallback used to select the
+        # candidate instead of publishing a verified recommendation with a
+        # blank liquidity value.
+        candidate_by_code = {
+            str(item.get("code") or ""): item for item in candidates
+        }
+        for item in scored:
+            code = str(item.get("code") or "")
+            fallback = candidate_by_code.get(code) or {}
+            if not item.get("trading_value"):
+                item["trading_value"] = fallback.get("trading_value")
+
         # Live enrichment runs in isolated sessions and can be temporarily
         # unavailable. Keep the verified price-based candidate instead of
         # returning an empty recommendation list while that source recovers.

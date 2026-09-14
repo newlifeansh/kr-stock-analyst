@@ -366,8 +366,16 @@ def build_stock_ai_analysis(dashboard: dict[str, Any]) -> dict[str, object]:
     three_month = _num(momentum.get("three_month_return"))
     value_change = _num(momentum.get("trading_value_change"))
     sentiment_score = _num(sentiment.get("score"))
-    foreign_intensity = _num(flows.get("foreign_intensity"))
-    institution_intensity = _num(flows.get("institution_intensity"))
+    foreign_intensity = _num(
+        flows.get("stock_dollar_volume_change")
+        if is_us
+        else flows.get("foreign_intensity")
+    )
+    institution_intensity = _num(
+        flows.get("sector_etf_dollar_volume_change")
+        if is_us
+        else flows.get("institution_intensity")
+    )
     per_z = _num(valuation.get("per_zscore"))
     pbr_z = _num(valuation.get("pbr_zscore"))
     profit_growth = _num(surprise.get("operating_profit_growth"))

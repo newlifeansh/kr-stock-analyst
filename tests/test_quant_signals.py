@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+import hashlib
+import json
 
 from fastapi.testclient import TestClient
 import pytest
@@ -318,6 +320,41 @@ def _strategy_test_inputs(count: int = 90):
             }
         )
     return bars, indicators
+
+
+def test_shared_lifecycle_indicator_core_matches_v742_domestic_golden_vector():
+    """Freeze the pre-extraction v7.4.2 feature vector byte-for-byte."""
+
+    start = date(2025, 10, 1)
+    bars = []
+    for index in range(90):
+        trend = 95.0 + (index * 0.37)
+        close = trend + (((index % 11) - 5) * 0.23)
+        open_price = close * (1 + (((index % 5) - 2) * 0.0015))
+        high = max(open_price, close) + 0.8 + ((index % 3) * 0.07)
+        low = min(open_price, close) - 0.75 - ((index % 4) * 0.05)
+        volume = 750_000 + ((index % 17) * 41_000)
+        bars.append(
+            quant_signals.PriceBar(
+                trade_date=start + timedelta(days=index),
+                open=open_price,
+                high=high,
+                low=low,
+                close=close,
+                volume=volume,
+                trading_value=close * volume,
+            )
+        )
+
+    normalized = [
+        {key: round(value, 12) for key, value in sorted(row.items())}
+        for row in quant_signals._indicator_rows(bars)
+    ]
+    digest = hashlib.sha256(
+        json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+    assert digest == "6b4b33e1fd2de01b6be73f539f69f717ef935ee1a885361a648ac3949f9559b5"
 
 
 def _set_entry_indicator(indicator):
@@ -2959,6 +2996,11 @@ def test_market_quant_signal_feed_admits_only_qualified_extended_candidate(monke
         quant_signals,
         "load_entry_evidence_timeline",
         lambda *_args, **_kwargs: {current_date: {}},
+    )
+    monkeypatch.setattr(
+        quant_signals,
+        "is_korea_market_session_date",
+        lambda target, _now=None: target == current_date,
     )
 
     def signal_payload(stock, _rows, **_kwargs):
