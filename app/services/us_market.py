@@ -49,6 +49,7 @@ US_FX_TTL_SECONDS = 300
 US_SECTOR_OPEN_TTL_SECONDS = 30
 US_SECTOR_CLOSED_TTL_SECONDS = 300
 US_HEADERS = {"User-Agent": "Mozilla/5.0"}
+YAHOO_OHLC_BOUND_TOLERANCE = Decimal("0.0025")
 NEW_YORK_TZ = ZoneInfo("America/New_York")
 KOREA_TZ = ZoneInfo("Asia/Seoul")
 
@@ -1633,6 +1634,14 @@ def _chart_price_rows(
         raw_high = _to_decimal(_list_get(quote.get("high") or [], index))
         raw_low = _to_decimal(_list_get(quote.get("low") or [], index))
         volume = _list_get(quote.get("volume") or [], index)
+        bound_tolerance = (
+            max(raw_open, raw_close) * YAHOO_OHLC_BOUND_TOLERANCE
+            if raw_open is not None
+            and raw_open > 0
+            and raw_close is not None
+            and raw_close > 0
+            else Decimal("0")
+        )
         adjusted_ohlc_complete = bool(
             adjusted_close is not None
             and adjusted_close > 0
@@ -1641,10 +1650,16 @@ def _chart_price_rows(
             and raw_open is not None
             and raw_open > 0
             and raw_high is not None
-            and raw_high >= max(raw_open, raw_close)
+            and raw_high > 0
             and raw_low is not None
             and raw_low > 0
-            and raw_low <= min(raw_open, raw_close)
+            and raw_high >= raw_low
+            # Yahoo occasionally publishes an official open a few basis points
+            # outside the reported high/low. Keep rejecting material geometry
+            # errors while accepting that bounded provider rounding drift; the
+            # normalized row below clamps the final high/low around OHLC.
+            and raw_high + bound_tolerance >= max(raw_open, raw_close)
+            and raw_low - bound_tolerance <= min(raw_open, raw_close)
             and volume is not None
             and int(volume) > 0
         )

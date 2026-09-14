@@ -93,6 +93,49 @@ def test_signal_chart_rows_fail_closed_without_adjusted_complete_ohlcv():
 
 
 @pytest.mark.parametrize(
+    ("open_price", "high", "low", "close"),
+    [
+        (416.010009765625, 424.45001220703125, 416.0199890136719, 418.010009765625),
+        (119.62999725341797, 121.2249984741211, 119.75, 120.93000030517578),
+        (107.08999633789062, 109.41999816894531, 107.20500183105469, 108.58999633789062),
+        (254.27999877929688, 258.45001220703125, 254.64500427246094, 257.489990234375),
+    ],
+)
+def test_signal_chart_rows_accept_bounded_yahoo_open_range_drift(
+    open_price,
+    high,
+    low,
+    close,
+):
+    result = {
+        "meta": {},
+        "timestamp": [1789401600],
+        "indicators": {
+            "quote": [{
+                "open": [open_price],
+                "high": [high],
+                "low": [low],
+                "close": [close],
+                "volume": [1_000],
+            }],
+            "adjclose": [{"adjclose": [close]}],
+        },
+    }
+
+    _meta, rows = us_market._chart_price_rows(
+        "TEST",
+        result,
+        limit=10,
+        require_adjusted_ohlc=True,
+    )
+
+    assert len(rows) == 1
+    assert rows[0].adjusted_ohlc_complete is True
+    assert rows[0].high >= max(rows[0].open, rows[0].close)
+    assert rows[0].low <= min(rows[0].open, rows[0].close)
+
+
+@pytest.mark.parametrize(
     ("open_price", "high", "low", "close", "adjusted_close"),
     [
         (100.0, 99.0, 90.0, 100.0, 50.0),
