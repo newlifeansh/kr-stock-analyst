@@ -3967,7 +3967,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260915-recommendation-data-details-v113`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260915-recommendation-data-details-v114`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -4931,7 +4931,14 @@
     } else {
       addQuickMetric("추천 순위", `#${item.rank || "-"}`);
     }
-    addQuickMetric("공개 판단 근거", `${formatNumber(publicReasonCount)}개`);
+    if (publicReasonCount > 0) {
+      addQuickMetric("공개 판단 근거", `${formatNumber(publicReasonCount)}개`);
+    } else {
+      addQuickMetric(
+        "확인한 자료",
+        supportiveCount !== null ? `${formatNumber(supportiveCount)}개` : "확인 중",
+      );
+    }
     addQuickMetric("지금 판단", customerState.label);
     lead?.remove();
     (verdict || scoreTrack || heroHead)?.insertAdjacentElement("afterend", quickMetrics);

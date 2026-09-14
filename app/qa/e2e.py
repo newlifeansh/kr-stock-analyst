@@ -6262,7 +6262,7 @@ def run_e2e_checks(
                     or contract.get("visibleOperatorWords") is not False
                     or contract.get("scoreNow") != "69.01"
                     or contract.get("scoreLevel") != "추천 기준 통과"
-                    or contract.get("quickMetrics") != ["69점", "89점", "신규 매수 대기"]
+                    or contract.get("quickMetrics") != ["69점", "2개", "신규 매수 대기"]
                     or contract.get("journeyStage") != "신규 매수 대기"
                     or "지금 새로 살지·보유할지·팔지를" not in str(contract.get("independence") or "")
                     or "공개 시장 데이터를 기준" not in str(contract.get("source") or "")
