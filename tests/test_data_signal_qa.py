@@ -85,6 +85,17 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
     assert service_update["priority"] == "P1"
     assert service_update["inputs"]["popup_enabled"] is False
     assert service_update["inputs"]["notification_prompt_blocked"] is False
+    watch_timeline = next(case for case in payload["cases"] if case["id"] == "SIG-UI-025")
+    assert watch_timeline["priority"] == "P0"
+    assert (
+        watch_timeline["inputs"]["timeline"]["control"]
+        == "semantic_input_range_with_full_track_pointer_scrub"
+    )
+    assert watch_timeline["inputs"]["timeline"]["pointer"] == [
+        "touch_horizontal_drag",
+        "mouse_horizontal_drag",
+        "full_track_tap",
+    ]
     assert all(case["priority"] in {"P0", "P1", "P2"} for case in payload["cases"])
 
 
@@ -1023,7 +1034,10 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "장전·장중·시간외·장 마감 상태 계약" in source
     assert "직전 정규장 마감 기준" in source
     assert "timeline.hasHistory && timeline.latestMinutes > timeline.openMinutes" in source
-    assert "page.mouse.move" in source
+    assert '"Input.dispatchTouchEvent"' in source
+    assert "window.__qaTimelinePointerTypes?.includes('touch')" in source
+    assert "dataset.lastInteraction === 'drag'" in source
+    assert "zone?.dataset.lastInteraction === 'tap'" in source
     assert 'timeline["session"] != "미국 정규장 · 뉴욕시간"' in source
     assert 'timeline["openLabel"] != "09:30"' in source
     assert 'timeline["closeLabel"] != "16:00"' in source

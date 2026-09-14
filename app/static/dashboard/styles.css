@@ -43202,7 +43202,15 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
 #home-view .watch-market-map-timeline-input-zone {
   position: absolute;
   inset: 0 auto 0 0;
-  min-width: 22px;
+  min-width: 44px;
+  cursor: ew-resize;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#home-view .watch-market-map-timeline-input-zone[data-disabled="true"] {
+  cursor: default;
 }
 
 #home-view #watch-market-map-timeline-track {
@@ -43216,7 +43224,7 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   cursor: ew-resize;
   appearance: none;
   -webkit-appearance: none;
-  touch-action: pan-y;
+  pointer-events: none;
 }
 
 #home-view #watch-market-map-timeline-track::-webkit-slider-runnable-track {

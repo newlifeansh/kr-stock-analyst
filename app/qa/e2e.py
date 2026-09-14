@@ -8832,22 +8832,114 @@ def run_e2e_checks(
                         {"slider_box": slider_box},
                     )
                 drag_y = slider_box["y"] + slider_box["height"] / 2
-                page.mouse.move(slider_box["x"] + slider_box["width"] - 3, drag_y)
-                page.mouse.down()
-                page.mouse.move(
-                    slider_box["x"] + slider_box["width"] * 0.35,
-                    drag_y,
-                    steps=8,
+                drag_start_x = slider_box["x"] + slider_box["width"] - 3
+                drag_end_x = slider_box["x"] + slider_box["width"] * 0.35
+                page.evaluate(
+                    """() => {
+                      window.__qaTimelinePointerTypes = [];
+                      document.querySelector('#watch-market-map-timeline-input-zone')
+                        ?.addEventListener('pointerdown', event => {
+                          window.__qaTimelinePointerTypes.push(event.pointerType);
+                        }, {once: true});
+                    }"""
                 )
-                page.mouse.up()
+                cdp = page.context.new_cdp_session(page)
+                try:
+                    cdp.send(
+                        "Input.dispatchTouchEvent",
+                        {
+                            "type": "touchStart",
+                            "touchPoints": [{"x": drag_start_x, "y": drag_y}],
+                        },
+                    )
+                    for step in range(1, 9):
+                        progress = step / 8
+                        cdp.send(
+                            "Input.dispatchTouchEvent",
+                            {
+                                "type": "touchMove",
+                                "touchPoints": [
+                                    {
+                                        "x": drag_start_x + (drag_end_x - drag_start_x) * progress,
+                                        "y": drag_y,
+                                    }
+                                ],
+                            },
+                        )
+                    cdp.send(
+                        "Input.dispatchTouchEvent",
+                        {"type": "touchEnd", "touchPoints": []},
+                    )
+                finally:
+                    cdp.detach()
                 page.wait_for_function(
                     """() => {
                       const value = Number(document.querySelector('#watch-market-map-timeline-track')?.value);
-                      return value > 570 && value < 765;
+                      return value > 570
+                        && value < 765
+                        && window.__qaTimelinePointerTypes?.includes('touch')
+                        && document.querySelector('#watch-market-map-timeline-input-zone')?.dataset.pointerState === 'idle'
+                        && document.querySelector('#watch-market-map-timeline-input-zone')?.dataset.lastPointerType === 'touch'
+                        && document.querySelector('#watch-market-map-timeline-input-zone')?.dataset.lastInteraction === 'drag';
                     }""",
                     timeout=2000,
                 )
                 pointer_drag_snapshot = timeline_bubble_snapshot()
+                pointer_drag_snapshot["pointerTypes"] = page.evaluate(
+                    "() => [...(window.__qaTimelinePointerTypes || [])]"
+                )
+                pointer_drag_snapshot["pointerControl"] = page.evaluate(
+                    """() => {
+                      const zone = document.querySelector('#watch-market-map-timeline-input-zone');
+                      return {
+                        state: zone?.dataset.pointerState,
+                        pointerType: zone?.dataset.lastPointerType,
+                        interaction: zone?.dataset.lastInteraction,
+                        touchAction: getComputedStyle(zone).touchAction,
+                        trackPointerEvents: getComputedStyle(
+                          document.querySelector('#watch-market-map-timeline-track')
+                        ).pointerEvents,
+                      };
+                    }"""
+                )
+                tap_x = slider_box["x"] + slider_box["width"] * 0.72
+                cdp = page.context.new_cdp_session(page)
+                try:
+                    cdp.send(
+                        "Input.dispatchTouchEvent",
+                        {
+                            "type": "touchStart",
+                            "touchPoints": [{"x": tap_x, "y": drag_y}],
+                        },
+                    )
+                    cdp.send(
+                        "Input.dispatchTouchEvent",
+                        {"type": "touchEnd", "touchPoints": []},
+                    )
+                finally:
+                    cdp.detach()
+                page.wait_for_function(
+                    """() => {
+                      const value = Number(document.querySelector('#watch-market-map-timeline-track')?.value);
+                      const zone = document.querySelector('#watch-market-map-timeline-input-zone');
+                      return value > 700
+                        && value < 730
+                        && zone?.dataset.lastPointerType === 'touch'
+                        && zone?.dataset.lastInteraction === 'tap';
+                    }""",
+                    timeout=2000,
+                )
+                pointer_tap_snapshot = timeline_bubble_snapshot()
+                pointer_tap_snapshot["pointerControl"] = page.evaluate(
+                    """() => {
+                      const zone = document.querySelector('#watch-market-map-timeline-input-zone');
+                      return {
+                        state: zone?.dataset.pointerState,
+                        pointerType: zone?.dataset.lastPointerType,
+                        interaction: zone?.dataset.lastInteraction,
+                      };
+                    }"""
+                )
                 slider.focus()
                 page.keyboard.press("End")
                 page.wait_for_function(
@@ -9264,6 +9356,7 @@ def run_e2e_checks(
                         "before_open": before_open_snapshot,
                         "keyboard_end": timeline_latest_snapshot,
                         "pointer_drag": pointer_drag_snapshot,
+                        "pointer_tap": pointer_tap_snapshot,
                     },
                     "color_intensity_steps": {
                         "positive": sorted(positive_colors),

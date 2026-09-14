@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260914v537"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260914v538"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -192,6 +192,11 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         "function watchMarketMapEntriesAtTimeline",
         "function renderWatchMarketMapTimeline",
         "function handleWatchMarketMapTimelineInput",
+        "function watchMarketMapTimelineMinuteFromClientX",
+        "function setWatchMarketMapTimelineAtClientX",
+        "function handleWatchMarketMapTimelinePointerDown",
+        "function handleWatchMarketMapTimelinePointerMove",
+        "function finishWatchMarketMapTimelinePointerGesture",
         "function watchMarketMapCanonicalTradeDate",
         "function watchMarketMapZonedEpoch",
         "function normalizeWatchMarketMapIntraday",
@@ -215,6 +220,10 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         '? `/us/stocks/${code}/intraday?range=1d&interval=1m`',
         ': `/stocks/${code}/intraday?limit=390`;',
         'elements.watchMarketMapTimelineTrack?.addEventListener("input", handleWatchMarketMapTimelineInput);',
+        '"pointerdown",\n  handleWatchMarketMapTimelinePointerDown,',
+        '"pointermove",\n  handleWatchMarketMapTimelinePointerMove,',
+        '"pointerup",\n  finishWatchMarketMapTimelinePointerGesture,',
+        'elements.watchMarketMapTimelineInputZone?.addEventListener("pointercancel"',
         'elements.watchMarketMapTimelineTrack.disabled = !timeline.hasHistory',
         'usesPreviousSession: Boolean(latestSeriesDateKey && latestSeriesDateKey !== currentDateKey)',
         '직전 정규장 ${isLatest ? "마감" : "선택 시세"} 기준',
@@ -258,6 +267,9 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         '[data-market-state="preopen"]',
         "#watch-market-map-timeline-track::-webkit-slider-thumb",
         "#watch-market-map-timeline-track:focus-visible",
+        ".watch-market-map-timeline-input-zone[data-disabled=\"true\"]",
+        "min-width: 44px;",
+        "pointer-events: none;",
         ".watch-market-map-sheet::backdrop",
         ".watch-market-map-sheet-row:focus-visible",
         "@media (max-width: 359px)",
@@ -327,6 +339,7 @@ eval(functionSource("watchMarketMapPhysicsConfig", "watchMarketMapMotionKey"));
 eval(functionSource("watchMarketMapTimeParts", "watchMarketMapSessionState"));
 eval(functionSource("watchMarketMapSessionState", "watchMarketMapTimelineSnapshot"));
 eval(functionSource("watchMarketMapTimelineSnapshot", "renderWatchMarketMapTimeline"));
+eval(functionSource("watchMarketMapTimelineMinuteFromClientX", "setWatchMarketMapTimelineAtClientX"));
 const result = (code, marketScope, marketCap, changeRate = 0, asOf = null) => ({
   item: { code, market_scope: marketScope },
   dashboard: {
@@ -542,6 +555,14 @@ const usWeekend = watchMarketMapTimelineRange(
   "us",
   new Date("2026-09-13T23:00:00-04:00"),
 );
+const pointerMinutes = {
+  before: watchMarketMapTimelineMinuteFromClientX(0, 20, 350, 570, 960),
+  start: watchMarketMapTimelineMinuteFromClientX(20, 20, 350, 570, 960),
+  middle: watchMarketMapTimelineMinuteFromClientX(195, 20, 350, 570, 960),
+  end: watchMarketMapTimelineMinuteFromClientX(370, 20, 350, 570, 960),
+  after: watchMarketMapTimelineMinuteFromClientX(500, 20, 350, 570, 960),
+  invalid: watchMarketMapTimelineMinuteFromClientX(195, 20, 0, 570, 960),
+};
 console.log(JSON.stringify({
   krOrder: krEntries.map((entry) => entry.item.code),
   usOrder: usEntries.map((entry) => entry.item.code),
@@ -552,6 +573,7 @@ console.log(JSON.stringify({
   outside,
   responsiveSafe,
   singleBubbleReadable,
+  pointerMinutes,
   timelineLatestMinutes: timelineAtTen.latestMinutes,
   timelineSelectedMinutes: timelineAtTen.selectedMinutes,
   intradayReturnsAtTen: Object.fromEntries(entriesAtTen.map(entry => [
@@ -643,6 +665,14 @@ console.log(JSON.stringify({
         "outside": False,
         "responsiveSafe": True,
         "singleBubbleReadable": True,
+        "pointerMinutes": {
+            "before": 570,
+            "start": 570,
+            "middle": 765,
+            "end": 960,
+            "after": 960,
+            "invalid": None,
+        },
         "timelineLatestMinutes": 720,
         "timelineSelectedMinutes": 600,
         "intradayReturnsAtTen": {"SLOW": -0.5, "FAST": 4, "FLAT": 0},
@@ -682,7 +712,7 @@ console.log(JSON.stringify({
                 "state": "preopen",
                 "status": "장전",
                 "label": "9.9 뉴욕 16:00 직전 정규장 마감 기준",
-                "description": "정규장은 09:30에 시작해요. 타임바를 좌우로 옮기면 9.9 정규장 흐름을 볼 수 있어요.",
+                "description": "정규장은 09:30에 시작해요. 타임바를 누르거나 좌우로 끌면 9.9 정규장 흐름을 볼 수 있어요.",
                 "dateKey": "2026-09-09",
                 "hasHistory": True,
                 "latest": 960,
@@ -713,6 +743,147 @@ console.log(JSON.stringify({
                 "latest": 960,
             },
         },
+    }
+
+
+def test_watchlist_timeline_pointer_scrub_handles_touch_drag_tap_and_vertical_scroll():
+    script = r'''
+const fs = require("fs");
+const source = fs.readFileSync("app/static/dashboard/app.js", "utf8");
+function functionSource(name, nextName) {
+  const start = source.indexOf(`function ${name}(`);
+  const end = source.indexOf(`function ${nextName}(`, start + 1);
+  if (start < 0 || end < 0) throw new Error(`${name} not found`);
+  return source.slice(start, end);
+}
+const WATCH_MARKET_MAP_TIMELINE_DRAG_THRESHOLD_PX = 6;
+const watchMarketMapTimelinePointerGesture = {
+  pointerId: null, pointerType: "", startX: 0, startY: 0,
+  active: false, vertical: false,
+};
+const updates = [];
+let capturedPointer = null;
+const zone = {
+  dataset: {},
+  getBoundingClientRect: () => ({left: 20, width: 350}),
+  setPointerCapture: pointerId => { capturedPointer = pointerId; },
+  hasPointerCapture: pointerId => capturedPointer === pointerId,
+  releasePointerCapture: pointerId => {
+    if (capturedPointer === pointerId) capturedPointer = null;
+  },
+};
+const track = {
+  disabled: false,
+  min: "570",
+  max: "960",
+  value: "960",
+  focusCalls: 0,
+  focus() { this.focusCalls += 1; },
+};
+const elements = {
+  watchMarketMapTimelineInputZone: zone,
+  watchMarketMapTimelineTrack: track,
+};
+function handleWatchMarketMapTimelineInput(event, options = {}) {
+  updates.push({value: Number(event.currentTarget.value), announce: options.announce === true});
+}
+function pointerEvent(pointerId, pointerType, clientX, clientY) {
+  return {
+    pointerId, pointerType, clientX, clientY, isPrimary: true, button: 0,
+    cancelable: true,
+    prevented: false,
+    preventDefault() { this.prevented = true; },
+  };
+}
+eval(functionSource("watchMarketMapTimelineMinuteFromClientX", "setWatchMarketMapTimelineAtClientX"));
+eval(functionSource("setWatchMarketMapTimelineAtClientX", "resetWatchMarketMapTimelinePointerGesture"));
+eval(functionSource("resetWatchMarketMapTimelinePointerGesture", "handleWatchMarketMapTimelinePointerDown"));
+eval(functionSource("handleWatchMarketMapTimelinePointerDown", "handleWatchMarketMapTimelinePointerMove"));
+eval(functionSource("handleWatchMarketMapTimelinePointerMove", "finishWatchMarketMapTimelinePointerGesture"));
+eval(functionSource("finishWatchMarketMapTimelinePointerGesture", "watchMarketMapTone"));
+
+const dragDown = pointerEvent(1, "touch", 370, 20);
+handleWatchMarketMapTimelinePointerDown(dragDown);
+const updatesAfterDown = updates.length;
+const dragMove = pointerEvent(1, "touch", 195, 21);
+handleWatchMarketMapTimelinePointerMove(dragMove);
+const dragUp = pointerEvent(1, "touch", 195, 21);
+finishWatchMarketMapTimelinePointerGesture(dragUp);
+const drag = {
+  updatesAfterDown,
+  value: Number(track.value),
+  pointerType: zone.dataset.lastPointerType,
+  interaction: zone.dataset.lastInteraction,
+  state: zone.dataset.pointerState,
+  movePrevented: dragMove.prevented,
+  upPrevented: dragUp.prevented,
+  released: capturedPointer === null,
+  announced: updates.at(-1)?.announce,
+};
+
+const tapDown = pointerEvent(2, "touch", 300, 20);
+handleWatchMarketMapTimelinePointerDown(tapDown);
+const tapUp = pointerEvent(2, "touch", 300, 20);
+finishWatchMarketMapTimelinePointerGesture(tapUp);
+const tap = {
+  value: Number(track.value),
+  pointerType: zone.dataset.lastPointerType,
+  interaction: zone.dataset.lastInteraction,
+  announced: updates.at(-1)?.announce,
+};
+
+const updatesBeforeVertical = updates.length;
+const valueBeforeVertical = Number(track.value);
+const verticalDown = pointerEvent(3, "touch", 250, 20);
+handleWatchMarketMapTimelinePointerDown(verticalDown);
+const verticalMove = pointerEvent(3, "touch", 252, 80);
+handleWatchMarketMapTimelinePointerMove(verticalMove);
+const verticalUp = pointerEvent(3, "touch", 252, 80);
+finishWatchMarketMapTimelinePointerGesture(verticalUp);
+const vertical = {
+  valueUnchanged: Number(track.value) === valueBeforeVertical,
+  updatesUnchanged: updates.length === updatesBeforeVertical,
+  interaction: zone.dataset.lastInteraction,
+  movePrevented: verticalMove.prevented,
+  upPrevented: verticalUp.prevented,
+};
+
+console.log(JSON.stringify({drag, tap, vertical, focusCalls: track.focusCalls}));
+'''
+    completed = subprocess.run(
+        ["node", "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "drag": {
+            "updatesAfterDown": 0,
+            "value": 765,
+            "pointerType": "touch",
+            "interaction": "drag",
+            "state": "idle",
+            "movePrevented": True,
+            "upPrevented": True,
+            "released": True,
+            "announced": True,
+        },
+        "tap": {
+            "value": 882,
+            "pointerType": "touch",
+            "interaction": "tap",
+            "announced": True,
+        },
+        "vertical": {
+            "valueUnchanged": True,
+            "updatesUnchanged": True,
+            "interaction": "scroll",
+            "movePrevented": False,
+            "upPrevented": False,
+        },
+        "focusCalls": 3,
     }
 
 

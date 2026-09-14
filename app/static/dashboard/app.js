@@ -1186,6 +1186,15 @@ const WATCH_MARKET_MAP_SESSIONS = Object.freeze({
     closeLabel: "16:00",
   }),
 });
+const WATCH_MARKET_MAP_TIMELINE_DRAG_THRESHOLD_PX = 6;
+const watchMarketMapTimelinePointerGesture = {
+  pointerId: null,
+  pointerType: "",
+  startX: 0,
+  startY: 0,
+  active: false,
+  vertical: false,
+};
 const STOCK_ETF_NAME_PREFIXES = Object.freeze([
   "1Q", "ACE", "ARIRANG", "BNK", "DAISHIN", "DS", "FOCUS", "HANARO", "HEROES", "HK",
   "IBK", "KCGI", "KBSTAR", "KINDEX", "KIWOOM", "KOACT", "KODEX", "KOSEF", "MIGHTY",
@@ -20844,13 +20853,13 @@ function watchMarketMapTimelineRange(
   }
   const description = timelineSnapshot.sessionState === "preopen"
     ? pointCount
-      ? `정규장은 ${timelineSnapshot.openLabel}에 시작해요. 타임바를 좌우로 옮기면 ${dateLabel} 정규장 흐름을 볼 수 있어요.`
+      ? `정규장은 ${timelineSnapshot.openLabel}에 시작해요. 타임바를 누르거나 좌우로 끌면 ${dateLabel} 정규장 흐름을 볼 수 있어요.`
       : `정규장은 ${timelineSnapshot.openLabel}에 시작해요. 직전 정규장 시간별 시세를 불러오지 못했어요.`
     : timelineSnapshot.sessionState === "regular"
-      ? "장중이에요. 타임바를 좌우로 옮기면 시각별 등락률을 볼 수 있어요."
+      ? "장중이에요. 타임바를 누르거나 좌우로 끌면 시각별 등락률을 볼 수 있어요."
       : timelineSnapshot.sessionState === "afterhours"
-        ? "정규장은 마감됐고 현재 시간외 거래 중이에요. 타임바를 좌우로 옮기면 정규장 흐름을 볼 수 있어요."
-        : "현재 장이 마감됐어요. 타임바를 좌우로 옮기면 최근 장중 등락률을 볼 수 있어요.";
+        ? "정규장은 마감됐고 현재 시간외 거래 중이에요. 타임바를 누르거나 좌우로 끌면 정규장 흐름을 볼 수 있어요."
+        : "현재 장이 마감됐어요. 타임바를 누르거나 좌우로 끌면 최근 장중 등락률을 볼 수 있어요.";
   state.watchMarketMapTimelineLatestMinutes = latestMinutes;
   return {
     ...timelineSnapshot,
@@ -20963,6 +20972,9 @@ function renderWatchMarketMapTimeline(entries = [], timeline = watchMarketMapTim
   elements.watchMarketMapTimelineTrack.value = String(timeline.selectedMinutes);
   elements.watchMarketMapTimelineTrack.disabled = !timeline.hasHistory
     || state.watchMarketMapTimelineLoading;
+  elements.watchMarketMapTimelineInputZone.dataset.disabled = String(
+    elements.watchMarketMapTimelineTrack.disabled,
+  );
   elements.watchMarketMapTimelineTrack.setAttribute("aria-label", `${timeline.sessionLabel} ${timeline.statusLabel}, 수익률 기준 시각`);
   elements.watchMarketMapTimelineTrack.setAttribute("aria-valuetext", timeline.label);
   elements.watchMarketMapTimelineInputZone.style.width = `${Math.max(1.5, Math.min(100, timeline.latestProgress))}%`;
@@ -21001,6 +21013,146 @@ function handleWatchMarketMapTimelineInput(event, options = {}) {
   );
   if (event?.currentTarget) event.currentTarget.value = String(state.watchMarketMapTimelineMinutes);
   scheduleWatchMarketMapTimelineRender({ announce: options.announce === true });
+}
+
+function watchMarketMapTimelineMinuteFromClientX(clientX, left, width, minimum, maximum) {
+  const position = Number(clientX);
+  const start = Number(left);
+  const availableWidth = Number(width);
+  const lower = Number(minimum);
+  const upper = Number(maximum);
+  if (
+    !Number.isFinite(position)
+    || !Number.isFinite(start)
+    || !Number.isFinite(availableWidth)
+    || availableWidth <= 0
+    || !Number.isFinite(lower)
+    || !Number.isFinite(upper)
+    || upper < lower
+  ) {
+    return null;
+  }
+  const progress = Math.max(0, Math.min(1, (position - start) / availableWidth));
+  return Math.round(lower + (upper - lower) * progress);
+}
+
+function setWatchMarketMapTimelineAtClientX(clientX, options = {}) {
+  const zone = elements.watchMarketMapTimelineInputZone;
+  const track = elements.watchMarketMapTimelineTrack;
+  if (!zone || !track || track.disabled) return false;
+  const bounds = zone.getBoundingClientRect();
+  const minute = watchMarketMapTimelineMinuteFromClientX(
+    clientX,
+    bounds.left,
+    bounds.width,
+    track.min,
+    track.max,
+  );
+  if (minute === null) return false;
+  track.value = String(minute);
+  handleWatchMarketMapTimelineInput(
+    { currentTarget: track },
+    { announce: options.announce === true },
+  );
+  return true;
+}
+
+function resetWatchMarketMapTimelinePointerGesture() {
+  watchMarketMapTimelinePointerGesture.pointerId = null;
+  watchMarketMapTimelinePointerGesture.pointerType = "";
+  watchMarketMapTimelinePointerGesture.startX = 0;
+  watchMarketMapTimelinePointerGesture.startY = 0;
+  watchMarketMapTimelinePointerGesture.active = false;
+  watchMarketMapTimelinePointerGesture.vertical = false;
+}
+
+function handleWatchMarketMapTimelinePointerDown(event) {
+  const zone = elements.watchMarketMapTimelineInputZone;
+  const track = elements.watchMarketMapTimelineTrack;
+  if (
+    !zone
+    || !track
+    || track.disabled
+    || event.isPrimary === false
+    || (event.pointerType === "mouse" && event.button !== 0)
+  ) {
+    return;
+  }
+  resetWatchMarketMapTimelinePointerGesture();
+  watchMarketMapTimelinePointerGesture.pointerId = event.pointerId;
+  watchMarketMapTimelinePointerGesture.pointerType = event.pointerType || "unknown";
+  watchMarketMapTimelinePointerGesture.startX = event.clientX;
+  watchMarketMapTimelinePointerGesture.startY = event.clientY;
+  zone.dataset.pointerState = "pending";
+  if (event.pointerType !== "touch") {
+    watchMarketMapTimelinePointerGesture.active = true;
+    zone.dataset.pointerState = "dragging";
+    zone.setPointerCapture?.(event.pointerId);
+    track.focus({ preventScroll: true });
+    setWatchMarketMapTimelineAtClientX(event.clientX);
+    if (event.cancelable) event.preventDefault();
+  }
+}
+
+function handleWatchMarketMapTimelinePointerMove(event) {
+  const zone = elements.watchMarketMapTimelineInputZone;
+  const track = elements.watchMarketMapTimelineTrack;
+  const gesture = watchMarketMapTimelinePointerGesture;
+  if (!zone || !track || gesture.pointerId !== event.pointerId) return;
+  if (!gesture.active && !gesture.vertical) {
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    if (Math.hypot(deltaX, deltaY) < WATCH_MARKET_MAP_TIMELINE_DRAG_THRESHOLD_PX) return;
+    if (Math.abs(deltaY) > Math.abs(deltaX)) {
+      gesture.vertical = true;
+      zone.dataset.pointerState = "scrolling";
+      return;
+    }
+    gesture.active = true;
+    zone.dataset.pointerState = "dragging";
+    zone.setPointerCapture?.(event.pointerId);
+    track.focus({ preventScroll: true });
+  }
+  if (!gesture.active) return;
+  if (event.cancelable) event.preventDefault();
+  setWatchMarketMapTimelineAtClientX(event.clientX);
+}
+
+function finishWatchMarketMapTimelinePointerGesture(event, options = {}) {
+  const zone = elements.watchMarketMapTimelineInputZone;
+  const track = elements.watchMarketMapTimelineTrack;
+  const gesture = watchMarketMapTimelinePointerGesture;
+  if (!zone || !track || gesture.pointerId !== event.pointerId) return;
+  const canceled = options.canceled === true;
+  const distance = Math.hypot(
+    event.clientX - gesture.startX,
+    event.clientY - gesture.startY,
+  );
+  const tapped = !canceled
+    && !gesture.vertical
+    && !gesture.active
+    && distance < WATCH_MARKET_MAP_TIMELINE_DRAG_THRESHOLD_PX;
+  const committed = !canceled && (gesture.active || tapped);
+  if (committed) {
+    if (event.cancelable) event.preventDefault();
+    track.focus({ preventScroll: true });
+    setWatchMarketMapTimelineAtClientX(event.clientX, { announce: true });
+  }
+  if (zone.hasPointerCapture?.(event.pointerId)) {
+    zone.releasePointerCapture?.(event.pointerId);
+  }
+  zone.dataset.pointerState = "idle";
+  zone.dataset.lastPointerType = gesture.pointerType;
+  zone.dataset.lastInteraction = canceled
+    ? "cancel"
+    : gesture.vertical
+      ? "scroll"
+      : gesture.active
+        ? "drag"
+        : tapped
+          ? "tap"
+          : "none";
+  resetWatchMarketMapTimelinePointerGesture();
 }
 
 function watchMarketMapTone(changeRate) {
@@ -30560,6 +30712,21 @@ elements.watchMarketMapSheet?.addEventListener("click", (event) => {
 elements.watchMarketMapTimelineTrack?.addEventListener("input", handleWatchMarketMapTimelineInput);
 elements.watchMarketMapTimelineTrack?.addEventListener("change", (event) => {
   handleWatchMarketMapTimelineInput(event, { announce: true });
+});
+elements.watchMarketMapTimelineInputZone?.addEventListener(
+  "pointerdown",
+  handleWatchMarketMapTimelinePointerDown,
+);
+elements.watchMarketMapTimelineInputZone?.addEventListener(
+  "pointermove",
+  handleWatchMarketMapTimelinePointerMove,
+);
+elements.watchMarketMapTimelineInputZone?.addEventListener(
+  "pointerup",
+  finishWatchMarketMapTimelinePointerGesture,
+);
+elements.watchMarketMapTimelineInputZone?.addEventListener("pointercancel", (event) => {
+  finishWatchMarketMapTimelinePointerGesture(event, { canceled: true });
 });
 for (const tab of elements.watchlistContentTabs) {
   tab.addEventListener("click", () => setWatchlistContentTab(tab.dataset.watchContentTab, { load: true }));
