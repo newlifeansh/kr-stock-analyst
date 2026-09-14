@@ -432,7 +432,7 @@ def test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed():
             "snapshot_checksum": "feed-checksum",
             "strategy_version": "position-lifecycle-us-v1-rc1",
             "baseline_strategy_version": "us-momentum-watch-v1",
-            "sector_classification_version": "us-sector-etf-cik-v3",
+            "sector_classification_version": "us-sector-etf-cik-v4",
             "rollout_mode": "shadow",
             "execution_enabled": False,
             "stateful_lifecycle_replay_enabled": False,
@@ -481,7 +481,7 @@ def test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed():
     assert payload["insufficient_history_count"] == 2
     assert payload["strategy_version"] == "position-lifecycle-us-v1-rc1"
     assert payload["baseline_strategy_version"] == "us-momentum-watch-v1"
-    assert payload["sector_classification_version"] == "us-sector-etf-cik-v3"
+    assert payload["sector_classification_version"] == "us-sector-etf-cik-v4"
     assert payload["stateful_lifecycle_replay_enabled"] is False
     assert payload["reentry_runtime_enabled"] is False
     assert payload["items"][0]["code"] == "NVDA"
