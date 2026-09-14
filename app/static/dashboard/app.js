@@ -26535,6 +26535,17 @@ function recommendationPublicReasons(item = {}) {
   const signal = item.ai_trade_signal && typeof item.ai_trade_signal === "object"
     ? item.ai_trade_signal
     : {};
+  const source = Array.isArray(signal.public_reasons)
+    ? signal.public_reasons
+    : Array.isArray(item.public_reasons)
+      ? item.public_reasons
+      : [];
+  const hasSafeUnavailableReasons = source.length === 3
+    && source.every((reason, index) => (
+      reason
+      && String(reason.key || "") === ["trend_20d", "trend_60d", "flow"][index]
+      && (reason.available === false || String(reason.state || "").toLowerCase() === "unavailable")
+    ));
   if (
     marketScopeForItem(item) === "us"
     && !(
@@ -26542,14 +26553,10 @@ function recommendationPublicReasons(item = {}) {
       && isCanonicalUsSnapshotReady(signal)
       && canonicalUsSnapshotIdentityMatches(item, signal)
     )
+    && !hasSafeUnavailableReasons
   ) {
     return [];
   }
-  const source = Array.isArray(signal.public_reasons)
-    ? signal.public_reasons
-    : Array.isArray(item.public_reasons)
-      ? item.public_reasons
-      : [];
   return source
     .filter((reason) => reason && ["trend_20d", "trend_60d", "flow"].includes(String(reason.key || "")))
     .slice(0, 3);

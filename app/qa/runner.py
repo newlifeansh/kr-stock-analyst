@@ -1682,6 +1682,11 @@ def _live_checks(
             )
             items = feed.get("items") or []
             _assert(isinstance(items, list), "미국 시그널 items가 배열이 아닙니다.")
+            public_candidate_ready = bool(
+                feed.get("status") == "ready"
+                and feed.get("data_state") == "ready"
+                and feed.get("new_entries_allowed") is True
+            )
             invalid_items: list[str] = []
             entry_pending_count = 0
             for item in items:
@@ -1698,7 +1703,7 @@ def _live_checks(
                 if (
                     item.get("currency") != "USD"
                     or item.get("status") != "preliminary"
-                    or item.get("is_preliminary") is not True
+                    or item.get("is_preliminary") is not public_candidate_ready
                     or current_signal.get("position_open") is not False
                     or current_signal.get("model_exposure_percent") not in (0, 0.0, "0", "0.0", None)
                     or not 1 <= rank <= 100
@@ -1926,20 +1931,26 @@ def _live_checks(
                 if not isinstance(item, dict):
                     continue
                 reasons = item.get("public_reasons")
-                if (
-                    not isinstance(reasons, list)
-                    or [reason.get("key") for reason in reasons if isinstance(reason, dict)]
-                    != ["trend_20d", "trend_60d", "flow"]
-                    or any(
-                        not isinstance(reason, dict)
-                        or reason.get("available") is not True
-                        for reason in reasons
+                valid_keys = isinstance(reasons, list) and [
+                    reason.get("key") for reason in reasons if isinstance(reason, dict)
+                ] == ["trend_20d", "trend_60d", "flow"]
+                availability_valid = bool(
+                    valid_keys
+                    and (
+                        all(reason.get("available") is True for reason in reasons)
+                        if entry_ready
+                        else all(
+                            reason.get("available") is False
+                            and str(reason.get("state") or "").lower() == "unavailable"
+                            for reason in reasons
+                        )
                     )
-                ):
+                )
+                if not availability_valid:
                     invalid_public_reasons.append(str(item.get("code") or "unknown"))
             _assert(
                 not invalid_public_reasons,
-                "미국 공개 근거가 20일·60일·거래대금 세 개의 준비된 근거가 아닙니다.",
+                "미국 공개 근거가 ready 여부에 맞는 20일·60일·거래대금 세 근거가 아닙니다.",
                 invalid_codes=invalid_public_reasons,
             )
             result = {

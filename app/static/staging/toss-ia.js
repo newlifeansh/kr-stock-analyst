@@ -3967,7 +3967,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260915-recommendation-data-details-v112`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260915-recommendation-data-details-v113`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }

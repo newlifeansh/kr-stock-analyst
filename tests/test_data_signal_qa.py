@@ -2022,6 +2022,83 @@ def test_live_us_contract_fails_closed_for_incomplete_coverage(
         assert by_id["DATA-US-EVIDENCE-001"]["status"] == "warn"
         assert "SIG-US-CONTRACT-001" not in report["summary"]["p0_failures"]
 
+
+@pytest.mark.qa_live
+def test_live_us_contract_accepts_fail_closed_stale_public_items(monkeypatch) -> None:
+    from app.qa import runner
+
+    unavailable_reasons = [
+        {
+            "key": key,
+            "label": label,
+            "state": "unavailable",
+            "summary": f"{label} 자료를 확인하고 있습니다.",
+            "available": False,
+        }
+        for key, label in (
+            ("trend_20d", "20일"),
+            ("trend_60d", "60일"),
+            ("flow", "거래대금 참여도"),
+        )
+    ]
+    signal = {
+        "code": "IBM",
+        "currency": "USD",
+        "status": "preliminary",
+        "is_preliminary": False,
+        "market_cap_rank": 64,
+        "public_reasons": unavailable_reasons,
+        "current": {
+            "action": "no_signal",
+            "label": "관망",
+            "position_open": False,
+            "model_exposure_percent": 0,
+        },
+    }
+
+    class StaleUsSnapshotApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path not in {
+                "/us/market/quant-signals",
+                "/us/market/recommendations",
+            }:
+                return payload, meta
+            payload = {
+                **payload,
+                "status": "degraded",
+                "data_state": "stale",
+                "new_entries_allowed": False,
+            }
+            if path == "/us/market/quant-signals":
+                payload["items"] = [signal]
+                payload["preliminary_count"] = 1
+                payload["entry_pending_count"] = 0
+            else:
+                payload["items"] = [
+                    {
+                        "code": "IBM",
+                        "currency": "USD",
+                        "action": "관망",
+                        "ai_trade_signal": signal,
+                    }
+                ]
+                payload["candidate_count"] = 1
+            return payload, meta
+
+    FakeReadOnlyApi.quality_price_state = "ready"
+    monkeypatch.setattr(runner, "ReadOnlyApi", StaleUsSnapshotApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    by_id = {item["id"]: item for item in report["checks"]}
+
+    assert by_id["SIG-US-VERSION-001"]["status"] == "pass"
+    assert by_id["SIG-US-CONTRACT-001"]["status"] == "pass"
+    assert by_id["SIG-UI-022"]["status"] == "pass"
+    assert by_id["DATA-US-EVIDENCE-001"]["status"] == "warn"
+    assert report["deployment_blocked"] is False
+
 @pytest.mark.qa_live
 def test_live_report_blocks_stale_core_price(monkeypatch) -> None:
     from app.qa import runner
