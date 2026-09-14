@@ -2797,7 +2797,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20260914v540' in shell
+    assert 'dashboard-app-v170.js?v=20260914v541' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 
@@ -2837,6 +2837,17 @@ def test_staging_event_detail_uses_scan_first_scenarios_and_disclosures():
         "@media (prefers-reduced-motion: reduce)",
     ):
         assert expected in rules
+
+
+def test_staging_us_recommendation_detail_uses_public_evidence_when_scores_are_redacted():
+    client = TestClient(staging_app)
+    staging_js = client.get("/assets/staging/toss-ia.js").text
+
+    assert "item?.ai_trade_signal?.public_reasons" in staging_js
+    assert "const usePublicReasonsForScores =" in staging_js
+    assert "addQuickMetric(label, summary)" in staging_js
+    assert "scoreTrack.hidden = true" in staging_js
+    assert 'scoreTrack.setAttribute("aria-hidden", "true")' in staging_js
 
 
 def test_staging_stock_quote_uses_reference_hierarchy_and_orderability_status():

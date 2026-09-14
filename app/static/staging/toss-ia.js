@@ -4871,12 +4871,17 @@
     }
     const scoreTrack = document.createElement("div");
     scoreTrack.className = "staging-recommend-detail-score-track";
-    scoreTrack.setAttribute("role", "progressbar");
-    scoreTrack.setAttribute("aria-label", "추천 점수");
-    scoreTrack.setAttribute("aria-valuemin", "0");
-    scoreTrack.setAttribute("aria-valuemax", "100");
-    scoreTrack.setAttribute("aria-valuenow", Number.isFinite(score) ? String(Math.max(0, Math.min(100, score))) : "0");
-    scoreTrack.style.setProperty("--staging-recommend-score", `${Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0}%`);
+    if (Number.isFinite(score)) {
+      scoreTrack.setAttribute("role", "progressbar");
+      scoreTrack.setAttribute("aria-label", "추천 점수");
+      scoreTrack.setAttribute("aria-valuemin", "0");
+      scoreTrack.setAttribute("aria-valuemax", "100");
+      scoreTrack.setAttribute("aria-valuenow", String(Math.max(0, Math.min(100, score))));
+      scoreTrack.style.setProperty("--staging-recommend-score", `${Math.max(0, Math.min(100, score))}%`);
+    } else {
+      scoreTrack.hidden = true;
+      scoreTrack.setAttribute("aria-hidden", "true");
+    }
     scoreTrack.appendChild(document.createElement("span"));
     heroHead?.insertAdjacentElement("afterend", scoreTrack);
 
@@ -4892,8 +4897,29 @@
       metric.append(term, description);
       quickMetrics.appendChild(metric);
     };
-    addQuickMetric("추천 점수", Number.isFinite(score) ? `${formatNumber(score)}점` : "확인 중");
-    addQuickMetric("AI 판단 점수", Number.isFinite(signalScore) ? `${formatNumber(signalScore)}점` : "확인 중");
+    const publicReasons = Array.isArray(item?.ai_trade_signal?.public_reasons)
+      ? item.ai_trade_signal.public_reasons.filter((reason) => (
+        reason
+        && reason.available !== false
+        && typeof reason.summary === "string"
+        && reason.summary.trim()
+      ))
+      : [];
+    const usePublicReasonsForScores = !Number.isFinite(score)
+      && !Number.isFinite(signalScore)
+      && publicReasons.length > 0;
+    if (usePublicReasonsForScores) {
+      for (const reason of publicReasons) {
+        const label = typeof reason.label === "string" && reason.label.trim()
+          ? reason.label.trim()
+          : "공개 근거";
+        const summary = recommendationDetailFriendlyText(reason.summary.trim());
+        addQuickMetric(label, summary);
+      }
+    } else {
+      addQuickMetric("추천 점수", Number.isFinite(score) ? `${formatNumber(score)}점` : "확인 중");
+      addQuickMetric("AI 판단 점수", Number.isFinite(signalScore) ? `${formatNumber(signalScore)}점` : "확인 중");
+    }
     addQuickMetric("지금 판단", customerState.label);
     lead?.remove();
     (verdict || scoreTrack).insertAdjacentElement("afterend", quickMetrics);
