@@ -1012,6 +1012,154 @@ def test_market_ai_preliminary_candidates_are_labeled_and_deduplicated_separatel
         db.close()
 
 
+def test_us_market_ai_signal_candidates_emit_ready_close_entry_pending(monkeypatch):
+    db = _session()
+    try:
+        refresh_after = datetime(2026, 7, 28, 20, 15, tzinfo=timezone.utc)
+        monkeypatch.setattr(
+            web_push,
+            "us_signal_session_state",
+            lambda _now=None: {
+                "refresh_after": refresh_after,
+                "latest_completed_date": datetime(2026, 7, 28).date(),
+            },
+        )
+        monkeypatch.setattr(
+            web_push,
+            "load_us_position_lifecycle_snapshot",
+            lambda *_args, **_kwargs: {
+                "status": "ready",
+                "data_state": "ready",
+                "new_entries_allowed": True,
+                "execution_enabled": False,
+                "snapshot_id": "position-lifecycle-us-v1-rc1:2026-07-28:abc123",
+                "snapshot_checksum": "a" * 64,
+                "universe_as_of": "2026-07-28",
+                "items": [
+                    {
+                        "code": "nvda",
+                        "name": "NVIDIA",
+                        "status": "preliminary",
+                        "is_preliminary": True,
+                        "signal_date": "2026-07-28",
+                        "current": {"action": "entry_pending"},
+                    },
+                    {
+                        "code": "AAPL",
+                        "name": "Apple",
+                        "status": "preliminary",
+                        "is_preliminary": True,
+                        "signal_date": "2026-07-28",
+                        "current": {"action": "entry_watch"},
+                    },
+                    {
+                        "code": "NVDA",
+                        "name": "NVIDIA duplicate",
+                        "status": "preliminary",
+                        "is_preliminary": True,
+                        "signal_date": "2026-07-28",
+                        "current": {"action": "entry_pending"},
+                    },
+                ],
+            },
+        )
+
+        candidates = web_push.WebPushRuntime(_settings())._us_market_ai_signal_candidates(
+            db,
+            datetime(2026, 7, 28, 20, 25, tzinfo=timezone.utc),
+        )
+
+        assert len(candidates) == 1
+        candidate = candidates[0]
+        assert candidate.event_key == "us-market-ai-preliminary:NVDA:buy:2026-07-28"
+        assert candidate.kind == "market_ai_signal"
+        assert candidate.title == "✨ [미국장 예비 매수] NVIDIA"
+        assert "미국 정규장 마감 데이터 기준 예비 신호" in candidate.body
+        assert "확정 매매 신호가 아니므로" in candidate.body
+        assert candidate.url == "/us/stock/NVDA?market_scope=us"
+        assert candidate.tag == "us-market-ai-signal-NVDA"
+    finally:
+        db.close()
+
+
+def test_us_market_ai_signal_candidates_fail_closed_outside_fresh_window(monkeypatch):
+    db = _session()
+    try:
+        refresh_after = datetime(2026, 7, 28, 20, 15, tzinfo=timezone.utc)
+        monkeypatch.setattr(
+            web_push,
+            "us_signal_session_state",
+            lambda _now=None: {
+                "refresh_after": refresh_after,
+                "latest_completed_date": datetime(2026, 7, 28).date(),
+            },
+        )
+        monkeypatch.setattr(
+            web_push,
+            "load_us_position_lifecycle_snapshot",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("stale US signal snapshot must not be loaded")
+            ),
+        )
+
+        runtime = web_push.WebPushRuntime(_settings())
+        assert runtime._us_market_ai_signal_candidates(
+            db,
+            refresh_after - timedelta(seconds=1),
+        ) == []
+        assert runtime._us_market_ai_signal_candidates(
+            db,
+            refresh_after + web_push.US_SIGNAL_NOTIFICATION_WINDOW,
+        ) == []
+    finally:
+        db.close()
+
+
+def test_us_market_ai_signal_candidates_require_canonical_ready_snapshot(monkeypatch):
+    db = _session()
+    try:
+        refresh_after = datetime(2026, 7, 28, 20, 15, tzinfo=timezone.utc)
+        monkeypatch.setattr(
+            web_push,
+            "us_signal_session_state",
+            lambda _now=None: {
+                "refresh_after": refresh_after,
+                "latest_completed_date": datetime(2026, 7, 28).date(),
+            },
+        )
+        monkeypatch.setattr(
+            web_push,
+            "load_us_position_lifecycle_snapshot",
+            lambda *_args, **_kwargs: {
+                "status": "degraded",
+                "data_state": "degraded",
+                "new_entries_allowed": False,
+                "execution_enabled": False,
+                "snapshot_id": "position-lifecycle-us-v1-rc1:2026-07-28:abc123",
+                "snapshot_checksum": "a" * 64,
+                "universe_as_of": "2026-07-28",
+                "items": [
+                    {
+                        "code": "NVDA",
+                        "name": "NVIDIA",
+                        "status": "preliminary",
+                        "signal_date": "2026-07-28",
+                        "current": {"action": "entry_pending"},
+                    }
+                ],
+            },
+        )
+
+        candidates = web_push.WebPushRuntime(_settings())._us_market_ai_signal_candidates(
+            db,
+            refresh_after + timedelta(minutes=10),
+        )
+
+        assert candidates == []
+    finally:
+        db.close()
+
+
 def test_signal_notification_history_requires_event_and_receipt_on_same_kst_date():
     received_at = datetime(2026, 7, 29, 14, 46)
 
@@ -1076,6 +1224,30 @@ def test_signal_notification_history_exposes_structured_preliminary_context():
         "market_ai_signal",
         "market-ai-signal:003550:buy:2026-08-13",
     ) is None
+    assert web_push.notification_history_signal_context(
+        "market_ai_signal",
+        "us-market-ai-preliminary:NVDA:buy:2026-08-13",
+    ) == {
+        "code": "NVDA",
+        "side": "buy",
+        "phase": "preliminary",
+        "action": "entry_pending",
+        "event_date": "2026-08-13",
+        "market_scope": "us",
+    }
+
+
+def test_us_signal_notification_history_uses_new_york_event_date():
+    assert web_push.notification_history_is_valid(
+        "market_ai_signal",
+        "us-market-ai-preliminary:NVDA:buy:2026-07-28",
+        datetime(2026, 7, 28, 20, 20),
+    ) is True
+    assert web_push.notification_history_is_valid(
+        "market_ai_signal",
+        "us-market-ai-preliminary:NVDA:buy:2026-07-28",
+        datetime(2026, 7, 29, 20, 20),
+    ) is False
 
 
 def test_market_notification_history_rejects_weekend_events():
@@ -1172,6 +1344,115 @@ def test_market_ai_signal_baseline_blocks_old_events_and_allows_new_events(monke
         assert len(calls) == 1
     finally:
         db.close()
+
+
+def test_us_market_ai_signal_uses_independent_baseline(monkeypatch):
+    db = _session()
+    try:
+        subscription = PushSubscription(
+            share_id="tester",
+            endpoint="https://push.example/subscription",
+            p256dh="p" * 64,
+            auth="a" * 24,
+            notification_preferences='["market_ai_signal"]',
+        )
+        db.add(subscription)
+        db.commit()
+        db.refresh(subscription)
+        runtime = web_push.WebPushRuntime(_settings())
+
+        runtime._mark_market_signal_initialized(db, subscription)
+        db.commit()
+
+        assert runtime._market_signal_initialized(db, subscription) is True
+        assert runtime._us_market_signal_initialized(db, subscription) is False
+
+        existing_candidate = web_push.NotificationCandidate(
+            event_key="us-market-ai-preliminary:NVDA:buy:2026-07-28",
+            kind="market_ai_signal",
+            title="✨ [미국장 예비 매수] NVIDIA",
+            body="알림 설정 전 기존 미국장 신호",
+            url="/us/stock/NVDA?market_scope=us",
+            tag="us-market-ai-signal-NVDA",
+        )
+        runtime._record_candidate_baseline(db, subscription, existing_candidate)
+        runtime._mark_us_market_signal_initialized(db, subscription)
+        db.commit()
+
+        assert runtime._us_market_signal_initialized(db, subscription) is True
+        delivery = db.query(PushDelivery).filter_by(
+            event_key=existing_candidate.event_key
+        ).one()
+        assert delivery.status == "baseline"
+    finally:
+        db.close()
+
+
+def test_run_once_dispatches_new_us_signal_after_independent_baseline(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    push_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    with push_session() as db:
+        db.add(
+            PushSubscription(
+                share_id="tester",
+                endpoint="https://push.example/subscription",
+                p256dh="p" * 64,
+                auth="a" * 24,
+                notification_preferences='["market_ai_signal"]',
+            )
+        )
+        db.commit()
+
+    existing = web_push.NotificationCandidate(
+        event_key="us-market-ai-preliminary:NVDA:buy:2026-07-28",
+        kind="market_ai_signal",
+        title="✨ [미국장 예비 매수] NVIDIA",
+        body="기존 미국장 신호",
+        url="/us/stock/NVDA?market_scope=us",
+        tag="us-market-ai-signal-NVDA",
+    )
+    new = web_push.NotificationCandidate(
+        event_key="us-market-ai-preliminary:AAPL:buy:2026-07-29",
+        kind="market_ai_signal",
+        title="✨ [미국장 예비 매수] Apple",
+        body="새 미국장 신호",
+        url="/us/stock/AAPL?market_scope=us",
+        tag="us-market-ai-signal-AAPL",
+    )
+    batches = [[existing], [new], [new]]
+    payloads = []
+    runtime = web_push.WebPushRuntime(_settings())
+    monkeypatch.setattr(web_push, "PushSessionLocal", push_session)
+    monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda _now=None: False)
+    monkeypatch.setattr(runtime, "_ai_signal_candidates", lambda _db, watchlists, *_args: {key: [] for key in watchlists})
+    monkeypatch.setattr(runtime, "_content_candidates", lambda _db, watchlists, *_args: {key: [] for key in watchlists})
+    monkeypatch.setattr(runtime, "_event_candidates", lambda _db, watchlists, *_args: {key: [] for key in watchlists})
+    monkeypatch.setattr(runtime, "_market_ai_signal_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(runtime, "_us_market_ai_signal_candidates", lambda *_args, **_kwargs: batches.pop(0))
+    monkeypatch.setattr(runtime, "_morning_briefing_candidates", lambda *_args: [])
+    monkeypatch.setattr(runtime, "_market_session_candidates", lambda *_args: [])
+    monkeypatch.setattr(
+        web_push,
+        "webpush",
+        lambda **kwargs: payloads.append(json.loads(kwargs["data"])),
+    )
+
+    assert runtime.run_once() == 0
+    assert payloads == []
+    assert runtime.run_once() == 1
+    assert [payload["title"] for payload in payloads] == [
+        "✨ [미국장 예비 매수] Apple"
+    ]
+    assert runtime.run_once() == 0
+    assert len(payloads) == 1
+
+    with push_session() as db:
+        deliveries = {
+            item.event_key: item.status for item in db.query(PushDelivery).all()
+        }
+    assert deliveries[existing.event_key] == "baseline"
+    assert deliveries[new.event_key] == "sent"
 
 
 def test_ai_signal_candidate_only_emits_a_new_action_for_today(monkeypatch):

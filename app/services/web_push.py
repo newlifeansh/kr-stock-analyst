@@ -11,6 +11,7 @@ import logging
 import re
 from typing import Optional
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from pywebpush import WebPushException, webpush
 from sqlalchemy import delete, select
@@ -46,6 +47,8 @@ from app.services.signal_reconciliations import (
     apply_market_signal_reconciliations,
     apply_stock_signal_reconciliations,
 )
+from app.services.us_market_calendar import us_market_session, us_signal_session_state
+from app.services.us_position_lifecycle import load_us_position_lifecycle_snapshot
 from app.services.trends import (
     _matched_template_sectors,
     _stock_sectors,
@@ -55,6 +58,7 @@ from app.services.trends import (
 
 logger = logging.getLogger(__name__)
 KST = timezone(timedelta(hours=9))
+NEW_YORK_TZ = ZoneInfo("America/New_York")
 NOTIFICATION_HISTORY_RETENTION = timedelta(days=3)
 # A long Web Push TTL lets APNs/FCM hold stale alerts while the device is
 # offline, which then makes several old market events arrive at once. Pushes
@@ -64,6 +68,7 @@ PUSH_DELIVERY_TTL_SECONDS = 120
 # queued by APNs/FCM.  Provider acceptance is not device delivery, so merely
 # sending two pushes in order is insufficient to prevent visible reordering.
 SIGNAL_SUCCESSOR_DELAY = timedelta(seconds=PUSH_DELIVERY_TTL_SECONDS)
+US_SIGNAL_NOTIFICATION_WINDOW = timedelta(hours=2)
 PUSH_DELIVERY_HEADERS = {"Urgency": "high"}
 MONEY_BRIEFING_PUSH_TTL_SECONDS = 5 * 60
 MONEY_BRIEFING_PUSH_WINDOWS = (
@@ -136,6 +141,9 @@ SIGNAL_EVENT_DATE_PATTERN = re.compile(r":(\d{4}-\d{2}-\d{2})$")
 PRICE_EVENT_DATE_PATTERN = re.compile(r"^price:(\d{4}-\d{2}-\d{2}):")
 MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN = re.compile(
     r"^market-ai-preliminary:([^:]+):(buy|sell):(\d{4}-\d{2}-\d{2})$"
+)
+US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN = re.compile(
+    r"^us-market-ai-preliminary:([^:]+):(buy|sell):(\d{4}-\d{2}-\d{2})$"
 )
 WATCHLIST_SIGNAL_EVENT_PATTERN = re.compile(
     r"^ai-signal:([^:]+):"
@@ -221,6 +229,19 @@ def notification_history_signal_context(
 
     if kind not in SIGNAL_NOTIFICATION_KINDS:
         return None
+    us_market_match = US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN.fullmatch(
+        event_key or ""
+    )
+    if us_market_match:
+        code, side, event_date = us_market_match.groups()
+        return {
+            "code": code,
+            "side": side,
+            "phase": "preliminary",
+            "action": "entry_pending" if side == "buy" else "full_exit_pending",
+            "event_date": event_date,
+            "market_scope": "us",
+        }
     market_match = MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN.fullmatch(event_key or "")
     if market_match:
         code, side, event_date = market_match.groups()
@@ -263,6 +284,15 @@ def notification_history_is_valid(
     received_at = created_at
     if received_at.tzinfo is None:
         received_at = received_at.replace(tzinfo=timezone.utc)
+    if US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN.fullmatch(event_key or ""):
+        try:
+            session = us_market_session(event_date)
+        except Exception:
+            return False
+        return bool(
+            session is not None
+            and event_date == received_at.astimezone(NEW_YORK_TZ).date()
+        )
     return event_date.weekday() < 5 and event_date == received_at.astimezone(KST).date()
 
 
@@ -525,6 +555,10 @@ def _ai_signal_candidate(
 
 def _stock_url(name: str) -> str:
     return f"/dashboard/{quote(name, safe='')}"
+
+
+def _us_stock_url(code: str) -> str:
+    return f"/us/stock/{quote(code.upper(), safe='')}?market_scope=us"
 
 
 def _is_important_disclosure(item: DisclosureItem) -> bool:
@@ -1127,6 +1161,98 @@ class WebPushRuntime:
             )
         return candidates
 
+    def _us_market_ai_signal_candidates(
+        self,
+        db: Session,
+        now: Optional[datetime] = None,
+    ) -> list[NotificationCandidate]:
+        """Build fresh US close-signal alerts from the canonical snapshot only."""
+
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None or current.utcoffset() is None:
+            current = current.replace(tzinfo=timezone.utc)
+        current = current.astimezone(timezone.utc)
+        try:
+            session_state = us_signal_session_state(current)
+        except Exception:
+            logger.exception("US signal notification calendar lookup failed")
+            return []
+        refresh_after = session_state.get("refresh_after")
+        if not isinstance(refresh_after, datetime):
+            return []
+        if refresh_after.tzinfo is None or refresh_after.utcoffset() is None:
+            refresh_after = refresh_after.replace(tzinfo=timezone.utc)
+        refresh_after = refresh_after.astimezone(timezone.utc)
+        if not refresh_after <= current < refresh_after + US_SIGNAL_NOTIFICATION_WINDOW:
+            return []
+
+        snapshot = load_us_position_lifecycle_snapshot(db, now=current)
+        if not isinstance(snapshot, dict):
+            return []
+        if (
+            snapshot.get("status") != "ready"
+            or snapshot.get("data_state") != "ready"
+            or snapshot.get("new_entries_allowed") is not True
+            or snapshot.get("execution_enabled") is not False
+            or not str(snapshot.get("snapshot_id") or "").strip()
+            or not str(snapshot.get("snapshot_checksum") or "").strip()
+        ):
+            return []
+
+        signal_date = str(snapshot.get("universe_as_of") or "").strip()
+        latest_completed_date = session_state.get("latest_completed_date")
+        if signal_date != str(latest_completed_date or ""):
+            return []
+
+        candidates: list[NotificationCandidate] = []
+        seen: set[str] = set()
+        for raw_item in snapshot.get("items") or []:
+            if not isinstance(raw_item, dict):
+                continue
+            current_signal = (
+                raw_item.get("current")
+                if isinstance(raw_item.get("current"), dict)
+                else {}
+            )
+            code = str(raw_item.get("code") or "").strip().upper()
+            name = str(raw_item.get("name") or code).strip()
+            item_signal_date = str(raw_item.get("signal_date") or "").strip()
+            preliminary = bool(raw_item.get("is_preliminary")) or (
+                raw_item.get("status") == "preliminary"
+            )
+            if (
+                not code
+                or code in seen
+                or not name
+                or not preliminary
+                or current_signal.get("action") != "entry_pending"
+                or item_signal_date != signal_date
+            ):
+                continue
+            seen.add(code)
+            candidates.append(
+                NotificationCandidate(
+                    event_key=(
+                        f"us-market-ai-preliminary:{code}:buy:{signal_date}"
+                    ),
+                    kind="market_ai_signal",
+                    title=_signal_notification_title(
+                        name,
+                        "미국장 예비 매수",
+                        "preliminary_buy",
+                    ),
+                    body=(
+                        f"{signal_date} 미국 정규장 마감 데이터 기준 예비 신호예요. "
+                        "아직 확정 매매 신호가 아니므로 종목 상세에서 근거를 확인하세요."
+                    ),
+                    url=_us_stock_url(code),
+                    tag=f"us-market-ai-signal-{code}",
+                    occurred_at=current,
+                    stock_codes=(code,),
+                )
+            )
+        return candidates
+
     def _recommendation_snapshot(
         self,
         db: Session,
@@ -1584,6 +1710,45 @@ class WebPushRuntime:
             )
         )
 
+    @staticmethod
+    def _us_market_signal_baseline_marker_key(subscription: PushSubscription) -> str:
+        preference_epoch = (subscription.updated_at or subscription.created_at).isoformat(
+            timespec="microseconds"
+        )
+        return f"us-market-ai-baseline:{subscription.id}:{preference_epoch}"
+
+    def _us_market_signal_initialized(
+        self,
+        db: Session,
+        subscription: PushSubscription,
+    ) -> bool:
+        marker = self._us_market_signal_baseline_marker_key(subscription)
+        return db.scalar(
+            select(PushDelivery.id).where(
+                PushDelivery.subscription_id == subscription.id,
+                PushDelivery.event_key == marker,
+                PushDelivery.status == "baseline",
+            )
+        ) is not None
+
+    def _mark_us_market_signal_initialized(
+        self,
+        db: Session,
+        subscription: PushSubscription,
+    ) -> None:
+        if self._us_market_signal_initialized(db, subscription):
+            return
+        db.add(
+            PushDelivery(
+                subscription_id=subscription.id,
+                event_key=self._us_market_signal_baseline_marker_key(subscription),
+                notification_kind="baseline",
+                title="미국 시장 AI 시그널 알림 기준선",
+                status="baseline",
+                attempts=0,
+            )
+        )
+
     def run_once(self) -> int:
         if not self.configured:
             return 0
@@ -1647,6 +1812,10 @@ class WebPushRuntime:
                     candidates_by_share[share_id].extend(candidates)
 
             market_signal_candidates = self._market_ai_signal_candidates(db, now_kst)
+            us_market_signal_candidates = self._us_market_ai_signal_candidates(
+                db,
+                now_kst.replace(tzinfo=KST).astimezone(timezone.utc),
+            )
             morning_briefing_candidates = self._morning_briefing_candidates(now_kst)
             market_session_candidates = self._market_session_candidates(now_kst)
 
@@ -1673,6 +1842,13 @@ class WebPushRuntime:
                         for candidate in market_signal_candidates:
                             self._record_candidate_baseline(db, subscription, candidate)
                         self._mark_market_signal_initialized(db, subscription)
+                    if self._us_market_signal_initialized(db, subscription):
+                        for candidate in us_market_signal_candidates:
+                            sent += int(self._send(db, subscription, candidate))
+                    else:
+                        for candidate in us_market_signal_candidates:
+                            self._record_candidate_baseline(db, subscription, candidate)
+                        self._mark_us_market_signal_initialized(db, subscription)
                 if (
                     recommendation_snapshot is not None
                     and "recommendation_update" in subscription_conditions(subscription)

@@ -43,6 +43,24 @@ QUOTE_STREAM_META_RE = re.compile(
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-CONTRACT-007": (
+        "tests.test_web_push."
+        "test_us_market_ai_signal_candidates_emit_ready_close_entry_pending",
+        "tests.test_web_push."
+        "test_us_market_ai_signal_candidates_fail_closed_outside_fresh_window",
+        "tests.test_web_push."
+        "test_us_market_ai_signal_candidates_require_canonical_ready_snapshot",
+        "tests.test_web_push."
+        "test_us_signal_notification_history_uses_new_york_event_date",
+        "tests.test_web_push."
+        "test_us_market_ai_signal_uses_independent_baseline",
+        "tests.test_web_push."
+        "test_run_once_dispatches_new_us_signal_after_independent_baseline",
+        "tests.test_app."
+        "test_market_signal_feed_includes_delivered_preliminary_history",
+        "tests.test_app."
+        "test_push_config_includes_briefing_market_session_and_us_signal_alerts",
+    ),
     "SIG-UI-022": (
         "tests.test_public_signal."
         "test_quant_projection_exposes_only_three_public_reasons_and_keeps_input_immutable",

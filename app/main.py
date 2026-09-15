@@ -278,7 +278,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260915v548"
+DASHBOARD_CLIENT_VERSION = "20260915v549"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -537,7 +537,7 @@ PUSH_CONDITION_OPTIONS = [
     {
         "id": "market_ai_signal",
         "label": "시장 AI 시그널",
-        "description": "시장 종목의 장중 예비·장 마감 확정 신호를 알려드립니다.",
+        "description": "국내장 예비·확정 신호와 미국장 마감 후 예비 매수 신호를 알려드립니다.",
     },
     {
         "id": "recommendation_update",
@@ -3587,6 +3587,8 @@ def _merge_market_preliminary_notification_history(
     for row in rows:
         context = notification_history_signal_context(row.notification_kind, row.event_key)
         if not context or context.get("phase") != "preliminary":
+            continue
+        if context.get("market_scope") == "us":
             continue
         signal_date = context["event_date"]
         if signal_date != event_date:

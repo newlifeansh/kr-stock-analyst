@@ -646,7 +646,7 @@ const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
   {
     id: "market_ai_signal",
     label: "시장 AI 시그널",
-    description: "시장 종목의 장중 예비·장 마감 확정 신호를 알려드립니다.",
+    description: "국내장 예비·확정 신호와 미국장 마감 후 예비 매수 신호를 알려드립니다.",
   },
   {
     id: "recommendation_update",
@@ -671,7 +671,7 @@ const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
 ];
 const PUSH_NOTIFICATION_COMPACT_DESCRIPTIONS = Object.freeze({
   market_session: "장 시작·마감 5분 전",
-  market_ai_signal: "시장 전체 예비·확정 신호",
+  market_ai_signal: "국내·미국 시장 시그널",
   recommendation_update: "상위 10 진입·매매 단계 변경",
   disclosure_report: "중요한 공시·리포트만",
   major_event: "영향 큰 일정이 가까워질 때",

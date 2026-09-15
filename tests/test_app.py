@@ -33,7 +33,7 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["strategy_version"] == "position-lifecycle-v7.4.2"
-    assert response.json()["dashboard_version"] == "20260915v548"
+    assert response.json()["dashboard_version"] == "20260915v549"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -240,7 +240,7 @@ def test_us_and_dashboard_paths_serve_the_unified_market_shell():
     assert 'data-recommend-market-scope="all"' not in response.text
     assert 'data-market-filter="MIXED"' in response.text
     assert 'data-home-ranking-market="NASDAQ"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260915v548"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260915v549"' in response.text
     assert "시장 한눈에" not in response.text
 
 
@@ -941,7 +941,7 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="us-stock-ai-content"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260915v548"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260915v549"' in stock_shell.text
     assert 'src="/assets/staging/toss-ia.js?v=20260915-recommendation-data-details-v114"' in stock_shell.text
     assert "NASDAQ Intelligence" not in stock_shell.text
     assert search_api.status_code == 200
@@ -1210,7 +1210,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260915v548"}
+    assert version.json() == {"version": "20260915v549"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search&market_scope=us")
@@ -1219,9 +1219,9 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert '["/dashboard-sw.js", "/us-sw.js"].includes' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
     assert '["kr", "us"].includes(params.get("market_scope"))' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=${encodeURIComponent(marketScope)}&app_build=20260915v548" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=${encodeURIComponent(marketScope)}&app_build=20260915v549" in refresh.text
     assert 'params.get("market") === "us"' in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260915v548" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260915v549" in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -1234,7 +1234,7 @@ def test_legacy_us_service_worker_retires_its_scope_and_routes_clients_to_curren
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'CURRENT_DASHBOARD_BUILD = "20260915v548"' in worker.text
+    assert 'CURRENT_DASHBOARD_BUILD = "20260915v549"' in worker.text
     assert r"/^secret-note-static-\d{8}us/" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert 'url.pathname.startsWith("/us")' in worker.text
@@ -1587,6 +1587,15 @@ def test_market_signal_feed_includes_delivered_preliminary_history(monkeypatch):
                 ),
                 PushNotificationHistory(
                     share_id=share_id,
+                    event_key=f"us-market-ai-preliminary:NVDA:buy:{signal_date.isoformat()}",
+                    notification_kind="market_ai_signal",
+                    title="✨ [미국장 예비 매수] NVIDIA",
+                    body="미국장 마감 기준 예비 신호입니다.",
+                    url="/us/stock/NVDA?market_scope=us",
+                    created_at=delivered_at,
+                ),
+                PushNotificationHistory(
+                    share_id=share_id,
                     event_key=f"ai-preliminary:005930:buy:{signal_date.isoformat()}",
                     notification_kind="ai_signal",
                     title="삼성전자 AI 시그널 · 예비 매수",
@@ -1608,6 +1617,7 @@ def test_market_signal_feed_includes_delivered_preliminary_history(monkeypatch):
         assert history["003550"]["active"] is True
         assert history["003550"]["first_seen_at"] == f"{signal_date.isoformat()}T09:12:00+09:00"
         assert history["003550"]["last_seen_at"] == f"{signal_date.isoformat()}T13:28:00+09:00"
+        assert "NVDA" not in history
         assert history["078930"]["active"] is False
         assert history["078930"]["name"] == "GS"
         assert history["078930"]["signal"] == "예비 매도"
@@ -1864,7 +1874,7 @@ def test_dashboard_notification_button_opens_notification_page_before_settings()
     assert 'label: "알림 안내", buttonText: "알림", disabled: false' in unsupported_state
 
 
-def test_push_config_includes_morning_briefing_and_korea_market_session_reminders():
+def test_push_config_includes_briefing_market_session_and_us_signal_alerts():
     client = TestClient(app)
 
     response = client.get("/push/config")
@@ -1884,6 +1894,11 @@ def test_push_config_includes_morning_briefing_and_korea_market_session_reminder
         "label": "국내장 시작·마감",
         "description": "국내 정규장 시작과 마감 5분 전에 알려드립니다.",
     }
+    assert options["market_ai_signal"] == {
+        "id": "market_ai_signal",
+        "label": "시장 AI 시그널",
+        "description": "국내장 예비·확정 신호와 미국장 마감 후 예비 매수 신호를 알려드립니다.",
+    }
     assert options["recommendation_update"] == {
         "id": "recommendation_update",
         "label": "추천 업데이트",
@@ -1893,6 +1908,7 @@ def test_push_config_includes_morning_briefing_and_korea_market_session_reminder
     source = client.get("/dashboard-app-v170.js").text
     assert 'id: "morning_briefing"' in source
     assert 'label: "돈이 되는 소식"' in source
+    assert "국내·미국 시장 시그널" in source
     assert "매일 오전 8시·낮 12시·오후 4시" in source
     assert 'morning_briefing: "돈이 되는 소식"' in source
     assert 'id: "recommendation_update"' in source
@@ -2732,7 +2748,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260915v548' in shell
+    assert 'styles.css?v=20260915v549' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -2819,7 +2835,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260915v548"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260915v549"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -2857,7 +2873,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260915v548"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260915v549"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" not in service_worker
