@@ -135,6 +135,177 @@ def test_signal_chart_rows_accept_bounded_yahoo_open_range_drift(
     assert rows[0].low <= min(rows[0].open, rows[0].close)
 
 
+def _provider_lagged_daily_chart():
+    completed_at = int(datetime(2026, 9, 14, 20, 0, tzinfo=UTC).timestamp())
+    return {
+        "meta": {
+            "symbol": "AAPL",
+            "currency": "USD",
+            "instrumentType": "EQUITY",
+        },
+        "timestamp": [completed_at],
+        "indicators": {
+            "quote": [{
+                "open": [100.0],
+                "high": [110.0],
+                "low": [90.0],
+                "close": [None],
+                "volume": [1_234_567],
+            }],
+            "adjclose": [{"adjclose": [None]}],
+        },
+    }
+
+
+def _completed_regular_intraday_chart(*, final_hour: int = 20):
+    return {
+        "meta": {
+            "symbol": "AAPL",
+            "currency": "USD",
+            "instrumentType": "EQUITY",
+        },
+        "timestamp": [
+            int(datetime(2026, 9, 14, 13, 30, tzinfo=UTC).timestamp()),
+            int(datetime(2026, 9, 14, final_hour, 0, tzinfo=UTC).timestamp()),
+        ],
+        "indicators": {
+            "quote": [{
+                "open": [101.0, 104.0],
+                "high": [102.0, 106.0],
+                "low": [100.0, 103.0],
+                "close": [101.0, 105.0],
+                "volume": [10_000, 20_000],
+            }],
+        },
+    }
+
+
+def test_signal_daily_close_repairs_only_null_fields_from_completed_regular_intraday(
+    monkeypatch,
+):
+    daily = _provider_lagged_daily_chart()
+    monkeypatch.setattr(
+        us_market,
+        "_fetch_chart",
+        lambda symbol, **kwargs: _completed_regular_intraday_chart(),
+    )
+
+    repaired = us_market._repair_completed_daily_close_from_intraday(
+        "AAPL",
+        daily,
+        now=datetime(2026, 9, 14, 20, 16, tzinfo=UTC),
+    )
+
+    assert daily["indicators"]["quote"][0]["close"] == [None]
+    assert daily["indicators"]["adjclose"][0]["adjclose"] == [None]
+    assert repaired["indicators"]["quote"][0]["close"] == [105.0]
+    assert repaired["indicators"]["adjclose"][0]["adjclose"] == [105.0]
+    assert repaired["indicators"]["quote"][0]["volume"] == [1_234_567]
+
+
+def test_signal_daily_close_repair_stays_closed_before_publication_grace(monkeypatch):
+    daily = _provider_lagged_daily_chart()
+    monkeypatch.setattr(
+        us_market,
+        "_fetch_chart",
+        lambda *_args, **_kwargs: pytest.fail("forming session must not fetch fallback"),
+    )
+
+    repaired = us_market._repair_completed_daily_close_from_intraday(
+        "AAPL",
+        daily,
+        now=datetime(2026, 9, 14, 20, 14, tzinfo=UTC),
+    )
+
+    assert repaired is daily
+    assert repaired["indicators"]["quote"][0]["close"] == [None]
+
+
+def test_signal_daily_close_repair_requires_intraday_through_official_close(monkeypatch):
+    daily = _provider_lagged_daily_chart()
+    intraday = _completed_regular_intraday_chart(final_hour=19)
+    monkeypatch.setattr(us_market, "_fetch_chart", lambda *_args, **_kwargs: intraday)
+
+    repaired = us_market._repair_completed_daily_close_from_intraday(
+        "AAPL",
+        daily,
+        now=datetime(2026, 9, 14, 20, 16, tzinfo=UTC),
+    )
+
+    assert repaired is daily
+    assert repaired["indicators"]["quote"][0]["close"] == [None]
+
+
+@pytest.mark.parametrize(
+    ("meta_field", "meta_value"),
+    [("symbol", "MSFT"), ("currency", "KRW")],
+)
+def test_signal_daily_close_repair_rejects_mismatched_intraday_metadata(
+    monkeypatch,
+    meta_field,
+    meta_value,
+):
+    daily = _provider_lagged_daily_chart()
+    intraday = _completed_regular_intraday_chart()
+    intraday["meta"][meta_field] = meta_value
+    monkeypatch.setattr(us_market, "_fetch_chart", lambda *_args, **_kwargs: intraday)
+
+    repaired = us_market._repair_completed_daily_close_from_intraday(
+        "AAPL",
+        daily,
+        now=datetime(2026, 9, 14, 20, 16, tzinfo=UTC),
+    )
+
+    assert repaired is daily
+    assert repaired["indicators"]["quote"][0]["close"] == [None]
+
+
+def test_signal_daily_close_repair_rejects_partial_close_pair(monkeypatch):
+    daily = _provider_lagged_daily_chart()
+    daily["indicators"]["adjclose"][0]["adjclose"] = [105.0]
+    monkeypatch.setattr(
+        us_market,
+        "_fetch_chart",
+        lambda *_args, **_kwargs: pytest.fail("partial close pair must not fetch fallback"),
+    )
+
+    repaired = us_market._repair_completed_daily_close_from_intraday(
+        "AAPL",
+        daily,
+        now=datetime(2026, 9, 14, 20, 16, tzinfo=UTC),
+    )
+
+    assert repaired is daily
+    assert repaired["indicators"]["quote"][0]["close"] == [None]
+    assert repaired["indicators"]["adjclose"][0]["adjclose"] == [105.0]
+
+
+def test_signal_chart_range_invokes_completed_daily_close_repair(monkeypatch):
+    daily = _provider_lagged_daily_chart()
+    completed = _provider_lagged_daily_chart()
+    completed["indicators"]["quote"][0]["close"] = [105.0]
+    completed["indicators"]["adjclose"][0]["adjclose"] = [105.0]
+    calls = []
+    monkeypatch.setattr(us_market, "fetch_chart_range", lambda *_args, **_kwargs: daily)
+    monkeypatch.setattr(
+        us_market,
+        "_repair_completed_daily_close_from_intraday",
+        lambda symbol, result: calls.append((symbol, result)) or completed,
+    )
+
+    _meta, rows = us_market.chart_prices_range(
+        "AAPL",
+        range_="2y",
+        interval="1d",
+        require_adjusted_ohlc=True,
+    )
+
+    assert calls == [("AAPL", daily)]
+    assert len(rows) == 1
+    assert rows[0].trade_date == date(2026, 9, 14)
+    assert rows[0].close == Decimal("105.0")
+
+
 @pytest.mark.parametrize(
     ("open_price", "high", "low", "close", "adjusted_close"),
     [

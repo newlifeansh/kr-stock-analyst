@@ -171,6 +171,20 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_market."
         "test_signal_chart_rows_accept_bounded_yahoo_open_range_drift[254.27999877929688-258.45001220703125-254.64500427246094-257.489990234375]",
         "tests.test_us_market."
+        "test_signal_daily_close_repairs_only_null_fields_from_completed_regular_intraday",
+        "tests.test_us_market."
+        "test_signal_daily_close_repair_stays_closed_before_publication_grace",
+        "tests.test_us_market."
+        "test_signal_daily_close_repair_requires_intraday_through_official_close",
+        "tests.test_us_market."
+        "test_signal_daily_close_repair_rejects_mismatched_intraday_metadata[symbol-MSFT]",
+        "tests.test_us_market."
+        "test_signal_daily_close_repair_rejects_mismatched_intraday_metadata[currency-KRW]",
+        "tests.test_us_market."
+        "test_signal_daily_close_repair_rejects_partial_close_pair",
+        "tests.test_us_market."
+        "test_signal_chart_range_invokes_completed_daily_close_repair",
+        "tests.test_us_market."
         "test_signal_chart_range_rejects_non_usd_or_mismatched_instrument[meta0-AAPL]",
         "tests.test_us_market."
         "test_signal_chart_range_rejects_non_usd_or_mismatched_instrument[meta1-AAPL]",

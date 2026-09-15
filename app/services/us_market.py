@@ -4,6 +4,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
@@ -23,7 +24,9 @@ from app.services.public_signal import build_public_signal_reasons
 from app.services.stock_dashboard import _chart_analysis, _rate, _round_decimal
 from app.services.ttl_cache import TTLCache
 from app.services.us_market_calendar import (
+    US_SIGNAL_PUBLICATION_GRACE,
     USMarketCalendarUnavailable,
+    latest_completed_us_market_session,
     us_market_session as official_us_market_session,
 )
 
@@ -1696,6 +1699,155 @@ def chart_prices(symbol: str, refresh: bool = False, limit: int = 250) -> tuple[
     return _chart_price_rows(symbol, result, limit)
 
 
+def _signal_chart_metadata_matches(
+    symbol: str,
+    result: dict[str, object],
+) -> bool:
+    meta = result.get("meta") or {}
+    expected_symbol = _symbol(symbol).replace("-", ".")
+    observed_symbol = _symbol(str(meta.get("symbol") or "")).replace("-", ".")
+    currency = str(meta.get("currency") or "").upper()
+    instrument_type = str(meta.get("instrumentType") or "").upper()
+    return bool(
+        observed_symbol == expected_symbol
+        and currency == "USD"
+        and instrument_type in {"EQUITY", "ETF"}
+    )
+
+
+def _repair_completed_daily_close_from_intraday(
+    symbol: str,
+    result: dict[str, object],
+    *,
+    now: Optional[datetime] = None,
+) -> dict[str, object]:
+    """Fill only a provider-lagged completed-session close from Yahoo 5m bars.
+
+    Some Yahoo edges publish the latest daily timestamp, official open/high/low
+    and volume before close/adjclose. The signal must remain fail-closed during
+    a forming session, so repair is limited to the authoritative latest XNYS
+    session after the existing 15-minute publication grace. All earlier daily
+    bars and the provider's official daily volume remain untouched.
+    """
+
+    if not _signal_chart_metadata_matches(symbol, result):
+        return result
+    timestamps = list(result.get("timestamp") or [])
+    quote = (result.get("indicators", {}).get("quote") or [{}])[0]
+    adjusted = (result.get("indicators", {}).get("adjclose") or [{}])[0]
+    closes = list(quote.get("close") or [])
+    adjusted_closes = list(adjusted.get("adjclose") or [])
+    if not timestamps or len(closes) < len(timestamps):
+        return result
+    last_index = len(timestamps) - 1
+    provider_close = _to_decimal(_list_get(closes, last_index))
+    provider_adjusted_close = _to_decimal(
+        _list_get(adjusted_closes, last_index)
+    )
+    # This fallback is for the observed Yahoo publication state where both
+    # close fields lag together. A partially populated or invalid pair is a
+    # different provider contract and must remain fail-closed.
+    if provider_close is not None or provider_adjusted_close is not None:
+        return result
+
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None or current.utcoffset() is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    try:
+        completed = latest_completed_us_market_session(current)
+    except USMarketCalendarUnavailable:
+        return result
+    daily_timestamp = datetime.fromtimestamp(timestamps[last_index], timezone.utc)
+    daily_date = daily_timestamp.astimezone(NEW_YORK_TZ).date()
+    if (
+        daily_date != completed.session_date
+        or current < completed.close_at + US_SIGNAL_PUBLICATION_GRACE
+    ):
+        return result
+
+    raw_open = _to_decimal(_list_get(quote.get("open") or [], last_index))
+    raw_high = _to_decimal(_list_get(quote.get("high") or [], last_index))
+    raw_low = _to_decimal(_list_get(quote.get("low") or [], last_index))
+    raw_volume = _to_decimal(
+        _list_get(quote.get("volume") or [], last_index)
+    )
+    if (
+        raw_open is None
+        or raw_open <= 0
+        or raw_high is None
+        or raw_high <= 0
+        or raw_low is None
+        or raw_low <= 0
+        or raw_high < raw_low
+        or raw_volume is None
+        or raw_volume <= 0
+    ):
+        return result
+
+    try:
+        intraday = _fetch_chart(
+            symbol,
+            range_="5d",
+            interval="5m",
+            include_prepost=False,
+        )
+    except Exception:
+        return result
+    if not _signal_chart_metadata_matches(symbol, intraday):
+        return result
+    intraday_quote = (intraday.get("indicators", {}).get("quote") or [{}])[0]
+    regular_closes: list[tuple[datetime, Decimal]] = []
+    for index, timestamp in enumerate(intraday.get("timestamp") or []):
+        observed_at = datetime.fromtimestamp(timestamp, timezone.utc)
+        close = _to_decimal(
+            _list_get(intraday_quote.get("close") or [], index)
+        )
+        if (
+            close is not None
+            and close > 0
+            and completed.open_at <= observed_at <= completed.close_at
+        ):
+            regular_closes.append((observed_at, close))
+    if not regular_closes:
+        return result
+    final_at, intraday_close = regular_closes[-1]
+    if final_at < completed.close_at - timedelta(minutes=5):
+        return result
+
+    repaired_close = intraday_close
+    bound_tolerance = max(raw_open, repaired_close) * YAHOO_OHLC_BOUND_TOLERANCE
+    if (
+        raw_high + bound_tolerance < max(raw_open, repaired_close)
+        or raw_low - bound_tolerance > min(raw_open, repaired_close)
+    ):
+        return result
+
+    repaired = deepcopy(result)
+    repaired_indicators = repaired.setdefault("indicators", {})
+    repaired_quotes = repaired_indicators.setdefault("quote", [{}])
+    if not repaired_quotes:
+        repaired_quotes.append({})
+    repaired_close_values = repaired_quotes[0].setdefault(
+        "close", [None] * len(timestamps)
+    )
+    while len(repaired_close_values) < len(timestamps):
+        repaired_close_values.append(None)
+    repaired_close_values[last_index] = float(repaired_close)
+    repaired_adjusted = repaired_indicators.setdefault(
+        "adjclose", [{"adjclose": [None] * len(timestamps)}]
+    )
+    if not repaired_adjusted:
+        repaired_adjusted.append({"adjclose": [None] * len(timestamps)})
+    repaired_adjusted_values = repaired_adjusted[0].setdefault(
+        "adjclose", [None] * len(timestamps)
+    )
+    while len(repaired_adjusted_values) < len(timestamps):
+        repaired_adjusted_values.append(None)
+    repaired_adjusted_values[last_index] = float(repaired_close)
+    return repaired
+
+
 def chart_prices_range(
     symbol: str,
     range_: str,
@@ -1706,17 +1858,10 @@ def chart_prices_range(
 ) -> tuple[dict[str, object], list[USPrice]]:
     result = fetch_chart_range(symbol, range_=range_, interval=interval, refresh=refresh)
     if require_adjusted_ohlc:
-        meta = result.get("meta") or {}
-        expected_symbol = _symbol(symbol).replace("-", ".")
-        observed_symbol = _symbol(str(meta.get("symbol") or "")).replace("-", ".")
-        currency = str(meta.get("currency") or "").upper()
-        instrument_type = str(meta.get("instrumentType") or "").upper()
-        if (
-            observed_symbol != expected_symbol
-            or currency != "USD"
-            or instrument_type not in {"EQUITY", "ETF"}
-        ):
+        if not _signal_chart_metadata_matches(symbol, result):
             raise ValueError("Yahoo signal chart metadata is not a matching USD equity")
+        if interval == "1d":
+            result = _repair_completed_daily_close_from_intraday(symbol, result)
     return _chart_price_rows(
         symbol,
         result,
