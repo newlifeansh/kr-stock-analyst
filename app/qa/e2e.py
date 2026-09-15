@@ -8825,10 +8825,13 @@ def run_e2e_checks(
                     )
 
                 page.set_viewport_size({"width": 390, "height": 844})
-                page.wait_for_timeout(180)
                 timeline_input_zone = page.locator(
                     "#watch-market-map-timeline-input-zone"
                 )
+                timeline_input_zone.evaluate(
+                    "element => element.scrollIntoView({block: 'center', inline: 'nearest'})"
+                )
+                page.wait_for_timeout(180)
                 slider_box = timeline_input_zone.bounding_box()
                 if not slider_box or slider_box["width"] < 44 or slider_box["height"] < 44:
                     raise QaFailure(
@@ -8844,6 +8847,27 @@ def run_e2e_checks(
                     slider_box["x"] + slider_box["width"] - drag_start_inset
                 )
                 drag_end_x = slider_box["x"] + slider_box["width"] * 0.35
+                pointer_hit_target = page.evaluate(
+                    """point => {
+                      const zone = document.querySelector('#watch-market-map-timeline-input-zone');
+                      const target = document.elementFromPoint(point.x, point.y);
+                      return {
+                        tag: target?.tagName || null,
+                        id: target?.id || null,
+                        classes: [...(target?.classList || [])],
+                        insideZone: Boolean(target && zone?.contains(target)),
+                      };
+                    }""",
+                    {"x": drag_start_x, "y": drag_y},
+                )
+                if not pointer_hit_target["insideZone"]:
+                    raise QaFailure(
+                        "타임라인 터치 좌표가 실제 입력 영역에 닿지 않습니다.",
+                        {
+                            "slider_box": slider_box,
+                            "hit_target": pointer_hit_target,
+                        },
+                    )
                 page.evaluate(
                     """() => {
                       window.__qaTimelinePointerTypes = [];
@@ -8912,6 +8936,8 @@ def run_e2e_checks(
                           };
                         }"""
                     )
+                    pointer_timeout["slider_box"] = slider_box
+                    pointer_timeout["hit_target"] = pointer_hit_target
                     raise QaFailure(
                         "타임라인 터치 드래그 상태가 제한 시간 안에 완성되지 않았습니다.",
                         pointer_timeout,
