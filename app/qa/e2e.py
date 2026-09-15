@@ -8826,14 +8826,23 @@ def run_e2e_checks(
 
                 page.set_viewport_size({"width": 390, "height": 844})
                 page.wait_for_timeout(180)
-                slider_box = slider.bounding_box()
+                timeline_input_zone = page.locator(
+                    "#watch-market-map-timeline-input-zone"
+                )
+                slider_box = timeline_input_zone.bounding_box()
                 if not slider_box or slider_box["width"] < 44 or slider_box["height"] < 44:
                     raise QaFailure(
                         "타임바의 포인터 드래그 영역이 44px 조작 기준보다 작습니다.",
                         {"slider_box": slider_box},
                     )
                 drag_y = slider_box["y"] + slider_box["height"] / 2
-                drag_start_x = slider_box["x"] + slider_box["width"] - 3
+                # Target the actual pointer-owning zone and stay safely inside
+                # its fractional right edge. CDP touch hit-testing can otherwise
+                # round a right-edge coordinate onto the adjacent rail pixel.
+                drag_start_inset = max(6, min(12, slider_box["width"] * 0.08))
+                drag_start_x = (
+                    slider_box["x"] + slider_box["width"] - drag_start_inset
+                )
                 drag_end_x = slider_box["x"] + slider_box["width"] * 0.35
                 page.evaluate(
                     """() => {
@@ -8873,18 +8882,40 @@ def run_e2e_checks(
                     )
                 finally:
                     cdp.detach()
-                page.wait_for_function(
-                    """() => {
-                      const value = Number(document.querySelector('#watch-market-map-timeline-track')?.value);
-                      return value > 570
-                        && value < 765
-                        && window.__qaTimelinePointerTypes?.includes('touch')
-                        && document.querySelector('#watch-market-map-timeline-input-zone')?.dataset.pointerState === 'idle'
-                        && document.querySelector('#watch-market-map-timeline-input-zone')?.dataset.lastPointerType === 'touch'
-                        && document.querySelector('#watch-market-map-timeline-input-zone')?.dataset.lastInteraction === 'drag';
-                    }""",
-                    timeout=2000,
-                )
+                try:
+                    page.wait_for_function(
+                        """() => {
+                          const value = Number(document.querySelector('#watch-market-map-timeline-track')?.value);
+                          return value > 570
+                            && value < 765
+                            && window.__qaTimelinePointerTypes?.includes('touch')
+                            && document.querySelector('#watch-market-map-timeline-input-zone')?.dataset.pointerState === 'idle'
+                            && document.querySelector('#watch-market-map-timeline-input-zone')?.dataset.lastPointerType === 'touch'
+                            && document.querySelector('#watch-market-map-timeline-input-zone')?.dataset.lastInteraction === 'drag';
+                        }""",
+                        timeout=2000,
+                    )
+                except Exception as exc:
+                    if not _is_playwright_timeout(exc):
+                        raise
+                    pointer_timeout = page.evaluate(
+                        """() => {
+                          const slider = document.querySelector('#watch-market-map-timeline-track');
+                          const zone = document.querySelector('#watch-market-map-timeline-input-zone');
+                          return {
+                            value: Number(slider?.value),
+                            pointerTypes: [...(window.__qaTimelinePointerTypes || [])],
+                            pointerState: zone?.dataset.pointerState,
+                            lastPointerType: zone?.dataset.lastPointerType,
+                            lastInteraction: zone?.dataset.lastInteraction,
+                            stageMotion: document.querySelector('#watch-market-map-stage')?.dataset.motion,
+                          };
+                        }"""
+                    )
+                    raise QaFailure(
+                        "타임라인 터치 드래그 상태가 제한 시간 안에 완성되지 않았습니다.",
+                        pointer_timeout,
+                    ) from exc
                 pointer_drag_snapshot = timeline_bubble_snapshot()
                 pointer_drag_snapshot["pointerTypes"] = page.evaluate(
                     "() => [...(window.__qaTimelinePointerTypes || [])]"
