@@ -931,6 +931,7 @@ def run_e2e_checks(
                         base_url,
                         "/dashboard",
                         view="ai-signals",
+                        market_scope="kr",
                         theme=theme,
                         qa_run=datetime.now(KST).strftime("%H%M%S"),
                     ),
