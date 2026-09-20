@@ -3883,8 +3883,8 @@ def run_e2e_checks(
                     + loop_width
                 ) % loop_width if loop_width > 0 else 0
                 if (
-                    moving_end.get("originalCount") != 8
-                    or moving_end.get("cloneCount") != 8
+                    moving_end.get("originalCount") != 2
+                    or moving_end.get("cloneCount") != 2
                     or moving_end.get("clonesHidden") is not True
                     or moving_end.get("autoScrolling") is not True
                     or moving_end.get("trackCount") != 1
@@ -3927,8 +3927,8 @@ def run_e2e_checks(
                     min(30.0, refresh_elapsed_ms * 0.025 + 3.0),
                 )
                 if (
-                    refreshed.get("originalCount") != 8
-                    or refreshed.get("cloneCount") != 8
+                    refreshed.get("originalCount") != 2
+                    or refreshed.get("cloneCount") != 2
                     or refreshed.get("clonesHidden") is not True
                     or refreshed.get("autoScrolling") is not True
                     or refreshed.get("trackCount") != 1

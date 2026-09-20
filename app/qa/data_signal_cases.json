@@ -1129,9 +1129,9 @@
       "priority": "P1",
       "modes": ["gate", "e2e"],
       "automation": "pytest compositor-track contract + Playwright mobile transform cadence/quote-rerender/manual handoff/reduced-motion",
-      "preconditions": ["홈 시장 지수 8개와 모바일 대시보드가 준비돼 있다."],
+      "preconditions": ["국내 홈 시장 지수 KOSPI·KOSDAQ 2개와 모바일 대시보드가 준비돼 있다."],
       "inputs": {"view": "home", "direction": "left", "speed_px_per_second": 10, "render_path": "single-composited-transform-track", "cadence_sample_interval_ms": 55, "interaction_hold_ms": 4000, "themes": ["dark", "light"]},
-      "steps": ["홈 지수 카드 8개와 접근성에서 숨긴 복제 카드 8개가 하나의 home-market-track에 있는지 확인한다.", "자동 흐름 중 carousel.scrollLeft는 0으로 유지되고 단일 트랙의 선형 transform이 55ms 표본마다 왼쪽으로 연속 진행하는지 검사한다.", "시세 재렌더 뒤에도 현재 순환 위치가 보존되고 트랙 애니메이션이 하나만 유지되는지 확인한다.", "사용자 스와이프 때 같은 시각 위치로 네이티브 스크롤을 인계하고 4초 대기하는지, 동작 줄이기 환경에서는 자동 이동 없이 수동 가로 스크롤만 제공하는지 확인한다."],
+      "steps": ["국내 지수 카드 2개와 접근성에서 숨긴 복제 카드 2개가 하나의 home-market-track에 있는지 확인한다.", "자동 흐름 중 carousel.scrollLeft는 0으로 유지되고 단일 트랙의 선형 transform이 55ms 표본마다 왼쪽으로 연속 진행하는지 검사한다.", "시세 재렌더 뒤에도 현재 순환 위치가 보존되고 트랙 애니메이션이 하나만 유지되는지 확인한다.", "사용자 스와이프 때 같은 시각 위치로 네이티브 스크롤을 인계하고 4초 대기하는지, 동작 줄이기 환경에서는 자동 이동 없이 수동 가로 스크롤만 제공하는지 확인한다."],
       "expected": ["지수 카드는 초당 약 10px 속도로 왼쪽으로 흐르고 한 벌의 끝에서 같은 위치로 자연스럽게 이어진다.", "카드별 scrollLeft 갱신 대신 글자가 포함된 전체 트랙 한 장을 compositor transform으로 이동해 정지 후 반 픽셀 점프가 반복되지 않는다.", "시세 갱신·직접 스와이프 전환에서 보이는 위치가 튀지 않고, 스와이프 뒤에는 4초 동안 대기하며 reduced-motion에서는 수동 가로 스크롤만 제공된다."],
       "failure_criteria": ["지수 스트립이 고정되거나 오른쪽으로 이동하고, 순환 경계 또는 5초 시세 갱신 때 첫 카드로 튄다.", "자동 흐름이 scrollLeft를 프레임마다 변경하거나 55ms 표본에서 같은 시각 좌표가 반복되어 글자가 정지와 점프를 번갈아 보인다.", "트랙 또는 애니메이션이 중복되고 복제 카드가 낭독되거나 사용자의 스와이프·동작 줄이기 설정을 무시한다."]
     },
