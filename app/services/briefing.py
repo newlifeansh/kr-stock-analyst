@@ -756,14 +756,36 @@ class BriefingRuntime:
         except Exception as exc:
             market_errors["naver_html_quotes"] = str(exc)
 
+        # If KRX, batched realtime quotes, and the legacy Naver quote page all
+        # fail, repair the completed session from Naver's KRX chart feed
+        # instead of falling straight through to the small event-code set.
+        # Recheck full-universe coverage before reporting success.
+        chart_repair_rows = 0
+        try:
+            chart_repair_rows = self._repair_completed_session_from_naver(db, target_date)
+            coverage = self._latest_price_coverage(db, target_yyyymmdd)
+            if coverage["total"] and coverage["coverage_ratio"] >= 0.95:
+                return {
+                    "source": "naver_realtime_market_caps+naver_krx_chart",
+                    "rows_loaded": total_rows + realtime_rows + chart_repair_rows,
+                    "message": (
+                        f"date={target_yyyymmdd} errors={len(market_errors)} "
+                        f"repaired={chart_repair_rows} fresh={coverage['fresh']}/{coverage['total']} "
+                        f"coverage={coverage['coverage_ratio']:.2%}"
+                    ),
+                }
+        except Exception as exc:
+            market_errors["naver_krx_chart_fallback"] = str(exc)
+
         codes = self._recent_price_codes(db)
         if not codes:
             coverage = self._latest_price_coverage(db, target_yyyymmdd)
             return {
                 "source": "degraded",
-                "rows_loaded": total_rows + realtime_rows + repair_rows,
+                "rows_loaded": total_rows + realtime_rows + repair_rows + chart_repair_rows,
                 "message": (
                     f"date={target_yyyymmdd} no_supported_codes errors={len(market_errors)} "
+                    "freshness_unmet "
                     f"fresh={coverage['fresh']}/{coverage['total']} "
                     f"coverage={coverage['coverage_ratio']:.2%}"
                 ),
@@ -778,14 +800,47 @@ class BriefingRuntime:
         coverage = self._latest_price_coverage(db, target_yyyymmdd)
         ready = bool(coverage["total"] and coverage["coverage_ratio"] >= 0.95)
         return {
-            "source": "event_code_history" if ready else "degraded",
-            "rows_loaded": total_rows + realtime_rows + rows + repair_rows,
+            "source": (
+                "naver_krx_chart+event_code_history"
+                if chart_repair_rows and ready
+                else "event_code_history" if ready else "degraded"
+            ),
+            "rows_loaded": total_rows + realtime_rows + rows + repair_rows + chart_repair_rows,
             "message": (
                 f"date={target_yyyymmdd} codes={len(codes)} krx_errors={len(market_errors)} "
+                f"repaired={chart_repair_rows} "
                 f"fresh={coverage['fresh']}/{coverage['total']} "
                 f"coverage={coverage['coverage_ratio']:.2%}"
             ),
         }
+
+    def _repair_completed_session_from_naver(self, db, target_date: date) -> int:
+        """Fill a missing completed session from Naver's KRX chart fallback."""
+
+        codes = list(
+            db.scalars(
+                select(StockMaster.code).where(
+                    StockMaster.is_active.is_(True),
+                    StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+                )
+            )
+        )
+        if not codes:
+            return 0
+        market_cap_rows = collect_naver_realtime_market_caps(
+            db,
+            target_date.strftime("%Y%m%d"),
+            markets="KOSPI,KOSDAQ",
+            limit=None,
+            max_workers=self.settings.price_max_workers,
+        )
+        chart_rows = collect_naver_krx_price_rows_for_codes(
+            db,
+            codes,
+            target_date,
+            max_workers=self.settings.price_max_workers,
+        )
+        return market_cap_rows + chart_rows
 
     def _repair_signal_price_ohlc(
         self,

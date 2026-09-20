@@ -584,6 +584,40 @@ def test_collect_prices_falls_back_to_naver_full_quotes(monkeypatch):
     assert calls[2] == ("naver", "KOSPI,KOSDAQ", None, 5)
 
 
+def test_collect_prices_uses_chart_fallback_when_primary_sources_return_no_rows(monkeypatch):
+    runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
+    monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
+    coverage = iter([
+        {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
+        {"total": 100, "fresh": 99, "coverage_ratio": 0.99},
+    ])
+    monkeypatch.setattr(runtime, "_latest_price_coverage", lambda *_args: next(coverage))
+    monkeypatch.setattr(
+        briefing,
+        "collect_market_prices",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("KRX unavailable")),
+    )
+    monkeypatch.setattr(briefing, "collect_naver_realtime_market_caps", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(briefing, "collect_naver_quotes", lambda *_args, **_kwargs: 0)
+    repaired = []
+    monkeypatch.setattr(
+        runtime,
+        "_repair_completed_session_from_naver",
+        lambda _db, target: repaired.append(target) or 2800,
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_prices_for_codes",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("event fallback should not run")),
+    )
+
+    result = runtime._collect_prices(object(), now=datetime(2026, 8, 21, 12, 0))
+
+    assert result["source"] == "naver_realtime_market_caps+naver_krx_chart"
+    assert result["rows_loaded"] == 2800
+    assert repaired == [date(2026, 8, 21)]
+
+
 def test_collect_prices_force_finalizes_naver_fallback_after_close(monkeypatch):
     runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
     monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
