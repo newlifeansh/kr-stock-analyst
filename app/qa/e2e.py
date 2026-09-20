@@ -1670,7 +1670,7 @@ def run_e2e_checks(
                 if (
                     cta_contract.get("tagName") != "A"
                     or cta_contract.get("href")
-                    != "/dashboard?view=ai-signals&market_scope=kr"
+                    != "/dashboard?view=ai-signals"
                     or cta_contract.get("ariaLabel") != "AI 시그널 전체 목록 보기"
                     or float(button_bounds.get("width") or 0) < 44
                     or float(button_bounds.get("height") or 0) < 44
