@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from time import monotonic
 from typing import Any
-from urllib.parse import unquote, urlencode
+from urllib.parse import unquote, urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -1566,7 +1566,7 @@ def run_e2e_checks(
                 _assert_page_shell(page, theme=theme)
                 page.wait_for_selector("#home-view", state="visible")
                 normalized = re.sub(r"\s+", "", page.locator("body").inner_text())
-                expected_home_copy = "한국·미국종목의최신예비신호를확인하세요"
+                expected_home_copy = "시총100위내매매신호를확인하세요"
                 if expected_home_copy not in normalized:
                     raise QaFailure("AI 시그널 안내 문구가 계약과 다릅니다.")
                 news_positive = page.locator(
@@ -1770,7 +1770,7 @@ def run_e2e_checks(
                     "signal_label_contract": signal_label_contract,
                     "live_return_contract": live_return_contract,
                     "weekend_close_basis": weekend_basis,
-                    "home_copy": "한국·미국 종목의 최신 예비 신호를 확인하세요",
+                    "home_copy": "시총 100위내 매매신호를 확인하세요",
                     "opening_market_priority": opening_priority,
                     "home_cta": cta_contract,
                     "signal_entry_frames": signal_entry_frames,
