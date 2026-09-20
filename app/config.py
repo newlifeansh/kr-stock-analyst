@@ -134,6 +134,11 @@ class Settings(BaseSettings):
     sec_user_agent: str = "SecretNote Stock Analyst admin@secret-note.app"
     market_quant_signal_source_url: Optional[str] = None
     market_quant_signal_source_timeout_seconds: int = 12
+    # Keep the United States product isolated until it is ready to ship as a
+    # separate market experience.  The implementation remains available for
+    # its own test fixtures and a future opt-in deployment, while the default
+    # Korea product neither schedules nor notifies from the US data pipeline.
+    us_market_enabled: bool = False
     canonical_public_base_url: str = "https://secretnote.cloud"
     canonical_redirect_hosts: str = (
         "insight-mcp-production-945f.up.railway.app,"

@@ -59,7 +59,23 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app."
         "test_market_signal_feed_includes_delivered_preliminary_history",
         "tests.test_app."
-        "test_push_config_includes_briefing_market_session_and_us_signal_alerts",
+        "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
+    ),
+    "SIG-UI-030": (
+        "tests.test_domestic_market_scope."
+        "test_domestic_market_is_the_default_product_boundary",
+        "tests.test_domestic_market_scope."
+        "test_domestic_home_never_requests_us_market_feeds",
+        "tests.test_domestic_market_scope."
+        "test_domestic_runtime_does_not_schedule_us_market_snapshots",
+        "tests.test_domestic_market_scope."
+        "test_legacy_nasdaq_surface_redirects_to_domestic_home",
+        "tests.test_web_push."
+        "test_run_once_skips_us_signal_pipeline_for_domestic_product",
+        "tests.test_app."
+        "test_domestic_surface_disables_unified_runtime_and_preserves_dormant_us_implementation",
+        "tests.test_app."
+        "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
     "SIG-UI-022": (
         "tests.test_public_signal."
@@ -1686,6 +1702,57 @@ def _live_checks(
             "DATA-COM-002",
             health_contract,
             pass_message="헬스·준비 상태와 HTTP 타임아웃 계약을 확인했습니다.",
+        )
+
+        def domestic_product_boundary_contract() -> dict[str, Any]:
+            dashboard, dashboard_meta = api.get_text(
+                "/dashboard",
+                view="home",
+                market_scope="us",
+                market="NASDAQ",
+            )
+            source, source_meta = api.get_text("/dashboard-app-v170.js")
+            indices, indices_meta = api.get("/market/indices", limit=30)
+            codes = {
+                str(item.get("code") or "")
+                for item in (indices.get("items") or [])
+                if isinstance(item, dict)
+            }
+            _assert(
+                '<html lang="ko" data-market-universe="kr">' in dashboard
+                and '<meta name="secret-note-market-universe" content="kr" />'
+                in dashboard,
+                "스테이징 대시보드가 국내증시 단일 제품으로 표시되지 않습니다.",
+                **dashboard_meta,
+            )
+            _assert(
+                'const US_MARKET_ENABLED = PRODUCT_MARKET_UNIVERSE === "unified";'
+                in source
+                and 'const requestedMarketScopeValue = !US_MARKET_ENABLED' in source
+                and 'if (!US_MARKET_ENABLED) return null;' in source,
+                "스테이징 클라이언트의 미국 시장 격리 가드가 누락됐습니다.",
+                **source_meta,
+            )
+            _assert(
+                {"KOSPI", "KOSDAQ"}.issubset(codes)
+                and codes.issubset({"KOSPI", "KOSDAQ"}),
+                "국내 시장 지수 API에 KOSPI·KOSDAQ 외 자산이 섹였습니다.",
+                codes=sorted(codes),
+                **indices_meta,
+            )
+            return {
+                "dashboard": dashboard_meta,
+                "source": source_meta,
+                "indices": indices_meta,
+                "market_universe": "kr",
+                "market_codes": sorted(codes),
+                "us_runtime_guard": True,
+            }
+
+        collector.check(
+            "SIG-UI-030",
+            domestic_product_boundary_contract,
+            pass_message="스테이징의 국내증시 단일 제품 경계와 지수 계약을 확인했습니다.",
         )
 
         def us_market_payloads() -> dict[str, Any]:

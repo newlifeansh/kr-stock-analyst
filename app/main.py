@@ -278,7 +278,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260915v549"
+DASHBOARD_CLIENT_VERSION = "20260921v550"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -537,7 +537,7 @@ PUSH_CONDITION_OPTIONS = [
     {
         "id": "market_ai_signal",
         "label": "시장 AI 시그널",
-        "description": "국내장 예비·확정 신호와 미국장 마감 후 예비 매수 신호를 알려드립니다.",
+        "description": "국내장 장중 예비·장 마감 확정 신호를 알려드립니다.",
     },
     {
         "id": "recommendation_update",
@@ -1477,11 +1477,16 @@ def _get_complete_snapshot_runtime() -> SnapshotRuntime:
 
 
 def _periodic_complete_snapshot_keys() -> tuple[str, ...]:
-    return (
+    domestic_keys = (
         f"{MARKET_INDICES_SNAPSHOT_PREFIX}30",
+        SURGE_COMPLETE_SNAPSHOT_KEY,
+    )
+    if not settings.us_market_enabled:
+        return domestic_keys
+    return (
+        *domestic_keys,
         f"{GLOBAL_MARKET_ASSETS_SNAPSHOT_PREFIX}30",
         US_SECTOR_MOVES_SNAPSHOT_KEY,
-        SURGE_COMPLETE_SNAPSHOT_KEY,
     )
 
 
@@ -1572,9 +1577,10 @@ async def lifespan(_: FastAPI):
             )
             intraday_warmup_task = asyncio.create_task(_run_intraday_warmup_loop())
             market_quant_signal_task = asyncio.create_task(_run_market_quant_signal_refresh_loop())
-            us_position_lifecycle_task = asyncio.create_task(
-                _run_us_position_lifecycle_refresh_loop()
-            )
+            if settings.us_market_enabled:
+                us_position_lifecycle_task = asyncio.create_task(
+                    _run_us_position_lifecycle_refresh_loop()
+                )
             entry_filter_shadow_task = asyncio.create_task(
                 _run_entry_filter_shadow_backtest_loop()
             )
@@ -2701,19 +2707,11 @@ def stock_dashboard_refresh():
         const view = ["home", "search", "portfolio", "chart", "recommend-detail", "morning-briefing"].includes(params.get("view"))
           ? params.get("view")
           : "search";
-        const market = params.get("market") === "us" ? "us" : "kr";
-        const marketScope = ["kr", "us"].includes(params.get("market_scope"))
-          ? params.get("market_scope")
-          : "kr";
         const requestedCode = String(params.get("code") || "").trim().toUpperCase();
-        const code = market === "us"
-          ? (/^[A-Z][A-Z0-9.-]{{0,9}}$/.test(requestedCode) ? requestedCode : "")
-          : (/^\\d{{6}}$/.test(requestedCode) ? requestedCode : "");
-        const destination = code && market === "us"
-          ? `/us/stock/${{encodeURIComponent(code)}}?app_build={DASHBOARD_CLIENT_VERSION}`
-          : code
-            ? `/dashboard/${{code}}?app_build={DASHBOARD_CLIENT_VERSION}`
-            : `/dashboard?view=${{encodeURIComponent(view)}}&market_scope=${{encodeURIComponent(marketScope)}}&app_build={DASHBOARD_CLIENT_VERSION}`;
+        const code = /^\\d{{6}}$/.test(requestedCode) ? requestedCode : "";
+        const destination = code
+          ? `/dashboard/${{code}}?app_build={DASHBOARD_CLIENT_VERSION}`
+          : `/dashboard?view=${{encodeURIComponent(view)}}&market_scope=kr&app_build={DASHBOARD_CLIENT_VERSION}`;
         location.replace(destination);
       }})();
     </script>
@@ -2838,6 +2836,8 @@ self.addEventListener("activate", (event) => {{
       if (url.origin !== self.location.origin || !url.pathname.startsWith("/us")) {{
         return undefined;
       }}
+      url.pathname = "/dashboard";
+      url.search = "?view=home";
       url.searchParams.set("app_build", CURRENT_DASHBOARD_BUILD);
       return client.navigate(url.href).catch(() => undefined);
     }}));

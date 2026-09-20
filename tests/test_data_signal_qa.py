@@ -87,7 +87,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
-    assert len(ids) == 118
+    assert len(ids) == 119
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -141,6 +141,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-UI-025",
         "SIG-UI-028",
         "SIG-UI-029",
+        "SIG-UI-030",
         "SIG-CONTRACT-004",
         "SIG-CONTRACT-007",
     }.issubset(ids)
@@ -173,7 +174,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v7.4.2`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v1-rc1`" in first
-    assert "QA 항목: 118개" in first
+    assert "QA 항목: 119개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1105,9 +1106,11 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "SIG-UI-019" in E2E_CASE_IDS
     assert "SIG-UI-020" in E2E_CASE_IDS
     assert "SIG-UI-021" in E2E_CASE_IDS
-    assert "SIG-UI-023" in E2E_CASE_IDS
-    assert "SIG-UI-024" in E2E_CASE_IDS
-    assert "SIG-UI-025" in E2E_CASE_IDS
+    assert "SIG-UI-023" not in E2E_CASE_IDS
+    assert "SIG-UI-024" not in E2E_CASE_IDS
+    assert "SIG-UI-025" not in E2E_CASE_IDS
+    assert "SIG-UI-028" not in E2E_CASE_IDS
+    assert "SIG-UI-030" in E2E_CASE_IDS
     assert "def portfolio_production_screens_case" in source
     assert "feature-ai-signals-production.jpg" in source
     assert "매수 확정 종목의 전략 기준가와 수익률" in source
@@ -1134,6 +1137,8 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "핀종목의 로고·스파크라인·현재가·오늘 등락률" in source
     assert "def watch_market_map_case" in source
     assert 'case_id="SIG-UI-025"' in source
+    assert "def domestic_product_boundary_case" in source
+    assert 'case_id="SIG-UI-030"' in source
     assert "증권 홈 TOP 50 직전에 유일하게 배치" in source
     assert "첫 홈 랜딩의 관심종목 기본 시장이 국내가 아닙니다." in source
     assert "선택 시장 안의 시가총액 순으로 분리" in source
@@ -1357,7 +1362,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.4.2"
     assert report["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
-    assert report["catalog_case_count"] == 118
+    assert report["catalog_case_count"] == 119
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1369,7 +1374,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 
 
 @pytest.mark.qa_gate
-def test_us_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -> None:
+def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -> None:
     expected_case_ids = {
         "DATA-US-UNIVERSE-001",
         "DATA-US-SIGNAL-INPUT-001",
@@ -1382,6 +1387,7 @@ def test_us_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -> No
         "SIG-US-CONTRACT-001",
         "SIG-CONTRACT-007",
         "SIG-UI-022",
+        "SIG-UI-030",
     }
     assert set(PYTEST_QA_CASE_TESTS) == expected_case_ids
     assert all(PYTEST_QA_CASE_TESTS.values())
@@ -1744,6 +1750,14 @@ class FakeReadOnlyApi:
                 },
                 "connections": {"total": 0},
             }, self._meta(path)
+        if path == "/market/indices":
+            return {
+                "items": [
+                    {"code": "KOSPI", "current": 2700},
+                    {"code": "KOSDAQ", "current": 860},
+                ],
+                "status": "ready",
+            }, self._meta(path)
         if path == "/us/stocks/AAPL/dashboard":
             return {"symbol": "AAPL", "as_of": "2026-08-28"}, self._meta(path)
         if path == "/us/stocks/NVDA/dashboard":
@@ -1766,9 +1780,19 @@ class FakeReadOnlyApi:
         return {"items": [], "status": "ready"}, self._meta(path)
 
     def get_text(self, path: str, **params: object):
+        if path == "/dashboard-app-v170.js":
+            return (
+                'const US_MARKET_ENABLED = PRODUCT_MARKET_UNIVERSE === "unified";\n'
+                'const requestedMarketScopeValue = !US_MARKET_ENABLED\n'
+                'if (!US_MARKET_ENABLED) return null;',
+                self._meta(path),
+            )
         assert path == "/dashboard"
         return (
-            '<html><head><meta name="secret-note-environment" content="staging" /></head></html>',
+            '<html lang="ko" data-market-universe="kr"><head>'
+            '<meta name="secret-note-environment" content="staging" />'
+            '<meta name="secret-note-market-universe" content="kr" />'
+            '</head></html>',
             self._meta(path),
         )
 

@@ -719,6 +719,7 @@ class BriefingRuntime:
                     ),
                 }
 
+        market_cap_rows = 0
         try:
             naver_rows = collect_naver_quotes(
                 db,
@@ -755,10 +756,11 @@ class BriefingRuntime:
                         source += "+naver_ohlc_repair"
                     return {
                         "source": source,
-                        "rows_loaded": total_rows + realtime_rows + naver_rows + repair_rows,
+                        "rows_loaded": total_rows + realtime_rows + market_cap_rows + naver_rows + repair_rows,
                         "message": (
                             f"date={target_yyyymmdd} markets=KOSPI,KOSDAQ "
                             f"krx_errors={len(market_errors)} html={naver_rows} "
+                            f"market_caps={market_cap_rows} "
                             f"repaired={repair_rows} fresh={coverage['fresh']}/{coverage['total']} "
                             f"coverage={coverage['coverage_ratio']:.2%}"
                         ),

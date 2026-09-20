@@ -25,11 +25,15 @@ def _session():
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
 
 
-def _settings() -> Settings:
+def _settings(**overrides) -> Settings:
+    values = {
+        "web_push_enabled": True,
+        "web_push_vapid_private_key": "A" * 43,
+        "web_push_vapid_public_key": "B" * 87,
+    }
+    values.update(overrides)
     return Settings(
-        web_push_enabled=True,
-        web_push_vapid_private_key="A" * 43,
-        web_push_vapid_public_key="B" * 87,
+        **values,
     )
 
 
@@ -1422,7 +1426,7 @@ def test_run_once_dispatches_new_us_signal_after_independent_baseline(monkeypatc
     )
     batches = [[existing], [new], [new]]
     payloads = []
-    runtime = web_push.WebPushRuntime(_settings())
+    runtime = web_push.WebPushRuntime(_settings(us_market_enabled=True))
     monkeypatch.setattr(web_push, "PushSessionLocal", push_session)
     monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda _now=None: False)
     monkeypatch.setattr(runtime, "_ai_signal_candidates", lambda _db, watchlists, *_args: {key: [] for key in watchlists})
@@ -1453,6 +1457,42 @@ def test_run_once_dispatches_new_us_signal_after_independent_baseline(monkeypatc
         }
     assert deliveries[existing.event_key] == "baseline"
     assert deliveries[new.event_key] == "sent"
+
+
+def test_run_once_skips_us_signal_pipeline_for_domestic_product(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    push_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    with push_session() as db:
+        db.add(
+            PushSubscription(
+                share_id="tester",
+                endpoint="https://push.example/subscription",
+                p256dh="p" * 64,
+                auth="a" * 24,
+                notification_preferences='["market_ai_signal"]',
+            )
+        )
+        db.commit()
+
+    runtime = web_push.WebPushRuntime(_settings(us_market_enabled=False))
+    monkeypatch.setattr(web_push, "PushSessionLocal", push_session)
+    monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda _now=None: False)
+    monkeypatch.setattr(
+        runtime,
+        "_us_market_ai_signal_candidates",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("domestic product must not evaluate US signals")
+        ),
+    )
+    monkeypatch.setattr(runtime, "_ai_signal_candidates", lambda _db, watchlists, *_args: {key: [] for key in watchlists})
+    monkeypatch.setattr(runtime, "_content_candidates", lambda _db, watchlists, *_args: {key: [] for key in watchlists})
+    monkeypatch.setattr(runtime, "_event_candidates", lambda _db, watchlists, *_args: {key: [] for key in watchlists})
+    monkeypatch.setattr(runtime, "_market_ai_signal_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(runtime, "_morning_briefing_candidates", lambda *_args: [])
+    monkeypatch.setattr(runtime, "_market_session_candidates", lambda *_args: [])
+
+    assert runtime.run_once() == 0
 
 
 def test_ai_signal_candidate_only_emits_a_new_action_for_today(monkeypatch):

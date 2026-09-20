@@ -8,9 +8,15 @@
 (() => {
   "use strict";
 
+  const stagingUsMarketEnabled = document
+    .querySelector('meta[name="secret-note-market-universe"]')
+    ?.getAttribute("content") === "unified";
   const stagingDashboardRootContext = /^\/dashboard\/?$/.test(window.location.pathname);
-  const stagingUsHubContext = /^\/us(?:\/|$)/.test(window.location.pathname)
-    || stagingDashboardRootContext;
+  // Legacy unified staging shell used the following market-root expression:
+  // const stagingUsHubContext = /^\/us(?:\/|$)/.test(window.location.pathname) || stagingDashboardRootContext;
+  const stagingUsHubContext = stagingUsMarketEnabled && (
+    /^\/us(?:\/|$)/.test(window.location.pathname) || stagingDashboardRootContext
+  );
   const stagingQueryParams = new URLSearchParams(window.location.search);
   const stagingRequestedMarketScope = stagingQueryParams.get("market_scope");
   const stagingMarketScope = stagingUsHubContext
@@ -3059,10 +3065,12 @@
     hotCommunitySection.innerHTML = `
       <header class="staging-hot-community-head">
         <h2 id="staging-hot-community-title">핫한 커뮤니티</h2>
-        <div class="staging-hot-community-market-toggle" role="group" aria-label="커뮤니티 시장 선택">
-          <button class="${initialHotCommunityMarket === "us" ? "active" : ""}" type="button" aria-label="미국 커뮤니티 보기" aria-pressed="${initialHotCommunityMarket === "us"}" data-hot-community-market="us"><span aria-hidden="true">🇺🇸</span></button>
-          <button class="${initialHotCommunityMarket === "kr" ? "active" : ""}" type="button" aria-label="한국 커뮤니티 보기" aria-pressed="${initialHotCommunityMarket === "kr"}" data-hot-community-market="kr"><span aria-hidden="true">🇰🇷</span></button>
-        </div>
+        ${stagingUsHubContext ? `
+          <div class="staging-hot-community-market-toggle" role="group" aria-label="커뮤니티 시장 선택">
+            <button class="${initialHotCommunityMarket === "us" ? "active" : ""}" type="button" aria-label="미국 커뮤니티 보기" aria-pressed="${initialHotCommunityMarket === "us"}" data-hot-community-market="us"><span aria-hidden="true">🇺🇸</span></button>
+            <button class="${initialHotCommunityMarket === "kr" ? "active" : ""}" type="button" aria-label="한국 커뮤니티 보기" aria-pressed="${initialHotCommunityMarket === "kr"}" data-hot-community-market="kr"><span aria-hidden="true">🇰🇷</span></button>
+          </div>
+        ` : ""}
       </header>
       <nav class="staging-hot-community-tabs" role="tablist" aria-label="핫한 커뮤니티 순위 기준">
         <button id="staging-hot-community-surge-tab" class="active" type="button" role="tab" aria-selected="true" aria-controls="staging-hot-community-panel" data-hot-community-mode="surge">수익률 순</button>
@@ -3967,7 +3975,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260915-recommendation-data-details-v114`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260921-domestic-market-v115`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }

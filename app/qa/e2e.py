@@ -39,10 +39,7 @@ E2E_CASE_IDS = (
     "SIG-UI-019",
     "SIG-UI-020",
     "SIG-UI-021",
-    "SIG-UI-023",
-    "SIG-UI-024",
-    "SIG-UI-025",
-    "SIG-UI-028",
+    "SIG-UI-030",
 )
 
 
@@ -455,6 +452,15 @@ def _run_page_case(
     reduced_motion: str = "reduce",
 ) -> dict[str, Any]:
     started = monotonic()
+    case = catalog_by_id.get(case_id) or {}
+    if "e2e" not in (case.get("modes") or []):
+        return _result(
+            catalog_by_id,
+            case_id,
+            "skip",
+            "현재 제품 범위에서 E2E 비활성화된 회귀 케이스입니다.",
+            started,
+        )
     theme_evidence: dict[str, Any] = {}
     navigation_retry_evidence: list[dict[str, Any]] = []
     try:
@@ -9934,6 +9940,141 @@ def run_e2e_checks(
                     timeout=timeout,
                     artifact_dir=output_dir,
                     callback=recommendation_public_evidence_case,
+                    storage_state=storage_state,
+                    share_id=share_id,
+                )
+            )
+
+            def domestic_product_boundary_case(page: Any, theme: str) -> dict[str, Any]:
+                requested_resources: list[dict[str, str]] = []
+                page.on(
+                    "request",
+                    lambda request: requested_resources.append(
+                        {"url": request.url, "resource_type": request.resource_type}
+                    ),
+                )
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/dashboard",
+                        view="home",
+                        market_scope="us",
+                        market="NASDAQ",
+                        theme=theme,
+                        qa_run=datetime.now(KST).strftime("%H%M%S"),
+                    ),
+                    wait_until="commit",
+                    ready_selector="body[data-view='home']",
+                )
+                shell = _assert_page_shell(page, theme=theme)
+                page.wait_for_timeout(1_000)
+                domestic_state = page.evaluate(
+                    """() => {
+                      const forbiddenSelectors = [
+                        '#unified-market-scope',
+                        '#recommend-market-scope',
+                        '#watch-market-map-market-toggle',
+                        '#service-source-us',
+                        '#us-stock-ai-content',
+                        '[data-home-ranking-market="NASDAQ"]',
+                        '[data-home-ranking-market="SP500"]',
+                        '[data-market-filter="MIXED"]',
+                        '[data-market-filter="NASDAQ"]',
+                        '[data-market-filter="SP500"]',
+                        '.staging-hot-community-market-toggle',
+                      ];
+                      const marketCodes = Array.from(
+                        document.querySelectorAll('#home-market-indices .home-index-card[data-code]')
+                      ).map(node => node.dataset.code);
+                      return {
+                        htmlUniverse: document.documentElement.dataset.marketUniverse,
+                        metaUniverse: document.querySelector('meta[name="secret-note-market-universe"]')?.content,
+                        marketScope: document.body.dataset.marketScope,
+                        appMarket: document.body.dataset.appMarket,
+                        stockMarket: document.body.dataset.stockMarket,
+                        title: document.title,
+                        forbiddenPresent: forbiddenSelectors.filter(selector => document.querySelector(selector)),
+                        marketCodes: Array.from(new Set(marketCodes)),
+                        bodyTextLength: (document.body.innerText || '').trim().length,
+                        viewport: window.innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                        bodyWidth: document.body.scrollWidth,
+                      };
+                    }"""
+                )
+                if any(
+                    (
+                        domestic_state["htmlUniverse"] != "kr",
+                        domestic_state["metaUniverse"] != "kr",
+                        domestic_state["marketScope"] != "kr",
+                        domestic_state["appMarket"] != "kr",
+                        domestic_state["stockMarket"] != "kr",
+                        domestic_state["title"] != "비밀노트 | 국내증시",
+                    )
+                ):
+                    raise QaFailure("국내증시 제품 메타·범위가 정규화되지 않았습니다.", domestic_state)
+                if domestic_state["forbiddenPresent"]:
+                    raise QaFailure("미국증시 전용 제어나 섹션이 DOM에 남았습니다.", domestic_state)
+                market_codes = set(domestic_state["marketCodes"])
+                if not market_codes or not market_codes.issubset({"KOSPI", "KOSDAQ"}):
+                    raise QaFailure("국내 홈 시장 카드에 해외 자산이 섹여 있습니다.", domestic_state)
+
+                page.set_viewport_size({"width": 320, "height": 760})
+                page.wait_for_timeout(300)
+                mobile_state = page.evaluate(
+                    """() => ({
+                      viewport: window.innerWidth,
+                      rootWidth: document.documentElement.scrollWidth,
+                      bodyWidth: document.body.scrollWidth,
+                      textLength: (document.body.innerText || '').trim().length,
+                    })"""
+                )
+                if (
+                    mobile_state["rootWidth"] > mobile_state["viewport"] + 2
+                    or mobile_state["bodyWidth"] > mobile_state["viewport"] + 2
+                    or mobile_state["textLength"] < 20
+                ):
+                    raise QaFailure("320px 국내 화면의 레이아웃 안정성을 확인하지 못했습니다.", mobile_state)
+
+                _navigate_page(
+                    page,
+                    _page_url(base_url, "/us", view="home", market_scope="us"),
+                    wait_until="commit",
+                    ready_selector="body[data-view='home']",
+                )
+                page.wait_for_timeout(300)
+                legacy_url = page.url
+                if urlsplit(legacy_url).path != "/dashboard" or "view=home" not in urlsplit(legacy_url).query:
+                    raise QaFailure("레거시 /us 진입이 국내 홈으로 수렴하지 않았습니다.", {"url": legacy_url})
+
+                forbidden_requests = []
+                for request in requested_resources:
+                    path = urlsplit(request["url"]).path
+                    if path in {"/market/global-assets", "/market/us-sector-moves", "/ws/market/us-sector-moves"}:
+                        forbidden_requests.append(request)
+                    elif path.startswith("/us/") and request["resource_type"] != "document":
+                        forbidden_requests.append(request)
+                if forbidden_requests:
+                    raise QaFailure("국내 화면이 미국 시장 연동을 호출했습니다.", {"requests": forbidden_requests[:20]})
+                return {
+                    "shell": shell,
+                    "domestic": domestic_state,
+                    "mobile": mobile_state,
+                    "legacy_redirect": legacy_url,
+                    "request_count": len(requested_resources),
+                    "forbidden_request_count": 0,
+                }
+
+            results.append(
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id="SIG-UI-030",
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=domestic_product_boundary_case,
                     storage_state=storage_state,
                     share_id=share_id,
                 )

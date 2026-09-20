@@ -646,7 +646,7 @@ const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
   {
     id: "market_ai_signal",
     label: "시장 AI 시그널",
-    description: "국내장 예비·확정 신호와 미국장 마감 후 예비 매수 신호를 알려드립니다.",
+    description: "국내장 장중 예비·장 마감 확정 신호를 알려드립니다.",
   },
   {
     id: "recommendation_update",
@@ -671,7 +671,7 @@ const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
 ];
 const PUSH_NOTIFICATION_COMPACT_DESCRIPTIONS = Object.freeze({
   market_session: "장 시작·마감 5분 전",
-  market_ai_signal: "국내·미국 시장 시그널",
+  market_ai_signal: "국내 시장 시그널",
   recommendation_update: "상위 10 진입·매매 단계 변경",
   disclosure_report: "중요한 공시·리포트만",
   major_event: "영향 큰 일정이 가까워질 때",
@@ -995,6 +995,12 @@ const STOCK_TERM_HELP = {
 };
 
 const dashboardQueryParams = new URLSearchParams(window.location.search);
+const PRODUCT_MARKET_UNIVERSE = document
+  .querySelector('meta[name="secret-note-market-universe"]')
+  ?.getAttribute("content") === "unified"
+  ? "unified"
+  : "kr";
+const US_MARKET_ENABLED = PRODUCT_MARKET_UNIVERSE === "unified";
 const requestedView = dashboardQueryParams.get("view");
 const BINARY_MARKET_SCOPE_ROUTES = new Set([
   "ai-signals",
@@ -1013,11 +1019,17 @@ const isDashboardRootPath = /^\/dashboard\/?$/.test(window.location.pathname);
 const isUnifiedRootPath = isUsRootPath || isDashboardRootPath;
 const usStockPathMatch = window.location.pathname.match(/^\/us\/stock\/([^/]+)\/?$/);
 const usStockPathCode = usStockPathMatch ? decodeURIComponent(usStockPathMatch[1]) : "";
-const isUsHubContext = isUnifiedRootPath || Boolean(usStockPathMatch);
-const requestedMarketRankingMarket = dashboardQueryParams.get("market") || (isUnifiedRootPath ? "MIXED" : "ALL");
-const requestedMarketScopeValue = ["all", "kr", "us"].includes(dashboardQueryParams.get("market_scope"))
-  ? dashboardQueryParams.get("market_scope")
-  : "all";
+// Legacy unified shell used: const isUsHubContext = isUnifiedRootPath || Boolean(usStockPathMatch);
+const isUsHubContext = US_MARKET_ENABLED && (isUnifiedRootPath || Boolean(usStockPathMatch));
+const requestedMarketRankingMarketValue = dashboardQueryParams.get("market") || (isUnifiedRootPath ? "MIXED" : "ALL");
+const requestedMarketRankingMarket = !US_MARKET_ENABLED && ["MIXED", "NASDAQ", "SP500"].includes(requestedMarketRankingMarketValue.toUpperCase())
+  ? "ALL"
+  : requestedMarketRankingMarketValue;
+const requestedMarketScopeValue = !US_MARKET_ENABLED
+  ? "kr"
+  : ["all", "kr", "us"].includes(dashboardQueryParams.get("market_scope"))
+    ? dashboardQueryParams.get("market_scope")
+    : "all";
 const requestedMarketScope = isUnifiedRootPath
   && BINARY_MARKET_SCOPE_ROUTES.has(requestedView)
   && requestedMarketScopeValue === "all"
@@ -1562,6 +1574,37 @@ function applyUsMarketSurface() {
   ensureUnifiedHomeTop50();
 }
 
+function applyDomesticMarketStructure() {
+  if (US_MARKET_ENABLED) return;
+  document.body.dataset.marketScope = "kr";
+  document.body.dataset.appMarket = "kr";
+  document.body.dataset.stockMarket = "kr";
+  document.title = "비밀노트 | 국내증시";
+
+  for (const selector of [
+    "#unified-market-scope",
+    "#recommend-market-scope",
+    "#watch-market-map-market-toggle",
+    "#service-source-us",
+    "#us-stock-ai-content",
+    '[data-home-ranking-market="NASDAQ"]',
+    '[data-home-ranking-market="SP500"]',
+    '[data-market-filter="MIXED"]',
+    '[data-market-filter="NASDAQ"]',
+    '[data-market-filter="SP500"]',
+  ]) {
+    document.querySelectorAll(selector).forEach((node) => node.remove());
+  }
+
+  const serviceIntro = document.getElementById("service-intro-title")?.closest("section, article, div");
+  const serviceMarketCopy = Array.from(serviceIntro?.querySelectorAll("li") || [])
+    .find((node) => node.textContent.includes("국내 주식시장"));
+  if (serviceMarketCopy) {
+    serviceMarketCopy.textContent = "AI 분석과 공개 데이터를 활용해 국내 주식시장 정보를 쉽게 정리합니다.";
+  }
+}
+
+applyDomesticMarketStructure();
 applyUsMarketSurface();
 
 const dashboardLiveQuoteTimes = new WeakMap();
@@ -2488,6 +2531,9 @@ function stockDetailMetaText(data) {
 }
 
 function homeMarketAssetOrder(now = new Date()) {
+  if (!US_MARKET_ENABLED) {
+    return ["KOSPI", "KOSDAQ"];
+  }
   const krPhase = koreaMarketPhase(now);
   const usPhase = usMarketPhase(now, state.usSectorMoves);
   const krOpen = krPhase === "preopen" || krPhase === "regular";
@@ -20030,6 +20076,7 @@ function scheduleWatchlistStrategyRender() {
 }
 
 async function loadUsSectorMoves(options = {}) {
+  if (!US_MARKET_ENABLED) return null;
   if (!options.force && state.usSectorMoves) {
     return state.usSectorMoves;
   }
@@ -20076,6 +20123,7 @@ function closeUsSectorStream() {
 }
 
 function connectUsSectorStream() {
+  if (!US_MARKET_ENABLED) return;
   if (!("WebSocket" in window) || !US_SECTOR_STREAM_VIEWS.has(state.view)) {
     scheduleUsSectorRefresh(state.usSectorMoves);
     return;
@@ -20128,6 +20176,7 @@ function scheduleUsSectorRefresh(payload = state.usSectorMoves) {
 }
 
 async function refreshUsSectorMoves(options = {}) {
+  if (!US_MARKET_ENABLED) return null;
   if (state.usSectorRefreshPromise) {
     return state.usSectorRefreshPromise;
   }
@@ -28668,7 +28717,9 @@ async function loadHomeMarketIndices(options = {}) {
   if (!elements.homeMarketIndices) {
     return;
   }
-  const expectedCodes = new Set(["KOSPI", "KOSDAQ", "SP500", "NASDAQ", "SOX", "DOW", "GOLD", "OIL"]);
+  const expectedCodes = new Set(US_MARKET_ENABLED
+    ? ["KOSPI", "KOSDAQ", "SP500", "NASDAQ", "SOX", "DOW", "GOLD", "OIL"]
+    : ["KOSPI", "KOSDAQ"]);
   const previousItems = Array.isArray(state.homeMarketIndexItems)
     ? state.homeMarketIndexItems.filter((item) => expectedCodes.has(item?.code))
     : [];
@@ -28683,7 +28734,9 @@ async function loadHomeMarketIndices(options = {}) {
     // relying on those newer APIs so one failed feed cannot blank every card.
     const [domesticPayload, globalPayload] = await Promise.all([
       fetchHomeJsonWithRetry(liveUrl(domesticEndpoint), { force: true, ttlMs: 0 }).catch(() => null),
-      fetchHomeJsonWithRetry(liveUrl("/market/global-assets?limit=30"), { force: true, ttlMs: 0 }).catch(() => null),
+      US_MARKET_ENABLED
+        ? fetchHomeJsonWithRetry(liveUrl("/market/global-assets?limit=30"), { force: true, ttlMs: 0 }).catch(() => null)
+        : Promise.resolve(null),
     ]);
     const previousByCode = new Map(previousItems.map((item) => [item.code, item]));
     const incomingItems = [

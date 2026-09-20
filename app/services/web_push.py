@@ -1812,9 +1812,13 @@ class WebPushRuntime:
                     candidates_by_share[share_id].extend(candidates)
 
             market_signal_candidates = self._market_ai_signal_candidates(db, now_kst)
-            us_market_signal_candidates = self._us_market_ai_signal_candidates(
-                db,
-                now_kst.replace(tzinfo=KST).astimezone(timezone.utc),
+            us_market_signal_candidates = (
+                self._us_market_ai_signal_candidates(
+                    db,
+                    now_kst.replace(tzinfo=KST).astimezone(timezone.utc),
+                )
+                if self.settings.us_market_enabled
+                else []
             )
             morning_briefing_candidates = self._morning_briefing_candidates(now_kst)
             market_session_candidates = self._market_session_candidates(now_kst)
@@ -1842,13 +1846,14 @@ class WebPushRuntime:
                         for candidate in market_signal_candidates:
                             self._record_candidate_baseline(db, subscription, candidate)
                         self._mark_market_signal_initialized(db, subscription)
-                    if self._us_market_signal_initialized(db, subscription):
-                        for candidate in us_market_signal_candidates:
-                            sent += int(self._send(db, subscription, candidate))
-                    else:
-                        for candidate in us_market_signal_candidates:
-                            self._record_candidate_baseline(db, subscription, candidate)
-                        self._mark_us_market_signal_initialized(db, subscription)
+                    if self.settings.us_market_enabled:
+                        if self._us_market_signal_initialized(db, subscription):
+                            for candidate in us_market_signal_candidates:
+                                sent += int(self._send(db, subscription, candidate))
+                        else:
+                            for candidate in us_market_signal_candidates:
+                                self._record_candidate_baseline(db, subscription, candidate)
+                            self._mark_us_market_signal_initialized(db, subscription)
                 if (
                     recommendation_snapshot is not None
                     and "recommendation_update" in subscription_conditions(subscription)

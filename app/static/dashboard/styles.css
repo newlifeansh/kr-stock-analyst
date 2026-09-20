@@ -46070,3 +46070,19 @@ body[data-staging-ia="tds-video"] #stock-view img[src*="/stock-logos/AMZN.png"] 
     gap: 6px 12px;
   }
 }
+/* Domestic product boundary: US controls stay in the dormant implementation,
+   but never enter the rendered Korea-only information architecture. */
+html[data-market-universe="kr"] :is(
+  #unified-market-scope,
+  #recommend-market-scope,
+  #watch-market-map-market-toggle,
+  #service-source-us,
+  #us-stock-ai-content,
+  [data-home-ranking-market="NASDAQ"],
+  [data-home-ranking-market="SP500"],
+  [data-market-filter="MIXED"],
+  [data-market-filter="NASDAQ"],
+  [data-market-filter="SP500"]
+) {
+  display: none !important;
+}

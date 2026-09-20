@@ -33,7 +33,7 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["strategy_version"] == "position-lifecycle-v7.4.2"
-    assert response.json()["dashboard_version"] == "20260915v549"
+    assert response.json()["dashboard_version"] == "20260921v550"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -240,11 +240,11 @@ def test_us_and_dashboard_paths_serve_the_unified_market_shell():
     assert 'data-recommend-market-scope="all"' not in response.text
     assert 'data-market-filter="MIXED"' in response.text
     assert 'data-home-ranking-market="NASDAQ"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260915v549"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260921v550"' in response.text
     assert "시장 한눈에" not in response.text
 
 
-def test_us_and_dashboard_surfaces_combine_markets_and_preserve_their_root_routes():
+def test_domestic_surface_disables_unified_runtime_and_preserves_dormant_us_implementation():
     client = TestClient(app, base_url="https://secretnote.cloud")
     dashboard_shell = client.get("/dashboard?view=home").text
     us_shell = client.get("/us?view=home").text
@@ -253,11 +253,17 @@ def test_us_and_dashboard_surfaces_combine_markets_and_preserve_their_root_route
 
     assert dashboard_shell == us_shell
     assert '<h1 id="login-title">한국증시 비밀노트</h1>' in dashboard_shell
+    assert '<html lang="ko" data-market-universe="kr">' in dashboard_shell
+    assert '<meta name="secret-note-market-universe" content="kr" />' in dashboard_shell
+    assert 'window.location.replace(destination);' in us_shell
+    assert 'const US_MARKET_ENABLED = PRODUCT_MARKET_UNIVERSE === "unified";' in source
     assert 'const isDashboardRootPath = /^\\/dashboard\\/?$/.test(window.location.pathname);' in source
     assert "const isUnifiedRootPath = isUsRootPath || isDashboardRootPath;" in source
     assert "const isUsHubContext = isUnifiedRootPath || Boolean(usStockPathMatch);" in source
+    assert "const isUsHubContext = US_MARKET_ENABLED && (isUnifiedRootPath || Boolean(usStockPathMatch));" in source
     assert 'const root = isDashboardRootPath || !isUsHubContext ? "/dashboard" : "/us";' in source
-    assert 'const requestedMarketScopeValue = ["all", "kr", "us"].includes' in source
+    assert 'const requestedMarketScopeValue = !US_MARKET_ENABLED' in source
+    assert 'function applyDomesticMarketStructure()' in source
     assert 'return isUsMarketContext ? `${prefix}.us` : prefix;' in source
     assert 'function ensureUnifiedHomeTop50()' in source
     assert 'domesticTitle.textContent = "한국 TOP 50";' in source
@@ -289,6 +295,7 @@ def test_us_and_dashboard_surfaces_combine_markets_and_preserve_their_root_route
     unified_scope_styles = styles[styles.index("/* /us country scope") :]
     assert unified_scope_styles.count("min-height: 44px;") >= 2
     assert ".unified-market-scope-toggle > button:focus-visible" in unified_scope_styles
+    assert 'html[data-market-universe="kr"] :is(' in styles
 
 
 def test_us_first_login_uses_us_write_scope_for_recommendation_track_initialization():
@@ -941,8 +948,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="us-stock-ai-content"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260915v549"' in stock_shell.text
-    assert 'src="/assets/staging/toss-ia.js?v=20260915-recommendation-data-details-v114"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260921v550"' in stock_shell.text
+    assert 'src="/assets/staging/toss-ia.js?v=20260921-domestic-market-v115"' in stock_shell.text
     assert "NASDAQ Intelligence" not in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -982,7 +989,7 @@ def test_us_stock_detail_frontend_uses_us_contract_without_domestic_quote_subscr
     assert 'formatUsdPrice' in source
     assert '미국 동부시간 기준' in source
     assert 'stagingStockPriceText' in toss
-    assert '20260915-recommendation-data-details-v114' in toss
+    assert '20260921-domestic-market-v115' in toss
     assert 'body[data-stock-market="us"] [data-stock-tab="community"]' not in styles
     assert 'body[data-stock-market="us"] #stock-summary-section > .stock-v3-two-column' not in styles
     assert 'body[data-stock-market="us"] #stock-view [data-staging-chart-period="1D"]' not in styles
@@ -1205,12 +1212,12 @@ def test_legacy_railway_browser_visit_shows_migration_bottom_sheet():
     assert "secretnote.cloud로<br />접속해 주세요!" in current_response.text
 
 
-def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_storage():
+def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domestic_scope():
     client = TestClient(app)
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260915v549"}
+    assert version.json() == {"version": "20260921v550"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search&market_scope=us")
@@ -1218,10 +1225,10 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_preserves_identity_s
     assert refresh.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert '["/dashboard-sw.js", "/us-sw.js"].includes' in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
-    assert '["kr", "us"].includes(params.get("market_scope"))' in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=${encodeURIComponent(marketScope)}&app_build=20260915v549" in refresh.text
-    assert 'params.get("market") === "us"' in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260915v549" in refresh.text
+    assert '["kr", "us"].includes(params.get("market_scope"))' not in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=kr&app_build=20260921v550" in refresh.text
+    assert 'params.get("market") === "us"' not in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260921v550" not in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -1234,10 +1241,12 @@ def test_legacy_us_service_worker_retires_its_scope_and_routes_clients_to_curren
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'CURRENT_DASHBOARD_BUILD = "20260915v549"' in worker.text
+    assert 'CURRENT_DASHBOARD_BUILD = "20260921v550"' in worker.text
     assert r"/^secret-note-static-\d{8}us/" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert 'url.pathname.startsWith("/us")' in worker.text
+    assert 'url.pathname = "/dashboard"' in worker.text
+    assert 'url.search = "?view=home"' in worker.text
     assert 'url.searchParams.set("app_build", CURRENT_DASHBOARD_BUILD)' in worker.text
     assert "client.navigate(url.href)" in worker.text
     assert "self.registration.unregister()" in worker.text
@@ -1798,6 +1807,16 @@ def test_fresh_market_signal_snapshot_keeps_current_preliminary_rows(monkeypatch
 def test_market_quant_signal_preparing_payload_includes_active_reconciliation(monkeypatch):
     from app import main as main_module
 
+    # Keep the historical 2026-08-20 reconciliation inside the requested window.
+    # Wall-clock time otherwise expires the fixture during scheduled QA.
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            fixed = cls(2026, 9, 18, 12, tzinfo=ZoneInfo("Asia/Seoul"))
+            return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
+
+    monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+
     class BusyRefreshLock:
         @staticmethod
         def acquire(*, blocking):
@@ -1874,7 +1893,7 @@ def test_dashboard_notification_button_opens_notification_page_before_settings()
     assert 'label: "알림 안내", buttonText: "알림", disabled: false' in unsupported_state
 
 
-def test_push_config_includes_briefing_market_session_and_us_signal_alerts():
+def test_push_config_includes_briefing_and_domestic_market_signal_alerts():
     client = TestClient(app)
 
     response = client.get("/push/config")
@@ -1897,7 +1916,7 @@ def test_push_config_includes_briefing_market_session_and_us_signal_alerts():
     assert options["market_ai_signal"] == {
         "id": "market_ai_signal",
         "label": "시장 AI 시그널",
-        "description": "국내장 예비·확정 신호와 미국장 마감 후 예비 매수 신호를 알려드립니다.",
+        "description": "국내장 장중 예비·장 마감 확정 신호를 알려드립니다.",
     }
     assert options["recommendation_update"] == {
         "id": "recommendation_update",
@@ -1908,7 +1927,7 @@ def test_push_config_includes_briefing_market_session_and_us_signal_alerts():
     source = client.get("/dashboard-app-v170.js").text
     assert 'id: "morning_briefing"' in source
     assert 'label: "돈이 되는 소식"' in source
-    assert "국내·미국 시장 시그널" in source
+    assert "국내 시장 시그널" in source
     assert "매일 오전 8시·낮 12시·오후 4시" in source
     assert 'morning_briefing: "돈이 되는 소식"' in source
     assert 'id: "recommendation_update"' in source
@@ -2748,7 +2767,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260915v549' in shell
+    assert 'styles.css?v=20260921v550' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -2835,7 +2854,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260915v549"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20260921v550"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -2873,7 +2892,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260915v549"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20260921v550"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" not in service_worker
@@ -3080,7 +3099,8 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert 'homeSurgeSector: "all"' in source
     assert "const items = state.homeSurgeItems.slice(0, 5);" in source
     assert 'homeRankingMarket: isUnifiedRootPath ? "ALL"' in source
-    assert 'const requestedMarketRankingMarket = dashboardQueryParams.get("market") || (isUnifiedRootPath ? "MIXED" : "ALL");' in source
+    assert 'const requestedMarketRankingMarketValue = dashboardQueryParams.get("market") || (isUnifiedRootPath ? "MIXED" : "ALL");' in source
+    assert 'const requestedMarketRankingMarket = !US_MARKET_ENABLED && ["MIXED", "NASDAQ", "SP500"].includes' in source
     assert 'const MARKET_RANKING_MARKETS = new Set(["MIXED", "ALL", "KOSPI", "KOSDAQ", "NASDAQ", "SP500"]);' in source
     assert 'const US_MARKET_RANKING_MARKETS = new Set(["NASDAQ", "SP500"]);' in source
     assert 'const US_MARKET_RANKING_CATEGORIES = new Set(["volume", "surge", "market_cap", "dividend", "per"]);' in source
