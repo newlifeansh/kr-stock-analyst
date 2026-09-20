@@ -508,3 +508,45 @@ def test_collect_naver_quotes_commits_batches_and_skips_failed_codes(monkeypatch
         run = db.query(IngestionRun).one()
         assert run.status == "success"
         assert run.message == "failed_codes=1"
+
+
+def test_naver_realtime_market_cap_rows_normalize_batch_payload(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "datas": [
+                    {
+                        "itemCode": "005930",
+                        "closePriceRaw": "74300",
+                        "marketValueFullRaw": "443558000000000",
+                        "accumulatedTradingVolumeRaw": "1000",
+                        "accumulatedTradingValueRaw": "74300000",
+                    },
+                    {"itemCode": "NOT-REQUESTED", "closePriceRaw": "1", "marketValueFullRaw": "1"},
+                ]
+            }
+
+    monkeypatch.setattr(naver_quotes.requests, "get", lambda *_args, **_kwargs: Response())
+
+    rows = naver_quotes._realtime_market_cap_rows(
+        ["005930"],
+        date(2026, 9, 14),
+    )
+
+    assert rows == [
+        {
+            "code": "005930",
+            "trade_date": date(2026, 9, 14),
+            "open": None,
+            "high": None,
+            "low": None,
+            "close": 74_300,
+            "volume": 1_000,
+            "trading_value": 74_300_000,
+            "market_cap": 443_558_000_000_000,
+            "listed_shares": None,
+        }
+    ]

@@ -643,6 +643,20 @@ def _candidate_sort_key(item: dict[str, object]) -> Decimal:
     return one_month * Decimal("0.9") + three_month * Decimal("0.4") + trading_change * Decimal("0.25") + liquidity_bonus
 
 
+def _ensure_trading_value(item: dict[str, object], *, fallback: dict[str, object] | None = None) -> None:
+    if item.get("trading_value") is not None:
+        return
+    source = fallback or item
+    price = _num(source.get("price"))
+    volume = _num(source.get("volume"))
+    if price is None or volume is None:
+        return
+    try:
+        item["trading_value"] = int(price * volume)
+    except Exception:
+        return
+
+
 def _normalized_recommendation_name(name: object) -> str:
     value = str(name or "").strip().upper().replace(" ", "")
     for suffix in ("우B", "우C", "1우", "2우B", "우"):
@@ -805,6 +819,7 @@ def _score_candidate_in_session(
         if not dashboard:
             return None
         result = _score_dashboard(dashboard)
+        _ensure_trading_value(result, fallback=dashboard.get("quote") if isinstance(dashboard.get("quote"), dict) else None)
         stock = db.get(StockMaster, code)
         if stock:
             result.update(investment_sector_fields(stock.sector, stock.industry))
@@ -856,6 +871,7 @@ def _fast_component_scores(item: dict[str, object], chart_analysis: dict[str, ob
 
 
 def _score_fast_candidate(item: dict[str, object], prices: list[object]) -> dict[str, object]:
+    _ensure_trading_value(item)
     chart_analysis = _chart_analysis(prices)
     components = _fast_component_scores(item, chart_analysis)
     total = _weighted_component_score(components)
@@ -961,7 +977,7 @@ def _top_market_cap_universe(db: Session, refresh_live: bool = False) -> dict[st
             stock = selected_stocks[code]
             prices = price_groups.get(code, [])
             item = _base_item(stock, prices)
-            if not item or not item.get("trading_value"):
+            if item is None or item.get("trading_value") is None:
                 continue
             item.update(investment_sector_fields(stock.sector, stock.industry))
             base_items.append(item)

@@ -1810,7 +1810,7 @@ def test_market_quant_signal_preparing_payload_includes_active_reconciliation(mo
     monkeypatch.setattr(main_module, "_refresh_market_quant_signal_snapshot", lambda *_args, **_kwargs: None)
     try:
         response = TestClient(app).get(
-            "/market/quant-signals?universe_limit=100&limit=0&recent_days=30"
+            "/market/quant-signals?universe_limit=100&limit=0&recent_days=31"
         )
         assert response.status_code == 200
         payload = response.json()

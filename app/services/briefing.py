@@ -728,6 +728,16 @@ class BriefingRuntime:
                 max_workers=self.settings.price_max_workers,
             )
             if naver_rows:
+                try:
+                    market_cap_rows += collect_naver_realtime_market_caps(
+                        db,
+                        target_yyyymmdd,
+                        markets="KOSPI,KOSDAQ",
+                        limit=None,
+                        max_workers=self.settings.price_max_workers,
+                    )
+                except Exception as exc:
+                    market_errors["naver_realtime_market_caps"] = str(exc)
                 must_finalize_close = self._post_close_price_repair_due(current)
                 repair_rows += self._repair_signal_price_ohlc(
                     db,
@@ -755,6 +765,29 @@ class BriefingRuntime:
                     }
         except Exception as exc:
             market_errors["naver_html_quotes"] = str(exc)
+
+        # When both KRX market calls and the legacy Naver quote page fail, do
+        # not fall straight through to the small event-code repair set. The
+        # exchange-specific Naver chart endpoint can still provide complete
+        # KRX OHLC candles, while the realtime endpoint supplies market caps.
+        # This keeps the completed-session universe from silently remaining on
+        # an older date. Coverage is rechecked before reporting success.
+        repair_rows = 0
+        try:
+            repair_rows = self._repair_completed_session_from_naver(db, target_date)
+            coverage = self._latest_price_coverage(db, target_yyyymmdd)
+            if coverage["total"] and coverage["coverage_ratio"] >= 0.95:
+                return {
+                    "source": "naver_realtime_market_caps+naver_krx_chart",
+                    "rows_loaded": repair_rows,
+                    "message": (
+                        f"date={target_yyyymmdd} errors={len(market_errors)} "
+                        f"repaired={repair_rows} fresh={coverage['fresh']}/{coverage['total']} "
+                        f"coverage={coverage['coverage_ratio']:.2%}"
+                    ),
+                }
+        except Exception as exc:
+            market_errors["naver_krx_chart_fallback"] = str(exc)
 
         codes = self._recent_price_codes(db)
         if not codes:
@@ -786,6 +819,34 @@ class BriefingRuntime:
                 f"coverage={coverage['coverage_ratio']:.2%}"
             ),
         }
+
+    def _repair_completed_session_from_naver(self, db, target_date: date) -> int:
+        """Fill a missing completed session from Naver's KRX chart fallback."""
+
+        codes = list(
+            db.scalars(
+                select(StockMaster.code).where(
+                    StockMaster.is_active.is_(True),
+                    StockMaster.market.in_(('KOSPI', 'KOSDAQ')),
+                )
+            )
+        )
+        if not codes:
+            return 0
+        market_cap_rows = collect_naver_realtime_market_caps(
+            db,
+            target_date.strftime('%Y%m%d'),
+            markets='KOSPI,KOSDAQ',
+            limit=None,
+            max_workers=self.settings.price_max_workers,
+        )
+        chart_rows = collect_naver_krx_price_rows_for_codes(
+            db,
+            codes,
+            target_date,
+            max_workers=self.settings.price_max_workers,
+        )
+        return market_cap_rows + chart_rows
 
     def _repair_signal_price_ohlc(
         self,
