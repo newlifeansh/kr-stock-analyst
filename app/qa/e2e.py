@@ -7222,8 +7222,14 @@ def run_e2e_checks(
                         "investor_state": "not_holding",
                         "average_buy_price": None,
                     },
+                    {
+                        "code": "035420",
+                        "name": "NAVER",
+                        "market": "KOSPI",
+                        "investor_state": "not_holding",
+                        "average_buy_price": None,
+                    },
                 ]
-                qa_us_watchlist_items: list[dict[str, Any]] = []
                 qa_search_item = {
                     "code": "035720",
                     "name": "카카오",
@@ -7262,19 +7268,14 @@ def run_e2e_checks(
                     )
 
                 def watchlist_route(route: Any) -> None:
-                    items_state = (
-                        qa_us_watchlist_items
-                        if "/us/watchlists/" in str(route.request.url)
-                        else qa_watchlist_items
-                    )
                     if str(route.request.method or "GET").upper() == "PUT":
                         payload = json.loads(route.request.post_data or "{}")
                         items = payload.get("items")
                         if isinstance(items, list):
-                            items_state[:] = items
+                            qa_watchlist_items[:] = items
                     fulfill_json(
                         route,
-                        {"share_id": share_id, "items": items_state},
+                        {"share_id": share_id, "items": qa_watchlist_items},
                     )
 
                 def tracks_route(route: Any) -> None:
@@ -7432,6 +7433,14 @@ def run_e2e_checks(
                         ),
                     )
                 page.route(
+                    re.compile(r".*/stocks/035420/dashboard(?:\?.*)?$"),
+                    lambda route: route.fulfill(
+                        status=404,
+                        content_type="application/json",
+                        body=json.dumps({"detail": "qa delayed quote fixture"}),
+                    ),
+                )
+                page.route(
                     re.compile(r".*/market/us-sector-moves(?:\?.*)?$"),
                     lambda route: fulfill_json(route, {"items": []}),
                 )
@@ -7463,7 +7472,7 @@ def run_e2e_checks(
                 shell = _assert_page_shell(page, theme=theme)
                 page.wait_for_function(
                     """() => (
-                      document.querySelectorAll('#watchlist-body [data-watch-card]').length === 2
+                      document.querySelectorAll('#watchlist-body [data-watch-card]').length === 3
                       && document.querySelectorAll('#watchlist-body .watch-stock-loading').length === 0
                     )""",
                     timeout=int(timeout * 1000),
@@ -7490,18 +7499,47 @@ def run_e2e_checks(
                       legacyMetricCount: row.querySelectorAll('.watch-v15-metrics, .watch-pin-metrics, [data-field="market_cap"]').length,
                     }))"""
                 )
+                quote_rows = [
+                    row for row in compact_rows if row["code"] in {"005930", "000660"}
+                ]
                 if (
-                    [row["code"] for row in compact_rows] != ["005930", "000660"]
+                    [row["code"] for row in quote_rows] != ["005930", "000660"]
                     or any(
                         not row["hasLogo"]
                         or not row["hasSparkline"]
                         or row["legacyMetricCount"]
-                        for row in compact_rows
+                        for row in quote_rows
                     )
                 ):
                     raise QaFailure(
                         "관심종목 로고·스파크라인·현재가·등락률 컴팩트 행이 올바르지 않습니다.",
                         {"rows": compact_rows},
+                    )
+                delayed_row = page.evaluate(
+                    """() => {
+                      const row = document.querySelector('#watchlist-body [data-code="035420"]');
+                      const link = row?.querySelector('.watch-compact-link');
+                      return {
+                        name: row?.querySelector('.watch-compact-copy strong')?.textContent.trim(),
+                        ticker: row?.querySelector('.watch-compact-copy small')?.textContent.trim(),
+                        price: row?.querySelector('[data-field="price"]')?.textContent.trim(),
+                        change: row?.querySelector('[data-field="change_rate"]')?.textContent.trim(),
+                        href: link?.getAttribute('href') || '',
+                        delayed: row?.classList.contains('is-data-delayed') || false,
+                      };
+                    }"""
+                )
+                if (
+                    delayed_row["name"] != "NAVER"
+                    or delayed_row["ticker"] != "035420"
+                    or delayed_row["price"] != "시세 지연"
+                    or delayed_row["change"] != "종목 보기"
+                    or "/dashboard/035420" not in delayed_row["href"]
+                    or not delayed_row["delayed"]
+                ):
+                    raise QaFailure(
+                        "개별 시세 실패 종목의 식별정보·지연 상태·상세 링크가 유지되지 않았습니다.",
+                        delayed_row,
                     )
                 if (
                     page.locator("#watch-group-share").count()
@@ -7515,11 +7553,11 @@ def run_e2e_checks(
                 page.evaluate(
                     """() => {
                       state.currentStock = {
-                        code: 'AAPL',
-                        name: 'Apple',
-                        market: 'NASDAQ',
-                        market_scope: 'us',
-                        currency: 'USD',
+                        code: '035720',
+                        name: '카카오',
+                        market: 'KOSPI',
+                        market_scope: 'kr',
+                        currency: 'KRW',
                       };
                       setView('stock', {historyMode: 'none'});
                       updateWatchButton();
@@ -7603,26 +7641,38 @@ def run_e2e_checks(
                     "() => document.querySelector('#watch-toggle')?.getAttribute('aria-label') === '관심종목 해제'"
                 )
                 page.wait_for_timeout(650)
-                if [item.get("code") for item in qa_us_watchlist_items] != ["AAPL"]:
+                if [item.get("code") for item in qa_watchlist_items] != [
+                    "005930",
+                    "000660",
+                    "035420",
+                    "035720",
+                ]:
                     raise QaFailure(
-                        "미국 종목 상세 하트 완료가 미국 관심목록에 저장되지 않았습니다.",
-                        {"items": qa_us_watchlist_items},
+                        "국내 종목 상세 하트 완료가 국내 관심목록에 저장되지 않았습니다.",
+                        {"items": qa_watchlist_items},
                     )
                 detail_heart.click()
                 page.wait_for_function(
                     "() => document.querySelector('#watch-toggle')?.getAttribute('aria-label') === '관심종목 추가'"
                 )
                 page.wait_for_timeout(650)
-                if qa_us_watchlist_items:
+                domestic_detail_removed = [
+                    item.get("code") for item in qa_watchlist_items
+                ] == [
+                    "005930",
+                    "000660",
+                    "035420",
+                ]
+                if not domestic_detail_removed:
                     raise QaFailure(
-                        "채워진 미국 종목 상세 하트가 미국 관심목록에서 해제되지 않았습니다.",
-                        {"items": qa_us_watchlist_items},
+                        "채워진 국내 종목 상세 하트가 국내 관심목록에서 해제되지 않았습니다.",
+                        {"items": qa_watchlist_items},
                     )
                 page.evaluate("() => setView('portfolio', {historyMode: 'none'})")
                 page.wait_for_function(
                     """() => (
                       document.body.dataset.view === 'portfolio'
-                      && document.querySelectorAll('#watchlist-body [data-watch-card]').length === 2
+                      && document.querySelectorAll('#watchlist-body [data-watch-card]').length === 3
                     )""",
                     timeout=int(timeout * 1000),
                 )
@@ -7760,7 +7810,7 @@ def run_e2e_checks(
                 add_dialog.wait_for(state="hidden", timeout=int(timeout * 1000))
                 page.wait_for_function(
                     """() => (
-                      document.querySelectorAll('#watchlist-body [data-watch-card]').length === 3
+                      document.querySelectorAll('#watchlist-body [data-watch-card]').length === 4
                       && document.querySelector('#watchlist-body [data-code="035720"]')
                       && document.activeElement?.id === 'watchlist-search'
                     )""",
@@ -7770,6 +7820,7 @@ def run_e2e_checks(
                 if [item.get("code") for item in qa_watchlist_items] != [
                     "005930",
                     "000660",
+                    "035420",
                     "035720",
                 ]:
                     raise QaFailure(
@@ -7876,6 +7927,7 @@ def run_e2e_checks(
                 if [item.get("code") for item in qa_watchlist_items] != [
                     "005930",
                     "000660",
+                    "035420",
                     "035720",
                 ]:
                     raise QaFailure("폴더에서 종목을 뺄 때 기본 관심종목도 삭제됐습니다.")
@@ -8023,7 +8075,7 @@ def run_e2e_checks(
 
                 page.locator("#watch-group-default").click()
                 page.wait_for_function(
-                    "() => document.querySelectorAll('#watchlist-body [data-watch-card]').length === 3"
+                    "() => document.querySelectorAll('#watchlist-body [data-watch-card]').length === 4"
                 )
                 persisted_group.click()
                 page.wait_for_selector('#watchlist-body [data-code="000660"]')
@@ -8075,13 +8127,14 @@ def run_e2e_checks(
                         "added_code": "035720",
                     },
                     "detail_heart_group_sheet": detail_group_sheet,
-                    "us_detail_add_remove": not qa_us_watchlist_items,
+                    "domestic_detail_add_remove": domestic_detail_removed,
+                    "delayed_quote_fallback": delayed_row,
                     "pin_rows": pin_snapshot,
                     "live_daily_return": "+2.50%",
                     "persisted_group": "배당주",
                     "sync_writes": sync_writes,
                     "desktop_layout": desktop_layout,
-                    "folder_deleted_without_watchlist_loss": len(qa_watchlist_items) == 3,
+                    "folder_deleted_without_watchlist_loss": len(qa_watchlist_items) == 4,
                 }
 
             results.append(

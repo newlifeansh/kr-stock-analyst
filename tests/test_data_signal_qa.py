@@ -1131,8 +1131,10 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "def watchlist_groups_case" in source
     assert 'case_id="SIG-UI-024"' in source
     assert '[data-code="035720"][data-market-scope="kr"]' in source
-    assert "qa_us_watchlist_items: list[dict[str, Any]] = []" in source
-    assert 'if "/us/watchlists/" in str(route.request.url)' in source
+    assert '"code": "035420"' in source
+    assert '"qa delayed quote fixture"' in source
+    assert '"delayed_quote_fallback": delayed_row' in source
+    assert "qa_us_watchlist_items" not in source
     assert 'rf".*/watchlists/(?:us\\.)?{re.escape(share_id)}/groups' in source
     assert 'rf".*/watchlists/(?:us\\.)?{re.escape(share_id)}/recommendation-tracks' in source
     assert "quantSignalCurrentState(state.stockQuantSignals).headline" in source
