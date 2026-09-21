@@ -76,51 +76,35 @@ def test_release_parity_rejects_changed_content_behind_the_same_asset_url() -> N
     ]
 
 
-def test_deployment_workflow_enforces_staging_before_production() -> None:
+def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> None:
     workflow = Path(".github/workflows/deploy-staging-production.yml").read_text(
         encoding="utf-8"
     )
 
-    assert "deploy_staging:\n    needs: gate" in workflow
-    assert "deploy_production_bootstrap:" in workflow
-    assert "needs: [gate, deploy_staging]" in workflow
-    assert "staging_qa:\n    needs: [deploy_staging, deploy_production_bootstrap]" in workflow
-    assert "deploy_production:" in workflow
-    assert "needs: staging_qa" in workflow
-    assert "always() &&" in workflow
-    assert "verify_production:\n    needs: [staging_qa, deploy_production, deploy_production_bootstrap]" in workflow
-    assert workflow.count("ref: ${{ github.sha }}") == 6
+    assert "packages: write" in workflow
+    assert "docker/build-push-action@v6" in workflow
+    assert 'image_ref="${IMAGE_NAME}@${IMAGE_DIGEST}"' in workflow
+    assert "deploy_staging:" in workflow
+    assert "needs: [validate_request, gate, build_image]" in workflow
+    assert "staging_qa:" in workflow
+    assert "needs: [validate_request, build_image, deploy_staging]" in workflow
+    assert "inputs.action == 'promote-production'" in workflow
+    assert "needs: [validate_request, deploy_production]" in workflow
+    assert "^ghcr\\.io/.+@sha256:[0-9a-f]{64}$" in workflow
     assert "--environment staging" in workflow
     assert "--environment production" in workflow
-    assert '--project "$STAGING_RAILWAY_PROJECT_ID"' in workflow
-    assert '--service "$STAGING_RAILWAY_SERVICE"' in workflow
-    assert '--project "$PRODUCTION_RAILWAY_PROJECT_ID"' in workflow
-    assert '--service "$PRODUCTION_RAILWAY_SERVICE"' in workflow
-    assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
-    assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 3
-    assert workflow.count('test -n "$RAILWAY_API_TOKEN"') == 3
+    assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 4
+    assert workflow.count('--project "$RAILWAY_PROJECT_ID"') == 4
+    assert '--service "$STAGING_RAILWAY_WEB_SERVICE"' in workflow
+    assert '--service "$STAGING_RAILWAY_COLLECTOR_SERVICE"' in workflow
+    assert '--service "$PRODUCTION_RAILWAY_WEB_SERVICE"' in workflow
+    assert '--service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"' in workflow
+    assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 2
+    assert workflow.count('test -n "$RAILWAY_API_TOKEN"') == 2
     assert "      RAILWAY_TOKEN:" not in workflow
-    assert workflow.count("npm install --global @railway/cli@5.45.7") == 3
-    assert workflow.count("railway up --detach --json") == 3
-    assert workflow.count('--message "github-sha=${{ github.sha }}"') == 3
-    assert "railway up --ci" not in workflow
+    assert workflow.count("npm install --global @railway/cli@5.45.7") == 2
+    assert "railway up" not in workflow
     assert "name: production" in workflow
     assert "--production-url \"$PRODUCTION_BASE_URL\"" in workflow
-    assert workflow.count(
-        "expected_us_strategy_version=\"$(sed -n 's/^US_STRATEGY_VERSION"
-    ) == 2
-    assert '"$PRODUCTION_BASE_URL/health"' in workflow
-    assert '"$PRODUCTION_BASE_URL/us/market/quant-signals?limit=1&recent_days=30"' in workflow
-    assert '"$PRODUCTION_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100"' in workflow
-    assert '"$STAGING_BASE_URL/health"' in workflow
-    assert '"$STAGING_BASE_URL/us/market/quant-signals?limit=1&recent_days=30"' in workflow
-    assert '"$STAGING_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100"' in workflow
-    assert workflow.count('"$us_rollout_mode" == "shadow"') == 2
-    assert workflow.count('"$us_execution_enabled" == "false"') == 2
-    assert workflow.count(
-        '"$us_recommendation_signal_eligible_count" == "$us_signal_eligible_count"'
-    ) == 2
-    assert workflow.count(
-        '"$us_recommendation_insufficient_history_count" == "$us_insufficient_history_count"'
-    ) == 2
-    assert "Wait for the staging signal APIs and canonical bridge" in workflow
+    assert "Wait for the staged domestic-only release" in workflow
+    assert "/us/market/" not in workflow

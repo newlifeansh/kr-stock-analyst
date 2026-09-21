@@ -1,39 +1,81 @@
-name: Deploy Railway staging to production
+name: Build and promote immutable Railway release
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
-      bootstrap_production_source:
-        description: "스테이징이 프로덕션 공개 API를 읽는 경우 운영 원천을 먼저 같은 SHA로 배포"
+      action:
+        description: "build, stage, 또는 검증된 이미지의 promote-production"
+        required: true
+        type: choice
+        options:
+          - build
+          - stage
+          - promote-production
+        default: build
+      candidate_version:
+        description: "예: 20260921v550-rc6"
+        required: true
+        type: string
+      image_ref:
+        description: "운영 승격 시 필수: ghcr.io/...@sha256:..."
         required: false
-        type: boolean
-        default: false
+        type: string
+      source_sha:
+        description: "운영 승격 시 필수: 스테이징에서 검증한 전체 Git SHA"
+        required: false
+        type: string
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
-  group: railway-staging-production
+  group: railway-release-${{ inputs.action }}
   cancel-in-progress: false
 
 env:
-  STAGING_RAILWAY_PROJECT_ID: ${{ vars.STAGING_RAILWAY_PROJECT_ID }}
-  STAGING_RAILWAY_SERVICE: ${{ vars.STAGING_RAILWAY_SERVICE }}
-  PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}
-  PRODUCTION_RAILWAY_SERVICE: ${{ vars.PRODUCTION_RAILWAY_SERVICE }}
-  STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL || 'https://dark-theme-preview-staging.up.railway.app' }}
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+  STAGING_RAILWAY_WEB_SERVICE: ${{ vars.STAGING_RAILWAY_WEB_SERVICE }}
+  STAGING_RAILWAY_COLLECTOR_SERVICE: ${{ vars.STAGING_RAILWAY_COLLECTOR_SERVICE }}
+  PRODUCTION_RAILWAY_WEB_SERVICE: ${{ vars.PRODUCTION_RAILWAY_WEB_SERVICE }}
+  PRODUCTION_RAILWAY_COLLECTOR_SERVICE: ${{ vars.PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
+  STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
   PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
 
 jobs:
+  validate_request:
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.request.outputs.source_sha }}
+    steps:
+      - id: request
+        shell: bash
+        env:
+          REQUESTED_ACTION: ${{ inputs.action }}
+          REQUESTED_IMAGE_REF: ${{ inputs.image_ref }}
+          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$REQUESTED_ACTION" == "promote-production" ]]; then
+            [[ "$REQUESTED_IMAGE_REF" =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]]
+            [[ "$REQUESTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+            echo "source_sha=$REQUESTED_SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          else
+            test -z "$REQUESTED_IMAGE_REF"
+            test -z "$REQUESTED_SOURCE_SHA"
+            echo "source_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
   gate:
+    if: inputs.action != 'promote-production'
+    needs: validate_request
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.validate_request.outputs.source_sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -52,123 +94,114 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: deployment-gate-${{ github.sha }}
+          name: deployment-gate-${{ needs.validate_request.outputs.source_sha }}
           path: artifacts/qa-data-signal
           if-no-files-found: error
           retention-days: 30
 
+  build_image:
+    if: inputs.action != 'promote-production'
+    needs: [validate_request, gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      image_ref: ${{ steps.release.outputs.image_ref }}
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate_request.outputs.source_sha }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        name: Build and push one immutable image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ inputs.candidate_version }}
+            ${{ env.IMAGE_NAME }}:sha-${{ needs.validate_request.outputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.validate_request.outputs.source_sha }}
+            org.opencontainers.image.version=${{ inputs.candidate_version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - id: release
+        name: Record immutable candidate identity
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          SOURCE_SHA: ${{ needs.validate_request.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          image_ref="${IMAGE_NAME}@${IMAGE_DIGEST}"
+          echo "image_ref=$image_ref" >> "$GITHUB_OUTPUT"
+          mkdir -p artifacts/qa-data-signal/release-candidate
+          jq -n \
+            --arg candidate "${{ inputs.candidate_version }}" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg image_ref "$image_ref" \
+            --arg image_digest "$IMAGE_DIGEST" \
+            '{candidate_version:$candidate, source_sha:$source_sha, image_ref:$image_ref, image_digest:$image_digest, promotion_state:"built"}' \
+            > artifacts/qa-data-signal/release-candidate/candidate.json
+      - name: Upload immutable candidate identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-${{ inputs.candidate_version }}
+          path: artifacts/qa-data-signal/release-candidate/candidate.json
+          if-no-files-found: error
+          retention-days: 90
+
   deploy_staging:
-    needs: gate
+    if: inputs.action == 'stage'
+    needs: [validate_request, gate, build_image]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
       name: staging
-      url: ${{ vars.STAGING_BASE_URL || 'https://dark-theme-preview-staging.up.railway.app' }}
+      url: ${{ vars.STAGING_BASE_URL }}
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      IMAGE_REF: ${{ needs.build_image.outputs.image_ref }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
       - name: Validate Railway staging configuration
         run: |
           test -n "$RAILWAY_API_TOKEN"
-          test -n "$STAGING_RAILWAY_PROJECT_ID"
-          test -n "$STAGING_RAILWAY_SERVICE"
+          test -n "$RAILWAY_PROJECT_ID"
+          test -n "$STAGING_RAILWAY_WEB_SERVICE"
+          test -n "$STAGING_RAILWAY_COLLECTOR_SERVICE"
+          test -n "$STAGING_BASE_URL"
+          [[ "$IMAGE_REF" =~ @sha256:[0-9a-f]{64}$ ]]
       - name: Install Railway CLI
         run: npm install --global @railway/cli@5.45.7
-      - name: Deploy the checked-out SHA to staging
-        run: >-
-          railway up --detach --json
-          --message "github-sha=${{ github.sha }}"
-          --project "$STAGING_RAILWAY_PROJECT_ID"
-          --environment staging
-          --service "$STAGING_RAILWAY_SERVICE"
-
-  deploy_production_bootstrap:
-    if: >-
-      github.event_name == 'workflow_dispatch' &&
-      inputs.bootstrap_production_source == true
-    needs: [gate, deploy_staging]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment:
-      name: production
-      url: ${{ vars.PRODUCTION_BASE_URL }}
-    env:
-      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-      - name: Validate Railway production configuration
+      - name: Deploy the exact image to us-market staging
         run: |
-          test -n "$RAILWAY_API_TOKEN"
-          test -n "$PRODUCTION_RAILWAY_PROJECT_ID"
-          test -n "$PRODUCTION_RAILWAY_SERVICE"
-          test -n "$PRODUCTION_BASE_URL"
-      - name: Install Railway CLI
-        run: npm install --global @railway/cli@5.45.7
-      - name: Bootstrap the canonical production source with the checked-out SHA
-        run: >-
-          railway up --detach --json
-          --message "github-sha=${{ github.sha }}"
-          --project "$PRODUCTION_RAILWAY_PROJECT_ID"
-          --environment production
-          --service "$PRODUCTION_RAILWAY_SERVICE"
-      - name: Wait for the canonical signal APIs to serve both checked-out strategies
-        shell: bash
-        run: |
-          expected_strategy_version="$(sed -n 's/^STRATEGY_VERSION = "\([^"]*\)"/\1/p' app/services/quant_signals.py)"
-          expected_us_strategy_version="$(sed -n 's/^US_STRATEGY_VERSION = "\([^"]*\)"/\1/p' app/services/us_position_lifecycle.py)"
-          test -n "$expected_strategy_version"
-          test -n "$expected_us_strategy_version"
-          for attempt in $(seq 1 60); do
-            market_version="$(curl -fsS --max-time 20 "$PRODUCTION_BASE_URL/market/quant-signals?universe_limit=100&limit=5&recent_days=30" | jq -r '.strategy_version // empty' 2>/dev/null || true)"
-            stock_version="$(curl -fsS --max-time 20 "$PRODUCTION_BASE_URL/stocks/005930/quant-signals" | jq -r '.strategy_version // empty' 2>/dev/null || true)"
-            health_us_version="$(curl -fsS --max-time 20 "$PRODUCTION_BASE_URL/health" | jq -r '.us_strategy_version // empty' 2>/dev/null || true)"
-            us_payload="$(curl -fsS --max-time 20 "$PRODUCTION_BASE_URL/us/market/quant-signals?limit=1&recent_days=30" 2>/dev/null || true)"
-            us_version="$(jq -r '.strategy_version // empty' <<<"$us_payload" 2>/dev/null || true)"
-            us_rollout_mode="$(jq -r '.rollout_mode // empty' <<<"$us_payload" 2>/dev/null || true)"
-            us_execution_enabled="$(jq -r 'if has("execution_enabled") then (.execution_enabled | tostring) else "" end' <<<"$us_payload" 2>/dev/null || true)"
-            us_signal_eligible_count="$(jq -r 'if (.signal_eligible_count | type) == "number" then (.signal_eligible_count | tostring) else "" end' <<<"$us_payload" 2>/dev/null || true)"
-            us_insufficient_history_count="$(jq -r 'if (.insufficient_history_count | type) == "number" then (.insufficient_history_count | tostring) else "" end' <<<"$us_payload" 2>/dev/null || true)"
-            us_recommendation_payload="$(curl -fsS --max-time 20 "$PRODUCTION_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100" 2>/dev/null || true)"
-            us_recommendation_version="$(jq -r '.strategy_version // empty' <<<"$us_recommendation_payload" 2>/dev/null || true)"
-            us_recommendation_signal_eligible_count="$(jq -r 'if (.signal_eligible_count | type) == "number" then (.signal_eligible_count | tostring) else "" end' <<<"$us_recommendation_payload" 2>/dev/null || true)"
-            us_recommendation_insufficient_history_count="$(jq -r 'if (.insufficient_history_count | type) == "number" then (.insufficient_history_count | tostring) else "" end' <<<"$us_recommendation_payload" 2>/dev/null || true)"
-            if [[ "$market_version" == "$expected_strategy_version" &&
-                  "$stock_version" == "$expected_strategy_version" &&
-                  "$health_us_version" == "$expected_us_strategy_version" &&
-                  "$us_version" == "$expected_us_strategy_version" &&
-                  "$us_recommendation_version" == "$expected_us_strategy_version" &&
-                  "$us_rollout_mode" == "shadow" &&
-                  "$us_execution_enabled" == "false" &&
-                  -n "$us_recommendation_signal_eligible_count" &&
-                  "$us_recommendation_signal_eligible_count" == "$us_signal_eligible_count" &&
-                  -n "$us_recommendation_insufficient_history_count" &&
-                  "$us_recommendation_insufficient_history_count" == "$us_insufficient_history_count" ]]; then
-              echo "Canonical signal APIs are ready: kr=$expected_strategy_version us=$expected_us_strategy_version shadow"
-              exit 0
-            fi
-            echo "Waiting for canonical signal APIs ($attempt/60): kr_market=$market_version kr_stock=$stock_version expected_kr=$expected_strategy_version health_us=$health_us_version us_feed=$us_version us_recommendations=$us_recommendation_version feed_eligible=$us_signal_eligible_count recommendation_eligible=$us_recommendation_signal_eligible_count feed_insufficient=$us_insufficient_history_count recommendation_insufficient=$us_recommendation_insufficient_history_count rollout=$us_rollout_mode execution=$us_execution_enabled expected_us=$expected_us_strategy_version"
-            sleep 10
-          done
-          echo "Canonical signal APIs did not serve both checked-out strategies in safe shadow mode within the readiness window."
-          exit 1
+          set -euo pipefail
+          railway service source connect --image "$IMAGE_REF" --json \
+            --project "$RAILWAY_PROJECT_ID" --environment staging \
+            --service "$STAGING_RAILWAY_WEB_SERVICE"
+          railway service source connect --image "$IMAGE_REF" --json \
+            --project "$RAILWAY_PROJECT_ID" --environment staging \
+            --service "$STAGING_RAILWAY_COLLECTOR_SERVICE"
 
   staging_qa:
-    needs: [deploy_staging, deploy_production_bootstrap]
-    if: >-
-      always() &&
-      needs.deploy_staging.result == 'success' &&
-      (needs.deploy_production_bootstrap.result == 'success' ||
-       needs.deploy_production_bootstrap.result == 'skipped')
+    if: inputs.action == 'stage'
+    needs: [validate_request, build_image, deploy_staging]
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
       name: staging
-      url: ${{ vars.STAGING_BASE_URL || 'https://dark-theme-preview-staging.up.railway.app' }}
+      url: ${{ vars.STAGING_BASE_URL }}
     env:
       QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
       QA_DASHBOARD_SHARE_ID: qa-automation
@@ -179,7 +212,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.validate_request.outputs.source_sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -188,53 +221,14 @@ jobs:
         run: |
           pip install -e '.[qa,mcp]'
           playwright install --with-deps chromium
-      - name: Wait for the staging release and verify current assets
+      - name: Wait for the staged domestic-only release
         run: >-
           analyst qa release-parity
           --staging-url "$STAGING_BASE_URL"
-          --source-sha "${{ github.sha }}"
+          --source-sha "${{ needs.validate_request.outputs.source_sha }}"
           --wait-seconds 600
           --output artifacts/qa-data-signal/staging-parity.json
-      - name: Wait for the staging signal APIs and canonical bridge
-        shell: bash
-        run: |
-          expected_strategy_version="$(sed -n 's/^STRATEGY_VERSION = "\([^"]*\)"/\1/p' app/services/quant_signals.py)"
-          expected_us_strategy_version="$(sed -n 's/^US_STRATEGY_VERSION = "\([^"]*\)"/\1/p' app/services/us_position_lifecycle.py)"
-          test -n "$expected_strategy_version"
-          test -n "$expected_us_strategy_version"
-          for attempt in $(seq 1 60); do
-            health_payload="$(curl -fsS --max-time 20 "$STAGING_BASE_URL/health" 2>/dev/null || true)"
-            health_strategy_version="$(jq -r '.strategy_version // empty' <<<"$health_payload" 2>/dev/null || true)"
-            health_us_version="$(jq -r '.us_strategy_version // empty' <<<"$health_payload" 2>/dev/null || true)"
-            us_payload="$(curl -fsS --max-time 20 "$STAGING_BASE_URL/us/market/quant-signals?limit=1&recent_days=30" 2>/dev/null || true)"
-            us_version="$(jq -r '.strategy_version // empty' <<<"$us_payload" 2>/dev/null || true)"
-            us_rollout_mode="$(jq -r '.rollout_mode // empty' <<<"$us_payload" 2>/dev/null || true)"
-            us_execution_enabled="$(jq -r 'if has("execution_enabled") then (.execution_enabled | tostring) else "" end' <<<"$us_payload" 2>/dev/null || true)"
-            us_signal_eligible_count="$(jq -r 'if (.signal_eligible_count | type) == "number" then (.signal_eligible_count | tostring) else "" end' <<<"$us_payload" 2>/dev/null || true)"
-            us_insufficient_history_count="$(jq -r 'if (.insufficient_history_count | type) == "number" then (.insufficient_history_count | tostring) else "" end' <<<"$us_payload" 2>/dev/null || true)"
-            us_recommendation_payload="$(curl -fsS --max-time 20 "$STAGING_BASE_URL/us/market/recommendations?limit=1&candidate_limit=100" 2>/dev/null || true)"
-            us_recommendation_version="$(jq -r '.strategy_version // empty' <<<"$us_recommendation_payload" 2>/dev/null || true)"
-            us_recommendation_signal_eligible_count="$(jq -r 'if (.signal_eligible_count | type) == "number" then (.signal_eligible_count | tostring) else "" end' <<<"$us_recommendation_payload" 2>/dev/null || true)"
-            us_recommendation_insufficient_history_count="$(jq -r 'if (.insufficient_history_count | type) == "number" then (.insufficient_history_count | tostring) else "" end' <<<"$us_recommendation_payload" 2>/dev/null || true)"
-            if [[ "$health_strategy_version" == "$expected_strategy_version" &&
-                  "$health_us_version" == "$expected_us_strategy_version" &&
-                  "$us_version" == "$expected_us_strategy_version" &&
-                  "$us_recommendation_version" == "$expected_us_strategy_version" &&
-                  "$us_rollout_mode" == "shadow" &&
-                  "$us_execution_enabled" == "false" &&
-                  -n "$us_recommendation_signal_eligible_count" &&
-                  "$us_recommendation_signal_eligible_count" == "$us_signal_eligible_count" &&
-                  -n "$us_recommendation_insufficient_history_count" &&
-                  "$us_recommendation_insufficient_history_count" == "$us_insufficient_history_count" ]]; then
-              echo "Staging signal APIs and canonical bridge are ready: kr=$expected_strategy_version us=$expected_us_strategy_version shadow"
-              exit 0
-            fi
-            echo "Waiting for staging signal APIs ($attempt/60): health_kr=$health_strategy_version expected_kr=$expected_strategy_version health_us=$health_us_version us_feed=$us_version us_recommendations=$us_recommendation_version feed_eligible=$us_signal_eligible_count recommendation_eligible=$us_recommendation_signal_eligible_count feed_insufficient=$us_insufficient_history_count recommendation_insufficient=$us_recommendation_insufficient_history_count rollout=$us_rollout_mode execution=$us_execution_enabled expected_us=$expected_us_strategy_version"
-            sleep 10
-          done
-          echo "Staging signal APIs did not serve both checked-out strategies in safe shadow mode within the readiness window."
-          exit 1
-      - name: Run read-only staging and source checks
+      - name: Run read-only staging integrations
         shell: bash
         run: |
           kis_flag=""
@@ -259,18 +253,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: staging-qa-${{ github.sha }}
+          name: staging-qa-${{ inputs.candidate_version }}
           path: artifacts/qa-data-signal
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
   deploy_production:
-    if: >-
-      always() &&
-      needs.staging_qa.result == 'success' &&
-      !(github.event_name == 'workflow_dispatch' &&
-        inputs.bootstrap_production_source == true)
-    needs: staging_qa
+    if: inputs.action == 'promote-production'
+    needs: validate_request
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
@@ -278,33 +268,31 @@ jobs:
       url: ${{ vars.PRODUCTION_BASE_URL }}
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      IMAGE_REF: ${{ inputs.image_ref }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-      - name: Validate Railway production configuration
+      - name: Validate exact production artifact and Railway configuration
         run: |
           test -n "$RAILWAY_API_TOKEN"
-          test -n "$PRODUCTION_RAILWAY_PROJECT_ID"
-          test -n "$PRODUCTION_RAILWAY_SERVICE"
+          test -n "$RAILWAY_PROJECT_ID"
+          test -n "$PRODUCTION_RAILWAY_WEB_SERVICE"
+          test -n "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
           test -n "$PRODUCTION_BASE_URL"
+          [[ "$IMAGE_REF" =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]]
       - name: Install Railway CLI
         run: npm install --global @railway/cli@5.45.7
-      - name: Promote the same checked-out SHA to production
-        run: >-
-          railway up --detach --json
-          --message "github-sha=${{ github.sha }}"
-          --project "$PRODUCTION_RAILWAY_PROJECT_ID"
-          --environment production
-          --service "$PRODUCTION_RAILWAY_SERVICE"
+      - name: Promote the exact staged image to production
+        run: |
+          set -euo pipefail
+          railway service source connect --image "$IMAGE_REF" --json \
+            --project "$RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_WEB_SERVICE"
+          railway service source connect --image "$IMAGE_REF" --json \
+            --project "$RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
 
   verify_production:
-    needs: [staging_qa, deploy_production, deploy_production_bootstrap]
-    if: >-
-      always() &&
-      needs.staging_qa.result == 'success' &&
-      (needs.deploy_production.result == 'success' ||
-       needs.deploy_production_bootstrap.result == 'success')
+    if: inputs.action == 'promote-production'
+    needs: [validate_request, deploy_production]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
@@ -313,7 +301,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.validate_request.outputs.source_sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -325,7 +313,7 @@ jobs:
           analyst qa release-parity
           --staging-url "$STAGING_BASE_URL"
           --production-url "$PRODUCTION_BASE_URL"
-          --source-sha "${{ github.sha }}"
+          --source-sha "${{ needs.validate_request.outputs.source_sha }}"
           --wait-seconds 600
           --output artifacts/qa-data-signal/production-parity.json
       - name: Run production read-only smoke checks
@@ -338,7 +326,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: production-verification-${{ github.sha }}
+          name: production-verification-${{ inputs.candidate_version }}
           path: artifacts/qa-data-signal
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
