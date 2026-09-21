@@ -850,6 +850,58 @@ def _uses_runtime_database(db: Session) -> bool:
     return request_bind is runtime_bind or getattr(request_bind, "engine", None) is runtime_bind
 
 
+def _load_recommendation_signal_in_session(
+    db: Session,
+    code: str,
+    *,
+    live_quote: dict[str, object] | None,
+    ensure_signal_history: bool,
+) -> Optional[dict[str, object]]:
+    try:
+        if ensure_signal_history:
+            ensure_stock_price_history(
+                db,
+                code,
+                min_rows=MIN_BACKTEST_HISTORY_ROWS,
+                lookback_days=600,
+                require_recent_complete_ohlc=True,
+            )
+        signal_kwargs = {
+            "live_quote": live_quote,
+            "include_context": False,
+            "include_stored_intraday": live_quote is None,
+        }
+        if settings.market_quant_signal_source_url:
+            return load_reference_quant_signal_payload(
+                db,
+                code,
+                source_url=settings.market_quant_signal_source_url,
+                source_timeout_seconds=settings.market_quant_signal_source_timeout_seconds,
+                **signal_kwargs,
+            )
+        return load_quant_signal_payload(db, code, **signal_kwargs)
+    except Exception:
+        return None
+
+
+def _load_recommendation_signal(
+    code: str,
+    *,
+    live_quote: dict[str, object] | None,
+    ensure_signal_history: bool,
+) -> Optional[dict[str, object]]:
+    db = SessionLocal()
+    try:
+        return _load_recommendation_signal_in_session(
+            db,
+            code,
+            live_quote=live_quote,
+            ensure_signal_history=ensure_signal_history,
+        )
+    finally:
+        db.close()
+
+
 def _fast_component_scores(item: dict[str, object], chart_analysis: dict[str, object]) -> dict[str, Decimal]:
     one_month = _num(item.get("one_month_return"))
     three_month = _num(item.get("three_month_return"))
@@ -1118,36 +1170,39 @@ def build_recommendations(
     pending_count = 0
     entered_today_count = 0
     holding_count = 0
+    live_quotes: dict[str, dict[str, object] | None] = {}
+    for item in selected:
+        code = str(item.get("code") or "")
+        live_quote = item.pop("_quant_live_quote", None)
+        live_quotes[code] = live_quote if isinstance(live_quote, dict) else None
+    signals_by_code: dict[str, Optional[dict[str, object]]] = {}
+    if _uses_runtime_database(db) and len(selected) > 1:
+        with ThreadPoolExecutor(max_workers=min(8, len(selected))) as executor:
+            futures = {
+                executor.submit(
+                    _load_recommendation_signal,
+                    str(item["code"]),
+                    live_quote=live_quotes.get(str(item["code"])),
+                    ensure_signal_history=ensure_signal_history,
+                ): str(item["code"])
+                for item in selected
+            }
+            for future in as_completed(futures):
+                signals_by_code[futures[future]] = future.result()
+    else:
+        for item in selected:
+            code = str(item["code"])
+            signals_by_code[code] = _load_recommendation_signal_in_session(
+                db,
+                code,
+                live_quote=live_quotes.get(code),
+                ensure_signal_history=ensure_signal_history,
+            )
+
     for idx, item in enumerate(selected, start=1):
         item["rank"] = idx
         item["recommended_at"] = recommendation_as_of
-        live_quote = item.pop("_quant_live_quote", None)
-        try:
-            if ensure_signal_history:
-                ensure_stock_price_history(
-                    db,
-                    str(item["code"]),
-                    min_rows=MIN_BACKTEST_HISTORY_ROWS,
-                    lookback_days=600,
-                    require_recent_complete_ohlc=True,
-                )
-            signal_kwargs = {
-                "live_quote": live_quote if isinstance(live_quote, dict) else None,
-                "include_context": False,
-                "include_stored_intraday": live_quote is None,
-            }
-            if settings.market_quant_signal_source_url:
-                signal = load_reference_quant_signal_payload(
-                    db,
-                    str(item["code"]),
-                    source_url=settings.market_quant_signal_source_url,
-                    source_timeout_seconds=settings.market_quant_signal_source_timeout_seconds,
-                    **signal_kwargs,
-                )
-            else:
-                signal = load_quant_signal_payload(db, str(item["code"]), **signal_kwargs)
-        except Exception:
-            signal = None
+        signal = signals_by_code.get(str(item["code"]))
         current = signal.get("current") if isinstance(signal, dict) else None
         item["ai_trade_signal"] = (
             {
