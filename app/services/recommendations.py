@@ -59,9 +59,10 @@ UNIVERSE_CACHE_TTL_SECONDS = 300
 RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_AGE_SECONDS = 6 * 60 * 60
 RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_FUTURE_SKEW_SECONDS = 60
 MAX_RECOMMENDATIONS_PER_SECTOR = 2
-RECOMMENDATION_SELECTION_RULE = "confirmed_entry_pending_or_entered_today"
+RECOMMENDATION_SELECTION_RULE = "confirmed_entry_pending_or_current_holding"
 RECOMMENDATION_PENDING_STATE = "entry_confirmed"
 RECOMMENDATION_ENTERED_TODAY_STATE = "entered_today"
+RECOMMENDATION_HOLDING_STATE = "holding"
 RECOMMENDATION_PENDING_LABEL = "신규 매수 대기"
 RECOMMENDATION_ENTERED_TODAY_LABEL = "보유 유지"
 universe_cache = TTLCache(maxsize=16)
@@ -71,8 +72,8 @@ settings = get_settings()
 
 METHODOLOGY = [
     "최근 시가총액 데이터가 있으면 상위 100개, 없으면 최신 거래대금 추정 상위 종목을 추천 유니버스로 사용한다.",
-    "매수 기준을 통과한 종목은 아직 매수 전인 신규 매수 대기와 AI 전략이 매수를 마친 보유 유지 상태로 구분한다.",
-    "조건을 확인 중인 종목, 오래전에 매수한 종목, 매도 판단이 나온 종목은 추천 목록에서 제외한다.",
+    "매수 기준을 통과한 종목은 아직 매수 전인 신규 매수 대기와 AI 전략이 매수를 마친 현재 보유 상태로 구분한다.",
+    "조건을 확인 중인 종목과 매도 판단이 나온 종목은 제외하고, 확정 진입 뒤 포지션이 열린 종목은 청산 전까지 보유 유지로 표시한다.",
     "조건을 통과한 종목 안에서 1개월/3개월 모멘텀, 거래대금, 거래대금 변화로 순위를 계산한다. 가격 이력이 짧으면 최신 거래대금과 단기 흐름으로 보수적으로 대체한다.",
     "선별 후보에 대해 추정치/애널리스트 변화, 실적/가이던스, 밸류에이션, 거시 민감도, 수급, 뉴스 분위기를 0~100점으로 환산한다.",
     "정밀 계산은 10개 항목 가중합을 사용한다. 빠른 후보 선별은 실제로 확인된 가격·거래대금 항목만 재가중해 계산하며, 없는 데이터에 임의 점수를 넣지 않는다.",
@@ -220,13 +221,19 @@ def _recommendation_state_for_current(
     )
     entry_date = _date_value(current.get("entry_date"))
     transition_date = _date_value(transition.get("transition_date"))
+    confirmed_position = bool(
+        entry_date is not None
+        and transition_date is not None
+        and str(transition.get("side") or "").lower() == "buy"
+    )
     if (
         entry_date == today
         and transition_date == today
-        and str(transition.get("side") or "").lower() == "buy"
-        and confirmation_allowed
+        and confirmed_position
     ):
         return RECOMMENDATION_ENTERED_TODAY_STATE
+    if confirmed_position:
+        return RECOMMENDATION_HOLDING_STATE
     return None
 
 
@@ -356,12 +363,12 @@ def _eligible_recommendation_snapshot_items(
     *,
     today: date,
 ) -> tuple[dict[str, tuple[str, dict[str, object]]], bool]:
-    """Return close-confirmed pending entries and entries executed today.
+    """Return close-confirmed pending entries and confirmed open positions.
 
     The persisted market snapshot is the point-in-time membership gate. A
-    condition-confirmed stock remains visible through its next-session opening
-    execution so users can still see the recommendation during that day. Older
-    holdings, watch states, sell states, and intraday observations stay out.
+    condition-confirmed stock remains visible before execution and while its
+    confirmed position stays open. Watch states, sell states, unconfirmed
+    holdings, and intraday observations stay out.
     """
 
     try:
@@ -1120,6 +1127,7 @@ def build_recommendations(
     qualified: list[dict[str, object]] = []
     pending_count = 0
     entered_today_count = 0
+    holding_count = 0
     for item in scored:
         live_quote = item.pop("_quant_live_quote", None)
         try:
@@ -1205,9 +1213,11 @@ def build_recommendations(
         snapshot_record = eligible_snapshot_items.get(str(item.get("code") or ""))
         snapshot_item = snapshot_record[1] if snapshot_record else {}
         entered_today = recommendation_state == RECOMMENDATION_ENTERED_TODAY_STATE
+        holding = recommendation_state == RECOMMENDATION_HOLDING_STATE
+        position_held = entered_today or holding
         recommendation_label = (
             RECOMMENDATION_ENTERED_TODAY_LABEL
-            if entered_today
+            if position_held
             else RECOMMENDATION_PENDING_LABEL
         )
         item["score_action"] = item.get("action")
@@ -1215,7 +1225,7 @@ def build_recommendations(
         item["action"] = recommendation_label
         item["decision_reason"] = (
             "추천 기준을 통과한 뒤 AI 전략이 보유 중이며, 현재는 추가 매수보다 보유 기준을 확인하는 단계입니다."
-            if entered_today
+            if position_held
             else "추천 기준과 가격 조건, 서로 다른 확인 자료를 모두 통과해 신규 매수를 기다리는 단계입니다."
         )
         item["recommendation_state"] = recommendation_state
@@ -1226,11 +1236,13 @@ def build_recommendations(
             or snapshot_item.get("signal_date")
             or signal.get("price_through")
         )
-        item["recommendation_entry_date"] = current.get("entry_date") if entered_today else None
-        item["strategy_entry_price"] = current.get("entry_price") if entered_today else None
+        item["recommendation_entry_date"] = current.get("entry_date") if position_held else None
+        item["strategy_entry_price"] = current.get("entry_price") if position_held else None
         item["condition_price"] = item.get("price")
         if entered_today:
             entered_today_count += 1
+        elif holding:
+            holding_count += 1
         else:
             pending_count += 1
         qualified.append(item)
@@ -1248,6 +1260,7 @@ def build_recommendations(
         "qualified_count": len(qualified),
         "pending_count": pending_count,
         "entered_today_count": entered_today_count,
+        "holding_count": holding_count,
         "selection_rule": RECOMMENDATION_SELECTION_RULE,
         "selection_state": "ready" if selection_ready else "unavailable",
         "selection_refreshing": False,

@@ -1357,7 +1357,8 @@ class MarketRecommendationOut(BaseModel):
     qualified_count: int = 0
     pending_count: int = 0
     entered_today_count: int = 0
-    selection_rule: str = "confirmed_entry_pending_or_entered_today"
+    holding_count: int = 0
+    selection_rule: str = "confirmed_entry_pending_or_current_holding"
     selection_state: str = "ready"
     selection_refreshing: bool = False
     selection_message: str = ""

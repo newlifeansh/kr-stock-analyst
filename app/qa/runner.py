@@ -2601,7 +2601,7 @@ def _live_checks(
                 )
                 _assert(
                     recommendations.get("selection_rule")
-                    == "confirmed_entry_pending_or_entered_today",
+                    == "confirmed_entry_pending_or_current_holding",
                     "종목 추천의 매수 조건 자격 규칙이 다릅니다.",
                     selection_rule=recommendations.get("selection_rule"),
                 )
@@ -2609,7 +2609,7 @@ def _live_checks(
                 _assert(isinstance(items, list), "종목 추천 items가 배열이 아닙니다.")
                 recommendation_date = str(recommendations.get("as_of") or "")[:10]
                 invalid: list[dict[str, Any]] = []
-                state_counts = {"entry_confirmed": 0, "entered_today": 0}
+                state_counts = {"entry_confirmed": 0, "entered_today": 0, "holding": 0}
                 for item in items:
                     if not isinstance(item, dict):
                         invalid.append({"item": "not_object"})
@@ -2652,10 +2652,21 @@ def _live_checks(
                         and confirmation is None
                         and item.get("strategy_entry_price") == current.get("entry_price")
                     )
+                    holding_valid = bool(
+                        state == "holding"
+                        and item.get("action") == "보유 유지"
+                        and current.get("action") in {"entered", "holding"}
+                        and current.get("position_open") is True
+                        and bool(str(current.get("entry_date") or "")[:10])
+                        and bool(str(transition.get("transition_date") or "")[:10])
+                        and str(transition.get("side") or "").lower() == "buy"
+                        and confirmation is None
+                        and item.get("strategy_entry_price") == current.get("entry_price")
+                    )
                     if (
                         item.get("buy_condition_met") is not True
                         or current.get("live_observation") is not False
-                        or not (pending_valid or entered_today_valid)
+                        or not (pending_valid or entered_today_valid or holding_valid)
                     ):
                         invalid.append(
                             {
@@ -2677,7 +2688,7 @@ def _live_checks(
                         state_counts[state] += 1
                 _assert(
                     not invalid,
-                    "당일 진입이 아닌 관찰·과거 보유·매도·장중 예비 종목이 추천 목록에 포함됐습니다.",
+                    "확정 대기·현재 보유가 아닌 관찰·매도·장중 예비 종목이 추천 목록에 포함됐습니다.",
                     invalid=invalid,
                 )
                 expected_ranks = list(range(1, len(items) + 1))
@@ -2708,12 +2719,20 @@ def _live_checks(
                     entered_today_count=recommendations.get("entered_today_count"),
                     returned_entered_today=state_counts["entered_today"],
                 )
+                _assert(
+                    int(recommendations.get("holding_count") or 0)
+                    >= state_counts["holding"],
+                    "추천 응답의 현재 보유 수가 반환 상태보다 작습니다.",
+                    holding_count=recommendations.get("holding_count"),
+                    returned_holding=state_counts["holding"],
+                )
                 return {
                     **meta,
                     "selection_rule": recommendations.get("selection_rule"),
                     "qualified_count": qualified_count,
                     "pending_count": recommendations.get("pending_count"),
                     "entered_today_count": recommendations.get("entered_today_count"),
+                    "holding_count": recommendations.get("holding_count"),
                     "returned_count": len(items),
                     "codes": [item.get("code") for item in items if isinstance(item, dict)],
                 }
@@ -2721,7 +2740,7 @@ def _live_checks(
             collector.check(
                 "SIG-CONTRACT-002",
                 recommendation_eligibility_contract,
-                pass_message="추천 목록이 조건 확정 종목을 오늘 시가 반영일까지 유지하고 오래된 보유 종목은 제외함을 확인했습니다.",
+                pass_message="추천 목록이 조건 확정 종목과 청산 전 현재 보유 종목을 유지함을 확인했습니다.",
             )
 
             def signal_surface_contract() -> dict[str, Any]:

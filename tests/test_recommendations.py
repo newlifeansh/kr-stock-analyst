@@ -396,7 +396,7 @@ def test_recommendations_fall_back_to_close_times_volume_without_market_cap(monk
         assert payload["universe_count"] == 2
         assert payload["candidate_count"] == 2
         assert len(payload["items"]) == 2
-        assert payload["selection_rule"] == "confirmed_entry_pending_or_entered_today"
+        assert payload["selection_rule"] == "confirmed_entry_pending_or_current_holding"
         assert payload["qualified_count"] == 2
         assert all(item["trading_value"] for item in payload["items"])
         assert all(item["buy_condition_met"] is True for item in payload["items"])
@@ -473,7 +473,7 @@ def test_recommendations_keep_verified_candidates_when_live_enrichment_is_unavai
         assert any("1차 후보" in risk for risk in payload["items"][0]["risks"])
 
 
-def test_recommendations_exclude_watch_holding_and_live_preliminary_states(monkeypatch):
+def test_recommendations_exclude_unconfirmed_holding_and_live_preliminary_states(monkeypatch):
     codes = ["100001", "100002", "100003", "100004", "100005"]
     confirmed = _confirmed_entry_signal(codes[0])
 
@@ -495,12 +495,20 @@ def test_recommendations_exclude_watch_holding_and_live_preliminary_states(monke
         "required_supports": 1,
         "supportive_count": 0,
     }
+    unconfirmed_holding = current_for("holding", position_open=True)
+    unconfirmed_holding["entry_confirmation"] = {
+        "allowed": False,
+        "state": "unconfirmed_entry",
+        "required_supports": 1,
+        "supportive_count": 0,
+    }
+    unconfirmed_holding["lifecycle"] = {"latest_transition": {"side": "watch"}}
     snapshot = {
         "status": "ready",
         "items": [
             {"code": codes[0], "action": "entry_pending", "current": current_for("entry_pending")},
             {"code": codes[1], "action": "entry_watch", "current": current_for("entry_watch")},
-            {"code": codes[2], "action": "holding", "current": current_for("holding", position_open=True)},
+            {"code": codes[2], "action": "holding", "current": unconfirmed_holding},
             {"code": codes[3], "action": "entry_pending", "current": current_for("entry_pending", live=True)},
             {"code": codes[4], "action": "entry_pending", "current": unconfirmed_pending},
         ],
@@ -537,7 +545,7 @@ def test_recommendations_exclude_watch_holding_and_live_preliminary_states(monke
     assert payload["items"][0]["buy_condition_met"] is True
 
 
-def test_recommendations_keep_confirmed_entry_visible_on_its_execution_day(monkeypatch):
+def test_recommendations_keep_confirmed_entry_and_current_holding_visible(monkeypatch):
     entered = _entered_today_signal("100001")
     old_holding = _entered_today_signal("100002")
     old_holding["current"]["action"] = "holding"
@@ -586,20 +594,28 @@ def test_recommendations_keep_confirmed_entry_visible_on_its_execution_day(monke
             ensure_signal_history=False,
         )
 
-    assert payload["candidate_count"] == 1
-    assert payload["qualified_count"] == 1
+    assert payload["candidate_count"] == 2
+    assert payload["qualified_count"] == 2
     assert payload["pending_count"] == 0
     assert payload["entered_today_count"] == 1
-    assert [item["code"] for item in payload["items"]] == ["100001"]
-    item = payload["items"][0]
-    assert item["recommendation_state"] == "entered_today"
-    assert item["recommendation_label"] == "보유 유지"
-    assert item["action"] == "보유 유지"
-    assert "추가 매수보다 보유 기준" in item["decision_reason"]
-    assert item["recommendation_entry_date"] == date(2026, 9, 1)
-    assert item["strategy_entry_price"] == 80_700
-    assert item["condition_price"] == item["price"]
-    assert item["ai_trade_signal"]["current"]["position_open"] is True
+    assert payload["holding_count"] == 1
+    assert {item["code"] for item in payload["items"]} == {"100001", "100002"}
+    items = {item["code"]: item for item in payload["items"]}
+    entered_item = items["100001"]
+    assert entered_item["recommendation_state"] == "entered_today"
+    assert entered_item["recommendation_label"] == "보유 유지"
+    assert entered_item["action"] == "보유 유지"
+    assert "추가 매수보다 보유 기준" in entered_item["decision_reason"]
+    assert entered_item["recommendation_entry_date"] == date(2026, 9, 1)
+    assert entered_item["strategy_entry_price"] == 80_700
+    assert entered_item["condition_price"] == entered_item["price"]
+    assert entered_item["ai_trade_signal"]["current"]["position_open"] is True
+    holding_item = items["100002"]
+    assert holding_item["recommendation_state"] == "holding"
+    assert holding_item["recommendation_label"] == "보유 유지"
+    assert holding_item["recommendation_entry_date"] == date(2026, 8, 31)
+    assert holding_item["strategy_entry_price"] == 80_700
+    assert holding_item["ai_trade_signal"]["current"]["position_open"] is True
 
 
 def test_recommendations_only_expand_to_small_diversity_pool(monkeypatch):
@@ -739,7 +755,7 @@ def test_recommendations_link_confirmed_entry_contract_and_released_preliminary(
     assert compact["latest_preliminary"]["active"] is False
     assert compact["latest_preliminary"]["last_seen_at"] == "2026-08-20T10:05:00+09:00"
     validated = MarketRecommendationOut.model_validate(payload)
-    assert validated.selection_rule == "confirmed_entry_pending_or_entered_today"
+    assert validated.selection_rule == "confirmed_entry_pending_or_current_holding"
     assert validated.items[0].buy_condition_met is True
     assert validated.items[0].condition_price == validated.items[0].price
     assert validated.items[0].ai_trade_signal.current.lifecycle.state == "entry_pending"

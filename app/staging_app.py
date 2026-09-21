@@ -50,7 +50,7 @@ Receive = Callable[[], Awaitable[Message]]
 Send = Callable[[Message], Awaitable[None]]
 
 THEME_VERSION = "20260828-tds-adaptive-v77-shortcuts"
-STAGING_IA_VERSION = "20260921-domestic-market-v115"
+STAGING_IA_VERSION = "20260921-domestic-market-v116"
 STAGING_STYLE_VERSION = (
     f"{THEME_VERSION}-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161-ai-signal-landing-v165-recommendation-overview-v166-recommendation-evidence-v169-domestic-market-v170"
 )
@@ -298,13 +298,21 @@ def _staging_recommendation_state(
         if isinstance(lifecycle, dict) and isinstance(lifecycle.get("latest_transition"), dict)
         else {}
     )
-    if (
-        _staging_date_value(current.get("entry_date")) == today
-        and _staging_date_value(transition.get("transition_date")) == today
+    entry_date = _staging_date_value(current.get("entry_date"))
+    transition_date = _staging_date_value(transition.get("transition_date"))
+    confirmed_position = bool(
+        entry_date is not None
+        and transition_date is not None
         and str(transition.get("side") or "").lower() == "buy"
-        and confirmation_allowed
+    )
+    if (
+        entry_date == today
+        and transition_date == today
+        and confirmed_position
     ):
         return "entered_today"
+    if confirmed_position:
+        return "holding"
     return None
 
 
@@ -359,11 +367,11 @@ async def _build_staging_recommendation_supplements(
     """Rebuild missing staging cards from canonical public, rule-owned data.
 
     The canonical recommendation response may remove a condition-confirmed
-    stock at the instant its next-session opening entry is applied.  Staging
-    keeps that same-day record visible by recomputing the separate
-    recommendation score from the public stock dashboard and reading the
-    condition-day close from public price history.  The market signal score is
-    never substituted for the recommendation score.
+    stock when its opening entry is applied or on a later holding day. Staging
+    keeps the active record visible by recomputing the separate recommendation
+    score from the public stock dashboard and reading the condition-day close
+    from public price history. The market signal score is never substituted for
+    the recommendation score.
     """
 
     if not _staging_recommendation_signal_usable(signal_payload):
@@ -477,7 +485,7 @@ def _rewrite_staging_recommendation_contract(
     reference_date: date | None = None,
     supplemental_items: list[dict[str, Any]] | None = None,
 ) -> bytes:
-    """Expose confirmed entries through the day their opening entry is applied."""
+    """Expose confirmed pending entries and confirmed positions until exit."""
 
     try:
         payload = json.loads(body)
@@ -531,7 +539,9 @@ def _rewrite_staging_recommendation_contract(
         if not isinstance(current, dict):
             continue
         entered_today = recommendation_state == "entered_today"
-        recommendation_label = "보유 유지" if entered_today else "신규 매수 대기"
+        holding = recommendation_state == "holding"
+        position_held = entered_today or holding
+        recommendation_label = "보유 유지" if position_held else "신규 매수 대기"
         item = dict(raw_item)
         if item.get("condition_price") in (None, ""):
             item["condition_price"] = item.get("price")
@@ -567,7 +577,7 @@ def _rewrite_staging_recommendation_contract(
         item["action"] = recommendation_label
         item["decision_reason"] = (
             "추천 기준을 통과한 뒤 AI 전략이 보유 중이며, 현재는 추가 매수보다 보유 기준을 확인하는 단계입니다."
-            if entered_today
+            if position_held
             else "추천 기준과 가격 조건, 서로 다른 확인 자료를 모두 통과해 신규 매수를 기다리는 단계입니다."
         )
         item["recommendation_state"] = recommendation_state
@@ -578,8 +588,8 @@ def _rewrite_staging_recommendation_contract(
             or signal_item.get("signal_date")
             or current.get("as_of")
         )
-        item["recommendation_entry_date"] = current.get("entry_date") if entered_today else None
-        item["strategy_entry_price"] = current.get("entry_price") if entered_today else None
+        item["recommendation_entry_date"] = current.get("entry_date") if position_held else None
+        item["strategy_entry_price"] = current.get("entry_price") if position_held else None
         filtered.append(item)
 
     filtered.sort(
@@ -596,6 +606,9 @@ def _rewrite_staging_recommendation_contract(
     entered_today_count = sum(
         1 for item in filtered if item.get("recommendation_state") == "entered_today"
     )
+    holding_count = sum(
+        1 for item in filtered if item.get("recommendation_state") == "holding"
+    )
     if requested_limit is not None:
         filtered = filtered[: max(0, requested_limit)]
 
@@ -605,7 +618,8 @@ def _rewrite_staging_recommendation_contract(
     payload["qualified_count"] = qualified_count
     payload["pending_count"] = pending_count
     payload["entered_today_count"] = entered_today_count
-    payload["selection_rule"] = "confirmed_entry_pending_or_entered_today"
+    payload["holding_count"] = holding_count
+    payload["selection_rule"] = "confirmed_entry_pending_or_current_holding"
     payload["selection_state"] = "ready" if signal_ready else "unavailable"
     payload["selection_refreshing"] = bool(
         signal_ready
