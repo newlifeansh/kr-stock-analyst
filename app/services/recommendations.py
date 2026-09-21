@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from math import ceil
 from threading import RLock
 from typing import Optional
 
@@ -933,9 +934,45 @@ def _universe_sort_value(price: DailyPrice) -> int:
     return int(_row_value(price) or 0)
 
 
+def _latest_complete_universe_date(db: Session) -> Optional[date]:
+    completed_session = latest_completed_korea_market_session_date(_now_kst())
+    statement = (
+        select(
+            DailyPrice.trade_date,
+            func.count(func.distinct(DailyPrice.code)).label("stock_count"),
+        )
+        .join(StockMaster, StockMaster.code == DailyPrice.code)
+        .where(
+            DailyPrice.close.is_not(None),
+            StockMaster.is_active.is_(True),
+            StockMaster.market.in_(["KOSPI", "KOSDAQ"]),
+        )
+    )
+    if completed_session is not None:
+        statement = statement.where(DailyPrice.trade_date <= completed_session)
+    statement = (
+        statement.group_by(DailyPrice.trade_date)
+        .order_by(DailyPrice.trade_date.desc())
+        .limit(40)
+    )
+    coverage_rows = list(db.execute(statement))
+    if not coverage_rows:
+        return None
+    max_coverage = max(int(row.stock_count or 0) for row in coverage_rows)
+    minimum_coverage = max(1, ceil(max_coverage * 0.75))
+    return next(
+        (
+            row.trade_date
+            for row in coverage_rows
+            if int(row.stock_count or 0) >= minimum_coverage
+        ),
+        coverage_rows[0].trade_date,
+    )
+
+
 def _top_market_cap_universe(db: Session, refresh_live: bool = False) -> dict[str, object]:
     def build() -> dict[str, object]:
-        latest_date = db.scalar(select(func.max(DailyPrice.trade_date)))
+        latest_date = _latest_complete_universe_date(db)
         if not latest_date:
             return {"universe_count": 0, "base_items": [], "price_groups": {}}
 
@@ -968,6 +1005,7 @@ def _top_market_cap_universe(db: Session, refresh_live: bool = False) -> dict[st
             select(DailyPrice.code, DailyPrice)
             .where(DailyPrice.code.in_(selected_codes))
             .where(DailyPrice.trade_date >= from_date)
+            .where(DailyPrice.trade_date <= latest_date)
             .order_by(DailyPrice.code, DailyPrice.trade_date)
         ):
             price_groups[str(code)].append(price)

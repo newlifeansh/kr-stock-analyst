@@ -405,6 +405,51 @@ def test_recommendations_fall_back_to_close_times_volume_without_market_cap(monk
         assert all(item["ai_trade_signal"]["entry_score_threshold"] == Decimal("62.00") for item in payload["items"])
 
 
+def test_recommendation_universe_ignores_partial_new_trade_date(monkeypatch):
+    codes = ["100001", "100002", "100003", "100004"]
+    with _session() as db:
+        for index, code in enumerate(codes):
+            _seed_prices(
+                db,
+                code,
+                f"테스트{index + 1}",
+                10_000 + index * 1_000,
+                100_000 + index * 10_000,
+            )
+        complete_date = date(2026, 5, 10)
+        partial_date = complete_date + timedelta(days=1)
+        db.add(
+            DailyPrice(
+                code=codes[0],
+                trade_date=partial_date,
+                open=99_000,
+                high=101_000,
+                low=98_000,
+                close=100_000,
+                volume=1_000_000,
+                trading_value=100_000_000_000,
+                market_cap=1_000_000_000_000,
+                listed_shares=10_000_000,
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(
+            recommendations,
+            "latest_completed_korea_market_session_date",
+            lambda _now=None: partial_date,
+        )
+        universe_cache.clear()
+
+        payload = recommendations._top_market_cap_universe(db, refresh_live=True)
+
+    assert payload["universe_count"] == 4
+    assert {item["code"] for item in payload["base_items"]} == set(codes)
+    assert all(
+        max(price.trade_date for price in prices) == complete_date
+        for prices in payload["price_groups"].values()
+    )
+
+
 def test_recommendations_keep_verified_candidates_when_live_enrichment_is_unavailable(monkeypatch):
     _install_confirmed_entry_signals(monkeypatch, ["005930"])
     monkeypatch.setattr(recommendations, "_uses_runtime_database", lambda _db: True)
