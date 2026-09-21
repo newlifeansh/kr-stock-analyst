@@ -94,7 +94,17 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "--environment staging" in workflow
     assert "--environment production" in workflow
     assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 4
-    assert workflow.count('--project "$RAILWAY_PROJECT_ID"') == 4
+    assert workflow.count('--project "$STAGING_RAILWAY_PROJECT_ID"') == 2
+    assert workflow.count('--project "$PRODUCTION_RAILWAY_PROJECT_ID"') == 2
+    assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
+    assert (
+        'STAGING_RAILWAY_PROJECT_ID: ${{ vars.STAGING_RAILWAY_PROJECT_ID }}'
+        in workflow
+    )
+    assert (
+        'PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}'
+        in workflow
+    )
     assert '--service "$STAGING_RAILWAY_WEB_SERVICE"' in workflow
     assert '--service "$STAGING_RAILWAY_COLLECTOR_SERVICE"' in workflow
     assert '--service "$PRODUCTION_RAILWAY_WEB_SERVICE"' in workflow

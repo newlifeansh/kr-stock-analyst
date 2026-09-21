@@ -334,19 +334,23 @@ Actions는 PR마다 `gate`, 평일 KST 08:20·10:00·16:20에 `live`, 스테이�
 
 ### Railway 스테이징 → 프로덕션 승격
 
-`main` 푸시 또는 수동 실행은 `.github/workflows/deploy-staging-production.yml`의
-단일 파이프라인을 사용합니다. 실행 순서는 `gate → staging 배포 → staging
-release-parity/live/e2e → production 승인·배포 → staging-production parity`이며,
-어느 단계든 실패하면 뒤 단계는 실행되지 않습니다. 모든 배포 job은 명시적으로
-`${{ github.sha }}`를 checkout하므로 같은 커밋만 승격합니다.
+수동 실행은 `.github/workflows/deploy-staging-production.yml`의 단일 파이프라인을
+사용합니다. `stage`는 `gate → build-once → us-market staging 배포 → staging
+release-parity/live/e2e`를 실행합니다. 운영자가 그 결과와 정확한 후보를 승인한 뒤
+`promote-production`에 검증된 `image@sha256`과 source SHA를 입력하면 새 이미지를
+빌드하지 않고 canonical 운영 프로젝트에 승격하고 staging-production parity를
+검증합니다. 어느 단계든 실패하면 뒤 단계는 실행되지 않습니다.
 
 GitHub 저장소에는 다음 설정이 필요합니다.
 
-- Repository variables: `STAGING_RAILWAY_PROJECT_ID`, `STAGING_RAILWAY_SERVICE`,
-  `PRODUCTION_RAILWAY_PROJECT_ID`, `PRODUCTION_RAILWAY_SERVICE`,
-  `STAGING_BASE_URL`, `PRODUCTION_BASE_URL`
+- Repository variables: `STAGING_RAILWAY_PROJECT_ID`,
+  `STAGING_RAILWAY_WEB_SERVICE`, `STAGING_RAILWAY_COLLECTOR_SERVICE`,
+  `PRODUCTION_RAILWAY_PROJECT_ID`, `PRODUCTION_RAILWAY_WEB_SERVICE`,
+  `PRODUCTION_RAILWAY_COLLECTOR_SERVICE`, `STAGING_BASE_URL`,
+  `PRODUCTION_BASE_URL`
 - GitHub environments: `staging`, `production`
-- 각 environment secret: 해당 Railway 환경에 제한된 `RAILWAY_TOKEN`
+- 각 environment 또는 저장소 secret: 두 대상 프로젝트에 접근 가능한
+  `RAILWAY_API_TOKEN`
 - `production` environment: required reviewer를 지정해 사람 승인 후에만 승격
 - 선택적 staging QA secret: `DASHBOARD_INVITE_CODE`, `KIS_APP_KEY`,
   `KIS_APP_SECRET`, `DART_API_KEY`

@@ -35,7 +35,8 @@ concurrency:
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
-  RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+  STAGING_RAILWAY_PROJECT_ID: ${{ vars.STAGING_RAILWAY_PROJECT_ID }}
+  PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}
   STAGING_RAILWAY_WEB_SERVICE: ${{ vars.STAGING_RAILWAY_WEB_SERVICE }}
   STAGING_RAILWAY_COLLECTOR_SERVICE: ${{ vars.STAGING_RAILWAY_COLLECTOR_SERVICE }}
   PRODUCTION_RAILWAY_WEB_SERVICE: ${{ vars.PRODUCTION_RAILWAY_WEB_SERVICE }}
@@ -177,7 +178,7 @@ jobs:
       - name: Validate Railway staging configuration
         run: |
           test -n "$RAILWAY_API_TOKEN"
-          test -n "$RAILWAY_PROJECT_ID"
+          test -n "$STAGING_RAILWAY_PROJECT_ID"
           test -n "$STAGING_RAILWAY_WEB_SERVICE"
           test -n "$STAGING_RAILWAY_COLLECTOR_SERVICE"
           test -n "$STAGING_BASE_URL"
@@ -188,10 +189,10 @@ jobs:
         run: |
           set -euo pipefail
           railway service source connect --image "$IMAGE_REF" --json \
-            --project "$RAILWAY_PROJECT_ID" --environment staging \
+            --project "$STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$STAGING_RAILWAY_WEB_SERVICE"
           railway service source connect --image "$IMAGE_REF" --json \
-            --project "$RAILWAY_PROJECT_ID" --environment staging \
+            --project "$STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$STAGING_RAILWAY_COLLECTOR_SERVICE"
 
   staging_qa:
@@ -273,7 +274,7 @@ jobs:
       - name: Validate exact production artifact and Railway configuration
         run: |
           test -n "$RAILWAY_API_TOKEN"
-          test -n "$RAILWAY_PROJECT_ID"
+          test -n "$PRODUCTION_RAILWAY_PROJECT_ID"
           test -n "$PRODUCTION_RAILWAY_WEB_SERVICE"
           test -n "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
           test -n "$PRODUCTION_BASE_URL"
@@ -284,10 +285,10 @@ jobs:
         run: |
           set -euo pipefail
           railway service source connect --image "$IMAGE_REF" --json \
-            --project "$RAILWAY_PROJECT_ID" --environment production \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$PRODUCTION_RAILWAY_WEB_SERVICE"
           railway service source connect --image "$IMAGE_REF" --json \
-            --project "$RAILWAY_PROJECT_ID" --environment production \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
 
   verify_production:
