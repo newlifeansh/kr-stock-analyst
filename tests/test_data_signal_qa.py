@@ -1596,7 +1596,8 @@ class FakeReadOnlyApi:
         if path == "/market/recommendations":
             return {
                 "as_of": "2026-08-29T10:00:00+09:00",
-                "selection_rule": "confirmed_entry_pending_or_current_holding",
+                "selection_rule": "recommendation_score_ranked_independent_of_trade_signal",
+                "candidate_count": 0,
                 "qualified_count": 0,
                 "pending_count": 0,
                 "entered_today_count": 0,
@@ -1903,15 +1904,18 @@ def test_live_recommendation_contract_accepts_redacted_entered_today_evidence(
             if path == "/market/recommendations":
                 return {
                     "as_of": "2026-08-29T10:00:00+09:00",
-                    "selection_rule": "confirmed_entry_pending_or_current_holding",
+                    "selection_rule": "recommendation_score_ranked_independent_of_trade_signal",
+                    "candidate_count": 1,
                     "qualified_count": 1,
                     "pending_count": 0,
                     "entered_today_count": 1,
                     "items": [
                         {
                             "code": "003550",
-                            "action": "보유 유지",
+                            "action": "관찰",
+                            "score_action": "관찰",
                             "recommendation_state": "entered_today",
+                            "recommendation_label": "추천 후보",
                             "buy_condition_met": True,
                             "rank": 1,
                             "strategy_entry_price": 118_500,
@@ -1961,7 +1965,8 @@ def test_live_recommendation_contract_accepts_redacted_current_holding(
             if path == "/market/recommendations":
                 return {
                     "as_of": "2026-09-21T16:00:00+09:00",
-                    "selection_rule": "confirmed_entry_pending_or_current_holding",
+                    "selection_rule": "recommendation_score_ranked_independent_of_trade_signal",
+                    "candidate_count": 1,
                     "qualified_count": 1,
                     "pending_count": 0,
                     "entered_today_count": 0,
@@ -1969,8 +1974,10 @@ def test_live_recommendation_contract_accepts_redacted_current_holding(
                     "items": [
                         {
                             "code": "090430",
-                            "action": "보유 유지",
+                            "action": "관찰",
+                            "score_action": "관찰",
                             "recommendation_state": "holding",
+                            "recommendation_label": "추천 후보",
                             "buy_condition_met": True,
                             "rank": 1,
                             "strategy_entry_price": 129_200,

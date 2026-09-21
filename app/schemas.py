@@ -1273,8 +1273,8 @@ class RecommendationItemOut(BaseModel):
     decision_reason: Optional[str] = None
     score_action: Optional[str] = None
     score_decision_reason: Optional[str] = None
-    recommendation_state: str = "entry_confirmed"
-    recommendation_label: str = "신규 매수 대기"
+    recommendation_state: str = "score_selected"
+    recommendation_label: str = "추천 후보"
     buy_condition_met: bool = True
     buy_condition_as_of: Optional[datetime | date] = None
     recommendation_entry_date: Optional[date] = None
@@ -1358,7 +1358,7 @@ class MarketRecommendationOut(BaseModel):
     pending_count: int = 0
     entered_today_count: int = 0
     holding_count: int = 0
-    selection_rule: str = "confirmed_entry_pending_or_current_holding"
+    selection_rule: str = "recommendation_score_ranked_independent_of_trade_signal"
     selection_state: str = "ready"
     selection_refreshing: bool = False
     selection_message: str = ""

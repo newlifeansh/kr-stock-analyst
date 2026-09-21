@@ -485,7 +485,7 @@ def _rewrite_staging_recommendation_contract(
     reference_date: date | None = None,
     supplemental_items: list[dict[str, Any]] | None = None,
 ) -> bytes:
-    """Expose confirmed pending entries and confirmed positions until exit."""
+    """Keep recommendation ranking independent and attach signal state as context."""
 
     try:
         payload = json.loads(body)
@@ -501,47 +501,23 @@ def _rewrite_staging_recommendation_contract(
         else []
     )
     today = reference_date or datetime.now(KST).date()
-    eligible_by_code: dict[str, tuple[str, dict[str, Any]]] = {}
+    signal_by_code: dict[str, dict[str, Any]] = {}
     for raw_item in signal_items:
         if not isinstance(raw_item, dict):
             continue
-        if not _staging_recommendation_universe_eligible(raw_item):
-            continue
-        current = raw_item.get("current")
-        recommendation_state = _staging_recommendation_state(current, today=today)
-        if recommendation_state is None:
-            continue
         code = str(raw_item.get("code") or "").strip()
         if code:
-            eligible_by_code[code] = (recommendation_state, raw_item)
+            signal_by_code[code] = raw_item
 
     source_items = list(payload.get("items")) if isinstance(payload.get("items"), list) else []
-    source_codes = {
-        str(item.get("code") or "").strip()
-        for item in source_items
-        if isinstance(item, dict)
-    }
-    for supplemental in supplemental_items or []:
-        code = str(supplemental.get("code") or "").strip()
-        if code and code not in source_codes:
-            source_items.append(supplemental)
-            source_codes.add(code)
-    filtered: list[dict[str, Any]] = []
+    # Signal membership must never create or remove recommendation cards.
+    # Keep the legacy argument temporarily so older callers remain compatible.
+    _ = supplemental_items
+    ranked: list[dict[str, Any]] = []
     for raw_item in source_items:
         if not isinstance(raw_item, dict):
             continue
         code = str(raw_item.get("code") or "").strip()
-        eligible_record = eligible_by_code.get(code)
-        if eligible_record is None:
-            continue
-        recommendation_state, signal_item = eligible_record
-        current = signal_item.get("current")
-        if not isinstance(current, dict):
-            continue
-        entered_today = recommendation_state == "entered_today"
-        holding = recommendation_state == "holding"
-        position_held = entered_today or holding
-        recommendation_label = "보유 유지" if position_held else "신규 매수 대기"
         item = dict(raw_item)
         if item.get("condition_price") in (None, ""):
             item["condition_price"] = item.get("price")
@@ -555,92 +531,93 @@ def _rewrite_staging_recommendation_contract(
             if isinstance(compact_signal.get("current"), dict)
             else {}
         )
-        compact_current.update(current)
+        signal_item = signal_by_code.get(code)
+        signal_current = (
+            signal_item.get("current")
+            if isinstance(signal_item, dict)
+            and isinstance(signal_item.get("current"), dict)
+            else None
+        )
+        if isinstance(signal_current, dict):
+            compact_current.update(signal_current)
         signal_as_of = signal_payload.get("as_of") if isinstance(signal_payload, dict) else None
         signal_strategy = (
             signal_payload.get("strategy_version")
             if isinstance(signal_payload, dict)
             else None
         )
-        compact_signal.update(
-            {
-                "data_state": "ready",
-                "as_of": compact_signal.get("as_of") or signal_as_of,
-                "strategy_version": compact_signal.get("strategy_version")
-                or signal_strategy,
-                "current": compact_current,
-            }
+        if compact_signal or compact_current:
+            compact_signal.update(
+                {
+                    "data_state": compact_signal.get("data_state") or "ready",
+                    "as_of": compact_signal.get("as_of") or signal_as_of,
+                    "strategy_version": compact_signal.get("strategy_version")
+                    or signal_strategy,
+                    "current": compact_current or None,
+                }
+            )
+            item["ai_trade_signal"] = compact_signal
+        recommendation_state = _staging_recommendation_state(
+            compact_current or None,
+            today=today,
         )
-        item["ai_trade_signal"] = compact_signal
-        item["score_action"] = item.get("action")
-        item["score_decision_reason"] = item.get("decision_reason")
-        item["action"] = recommendation_label
-        item["decision_reason"] = (
-            "추천 기준을 통과한 뒤 AI 전략이 보유 중이며, 현재는 추가 매수보다 보유 기준을 확인하는 단계입니다."
-            if position_held
-            else "추천 기준과 가격 조건, 서로 다른 확인 자료를 모두 통과해 신규 매수를 기다리는 단계입니다."
+        item["score_action"] = item.get("score_action") or item.get("action")
+        item["score_decision_reason"] = (
+            item.get("score_decision_reason") or item.get("decision_reason")
         )
-        item["recommendation_state"] = recommendation_state
-        item["recommendation_label"] = recommendation_label
+        item["recommendation_state"] = recommendation_state or "score_selected"
+        item["recommendation_label"] = "추천 후보"
         item["buy_condition_met"] = True
-        item["buy_condition_as_of"] = (
-            signal_item.get("signal_at")
-            or signal_item.get("signal_date")
-            or current.get("as_of")
+        item["buy_condition_as_of"] = item.get("buy_condition_as_of") or (
+            item.get("recommended_at") or payload.get("as_of")
         )
-        item["recommendation_entry_date"] = current.get("entry_date") if position_held else None
-        item["strategy_entry_price"] = current.get("entry_price") if position_held else None
-        filtered.append(item)
+        position_open = bool(compact_current.get("position_open"))
+        item["recommendation_entry_date"] = (
+            compact_current.get("entry_date") if position_open else None
+        )
+        item["strategy_entry_price"] = (
+            compact_current.get("entry_price") if position_open else None
+        )
+        ranked.append(item)
 
-    filtered.sort(
-        key=lambda item: float(item.get("score") or 0),
-        reverse=True,
-    )
-    for rank, item in enumerate(filtered, start=1):
+    if requested_limit is not None:
+        ranked = ranked[: max(0, requested_limit)]
+    for rank, item in enumerate(ranked, start=1):
         item["rank"] = rank
 
-    qualified_count = len(filtered)
     pending_count = sum(
-        1 for item in filtered if item.get("recommendation_state") == "entry_confirmed"
+        1 for item in ranked if item.get("recommendation_state") == "entry_confirmed"
     )
     entered_today_count = sum(
-        1 for item in filtered if item.get("recommendation_state") == "entered_today"
+        1 for item in ranked if item.get("recommendation_state") == "entered_today"
     )
     holding_count = sum(
-        1 for item in filtered if item.get("recommendation_state") == "holding"
+        1 for item in ranked if item.get("recommendation_state") == "holding"
     )
-    if requested_limit is not None:
-        filtered = filtered[: max(0, requested_limit)]
 
     original_candidate_count = int(payload.get("candidate_count") or len(source_items))
     payload["screened_count"] = int(payload.get("universe_count") or original_candidate_count)
-    payload["candidate_count"] = len(eligible_by_code)
-    payload["qualified_count"] = qualified_count
+    payload["candidate_count"] = original_candidate_count
+    payload["qualified_count"] = int(payload.get("qualified_count") or len(source_items))
     payload["pending_count"] = pending_count
     payload["entered_today_count"] = entered_today_count
     payload["holding_count"] = holding_count
-    payload["selection_rule"] = "confirmed_entry_pending_or_current_holding"
-    payload["selection_state"] = "ready" if signal_ready else "unavailable"
+    payload["selection_rule"] = "recommendation_score_ranked_independent_of_trade_signal"
+    payload["selection_state"] = str(payload.get("selection_state") or "ready")
     payload["selection_refreshing"] = bool(
         signal_ready
         and isinstance(signal_payload, dict)
         and signal_payload.get("status") == "refreshing"
     )
     payload["selection_message"] = (
-        (
-            "최신 시장 데이터를 확인 중이며, 확인이 끝난 종목의 현재 AI 판단을 보여드립니다."
-            if payload["selection_refreshing"]
-            else "추천 기준을 통과한 종목을 신규 매수 대기와 보유 유지 상태로 나눠 보여드립니다."
-        )
-        if payload["selection_state"] == "ready"
-        else "현재 판단을 확인하지 못해 추천 종목을 표시하지 않습니다. 잠시 후 다시 확인해 주세요."
+        "추천 점수로 선별한 후보이며, 매수·보유 판단은 AI 시그널에서 별도로 확인합니다."
     )
     payload["methodology"] = [
-        "시장 대표 종목 가운데 추천 기준과 가격 조건을 모두 통과한 종목만 보여드립니다.",
-        "아직 매수 전이면 신규 매수 대기, 이미 AI 전략이 매수했다면 보유 유지로 구분합니다.",
-        "조건을 확인 중이거나 매도 판단이 나온 종목은 제외하고, 기준을 통과한 종목끼리 추천 점수로 비교합니다.",
+        "시장 대표 종목에서 가격 흐름과 거래대금으로 추천 후보를 선별합니다.",
+        "추천 점수와 종목군·섹터 분산 기준으로 순위를 정합니다.",
+        "매수·보유·매도 판단은 추천 순위와 분리된 현재 AI 시그널로 보여드립니다.",
     ]
-    payload["items"] = filtered
+    payload["items"] = ranked
     return json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
 
 
@@ -695,27 +672,10 @@ async def _read_staging_upstream(
                         signal_payload = decoded_signal_payload
                 except (httpx.HTTPError, ValueError, json.JSONDecodeError):
                     signal_payload = None
-                try:
-                    source_payload = json.loads(body)
-                    source_items = (
-                        source_payload.get("items")
-                        if isinstance(source_payload, dict)
-                        and isinstance(source_payload.get("items"), list)
-                        else []
-                    )
-                    supplemental_items = await _build_staging_recommendation_supplements(
-                        client,
-                        signal_payload,
-                        [item for item in source_items if isinstance(item, dict)],
-                        max_items=max(requested_limit or 8, 8),
-                    )
-                except (TypeError, ValueError, json.JSONDecodeError):
-                    supplemental_items = []
                 body = _rewrite_staging_recommendation_contract(
                     body,
                     signal_payload,
                     requested_limit=requested_limit,
-                    supplemental_items=supplemental_items,
                 )
     headers = [
         (key.lower(), value)

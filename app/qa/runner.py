@@ -2601,8 +2601,8 @@ def _live_checks(
                 )
                 _assert(
                     recommendations.get("selection_rule")
-                    == "confirmed_entry_pending_or_current_holding",
-                    "종목 추천의 매수 조건 자격 규칙이 다릅니다.",
+                    == "recommendation_score_ranked_independent_of_trade_signal",
+                    "종목 추천이 추천 점수와 AI 시그널을 분리하지 않았습니다.",
                     selection_rule=recommendations.get("selection_rule"),
                 )
                 items = recommendations.get("items") or []
@@ -2610,6 +2610,7 @@ def _live_checks(
                 recommendation_date = str(recommendations.get("as_of") or "")[:10]
                 invalid: list[dict[str, Any]] = []
                 state_counts = {"entry_confirmed": 0, "entered_today": 0, "holding": 0}
+                signal_actions: set[str] = set()
                 for item in items:
                     if not isinstance(item, dict):
                         invalid.append({"item": "not_object"})
@@ -2622,6 +2623,9 @@ def _live_checks(
                         else {}
                     )
                     state = str(item.get("recommendation_state") or "")
+                    signal_action = str(current.get("action") or "")
+                    if signal_action:
+                        signal_actions.add(signal_action)
                     lifecycle = current.get("lifecycle")
                     transition = (
                         lifecycle.get("latest_transition")
@@ -2632,13 +2636,11 @@ def _live_checks(
                     confirmation = current.get("entry_confirmation")
                     pending_valid = bool(
                         state == "entry_confirmed"
-                        and item.get("action") == "신규 매수 대기"
                         and current.get("action") == "entry_pending"
                         and current.get("position_open") is False
                     )
                     entered_today_valid = bool(
                         state == "entered_today"
-                        and item.get("action") == "보유 유지"
                         and current.get("action") in {"entered", "holding"}
                         and current.get("position_open") is True
                         and str(current.get("entry_date") or "")[:10] == recommendation_date
@@ -2654,7 +2656,6 @@ def _live_checks(
                     )
                     holding_valid = bool(
                         state == "holding"
-                        and item.get("action") == "보유 유지"
                         and current.get("action") in {"entered", "holding"}
                         and current.get("position_open") is True
                         and bool(str(current.get("entry_date") or "")[:10])
@@ -2663,16 +2664,29 @@ def _live_checks(
                         and confirmation is None
                         and item.get("strategy_entry_price") == current.get("entry_price")
                     )
+                    score_selected_valid = state == "score_selected"
+                    recommendation_score_is_independent = bool(
+                        item.get("action")
+                        and item.get("action") == item.get("score_action")
+                        and item.get("recommendation_label") == "추천 후보"
+                    )
                     if (
                         item.get("buy_condition_met") is not True
-                        or current.get("live_observation") is not False
-                        or not (pending_valid or entered_today_valid or holding_valid)
+                        or not recommendation_score_is_independent
+                        or not (
+                            score_selected_valid
+                            or pending_valid
+                            or entered_today_valid
+                            or holding_valid
+                        )
                     ):
                         invalid.append(
                             {
                                 "code": item.get("code"),
                                 "action": item.get("action"),
+                                "score_action": item.get("score_action"),
                                 "recommendation_state": item.get("recommendation_state"),
+                                "recommendation_label": item.get("recommendation_label"),
                                 "buy_condition_met": item.get("buy_condition_met"),
                                 "signal_action": current.get("action"),
                                 "position_open": current.get("position_open"),
@@ -2688,59 +2702,69 @@ def _live_checks(
                         state_counts[state] += 1
                 _assert(
                     not invalid,
-                    "확정 대기·현재 보유가 아닌 관찰·매도·장중 예비 종목이 추천 목록에 포함됐습니다.",
+                    "추천 점수 순위가 AI 시그널 행동으로 덮였거나 현재 AI 상태가 일관되지 않습니다.",
                     invalid=invalid,
                 )
                 expected_ranks = list(range(1, len(items) + 1))
                 ranks = [item.get("rank") for item in items if isinstance(item, dict)]
                 _assert(
                     ranks == expected_ranks,
-                    "매수 조건 통과 종목의 추천 순위가 연속적이지 않습니다.",
+                    "추천 점수 후보의 순위가 연속적이지 않습니다.",
                     ranks=ranks,
                 )
                 qualified_count = int(recommendations.get("qualified_count") or 0)
+                candidate_count = int(recommendations.get("candidate_count") or 0)
                 _assert(
-                    qualified_count >= len(items),
-                    "추천 자격 종목 수가 반환 목록보다 작습니다.",
+                    candidate_count >= qualified_count >= len(items),
+                    "추천 후보·점수 계산·반환 건수의 관계가 올바르지 않습니다.",
+                    candidate_count=candidate_count,
                     qualified_count=qualified_count,
                     returned_count=len(items),
                 )
                 _assert(
+                    len(items) == min(20, qualified_count),
+                    "AI 시그널 상태 때문에 점수 추천 후보가 누락됐습니다.",
+                    expected_returned=min(20, qualified_count),
+                    returned_count=len(items),
+                )
+                _assert(
                     int(recommendations.get("pending_count") or 0)
-                    >= state_counts["entry_confirmed"],
-                    "추천 응답의 진입 대기 수가 반환 상태보다 작습니다.",
+                    == state_counts["entry_confirmed"],
+                    "추천 응답의 진입 대기 상태 수가 반환 항목과 다릅니다.",
                     pending_count=recommendations.get("pending_count"),
                     returned_pending=state_counts["entry_confirmed"],
                 )
                 _assert(
                     int(recommendations.get("entered_today_count") or 0)
-                    >= state_counts["entered_today"],
-                    "추천 응답의 오늘 시가 반영 수가 반환 상태보다 작습니다.",
+                    == state_counts["entered_today"],
+                    "추천 응답의 오늘 진입 상태 수가 반환 항목과 다릅니다.",
                     entered_today_count=recommendations.get("entered_today_count"),
                     returned_entered_today=state_counts["entered_today"],
                 )
                 _assert(
                     int(recommendations.get("holding_count") or 0)
-                    >= state_counts["holding"],
-                    "추천 응답의 현재 보유 수가 반환 상태보다 작습니다.",
+                    == state_counts["holding"],
+                    "추천 응답의 현재 보유 상태 수가 반환 항목과 다릅니다.",
                     holding_count=recommendations.get("holding_count"),
                     returned_holding=state_counts["holding"],
                 )
                 return {
                     **meta,
                     "selection_rule": recommendations.get("selection_rule"),
+                    "candidate_count": candidate_count,
                     "qualified_count": qualified_count,
                     "pending_count": recommendations.get("pending_count"),
                     "entered_today_count": recommendations.get("entered_today_count"),
                     "holding_count": recommendations.get("holding_count"),
                     "returned_count": len(items),
+                    "signal_actions": sorted(signal_actions),
                     "codes": [item.get("code") for item in items if isinstance(item, dict)],
                 }
 
             collector.check(
                 "SIG-CONTRACT-002",
                 recommendation_eligibility_contract,
-                pass_message="추천 목록이 조건 확정 종목과 청산 전 현재 보유 종목을 유지함을 확인했습니다.",
+                pass_message="추천 점수 순위와 현재 AI 시그널이 독립적으로 유지됨을 확인했습니다.",
             )
 
             def signal_surface_contract() -> dict[str, Any]:

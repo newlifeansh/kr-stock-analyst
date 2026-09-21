@@ -28,7 +28,7 @@ def test_high_recommendation_score_produces_an_actionable_but_measured_decision(
     )
 
 
-def test_recommendations_refresh_stale_signal_snapshot_before_screening(monkeypatch):
+def test_recommendations_do_not_refresh_signal_snapshot_to_select_candidates(monkeypatch):
     now = datetime(2026, 9, 3, 21, 0, tzinfo=recommendations.KST)
     signal = _confirmed_entry_signal("005930")
     stale_snapshot = {
@@ -100,7 +100,7 @@ def test_recommendations_refresh_stale_signal_snapshot_before_screening(monkeypa
             ensure_signal_history=False,
         )
 
-    assert saved == [refreshed_snapshot]
+    assert saved == []
     assert payload["candidate_count"] == 1
     assert [item["code"] for item in payload["items"]] == ["005930"]
 
@@ -170,7 +170,7 @@ def test_recommendations_treat_previous_completed_price_snapshot_as_stale(monkey
     ) is False
 
 
-def test_recommendations_report_unavailable_when_selection_snapshot_is_not_ready(monkeypatch):
+def test_recommendations_stay_ready_when_signal_snapshot_is_not_ready(monkeypatch):
     monkeypatch.setattr(
         recommendations,
         "_top_market_cap_universe",
@@ -186,9 +186,9 @@ def test_recommendations_report_unavailable_when_selection_snapshot_is_not_ready
         payload = build_recommendations(db, ensure_signal_history=False)
 
     assert payload["items"] == []
-    assert payload["selection_state"] == "unavailable"
+    assert payload["selection_state"] == "ready"
     assert payload["selection_refreshing"] is False
-    assert "표시하지 않습니다" in payload["selection_message"]
+    assert "AI 시그널에서 별도로" in payload["selection_message"]
 
 
 def _session() -> Session:
@@ -396,11 +396,11 @@ def test_recommendations_fall_back_to_close_times_volume_without_market_cap(monk
         assert payload["universe_count"] == 2
         assert payload["candidate_count"] == 2
         assert len(payload["items"]) == 2
-        assert payload["selection_rule"] == "confirmed_entry_pending_or_current_holding"
+        assert payload["selection_rule"] == "recommendation_score_ranked_independent_of_trade_signal"
         assert payload["qualified_count"] == 2
         assert all(item["trading_value"] for item in payload["items"])
         assert all(item["buy_condition_met"] is True for item in payload["items"])
-        assert all(item["action"] == "신규 매수 대기" for item in payload["items"])
+        assert all(item["action"] == item["score_action"] for item in payload["items"])
         assert all(item["ai_trade_signal"] for item in payload["items"])
         assert all(item["ai_trade_signal"]["entry_score_threshold"] == Decimal("62.00") for item in payload["items"])
 
@@ -473,7 +473,7 @@ def test_recommendations_keep_verified_candidates_when_live_enrichment_is_unavai
         assert any("1차 후보" in risk for risk in payload["items"][0]["risks"])
 
 
-def test_recommendations_exclude_unconfirmed_holding_and_live_preliminary_states(monkeypatch):
+def test_recommendations_rank_candidates_independently_of_signal_state(monkeypatch):
     codes = ["100001", "100002", "100003", "100004", "100005"]
     confirmed = _confirmed_entry_signal(codes[0])
 
@@ -519,10 +519,16 @@ def test_recommendations_exclude_unconfirmed_holding_and_live_preliminary_states
         "load_market_quant_signal_snapshot",
         lambda *_args, **_kwargs: snapshot,
     )
+    signal_payloads = {}
+    for raw_item in snapshot["items"]:
+        signal_payload = dict(confirmed)
+        signal_payload["code"] = raw_item["code"]
+        signal_payload["current"] = raw_item["current"]
+        signal_payloads[raw_item["code"]] = signal_payload
     monkeypatch.setattr(
         recommendations,
         "load_quant_signal_payload",
-        lambda *_args, **_kwargs: confirmed,
+        lambda _db, code, **_kwargs: signal_payloads[str(code)],
     )
 
     with _session() as db:
@@ -538,11 +544,12 @@ def test_recommendations_exclude_unconfirmed_holding_and_live_preliminary_states
             ensure_signal_history=False,
         )
 
-    assert payload["candidate_count"] == 1
-    assert payload["qualified_count"] == 1
-    assert [item["code"] for item in payload["items"]] == [codes[0]]
-    assert payload["items"][0]["action"] == "신규 매수 대기"
-    assert payload["items"][0]["buy_condition_met"] is True
+    assert payload["candidate_count"] == 5
+    assert payload["qualified_count"] == 5
+    assert len(payload["items"]) == 4
+    assert any(item["code"] != codes[0] for item in payload["items"])
+    assert all(item["action"] == item["score_action"] for item in payload["items"])
+    assert all(item["buy_condition_met"] is True for item in payload["items"])
 
 
 def test_recommendations_keep_confirmed_entry_and_current_holding_visible(monkeypatch):
@@ -603,16 +610,16 @@ def test_recommendations_keep_confirmed_entry_and_current_holding_visible(monkey
     items = {item["code"]: item for item in payload["items"]}
     entered_item = items["100001"]
     assert entered_item["recommendation_state"] == "entered_today"
-    assert entered_item["recommendation_label"] == "보유 유지"
-    assert entered_item["action"] == "보유 유지"
-    assert "추가 매수보다 보유 기준" in entered_item["decision_reason"]
+    assert entered_item["recommendation_label"] == "추천 후보"
+    assert entered_item["action"] == entered_item["score_action"]
+    assert entered_item["decision_reason"] == entered_item["score_decision_reason"]
     assert entered_item["recommendation_entry_date"] == date(2026, 9, 1)
     assert entered_item["strategy_entry_price"] == 80_700
     assert entered_item["condition_price"] == entered_item["price"]
     assert entered_item["ai_trade_signal"]["current"]["position_open"] is True
     holding_item = items["100002"]
     assert holding_item["recommendation_state"] == "holding"
-    assert holding_item["recommendation_label"] == "보유 유지"
+    assert holding_item["recommendation_label"] == "추천 후보"
     assert holding_item["recommendation_entry_date"] == date(2026, 8, 31)
     assert holding_item["strategy_entry_price"] == 80_700
     assert holding_item["ai_trade_signal"]["current"]["position_open"] is True
@@ -658,7 +665,7 @@ def test_fast_recommendations_only_score_observed_components_and_never_render_no
 
         assert set(item["component_scores"]) == {"price_momentum", "trading_value"}
         assert all("None%" not in reason for reason in item["reasons"])
-        assert item["action"] == "신규 매수 대기"
+        assert item["action"] == item["score_action"]
         assert "매수" not in item["score_action"]
         assert item["ai_trade_signal"]["data_state"] == "ready"
         assert item["ai_trade_signal"]["current"]["levels"][0]["key"] == "entry"
@@ -755,7 +762,7 @@ def test_recommendations_link_confirmed_entry_contract_and_released_preliminary(
     assert compact["latest_preliminary"]["active"] is False
     assert compact["latest_preliminary"]["last_seen_at"] == "2026-08-20T10:05:00+09:00"
     validated = MarketRecommendationOut.model_validate(payload)
-    assert validated.selection_rule == "confirmed_entry_pending_or_current_holding"
+    assert validated.selection_rule == "recommendation_score_ranked_independent_of_trade_signal"
     assert validated.items[0].buy_condition_met is True
     assert validated.items[0].condition_price == validated.items[0].price
     assert validated.items[0].ai_trade_signal.current.lifecycle.state == "entry_pending"

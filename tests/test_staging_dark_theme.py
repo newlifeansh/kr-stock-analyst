@@ -81,7 +81,7 @@ def test_staging_serves_bundled_official_stock_logo_before_upstream(monkeypatch)
     assert response.headers["x-stock-logo-source"] == "official-manual"
 
 
-def test_staging_recommendations_keep_pending_and_current_holdings():
+def test_staging_recommendations_keep_score_ranking_and_attach_signal_context():
     recommendation_payload = {
         "as_of": "2026-08-31T16:00:00+09:00",
         "universe_count": 100,
@@ -183,35 +183,35 @@ def test_staging_recommendations_keep_pending_and_current_holdings():
     )
     payload = json.loads(rewritten)
 
-    assert payload["selection_rule"] == "confirmed_entry_pending_or_current_holding"
+    assert payload["selection_rule"] == "recommendation_score_ranked_independent_of_trade_signal"
     assert payload["selection_state"] == "ready"
-    assert payload["candidate_count"] == 3
-    assert payload["qualified_count"] == 3
+    assert payload["candidate_count"] == 20
+    assert payload["qualified_count"] == 5
     assert payload["pending_count"] == 1
     assert payload["entered_today_count"] == 1
-    assert payload["holding_count"] == 1
-    assert [item["code"] for item in payload["items"]] == ["003230", "105560", "005930"]
-    pending, entered, holding = payload["items"]
-    assert pending["rank"] == 1
-    assert pending["action"] == "신규 매수 대기"
+    assert payload["holding_count"] == 0
+    assert [item["code"] for item in payload["items"]] == ["078930", "003230", "105560"]
+    exited, pending, entered = payload["items"]
+    assert exited["rank"] == 1
+    assert exited["action"] == "우수"
+    assert exited["recommendation_state"] == "score_selected"
+    assert exited["ai_trade_signal"]["current"]["action"] == "exited"
+    assert pending["rank"] == 2
+    assert pending["action"] == "관찰"
     assert pending["recommendation_state"] == "entry_confirmed"
     assert pending["condition_price"] == 1_531_000
     assert pending["ai_trade_signal"]["current"]["levels"][0]["price"] == 1_520_000
-    assert entered["rank"] == 2
-    assert entered["action"] == "보유 유지"
+    assert entered["rank"] == 3
+    assert entered["action"] == "관찰"
     assert entered["recommendation_state"] == "entered_today"
     assert entered["buy_condition_met"] is True
     assert entered["recommendation_entry_date"] == "2026-09-01"
     assert entered["strategy_entry_price"] == 169_100
     assert entered["condition_price"] == 173_300
     assert entered["ai_trade_signal"]["current"]["position_open"] is True
-    assert holding["action"] == "보유 유지"
-    assert holding["recommendation_state"] == "holding"
-    assert holding["recommendation_entry_date"] == "2026-08-31"
-    assert holding["strategy_entry_price"] == 68_300
 
 
-def test_staging_rebuilds_a_missing_same_day_card_without_reusing_the_signal_score(
+def test_staging_never_adds_a_recommendation_card_from_signal_membership(
     monkeypatch,
 ):
     monkeypatch.setattr(staging_module, "STAGING_DATA_UPSTREAM", "https://example.test")
@@ -317,30 +317,24 @@ def test_staging_rebuilds_a_missing_same_day_card_without_reusing_the_signal_sco
     assert len(requests) == 2
     price_request = next(request for request in requests if request[0].endswith("/prices"))
     assert price_request[1]["params"]["from_date"] == "2026-08-31"
-    assert payload["qualified_count"] == 1
-    item = payload["items"][0]
-    assert item["recommendation_state"] == "entered_today"
-    assert item["score"] == 69.01
-    assert item["ai_trade_signal"]["current"]["score"] == 75.37
-    assert item["price"] == 173_300
-    assert item["condition_price"] == 173_300
-    assert item["ai_trade_signal"]["current"]["price"] == 171_600
-    assert "_quant_live_quote" not in item
+    assert payload["qualified_count"] == 0
+    assert payload["items"] == []
 
 
-def test_staging_recommendations_fail_closed_when_signal_membership_is_unavailable():
+def test_staging_recommendations_remain_visible_when_signal_context_is_unavailable():
     source = json.dumps(
         {"universe_count": 100, "candidate_count": 1, "items": [{"code": "078930"}]}
     ).encode()
 
     payload = json.loads(staging_module._rewrite_staging_recommendation_contract(source, None))
 
-    assert payload["items"] == []
-    assert payload["selection_state"] == "unavailable"
-    assert "표시하지 않습니다" in payload["selection_message"]
+    assert [item["code"] for item in payload["items"]] == ["078930"]
+    assert payload["items"][0]["recommendation_state"] == "score_selected"
+    assert payload["selection_state"] == "ready"
+    assert "AI 시그널에서 별도로" in payload["selection_message"]
 
 
-def test_staging_recommendations_keep_a_bounded_refreshing_snapshot_visible():
+def test_staging_recommendations_do_not_depend_on_refreshing_signal_snapshot():
     source = {
         "universe_count": 100,
         "candidate_count": 1,
@@ -372,7 +366,7 @@ def test_staging_recommendations_keep_a_bounded_refreshing_snapshot_visible():
     assert [item["code"] for item in payload["items"]] == ["003230"]
     assert payload["selection_state"] == "ready"
     assert payload["selection_refreshing"] is True
-    assert "최신 시장 데이터를 확인 중" in payload["selection_message"]
+    assert "AI 시그널에서 별도로" in payload["selection_message"]
 
     refreshing["snapshot_age_seconds"] = 1_801
     stale_payload = json.loads(
@@ -381,8 +375,9 @@ def test_staging_recommendations_keep_a_bounded_refreshing_snapshot_visible():
             refreshing,
         )
     )
-    assert stale_payload["items"] == []
-    assert stale_payload["selection_state"] == "unavailable"
+    assert [item["code"] for item in stale_payload["items"]] == ["003230"]
+    assert stale_payload["items"][0]["recommendation_state"] == "score_selected"
+    assert stale_payload["selection_state"] == "ready"
 
 
 def test_staging_entry_point_injects_adaptive_tds_assets_into_every_html_shell():
@@ -2807,7 +2802,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20260921v551' in shell
+    assert 'dashboard-app-v170.js?v=20260922v552' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 

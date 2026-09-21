@@ -59,7 +59,7 @@ UNIVERSE_CACHE_TTL_SECONDS = 300
 RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_AGE_SECONDS = 6 * 60 * 60
 RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_FUTURE_SKEW_SECONDS = 60
 MAX_RECOMMENDATIONS_PER_SECTOR = 2
-RECOMMENDATION_SELECTION_RULE = "confirmed_entry_pending_or_current_holding"
+RECOMMENDATION_SELECTION_RULE = "recommendation_score_ranked_independent_of_trade_signal"
 RECOMMENDATION_PENDING_STATE = "entry_confirmed"
 RECOMMENDATION_ENTERED_TODAY_STATE = "entered_today"
 RECOMMENDATION_HOLDING_STATE = "holding"
@@ -72,13 +72,11 @@ settings = get_settings()
 
 METHODOLOGY = [
     "최근 시가총액 데이터가 있으면 상위 100개, 없으면 최신 거래대금 추정 상위 종목을 추천 유니버스로 사용한다.",
-    "매수 기준을 통과한 종목은 아직 매수 전인 신규 매수 대기와 AI 전략이 매수를 마친 현재 보유 상태로 구분한다.",
-    "조건을 확인 중인 종목과 매도 판단이 나온 종목은 제외하고, 확정 진입 뒤 포지션이 열린 종목은 청산 전까지 보유 유지로 표시한다.",
-    "조건을 통과한 종목 안에서 1개월/3개월 모멘텀, 거래대금, 거래대금 변화로 순위를 계산한다. 가격 이력이 짧으면 최신 거래대금과 단기 흐름으로 보수적으로 대체한다.",
+    "유니버스 안에서 1개월/3개월 모멘텀, 거래대금, 거래대금 변화로 후보를 선별한다. 가격 이력이 짧으면 최신 거래대금과 단기 흐름으로 보수적으로 대체한다.",
     "선별 후보에 대해 추정치/애널리스트 변화, 실적/가이던스, 밸류에이션, 거시 민감도, 수급, 뉴스 분위기를 0~100점으로 환산한다.",
     "정밀 계산은 10개 항목 가중합을 사용한다. 빠른 후보 선별은 실제로 확인된 가격·거래대금 항목만 재가중해 계산하며, 없는 데이터에 임의 점수를 넣지 않는다.",
     "동일 기업군은 우선 한 종목, 동일 투자 섹터는 우선 두 종목 이내로 제한해 특정 위험 팩터 쏠림을 줄인다.",
-    "추천 점수는 기준을 통과한 종목끼리 비교하는 순위이며, 실제로 새로 살 차례인지 보유할 차례인지는 현재 AI 판단으로 따로 보여준다.",
+    "추천 점수는 모니터링 후보 순위이며, 실제 진입·보유·축소 판단은 종목별 AI 시그널 상태를 별도로 따른다.",
 ]
 
 RECOMMENDATION_GROUP_PREFIXES = (
@@ -1046,18 +1044,10 @@ def build_recommendations(
     recommendation_date = recommendation_as_of.date()
     universe = _top_market_cap_universe(db, refresh_live=refresh_live)
     base_items = list(universe["base_items"])
-    eligible_snapshot_items, selection_ready = _eligible_recommendation_snapshot_items(
-        db,
-        today=recommendation_date,
-    )
 
     base_items.sort(key=_candidate_sort_key, reverse=True)
     score_pool_limit = max(candidate_limit, limit * 2)
-    candidates = [
-        item
-        for item in base_items
-        if str(item.get("code") or "") in eligible_snapshot_items
-    ][: min(len(base_items), score_pool_limit)]
+    candidates = base_items[: min(len(base_items), score_pool_limit)]
     candidate_by_code = {
         str(item.get("code") or ""): item
         for item in candidates
@@ -1120,15 +1110,17 @@ def build_recommendations(
             item["trading_value"] = fallback.get("trading_value")
 
     scored.sort(key=lambda item: item["score"], reverse=True)
+    selected = _select_diverse_recommendations(scored, limit)
     preliminary_states = _latest_preliminary_states(
         db,
-        [str(item.get("code") or "") for item in scored],
+        [str(item.get("code") or "") for item in selected],
     )
-    qualified: list[dict[str, object]] = []
     pending_count = 0
     entered_today_count = 0
     holding_count = 0
-    for item in scored:
+    for idx, item in enumerate(selected, start=1):
+        item["rank"] = idx
+        item["recommended_at"] = recommendation_as_of
         live_quote = item.pop("_quant_live_quote", None)
         try:
             if ensure_signal_history:
@@ -1208,67 +1200,38 @@ def build_recommendations(
             signal,
             today=recommendation_date,
         )
-        if recommendation_state is None:
-            continue
-        snapshot_record = eligible_snapshot_items.get(str(item.get("code") or ""))
-        snapshot_item = snapshot_record[1] if snapshot_record else {}
         entered_today = recommendation_state == RECOMMENDATION_ENTERED_TODAY_STATE
         holding = recommendation_state == RECOMMENDATION_HOLDING_STATE
-        position_held = entered_today or holding
-        recommendation_label = (
-            RECOMMENDATION_ENTERED_TODAY_LABEL
-            if position_held
-            else RECOMMENDATION_PENDING_LABEL
-        )
         item["score_action"] = item.get("action")
         item["score_decision_reason"] = item.get("decision_reason")
-        item["action"] = recommendation_label
-        item["decision_reason"] = (
-            "추천 기준을 통과한 뒤 AI 전략이 보유 중이며, 현재는 추가 매수보다 보유 기준을 확인하는 단계입니다."
-            if position_held
-            else "추천 기준과 가격 조건, 서로 다른 확인 자료를 모두 통과해 신규 매수를 기다리는 단계입니다."
-        )
-        item["recommendation_state"] = recommendation_state
-        item["recommendation_label"] = recommendation_label
+        item["recommendation_state"] = recommendation_state or "score_selected"
+        item["recommendation_label"] = "추천 후보"
         item["buy_condition_met"] = True
-        item["buy_condition_as_of"] = (
-            snapshot_item.get("signal_at")
-            or snapshot_item.get("signal_date")
-            or signal.get("price_through")
-        )
-        item["recommendation_entry_date"] = current.get("entry_date") if position_held else None
-        item["strategy_entry_price"] = current.get("entry_price") if position_held else None
+        item["buy_condition_as_of"] = recommendation_as_of
+        position_open = bool(isinstance(current, dict) and current.get("position_open"))
+        item["recommendation_entry_date"] = current.get("entry_date") if position_open else None
+        item["strategy_entry_price"] = current.get("entry_price") if position_open else None
         item["condition_price"] = item.get("price")
         if entered_today:
             entered_today_count += 1
         elif holding:
             holding_count += 1
-        else:
+        elif recommendation_state == RECOMMENDATION_PENDING_STATE:
             pending_count += 1
-        qualified.append(item)
-
-    selected = _select_diverse_recommendations(qualified, limit)
-    for idx, item in enumerate(selected, start=1):
-        item["rank"] = idx
-        item["recommended_at"] = recommendation_as_of
 
     return {
         "as_of": recommendation_as_of,
         "universe_count": universe["universe_count"],
         "screened_count": len(base_items),
         "candidate_count": len(candidates),
-        "qualified_count": len(qualified),
+        "qualified_count": len(scored),
         "pending_count": pending_count,
         "entered_today_count": entered_today_count,
         "holding_count": holding_count,
         "selection_rule": RECOMMENDATION_SELECTION_RULE,
-        "selection_state": "ready" if selection_ready else "unavailable",
+        "selection_state": "ready",
         "selection_refreshing": False,
-        "selection_message": (
-            "추천 기준을 통과한 종목을 신규 매수 대기와 보유 유지 상태로 나눠 보여드립니다."
-            if selection_ready
-            else "최신 국내 가격·수급 자료가 아직 완성되지 않아 추천 종목을 표시하지 않습니다. 수집 완료 후 자동으로 다시 계산합니다."
-        ),
+        "selection_message": "추천 점수로 선별한 후보이며, 매수·보유 판단은 AI 시그널에서 별도로 확인합니다.",
         "methodology": METHODOLOGY,
         "items": selected,
     }
