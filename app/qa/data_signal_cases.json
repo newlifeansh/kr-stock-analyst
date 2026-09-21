@@ -927,12 +927,12 @@
       "domain": "시그널 API 계약",
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
-      "automation": "pytest confirmed-entry pending/same-day-entry recommendation fixtures + live-enrichment failure price fallback fixture + staging canonical-dashboard/signal-day-close supplement fixture + live recommendation/signal parity + recommendation UI + partial-date universe coverage fixture + tests/test_scheduled_source_fallbacks.py trading-value boundary fixtures",
-      "preconditions": ["장 마감 entry_pending, 다음 거래일 당일 entered, 과거 holding, entry_watch, 매도 완료, 장중 entry_pending 상태를 함께 준비한다.", "시가 반영 순간 상위 추천 응답에서 빠졌지만 시장 시그널에는 entered_today로 남은 종목과 동일 종목의 공개 대시보드·조건 확인일 종가를 준비한다.", "자격 스냅샷과 가격 이력은 유효하지만 실시간 정밀 보강만 일시 실패하는 후보를 준비한다.", "추천 요청 시 시장 시그널 스냅샷이 없거나 6시간을 초과해 오래된 상태를 준비한다.", "당일 일부 종목 가격만 먼저 적재된 새 거래일과 직전 완성 거래일을 준비한다."],
-      "inputs": {"included": [{"recommendation_state": "entry_confirmed", "action": "entry_pending", "position_open": false, "customer_state": "new-buy-wait", "customer_label": "신규 매수 대기", "live_observation": false}, {"recommendation_state": "entered_today", "action": "entered", "position_open": true, "customer_state": "hold", "customer_label": "보유 유지", "additional_buy_label": "신호 없음", "entry_date": "recommendation_as_of_date", "transition_side": "buy", "entry_confirmation_allowed": true}], "future_mapping": {"entry_pending_position_open": "추가 매수 대기"}, "excluded_actions": ["entry_watch", "old_holding", "partial_exit_pending", "full_exit_pending", "exited", "live_entry_pending"], "selection_rule": "confirmed_entry_pending_or_entered_today", "live_enrichment_failure_policy": "retain eligible price-based candidate", "trading_value_fallback": "latest_close_times_volume", "stale_snapshot_refresh": "missing_or_over_6h", "empty_recommendation_cache": "retry_within_5s", "partial_price_date_policy": "latest completed session with at least 75% of recent peak code coverage"},
-      "steps": ["시장 시그널 스냅샷과 종목 추천 응답을 같은 시점에 조회한다.", "스냅샷이 없거나 6시간을 초과해 오래되면 추천 요청이 공식 시장 시그널 생성 경로를 한 번 갱신한 뒤 자격을 다시 계산하는지 확인한다.", "장 마감 entry_pending 종목과 그 조건이 다음 거래일 시가에 반영된 당일 entered 종목이 각각 entry_confirmed·entered_today로 포함되는지 확인한다.", "entered_today의 entry_date와 최근 buy 전환일이 추천 응답 기준일과 같고 독립 근거 승인이 있는지 검사한다.", "실시간 정밀 보강을 실패시켜도 자격 스냅샷을 통과한 후보는 저장 가격 이력·거래대금 기반 점수로 유지되고 자격이 없는 후보는 추가되지 않는지 검사한다.", "상위 추천 응답에서 당일 진입 종목이 먼저 빠진 경우 스테이징이 같은 공식 공개 대시보드로 추천 점수를 다시 계산하고 조건 확인일 종가를 결합하는지 검사한다.", "복원된 추천 점수·조건 확인 가격이 시장 시그널 점수·전략 진입가·현재가와 각각 분리되는지 확인한다.", "시장 스냅샷 갱신 중에는 30분 이내 최근 확정 상태를 유지하고 그보다 오래됐거나 항목이 없는 갱신 상태는 닫히는지 검사한다.", "빈 추천 응답을 만든 뒤 같은 요청을 재조회해 새 계산을 수행하는지 확인한다.", "과거 보유·관찰·매도·장중 예비 상태와 시가총액 100위 밖 확장 유니버스를 제외하고 자격 종목 안에서만 추천 점수 순위를 다시 매기는지 확인한다.", "추천 목록과 상세가 entry_pending 미보유를 신규 매수 대기, entry_pending 보유를 추가 매수 대기, entered·holding 보유를 보유 유지와 추가 매수 신호 없음으로 같은 방식으로 표시하는지 확인한다.", "화면에서 오늘 시가 반영·전략 반영·장 마감·독립 근거 같은 운영자 표현이 노출되지 않는지 검사한다.", "추천 상세에서 추천 당시 가격·AI 전략 매수가·현재가·확인 자료·지금 판단을 구분해 표시하며 실시간 현재가가 추천 당시 가격을 덮어쓰지 않는지 확인한다.", "추천 다음 날 또는 매도 상태로 바뀌면 목록에서 제외되고 상세는 추천 당시 조건과 현재 상태를 구분하는지 검사한다.", "거래대금 미제공 후보는 가격×거래량으로 보완하되 기존 거래대금과 실제 0을 보존하고 가격·거래량 누락 또는 잘못된 값에서는 거래대금을 생성하지 않는다.", "강제 최신화 중 당일 가격이 일부 종목에만 적재돼도 최근 최대 종목 커버리지의 75% 이상인 최신 완료 거래일을 사용하고 이후 부분 일봉을 가격 이력에서 제외하는지 확인한다."],
-      "expected": ["종목 추천에는 장 마감 매수 조건이 확정된 종목이 체결 전부터 다음 거래일 시가 반영 당일까지 포함되지만 고객 화면은 내부 처리 시점 대신 현재 AI 판단을 보여준다.", "추천 요청이 오래된 시장 시그널 스냅샷 때문에 빈 목록을 확정하지 않고 최신 공식 시그널을 반영해 자격 종목을 다시 계산한다.", "빈 추천 결과는 전체 10분 캐시로 고정되지 않고 5초 이내 재계산되어 새로 생긴 후보가 노출된다.", "추천 카드의 숫자 점수는 자격 종목 사이의 우선순위로만 쓰고 행동 라벨은 신규 매수 대기·추가 매수 대기·보유 유지 중 현재 시그널에 맞는 상태를 표시한다.", "AI 전략이 보유 중이면 추천 당시 가격과 구분된 AI 전략 매수가·현재가 및 추가 매수 신호 유무를 보여주고 과거 보유 종목은 점수가 높아도 포함하지 않는다.", "실시간 정밀 보강만 일시 실패하면 자격이 검증된 후보를 가격 기반 점수로 유지해 추천 목록 전체가 비지 않으며 미검증 후보를 대신 채우지 않는다.", "상위 추천 API가 진입 순간 빈 목록을 반환해도 스테이징은 공식 대시보드의 추천 계산과 조건 확인일 종가로 당일 카드만 복원하며 신호 점수를 추천 점수로 대신 쓰지 않는다.", "짧은 시장 데이터 갱신 구간에는 최근 확정 추천이 사라지지 않으며 30분을 넘긴 불확실한 상태는 표시하지 않는다.", "자격 종목이 없으면 목록을 억지로 채우지 않고 다음 조건 확인을 안내한다.", "당일 부분 적재가 시작돼도 추천 유니버스는 완성 거래일 기준 커버리지를 유지하며 강제 최신화가 1개 등 소수 종목으로 축소되지 않는다."],
-      "failure_criteria": ["시가 반영 직후 또는 짧은 데이터 갱신 중 당일 조건 충족 종목이 추천 목록에서 사라진다.", "오래된 시장 시그널 스냅샷을 최신 상태로 오인해 추천 요청이 빈 목록을 확정하거나 갱신 중 자격 종목을 표시하지 않는다.", "빈 추천 응답이 10분 캐시되어 새로 생긴 추천 후보가 일반 요청에서 계속 보이지 않는다.", "실시간 정밀 보강 한 건의 실패로 자격 후보 전체가 사라지거나 자격 스냅샷을 통과하지 않은 후보로 대체된다.", "추천 점수가 높다는 이유로 관찰·과거 보유·매도·장중 예비 종목 또는 시가총액 100위 밖 종목이 추천 목록에 포함된다.", "조건을 통과한 추천 카드가 관찰·신중 같은 상반된 행동 등급을 표시한다.", "현재 시그널과 다른 신규 매수 대기·추가 매수 대기·보유 유지 상태를 표시하거나 목록과 상세의 상태가 서로 다르다.", "화면에 오늘 시가 반영·시가 반영 완료·전략 반영·장 마감 매수 조건·독립 근거 같은 운영자 표현이 노출된다.", "entered_today의 전환일·진입가·독립 근거 승인이 현재 신호와 맞지 않는다.", "신호 점수를 추천 점수로 재사용하거나 현재가·전략 진입가를 조건 확인 가격으로 표시한다.", "실시간 시세 갱신이 추천 당시 조건 확인 가격을 덮어쓴다.", "30분을 넘긴 갱신 중 스냅샷 또는 항목이 없는 상태를 확정 추천으로 표시한다.", "매수 조건 데이터가 없거나 불확실한데 이전 추천 또는 다른 후보로 목록을 채운다.", "이미 제공된 거래대금 또는 실제 0을 추정치로 덮어쓰거나 입력 누락을 임의의 거래대금으로 변환한다.", "당일 첫 가격 행이 들어온 순간 최신 날짜를 그대로 채택해 추천 유니버스가 소수 종목으로 축소되거나 부분 일봉이 모멘텀·거래대금 계산에 섞인다."]
+      "automation": "pytest confirmed-entry pending/same-day-entry/current-holding recommendation fixtures + live-enrichment failure price fallback fixture + staging canonical-dashboard/signal-day-close supplement fixture + live recommendation/signal parity + recommendation UI + partial-date universe coverage fixture + tests/test_scheduled_source_fallbacks.py trading-value boundary fixtures",
+      "preconditions": ["장 마감 entry_pending, 다음 거래일 당일 entered, 청산 전 holding, 승인되지 않은 holding, entry_watch, 매도 완료, 장중 entry_pending 상태를 함께 준비한다.", "시가 반영 순간 상위 추천 응답에서 빠졌지만 시장 시그널에는 entered_today로 남은 종목과 동일 종목의 공개 대시보드·조건 확인일 종가를 준비한다.", "자격 스냅샷과 가격 이력은 유효하지만 실시간 정밀 보강만 일시 실패하는 후보를 준비한다.", "추천 요청 시 시장 시그널 스냅샷이 없거나 6시간을 초과해 오래된 상태를 준비한다.", "당일 일부 종목 가격만 먼저 적재된 새 거래일과 직전 완성 거래일을 준비한다."],
+      "inputs": {"included": [{"recommendation_state": "entry_confirmed", "action": "entry_pending", "position_open": false, "customer_state": "new-buy-wait", "customer_label": "신규 매수 대기", "live_observation": false}, {"recommendation_state": "entered_today", "action": "entered", "position_open": true, "customer_state": "hold", "customer_label": "보유 유지", "additional_buy_label": "신호 없음", "entry_date": "recommendation_as_of_date", "transition_side": "buy", "entry_confirmation_allowed": true}, {"recommendation_state": "holding", "action": "holding", "position_open": true, "customer_state": "hold", "customer_label": "보유 유지", "additional_buy_label": "신호 없음", "entry_date": "past_trade_date", "transition_side": "buy"}], "future_mapping": {"entry_pending_position_open": "추가 매수 대기"}, "excluded_actions": ["entry_watch", "unconfirmed_holding", "partial_exit_pending", "full_exit_pending", "exited", "live_entry_pending"], "selection_rule": "confirmed_entry_pending_or_current_holding", "live_enrichment_failure_policy": "retain eligible price-based candidate", "trading_value_fallback": "latest_close_times_volume", "stale_snapshot_refresh": "missing_or_over_6h", "empty_recommendation_cache": "retry_within_5s", "partial_price_date_policy": "latest completed session with at least 75% of recent peak code coverage"},
+      "steps": ["시장 시그널 스냅샷과 종목 추천 응답을 같은 시점에 조회한다.", "스냅샷이 없거나 6시간을 초과해 오래되면 추천 요청이 공식 시장 시그널 생성 경로를 한 번 갱신한 뒤 자격을 다시 계산하는지 확인한다.", "장 마감 entry_pending 종목, 다음 거래일 당일 entered 종목, 청산 전 holding 종목이 각각 entry_confirmed·entered_today·holding으로 포함되는지 확인한다.", "entered_today의 entry_date와 최근 buy 전환일이 추천 응답 기준일과 같고 독립 근거 승인이 있는지 검사하며, holding은 독립 근거 승인과 열린 포지션을 유지하는지 확인한다.", "실시간 정밀 보강을 실패시켜도 자격 스냅샷을 통과한 후보는 저장 가격 이력·거래대금 기반 점수로 유지되고 자격이 없는 후보는 추가되지 않는지 검사한다.", "상위 추천 응답에서 당일 진입 종목이 먼저 빠진 경우 스테이징이 같은 공식 공개 대시보드로 추천 점수를 다시 계산하고 조건 확인일 종가를 결합하는지 검사한다.", "복원된 추천 점수·조건 확인 가격이 시장 시그널 점수·전략 진입가·현재가와 각각 분리되는지 확인한다.", "시장 스냅샷 갱신 중에는 30분 이내 최근 확정 상태를 유지하고 그보다 오래됐거나 항목이 없는 갱신 상태는 닫히는지 검사한다.", "빈 추천 응답을 만든 뒤 같은 요청을 재조회해 새 계산을 수행하는지 확인한다.", "승인되지 않은 보유·관찰·매도·장중 예비 상태와 시가총액 100위 밖 확장 유니버스를 제외하고 자격 종목 안에서만 추천 점수 순위를 다시 매기는지 확인한다.", "추천 목록과 상세가 entry_pending 미보유를 신규 매수 대기, entry_pending 보유를 추가 매수 대기, entered·holding 보유를 보유 유지와 추가 매수 신호 없음으로 같은 방식으로 표시하는지 확인한다.", "화면에서 오늘 시가 반영·전략 반영·장 마감·독립 근거 같은 운영자 표현이 노출되지 않는지 검사한다.", "추천 상세에서 추천 당시 가격·AI 전략 매수가·현재가·확인 자료·지금 판단을 구분해 표시하며 실시간 현재가가 추천 당시 가격을 덮어쓰지 않는지 확인한다.", "추천 다음 날에도 열린 holding은 목록에 유지되고 매도 상태로 바뀌면 제외되며, 상세는 추천 당시 조건과 현재 상태를 구분하는지 검사한다.", "거래대금 미제공 후보는 가격×거래량으로 보완하되 기존 거래대금과 실제 0을 보존하고 가격·거래량 누락 또는 잘못된 값에서는 거래대금을 생성하지 않는다.", "강제 최신화 중 당일 가격이 일부 종목에만 적재돼도 최근 최대 종목 커버리지의 75% 이상인 최신 완료 거래일을 사용하고 이후 부분 일봉을 가격 이력에서 제외하는지 확인한다."],
+      "expected": ["종목 추천에는 장 마감 매수 조건이 확정된 종목이 체결 전부터 포함되고, 체결 뒤에는 포지션이 열린 동안 보유 유지 상태로 계속 포함되며 고객 화면은 현재 AI 판단을 보여준다.", "추천 요청이 오래된 시장 시그널 스냅샷 때문에 빈 목록을 확정하지 않고 최신 공식 시그널을 반영해 자격 종목을 다시 계산한다.", "빈 추천 결과는 전체 10분 캐시로 고정되지 않고 5초 이내 재계산되어 새로 생긴 후보가 노출된다.", "추천 카드의 숫자 점수는 자격 종목 사이의 우선순위로만 쓰고 행동 라벨은 신규 매수 대기·추가 매수 대기·보유 유지 중 현재 시그널에 맞는 상태를 표시한다.", "AI 전략이 보유 중이면 추천 당시 가격과 구분된 AI 전략 매수가·현재가 및 추가 매수 신호 유무를 보여주고, 승인된 열린 포지션은 진입일이 지나도 청산 전까지 유지한다.", "실시간 정밀 보강만 일시 실패하면 자격이 검증된 후보를 가격 기반 점수로 유지해 추천 목록 전체가 비지 않으며 미검증 후보를 대신 채우지 않는다.", "상위 추천 API가 진입 순간 빈 목록을 반환해도 스테이징은 공식 대시보드의 추천 계산과 조건 확인일 종가로 당일 카드를 복원하며 신호 점수를 추천 점수로 대신 쓰지 않는다.", "짧은 시장 데이터 갱신 구간에는 최근 확정 추천이 사라지지 않으며 30분을 넘긴 불확실한 상태는 표시하지 않는다.", "자격 종목이 없으면 목록을 억지로 채우지 않고 다음 조건 확인을 안내한다.", "당일 부분 적재가 시작돼도 추천 유니버스는 완성 거래일 기준 커버리지를 유지하며 강제 최신화가 1개 등 소수 종목으로 축소되지 않는다."],
+      "failure_criteria": ["시가 반영 직후, 열린 보유 기간 또는 짧은 데이터 갱신 중 자격 종목이 추천 목록에서 사라진다.", "오래된 시장 시그널 스냅샷을 최신 상태로 오인해 추천 요청이 빈 목록을 확정하거나 갱신 중 자격 종목을 표시하지 않는다.", "빈 추천 응답이 10분 캐시되어 새로 생긴 추천 후보가 일반 요청에서 계속 보이지 않는다.", "실시간 정밀 보강 한 건의 실패로 자격 후보 전체가 사라지거나 자격 스냅샷을 통과하지 않은 후보로 대체된다.", "추천 점수가 높다는 이유로 관찰·승인되지 않은 보유·매도·장중 예비 종목 또는 시가총액 100위 밖 종목이 추천 목록에 포함된다.", "조건을 통과한 추천 카드가 관찰·신중 같은 상반된 행동 등급을 표시한다.", "현재 시그널과 다른 신규 매수 대기·추가 매수 대기·보유 유지 상태를 표시하거나 목록과 상세의 상태가 서로 다르다.", "화면에 오늘 시가 반영·시가 반영 완료·전략 반영·장 마감 매수 조건·독립 근거 같은 운영자 표현이 노출된다.", "entered_today의 전환일·진입가·독립 근거 승인이 현재 신호와 맞지 않거나 holding의 포지션이 닫혔는데도 남는다.", "신호 점수를 추천 점수로 재사용하거나 현재가·전략 진입가를 조건 확인 가격으로 표시한다.", "실시간 시세 갱신이 추천 당시 조건 확인 가격을 덮어쓴다.", "30분을 넘긴 갱신 중 스냅샷 또는 항목이 없는 상태를 확정 추천으로 표시한다.", "매수 조건 데이터가 없거나 불확실한데 이전 추천 또는 다른 후보로 목록을 채운다.", "이미 제공된 거래대금 또는 실제 0을 추정치로 덮어쓰거나 입력 누락을 임의의 거래대금으로 변환한다.", "당일 첫 가격 행이 들어온 순간 최신 날짜를 그대로 채택해 추천 유니버스가 소수 종목으로 축소되거나 부분 일봉이 모멘텀·거래대금 계산에 섞인다."]
     },
     {
       "id": "SIG-CONTRACT-006",
@@ -1432,12 +1432,13 @@
       "title": "관심 그룹 컴팩트 목록·종목 상세 하트 직접 그룹 선택·공용 아이콘",
       "domain": "관심종목 그룹형 목록·상세 하트 그룹 선택 추가 UI",
       "priority": "P0",
-      "modes": ["gate"],
-      "automation": "pytest 관심 그룹 저장 API·컴팩트 행·페이지 내 검색·국내/미국 상세 하트→현재 종목 그룹 선택 바텀시트·시장별 저장/해제·검색창 단일 표면·그룹 추가·공용 Plump 아이콘·하단 중복 액션 제거 DOM/JS/CSS 계약 + Playwright 고정 검색·대시보드·가격 이력 응답 320/390/1440px 다크/라이트 상세 하트 직접 그룹 선택·추가·그룹 CRUD·아이콘·키보드 E2E",
+      "modes": ["gate", "e2e"],
+      "automation": "pytest 관심 그룹 저장 API·컴팩트 행·시세 지연 폴백 행·페이지 내 검색·국내/미국 상세 하트→현재 종목 그룹 선택 바텀시트·시장별 저장/해제·검색창 단일 표면·그룹 추가·공용 Plump 아이콘·하단 중복 액션 제거 DOM/JS/CSS 계약 + Playwright 고정 검색·대시보드·가격 이력 응답 320/390/1440px 다크/라이트 상세 하트 직접 그룹 선택·추가·그룹 CRUD·아이콘·키보드 E2E",
       "preconditions": [
         "기본 관심종목과 핀종목에 국내·미국 종목을 준비한다.",
         "각 종목의 최근 가격 시계열과 현재가·양·음·보합의 당일 등락률을 포함한 고정 응답을 준비한다.",
-        "동일 ID로 재로그인할 수 있는 관심 그룹 원격 저장 상태를 준비한다."
+        "동일 ID로 재로그인할 수 있는 관심 그룹 원격 저장 상태를 준비한다.",
+        "원격 관심종목 목록은 성공하지만 개별 종목 대시보드가 실패하거나 15초를 넘기는 상태를 준비한다."
       ],
       "inputs": {
         "system_groups": ["기본그룹", "핀종목"],
@@ -1458,7 +1459,8 @@
         "membership_source": "기본 관심종목",
         "viewports": [320, 390, 1440],
         "themes": ["dark", "light"],
-        "minimum_touch_target_px": 44
+        "minimum_touch_target_px": 44,
+        "detail_failure_fallback": ["stock_name", "stock_code", "시세 지연", "종목 상세 링크"]
       },
       "steps": [
         "관심 화면을 열어 상단에 관심 제목·편집·검색, 기본그룹·핀종목·사용자 폴더·폴더 추가와 현재 그룹 종목 개수가 보이는지 확인한다.",
@@ -1476,6 +1478,7 @@
         "관심 헤더 검색은 다른 루트 페이지와 같은 36px 선형 검색 규격을 사용하고 폴더 추가·폴더·빈 관심·추가·선택·뒤로·닫기·지우기·제거는 공용 Plump 스프라이트 아이콘을 사용하는지 검사한다.",
         "목록 아래에 이 그룹 공유하기와 + 관심 추가가 더 이상 렌더링되지 않는지 확인한다.",
         "동일 ID로 다시 로그인해 사용자 폴더 이름과 구성 종목이 복원되며, 서버가 초기화된 빈 폴더 목록도 이전 로컬 값으로 되돌아가지 않는지 확인한다.",
+        "개별 종목 대시보드 요청을 실패·타임아웃시켜도 서버 관심목록에서 받은 종목명·코드가 사라지지 않고 시세 지연 상태와 상세 링크로 바뀌는지 확인한다.",
         "방향키·Home·End로 그룹 배지를 이동하고 폴더 대화상자의 이름 오류·체크박스·Escape 닫기·포커스 복귀를 확인한다.",
         "320px·390px·1440px 다크·라이트에서 제목과 그룹 레일 좌우 여백, 긴 종목명, 로고·스파크라인·가격 3열, 검색·그룹 선택 시트와 폴더 편집창이 잘리거나 페이지 가로 넘침을 만들지 않는지 확인한다."
       ],
@@ -1492,7 +1495,8 @@
         "등록된 상세 하트의 해제는 market_scope:code 기준으로 처리되어 미국 종목 하트도 즉시 상태가 바뀌고 다른 시장의 저장 항목을 덮어쓰지 않는다.",
         "검색창은 폼이 단일 배경과 포커스 링을 소유하고 내부 input은 투명하게 유지되어 양옆에 다른 회색 영역이나 내부 사각형이 생기지 않는다.",
         "관심 화면의 의미 아이콘은 공용 36px 좌표계와 굵기를 사용하며 텍스트 기호나 임시 CSS 폴더 도형으로 대체되지 않는다.",
-        "하단 중복 공유·추가 액션은 없고 편집·검색·폴더·행·검색 결과 추가 조작은 44px 이상이며, 제목과 그룹 레일은 안전한 좌우 여백을 유지한다."
+        "하단 중복 공유·추가 액션은 없고 편집·검색·폴더·행·검색 결과 추가 조작은 44px 이상이며, 제목과 그룹 레일은 안전한 좌우 여백을 유지한다.",
+        "관심목록 동기화가 성공했다면 시세 보강 실패와 무관하게 모든 종목 식별정보와 상세 진입 경로가 즉시 남는다."
       ],
       "failure_criteria": [
         "기본그룹·핀종목 이름이나 순서가 바뀌거나 사용자 폴더가 시스템 그룹보다 앞에 표시된다.",
@@ -1509,6 +1513,7 @@
         "관심 화면에 +·✓·×·− 같은 텍스트 기호나 CSS로 그린 폴더가 남거나 같은 의미의 검색 아이콘 굵기·좌표계가 다른 페이지와 달라진다.",
         "목록 하단에 이 그룹 공유하기 또는 + 관심 추가가 남아 중복 액션을 만든다.",
         "로그인 전환 뒤 다른 ID의 폴더가 섞이거나 서버의 초기화된 빈 상태가 오래된 로컬 폴더로 재생성된다.",
+        "개별 시세·대시보드 실패가 관심목록 전체를 빈 상태로 바꾸거나 종목명·코드·상세 링크를 제거한다.",
         "키보드 포커스·대화상자 오류 안내가 없거나 320px·200% 확대 화면에서 제목·그룹 여백·행 3열·검색·그룹 선택 조작이 잘리고 페이지 가로 스크롤이 생긴다."
       ]
     },

@@ -13,7 +13,7 @@ on:
           - promote-production
         default: build
       candidate_version:
-        description: "예: 20260921v550-rc6"
+        description: "예: 20260921v551-rc1"
         required: true
         type: string
       image_ref:

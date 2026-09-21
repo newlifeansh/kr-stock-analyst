@@ -22652,6 +22652,24 @@ function appendWatchLoadingRow(item) {
   return card;
 }
 
+function appendWatchFallbackRow(item) {
+  const card = appendWatchRow(item, { quote: {} }, []);
+  card.classList.add("is-data-delayed");
+  const price = card.querySelector('[data-field="price"]');
+  const change = card.querySelector('[data-field="change_rate"]');
+  if (price) price.textContent = "시세 지연";
+  if (change) {
+    change.textContent = "종목 보기";
+    change.classList.remove("positive", "negative");
+    change.classList.add("muted");
+  }
+  card.querySelector(".watch-compact-link")?.setAttribute(
+    "aria-label",
+    `${item.name || item.code || "종목"}, 시세 확인이 지연되고 있습니다, 종목 상세 보기`,
+  );
+  return card;
+}
+
 async function loadWatchlist(options = {}) {
   const loadSequence = ++state.watchlistLoadSequence;
   const force = options.force === true;
@@ -22722,12 +22740,7 @@ async function loadWatchlist(options = {}) {
         }
         const pendingRow = pendingRows.get(item.code);
         if (pendingRow?.isConnected) {
-          pendingRow.classList.add("is-error");
-          const label = pendingRow.querySelector(".watch-stock-loading-status span:last-child");
-          if (label) {
-            label.textContent = "데이터 확인이 지연되고 있습니다";
-          }
-          pendingRow.querySelector(".inline-loading-spinner")?.remove();
+          pendingRow.replaceWith(appendWatchFallbackRow(item));
         }
         return { item, dashboard: null };
       } finally {

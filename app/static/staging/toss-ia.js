@@ -3975,7 +3975,7 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260921-domestic-market-v115`;
+      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260921-domestic-market-v116`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -4571,7 +4571,11 @@
     for (const card of document.querySelectorAll("#recommend-view .recommend-card")) {
       const item = card.recommendationItem || {};
       const customerState = recommendationCustomerState(item);
-      card.dataset.recommendationState = item.recommendation_state === "entered_today" ? "entered-today" : "entry-confirmed";
+      card.dataset.recommendationState = item.recommendation_state === "entered_today"
+        ? "entered-today"
+        : item.recommendation_state === "holding"
+          ? "holding"
+          : "entry-confirmed";
       card.dataset.customerState = customerState.key;
       const itemName = card.querySelector(".recommend-name strong")?.textContent?.trim() || "추천 종목";
       const nameCopy = card.querySelector(".recommend-name .stock-list-copy");
@@ -4858,12 +4862,19 @@
       && recommendationEntryDate === kstTodayToken()
       && /보유|진입 완료|확정 매수/.test(currentStageText),
     );
-    const recommendationStillVisible = recommendationStillActive || enteredToday;
+    const currentHolding = Boolean(
+      item.recommendation_state === "holding"
+      && currentSignal.position_open === true
+      && /보유|진입 완료|확정 매수/.test(currentStageText),
+    );
+    const recommendationStillVisible = recommendationStillActive || enteredToday || currentHolding;
     content.dataset.recommendationState = recommendationStillActive
       ? "active"
       : enteredToday
         ? "entered-today"
-        : "changed";
+        : currentHolding
+          ? "holding"
+          : "changed";
     content.dataset.customerState = customerState.key;
 
     const score = typeof toNumber === "function" ? toNumber(item.score) : null;
