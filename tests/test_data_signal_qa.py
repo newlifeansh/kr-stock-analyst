@@ -1163,6 +1163,17 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "시간 스크러빙에 따른 버블 수익률·크기·색·접근성 전환" in source
     assert "#watch-market-map-timeline-track" in source
     assert "단일 클러스터 중력·충돌 진입 모션" in source
+
+
+def test_domestic_e2e_keeps_the_independent_us_product_out_of_boundary_check() -> None:
+    source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
+    domestic_case = source.split("def domestic_product_boundary_case", 1)[1].split(
+        'case_id="SIG-UI-030"', 1
+    )[0]
+
+    assert '_page_url(base_url, "/us", view="home", market_scope="us")' not in domestic_case
+    assert "레거시 /us 진입이 국내 홈으로 수렴하지 않았습니다." not in domestic_case
+    assert 'path.startswith("/us/") and request["resource_type"] != "document"' in domestic_case
     assert "packed-bubble 중력 재배치 모션" in source
     assert "버블 드래그와 충돌 후 원위치 정착" in source
     assert "reduced-motion에서 실행" in source

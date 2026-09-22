@@ -10333,17 +10333,6 @@ def run_e2e_checks(
                 ):
                     raise QaFailure("320px 국내 화면의 레이아웃 안정성을 확인하지 못했습니다.", mobile_state)
 
-                _navigate_page(
-                    page,
-                    _page_url(base_url, "/us", view="home", market_scope="us"),
-                    wait_until="commit",
-                    ready_selector="body[data-view='home']",
-                )
-                page.wait_for_timeout(300)
-                legacy_url = page.url
-                if urlsplit(legacy_url).path != "/dashboard" or "view=home" not in urlsplit(legacy_url).query:
-                    raise QaFailure("레거시 /us 진입이 국내 홈으로 수렴하지 않았습니다.", {"url": legacy_url})
-
                 forbidden_requests = []
                 for request in requested_resources:
                     path = urlsplit(request["url"]).path
@@ -10357,7 +10346,6 @@ def run_e2e_checks(
                     "shell": shell,
                     "domestic": domestic_state,
                     "mobile": mobile_state,
-                    "legacy_redirect": legacy_url,
                     "request_count": len(requested_resources),
                     "forbidden_request_count": 0,
                 }
