@@ -92,10 +92,18 @@ def qa_data_signal_command(
         "--pytest-junit",
         help="JUnit XML evidence from the deterministic pytest gate.",
     ),
+    surface: str = typer.Option(
+        "dashboard", "--surface", help="Product surface: dashboard or us."
+    ),
 ) -> None:
     normalized_mode = mode.strip().lower()
     if normalized_mode not in {"gate", "live", "e2e"}:
         raise typer.BadParameter("mode must be gate, live, or e2e", param_hint="--mode")
+    normalized_surface = surface.strip().lower()
+    if normalized_surface not in {"dashboard", "us"}:
+        raise typer.BadParameter(
+            "surface must be dashboard or us", param_hint="--surface"
+        )
     report = run_data_signal_qa(
         mode=normalized_mode,  # type: ignore[arg-type]
         base_url=base_url,
@@ -103,6 +111,7 @@ def qa_data_signal_command(
         artifact_dir=artifact_dir,
         direct_kis=direct_kis,
         pytest_junit=pytest_junit,
+        surface=normalized_surface,
     )
     if output is not None:
         write_qa_report(report, output)
@@ -128,6 +137,9 @@ def qa_release_parity_command(
     staging_url: str = typer.Option(..., "--staging-url"),
     production_url: Optional[str] = typer.Option(None, "--production-url"),
     source_sha: Optional[str] = typer.Option(None, "--source-sha"),
+    surface: str = typer.Option(
+        "dashboard", "--surface", help="Release surface: dashboard or us."
+    ),
     output: Path = typer.Option(
         Path("artifacts/qa-data-signal/release-parity.json"),
         "--output",
@@ -135,12 +147,18 @@ def qa_release_parity_command(
     timeout: float = typer.Option(20.0, "--timeout", min=1.0),
     wait_seconds: float = typer.Option(0.0, "--wait-seconds", min=0.0),
 ) -> None:
+    normalized_surface = surface.strip().lower()
+    if normalized_surface not in {"dashboard", "us"}:
+        raise typer.BadParameter(
+            "surface must be dashboard or us", param_hint="--surface"
+        )
     report = verify_release_parity(
         staging_url=staging_url,
         production_url=production_url,
         source_sha=source_sha,
         timeout=timeout,
         wait_seconds=wait_seconds,
+        surface=normalized_surface,
     )
     write_release_parity_report(report, output)
     typer.echo(json.dumps(report, ensure_ascii=False, indent=2))

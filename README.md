@@ -31,6 +31,8 @@ uvicorn app.main:app --reload
 API 확인:
 
 - `GET http://127.0.0.1:8000/health`
+- `GET http://127.0.0.1:8000/dashboard` (국내증시 제품)
+- `GET http://127.0.0.1:8000/us` (미국증시 독립 제품)
 - `GET http://127.0.0.1:8000/briefings/status`
 - `GET http://127.0.0.1:8000/briefings/latest`
 - `GET http://127.0.0.1:8000/insight`
@@ -310,8 +312,15 @@ analyst qa data-signal --mode gate \
 
 # 스테이징 API와 외부 원천의 읽기 전용 실연동 검사
 analyst qa data-signal --mode live \
+  --surface dashboard \
   --base-url https://dark-theme-preview-staging.up.railway.app \
   --output artifacts/qa-data-signal/live.json
+
+# 미국증시 독립 제품과 미국 데이터 파이프라인 검사
+analyst qa data-signal --mode live \
+  --surface us \
+  --base-url https://us-market-web-staging.up.railway.app \
+  --output artifacts/qa-data-signal/live-us.json
 
 # KIS 자격증명이 있는 환경에서 원천 REST/OAuth도 직접 검사
 analyst qa data-signal --mode live --direct-kis \
@@ -320,8 +329,14 @@ analyst qa data-signal --mode live --direct-kis \
 # 모바일 다크·라이트 브라우저 검사와 실패 스크린샷
 playwright install chromium
 analyst qa data-signal --mode e2e \
+  --surface dashboard \
   --base-url https://dark-theme-preview-staging.up.railway.app \
   --output artifacts/qa-data-signal/e2e.json
+
+analyst qa data-signal --mode e2e \
+  --surface us \
+  --base-url https://us-market-web-staging.up.railway.app \
+  --output artifacts/qa-data-signal/e2e-us.json
 
 # 카탈로그에서 Markdown 명세 재생성
 analyst qa render-catalog --output docs/qa/data-signal-qa-matrix.md
@@ -335,8 +350,11 @@ Actions는 PR마다 `gate`, 평일 KST 08:20·10:00·16:20에 `live`, 스테이�
 ### Railway 스테이징 → 프로덕션 승격
 
 수동 실행은 `.github/workflows/deploy-staging-production.yml`의 단일 파이프라인을
-사용합니다. `stage`는 `gate → build-once → us-market staging 배포 → staging
-release-parity/live/e2e`를 실행합니다. 운영자가 그 결과와 정확한 후보를 승인한 뒤
+사용합니다. `stage`는 `product_surface=dashboard|us`에 따라 검증 대상을 정한 뒤
+`gate → build-once → us-market staging 배포 → staging release-parity/live/e2e`를
+실행합니다. 하나의 불변 이미지가 `/dashboard` 국내증시와 `/us` 미국증시를 함께
+제공하며 `US_MARKET_ENABLED=true`를 유지합니다. surface 선택은 한 제품을 끄는
+스위치가 아니라 해당 승격에서 집중 검증할 제품 경계를 뜻합니다. 운영자가 그 결과와 정확한 후보를 승인한 뒤
 `promote-production`에 검증된 `image@sha256`과 source SHA를 입력하면 새 이미지를
 빌드하지 않고 canonical 운영 프로젝트에 승격하고 staging-production parity를
 검증합니다. 어느 단계든 실패하면 뒤 단계는 실행되지 않습니다.
@@ -355,9 +373,11 @@ GitHub 저장소에는 다음 설정이 필요합니다.
 - 선택적 staging QA secret: `DASHBOARD_INVITE_CODE`, `KIS_APP_KEY`,
   `KIS_APP_SECRET`, `DART_API_KEY`
 
-프로덕션 배포 전에는 현재 체크아웃과 스테이징의 `/dashboard-version` 및 버전 지정
-CSS·JavaScript URL이 일치해야 합니다. 배포 후에는 같은 검사를 스테이징과
-프로덕션에 다시 적용합니다.
+프로덕션 배포 전에는 선택한 surface에 맞춰 현재 체크아웃과 스테이징의
+`/dashboard-version` 또는 `/us-version`, 버전 지정 정적 자산 URL과 SHA-256이
+일치해야 합니다. 배포 후에는 같은 검사를 스테이징과 프로덕션에 다시 적용합니다.
+미국증시 후보는 `secretnote.cloud/us`를 최종 경로로 사용하고 레거시 `/nasdaq`는
+종목 경로와 쿼리를 보존해 `/us`로 이동합니다.
 
 ## API 키
 

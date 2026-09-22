@@ -87,7 +87,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
-    assert len(ids) == 119
+    assert len(ids) == 120
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -106,6 +106,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "DATA-CALENDAR-CONTENT-004",
         "DATA-CALENDAR-CONTENT-005",
         "DATA-CALENDAR-CONTENT-006",
+        "SIG-UI-031",
         "SIG-ENTRY-001",
         "SIG-ENTRY-004",
         "SIG-ENTRY-005",
@@ -174,7 +175,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v7.4.2`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v1-rc1`" in first
-    assert "QA 항목: 119개" in first
+    assert "QA 항목: 120개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1367,7 +1368,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.4.2"
     assert report["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
-    assert report["catalog_case_count"] == 119
+    assert report["catalog_case_count"] == 120
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1393,6 +1394,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-CONTRACT-007",
         "SIG-UI-022",
         "SIG-UI-030",
+        "SIG-UI-031",
     }
     assert set(PYTEST_QA_CASE_TESTS) == expected_case_ids
     assert all(PYTEST_QA_CASE_TESTS.values())
@@ -1523,12 +1525,16 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
+                "us_dashboard_version": "20260922us94",
+                "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
             return {
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
+                "us_dashboard_version": "20260922us94",
+                "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
             return [{"name": "kis_market_data", "configured": True}], self._meta(path)
@@ -1764,6 +1770,26 @@ class FakeReadOnlyApi:
                 ],
                 "status": "ready",
             }, self._meta(path)
+        if path == "/market/global-assets":
+            return {
+                "items": [
+                    {"code": "SP500"},
+                    {"code": "NASDAQ"},
+                    {"code": "SOX"},
+                    {"code": "DOW"},
+                ],
+                "status": "ready",
+            }, self._meta(path)
+        if path == "/us.webmanifest":
+            return {
+                "name": "비밀노트 미국증시",
+                "scope": "/us",
+                "start_url": "/us?view=overview",
+            }, self._meta(path)
+        if path == "/us-version":
+            return {"version": "20260922us94"}, self._meta(path)
+        if path == "/us/stocks/search":
+            return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/stocks/AAPL/dashboard":
             return {"symbol": "AAPL", "as_of": "2026-08-28"}, self._meta(path)
         if path == "/us/stocks/NVDA/dashboard":
@@ -1786,6 +1812,19 @@ class FakeReadOnlyApi:
         return {"items": [], "status": "ready"}, self._meta(path)
 
     def get_text(self, path: str, **params: object):
+        if path == "/assets/nasdaq/app.js":
+            return (
+                'const US_APP_BASE_PATH = "/us";\n'
+                'const overviewUrl = "/market/global-assets?limit=30";',
+                self._meta(path),
+            )
+        if path == "/us":
+            return (
+                '<html lang="ko" data-market-universe="us"><head>'
+                '<meta name="secret-note-market-universe" content="us" />'
+                '</head><body>미국증시 비밀노트</body></html>',
+                self._meta(path),
+            )
         if path == "/dashboard-app-v170.js":
             return (
                 'const US_MARKET_ENABLED = PRODUCT_MARKET_UNIVERSE === "unified";\n'
@@ -1817,6 +1856,30 @@ class FakeReadOnlyApi:
             "total_tokens": None,
             "estimated_cost_usd": None,
         }, self._meta(path)
+
+
+@pytest.mark.qa_live
+def test_live_us_surface_runs_full_data_contract_and_product_boundary(
+    monkeypatch,
+) -> None:
+    from app.qa import runner
+
+    FakeReadOnlyApi.quality_price_state = "ready"
+    monkeypatch.setattr(runner, "ReadOnlyApi", FakeReadOnlyApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+
+    report = run_data_signal_qa(
+        mode="live",
+        surface="us",
+        base_url="https://fixture-staging.test",
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+
+    assert report["surface"] == "us"
+    assert by_id["SIG-UI-031"]["status"] == "pass"
+    assert by_id["SIG-US-CONTRACT-001"]["status"] == "pass"
+    assert by_id["DATA-US-UNIVERSE-001"]["status"] == "pass"
+    assert report["deployment_blocked"] is False
 
 
 @pytest.mark.qa_live

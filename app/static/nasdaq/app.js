@@ -10,7 +10,6 @@ const elements = {
   overviewView: $("overview-view"),
   overviewMeta: $("overview-meta"),
   overviewRefresh: $("overview-refresh"),
-  overviewKorea: $("overview-korea"),
   overviewUs: $("overview-us"),
   pullRefreshIndicator: $("pull-refresh-indicator"),
   pullRefreshLabel: $("pull-refresh-label"),
@@ -3235,8 +3234,9 @@ function formatMarketOverviewValue(value) {
 
 function marketOverviewPhase(item = {}) {
   const phase = String(item.market_session || "").toLowerCase();
-  if (["open", "regular", "integrated_regular"].includes(phase)) return "장중";
-  if (["preopen", "premarket", "nxt_pre_market"].includes(phase)) return "개장 전";
+  if (["open", "regular"].includes(phase)) return "정규장";
+  if (["preopen", "premarket"].includes(phase)) return "프리장";
+  if (["afterhours", "postmarket"].includes(phase)) return "애프터장";
   return "장 마감 기준";
 }
 
@@ -3254,6 +3254,7 @@ function renderMarketOverviewCards(target, items = []) {
     const card = document.createElement("article");
     const changeRate = toNumber(item.change_rate);
     card.className = `cross-market-card ${changeRate === null ? "" : changeRate >= 0 ? "is-positive" : "is-negative"}`;
+    card.dataset.code = String(item.code || "");
     const label = escapeHtml(item.label || item.code || "시장");
     const asOf = escapeHtml(formatDate(item.as_of));
     card.innerHTML = `
@@ -3272,28 +3273,25 @@ function renderMarketOverviewCards(target, items = []) {
 
 function renderMarketOverview(payload = {}) {
   state.currentMarketOverview = payload;
-  const koreaItems = Array.isArray(payload.korea?.items) ? payload.korea.items : [];
-  const usItems = Array.isArray(payload.us?.items)
-    ? payload.us.items.filter((item) => CROSS_MARKET_US_CODES.has(String(item.code || "")))
+  const usItems = Array.isArray(payload.items)
+    ? payload.items.filter((item) => CROSS_MARKET_US_CODES.has(String(item.code || "")))
     : [];
-  renderMarketOverviewCards(elements.overviewKorea, koreaItems);
   renderMarketOverviewCards(elements.overviewUs, usItems);
   if (elements.overviewMeta) {
     elements.overviewMeta.textContent = payload.as_of
-      ? `국내·미국 주요 지수 · ${formatDate(payload.as_of)}`
-      : "국내·미국 주요 지수";
+      ? `미국 주요 지수 · ${formatDate(payload.as_of)}`
+      : "미국 주요 지수";
   }
 }
 
 async function loadMarketOverview(options = {}) {
-  if (elements.overviewKorea && !state.currentMarketOverview) {
-    elements.overviewKorea.innerHTML = '<p class="cross-market-state">국내 지수를 불러오는 중입니다.</p>';
-  }
   if (elements.overviewUs && !state.currentMarketOverview) {
     elements.overviewUs.innerHTML = '<p class="cross-market-state">미국 지수를 불러오는 중입니다.</p>';
   }
   const force = options.force === true;
-  const query = `/market/cross-market?limit=30${force ? "&refresh=true" : ""}`;
+  const query = force
+    ? liveUrl("/market/global-assets?limit=30")
+    : "/market/global-assets?limit=30";
   try {
     const payload = await fetchJsonCached(query, {
       force,
@@ -3302,7 +3300,6 @@ async function loadMarketOverview(options = {}) {
     renderMarketOverview(payload);
   } catch {
     if (!state.currentMarketOverview) {
-      renderMarketOverviewCards(elements.overviewKorea, []);
       renderMarketOverviewCards(elements.overviewUs, []);
     }
     if (elements.overviewMeta) {

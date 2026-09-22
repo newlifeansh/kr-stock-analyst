@@ -18,7 +18,7 @@ from pathlib import Path
 import re
 from threading import Lock, RLock
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 from zoneinfo import ZoneInfo
 
 import requests
@@ -282,8 +282,11 @@ DASHBOARD_CLIENT_VERSION = "20260922v552"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
+NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
+NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
+US_DASHBOARD_CLIENT_VERSION = "20260922us94"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -1651,6 +1654,15 @@ def _dashboard_asset_cache_headers(request: Request) -> dict[str, str]:
     }
 
 
+def _us_dashboard_asset_cache_headers(request: Request) -> dict[str, str]:
+    if request.query_params.get("v") == US_DASHBOARD_CLIENT_VERSION:
+        return {"Cache-Control": DASHBOARD_IMMUTABLE_CACHE_CONTROL}
+    return {
+        "Cache-Control": DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL,
+        "Pragma": "no-cache",
+    }
+
+
 @app.api_route("/assets/dashboard/styles.css", methods=["GET", "HEAD"])
 def stock_dashboard_styles(request: Request):
     if not STOCK_DASHBOARD_STYLES.exists():
@@ -1659,6 +1671,28 @@ def stock_dashboard_styles(request: Request):
         STOCK_DASHBOARD_STYLES,
         media_type="text/css",
         headers=_dashboard_asset_cache_headers(request),
+    )
+
+
+@app.api_route("/assets/nasdaq/styles.css", methods=["GET", "HEAD"])
+def us_dashboard_styles(request: Request):
+    if not NASDAQ_DASHBOARD_STYLES.exists():
+        raise HTTPException(status_code=404, detail="US dashboard stylesheet not found")
+    return FileResponse(
+        NASDAQ_DASHBOARD_STYLES,
+        media_type="text/css",
+        headers=_us_dashboard_asset_cache_headers(request),
+    )
+
+
+@app.api_route("/assets/nasdaq/app.js", methods=["GET", "HEAD"])
+def us_dashboard_app(request: Request):
+    if not NASDAQ_DASHBOARD_APP.exists():
+        raise HTTPException(status_code=404, detail="US dashboard application not found")
+    return FileResponse(
+        NASDAQ_DASHBOARD_APP,
+        media_type="application/javascript",
+        headers=_us_dashboard_asset_cache_headers(request),
     )
 
 
@@ -2691,9 +2725,7 @@ def stock_dashboard_refresh():
           await Promise.all(registrations
             .filter((registration) => {{
               const scriptUrl = registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || "";
-              return ["/dashboard-sw.js", "/us-sw.js"].includes(
-                new URL(scriptUrl, location.origin).pathname
-              );
+              return scriptUrl && new URL(scriptUrl, location.origin).pathname === "/dashboard-sw.js";
             }})
             .map((registration) => registration.unregister()));
         }} catch {{}}
@@ -2724,6 +2756,54 @@ def stock_dashboard_refresh():
     )
 
 
+@app.get("/us-refresh")
+def us_dashboard_refresh():
+    return HTMLResponse(
+        f"""<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>미국증시 비밀노트 업데이트</title>
+  </head>
+  <body>
+    <p>미국증시 비밀노트 최신 화면을 준비하고 있습니다.</p>
+    <script>
+      (async () => {{
+        try {{
+          const registrations = await navigator.serviceWorker?.getRegistrations?.() || [];
+          await Promise.all(registrations
+            .filter((registration) => {{
+              const scriptUrl = registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || "";
+              return scriptUrl && new URL(scriptUrl, location.origin).pathname === "/us-sw.js";
+            }})
+            .map((registration) => registration.unregister()));
+        }} catch {{}}
+        try {{
+          const cacheKeys = await caches?.keys?.() || [];
+          await Promise.all(cacheKeys
+            .filter((key) => key.startsWith("secret-note-us-static-"))
+            .map((key) => caches.delete(key)));
+        }} catch {{}}
+        const params = new URLSearchParams(location.search);
+        const views = new Set(["overview", "stock", "watchlist", "recommend", "recommend-history", "trend", "trend-past", "trend-impact", "chart", "chart-history", "market"]);
+        const view = views.has(params.get("view")) ? params.get("view") : "overview";
+        const code = String(params.get("code") || "").trim().toUpperCase();
+        const destination = /^[A-Z][A-Z0-9.\\-]{{0,11}}$/.test(code)
+          ? `/us/stock/${{encodeURIComponent(code)}}?app_build={US_DASHBOARD_CLIENT_VERSION}`
+          : `/us?view=${{encodeURIComponent(view)}}&app_build={US_DASHBOARD_CLIENT_VERSION}`;
+        location.replace(destination);
+      }})();
+    </script>
+  </body>
+</html>""",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
 @app.get("/portfolio")
 def portfolio_shell():
     if not PORTFOLIO_INDEX.exists():
@@ -2740,24 +2820,37 @@ def concepts_shell():
 
 @app.get("/nasdaq")
 @app.get("/nasdaq/{code}")
-def nasdaq_dashboard_shell():
-    if not NASDAQ_DASHBOARD_INDEX.exists():
-        raise HTTPException(status_code=404, detail="NASDAQ dashboard UI not found")
-    return HTMLResponse(NASDAQ_DASHBOARD_INDEX.read_text(encoding="utf-8"))
+def nasdaq_dashboard_shell(request: Request, code: Optional[str] = None):
+    query = request.url.query
+    destination = f"/us/stock/{quote(code, safe='')}" if code else "/us"
+    if query:
+        destination = f"{destination}?{query}"
+    return RedirectResponse(destination, status_code=307)
 
 
 @app.get("/us/stock/{code}")
 @app.get("/us")
 @app.get("/us/")
 def us_market_dashboard_shell():
-    """Keep /us canonical while serving the current production dashboard shell."""
-    if not STOCK_DASHBOARD_INDEX.exists():
-        raise HTTPException(status_code=404, detail="Stock dashboard UI not found")
-    document = STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8").replace(
-        "__DASHBOARD_ASSET_VERSION__", DASHBOARD_CLIENT_VERSION
+    """Serve the independently versioned US-only product at the canonical path."""
+    if not NASDAQ_DASHBOARD_INDEX.exists():
+        raise HTTPException(status_code=404, detail="US dashboard UI not found")
+    document = NASDAQ_DASHBOARD_INDEX.read_text(encoding="utf-8").replace(
+        "__US_ASSET_VERSION__", US_DASHBOARD_CLIENT_VERSION
     )
     return HTMLResponse(
         document,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/us-version")
+def us_dashboard_version():
+    return JSONResponse(
+        {"version": US_DASHBOARD_CLIENT_VERSION},
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
@@ -2810,77 +2903,31 @@ def nasdaq_manifest():
 @app.get("/us-sw.js")
 @app.get("/nasdaq-sw.js")
 def nasdaq_service_worker(request: Request):
-    if request.url.path == "/us-sw.js":
-        # Retire the legacy /us-scoped worker. Its narrower scope otherwise wins
-        # over the current dashboard worker at scope=/ and can keep an old US
-        # shell visible to returning users even after the server was upgraded.
-        return Response(
-            content=f'''const CURRENT_DASHBOARD_BUILD = "{DASHBOARD_CLIENT_VERSION}";
-const LEGACY_US_CACHE_PATTERN = /^secret-note-static-\\d{{8}}us/;
-
-self.addEventListener("install", () => self.skipWaiting());
-
-self.addEventListener("activate", (event) => {{
-  event.waitUntil((async () => {{
-    const keys = await caches.keys();
-    await Promise.all(keys
-      .filter((key) => LEGACY_US_CACHE_PATTERN.test(key))
-      .map((key) => caches.delete(key)));
-    await self.clients.claim();
-    const clients = await self.clients.matchAll({{
-      type: "window",
-      includeUncontrolled: true,
-    }});
-    await Promise.all(clients.map((client) => {{
-      const url = new URL(client.url);
-      if (url.origin !== self.location.origin || !url.pathname.startsWith("/us")) {{
-        return undefined;
-      }}
-      url.pathname = "/dashboard";
-      url.search = "?view=home";
-      url.searchParams.set("app_build", CURRENT_DASHBOARD_BUILD);
-      return client.navigate(url.href).catch(() => undefined);
-    }}));
-    await self.registration.unregister();
-  }})());
-}});
-
-self.addEventListener("fetch", (event) => {{
-  const request = event.request;
-  if (request.method !== "GET") return;
-  const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return;
-  event.respondWith(fetch(request, {{ cache: "no-store" }}));
-}});
-''',
-            media_type="application/javascript",
-            headers={
-                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
-                "Service-Worker-Allowed": "/us",
-            },
-        )
     if not NASDAQ_SERVICE_WORKER.exists():
         raise HTTPException(status_code=404, detail="NASDAQ service worker not found")
+    allowed_scope = "/us" if request.url.path == "/us-sw.js" else "/nasdaq"
     return FileResponse(
         NASDAQ_SERVICE_WORKER,
         media_type="application/javascript",
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
+            "Service-Worker-Allowed": allowed_scope,
         },
     )
 
 
 @app.get("/health")
 @app.get("/healthz")
-def health() -> dict[str, str]:
+def health() -> dict[str, object]:
     return {
         "status": "ok",
         "app": settings.app_name,
         "strategy_version": STRATEGY_VERSION,
         "us_strategy_version": US_STRATEGY_VERSION,
         "dashboard_version": DASHBOARD_CLIENT_VERSION,
+        "us_dashboard_version": US_DASHBOARD_CLIENT_VERSION,
+        "us_market_enabled": settings.us_market_enabled,
         "canonical_base_url": settings.canonical_public_base_url,
     }
 
@@ -2896,6 +2943,8 @@ def readyz() -> dict[str, object]:
         "strategy_version": STRATEGY_VERSION,
         "us_strategy_version": US_STRATEGY_VERSION,
         "dashboard_version": DASHBOARD_CLIENT_VERSION,
+        "us_dashboard_version": US_DASHBOARD_CLIENT_VERSION,
+        "us_market_enabled": settings.us_market_enabled,
         "canonical_base_url": settings.canonical_public_base_url,
     }
 

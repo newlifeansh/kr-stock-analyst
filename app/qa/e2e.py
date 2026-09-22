@@ -41,6 +41,7 @@ E2E_CASE_IDS = (
     "SIG-UI-021",
     "SIG-UI-030",
 )
+US_E2E_CASE_IDS = ("SIG-UI-031",)
 
 
 def _page_url(base_url: str, path: str, **query: str) -> str:
@@ -477,6 +478,9 @@ def _run_page_case(
             context.add_init_script(
                 f"localStorage.setItem('analyst.watchlistId', {json.dumps(share_id)});"
             )
+            context.add_init_script(
+                f"localStorage.setItem('analyst.us.watchlistId', {json.dumps(share_id)});"
+            )
             normalized_share_id = share_id.strip().lower()
             context.add_init_script(
                 "localStorage.setItem("
@@ -645,13 +649,252 @@ def _browser_auth_state(
         context.close()
 
 
-def run_e2e_checks(
+def _run_us_e2e_checks(
     *,
     catalog: dict[str, Any],
     base_url: str,
     timeout: float,
     artifact_dir: Path | str | None = None,
 ) -> list[dict[str, Any]]:
+    catalog_by_id = {case["id"]: case for case in catalog["cases"]}
+    output_dir = Path(artifact_dir or "artifacts/qa-data-signal/e2e-us")
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        message = "Playwright가 설치되지 않았습니다. `pip install -e '.[qa]'` 후 `playwright install chromium`을 실행하세요."
+        return [
+            _result(catalog_by_id, case_id, "fail", message, monotonic())
+            for case_id in US_E2E_CASE_IDS
+        ]
+
+    try:
+        from app.config import get_settings
+
+        configured_invite = str(get_settings().dashboard_invite_code or "").strip()
+    except Exception:
+        configured_invite = ""
+    invite_code = str(
+        os.environ.get("QA_DASHBOARD_INVITE_CODE")
+        or os.environ.get("DASHBOARD_INVITE_CODE")
+        or configured_invite
+    ).strip()
+    share_id = str(os.environ.get("QA_DASHBOARD_SHARE_ID") or "qa-automation").strip()
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch(headless=True)
+        except Exception as exc:
+            message = (
+                "Chromium을 시작하지 못했습니다. `playwright install chromium`을 실행하세요. "
+                f"({type(exc).__name__})"
+            )
+            return [
+                _result(catalog_by_id, case_id, "fail", message, monotonic())
+                for case_id in US_E2E_CASE_IDS
+            ]
+        try:
+            try:
+                storage_state = _browser_auth_state(
+                    browser,
+                    base_url=base_url,
+                    timeout=timeout,
+                    invite_code=invite_code,
+                )
+            except QaFailure as exc:
+                return [
+                    _result(
+                        catalog_by_id,
+                        case_id,
+                        "fail",
+                        str(exc),
+                        monotonic(),
+                        exc.evidence,
+                    )
+                    for case_id in US_E2E_CASE_IDS
+                ]
+
+            def us_product_boundary_case(page: Any, theme: str) -> dict[str, Any]:
+                requested_resources: list[dict[str, str]] = []
+                page.on(
+                    "request",
+                    lambda request: requested_resources.append(
+                        {"url": request.url, "resource_type": request.resource_type}
+                    ),
+                )
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/us",
+                        view="overview",
+                        qa_run=datetime.now(KST).strftime("%H%M%S"),
+                    ),
+                    wait_until="commit",
+                    ready_selector="#overview-view",
+                )
+                page.wait_for_selector("#login-gate", state="hidden")
+                page.wait_for_selector("#overview-view", state="visible")
+                page.wait_for_selector(
+                    '#overview-us .cross-market-card[data-code="SP500"]',
+                    state="visible",
+                )
+                shell = page.evaluate(
+                    """() => ({
+                      htmlUniverse: document.documentElement.dataset.marketUniverse,
+                      metaUniverse: document.querySelector('meta[name="secret-note-market-universe"]')?.content,
+                      marketScope: document.body.dataset.marketScope,
+                      appMarket: document.body.dataset.appMarket,
+                      title: document.title,
+                      text: document.body.innerText,
+                      marketCodes: Array.from(document.querySelectorAll('#overview-us .cross-market-card[data-code]')).map(node => node.dataset.code),
+                      overviewVisible: !document.querySelector('#overview-view')?.hidden,
+                      loginHidden: document.querySelector('#login-gate')?.hidden === true,
+                    })"""
+                )
+                if any(
+                    (
+                        shell["htmlUniverse"] != "us",
+                        shell["metaUniverse"] != "us",
+                        shell["marketScope"] != "us",
+                        shell["appMarket"] != "us",
+                        shell["title"] != "비밀노트 · 미국증시",
+                        not shell["overviewVisible"],
+                        not shell["loginHidden"],
+                    )
+                ):
+                    raise QaFailure("미국증시 제품 메타·초기 화면이 올바르지 않습니다.", shell)
+                if "국내증시" in shell["text"] or "국내·미국" in shell["text"]:
+                    raise QaFailure("미국증시 화면에 국내 또는 통합 제품 문구가 남았습니다.", shell)
+                if not {"SP500", "NASDAQ", "SOX", "DOW"}.issubset(
+                    set(shell["marketCodes"])
+                ):
+                    raise QaFailure("미국 주요 지수 카드가 완전하지 않습니다.", shell)
+
+                page.set_viewport_size({"width": 320, "height": 760})
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                page.wait_for_timeout(300)
+                reflow = page.evaluate(
+                    """() => ({
+                      viewport: window.innerWidth,
+                      rootWidth: document.documentElement.scrollWidth,
+                      bodyWidth: document.body.scrollWidth,
+                      textLength: (document.body.innerText || '').trim().length,
+                      targets: Array.from(document.querySelectorAll('#overview-refresh, #overview-view [data-view="stock"]')).map(node => ({
+                        id: node.id || node.dataset.view,
+                        width: node.getBoundingClientRect().width,
+                        height: node.getBoundingClientRect().height,
+                      })),
+                    })"""
+                )
+                if (
+                    reflow["rootWidth"] > reflow["viewport"] + 2
+                    or reflow["bodyWidth"] > reflow["viewport"] + 2
+                    or reflow["textLength"] < 20
+                    or any(
+                        target["width"] < 44 or target["height"] < 44
+                        for target in reflow["targets"]
+                    )
+                ):
+                    raise QaFailure("320px·200% 미국 화면 리플로가 불안정합니다.", reflow)
+
+                page.evaluate("document.documentElement.style.fontSize = ''")
+                page.set_viewport_size(MOBILE_VIEWPORT)
+                stock_button = page.locator('#overview-view [data-view="stock"]')
+                stock_button.focus()
+                if not stock_button.evaluate("node => document.activeElement === node"):
+                    raise QaFailure("미국 종목 보기 버튼으로 키보드 포커스를 이동하지 못했습니다.")
+                stock_button.click()
+                page.wait_for_selector("#stock-view", state="visible")
+                stock_state = page.evaluate(
+                    """() => ({
+                      stockVisible: !document.querySelector('#stock-view')?.hidden,
+                      inputLabel: document.querySelector('#stock-code')?.getAttribute('placeholder'),
+                      viewport: window.innerWidth,
+                      rootWidth: document.documentElement.scrollWidth,
+                    })"""
+                )
+                if (
+                    not stock_state["stockVisible"]
+                    or stock_state["inputLabel"] != "AAPL"
+                    or stock_state["rootWidth"] > stock_state["viewport"] + 2
+                ):
+                    raise QaFailure("미국 종목 검색 전환이 올바르지 않습니다.", stock_state)
+
+                _navigate_page(
+                    page,
+                    _page_url(base_url, "/nasdaq", view="overview"),
+                    wait_until="commit",
+                    ready_selector="#overview-view",
+                )
+                legacy_url = urlsplit(page.url)
+                if legacy_url.path != "/us" or "view=overview" not in legacy_url.query:
+                    raise QaFailure(
+                        "레거시 /nasdaq가 canonical /us로 수렴하지 않았습니다.",
+                        {"url": page.url},
+                    )
+
+                forbidden_requests: list[dict[str, str]] = []
+                observed_paths = [urlsplit(item["url"]).path for item in requested_resources]
+                for request in requested_resources:
+                    path = urlsplit(request["url"]).path
+                    if path in {"/market/cross-market", "/market/indices"}:
+                        forbidden_requests.append(request)
+                    elif path.startswith("/stocks/") or path.startswith("/watchlists/"):
+                        forbidden_requests.append(request)
+                if forbidden_requests:
+                    raise QaFailure(
+                        "미국 화면이 국내 시장 연동을 호출했습니다.",
+                        {"requests": forbidden_requests[:20]},
+                    )
+                if "/market/global-assets" not in observed_paths:
+                    raise QaFailure(
+                        "미국 홈이 글로벌 자산 스냅샷을 호출하지 않았습니다.",
+                        {"paths": observed_paths[:40]},
+                    )
+                return {
+                    "theme": theme,
+                    "shell": shell,
+                    "reflow": reflow,
+                    "stock": stock_state,
+                    "legacy_redirect": page.url,
+                    "request_count": len(requested_resources),
+                    "forbidden_request_count": 0,
+                }
+
+            return [
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id="SIG-UI-031",
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=us_product_boundary_case,
+                    storage_state=storage_state,
+                    share_id=share_id,
+                )
+            ]
+        finally:
+            browser.close()
+
+
+def run_e2e_checks(
+    *,
+    catalog: dict[str, Any],
+    base_url: str,
+    timeout: float,
+    artifact_dir: Path | str | None = None,
+    surface: str = "dashboard",
+) -> list[dict[str, Any]]:
+    if surface == "us":
+        return _run_us_e2e_checks(
+            catalog=catalog,
+            base_url=base_url,
+            timeout=timeout,
+            artifact_dir=artifact_dir,
+        )
+    if surface != "dashboard":
+        raise ValueError("surface must be dashboard or us")
     catalog_by_id = {case["id"]: case for case in catalog["cases"]}
     output_dir = Path(artifact_dir or "artifacts/qa-data-signal/e2e")
     try:

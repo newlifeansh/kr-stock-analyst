@@ -13,9 +13,17 @@ on:
           - promote-production
         default: build
       candidate_version:
-        description: "예: 20260922v552-rc1"
+        description: "예: 20260922us94-rc1"
         required: true
         type: string
+      product_surface:
+        description: "검증·승격할 제품 surface"
+        required: true
+        type: choice
+        options:
+          - dashboard
+          - us
+        default: dashboard
       image_ref:
         description: "운영 승격 시 필수: ghcr.io/...@sha256:..."
         required: false
@@ -30,7 +38,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: railway-release-${{ inputs.action }}
+  group: railway-release-${{ inputs.product_surface }}-${{ inputs.action }}
   cancel-in-progress: false
 
 env:
@@ -43,6 +51,7 @@ env:
   PRODUCTION_RAILWAY_COLLECTOR_SERVICE: ${{ vars.PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
   STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
   PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+  PRODUCT_SURFACE: ${{ inputs.product_surface }}
 
 jobs:
   validate_request:
@@ -56,8 +65,10 @@ jobs:
           REQUESTED_ACTION: ${{ inputs.action }}
           REQUESTED_IMAGE_REF: ${{ inputs.image_ref }}
           REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          PRODUCT_SURFACE: ${{ inputs.product_surface }}
         run: |
           set -euo pipefail
+          [[ "$PRODUCT_SURFACE" == "dashboard" || "$PRODUCT_SURFACE" == "us" ]]
           if [[ "$REQUESTED_ACTION" == "promote-production" ]]; then
             [[ "$REQUESTED_IMAGE_REF" =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]]
             [[ "$REQUESTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -153,7 +164,8 @@ jobs:
             --arg source_sha "$SOURCE_SHA" \
             --arg image_ref "$image_ref" \
             --arg image_digest "$IMAGE_DIGEST" \
-            '{candidate_version:$candidate, source_sha:$source_sha, image_ref:$image_ref, image_digest:$image_digest, promotion_state:"built"}' \
+            --arg product_surface "$PRODUCT_SURFACE" \
+            '{candidate_version:$candidate, product_surface:$product_surface, source_sha:$source_sha, image_ref:$image_ref, image_digest:$image_digest, runtime_config:{US_MARKET_ENABLED:true}, promotion_state:"built"}' \
             > artifacts/qa-data-signal/release-candidate/candidate.json
       - name: Upload immutable candidate identity
         uses: actions/upload-artifact@v4
@@ -185,6 +197,15 @@ jobs:
           [[ "$IMAGE_REF" =~ @sha256:[0-9a-f]{64}$ ]]
       - name: Install Railway CLI
         run: npm install --global @railway/cli@5.45.7
+      - name: Keep both isolated product runtimes available in staging
+        run: |
+          set -euo pipefail
+          railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
+            --project "$STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$STAGING_RAILWAY_WEB_SERVICE"
+          railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
+            --project "$STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$STAGING_RAILWAY_COLLECTOR_SERVICE"
       - name: Deploy the exact image to us-market staging
         run: |
           set -euo pipefail
@@ -222,9 +243,10 @@ jobs:
         run: |
           pip install -e '.[qa,mcp]'
           playwright install --with-deps chromium
-      - name: Wait for the staged domestic-only release
+      - name: Wait for the staged product surface
         run: >-
           analyst qa release-parity
+          --surface "$PRODUCT_SURFACE"
           --staging-url "$STAGING_BASE_URL"
           --source-sha "${{ needs.validate_request.outputs.source_sha }}"
           --wait-seconds 600
@@ -238,6 +260,7 @@ jobs:
           fi
           analyst qa data-signal \
             --mode live \
+            --surface "$PRODUCT_SURFACE" \
             --base-url "$STAGING_BASE_URL" \
             --output artifacts/qa-data-signal/live.json \
             $kis_flag
@@ -247,6 +270,7 @@ jobs:
         run: >-
           analyst qa data-signal
           --mode e2e
+          --surface "$PRODUCT_SURFACE"
           --base-url "$STAGING_BASE_URL"
           --output artifacts/qa-data-signal/e2e.json
           --artifact-dir artifacts/qa-data-signal/screenshots
@@ -281,6 +305,15 @@ jobs:
           [[ "$IMAGE_REF" =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]]
       - name: Install Railway CLI
         run: npm install --global @railway/cli@5.45.7
+      - name: Keep both isolated product runtimes available in production
+        run: |
+          set -euo pipefail
+          railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_WEB_SERVICE"
+          railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
       - name: Promote the exact staged image to production
         run: |
           set -euo pipefail
@@ -312,6 +345,7 @@ jobs:
       - name: Verify staging and production release parity
         run: >-
           analyst qa release-parity
+          --surface "$PRODUCT_SURFACE"
           --staging-url "$STAGING_BASE_URL"
           --production-url "$PRODUCTION_BASE_URL"
           --source-sha "${{ needs.validate_request.outputs.source_sha }}"
@@ -321,6 +355,7 @@ jobs:
         run: >-
           analyst qa data-signal
           --mode live
+          --surface "$PRODUCT_SURFACE"
           --base-url "$PRODUCTION_BASE_URL"
           --output artifacts/qa-data-signal/production-live.json
       - name: Upload production verification evidence

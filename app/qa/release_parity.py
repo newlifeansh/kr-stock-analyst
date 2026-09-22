@@ -15,7 +15,14 @@ from zoneinfo import ZoneInfo
 import httpx
 
 KST = ZoneInfo("Asia/Seoul")
-BUILD_VERSION_RE = re.compile(r'^DASHBOARD_CLIENT_VERSION\s*=\s*"([^"]+)"', re.MULTILINE)
+BUILD_VERSION_RES = {
+    "dashboard": re.compile(
+        r'^DASHBOARD_CLIENT_VERSION\s*=\s*"([^"]+)"', re.MULTILINE
+    ),
+    "us": re.compile(
+        r'^US_DASHBOARD_CLIENT_VERSION\s*=\s*"([^"]+)"', re.MULTILINE
+    ),
+}
 ASSET_URL_RE = re.compile(r'(?:href|src)="([^"]+)"')
 RELEASE_ASSET_PATHS = (
     "/assets/dashboard/styles.css",
@@ -26,6 +33,14 @@ RELEASE_ASSET_PATHS = (
     "/assets/staging/stock-change-copy-logic.js",
     "/assets/staging/toss-ia.js",
     "/dashboard-app-v170.js",
+)
+US_RELEASE_ASSET_PATHS = (
+    "/assets/nasdaq/styles.css",
+    "/assets/nasdaq/app.js",
+    "/assets/nasdaq/icons/apple-touch-icon.png",
+    "/assets/nasdaq/icons/favicon-64.png",
+    "/assets/zoom-lock.js",
+    "/us.webmanifest",
 )
 
 
@@ -45,30 +60,53 @@ def _local_asset_file(root: Path, asset_url: str) -> Path:
         return root / "app/static/staging" / path.removeprefix(
             "/assets/staging/"
         )
+    if path.startswith("/assets/nasdaq/"):
+        return root / "app/static/nasdaq" / path.removeprefix("/assets/nasdaq/")
+    if path == "/assets/zoom-lock.js":
+        return root / "app/static/zoom-lock.js"
+    if path == "/us.webmanifest":
+        return root / "app/static/nasdaq/manifest.webmanifest"
     raise ValueError(f"지원하지 않는 릴리스 자산 경로입니다: {path}")
 
 
-def _release_assets(shell: str) -> list[str]:
+def _release_assets(shell: str, surface: str) -> list[str]:
+    release_paths = (
+        RELEASE_ASSET_PATHS if surface == "dashboard" else US_RELEASE_ASSET_PATHS
+    )
     assets = []
     for raw_url in ASSET_URL_RE.findall(shell):
         url = html.unescape(raw_url)
-        if any(url.startswith(path) for path in RELEASE_ASSET_PATHS):
+        if any(url.startswith(path) for path in release_paths):
             assets.append(url)
     return sorted(set(assets))
 
 
-def local_release_contract(root: Path | str = ".") -> dict[str, Any]:
+def local_release_contract(
+    root: Path | str = ".", *, surface: str = "dashboard"
+) -> dict[str, Any]:
+    if surface not in BUILD_VERSION_RES:
+        raise ValueError("surface must be dashboard or us")
     project_root = Path(root)
     main_source = (project_root / "app/main.py").read_text(encoding="utf-8")
-    match = BUILD_VERSION_RE.search(main_source)
+    match = BUILD_VERSION_RES[surface].search(main_source)
     if match is None:
-        raise ValueError("DASHBOARD_CLIENT_VERSION을 app/main.py에서 찾지 못했습니다.")
-    shell = (project_root / "app/static/dashboard/index.html").read_text(
-        encoding="utf-8"
+        raise ValueError(f"{surface} 빌드 버전을 app/main.py에서 찾지 못했습니다.")
+    shell_path = (
+        project_root / "app/static/dashboard/index.html"
+        if surface == "dashboard"
+        else project_root / "app/static/nasdaq/index.html"
     )
-    assets = _release_assets(shell)
-    if len(assets) != len(RELEASE_ASSET_PATHS):
-        raise ValueError("로컬 대시보드 릴리스 자산 목록이 완전하지 않습니다.")
+    shell = shell_path.read_text(encoding="utf-8")
+    shell = shell.replace(
+        "__DASHBOARD_ASSET_VERSION__" if surface == "dashboard" else "__US_ASSET_VERSION__",
+        match.group(1),
+    )
+    assets = _release_assets(shell, surface)
+    expected_asset_count = len(
+        RELEASE_ASSET_PATHS if surface == "dashboard" else US_RELEASE_ASSET_PATHS
+    )
+    if len(assets) != expected_asset_count:
+        raise ValueError(f"로컬 {surface} 릴리스 자산 목록이 완전하지 않습니다.")
     asset_sha256 = {
         _asset_path(asset): sha256(
             _local_asset_file(project_root, asset).read_bytes()
@@ -76,25 +114,34 @@ def local_release_contract(root: Path | str = ".") -> dict[str, Any]:
         for asset in assets
     }
     return {
+        "surface": surface,
+        "product_version": match.group(1),
         "dashboard_version": match.group(1),
         "assets": assets,
         "asset_sha256": asset_sha256,
     }
 
 
-def fetch_remote_release_contract(base_url: str, timeout: float = 20.0) -> dict[str, Any]:
+def fetch_remote_release_contract(
+    base_url: str, timeout: float = 20.0, *, surface: str = "dashboard"
+) -> dict[str, Any]:
+    if surface not in BUILD_VERSION_RES:
+        raise ValueError("surface must be dashboard or us")
     normalized = base_url.rstrip("/")
+    version_path = "dashboard-version" if surface == "dashboard" else "us-version"
+    shell_path = "dashboard" if surface == "dashboard" else "us"
+    shell_view = "home" if surface == "dashboard" else "overview"
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-        version_response = client.get(urljoin(normalized + "/", "dashboard-version"))
+        version_response = client.get(urljoin(normalized + "/", version_path))
         shell_response = client.get(
-            urljoin(normalized + "/", "dashboard"),
-            params={"view": "home", "release_parity": "1"},
+            urljoin(normalized + "/", shell_path),
+            params={"view": shell_view, "release_parity": "1"},
             headers={"Cache-Control": "no-cache"},
         )
         version_response.raise_for_status()
         shell_response.raise_for_status()
         version_payload = version_response.json()
-        assets = _release_assets(shell_response.text)
+        assets = _release_assets(shell_response.text, surface)
         asset_sha256: dict[str, str] = {}
         asset_http: dict[str, int] = {}
         for asset in assets:
@@ -108,12 +155,14 @@ def fetch_remote_release_contract(base_url: str, timeout: float = 20.0) -> dict[
             asset_http[path] = asset_response.status_code
     return {
         "base_url": normalized,
+        "surface": surface,
+        "product_version": version_payload.get("version"),
         "dashboard_version": version_payload.get("version"),
         "assets": assets,
         "asset_sha256": asset_sha256,
         "http": {
-            "dashboard_version": version_response.status_code,
-            "dashboard": shell_response.status_code,
+            "version": version_response.status_code,
+            "shell": shell_response.status_code,
             "assets": asset_http,
         },
     }
@@ -124,17 +173,20 @@ def compare_release_contracts(
     targets: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     failures: list[dict[str, Any]] = []
-    expected_version = expected.get("dashboard_version")
+    expected_version = expected.get("product_version") or expected.get("dashboard_version")
     expected_assets = expected.get("assets") or []
     expected_hashes = expected.get("asset_sha256") or {}
     for name, contract in targets.items():
-        if contract.get("dashboard_version") != expected_version:
+        actual_version = contract.get("product_version") or contract.get(
+            "dashboard_version"
+        )
+        if actual_version != expected_version:
             failures.append(
                 {
                     "target": name,
-                    "contract": "dashboard_version",
+                    "contract": "product_version",
                     "expected": expected_version,
-                    "actual": contract.get("dashboard_version"),
+                    "actual": actual_version,
                 }
             )
         if contract.get("assets") != expected_assets:
@@ -167,15 +219,19 @@ def compare_release_contracts(
                 }
             )
     if len(targets) > 1:
-        versions = {item.get("dashboard_version") for item in targets.values()}
+        versions = {
+            item.get("product_version") or item.get("dashboard_version")
+            for item in targets.values()
+        }
         assets = {tuple(item.get("assets") or []) for item in targets.values()}
         if len(versions) != 1:
             failures.append(
                 {
                     "target": "staging-production",
-                    "contract": "same_dashboard_version",
+                    "contract": "same_product_version",
                     "actual": {
-                        name: item.get("dashboard_version")
+                        name: item.get("product_version")
+                        or item.get("dashboard_version")
                         for name, item in targets.items()
                     },
                 }
@@ -209,8 +265,9 @@ def verify_release_parity(
     timeout: float = 20.0,
     wait_seconds: float = 0.0,
     root: Path | str = ".",
+    surface: str = "dashboard",
 ) -> dict[str, Any]:
-    expected = local_release_contract(root)
+    expected = local_release_contract(root, surface=surface)
     urls = {"staging": staging_url}
     if production_url:
         urls["production"] = production_url
@@ -222,7 +279,9 @@ def verify_release_parity(
         failures = []
         for name, url in urls.items():
             try:
-                targets[name] = fetch_remote_release_contract(url, timeout=timeout)
+                targets[name] = fetch_remote_release_contract(
+                    url, timeout=timeout, surface=surface
+                )
             except Exception as exc:  # noqa: BLE001 - convert remote readiness to evidence.
                 targets[name] = {"base_url": url.rstrip("/"), "error": type(exc).__name__}
                 failures.append(
@@ -237,6 +296,7 @@ def verify_release_parity(
         "schema_version": "1.0",
         "as_of": datetime.now(KST).isoformat(),
         "source_sha": source_sha or None,
+        "surface": surface,
         "expected": expected,
         "targets": targets,
         "failures": failures,

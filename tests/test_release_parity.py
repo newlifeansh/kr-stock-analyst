@@ -11,6 +11,8 @@ from app.qa.release_parity import (
 def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     contract = local_release_contract()
 
+    assert contract["surface"] == "dashboard"
+    assert contract["product_version"] == "20260922v552"
     assert contract["dashboard_version"] == "20260922v552"
     assert len(contract["assets"]) == 8
     assert len(contract["asset_sha256"]) == 8
@@ -22,6 +24,21 @@ def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     )
     assert all("?v=" in asset for asset in contract["assets"])
     assert any("contextual-safe-area-v128" in asset for asset in contract["assets"])
+
+
+def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
+    contract = local_release_contract(surface="us")
+
+    assert contract["surface"] == "us"
+    assert contract["product_version"] == "20260922us94"
+    assert len(contract["assets"]) == 6
+    assert len(contract["asset_sha256"]) == 6
+    assert set(contract["asset_sha256"]) == {
+        asset.split("?", 1)[0] for asset in contract["assets"]
+    }
+    assert all(len(digest) == 64 for digest in contract["asset_sha256"].values())
+    assert all("?v=" in asset for asset in contract["assets"])
+    assert any("/assets/nasdaq/app.js" in asset for asset in contract["assets"])
 
 
 def test_release_parity_rejects_a_stale_staging_asset() -> None:
@@ -43,9 +60,9 @@ def test_release_parity_rejects_a_stale_staging_asset() -> None:
     failures = compare_release_contracts(expected, targets)
     contracts = {(item["target"], item["contract"]) for item in failures}
 
-    assert ("staging", "dashboard_version") in contracts
+    assert ("staging", "product_version") in contracts
     assert ("staging", "frontend_assets") in contracts
-    assert ("staging-production", "same_dashboard_version") in contracts
+    assert ("staging-production", "same_product_version") in contracts
     assert ("staging-production", "same_frontend_assets") in contracts
 
 
@@ -94,8 +111,8 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "--environment staging" in workflow
     assert "--environment production" in workflow
     assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 4
-    assert workflow.count('--project "$STAGING_RAILWAY_PROJECT_ID"') == 2
-    assert workflow.count('--project "$PRODUCTION_RAILWAY_PROJECT_ID"') == 2
+    assert workflow.count('--project "$STAGING_RAILWAY_PROJECT_ID"') == 4
+    assert workflow.count('--project "$PRODUCTION_RAILWAY_PROJECT_ID"') == 4
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
     assert (
         'STAGING_RAILWAY_PROJECT_ID: ${{ vars.STAGING_RAILWAY_PROJECT_ID }}'
@@ -116,5 +133,10 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "railway up" not in workflow
     assert "name: production" in workflow
     assert "--production-url \"$PRODUCTION_BASE_URL\"" in workflow
-    assert "Wait for the staged domestic-only release" in workflow
+    assert "Wait for the staged product surface" in workflow
+    assert "product_surface:" in workflow
+    assert workflow.count('--surface "$PRODUCT_SURFACE"') == 5
+    assert workflow.count('railway variable set "US_MARKET_ENABLED=true"') == 4
+    assert "US_MARKET_ENABLED=false" not in workflow
+    assert "runtime_config:{US_MARKET_ENABLED:true}" in workflow
     assert "/us/market/" not in workflow

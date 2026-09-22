@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_unified_roots_use_compact_community_market_toggle_contract():
     client = TestClient(app, base_url="https://secretnote.cloud")
-    shell = client.get("/us?view=ai-signals")
+    shell = client.get("/dashboard?view=ai-signals")
     dashboard_shell = client.get("/dashboard?view=ai-signals")
     dashboard_js = client.get("/dashboard-app-v170.js").text
     staging_js = client.get("/assets/staging/toss-ia.js").text
@@ -81,7 +81,7 @@ def test_unified_roots_use_compact_community_market_toggle_contract():
 def test_ai_signal_labels_follow_in_place_market_toggle_and_keep_mixed_candidate_tab_honest():
     client = TestClient(app, base_url="https://secretnote.cloud")
     staging_js = client.get("/assets/staging/toss-ia.js").text
-    shell = client.get("/us?view=ai-signals&market_scope=us").text
+    shell = client.get("/dashboard?view=ai-signals&market_scope=us").text
     helper_start = staging_js.index("  const stagingUsesUsMarketLabels")
     helper_end = staging_js.index("  const stagingRootPath", helper_start)
     compact_start = staging_js.index("  const compactAiSignalLabel")
@@ -118,7 +118,7 @@ console.log(JSON.stringify({{ kr, us }}));
 
 def test_unified_roots_keep_search_global_and_place_binary_selector_on_recommendations():
     client = TestClient(app, base_url="https://secretnote.cloud")
-    shell = client.get("/us?view=news")
+    shell = client.get("/dashboard?view=news")
     dashboard_js = client.get("/dashboard-app-v170.js").text
     dashboard_css = client.get("/assets/dashboard/styles.css").text
 
@@ -206,7 +206,7 @@ def test_unified_roots_keep_search_global_and_place_binary_selector_on_recommend
 
 def test_unified_top50_locks_home_entry_country_without_country_selector():
     client = TestClient(app, base_url="https://secretnote.cloud")
-    shell = client.get("/us?view=movers&category=surge&mode=daily")
+    shell = client.get("/dashboard?view=movers&category=surge&mode=daily")
     dashboard_js = client.get("/dashboard-app-v170.js").text
 
     assert shell.status_code == 200

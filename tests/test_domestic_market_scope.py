@@ -84,7 +84,15 @@ def test_domestic_runtime_does_not_schedule_us_market_snapshots(monkeypatch):
     )
 
 
-def test_legacy_nasdaq_surface_redirects_to_domestic_home():
-    legacy_shell = _read("app/static/nasdaq/index.html")
+def test_us_spinout_shell_is_separate_from_the_domestic_product():
+    us_shell = _read("app/static/nasdaq/index.html")
+    us_source = _read("app/static/nasdaq/app.js")
 
-    assert 'window.location.replace("/dashboard?view=home");' in legacy_shell
+    assert '<html lang="ko" data-market-universe="us">' in us_shell
+    assert '<meta name="secret-note-market-universe" content="us" />' in us_shell
+    assert '<h1 id="login-title">미국증시 비밀노트</h1>' in us_shell
+    assert 'window.location.replace("/dashboard?view=home");' not in us_shell
+    assert "국내증시" not in us_shell
+    assert "국내·미국" not in us_shell
+    assert '"/market/global-assets?limit=30"' in us_source
+    assert "/market/cross-market" not in us_source

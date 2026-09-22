@@ -149,25 +149,24 @@ def test_cross_market_endpoint_composes_and_caches_korea_and_us_snapshots(monkey
     assert second.headers["cache-control"] == "public, max-age=15, stale-while-revalidate=30"
 
 
-def test_us_entry_uses_current_dashboard_top50_contract_and_keeps_legacy_assets_available():
+def test_us_entry_uses_the_us_only_shell_and_global_market_snapshot():
     client = TestClient(main_module.app)
 
     shell = client.get("/us")
-    script = client.get("/dashboard-app-v170.js")
-    legacy_script = client.get("/assets/nasdaq/app.js")
+    script = client.get("/assets/nasdaq/app.js")
     manifest = client.get("/us.webmanifest")
 
     assert shell.status_code == 200
-    assert 'id="home-view"' in shell.text
-    assert 'id="home-surge"' in shell.text
-    assert 'data-home-ranking-market="NASDAQ"' in shell.text
-    assert 'data-home-ranking-market="SP500"' in shell.text
+    assert '<html lang="ko" data-market-universe="us">' in shell.text
+    assert 'id="overview-view"' in shell.text
+    assert 'id="overview-us"' in shell.text
+    assert "국내증시" not in shell.text
     assert script.status_code == 200
-    assert 'const US_MARKET_RANKING_MARKETS = new Set(["NASDAQ", "SP500"]);' in script.text
-    assert '"/us/market/rankings"' in script.text
-    assert legacy_script.status_code == 200
-    assert "/market/cross-market?limit=30" in legacy_script.text
+    assert '"/us/market/rankings?' in script.text
+    assert '"/market/global-assets?limit=30"' in script.text
+    assert "/market/cross-market" not in script.text
     assert manifest.status_code == 200
     assert manifest.json()["start_url"] == "/us?view=overview"
     assert manifest.json()["scope"] == "/us"
-    assert 'US_APP_BASE_PATH = "/us"' in legacy_script.text
+    assert manifest.json()["name"] == "비밀노트 미국증시"
+    assert 'US_APP_BASE_PATH = "/us"' in script.text

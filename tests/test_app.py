@@ -215,7 +215,7 @@ def test_root_redirects_to_korea_dashboard():
     assert response.headers["location"] == "/dashboard?view=home"
 
 
-def test_us_and_dashboard_paths_serve_the_unified_market_shell():
+def test_us_and_dashboard_paths_serve_independently_versioned_products():
     client = TestClient(app, base_url="https://secretnote.cloud")
 
     root = client.get("/", follow_redirects=False)
@@ -226,36 +226,42 @@ def test_us_and_dashboard_paths_serve_the_unified_market_shell():
     assert root.headers["location"] == "/dashboard?view=home"
     assert response.status_code == 200
     assert dashboard.status_code == 200
-    assert dashboard.text == response.text
-    assert 'id="home-view"' in response.text
-    assert 'id="home-surge"' in response.text
-    assert 'id="unified-market-scope"' in response.text
-    assert 'data-unified-market-scope="kr"' in response.text
-    assert 'data-unified-market-scope="us"' in response.text
-    assert 'data-unified-market-scope="all"' not in response.text
-    assert 'class="unified-market-scope-toggle" role="group"' in response.text
-    assert 'id="recommend-market-scope" role="group" aria-label="추천 종목 시장 선택" hidden' in response.text
-    assert 'data-recommend-market-scope="kr"' in response.text
-    assert 'data-recommend-market-scope="us"' in response.text
-    assert 'data-recommend-market-scope="all"' not in response.text
-    assert 'data-market-filter="MIXED"' in response.text
-    assert 'data-home-ranking-market="NASDAQ"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260922v552"' in response.text
-    assert "시장 한눈에" not in response.text
+    assert dashboard.text != response.text
+    assert '<html lang="ko" data-market-universe="kr">' in dashboard.text
+    assert '<html lang="ko" data-market-universe="us">' in response.text
+    assert '<meta name="secret-note-market-universe" content="us" />' in response.text
+    assert '<h1 id="login-title">미국증시 비밀노트</h1>' in response.text
+    assert 'id="overview-view"' in response.text
+    assert 'id="overview-us"' in response.text
+    assert 'src="/assets/nasdaq/app.js?v=20260922us94"' in response.text
+    assert 'href="/assets/nasdaq/styles.css?v=20260922us94"' in response.text
+    assert 'id="unified-market-scope"' not in response.text
+    assert "국내증시" not in response.text
+    assert "국내·미국" not in response.text
+
+
+def test_legacy_nasdaq_routes_redirect_to_canonical_us_paths_with_query_preserved():
+    client = TestClient(app, base_url="https://secretnote.cloud")
+
+    root = client.get("/nasdaq?view=trend", follow_redirects=False)
+    stock = client.get("/nasdaq/BRK.B?panel=news", follow_redirects=False)
+
+    assert root.status_code == 307
+    assert root.headers["location"] == "/us?view=trend"
+    assert stock.status_code == 307
+    assert stock.headers["location"] == "/us/stock/BRK.B?panel=news"
 
 
 def test_domestic_surface_disables_unified_runtime_and_preserves_dormant_us_implementation():
     client = TestClient(app, base_url="https://secretnote.cloud")
     dashboard_shell = client.get("/dashboard?view=home").text
-    us_shell = client.get("/us?view=home").text
     source = client.get("/dashboard-app-v170.js").text
     styles = client.get("/assets/dashboard/styles.css").text
 
-    assert dashboard_shell == us_shell
     assert '<h1 id="login-title">한국증시 비밀노트</h1>' in dashboard_shell
     assert '<html lang="ko" data-market-universe="kr">' in dashboard_shell
     assert '<meta name="secret-note-market-universe" content="kr" />' in dashboard_shell
-    assert 'window.location.replace(destination);' in us_shell
+    assert 'window.location.replace(destination);' in dashboard_shell
     assert 'const US_MARKET_ENABLED = PRODUCT_MARKET_UNIVERSE === "unified";' in source
     assert 'const isDashboardRootPath = /^\\/dashboard\\/?$/.test(window.location.pathname);' in source
     assert "const isUnifiedRootPath = isUsRootPath || isDashboardRootPath;" in source
@@ -947,17 +953,17 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
 
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
-    assert 'id="us-stock-ai-content"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260922v552"' in stock_shell.text
-    assert 'src="/assets/staging/toss-ia.js?v=20260921-domestic-market-v116"' in stock_shell.text
-    assert "NASDAQ Intelligence" not in stock_shell.text
+    assert 'id="ai-analysis-panel"' in stock_shell.text
+    assert 'src="/assets/nasdaq/app.js?v=20260922us94"' in stock_shell.text
+    assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
+    assert "국내증시" not in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
 
 
 def test_us_stock_detail_frontend_uses_us_contract_without_domestic_quote_subscription():
     client = TestClient(app, base_url="https://secretnote.cloud")
-    stock_shell = client.get("/us/stock/NVDA")
+    stock_shell = client.get("/dashboard/NVDA")
     source = client.get("/dashboard-app-v170.js").text
     toss = client.get("/assets/staging/toss-ia.js").text
     styles = client.get("/assets/dashboard/styles.css").text
@@ -1223,7 +1229,8 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
     refresh = client.get("/dashboard-refresh?view=search&market_scope=us")
     assert refresh.status_code == 200
     assert refresh.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
-    assert '["/dashboard-sw.js", "/us-sw.js"].includes' in refresh.text
+    assert 'pathname === "/dashboard-sw.js"' in refresh.text
+    assert 'pathname === "/us-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
     assert '["kr", "us"].includes(params.get("market_scope"))' not in refresh.text
     assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=kr&app_build=20260922v552" in refresh.text
@@ -1233,7 +1240,29 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
     assert "sessionStorage.clear" not in refresh.text
 
 
-def test_legacy_us_service_worker_retires_its_scope_and_routes_clients_to_current_shell():
+def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
+    client = TestClient(app)
+
+    version = client.get("/us-version")
+    assert version.status_code == 200
+    assert version.json() == {"version": "20260922us94"}
+    assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
+
+    refresh = client.get("/us-refresh?view=trend&code=NVDA")
+    assert refresh.status_code == 200
+    assert 'pathname === "/us-sw.js"' in refresh.text
+    assert 'pathname === "/dashboard-sw.js"' not in refresh.text
+    assert 'key.startsWith("secret-note-us-static-")' in refresh.text
+    assert 'key.startsWith("secret-note-static-")' not in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260922us94" in refresh.text
+
+    versioned_script = client.get("/assets/nasdaq/app.js?v=20260922us94")
+    mutable_script = client.get("/assets/nasdaq/app.js")
+    assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
+
+
+def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets():
     client = TestClient(app)
 
     worker = client.get("/us-sw.js")
@@ -1241,22 +1270,20 @@ def test_legacy_us_service_worker_retires_its_scope_and_routes_clients_to_curren
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'CURRENT_DASHBOARD_BUILD = "20260922v552"' in worker.text
-    assert r"/^secret-note-static-\d{8}us/" in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20260922us94"' in worker.text
+    assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
-    assert 'url.pathname.startsWith("/us")' in worker.text
-    assert 'url.pathname = "/dashboard"' in worker.text
-    assert 'url.search = "?view=home"' in worker.text
-    assert 'url.searchParams.set("app_build", CURRENT_DASHBOARD_BUILD)' in worker.text
-    assert "client.navigate(url.href)" in worker.text
-    assert "self.registration.unregister()" in worker.text
-    assert 'fetch(request, { cache: "no-store" })' in worker.text
-    assert "/assets/nasdaq/" not in worker.text
+    assert '"/us?view=overview"' in worker.text
+    assert '"/assets/nasdaq/styles.css?v=20260922us94"' in worker.text
+    assert '"/assets/nasdaq/app.js?v=20260922us94"' in worker.text
+    assert 'url.pathname.startsWith("/assets/nasdaq/")' in worker.text
+    assert 'url.pathname = "/dashboard"' not in worker.text
 
     legacy_worker = client.get("/nasdaq-sw.js")
     assert legacy_worker.status_code == 200
     assert legacy_worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
-    assert 'DASHBOARD_SW_VERSION = "20260913us93"' in legacy_worker.text
+    assert legacy_worker.headers["service-worker-allowed"] == "/nasdaq"
+    assert legacy_worker.text == worker.text
 
 
 def test_android_back_navigation_restores_history_and_confirms_exit_at_home():
@@ -2941,7 +2968,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
 
 def test_us_stock_news_has_separate_domestic_and_yahoo_overseas_tabs():
     client = TestClient(app)
-    shell = client.get("/us/stock/ASML").text
+    shell = client.get("/dashboard/ASML").text
     source = client.get("/assets/dashboard/app.js").text
     styles = client.get("/assets/dashboard/styles.css").text
 

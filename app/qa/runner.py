@@ -68,14 +68,28 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_domestic_home_never_requests_us_market_feeds",
         "tests.test_domestic_market_scope."
         "test_domestic_runtime_does_not_schedule_us_market_snapshots",
-        "tests.test_domestic_market_scope."
-        "test_legacy_nasdaq_surface_redirects_to_domestic_home",
         "tests.test_web_push."
         "test_run_once_skips_us_signal_pipeline_for_domestic_product",
         "tests.test_app."
         "test_domestic_surface_disables_unified_runtime_and_preserves_dormant_us_implementation",
         "tests.test_app."
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
+    ),
+    "SIG-UI-031": (
+        "tests.test_domestic_market_scope."
+        "test_us_spinout_shell_is_separate_from_the_domestic_product",
+        "tests.test_app."
+        "test_us_and_dashboard_paths_serve_independently_versioned_products",
+        "tests.test_app."
+        "test_legacy_nasdaq_routes_redirect_to_canonical_us_paths_with_query_preserved",
+        "tests.test_app."
+        "test_us_stock_path_serves_shell_without_shadowing_us_api_routes",
+        "tests.test_app."
+        "test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache",
+        "tests.test_app."
+        "test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets",
+        "tests.test_market_index_live_endpoint."
+        "test_us_entry_uses_the_us_only_shell_and_global_market_snapshot",
     ),
     "SIG-UI-022": (
         "tests.test_public_signal."
@@ -3341,6 +3355,206 @@ def _live_checks(
     return _market_state(context.get("quote"), context.get("quality")), context
 
 
+def _live_us_checks(
+    collector: ResultCollector,
+    catalog: dict[str, Any],
+    *,
+    base_url: str,
+    timeout: float,
+) -> tuple[str | None, dict[str, Any]]:
+    api = ReadOnlyApi(base_url, timeout)
+    context: dict[str, Any] = {}
+    try:
+
+        def health_contract() -> dict[str, Any]:
+            health, health_meta = api.get("/health")
+            ready, ready_meta = api.get("/readyz")
+            _assert(
+                health.get("status") == "ok"
+                and ready.get("status") == "ok"
+                and ready.get("database_ok") is True,
+                "미국 서비스 health 또는 readyz가 준비되지 않았습니다.",
+                health=health_meta,
+                readyz=ready_meta,
+            )
+            _assert(
+                health.get("us_market_enabled") is True
+                and ready.get("us_market_enabled") is True,
+                "미국 서비스의 US_MARKET_ENABLED가 true가 아닙니다.",
+                health_enabled=health.get("us_market_enabled"),
+                ready_enabled=ready.get("us_market_enabled"),
+            )
+            _assert(
+                health.get("us_strategy_version")
+                == catalog.get("us_strategy_version")
+                and ready.get("us_strategy_version")
+                == catalog.get("us_strategy_version"),
+                "미국 서비스 전략 버전이 카탈로그와 다릅니다.",
+                health_version=health.get("us_strategy_version"),
+                ready_version=ready.get("us_strategy_version"),
+            )
+            _assert(
+                bool(health.get("us_dashboard_version"))
+                and health.get("us_dashboard_version")
+                == ready.get("us_dashboard_version"),
+                "미국 제품 빌드 버전이 health와 readyz에서 일치하지 않습니다.",
+                health_version=health.get("us_dashboard_version"),
+                ready_version=ready.get("us_dashboard_version"),
+            )
+            context["health"] = health
+            return {
+                "health": health_meta,
+                "readyz": ready_meta,
+                "us_market_enabled": True,
+                "us_strategy_version": health.get("us_strategy_version"),
+                "us_dashboard_version": health.get("us_dashboard_version"),
+            }
+
+        collector.check(
+            "DATA-COM-002",
+            health_contract,
+            pass_message="미국 서비스 헬스·준비 상태와 기능 플래그를 확인했습니다.",
+        )
+
+        def us_product_boundary_contract() -> dict[str, Any]:
+            shell, shell_meta = api.get_text("/us", view="overview")
+            source, source_meta = api.get_text("/assets/nasdaq/app.js")
+            manifest, manifest_meta = api.get("/us.webmanifest")
+            version, version_meta = api.get("/us-version")
+            assets, assets_meta = api.get("/market/global-assets", limit=30)
+            search, search_meta = api.get("/us/stocks/search", query="AAPL", limit=5)
+            _assert(
+                '<html lang="ko" data-market-universe="us">' in shell
+                and '<meta name="secret-note-market-universe" content="us" />'
+                in shell
+                and "미국증시 비밀노트" in shell,
+                "스테이징 /us가 미국증시 독립 제품 셸이 아닙니다.",
+                **shell_meta,
+            )
+            _assert(
+                "국내증시" not in shell
+                and "국내·미국" not in shell
+                and 'id="unified-market-scope"' not in shell,
+                "스테이징 /us에 국내 또는 통합 제품 UI가 남았습니다.",
+                **shell_meta,
+            )
+            _assert(
+                '"/market/global-assets?limit=30"' in source
+                and "/market/cross-market" not in source
+                and 'US_APP_BASE_PATH = "/us"' in source,
+                "미국 홈의 데이터 경계가 글로벌 자산·/us API로 고정되지 않았습니다.",
+                **source_meta,
+            )
+            _assert(
+                manifest.get("scope") == "/us"
+                and manifest.get("start_url") == "/us?view=overview"
+                and manifest.get("name") == "비밀노트 미국증시",
+                "미국 PWA manifest 경계가 잘못됐습니다.",
+                manifest=manifest,
+            )
+            _assert(
+                version.get("version")
+                == (context.get("health") or {}).get("us_dashboard_version"),
+                "미국 버전 endpoint와 health가 일치하지 않습니다.",
+                version=version.get("version"),
+                health_version=(context.get("health") or {}).get(
+                    "us_dashboard_version"
+                ),
+            )
+            codes = {
+                str(item.get("code") or "")
+                for item in assets.get("items") or []
+                if isinstance(item, dict)
+            }
+            _assert(
+                {"SP500", "NASDAQ", "SOX", "DOW"}.issubset(codes),
+                "미국 홈 주요 지수 스냅샷이 완전하지 않습니다.",
+                codes=sorted(codes),
+                **assets_meta,
+            )
+            _assert(
+                isinstance(search, list)
+                and any(
+                    str(item.get("code") or "").upper() == "AAPL"
+                    for item in search
+                    if isinstance(item, dict)
+                ),
+                "미국 종목 검색이 AAPL을 반환하지 않았습니다.",
+                **search_meta,
+            )
+            return {
+                "shell": shell_meta,
+                "source": source_meta,
+                "manifest": manifest_meta,
+                "version": version_meta,
+                "global_assets": assets_meta,
+                "market_codes": sorted(codes),
+                "search": search_meta,
+                "market_universe": "us",
+            }
+
+        collector.check(
+            "SIG-UI-031",
+            us_product_boundary_contract,
+            pass_message="스테이징 /us의 미국증시 독립 제품·자산·검색 경계를 확인했습니다.",
+        )
+
+        def us_signal_contract() -> dict[str, Any]:
+            feed, feed_meta = api.get(
+                "/us/market/quant-signals", limit=50, recent_days=30
+            )
+            recommendations, recommendations_meta = api.get(
+                "/us/market/recommendations", limit=20, candidate_limit=100
+            )
+            expected_version = catalog.get("us_strategy_version")
+            _assert(
+                feed.get("strategy_version") == expected_version
+                and recommendations.get("strategy_version") == expected_version,
+                "미국 시그널·추천 전략 버전이 RC1과 다릅니다.",
+                feed_version=feed.get("strategy_version"),
+                recommendation_version=recommendations.get("strategy_version"),
+                expected_version=expected_version,
+            )
+            _assert(
+                feed.get("status") == "ready"
+                and feed.get("data_state") == "ready"
+                and recommendations.get("status") == "ready"
+                and recommendations.get("data_state") == "ready",
+                "미국 canonical Top100 스냅샷이 ready가 아닙니다.",
+                feed_status=feed.get("status"),
+                feed_state=feed.get("data_state"),
+                recommendation_status=recommendations.get("status"),
+                recommendation_state=recommendations.get("data_state"),
+            )
+            _assert(
+                feed.get("snapshot_id")
+                and feed.get("snapshot_id") == recommendations.get("snapshot_id")
+                and feed.get("snapshot_checksum")
+                == recommendations.get("snapshot_checksum"),
+                "미국 시그널·추천 canonical identity가 다릅니다.",
+                feed_snapshot_id=feed.get("snapshot_id"),
+                recommendation_snapshot_id=recommendations.get("snapshot_id"),
+            )
+            context["us_market"] = feed
+            return {
+                "feed": feed_meta,
+                "recommendations": recommendations_meta,
+                "snapshot_id": feed.get("snapshot_id"),
+                "snapshot_checksum": feed.get("snapshot_checksum"),
+                "data_state": feed.get("data_state"),
+            }
+
+        collector.check(
+            "SIG-US-CONTRACT-001",
+            us_signal_contract,
+            pass_message="미국 Top100 시그널·추천의 ready 상태와 canonical identity를 확인했습니다.",
+        )
+    finally:
+        api.close()
+
+    return str((context.get("us_market") or {}).get("data_state") or "unknown"), context
+
+
 def _public_websocket_check(
     collector: ResultCollector,
     base_url: str,
@@ -3687,22 +3901,40 @@ def run_data_signal_qa(
     artifact_dir: Path | str | None = None,
     direct_kis: bool = False,
     pytest_junit: Path | str | None = None,
+    surface: str = "dashboard",
 ) -> dict[str, Any]:
     if mode not in {"gate", "live", "e2e"}:
         raise ValueError("mode must be gate, live, or e2e")
+    if surface not in {"dashboard", "us"}:
+        raise ValueError("surface must be dashboard or us")
     catalog = load_qa_catalog()
     collector = ResultCollector(catalog)
     market_state: str | None = None
     if mode == "gate":
         _gate_checks(collector, catalog, pytest_junit=pytest_junit)
     elif mode == "live":
-        market_state, _ = _live_checks(
-            collector,
-            catalog,
-            base_url=base_url,
-            timeout=timeout,
-            direct_kis=direct_kis,
-        )
+        if surface == "us":
+            _live_checks(
+                collector,
+                catalog,
+                base_url=base_url,
+                timeout=timeout,
+                direct_kis=direct_kis,
+            )
+            market_state, _ = _live_us_checks(
+                collector,
+                catalog,
+                base_url=base_url,
+                timeout=timeout,
+            )
+        else:
+            market_state, _ = _live_checks(
+                collector,
+                catalog,
+                base_url=base_url,
+                timeout=timeout,
+                direct_kis=direct_kis,
+            )
     else:
         from app.qa.e2e import run_e2e_checks
 
@@ -3711,6 +3943,7 @@ def run_data_signal_qa(
             base_url=base_url,
             timeout=timeout,
             artifact_dir=artifact_dir,
+            surface=surface,
         )
         for result in e2e_results:
             collector.add(**result)
@@ -3730,6 +3963,7 @@ def run_data_signal_qa(
         "schema_version": "1.0",
         "run_id": f"qa-{datetime.now(KST).strftime('%Y%m%dT%H%M%S')}-{uuid4().hex[:8]}",
         "mode": mode,
+        "surface": surface,
         "environment": _environment_name(base_url),
         "base_url": base_url.rstrip("/"),
         "as_of": datetime.now(KST).isoformat(),

@@ -1,9 +1,9 @@
-const DASHBOARD_SW_VERSION = "20260913us93";
-const STATIC_CACHE = `secret-note-static-${DASHBOARD_SW_VERSION}`;
+const DASHBOARD_SW_VERSION = "20260922us94";
+const STATIC_CACHE = `secret-note-us-static-${DASHBOARD_SW_VERSION}`;
 const STATIC_ASSETS = [
   "/us?view=overview",
-  "/assets/nasdaq/styles.css?v=20260913us93",
-  "/assets/nasdaq/app.js?v=20260913us93",
+  "/assets/nasdaq/styles.css?v=20260922us94",
+  "/assets/nasdaq/app.js?v=20260922us94",
   "/assets/nasdaq/icons/icon-192.png?v=20260620bq",
   "/assets/nasdaq/icons/icon-512.png?v=20260620bq",
   "/assets/nasdaq/icons/apple-touch-icon.png?v=20260620bq"
@@ -20,7 +20,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key.startsWith("secret-note-static-") && key !== STATIC_CACHE).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => key.startsWith("secret-note-us-static-") && key !== STATIC_CACHE).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });

@@ -1811,7 +1811,7 @@ h1 {
 }
 
 .primary-action {
-  height: 40px;
+  min-height: 44px;
   padding: 0 16px;
   border-color: var(--accent);
   background: var(--accent);
@@ -9776,6 +9776,10 @@ body .watch-table td::before {
   gap: 18px;
 }
 
+.us-market-overview-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .cross-market-panel {
   min-width: 0;
   padding: 20px;
@@ -9802,7 +9806,8 @@ body .watch-table td::before {
 .cross-market-panel-head a,
 .cross-market-panel-head .text-action {
   flex: 0 0 auto;
-  padding: 0;
+  min-height: 44px;
+  padding: 0 8px;
   border: 0;
   color: var(--accent);
   background: transparent;

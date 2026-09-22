@@ -655,7 +655,7 @@ def test_staging_tds_ia_asset_preserves_data_contracts_and_remaps_navigation():
 
 def test_stock_quote_stays_above_tabs_and_market_tab_contracts_match():
     client = TestClient(staging_app)
-    shell = client.get("/us/stock/NVDA").text
+    shell = client.get("/dashboard/NVDA").text
     js = client.get("/assets/staging/toss-ia.js").text
     dashboard_js = client.get("/dashboard-app-v170.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
