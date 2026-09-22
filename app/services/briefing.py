@@ -311,21 +311,6 @@ class BriefingRuntime:
         self.source_errors = {}
         refreshed_any = self.run_freshness_once(refresh_briefing=False)
         with SessionLocal() as db:
-            if self.settings.research_enabled and self._research_backfill_due():
-                try:
-                    collect_research_reports(
-                        db,
-                        settings=self.settings,
-                        categories=["company"],
-                        max_pages=self.settings.research_backfill_max_pages,
-                        days_back=self.settings.research_backfill_days_back,
-                        include_detail=False,
-                    )
-                    self.last_research_backfill_at = datetime.utcnow()
-                    self.source_errors.pop("research_backfill", None)
-                    refreshed_any = True
-                except Exception as exc:
-                    self.source_errors["research_backfill"] = str(exc)
             if self.settings.stock_universe_enabled and self._stock_universe_due():
                 try:
                     loaded = collect_stocks(
@@ -365,6 +350,24 @@ class BriefingRuntime:
                     self.last_investor_flow_at = datetime.utcnow()
                 except Exception as exc:
                     self.source_errors["investor_flow"] = str(exc)
+            # A cold deployment can require a large 180-day research backfill.
+            # Complete the Top100 universe, price, and flow lanes first so that
+            # the signal-quality contract recovers without waiting for it.
+            if self.settings.research_enabled and self._research_backfill_due():
+                try:
+                    collect_research_reports(
+                        db,
+                        settings=self.settings,
+                        categories=["company"],
+                        max_pages=self.settings.research_backfill_max_pages,
+                        days_back=self.settings.research_backfill_days_back,
+                        include_detail=False,
+                    )
+                    self.last_research_backfill_at = datetime.utcnow()
+                    self.source_errors.pop("research_backfill", None)
+                    refreshed_any = True
+                except Exception as exc:
+                    self.source_errors["research_backfill"] = str(exc)
             if self.settings.financials_enabled and self._financials_due():
                 try:
                     financials_result = self._collect_financials(db)

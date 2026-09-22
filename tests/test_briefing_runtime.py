@@ -83,13 +83,13 @@ def test_short_cadence_lane_does_not_overlap_itself():
         runtime._freshness_lock.release()
 
 
-def test_main_collector_refreshes_signal_flow_before_full_fundamental_backfill(
+def test_main_collector_prioritizes_signal_data_before_long_backfills(
     monkeypatch,
 ):
     runtime = briefing.BriefingRuntime(
         Settings(
             briefing_realtime_enabled=False,
-            research_enabled=False,
+            research_enabled=True,
             disclosure_enabled=False,
             news_enabled=False,
             stock_universe_enabled=False,
@@ -131,6 +131,11 @@ def test_main_collector_refreshes_signal_flow_before_full_fundamental_backfill(
     )
     monkeypatch.setattr(
         briefing,
+        "collect_research_reports",
+        lambda *_args, **_kwargs: calls.append("research_backfill") or 100,
+    )
+    monkeypatch.setattr(
+        briefing,
         "collect_stock_fundamental_snapshots",
         lambda *_args, **_kwargs: calls.append("fundamental")
         or {"rows_loaded": 100, "failed": 0, "message": "ready"},
@@ -143,7 +148,7 @@ def test_main_collector_refreshes_signal_flow_before_full_fundamental_backfill(
 
     runtime.run_once()
 
-    assert calls[:3] == ["price", "flow", "fundamental"]
+    assert calls[:4] == ["price", "flow", "research_backfill", "fundamental"]
 
 
 def test_main_collector_keeps_degraded_prices_retryable(monkeypatch):
