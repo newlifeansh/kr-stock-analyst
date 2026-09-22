@@ -3500,11 +3500,19 @@ def _live_us_checks(
         )
 
         def us_signal_contract() -> dict[str, Any]:
+            cached = context.get("us_market_contract")
+            if isinstance(cached, dict):
+                return cached
             feed, feed_meta = api.get(
                 "/us/market/quant-signals", limit=50, recent_days=30
             )
             recommendations, recommendations_meta = api.get(
                 "/us/market/recommendations", limit=20, candidate_limit=100
+            )
+            _assert(isinstance(feed, dict), "미국 시그널 응답이 객체가 아닙니다.")
+            _assert(
+                isinstance(recommendations, dict),
+                "미국 추천 응답이 객체가 아닙니다.",
             )
             expected_version = catalog.get("us_strategy_version")
             _assert(
@@ -3527,6 +3535,50 @@ def _live_us_checks(
                 recommendation_state=recommendations.get("data_state"),
             )
             _assert(
+                feed.get("rollout_mode") == "shadow"
+                and feed.get("execution_enabled") is False
+                and feed.get("stateful_lifecycle_replay_enabled") is False
+                and feed.get("reentry_runtime_enabled") is False
+                and int(feed.get("confirmed_count") or 0) == 0,
+                "미국 RC1이 shadow 예비 전용 계약을 벗어났습니다.",
+            )
+            universe_count = int(feed.get("universe_count") or 0)
+            evaluated_count = int(feed.get("evaluated_count") or 0)
+            data_coverage_count = int(feed.get("data_coverage_count") or 0)
+            signal_eligible_count = feed.get("signal_eligible_count")
+            insufficient_history_count = feed.get("insufficient_history_count")
+            coverage = feed.get("coverage") or {}
+            _assert(
+                universe_count == 100
+                and evaluated_count == 100
+                and data_coverage_count == 100
+                and type(signal_eligible_count) is int
+                and type(insufficient_history_count) is int
+                and signal_eligible_count + insufficient_history_count == 100
+                and isinstance(coverage, dict)
+                and coverage.get("complete") is True
+                and int(coverage.get("history_error_count") or 0) == 0
+                and int(coverage.get("sector_classification_error_count") or 0)
+                == 0
+                and int(feed.get("sector_classification_error_count") or 0) == 0,
+                "미국 Top100 스냅샷의 100/100/100 커버리 계약이 깨졌습니다.",
+                universe_count=universe_count,
+                evaluated_count=evaluated_count,
+                data_coverage_count=data_coverage_count,
+                signal_eligible_count=signal_eligible_count,
+                insufficient_history_count=insufficient_history_count,
+                coverage=coverage,
+            )
+            _assert(
+                feed.get("new_entries_allowed") is True
+                and recommendations.get("new_entries_allowed") is True,
+                "ready 미국 스냅샷의 신규 진입 허용 상태가 잘못됐습니다.",
+                feed_new_entries_allowed=feed.get("new_entries_allowed"),
+                recommendation_new_entries_allowed=recommendations.get(
+                    "new_entries_allowed"
+                ),
+            )
+            _assert(
                 feed.get("snapshot_id")
                 and feed.get("snapshot_id") == recommendations.get("snapshot_id")
                 and feed.get("snapshot_checksum")
@@ -3535,19 +3587,201 @@ def _live_us_checks(
                 feed_snapshot_id=feed.get("snapshot_id"),
                 recommendation_snapshot_id=recommendations.get("snapshot_id"),
             )
+            _assert(
+                recommendations.get("universe_as_of") == feed.get("universe_as_of")
+                and int(recommendations.get("universe_count") or 0)
+                == universe_count
+                and int(recommendations.get("evaluated_count") or 0)
+                == evaluated_count
+                and int(recommendations.get("data_coverage_count") or 0)
+                == data_coverage_count
+                and recommendations.get("signal_eligible_count")
+                == signal_eligible_count
+                and recommendations.get("insufficient_history_count")
+                == insufficient_history_count
+                and recommendations.get("baseline_strategy_version")
+                == feed.get("baseline_strategy_version")
+                and recommendations.get("sector_classification_version")
+                == feed.get("sector_classification_version")
+                and recommendations.get("stateful_lifecycle_replay_enabled")
+                is False
+                and recommendations.get("reentry_runtime_enabled") is False,
+                "미국 추천과 시그널이 다른 canonical 커버리·runtime 계약을 사용합니다.",
+            )
+            try:
+                from app.services.us_market_calendar import (
+                    latest_completed_us_market_session,
+                )
+
+                expected_universe_as_of = (
+                    latest_completed_us_market_session().session_date.isoformat()
+                )
+            except Exception as exc:
+                raise QaFailure(
+                    "XNYS 마지막 완료 세션을 확인할 수 없습니다.",
+                    {"error_type": type(exc).__name__},
+                ) from exc
+            _assert(
+                str(feed.get("universe_as_of") or "")[:10]
+                == expected_universe_as_of,
+                "미국 ready 스냅샷이 XNYS 마지막 완료 세션일과 다릅니다.",
+                universe_as_of=feed.get("universe_as_of"),
+                expected_universe_as_of=expected_universe_as_of,
+            )
+            items = feed.get("items") or []
+            _assert(isinstance(items, list), "미국 시그널 items가 배열이 아닙니다.")
+            invalid_items: list[str] = []
+            invalid_public_reasons: list[str] = []
+            entry_pending_count = 0
+            for item in items:
+                if not isinstance(item, dict):
+                    invalid_items.append("non_object")
+                    continue
+                current_signal = item.get("current") or {}
+                if current_signal.get("action") == "entry_pending":
+                    entry_pending_count += 1
+                try:
+                    rank = int(item.get("market_cap_rank"))
+                except (TypeError, ValueError):
+                    rank = 0
+                if (
+                    item.get("currency") != "USD"
+                    or item.get("status") != "preliminary"
+                    or item.get("is_preliminary") is not True
+                    or current_signal.get("position_open") is not False
+                    or current_signal.get("model_exposure_percent")
+                    not in (0, 0.0, "0", "0.0", None)
+                    or not 1 <= rank <= 100
+                ):
+                    invalid_items.append(str(item.get("code") or "unknown"))
+                reasons = item.get("public_reasons")
+                if not (
+                    isinstance(reasons, list)
+                    and [
+                        reason.get("key")
+                        for reason in reasons
+                        if isinstance(reason, dict)
+                    ]
+                    == ["trend_20d", "trend_60d", "flow"]
+                    and all(
+                        reason.get("available") is True
+                        for reason in reasons
+                        if isinstance(reason, dict)
+                    )
+                ):
+                    invalid_public_reasons.append(
+                        str(item.get("code") or "unknown")
+                    )
+            _assert(
+                not invalid_items,
+                "미국 공개 예비 신호의 USD·Top100·미체결 계약이 깨졌습니다.",
+                invalid_items=invalid_items,
+            )
+            _assert(
+                not invalid_public_reasons,
+                "미국 공개 근거가 20일·60일·거래대금 세 근거가 아닙니다.",
+                invalid_codes=invalid_public_reasons,
+            )
+            recommendation_items = recommendations.get("items") or []
+            _assert(
+                isinstance(recommendation_items, list),
+                "미국 추천 items가 배열이 아닙니다.",
+            )
+            recommendation_entry_pending_count = sum(
+                1
+                for item in recommendation_items
+                if isinstance(item, dict)
+                and (
+                    str(item.get("action") or "") == "entry_pending"
+                    or (
+                        isinstance(item.get("ai_trade_signal"), dict)
+                        and isinstance(item["ai_trade_signal"].get("current"), dict)
+                        and item["ai_trade_signal"]["current"].get("action")
+                        == "entry_pending"
+                    )
+                )
+            )
+            public_case = next(
+                (
+                    case
+                    for case in catalog["cases"]
+                    if case.get("id") == "SIG-UI-022"
+                ),
+                {},
+            )
+            forbidden_fields = set(
+                public_case.get("inputs", {}).get("forbidden_public_fields") or []
+            )
+            forbidden_paths = _forbidden_key_paths(
+                {"feed": feed, "recommendations": recommendations},
+                forbidden_fields,
+            )
+            _assert(
+                not forbidden_paths,
+                "미국 공개 응답에 내부 점수·필터 키가 남았습니다.",
+                forbidden_paths=forbidden_paths,
+            )
+            methodology = " ".join(
+                str(item) for item in feed.get("methodology") or []
+            )
+            _assert(
+                all(token in methodology for token in ("수정 OHLC", "SPY·QQQ", "거래대금")),
+                "미국 수정주가·시장·거래대금 근거 설명이 누락됐습니다.",
+            )
             context["us_market"] = feed
-            return {
+            result = {
                 "feed": feed_meta,
                 "recommendations": recommendations_meta,
+                "strategy_version": expected_version,
+                "universe_count": universe_count,
+                "evaluated_count": evaluated_count,
+                "data_coverage_count": data_coverage_count,
+                "signal_eligible_count": signal_eligible_count,
+                "insufficient_history_count": insufficient_history_count,
+                "coverage_complete": True,
+                "universe_as_of": feed.get("universe_as_of"),
+                "expected_universe_as_of": expected_universe_as_of,
                 "snapshot_id": feed.get("snapshot_id"),
                 "snapshot_checksum": feed.get("snapshot_checksum"),
                 "data_state": feed.get("data_state"),
+                "preliminary_count": len(items),
+                "entry_pending_count": entry_pending_count,
+                "recommendation_entry_pending_count": recommendation_entry_pending_count,
+                "forbidden_public_paths": forbidden_paths,
+                "methodology": feed.get("methodology"),
             }
+            context["us_market_contract"] = result
+            return result
 
+        collector.check(
+            "SIG-US-VERSION-001",
+            us_signal_contract,
+            pass_message="미국 health·시그널·추천의 RC1 버전을 확인했습니다.",
+        )
+        collector.check(
+            "DATA-US-UNIVERSE-001",
+            us_signal_contract,
+            pass_message="미국 완료 세션 Top100 스냅샷과 100/100/100 커버리를 확인했습니다.",
+        )
+        collector.check(
+            "DATA-US-SIGNAL-INPUT-001",
+            us_signal_contract,
+            pass_message="미국 완료 세션 수정 일봉 입력 계약을 확인했습니다.",
+        )
+        collector.check(
+            "DATA-US-EVIDENCE-001",
+            us_signal_contract,
+            pass_message="미국 시장·상대강도·달러 거래대금 근거 계약을 확인했습니다.",
+        )
         collector.check(
             "SIG-US-CONTRACT-001",
             us_signal_contract,
-            pass_message="미국 Top100 시그널·추천의 ready 상태와 canonical identity를 확인했습니다.",
+            pass_message="미국 Top100 시그널·추천의 ready·canonical 공개 계약을 확인했습니다.",
+        )
+        collector.check(
+            "SIG-UI-022",
+            us_signal_contract,
+            pass_message="미국 공개 근거 3개와 내부 수치 비노출 계약을 확인했습니다.",
         )
     finally:
         api.close()
@@ -3914,13 +4148,6 @@ def run_data_signal_qa(
         _gate_checks(collector, catalog, pytest_junit=pytest_junit)
     elif mode == "live":
         if surface == "us":
-            _live_checks(
-                collector,
-                catalog,
-                base_url=base_url,
-                timeout=timeout,
-                direct_kis=direct_kis,
-            )
             market_state, _ = _live_us_checks(
                 collector,
                 catalog,
