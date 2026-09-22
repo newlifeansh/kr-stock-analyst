@@ -995,12 +995,19 @@ const STOCK_TERM_HELP = {
 };
 
 const dashboardQueryParams = new URLSearchParams(window.location.search);
-const PRODUCT_MARKET_UNIVERSE = document
+const requestedProductMarketUniverse = String(document
   .querySelector('meta[name="secret-note-market-universe"]')
-  ?.getAttribute("content") === "unified"
-  ? "unified"
+  ?.getAttribute("content") || "kr").toLowerCase();
+const PRODUCT_MARKET_UNIVERSE = ["kr", "us", "unified"].includes(requestedProductMarketUniverse)
+  ? requestedProductMarketUniverse
   : "kr";
-const US_MARKET_ENABLED = PRODUCT_MARKET_UNIVERSE === "unified";
+const IS_US_ONLY_PRODUCT = PRODUCT_MARKET_UNIVERSE === "us";
+const IS_UNIFIED_PRODUCT = PRODUCT_MARKET_UNIVERSE === "unified";
+const US_MARKET_ENABLED = PRODUCT_MARKET_UNIVERSE !== "kr";
+const PRODUCT_VERSION_ENDPOINT = IS_US_ONLY_PRODUCT ? "/us-version" : "/dashboard-version";
+const PRODUCT_REFRESH_PATH = IS_US_ONLY_PRODUCT ? "/us-refresh" : "/dashboard-refresh";
+const PRODUCT_SERVICE_WORKER_PATH = IS_US_ONLY_PRODUCT ? "/us-sw.js" : "/dashboard-sw.js";
+const PRODUCT_SERVICE_WORKER_SCOPE = IS_US_ONLY_PRODUCT ? "/us" : "/";
 const requestedView = dashboardQueryParams.get("view");
 const BINARY_MARKET_SCOPE_ROUTES = new Set([
   "ai-signals",
@@ -1021,20 +1028,30 @@ const usStockPathMatch = window.location.pathname.match(/^\/us\/stock\/([^/]+)\/
 const usStockPathCode = usStockPathMatch ? decodeURIComponent(usStockPathMatch[1]) : "";
 // Legacy unified shell used: const isUsHubContext = isUnifiedRootPath || Boolean(usStockPathMatch);
 const isUsHubContext = US_MARKET_ENABLED && (isUnifiedRootPath || Boolean(usStockPathMatch));
-const requestedMarketRankingMarketValue = dashboardQueryParams.get("market") || (isUnifiedRootPath ? "MIXED" : "ALL");
-const requestedMarketRankingMarket = !US_MARKET_ENABLED && ["MIXED", "NASDAQ", "SP500"].includes(requestedMarketRankingMarketValue.toUpperCase())
+const requestedMarketRankingMarketValue = dashboardQueryParams.get("market")
+  || (IS_US_ONLY_PRODUCT ? "NASDAQ" : isUnifiedRootPath ? "MIXED" : "ALL");
+const requestedMarketRankingMarket = PRODUCT_MARKET_UNIVERSE === "kr"
+  && ["MIXED", "NASDAQ", "SP500"].includes(requestedMarketRankingMarketValue.toUpperCase())
   ? "ALL"
-  : requestedMarketRankingMarketValue;
-const requestedMarketScopeValue = !US_MARKET_ENABLED
-  ? "kr"
-  : ["all", "kr", "us"].includes(dashboardQueryParams.get("market_scope"))
-    ? dashboardQueryParams.get("market_scope")
-    : "all";
-const requestedMarketScope = isUnifiedRootPath
-  && BINARY_MARKET_SCOPE_ROUTES.has(requestedView)
-  && requestedMarketScopeValue === "all"
-  ? (["movers", "market"].includes(requestedView) && ["NASDAQ", "SP500"].includes(requestedMarketRankingMarket.toUpperCase()) ? "us" : "kr")
-  : requestedMarketScopeValue;
+  : IS_US_ONLY_PRODUCT && ["MIXED", "ALL", "KOSPI", "KOSDAQ"].includes(requestedMarketRankingMarketValue.toUpperCase())
+    ? "NASDAQ"
+    : requestedMarketRankingMarketValue;
+const requestedMarketScopeValue = IS_US_ONLY_PRODUCT
+  ? "us"
+  : PRODUCT_MARKET_UNIVERSE === "kr"
+    ? "kr"
+    : ["all", "kr", "us"].includes(dashboardQueryParams.get("market_scope"))
+      ? dashboardQueryParams.get("market_scope")
+      : "all";
+const requestedMarketScope = IS_US_ONLY_PRODUCT
+  ? "us"
+  : PRODUCT_MARKET_UNIVERSE === "kr"
+    ? "kr"
+    : isUnifiedRootPath
+      && BINARY_MARKET_SCOPE_ROUTES.has(requestedView)
+      && requestedMarketScopeValue === "all"
+      ? (["movers", "market"].includes(requestedView) && ["NASDAQ", "SP500"].includes(requestedMarketRankingMarket.toUpperCase()) ? "us" : "kr")
+      : requestedMarketScopeValue;
 const requestedMarketRankingCategory = dashboardQueryParams.get("category") || "volume";
 const requestedMarketRankingMode = dashboardQueryParams.get("mode") || "";
 const requestedNewsFilter = dashboardQueryParams.get("filter") || "all";
@@ -1042,7 +1059,15 @@ const requestedTrendEventId = dashboardQueryParams.get("event_id") || "";
 const hasStockDetailPath = window.location.pathname.split("/").filter(Boolean).length > 1;
 const isUsStockDetailPath = Boolean(usStockPathMatch) && !/^\d{6}$/.test(usStockPathCode);
 const isUsMarketContext = isUsHubContext;
-if (isUsHubContext) {
+if (IS_US_ONLY_PRODUCT && isUsHubContext) {
+  document.body.dataset.stockMarket = "us";
+  document.body.dataset.appMarket = "us";
+  document.body.dataset.marketScope = "us";
+  document.title = "비밀노트 | 미국증시";
+  const loginTitle = $("login-title");
+  if (loginTitle) loginTitle.textContent = "미국증시 비밀노트";
+  if (elements.loginDescription) elements.loginDescription.textContent = "아이디를 입력해 미국 종목을 확인하세요.";
+} else if (isUsHubContext) {
   document.body.dataset.stockMarket = isUsStockDetailPath ? "us" : "mixed";
   document.body.dataset.appMarket = "mixed";
   document.body.dataset.marketScope = requestedMarketScope;
@@ -1292,7 +1317,9 @@ const state = {
   homeSurgeSector: "all",
   homeRankingCategory: DEFAULT_MARKET_RANKING_CATEGORY,
   homeRankingMode: "",
-  homeRankingMarket: isUnifiedRootPath ? "ALL" : (MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL"),
+  homeRankingMarket: IS_US_ONLY_PRODUCT
+    ? "NASDAQ"
+    : isUnifiedRootPath ? "ALL" : (MARKET_RANKING_MARKETS.has(requestedMarketRankingMarket) ? requestedMarketRankingMarket : "ALL"),
   homeRankingRequestId: 0,
   homeUsRankingRequestId: 0,
   homeSurgeItems: [],
@@ -1501,6 +1528,60 @@ function applyUsMarketSurface() {
     const node = $(id);
     if (node) node.textContent = value;
   };
+  if (IS_US_ONLY_PRODUCT) {
+    document.body.dataset.marketScope = "us";
+    document.body.dataset.appMarket = "us";
+    document.body.dataset.stockMarket = "us";
+    document.title = "비밀노트 | 미국증시";
+    state.marketScope = "us";
+    state.watchMarketMapMarketScope = "us";
+    setCopy("home-market-signal-title", "미국 AI는 무엇을 사고팔까?");
+    setCopy("home-ai-response-heading", "미국 관심종목 대응");
+    setCopy("trend-events-title", "미국 증시 캘린더");
+    setCopy("trend-live-title", "미국 시장 뉴스");
+    setCopy("news-page-title", "미국 시장 뉴스");
+    setCopy("recommend-stage-title", "미국 추천 종목");
+    setCopy("watch-market-map-timeline-session", "미국 정규장 · 뉴욕시간");
+    if (elements.discoverySearchInput) {
+      elements.discoverySearchInput.placeholder = "미국 종목명 또는 티커";
+      elements.discoverySearchInput.setAttribute("aria-label", "미국 전체 종목 검색");
+    }
+    if (elements.input) elements.input.placeholder = "미국 종목명 또는 티커";
+    const signalListLink = document.querySelector("a[data-ai-signal-list-link]");
+    if (signalListLink) signalListLink.href = "/us?view=ai-signals&market_scope=us";
+    const brand = document.querySelector(".mobile-brand");
+    const brandMarket = brand?.querySelector(":scope > span:last-child");
+    if (brand) brand.setAttribute("aria-label", "비밀노트 미국증시");
+    if (brandMarket) brandMarket.textContent = "미국증시";
+    const serviceIntro = document.getElementById("service-intro-title")?.closest("section, article, div");
+    const serviceMarketCopy = Array.from(serviceIntro?.querySelectorAll("li") || [])
+      .find((node) => node.textContent.includes("주식시장"));
+    if (serviceMarketCopy) {
+      serviceMarketCopy.textContent = "AI 분석과 공개 데이터를 활용해 미국 주식시장 정보를 쉽게 정리합니다.";
+    }
+    ensureUnifiedHomeTop50();
+    document.getElementById("home-surge")?.remove();
+    for (const selector of [
+      "#unified-market-scope",
+      "#recommend-market-scope",
+      "#watch-market-map-market-toggle",
+      "#service-source-kr",
+      '[data-home-ranking-market="MIXED"]',
+      '[data-home-ranking-market="ALL"]',
+      '[data-home-ranking-market="KOSPI"]',
+      '[data-home-ranking-market="KOSDAQ"]',
+      '[data-market-filter="MIXED"]',
+      '[data-market-filter="ALL"]',
+      '[data-market-filter="KOSPI"]',
+      '[data-market-filter="KOSDAQ"]',
+    ]) {
+      document.querySelectorAll(selector).forEach((node) => node.remove());
+    }
+    const usSource = document.getElementById("service-source-us");
+    if (usSource) usSource.hidden = false;
+    syncMarketRankingExchangeFilters(state.view);
+    return;
+  }
   const selectedMarketLabel = state.marketScope === "us"
     ? "미국"
     : state.marketScope === "kr" ? "한국" : "한국·미국";
@@ -1575,7 +1656,7 @@ function applyUsMarketSurface() {
 }
 
 function applyDomesticMarketStructure() {
-  if (US_MARKET_ENABLED) return;
+  if (PRODUCT_MARKET_UNIVERSE !== "kr") return;
   document.body.dataset.marketScope = "kr";
   document.body.dataset.appMarket = "kr";
   document.body.dataset.stockMarket = "kr";
@@ -1687,6 +1768,7 @@ function itemMatchesMarketScope(item, marketScope = state.marketScope) {
 }
 
 function aiSignalRequiredMarketScopes() {
+  if (IS_US_ONLY_PRODUCT) return ["us"];
   return isUsHubContext ? ["kr", "us"] : ["kr"];
 }
 
@@ -1738,6 +1820,7 @@ function unifiedMarketUrl(url, marketScope = state.marketScope) {
 }
 
 function setUnifiedMarketScope(marketScope) {
+  if (IS_US_ONLY_PRODUCT) return;
   if (!isUsHubContext || !["kr", "us"].includes(marketScope)) return;
   if (state.marketScope === marketScope) return;
   const nextView = /^\/us\/stock\//.test(window.location.pathname) ? "search" : state.view;
@@ -1762,6 +1845,12 @@ function setUnifiedMarketScope(marketScope) {
 }
 
 function syncUnifiedMarketScopeVisibility(view = state.view) {
+  if (IS_US_ONLY_PRODUCT) {
+    if (elements.unifiedMarketScope) elements.unifiedMarketScope.hidden = true;
+    if (elements.recommendMarketScope) elements.recommendMarketScope.hidden = true;
+    syncMarketRankingExchangeFilters(view);
+    return;
+  }
   if (elements.unifiedMarketScope) {
     elements.unifiedMarketScope.hidden = !isUsHubContext || !["news", "portfolio", "chart"].includes(view);
   }
@@ -2531,6 +2620,9 @@ function stockDetailMetaText(data) {
 }
 
 function homeMarketAssetOrder(now = new Date()) {
+  if (IS_US_ONLY_PRODUCT) {
+    return ["SP500", "NASDAQ", "SOX", "DOW"];
+  }
   if (!US_MARKET_ENABLED) {
     return ["KOSPI", "KOSDAQ"];
   }
@@ -10073,7 +10165,9 @@ async function refreshCurrentView() {
         loadHomeMarketImpact({ force: true }),
         loadHomeMarketIndices({ force: true }),
         loadHomeAiSignals({ force: true, ttlMs: 0 }),
-        loadHomeSurgeRankings({ force: true, ttlMs: 0 }),
+        IS_US_ONLY_PRODUCT
+          ? loadHomeUsRankings({ force: true, ttlMs: 0 })
+          : loadHomeSurgeRankings({ force: true, ttlMs: 0 }),
       ]);
       return;
     case "news":
@@ -10280,7 +10374,9 @@ function renderSuggestions(items) {
 }
 
 async function fetchUnifiedStockSearch(query, limit, signal, marketScope = state.marketScope) {
-  const scopes = isUsHubContext && marketScope === "all" ? ["kr", "us"] : [isUsHubContext ? marketScope : "kr"];
+  const scopes = IS_US_ONLY_PRODUCT
+    ? ["us"]
+    : isUsHubContext && marketScope === "all" ? ["kr", "us"] : [isUsHubContext ? marketScope : "kr"];
   const settled = await Promise.allSettled(scopes.map(async (scope) => {
     const endpoint = scope === "us" ? "/us/stocks/search" : "/stocks/search";
     const response = await fetch(`${endpoint}?query=${encodeURIComponent(query)}&limit=${limit}`, {
@@ -10379,7 +10475,9 @@ async function fetchStandaloneSuggestions(kind, query) {
   const controller = new AbortController();
   state[controllerKey] = controller;
   try {
-    const searchScope = isChart ? state.marketScope : (isUsHubContext ? "all" : "kr");
+    const searchScope = IS_US_ONLY_PRODUCT
+      ? "us"
+      : isChart ? state.marketScope : (isUsHubContext ? "all" : "kr");
     const items = await fetchUnifiedStockSearch(normalized, 12, controller.signal, searchScope);
     if (document.activeElement !== input) {
       hideStandaloneSuggestions(input, container);
@@ -10412,7 +10510,7 @@ async function resolveAndLoadDiscoveryStock(query) {
   let selected = exactSuggestion;
   if (!selected) {
     try {
-      const searchScope = isUsHubContext ? "all" : "kr";
+      const searchScope = IS_US_ONLY_PRODUCT ? "us" : isUsHubContext ? "all" : "kr";
       const matches = await fetchUnifiedStockSearch(query, 12, undefined, searchScope);
       selected = matches.find((item) => (
         [item.code, item.name].some((value) => String(value || "").trim().toLocaleLowerCase("ko-KR") === normalized)
@@ -10598,8 +10696,11 @@ function readWatchlist(options = {}) {
       const parsed = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || "[]");
       return Array.isArray(parsed) ? normalizeWatchlistItems(tagMarketItems(parsed, "kr")) : [];
     }
-    const domestic = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || "[]");
     const us = JSON.parse(localStorage.getItem(`${WATCHLIST_KEY}.us`) || "[]");
+    if (IS_US_ONLY_PRODUCT) {
+      return normalizeWatchlistItems(tagMarketItems(Array.isArray(us) ? us : [], "us"));
+    }
+    const domestic = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || "[]");
     const allItems = normalizeWatchlistItems([
       ...tagMarketItems(Array.isArray(domestic) ? domestic : [], "kr"),
       ...tagMarketItems(Array.isArray(us) ? us : [], "us"),
@@ -10658,6 +10759,11 @@ function writeWatchlist(items, options = {}) {
   const normalized = normalizeWatchlistItems(items);
   if (!isUsHubContext) {
     localStorage.setItem(WATCHLIST_KEY, JSON.stringify(normalized));
+  } else if (IS_US_ONLY_PRODUCT) {
+    localStorage.setItem(
+      `${WATCHLIST_KEY}.us`,
+      JSON.stringify(normalized.filter((item) => marketScopeForItem(item) === "us")),
+    );
   } else {
     const visibleScope = state.view === "home" ? "all" : state.marketScope;
     const previous = options.replaceAll === true ? [] : readWatchlist({ allMarkets: true });
@@ -11761,6 +11867,7 @@ async function fetchRemoteWatchlist(shareId) {
     return tagMarketItems(payload.items, marketScope);
   };
   if (!isUsHubContext) return { items: await fetchScope("kr") };
+  if (IS_US_ONLY_PRODUCT) return { items: await fetchScope("us") };
   const settled = await Promise.allSettled([fetchScope("kr"), fetchScope("us")]);
   const items = settled.filter((result) => result.status === "fulfilled").flatMap((result) => result.value);
   if (!items.length && settled.every((result) => result.status === "rejected")) throw settled[0].reason;
@@ -11817,6 +11924,7 @@ async function saveRemoteWatchlist(items, shareId = state.watchlistId) {
   };
   const normalized = normalizeWatchlistItems(items);
   if (!isUsHubContext) return saveScope("kr", normalized);
+  if (IS_US_ONLY_PRODUCT) return saveScope("us", normalized.filter((item) => marketScopeForItem(item) === "us"));
   const [domestic, us] = await Promise.all([
     saveScope("kr", normalized.filter((item) => marketScopeForItem(item) === "kr")),
     saveScope("us", normalized.filter((item) => marketScopeForItem(item) === "us")),
@@ -12761,6 +12869,12 @@ function pushNotificationOptionSignature() {
 }
 
 function compactPushNotificationDescription(option) {
+  if (IS_US_ONLY_PRODUCT && option.id === "market_ai_signal") {
+    return "미국 시장 시그널";
+  }
+  if (IS_US_ONLY_PRODUCT && option.id === "market_session") {
+    return "미국장 시작·마감 5분 전";
+  }
   if (option.id === "price_move") {
     const threshold = String(option.description || "").match(/\d+(?:\.\d+)?%/)?.[0];
     return threshold ? `관심종목 ±${threshold} 이상` : "관심종목 기준 이상 등락";
@@ -13720,7 +13834,7 @@ function registerDashboardServiceWorker() {
     }, 750);
   });
   navigator.serviceWorker
-    .register(`/dashboard-sw.js?v=${DASHBOARD_CLIENT_VERSION}`, { scope: "/" })
+    .register(`${PRODUCT_SERVICE_WORKER_PATH}?v=${DASHBOARD_CLIENT_VERSION}`, { scope: PRODUCT_SERVICE_WORKER_SCOPE })
     .then((registration) => {
       const checkForUpdate = () => registration.update().catch(() => undefined);
       checkForUpdate();
@@ -13737,7 +13851,7 @@ function registerDashboardServiceWorker() {
 let dashboardVersionCheckPromise = null;
 
 function dashboardRefreshUrl() {
-  const url = new URL("/dashboard-refresh", window.location.origin);
+  const url = new URL(PRODUCT_REFRESH_PATH, window.location.origin);
   const code = pathQuery();
   if (code) {
     url.searchParams.set("code", code);
@@ -13746,7 +13860,7 @@ function dashboardRefreshUrl() {
     }
   } else {
     url.searchParams.set("view", state.view || "home");
-    if (isUsHubContext && ["kr", "us"].includes(state.marketScope)) {
+    if (!IS_US_ONLY_PRODUCT && isUsHubContext && ["kr", "us"].includes(state.marketScope)) {
       url.searchParams.set("market_scope", state.marketScope);
     }
   }
@@ -13757,7 +13871,7 @@ function checkDashboardClientVersion() {
   if (dashboardVersionCheckPromise) {
     return dashboardVersionCheckPromise;
   }
-  dashboardVersionCheckPromise = fetch("/dashboard-version", { cache: "no-store" })
+  dashboardVersionCheckPromise = fetch(PRODUCT_VERSION_ENDPOINT, { cache: "no-store" })
     .then((response) => response.ok ? response.json() : null)
     .then((payload) => {
       const latestVersion = String(payload?.version || "").trim();
@@ -14444,8 +14558,10 @@ function setView(requestedViewName, options = {}) {
       includeIdentityData: options.deferIdentityData !== true,
     });
     startHomeAiResponseRefresh();
-    void loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home", { forceOnFirst: false }));
-    if (isUnifiedRootPath) {
+    if (!IS_US_ONLY_PRODUCT) {
+      void loadHomeSurgeRankings(pageEntryRefreshOptions("market", "home", { forceOnFirst: false }));
+    }
+    if (US_MARKET_ENABLED && isUnifiedRootPath) {
       void loadHomeUsRankings(pageEntryRefreshOptions("market", "home-us", { forceOnFirst: false }));
     }
     connectUsSectorStream();
@@ -18673,9 +18789,11 @@ async function loadAiSignalsPage(options = {}) {
 
 async function fetchMarketAiSignals(options = {}) {
   const recentDays = Number(options.recentDays) || AI_SIGNAL_HISTORY_DAYS;
-  const effectiveScope = isUsHubContext && ["home", "ai-signals"].includes(state.view)
-    ? "all"
-    : state.marketScope;
+  const effectiveScope = IS_US_ONLY_PRODUCT
+    ? "us"
+    : isUsHubContext && ["home", "ai-signals"].includes(state.view)
+      ? "all"
+      : state.marketScope;
   const fetchScope = async (marketScope) => {
     const url = marketScope === "us"
       ? `/us/market/quant-signals?limit=20&recent_days=${recentDays}`
@@ -19074,6 +19192,7 @@ function compactSignalDate(value) {
 }
 
 function homeSignalOpeningPriorityMarket(now = new Date()) {
+  if (IS_US_ONLY_PRODUCT) return "us";
   const korea = koreaClockParts(now);
   const koreaWeekday = new Date(Date.UTC(korea.year, korea.month - 1, korea.day)).getUTCDay();
   const koreaMinutes = korea.hour * 60 + korea.minute;
@@ -19388,7 +19507,7 @@ function setHomeSurgeSector(mode, options = {}) {
     elements.homeRankingColumnLabel.textContent = marketRankingColumnLabel(state.homeRankingCategory, state.homeRankingMode);
   }
   if (options.load !== false) {
-    void loadHomeSurgeRankings({ force: true, ttlMs: 0 });
+    if (!IS_US_ONLY_PRODUCT) void loadHomeSurgeRankings({ force: true, ttlMs: 0 });
     if (isUnifiedRootPath) void loadHomeUsRankings({ force: true, ttlMs: 0 });
   }
 }
@@ -19501,7 +19620,7 @@ function setHomeRankingCategory(category, options = {}) {
   }
   closeHomeRankingQuoteStreams();
   if (options.load !== false) {
-    void loadHomeSurgeRankings({ force: options.force !== false, ttlMs: 0 });
+    if (!IS_US_ONLY_PRODUCT) void loadHomeSurgeRankings({ force: options.force !== false, ttlMs: 0 });
     if (isUnifiedRootPath) void loadHomeUsRankings({ force: options.force !== false, ttlMs: 0 });
   }
 }
@@ -19650,7 +19769,11 @@ function setHomeRankingMarket(market, options = {}) {
   if (elements.homeSurgeList) {
     elements.homeSurgeList.innerHTML = `<p class="muted">${marketRankingConfig(state.homeRankingCategory).loading}</p>`;
   }
-  void loadHomeSurgeRankings({ force: true, ttlMs: 0 });
+  if (IS_US_ONLY_PRODUCT) {
+    void loadHomeUsRankings({ force: true, ttlMs: 0 });
+  } else {
+    void loadHomeSurgeRankings({ force: true, ttlMs: 0 });
+  }
 }
 
 function currentMarketFilter() {
@@ -28258,7 +28381,9 @@ function restoreTrendChrome(activeTab = "live") {
   }
   if (elements.trendEventsTitle) {
     elements.trendEventsTitle.hidden = false;
-    elements.trendEventsTitle.textContent = isUsHubContext ? "통합 증시 캘린더" : "증시 캘린더";
+    elements.trendEventsTitle.textContent = IS_US_ONLY_PRODUCT
+      ? "미국 증시 캘린더"
+      : isUsHubContext ? "통합 증시 캘린더" : "증시 캘린더";
   }
 }
 
@@ -28730,9 +28855,11 @@ async function loadHomeMarketIndices(options = {}) {
   if (!elements.homeMarketIndices) {
     return;
   }
-  const expectedCodes = new Set(US_MARKET_ENABLED
-    ? ["KOSPI", "KOSDAQ", "SP500", "NASDAQ", "SOX", "DOW", "GOLD", "OIL"]
-    : ["KOSPI", "KOSDAQ"]);
+  const expectedCodes = new Set(IS_US_ONLY_PRODUCT
+    ? ["SP500", "NASDAQ", "SOX", "DOW"]
+    : US_MARKET_ENABLED
+      ? ["KOSPI", "KOSDAQ", "SP500", "NASDAQ", "SOX", "DOW", "GOLD", "OIL"]
+      : ["KOSPI", "KOSDAQ"]);
   const previousItems = Array.isArray(state.homeMarketIndexItems)
     ? state.homeMarketIndexItems.filter((item) => expectedCodes.has(item?.code))
     : [];
@@ -28746,7 +28873,9 @@ async function loadHomeMarketIndices(options = {}) {
     // Array.prototype.at. Keep each request independently recoverable without
     // relying on those newer APIs so one failed feed cannot blank every card.
     const [domesticPayload, globalPayload] = await Promise.all([
-      fetchHomeJsonWithRetry(liveUrl(domesticEndpoint), { force: true, ttlMs: 0 }).catch(() => null),
+      IS_US_ONLY_PRODUCT
+        ? Promise.resolve(null)
+        : fetchHomeJsonWithRetry(liveUrl(domesticEndpoint), { force: true, ttlMs: 0 }).catch(() => null),
       US_MARKET_ENABLED
         ? fetchHomeJsonWithRetry(liveUrl("/market/global-assets?limit=30"), { force: true, ttlMs: 0 }).catch(() => null)
         : Promise.resolve(null),
@@ -29770,7 +29899,9 @@ function renderTrends(payload, activeTab = "live") {
 
 async function fetchTrendsForScope(options = {}) {
   const days = Math.max(1, Number(options.days) || 7);
-  const effectiveScope = isUsHubContext && state.view === "home" ? "all" : state.marketScope;
+  const effectiveScope = IS_US_ONLY_PRODUCT
+    ? "us"
+    : isUsHubContext && state.view === "home" ? "all" : state.marketScope;
   const scopes = !isUsHubContext || effectiveScope === "kr"
     ? ["kr"]
     : effectiveScope === "us" ? ["us"] : ["kr", "us"];
@@ -31777,7 +31908,11 @@ document.addEventListener("visibilitychange", () => {
   }
   if (state.view === "home") {
     startHomeMarketCarouselMotion();
-    void loadHomeSurgeRankings({ force: true, ttlMs: 0 });
+    if (IS_US_ONLY_PRODUCT) {
+      void loadHomeUsRankings({ force: true, ttlMs: 0 });
+    } else {
+      void loadHomeSurgeRankings({ force: true, ttlMs: 0 });
+    }
     void loadHomeWatchMarketMap({ force: true, ttlMs: 0 });
     void loadHomeMarketIndices({ force: true, silent: true });
     void refreshHomeAiResponseContext({ force: true });

@@ -1536,7 +1536,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260922us94",
+                "us_dashboard_version": "20260923us95",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1544,7 +1544,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260922us94",
+                "us_dashboard_version": "20260923us95",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1795,10 +1795,10 @@ class FakeReadOnlyApi:
             return {
                 "name": "비밀노트 미국증시",
                 "scope": "/us",
-                "start_url": "/us?view=overview",
+                "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20260922us94"}, self._meta(path)
+            return {"version": "20260923us95"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/stocks/AAPL/dashboard":
@@ -1823,32 +1823,39 @@ class FakeReadOnlyApi:
         return {"items": [], "status": "ready"}, self._meta(path)
 
     def get_text(self, path: str, **params: object):
-        if path == "/assets/nasdaq/app.js":
-            return (
-                'const US_APP_BASE_PATH = "/us";\n'
-                'const overviewUrl = "/market/global-assets?limit=30";',
-                self._meta(path),
-            )
         if path == "/us":
             return (
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
-                '</head><body>미국증시 비밀노트</body></html>',
+                '<title>비밀노트 | 미국증시</title>'
+                '<link href="/assets/dashboard/styles.css?v=20260923us95" />'
+                '</head><body><section id="home-view"></section>'
+                '<nav id="bottom-nav"></nav>'
+                '<script src="/dashboard-app-v170.js?v=20260923us95"></script>'
+                '</body></html>',
                 self._meta(path),
             )
         if path == "/dashboard-app-v170.js":
             return (
-                'const US_MARKET_ENABLED = PRODUCT_MARKET_UNIVERSE === "unified";\n'
-                'const requestedMarketScopeValue = !US_MARKET_ENABLED\n'
-                'if (!US_MARKET_ENABLED) return null;',
+                'const IS_US_ONLY_PRODUCT = PRODUCT_MARKET_UNIVERSE === "us";\n'
+                'const US_MARKET_ENABLED = PRODUCT_MARKET_UNIVERSE !== "kr";\n'
+                'const requestedMarketScopeValue = IS_US_ONLY_PRODUCT\n  ? "us"\n'
+                '  : PRODUCT_MARKET_UNIVERSE === "kr"\n    ? "kr"\n'
+                'if (!US_MARKET_ENABLED) return null;\n'
+                'const PRODUCT_VERSION_ENDPOINT = IS_US_ONLY_PRODUCT ? "/us-version" : "/dashboard-version";\n'
+                'liveUrl("/market/global-assets?limit=30");',
                 self._meta(path),
             )
         assert path == "/dashboard"
         return (
             '<html lang="ko" data-market-universe="kr"><head>'
-            '<meta name="secret-note-environment" content="staging" />'
             '<meta name="secret-note-market-universe" content="kr" />'
-            '</head></html>',
+            '<title>비밀노트 | 국내증시</title>'
+            '<link href="/assets/dashboard/styles.css?v=20260922v552" />'
+            '</head><body><section id="home-view"></section>'
+            '<nav id="bottom-nav"></nav>'
+            '<script src="/dashboard-app-v170.js?v=20260922v552"></script>'
+            '</body></html>',
             self._meta(path),
         )
 

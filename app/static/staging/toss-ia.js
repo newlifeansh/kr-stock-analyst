@@ -8,9 +8,12 @@
 (() => {
   "use strict";
 
-  const stagingUsMarketEnabled = document
+  const stagingProductMarketUniverse = String(document
     .querySelector('meta[name="secret-note-market-universe"]')
-    ?.getAttribute("content") === "unified";
+    ?.getAttribute("content") || "kr").toLowerCase();
+  const stagingUsOnlyProduct = stagingProductMarketUniverse === "us";
+  const stagingUnifiedProduct = stagingProductMarketUniverse === "unified";
+  const stagingUsMarketEnabled = stagingUsOnlyProduct || stagingUnifiedProduct;
   const stagingDashboardRootContext = /^\/dashboard\/?$/.test(window.location.pathname);
   // Legacy unified staging shell used the following market-root expression:
   // const stagingUsHubContext = /^\/us(?:\/|$)/.test(window.location.pathname) || stagingDashboardRootContext;
@@ -19,9 +22,11 @@
   );
   const stagingQueryParams = new URLSearchParams(window.location.search);
   const stagingRequestedMarketScope = stagingQueryParams.get("market_scope");
-  const stagingMarketScope = stagingUsHubContext
-    ? (stagingRequestedMarketScope === "us" ? "us" : "kr")
-    : "kr";
+  const stagingMarketScope = stagingUsOnlyProduct
+    ? "us"
+    : stagingUsHubContext
+      ? (stagingRequestedMarketScope === "us" ? "us" : "kr")
+      : "kr";
   const stagingUsStockMatch = window.location.pathname.match(/^\/us\/stock\/([^/]+)\/?$/);
   const stagingUsStockCode = stagingUsStockMatch ? decodeURIComponent(stagingUsStockMatch[1]) : "";
   const stagingUsMarketContext = Boolean(stagingUsStockMatch && !/^\d{6}$/.test(stagingUsStockCode))
@@ -2403,7 +2408,7 @@
       signalKicker.innerHTML = `
         <span class="staging-home-signal-icon" aria-hidden="true">${svg(icons.ai)}</span>
         <strong>AI 시그널</strong>
-        <small data-staging-home-signal-meta>${stagingUsHubContext ? "한국·미국 종목의 최신 예비 신호를 확인하세요" : "시총 100위내 매매신호를 확인하세요"}</small>
+        <small data-staging-home-signal-meta>${stagingUsOnlyProduct ? "미국 대표 대형주의 최신 예비 신호를 확인하세요" : stagingUsHubContext ? "한국·미국 종목의 최신 예비 신호를 확인하세요" : "시총 100위내 매매신호를 확인하세요"}</small>
       `;
       const signalChevron = document.createElement("a");
       signalChevron.className = "staging-home-signal-chevron";
@@ -3065,7 +3070,7 @@
     hotCommunitySection.innerHTML = `
       <header class="staging-hot-community-head">
         <h2 id="staging-hot-community-title">핫한 커뮤니티</h2>
-        ${stagingUsHubContext ? `
+        ${stagingUnifiedProduct ? `
           <div class="staging-hot-community-market-toggle" role="group" aria-label="커뮤니티 시장 선택">
             <button class="${initialHotCommunityMarket === "us" ? "active" : ""}" type="button" aria-label="미국 커뮤니티 보기" aria-pressed="${initialHotCommunityMarket === "us"}" data-hot-community-market="us"><span aria-hidden="true">🇺🇸</span></button>
             <button class="${initialHotCommunityMarket === "kr" ? "active" : ""}" type="button" aria-label="한국 커뮤니티 보기" aria-pressed="${initialHotCommunityMarket === "kr"}" data-hot-community-market="kr"><span aria-hidden="true">🇰🇷</span></button>
@@ -6211,12 +6216,12 @@
     if (modeTabs && !aiSignalsView.querySelector(".staging-ai-signals-intro")) {
       const intro = document.createElement("header");
       intro.className = "staging-ai-signals-intro";
-      if (stagingUsHubContext) intro.classList.add("has-market-toggle");
+      if (stagingUnifiedProduct) intro.classList.add("has-market-toggle");
       intro.setAttribute("aria-labelledby", "staging-ai-signals-title");
       intro.innerHTML = `
         <span data-staging-ai-market-eyebrow>${stagingUsesUsMarketLabels() ? "미국 대표 대형주에서" : "시총 Top 100 에서"}</span>
         <h2 id="staging-ai-signals-title">AI는 무엇을 사고 팔까?</h2>
-        ${stagingUsHubContext ? `
+        ${stagingUnifiedProduct ? `
           <nav class="staging-hot-community-market-toggle staging-ai-signal-market-toggle" data-ai-signal-market-toggle role="group" aria-label="AI 시그널 시장 선택" data-market-toggle-style="compact">
             <button type="button" aria-label="미국 시그널 보기" aria-pressed="false" data-unified-market-scope="us"><span aria-hidden="true">🇺🇸</span></button>
             <button type="button" aria-label="한국 시그널 보기" aria-pressed="false" data-unified-market-scope="kr"><span aria-hidden="true">🇰🇷</span></button>

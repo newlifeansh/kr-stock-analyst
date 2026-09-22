@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ko" data-market-universe="kr">
+<html lang="ko" data-market-universe="__MARKET_UNIVERSE__">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>비밀노트 | 국내증시</title>
+    <title>__PRODUCT_TITLE__</title>
     <meta id="staging-theme-color" name="theme-color" content="#17161b" />
     <meta name="color-scheme" content="light dark" />
     <meta name="secret-note-service-update" content="20260829-chart-analysis-v1" />
@@ -13,23 +13,13 @@
     <meta name="apple-mobile-web-app-title" content="비밀노트" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="application-version" content="5.8" />
-    <meta name="secret-note-market-universe" content="kr" />
-    <script>
-      (() => {
-        if (!/^\/us(?:\/|$)/.test(window.location.pathname)) return;
-        const match = window.location.pathname.match(/^\/us\/stock\/(\d{6})\/?$/);
-        const destination = match
-          ? `/dashboard/${match[1]}`
-          : "/dashboard?view=home";
-        window.location.replace(destination);
-      })();
-    </script>
-    <link rel="manifest" href="/dashboard.webmanifest" />
+    <meta name="secret-note-market-universe" content="__MARKET_UNIVERSE__" />
+    <link rel="manifest" href="__WEB_MANIFEST_PATH__" />
     <link rel="apple-touch-icon" href="/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq" />
     <link rel="icon" type="image/png" href="/assets/dashboard/icons/favicon-64.png?v=20260620bq" />
     <script>
       if (window.location.protocol === "file:") {
-        var serverUrl = new URL("http://127.0.0.1:8001/dashboard");
+        var serverUrl = new URL("http://127.0.0.1:8001__APP_BASE_PATH__");
         serverUrl.search = window.location.search || "?view=home";
         serverUrl.hash = window.location.hash;
         window.location.replace(serverUrl.toString());
@@ -42,7 +32,7 @@
     <script src="/assets/staging/stock-change-copy-logic.js?v=20260921-domestic-market-v116" defer></script>
     <script src="/assets/staging/toss-ia.js?v=20260921-domestic-market-v116" defer></script>
     <script src="/assets/zoom-lock.js?v=20260728z1"></script>
-    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=20260922v552&amp;build=20260922v552" />
+    <link rel="stylesheet" href="/assets/dashboard/styles.css?v=__CLIENT_VERSION__&amp;build=__CLIENT_VERSION__" />
   </head>
   <body>
     <section class="login-gate" id="login-gate" data-phase="loading" role="dialog" aria-modal="true" aria-labelledby="login-loading-label" aria-busy="true">
@@ -999,7 +989,7 @@
         <section class="home-ai-signals" id="home-ai-signals" aria-labelledby="home-market-signal-title">
           <header class="home-ai-signals-head">
             <div>
-              <a class="home-ai-signals-title-link" href="/dashboard?view=ai-signals" data-ai-signal-list-link="true" aria-label="AI 시그널 전체 목록 보기">
+              <a class="home-ai-signals-title-link" href="__APP_BASE_PATH__?view=ai-signals" data-ai-signal-list-link="true" aria-label="AI 시그널 전체 목록 보기">
                 <span id="home-ai-signals-meta">최근 30일 시장 신호 확인 중</span><h2 id="home-ai-signals-title">AI 시그널</h2>
               </a>
             </div>
@@ -1627,7 +1617,7 @@
           <div class="service-footer-disclosure-body">
             <ul>
               <li id="service-source-kr">한국거래소(KRX), 한국투자증권 Open API, OpenDART, 네이버 금융 및 국내 증권사 공개 리서치 자료를 활용합니다.</li>
-              <li id="service-source-us">미국 시장은 Yahoo Finance 시세·기업정보·해외뉴스, SEC EDGAR 공시 및 네이버 뉴스의 국내 기사를 활용합니다.</li>
+              <li id="service-source-us">미국 시장은 Yahoo Finance 시세·기업정보·해외뉴스, SEC EDGAR 공시 및 네이버 뉴스의 한국어 기사를 활용합니다.</li>
               <li>본 서비스는 현재 광고, 유료 결제 및 제휴 수익 없이 비상업적으로 운영됩니다.</li>
               <li>제공되는 데이터는 정보 제공과 분석 참고를 위해 가공하여 표시하며, 원문 또는 원시데이터의 재판매나 대량 재배포를 목적으로 하지 않습니다.</li>
               <li>데이터 이용은 각 제공처의 이용조건과 관련 법령을 따르며, 권리자의 정당한 요청이 있는 경우 관련 데이터의 표시 또는 제공을 중단할 수 있습니다.</li>
@@ -1682,6 +1672,6 @@
       </nav>
     </div>
 
-    <script src="/dashboard-app-v170.js?v=20260922v552" defer></script>
+    <script src="/dashboard-app-v170.js?v=__CLIENT_VERSION__" defer></script>
   </body>
 </html>

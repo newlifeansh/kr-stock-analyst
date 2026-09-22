@@ -1740,9 +1740,11 @@ def _live_checks(
                 **dashboard_meta,
             )
             _assert(
-                'const US_MARKET_ENABLED = PRODUCT_MARKET_UNIVERSE === "unified";'
+                'const US_MARKET_ENABLED = PRODUCT_MARKET_UNIVERSE !== "kr";'
                 in source
-                and 'const requestedMarketScopeValue = !US_MARKET_ENABLED' in source
+                and 'const requestedMarketScopeValue = IS_US_ONLY_PRODUCT'
+                in source
+                and 'PRODUCT_MARKET_UNIVERSE === "kr"\n    ? "kr"' in source
                 and 'if (!US_MARKET_ENABLED) return null;' in source,
                 "스테이징 클라이언트의 미국 시장 격리 가드가 누락됐습니다.",
                 **source_meta,
@@ -3417,8 +3419,9 @@ def _live_us_checks(
         )
 
         def us_product_boundary_contract() -> dict[str, Any]:
-            shell, shell_meta = api.get_text("/us", view="overview")
-            source, source_meta = api.get_text("/assets/nasdaq/app.js")
+            shell, shell_meta = api.get_text("/us", view="home")
+            domestic_shell, domestic_shell_meta = api.get_text("/dashboard", view="home")
+            source, source_meta = api.get_text("/dashboard-app-v170.js")
             manifest, manifest_meta = api.get("/us.webmanifest")
             version, version_meta = api.get("/us-version")
             assets, assets_meta = api.get("/market/global-assets", limit=30)
@@ -3427,27 +3430,33 @@ def _live_us_checks(
                 '<html lang="ko" data-market-universe="us">' in shell
                 and '<meta name="secret-note-market-universe" content="us" />'
                 in shell
-                and "미국증시 비밀노트" in shell,
-                "스테이징 /us가 미국증시 독립 제품 셸이 아닙니다.",
+                and "비밀노트 | 미국증시" in shell,
+                "스테이징 /us가 미국증시 제품 계약을 제공하지 않습니다.",
                 **shell_meta,
             )
             _assert(
-                "국내증시" not in shell
-                and "국내·미국" not in shell
-                and 'id="unified-market-scope"' not in shell,
-                "스테이징 /us에 국내 또는 통합 제품 UI가 남았습니다.",
-                **shell_meta,
+                re.findall(r'\bid="([^"]+)"', shell)
+                == re.findall(r'\bid="([^"]+)"', domestic_shell)
+                and 'href="/assets/dashboard/styles.css?' in shell
+                and 'src="/dashboard-app-v170.js?' in shell,
+                "스테이징 /us가 /dashboard와 같은 화면 구조·공통 자산을 사용하지 않습니다.",
+                us_shell=shell_meta,
+                dashboard_shell=domestic_shell_meta,
             )
             _assert(
-                '"/market/global-assets?limit=30"' in source
-                and "/market/cross-market" not in source
-                and 'US_APP_BASE_PATH = "/us"' in source,
-                "미국 홈의 데이터 경계가 글로벌 자산·/us API로 고정되지 않았습니다.",
+                'const IS_US_ONLY_PRODUCT = PRODUCT_MARKET_UNIVERSE === "us";'
+                in source
+                and 'const requestedMarketScopeValue = IS_US_ONLY_PRODUCT\n  ? "us"'
+                in source
+                and 'liveUrl("/market/global-assets?limit=30")' in source
+                and 'const PRODUCT_VERSION_ENDPOINT = IS_US_ONLY_PRODUCT ? "/us-version"'
+                in source,
+                "공통 대시보드 런타임의 미국 전용 데이터·버전 경계가 고정되지 않았습니다.",
                 **source_meta,
             )
             _assert(
                 manifest.get("scope") == "/us"
-                and manifest.get("start_url") == "/us?view=overview"
+                and manifest.get("start_url") == "/us?view=home"
                 and manifest.get("name") == "비밀노트 미국증시",
                 "미국 PWA manifest 경계가 잘못됐습니다.",
                 manifest=manifest,
@@ -3484,6 +3493,7 @@ def _live_us_checks(
             )
             return {
                 "shell": shell_meta,
+                "dashboard_shell": domestic_shell_meta,
                 "source": source_meta,
                 "manifest": manifest_meta,
                 "version": version_meta,
@@ -3496,7 +3506,7 @@ def _live_us_checks(
         collector.check(
             "SIG-UI-031",
             us_product_boundary_contract,
-            pass_message="스테이징 /us의 미국증시 독립 제품·자산·검색 경계를 확인했습니다.",
+            pass_message="스테이징 /us의 대시보드 화면 동형성·미국 전용 데이터·검색 경계를 확인했습니다.",
         )
 
         def us_signal_contract() -> dict[str, Any]:

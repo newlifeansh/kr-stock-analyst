@@ -726,16 +726,16 @@ def _run_us_e2e_checks(
                     _page_url(
                         base_url,
                         "/us",
-                        view="overview",
+                        view="home",
                         qa_run=datetime.now(KST).strftime("%H%M%S"),
                     ),
                     wait_until="commit",
-                    ready_selector="#overview-view",
+                    ready_selector="#home-view",
                 )
                 page.wait_for_selector("#login-gate", state="hidden")
-                page.wait_for_selector("#overview-view", state="visible")
+                page.wait_for_selector("#home-view", state="visible")
                 page.wait_for_selector(
-                    '#overview-us .cross-market-card[data-code="SP500"]',
+                    '#home-market-carousel .home-index-card[data-code="SP500"]',
                     state="visible",
                 )
                 shell = page.evaluate(
@@ -746,25 +746,64 @@ def _run_us_e2e_checks(
                       appMarket: document.body.dataset.appMarket,
                       title: document.title,
                       text: document.body.innerText,
-                      marketCodes: Array.from(document.querySelectorAll('#overview-us .cross-market-card[data-code]')).map(node => node.dataset.code),
-                      overviewVisible: !document.querySelector('#overview-view')?.hidden,
+                      marketCodes: Array.from(document.querySelectorAll('#home-market-carousel .home-index-card[data-code]')).map(node => node.dataset.code),
+                      homeVisible: !document.querySelector('#home-view')?.hidden,
                       loginHidden: document.querySelector('#login-gate')?.hidden === true,
+                      commonCss: document.querySelector('link[href^="/assets/dashboard/styles.css?"]')?.getAttribute('href'),
+                      commonScript: document.querySelector('script[src^="/dashboard-app-v170.js?"]')?.getAttribute('src'),
+                      nav: Array.from(document.querySelectorAll('#bottom-nav [data-app-view]')).map(node => ({
+                        view: node.dataset.appView,
+                        label: node.innerText.trim(),
+                      })),
+                      appPages: Array.from(document.querySelectorAll('.app-page')).map(node => node.id),
+                      homeSections: Array.from(document.querySelectorAll('#home-view > section')).map(node => node.id),
+                      hasUsTop50: Boolean(document.querySelector('#home-surge-us')),
+                      hasDomesticTop50: Boolean(document.querySelector('#home-surge')),
+                      hasCountryToggle: Boolean(document.querySelector('#unified-market-scope, #recommend-market-scope, #watch-market-map-market-toggle')),
                     })"""
                 )
+                expected_nav = [
+                    {"view": "home", "label": "증권"},
+                    {"view": "portfolio", "label": "관심"},
+                    {"view": "search", "label": "발견"},
+                    {"view": "news", "label": "피드"},
+                ]
                 if any(
                     (
                         shell["htmlUniverse"] != "us",
                         shell["metaUniverse"] != "us",
                         shell["marketScope"] != "us",
                         shell["appMarket"] != "us",
-                        shell["title"] != "비밀노트 · 미국증시",
-                        not shell["overviewVisible"],
+                        shell["title"] != "비밀노트 | 미국증시",
+                        not shell["homeVisible"],
                         not shell["loginHidden"],
+                        not shell["commonCss"],
+                        not shell["commonScript"],
+                        shell["nav"] != expected_nav,
+                        not shell["hasUsTop50"],
+                        shell["hasDomesticTop50"],
+                        shell["hasCountryToggle"],
                     )
                 ):
-                    raise QaFailure("미국증시 제품 메타·초기 화면이 올바르지 않습니다.", shell)
-                if "국내증시" in shell["text"] or "국내·미국" in shell["text"]:
-                    raise QaFailure("미국증시 화면에 국내 또는 통합 제품 문구가 남았습니다.", shell)
+                    raise QaFailure("미국증시가 국내 대시보드와 같은 화면 구조·내비게이션을 사용하지 않습니다.", shell)
+                forbidden_copy = [
+                    text
+                    for text in (
+                        "국내증시",
+                        "한국증시",
+                        "국내·미국",
+                        "한국·미국",
+                        "통합 증시",
+                        "코스피",
+                        "코스닥",
+                    )
+                    if text in shell["text"]
+                ]
+                if forbidden_copy:
+                    raise QaFailure(
+                        "미국증시 화면에 국내 제품 문구가 남았습니다.",
+                        {"forbidden_copy": forbidden_copy, "shell": shell},
+                    )
                 if not {"SP500", "NASDAQ", "SOX", "DOW"}.issubset(
                     set(shell["marketCodes"])
                 ):
@@ -779,8 +818,8 @@ def _run_us_e2e_checks(
                       rootWidth: document.documentElement.scrollWidth,
                       bodyWidth: document.body.scrollWidth,
                       textLength: (document.body.innerText || '').trim().length,
-                      targets: Array.from(document.querySelectorAll('#overview-refresh, #overview-view [data-view="stock"]')).map(node => ({
-                        id: node.id || node.dataset.view,
+                      targets: Array.from(document.querySelectorAll('#bottom-nav [data-app-view], #home-surge-more-us')).map(node => ({
+                        id: node.id || node.dataset.appView,
                         width: node.getBoundingClientRect().width,
                         height: node.getBoundingClientRect().height,
                       })),
@@ -799,35 +838,59 @@ def _run_us_e2e_checks(
 
                 page.evaluate("document.documentElement.style.fontSize = ''")
                 page.set_viewport_size(MOBILE_VIEWPORT)
-                stock_button = page.locator('#overview-view [data-view="stock"]')
-                stock_button.focus()
-                if not stock_button.evaluate("node => document.activeElement === node"):
-                    raise QaFailure("미국 종목 보기 버튼으로 키보드 포커스를 이동하지 못했습니다.")
-                stock_button.click()
+                search_button = page.locator('#bottom-nav [data-app-view="search"]')
+                search_button.focus()
+                if not search_button.evaluate("node => document.activeElement === node"):
+                    raise QaFailure("미국 발견 탭으로 키보드 포커스를 이동하지 못했습니다.")
+                search_button.click()
+                page.wait_for_selector("#search-view", state="visible")
+                search_state = page.evaluate(
+                    """() => ({
+                      searchVisible: !document.querySelector('#search-view')?.hidden,
+                      inputLabel: document.querySelector('#discovery-search-input')?.getAttribute('placeholder'),
+                      nav: Array.from(document.querySelectorAll('#bottom-nav [data-app-view]')).map(node => node.innerText.trim()),
+                    })"""
+                )
+                if (
+                    not search_state["searchVisible"]
+                    or search_state["inputLabel"] != "미국 종목명 또는 티커"
+                    or search_state["nav"] != ["증권", "관심", "발견", "피드"]
+                ):
+                    raise QaFailure("미국 발견 화면이 공통 대시보드 상호작용을 유지하지 않습니다.", search_state)
+
+                _navigate_page(
+                    page,
+                    _page_url(base_url, "/us/stock/NVDA", qa_run=datetime.now(KST).strftime("%H%M%S")),
+                    wait_until="commit",
+                    ready_selector="#stock-view",
+                )
+                page.wait_for_selector("#login-gate", state="hidden")
                 page.wait_for_selector("#stock-view", state="visible")
                 stock_state = page.evaluate(
                     """() => ({
                       stockVisible: !document.querySelector('#stock-view')?.hidden,
                       inputLabel: document.querySelector('#stock-code')?.getAttribute('placeholder'),
+                      marketScope: document.body.dataset.marketScope,
                       viewport: window.innerWidth,
                       rootWidth: document.documentElement.scrollWidth,
                     })"""
                 )
                 if (
                     not stock_state["stockVisible"]
-                    or stock_state["inputLabel"] != "AAPL"
+                    or stock_state["inputLabel"] != "미국 종목명 또는 티커"
+                    or stock_state["marketScope"] != "us"
                     or stock_state["rootWidth"] > stock_state["viewport"] + 2
                 ):
-                    raise QaFailure("미국 종목 검색 전환이 올바르지 않습니다.", stock_state)
+                    raise QaFailure("미국 종목 상세 전환이 공통 대시보드 계약과 다릅니다.", stock_state)
 
                 _navigate_page(
                     page,
-                    _page_url(base_url, "/nasdaq", view="overview"),
+                    _page_url(base_url, "/nasdaq", view="home"),
                     wait_until="commit",
-                    ready_selector="#overview-view",
+                    ready_selector="#home-view",
                 )
                 legacy_url = urlsplit(page.url)
-                if legacy_url.path != "/us" or "view=overview" not in legacy_url.query:
+                if legacy_url.path != "/us" or "view=home" not in legacy_url.query:
                     raise QaFailure(
                         "레거시 /nasdaq가 canonical /us로 수렴하지 않았습니다.",
                         {"url": page.url},
@@ -837,9 +900,17 @@ def _run_us_e2e_checks(
                 observed_paths = [urlsplit(item["url"]).path for item in requested_resources]
                 for request in requested_resources:
                     path = urlsplit(request["url"]).path
-                    if path in {"/market/cross-market", "/market/indices"}:
+                    if path in {
+                        "/market/cross-market",
+                        "/market/indices",
+                        "/market/rankings",
+                        "/market/quant-signals",
+                        "/market/calendar",
+                    }:
                         forbidden_requests.append(request)
-                    elif path.startswith("/stocks/") or path.startswith("/watchlists/"):
+                    elif path.startswith("/stocks/") or path.startswith("/briefings/"):
+                        forbidden_requests.append(request)
+                    elif path.startswith("/watchlists/") and not path.startswith("/watchlists/us."):
                         forbidden_requests.append(request)
                 if forbidden_requests:
                     raise QaFailure(
@@ -851,10 +922,16 @@ def _run_us_e2e_checks(
                         "미국 홈이 글로벌 자산 스냅샷을 호출하지 않았습니다.",
                         {"paths": observed_paths[:40]},
                     )
+                if "/us/market/quant-signals" not in observed_paths:
+                    raise QaFailure(
+                        "미국 홈이 미국 AI 시그널을 호출하지 않았습니다.",
+                        {"paths": observed_paths[:60]},
+                    )
                 return {
                     "theme": theme,
                     "shell": shell,
                     "reflow": reflow,
+                    "search": search_state,
                     "stock": stock_state,
                     "legacy_redirect": page.url,
                     "request_count": len(requested_resources),

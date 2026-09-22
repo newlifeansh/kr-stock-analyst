@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import SessionLocal, get_db, init_db, recover_interrupted_ingestions
 from app.meta import integration_payload, insight_cadence_payload, research_source_payload
+from app.product_shell import render_dashboard_product_shell
 from app.collectors.research import ensure_stock_research_reports
 from app.models import (
     CompanyProfile,
@@ -286,7 +287,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260922us94"
+US_DASHBOARD_CLIENT_VERSION = "20260923us95"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -1646,7 +1647,10 @@ app.add_middleware(
 
 
 def _dashboard_asset_cache_headers(request: Request) -> dict[str, str]:
-    if request.query_params.get("v") == DASHBOARD_CLIENT_VERSION:
+    if request.query_params.get("v") in {
+        DASHBOARD_CLIENT_VERSION,
+        US_DASHBOARD_CLIENT_VERSION,
+    }:
         return {"Cache-Control": DASHBOARD_IMMUTABLE_CACHE_CONTROL}
     return {
         "Cache-Control": DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL,
@@ -2645,8 +2649,10 @@ def stock_dashboard_shell():
         raise HTTPException(status_code=404, detail="Stock dashboard UI not found")
     # The dashboard shell points at versioned assets and must not be served from
     # an old browser document cache after a production release.
-    document = STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8").replace(
-        "__DASHBOARD_ASSET_VERSION__", DASHBOARD_CLIENT_VERSION
+    document = render_dashboard_product_shell(
+        STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8"),
+        market_universe="kr",
+        client_version=DASHBOARD_CLIENT_VERSION,
     )
     return HTMLResponse(
         document,
@@ -2786,8 +2792,8 @@ def us_dashboard_refresh():
             .map((key) => caches.delete(key)));
         }} catch {{}}
         const params = new URLSearchParams(location.search);
-        const views = new Set(["overview", "stock", "watchlist", "recommend", "recommend-history", "trend", "trend-past", "trend-impact", "chart", "chart-history", "market"]);
-        const view = views.has(params.get("view")) ? params.get("view") : "overview";
+        const views = new Set(["home", "search", "portfolio", "ai-signals", "news", "event-detail", "movers", "stock", "watchlist", "recommend", "recommend-history", "trend", "trend-past", "trend-impact", "chart", "chart-history", "market"]);
+        const view = views.has(params.get("view")) ? params.get("view") : "home";
         const code = String(params.get("code") || "").trim().toUpperCase();
         const destination = /^[A-Z][A-Z0-9.\\-]{{0,11}}$/.test(code)
           ? `/us/stock/${{encodeURIComponent(code)}}?app_build={US_DASHBOARD_CLIENT_VERSION}`
@@ -2832,11 +2838,13 @@ def nasdaq_dashboard_shell(request: Request, code: Optional[str] = None):
 @app.get("/us")
 @app.get("/us/")
 def us_market_dashboard_shell():
-    """Serve the independently versioned US-only product at the canonical path."""
-    if not NASDAQ_DASHBOARD_INDEX.exists():
+    """Serve the US-only product through the same visual shell as /dashboard."""
+    if not STOCK_DASHBOARD_INDEX.exists():
         raise HTTPException(status_code=404, detail="US dashboard UI not found")
-    document = NASDAQ_DASHBOARD_INDEX.read_text(encoding="utf-8").replace(
-        "__US_ASSET_VERSION__", US_DASHBOARD_CLIENT_VERSION
+    document = render_dashboard_product_shell(
+        STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8"),
+        market_universe="us",
+        client_version=US_DASHBOARD_CLIENT_VERSION,
     )
     return HTMLResponse(
         document,

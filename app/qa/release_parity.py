@@ -14,6 +14,8 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from app.product_shell import render_dashboard_product_shell
+
 KST = ZoneInfo("Asia/Seoul")
 BUILD_VERSION_RES = {
     "dashboard": re.compile(
@@ -35,10 +37,9 @@ RELEASE_ASSET_PATHS = (
     "/dashboard-app-v170.js",
 )
 US_RELEASE_ASSET_PATHS = (
-    "/assets/nasdaq/styles.css",
-    "/assets/nasdaq/app.js",
-    "/assets/nasdaq/icons/apple-touch-icon.png",
-    "/assets/nasdaq/icons/favicon-64.png",
+    *RELEASE_ASSET_PATHS,
+    "/assets/dashboard/icons/apple-touch-icon.png",
+    "/assets/dashboard/icons/favicon-64.png",
     "/assets/zoom-lock.js",
     "/us.webmanifest",
 )
@@ -91,15 +92,10 @@ def local_release_contract(
     match = BUILD_VERSION_RES[surface].search(main_source)
     if match is None:
         raise ValueError(f"{surface} 빌드 버전을 app/main.py에서 찾지 못했습니다.")
-    shell_path = (
-        project_root / "app/static/dashboard/index.html"
-        if surface == "dashboard"
-        else project_root / "app/static/nasdaq/index.html"
-    )
-    shell = shell_path.read_text(encoding="utf-8")
-    shell = shell.replace(
-        "__DASHBOARD_ASSET_VERSION__" if surface == "dashboard" else "__US_ASSET_VERSION__",
-        match.group(1),
+    shell = render_dashboard_product_shell(
+        (project_root / "app/static/dashboard/index.html").read_text(encoding="utf-8"),
+        market_universe="kr" if surface == "dashboard" else "us",
+        client_version=match.group(1),
     )
     assets = _release_assets(shell, surface)
     expected_asset_count = len(
@@ -130,7 +126,7 @@ def fetch_remote_release_contract(
     normalized = base_url.rstrip("/")
     version_path = "dashboard-version" if surface == "dashboard" else "us-version"
     shell_path = "dashboard" if surface == "dashboard" else "us"
-    shell_view = "home" if surface == "dashboard" else "overview"
+    shell_view = "home"
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
         version_response = client.get(urljoin(normalized + "/", version_path))
         shell_response = client.get(

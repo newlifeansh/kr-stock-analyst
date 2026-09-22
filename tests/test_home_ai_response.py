@@ -1111,6 +1111,7 @@ def test_home_market_ticker_prioritizes_each_market_around_its_open() -> None:
     ))
     script = f"""
 const MORNING_MONEY_BRIEFING_TIMEZONE = "Asia/Seoul";
+const IS_US_ONLY_PRODUCT = false;
 {function_source}
 const items = [
   {{ code: "005930", market_scope: "kr" }},

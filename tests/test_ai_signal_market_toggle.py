@@ -159,7 +159,7 @@ def test_unified_roots_keep_search_global_and_place_binary_selector_on_recommend
         'setCopy("recommend-stage-title", `${selectedMarketLabel} 추천 종목`);',
         'elements.discoverySearchInput.placeholder = "한국·미국 종목명 또는 코드";',
         'elements.discoverySearchInput.setAttribute("aria-label", "한국·미국 전체 종목 검색");',
-        'const searchScope = isChart ? state.marketScope : (isUsHubContext ? "all" : "kr");',
+        'const searchScope = IS_US_ONLY_PRODUCT\n      ? "us"\n      : isChart ? state.marketScope : (isUsHubContext ? "all" : "kr");',
         'fetchUnifiedStockSearch(normalized, 12, controller.signal, searchScope)',
         'async function resolveAndLoadDiscoveryStock(query)',
         'fetchUnifiedStockSearch(query, 12, undefined, searchScope)',
@@ -382,6 +382,7 @@ def test_us_watchlist_market_toggle_updates_in_place_without_replaying_splash():
 
     script = f"""
 const calls = [];
+const IS_US_ONLY_PRODUCT = false;
 const isUsHubContext = true;
 const state = {{
   view: "portfolio",
