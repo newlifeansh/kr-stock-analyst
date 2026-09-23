@@ -876,69 +876,6 @@ def _run_us_e2e_checks(
                         signal_back,
                     )
 
-                page.locator('#bottom-nav [data-app-view="news"]').click()
-                page.wait_for_selector('body[data-view="news"]')
-                page.wait_for_selector(".staging-feed-modes", state="visible")
-                page.wait_for_selector(
-                    ".news-page-list .thread-item-story[href]",
-                    state="visible",
-                    timeout=int(timeout * 1000),
-                )
-                feed_state = page.evaluate(
-                    """() => {
-                      const modes = document.querySelector('.staging-feed-modes');
-                      const visibleTabs = [...modes.querySelectorAll('button:not([hidden])')];
-                      const articles = [...document.querySelectorAll(
-                        '.news-page-list .thread-item-story[href]'
-                      )];
-                      return {
-                        visibleTabs: visibleTabs.map(node => node.textContent.trim()),
-                        tabWidths: visibleTabs.map(node => Math.round(node.getBoundingClientRect().width * 10) / 10),
-                        feedColumns: modes?.dataset.feedColumns,
-                        contentHidden: document.querySelector(
-                          '[data-staging-feed-mode="content"]'
-                        )?.hidden === true,
-                        panelMinHeight: getComputedStyle(
-                          document.querySelector('.staging-feed-panels')
-                        ).minHeight,
-                        articleCount: articles.length,
-                        articles: articles.slice(0, 8).map(node => ({
-                          href: node.getAttribute('href'),
-                          meta: node.querySelector('.thread-meta')?.textContent?.trim(),
-                          title: node.querySelector('strong')?.textContent?.trim(),
-                        })),
-                        text: document.querySelector('#news-view')?.innerText || '',
-                        viewport: innerWidth,
-                        rootWidth: document.documentElement.scrollWidth,
-                      };
-                    }"""
-                )
-                tab_widths = feed_state.get("tabWidths") or []
-                if (
-                    feed_state.get("visibleTabs") != ["뉴스", "일정"]
-                    or feed_state.get("feedColumns") != "2"
-                    or not feed_state.get("contentHidden")
-                    or feed_state.get("panelMinHeight") != "0px"
-                    or len(tab_widths) != 2
-                    or abs(tab_widths[0] - tab_widths[1]) > 1
-                    or int(feed_state.get("articleCount") or 0) < 1
-                    or any(
-                        not str(article.get("href") or "").startswith(("http://", "https://"))
-                        or "한국시간" not in str(article.get("meta") or "")
-                        or not article.get("title")
-                        for article in feed_state.get("articles") or []
-                    )
-                    or "NASDAQ Brief" in str(feed_state.get("text") or "")
-                    or "Macro Brief" in str(feed_state.get("text") or "")
-                    or feed_state.get("rootWidth", 0) > feed_state.get("viewport", 0) + 2
-                ):
-                    raise QaFailure(
-                        "미국 피드의 실제 기사·한국시간·2열 탭·여백 계약이 깨졌습니다.",
-                        feed_state,
-                    )
-                page.locator('#bottom-nav [data-app-view="home"]').click()
-                page.wait_for_selector("#home-view", state="visible")
-
                 page.set_viewport_size({"width": 320, "height": 760})
                 page.evaluate("document.documentElement.style.fontSize = '200%'")
                 page.wait_for_timeout(300)
@@ -967,32 +904,6 @@ def _run_us_e2e_checks(
                     raise QaFailure("320px·200% 미국 화면 리플로가 불안정합니다.", reflow)
 
                 page.evaluate("document.documentElement.style.fontSize = ''")
-                page.locator('#bottom-nav [data-app-view="news"]').click()
-                page.wait_for_selector('body[data-view="news"]')
-                page.wait_for_selector(".staging-feed-modes", state="visible")
-                feed_reflow = page.evaluate(
-                    """() => ({
-                      viewport: innerWidth,
-                      rootWidth: document.documentElement.scrollWidth,
-                      tabs: [...document.querySelectorAll(
-                        '.staging-feed-modes button:not([hidden])'
-                      )].map(node => ({
-                        label: node.textContent.trim(),
-                        width: Math.round(node.getBoundingClientRect().width * 10) / 10,
-                        height: Math.round(node.getBoundingClientRect().height * 10) / 10,
-                      })),
-                    })"""
-                )
-                if (
-                    feed_reflow["rootWidth"] > feed_reflow["viewport"] + 2
-                    or [tab.get("label") for tab in feed_reflow.get("tabs") or []]
-                    != ["뉴스", "일정"]
-                    or any(
-                        tab.get("width", 0) < 44 or tab.get("height", 0) < 44
-                        for tab in feed_reflow.get("tabs") or []
-                    )
-                ):
-                    raise QaFailure("320px 미국 피드 리플로가 불안정합니다.", feed_reflow)
                 page.set_viewport_size(MOBILE_VIEWPORT)
                 search_button = page.locator('#bottom-nav [data-app-view="search"]')
                 search_button.focus()
@@ -1113,19 +1024,12 @@ def _run_us_e2e_checks(
                         "미국 홈이 미국 AI 시그널을 호출하지 않았습니다.",
                         {"paths": observed_paths[:60]},
                     )
-                if "/us/market/trends" not in observed_paths:
-                    raise QaFailure(
-                        "미국 피드가 미국 시장 뉴스 API를 호출하지 않았습니다.",
-                        {"paths": observed_paths[:80]},
-                    )
                 return {
                     "theme": theme,
                     "shell": shell,
                     "signal_back": signal_back,
                     "signal_labels": signal_labels,
-                    "feed": feed_state,
                     "reflow": reflow,
-                    "feed_reflow": feed_reflow,
                     "search": search_state,
                     "stock": stock_state,
                     "legacy_redirect": page.url,
@@ -1133,7 +1037,137 @@ def _run_us_e2e_checks(
                     "forbidden_request_count": 0,
                 }
 
-            return [
+            def us_market_news_feed_case(page: Any, theme: str) -> dict[str, Any]:
+                requested_paths: list[str] = []
+                page.on(
+                    "request",
+                    lambda request: requested_paths.append(urlsplit(request.url).path),
+                )
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/us",
+                        view="news",
+                        filter="all",
+                        market_scope="us",
+                        qa_run=datetime.now(KST).strftime("%H%M%S"),
+                    ),
+                    wait_until="commit",
+                    ready_selector="#news-view",
+                )
+                page.wait_for_selector("#login-gate", state="hidden")
+                page.wait_for_selector('body[data-view="news"]')
+                page.wait_for_selector(".staging-feed-modes", state="visible")
+                page.wait_for_selector(
+                    ".news-page-list .thread-item-story[href]",
+                    state="visible",
+                    timeout=int(timeout * 1000),
+                )
+                feed_state = page.evaluate(
+                    """() => {
+                      const modes = document.querySelector('.staging-feed-modes');
+                      const visibleTabs = [...modes.querySelectorAll('button:not([hidden])')];
+                      const articles = [...document.querySelectorAll(
+                        '.news-page-list .thread-item-story[href]'
+                      )];
+                      return {
+                        marketScope: document.body.dataset.marketScope,
+                        visibleTabs: visibleTabs.map(node => node.textContent.trim()),
+                        tabWidths: visibleTabs.map(node => Math.round(node.getBoundingClientRect().width * 10) / 10),
+                        feedColumns: modes?.dataset.feedColumns,
+                        contentHidden: document.querySelector(
+                          '[data-staging-feed-mode="content"]'
+                        )?.hidden === true,
+                        panelMinHeight: getComputedStyle(
+                          document.querySelector('.staging-feed-panels')
+                        ).minHeight,
+                        articleCount: articles.length,
+                        articles: articles.slice(0, 8).map(node => ({
+                          href: node.getAttribute('href'),
+                          meta: node.querySelector('.thread-meta')?.textContent?.trim(),
+                          title: node.querySelector('strong')?.textContent?.trim(),
+                        })),
+                        text: document.querySelector('#news-view')?.innerText || '',
+                        viewport: innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                      };
+                    }"""
+                )
+                tab_widths = feed_state.get("tabWidths") or []
+                if (
+                    feed_state.get("marketScope") != "us"
+                    or feed_state.get("visibleTabs") != ["뉴스", "일정"]
+                    or feed_state.get("feedColumns") != "2"
+                    or not feed_state.get("contentHidden")
+                    or feed_state.get("panelMinHeight") != "0px"
+                    or len(tab_widths) != 2
+                    or abs(tab_widths[0] - tab_widths[1]) > 1
+                    or int(feed_state.get("articleCount") or 0) < 1
+                    or any(
+                        not str(article.get("href") or "").startswith(("http://", "https://"))
+                        or "한국시간" not in str(article.get("meta") or "")
+                        or not article.get("title")
+                        for article in feed_state.get("articles") or []
+                    )
+                    or "NASDAQ Brief" in str(feed_state.get("text") or "")
+                    or "Macro Brief" in str(feed_state.get("text") or "")
+                    or feed_state.get("rootWidth", 0) > feed_state.get("viewport", 0) + 2
+                ):
+                    raise QaFailure(
+                        "미국 피드의 실제 기사·한국시간·2열 탭·여백 계약이 깨졌습니다.",
+                        feed_state,
+                    )
+                if "/us/market/trends" not in requested_paths:
+                    raise QaFailure(
+                        "미국 피드가 미국 시장 뉴스 API를 호출하지 않았습니다.",
+                        {"paths": requested_paths[:80]},
+                    )
+
+                page.set_viewport_size({"width": 320, "height": 760})
+                page.wait_for_timeout(100)
+                feed_reflow = page.evaluate(
+                    """() => ({
+                      viewport: innerWidth,
+                      rootWidth: document.documentElement.scrollWidth,
+                      tabs: [...document.querySelectorAll(
+                        '.staging-feed-modes button:not([hidden])'
+                      )].map(node => ({
+                        label: node.textContent.trim(),
+                        width: Math.round(node.getBoundingClientRect().width * 10) / 10,
+                        height: Math.round(node.getBoundingClientRect().height * 10) / 10,
+                      })),
+                    })"""
+                )
+                if (
+                    feed_reflow["rootWidth"] > feed_reflow["viewport"] + 2
+                    or [tab.get("label") for tab in feed_reflow.get("tabs") or []]
+                    != ["뉴스", "일정"]
+                    or any(
+                        tab.get("width", 0) < 44 or tab.get("height", 0) < 44
+                        for tab in feed_reflow.get("tabs") or []
+                    )
+                ):
+                    raise QaFailure("320px 미국 피드 리플로가 불안정합니다.", feed_reflow)
+                return {
+                    "theme": theme,
+                    "feed": feed_state,
+                    "feed_reflow": feed_reflow,
+                    "request_count": len(requested_paths),
+                }
+
+            news_result = _run_page_case(
+                browser=browser,
+                catalog_by_id=catalog_by_id,
+                case_id="DATA-US-NEWS-001",
+                base_url=base_url,
+                timeout=timeout,
+                artifact_dir=output_dir,
+                callback=us_market_news_feed_case,
+                storage_state=storage_state,
+                share_id=share_id,
+            )
+            product_results = [
                 _run_page_case(
                     browser=browser,
                     catalog_by_id=catalog_by_id,
@@ -1145,8 +1179,9 @@ def _run_us_e2e_checks(
                     storage_state=storage_state,
                     share_id=share_id,
                 )
-                for case_id in US_E2E_CASE_IDS
+                for case_id in ("SIG-UI-031", "REC-US-INDEPENDENT-001")
             ]
+            return [news_result, *product_results]
         finally:
             browser.close()
 
