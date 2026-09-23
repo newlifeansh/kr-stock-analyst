@@ -1441,6 +1441,7 @@ const state = {
   stockHomeDisclosuresExpanded: false,
   stockNewsRows: [],
   stockNewsTab: "domestic",
+  stockNewsTabTouched: false,
   stockCommunity: null,
   stockCommunityProviderKey: "naver_board",
   stockCommunityMode: "latest",
@@ -7049,7 +7050,13 @@ function renderStockNewsRows(rows, emptyMessage = "최근 종목뉴스가 없습
 
 function renderStockNewsTabs(data, collections) {
   const usStock = stockDashboardIsUs(data);
-  const activeTab = ["domestic", "overseas"].includes(state.stockNewsTab)
+  const initialOverseasFallback = usStock
+    && !state.stockNewsTabTouched
+    && collections.domestic.length === 0
+    && collections.overseas.length > 0;
+  const activeTab = initialOverseasFallback
+    ? "overseas"
+    : ["domestic", "overseas"].includes(state.stockNewsTab)
     ? state.stockNewsTab
     : "domestic";
   state.stockNewsTab = activeTab;
@@ -8115,6 +8122,7 @@ function resetStockHomeDetails() {
   state.stockHomeDisclosuresExpanded = false;
   state.stockNewsRows = [];
   state.stockNewsTab = "domestic";
+  state.stockNewsTabTouched = false;
   state.stockCommunity = null;
   state.stockCommunityMode = "latest";
   state.stockCommunityPopular = null;
@@ -31411,6 +31419,7 @@ for (const button of elements.stockReportModeTabs) {
 }
 for (const button of elements.stockNewsTabs) {
   button.addEventListener("click", () => {
+    state.stockNewsTabTouched = true;
     state.stockNewsTab = button.dataset.stockNewsTab === "overseas" ? "overseas" : "domestic";
     renderStockNewsPanel(state.currentDashboard);
   });
@@ -31428,6 +31437,7 @@ for (const button of elements.stockNewsTabs) {
         : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + elements.stockNewsTabs.length)
           % elements.stockNewsTabs.length;
     const nextButton = elements.stockNewsTabs[nextIndex];
+    state.stockNewsTabTouched = true;
     state.stockNewsTab = nextButton?.dataset.stockNewsTab === "overseas" ? "overseas" : "domestic";
     renderStockNewsPanel(state.currentDashboard);
     nextButton?.focus();

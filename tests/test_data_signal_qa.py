@@ -105,6 +105,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "DATA-US-SIGNAL-INPUT-001",
         "DATA-US-EVIDENCE-001",
         "DATA-US-NEWS-001",
+        "DATA-US-NEWS-TABS-001",
         "REC-US-INDEPENDENT-001",
         "DATA-CALENDAR-CONTENT-004",
         "DATA-CALENDAR-CONTENT-005",
@@ -1418,6 +1419,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -> None:
     expected_case_ids = {
         "DATA-US-NEWS-001",
+        "DATA-US-NEWS-TABS-001",
         "REC-US-INDEPENDENT-001",
         "DATA-US-UNIVERSE-001",
         "DATA-US-SIGNAL-INPUT-001",
@@ -1563,7 +1565,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260924us101",
+                "us_dashboard_version": "20260924us102",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1571,7 +1573,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260924us101",
+                "us_dashboard_version": "20260924us102",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1842,6 +1844,22 @@ class FakeReadOnlyApi:
                     }
                 ],
             }, self._meta(path)
+        if path == "/us/stocks/WMB/dashboard":
+            return {
+                "symbol": "WMB",
+                "name": "Williams Companies Inc. (The)",
+                "sentiment": {
+                    "domestic_items": [],
+                    "overseas_items": [{
+                        "title": "Williams Companies (WMB) Debt Deal Puts Its Valuation Story Back In Focus",
+                        "source": "Yahoo Finance",
+                        "press_name": "Simply Wall St.",
+                        "url": "https://finance.yahoo.com/news/williams-companies-wmb-debt-deal",
+                        "detail_url": "https://finance.yahoo.com/news/williams-companies-wmb-debt-deal",
+                        "published_at": datetime.now(UTC).isoformat(),
+                    }],
+                },
+            }, self._meta(path)
         if path == "/us/stocks/WMB/community-feed":
             return {
                 "code": "WMB",
@@ -1910,7 +1928,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20260924us101"}, self._meta(path)
+            return {"version": "20260924us102"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -1957,11 +1975,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20260924us101" />'
+                '<link href="/assets/dashboard/styles.css?v=20260924us102" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20260924us101"></script>'
+                '<script src="/dashboard-app-v170.js?v=20260924us102"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -1976,6 +1994,10 @@ class FakeReadOnlyApi:
                 'liveUrl("/market/global-assets?limit=30");\n'
                 'document.getElementById("home-ai-response")?.remove();\n'
                 'if (IS_US_ONLY_PRODUCT || state.view !== "home") return;\n'
+                'stockNewsTabTouched: false;\n'
+                'collections.domestic.length === 0;\n'
+                'collections.overseas.length > 0;\n'
+                'state.stockNewsTabTouched = true;\n'
                 'timeZone: "Asia/Seoul"; 한국시간;',
                 self._meta(path),
             )
@@ -2043,6 +2065,7 @@ def test_live_us_surface_runs_full_data_contract_and_product_boundary(
     assert report["surface"] == "us"
     assert by_id["SIG-UI-031"]["status"] == "pass"
     assert by_id["DATA-US-NEWS-001"]["status"] == "pass"
+    assert by_id["DATA-US-NEWS-TABS-001"]["status"] == "pass"
     assert by_id["SIG-US-CONTRACT-001"]["status"] == "pass"
     assert by_id["DATA-US-UNIVERSE-001"]["status"] == "pass"
     assert report["deployment_blocked"] is False

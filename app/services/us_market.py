@@ -49,6 +49,8 @@ SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 US_CACHE = TTLCache(maxsize=2048)
 US_TTL_SECONDS = 180
+US_STOCK_NEWS_MAX_AGE_DAYS = 120
+US_STOCK_NEWS_FUTURE_TOLERANCE = timedelta(minutes=15)
 US_FX_TTL_SECONDS = 300
 US_SECTOR_OPEN_TTL_SECONDS = 30
 US_SECTOR_CLOSED_TTL_SECONDS = 300
@@ -205,6 +207,7 @@ US_COMPANY_SUFFIXES = (
     "incorporated",
     "corporation",
     "company",
+    "companies",
     "holdings",
     "holding",
     "limited",
@@ -377,6 +380,16 @@ US_KOREAN_ALIASES: dict[str, tuple[str, ...]] = {
     "IBM": ("IBM", "아이비엠"),
     "DIS": ("디즈니", "월트디즈니"),
     "CAT": ("캐터필러", "캐터필라"),
+    "WMB": (
+        "Williams Companies",
+        "Williams Cos",
+        "윌리엄스컴퍼니즈",
+        "윌리엄스 컴퍼니즈",
+    ),
+}
+
+US_NEWS_AMBIGUOUS_IDENTITY_TERMS: dict[str, set[str]] = {
+    "WMB": {"williams", "윌리엄스"},
 }
 
 US_UNIVERSE_DATA_PATH = Path(__file__).with_name("us_equity_universe.json")
@@ -1105,19 +1118,19 @@ def _naver_news_query_candidates(stock: dict[str, object]) -> list[str]:
 
 
 def _us_news_identity_terms(stock: dict[str, object]) -> set[str]:
-    """Return conservative title terms used to keep news tied to one ticker."""
+    """Return company-name terms that identify a stock without ticker ambiguity."""
     code = str(stock.get("code") or "").strip().upper()
     name = str(stock.get("name") or "").strip()
-    terms = {
-        value
-        for value in (
-            code.lower(),
-            code.replace(".", "-").lower(),
-            code.replace("-", ".").lower(),
-        )
-        if len(value) >= 2
+    ticker_forms = {
+        code.casefold(),
+        code.replace(".", "-").casefold(),
+        code.replace("-", ".").casefold(),
     }
-    terms.update(str(alias).strip().lower() for alias in US_KOREAN_ALIASES.get(code, ()))
+    terms = {
+        str(alias).strip().casefold()
+        for alias in US_KOREAN_ALIASES.get(code, ())
+        if str(alias).strip().casefold() not in ticker_forms
+    }
     # Keep meaningful words from the original company name. Registry/share
     # boilerplate is not an identity signal and creates false positives.
     ignored = {"new", "york", "registry", "shares", "class", "the", *US_COMPANY_SUFFIXES}
@@ -1126,14 +1139,68 @@ def _us_news_identity_terms(stock: dict[str, object]) -> set[str]:
         for token in re.findall(r"[A-Za-z]{3,}|[가-힣]{2,}", name)
         if token.lower() not in ignored
     )
-    return {term for term in terms if term}
+    ambiguous = US_NEWS_AMBIGUOUS_IDENTITY_TERMS.get(code, set())
+    return {term for term in terms if term and term not in ambiguous}
 
 
-def _us_news_title_matches_stock(title: object, stock: dict[str, object]) -> bool:
-    text = " ".join(str(title or "").split()).lower()
+def _us_news_term_matches(text: str, term: str) -> bool:
+    """Match Latin identities on token boundaries and Korean names as phrases."""
+    normalized = " ".join(str(term or "").split()).casefold()
+    if not normalized:
+        return False
+    if re.search(r"[가-힣]", normalized):
+        return normalized in text
+    return bool(
+        re.search(
+            rf"(?<![A-Za-z0-9]){re.escape(normalized)}(?![A-Za-z0-9])",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _us_news_title_matches_stock(
+    title: object,
+    stock: dict[str, object],
+    *,
+    allow_ticker_only: bool = False,
+) -> bool:
+    text = " ".join(str(title or "").split()).casefold()
     if not text:
         return False
-    return any(term in text for term in _us_news_identity_terms(stock))
+    if any(_us_news_term_matches(text, term) for term in _us_news_identity_terms(stock)):
+        return True
+    code = str(stock.get("code") or "").strip().upper()
+    ticker_forms = {
+        value.casefold()
+        for value in (code, code.replace(".", "-"), code.replace("-", "."))
+        if value
+    }
+    ticker_matches = any(_us_news_term_matches(text, ticker) for ticker in ticker_forms)
+    # Short tickers are common words and acronyms (MA, V, WMB, GE). Naver
+    # search has no trusted ticker association, so a bare short ticker must
+    # never identify a company. Yahoo relatedTickers may opt in explicitly.
+    return ticker_matches and (len(re.sub(r"\W", "", code)) >= 4 or allow_ticker_only)
+
+
+def _us_news_published_at_utc(value: object) -> Optional[datetime]:
+    parsed: Optional[datetime]
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=KOREA_TZ)
+    return parsed.astimezone(timezone.utc)
+
+
+def _us_news_title_fingerprint(title: object) -> str:
+    return re.sub(r"[^0-9a-z가-힣]+", "", str(title or "").casefold())
 
 
 def _filter_us_news_for_stock(
@@ -1141,22 +1208,49 @@ def _filter_us_news_for_stock(
     stock: dict[str, object],
     *,
     limit: int = 10,
+    now: Optional[datetime] = None,
+    allow_ticker_only: bool = False,
 ) -> list[dict[str, object]]:
-    """Drop broad market headlines that a per-stock feed can return."""
-    filtered: list[dict[str, object]] = []
-    seen: set[str] = set()
+    """Keep current, uniquely identified articles tied to one selected stock."""
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    else:
+        current = current.astimezone(timezone.utc)
+    cutoff = current - timedelta(days=US_STOCK_NEWS_MAX_AGE_DAYS)
+    candidates: list[tuple[datetime, dict[str, object]]] = []
     for item in rows:
         if not isinstance(item, dict):
             continue
         title = " ".join(str(item.get("title") or "").split()).strip()
         url = str(item.get("url") or item.get("link") or "").strip()
-        if not title or not url or not _us_news_title_matches_stock(title, stock):
+        published_at = _us_news_published_at_utc(item.get("published_at"))
+        if (
+            not title
+            or not url
+            or published_at is None
+            or published_at < cutoff
+            or published_at > current + US_STOCK_NEWS_FUTURE_TOLERANCE
+            or not _us_news_title_matches_stock(
+                title,
+                stock,
+                allow_ticker_only=allow_ticker_only,
+            )
+        ):
             continue
-        key = url or title
-        if key in seen:
+        candidates.append((published_at, {**item, "title": title, "url": url}))
+    candidates.sort(key=lambda row: row[0], reverse=True)
+    filtered: list[dict[str, object]] = []
+    seen_urls: set[str] = set()
+    seen_titles: set[str] = set()
+    for _, item in candidates:
+        url = str(item["url"])
+        title_key = _us_news_title_fingerprint(item["title"])
+        if url in seen_urls or not title_key or title_key in seen_titles:
             continue
-        seen.add(key)
-        filtered.append({**item, "title": title, "url": url})
+        seen_urls.add(url)
+        seen_titles.add(title_key)
+        filtered.append(item)
         if len(filtered) >= limit:
             break
     return filtered
@@ -1167,14 +1261,32 @@ def _naver_world_news_code_candidates(stock: dict[str, object]) -> list[str]:
     base = str(stock.get("code") or "").strip().upper().replace(".", "-")
     if not base:
         return []
+    exchange_name = str(
+        stock.get("exchange_name")
+        or stock.get("exchangeName")
+        or stock.get("full_exchange_name")
+        or stock.get("fullExchangeName")
+        or ""
+    ).strip().upper()
+    if exchange_name in {"NMS", "NGM", "NCM", "NAS", "NASDAQ"} or "NASDAQ" in exchange_name:
+        return [f"{base}.O"]
+    if exchange_name in {"NYQ", "NYS", "NYSE"} or (
+        "NEW YORK STOCK EXCHANGE" in exchange_name
+        or ("NYSE" in exchange_name and "AMERICAN" not in exchange_name)
+    ):
+        return [f"{base}.N"]
+    if exchange_name in {"ASE", "AMEX"} or "NYSE AMERICAN" in exchange_name:
+        return [f"{base}.A"]
     markets = {str(value).upper() for value in (stock.get("markets") or [])}
     market = str(stock.get("market") or "").upper()
     if market:
         markets.add(market)
-    if "NASDAQ" in markets or "AMEX" in markets:
+    if "NASDAQ" in markets:
         return [f"{base}.O"]
     if "NYSE" in markets:
         return [f"{base}.N"]
+    if "AMEX" in markets:
+        return [f"{base}.A"]
     return [f"{base}.O", f"{base}.N", f"{base}.A"]
 
 
@@ -1214,11 +1326,16 @@ def _parse_naver_world_local_news_payload(
 def _naver_world_local_news_items(
     symbol: str,
     limit: int = 10,
+    *,
+    stock: Optional[dict[str, object]] = None,
+    now: Optional[datetime] = None,
 ) -> list[dict[str, object]]:
-    try:
-        stock = resolve_us_stock(symbol)
-    except Exception:
-        stock = {"code": _symbol(symbol), "name": ""}
+    del now  # Filtering is centralized after all Naver candidates are collected.
+    if stock is None:
+        try:
+            stock = resolve_us_stock(symbol)
+        except Exception:
+            stock = {"code": _symbol(symbol), "name": ""}
     rows: list[dict[str, object]] = []
     seen: set[str] = set()
     last_error: Exception | None = None
@@ -1294,14 +1411,18 @@ def _parse_naver_news_search_html(html: str, limit: int = 10) -> list[dict[str, 
 def _naver_news_items(
     symbol: str,
     limit: int = 10,
+    *,
+    stock: Optional[dict[str, object]] = None,
+    now: Optional[datetime] = None,
 ) -> list[dict[str, object]]:
-    try:
-        stock = resolve_us_stock(symbol)
-    except Exception:
-        stock = {"code": _symbol(symbol), "name": ""}
+    if stock is None:
+        try:
+            stock = resolve_us_stock(symbol)
+        except Exception:
+            stock = {"code": _symbol(symbol), "name": ""}
     rows: list[dict[str, object]] = []
-    seen: set[str] = set()
     last_error: Exception | None = None
+    successful_request = False
     for query in _naver_news_query_candidates(stock):
         try:
             response = requests.get(
@@ -1316,19 +1437,13 @@ def _naver_news_items(
         except Exception as exc:
             last_error = exc
             continue
-        for item in _parse_naver_news_search_html(response.text, limit=max(limit * 2, 20)):
-            if not _us_news_title_matches_stock(item.get("title"), stock):
-                continue
-            url = str(item.get("url") or "").strip()
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            rows.append(item)
-            if len(rows) >= limit:
-                return rows
-    if not rows and last_error is not None:
+        successful_request = True
+        rows.extend(
+            _parse_naver_news_search_html(response.text, limit=max(limit * 3, 30))
+        )
+    if not successful_request and last_error is not None:
         raise last_error
-    return rows
+    return _filter_us_news_for_stock(rows, stock, limit=limit, now=now)
 
 
 def _yahoo_news_thumbnail(item: dict[str, object]) -> Optional[str]:
@@ -1365,6 +1480,7 @@ def _parse_yahoo_news_payload(
     *,
     stock: Optional[dict[str, object]] = None,
     limit: int = 10,
+    now: Optional[datetime] = None,
 ) -> list[dict[str, object]]:
     """Normalize Yahoo Finance search news into the dashboard article model."""
     if not isinstance(payload, dict):
@@ -1372,7 +1488,6 @@ def _parse_yahoo_news_payload(
     resolved_stock = stock or {"code": _symbol(symbol), "name": ""}
     normalized_symbol = _symbol(symbol).replace("-", ".").upper()
     rows: list[dict[str, object]] = []
-    seen: set[str] = set()
     for item in payload.get("news") or []:
         if not isinstance(item, dict):
             continue
@@ -1390,12 +1505,13 @@ def _parse_yahoo_news_payload(
         # stories do not leak into a per-stock news tab.
         if related and normalized_symbol not in related:
             continue
-        if not _us_news_title_matches_stock(title, resolved_stock):
+        if not _us_news_title_matches_stock(
+            title,
+            resolved_stock,
+            allow_ticker_only=normalized_symbol in related,
+        ):
             continue
         key = str(item.get("uuid") or url)
-        if key in seen:
-            continue
-        seen.add(key)
         rows.append(
             {
                 "title": title,
@@ -1409,12 +1525,21 @@ def _parse_yahoo_news_payload(
                 "image_url": _yahoo_news_thumbnail(item),
             }
         )
-        if len(rows) >= limit:
-            break
-    return rows
+    return _filter_us_news_for_stock(
+        rows,
+        resolved_stock,
+        limit=limit,
+        now=now,
+        allow_ticker_only=True,
+    )
 
 
-def _yahoo_news_items(symbol: str, limit: int = 10) -> list[dict[str, object]]:
+def _yahoo_news_items(
+    symbol: str,
+    limit: int = 10,
+    *,
+    stock: Optional[dict[str, object]] = None,
+) -> list[dict[str, object]]:
     code = _symbol(symbol)
     if not code:
         return []
@@ -1422,9 +1547,9 @@ def _yahoo_news_items(symbol: str, limit: int = 10) -> list[dict[str, object]]:
 
     def load() -> list[dict[str, object]]:
         try:
-            stock = resolve_us_stock(code)
+            resolved_stock = stock or resolve_us_stock(code)
             payload = _search_yahoo(code, limit=1, news_count=max(limit, 10))
-            return _parse_yahoo_news_payload(payload, code, stock=stock, limit=limit)
+            return _parse_yahoo_news_payload(payload, code, stock=resolved_stock, limit=limit)
         except Exception:
             # News availability must not make the quote/dashboard unavailable.
             return []
@@ -2307,20 +2432,26 @@ def resolve_us_stock(query: str) -> dict[str, object]:
     }
 
 
-def _news(symbol: str) -> list[dict[str, object]]:
-    try:
-        stock = resolve_us_stock(symbol)
-    except Exception:
-        stock = {"code": _symbol(symbol), "name": ""}
+def _news(
+    symbol: str,
+    *,
+    stock: Optional[dict[str, object]] = None,
+    now: Optional[datetime] = None,
+) -> list[dict[str, object]]:
+    if stock is None:
+        try:
+            stock = resolve_us_stock(symbol)
+        except Exception:
+            stock = {"code": _symbol(symbol), "name": ""}
     for loader in (_naver_world_local_news_items, _naver_news_items):
         try:
             rows = []
-            for item in loader(symbol, limit=10):
+            for item in loader(symbol, limit=30, stock=stock, now=now):
                 title = str(item.get("title") or "").strip()
                 if not title or not re.search(r"[가-힣]", title):
                     continue
                 rows.append(item)
-            filtered = _filter_us_news_for_stock(rows, stock, limit=10)
+            filtered = _filter_us_news_for_stock(rows, stock, limit=10, now=now)
             if filtered:
                 return filtered
         except Exception:
@@ -2757,8 +2888,15 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
     day_low = _to_decimal(meta.get("regularMarketDayLow"))
     volume = meta.get("regularMarketVolume") or (latest.volume if latest else None)
     trading_value = price * Decimal(str(volume)) if price is not None and volume is not None else None
-    domestic_news_items = _classify_us_news(_news(stock["code"]))
-    overseas_news_items = _classify_us_news(_yahoo_news_items(stock["code"], limit=10))
+    news_stock = {
+        **stock,
+        "exchange_name": meta.get("exchangeName"),
+        "full_exchange_name": meta.get("fullExchangeName"),
+    }
+    domestic_news_items = _classify_us_news(_news(stock["code"], stock=news_stock))
+    overseas_news_items = _classify_us_news(
+        _yahoo_news_items(stock["code"], limit=10, stock=news_stock)
+    )
     news_items = [*domestic_news_items, *overseas_news_items]
     sentiment_points = [Decimal(str(item.get("sentiment_score") or 0)) for item in news_items]
     positive = sum(1 for item in news_items if item.get("sentiment") == "positive")

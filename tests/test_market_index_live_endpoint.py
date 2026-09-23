@@ -161,7 +161,7 @@ def test_us_entry_uses_the_us_only_shell_and_global_market_snapshot():
     assert 'id="home-view" class="app-page app-home"' in shell.text
     assert 'id="home-market-carousel"' in shell.text
     assert 'id="bottom-nav"' in shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us101&amp;build=20260924us101"' in shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260924us102&amp;build=20260924us102"' in shell.text
     assert script.status_code == 200
     assert 'const IS_US_ONLY_PRODUCT = PRODUCT_MARKET_UNIVERSE === "us";' in script.text
     assert 'liveUrl("/market/global-assets?limit=30")' in script.text

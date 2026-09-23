@@ -1250,6 +1250,7 @@ def test_us_news_does_not_fallback_to_non_naver_sources(monkeypatch):
 
 
 def test_us_news_prefers_korean_naver_news_results(monkeypatch):
+    now = datetime(2026, 9, 24, 12, tzinfo=UTC)
     monkeypatch.setattr(
         us_market,
         "_naver_world_local_news_items",
@@ -1262,6 +1263,7 @@ def test_us_news_prefers_korean_naver_news_results(monkeypatch):
             "title": "엔비디아, AI 투자 확대",
             "source": "한국경제",
             "url": "https://news.example/nvda",
+            "published_at": datetime(2026, 9, 23, 9),
         }],
     )
     monkeypatch.setattr(
@@ -1274,12 +1276,13 @@ def test_us_news_prefers_korean_naver_news_results(monkeypatch):
         }],
     )
 
-    rows = us_market._news("NVDA")
+    rows = us_market._news("NVDA", now=now)
 
     assert rows == [{
         "title": "엔비디아, AI 투자 확대",
         "source": "한국경제",
         "url": "https://news.example/nvda",
+        "published_at": datetime(2026, 9, 23, 9),
     }]
 
 
@@ -1307,11 +1310,15 @@ def test_us_news_prefers_naver_world_local_news_api(monkeypatch):
         "title": "엔비디아 국내 언론 기사",
         "source": "한국경제",
         "url": "https://n.news.naver.com/mnews/article/999/0000000001",
+        "published_at": datetime(2026, 9, 23, 9),
     }]
     monkeypatch.setattr(us_market, "_naver_world_local_news_items", lambda *args, **kwargs: local_rows)
     monkeypatch.setattr(us_market, "_naver_news_items", lambda *args, **kwargs: pytest.fail("search fallback should not run"))
 
-    assert us_market._news("NVDA") == local_rows
+    assert us_market._news(
+        "NVDA",
+        now=datetime(2026, 9, 24, 12, tzinfo=UTC),
+    ) == local_rows
 
 
 def test_us_news_filters_unrelated_naver_headlines_for_the_selected_stock(monkeypatch):
@@ -1324,12 +1331,25 @@ def test_us_news_filters_unrelated_naver_headlines_for_the_selected_stock(monkey
         us_market,
         "_naver_world_local_news_items",
         lambda *args, **kwargs: [
-            {"title": "에코프로, 로봇 정조준", "source": "딜사이트", "url": "https://news.example/ecopro"},
-            {"title": "ASML 장비 수요 확대", "source": "한국경제", "url": "https://news.example/asml"},
+            {
+                "title": "에코프로, 로봇 정조준",
+                "source": "딜사이트",
+                "url": "https://news.example/ecopro",
+                "published_at": datetime(2026, 9, 23, 9),
+            },
+            {
+                "title": "ASML 장비 수요 확대",
+                "source": "한국경제",
+                "url": "https://news.example/asml",
+                "published_at": datetime(2026, 9, 23, 10),
+            },
         ],
     )
 
-    rows = us_market._news("ASML")
+    rows = us_market._news(
+        "ASML",
+        now=datetime(2026, 9, 24, 12, tzinfo=UTC),
+    )
 
     assert [row["title"] for row in rows] == ["ASML 장비 수요 확대"]
 
@@ -1366,6 +1386,7 @@ def test_naver_news_search_skips_full_unrelated_page_and_uses_next_query(monkeyp
                     "title": f"에코프로 배터리 뉴스 {index}",
                     "source": "테스트뉴스",
                     "url": f"https://news.example/ecopro-{index}",
+                    "published_at": datetime(2026, 9, 23, 8),
                 }
                 for index in range(10)
             ]
@@ -1374,6 +1395,7 @@ def test_naver_news_search_skips_full_unrelated_page_and_uses_next_query(monkeyp
                 "title": "에이에스엠엘, 차세대 노광장비 투자 확대",
                 "source": "테스트뉴스",
                 "url": "https://news.example/asml",
+                "published_at": datetime(2026, 9, 23, 9),
             }]
         return []
 
@@ -1385,11 +1407,116 @@ def test_naver_news_search_skips_full_unrelated_page_and_uses_next_query(monkeyp
     monkeypatch.setattr(us_market.requests, "get", fake_get)
     monkeypatch.setattr(us_market, "_parse_naver_news_search_html", fake_parse)
 
-    rows = us_market._naver_news_items("ASML", limit=10)
+    rows = us_market._naver_news_items(
+        "ASML",
+        limit=10,
+        now=datetime(2026, 9, 24, 12, tzinfo=UTC),
+    )
 
     assert [row["title"] for row in rows] == ["에이에스엠엘, 차세대 노광장비 투자 확대"]
     assert [call["query"] for call in calls] == ["ASML Holding", "에이에스엠엘", "ASML"]
     assert all(call["sort"] == "0" for call in calls)
+
+
+def test_wmb_naver_news_rejects_short_ticker_collisions_stale_and_duplicates():
+    now = datetime(2026, 9, 24, 12, tzinfo=UTC)
+    stock = {
+        "code": "WMB",
+        "name": "Williams Companies Inc. (The)",
+        "market": "SP500",
+    }
+    rows = us_market._filter_us_news_for_stock(
+        [
+            {
+                "title": "언오피셜보이X윤병호, '보이스3' OST WMB 공개",
+                "source": "연예뉴스",
+                "url": "https://news.example/voice-ost",
+                "published_at": datetime(2026, 9, 23, 11),
+            },
+            {
+                "title": "HBM4 웨이퍼 제조공정 WMB 기술 공개",
+                "source": "반도체뉴스",
+                "url": "https://news.example/wafer",
+                "published_at": datetime(2026, 9, 23, 10),
+            },
+            {
+                "title": "윌리엄스 타운, VFLW 결승 진출",
+                "source": "스포츠뉴스",
+                "url": "https://news.example/williams-town",
+                "published_at": datetime(2026, 9, 23, 9, 30),
+            },
+            {
+                "title": "윌리엄스 컴퍼니즈, 천연가스 인프라 투자 확대",
+                "source": "에너지경제",
+                "url": "https://news.example/williams-new",
+                "published_at": datetime(2026, 9, 23, 9),
+            },
+            {
+                "title": "윌리엄스 컴퍼니즈 - 천연가스 인프라 투자 확대",
+                "source": "에너지경제",
+                "url": "https://news.example/williams-duplicate",
+                "published_at": datetime(2026, 9, 23, 8),
+            },
+            {
+                "title": "윌리엄스, 파이프라인 투자 계획 발표",
+                "source": "과거뉴스",
+                "url": "https://news.example/williams-stale",
+                "published_at": datetime(2019, 6, 8, 9),
+            },
+        ],
+        stock,
+        now=now,
+    )
+
+    assert [row["title"] for row in rows] == [
+        "윌리엄스 컴퍼니즈, 천연가스 인프라 투자 확대",
+    ]
+    assert not us_market._us_news_title_matches_stock(
+        "WMB 모니터 신제품 출시",
+        stock,
+    )
+    assert not us_market._us_news_title_matches_stock(
+        "윌리엄스 타운, VFLW 결승 진출",
+        stock,
+    )
+    assert "companies" not in us_market._us_news_identity_terms(stock)
+
+
+def test_wmb_yahoo_news_accepts_trusted_related_ticker_for_short_symbol():
+    timestamp = int(datetime(2026, 9, 23, 15, tzinfo=UTC).timestamp())
+
+    rows = us_market._parse_yahoo_news_payload(
+        {
+            "news": [{
+                "uuid": "wmb-yahoo-1",
+                "title": "WMB Gains as Natural Gas Demand Improves",
+                "publisher": "Reuters",
+                "link": "https://finance.yahoo.com/news/wmb-gains",
+                "providerPublishTime": timestamp,
+                "relatedTickers": ["WMB"],
+            }],
+        },
+        "WMB",
+        stock={"code": "WMB", "name": "Williams Companies Inc. (The)"},
+        now=datetime(2026, 9, 24, 12, tzinfo=UTC),
+    )
+
+    assert [row["title"] for row in rows] == [
+        "WMB Gains as Natural Gas Demand Improves",
+    ]
+
+
+def test_naver_world_news_uses_verified_yahoo_exchange_code_only():
+    stock = {
+        "code": "WMB",
+        "name": "Williams Companies Inc. (The)",
+        "market": "SP500",
+        "markets": ["SP500"],
+        "exchange_name": "NYQ",
+        "full_exchange_name": "NYSE",
+    }
+
+    assert us_market._naver_world_news_code_candidates(stock) == ["WMB.N"]
 
 
 def test_parse_yahoo_news_payload_keeps_ticker_related_overseas_fields():
@@ -1417,6 +1544,7 @@ def test_parse_yahoo_news_payload_keeps_ticker_related_overseas_fields():
         },
         "ASML",
         stock={"code": "ASML", "name": "ASML Holding"},
+        now=datetime(2026, 9, 24, 12, tzinfo=UTC),
     )
 
     assert rows == [{

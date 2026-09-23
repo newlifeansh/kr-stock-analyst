@@ -55,6 +55,22 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_staging_dark_theme."
         "test_staging_theme_has_touch_and_spacing_contract_for_tds_ia",
     ),
+    "DATA-US-NEWS-TABS-001": (
+        "tests.test_us_market."
+        "test_us_news_filters_unrelated_naver_headlines_for_the_selected_stock",
+        "tests.test_us_market."
+        "test_naver_news_search_skips_full_unrelated_page_and_uses_next_query",
+        "tests.test_us_market."
+        "test_wmb_naver_news_rejects_short_ticker_collisions_stale_and_duplicates",
+        "tests.test_us_market."
+        "test_wmb_yahoo_news_accepts_trusted_related_ticker_for_short_symbol",
+        "tests.test_us_market."
+        "test_naver_world_news_uses_verified_yahoo_exchange_code_only",
+        "tests.test_us_market."
+        "test_parse_yahoo_news_payload_keeps_ticker_related_overseas_fields",
+        "tests.test_app."
+        "test_us_stock_news_has_separate_domestic_and_yahoo_overseas_tabs",
+    ),
     "REC-US-INDEPENDENT-001": (
         "tests.test_us_market."
         "test_us_recommendations_rank_top100_independently_of_trade_signal_action",
@@ -3841,6 +3857,130 @@ def _live_us_checks(
             "DATA-US-NEWS-001",
             us_market_news_contract,
             pass_message="스테이징 미국 시장 실제 뉴스·한국시간·2열 피드 계약을 확인했습니다.",
+        )
+
+        def us_stock_news_identity_contract() -> dict[str, Any]:
+            payload, payload_meta = api.get(
+                "/us/stocks/WMB/dashboard",
+                refresh="true",
+            )
+            _assert(isinstance(payload, dict), "WMB dashboard 응답이 객체가 아닙니다.")
+            sentiment = payload.get("sentiment") or {}
+            domestic = sentiment.get("domestic_items") or []
+            overseas = sentiment.get("overseas_items") or []
+            _assert(
+                isinstance(domestic, list) and isinstance(overseas, list),
+                "WMB 종목뉴스 국내·해외 목록 계약이 없습니다.",
+                **payload_meta,
+            )
+            current = datetime.now(timezone.utc)
+            cutoff = current - timedelta(days=120, minutes=15)
+            noise_signals = (
+                "보이스3",
+                "언오피셜보이",
+                "윤병호",
+                "hbm4",
+                "웨이퍼",
+                "모니터",
+                "뷰소닉",
+                "윌리엄스 타운",
+            )
+
+            def parsed_article_time(item: dict[str, Any]) -> datetime | None:
+                try:
+                    published = datetime.fromisoformat(
+                        str(item.get("published_at") or "").replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    return None
+                if published.tzinfo is None:
+                    published = published.replace(tzinfo=KST)
+                return published.astimezone(timezone.utc)
+
+            invalid_domestic: list[dict[str, Any]] = []
+            for item in domestic:
+                if not isinstance(item, dict):
+                    invalid_domestic.append({"reason": "not_object"})
+                    continue
+                title = " ".join(str(item.get("title") or "").split()).strip()
+                lowered = title.casefold()
+                published = parsed_article_time(item)
+                reasons = []
+                if not title or not re.search(r"[가-힣]", title):
+                    reasons.append("korean_title")
+                if not any(
+                    identity in lowered
+                    for identity in (
+                        "williams companies",
+                        "williams cos",
+                        "윌리엄스컴퍼니즈",
+                        "윌리엄스 컴퍼니즈",
+                    )
+                ):
+                    reasons.append("company_identity")
+                if any(signal in lowered for signal in noise_signals):
+                    reasons.append("ticker_collision")
+                if published is None or published < cutoff or published > current + timedelta(minutes=15):
+                    reasons.append("published_at")
+                url = urlparse(str(item.get("url") or ""))
+                if url.scheme not in {"http", "https"} or not url.netloc:
+                    reasons.append("url")
+                if reasons:
+                    invalid_domestic.append({"title": title[:120], "reasons": reasons})
+            _assert(
+                not invalid_domestic,
+                "WMB 국내뉴스에 무관 약어·오래된 기사·무효 필드가 포함됐습니다.",
+                invalid=invalid_domestic[:10],
+                domestic_count=len(domestic),
+                **payload_meta,
+            )
+
+            valid_overseas = []
+            for item in overseas:
+                if not isinstance(item, dict):
+                    continue
+                title = " ".join(str(item.get("title") or "").split()).strip()
+                lowered = title.casefold()
+                published = parsed_article_time(item)
+                url = urlparse(str(item.get("url") or ""))
+                if (
+                    str(item.get("source") or "") == "Yahoo Finance"
+                    and ("wmb" in lowered or "williams" in lowered)
+                    and published is not None
+                    and cutoff <= published <= current + timedelta(minutes=15)
+                    and url.scheme in {"http", "https"}
+                    and bool(url.netloc)
+                ):
+                    valid_overseas.append(item)
+            _assert(
+                bool(valid_overseas),
+                "WMB Yahoo Finance 최신 해외뉴스를 확인하지 못했습니다.",
+                overseas_count=len(overseas),
+                **payload_meta,
+            )
+            source, source_meta = api.get_text("/dashboard-app-v170.js")
+            _assert(
+                "stockNewsTabTouched: false" in source
+                and "collections.domestic.length === 0" in source
+                and "collections.overseas.length > 0" in source
+                and "state.stockNewsTabTouched = true" in source,
+                "국내뉴스 0건일 때 해외뉴스 초기 선택 또는 사용자 탭 선택 보존 계약이 없습니다.",
+                **source_meta,
+            )
+            return {
+                **payload_meta,
+                "domestic_count": len(domestic),
+                "overseas_count": len(overseas),
+                "valid_overseas_count": len(valid_overseas),
+                "invalid_domestic_count": 0,
+                "oldest_allowed": cutoff.isoformat(),
+                "source": source_meta,
+            }
+
+        collector.check(
+            "DATA-US-NEWS-TABS-001",
+            us_stock_news_identity_contract,
+            pass_message="WMB 국내 오염 차단·최신 Yahoo 해외뉴스·초기 탭 전환을 확인했습니다.",
         )
 
         def us_community_bare_symbol_contract() -> dict[str, Any]:
