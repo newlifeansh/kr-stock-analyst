@@ -14,6 +14,7 @@ from app.services.us_position_lifecycle import (
     US_STRATEGY_VERSION,
     USLifecycleBar,
     _aligned_recent_sessions,
+    _load_histories,
     build_us_position_lifecycle_feed,
     evaluate_us_entry_candidate,
     evaluate_us_momentum_watch_baseline,
@@ -25,6 +26,67 @@ from app.services.us_market_calendar import recent_us_market_session_dates
 
 
 UTC = timezone.utc
+
+
+def test_us_history_loader_retries_only_transient_failures_with_lower_concurrency():
+    attempts: dict[str, int] = {}
+
+    def loader(symbol: str) -> list[str]:
+        attempts[symbol] = attempts.get(symbol, 0) + 1
+        if symbol == "NVDA" and attempts[symbol] < 3:
+            raise RuntimeError("temporary throttle")
+        if symbol == "BROKEN":
+            raise RuntimeError("permanent failure")
+        return [symbol]
+
+    histories, errors = _load_histories(["SPY", "NVDA", "BROKEN"], loader)
+
+    assert histories == {"SPY": ["SPY"], "NVDA": ["NVDA"]}
+    assert errors == {"BROKEN": "permanent failure"}
+    assert attempts == {"SPY": 1, "NVDA": 3, "BROKEN": 3}
+
+
+def test_us_feed_retries_a_symbol_missing_the_completed_session():
+    complete = _bars(daily_return=0.001)
+    members = [
+        {
+            "code": f"A{index:03d}",
+            "name": f"Stock {index}",
+            "market": "NASDAQ",
+            "sector": "Technology",
+            "cik": "0001045810",
+            "market_cap_rank": index + 1,
+            "market_cap": 1_000_000_000 - index,
+        }
+        for index in range(100)
+    ]
+    attempts: dict[str, int] = {}
+
+    def loader(symbol: str) -> list[USLifecycleBar]:
+        attempts[symbol] = attempts.get(symbol, 0) + 1
+        if symbol == "A000" and attempts[symbol] == 1:
+            return complete[:-1]
+        return complete
+
+    payload = build_us_position_lifecycle_feed(
+        limit=20,
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+        universe_payload={
+            "status": "ready",
+            "data_state": "ready",
+            "universe_as_of": date(2026, 9, 8),
+            "universe_count": 100,
+            "checksum": "fixture",
+            "items": members,
+        },
+        history_loader=loader,
+    )
+
+    assert attempts["A000"] == 2
+    assert attempts["A001"] == 1
+    assert payload["data_state"] == "ready"
+    assert payload["data_coverage_count"] == 100
+    assert len(payload["public_member_signals"]) == 100
 
 
 def _bars(

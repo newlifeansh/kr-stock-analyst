@@ -613,14 +613,26 @@ def _load_histories(
 ) -> tuple[dict[str, list[Any]], dict[str, str]]:
     histories: dict[str, list[Any]] = {}
     errors: dict[str, str] = {}
-    with ThreadPoolExecutor(max_workers=min(12, max(1, len(symbols)))) as executor:
-        futures = {executor.submit(loader, symbol): symbol for symbol in symbols}
-        for future in as_completed(futures):
-            symbol = futures[future]
-            try:
-                histories[symbol] = future.result()
-            except Exception as exc:
-                errors[symbol] = str(exc)
+    pending = list(dict.fromkeys(symbols))
+    # A single Yahoo transport failure previously invalidated the whole
+    # 100-name publication until the next five-minute collector cycle. Retry
+    # only failed symbols with progressively lower concurrency so a transient
+    # throttle cannot leave every stock-detail screen without evidence.
+    for max_workers in (12, 4, 1):
+        if not pending:
+            break
+        errors = {}
+        with ThreadPoolExecutor(
+            max_workers=min(max_workers, max(1, len(pending)))
+        ) as executor:
+            futures = {executor.submit(loader, symbol): symbol for symbol in pending}
+            for future in as_completed(futures):
+                symbol = futures[future]
+                try:
+                    histories[symbol] = future.result()
+                except Exception as exc:
+                    errors[symbol] = str(exc)
+        pending = list(errors)
     return histories, errors
 
 
@@ -916,6 +928,33 @@ def build_us_position_lifecycle_feed(
             universe_date = date.fromisoformat(str(universe_date_value)[:10])
         except ValueError:
             universe_date = None
+    if universe_date is not None:
+        incomplete_symbols = [
+            symbol
+            for symbol in symbols
+            if not bars_by_symbol.get(symbol)
+            or bars_by_symbol[symbol][-1].trade_date != universe_date
+        ]
+        if incomplete_symbols:
+            refreshed_histories, refreshed_errors = _load_histories(
+                incomplete_symbols,
+                loader,
+            )
+            histories.update(refreshed_histories)
+            for symbol in incomplete_symbols:
+                if symbol in refreshed_histories:
+                    errors.pop(symbol, None)
+            errors.update(refreshed_errors)
+            bars_by_symbol.update(
+                {
+                    symbol: us_price_bars(
+                        rows,
+                        now=current,
+                        market_session=market_session,
+                    )
+                    for symbol, rows in refreshed_histories.items()
+                }
+            )
     covered_codes: set[str] = set()
     signal_eligible_codes: set[str] = set()
     insufficient_history_codes: set[str] = set()

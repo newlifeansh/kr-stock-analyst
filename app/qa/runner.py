@@ -478,6 +478,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_market_regular_session_request_never_enqueues_publication",
         "tests.test_app."
         "test_us_collector_backfills_legacy_member_evidence_during_regular_session",
+        "tests.test_us_position_lifecycle."
+        "test_us_history_loader_retries_only_transient_failures_with_lower_concurrency",
+        "tests.test_us_position_lifecycle."
+        "test_us_feed_retries_a_symbol_missing_the_completed_session",
         "tests.test_us_position_lifecycle_runtime."
         "test_legacy_snapshot_requires_one_time_public_member_evidence_upgrade",
         "tests.test_app."
@@ -3876,6 +3880,11 @@ def _live_us_checks(
             cached = context.get("us_market_contract")
             if isinstance(cached, dict):
                 return cached
+            if context.get("us_market_contract_attempted"):
+                raise AssertionError(
+                    "미국 시그널 공통 계약이 이미 실패해 동일한 10분 재시도를 생략합니다."
+                )
+            context["us_market_contract_attempted"] = True
             feed, feed_meta = api.get(
                 "/us/market/quant-signals", limit=50, recent_days=30
             )
