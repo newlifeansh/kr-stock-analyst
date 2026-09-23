@@ -22748,6 +22748,10 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
   opacity: 0.68;
 }
 
+#stock-view.stock-detail-v3 .quant-evidence-row.quant-evidence-status {
+  grid-column: 1 / -1;
+}
+
 #stock-view.stock-detail-v3 .quant-public-evidence-note {
   margin-top: 14px;
   margin-bottom: 0;

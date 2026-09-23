@@ -1690,13 +1690,17 @@ def test_us_stock_signal_evidence_preserves_proxy_labels_and_completed_date() ->
 function stockDashboardIsUs() {{ return true; }}
 {function_source}
 const items = quantPublicEvidenceItems({{
+  evidence_session_date: "2026-09-22",
   public_reasons: [
-    {{ key: "trend_20d", label: "20일", state: "positive", available: true, summary: "20일 우호", as_of: "2026-09-22T20:00:00Z" }},
-    {{ key: "trend_60d", label: "60일", state: "neutral", available: true, summary: "60일 중립", as_of: "2026-09-22T20:00:00Z" }},
-    {{ key: "flow", label: "거래대금 참여도", state: "negative", available: true, summary: "거래대금 주의", as_of: "2026-09-22T20:00:00Z" }},
+    {{ key: "trend_20d", label: "20일", state: "positive", available: true, summary: "20일 우호", as_of: "2026-09-23T01:00:00Z" }},
+    {{ key: "trend_60d", label: "60일", state: "neutral", available: true, summary: "60일 중립", as_of: "2026-09-23T01:00:00Z" }},
+    {{ key: "flow", label: "거래대금 참여도", state: "negative", available: true, summary: "거래대금 주의", as_of: "2026-09-23T01:00:00Z" }},
   ],
 }});
-console.log(JSON.stringify(items.map(item => [item.label, item.state.label, item.summary, item.asOf])));
+console.log(JSON.stringify({{
+  basisDate: quantEvidenceDate({{ evidence_session_date: "2026-09-22", public_reasons: [] }}),
+  items: items.map(item => [item.label, item.state.label, item.summary, item.asOf]),
+}}));
 """
 
     completed = subprocess.run(
@@ -1706,14 +1710,61 @@ console.log(JSON.stringify(items.map(item => [item.label, item.state.label, item
         text=True,
     )
 
-    assert json.loads(completed.stdout) == [
-        ["20일", "우호", "20일 우호", "2026-09-22T20:00:00Z"],
-        ["60일", "중립", "60일 중립", "2026-09-22T20:00:00Z"],
-        ["거래대금 참여도", "주의", "거래대금 주의", "2026-09-22T20:00:00Z"],
-    ]
+    assert json.loads(completed.stdout) == {
+        "basisDate": "2026-09-22",
+        "items": [
+            ["20일 가격", "우호", "20일 우호", "2026-09-23T01:00:00Z"],
+            ["60일 가격", "중립", "60일 중립", "2026-09-23T01:00:00Z"],
+            ["거래대금 참여도", "주의", "거래대금 주의", "2026-09-23T01:00:00Z"],
+        ],
+    }
     assert 'id="quant-evidence-title"' in (
         APP_JS.parent / "index.html"
     ).read_text(encoding="utf-8")
+
+
+def test_us_stock_signal_outside_top100_is_not_mislabelled_as_missing_data() -> None:
+    source = app_source()
+    start = source.index("function quantEvidenceStateMeta(")
+    end = source.index("function quantSvgPath(", start)
+    function_source = source[start:end]
+    script = f"""
+function stockDashboardIsUs() {{ return true; }}
+function formatDateLabel(value) {{ return String(value || "").slice(0, 10) || "-"; }}
+function escapeChartSvgText(value) {{ return String(value); }}
+function setText(element, value) {{ element.textContent = value; }}
+const elements = {{
+  quantPublicEvidence: {{ innerHTML: "" }},
+  quantEvidenceTitle: {{ textContent: "" }},
+  quantEvidenceAsOf: {{ textContent: "" }},
+  quantEvidenceLead: {{ textContent: "" }},
+}};
+const state = {{ stockQuantSignals: null }};
+{function_source}
+renderQuantDecisionEvidence({{
+  public_evidence_status: "not_applicable",
+  evidence_session_date: "2026-09-22",
+  public_reasons: [],
+}});
+console.log(JSON.stringify({{
+  title: elements.quantEvidenceTitle.textContent,
+  asOf: elements.quantEvidenceAsOf.textContent,
+  html: elements.quantPublicEvidence.innerHTML,
+}}));
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(completed.stdout)
+
+    assert payload["title"] == "Top100 공개 근거 평가 대상"
+    assert payload["asOf"] == "2026-09-22 Top100 유니버스 기준"
+    assert "평가 대상 아님" in payload["html"]
+    assert "정보 부족" not in payload["html"]
 
 
 def test_us_recommendation_detail_requires_matching_ready_snapshot_identity() -> None:

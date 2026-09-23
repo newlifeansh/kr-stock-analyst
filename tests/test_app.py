@@ -238,8 +238,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="home-view" class="app-page app-home"' in response.text
     assert 'id="search-view" class="app-page app-search"' in response.text
     assert 'id="bottom-nav" aria-label="주요 메뉴"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260924us102"' in response.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us102&amp;build=20260924us102"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260924us103"' in response.text
+    assert 'href="/assets/dashboard/styles.css?v=20260924us103&amp;build=20260924us103"' in response.text
     assert 'setCopy("home-market-signal-title", "미국 시그널 감시 후보")' in source
     assert 'setCopy("home-ai-signals-title", "시그널 감시 후보")' in source
     assert 'signalPageTitle.textContent = "시그널 감시 후보"' in source
@@ -258,7 +258,7 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
-        .replace("20260924us102", "20260923v553")
+        .replace("20260924us103", "20260923v553")
     )
     assert normalized_us == dashboard.text
 
@@ -674,6 +674,11 @@ def test_us_stock_ai_analysis_endpoint_labels_dollar_volume_proxy(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     flow = payload["public_reasons"][2]
+    assert [reason["label"] for reason in payload["public_reasons"]] == [
+        "20일 가격",
+        "60일 가격",
+        "거래대금 참여도",
+    ]
     assert flow["label"] == "거래대금 참여도"
     assert [reason["state"] for reason in payload["public_reasons"]] == [
         "positive",
@@ -689,6 +694,8 @@ def test_us_stock_ai_analysis_endpoint_labels_dollar_volume_proxy(monkeypatch):
     assert payload["snapshot_checksum"] == "feed-checksum"
     assert payload["new_entries_allowed"] is True
     assert payload["is_current_universe_member"] is True
+    assert payload["public_evidence_status"] == "ready"
+    assert payload["evidence_session_date"] == "2026-09-09"
     assert payload["confidence"] is None
     assert (payload["data_covered"], payload["data_total"]) == (3, 3)
     assert payload["stance"] == "예비 매수"
@@ -697,7 +704,7 @@ def test_us_stock_ai_analysis_endpoint_labels_dollar_volume_proxy(monkeypatch):
         "label": "예비 매수",
         "position_open": False,
         "live_observation": False,
-        "as_of": "2026-09-09T20:00:00+00:00",
+        "as_of": "2026-09-09",
     }
     assert "수급" not in payload["summary"]
     assert "수급" not in payload["strategy"][0]
@@ -786,7 +793,17 @@ def test_us_stock_ai_analysis_fails_closed_without_canonical_candidate(
     assert payload["confidence"] is None
     assert (payload["data_covered"], payload["data_total"]) == (0, 3)
     assert payload["current"]["action"] == "no_signal"
-    assert all(reason["available"] is False for reason in payload["public_reasons"])
+    if case == "outside_top100":
+        assert payload["public_evidence_status"] == "not_applicable"
+        assert payload["evidence_session_date"] == "2026-09-09"
+        assert payload["public_reasons"] == []
+    else:
+        assert payload["public_evidence_status"] == "preparing"
+        assert payload["evidence_session_date"] is None
+        assert all(
+            reason["available"] is False
+            for reason in payload["public_reasons"]
+        )
     assert "관망" in payload["summary"]
     if case in {"preparing", "missing_identity"}:
         assert "준비" in payload["summary"]
@@ -886,7 +903,10 @@ def test_us_stock_ai_analysis_keeps_top100_member_ready_without_signal(
     assert payload["code"] == member_code
     assert payload["is_current_universe_member"] is True
     assert payload["new_entries_allowed"] is True
+    assert payload["public_evidence_status"] == "ready"
+    assert payload["evidence_session_date"] == "2026-09-09"
     assert payload["current"]["action"] == "no_signal"
+    assert payload["current"]["as_of"] == "2026-09-09"
     assert payload["stance"] == "관망 우선"
     assert (payload["data_covered"], payload["data_total"]) == (3, 3)
     assert [reason["state"] for reason in payload["public_reasons"]] == [
@@ -895,7 +915,11 @@ def test_us_stock_ai_analysis_keeps_top100_member_ready_without_signal(
         "negative",
     ]
     assert all(reason["available"] is True for reason in payload["public_reasons"])
-    assert payload["public_reasons"][2]["label"] == "거래대금 참여도"
+    assert [reason["label"] for reason in payload["public_reasons"]] == [
+        "20일 가격",
+        "60일 가격",
+        "거래대금 참여도",
+    ]
     assert str(payload["as_of"]).startswith("2026-09-09T20:00:00")
     assert "private" not in response.text
 
@@ -999,11 +1023,13 @@ def test_us_stock_ai_analysis_repairs_legacy_member_evidence_without_full_scan(
     assert payload["snapshot_id"] == "legacy-us-rc1-snapshot"
     assert payload["data_covered"] == 3
     assert payload["new_entries_allowed"] is True
+    assert payload["public_evidence_status"] == "ready"
+    assert payload["evidence_session_date"] == "2026-09-09"
     assert payload["current"]["action"] == "no_signal"
     assert all(reason["available"] is True for reason in payload["public_reasons"])
     assert [reason["label"] for reason in payload["public_reasons"]] == [
-        "20일",
-        "60일",
+        "20일 가격",
+        "60일 가격",
         "거래대금 참여도",
     ]
 
@@ -1256,8 +1282,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260924us102"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us102&amp;build=20260924us102"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260924us103"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260924us103&amp;build=20260924us103"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1547,7 +1573,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260924us102"}
+    assert version.json() == {"version": "20260924us103"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1556,9 +1582,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260924us102" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260924us103" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20260924us102")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20260924us103")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1572,12 +1598,12 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20260924us102"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20260924us103"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20260924us102' in worker.text
-    assert '"/dashboard-app-v170.js?v=20260924us102"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20260924us103' in worker.text
+    assert '"/dashboard-app-v170.js?v=20260924us103"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
@@ -2926,8 +2952,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20260924us102"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us102&amp;build=20260924us102"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260924us103"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260924us103&amp;build=20260924us103"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()

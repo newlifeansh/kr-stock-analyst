@@ -139,8 +139,8 @@ def test_us_member_public_evidence_recovers_three_completed_session_reasons():
         "flow",
     ]
     assert [reason["label"] for reason in evidence["public_reasons"]] == [
-        "20일",
-        "60일",
+        "20일 가격",
+        "60일 가격",
         "거래대금 참여도",
     ]
     assert all(
@@ -566,7 +566,7 @@ def test_us_feed_is_top100_shadow_only_and_never_creates_a_position():
     } == {item["code"] for item in members}
     assert all(
         [reason["label"] for reason in item["public_reasons"]]
-        == ["20일", "60일", "거래대금 참여도"]
+        == ["20일 가격", "60일 가격", "거래대금 참여도"]
         for item in payload["public_member_signals"]
     )
     assert all(

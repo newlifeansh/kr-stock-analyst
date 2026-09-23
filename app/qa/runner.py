@@ -523,6 +523,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_home_ai_response."
         "test_us_ai_analysis_display_preserves_canonical_fields_and_fails_closed",
         "tests.test_home_ai_response."
+        "test_us_stock_signal_evidence_preserves_proxy_labels_and_completed_date",
+        "tests.test_home_ai_response."
+        "test_us_stock_signal_outside_top100_is_not_mislabelled_as_missing_data",
+        "tests.test_home_ai_response."
         "test_us_recommendation_detail_requires_matching_ready_snapshot_identity",
         "tests.test_home_ai_response."
         "test_nasdaq_ai_renderer_and_recommendation_history_keep_canonical_snapshot",
@@ -2008,6 +2012,7 @@ def _live_checks(
                     and stock_analysis.get("snapshot_checksum")
                     == feed.get("snapshot_checksum")
                     and stock_analysis.get("is_current_universe_member") is True
+                    and stock_analysis.get("public_evidence_status") == "ready"
                     and stock_analysis.get("data_covered") == 3
                     and [
                         reason.get("key")
@@ -2020,13 +2025,15 @@ def _live_checks(
                         for reason in stock_reasons
                         if isinstance(reason, dict)
                     ]
-                    == ["20일", "60일", "거래대금 참여도"]
+                    == ["20일 가격", "60일 가격", "거래대금 참여도"]
                     and all(
                         reason.get("available") is True
                         for reason in stock_reasons
                         if isinstance(reason, dict)
                     )
                     and str(stock_analysis.get("as_of") or "")[:10]
+                    == str(feed.get("universe_as_of") or "")[:10]
+                    and str(stock_analysis.get("evidence_session_date") or "")
                     == str(feed.get("universe_as_of") or "")[:10],
                     "미국 Top100 종목 분석이 비후보 완료 세션 공개근거를 유지하지 못했습니다.",
                     analysis=stock_analysis_meta,
@@ -2280,6 +2287,16 @@ def _live_checks(
                 "forbidden_public_paths": forbidden_paths,
                 "methodology": feed.get("methodology"),
                 "stock_analysis": stock_analysis_meta,
+                "stock_public_evidence_status": (
+                    stock_analysis.get("public_evidence_status")
+                    if isinstance(stock_analysis, dict)
+                    else None
+                ),
+                "stock_evidence_session_date": (
+                    stock_analysis.get("evidence_session_date")
+                    if isinstance(stock_analysis, dict)
+                    else None
+                ),
             }
             context["us_market_contract"] = result
             return result
@@ -4215,6 +4232,7 @@ def _live_us_checks(
                 and stock_analysis.get("snapshot_checksum")
                 == feed.get("snapshot_checksum")
                 and stock_analysis.get("is_current_universe_member") is True
+                and stock_analysis.get("public_evidence_status") == "ready"
                 and stock_analysis.get("data_covered") == 3
                 and [
                     reason.get("key")
@@ -4227,13 +4245,15 @@ def _live_us_checks(
                     for reason in stock_reasons
                     if isinstance(reason, dict)
                 ]
-                == ["20일", "60일", "거래대금 참여도"]
+                == ["20일 가격", "60일 가격", "거래대금 참여도"]
                 and all(
                     reason.get("available") is True
                     for reason in stock_reasons
                     if isinstance(reason, dict)
                 )
                 and str(stock_analysis.get("as_of") or "")[:10]
+                == str(feed.get("universe_as_of") or "")[:10]
+                and str(stock_analysis.get("evidence_session_date") or "")
                 == str(feed.get("universe_as_of") or "")[:10],
                 "미국 Top100 종목 분석이 완료 세션 공개근거를 유지하지 못했습니다.",
                 analysis=stock_analysis_meta,
@@ -4412,6 +4432,12 @@ def _live_us_checks(
                 "forbidden_public_paths": forbidden_paths,
                 "methodology": feed.get("methodology"),
                 "stock_analysis": stock_analysis_meta,
+                "stock_public_evidence_status": stock_analysis.get(
+                    "public_evidence_status"
+                ),
+                "stock_evidence_session_date": stock_analysis.get(
+                    "evidence_session_date"
+                ),
             }
             context["us_market_contract"] = result
             return result

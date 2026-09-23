@@ -25321,6 +25321,9 @@ function quantEvidenceStateMeta(value, available = true) {
 }
 
 function quantEvidenceDate(payload = {}) {
+  if (payload.evidence_session_date) {
+    return payload.evidence_session_date;
+  }
   const transitionDate = payload.current?.lifecycle?.latest_transition?.signal_date
     || payload.current?.lifecycle?.latest_transition?.transition_date;
   if (transitionDate) {
@@ -25379,7 +25382,12 @@ function quantPublicEvidenceItems(payload = {}) {
   return QUANT_PUBLIC_REASON_META.map(({ key, label }) => {
     const item = supplied.find((candidate) => candidate?.key === key) || fallbackByKey.get(key) || {};
     const state = quantEvidenceStateMeta(item.state, item.available !== false);
-    const resolvedLabel = String(item.label || (usMarket && key === "flow" ? "거래대금 참여도" : label)).trim();
+    const usLabel = {
+      trend_20d: "20일 가격",
+      trend_60d: "60일 가격",
+      flow: "거래대금 참여도",
+    }[key];
+    const resolvedLabel = String(usMarket ? usLabel : item.label || label).trim();
     return {
       key,
       label: resolvedLabel,
@@ -25406,21 +25414,32 @@ function renderQuantDecisionEvidence(payload = state.stockQuantSignals) {
   }
   const publicReasons = quantPublicEvidenceItems(payload);
   const evidenceDate = quantEvidenceDate(payload);
+  const evidenceStatus = String(payload.public_evidence_status || "");
+  const notApplicable = stockDashboardIsUs() && evidenceStatus === "not_applicable";
 
   setText(
     elements.quantEvidenceTitle,
-    stockDashboardIsUs()
+    notApplicable
+      ? "Top100 공개 근거 평가 대상"
+      : stockDashboardIsUs()
       ? "20일 · 60일 · 거래대금 참여도"
       : "20일 · 60일 · 수급",
   );
-  setText(elements.quantEvidenceAsOf, evidenceDate ? `${formatDateLabel(evidenceDate)} 판단 기준` : "최신 판단 기준");
+  setText(
+    elements.quantEvidenceAsOf,
+    evidenceDate
+      ? `${formatDateLabel(evidenceDate)} ${notApplicable ? "Top100 유니버스" : stockDashboardIsUs() ? "미국장 마감" : "판단"} 기준`
+      : "기준일 확인 중",
+  );
   setText(
     elements.quantEvidenceLead,
     stockDashboardIsUs()
       ? "20일·60일 가격 흐름과 거래대금 참여도를 요약합니다."
       : "20일·60일·수급 세 가지만 요약합니다.",
   );
-  elements.quantPublicEvidence.innerHTML = publicReasons.map(quantPublicEvidenceRowMarkup).join("");
+  elements.quantPublicEvidence.innerHTML = notApplicable
+    ? `<article class="quant-evidence-row quant-evidence-status is-unavailable" aria-label="현재 미국 시가총액 Top100 공개 근거 평가 대상 아님"><strong>현재 미국 시가총액 Top100</strong><span class="quant-evidence-badge">평가 대상 아님</span></article>`
+    : publicReasons.map(quantPublicEvidenceRowMarkup).join("");
 }
 
 function quantSvgPath(points) {
@@ -25876,6 +25895,8 @@ function renderUsAIAnalysis(payload) {
     snapshot_checksum: displayPayload.snapshot_checksum ?? null,
     is_current_universe_member: displayPayload.is_current_universe_member ?? null,
     new_entries_allowed: displayPayload.new_entries_allowed === true,
+    public_evidence_status: displayPayload.public_evidence_status || null,
+    evidence_session_date: displayPayload.evidence_session_date || null,
     current: displayPayload.current,
     public_reasons: publicReasons.map((item) => ({
       key: item.key,

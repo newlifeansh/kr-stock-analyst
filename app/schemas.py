@@ -955,6 +955,8 @@ class StockAIAnalysisOut(BaseModel):
     snapshot_checksum: Optional[str] = None
     new_entries_allowed: Optional[bool] = None
     is_current_universe_member: Optional[bool] = None
+    public_evidence_status: Optional[str] = None
+    evidence_session_date: Optional[date] = None
     current: Optional[dict[str, Any]] = None
 
 

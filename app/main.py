@@ -289,7 +289,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260924us102"
+US_DASHBOARD_CLIENT_VERSION = "20260924us103"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -4492,6 +4492,24 @@ def us_stock_ai_analysis(
         canonical_member_ready
         and isinstance(signal, dict)
     )
+    public_evidence_status = (
+        "ready"
+        if canonical_member_ready
+        else "not_applicable"
+        if snapshot_ready and is_current_universe_member is False
+        else "preparing"
+        if not snapshot_ready
+        else "unavailable"
+    )
+    evidence_session_date = (
+        reason_source.get("signal_date")
+        if canonical_member_ready
+        and isinstance(reason_source, dict)
+        and reason_source.get("signal_date")
+        else feed.get("universe_as_of")
+        if snapshot_ready
+        else None
+    )
     source_current = (
         dict(signal.get("current") or {}) if isinstance(signal, dict) else {}
     )
@@ -4507,25 +4525,27 @@ def us_stock_ai_analysis(
         "entry_watch": "예비 포착",
         "no_signal": "관망",
     }
+    canonical_as_of = (
+        reason_source.get("signal_at")
+        if isinstance(reason_source, dict) and reason_source.get("signal_at")
+        else feed.get("universe_as_of") or feed.get("as_of") or current_time
+    )
     canonical_current = {
         "action": action,
         "label": label_by_action[action],
         "position_open": False,
         "live_observation": False,
         "as_of": (
-            signal.get("signal_at") or signal.get("signal_date")
-            if isinstance(signal, dict)
-            else feed.get("universe_as_of")
+            evidence_session_date
+            if evidence_session_date
+            else canonical_as_of
         ),
     }
-    canonical_as_of = (
-        reason_source.get("signal_at")
-        if isinstance(reason_source, dict) and reason_source.get("signal_at")
-        else feed.get("universe_as_of") or feed.get("as_of") or current_time
-    )
     canonical_reasons = (
         signal_reasons
         if canonical_member_ready
+        else []
+        if public_evidence_status == "not_applicable"
         else [
             {
                 "key": key,
@@ -4582,6 +4602,8 @@ def us_stock_ai_analysis(
             "snapshot_checksum": feed.get("snapshot_checksum"),
             "new_entries_allowed": canonical_member_ready,
             "is_current_universe_member": is_current_universe_member,
+            "public_evidence_status": public_evidence_status,
+            "evidence_session_date": evidence_session_date,
             "current": canonical_current,
             "flow_semantics": "dollar_volume_participation_proxy",
             "public_reasons": canonical_reasons,

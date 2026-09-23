@@ -1565,7 +1565,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260924us102",
+                "us_dashboard_version": "20260924us103",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1573,7 +1573,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260924us102",
+                "us_dashboard_version": "20260924us103",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1770,6 +1770,8 @@ class FakeReadOnlyApi:
                 "snapshot_checksum": "canonical-fixture-checksum",
                 "new_entries_allowed": True,
                 "is_current_universe_member": True,
+                "public_evidence_status": "ready",
+                "evidence_session_date": universe_as_of,
                 "stance": "관망 우선",
                 "data_covered": 3,
                 "data_total": 3,
@@ -1778,13 +1780,13 @@ class FakeReadOnlyApi:
                 "public_reasons": [
                     {
                         "key": "trend_20d",
-                        "label": "20일",
+                        "label": "20일 가격",
                         "state": "positive",
                         "available": True,
                     },
                     {
                         "key": "trend_60d",
-                        "label": "60일",
+                        "label": "60일 가격",
                         "state": "neutral",
                         "available": True,
                     },
@@ -1928,7 +1930,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20260924us102"}, self._meta(path)
+            return {"version": "20260924us103"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -1975,11 +1977,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20260924us102" />'
+                '<link href="/assets/dashboard/styles.css?v=20260924us103" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20260924us102"></script>'
+                '<script src="/dashboard-app-v170.js?v=20260924us103"></script>'
                 '</body></html>',
                 self._meta(path),
             )

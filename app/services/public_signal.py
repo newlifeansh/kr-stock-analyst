@@ -370,6 +370,8 @@ def build_public_signal_reasons(
         source.get("flow_semantics") or fallback.get("flow_semantics") or ""
     )
     if flow_semantics == US_DOLLAR_VOLUME_FLOW_SEMANTICS:
+        result[0]["label"] = "20일 가격"
+        result[1]["label"] = "60일 가격"
         flow_reason = result[-1]
         flow_reason["label"] = "거래대금 참여도"
         flow_reason["summary"] = {
@@ -760,12 +762,17 @@ def public_stock_ai_analysis_payload(
     """Reduce a generated stock analysis to the three approved public reasons."""
 
     result = deepcopy(dict(_mapping(payload)))
-    public_reasons = build_public_signal_reasons(result, context=context)
     source = _mapping(payload)
     fallback = _mapping(context)
     is_us_proxy = str(
         source.get("flow_semantics") or fallback.get("flow_semantics") or ""
     ) == US_DOLLAR_VOLUME_FLOW_SEMANTICS
+    public_evidence_status = str(source.get("public_evidence_status") or "")
+    public_reasons = (
+        []
+        if is_us_proxy and public_evidence_status == "not_applicable"
+        else build_public_signal_reasons(result, context=context)
+    )
     current_action = str(_mapping(result.get("current")).get("action") or "")
     us_public_evidence_ready = bool(
         is_us_proxy
@@ -792,7 +799,10 @@ def public_stock_ai_analysis_payload(
         else:
             decision_reason = US_PUBLIC_SIGNAL_UNAVAILABLE_REASON
             next_check = US_PUBLIC_SIGNAL_UNAVAILABLE_NEXT_CHECK
-        if not us_public_evidence_ready:
+        if public_evidence_status == "not_applicable":
+            public_reasons = []
+            result = _fail_closed_us_public_signal(result, reason=next_check)
+        elif not us_public_evidence_ready:
             public_reasons = _unavailable_us_public_reasons(
                 result.get("as_of") or fallback.get("as_of")
             )
