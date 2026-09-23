@@ -237,8 +237,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="home-view" class="app-page app-home"' in response.text
     assert 'id="search-view" class="app-page app-search"' in response.text
     assert 'id="bottom-nav" aria-label="주요 메뉴"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260923us99"' in response.text
-    assert 'href="/assets/dashboard/styles.css?v=20260923us99&amp;build=20260923us99"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260923us100"' in response.text
+    assert 'href="/assets/dashboard/styles.css?v=20260923us100&amp;build=20260923us100"' in response.text
     assert 'setCopy("home-market-signal-title", "미국 시그널 감시 후보")' in source
     assert 'setCopy("home-ai-signals-title", "시그널 감시 후보")' in source
     assert 'signalPageTitle.textContent = "시그널 감시 후보"' in source
@@ -246,6 +246,9 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'if (IS_US_ONLY_PRODUCT || state.view !== "home")' in source
     assert 'id="home-ai-response"' in dashboard.text
     assert 'score: item.score ?? item.recommendation_score ?? null' in source
+    assert 'function formatMarketNewsDate(item = {})' in source
+    assert 'timeZone: "Asia/Seoul"' in source
+    assert '최신 미국 시장 뉴스를 확인하지 못했습니다.' in source
 
     normalized_us = (
         response.text.replace('data-market-universe="us"', 'data-market-universe="kr"')
@@ -254,9 +257,51 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
-        .replace("20260923us99", "20260923v553")
+        .replace("20260923us100", "20260923v553")
     )
     assert normalized_us == dashboard.text
+
+
+def test_us_market_trends_refresh_exposes_only_linked_live_articles(monkeypatch):
+    calls = []
+
+    def fake_build_us_trends(days: int):
+        calls.append(days)
+        return {
+            "status": "ready",
+            "data_state": "live",
+            "as_of": datetime(2026, 9, 23, 13, 0, tzinfo=timezone.utc),
+            "window_start": datetime(2026, 9, 16, 13, 0, tzinfo=timezone.utc),
+            "window_end": datetime(2026, 9, 23, 13, 0, tzinfo=timezone.utc),
+            "events": [],
+            "past_events": [],
+            "timeline": [{
+                "id": "us-news-live",
+                "published_at": datetime(2026, 9, 23, 12, 30, tzinfo=timezone.utc),
+                "title": "뉴욕증시, 반도체 랠리에 강세",
+                "source": "Reuters",
+                "url": "https://news.example/live",
+                "category": "반도체",
+                "impact": "호재",
+                "leader_stocks": ["NVDA"],
+            }],
+        }
+
+    monkeypatch.setattr("app.main.build_us_trends", fake_build_us_trends)
+    api_cache.clear()
+    try:
+        response = TestClient(app).get("/us/market/trends?days=7&refresh=true")
+    finally:
+        api_cache.clear()
+
+    assert response.status_code == 200
+    assert calls == [7]
+    payload = response.json()
+    assert payload["status"] == "ready"
+    assert payload["data_state"] == "live"
+    assert payload["events"] == []
+    assert payload["timeline"][0]["url"] == "https://news.example/live"
+    assert payload["timeline"][0]["source"] not in {"NASDAQ Brief", "Macro Brief"}
 
 
 def test_legacy_nasdaq_routes_redirect_to_canonical_us_paths_with_query_preserved():
@@ -980,8 +1025,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260923us99"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260923us99&amp;build=20260923us99"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260923us100"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260923us100&amp;build=20260923us100"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1271,7 +1316,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260923us99"}
+    assert version.json() == {"version": "20260923us100"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1280,9 +1325,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260923us99" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260923us100" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20260923us99")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20260923us100")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1296,12 +1341,12 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20260923us99"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20260923us100"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20260923us99' in worker.text
-    assert '"/dashboard-app-v170.js?v=20260923us99"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20260923us100' in worker.text
+    assert '"/dashboard-app-v170.js?v=20260923us100"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
@@ -2650,8 +2695,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20260923us99"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260923us99&amp;build=20260923us99"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260923us100"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260923us100&amp;build=20260923us100"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()

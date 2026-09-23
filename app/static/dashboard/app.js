@@ -9372,6 +9372,30 @@ function formatDate(value) {
   return String(value).replace("T", " ").slice(0, 16);
 }
 
+function formatMarketNewsDate(item = {}) {
+  const value = item.published_at;
+  if (!value || marketScopeForItem(item) !== "us") {
+    return formatDate(value);
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return formatDate(value);
+  }
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("ko-KR", {
+      timeZone: "Asia/Seoul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(parsed).map((part) => [part.type, part.value]),
+  );
+  const hour = parts.hour === "24" ? "00" : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day} ${hour}:${parts.minute} 한국시간`;
+}
+
 function formatDateLabel(value) {
   if (!value) {
     return "-";
@@ -27799,7 +27823,7 @@ function appendThreadItem(parent, item) {
     story.rel = "noreferrer";
     story.setAttribute("aria-label", `${item.title} 기사 원문 보기`);
   }
-  const meta = el("div", "thread-meta", `${formatDate(item.published_at)} · ${item.source}`);
+  const meta = el("div", "thread-meta", `${formatMarketNewsDate(item)} · ${item.source}`);
   if (isUsHubContext) meta.append(createMarketBadge(item));
   const title = el("strong", "", item.title);
   const tags = el("div", "thread-tags");
@@ -27932,7 +27956,14 @@ function renderNewsPage() {
   updateTrendNewsFilterButtons(elements.newsPageFilters, counts, "newsPageFilter");
   elements.newsPageList.replaceChildren();
   if (filteredItems.length === 0) {
-    elements.newsPageList.appendChild(el("p", "muted news-page-empty", `${filterLabel} 뉴스가 없습니다.`));
+    const unavailable = IS_US_ONLY_PRODUCT && state.homeTrendContext?.data_state !== "live";
+    elements.newsPageList.appendChild(el(
+      "p",
+      "muted news-page-empty",
+      unavailable
+        ? "최신 미국 시장 뉴스를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요."
+        : `${filterLabel} 뉴스가 없습니다.`,
+    ));
   } else {
     for (const item of filteredItems) {
       appendThreadItem(elements.newsPageList, item);
@@ -27942,7 +27973,9 @@ function renderNewsPage() {
     elements.newsPageCount.textContent = `${filterLabel} ${formatNumber(filteredItems.length)}개`;
   }
   if (elements.newsPageAsOf) {
-    elements.newsPageAsOf.textContent = formatDataBasis(state.homeTrendContext?.as_of, "최신 뉴스 기준");
+    elements.newsPageAsOf.textContent = IS_US_ONLY_PRODUCT && state.homeTrendContext?.as_of
+      ? `${formatMarketNewsDate({ published_at: state.homeTrendContext.as_of, market_scope: "us" })} 기준`
+      : formatDataBasis(state.homeTrendContext?.as_of, "최신 뉴스 기준");
   }
   if (elements.newsPageResultMeta) {
     elements.newsPageResultMeta.textContent = `${filterLabel} 뉴스 ${formatNumber(filteredItems.length)}개 · 최신순`;
@@ -29974,6 +30007,9 @@ async function fetchTrendsForScope(options = {}) {
   if (!payloads.length) throw settled[0]?.reason || new Error("trends unavailable");
   const byTime = (left, right) => Date.parse(right.starts_at || right.published_at || 0) - Date.parse(left.starts_at || left.published_at || 0);
   return {
+    status: payloads.every((payload) => !payload.status || payload.status === "ready") ? "ready" : "unavailable",
+    data_state: payloads.every((payload) => !payload.data_state || payload.data_state === "live") ? "live" : "unavailable",
+    market_scope: effectiveScope,
     window_start: payloads.map((payload) => payload.window_start).filter(Boolean).sort()[0] || null,
     window_end: payloads.map((payload) => payload.window_end).filter(Boolean).sort().at(-1) || null,
     as_of: payloads.map((payload) => payload.as_of).filter(Boolean).sort().at(-1) || null,

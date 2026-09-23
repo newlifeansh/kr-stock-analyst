@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import xml.etree.ElementTree as ET
@@ -142,6 +143,19 @@ US_NEWS_POSITIVE_SIGNALS: tuple[tuple[str, int, str], ...] = (
     ("shareholders", 1, "주주가치"),
     ("strategic sense", 1, "전략적 타당성"),
     ("offset higher", 1, "비용 상쇄 가능"),
+    ("사상 최고", 4, "사상 최고 기대"),
+    ("신고가", 4, "신고가 기대"),
+    ("폭등", 3, "강한 상승"),
+    ("급등", 3, "강한 상승"),
+    ("랠리", 2, "상승 랠리"),
+    ("강세", 2, "강세"),
+    ("상승", 2, "상승"),
+    ("반등", 2, "반등"),
+    ("상향", 3, "전망 상향"),
+    ("예상 상회", 3, "실적 예상 상회"),
+    ("실적 호조", 3, "실적 호조"),
+    ("수요 호조", 3, "수요 호조"),
+    ("회복", 2, "회복 기대"),
 )
 
 US_NEWS_NEGATIVE_SIGNALS: tuple[tuple[str, int, str], ...] = (
@@ -173,6 +187,19 @@ US_NEWS_NEGATIVE_SIGNALS: tuple[tuple[str, int, str], ...] = (
     ("delay", 2, "지연"),
     ("years away", 2, "성과 지연"),
     ("without collecting personal data", 1, "개인정보 규제 이슈"),
+    ("폭락", 3, "급락"),
+    ("급락", 3, "급락"),
+    ("하락", 2, "하락"),
+    ("약세", 2, "약세"),
+    ("하향", 3, "전망 하향"),
+    ("예상 하회", 3, "실적 예상 하회"),
+    ("실적 부진", 3, "실적 부진"),
+    ("둔화", 2, "둔화 우려"),
+    ("소송", 3, "소송 리스크"),
+    ("조사", 2, "조사 리스크"),
+    ("규제", 2, "규제 리스크"),
+    ("우려", 2, "우려"),
+    ("부담", 1, "부담"),
 )
 US_COMPANY_SUFFIXES = (
     "incorporated",
@@ -3476,68 +3503,193 @@ def build_us_quant_signals(
     return canonical
 
 
-def build_us_trends(days: int = 7) -> dict[str, object]:
-    now = datetime.now(timezone.utc)
-    timeline = [
+US_MARKET_NEWS_QUERIES: tuple[tuple[str, str], ...] = (
+    ("미국 증시 OR 뉴욕증시", "ko"),
+    ("나스닥 OR S&P500", "ko"),
+    ("Wall Street stock market", "en"),
+)
+US_MARKET_NEWS_LEADER_CODES: tuple[str, ...] = (
+    "NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOGL", "GOOG", "TSLA",
+    "AVGO", "AMD", "NFLX", "ORCL", "JPM", "WMT", "XOM",
+)
+
+
+def _us_market_news_category(title: str) -> str:
+    lowered = title.casefold()
+    category_signals = (
+        ("금리", ("금리", "연준", "국채", "채권", "fed ", "federal reserve", "yield")),
+        ("AI", ("ai ", "ai·", "인공지능", "데이터센터", "data center")),
+        ("반도체", ("반도체", "엔비디아", "semiconductor", "nvidia", "chip")),
+        ("실적", ("실적", "매출", "영업이익", "earnings", "revenue", "profit")),
+        ("정책", ("트럼프", "관세", "규제", "백악관", "tariff", "regulation", "white house")),
+        ("원자재", ("유가", "원유", "금값", "brent", "crude oil", "gold")),
+    )
+    for label, signals in category_signals:
+        if any(signal in lowered for signal in signals):
+            return label
+    return "시장"
+
+
+def _us_market_news_leaders(title: str) -> list[str]:
+    lowered = title.casefold()
+    upper_tokens = set(re.findall(r"\b[A-Z][A-Z.]{1,5}\b", title))
+    leaders: list[str] = []
+    for code in US_MARKET_NEWS_LEADER_CODES:
+        stock = US_UNIVERSE_BY_CODE.get(code) or {}
+        names = [str(stock.get("name") or "").strip(), *US_KOREAN_ALIASES.get(code, ())]
+        name_match = any(
+            len(name) >= 3 and name.casefold() in lowered
+            for name in names
+            if name
+        )
+        if code in upper_tokens or name_match:
+            leaders.append(code)
+    return leaders[:4]
+
+
+def _is_relevant_us_market_news(title: str) -> bool:
+    lowered = title.casefold()
+    excluded = (
+        "상장 이전",
+        "상장주식 토큰화",
+        "상장 주식 토큰화",
+        "최소 주주지분 요건",
+        "nasdaq capital market",
+        "listing compliance",
+    )
+    if any(signal in lowered for signal in excluded):
+        return False
+    market_signals = (
+        "뉴욕증시", "미국증시", "미국 증시", "美증시", "나스닥", "다우지수",
+        "다우 지수", "s&p500", "s&p 500", "월가", "미국 주식", "서학개미",
+        "wall street", "stock market", "u.s. stocks", "us stocks", "nasdaq", "dow jones",
+    )
+    if any(signal in lowered for signal in market_signals):
+        return True
+    return bool(_us_market_news_leaders(title))
+
+
+def _normalize_us_market_news_item(
+    item: dict[str, object],
+    *,
+    now: datetime,
+    cutoff: datetime,
+) -> Optional[dict[str, object]]:
+    title = " ".join(str(item.get("title") or "").split()).strip()
+    source = " ".join(str(item.get("source") or "Google News").split()).strip()
+    url = str(item.get("url") or "").strip()
+    published_at = item.get("published_at")
+    if not title or not url or not isinstance(published_at, datetime):
+        return None
+    if published_at.tzinfo is None:
+        published_at = published_at.replace(tzinfo=timezone.utc)
+    published_at = published_at.astimezone(timezone.utc)
+    if published_at < cutoff or published_at > now + timedelta(minutes=10):
+        return None
+    source_suffix = f" - {source}"
+    if source and title.casefold().endswith(source_suffix.casefold()):
+        title = title[: -len(source_suffix)].rstrip()
+    if not _is_relevant_us_market_news(title):
+        return None
+    classified = _classify_us_news_item(
         {
-            "id": "us-ai-capex",
-            "published_at": now,
-            "title": "AI 인프라 투자와 반도체 수요를 계속 점검",
-            "source": "NASDAQ Brief",
-            "url": None,
-            "category": "AI",
-            "impact": "호재",
-            "leader_stocks": ["NVDA", "AVGO", "AMD"],
-            "related_event": "ai-capex",
-        },
-        {
-            "id": "us-rate-watch",
-            "published_at": now,
-            "title": "미국 금리와 달러 방향은 성장주 밸류에이션에 직접 영향",
-            "source": "Macro Brief",
-            "url": None,
-            "category": "금리",
-            "impact": "악재",
-            "leader_stocks": ["MSFT", "AAPL", "AMZN"],
-            "related_event": "fed-watch",
-        },
-    ]
-    events = [
-        {
-            "id": "fed-watch",
-            "starts_at": now,
-            "category": "금리",
-            "title": "미국 금리·달러 방향 점검",
-            "importance": "중요",
-            "expected_impact": "금리 하락 기대는 성장주 멀티플에 우호적, 금리 상승은 부담",
-            "affected_variables": ["10Y Yield", "USD", "Growth Multiple"],
-            "affected_sectors": ["AI", "소프트웨어", "반도체"],
-            "watch_points": ["금리 하락 시 성장주 선호 회복", "금리 상승 시 고PER 종목 변동성 확대"],
-            "source_name": "Macro Calendar",
-            "source_url": "https://finance.yahoo.com/calendar/economic",
-            "timeline": [timeline[1]],
-        },
-        {
-            "id": "ai-capex",
-            "starts_at": now,
-            "category": "AI",
-            "title": "AI 설비투자와 반도체 수요",
-            "importance": "중요",
-            "expected_impact": "AI 서버 투자 확대는 GPU·네트워크·메모리 밸류체인에 우호적",
-            "affected_variables": ["AI Capex", "GPU", "HBM", "Data Center"],
-            "affected_sectors": ["AI 반도체", "반도체 장비", "클라우드"],
-            "watch_points": ["빅테크 CAPEX 상향", "데이터센터 전력 수요", "메모리 가격"],
-            "source_name": "NASDAQ Brief",
-            "source_url": "https://finance.yahoo.com/",
-            "timeline": [timeline[0]],
-        },
-    ]
+            "title": title,
+            "source": source,
+            "url": url,
+            "published_at": published_at,
+        }
+    )
+    sentiment = str(classified.get("sentiment") or "neutral")
     return {
-        "as_of": now,
-        "window_start": now,
-        "window_end": now,
-        "headline": "미장은 금리·AI 설비투자·달러 흐름이 대형 성장주와 S&P 500 주도주의 방향을 좌우합니다.",
-        "events": events,
+        "id": f"us-news-{hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]}",
+        "published_at": published_at,
+        "title": title,
+        "source": source,
+        "url": url,
+        "category": _us_market_news_category(title),
+        "impact": "호재" if sentiment == "positive" else "악재" if sentiment == "negative" else "중립",
+        "leader_stocks": _us_market_news_leaders(title),
+        "sentiment": sentiment,
+        "sentiment_score": classified.get("sentiment_score"),
+        "sentiment_confidence": classified.get("sentiment_confidence"),
+        "sentiment_reason": classified.get("sentiment_reason"),
+    }
+
+
+def _us_market_news_items(
+    *,
+    days: int,
+    now: datetime,
+    limit: int = 60,
+) -> list[dict[str, object]]:
+    cutoff = now - timedelta(days=days)
+    raw_items: list[dict[str, object]] = []
+    with ThreadPoolExecutor(max_workers=len(US_MARKET_NEWS_QUERIES)) as executor:
+        futures = {
+            executor.submit(_google_news_items, query, 30, language=language): query
+            for query, language in US_MARKET_NEWS_QUERIES
+        }
+        for future in as_completed(futures):
+            try:
+                raw_items.extend(future.result())
+            except Exception:
+                continue
+
+    timeline: list[dict[str, object]] = []
+    seen_urls: set[str] = set()
+    seen_titles: set[str] = set()
+    for item in raw_items:
+        normalized = _normalize_us_market_news_item(item, now=now, cutoff=cutoff)
+        if not normalized:
+            continue
+        url_key = str(normalized["url"]).casefold()
+        title_key = re.sub(r"\W+", "", str(normalized["title"]).casefold())
+        if url_key in seen_urls or title_key in seen_titles:
+            continue
+        seen_urls.add(url_key)
+        seen_titles.add(title_key)
+        timeline.append(normalized)
+    timeline.sort(key=lambda item: item["published_at"], reverse=True)
+    return timeline[:limit]
+
+
+def build_us_trends(
+    days: int = 7,
+    *,
+    now: Optional[datetime] = None,
+    news_items: Optional[list[dict[str, object]]] = None,
+) -> dict[str, object]:
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    normalized_days = max(1, min(30, int(days)))
+    cutoff = current - timedelta(days=normalized_days)
+    if news_items is None:
+        timeline = _us_market_news_items(days=normalized_days, now=current)
+    else:
+        timeline = []
+        seen_urls: set[str] = set()
+        seen_titles: set[str] = set()
+        for item in news_items:
+            normalized = _normalize_us_market_news_item(item, now=current, cutoff=cutoff)
+            if not normalized:
+                continue
+            url_key = str(normalized["url"]).casefold()
+            title_key = re.sub(r"\W+", "", str(normalized["title"]).casefold())
+            if url_key in seen_urls or title_key in seen_titles:
+                continue
+            seen_urls.add(url_key)
+            seen_titles.add(title_key)
+            timeline.append(normalized)
+        timeline.sort(key=lambda item: item["published_at"], reverse=True)
+        timeline = timeline[:60]
+    return {
+        "status": "ready" if timeline else "unavailable",
+        "data_state": "live" if timeline else "unavailable",
+        "as_of": current,
+        "window_start": cutoff,
+        "window_end": current,
+        "headline": "실제 보도된 미국 시장 뉴스를 최신순으로 보여드립니다.",
+        "source_name": "Google News RSS",
+        "events": [],
         "past_events": [],
         "timeline": timeline,
     }

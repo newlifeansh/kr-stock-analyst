@@ -287,7 +287,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260923us99"
+US_DASHBOARD_CLIENT_VERSION = "20260923us100"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -4592,9 +4592,14 @@ def us_market_quant_signals(
 def us_market_trends(
     request: Request,
     days: int = Query(default=7, ge=1, le=30),
+    refresh: bool = Query(default=False),
 ):
     _enforce_rate_limit(request, "us_market_trends", limit=12, window_seconds=60)
     key = ("us_market_trends", days)
+    if refresh:
+        payload = build_us_trends(days=days)
+        api_cache.set(key, payload, TREND_ANALYSIS_TTL_SECONDS)
+        return payload
     return api_cache.get_or_set(key, TREND_ANALYSIS_TTL_SECONDS, lambda: build_us_trends(days=days))
 
 

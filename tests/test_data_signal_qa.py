@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -87,7 +88,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
-    assert len(ids) == 121
+    assert len(ids) == 122
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -103,6 +104,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "DATA-US-UNIVERSE-001",
         "DATA-US-SIGNAL-INPUT-001",
         "DATA-US-EVIDENCE-001",
+        "DATA-US-NEWS-001",
         "REC-US-INDEPENDENT-001",
         "DATA-CALENDAR-CONTENT-004",
         "DATA-CALENDAR-CONTENT-005",
@@ -176,7 +178,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v7.4.2`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v1-rc1`" in first
-    assert "QA 항목: 121개" in first
+    assert "QA 항목: 122개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1401,7 +1403,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.4.2"
     assert report["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
-    assert report["catalog_case_count"] == 121
+    assert report["catalog_case_count"] == 122
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1415,6 +1417,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 @pytest.mark.qa_gate
 def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -> None:
     expected_case_ids = {
+        "DATA-US-NEWS-001",
         "REC-US-INDEPENDENT-001",
         "DATA-US-UNIVERSE-001",
         "DATA-US-SIGNAL-INPUT-001",
@@ -1559,7 +1562,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260923us99",
+                "us_dashboard_version": "20260923us100",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1567,7 +1570,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260923us99",
+                "us_dashboard_version": "20260923us100",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1846,9 +1849,26 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20260923us99"}, self._meta(path)
+            return {"version": "20260923us100"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
+        if path == "/us/market/trends":
+            return {
+                "status": "ready",
+                "data_state": "live",
+                "as_of": datetime.now(UTC).isoformat(),
+                "events": [],
+                "past_events": [],
+                "timeline": [{
+                    "id": "us-news-fixture",
+                    "title": "뉴욕증시, 반도체 랠리에 강세",
+                    "source": "Reuters",
+                    "url": "https://news.example/us-market",
+                    "published_at": datetime.now(UTC).isoformat(),
+                    "impact": "호재",
+                    "category": "반도체",
+                }],
+            }, self._meta(path)
         if path == "/us/stocks/AAPL/dashboard":
             return {"symbol": "AAPL", "as_of": "2026-08-28"}, self._meta(path)
         if path == "/us/stocks/NVDA/dashboard":
@@ -1876,11 +1896,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20260923us99" />'
+                '<link href="/assets/dashboard/styles.css?v=20260923us100" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20260923us99"></script>'
+                '<script src="/dashboard-app-v170.js?v=20260923us100"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -1894,7 +1914,21 @@ class FakeReadOnlyApi:
                 'const PRODUCT_VERSION_ENDPOINT = IS_US_ONLY_PRODUCT ? "/us-version" : "/dashboard-version";\n'
                 'liveUrl("/market/global-assets?limit=30");\n'
                 'document.getElementById("home-ai-response")?.remove();\n'
-                'if (IS_US_ONLY_PRODUCT || state.view !== "home") return;',
+                'if (IS_US_ONLY_PRODUCT || state.view !== "home") return;\n'
+                'timeZone: "Asia/Seoul"; 한국시간;',
+                self._meta(path),
+            )
+        if path == "/assets/staging/toss-ia.js":
+            return (
+                'feedModes.dataset.feedColumns = stagingUsMarketContext ? "2" : "3";',
+                self._meta(path),
+            )
+        if path == "/assets/staging/toss-fidelity.css":
+            return (
+                'body[data-staging-ia="tds-video"] '
+                '.staging-feed-modes[data-feed-columns="2"] {'
+                'grid-template-columns: repeat(2, minmax(0, 1fr)) !important}'
+                '.staging-feed-panels { min-height: 0 !important; }',
                 self._meta(path),
             )
         assert path == "/dashboard"
@@ -1947,6 +1981,7 @@ def test_live_us_surface_runs_full_data_contract_and_product_boundary(
 
     assert report["surface"] == "us"
     assert by_id["SIG-UI-031"]["status"] == "pass"
+    assert by_id["DATA-US-NEWS-001"]["status"] == "pass"
     assert by_id["SIG-US-CONTRACT-001"]["status"] == "pass"
     assert by_id["DATA-US-UNIVERSE-001"]["status"] == "pass"
     assert report["deployment_blocked"] is False

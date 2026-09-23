@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -1441,3 +1441,68 @@ def test_us_previous_close_prefers_current_daily_reference_over_stale_chart_meta
         "chartPreviousClose": 171.66,
     })
     assert round(float(reference), 2) == 228.45
+
+
+def test_us_market_trends_uses_real_recent_articles_and_rejects_synthetic_freshness():
+    now = datetime(2026, 9, 23, 12, 30, tzinfo=UTC)
+    payload = us_market.build_us_trends(
+        days=7,
+        now=now,
+        news_items=[
+            {
+                "title": "엔비디아 반도체 랠리에 나스닥 사상 최고 - 뉴스1",
+                "source": "뉴스1",
+                "url": "https://news.example/us-market-rally",
+                "published_at": now - timedelta(hours=1),
+            },
+            {
+                "title": "엔비디아 반도체 랠리에 나스닥 사상 최고 - 뉴스1",
+                "source": "뉴스1",
+                "url": "https://news.example/duplicate-title",
+                "published_at": now - timedelta(hours=2),
+            },
+            {
+                "title": "오래된 미국 증시 뉴스",
+                "source": "테스트",
+                "url": "https://news.example/old",
+                "published_at": now - timedelta(days=8),
+            },
+            {
+                "title": "URL이 없는 뉴스",
+                "source": "테스트",
+                "url": None,
+                "published_at": now,
+            },
+        ],
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["data_state"] == "live"
+    assert payload["events"] == []
+    assert payload["window_start"] == datetime(2026, 9, 16, 12, 30, tzinfo=UTC)
+    assert len(payload["timeline"]) == 1
+    article = payload["timeline"][0]
+    assert article["title"] == "엔비디아 반도체 랠리에 나스닥 사상 최고"
+    assert article["url"] == "https://news.example/us-market-rally"
+    assert article["published_at"] == datetime(2026, 9, 23, 11, 30, tzinfo=UTC)
+    assert article["category"] == "반도체"
+    assert article["impact"] == "호재"
+    assert article["leader_stocks"] == ["NVDA"]
+    assert article["source"] not in {"NASDAQ Brief", "Macro Brief"}
+
+
+def test_us_market_trends_fails_closed_when_all_live_sources_fail(monkeypatch):
+    def unavailable_source(*args, **kwargs):
+        raise RuntimeError("upstream unavailable")
+
+    monkeypatch.setattr(us_market, "_google_news_items", unavailable_source)
+
+    payload = us_market.build_us_trends(
+        days=7,
+        now=datetime(2026, 9, 23, 12, 30, tzinfo=UTC),
+    )
+
+    assert payload["status"] == "unavailable"
+    assert payload["data_state"] == "unavailable"
+    assert payload["timeline"] == []
+    assert payload["events"] == []

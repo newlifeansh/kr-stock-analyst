@@ -5624,6 +5624,7 @@
       <button id="staging-feed-content-tab" type="button" role="tab" data-staging-feed-mode="content" aria-selected="false" aria-controls="staging-feed-content-panel" tabindex="-1">콘텐츠</button>
       <button id="staging-feed-calendar-tab" type="button" role="tab" data-staging-feed-mode="calendar" aria-selected="false" aria-controls="staging-feed-calendar-panel" tabindex="-1">일정</button>
     `;
+    feedModes.dataset.feedColumns = stagingUsMarketContext ? "2" : "3";
     if (stagingUsMarketContext) {
       const contentTab = feedModes.querySelector('[data-staging-feed-mode="content"]');
       if (contentTab) contentTab.hidden = true;

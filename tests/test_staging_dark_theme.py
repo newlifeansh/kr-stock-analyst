@@ -717,6 +717,9 @@ def test_staging_theme_has_touch_and_spacing_contract_for_tds_ia():
     assert '.staging-discovery-shortcuts' in css
     assert '.staging-watch-signal' in css
     assert '.staging-feed-modes' in css
+    assert '.staging-feed-modes[data-feed-columns="2"]' in css
+    assert 'grid-template-columns: repeat(2, minmax(0, 1fr)) !important' in css
+    assert 'min-height: 0 !important' in css
     assert '.staging-nav-back' not in css
     assert 'left: 10px !important' in css
 
@@ -1515,6 +1518,7 @@ def test_staging_v50_builds_inline_feed_content_calendar_and_editorial_detail():
         'data-staging-feed-mode="news"',
         'data-staging-feed-mode="content"',
         'data-staging-feed-mode="calendar"',
+        'feedModes.dataset.feedColumns = stagingUsMarketContext ? "2" : "3"',
         'newsPanel.dataset.stagingFeedPanel = "news"',
         'contentPanel.dataset.stagingFeedPanel = "content"',
         'calendarPanel.dataset.stagingFeedPanel = "calendar"',

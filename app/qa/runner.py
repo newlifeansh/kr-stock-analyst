@@ -7,7 +7,7 @@ import math
 import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from time import monotonic
 from typing import Any, Literal
@@ -43,6 +43,18 @@ QUOTE_STREAM_META_RE = re.compile(
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-US-NEWS-001": (
+        "tests.test_us_market."
+        "test_us_market_trends_uses_real_recent_articles_and_rejects_synthetic_freshness",
+        "tests.test_us_market."
+        "test_us_market_trends_fails_closed_when_all_live_sources_fail",
+        "tests.test_app."
+        "test_us_market_trends_refresh_exposes_only_linked_live_articles",
+        "tests.test_app."
+        "test_us_and_dashboard_paths_serve_independently_versioned_products",
+        "tests.test_staging_dark_theme."
+        "test_staging_theme_has_touch_and_spacing_contract_for_tds_ia",
+    ),
     "REC-US-INDEPENDENT-001": (
         "tests.test_us_market."
         "test_us_recommendations_rank_top100_independently_of_trade_signal_action",
@@ -3579,6 +3591,102 @@ def _live_us_checks(
             "SIG-UI-031",
             us_product_boundary_contract,
             pass_message="스테이징 /us의 대시보드 화면 동형성·미국 전용 데이터·검색 경계를 확인했습니다.",
+        )
+
+        def us_market_news_contract() -> dict[str, Any]:
+            payload, payload_meta = api.get(
+                "/us/market/trends", days=7, refresh="true"
+            )
+            _assert(isinstance(payload, dict), "미국 뉴스 응답이 객체가 아닙니다.")
+            timeline = payload.get("timeline") or []
+            _assert(
+                payload.get("status") == "ready"
+                and payload.get("data_state") == "live"
+                and isinstance(timeline, list)
+                and bool(timeline),
+                "스테이징 미국 시장 뉴스가 live ready 상태가 아닙니다.",
+                status=payload.get("status"),
+                data_state=payload.get("data_state"),
+                timeline_count=len(timeline) if isinstance(timeline, list) else None,
+                **payload_meta,
+            )
+            current = datetime.now(timezone.utc)
+            cutoff = current - timedelta(days=7, minutes=15)
+            invalid: list[dict[str, Any]] = []
+            seen_urls: set[str] = set()
+            seen_titles: set[str] = set()
+            for item in timeline:
+                if not isinstance(item, dict):
+                    invalid.append({"reason": "not_object"})
+                    continue
+                url = str(item.get("url") or "").strip()
+                title = " ".join(str(item.get("title") or "").split()).strip()
+                source_name = str(item.get("source") or "").strip()
+                parsed_url = urlparse(url)
+                try:
+                    published_at = datetime.fromisoformat(
+                        str(item.get("published_at") or "").replace("Z", "+00:00")
+                    )
+                    if published_at.tzinfo is None:
+                        raise ValueError("timezone missing")
+                    published_at = published_at.astimezone(timezone.utc)
+                except ValueError:
+                    published_at = None
+                reasons = []
+                if not title:
+                    reasons.append("title")
+                if not source_name or source_name in {"NASDAQ Brief", "Macro Brief"}:
+                    reasons.append("source")
+                if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+                    reasons.append("url")
+                if published_at is None or published_at < cutoff or published_at > current + timedelta(minutes=10):
+                    reasons.append("published_at")
+                title_key = re.sub(r"\W+", "", title.casefold())
+                if url in seen_urls or title_key in seen_titles:
+                    reasons.append("duplicate")
+                seen_urls.add(url)
+                seen_titles.add(title_key)
+                if reasons:
+                    invalid.append({"title": title[:120], "reasons": reasons})
+            _assert(
+                not invalid,
+                "미국 시장 뉴스에 무효·중복·가짜 최신 기사가 포함됐습니다.",
+                invalid=invalid[:10],
+                **payload_meta,
+            )
+            source, source_meta = api.get_text("/dashboard-app-v170.js")
+            ia, ia_meta = api.get_text("/assets/staging/toss-ia.js")
+            css, css_meta = api.get_text("/assets/staging/toss-fidelity.css")
+            _assert(
+                'timeZone: "Asia/Seoul"' in source
+                and "한국시간" in source
+                and 'feedModes.dataset.feedColumns = stagingUsMarketContext ? "2" : "3"'
+                in ia
+                and '.staging-feed-modes[data-feed-columns="2"]' in css
+                and "grid-template-columns: repeat(2, minmax(0, 1fr)) !important"
+                in css
+                and ".staging-feed-panels" in css
+                and "min-height: 0 !important" in css,
+                "미국 피드의 한국시간·2열 탭·여백 제거 계약이 배포되지 않았습니다.",
+                source=source_meta,
+                ia=ia_meta,
+                css=css_meta,
+            )
+            return {
+                "feed": payload_meta,
+                "article_count": len(timeline),
+                "oldest_allowed": cutoff.isoformat(),
+                "forbidden_source_count": 0,
+                "invalid_article_count": 0,
+                "source": source_meta,
+                "ia": ia_meta,
+                "css": css_meta,
+            }
+
+        collector.check(
+            "DATA-US-NEWS-001",
+            us_market_news_contract,
+            pass_message="스테이징 미국 시장 실제 뉴스·한국시간·2열 피드 계약을 확인했습니다.",
         )
 
         def us_signal_contract() -> dict[str, Any]:
