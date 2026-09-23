@@ -1014,6 +1014,57 @@ def test_us_market_regular_session_request_never_enqueues_publication(monkeypatc
     assert response.json()["entry_pending_count"] == 0
 
 
+def test_us_market_regular_session_request_enqueues_one_time_schema_upgrade(
+    monkeypatch,
+):
+    from app import main as main_module
+
+    canonical = {
+        "status": "ready",
+        "data_state": "ready",
+        "strategy_version": "position-lifecycle-us-v1-rc1",
+        "snapshot_id": "legacy-us-rc1-snapshot",
+        "snapshot_checksum": "legacy-feed-checksum",
+        "refresh_required": False,
+        "universe_count": 100,
+        "universe_members": [
+            {"code": f"A{index:03d}"} for index in range(100)
+        ],
+        "items": [],
+    }
+    enqueued = []
+    monkeypatch.setattr(main_module, "_enforce_rate_limit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main_module,
+        "load_us_position_lifecycle_snapshot",
+        lambda *_args, **_kwargs: canonical,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "us_position_lifecycle_refresh_due",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_us_position_lifecycle_refresh_allowed",
+        lambda _now: False,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_enqueue_us_position_lifecycle_refresh",
+        lambda _tasks, *, allow_schema_upgrade=False: (
+            enqueued.append(allow_schema_upgrade) or True
+        ),
+    )
+
+    response = TestClient(app).get("/us/market/quant-signals")
+
+    assert response.status_code == 200
+    assert response.json()["snapshot_id"] == "legacy-us-rc1-snapshot"
+    assert response.json()["refresh_enqueued"] is True
+    assert enqueued == [True]
+
+
 def test_us_collector_backfills_legacy_member_evidence_during_regular_session(
     monkeypatch,
 ):

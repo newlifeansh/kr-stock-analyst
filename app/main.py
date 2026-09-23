@@ -1069,13 +1069,18 @@ def _run_reserved_us_position_lifecycle_refresh(
 
 def _enqueue_us_position_lifecycle_refresh(
     background_tasks: BackgroundTasks,
+    *,
+    allow_schema_upgrade: bool = False,
 ) -> bool:
     """Reserve the process-wide US refresh before adding a background task."""
 
     if not us_position_lifecycle_refresh_lock.acquire(blocking=False):
         return False
     try:
-        background_tasks.add_task(_run_reserved_us_position_lifecycle_refresh)
+        background_tasks.add_task(
+            _run_reserved_us_position_lifecycle_refresh,
+            allow_schema_upgrade=allow_schema_upgrade,
+        )
     except Exception:
         us_position_lifecycle_refresh_lock.release()
         raise
@@ -4367,11 +4372,18 @@ def us_stock_ai_analysis(
         feed = None
     if feed is None:
         feed = us_position_lifecycle_preparing_payload(now=current_time)
+    refresh_allowed = _us_position_lifecycle_refresh_allowed(current_time)
+    schema_upgrade_due = us_position_lifecycle_schema_upgrade_due(feed)
     if (
         (refresh or us_position_lifecycle_refresh_due(feed, now=current_time))
-        and _us_position_lifecycle_refresh_allowed(current_time)
+        and refresh_allowed
     ):
         _enqueue_us_position_lifecycle_refresh(background_tasks)
+    elif schema_upgrade_due:
+        _enqueue_us_position_lifecycle_refresh(
+            background_tasks,
+            allow_schema_upgrade=True,
+        )
 
     normalized_symbol = _normalize_us_symbol(symbol)
     normalized_signal_key = normalized_symbol.replace("-", ".")
@@ -4591,11 +4603,18 @@ def us_market_recommendations(
     if feed is None:
         feed = us_position_lifecycle_preparing_payload(now=current)
     refresh_enqueued = False
+    refresh_allowed = _us_position_lifecycle_refresh_allowed(current)
+    schema_upgrade_due = us_position_lifecycle_schema_upgrade_due(feed)
     if (
         (refresh or us_position_lifecycle_refresh_due(feed, now=current))
-        and _us_position_lifecycle_refresh_allowed(current)
+        and refresh_allowed
     ):
         refresh_enqueued = _enqueue_us_position_lifecycle_refresh(background_tasks)
+    elif schema_upgrade_due:
+        refresh_enqueued = _enqueue_us_position_lifecycle_refresh(
+            background_tasks,
+            allow_schema_upgrade=True,
+        )
     feed["refresh_requested"] = refresh
     feed["refresh_enqueued"] = refresh_enqueued
     payload = build_us_recommendations(
@@ -4628,11 +4647,18 @@ def us_market_quant_signals(
     if feed is None:
         feed = us_position_lifecycle_preparing_payload(now=current)
     refresh_enqueued = False
+    refresh_allowed = _us_position_lifecycle_refresh_allowed(current)
+    schema_upgrade_due = us_position_lifecycle_schema_upgrade_due(feed)
     if (
         (refresh or us_position_lifecycle_refresh_due(feed, now=current))
-        and _us_position_lifecycle_refresh_allowed(current)
+        and refresh_allowed
     ):
         refresh_enqueued = _enqueue_us_position_lifecycle_refresh(background_tasks)
+    elif schema_upgrade_due:
+        refresh_enqueued = _enqueue_us_position_lifecycle_refresh(
+            background_tasks,
+            allow_schema_upgrade=True,
+        )
     feed["refresh_requested"] = refresh
     feed["refresh_enqueued"] = refresh_enqueued
     payload = build_us_quant_signals(

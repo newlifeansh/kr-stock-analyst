@@ -456,7 +456,16 @@ def test_future_dated_snapshot_is_blocked_and_refresh_is_due(
 
 
 def test_legacy_snapshot_requires_one_time_public_member_evidence_upgrade() -> None:
-    legacy = {"status": "ready", "data_state": "ready", "items": []}
+    legacy = {
+        "status": "ready",
+        "data_state": "ready",
+        "universe_count": lifecycle.US_SIGNAL_UNIVERSE_LIMIT,
+        "universe_members": [
+            {"code": f"A{index:03d}"}
+            for index in range(lifecycle.US_SIGNAL_UNIVERSE_LIMIT)
+        ],
+        "items": [],
+    }
     upgraded = {
         **legacy,
         "public_member_signals": [
@@ -467,6 +476,12 @@ def test_legacy_snapshot_requires_one_time_public_member_evidence_upgrade() -> N
 
     assert lifecycle.us_position_lifecycle_schema_upgrade_due(legacy) is True
     assert lifecycle.us_position_lifecycle_schema_upgrade_due(upgraded) is False
+    assert (
+        lifecycle.us_position_lifecycle_schema_upgrade_due(
+            {"status": "preparing", "data_state": "preparing"}
+        )
+        is False
+    )
 
 
 @pytest.mark.parametrize(

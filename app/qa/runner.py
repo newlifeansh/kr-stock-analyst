@@ -294,6 +294,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_canonical_snapshot_waits_for_provider_grace_after_official_close",
         "tests.test_app."
         "test_us_market_regular_session_request_never_enqueues_publication",
+        "tests.test_app."
+        "test_us_market_regular_session_request_enqueues_one_time_schema_upgrade",
         "tests.test_home_ai_response."
         "test_dashboard_us_market_session_payload_overrides_fixed_clock_phase",
         "tests.test_home_ai_response."
@@ -506,6 +508,20 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_nasdaq_ai_renderer_and_recommendation_history_keep_canonical_snapshot",
         "tests.test_home_ai_response."
         "test_us_public_ui_never_renders_private_scores_or_synthesized_trade_levels",
+    ),
+    "SIG-US-MIGRATION-001": (
+        "tests.test_app."
+        "test_us_market_regular_session_request_never_enqueues_publication",
+        "tests.test_app."
+        "test_us_market_regular_session_request_enqueues_one_time_schema_upgrade",
+        "tests.test_app."
+        "test_us_collector_backfills_legacy_member_evidence_during_regular_session",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_legacy_snapshot_requires_one_time_public_member_evidence_upgrade",
+        "tests.test_us_position_lifecycle."
+        "test_us_history_loader_retries_only_transient_failures_with_lower_concurrency",
+        "tests.test_us_position_lifecycle."
+        "test_us_feed_retries_a_symbol_missing_the_completed_session",
     ),
 }
 
@@ -4274,6 +4290,11 @@ def _live_us_checks(
             "SIG-US-CONTRACT-001",
             us_signal_contract,
             pass_message="미국 Top100 시그널·추천의 ready·canonical 공개 계약을 확인했습니다.",
+        )
+        collector.check(
+            "SIG-US-MIGRATION-001",
+            us_signal_contract,
+            pass_message="레거시 미국 스냅샷이 NVDA 공개 근거 3개로 백필됐습니다.",
         )
         collector.check(
             "REC-US-INDEPENDENT-001",

@@ -2487,7 +2487,14 @@ def us_position_lifecycle_schema_upgrade_due(
 ) -> bool:
     """Require a one-time rebuild for snapshots predating per-member evidence."""
 
-    if not payload:
+    if (
+        not payload
+        or payload.get("status") != "ready"
+        or payload.get("data_state") != "ready"
+        or payload.get("universe_count") != US_SIGNAL_UNIVERSE_LIMIT
+        or not isinstance(payload.get("universe_members"), list)
+        or len(payload["universe_members"]) != US_SIGNAL_UNIVERSE_LIMIT
+    ):
         return False
     public_member_signals = payload.get("public_member_signals")
     return bool(
