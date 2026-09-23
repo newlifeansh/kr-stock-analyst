@@ -1944,6 +1944,56 @@ def _live_checks(
                     "XNYS 마지막 완료 세션을 확인할 수 없습니다.",
                     {"error_type": type(exc).__name__},
                 ) from exc
+            stock_analysis: dict[str, Any] | None = None
+            stock_analysis_meta: dict[str, Any] | None = None
+            if entry_ready:
+                stock_analysis, stock_analysis_meta = api.get(
+                    "/us/stocks/NVDA/ai-analysis"
+                )
+                stock_reasons = stock_analysis.get("public_reasons") or []
+                _assert(
+                    stock_analysis.get("status") == "ready"
+                    and stock_analysis.get("data_state") == "ready"
+                    and stock_analysis.get("snapshot_id") == feed.get("snapshot_id")
+                    and stock_analysis.get("snapshot_checksum")
+                    == feed.get("snapshot_checksum")
+                    and stock_analysis.get("is_current_universe_member") is True
+                    and stock_analysis.get("data_covered") == 3
+                    and [
+                        reason.get("key")
+                        for reason in stock_reasons
+                        if isinstance(reason, dict)
+                    ]
+                    == ["trend_20d", "trend_60d", "flow"]
+                    and [
+                        reason.get("label")
+                        for reason in stock_reasons
+                        if isinstance(reason, dict)
+                    ]
+                    == ["20일", "60일", "거래대금 참여도"]
+                    and all(
+                        reason.get("available") is True
+                        for reason in stock_reasons
+                        if isinstance(reason, dict)
+                    )
+                    and str(stock_analysis.get("as_of") or "")[:10]
+                    == str(feed.get("universe_as_of") or "")[:10],
+                    "미국 Top100 종목 분석이 비후보 완료 세션 공개근거를 유지하지 못했습니다.",
+                    analysis=stock_analysis_meta,
+                    action=(stock_analysis.get("current") or {}).get("action"),
+                    labels=[
+                        reason.get("label")
+                        for reason in stock_reasons
+                        if isinstance(reason, dict)
+                    ],
+                    availability=[
+                        reason.get("available")
+                        for reason in stock_reasons
+                        if isinstance(reason, dict)
+                    ],
+                    analysis_as_of=stock_analysis.get("as_of"),
+                    universe_as_of=feed.get("universe_as_of"),
+                )
             _assert(
                 feed_state == recommendation_state
                 and feed.get("status") == recommendations.get("status"),
@@ -2111,7 +2161,11 @@ def _live_checks(
                 public_case.get("inputs", {}).get("forbidden_public_fields") or []
             )
             forbidden_paths = _forbidden_key_paths(
-                {"feed": feed, "recommendations": recommendations},
+                {
+                    "feed": feed,
+                    "recommendations": recommendations,
+                    "stock_analysis": stock_analysis,
+                },
                 forbidden_fields,
             )
             _assert(
@@ -2175,6 +2229,7 @@ def _live_checks(
                 "recommendation_count": len(recommendation_items),
                 "forbidden_public_paths": forbidden_paths,
                 "methodology": feed.get("methodology"),
+                "stock_analysis": stock_analysis_meta,
             }
             context["us_market_contract"] = result
             return result
@@ -3340,6 +3395,55 @@ def _live_checks(
                 url=first.get("url"),
                 **meta,
             )
+            us_payload, us_meta = api.get(
+                "/us/stocks/WMB/community-feed",
+                limit=5,
+                mode="latest",
+            )
+            us_providers = (
+                us_payload.get("providers") if isinstance(us_payload, dict) else None
+            )
+            us_provider = next(
+                (
+                    item
+                    for item in us_providers or []
+                    if isinstance(item, dict) and item.get("key") == "naver_board"
+                ),
+                None,
+            )
+            us_items = (
+                us_provider.get("items") if isinstance(us_provider, dict) else None
+            )
+            _assert(
+                isinstance(us_items, list) and us_items,
+                "WMB 미국 커뮤니티 글이 bare ticker 폴백 뒤에도 비어 있습니다.",
+                provider_configured=(
+                    us_provider.get("configured")
+                    if isinstance(us_provider, dict)
+                    else None
+                ),
+                provider_message=(
+                    us_provider.get("message")
+                    if isinstance(us_provider, dict)
+                    else None
+                ),
+                **us_meta,
+            )
+            us_first = us_items[0] if isinstance(us_items[0], dict) else {}
+            _assert(
+                bool(us_first.get("post_id"))
+                and bool(us_first.get("title"))
+                and bool(us_first.get("author_name"))
+                and str(us_first.get("url") or "").startswith(
+                    "https://m.stock.naver.com/worldstock/stock/WMB/discussion/"
+                ),
+                "WMB 커뮤니티 최신글 필드 또는 bare ticker 원문 링크가 잘못됐습니다.",
+                post_id=us_first.get("post_id"),
+                has_title=bool(us_first.get("title")),
+                has_author=bool(us_first.get("author_name")),
+                url=us_first.get("url"),
+                **us_meta,
+            )
             return {
                 **meta,
                 "provider": provider.get("source"),
@@ -3347,12 +3451,28 @@ def _live_checks(
                 "item_count": len(items),
                 "first_post_id": first.get("post_id"),
                 "first_post_url": first.get("url"),
+                "domestic": {
+                    **meta,
+                    "provider": provider.get("source"),
+                    "provider_configured": provider.get("configured"),
+                    "item_count": len(items),
+                    "first_post_id": first.get("post_id"),
+                    "first_post_url": first.get("url"),
+                },
+                "us": {
+                    **us_meta,
+                    "provider": us_provider.get("source"),
+                    "provider_configured": us_provider.get("configured"),
+                    "item_count": len(us_items),
+                    "first_post_id": us_first.get("post_id"),
+                    "first_post_url": us_first.get("url"),
+                },
             }
 
         collector.check(
             "SIG-UI-026",
             domestic_community_latest_contract,
-            pass_message="삼성전자 최신 커뮤니티 글과 모바일 원문 링크를 확인했습니다.",
+            pass_message="삼성전자·WMB 최신 커뮤니티 글과 모바일 원문 링크를 확인했습니다.",
         )
 
         def realtime_status_contract() -> dict[str, Any]:
@@ -3818,6 +3938,53 @@ def _live_us_checks(
                 universe_as_of=feed.get("universe_as_of"),
                 expected_universe_as_of=expected_universe_as_of,
             )
+            stock_analysis, stock_analysis_meta = api.get(
+                "/us/stocks/NVDA/ai-analysis"
+            )
+            stock_reasons = stock_analysis.get("public_reasons") or []
+            _assert(
+                stock_analysis.get("status") == "ready"
+                and stock_analysis.get("data_state") == "ready"
+                and stock_analysis.get("snapshot_id") == feed.get("snapshot_id")
+                and stock_analysis.get("snapshot_checksum")
+                == feed.get("snapshot_checksum")
+                and stock_analysis.get("is_current_universe_member") is True
+                and stock_analysis.get("data_covered") == 3
+                and [
+                    reason.get("key")
+                    for reason in stock_reasons
+                    if isinstance(reason, dict)
+                ]
+                == ["trend_20d", "trend_60d", "flow"]
+                and [
+                    reason.get("label")
+                    for reason in stock_reasons
+                    if isinstance(reason, dict)
+                ]
+                == ["20일", "60일", "거래대금 참여도"]
+                and all(
+                    reason.get("available") is True
+                    for reason in stock_reasons
+                    if isinstance(reason, dict)
+                )
+                and str(stock_analysis.get("as_of") or "")[:10]
+                == str(feed.get("universe_as_of") or "")[:10],
+                "미국 Top100 종목 분석이 완료 세션 공개근거를 유지하지 못했습니다.",
+                analysis=stock_analysis_meta,
+                action=(stock_analysis.get("current") or {}).get("action"),
+                labels=[
+                    reason.get("label")
+                    for reason in stock_reasons
+                    if isinstance(reason, dict)
+                ],
+                availability=[
+                    reason.get("available")
+                    for reason in stock_reasons
+                    if isinstance(reason, dict)
+                ],
+                analysis_as_of=stock_analysis.get("as_of"),
+                universe_as_of=feed.get("universe_as_of"),
+            )
             items = feed.get("items") or []
             _assert(isinstance(items, list), "미국 시그널 items가 배열이 아닙니다.")
             invalid_items: list[str] = []
@@ -3903,7 +4070,11 @@ def _live_us_checks(
                 public_case.get("inputs", {}).get("forbidden_public_fields") or []
             )
             forbidden_paths = _forbidden_key_paths(
-                {"feed": feed, "recommendations": recommendations},
+                {
+                    "feed": feed,
+                    "recommendations": recommendations,
+                    "stock_analysis": stock_analysis,
+                },
                 forbidden_fields,
             )
             _assert(
@@ -3974,6 +4145,7 @@ def _live_us_checks(
                 "recommendation_count": len(recommendation_items),
                 "forbidden_public_paths": forbidden_paths,
                 "methodology": feed.get("methodology"),
+                "stock_analysis": stock_analysis_meta,
             }
             context["us_market_contract"] = result
             return result

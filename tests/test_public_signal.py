@@ -225,6 +225,7 @@ def test_us_candidate_projection_hides_shadow_diagnostics_and_numeric_evidence()
             "source_errors": {"BAD": "private provider error"},
             "sector_classification_errors": {"BAD": "private CIK"},
             "universe_members": [{"code": "PRIVATE", "cik": "private-cik"}],
+            "public_member_signals": [{"code": "PRIVATE"}],
             "methodology": [
                 "1.5ATR·7% 이격과 최근 5일 10% 초과 급등은 차단",
                 "private reentry threshold",
@@ -262,6 +263,7 @@ def test_us_candidate_projection_hides_shadow_diagnostics_and_numeric_evidence()
     assert "source_errors" not in public
     assert "sector_classification_errors" not in public
     assert "universe_members" not in public
+    assert "public_member_signals" not in public
     assert "us_evidence" not in public["items"][0]
     assert "guard_state" not in public["items"][0]
     assert "entry_score_threshold" not in public["items"][0]
@@ -297,6 +299,7 @@ def test_us_recommendation_projection_hides_nested_internal_evidence() -> None:
             "methodology": ["1.5ATR private methodology"],
             "sector_classification_errors": {"BAD": "private CIK"},
             "universe_members": [{"code": "PRIVATE", "cik": "private-cik"}],
+            "public_member_signals": [{"code": "PRIVATE"}],
             "items": [
                 {
                     "code": "NVDA",
@@ -343,6 +346,7 @@ def test_us_recommendation_projection_hides_nested_internal_evidence() -> None:
     assert "guard_state" not in signal
     assert "sector_classification_errors" not in public
     assert "universe_members" not in public
+    assert "public_member_signals" not in public
     assert "score" not in public["items"][0]
     assert "entry_score_threshold" not in public["items"][0]
     assert "score" not in signal

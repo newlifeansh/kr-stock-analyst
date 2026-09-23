@@ -420,6 +420,59 @@ def test_us_stock_community_feed_uses_naver_world_board(monkeypatch):
     assert item["reply_count"] == 3
 
 
+def test_us_stock_community_feed_falls_back_to_bare_naver_symbol(monkeypatch):
+    calls = []
+
+    class Response:
+        def __init__(self, posts):
+            self._posts = posts
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        def json(self):
+            return {"isSuccess": True, "result": {"posts": self._posts}}
+
+    def fake_get(url, **kwargs):
+        calls.append(kwargs["params"]["itemCode"])
+        item_code = kwargs["params"]["itemCode"]
+        posts = []
+        if item_code == "WMB":
+            posts = [
+                {
+                    "id": "429388394",
+                    "writtenAt": "2026-09-23T09:10:00",
+                    "title": "윌리엄스 컴퍼니즈 실적 요약",
+                    "writer": {"nickname": "미국주식러"},
+                    "recommendCount": 4,
+                    "notRecommendCount": 0,
+                    "commentCount": 1,
+                    "viewCount": 88,
+                }
+            ]
+        return Response(posts)
+
+    monkeypatch.setattr(community_feed.requests, "get", fake_get)
+    payload = community_feed.build_us_stock_community_feed(
+        {
+            "code": "WMB",
+            "name": "Williams Companies Inc. (The)",
+            "market": "SP500",
+            "markets": ["SP500"],
+        },
+        limit=12,
+    )
+
+    provider = payload["providers"][0]
+    assert calls == ["WMB.O", "WMB.N", "WMB.A", "WMB"]
+    assert provider["message"] == "최근 글 1건"
+    assert provider["search_url"] == "https://m.stock.naver.com/worldstock/stock/WMB/discussion"
+    assert provider["items"][0]["url"] == (
+        "https://m.stock.naver.com/worldstock/stock/WMB/discussion/429388394"
+    )
+
+
 def test_us_stock_community_popular_mode_uses_today_only(monkeypatch):
     class Response:
         @staticmethod

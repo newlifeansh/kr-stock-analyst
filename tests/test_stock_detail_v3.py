@@ -467,7 +467,7 @@ def test_stock_detail_v3_shell_and_controls():
     assert "function quantDailyFlowRows(" in source
     assert "function renderQuantDecisionFlowChart(" in source
     assert "row?.net_buy_value" in source
-    assert '<h2>20일 · 60일 · 수급</h2>' in shell.text
+    assert '<h2 id="quant-evidence-title">20일 · 60일 · 수급</h2>' in shell.text
     assert '<details class="stock-v3-section quant-archive-disclosure">' in shell.text
     assert '<summary><span>더 보기</span><strong>차트와 지난 기록</strong></summary>' in shell.text
     assert shell.text.index('class="stock-v3-section quant-current-card"') < shell.text.index('class="stock-v3-section quant-evidence-card"') < shell.text.index('class="stock-v3-section quant-archive-disclosure"')

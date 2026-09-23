@@ -186,6 +186,7 @@ const elements = {
   quantCurrentReasons: $("quant-current-reasons"),
   quantCurrentPosition: $("quant-current-position"),
   quantNextConfirmation: $("quant-next-confirmation"),
+  quantEvidenceTitle: $("quant-evidence-title"),
   quantEvidenceAsOf: $("quant-evidence-asof"),
   quantEvidenceLead: $("quant-evidence-lead"),
   quantPublicEvidence: $("quant-public-evidence"),
@@ -25333,7 +25334,7 @@ const QUANT_PUBLIC_REASON_META = Object.freeze([
   { key: "flow", label: "수급" },
 ]);
 
-function quantPublicReasonSummary(key, tone) {
+function quantPublicReasonSummary(key, tone, { usMarket = false } = {}) {
   const copy = {
     trend_20d: {
       positive: "단기 흐름 우호",
@@ -25348,16 +25349,17 @@ function quantPublicReasonSummary(key, tone) {
       unavailable: "중기 자료 부족",
     },
     flow: {
-      positive: "매수 수급 우세",
-      negative: "매도 수급 우세",
-      neutral: "수급 방향 확인 중",
-      unavailable: "수급 자료 부족",
+      positive: usMarket ? "거래대금 참여 우호" : "매수 수급 우세",
+      negative: usMarket ? "거래대금 참여 주의" : "매도 수급 우세",
+      neutral: usMarket ? "거래대금 방향 확인 중" : "수급 방향 확인 중",
+      unavailable: usMarket ? "거래대금 자료 부족" : "수급 자료 부족",
     },
   };
   return copy[key]?.[tone] || copy[key]?.neutral || "핵심 흐름을 확인하고 있습니다.";
 }
 
 function quantPublicEvidenceItems(payload = {}) {
+  const usMarket = stockDashboardIsUs();
   const supplied = Array.isArray(payload.public_reasons) ? payload.public_reasons : [];
   const factors = Array.isArray(payload.factors) ? payload.factors : [];
   const context = Array.isArray(payload.confirmation?.evidence) ? payload.confirmation.evidence : [];
@@ -25369,20 +25371,22 @@ function quantPublicEvidenceItems(payload = {}) {
   return QUANT_PUBLIC_REASON_META.map(({ key, label }) => {
     const item = supplied.find((candidate) => candidate?.key === key) || fallbackByKey.get(key) || {};
     const state = quantEvidenceStateMeta(item.state, item.available !== false);
+    const resolvedLabel = String(item.label || (usMarket && key === "flow" ? "거래대금 참여도" : label)).trim();
     return {
       key,
-      label,
+      label: resolvedLabel,
       state,
-      summary: quantPublicReasonSummary(key, state.tone),
+      summary: String(item.summary || quantPublicReasonSummary(key, state.tone, { usMarket })).trim(),
       asOf: item.as_of || payload.price_through || payload.current?.as_of || payload.as_of,
     };
   });
 }
 
 function quantPublicEvidenceRowMarkup(item) {
+  const rowLabel = item.label.endsWith("참여도") ? item.label : `${item.label} 흐름`;
   return `
-    <article class="quant-evidence-row is-${item.state.tone}" data-public-reason="${item.key}" aria-label="${escapeChartSvgText(`${item.label} 흐름, ${item.state.label}`)}">
-      <strong>${escapeChartSvgText(item.label)} 흐름</strong>
+    <article class="quant-evidence-row is-${item.state.tone}" data-public-reason="${item.key}" aria-label="${escapeChartSvgText(`${rowLabel}, ${item.state.label}`)}">
+      <strong>${escapeChartSvgText(rowLabel)}</strong>
       <span class="quant-evidence-badge">${item.state.label}</span>
     </article>
   `;
@@ -25395,8 +25399,19 @@ function renderQuantDecisionEvidence(payload = state.stockQuantSignals) {
   const publicReasons = quantPublicEvidenceItems(payload);
   const evidenceDate = quantEvidenceDate(payload);
 
+  setText(
+    elements.quantEvidenceTitle,
+    stockDashboardIsUs()
+      ? "20일 · 60일 · 거래대금 참여도"
+      : "20일 · 60일 · 수급",
+  );
   setText(elements.quantEvidenceAsOf, evidenceDate ? `${formatDateLabel(evidenceDate)} 판단 기준` : "최신 판단 기준");
-  setText(elements.quantEvidenceLead, "20일·60일·수급 세 가지만 요약합니다.");
+  setText(
+    elements.quantEvidenceLead,
+    stockDashboardIsUs()
+      ? "20일·60일 가격 흐름과 거래대금 참여도를 요약합니다."
+      : "20일·60일·수급 세 가지만 요약합니다.",
+  );
   elements.quantPublicEvidence.innerHTML = publicReasons.map(quantPublicEvidenceRowMarkup).join("");
 }
 

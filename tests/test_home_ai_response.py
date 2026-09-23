@@ -1681,6 +1681,41 @@ console.log(JSON.stringify({{
     assert 'action: "no_signal"' in source[source.index("function normalizeUsAIAnalysisForDisplay("):source.index("function renderUsAIAnalysis(")]
 
 
+def test_us_stock_signal_evidence_preserves_proxy_labels_and_completed_date() -> None:
+    source = app_source()
+    start = source.index("function quantEvidenceStateMeta(")
+    end = source.index("function quantPublicEvidenceRowMarkup(", start)
+    function_source = source[start:end]
+    script = f"""
+function stockDashboardIsUs() {{ return true; }}
+{function_source}
+const items = quantPublicEvidenceItems({{
+  public_reasons: [
+    {{ key: "trend_20d", label: "20일", state: "positive", available: true, summary: "20일 우호", as_of: "2026-09-22T20:00:00Z" }},
+    {{ key: "trend_60d", label: "60일", state: "neutral", available: true, summary: "60일 중립", as_of: "2026-09-22T20:00:00Z" }},
+    {{ key: "flow", label: "거래대금 참여도", state: "negative", available: true, summary: "거래대금 주의", as_of: "2026-09-22T20:00:00Z" }},
+  ],
+}});
+console.log(JSON.stringify(items.map(item => [item.label, item.state.label, item.summary, item.asOf])));
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == [
+        ["20일", "우호", "20일 우호", "2026-09-22T20:00:00Z"],
+        ["60일", "중립", "60일 중립", "2026-09-22T20:00:00Z"],
+        ["거래대금 참여도", "주의", "거래대금 주의", "2026-09-22T20:00:00Z"],
+    ]
+    assert 'id="quant-evidence-title"' in (
+        APP_JS.parent / "index.html"
+    ).read_text(encoding="utf-8")
+
+
 def test_us_recommendation_detail_requires_matching_ready_snapshot_identity() -> None:
     source = app_source()
     composition = source[

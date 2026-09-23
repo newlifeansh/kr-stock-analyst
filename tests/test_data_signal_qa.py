@@ -1562,7 +1562,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260923us100",
+                "us_dashboard_version": "20260924us101",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1570,7 +1570,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260923us100",
+                "us_dashboard_version": "20260924us101",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1755,6 +1755,44 @@ class FakeReadOnlyApi:
                     }
                 ],
             }, self._meta(path)
+        if path == "/us/stocks/NVDA/ai-analysis":
+            universe_as_of = self._us_universe_as_of()
+            return {
+                "code": "NVDA",
+                "status": "ready",
+                "data_state": "ready",
+                "snapshot_id": (
+                    f"position-lifecycle-us-v1-rc1:{universe_as_of}:fixture"
+                ),
+                "snapshot_checksum": "canonical-fixture-checksum",
+                "new_entries_allowed": True,
+                "is_current_universe_member": True,
+                "stance": "관망 우선",
+                "data_covered": 3,
+                "data_total": 3,
+                "as_of": f"{universe_as_of}T20:00:00+00:00",
+                "current": {"action": "no_signal", "label": "관망"},
+                "public_reasons": [
+                    {
+                        "key": "trend_20d",
+                        "label": "20일",
+                        "state": "positive",
+                        "available": True,
+                    },
+                    {
+                        "key": "trend_60d",
+                        "label": "60일",
+                        "state": "neutral",
+                        "available": True,
+                    },
+                    {
+                        "key": "flow",
+                        "label": "거래대금 참여도",
+                        "state": "negative",
+                        "available": True,
+                    },
+                ],
+            }, self._meta(path)
         if path == "/stocks/005930":
             return {
                 "code": "005930",
@@ -1798,6 +1836,28 @@ class FakeReadOnlyApi:
                                 "title": "삼성전자 최신 의견",
                                 "author_name": "개미투자자",
                                 "url": "https://m.stock.naver.com/domestic/stock/005930/discussion/429247260",
+                            }
+                        ],
+                    }
+                ],
+            }, self._meta(path)
+        if path == "/us/stocks/WMB/community-feed":
+            return {
+                "code": "WMB",
+                "name": "Williams Companies Inc. (The)",
+                "mode": "latest",
+                "providers": [
+                    {
+                        "key": "naver_board",
+                        "source": "naver_world_stock_board",
+                        "configured": True,
+                        "message": "최근 글 1건",
+                        "items": [
+                            {
+                                "post_id": "429388394",
+                                "title": "윌리엄스 컴퍼니즈 실적 요약",
+                                "author_name": "미국주식러",
+                                "url": "https://m.stock.naver.com/worldstock/stock/WMB/discussion/429388394",
                             }
                         ],
                     }
@@ -1849,7 +1909,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20260923us100"}, self._meta(path)
+            return {"version": "20260924us101"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -1896,11 +1956,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20260923us100" />'
+                '<link href="/assets/dashboard/styles.css?v=20260924us101" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20260923us100"></script>'
+                '<script src="/dashboard-app-v170.js?v=20260924us101"></script>'
                 '</body></html>',
                 self._meta(path),
             )

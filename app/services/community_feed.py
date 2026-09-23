@@ -566,7 +566,7 @@ def _fetch_naver_popular_board_rows(
 
 
 def _naver_world_item_code_candidates(stock: dict[str, object]) -> list[str]:
-    """Return Naver's exchange-suffixed US symbol candidates."""
+    """Return exchange-suffixed candidates followed by Naver's bare fallback."""
     base = str(stock.get("code") or "").strip().upper().replace(".", "-")
     if not base:
         return []
@@ -574,11 +574,11 @@ def _naver_world_item_code_candidates(stock: dict[str, object]) -> list[str]:
     market = str(stock.get("market") or "").upper()
     if market:
         markets.add(market)
-    suffixes = [".O", ".N", ".A"]
+    suffixes = [".O", ".N", ".A", ""]
     if "NASDAQ" in markets:
-        suffixes = [".O"]
+        suffixes = [".O", ""]
     elif "NYSE" in markets:
-        suffixes = [".N"]
+        suffixes = [".N", ""]
     return [f"{base}{suffix}" for suffix in suffixes]
 
 

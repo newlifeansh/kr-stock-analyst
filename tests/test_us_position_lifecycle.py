@@ -451,6 +451,20 @@ def test_us_feed_is_top100_shadow_only_and_never_creates_a_position():
     assert payload["reentry_runtime_enabled"] is False
     assert payload["universe_count"] == 100
     assert payload["confirmed_count"] == 0
+    assert len(payload["public_member_signals"]) == 100
+    assert {
+        item["code"] for item in payload["public_member_signals"]
+    } == {item["code"] for item in members}
+    assert all(
+        [reason["label"] for reason in item["public_reasons"]]
+        == ["20일", "60일", "거래대금 참여도"]
+        for item in payload["public_member_signals"]
+    )
+    assert all(
+        reason["available"] is True
+        for item in payload["public_member_signals"]
+        for reason in item["public_reasons"]
+    )
     assert all(item["status"] == "preliminary" for item in payload["items"])
     assert all(item["current"]["position_open"] is False for item in payload["items"])
     assert all(item["market_cap_rank"] <= 100 for item in payload["items"])

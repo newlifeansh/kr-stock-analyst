@@ -624,6 +624,98 @@ def _load_histories(
     return histories, errors
 
 
+def _signal_close_at(signal_date: object) -> datetime | None:
+    if not isinstance(signal_date, date):
+        return None
+    from app.services.us_market_calendar import us_market_session
+
+    signal_session = us_market_session(signal_date)
+    if signal_session is None:
+        raise ValueError("US signal date is not an exchange session")
+    return signal_session.close_at
+
+
+def _decision_public_reasons(
+    decision: dict[str, Any],
+    *,
+    as_of: datetime,
+) -> list[dict[str, Any]]:
+    confirmation = dict(decision.get("confirmation") or {})
+    return build_public_signal_reasons(
+        {},
+        context={
+            "as_of": as_of,
+            "flow_semantics": "dollar_volume_participation_proxy",
+            "one_month_return": _decimal(
+                float((decision.get("technical") or {}).get("momentum20") or 0.0)
+                * 100.0
+            ),
+            "three_month_return": _decimal(decision.get("three_month_return")),
+            "trading_value_change": _decimal(
+                (
+                    float(
+                        confirmation.get("stock_dollar_volume_participation")
+                        or 1.0
+                    )
+                    - 1.0
+                )
+                * 100.0
+            ),
+        },
+    )
+
+
+def _public_member_signal(
+    member: dict[str, Any],
+    decision: dict[str, Any],
+    *,
+    as_of: datetime,
+    universe_date: date | None,
+) -> dict[str, Any]:
+    """Persist public evidence for every Top100 member, including no-signal rows."""
+
+    signal_date = decision.get("signal_date")
+    if not isinstance(signal_date, date):
+        signal_date = universe_date
+    signal_at = _signal_close_at(signal_date) or as_of
+    ready = decision.get("data_state") == "ready"
+    action = str(decision.get("action") or "no_signal")
+    if action not in {"entry_pending", "entry_watch"}:
+        action = "no_signal"
+    label = {
+        "entry_pending": "예비 매수",
+        "entry_watch": "예비 포착",
+        "no_signal": "관망",
+    }[action]
+    public_reasons = (
+        _decision_public_reasons(decision, as_of=signal_at)
+        if ready
+        else build_public_signal_reasons(
+            {},
+            context={
+                "as_of": signal_at,
+                "flow_semantics": "dollar_volume_participation_proxy",
+            },
+        )
+    )
+    return {
+        "code": member["code"],
+        "data_state": "ready" if ready else "insufficient",
+        "signal_date": signal_date,
+        "signal_at": signal_at,
+        "flow_semantics": "dollar_volume_participation_proxy",
+        "public_reasons": public_reasons,
+        "current": {
+            "action": action,
+            "label": label,
+            "position_open": False,
+            "live_observation": False,
+            "as_of": signal_at,
+            "next_confirmation": decision.get("next_confirmation"),
+        },
+    }
+
+
 def _candidate_item(
     member: dict[str, Any],
     decision: dict[str, Any],
@@ -633,29 +725,11 @@ def _candidate_item(
     action = str(decision["action"])
     signal_label = "예비 매수" if action == "entry_pending" else "예비 포착"
     signal_date = decision.get("signal_date")
-    signal_close_at = None
-    if isinstance(signal_date, date):
-        from app.services.us_market_calendar import us_market_session
-
-        signal_session = us_market_session(signal_date)
-        if signal_session is None:
-            raise ValueError("US signal date is not an exchange session")
-        signal_close_at = signal_session.close_at
+    signal_close_at = _signal_close_at(signal_date)
     confirmation = dict(decision.get("confirmation") or {})
-    public_reasons = build_public_signal_reasons(
-        {},
-        context={
-            "as_of": signal_close_at or as_of,
-            "flow_semantics": "dollar_volume_participation_proxy",
-            "one_month_return": _decimal(
-                float((decision.get("technical") or {}).get("momentum20") or 0.0) * 100.0
-            ),
-            "three_month_return": _decimal(decision.get("three_month_return")),
-            "trading_value_change": _decimal(
-                (float(confirmation.get("stock_dollar_volume_participation") or 1.0) - 1.0)
-                * 100.0
-            ),
-        },
+    public_reasons = _decision_public_reasons(
+        decision,
+        as_of=signal_close_at or as_of,
     )
     return {
         "data_state": "ready",
@@ -788,6 +862,7 @@ def build_us_position_lifecycle_feed(
             "new_entries_allowed": new_entries_allowed,
             "stale_behavior": "block_new_entries_keep_last_complete_snapshot",
         },
+        "public_member_signals": [],
         "items": [],
     }
     if not members:
@@ -880,6 +955,7 @@ def build_us_position_lifecycle_feed(
         new_entries_allowed and complete_source_coverage
     )
     items: list[dict[str, Any]] = []
+    public_member_signals: list[dict[str, Any]] = []
     rejection_counts: Counter[str] = Counter()
     candidate_actions: dict[str, str] = {}
     baseline_actions: dict[str, str] = {}
@@ -902,6 +978,14 @@ def build_us_position_lifecycle_feed(
         )
         action = str(decision.get("action") or "no_signal")
         candidate_actions[code] = action
+        public_member_signals.append(
+            _public_member_signal(
+                member,
+                decision,
+                as_of=current,
+                universe_date=universe_date,
+            )
+        )
         baseline_decision = evaluate_us_momentum_watch_baseline(
             stock_bars if code in covered_codes else [],
             member,
@@ -1055,6 +1139,7 @@ def build_us_position_lifecycle_feed(
             "promotion_state": "not_eligible",
             "promotion_reason": "forward shadow evidence, stateful lifecycle/reentry replay, complete reviewed CIK sector classification, and P0 QA are required",
         },
+        "public_member_signals": public_member_signals,
         "items": selected,
     }
 
@@ -1213,6 +1298,86 @@ def _snapshot_public_reasons_are_valid(
         if reason["key"] == "flow" and reason.get("note") != US_DOLLAR_VOLUME_NOTICE:
             return False
     return True
+
+
+def _snapshot_public_member_signals_are_valid(
+    value: Any,
+    *,
+    universe_date: Optional[date],
+    universe_members: Optional[dict[str, dict[str, Any]]],
+    insufficient_history_codes: set[str],
+    expected_close_at: Optional[datetime],
+) -> bool:
+    """Validate new per-member evidence while accepting legacy snapshots without it."""
+
+    if value is None:
+        return True
+    if (
+        not isinstance(value, list)
+        or len(value) != US_SIGNAL_UNIVERSE_LIMIT
+        or universe_date is None
+        or universe_members is None
+    ):
+        return False
+    observed_codes: set[str] = set()
+    for signal in value:
+        if not isinstance(signal, dict):
+            return False
+        code = signal.get("code")
+        current = signal.get("current")
+        signal_date = _parse_snapshot_date(signal.get("signal_date"))
+        signal_at = _parse_snapshot_datetime(signal.get("signal_at"))
+        reasons = signal.get("public_reasons")
+        is_insufficient = code in insufficient_history_codes
+        if (
+            not isinstance(code, str)
+            or code not in universe_members
+            or code in observed_codes
+            or not isinstance(current, dict)
+            or signal_date != universe_date
+            or signal_at is None
+            or (
+                expected_close_at is not None
+                and signal_at != expected_close_at.astimezone(timezone.utc)
+            )
+            or signal.get("flow_semantics")
+            != "dollar_volume_participation_proxy"
+            or signal.get("data_state")
+            != ("insufficient" if is_insufficient else "ready")
+            or current.get("action")
+            not in {"no_signal", "entry_watch", "entry_pending"}
+            or current.get("position_open") is not False
+            or current.get("live_observation") is not False
+            or _parse_snapshot_datetime(current.get("as_of")) != signal_at
+        ):
+            return False
+        if is_insufficient:
+            if (
+                current.get("action") != "no_signal"
+                or not isinstance(reasons, list)
+                or [
+                    reason.get("key") if isinstance(reason, dict) else None
+                    for reason in reasons
+                ]
+                != list(PUBLIC_SIGNAL_REASON_KEYS)
+                or any(
+                    not isinstance(reason, dict)
+                    or reason.get("available") is not False
+                    or reason.get("state") != "unavailable"
+                    or _parse_snapshot_datetime(reason.get("as_of")) != signal_at
+                    for reason in reasons
+                )
+                or reasons[-1].get("label") != "거래대금 참여도"
+                or reasons[-1].get("note") != US_DOLLAR_VOLUME_NOTICE
+            ):
+                return False
+        elif not _snapshot_public_reasons_are_valid(
+            reasons,
+            expected_as_of=expected_close_at,
+        ):
+            return False
+        observed_codes.add(code)
+    return observed_codes == set(universe_members)
 
 
 def _snapshot_items_are_valid(
@@ -1808,6 +1973,15 @@ def _ready_snapshot_semantics_are_valid(
         and universe_policy.get("limit") == US_SIGNAL_UNIVERSE_LIMIT
         and universe_policy.get("version") == US_SIGNAL_UNIVERSE_VERSION
         and universe_policy.get("new_entries_allowed") is True
+        and _snapshot_public_member_signals_are_valid(
+            payload.get("public_member_signals"),
+            universe_date=universe_date,
+            universe_members=universe_members,
+            insufficient_history_codes=set(
+                payload.get("insufficient_history_codes") or []
+            ),
+            expected_close_at=expected_close_at,
+        )
         and _snapshot_items_are_valid(
             items,
             universe_date=universe_date,
@@ -2258,6 +2432,12 @@ def us_position_lifecycle_refresh_due(
     if not payload or payload.get("refresh_required"):
         return True
     if payload.get("status") != "ready" or payload.get("data_state") != "ready":
+        return True
+    public_member_signals = payload.get("public_member_signals")
+    if (
+        not isinstance(public_member_signals, list)
+        or len(public_member_signals) != US_SIGNAL_UNIVERSE_LIMIT
+    ):
         return True
     universe_date = _parse_snapshot_date(payload.get("universe_as_of"))
     try:

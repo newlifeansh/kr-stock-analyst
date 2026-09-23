@@ -4006,7 +4006,7 @@ def test_staging_v156_keeps_public_signals_short_and_hides_numeric_scores():
         : staging_source.index("  const decorateAiRows", staging_source.index("  const selectAiSignalSummaryMetrics"))
     ]
     assert "return selected.slice(0, 1);" in selector_source
-    assert '<h2>20일 · 60일 · 수급</h2>' in shell
+    assert '<h2 id="quant-evidence-title">20일 · 60일 · 수급</h2>' in shell
     assert '<summary><span>더 보기</span><strong>차트와 지난 기록</strong></summary>' in shell
     rules = css[css.index("/* v156 — reduce public signal pages") :]
     for contract in (

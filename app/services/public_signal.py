@@ -589,6 +589,7 @@ def public_market_signal_payload(payload: Mapping[str, Any] | None) -> dict[str,
         result.pop("source_error", None)
         result.pop("sector_classification_errors", None)
         result.pop("universe_members", None)
+        result.pop("public_member_signals", None)
         result["methodology"] = [US_PUBLIC_SIGNAL_METHODOLOGY]
     public_items = []
     for item in _items(result.get("items")):
@@ -669,6 +670,7 @@ def public_recommendation_signal_payload(
         result.pop("source_error", None)
         result.pop("sector_classification_errors", None)
         result.pop("universe_members", None)
+        result.pop("public_member_signals", None)
         result["methodology"] = [US_PUBLIC_SIGNAL_METHODOLOGY]
     public_items = []
     for item in _items(result.get("items")):
@@ -765,17 +767,22 @@ def public_stock_ai_analysis_payload(
         source.get("flow_semantics") or fallback.get("flow_semantics") or ""
     ) == US_DOLLAR_VOLUME_FLOW_SEMANTICS
     current_action = str(_mapping(result.get("current")).get("action") or "")
-    us_evidence_ready = bool(
+    us_public_evidence_ready = bool(
         is_us_proxy
+        and _us_public_snapshot_identity_ready(result)
         and result.get("data_state") == "ready"
-        and current_action in {"entry_pending", "entry_watch"}
+        and result.get("is_current_universe_member") is True
         and all(item.get("available") is True for item in public_reasons)
     )
     if is_us_proxy:
         status_ready = _us_public_snapshot_identity_ready(result)
-        if us_evidence_ready:
-            decision_reason = US_PUBLIC_SIGNAL_DECISION_REASON
-            next_check = US_PUBLIC_SIGNAL_NEXT_CHECK
+        if us_public_evidence_ready:
+            if current_action in {"entry_pending", "entry_watch"}:
+                decision_reason = US_PUBLIC_SIGNAL_DECISION_REASON
+                next_check = US_PUBLIC_SIGNAL_NEXT_CHECK
+            else:
+                decision_reason = US_PUBLIC_SIGNAL_UNAVAILABLE_REASON
+                next_check = US_PUBLIC_SIGNAL_UNAVAILABLE_NEXT_CHECK
         elif not status_ready:
             decision_reason = US_PUBLIC_SIGNAL_PREPARING_REASON
             next_check = US_PUBLIC_SIGNAL_PREPARING_NEXT_CHECK
@@ -785,7 +792,7 @@ def public_stock_ai_analysis_payload(
         else:
             decision_reason = US_PUBLIC_SIGNAL_UNAVAILABLE_REASON
             next_check = US_PUBLIC_SIGNAL_UNAVAILABLE_NEXT_CHECK
-        if not us_evidence_ready:
+        if not us_public_evidence_ready:
             public_reasons = _unavailable_us_public_reasons(
                 result.get("as_of") or fallback.get("as_of")
             )

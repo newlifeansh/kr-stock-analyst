@@ -287,7 +287,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260923us100"
+US_DASHBOARD_CLIENT_VERSION = "20260924us101"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -4372,9 +4372,28 @@ def us_stock_ai_analysis(
         ),
         None,
     )
+    public_member_signal = next(
+        (
+            item
+            for item in list(feed.get("public_member_signals") or [])
+            if isinstance(item, dict)
+            and _normalize_us_symbol(str(item.get("code") or "")).replace("-", ".")
+            == normalized_signal_key
+        ),
+        None,
+    )
     feed_ready = bool(snapshot_ready and feed.get("new_entries_allowed") is True)
+    reason_source = (
+        public_member_signal
+        if isinstance(public_member_signal, dict)
+        else signal
+        if isinstance(signal, dict)
+        else None
+    )
     signal_reasons = (
-        list(signal.get("public_reasons") or []) if isinstance(signal, dict) else []
+        list(reason_source.get("public_reasons") or [])
+        if isinstance(reason_source, dict)
+        else []
     )
     canonical_reasons_valid = bool(
         [item.get("key") for item in signal_reasons if isinstance(item, dict)]
@@ -4384,16 +4403,16 @@ def us_stock_ai_analysis(
             for item in signal_reasons
         )
     )
-    canonical_candidate_ready = bool(
-        feed_ready
-        and is_current_universe_member
-        and isinstance(signal, dict)
-        and canonical_reasons_valid
-    )
     canonical_member_ready = bool(
         feed_ready
         and is_current_universe_member
-        and (signal is None or canonical_reasons_valid)
+        and isinstance(reason_source, dict)
+        and reason_source.get("data_state") == "ready"
+        and canonical_reasons_valid
+    )
+    canonical_candidate_ready = bool(
+        canonical_member_ready
+        and isinstance(signal, dict)
     )
     source_current = (
         dict(signal.get("current") or {}) if isinstance(signal, dict) else {}
@@ -4422,13 +4441,13 @@ def us_stock_ai_analysis(
         ),
     }
     canonical_as_of = (
-        signal.get("signal_at")
-        if isinstance(signal, dict) and signal.get("signal_at")
-        else feed.get("as_of") or current_time
+        reason_source.get("signal_at")
+        if isinstance(reason_source, dict) and reason_source.get("signal_at")
+        else feed.get("universe_as_of") or feed.get("as_of") or current_time
     )
     canonical_reasons = (
         signal_reasons
-        if canonical_candidate_ready
+        if canonical_member_ready
         else [
             {
                 "key": key,
@@ -4467,7 +4486,7 @@ def us_stock_ai_analysis(
             ),
             "as_of": canonical_as_of,
             "confidence": None,
-            "data_covered": 3 if canonical_candidate_ready else 0,
+            "data_covered": 3 if canonical_member_ready else 0,
             "data_total": 3,
             "stance": (
                 "예비 매수"
