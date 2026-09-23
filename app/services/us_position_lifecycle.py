@@ -607,6 +607,82 @@ def _history_loader(symbol: str) -> list[Any]:
     return prices
 
 
+def build_us_member_public_evidence(
+    symbol: str,
+    *,
+    universe_date: date,
+    now: Optional[datetime] = None,
+    history_loader: Optional[Callable[[str], list[Any]]] = None,
+) -> dict[str, Any]:
+    """Recover completed-session public evidence for one canonical member.
+
+    Older ready snapshots do not contain ``public_member_signals``. Rebuilding
+    the full Top-100 snapshot can take several minutes or fail when an
+    unrelated ticker is throttled, so the stock-detail endpoint may repair its
+    three non-actionable public reasons from that member's own adjusted daily
+    history. Membership and the decision state still come from the immutable
+    canonical snapshot; this helper never promotes an entry signal.
+    """
+
+    current = now or datetime.now(timezone.utc)
+    loader = history_loader or _history_loader
+    rows = loader(symbol)
+    bars = us_price_bars(rows, now=current)
+    if len(bars) < 64 or bars[-1].trade_date != universe_date:
+        raise ValueError("completed-session member history is incomplete")
+
+    from app.services.us_market_calendar import recent_us_market_session_dates
+
+    expected_dates = recent_us_market_session_dates(universe_date, 64)
+    observed_dates = tuple(bar.trade_date for bar in bars[-64:])
+    if observed_dates != expected_dates:
+        raise ValueError("completed-session member history has a session gap")
+
+    indicators = calculate_indicators(bars)
+    latest = indicators[-1]
+    participation = _dollar_volume_evidence(bars)["participation_ratio"]
+    if participation is None:
+        raise ValueError("completed-session dollar-volume evidence is incomplete")
+    three_month_return = (
+        (bars[-1].close / bars[-64].close) - 1.0
+        if bars[-64].close
+        else None
+    )
+    if three_month_return is None:
+        raise ValueError("completed-session 60-day evidence is incomplete")
+
+    signal_at = _signal_close_at(universe_date)
+    if signal_at is None:
+        raise ValueError("US universe date is not an exchange session")
+    public_reasons = build_public_signal_reasons(
+        {},
+        context={
+            "as_of": signal_at,
+            "flow_semantics": "dollar_volume_participation_proxy",
+            "one_month_return": _decimal(latest["momentum20"] * 100.0),
+            "three_month_return": _decimal(three_month_return * 100.0),
+            "trading_value_change": _decimal((participation - 1.0) * 100.0),
+        },
+    )
+    if not all(reason.get("available") is True for reason in public_reasons):
+        raise ValueError("completed-session public evidence is unavailable")
+    return {
+        "code": symbol,
+        "signal_date": universe_date,
+        "signal_at": signal_at,
+        "data_state": "ready",
+        "flow_semantics": "dollar_volume_participation_proxy",
+        "public_reasons": public_reasons,
+        "current": {
+            "action": "no_signal",
+            "label": "관망",
+            "position_open": False,
+            "live_observation": False,
+            "as_of": signal_at,
+        },
+    }
+
+
 def _load_histories(
     symbols: list[str],
     loader: Callable[[str], list[Any]],

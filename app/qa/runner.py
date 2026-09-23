@@ -249,6 +249,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_market."
         "test_signal_daily_close_repairs_only_null_fields_from_completed_regular_intraday",
         "tests.test_us_market."
+        "test_signal_daily_row_repairs_fully_null_completed_day_before_forming_row",
+        "tests.test_us_market."
+        "test_signal_daily_row_repair_rejects_intraday_session_gap",
+        "tests.test_us_market."
         "test_signal_daily_close_repair_stays_closed_before_publication_grace",
         "tests.test_us_market."
         "test_signal_daily_close_repair_requires_intraday_through_official_close",
@@ -522,6 +526,12 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_history_loader_retries_only_transient_failures_with_lower_concurrency",
         "tests.test_us_position_lifecycle."
         "test_us_feed_retries_a_symbol_missing_the_completed_session",
+        "tests.test_us_position_lifecycle."
+        "test_us_member_public_evidence_recovers_three_completed_session_reasons",
+        "tests.test_us_position_lifecycle."
+        "test_us_member_public_evidence_rejects_a_completed_session_gap",
+        "tests.test_app."
+        "test_us_stock_ai_analysis_repairs_legacy_member_evidence_without_full_scan",
     ),
 }
 

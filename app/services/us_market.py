@@ -1800,13 +1800,15 @@ def _repair_completed_daily_close_from_intraday(
     *,
     now: Optional[datetime] = None,
 ) -> dict[str, object]:
-    """Fill only a provider-lagged completed-session close from Yahoo 5m bars.
+    """Repair a provider-lagged completed-session row from Yahoo 5m bars.
 
     Some Yahoo edges publish the latest daily timestamp, official open/high/low
-    and volume before close/adjclose. The signal must remain fail-closed during
-    a forming session, so repair is limited to the authoritative latest XNYS
-    session after the existing 15-minute publication grace. All earlier daily
-    bars and the provider's official daily volume remain untouched.
+    and volume before close/adjclose. During the next regular session, the same
+    edge can retain a fully-null row for the previous completed day ahead of a
+    forming row. The signal must remain fail-closed, so repair is limited to the
+    authoritative latest completed XNYS session after the 15-minute publication
+    grace. A fully-null OHLCV row is rebuilt only from an exact, gap-free vector
+    of regular-session five-minute bars.
     """
 
     if not _signal_chart_metadata_matches(symbol, result):
@@ -1818,17 +1820,6 @@ def _repair_completed_daily_close_from_intraday(
     adjusted_closes = list(adjusted.get("adjclose") or [])
     if not timestamps or len(closes) < len(timestamps):
         return result
-    last_index = len(timestamps) - 1
-    provider_close = _to_decimal(_list_get(closes, last_index))
-    provider_adjusted_close = _to_decimal(
-        _list_get(adjusted_closes, last_index)
-    )
-    # This fallback is for the observed Yahoo publication state where both
-    # close fields lag together. A partially populated or invalid pair is a
-    # different provider contract and must remain fail-closed.
-    if provider_close is not None or provider_adjusted_close is not None:
-        return result
-
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None or current.utcoffset() is None:
         current = current.replace(tzinfo=timezone.utc)
@@ -1837,21 +1828,52 @@ def _repair_completed_daily_close_from_intraday(
         completed = latest_completed_us_market_session(current)
     except USMarketCalendarUnavailable:
         return result
-    daily_timestamp = datetime.fromtimestamp(timestamps[last_index], timezone.utc)
-    daily_date = daily_timestamp.astimezone(NEW_YORK_TZ).date()
-    if (
-        daily_date != completed.session_date
-        or current < completed.close_at + US_SIGNAL_PUBLICATION_GRACE
-    ):
+    if current < completed.close_at + US_SIGNAL_PUBLICATION_GRACE:
         return result
 
-    raw_open = _to_decimal(_list_get(quote.get("open") or [], last_index))
-    raw_high = _to_decimal(_list_get(quote.get("high") or [], last_index))
-    raw_low = _to_decimal(_list_get(quote.get("low") or [], last_index))
-    raw_volume = _to_decimal(
-        _list_get(quote.get("volume") or [], last_index)
+    completed_indexes = [
+        index
+        for index, timestamp in enumerate(timestamps)
+        if datetime.fromtimestamp(timestamp, timezone.utc)
+        .astimezone(NEW_YORK_TZ)
+        .date()
+        == completed.session_date
+    ]
+    if not completed_indexes:
+        return result
+    completed_index = completed_indexes[-1]
+    provider_close = _to_decimal(_list_get(closes, completed_index))
+    provider_adjusted_close = _to_decimal(
+        _list_get(adjusted_closes, completed_index)
     )
-    if (
+    # A partially populated or invalid close pair is a different provider
+    # contract and must remain fail-closed.
+    if provider_close is not None or provider_adjusted_close is not None:
+        return result
+
+    raw_open = _to_decimal(_list_get(quote.get("open") or [], completed_index))
+    raw_high = _to_decimal(_list_get(quote.get("high") or [], completed_index))
+    raw_low = _to_decimal(_list_get(quote.get("low") or [], completed_index))
+    raw_volume = _to_decimal(
+        _list_get(quote.get("volume") or [], completed_index)
+    )
+    provider_ohlv_complete = bool(
+        raw_open is not None
+        and raw_open > 0
+        and raw_high is not None
+        and raw_high > 0
+        and raw_low is not None
+        and raw_low > 0
+        and raw_high >= raw_low
+        and raw_volume is not None
+        and raw_volume > 0
+    )
+    provider_ohlv_empty = all(
+        value is None for value in (raw_open, raw_high, raw_low, raw_volume)
+    )
+    if not provider_ohlv_complete and not provider_ohlv_empty:
+        return result
+    if provider_ohlv_complete and (
         raw_open is None
         or raw_open <= 0
         or raw_high is None
@@ -1876,31 +1898,70 @@ def _repair_completed_daily_close_from_intraday(
     if not _signal_chart_metadata_matches(symbol, intraday):
         return result
     intraday_quote = (intraday.get("indicators", {}).get("quote") or [{}])[0]
-    regular_closes: list[tuple[datetime, Decimal]] = []
+    regular_rows: list[
+        tuple[datetime, Decimal, Decimal, Decimal, Decimal, Decimal]
+    ] = []
     for index, timestamp in enumerate(intraday.get("timestamp") or []):
         observed_at = datetime.fromtimestamp(timestamp, timezone.utc)
+        open_price = _to_decimal(
+            _list_get(intraday_quote.get("open") or [], index)
+        )
+        high = _to_decimal(_list_get(intraday_quote.get("high") or [], index))
+        low = _to_decimal(_list_get(intraday_quote.get("low") or [], index))
         close = _to_decimal(
             _list_get(intraday_quote.get("close") or [], index)
         )
+        volume = _to_decimal(
+            _list_get(intraday_quote.get("volume") or [], index)
+        )
         if (
-            close is not None
+            open_price is not None
+            and open_price > 0
+            and high is not None
+            and high > 0
+            and low is not None
+            and low > 0
+            and close is not None
             and close > 0
+            and volume is not None
+            and volume >= 0
+            and high >= max(open_price, close)
+            and low <= min(open_price, close)
             and completed.open_at <= observed_at <= completed.close_at
         ):
-            regular_closes.append((observed_at, close))
-    if not regular_closes:
+            regular_rows.append(
+                (observed_at, open_price, high, low, close, volume)
+            )
+    if not regular_rows:
         return result
-    final_at, intraday_close = regular_closes[-1]
+    final_at, _, _, _, intraday_close, _ = regular_rows[-1]
     if final_at < completed.close_at - timedelta(minutes=5):
         return result
 
     repaired_close = intraday_close
-    bound_tolerance = max(raw_open, repaired_close) * YAHOO_OHLC_BOUND_TOLERANCE
-    if (
-        raw_high + bound_tolerance < max(raw_open, repaired_close)
-        or raw_low - bound_tolerance > min(raw_open, repaired_close)
-    ):
-        return result
+    if provider_ohlv_complete:
+        bound_tolerance = max(raw_open, repaired_close) * YAHOO_OHLC_BOUND_TOLERANCE
+        if (
+            raw_high + bound_tolerance < max(raw_open, repaired_close)
+            or raw_low - bound_tolerance > min(raw_open, repaired_close)
+        ):
+            return result
+    else:
+        expected_timestamps = tuple(
+            completed.open_at + timedelta(minutes=5 * index)
+            for index in range(
+                int((completed.close_at - completed.open_at).total_seconds() // 300)
+            )
+        )
+        observed_timestamps = tuple(row[0] for row in regular_rows)
+        if observed_timestamps != expected_timestamps:
+            return result
+        raw_open = regular_rows[0][1]
+        raw_high = max(row[2] for row in regular_rows)
+        raw_low = min(row[3] for row in regular_rows)
+        raw_volume = sum((row[5] for row in regular_rows), Decimal("0"))
+        if raw_volume <= 0:
+            return result
 
     repaired = deepcopy(result)
     repaired_indicators = repaired.setdefault("indicators", {})
@@ -1912,7 +1973,18 @@ def _repair_completed_daily_close_from_intraday(
     )
     while len(repaired_close_values) < len(timestamps):
         repaired_close_values.append(None)
-    repaired_close_values[last_index] = float(repaired_close)
+    repaired_close_values[completed_index] = float(repaired_close)
+    if provider_ohlv_empty:
+        for key, value in (
+            ("open", raw_open),
+            ("high", raw_high),
+            ("low", raw_low),
+            ("volume", raw_volume),
+        ):
+            values = repaired_quotes[0].setdefault(key, [None] * len(timestamps))
+            while len(values) < len(timestamps):
+                values.append(None)
+            values[completed_index] = float(value)
     repaired_adjusted = repaired_indicators.setdefault(
         "adjclose", [{"adjclose": [None] * len(timestamps)}]
     )
@@ -1923,7 +1995,7 @@ def _repair_completed_daily_close_from_intraday(
     )
     while len(repaired_adjusted_values) < len(timestamps):
         repaired_adjusted_values.append(None)
-    repaired_adjusted_values[last_index] = float(repaired_close)
+    repaired_adjusted_values[completed_index] = float(repaired_close)
     return repaired
 
 

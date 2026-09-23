@@ -258,6 +258,7 @@ from app.services.us_market import (
 )
 from app.services.us_position_lifecycle import (
     US_STRATEGY_VERSION,
+    build_us_member_public_evidence,
     load_us_position_lifecycle_snapshot,
     refresh_us_position_lifecycle_snapshot,
     us_position_lifecycle_preparing_payload,
@@ -4431,6 +4432,35 @@ def us_stock_ai_analysis(
         None,
     )
     feed_ready = bool(snapshot_ready and feed.get("new_entries_allowed") is True)
+    if (
+        public_member_signal is None
+        and signal is None
+        and feed_ready
+        and is_current_universe_member is True
+    ):
+        try:
+            universe_date = date.fromisoformat(
+                str(feed.get("universe_as_of") or "")[:10]
+            )
+            evidence_symbol = str(universe_member.get("code") or normalized_symbol)
+            public_member_signal = api_cache.get_or_set(
+                (
+                    "us_member_public_evidence",
+                    str(feed.get("snapshot_id") or ""),
+                    evidence_symbol,
+                ),
+                300,
+                lambda: build_us_member_public_evidence(
+                    evidence_symbol,
+                    universe_date=universe_date,
+                    now=current_time,
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "US member public evidence recovery failed: %s",
+                normalized_symbol,
+            )
     reason_source = (
         public_member_signal
         if isinstance(public_member_signal, dict)

@@ -259,6 +259,35 @@ def _completed_regular_intraday_chart(*, final_hour: int = 20):
     }
 
 
+def _gap_free_regular_intraday_chart():
+    timestamps = [
+        int(
+            (
+                datetime(2026, 9, 14, 13, 30, tzinfo=UTC)
+                + timedelta(minutes=5 * index)
+            ).timestamp()
+        )
+        for index in range(78)
+    ]
+    return {
+        "meta": {
+            "symbol": "AAPL",
+            "currency": "USD",
+            "instrumentType": "EQUITY",
+        },
+        "timestamp": timestamps,
+        "indicators": {
+            "quote": [{
+                "open": [100.0 + index / 100 for index in range(78)],
+                "high": [101.0 + index / 100 for index in range(78)],
+                "low": [99.0 + index / 100 for index in range(78)],
+                "close": [100.5 + index / 100 for index in range(78)],
+                "volume": [1_000 + index for index in range(78)],
+            }],
+        },
+    }
+
+
 def test_signal_daily_close_repairs_only_null_fields_from_completed_regular_intraday(
     monkeypatch,
 ):
@@ -280,6 +309,72 @@ def test_signal_daily_close_repairs_only_null_fields_from_completed_regular_intr
     assert repaired["indicators"]["quote"][0]["close"] == [105.0]
     assert repaired["indicators"]["adjclose"][0]["adjclose"] == [105.0]
     assert repaired["indicators"]["quote"][0]["volume"] == [1_234_567]
+
+
+def test_signal_daily_row_repairs_fully_null_completed_day_before_forming_row(
+    monkeypatch,
+):
+    daily = _provider_lagged_daily_chart()
+    daily["timestamp"].append(
+        int(datetime(2026, 9, 15, 13, 30, tzinfo=UTC).timestamp())
+    )
+    quote = daily["indicators"]["quote"][0]
+    for key, value in {
+        "open": 102.0,
+        "high": 104.0,
+        "low": 101.0,
+        "close": 103.0,
+        "volume": 55_000,
+    }.items():
+        quote[key] = [None, value]
+    daily["indicators"]["adjclose"][0]["adjclose"] = [None, 103.0]
+    intraday = _gap_free_regular_intraday_chart()
+    monkeypatch.setattr(us_market, "_fetch_chart", lambda *_args, **_kwargs: intraday)
+
+    repaired = us_market._repair_completed_daily_close_from_intraday(
+        "AAPL",
+        daily,
+        now=datetime(2026, 9, 15, 16, 0, tzinfo=UTC),
+    )
+
+    repaired_quote = repaired["indicators"]["quote"][0]
+    assert daily["indicators"]["quote"][0]["open"] == [None, 102.0]
+    assert repaired_quote["open"][0] == 100.0
+    assert repaired_quote["high"][0] == max(
+        intraday["indicators"]["quote"][0]["high"]
+    )
+    assert repaired_quote["low"][0] == min(
+        intraday["indicators"]["quote"][0]["low"]
+    )
+    assert repaired_quote["close"][0] == 101.27
+    assert repaired_quote["volume"][0] == sum(
+        intraday["indicators"]["quote"][0]["volume"]
+    )
+    assert repaired["indicators"]["adjclose"][0]["adjclose"][0] == 101.27
+    assert repaired_quote["close"][1] == 103.0
+
+
+def test_signal_daily_row_repair_rejects_intraday_session_gap(monkeypatch):
+    daily = _provider_lagged_daily_chart()
+    quote = daily["indicators"]["quote"][0]
+    for key in ("open", "high", "low", "volume"):
+        quote[key] = [None]
+    intraday = _gap_free_regular_intraday_chart()
+    for values in [
+        intraday["timestamp"],
+        *intraday["indicators"]["quote"][0].values(),
+    ]:
+        values.pop(20)
+    monkeypatch.setattr(us_market, "_fetch_chart", lambda *_args, **_kwargs: intraday)
+
+    repaired = us_market._repair_completed_daily_close_from_intraday(
+        "AAPL",
+        daily,
+        now=datetime(2026, 9, 14, 20, 16, tzinfo=UTC),
+    )
+
+    assert repaired is daily
+    assert repaired["indicators"]["quote"][0]["close"] == [None]
 
 
 def test_signal_daily_close_repair_stays_closed_before_publication_grace(monkeypatch):

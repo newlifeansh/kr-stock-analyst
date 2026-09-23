@@ -15,6 +15,7 @@ from app.services.us_position_lifecycle import (
     USLifecycleBar,
     _aligned_recent_sessions,
     _load_histories,
+    build_us_member_public_evidence,
     build_us_position_lifecycle_feed,
     evaluate_us_entry_candidate,
     evaluate_us_momentum_watch_baseline,
@@ -115,6 +116,52 @@ def _bars(
             )
         )
     return rows
+
+
+def test_us_member_public_evidence_recovers_three_completed_session_reasons():
+    evidence = build_us_member_public_evidence(
+        "NVDA",
+        universe_date=date(2026, 9, 8),
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+        history_loader=lambda symbol: _bars(
+            daily_return=0.0015,
+            recent_volume_multiplier=1.25,
+        ),
+    )
+
+    assert evidence["code"] == "NVDA"
+    assert evidence["signal_date"] == date(2026, 9, 8)
+    assert evidence["data_state"] == "ready"
+    assert evidence["current"]["action"] == "no_signal"
+    assert [reason["key"] for reason in evidence["public_reasons"]] == [
+        "trend_20d",
+        "trend_60d",
+        "flow",
+    ]
+    assert [reason["label"] for reason in evidence["public_reasons"]] == [
+        "20일",
+        "60일",
+        "거래대금 참여도",
+    ]
+    assert all(
+        reason["available"] is True for reason in evidence["public_reasons"]
+    )
+
+
+def test_us_member_public_evidence_rejects_a_completed_session_gap():
+    rows = _bars(daily_return=0.0015)
+
+    try:
+        build_us_member_public_evidence(
+            "NVDA",
+            universe_date=date(2026, 9, 8),
+            now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+            history_loader=lambda symbol: rows[:-20] + rows[-19:],
+        )
+    except ValueError as exc:
+        assert "session gap" in str(exc)
+    else:
+        raise AssertionError("a completed-session gap must fail closed")
 
 
 def test_us_entry_requires_market_relative_strength_and_dollar_volume_evidence():

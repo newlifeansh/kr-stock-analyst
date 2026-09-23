@@ -2,7 +2,7 @@ import asyncio
 import json
 import subprocess
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -898,6 +898,114 @@ def test_us_stock_ai_analysis_keeps_top100_member_ready_without_signal(
     assert payload["public_reasons"][2]["label"] == "거래대금 참여도"
     assert str(payload["as_of"]).startswith("2026-09-09T20:00:00")
     assert "private" not in response.text
+
+
+def test_us_stock_ai_analysis_repairs_legacy_member_evidence_without_full_scan(
+    monkeypatch,
+):
+    from app import main as main_module
+
+    feed = {
+        "status": "ready",
+        "data_state": "ready",
+        "strategy_version": "position-lifecycle-us-v1-rc1",
+        "rollout_mode": "shadow",
+        "execution_enabled": False,
+        "snapshot_id": "legacy-us-rc1-snapshot",
+        "snapshot_checksum": "legacy-feed-checksum",
+        "new_entries_allowed": True,
+        "universe_as_of": "2026-09-09",
+        "universe_members": [
+            {"code": "LEGACY", "name": "Legacy Member", "market": "NASDAQ"}
+        ],
+        "items": [],
+    }
+    recovered = []
+    monkeypatch.setattr(
+        main_module,
+        "load_us_position_lifecycle_snapshot",
+        lambda *_args, **_kwargs: feed,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "us_position_lifecycle_refresh_due",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_us_member_public_evidence",
+        lambda symbol, **kwargs: recovered.append((symbol, kwargs["universe_date"]))
+        or {
+            "code": symbol,
+            "data_state": "ready",
+            "signal_at": "2026-09-09T20:00:00+00:00",
+            "public_reasons": [
+                {
+                    "key": "trend_20d",
+                    "state": "positive",
+                    "available": True,
+                    "as_of": "2026-09-09T20:00:00+00:00",
+                },
+                {
+                    "key": "trend_60d",
+                    "state": "neutral",
+                    "available": True,
+                    "as_of": "2026-09-09T20:00:00+00:00",
+                },
+                {
+                    "key": "flow",
+                    "state": "positive",
+                    "available": True,
+                    "as_of": "2026-09-09T20:00:00+00:00",
+                },
+            ],
+            "current": {"action": "no_signal", "label": "관망"},
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "us_stock_dashboard",
+        lambda *_args, **_kwargs: {
+            "code": "LEGACY",
+            "name": "Legacy Member",
+            "market": "NASDAQ",
+            "currency": "USD",
+            "flow_semantics": "dollar_volume_participation_proxy",
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_stock_ai_analysis",
+        lambda _dashboard: {
+            "code": "LEGACY",
+            "name": "Legacy Member",
+            "market": "NASDAQ",
+            "as_of": "2026-09-09T20:00:00+00:00",
+            "generated_at": "2026-09-09T20:01:00+00:00",
+            "stance": "private",
+            "confidence": 99,
+            "summary": "private",
+            "key_points": [],
+            "strategy": [],
+            "risks": [],
+        },
+    )
+
+    response = TestClient(app).get("/us/stocks/LEGACY/ai-analysis")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert recovered == [("LEGACY", date(2026, 9, 9))]
+    assert payload["snapshot_id"] == "legacy-us-rc1-snapshot"
+    assert payload["data_covered"] == 3
+    assert payload["new_entries_allowed"] is True
+    assert payload["current"]["action"] == "no_signal"
+    assert all(reason["available"] is True for reason in payload["public_reasons"])
+    assert [reason["label"] for reason in payload["public_reasons"]] == [
+        "20일",
+        "60일",
+        "거래대금 참여도",
+    ]
 
 
 def test_us_market_cold_request_returns_preparing_and_only_enqueues_refresh(monkeypatch):
