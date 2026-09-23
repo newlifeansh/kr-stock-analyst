@@ -3517,7 +3517,12 @@ def _live_us_checks(
                 in source
                 and 'liveUrl("/market/global-assets?limit=30")' in source
                 and 'const PRODUCT_VERSION_ENDPOINT = IS_US_ONLY_PRODUCT ? "/us-version"'
-                in source,
+                in source
+                and 'document.getElementById("home-ai-response")?.remove();'
+                in source
+                and 'if (IS_US_ONLY_PRODUCT || state.view !== "home")'
+                in source
+                and 'id="home-ai-response"' in domestic_shell,
                 "공통 대시보드 런타임의 미국 전용 데이터·버전 경계가 고정되지 않았습니다.",
                 **source_meta,
             )

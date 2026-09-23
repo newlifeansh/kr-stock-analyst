@@ -1537,7 +1537,16 @@ function applyUsMarketSurface() {
     state.watchMarketMapMarketScope = "us";
     setCopy("home-market-signal-title", "미국 시그널 감시 후보");
     setCopy("home-ai-signals-title", "시그널 감시 후보");
-    setCopy("home-ai-response-heading", "미국 관심종목 대응");
+    document.getElementById("home-ai-response")?.remove();
+    for (const key of [
+      "homeAiResponseAsOf",
+      "homeAiResponseSummary",
+      "homeAiResponsePersonalList",
+      "homeAiResponseWatch",
+      "homeAiResponseWatchLabel",
+    ]) {
+      elements[key] = null;
+    }
     setCopy("trend-events-title", "미국 증시 캘린더");
     setCopy("trend-live-title", "미국 시장 뉴스");
     setCopy("news-page-title", "미국 시장 뉴스");
@@ -18127,7 +18136,7 @@ function stopHomeAiResponseRefresh() {
 
 function startHomeAiResponseRefresh() {
   stopHomeAiResponseRefresh();
-  if (state.view !== "home") {
+  if (IS_US_ONLY_PRODUCT || state.view !== "home") {
     return;
   }
   state.homeAiResponseRefreshTimer = window.setTimeout(async () => {
@@ -18141,6 +18150,12 @@ function startHomeAiResponseRefresh() {
 }
 
 function refreshHomeAiResponseContext(options = {}) {
+  if (IS_US_ONLY_PRODUCT) {
+    if (options.includeIdentityData === false) {
+      return Promise.resolve(null);
+    }
+    return loadHomeAiSignals({ force: options.force === true, ttlMs: 0 });
+  }
   if (state.homeAiResponseRefreshPromise) {
     return state.homeAiResponseRefreshPromise;
   }
@@ -18164,7 +18179,7 @@ function refreshHomeAiResponseContext(options = {}) {
 }
 
 function renderHomeAiResponse(items = state.aiSignalItems, asOf = "") {
-  if (!elements.homeAiResponseSummary) {
+  if (IS_US_ONLY_PRODUCT || !elements.homeAiResponseSummary) {
     return;
   }
   const contexts = homeInterestMarketContextCandidates();

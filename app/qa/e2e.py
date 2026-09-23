@@ -762,6 +762,9 @@ def _run_us_e2e_checks(
                       hasCountryToggle: Boolean(document.querySelector('#unified-market-scope, #recommend-market-scope, #watch-market-map-market-toggle')),
                       homeSignalLabel: document.querySelector('#home-ai-signals-title')?.textContent?.trim(),
                       homeSignalHeading: document.querySelector('#home-market-signal-title')?.textContent?.trim(),
+                      hasHomeAiResponse: Boolean(document.querySelector('#home-ai-response')),
+                      hasHomeAiResponseCopy: document.body.innerText.includes('미국 관심종목 대응'),
+                      hasHomeAiResponseTimer: Boolean(state.homeAiResponseRefreshTimer),
                     })"""
                 )
                 expected_nav = [
@@ -787,6 +790,9 @@ def _run_us_e2e_checks(
                         shell["hasCountryToggle"],
                         shell["homeSignalLabel"] != "시그널 감시 후보",
                         shell["homeSignalHeading"] != "미국 시그널 감시 후보",
+                        shell["hasHomeAiResponse"],
+                        shell["hasHomeAiResponseCopy"],
+                        shell["hasHomeAiResponseTimer"],
                     )
                 ):
                     raise QaFailure("미국증시가 국내 대시보드와 같은 화면 구조·내비게이션을 사용하지 않습니다.", shell)

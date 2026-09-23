@@ -1320,6 +1320,19 @@ def test_home_ai_response_e2e_unhides_the_fixture_parent_section() -> None:
     assert "timeout=min(int(timeout * 1000), 3_000)" in case_source
 
 
+def test_us_e2e_removes_home_interest_response_without_stopping_signals() -> None:
+    source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
+    case_source = source.split("def us_product_boundary_case", 1)[1].split(
+        "return [", 1
+    )[0]
+
+    assert "hasHomeAiResponse: Boolean(document.querySelector('#home-ai-response'))" in case_source
+    assert "hasHomeAiResponseCopy: document.body.innerText.includes('미국 관심종목 대응')" in case_source
+    assert "hasHomeAiResponseTimer: Boolean(state.homeAiResponseRefreshTimer)" in case_source
+    assert 'shell["hasHomeAiResponse"]' in case_source
+    assert '"/us/market/quant-signals" not in observed_paths' in case_source
+
+
 def test_stock_detail_e2e_waits_for_visible_news_controls_and_settled_logo() -> None:
     source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
     stock_case_source = source.split("def stock_case", 1)[1].split(
@@ -1546,7 +1559,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260923us98",
+                "us_dashboard_version": "20260923us99",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1554,7 +1567,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260923us98",
+                "us_dashboard_version": "20260923us99",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1833,7 +1846,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20260923us98"}, self._meta(path)
+            return {"version": "20260923us99"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/stocks/AAPL/dashboard":
@@ -1863,10 +1876,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20260923us98" />'
+                '<link href="/assets/dashboard/styles.css?v=20260923us99" />'
                 '</head><body><section id="home-view"></section>'
+                '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20260923us98"></script>'
+                '<script src="/dashboard-app-v170.js?v=20260923us99"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -1878,7 +1892,9 @@ class FakeReadOnlyApi:
                 '  : PRODUCT_MARKET_UNIVERSE === "kr"\n    ? "kr"\n'
                 'if (!US_MARKET_ENABLED) return null;\n'
                 'const PRODUCT_VERSION_ENDPOINT = IS_US_ONLY_PRODUCT ? "/us-version" : "/dashboard-version";\n'
-                'liveUrl("/market/global-assets?limit=30");',
+                'liveUrl("/market/global-assets?limit=30");\n'
+                'document.getElementById("home-ai-response")?.remove();\n'
+                'if (IS_US_ONLY_PRODUCT || state.view !== "home") return;',
                 self._meta(path),
             )
         assert path == "/dashboard"
@@ -1888,6 +1904,7 @@ class FakeReadOnlyApi:
             '<title>비밀노트 | 국내증시</title>'
             '<link href="/assets/dashboard/styles.css?v=20260923v553" />'
             '</head><body><section id="home-view"></section>'
+            '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
             '<script src="/dashboard-app-v170.js?v=20260923v553"></script>'
             '</body></html>',
