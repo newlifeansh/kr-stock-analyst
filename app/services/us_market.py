@@ -1699,6 +1699,47 @@ def chart_prices(symbol: str, refresh: bool = False, limit: int = 250) -> tuple[
     return _chart_price_rows(symbol, result, limit)
 
 
+def _us_quote_price_and_trade_date(
+    meta: dict[str, object],
+    latest: Optional[USPrice],
+    market_session: str,
+) -> tuple[Optional[Decimal], Optional[date]]:
+    """Select a Yahoo quote and the date carried by that same observation.
+
+    Yahoo can publish ``regularMarketPrice`` and its timestamp before the daily
+    chart appends the completed bar. Pairing that current price with the last
+    chart row's date makes the stock dashboard appear one session stale even
+    though the displayed price is current.
+    """
+
+    candidates: list[tuple[str, str]] = []
+    if market_session == "premarket":
+        candidates.append(("preMarketPrice", "preMarketTime"))
+    elif market_session == "afterhours":
+        candidates.append(("postMarketPrice", "postMarketTime"))
+    candidates.append(("regularMarketPrice", "regularMarketTime"))
+
+    for price_key, time_key in candidates:
+        price = _to_decimal(meta.get(price_key))
+        if price is None or price <= 0:
+            continue
+        timestamp = _to_decimal(meta.get(time_key))
+        if timestamp is not None and timestamp > 0:
+            try:
+                observed_at = datetime.fromtimestamp(
+                    float(timestamp),
+                    timezone.utc,
+                ).astimezone(NEW_YORK_TZ)
+                return price, observed_at.date()
+            except (OverflowError, OSError, ValueError):
+                pass
+        return price, latest.trade_date if latest else None
+
+    if latest is None:
+        return None, None
+    return latest.close, latest.trade_date
+
+
 def _signal_chart_metadata_matches(
     symbol: str,
     result: dict[str, object],
@@ -2596,13 +2637,11 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
     latest = prices[-1] if prices else None
     previous = _nth_from_end(prices, 1)
     market_session = _us_market_session()
-    session_price_key = {
-        "premarket": "preMarketPrice",
-        "afterhours": "postMarketPrice",
-    }.get(str(market_session["session"]))
-    price = (
-        _to_decimal(meta.get(session_price_key)) if session_price_key else None
-    ) or _to_decimal(meta.get("regularMarketPrice")) or (latest.close if latest else None)
+    price, quote_trade_date = _us_quote_price_and_trade_date(
+        meta,
+        latest,
+        str(market_session["session"]),
+    )
     previous_close = _us_previous_close(meta, previous.close if previous else None)
     day_high = _to_decimal(meta.get("regularMarketDayHigh"))
     day_low = _to_decimal(meta.get("regularMarketDayLow"))
@@ -2674,7 +2713,7 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
             "source": "Yahoo Finance 재무 데이터",
         },
         "quote": {
-            "trade_date": latest.trade_date if latest else None,
+            "trade_date": quote_trade_date,
             "price": price,
             "previous_close": previous_close,
             "change_value": price - previous_close if price is not None and previous_close is not None else None,

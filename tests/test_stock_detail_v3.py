@@ -361,8 +361,7 @@ def test_stock_detail_title_logo_tracks_the_selected_stock_with_a_fallback():
     assert ".stock-title-logo[hidden]" in styles
     assert ".stock-title-logo-frame" in styles
     staging_logo_styles = styles[styles.index(
-        'body[data-staging-ia="tds-video"] #stock-view '
-        ".staging-stock-hero-name-row > .stock-title-logo"
+        "#stock-view .staging-stock-hero-name-row > .stock-title-logo"
     ) :]
     assert "width: 36px !important;" in staging_logo_styles
     assert 'const stockTitleLogo = document.getElementById("stock-title-logo");' in staging_source

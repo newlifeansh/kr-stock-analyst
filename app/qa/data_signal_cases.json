@@ -395,10 +395,10 @@
       "modes": ["gate", "live"],
       "automation": "pytest Yahoo fixture + US/global endpoints",
       "preconditions": ["AAPL과 주요 글로벌 지수를 조회한다."],
-      "inputs": {"symbol": "AAPL"},
-      "steps": ["거래일, 시장 시간대, USD 단위, 변화율 부호를 확인한다."],
-      "expected": ["미국 휴장·시간대를 한국 거래일과 혼동하지 않는다."],
-      "failure_criteria": ["통화·날짜·부호가 잘못 표시된다."]
+      "inputs": {"symbol": "AAPL", "quote_date_source": "선택한 preMarketPrice·postMarketPrice·regularMarketPrice와 짝을 이루는 MarketTime", "provider_lag_fixture": "최신 regularMarketPrice·regularMarketTime과 직전 세션의 최신 일봉 행"},
+      "steps": ["거래일, 시장 시간대, USD 단위, 변화율 부호를 확인한다.", "Yahoo 일봉 발행이 늦어 최신 일봉 행이 직전 세션이어도 상세 API가 선택한 시세와 같은 MarketTime의 뉴욕 거래일을 반환하는지 확인한다."],
+      "expected": ["미국 휴장·시간대를 한국 거래일과 혼동하지 않는다.", "미국 종목 상세의 가격과 거래일은 같은 Yahoo 관측값에서 파생되며 분봉·순위 API의 완료 세션과 일치한다."],
+      "failure_criteria": ["통화·날짜·부호가 잘못 표시된다.", "최신 regularMarketPrice를 표시하면서 하루 늦은 일봉 행의 날짜를 함께 반환한다."]
     },
     {
       "id": "DATA-GLOBAL-003",
@@ -1255,12 +1255,12 @@
       "domain": "시그널 화면 E2E",
       "priority": "P1",
       "modes": ["gate", "e2e"],
-      "automation": "pytest stock-detail title-logo DOM/render/cache/CSS contract + Playwright mobile dark/light stock-switch/fallback title-row geometry",
+      "automation": "pytest stock-detail title-logo DOM/render/cache/body-state-independent CSS contract + Playwright mobile dark/light stock-switch/fallback title-row geometry",
       "preconditions": ["활성 국내 종목과 실제 로고가 있는 종목, 로고 이미지 요청을 강제로 실패시킨 종목을 준비한다."],
       "inputs": {"ready_code": "005930", "manual_logo_code": "278470", "fallback_code": "014950", "fallback_fixture": "forced image request failure independent of catalog growth", "position": "stock title left", "logo_sizes_px": {"desktop": 34, "mobile_header": 28, "staging_320": 34, "staging_458": 36}, "viewports": [320, 402, 458], "themes": ["dark", "light"]},
       "steps": ["삼성전자 종목 상세를 열어 종목명 바로 왼쪽의 로고 배지와 이미지 경로가 005930을 가리키는지 확인한다.", "278470과 다른 종목으로 전환해 로고가 지연 없이 교체되며 이전 로고 노드가 남지 않는지 확인한다.", "카탈로그에 실제 파일이 추가돼도 영향받지 않도록 지정 종목의 이미지 요청을 강제로 실패시키고 기본 심볼로 대체되는지 확인한다.", "다크·라이트와 320px·458px에서 로고가 종목명과 같은 행에 수직 정렬되고 차트 안에는 남지 않으며 가로로 넘치지 않는지 측정한다."],
-      "expected": ["모든 활성 국내 종목의 주요 종목명 바로 왼쪽에 회사 로고가 하나씩 표시된다.", "종목을 바꾸면 로고 URL과 내부 배지가 즉시 교체되고, 로고가 없으면 기본 심볼이 깨진 이미지를 대신해 보여준다.", "로고는 제목과 자연스러운 간격·수직 중심을 유지하고 차트 데이터 영역을 차지하거나 포인터 이벤트를 가리지 않는다."],
-      "failure_criteria": ["이전 종목의 로고가 남아 있거나 현재 종목과 다른 로고가 표시된다.", "로고 이미지가 없을 때 깨진 이미지가 보이거나 빈 아이콘이 노출된다.", "로고가 종목명과 다른 행에 있거나 제목을 가리고, 차트 안에 남거나 모바일 화면에서 잘리고 가로로 넘친다.", "로고 요청이 외부 수집처를 직접 노출하거나 가격과 평가를 가린다."]
+      "expected": ["모든 활성 국내 종목의 주요 종목명 바로 왼쪽에 회사 로고가 하나씩 표시된다.", "종목을 바꾸면 로고 URL과 내부 배지가 즉시 교체되고, 로고가 없으면 기본 심볼이 깨진 이미지를 대신해 보여준다.", "로고는 제목과 자연스러운 간격·수직 중심을 유지하고 차트 데이터 영역을 차지하거나 포인터 이벤트를 가리지 않는다.", "staging IA body 속성의 초기화 순서와 무관하게 320px에서는 34px, 458px에서는 36px로 렌더링된다."],
+      "failure_criteria": ["이전 종목의 로고가 남아 있거나 현재 종목과 다른 로고가 표시된다.", "로고 이미지가 없을 때 깨진 이미지가 보이거나 빈 아이콘이 노출된다.", "로고가 종목명과 다른 행에 있거나 제목을 가리고, 차트 안에 남거나 모바일 화면에서 잘리고 가로로 넘친다.", "로고 요청이 외부 수집처를 직접 노출하거나 가격과 평가를 가린다.", "staging 행이 만들어졌는데 body 속성 타이밍 때문에 458px 로고가 기본 34px로 축소된다."]
     },
     {
       "id": "SIG-UI-021",
@@ -1824,7 +1824,7 @@
       "modes": ["gate", "live", "e2e"],
       "automation": "pytest 공통 셸 원본·DOM 순서·공통 dashboard CSS/JavaScript·라우팅·자산 버전·서비스워커·미국 API 계약 + live /dashboard-/us DOM 동형성·기능 플래그·Top100·글로벌 지수 검사 + Playwright 320/458px 다크·라이트 공통 내비게이션·미국 전용 요청·리플로 E2E",
       "preconditions": ["us-market 스테이징 web·collector에 동일 미국 RC 이미지를 배포한다.", "US_MARKET_ENABLED=true와 미국 Top100 RC1 스냅샷을 준비한다.", "비교 기준인 /dashboard와 /us가 하나의 dashboard HTML·CSS·JavaScript 원본을 사용하고 제품별 메타·버전·데이터 경계만 다르게 렌더링되도록 준비한다."],
-      "inputs": {"route": "/us?view=home", "reference_route": "/dashboard?view=home", "stock_route": "/us/stock/{ticker}", "legacy_route": "/nasdaq", "market_universe": "us", "client_version": "20260923us95", "client_version_endpoint": "/us-version", "shared_assets": ["/assets/dashboard/styles.css", "/dashboard-app-v170.js", "/assets/staging/*"], "expected_navigation": ["증권", "관심", "발견", "피드"], "expected_pages": ["home-view", "search-view", "portfolio-view", "news-view", "stock-view"], "allowed_market_assets": ["SP500", "NASDAQ", "SOX", "DOW"], "allowed_requests": ["/market/global-assets", "/market/us-sector-moves", "/ws/market/us-sector-moves", "/us/market/*", "/us/stocks/*", "/us/watchlists/*", "/watchlists/us.*/*"], "forbidden_requests": ["/market/indices", "/market/rankings", "/market/quant-signals", "/market/calendar", "/stocks/*", "/briefings/*", "/watchlists/{domestic-id}/*"], "forbidden_content": ["국내증시", "한국증시", "국내·미국", "한국·미국", "통합 증시", "KOSPI", "KOSDAQ", "국가 선택 토글"], "viewports": [320, 458], "zoom_percent": 200, "touch_target_px": 44, "themes": ["dark", "light"]},
+      "inputs": {"route": "/us?view=home", "reference_route": "/dashboard?view=home", "stock_route": "/us/stock/{ticker}", "legacy_route": "/nasdaq", "market_universe": "us", "client_version": "20260923us96", "client_version_endpoint": "/us-version", "shared_assets": ["/assets/dashboard/styles.css", "/dashboard-app-v170.js", "/assets/staging/*"], "expected_navigation": ["증권", "관심", "발견", "피드"], "expected_pages": ["home-view", "search-view", "portfolio-view", "news-view", "stock-view"], "allowed_market_assets": ["SP500", "NASDAQ", "SOX", "DOW"], "allowed_requests": ["/market/global-assets", "/market/us-sector-moves", "/ws/market/us-sector-moves", "/us/market/*", "/us/stocks/*", "/us/watchlists/*", "/watchlists/us.*/*"], "forbidden_requests": ["/market/indices", "/market/rankings", "/market/quant-signals", "/market/calendar", "/stocks/*", "/briefings/*", "/watchlists/{domestic-id}/*"], "forbidden_content": ["국내증시", "한국증시", "국내·미국", "한국·미국", "통합 증시", "KOSPI", "KOSDAQ", "국가 선택 토글"], "viewports": [320, 458], "zoom_percent": 200, "touch_target_px": 44, "themes": ["dark", "light"]},
       "steps": ["/dashboard와 /us 응답의 ID 순서·페이지·헤더·홈 섹션·하단 내비게이션 구조가 같고 두 화면이 공통 dashboard CSS·JavaScript와 staging 자산을 사용하는지 확인한다.", "/us와 /us/stock/{ticker}가 market-universe=us 메타, 미국증시 타이틀, 별도 미국 클라이언트 버전을 사용하되 홈·발견·관심·피드·상세 상호작용은 /dashboard와 동일한 컴포넌트 계약을 유지하는지 확인한다.", "홈이 /market/global-assets 응답에서 미국 주요 지수만 표시하고 /market/indices·/market/rankings·/market/quant-signals·/market/calendar·국내 종목 API를 호출하지 않는지 기록한다.", "검색·관심종목·추천·트렌드·랭킹이 /us API와 미국 네임스페이스 관심종목·USD·뉴욕 세션을 유지하고 국가 토글이나 국내 문구를 노출하지 않는지 확인한다.", "US_MARKET_ENABLED=true 상태에서 미국 글로벌 자산·섹터 스냅샷과 포지션 생명주기 갱신이 활성화되고 health에 미국 제품 버전이 노출되는지 확인한다.", "/nasdaq와 /nasdaq/{ticker}가 쿼리를 보존해 canonical /us 경로로 307 이동하는지 확인한다.", "/us 서비스워커가 공통 화면 자산을 별도 /us 범위와 secret-note-us-static 캐시에 보관하며 국내 대시보드 캐시를 삭제하지 않는지 확인한다.", "320px·458px 다크·라이트와 200% 리플로에서 가로 넘침·빈 본문·포커스 오류가 없고 내비게이션·더보기 등 핵심 조작 영역이 44px 이상인지 확인한다."],
       "expected": ["secretnote.cloud/us는 secretnote.cloud/dashboard와 같은 화면 배치·컴포넌트·내비게이션·반응형 동작으로 열리며 국내 선택 없이 미국 시장만 표시한다.", "미국 홈·상세·추천은 미국 API·USD·뉴욕 세션 계약만 사용하고 국내 문구·지수·종목 요청을 섞지 않는다.", "두 제품은 화면 원본을 공유하지만 제품 메타·클라이언트 버전·서비스워커 캐시·복구 경로와 데이터 네임스페이스는 분리된다.", "미국 RC1 데이터가 준비되지 않으면 관망·준비 중으로 fail-close하고 확정 매수로 표현하지 않는다."],
       "failure_criteria": ["/us가 /dashboard와 다른 전용 NASDAQ 셸·CSS·JavaScript·정보구조를 사용하거나 공통 내비게이션·페이지·상호작용이 누락된다.", "/us가 /dashboard로 이동하거나 국가 토글·국내 문구·KOSPI·KOSDAQ를 노출한다.", "US_MARKET_ENABLED=false인 환경을 미국 서비스 준비 완료로 판정한다.", "미국 화면이 /market/indices·/market/rankings·/market/quant-signals·/market/calendar·/stocks/*·/briefings/* 또는 국내 관심종목 경로를 호출한다.", "서비스워커나 복구 페이지가 국내 캐시를 삭제하거나 미국 캐시 버전을 국내 버전으로 공유한다.", "레거시 /nasdaq 리다이렉트가 종목·쿼리를 잃거나 순환한다.", "모바일·확대 화면에 가로 넘침·빈 본문·포커스 오류·44px 미만 핵심 조작 영역이 생긴다."]

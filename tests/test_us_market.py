@@ -61,6 +61,85 @@ def test_chart_price_rows_use_adjusted_ohlc_but_raw_dollar_notional():
     assert rows[0].adjusted_ohlc_complete is True
 
 
+@pytest.mark.parametrize(
+    ("market_session", "price_key", "time_key", "quote_price", "observed_at"),
+    [
+        (
+            "closed",
+            "regularMarketPrice",
+            "regularMarketTime",
+            339.75,
+            datetime(2026, 9, 22, 20, 0, tzinfo=UTC),
+        ),
+        (
+            "premarket",
+            "preMarketPrice",
+            "preMarketTime",
+            341.5,
+            datetime(2026, 9, 23, 12, 0, tzinfo=UTC),
+        ),
+        (
+            "afterhours",
+            "postMarketPrice",
+            "postMarketTime",
+            340.25,
+            datetime(2026, 9, 22, 22, 0, tzinfo=UTC),
+        ),
+    ],
+)
+def test_us_dashboard_quote_date_follows_selected_market_timestamp_when_daily_bar_lags(
+    market_session,
+    price_key,
+    time_key,
+    quote_price,
+    observed_at,
+):
+    latest = us_market.USPrice(
+        code="AAPL",
+        trade_date=date(2026, 9, 21),
+        open=Decimal("336"),
+        high=Decimal("340"),
+        low=Decimal("335"),
+        close=Decimal("336.13"),
+        volume=1_000,
+        trading_value=Decimal("336130"),
+    )
+
+    price, trade_date = us_market._us_quote_price_and_trade_date(
+        {
+            price_key: quote_price,
+            time_key: int(observed_at.timestamp()),
+            "regularMarketPrice": 339.75,
+            "regularMarketTime": int(
+                datetime(2026, 9, 22, 20, 0, tzinfo=UTC).timestamp()
+            ),
+        },
+        latest,
+        market_session,
+    )
+
+    assert price == Decimal(str(quote_price))
+    assert trade_date == observed_at.astimezone(us_market.NEW_YORK_TZ).date()
+
+
+def test_us_dashboard_quote_date_falls_back_with_the_same_daily_price():
+    latest = us_market.USPrice(
+        code="AAPL",
+        trade_date=date(2026, 9, 21),
+        open=Decimal("336"),
+        high=Decimal("340"),
+        low=Decimal("335"),
+        close=Decimal("336.13"),
+        volume=1_000,
+        trading_value=Decimal("336130"),
+    )
+
+    price, trade_date = us_market._us_quote_price_and_trade_date({}, latest, "closed")
+
+    assert price == Decimal("336.13")
+    assert trade_date == date(2026, 9, 21)
+
+
 def test_signal_chart_rows_fail_closed_without_adjusted_complete_ohlcv():
     result = {
         "meta": {},

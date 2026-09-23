@@ -42546,14 +42546,14 @@ body[data-view="ai-signals"] #ai-signals-view.app-ai-signals > .ai-signals-live-
   }
 }
 
-body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero-name-row > .stock-title-logo {
+#stock-view .staging-stock-hero-name-row > .stock-title-logo {
   width: 36px !important;
   height: 36px !important;
   min-width: 36px !important;
   flex-basis: 36px !important;
 }
 
-body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero-name-row > .stock-title-logo .stock-title-logo-frame {
+#stock-view .staging-stock-hero-name-row > .stock-title-logo .stock-title-logo-frame {
   border-color: light-dark(#e5e8eb, #3a3942) !important;
   background: #ffffff !important;
 }
@@ -42575,7 +42575,7 @@ body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero-name-row > .st
 }
 
 @media (max-width: 359px) {
-  body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero-name-row > .stock-title-logo {
+  #stock-view .staging-stock-hero-name-row > .stock-title-logo {
     width: 34px !important;
     height: 34px !important;
     min-width: 34px !important;
