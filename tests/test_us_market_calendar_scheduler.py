@@ -85,7 +85,12 @@ def _seed_authoritative_universe(
     db.commit()
 
 
-def _run_one_scheduler_iteration(monkeypatch, now: datetime) -> None:
+def _run_one_scheduler_iteration(
+    monkeypatch,
+    now: datetime,
+    *,
+    schema_upgrade_due: bool = False,
+) -> None:
     from app import main as main_module
 
     class FixedDatetime(datetime):
@@ -100,6 +105,11 @@ def _run_one_scheduler_iteration(monkeypatch, now: datetime) -> None:
         raise _StopScheduler
 
     monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(
+        main_module,
+        "_us_position_lifecycle_schema_upgrade_due",
+        lambda _now: schema_upgrade_due,
+    )
     monkeypatch.setattr(main_module.asyncio, "to_thread", inline_to_thread)
     monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_iteration)
 

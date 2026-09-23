@@ -1,3 +1,4 @@
+import asyncio
 import json
 import subprocess
 import time
@@ -1013,6 +1014,55 @@ def test_us_market_regular_session_request_never_enqueues_publication(monkeypatc
     assert response.json()["entry_pending_count"] == 0
 
 
+def test_us_collector_backfills_legacy_member_evidence_during_regular_session(
+    monkeypatch,
+):
+    from app import main as main_module
+
+    calls = []
+
+    class RefreshLock:
+        @staticmethod
+        def acquire(*, blocking):
+            assert blocking is False
+            return True
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def stop_after_first_iteration(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        main_module,
+        "_us_position_lifecycle_snapshot_due",
+        lambda _now: True,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_us_position_lifecycle_schema_upgrade_due",
+        lambda _now: True,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_us_position_lifecycle_refresh_allowed",
+        lambda _now: False,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_run_reserved_us_position_lifecycle_refresh",
+        lambda *, allow_schema_upgrade=False: calls.append(allow_schema_upgrade),
+    )
+    monkeypatch.setattr(main_module, "us_position_lifecycle_refresh_lock", RefreshLock())
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_first_iteration)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_us_position_lifecycle_refresh_loop())
+
+    assert calls == [True]
+
+
 def test_us_market_refresh_queue_is_process_single_flight(monkeypatch):
     from fastapi import BackgroundTasks
     from app import main as main_module
@@ -1021,7 +1071,7 @@ def test_us_market_refresh_queue_is_process_single_flight(monkeypatch):
     monkeypatch.setattr(
         main_module,
         "_refresh_us_position_lifecycle_snapshot",
-        lambda: completed.append(True) or {"status": "ready"},
+        lambda **_kwargs: completed.append(True) or {"status": "ready"},
     )
     first = BackgroundTasks()
     second = BackgroundTasks()

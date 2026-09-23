@@ -262,6 +262,7 @@ from app.services.us_position_lifecycle import (
     refresh_us_position_lifecycle_snapshot,
     us_position_lifecycle_preparing_payload,
     us_position_lifecycle_refresh_due,
+    us_position_lifecycle_schema_upgrade_due,
 )
 from app.repository import latest_disclosures, latest_news_items
 
@@ -1032,12 +1033,18 @@ def _refresh_market_quant_signal_snapshot(
         market_quant_signal_refresh_lock.release()
 
 
-def _refresh_us_position_lifecycle_snapshot() -> Optional[dict[str, Any]]:
+def _refresh_us_position_lifecycle_snapshot(
+    *,
+    allow_schema_upgrade: bool = False,
+) -> Optional[dict[str, Any]]:
     """Refresh the full US scan in a worker-owned database session."""
 
     try:
         current = datetime.now(timezone.utc)
-        if not _us_position_lifecycle_refresh_allowed(current):
+        if (
+            not _us_position_lifecycle_refresh_allowed(current)
+            and not allow_schema_upgrade
+        ):
             return None
         with SessionLocal() as db:
             return refresh_us_position_lifecycle_snapshot(db, now=current)
@@ -1046,8 +1053,15 @@ def _refresh_us_position_lifecycle_snapshot() -> Optional[dict[str, Any]]:
         return None
 
 
-def _run_reserved_us_position_lifecycle_refresh() -> Optional[dict[str, Any]]:
+def _run_reserved_us_position_lifecycle_refresh(
+    *,
+    allow_schema_upgrade: bool = False,
+) -> Optional[dict[str, Any]]:
     try:
+        if allow_schema_upgrade:
+            return _refresh_us_position_lifecycle_snapshot(
+                allow_schema_upgrade=True
+            )
         return _refresh_us_position_lifecycle_snapshot()
     finally:
         us_position_lifecycle_refresh_lock.release()
@@ -1318,6 +1332,18 @@ def _us_position_lifecycle_snapshot_due(now: datetime) -> bool:
         return True
 
 
+def _us_position_lifecycle_schema_upgrade_due(now: datetime) -> bool:
+    """Allow the collector to migrate a completed-session snapshot mid-session."""
+
+    try:
+        with SessionLocal() as db:
+            payload = load_us_position_lifecycle_snapshot(db, now=now)
+        return us_position_lifecycle_schema_upgrade_due(payload)
+    except Exception:  # pragma: no cover - operational safeguard
+        logger.exception("US position-lifecycle schema-upgrade check failed")
+        return False
+
+
 def _us_position_lifecycle_refresh_allowed(now: datetime) -> bool:
     try:
         from app.services.us_market_calendar import us_signal_refresh_allowed
@@ -1335,11 +1361,21 @@ async def _run_us_position_lifecycle_refresh_loop() -> None:
         current = datetime.now(timezone.utc)
         try:
             due = await asyncio.to_thread(_us_position_lifecycle_snapshot_due, current)
-            allowed = _us_position_lifecycle_refresh_allowed(current)
+            schema_upgrade_due = await asyncio.to_thread(
+                _us_position_lifecycle_schema_upgrade_due,
+                current,
+            )
+            allowed = bool(
+                _us_position_lifecycle_refresh_allowed(current)
+                or schema_upgrade_due
+            )
             if due and allowed and us_position_lifecycle_refresh_lock.acquire(
                 blocking=False
             ):
-                await asyncio.to_thread(_run_reserved_us_position_lifecycle_refresh)
+                await asyncio.to_thread(
+                    _run_reserved_us_position_lifecycle_refresh,
+                    allow_schema_upgrade=schema_upgrade_due,
+                )
         except Exception:  # pragma: no cover - operational safeguard
             logger.exception("US position-lifecycle scheduling failed")
         await asyncio.sleep(300)

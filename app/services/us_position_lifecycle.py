@@ -2433,11 +2433,7 @@ def us_position_lifecycle_refresh_due(
         return True
     if payload.get("status") != "ready" or payload.get("data_state") != "ready":
         return True
-    public_member_signals = payload.get("public_member_signals")
-    if (
-        not isinstance(public_member_signals, list)
-        or len(public_member_signals) != US_SIGNAL_UNIVERSE_LIMIT
-    ):
+    if us_position_lifecycle_schema_upgrade_due(payload):
         return True
     universe_date = _parse_snapshot_date(payload.get("universe_as_of"))
     try:
@@ -2445,6 +2441,20 @@ def us_position_lifecycle_refresh_due(
     except Exception:
         return True
     return bool(universe_date is None or universe_date != expected_date)
+
+
+def us_position_lifecycle_schema_upgrade_due(
+    payload: Optional[dict[str, Any]],
+) -> bool:
+    """Require a one-time rebuild for snapshots predating per-member evidence."""
+
+    if not payload:
+        return False
+    public_member_signals = payload.get("public_member_signals")
+    return bool(
+        not isinstance(public_member_signals, list)
+        or len(public_member_signals) != US_SIGNAL_UNIVERSE_LIMIT
+    )
 
 
 def refresh_us_position_lifecycle_snapshot(

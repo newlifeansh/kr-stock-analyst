@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from time import monotonic
+from time import monotonic, sleep
 from typing import Any, Literal
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
@@ -476,6 +476,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_market_refresh_query_serves_fresh_snapshot_while_enqueuing",
         "tests.test_app."
         "test_us_market_regular_session_request_never_enqueues_publication",
+        "tests.test_app."
+        "test_us_collector_backfills_legacy_member_evidence_during_regular_session",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_legacy_snapshot_requires_one_time_public_member_evidence_upgrade",
         "tests.test_app."
         "test_us_market_refresh_queue_is_process_single_flight",
         "tests.test_app."
@@ -3809,6 +3813,65 @@ def _live_us_checks(
             pass_message="스테이징 미국 시장 실제 뉴스·한국시간·2열 피드 계약을 확인했습니다.",
         )
 
+        def us_community_bare_symbol_contract() -> dict[str, Any]:
+            payload, meta = api.get(
+                "/us/stocks/WMB/community-feed",
+                limit=5,
+                mode="latest",
+            )
+            providers = payload.get("providers") if isinstance(payload, dict) else None
+            provider = next(
+                (
+                    item
+                    for item in providers or []
+                    if isinstance(item, dict) and item.get("key") == "naver_board"
+                ),
+                None,
+            )
+            items = provider.get("items") if isinstance(provider, dict) else None
+            _assert(
+                isinstance(items, list) and items,
+                "WMB 미국 커뮤니티 글이 bare ticker 폴백 뒤에도 비어 있습니다.",
+                provider_configured=(
+                    provider.get("configured")
+                    if isinstance(provider, dict)
+                    else None
+                ),
+                provider_message=(
+                    provider.get("message") if isinstance(provider, dict) else None
+                ),
+                **meta,
+            )
+            first = items[0] if isinstance(items[0], dict) else {}
+            _assert(
+                bool(first.get("post_id"))
+                and bool(first.get("title"))
+                and bool(first.get("author_name"))
+                and str(first.get("url") or "").startswith(
+                    "https://m.stock.naver.com/worldstock/stock/WMB/discussion/"
+                ),
+                "WMB 커뮤니티 최신글 필드 또는 bare ticker 원문 링크가 잘못됐습니다.",
+                post_id=first.get("post_id"),
+                has_title=bool(first.get("title")),
+                has_author=bool(first.get("author_name")),
+                url=first.get("url"),
+                **meta,
+            )
+            return {
+                **meta,
+                "provider": provider.get("source"),
+                "provider_configured": provider.get("configured"),
+                "item_count": len(items),
+                "first_post_id": first.get("post_id"),
+                "first_post_url": first.get("url"),
+            }
+
+        collector.check(
+            "SIG-UI-026",
+            us_community_bare_symbol_contract,
+            pass_message="WMB bare ticker 커뮤니티 최신글과 원문 링크를 확인했습니다.",
+        )
+
         def us_signal_contract() -> dict[str, Any]:
             cached = context.get("us_market_contract")
             if isinstance(cached, dict):
@@ -3819,6 +3882,37 @@ def _live_us_checks(
             recommendations, recommendations_meta = api.get(
                 "/us/market/recommendations", limit=20, candidate_limit=100
             )
+            stock_analysis, stock_analysis_meta = api.get(
+                "/us/stocks/NVDA/ai-analysis"
+            )
+
+            def member_evidence_ready() -> bool:
+                reasons = stock_analysis.get("public_reasons") or []
+                return bool(
+                    stock_analysis.get("status") == "ready"
+                    and stock_analysis.get("data_state") == "ready"
+                    and stock_analysis.get("is_current_universe_member") is True
+                    and stock_analysis.get("data_covered") == 3
+                    and len(reasons) == 3
+                    and all(
+                        isinstance(reason, dict)
+                        and reason.get("available") is True
+                        for reason in reasons
+                    )
+                )
+
+            evidence_deadline = monotonic() + 600
+            while not member_evidence_ready() and monotonic() < evidence_deadline:
+                sleep(10)
+                feed, feed_meta = api.get(
+                    "/us/market/quant-signals", limit=50, recent_days=30
+                )
+                recommendations, recommendations_meta = api.get(
+                    "/us/market/recommendations", limit=20, candidate_limit=100
+                )
+                stock_analysis, stock_analysis_meta = api.get(
+                    "/us/stocks/NVDA/ai-analysis"
+                )
             _assert(isinstance(feed, dict), "미국 시그널 응답이 객체가 아닙니다.")
             _assert(
                 isinstance(recommendations, dict),
@@ -3937,9 +4031,6 @@ def _live_us_checks(
                 "미국 ready 스냅샷이 XNYS 마지막 완료 세션일과 다릅니다.",
                 universe_as_of=feed.get("universe_as_of"),
                 expected_universe_as_of=expected_universe_as_of,
-            )
-            stock_analysis, stock_analysis_meta = api.get(
-                "/us/stocks/NVDA/ai-analysis"
             )
             stock_reasons = stock_analysis.get("public_reasons") or []
             _assert(
