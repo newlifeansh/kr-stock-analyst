@@ -12656,6 +12656,15 @@ function navigateBackOrFallback(fallbackView = "home") {
   window.scrollTo({ top: 0, behavior: "auto" });
 }
 
+function returnFromAiSignals() {
+  if (IS_US_ONLY_PRODUCT) {
+    setView("home", { historyMode: "replace" });
+    window.scrollTo({ top: 0, behavior: "auto" });
+    return;
+  }
+  navigateBackOrFallback("home");
+}
+
 function openChartStudyPage(pattern, analysis, item) {
   const returnView = state.view === "stock" ? "stock" : "chart";
   renderChartStudyPage(pattern, analysis, item);
@@ -30834,8 +30843,16 @@ function openAiSignalsPage() {
 elements.homeAiSignalsMore?.addEventListener("click", openAiSignalsPage);
 elements.homeAiResponseWatch?.addEventListener("click", openHomeAttentionWatchlist);
 elements.aiSignalsBack?.addEventListener("click", () => {
-  navigateBackOrFallback("home");
+  returnFromAiSignals();
 });
+document.querySelector("[data-staging-contextual-back]")?.addEventListener("click", (event) => {
+  if (!IS_US_ONLY_PRODUCT || state.view !== "ai-signals") {
+    return;
+  }
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  returnFromAiSignals();
+}, { capture: true });
 for (const tab of elements.aiSignalModeTabs) {
   tab.addEventListener("click", () => setAiSignalMode(tab.dataset.aiSignalMode, { reveal: true }));
   tab.addEventListener("keydown", (event) => {

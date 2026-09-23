@@ -1,6 +1,8 @@
+import json
+import subprocess
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-import time
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -12,8 +14,8 @@ from app.main import (
     _page_summary_client_requests,
     _page_summary_global_requests,
     _page_summary_rate_lock,
-    app,
     api_cache,
+    app,
     rate_limit_lock,
     rate_limit_windows,
 )
@@ -234,8 +236,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="home-view" class="app-page app-home"' in response.text
     assert 'id="search-view" class="app-page app-search"' in response.text
     assert 'id="bottom-nav" aria-label="주요 메뉴"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260923us96"' in response.text
-    assert 'href="/assets/dashboard/styles.css?v=20260923us96&amp;build=20260923us96"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260923us97"' in response.text
+    assert 'href="/assets/dashboard/styles.css?v=20260923us97&amp;build=20260923us97"' in response.text
 
     normalized_us = (
         response.text.replace('data-market-universe="us"', 'data-market-universe="kr"')
@@ -244,7 +246,7 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
-        .replace("20260923us96", "20260923v553")
+        .replace("20260923us97", "20260923v553")
     )
     assert normalized_us == dashboard.text
 
@@ -965,8 +967,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260923us96"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260923us96&amp;build=20260923us96"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260923us97"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260923us97&amp;build=20260923us97"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1256,7 +1258,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260923us96"}
+    assert version.json() == {"version": "20260923us97"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1265,9 +1267,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260923us96" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260923us97" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20260923us96")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20260923us97")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1281,12 +1283,12 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20260923us96"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20260923us97"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20260923us96' in worker.text
-    assert '"/dashboard-app-v170.js?v=20260923us96"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20260923us97' in worker.text
+    assert '"/dashboard-app-v170.js?v=20260923us97"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
@@ -1328,6 +1330,61 @@ def test_android_back_navigation_restores_history_and_confirms_exit_at_home():
     assert ".app-exit-dialog-actions button" in styles
     assert "min-height: 48px;" in styles
     assert "@media (prefers-reduced-motion: reduce)" in styles
+
+
+def test_us_ai_signal_back_returns_home_without_relying_on_browser_history():
+    source = TestClient(app).get("/dashboard-app-v170.js").text
+    start = source.index("function returnFromAiSignals()")
+    end = source.index("function openChartStudyPage", start)
+    helper = source[start:end]
+    helper_script = json.dumps(f"{helper}\nreturnFromAiSignals();")
+    script = f"""
+const vm = require("node:vm");
+function run(isUsOnlyProduct) {{
+  const calls = [];
+  const context = {{
+    IS_US_ONLY_PRODUCT: isUsOnlyProduct,
+    setView: (view, options) => calls.push({{ action: "setView", view, options }}),
+    navigateBackOrFallback: (view) => calls.push({{ action: "history", view }}),
+    window: {{ scrollTo: (options) => calls.push({{ action: "scroll", options }}) }},
+  }};
+  vm.runInNewContext({helper_script}, context);
+  return calls;
+}}
+process.stdout.write(JSON.stringify({{ us: run(true), dashboard: run(false) }}));
+"""
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "us": [
+            {
+                "action": "setView",
+                "view": "home",
+                "options": {"historyMode": "replace"},
+            },
+            {
+                "action": "scroll",
+                "options": {"top": 0, "behavior": "auto"},
+            },
+        ],
+        "dashboard": [{"action": "history", "view": "home"}],
+    }
+    contextual_start = source.index(
+        'document.querySelector("[data-staging-contextual-back]")'
+    )
+    contextual_back = source[
+        contextual_start:
+        source.index("for (const tab of elements.aiSignalModeTabs)", contextual_start)
+    ]
+    assert 'state.view !== "ai-signals"' in contextual_back
+    assert "event.stopImmediatePropagation();" in contextual_back
+    assert "returnFromAiSignals();" in contextual_back
+    assert "{ capture: true }" in contextual_back
 
 
 def test_dashboard_invite_code_is_validated_server_side_and_remembered(monkeypatch):
@@ -2580,8 +2637,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20260923us96"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260923us96&amp;build=20260923us96"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260923us97"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260923us97&amp;build=20260923us97"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()

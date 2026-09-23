@@ -809,6 +809,43 @@ def _run_us_e2e_checks(
                 ):
                     raise QaFailure("미국 주요 지수 카드가 완전하지 않습니다.", shell)
 
+                page.locator("a.staging-home-signal-chevron").click()
+                page.wait_for_selector("#ai-signals-view", state="visible")
+                page.wait_for_selector(
+                    "#staging-contextual-topbar [data-staging-contextual-back]",
+                    state="visible",
+                )
+                page.evaluate(
+                    """() => {
+                      window.__qaHistoryBackCalls = 0;
+                      window.history.back = () => { window.__qaHistoryBackCalls += 1; };
+                    }"""
+                )
+                page.locator(
+                    "#staging-contextual-topbar [data-staging-contextual-back]"
+                ).click()
+                page.wait_for_selector("#home-view", state="visible")
+                signal_back = page.evaluate(
+                    """() => ({
+                      url: `${location.pathname}${location.search}`,
+                      bodyView: document.body.dataset.view,
+                      homeVisible: !document.querySelector('#home-view')?.hidden,
+                      signalHidden: document.querySelector('#ai-signals-view')?.hidden === true,
+                      historyBackCalls: Number(window.__qaHistoryBackCalls || 0),
+                    })"""
+                )
+                if (
+                    signal_back["bodyView"] != "home"
+                    or not signal_back["homeVisible"]
+                    or not signal_back["signalHidden"]
+                    or signal_back["historyBackCalls"] != 0
+                    or not signal_back["url"].startswith("/us?view=home")
+                ):
+                    raise QaFailure(
+                        "미국 AI 시그널 백키가 브라우저 이력과 무관하게 홈으로 복귀하지 못했습니다.",
+                        signal_back,
+                    )
+
                 page.set_viewport_size({"width": 320, "height": 760})
                 page.evaluate("document.documentElement.style.fontSize = '200%'")
                 page.wait_for_timeout(300)
@@ -930,6 +967,7 @@ def _run_us_e2e_checks(
                 return {
                     "theme": theme,
                     "shell": shell,
+                    "signal_back": signal_back,
                     "reflow": reflow,
                     "search": search_state,
                     "stock": stock_state,

@@ -88,6 +88,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache",
         "tests.test_app."
         "test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets",
+        "tests.test_app."
+        "test_us_ai_signal_back_returns_home_without_relying_on_browser_history",
         "tests.test_market_index_live_endpoint."
         "test_us_entry_uses_the_us_only_shell_and_global_market_snapshot",
     ),
