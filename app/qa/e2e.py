@@ -41,7 +41,7 @@ E2E_CASE_IDS = (
     "SIG-UI-021",
     "SIG-UI-030",
 )
-US_E2E_CASE_IDS = ("SIG-UI-031",)
+US_E2E_CASE_IDS = ("SIG-UI-031", "REC-US-INDEPENDENT-001")
 
 
 def _page_url(base_url: str, path: str, **query: str) -> str:
@@ -760,6 +760,8 @@ def _run_us_e2e_checks(
                       hasUsTop50: Boolean(document.querySelector('#home-surge-us')),
                       hasDomesticTop50: Boolean(document.querySelector('#home-surge')),
                       hasCountryToggle: Boolean(document.querySelector('#unified-market-scope, #recommend-market-scope, #watch-market-map-market-toggle')),
+                      homeSignalLabel: document.querySelector('#home-ai-signals-title')?.textContent?.trim(),
+                      homeSignalHeading: document.querySelector('#home-market-signal-title')?.textContent?.trim(),
                     })"""
                 )
                 expected_nav = [
@@ -783,6 +785,8 @@ def _run_us_e2e_checks(
                         not shell["hasUsTop50"],
                         shell["hasDomesticTop50"],
                         shell["hasCountryToggle"],
+                        shell["homeSignalLabel"] != "시그널 감시 후보",
+                        shell["homeSignalHeading"] != "미국 시그널 감시 후보",
                     )
                 ):
                     raise QaFailure("미국증시가 국내 대시보드와 같은 화면 구조·내비게이션을 사용하지 않습니다.", shell)
@@ -815,6 +819,22 @@ def _run_us_e2e_checks(
                     "#staging-contextual-topbar [data-staging-contextual-back]",
                     state="visible",
                 )
+                signal_labels = page.evaluate(
+                    """() => ({
+                      pageTitle: document.querySelector('#ai-signals-view .ai-signals-commandbar h1')?.textContent?.trim(),
+                      introTitle: document.querySelector('#staging-ai-signals-title')?.textContent?.trim(),
+                      contextualTitle: document.querySelector('#staging-contextual-topbar [data-staging-contextual-title]')?.textContent?.trim(),
+                    })"""
+                )
+                if any(
+                    value != "시그널 감시 후보"
+                    for value in signal_labels.values()
+                    if value is not None
+                ):
+                    raise QaFailure(
+                        "미국 시그널 영역의 시그널 감시 후보 명칭이 일관되지 않습니다.",
+                        signal_labels,
+                    )
                 page.evaluate(
                     """() => {
                       window.__qaHistoryBackCalls = 0;
@@ -881,11 +901,29 @@ def _run_us_e2e_checks(
                     raise QaFailure("미국 발견 탭으로 키보드 포커스를 이동하지 못했습니다.")
                 search_button.click()
                 page.wait_for_selector("#search-view", state="visible")
+                page.wait_for_function(
+                    """() => document.querySelectorAll('#recommend-list .recommend-card').length > 0
+                      || (() => {
+                        const text = document.querySelector('#recommend-status')?.textContent?.trim() || '';
+                        return Boolean(text) && !/불러오는 중|확인 중/.test(text);
+                      })()"""
+                )
                 search_state = page.evaluate(
                     """() => ({
                       searchVisible: !document.querySelector('#search-view')?.hidden,
                       inputLabel: document.querySelector('#discovery-search-input')?.getAttribute('placeholder'),
                       nav: Array.from(document.querySelectorAll('#bottom-nav [data-app-view]')).map(node => node.innerText.trim()),
+                      recommendationTitle: document.querySelector('#recommend-stage-title')?.textContent?.trim(),
+                      recommendations: Array.from(document.querySelectorAll('#recommend-list .recommend-card')).map(node => ({
+                        code: node.recommendationItem?.code,
+                        score: node.recommendationItem?.score,
+                        recommendationScore: node.recommendationItem?.recommendation_score,
+                        modelVersion: node.recommendationItem?.recommendation_model_version,
+                        signalAction: node.recommendationItem?.ai_trade_signal?.current?.action,
+                        nestedSignalScore: node.recommendationItem?.ai_trade_signal?.score,
+                        scoreText: node.querySelector('.recommend-score')?.textContent?.trim(),
+                        stageText: node.querySelector('.recommend-signal-stage')?.textContent?.trim(),
+                      })),
                     })"""
                 )
                 if (
@@ -894,6 +932,21 @@ def _run_us_e2e_checks(
                     or search_state["nav"] != ["증권", "관심", "발견", "피드"]
                 ):
                     raise QaFailure("미국 발견 화면이 공통 대시보드 상호작용을 유지하지 않습니다.", search_state)
+                if not search_state["recommendations"]:
+                    raise QaFailure("미국 독립 추천 후보가 화면에 표시되지 않았습니다.", search_state)
+                if any(
+                    not isinstance(item.get("score"), (int, float))
+                    or item.get("score") != item.get("recommendationScore")
+                    or item.get("modelVersion") != "us-independent-recommendation-v1"
+                    or item.get("nestedSignalScore") is not None
+                    or not item.get("scoreText")
+                    or not item.get("stageText")
+                    for item in search_state["recommendations"]
+                ):
+                    raise QaFailure(
+                        "미국 추천 점수와 매매 시그널 상태가 독립적으로 표시되지 않았습니다.",
+                        search_state,
+                    )
 
                 _navigate_page(
                     page,
@@ -968,6 +1021,7 @@ def _run_us_e2e_checks(
                     "theme": theme,
                     "shell": shell,
                     "signal_back": signal_back,
+                    "signal_labels": signal_labels,
                     "reflow": reflow,
                     "search": search_state,
                     "stock": stock_state,
@@ -980,7 +1034,7 @@ def _run_us_e2e_checks(
                 _run_page_case(
                     browser=browser,
                     catalog_by_id=catalog_by_id,
-                    case_id="SIG-UI-031",
+                    case_id=case_id,
                     base_url=base_url,
                     timeout=timeout,
                     artifact_dir=output_dir,
@@ -988,6 +1042,7 @@ def _run_us_e2e_checks(
                     storage_state=storage_state,
                     share_id=share_id,
                 )
+                for case_id in US_E2E_CASE_IDS
             ]
         finally:
             browser.close()

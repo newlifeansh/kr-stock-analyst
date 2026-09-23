@@ -371,6 +371,67 @@ def test_us_recommendation_projection_hides_nested_internal_evidence() -> None:
     assert "투자자 순매수나 ETF 순유입이 아닙니다" in flow["note"]
 
 
+def test_us_independent_recommendation_keeps_public_score_separate_from_signal() -> None:
+    public = public_recommendation_signal_payload(
+        {
+            "strategy_version": "position-lifecycle-us-v1-rc1",
+            "status": "ready",
+            "data_state": "ready",
+            "snapshot_id": "us-independent-1",
+            "snapshot_checksum": "checksum-1",
+            "new_entries_allowed": True,
+            "items": [
+                {
+                    "code": "NVDA",
+                    "action": "추천 후보",
+                    "recommendation_score": 87.25,
+                    "recommendation_model_version": "us-independent-recommendation-v1",
+                    "recommendation_components": {
+                        "price_momentum": 90,
+                        "liquidity": 80,
+                    },
+                    "recommendation_observed_weight": 80,
+                    "recommendation_reasons": ["중기 가격 흐름이 Top100 안에서 90점입니다."],
+                    "reasons": ["중기 가격 흐름이 Top100 안에서 90점입니다."],
+                    "risks": ["추천 순위는 매수 시점이 아닙니다."],
+                    "ai_trade_signal": {
+                        "strategy_version": "position-lifecycle-us-v1-rc1",
+                        "status": "ready",
+                        "data_state": "ready",
+                        "snapshot_id": "us-independent-1",
+                        "snapshot_checksum": "checksum-1",
+                        "score": 99,
+                        "public_reasons": [
+                            {"key": "trend_20d", "state": "unavailable", "available": False},
+                            {"key": "trend_60d", "state": "unavailable", "available": False},
+                            {"key": "flow", "state": "unavailable", "available": False},
+                        ],
+                        "current": {
+                            "action": "no_signal",
+                            "label": "관망",
+                            "position_open": False,
+                            "score": 99,
+                        },
+                    },
+                }
+            ],
+        }
+    )
+
+    item = public["items"][0]
+    assert item["action"] == "추천 후보"
+    assert item["recommendation_score"] == 87.25
+    assert item["recommendation_components"] == {
+        "price_momentum": 90,
+        "liquidity": 80,
+    }
+    assert item["reasons"] == ["중기 가격 흐름이 Top100 안에서 90점입니다."]
+    assert "recommendation_observed_weight" not in item
+    assert "score" not in item["ai_trade_signal"]
+    assert "score" not in item["ai_trade_signal"]["current"]
+    assert item["ai_trade_signal"]["current"]["action"] == "no_signal"
+
+
 def test_us_non_ready_market_and_recommendation_projections_are_no_signal() -> None:
     signal = {
         "strategy_version": "position-lifecycle-us-v1-rc1",

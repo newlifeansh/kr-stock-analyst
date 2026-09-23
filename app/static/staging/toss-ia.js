@@ -654,7 +654,9 @@
     const action = isHome ? "notifications" : "ai-signals";
     if (primaryTopAction.dataset.stagingTopAction === action) return;
     primaryTopAction.dataset.stagingTopAction = action;
-    primaryTopAction.setAttribute("aria-label", isHome ? "알림" : "AI 시그널");
+    primaryTopAction.setAttribute("aria-label", isHome
+      ? "알림"
+      : stagingUsMarketContext ? "시그널 감시 후보" : "AI 시그널");
     if (isHome) {
       primaryTopAction.removeAttribute("data-staging-view");
       primaryTopAction.innerHTML = topActionSvg("bell", "staging-notification-bell");
@@ -694,7 +696,7 @@
     rail.setAttribute("aria-label", label);
     rail.innerHTML = `
       <button type="button" data-staging-view="movers"><span class="is-coral">${svg(icons.ranking)}</span><strong>TOP 50</strong></button>
-      <button type="button" data-staging-view="ai-signals"><span class="is-ai">${svg(icons.ai)}</span><strong>AI 시그널</strong></button>
+      <button type="button" data-staging-view="ai-signals"><span class="is-ai">${svg(icons.ai)}</span><strong>${stagingUsMarketContext ? "감시 후보" : "AI 시그널"}</strong></button>
       <button type="button" data-staging-view="chart"><span class="is-blue">${svg(icons.chart)}</span><strong>차트 분석</strong></button>
       <button type="button" data-staging-view="morning-briefing"><span class="is-yellow">${svg(icons.briefing)}</span><strong>머니 브리핑</strong></button>
     `;
@@ -6220,7 +6222,7 @@
       intro.setAttribute("aria-labelledby", "staging-ai-signals-title");
       intro.innerHTML = `
         <span data-staging-ai-market-eyebrow>${stagingUsesUsMarketLabels() ? "미국 대표 대형주에서" : "시총 Top 100 에서"}</span>
-        <h2 id="staging-ai-signals-title">AI는 무엇을 사고 팔까?</h2>
+        <h2 id="staging-ai-signals-title">${stagingUsesUsMarketLabels() ? "시그널 감시 후보" : "AI는 무엇을 사고 팔까?"}</h2>
         ${stagingUnifiedProduct ? `
           <nav class="staging-hot-community-market-toggle staging-ai-signal-market-toggle" data-ai-signal-market-toggle role="group" aria-label="AI 시그널 시장 선택" data-market-toggle-style="compact">
             <button type="button" aria-label="미국 시그널 보기" aria-pressed="false" data-unified-market-scope="us"><span aria-hidden="true">🇺🇸</span></button>
@@ -6270,7 +6272,7 @@
       owner: "home",
     },
     "ai-signals": {
-      title: "AI 시그널",
+      title: stagingUsMarketContext ? "시그널 감시 후보" : "AI 시그널",
       source: "#ai-signals-view .ai-signals-commandbar",
       back: "#ai-signals-back",
       owner: "home",
@@ -7614,7 +7616,7 @@
     home: "증권", portfolio: "관심", search: "발견", news: "피드",
     "recent-stocks": "최근 본 종목",
     "ai-stock-response": "AI 종목 대응",
-    "ai-signals": "AI 시그널", movers: "TOP 50", chart: "차트 분석",
+    "ai-signals": stagingUsMarketContext ? "시그널 감시 후보" : "AI 시그널", movers: "TOP 50", chart: "차트 분석",
     "chart-history": "지난 차트 분석", "morning-briefing": "머니 브리핑",
     notifications: "알림", "event-detail": "이벤트 분석",
     "recommend-detail": "추천 종목",

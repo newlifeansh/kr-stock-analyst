@@ -52,6 +52,17 @@ US_FX_TTL_SECONDS = 300
 US_SECTOR_OPEN_TTL_SECONDS = 30
 US_SECTOR_CLOSED_TTL_SECONDS = 300
 US_HEADERS = {"User-Agent": "Mozilla/5.0"}
+US_RECOMMENDATION_MODEL_VERSION = "us-independent-recommendation-v1"
+US_RECOMMENDATION_SELECTION_RULE = (
+    "recommendation_score_ranked_independent_of_trade_signal"
+)
+US_RECOMMENDATION_COMPONENT_WEIGHTS: dict[str, Decimal] = {
+    "price_momentum": Decimal("45"),
+    "liquidity": Decimal("25"),
+    "valuation": Decimal("20"),
+    "size_stability": Decimal("10"),
+}
+US_RECOMMENDATION_MAX_PER_SECTOR_FIRST_PASS = 2
 YAHOO_OHLC_BOUND_TOLERANCE = Decimal("0.0025")
 NEW_YORK_TZ = ZoneInfo("America/New_York")
 KOREA_TZ = ZoneInfo("Asia/Seoul")
@@ -3029,6 +3040,281 @@ def build_us_rankings(
     }
 
 
+def _us_recommendation_decimal(value: object) -> Optional[Decimal]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except Exception:
+        return None
+    return parsed if parsed.is_finite() else None
+
+
+def _us_recommendation_percentiles(
+    values: dict[str, Decimal],
+    *,
+    higher_is_better: bool = True,
+) -> dict[str, Decimal]:
+    """Return deterministic 0-100 cross-sectional ranks with average ties."""
+
+    if not values:
+        return {}
+    ordered = sorted(values.items(), key=lambda item: (item[1], item[0]))
+    if len(ordered) == 1:
+        return {ordered[0][0]: Decimal("100.00")}
+    result: dict[str, Decimal] = {}
+    index = 0
+    denominator = Decimal(len(ordered) - 1)
+    while index < len(ordered):
+        end = index
+        while end + 1 < len(ordered) and ordered[end + 1][1] == ordered[index][1]:
+            end += 1
+        average_rank = (Decimal(index) + Decimal(end)) / Decimal("2")
+        percentile = average_rank / denominator * Decimal("100")
+        if not higher_is_better:
+            percentile = Decimal("100") - percentile
+        percentile = percentile.quantize(Decimal("0.01"))
+        for position in range(index, end + 1):
+            result[ordered[position][0]] = percentile
+        index = end + 1
+    return result
+
+
+def _us_recommendation_candidates(
+    members: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Score Top100 members without reading or reusing their trade-signal action."""
+
+    normalized: list[dict[str, object]] = []
+    for raw in members:
+        member = dict(raw)
+        code = str(member.get("code") or "").strip().upper()
+        rank = _us_recommendation_decimal(member.get("market_cap_rank"))
+        market_cap = _us_recommendation_decimal(member.get("market_cap"))
+        liquidity = _us_recommendation_decimal(
+            member.get("average_daily_dollar_volume_3m")
+        )
+        momentum_50 = _us_recommendation_decimal(
+            member.get("legacy_fifty_day_average_change_percent")
+        )
+        momentum_200 = _us_recommendation_decimal(
+            member.get("legacy_two_hundred_day_average_change_percent")
+        )
+        if (
+            not code
+            or rank is None
+            or rank < 1
+            or rank > 100
+            or market_cap is None
+            or market_cap <= 0
+            or liquidity is None
+            or liquidity <= 0
+            or (momentum_50 is None and momentum_200 is None)
+        ):
+            continue
+        normalized.append(
+            {
+                **member,
+                "code": code,
+                "_market_cap": market_cap,
+                "_liquidity": liquidity,
+                "_momentum_50": momentum_50,
+                "_momentum_200": momentum_200,
+                "_pe": _us_recommendation_decimal(
+                    member.get("legacy_trailing_pe")
+                ),
+                "_pb": _us_recommendation_decimal(
+                    member.get("legacy_price_to_book")
+                ),
+            }
+        )
+
+    value_maps = {
+        "momentum_50": {
+            item["code"]: item["_momentum_50"]
+            for item in normalized
+            if item["_momentum_50"] is not None
+        },
+        "momentum_200": {
+            item["code"]: item["_momentum_200"]
+            for item in normalized
+            if item["_momentum_200"] is not None
+        },
+        "liquidity": {item["code"]: item["_liquidity"] for item in normalized},
+        "market_cap": {item["code"]: item["_market_cap"] for item in normalized},
+        "pe": {
+            item["code"]: item["_pe"]
+            for item in normalized
+            if item["_pe"] is not None and item["_pe"] > 0
+        },
+        "pb": {
+            item["code"]: item["_pb"]
+            for item in normalized
+            if item["_pb"] is not None and item["_pb"] > 0
+        },
+    }
+    ranks = {
+        "momentum_50": _us_recommendation_percentiles(value_maps["momentum_50"]),
+        "momentum_200": _us_recommendation_percentiles(value_maps["momentum_200"]),
+        "liquidity": _us_recommendation_percentiles(value_maps["liquidity"]),
+        "market_cap": _us_recommendation_percentiles(value_maps["market_cap"]),
+        "pe": _us_recommendation_percentiles(
+            value_maps["pe"], higher_is_better=False
+        ),
+        "pb": _us_recommendation_percentiles(
+            value_maps["pb"], higher_is_better=False
+        ),
+    }
+
+    candidates: list[dict[str, object]] = []
+    for item in normalized:
+        code = str(item["code"])
+        momentum_parts = [
+            (ranks["momentum_50"].get(code), Decimal("60")),
+            (ranks["momentum_200"].get(code), Decimal("40")),
+        ]
+        observed_momentum = [part for part in momentum_parts if part[0] is not None]
+        momentum_weight = sum((part[1] for part in observed_momentum), Decimal("0"))
+        momentum_score = (
+            sum((part[0] * part[1] for part in observed_momentum), Decimal("0"))
+            / momentum_weight
+        ).quantize(Decimal("0.01"))
+        valuation_parts = [ranks["pe"].get(code), ranks["pb"].get(code)]
+        observed_valuation = [value for value in valuation_parts if value is not None]
+        components: dict[str, Decimal] = {
+            "price_momentum": momentum_score,
+            "liquidity": ranks["liquidity"][code],
+            "size_stability": ranks["market_cap"][code],
+        }
+        if observed_valuation:
+            components["valuation"] = (
+                sum(observed_valuation, Decimal("0"))
+                / Decimal(len(observed_valuation))
+            ).quantize(Decimal("0.01"))
+        observed_weight = sum(
+            (US_RECOMMENDATION_COMPONENT_WEIGHTS[key] for key in components),
+            Decimal("0"),
+        )
+        score = (
+            sum(
+                (
+                    value * US_RECOMMENDATION_COMPONENT_WEIGHTS[key]
+                    for key, value in components.items()
+                ),
+                Decimal("0"),
+            )
+            / observed_weight
+        ).quantize(Decimal("0.01"))
+        one_month_return = (
+            item["_momentum_50"] * Decimal("100")
+            if item["_momentum_50"] is not None
+            else None
+        )
+        three_month_return = (
+            item["_momentum_200"] * Decimal("100")
+            if item["_momentum_200"] is not None
+            else None
+        )
+        component_labels = {
+            "price_momentum": "중기 가격 흐름",
+            "liquidity": "거래대금 유동성",
+            "valuation": "밸류에이션",
+            "size_stability": "시가총액 안정성",
+        }
+        strongest = sorted(
+            components.items(), key=lambda entry: (-entry[1], entry[0])
+        )[:2]
+        reasons = [
+            f"{component_labels[key]}가 Top100 안에서 {value.quantize(Decimal('1'))}점입니다."
+            for key, value in strongest
+        ]
+        candidates.append(
+            {
+                "code": code,
+                "name": item.get("name") or code,
+                "market": item.get("market") or "NASDAQ",
+                "currency": "USD",
+                "sector": item.get("sector"),
+                "market_cap_rank": int(item["market_cap_rank"]),
+                "price": item.get("price"),
+                "change_rate": item.get("legacy_regular_market_change_percent"),
+                "one_month_return": one_month_return,
+                "three_month_return": three_month_return,
+                "trading_value": item.get("average_daily_dollar_volume_3m"),
+                "trading_value_change": None,
+                "recommendation_score": score,
+                "recommendation_components": components,
+                "recommendation_reasons": reasons,
+                "recommendation_model_version": US_RECOMMENDATION_MODEL_VERSION,
+                "recommendation_selection_rule": US_RECOMMENDATION_SELECTION_RULE,
+                "recommendation_observed_weight": observed_weight,
+            }
+        )
+    return sorted(
+        candidates,
+        key=lambda item: (
+            -Decimal(str(item["recommendation_score"])),
+            int(item["market_cap_rank"]),
+            str(item["code"]),
+        ),
+    )
+
+
+def _select_diverse_us_recommendations(
+    candidates: list[dict[str, object]], limit: int
+) -> list[dict[str, object]]:
+    selected: list[dict[str, object]] = []
+    selected_codes: set[str] = set()
+    sector_counts: dict[str, int] = {}
+    for candidate in candidates:
+        sector = str(candidate.get("sector") or "분류 미확인")
+        if sector_counts.get(sector, 0) >= US_RECOMMENDATION_MAX_PER_SECTOR_FIRST_PASS:
+            continue
+        selected.append(candidate)
+        selected_codes.add(str(candidate["code"]))
+        sector_counts[sector] = sector_counts.get(sector, 0) + 1
+        if len(selected) >= limit:
+            return selected
+    for candidate in candidates:
+        if str(candidate["code"]) in selected_codes:
+            continue
+        selected.append(candidate)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _us_recommendation_no_signal(
+    candidate: dict[str, object], canonical: dict[str, object]
+) -> dict[str, object]:
+    as_of = canonical.get("universe_as_of") or canonical.get("as_of")
+    return {
+        "code": candidate["code"],
+        "name": candidate["name"],
+        "market": candidate["market"],
+        "currency": "USD",
+        "status": canonical.get("status"),
+        "data_state": canonical.get("data_state"),
+        "strategy_version": canonical.get("strategy_version"),
+        "snapshot_id": canonical.get("snapshot_id"),
+        "snapshot_checksum": canonical.get("snapshot_checksum"),
+        "flow_semantics": "dollar_volume_participation_proxy",
+        "public_reasons": [
+            {"key": key, "state": "unavailable", "available": False, "as_of": as_of}
+            for key in ("trend_20d", "trend_60d", "flow")
+        ],
+        "current": {
+            "action": "no_signal",
+            "label": "관망",
+            "position_open": False,
+            "model_exposure_percent": 0,
+            "live_observation": False,
+            "as_of": as_of,
+            "next_confirmation": "추천 순위와 별도로 다음 완료 정규장에서 시그널 조건을 다시 확인합니다.",
+        },
+    }
+
+
 def build_us_recommendations(
     limit: int = 8,
     candidate_limit: int = 30,
@@ -3036,7 +3322,7 @@ def build_us_recommendations(
     db: Optional[Session] = None,
     feed: Optional[dict[str, object]] = None,
 ) -> dict[str, object]:
-    """Project recommendations from the persisted canonical RC1 feed."""
+    """Rank US recommendations independently from the canonical trade signal."""
 
     from copy import deepcopy
 
@@ -3051,40 +3337,47 @@ def build_us_recommendations(
     if canonical is None:
         canonical = us_position_lifecycle_preparing_payload()
     normalized_candidate_limit = max(5, min(100, int(candidate_limit)))
+    snapshot_ready = bool(
+        canonical.get("status") == "ready"
+        and canonical.get("data_state") == "ready"
+        and str(canonical.get("snapshot_id") or "").strip()
+        and str(canonical.get("snapshot_checksum") or "").strip()
+    )
     canonical_items = list(canonical.get("items") or [])
-    candidate_items = canonical_items[:normalized_candidate_limit]
+    universe_members = list(canonical.get("universe_members") or [])
+    scored_items = (
+        _us_recommendation_candidates(universe_members) if snapshot_ready else []
+    )
+    candidate_items = scored_items[:normalized_candidate_limit]
+    signal_by_code = {
+        str(signal.get("code") or "").upper(): signal
+        for signal in canonical_items
+        if isinstance(signal, dict) and signal.get("code")
+    }
     items: list[dict[str, object]] = []
-    for signal in candidate_items:
-        current = dict(signal.get("current") or {})
-        action = str(current.get("action") or "entry_watch")
-        items.append(
-            {
-                "rank": 0,
-                "code": signal["code"],
-                "name": signal["name"],
-                "market": signal.get("market") or "NASDAQ",
-                "currency": "USD",
-                "sector": signal.get("sector"),
-                "market_cap_rank": signal.get("market_cap_rank"),
-                "score": signal.get("score"),
-                "action": "관심 매수후보" if action == "entry_pending" else "관망",
-                "price": signal.get("price"),
-                "change_rate": signal.get("change_rate"),
-                "one_month_return": signal.get("one_month_return"),
-                "three_month_return": signal.get("three_month_return"),
-                "trading_value": signal.get("trading_value"),
-                "trading_value_change": signal.get("trading_value_change"),
-                "component_scores": {},
-                "chart_analysis": {
-                    "trend": "상승 후보" if action == "entry_pending" else "확인 중",
-                    "risks": [current.get("next_confirmation")],
-                },
-                "reasons": [item.get("summary") for item in signal.get("public_reasons", [])],
-                "risks": [current.get("next_confirmation")],
-                "ai_trade_signal": signal,
-            }
+    for candidate in candidate_items:
+        signal = signal_by_code.get(str(candidate["code"]).upper())
+        recommendation_reasons = list(candidate.get("recommendation_reasons") or [])
+        item = {
+            **candidate,
+            "rank": 0,
+            "action": "추천 후보",
+            "decision_reason": " · ".join(recommendation_reasons),
+            "score_decision_reason": "미국 전용 추천 점수로 선별했으며 매매 시그널과 독립적으로 계산합니다.",
+            "reasons": recommendation_reasons,
+            "risks": ["추천 순위는 매수 시점이 아니며 현재 시그널 상태를 따로 확인해야 합니다."],
+            "chart_analysis": {
+                "trend": "추천 상위권",
+                "risks": ["시그널 조건은 추천 점수와 별도로 계산합니다."],
+            },
+        }
+        item["ai_trade_signal"] = (
+            signal if isinstance(signal, dict) else _us_recommendation_no_signal(item, canonical)
         )
-    selected = items[: max(1, min(20, int(limit)))]
+        items.append(item)
+    selected = _select_diverse_us_recommendations(
+        items, max(1, min(20, int(limit)))
+    )
     for index, item in enumerate(selected, start=1):
         item["rank"] = index
     return {
@@ -3118,9 +3411,23 @@ def build_us_recommendations(
         "state_reason": canonical.get("state_reason"),
         "refresh_requested": canonical.get("refresh_requested", False),
         "refresh_enqueued": canonical.get("refresh_enqueued", False),
-        "candidate_count": len(items),
-        "total_candidate_count": len(canonical_items),
+        "candidate_count": len(candidate_items),
+        "total_candidate_count": len(scored_items),
+        "recommendation_model_version": US_RECOMMENDATION_MODEL_VERSION,
+        "recommendation_selection_rule": US_RECOMMENDATION_SELECTION_RULE,
+        "recommendation_component_weights": dict(US_RECOMMENDATION_COMPONENT_WEIGHTS),
+        "selection_state": "ready" if snapshot_ready else "unavailable",
+        "selection_message": (
+            "미국 Top100 추천 점수는 매매 시그널과 독립적으로 계산합니다."
+            if snapshot_ready
+            else "완료된 미국 Top100 스냅샷이 준비되면 추천 점수를 다시 계산합니다."
+        ),
         "methodology": list(canonical.get("methodology") or []),
+        "recommendation_methodology": [
+            "미국 Top100 안에서 50일·200일 가격 흐름, 3개월 평균 거래대금, 밸류에이션, 시가총액 안정성을 교차 비교합니다.",
+            "추천 점수와 순위는 매매 시그널 action을 입력으로 사용하지 않으며, 시그널 상태는 별도 참고 정보로만 표시합니다.",
+            "자료가 없는 밸류에이션 항목은 중립값으로 채우지 않고 관측된 구성요소의 가중치만 다시 합산합니다.",
+        ],
         "items": selected,
     }
 

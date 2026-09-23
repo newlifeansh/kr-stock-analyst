@@ -1535,7 +1535,8 @@ function applyUsMarketSurface() {
     document.title = "비밀노트 | 미국증시";
     state.marketScope = "us";
     state.watchMarketMapMarketScope = "us";
-    setCopy("home-market-signal-title", "미국 AI는 무엇을 사고팔까?");
+    setCopy("home-market-signal-title", "미국 시그널 감시 후보");
+    setCopy("home-ai-signals-title", "시그널 감시 후보");
     setCopy("home-ai-response-heading", "미국 관심종목 대응");
     setCopy("trend-events-title", "미국 증시 캘린더");
     setCopy("trend-live-title", "미국 시장 뉴스");
@@ -1548,7 +1549,18 @@ function applyUsMarketSurface() {
     }
     if (elements.input) elements.input.placeholder = "미국 종목명 또는 티커";
     const signalListLink = document.querySelector("a[data-ai-signal-list-link]");
-    if (signalListLink) signalListLink.href = "/us?view=ai-signals&market_scope=us";
+    if (signalListLink) {
+      signalListLink.href = "/us?view=ai-signals&market_scope=us";
+      signalListLink.setAttribute("aria-label", "시그널 감시 후보 전체 목록 보기");
+    }
+    const signalPageTitle = document.querySelector("#ai-signals-view .ai-signals-commandbar h1");
+    if (signalPageTitle) signalPageTitle.textContent = "시그널 감시 후보";
+    const signalModeTabs = document.getElementById("ai-signal-mode-tabs");
+    if (signalModeTabs) signalModeTabs.setAttribute("aria-label", "시그널 감시 후보 보기");
+    const signalStageTabs = document.getElementById("ai-signal-stage-tabs");
+    if (signalStageTabs) signalStageTabs.setAttribute("aria-label", "시그널 감시 후보 상태");
+    const signalTickerKicker = document.querySelector(".home-market-signal-kicker");
+    if (signalTickerKicker) signalTickerKicker.textContent = "시그널 감시 후보";
     const brand = document.querySelector(".mobile-brand");
     const brandMarket = brand?.querySelector(":scope > span:last-child");
     if (brand) brand.setAttribute("aria-label", "비밀노트 미국증시");
@@ -1736,6 +1748,7 @@ function tagMarketItems(items, marketScope, snapshotPayload = null) {
       ...item,
       market_scope: marketScope,
       currency: item.currency || (marketScope === "us" ? "USD" : "KRW"),
+      score: item.score ?? item.recommendation_score ?? null,
     };
     if (!snapshot) return tagged;
     const withSnapshot = {
@@ -26231,7 +26244,7 @@ function buildRecommendationTrackEntry(item) {
     tracked_at: new Date().toISOString(),
     tracked_price: toNumber(item.price),
     tracked_action: item.action || "",
-    ...(isUsItem ? {} : { tracked_score: toNumber(item.score) }),
+    tracked_score: toNumber(item.score),
     ai: {
       decision: ai.decision,
       summary: ai.summary,
@@ -26240,8 +26253,11 @@ function buildRecommendationTrackEntry(item) {
       action: item.action,
       reasons: Array.isArray(item.reasons) ? item.reasons.slice(0, 5) : [],
       risks: Array.isArray(item.risks) ? item.risks.slice(0, 4) : [],
-      ...(isUsItem ? {} : {
-        score: item.score,
+      score: item.score,
+      ...(isUsItem ? {
+        recommendation_model_version: item.recommendation_model_version,
+        recommendation_components: item.recommendation_components || {},
+      } : {
         component_scores: item.component_scores || {},
         chart_analysis: item.chart_analysis || {},
       }),
@@ -26772,6 +26788,14 @@ function recommendationPublicReasonState(reason = {}) {
 
 function recommendationReasonFacts(item = {}) {
   if (marketScopeForItem(item) === "us") {
+    const recommendationReasons = (Array.isArray(item.recommendation_reasons)
+      ? item.recommendation_reasons
+      : Array.isArray(item.reasons) ? item.reasons : [])
+      .map((reason) => String(reason || "").trim())
+      .filter(Boolean);
+    if (recommendationReasons.length) {
+      return [...new Set(recommendationReasons)].slice(0, 3);
+    }
     const signal = item.ai_trade_signal && typeof item.ai_trade_signal === "object"
       ? item.ai_trade_signal
       : {};
@@ -27324,7 +27348,9 @@ function createRecommendationPublicEvidence(item = {}) {
   head.append(
     el("span", "recommend-detail-public-evidence-eyebrow", "공개 판단 근거"),
     el("h2", "", "지금 확인한 세 가지 흐름"),
-    el("p", "", "내부 계산 점수 대신 가격과 거래 참여 흐름을 같은 기준으로 보여드려요."),
+    el("p", "", toNumber(item.score) === null
+      ? "가격과 거래 참여 흐름을 같은 기준으로 보여드려요."
+      : "추천 점수와 별도로 현재 매매 시그널의 가격·거래 참여 흐름을 보여드려요."),
   );
   const list = el("div", "recommend-detail-public-evidence-list");
   for (const reason of reasons) {
@@ -27477,7 +27503,7 @@ function renderRecommendationDetail(
   }
 
   const source = el("p", "recommend-detail-source", isUsItem
-    ? aiAnalysis?.generation_note || "미국 공개 화면은 20일·60일 가격 흐름과 거래대금 참여도, 현재 단계만 표시합니다."
+    ? aiAnalysis?.generation_note || "미국 추천 점수는 Top100 안에서 독립 계산하고, 현재 매매 시그널은 20일·60일 가격 흐름과 거래대금 참여도로 따로 표시합니다."
     : generationMode === "local_llm"
       ? `${aiAnalysis.model_name || "Ollama"}가 핵심 근거를 선택했고, 점수와 가격 기준은 데이터 규칙으로 계산했습니다.`
       : aiAnalysis?.generation_note || "점수와 가격 기준은 수집된 시장 데이터 규칙으로 계산합니다.");

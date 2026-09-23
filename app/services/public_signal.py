@@ -74,6 +74,7 @@ _FORBIDDEN_US_PUBLIC_FIELDS = {
     "source_checks",
     "vetoes",
     "component_scores",
+    "recommendation_observed_weight",
     "weights",
     "detailed_methodology",
     "trade_levels",
@@ -672,6 +673,12 @@ def public_recommendation_signal_payload(
     public_items = []
     for item in _items(result.get("items")):
         public_item = deepcopy(dict(item))
+        independent_us_recommendation = bool(
+            is_us_candidate
+            and str(public_item.get("recommendation_model_version") or "").startswith(
+                "us-independent-recommendation-"
+            )
+        )
         if is_us_candidate:
             if not us_snapshot_ready:
                 public_item["action"] = "관망"
@@ -684,7 +691,8 @@ def public_recommendation_signal_payload(
                 and _us_public_reasons_ready(signal.get("public_reasons"))
             )
             if is_us_candidate and not us_signal_ready:
-                public_item["action"] = "관망"
+                if not independent_us_recommendation:
+                    public_item["action"] = "관망"
                 signal = _fail_closed_us_public_signal(signal)
                 signal["public_reasons"] = _unavailable_us_public_reasons(
                     result.get("universe_as_of") or result.get("as_of")
@@ -702,20 +710,30 @@ def public_recommendation_signal_payload(
                     "next_confirmation"
                 ] = US_PUBLIC_SIGNAL_PREPARING_NEXT_CHECK
             public_reasons = public_item["ai_trade_signal"]["public_reasons"]
-            public_item["reasons"] = [item["summary"] for item in public_reasons]
-            public_item["risks"] = []
+            if independent_us_recommendation:
+                public_item["reasons"] = list(
+                    public_item.get("recommendation_reasons") or []
+                )
+                public_item["risks"] = [
+                    "추천 순위는 매수 시점이 아니며 현재 시그널 상태를 따로 확인해야 합니다."
+                ]
+            else:
+                public_item["reasons"] = [item["summary"] for item in public_reasons]
+                public_item["risks"] = []
             if "decision_reason" in public_item:
-                public_item["decision_reason"] = (
-                    US_PUBLIC_SIGNAL_DECISION_REASON
-                    if is_us_candidate
-                    else PUBLIC_SIGNAL_DECISION_REASON
-                )
+                if not independent_us_recommendation:
+                    public_item["decision_reason"] = (
+                        US_PUBLIC_SIGNAL_DECISION_REASON
+                        if is_us_candidate
+                        else PUBLIC_SIGNAL_DECISION_REASON
+                    )
             if "score_decision_reason" in public_item:
-                public_item["score_decision_reason"] = (
-                    US_PUBLIC_SIGNAL_DECISION_REASON
-                    if is_us_candidate
-                    else PUBLIC_SIGNAL_DECISION_REASON
-                )
+                if not independent_us_recommendation:
+                    public_item["score_decision_reason"] = (
+                        US_PUBLIC_SIGNAL_DECISION_REASON
+                        if is_us_candidate
+                        else PUBLIC_SIGNAL_DECISION_REASON
+                    )
             if "component_scores" in public_item:
                 public_item["component_scores"] = {}
         elif is_us_candidate:

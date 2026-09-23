@@ -87,7 +87,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
-    assert len(ids) == 120
+    assert len(ids) == 121
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -103,6 +103,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "DATA-US-UNIVERSE-001",
         "DATA-US-SIGNAL-INPUT-001",
         "DATA-US-EVIDENCE-001",
+        "REC-US-INDEPENDENT-001",
         "DATA-CALENDAR-CONTENT-004",
         "DATA-CALENDAR-CONTENT-005",
         "DATA-CALENDAR-CONTENT-006",
@@ -175,7 +176,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v7.4.2`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v1-rc1`" in first
-    assert "QA 항목: 120개" in first
+    assert "QA 항목: 121개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -227,12 +228,17 @@ def test_us_rc1_catalog_covers_calendar_snapshot_and_real_shadow_comparison() ->
     evidence = json.dumps(cases["DATA-US-EVIDENCE-001"], ensure_ascii=False)
     shadow = cases["SIG-US-SHADOW-001"]
     contract = json.dumps(cases["SIG-US-CONTRACT-001"], ensure_ascii=False)
+    recommendation = json.dumps(cases["REC-US-INDEPENDENT-001"], ensure_ascii=False)
 
     assert "exchange_calendars XNYS" in signal_input
     assert "조기종료" in signal_input
     assert all(token in evidence for token in ("XLP", "XLY", "XLC", "XLRE"))
     assert "미검토 CIK을 SPY·QQQ나 표시 sector로 대체하지 않는다" in evidence
     assert "전체 new_entries_allowed=false" in evidence
+    assert "us-independent-recommendation-v1" in recommendation
+    assert "recommendation_score_ranked_independent_of_trade_signal" in recommendation
+    assert "시그널 감시 후보" in recommendation
+    assert "중립값" in recommendation
     assert shadow["inputs"]["comparison_fields"] == [
         "same_snapshot_evaluated_count",
         "comparison_complete",
@@ -1112,6 +1118,8 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "SIG-UI-025" not in E2E_CASE_IDS
     assert "SIG-UI-028" not in E2E_CASE_IDS
     assert "SIG-UI-030" in E2E_CASE_IDS
+    from app.qa.e2e import US_E2E_CASE_IDS
+    assert "REC-US-INDEPENDENT-001" in US_E2E_CASE_IDS
     assert "from urllib.parse import unquote, urlencode, urlsplit" in source
     assert 'moving_end.get("originalCount") != 2' in source
     assert 'refreshed.get("originalCount") != 2' in source
@@ -1379,7 +1387,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.4.2"
     assert report["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
-    assert report["catalog_case_count"] == 120
+    assert report["catalog_case_count"] == 121
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1393,6 +1401,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 @pytest.mark.qa_gate
 def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -> None:
     expected_case_ids = {
+        "REC-US-INDEPENDENT-001",
         "DATA-US-UNIVERSE-001",
         "DATA-US-SIGNAL-INPUT-001",
         "DATA-US-EVIDENCE-001",
@@ -1536,7 +1545,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260923us97",
+                "us_dashboard_version": "20260923us98",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1544,7 +1553,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260923us97",
+                "us_dashboard_version": "20260923us98",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1680,6 +1689,12 @@ class FakeReadOnlyApi:
                 "stateful_lifecycle_replay_enabled": False,
                 "reentry_runtime_enabled": False,
                 "new_entries_allowed": True,
+                "recommendation_model_version": (
+                    "us-independent-recommendation-v1"
+                ),
+                "recommendation_selection_rule": (
+                    "recommendation_score_ranked_independent_of_trade_signal"
+                ),
                 "snapshot_id": (
                     f"position-lifecycle-us-v1-rc1:{universe_as_of}:fixture"
                 ),
@@ -1701,8 +1716,27 @@ class FakeReadOnlyApi:
                     "coverage_percent": 100.0,
                     "complete": True,
                 },
-                "candidate_count": 0,
-                "items": [],
+                "candidate_count": 1,
+                "items": [
+                    {
+                        "code": "AAPL",
+                        "currency": "USD",
+                        "action": "추천 후보",
+                        "recommendation_score": 92.4,
+                        "recommendation_model_version": (
+                            "us-independent-recommendation-v1"
+                        ),
+                        "ai_trade_signal": {
+                            "code": "AAPL",
+                            "currency": "USD",
+                            "current": {
+                                "action": "no_signal",
+                                "position_open": False,
+                                "model_exposure_percent": 0,
+                            },
+                        },
+                    }
+                ],
             }, self._meta(path)
         if path == "/stocks/005930":
             return {
@@ -1798,7 +1832,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20260923us97"}, self._meta(path)
+            return {"version": "20260923us98"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/stocks/AAPL/dashboard":
@@ -1828,10 +1862,10 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20260923us97" />'
+                '<link href="/assets/dashboard/styles.css?v=20260923us98" />'
                 '</head><body><section id="home-view"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20260923us97"></script>'
+                '<script src="/dashboard-app-v170.js?v=20260923us98"></script>'
                 '</body></html>',
                 self._meta(path),
             )

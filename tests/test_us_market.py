@@ -717,6 +717,22 @@ def test_us_surge_ranking_honors_week_and_month_modes(monkeypatch):
 
 def test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed():
     as_of = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
+    universe_member = {
+        "code": "NVDA",
+        "name": "NVIDIA",
+        "market": "NASDAQ",
+        "currency": "USD",
+        "sector": "Technology",
+        "market_cap_rank": 2,
+        "market_cap": Decimal("4200000000000"),
+        "price": Decimal("168.25"),
+        "average_daily_dollar_volume_3m": Decimal("25000000000"),
+        "legacy_regular_market_change_percent": Decimal("1.5"),
+        "legacy_fifty_day_average_change_percent": Decimal("0.12"),
+        "legacy_two_hundred_day_average_change_percent": Decimal("0.35"),
+        "legacy_trailing_pe": Decimal("28"),
+        "legacy_price_to_book": Decimal("12"),
+    }
     canonical_feed = {
             "status": "ready",
             "data_state": "ready",
@@ -737,6 +753,7 @@ def test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed():
             "signal_eligible_count": 98,
             "insufficient_history_count": 2,
             "methodology": ["완료 정규장 시총 상위 100종목"],
+            "universe_members": [universe_member],
             "items": [
                 {
                     "code": "NVDA",
@@ -779,6 +796,11 @@ def test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed():
     assert payload["reentry_runtime_enabled"] is False
     assert payload["items"][0]["code"] == "NVDA"
     assert payload["items"][0]["currency"] == "USD"
+    assert payload["items"][0]["recommendation_score"] == Decimal("100.00")
+    assert payload["items"][0]["recommendation_model_version"] == "us-independent-recommendation-v1"
+    assert payload["items"][0]["recommendation_selection_rule"] == (
+        "recommendation_score_ranked_independent_of_trade_signal"
+    )
     assert payload["items"][0]["ai_trade_signal"]["status"] == "preliminary"
     assert payload["items"][0]["ai_trade_signal"]["current"]["position_open"] is False
     assert "상위 100" in payload["methodology"][0]
@@ -857,6 +879,23 @@ def test_us_recommendation_and_quant_projections_share_one_member_result():
         "rollout_mode": "shadow",
         "snapshot_id": "shared-snapshot",
         "snapshot_checksum": "shared-checksum",
+        "universe_members": [
+            {
+                "code": "NVDA",
+                "name": "NVIDIA",
+                "market": "NASDAQ",
+                "currency": "USD",
+                "sector": "Technology",
+                "market_cap_rank": 1,
+                "market_cap": Decimal("4200000000000"),
+                "price": Decimal("168.25"),
+                "average_daily_dollar_volume_3m": Decimal("25000000000"),
+                "legacy_fifty_day_average_change_percent": Decimal("0.12"),
+                "legacy_two_hundred_day_average_change_percent": Decimal("0.35"),
+                "legacy_trailing_pe": Decimal("28"),
+                "legacy_price_to_book": Decimal("12"),
+            }
+        ],
         "items": [signal],
     }
 
@@ -866,6 +905,138 @@ def test_us_recommendation_and_quant_projections_share_one_member_result():
     assert recommendations["snapshot_id"] == quant["snapshot_id"] == "shared-snapshot"
     assert recommendations["snapshot_checksum"] == quant["snapshot_checksum"] == "shared-checksum"
     assert recommendations["items"][0]["ai_trade_signal"] == quant["items"][0]
+
+
+def test_us_recommendations_rank_top100_independently_of_trade_signal_action():
+    members = [
+        {
+            "code": "AAA",
+            "name": "Alpha",
+            "market": "NYSE",
+            "currency": "USD",
+            "sector": "Industrials",
+            "market_cap_rank": 3,
+            "market_cap": Decimal("300"),
+            "price": Decimal("30"),
+            "average_daily_dollar_volume_3m": Decimal("900"),
+            "legacy_regular_market_change_percent": Decimal("2"),
+            "legacy_fifty_day_average_change_percent": Decimal("0.30"),
+            "legacy_two_hundred_day_average_change_percent": Decimal("0.50"),
+            "legacy_trailing_pe": Decimal("10"),
+            "legacy_price_to_book": Decimal("1"),
+        },
+        {
+            "code": "BBB",
+            "name": "Beta",
+            "market": "NASDAQ",
+            "currency": "USD",
+            "sector": "Technology",
+            "market_cap_rank": 1,
+            "market_cap": Decimal("900"),
+            "price": Decimal("90"),
+            "average_daily_dollar_volume_3m": Decimal("500"),
+            "legacy_regular_market_change_percent": Decimal("1"),
+            "legacy_fifty_day_average_change_percent": Decimal("0.10"),
+            "legacy_two_hundred_day_average_change_percent": Decimal("0.20"),
+            "legacy_trailing_pe": Decimal("30"),
+            "legacy_price_to_book": Decimal("8"),
+        },
+        {
+            "code": "CCC",
+            "name": "Gamma",
+            "market": "NASDAQ",
+            "currency": "USD",
+            "sector": "Technology",
+            "market_cap_rank": 2,
+            "market_cap": Decimal("600"),
+            "price": Decimal("60"),
+            "average_daily_dollar_volume_3m": Decimal("100"),
+            "legacy_regular_market_change_percent": Decimal("-1"),
+            "legacy_fifty_day_average_change_percent": Decimal("-0.10"),
+            "legacy_two_hundred_day_average_change_percent": Decimal("-0.20"),
+            "legacy_trailing_pe": Decimal("50"),
+            "legacy_price_to_book": Decimal("12"),
+        },
+    ]
+
+    def feed(action: str) -> dict[str, object]:
+        return {
+            "status": "ready",
+            "data_state": "ready",
+            "strategy_version": "position-lifecycle-us-v1-rc1",
+            "snapshot_id": "us-independent-rank",
+            "snapshot_checksum": "checksum",
+            "new_entries_allowed": True,
+            "universe_members": members,
+            "items": [
+                {
+                    "code": "BBB",
+                    "name": "Beta",
+                    "market": "NASDAQ",
+                    "current": {"action": action, "position_open": False},
+                }
+            ],
+        }
+
+    pending = us_market.build_us_recommendations(feed=feed("entry_pending"), limit=3)
+    watching = us_market.build_us_recommendations(feed=feed("entry_watch"), limit=3)
+
+    assert [item["code"] for item in pending["items"]] == ["AAA", "BBB", "CCC"]
+    assert [item["code"] for item in watching["items"]] == ["AAA", "BBB", "CCC"]
+    assert pending["items"][0]["ai_trade_signal"]["current"]["action"] == "no_signal"
+    assert pending["items"][1]["ai_trade_signal"]["current"]["action"] == "entry_pending"
+    assert watching["items"][1]["ai_trade_signal"]["current"]["action"] == "entry_watch"
+    assert pending["items"][0]["recommendation_score"] > pending["items"][1]["recommendation_score"]
+
+
+def test_us_recommendation_missing_valuation_reweights_only_observed_components():
+    members = [
+        {
+            "code": "FULL",
+            "name": "Full Data",
+            "market": "NYSE",
+            "sector": "Industrials",
+            "market_cap_rank": 1,
+            "market_cap": Decimal("200"),
+            "price": Decimal("20"),
+            "average_daily_dollar_volume_3m": Decimal("200"),
+            "legacy_fifty_day_average_change_percent": Decimal("0.20"),
+            "legacy_two_hundred_day_average_change_percent": Decimal("0.30"),
+            "legacy_trailing_pe": Decimal("20"),
+            "legacy_price_to_book": Decimal("2"),
+        },
+        {
+            "code": "MISS",
+            "name": "Missing Valuation",
+            "market": "NASDAQ",
+            "sector": "Technology",
+            "market_cap_rank": 2,
+            "market_cap": Decimal("100"),
+            "price": Decimal("10"),
+            "average_daily_dollar_volume_3m": Decimal("100"),
+            "legacy_fifty_day_average_change_percent": Decimal("0.10"),
+            "legacy_two_hundred_day_average_change_percent": Decimal("0.20"),
+            "legacy_trailing_pe": None,
+            "legacy_price_to_book": None,
+        },
+    ]
+    payload = us_market.build_us_recommendations(
+        feed={
+            "status": "ready",
+            "data_state": "ready",
+            "strategy_version": "position-lifecycle-us-v1-rc1",
+            "snapshot_id": "valuation-missing",
+            "snapshot_checksum": "checksum",
+            "universe_members": members,
+            "items": [],
+        },
+        limit=2,
+    )
+
+    missing = next(item for item in payload["items"] if item["code"] == "MISS")
+    assert "valuation" not in missing["recommendation_components"]
+    assert missing["recommendation_observed_weight"] == Decimal("80")
+    assert missing["recommendation_score"] == Decimal("0.00")
 
 
 def test_research_from_quote_summary_fills_analyst_fields():

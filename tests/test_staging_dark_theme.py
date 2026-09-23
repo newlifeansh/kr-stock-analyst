@@ -1204,7 +1204,10 @@ def test_staging_v43_adds_ai_signal_page_hierarchy_and_toss_text_tabs():
     assert 'intro.className = "staging-ai-signals-intro"' in js
     assert '<span data-staging-ai-market-eyebrow>${stagingUsesUsMarketLabels() ? "미국 대표 대형주에서" : "시총 Top 100 에서"}</span>' in js
     assert 'marketEyebrow.textContent = stagingUsesUsMarketLabels()' in js
-    assert '<h2 id="staging-ai-signals-title">AI는 무엇을 사고 팔까?</h2>' in js
+    assert (
+        '<h2 id="staging-ai-signals-title">${stagingUsesUsMarketLabels() '
+        '? "시그널 감시 후보" : "AI는 무엇을 사고 팔까?"}</h2>' in js
+    )
     assert 'modeTabs.insertAdjacentElement("beforebegin", intro)' in js
     assert '#ai-signals-view .staging-ai-signals-intro' in css
     assert '#ai-signals-view .ai-signal-mode-tabs' in css
@@ -2844,13 +2847,15 @@ def test_staging_event_detail_uses_scan_first_scenarios_and_disclosures():
         assert expected in rules
 
 
-def test_staging_us_recommendation_detail_uses_public_evidence_when_scores_are_redacted():
+def test_staging_us_recommendation_detail_separates_public_score_and_signal_evidence():
     client = TestClient(staging_app)
     dashboard_source = client.get("/dashboard-app-v170.js").text
     staging_js = client.get("/assets/staging/toss-ia.js").text
 
     for contract in (
         "function recommendationPublicReasons(item = {})",
+        "item.score ?? item.recommendation_score ?? null",
+        "const recommendationReasons = (Array.isArray(item.recommendation_reasons)",
         '["trend_20d", "trend_60d", "flow"]',
         "const hasSafeUnavailableReasons = source.length === 3",
         "function createRecommendationPublicEvidence(item = {})",
@@ -2864,6 +2869,8 @@ def test_staging_us_recommendation_detail_uses_public_evidence_when_scores_are_r
     assert 'addQuickMetric("공개 판단 근거", `${formatNumber(publicReasonCount)}개`)' in staging_js
     assert 'supportiveCount !== null ? `${formatNumber(supportiveCount)}개` : "확인 중"' in staging_js
     assert 'scoreTrack.setAttribute("aria-valuenow"' in staging_js
+    assert 'stagingUsMarketContext ? "시그널 감시 후보" : "AI 시그널"' in staging_js
+    assert 'stagingUsesUsMarketLabels() ? "시그널 감시 후보"' in staging_js
 
 
 def test_staging_stock_quote_uses_reference_hierarchy_and_orderability_status():

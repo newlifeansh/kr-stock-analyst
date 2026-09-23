@@ -43,6 +43,20 @@ QUOTE_STREAM_META_RE = re.compile(
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "REC-US-INDEPENDENT-001": (
+        "tests.test_us_market."
+        "test_us_recommendations_rank_top100_independently_of_trade_signal_action",
+        "tests.test_us_market."
+        "test_us_recommendation_missing_valuation_reweights_only_observed_components",
+        "tests.test_public_signal."
+        "test_us_independent_recommendation_keeps_public_score_separate_from_signal",
+        "tests.test_app."
+        "test_us_market_recommendations_endpoint_exposes_independent_score_and_hides_signal_score",
+        "tests.test_app."
+        "test_us_and_dashboard_paths_serve_independently_versioned_products",
+        "tests.test_staging_dark_theme."
+        "test_staging_us_recommendation_detail_separates_public_score_and_signal_evidence",
+    ),
     "SIG-CONTRACT-007": (
         "tests.test_web_push."
         "test_us_market_ai_signal_candidates_emit_ready_close_entry_pending",
@@ -109,7 +123,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_public_signal."
         "test_us_ready_snapshot_with_incomplete_public_reasons_fails_closed",
         "tests.test_app."
-        "test_us_market_recommendations_endpoint_hides_us_outer_and_nested_scores",
+        "test_us_market_recommendations_endpoint_exposes_independent_score_and_hides_signal_score",
         "tests.test_home_ai_response."
         "test_us_public_ui_never_renders_private_scores_or_synthesized_trade_levels",
     ),
@@ -443,7 +457,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_public_signal."
         "test_us_ready_snapshot_with_incomplete_public_reasons_fails_closed",
         "tests.test_app."
-        "test_us_market_recommendations_endpoint_hides_us_outer_and_nested_scores",
+        "test_us_market_recommendations_endpoint_exposes_independent_score_and_hides_signal_score",
         "tests.test_app."
         "test_us_market_cold_request_returns_preparing_and_only_enqueues_refresh",
         "tests.test_app."
@@ -2035,6 +2049,48 @@ def _live_checks(
                 and recommendations.get("reentry_runtime_enabled") is False,
                 "미국 추천과 시그널의 baseline·섹터분류·runtime 계약이 다릅니다.",
             )
+            invalid_recommendations: list[str] = []
+            if entry_ready:
+                _assert(
+                    recommendations.get("recommendation_model_version")
+                    == "us-independent-recommendation-v1"
+                    and recommendations.get("recommendation_selection_rule")
+                    == "recommendation_score_ranked_independent_of_trade_signal",
+                    "미국 추천이 독립 점수 모델·선정 규칙을 공개하지 않았습니다.",
+                    model_version=recommendations.get(
+                        "recommendation_model_version"
+                    ),
+                    selection_rule=recommendations.get(
+                        "recommendation_selection_rule"
+                    ),
+                )
+                _assert(
+                    bool(recommendation_items),
+                    "ready 미국 Top100 스냅샷에서 독립 추천 후보가 비었습니다.",
+                )
+                for item in recommendation_items:
+                    if not isinstance(item, dict):
+                        invalid_recommendations.append("non_object")
+                        continue
+                    score = item.get("recommendation_score")
+                    signal = item.get("ai_trade_signal") or {}
+                    if (
+                        not isinstance(score, (int, float))
+                        or not 0 <= float(score) <= 100
+                        or item.get("recommendation_model_version")
+                        != "us-independent-recommendation-v1"
+                        or item.get("action") != "추천 후보"
+                        or not isinstance(signal, dict)
+                        or "score" in signal
+                    ):
+                        invalid_recommendations.append(
+                            str(item.get("code") or "unknown")
+                        )
+                _assert(
+                    not invalid_recommendations,
+                    "미국 독립 추천 점수와 nested 시그널 분리 계약이 깨졌습니다.",
+                    invalid_codes=invalid_recommendations,
+                )
             public_case = next(
                 (case for case in catalog["cases"] if case.get("id") == "SIG-UI-022"),
                 {},
@@ -2101,6 +2157,10 @@ def _live_checks(
                 "preliminary_count": len(items),
                 "entry_pending_count": entry_pending_count,
                 "recommendation_entry_pending_count": recommendation_entry_pending_count,
+                "recommendation_model_version": recommendations.get(
+                    "recommendation_model_version"
+                ),
+                "recommendation_count": len(recommendation_items),
                 "forbidden_public_paths": forbidden_paths,
                 "methodology": feed.get("methodology"),
             }
@@ -2165,6 +2225,11 @@ def _live_checks(
             "SIG-US-CONTRACT-001",
             us_market_payloads,
             pass_message="미국 Top100 예비 시그널·추천 공개 계약을 확인했습니다.",
+        )
+        collector.check(
+            "REC-US-INDEPENDENT-001",
+            us_market_payloads,
+            pass_message="미국 Top100 독립 추천 점수와 시그널 분리 계약을 확인했습니다.",
         )
         collector.check(
             "SIG-UI-022",
@@ -3733,6 +3798,37 @@ def _live_us_checks(
                 "미국 공개 응답에 내부 점수·필터 키가 남았습니다.",
                 forbidden_paths=forbidden_paths,
             )
+            invalid_recommendations: list[str] = []
+            _assert(
+                recommendations.get("recommendation_model_version")
+                == "us-independent-recommendation-v1"
+                and recommendations.get("recommendation_selection_rule")
+                == "recommendation_score_ranked_independent_of_trade_signal",
+                "미국 추천이 독립 점수 모델·선정 규칙을 공개하지 않았습니다.",
+            )
+            for item in recommendation_items:
+                if not isinstance(item, dict):
+                    invalid_recommendations.append("non_object")
+                    continue
+                score = item.get("recommendation_score")
+                signal = item.get("ai_trade_signal") or {}
+                if (
+                    not isinstance(score, (int, float))
+                    or not 0 <= float(score) <= 100
+                    or item.get("recommendation_model_version")
+                    != "us-independent-recommendation-v1"
+                    or item.get("action") != "추천 후보"
+                    or not isinstance(signal, dict)
+                    or "score" in signal
+                ):
+                    invalid_recommendations.append(
+                        str(item.get("code") or "unknown")
+                    )
+            _assert(
+                not invalid_recommendations,
+                "미국 독립 추천 점수와 nested 시그널 분리 계약이 깨졌습니다.",
+                invalid_codes=invalid_recommendations,
+            )
             methodology = " ".join(
                 str(item) for item in feed.get("methodology") or []
             )
@@ -3759,6 +3855,10 @@ def _live_us_checks(
                 "preliminary_count": len(items),
                 "entry_pending_count": entry_pending_count,
                 "recommendation_entry_pending_count": recommendation_entry_pending_count,
+                "recommendation_model_version": recommendations.get(
+                    "recommendation_model_version"
+                ),
+                "recommendation_count": len(recommendation_items),
                 "forbidden_public_paths": forbidden_paths,
                 "methodology": feed.get("methodology"),
             }
@@ -3789,6 +3889,11 @@ def _live_us_checks(
             "SIG-US-CONTRACT-001",
             us_signal_contract,
             pass_message="미국 Top100 시그널·추천의 ready·canonical 공개 계약을 확인했습니다.",
+        )
+        collector.check(
+            "REC-US-INDEPENDENT-001",
+            us_signal_contract,
+            pass_message="미국 Top100 독립 추천 점수와 시그널 분리 계약을 확인했습니다.",
         )
         collector.check(
             "SIG-UI-022",
