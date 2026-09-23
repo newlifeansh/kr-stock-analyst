@@ -901,12 +901,9 @@ def _run_us_e2e_checks(
                     raise QaFailure("미국 발견 탭으로 키보드 포커스를 이동하지 못했습니다.")
                 search_button.click()
                 page.wait_for_selector("#search-view", state="visible")
-                page.wait_for_function(
-                    """() => document.querySelectorAll('#recommend-list .recommend-card').length > 0
-                      || (() => {
-                        const text = document.querySelector('#recommend-status')?.textContent?.trim() || '';
-                        return Boolean(text) && !/불러오는 중|확인 중/.test(text);
-                      })()"""
+                page.wait_for_selector(
+                    "#recommend-list .recommend-card",
+                    state="visible",
                 )
                 search_state = page.evaluate(
                     """() => ({

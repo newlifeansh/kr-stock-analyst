@@ -1120,6 +1120,7 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "SIG-UI-030" in E2E_CASE_IDS
     from app.qa.e2e import US_E2E_CASE_IDS
     assert "REC-US-INDEPENDENT-001" in US_E2E_CASE_IDS
+    assert '"#recommend-list .recommend-card",\n                    state="visible"' in source
     assert "from urllib.parse import unquote, urlencode, urlsplit" in source
     assert 'moving_end.get("originalCount") != 2' in source
     assert 'refreshed.get("originalCount") != 2' in source
