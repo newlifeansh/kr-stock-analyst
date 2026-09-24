@@ -1440,6 +1440,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-US-MIGRATION-001",
         "SIG-CONTRACT-007",
         "SIG-UI-022",
+        "SIG-UI-025",
         "SIG-UI-030",
         "SIG-UI-031",
     }
@@ -2303,6 +2304,80 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     assert by_id["SIG-UI-026"]["evidence"]["item_count"] == 1
     assert report["market_state"] == "closed"
     assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_live
+def test_live_intraday_transient_unavailable_recovers_with_bounded_retry(
+    monkeypatch,
+) -> None:
+    from app.qa import runner
+
+    class TransientIntradayApi(FakeReadOnlyApi):
+        intraday_calls = 0
+
+        def get(self, path: str, **params: object):
+            if path == "/stocks/005930/intraday" and params.get("limit") == "390":
+                self.intraday_calls += 1
+                if self.intraday_calls < 3:
+                    return {"source": "unavailable", "points": []}, self._meta(path)
+            return super().get(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", TransientIntradayApi)
+    monkeypatch.setattr(runner, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "SIG-UI-025")
+
+    assert check["status"] == "pass"
+    assert check["evidence"]["intraday"]["domestic"]["attempts"] == 3
+    assert check["evidence"]["intraday"]["domestic"]["initial_source"] == "unavailable"
+
+
+@pytest.mark.qa_live
+def test_live_intraday_persistent_unavailable_remains_p0(monkeypatch) -> None:
+    from app.qa import runner
+
+    class UnavailableIntradayApi(FakeReadOnlyApi):
+        intraday_calls = 0
+
+        def get(self, path: str, **params: object):
+            if path == "/stocks/005930/intraday" and params.get("limit") == "390":
+                self.intraday_calls += 1
+                return {"source": "unavailable", "points": []}, self._meta(path)
+            return super().get(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", UnavailableIntradayApi)
+    monkeypatch.setattr(runner, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "SIG-UI-025")
+
+    assert check["status"] == "fail"
+    assert check["evidence"]["attempts"] == 31
+    assert "SIG-UI-025" in report["summary"]["p0_failures"]
+
+
+@pytest.mark.qa_live
+def test_live_intraday_malformed_empty_response_is_not_retried(monkeypatch) -> None:
+    from app.qa import runner
+
+    class MalformedIntradayApi(FakeReadOnlyApi):
+        intraday_calls = 0
+
+        def get(self, path: str, **params: object):
+            if path == "/stocks/005930/intraday" and params.get("limit") == "390":
+                self.intraday_calls += 1
+                return {"source": "kis_rest", "points": []}, self._meta(path)
+            return super().get(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", MalformedIntradayApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "SIG-UI-025")
+
+    assert check["status"] == "fail"
+    assert check["evidence"]["attempts"] == 1
+    assert "SIG-UI-025" in report["summary"]["p0_failures"]
 
 
 @pytest.mark.qa_live

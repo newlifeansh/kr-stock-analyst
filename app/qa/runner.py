@@ -48,6 +48,14 @@ QUOTE_STREAM_META_RE = re.compile(
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-UI-025": (
+        "tests.test_data_signal_qa."
+        "test_live_intraday_transient_unavailable_recovers_with_bounded_retry",
+        "tests.test_data_signal_qa."
+        "test_live_intraday_persistent_unavailable_remains_p0",
+        "tests.test_data_signal_qa."
+        "test_live_intraday_malformed_empty_response_is_not_retried",
+    ),
     "DATA-COM-005": (
         "tests.test_data_signal_qa."
         "test_domestic_live_skips_us_snapshot_when_collector_disabled",
@@ -3392,6 +3400,22 @@ def _live_checks(
                 "/stocks/005930/intraday",
                 limit="390",
             )
+            domestic_intraday_attempts = 1
+            initial_domestic_intraday_source = domestic_intraday.get("source")
+            # A just-deployed web instance can briefly return a structured
+            # KIS unavailable response before its closed-session chart is
+            # fetched. Retry only that source condition; persistent absence
+            # remains a P0 failure with the attempt count in evidence.
+            while (
+                domestic_intraday.get("source") == "unavailable"
+                and not domestic_intraday.get("points")
+                and domestic_intraday_attempts < 31
+            ):
+                sleep(10)
+                domestic_intraday, domestic_intraday_meta = api.get(
+                    "/stocks/005930/intraday", limit="390"
+                )
+                domestic_intraday_attempts += 1
             overseas_intraday, overseas_intraday_meta = api.get(
                 "/us/stocks/NVDA/intraday",
                 range="1d",
@@ -3432,6 +3456,10 @@ def _live_checks(
                     isinstance(points, list) and bool(points),
                     f"관심종목 시간 스크러빙에 필요한 {label} 분봉이 없습니다.",
                     source=payload.get("source"),
+                    attempts=domestic_intraday_attempts if label == "국내" else 1,
+                    initial_source=(
+                        initial_domestic_intraday_source if label == "국내" else payload.get("source")
+                    ),
                     **meta,
                 )
                 sample = points[-1]
@@ -3464,6 +3492,8 @@ def _live_checks(
                         **domestic_intraday_meta,
                         "points": len(domestic_intraday.get("points") or []),
                         "trade_date": domestic_intraday.get("trade_date"),
+                        "attempts": domestic_intraday_attempts,
+                        "initial_source": initial_domestic_intraday_source,
                     },
                     "overseas": {
                         **overseas_intraday_meta,
