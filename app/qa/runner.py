@@ -818,6 +818,13 @@ def _finite_number(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _model_exposure_matches(value: Any, *, position_open: bool) -> bool:
+    """Accept JSON number or a lossless decimal-string model exposure."""
+
+    expected = 100.0 if position_open else 0.0
+    return _finite_number(value) == expected
+
+
 def _validate_signal_revision_frame(
     frame: dict[str, Any], *, require_initial: bool | None = None
 ) -> dict[str, Any]:
@@ -1957,8 +1964,9 @@ def _live_checks(
                         and item.get("is_preliminary") is not preliminary
                     )
                     or current_signal.get("position_open") is not position_open
-                    or current_signal.get("model_exposure_percent") not in (
-                        (100, 100.0, "100", "100.0") if position_open else (0, 0.0, "0", "0.0", None)
+                    or not _model_exposure_matches(
+                        current_signal.get("model_exposure_percent"),
+                        position_open=position_open,
                     )
                     or not 1 <= rank <= 100
                 ):
@@ -2334,7 +2342,9 @@ def _live_checks(
                 "universe_checksum": feed.get("universe_checksum"),
                 "snapshot_id": feed.get("snapshot_id"),
                 "snapshot_checksum": feed.get("snapshot_checksum"),
-                "preliminary_count": len(items),
+                "preliminary_count": feed.get("preliminary_count"),
+                "confirmed_count": feed.get("confirmed_count"),
+                "visible_item_count": len(items),
                 "entry_pending_count": entry_pending_count,
                 "recommendation_entry_pending_count": recommendation_entry_pending_count,
                 "recommendation_model_version": recommendations.get(
@@ -4385,10 +4395,9 @@ def _live_us_checks(
                         and item.get("is_preliminary") is not preliminary
                     )
                     or current_signal.get("position_open") is not position_open
-                    or current_signal.get("model_exposure_percent") not in (
-                        (100, 100.0, "100", "100.0")
-                        if position_open
-                        else (0, 0.0, "0", "0.0", None)
+                    or not _model_exposure_matches(
+                        current_signal.get("model_exposure_percent"),
+                        position_open=position_open,
                     )
                     or not 1 <= rank <= 100
                 ):
@@ -4534,7 +4543,9 @@ def _live_us_checks(
                 "snapshot_id": feed.get("snapshot_id"),
                 "snapshot_checksum": feed.get("snapshot_checksum"),
                 "data_state": feed.get("data_state"),
-                "preliminary_count": len(items),
+                "preliminary_count": feed.get("preliminary_count"),
+                "confirmed_count": feed.get("confirmed_count"),
+                "visible_item_count": len(items),
                 "entry_pending_count": entry_pending_count,
                 "recommendation_entry_pending_count": recommendation_entry_pending_count,
                 "recommendation_model_version": recommendations.get(
