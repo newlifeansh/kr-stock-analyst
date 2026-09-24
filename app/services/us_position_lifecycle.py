@@ -1217,16 +1217,34 @@ def _model_lifecycle_item(
     entry_price = _decimal(position.get("entry_price")) if position else _decimal(
         last_exit.get("entry_price") if last_exit else None
     )
-    exit_price = _decimal(last_exit.get("exit_price")) if last_exit else None
-    entry_date = position.get("entry_date") if position else last_exit.get("entry_date") if last_exit else None
-    exit_date = last_exit.get("exit_date") if last_exit else None
+    # A re-entered model position can legitimately have an older exit in its
+    # replay history. That historical exit must not be projected as the exit
+    # of the *current* open position: an open row has no current exit date,
+    # exit price, or realised return.
+    exit_price = (
+        _decimal(last_exit.get("exit_price"))
+        if action == "exited" and last_exit
+        else None
+    )
+    entry_date = (
+        position.get("entry_date")
+        if position
+        else last_exit.get("entry_date")
+        if last_exit
+        else None
+    )
+    exit_date = (
+        last_exit.get("exit_date") if action == "exited" and last_exit else None
+    )
     unrealized_return = (
         _decimal((float(decision.get("price") or 0.0) / float(position["entry_price"]) - 1.0) * 100.0)
         if position is not None and float(position.get("entry_price") or 0.0) > 0
         else None
     )
     return_rate = (
-        _decimal(last_exit.get("return_rate")) if last_exit is not None else unrealized_return
+        _decimal(last_exit.get("return_rate"))
+        if action == "exited" and last_exit is not None
+        else unrealized_return
     )
     latest_transition = {
         "label": label,
@@ -1504,6 +1522,7 @@ def build_us_position_lifecycle_feed(
     items: list[dict[str, Any]] = []
     public_member_signals: list[dict[str, Any]] = []
     rejection_counts: Counter[str] = Counter()
+    lifecycle_no_signal_count = 0
     candidate_actions: dict[str, str] = {}
     baseline_actions: dict[str, str] = {}
     comparison_codes: set[str] = set()
@@ -1526,16 +1545,6 @@ def build_us_position_lifecycle_feed(
         )
         action = str(decision.get("action") or "no_signal")
         candidate_actions[code] = action
-        # Shadow rejection reasons describe the raw close candidate, even
-        # when the replayed public item is an already-open model position.
-        if action == "no_signal":
-            rejection_counts[
-                "insufficient_history"
-                if code in insufficient_history_codes
-                else "chase_guard"
-                if decision.get("chase_veto")
-                else "technical_or_evidence"
-            ] += 1
         public_member_signal = _public_member_signal(
             member,
             decision,
@@ -1561,6 +1570,20 @@ def build_us_position_lifecycle_feed(
         if replay.get("complete") is True and code in signal_eligible_codes:
             replay_complete_codes.add(code)
         replay_action = str(replay.get("action") or "no_signal")
+        if action == "no_signal":
+            if replay_action in {
+                "entered", "holding", "full_exit_pending", "exited",
+            }:
+                # A replayed position is not a rejected close-time candidate.
+                lifecycle_no_signal_count += 1
+            else:
+                rejection_counts[
+                    "insufficient_history"
+                    if code in insufficient_history_codes
+                    else "chase_guard"
+                    if decision.get("chase_veto")
+                    else "technical_or_evidence"
+                ] += 1
         if (
             complete_source_coverage
             and universe_date is not None
@@ -1706,6 +1729,7 @@ def build_us_position_lifecycle_feed(
             "candidate_action_counts": dict(candidate_action_counts),
             "baseline_action_counts": dict(baseline_action_counts),
             "candidate_entry_pending_count": len(candidate_pending_codes),
+            "lifecycle_no_signal_count": lifecycle_no_signal_count,
             "displayed_entry_pending_count": sum(
                 1
                 for item in selected
@@ -2457,6 +2481,7 @@ def _shadow_comparison_is_valid(
     assert baseline_only_codes is not None
     assert disagreement_codes is not None
     candidate_pending_count = shadow.get("candidate_entry_pending_count")
+    lifecycle_no_signal_count = shadow.get("lifecycle_no_signal_count")
     displayed_pending_count = shadow.get("displayed_entry_pending_count")
     baseline_pending_count = shadow.get("baseline_entry_pending_count")
     overlap_count = shadow.get("entry_pending_overlap_count")
@@ -2468,11 +2493,14 @@ def _shadow_comparison_is_valid(
     rejection_counts = shadow.get("rejection_counts")
     rejection_counts_valid = bool(
         isinstance(rejection_counts, dict)
+        and type(lifecycle_no_signal_count) is int
+        and lifecycle_no_signal_count >= 0
         and set(rejection_counts).issubset(
             {"chase_guard", "technical_or_evidence", "insufficient_history"}
         )
         and all(type(count) is int and count >= 0 for count in rejection_counts.values())
-        and sum(rejection_counts.values()) == candidate_counts["no_signal"]
+        and sum(rejection_counts.values()) + lifecycle_no_signal_count
+        == candidate_counts["no_signal"]
     )
     required_baseline_inputs = [
         "regularMarketChangePercent",
@@ -2484,6 +2512,7 @@ def _shadow_comparison_is_valid(
     ]
     numeric_counts = (
         candidate_pending_count,
+        lifecycle_no_signal_count,
         displayed_pending_count,
         baseline_pending_count,
         overlap_count,

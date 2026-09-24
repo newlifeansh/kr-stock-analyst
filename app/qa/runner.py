@@ -449,6 +449,12 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_calendar_memoizes_official_session_and_replay_vectors",
         "tests.test_us_position_lifecycle_runtime."
         "test_canonical_snapshot_keeps_model_holdings_when_raw_candidates_are_pending",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_canonical_snapshot_separates_lifecycle_no_signal_from_rejections",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_open_model_reentry_does_not_project_historical_exit_as_current_exit",
+        "tests.test_data_signal_qa."
+        "test_live_us_contract_accepts_confirmed_model_lifecycle_items",
         "tests.test_us_position_lifecycle_fail_closed."
         "test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy",
         "tests.test_us_position_lifecycle_fail_closed."
@@ -4336,15 +4342,29 @@ def _live_us_checks(
             invalid_items: list[str] = []
             invalid_public_reasons: list[str] = []
             entry_pending_count = 0
+            preliminary_item_count = 0
             confirmed_position_count = 0
             for item in items:
                 if not isinstance(item, dict):
                     invalid_items.append("non_object")
                     continue
                 current_signal = item.get("current") or {}
-                if current_signal.get("action") == "entry_pending":
+                action = str(current_signal.get("action") or "")
+                if action == "entry_pending":
                     entry_pending_count += 1
-                if current_signal.get("position_open") is True:
+                preliminary = action in {
+                    "entry_watch",
+                    "entry_pending",
+                    "full_exit_pending",
+                }
+                position_open = action in {
+                    "entered",
+                    "holding",
+                    "full_exit_pending",
+                }
+                if preliminary:
+                    preliminary_item_count += 1
+                if position_open:
                     confirmed_position_count += 1
                 if not _valid_us_public_lifecycle_item(item):
                     invalid_items.append(str(item.get("code") or "unknown"))
@@ -4371,12 +4391,22 @@ def _live_us_checks(
                 "미국 공개 모델 생명주기의 USD·Top100·상태 계약이 깨졌습니다.",
                 invalid_items=invalid_items,
             )
-            _assert(
-                confirmed_position_count <= int(feed.get("confirmed_count") or 0) <= 100,
-                "미국 모델 확정 수가 공개 페이지의 열린 포지션 수보다 작거나 Top100을 넘습니다.",
-                confirmed_count=feed.get("confirmed_count"),
-                confirmed_position_count=confirmed_position_count,
-            )
+            if feed.get("status") == "ready" and feed.get("data_state") == "ready":
+                _assert(
+                    int(feed.get("preliminary_count") or 0)
+                    == preliminary_item_count
+                    and int(feed.get("entry_pending_count") or 0)
+                    >= entry_pending_count
+                    and int(feed.get("confirmed_count") or 0)
+                    == confirmed_position_count,
+                    "미국 모델 생명주기 상태별 페이지/전체 집계가 화면 행과 다릅니다.",
+                    preliminary_count=feed.get("preliminary_count"),
+                    preliminary_item_count=preliminary_item_count,
+                    entry_pending_count=feed.get("entry_pending_count"),
+                    entry_pending_item_count=entry_pending_count,
+                    confirmed_count=feed.get("confirmed_count"),
+                    confirmed_position_count=confirmed_position_count,
+                )
             _assert(
                 not invalid_public_reasons,
                 "미국 공개 근거가 20일·60일·거래대금 세 근거가 아닙니다.",

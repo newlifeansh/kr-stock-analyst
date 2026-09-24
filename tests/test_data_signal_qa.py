@@ -249,6 +249,7 @@ def test_us_v2_catalog_covers_calendar_snapshot_and_model_replay_comparison() ->
         "candidate_action_counts",
         "baseline_action_counts",
         "candidate_entry_pending_count",
+        "lifecycle_no_signal_count",
         "displayed_entry_pending_count",
         "baseline_entry_pending_count",
         "entry_pending_overlap_count",
@@ -1571,7 +1572,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20260924us109",
+                "us_dashboard_version": "20260924us111",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1579,7 +1580,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20260924us109",
+                "us_dashboard_version": "20260924us111",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1941,7 +1942,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20260924us109"}, self._meta(path)
+            return {"version": "20260924us111"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -1988,11 +1989,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20260924us109" />'
+                '<link href="/assets/dashboard/styles.css?v=20260924us111" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20260924us109"></script>'
+                '<script src="/dashboard-app-v170.js?v=20260924us111"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2177,6 +2178,87 @@ def test_domestic_live_skips_us_snapshot_when_collector_disabled(monkeypatch) ->
     ):
         assert by_id[case_id]["status"] == "skip"
         assert by_id[case_id]["evidence"]["us_market_enabled"] is False
+
+
+@pytest.mark.qa_live
+def test_live_us_contract_accepts_confirmed_model_lifecycle_items(monkeypatch) -> None:
+    """Live QA must distinguish model holds/exits from preliminary entries."""
+
+    from app.qa import runner
+
+    reasons = [
+        {"key": "trend_20d", "available": True},
+        {"key": "trend_60d", "available": True},
+        {"key": "flow", "available": True},
+    ]
+
+    class ModelLifecycleUsApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path != "/us/market/quant-signals":
+                return payload, meta
+            return {
+                **payload,
+                "confirmed_count": 2,
+                "preliminary_count": 1,
+                "entry_pending_count": 0,
+                "items": [
+                    {
+                        "code": "AAPL",
+                        "currency": "USD",
+                        "status": "confirmed",
+                        "is_preliminary": False,
+                        "market_cap_rank": 1,
+                        "public_reasons": reasons,
+                        "current": {
+                            "action": "holding",
+                            "position_open": True,
+                            "model_exposure_percent": 100,
+                        },
+                    },
+                    {
+                        "code": "MSFT",
+                        "currency": "USD",
+                        "status": "preliminary",
+                        "is_preliminary": True,
+                        "market_cap_rank": 2,
+                        "public_reasons": reasons,
+                        "current": {
+                            "action": "full_exit_pending",
+                            "position_open": True,
+                            "model_exposure_percent": 100,
+                        },
+                    },
+                    {
+                        "code": "NVDA",
+                        "currency": "USD",
+                        "status": "confirmed",
+                        "is_preliminary": False,
+                        "market_cap_rank": 3,
+                        "public_reasons": reasons,
+                        "current": {
+                            "action": "exited",
+                            "position_open": False,
+                            "model_exposure_percent": 0,
+                        },
+                    },
+                ],
+            }, meta
+
+    FakeReadOnlyApi.quality_price_state = "ready"
+    monkeypatch.setattr(runner, "ReadOnlyApi", ModelLifecycleUsApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+
+    report = run_data_signal_qa(
+        mode="live",
+        surface="us",
+        base_url="https://fixture-staging.test",
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+
+    assert by_id["SIG-US-VERSION-001"]["status"] == "pass"
+    assert by_id["SIG-US-CONTRACT-001"]["status"] == "pass"
+    assert report["deployment_blocked"] is False
 
 
 @pytest.mark.qa_live

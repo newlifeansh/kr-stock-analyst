@@ -749,7 +749,8 @@ def test_us_feed_replays_top100_model_lifecycle_without_orders(monkeypatch):
     shadow = held_without_new_candidate["shadow_comparison"]
     assert held_without_new_candidate["confirmed_count"] == 20
     assert shadow["candidate_action_counts"] == {"no_signal": 100}
-    assert sum(shadow["rejection_counts"].values()) == 100
+    assert shadow["lifecycle_no_signal_count"] == 100
+    assert sum(shadow["rejection_counts"].values()) == 0
     assert lifecycle._shadow_comparison_is_valid(
         held_without_new_candidate,
         universe_date=date(2026, 9, 8),
