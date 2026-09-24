@@ -46,7 +46,7 @@ def test_health():
     readyz = client.get("/readyz")
     assert readyz.status_code == 200
     assert readyz.json()["database_ok"] is True
-    assert readyz.json()["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
+    assert readyz.json()["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
 
 
 def test_market_recommendations_do_not_keep_empty_payload_for_full_cache_window(monkeypatch):
@@ -238,8 +238,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="home-view" class="app-page app-home"' in response.text
     assert 'id="search-view" class="app-page app-search"' in response.text
     assert 'id="bottom-nav" aria-label="주요 메뉴"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260924us106"' in response.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us106&amp;build=20260924us106"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260924us107"' in response.text
+    assert 'href="/assets/dashboard/styles.css?v=20260924us107&amp;build=20260924us107"' in response.text
     assert 'setCopy("home-market-signal-title", "미국 시그널 감시 후보")' in source
     assert 'setCopy("home-ai-signals-title", "시그널 감시 후보")' in source
     assert 'signalPageTitle.textContent = "시그널 감시 후보"' in source
@@ -258,7 +258,7 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
-        .replace("20260924us106", "20260923v553")
+        .replace("20260924us107", "20260923v553")
     )
     assert normalized_us == dashboard.text
 
@@ -613,8 +613,8 @@ def test_us_stock_ai_analysis_endpoint_labels_dollar_volume_proxy(monkeypatch):
     canonical = {
         "status": "ready",
         "data_state": "ready",
-        "strategy_version": "position-lifecycle-us-v1-rc1",
-        "rollout_mode": "shadow",
+        "strategy_version": "position-lifecycle-us-v2-rc1",
+        "rollout_mode": "model_replay",
         "execution_enabled": False,
         "snapshot_id": "us-rc1-snapshot",
         "snapshot_checksum": "feed-checksum",
@@ -705,8 +705,8 @@ def test_us_stock_ai_analysis_endpoint_labels_dollar_volume_proxy(monkeypatch):
     ]
     assert "가격×거래량" in flow["summary"]
     assert "투자자 순매수나 ETF 순유입이 아닙니다" in flow["note"]
-    assert payload["strategy_version"] == "position-lifecycle-us-v1-rc1"
-    assert payload["rollout_mode"] == "shadow"
+    assert payload["strategy_version"] == "position-lifecycle-us-v2-rc1"
+    assert payload["rollout_mode"] == "model_replay"
     assert payload["execution_enabled"] is False
     assert payload["snapshot_id"] == "us-rc1-snapshot"
     assert payload["snapshot_checksum"] == "feed-checksum"
@@ -721,6 +721,7 @@ def test_us_stock_ai_analysis_endpoint_labels_dollar_volume_proxy(monkeypatch):
         "action": "entry_pending",
         "label": "예비 매수",
         "position_open": False,
+        "model_exposure_percent": 0,
         "live_observation": False,
         "as_of": "2026-09-09",
     }
@@ -1300,8 +1301,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260924us106"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us106&amp;build=20260924us106"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260924us107"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260924us107&amp;build=20260924us107"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1591,7 +1592,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260924us106"}
+    assert version.json() == {"version": "20260924us107"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1600,9 +1601,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260924us106" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260924us107" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20260924us106")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20260924us107")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1616,12 +1617,12 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20260924us106"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20260924us107"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20260924us106' in worker.text
-    assert '"/dashboard-app-v170.js?v=20260924us106"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20260924us107' in worker.text
+    assert '"/dashboard-app-v170.js?v=20260924us107"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
@@ -3052,8 +3053,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20260924us106"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us106&amp;build=20260924us106"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260924us107"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260924us107&amp;build=20260924us107"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()
@@ -3663,7 +3664,9 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert 'dashboardRouteUrl("ai-signals", marketScopeForItem(item))' in source
     assert 'row.dataset.marketScope = marketScopeForItem(item);' in source
     assert 'identity.append(el("small", "", "시장 신호"));' in source
-    assert 'return { key: "recent-buy", label: "확정 매수", tone: "buy", signalDate' in source
+    assert 'label: usModelReplay ? "전략 매수 확정" : "확정 매수"' in source
+    assert 'id="ai-signal-model-disclaimer"' in shell
+    assert 'aiSignalLifecycleMode === "us-next-open-model-replay-v1"' in source
     assert 'return { key: "holding", label: "보유 중", tone: "hold", signalDate' not in source
     assert '"전량 매도 확정 · 전략 버전 통일" : "전량 매도 확정"' in source
     assert "function aiSignalTransitionKey" in source
@@ -3745,8 +3748,9 @@ def test_ai_signal_home_preview_opens_full_list_before_stock_detail():
     assert "home-ai-signal-sector" not in row_source
     assert 'row.setAttribute("aria-label", `${item.name || item.code || "종목"} 상세 분석 보기`);' in source
     assert 'return { key: "recent-buy", label: "예비 매수"' in source
-    assert 'return { key: "recent-sell", label: "전량 매도 대기"' in source
-    assert 'label: "확정 매수"' in source
+    assert 'label: usModelReplay ? "전략 매도 대기" : "전량 매도 대기"' in source
+    assert 'label: usModelReplay ? "전략 매수 확정" : "확정 매수"' in source
+    assert 'label: usModelReplay ? "전략 보유" : "확정 매수"' in source
     assert '"전량 매도 확정 · 전략 버전 통일" : "전량 매도 확정"' in source
     assert "function isPreliminaryAiSignal" in source
     signal_view_source = source[source.index("function homeAiSignalView"):source.index("function aiSignalTransitionKey")]

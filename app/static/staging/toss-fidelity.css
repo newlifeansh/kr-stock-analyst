@@ -18177,6 +18177,7 @@ body[data-staging-ia="tds-video"] #ai-signals-view .home-ai-signal-metric-value 
   text-align: left !important;
 }
 
+body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-model-disclaimer,
 body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-sell-disclaimer {
   display: block !important;
   margin: 0 !important;
@@ -18190,10 +18191,12 @@ body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-sell-disclaimer {
   word-break: keep-all !important;
 }
 
+body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-model-disclaimer[hidden],
 body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-sell-disclaimer[hidden] {
   display: none !important;
 }
 
+body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-model-disclaimer strong,
 body[data-staging-ia="tds-video"] #ai-signals-view .ai-signal-sell-disclaimer strong {
   color: inherit !important;
   font-weight: 720 !important;

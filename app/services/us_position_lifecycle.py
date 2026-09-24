@@ -54,9 +54,15 @@ from app.services.us_signal_universe import (
 logger = logging.getLogger(__name__)
 
 
-US_STRATEGY_VERSION = "position-lifecycle-us-v1-rc1"
+US_STRATEGY_VERSION = "position-lifecycle-us-v2-rc1"
 US_BASELINE_STRATEGY_VERSION = "us-momentum-watch-v1"
-US_ROLLOUT_MODE = "shadow"
+# The US feed remains a model-only product: no broker order is ever sent.  The
+# v2 candidate does, however, replay a completed-session lifecycle so the UI
+# can distinguish a close-time candidate from a next-session model entry.
+US_ROLLOUT_MODE = "model_replay"
+US_LIFECYCLE_REPLAY_VERSION = "us-next-open-model-replay-v1"
+US_STATEFUL_LIFECYCLE_REPLAY_ENABLED = True
+US_REENTRY_RUNTIME_ENABLED = True
 US_BASELINE_ENTRY_SCORE = Decimal("60")
 US_BASELINE_VALUE_SCORE = Decimal("45")
 US_BASELINE_LIQUIDITY_SCORE = Decimal("60")
@@ -68,6 +74,10 @@ US_MIN_STOCK_PARTICIPATION = 0.90
 US_MIN_SECTOR_PARTICIPATION = 0.85
 US_MAX_ENTRY_GAP_ATR = 1.5
 US_MAX_ENTRY_GAP_PERCENT = 0.05
+US_LIFECYCLE_INITIAL_STOP_ATR = 2.0
+US_LIFECYCLE_MAX_STOP_PERCENT = 0.05
+US_LIFECYCLE_MIN_HOLDING_BARS = 2
+US_LIFECYCLE_TREND_EXIT_CONFIRMATIONS = 2
 
 US_ENTRY_POLICY = EntryPolicy(
     entry_score=65.0,
@@ -597,6 +607,275 @@ def us_entry_execution_allowed(execution_price: float, signal_price: float, atr:
     return abs(execution_value - signal_value) <= allowed_gap
 
 
+def _us_model_initial_stop(entry_price: float, atr: float) -> float:
+    """Return the persisted model-risk floor for a next-open US entry.
+
+    The replay intentionally uses only completed daily OHLC.  It is not a
+    broker stop order and must never be described as one in the public API.
+    """
+
+    entry = max(0.0, float(entry_price))
+    bounded_atr_risk = min(
+        entry * US_LIFECYCLE_MAX_STOP_PERCENT,
+        max(entry * 0.01, max(0.0, float(atr)) * US_LIFECYCLE_INITIAL_STOP_ATR),
+    )
+    return max(0.0, entry - bounded_atr_risk)
+
+
+def _us_model_exit_reason(
+    position: dict[str, Any],
+    bar: USLifecycleBar,
+    indicator: dict[str, float],
+    *,
+    allow_trend_exit: bool,
+) -> Optional[str]:
+    """Return a close-confirmed model exit reason, never an intraday order.
+
+    A protective floor exits at the following regular-session open.  A softer
+    trend exit needs two completed closes below the 20-day average, avoiding a
+    one-day reaction to noise while still keeping the replay deterministic.
+    """
+
+    if float(bar.close) <= float(position["stop_reference"]):
+        return "위험선 하회"
+    if not allow_trend_exit:
+        position["trend_exit_confirmations"] = 0
+        return None
+    below_trend = bool(
+        float(bar.close) < float(indicator.get("ema20") or 0.0)
+        and float(indicator.get("momentum5") or 0.0) < 0.0
+    )
+    position["trend_exit_confirmations"] = (
+        int(position.get("trend_exit_confirmations") or 0) + 1
+        if below_trend
+        else 0
+    )
+    if (
+        int(position["trend_exit_confirmations"])
+        >= US_LIFECYCLE_TREND_EXIT_CONFIRMATIONS
+    ):
+        return "20일 가격 흐름 약화 확인"
+    return None
+
+
+def _us_model_lifecycle_label(action: str) -> str:
+    return {
+        "entry_watch": "예비 포착",
+        "entry_pending": "예비 매수",
+        "entered": "전략 매수 확정",
+        "holding": "전략 보유",
+        "full_exit_pending": "전략 매도 대기",
+        "exited": "전략 매도 확정",
+        "no_signal": "관망",
+    }.get(action, "관망")
+
+
+def replay_us_position_lifecycle(
+    stock_bars: list[USLifecycleBar],
+    spy_bars: list[USLifecycleBar],
+    qqq_bars: list[USLifecycleBar],
+    sector_bars: list[USLifecycleBar],
+    *,
+    latest_decision: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Replay US model entries on the next completed session open.
+
+    A candidate is created at a completed close.  It becomes a *model*
+    confirmed entry only when the following completed session's opening price
+    is inside the stored gap envelope.  This provides a deterministic,
+    inspectable lifecycle without claiming an actual user order or holding.
+    """
+
+    series = (stock_bars, spy_bars, qqq_bars, sector_bars)
+    if min(len(rows) for rows in series) < US_MIN_HISTORY_ROWS:
+        return {
+            "complete": False,
+            "action": "no_signal",
+            "events": [],
+            "position": None,
+            "last_exit": None,
+        }
+    if not _aligned_recent_sessions(*series):
+        return {
+            "complete": False,
+            "action": "no_signal",
+            "events": [],
+            "position": None,
+            "last_exit": None,
+        }
+
+    stock_indicators = calculate_indicators(stock_bars)
+    position: Optional[dict[str, Any]] = None
+    pending: Optional[dict[str, Any]] = None
+    last_exit_index: Optional[int] = None
+    events: list[dict[str, Any]] = []
+    last_exit: Optional[dict[str, Any]] = None
+    start_index = US_MIN_HISTORY_ROWS - 1
+
+    for index in range(start_index, len(stock_bars)):
+        bar = stock_bars[index]
+        indicator = stock_indicators[index]
+
+        if pending is not None:
+            active_pending = pending
+            pending = None
+            if not bar.ohlc_complete or float(bar.open) <= 0:
+                continue
+            if active_pending["side"] == "buy":
+                if not us_entry_execution_allowed(
+                    float(bar.open),
+                    float(active_pending["signal_price"]),
+                    float(active_pending["atr"]),
+                ):
+                    continue
+                entry_price = float(bar.open)
+                position = {
+                    "entry_date": bar.trade_date,
+                    "entry_index": index,
+                    "entry_price": entry_price,
+                    "signal_date": active_pending["signal_date"],
+                    "signal_price": float(active_pending["signal_price"]),
+                    "score": float(active_pending["score"]),
+                    "stop_reference": _us_model_initial_stop(
+                        entry_price,
+                        float(active_pending["atr"]),
+                    ),
+                    "peak_price": max(entry_price, float(bar.high)),
+                    "trend_exit_confirmations": 0,
+                }
+                events.append(
+                    {
+                        "signal_date": active_pending["signal_date"],
+                        "signal_at": _signal_close_at(active_pending["signal_date"]),
+                        "execution_date": bar.trade_date,
+                        "side": "buy",
+                        "label": "전략상 진입",
+                        "price": _decimal(entry_price),
+                        "entry_price": _decimal(entry_price),
+                        "reason": "다음 미국 정규장 시가가 갭 제한 안에서 확인됐습니다.",
+                        "state_after": "holding",
+                    }
+                )
+            elif active_pending["side"] == "sell" and position is not None:
+                exit_price = float(bar.open)
+                entry_price = float(position["entry_price"])
+                net_return = ((exit_price / entry_price) - 1.0) * 100.0
+                last_exit = {
+                    "signal_date": active_pending["signal_date"],
+                    "exit_date": bar.trade_date,
+                    "exit_price": exit_price,
+                    "entry_date": position["entry_date"],
+                    "entry_price": entry_price,
+                    "return_rate": net_return,
+                    "reason": active_pending["reason"],
+                }
+                events.append(
+                    {
+                        "signal_date": active_pending["signal_date"],
+                        "signal_at": _signal_close_at(active_pending["signal_date"]),
+                        "execution_date": bar.trade_date,
+                        "side": "sell",
+                        "label": "전략상 전량 매도",
+                        "price": _decimal(exit_price),
+                        "entry_price": _decimal(entry_price),
+                        "return_rate": _decimal(net_return),
+                        "reason": active_pending["reason"],
+                        "state_after": "exited",
+                    }
+                )
+                position = None
+                last_exit_index = index
+
+        if position is not None:
+            position["peak_price"] = max(
+                float(position["peak_price"]), float(bar.high)
+            )
+
+        # A condition raised at today's close cannot be modeled as a confirmed
+        # entry until a later completed session supplies its opening price.
+        if index >= len(stock_bars) - 1:
+            continue
+
+        if position is not None:
+            reason = _us_model_exit_reason(
+                position,
+                bar,
+                indicator,
+                allow_trend_exit=(
+                    index - int(position["entry_index"])
+                    >= US_LIFECYCLE_MIN_HOLDING_BARS
+                ),
+            )
+            if reason:
+                pending = {
+                    "side": "sell",
+                    "signal_date": bar.trade_date,
+                    "reason": reason,
+                }
+            continue
+
+        decision = evaluate_us_entry_candidate(
+            stock_bars[: index + 1],
+            spy_bars[: index + 1],
+            qqq_bars[: index + 1],
+            sector_bars[: index + 1],
+            new_entries_allowed=True,
+        )
+        if (
+            decision.get("data_state") == "ready"
+            and decision.get("action") == "entry_pending"
+            and us_reentry_allowed(stock_bars, stock_indicators, index, last_exit_index)
+        ):
+            pending = {
+                "side": "buy",
+                "signal_date": bar.trade_date,
+                "signal_price": float(decision["price"]),
+                "atr": float((decision.get("technical") or {}).get("atr") or 0.0),
+                "score": float(decision.get("score") or 0.0),
+            }
+
+    latest = latest_decision or evaluate_us_entry_candidate(
+        stock_bars,
+        spy_bars,
+        qqq_bars,
+        sector_bars,
+        new_entries_allowed=True,
+    )
+    latest_bar = stock_bars[-1]
+    latest_indicator = stock_indicators[-1]
+    if position is not None:
+        reason = _us_model_exit_reason(
+            position,
+            latest_bar,
+            latest_indicator,
+            allow_trend_exit=(
+                len(stock_bars) - 1 - int(position["entry_index"])
+                >= US_LIFECYCLE_MIN_HOLDING_BARS
+            ),
+        )
+        action = "full_exit_pending" if reason else (
+            "entered"
+            if position["entry_date"] == latest_bar.trade_date
+            else "holding"
+        )
+        pending_exit_reason = reason
+    elif last_exit is not None:
+        action = "exited"
+        pending_exit_reason = None
+    else:
+        action = str(latest.get("action") or "no_signal")
+        pending_exit_reason = None
+    return {
+        "complete": True,
+        "action": action,
+        "events": events,
+        "position": position,
+        "last_exit": last_exit,
+        "pending_exit_reason": pending_exit_reason,
+        "latest_decision": latest,
+    }
+
+
 def _history_loader(symbol: str) -> list[Any]:
     from app.services.us_market import chart_prices_range
 
@@ -828,8 +1107,9 @@ def _candidate_item(
         "strategy_version": US_STRATEGY_VERSION,
         "rollout_mode": US_ROLLOUT_MODE,
         "execution_enabled": False,
-        "stateful_lifecycle_replay_enabled": False,
-        "reentry_runtime_enabled": False,
+        "stateful_lifecycle_replay_enabled": US_STATEFUL_LIFECYCLE_REPLAY_ENABLED,
+        "reentry_runtime_enabled": US_REENTRY_RUNTIME_ENABLED,
+        "lifecycle_replay_version": US_LIFECYCLE_REPLAY_VERSION,
         "side": "buy",
         "status": "preliminary",
         "is_preliminary": True,
@@ -900,6 +1180,146 @@ def _candidate_item(
     }
 
 
+def _model_lifecycle_item(
+    member: dict[str, Any],
+    decision: dict[str, Any],
+    sector_symbol: str,
+    replay: dict[str, Any],
+    *,
+    as_of: datetime,
+    universe_date: date,
+) -> dict[str, Any]:
+    """Project one replayed model lifecycle row into the public feed shape."""
+
+    action = str(replay.get("action") or "no_signal")
+    position = replay.get("position") if isinstance(replay.get("position"), dict) else None
+    last_exit = replay.get("last_exit") if isinstance(replay.get("last_exit"), dict) else None
+    signal_date = (
+        position.get("signal_date")
+        if position is not None
+        else last_exit.get("signal_date")
+        if last_exit is not None
+        else universe_date
+    )
+    if not isinstance(signal_date, date):
+        signal_date = universe_date
+    signal_at = _signal_close_at(signal_date)
+    label = _us_model_lifecycle_label(action)
+    is_open = action in {"entered", "holding", "full_exit_pending"}
+    is_confirmed = action in {"entered", "holding", "exited"}
+    current_price = _decimal(decision.get("price"))
+    entry_price = _decimal(position.get("entry_price")) if position else _decimal(
+        last_exit.get("entry_price") if last_exit else None
+    )
+    exit_price = _decimal(last_exit.get("exit_price")) if last_exit else None
+    entry_date = position.get("entry_date") if position else last_exit.get("entry_date") if last_exit else None
+    exit_date = last_exit.get("exit_date") if last_exit else None
+    unrealized_return = (
+        _decimal((float(decision.get("price") or 0.0) / float(position["entry_price"]) - 1.0) * 100.0)
+        if position is not None and float(position.get("entry_price") or 0.0) > 0
+        else None
+    )
+    return_rate = (
+        _decimal(last_exit.get("return_rate")) if last_exit is not None else unrealized_return
+    )
+    latest_transition = {
+        "label": label,
+        "side": "sell" if action in {"full_exit_pending", "exited"} else "buy",
+        "signal_date": signal_date,
+        "transition_date": (
+            exit_date if action == "exited" else entry_date if entry_date else universe_date
+        ),
+        "price": exit_price if action == "exited" else entry_price or current_price,
+        "entry_price": entry_price,
+    }
+    confirmation = dict(decision.get("confirmation") or {})
+    public_reasons = _decision_public_reasons(
+        decision,
+        as_of=_signal_close_at(universe_date) or as_of,
+    )
+    next_confirmation = (
+        "다음 미국 정규장 시가에서 전략상 매도를 확인합니다."
+        if action == "full_exit_pending"
+        else "다음 완료 미국장 종가에서 위험선과 20일 가격 흐름을 다시 확인합니다."
+        if is_open
+        else "다음 완료 미국장에서 새 진입 조건을 다시 확인합니다."
+    )
+    return {
+        "data_state": "ready",
+        "strategy_version": US_STRATEGY_VERSION,
+        "rollout_mode": US_ROLLOUT_MODE,
+        "execution_enabled": False,
+        "stateful_lifecycle_replay_enabled": US_STATEFUL_LIFECYCLE_REPLAY_ENABLED,
+        "reentry_runtime_enabled": US_REENTRY_RUNTIME_ENABLED,
+        "lifecycle_replay_version": US_LIFECYCLE_REPLAY_VERSION,
+        "side": "sell" if action in {"full_exit_pending", "exited"} else "buy",
+        "status": "confirmed" if is_confirmed else "preliminary",
+        "is_preliminary": not is_confirmed,
+        "signal": label,
+        "signal_date": signal_date,
+        "signal_at": signal_at or as_of,
+        "updated_at": as_of,
+        "price": current_price,
+        "change_rate": _decimal(decision.get("change_rate")),
+        "one_month_return": _decimal(decision.get("one_month_return")),
+        "three_month_return": _decimal(decision.get("three_month_return")),
+        "trading_value": _decimal(decision.get("trading_value"), "0.01"),
+        "trading_value_change": _decimal(decision.get("trading_value_change")),
+        "reason": "완료된 미국장 종가와 다음 정규장 시가를 기준으로 재현한 전략 상태입니다.",
+        "flow_semantics": "dollar_volume_participation_proxy",
+        "flow_notice": "가격×거래량 기반 참여도이며 투자자 순매수나 ETF 순유입이 아닙니다.",
+        "public_reasons": public_reasons,
+        "events": list(replay.get("events") or [])[-4:],
+        "code": member["code"],
+        "name": member["name"],
+        "market": member["market"],
+        "currency": "USD",
+        "sector": member.get("sector"),
+        "signal_scope": "market",
+        "market_cap_rank": member["market_cap_rank"],
+        "market_cap": member.get("market_cap"),
+        "universe_tier": "core",
+        "is_current_universe_member": True,
+        "is_current_holding": is_open,
+        "price_through": universe_date.isoformat(),
+        "as_of": as_of,
+        "current": {
+            "action": action,
+            "label": label,
+            "position_open": is_open,
+            "model_exposure_percent": _decimal(100.0 if is_open else 0.0),
+            "live_observation": False,
+            "price": current_price,
+            "as_of": _signal_close_at(universe_date) or as_of,
+            "entry_date": entry_date,
+            "entry_price": entry_price,
+            "exit_date": exit_date,
+            "exit_price": exit_price,
+            "holding_days": (
+                max(0, (universe_date - entry_date).days) if isinstance(entry_date, date) else None
+            ),
+            "unrealized_return": unrealized_return,
+            "return_rate": return_rate,
+            "stop_reference": _decimal(position.get("stop_reference")) if position else None,
+            "reasons": [
+                "완료된 미국장 종가와 다음 정규장 시가만 사용한 모델 재현 결과입니다."
+            ],
+            "next_confirmation": next_confirmation,
+            "lifecycle": {
+                "state": action,
+                "label": label,
+                "stages": ["관망", "예비 포착", "예비 매수", "전략 보유", "전략 매도"],
+                "latest_transition": latest_transition,
+            },
+        },
+        "us_evidence": {
+            **confirmation,
+            "sector_etf": sector_symbol,
+        },
+        "guard_state": "blocked" if decision.get("chase_veto") else "clear",
+    }
+
+
 def build_us_position_lifecycle_feed(
     *,
     limit: int = 20,
@@ -924,8 +1344,9 @@ def build_us_position_lifecycle_feed(
         "baseline_strategy_version": US_BASELINE_STRATEGY_VERSION,
         "rollout_mode": US_ROLLOUT_MODE,
         "execution_enabled": False,
-        "stateful_lifecycle_replay_enabled": False,
-        "reentry_runtime_enabled": False,
+        "stateful_lifecycle_replay_enabled": US_STATEFUL_LIFECYCLE_REPLAY_ENABLED,
+        "reentry_runtime_enabled": US_REENTRY_RUNTIME_ENABLED,
+        "lifecycle_replay_version": US_LIFECYCLE_REPLAY_VERSION,
         "as_of": current,
         "snapshot_generated_at": current,
         "universe_as_of": universe.get("universe_as_of"),
@@ -944,8 +1365,9 @@ def build_us_position_lifecycle_feed(
             "125개 XNYS 세션이 쌓이지 않은 신규 상장 종목은 해당 종목만 관망하고 나머지 Top 100 평가는 계속합니다.",
             "SPY·QQQ 시장 국면, SPY·버전 고정 SEC CIK 섹터 ETF 프록시 대비 상대강도, 종목·ETF 거래대금 참여도를 독립 확인합니다.",
             "1.5ATR·7% 이격과 최근 5일 10% 초과 급등은 점수와 무관하게 추격매수로 차단합니다.",
-            "재진입 primitive는 고정 유예 없이 새 20일 돌파 또는 EMA20 눌림·회복을 요구하며, 실제 상태 연결은 shadow replay 승격 조건입니다.",
-            "RC1은 shadow 예비 신호만 제공하며 실제 주문·보유·확정 수익률을 만들지 않습니다.",
+            "재진입은 고정 유예 없이 새 20일 돌파 또는 EMA20 눌림·회복을 요구합니다.",
+            "예비 매수는 다음 미국 정규장 시가가 갭 제한 안에 있을 때만 전략상 매수 확정으로 전환합니다.",
+            "전략상 보유·매도는 완료 일봉으로 재현한 모델 상태이며 실제 주문·개인 보유 내역이 아닙니다.",
         ],
         "universe_policy": {
             "limit": US_SIGNAL_UNIVERSE_LIMIT,
@@ -1079,6 +1501,7 @@ def build_us_position_lifecycle_feed(
     candidate_actions: dict[str, str] = {}
     baseline_actions: dict[str, str] = {}
     comparison_codes: set[str] = set()
+    replay_complete_codes: set[str] = set()
     data_coverage_count = len(covered_codes)
     for member in members:
         code = str(member["code"])
@@ -1097,13 +1520,11 @@ def build_us_position_lifecycle_feed(
         )
         action = str(decision.get("action") or "no_signal")
         candidate_actions[code] = action
-        public_member_signals.append(
-            _public_member_signal(
-                member,
-                decision,
-                as_of=current,
-                universe_date=universe_date,
-            )
+        public_member_signal = _public_member_signal(
+            member,
+            decision,
+            as_of=current,
+            universe_date=universe_date,
         )
         baseline_decision = evaluate_us_momentum_watch_baseline(
             stock_bars if code in covered_codes else [],
@@ -1114,7 +1535,52 @@ def build_us_position_lifecycle_feed(
         )
         if code in covered_codes and baseline_decision.get("data_state") == "ready":
             comparison_codes.add(code)
-        if decision.get("data_state") == "ready" and action in {
+        replay = replay_us_position_lifecycle(
+            stock_bars,
+            spy_bars,
+            qqq_bars,
+            sector_bars,
+            latest_decision=decision,
+        )
+        if replay.get("complete") is True and code in signal_eligible_codes:
+            replay_complete_codes.add(code)
+        replay_action = str(replay.get("action") or "no_signal")
+        if (
+            complete_source_coverage
+            and universe_date is not None
+            and replay.get("complete") is True
+            and replay_action in {"entered", "holding", "full_exit_pending", "exited"}
+        ):
+            lifecycle_item = _model_lifecycle_item(
+                member,
+                decision,
+                sector_symbol,
+                replay,
+                as_of=current,
+                universe_date=universe_date,
+            )
+            if replay_action == "exited":
+                exit_date = (replay.get("last_exit") or {}).get("exit_date")
+                if not isinstance(exit_date, date) or exit_date < (
+                    universe_date - timedelta(days=max(1, int(recent_days)))
+                ):
+                    lifecycle_item = None
+            if lifecycle_item is not None:
+                items.append(lifecycle_item)
+                public_member_signal["current"] = {
+                    key: value
+                    for key, value in dict(lifecycle_item["current"]).items()
+                    if key in {
+                        "action",
+                        "label",
+                        "position_open",
+                        "model_exposure_percent",
+                        "live_observation",
+                        "as_of",
+                        "next_confirmation",
+                    }
+                }
+        elif decision.get("data_state") == "ready" and action in {
             "entry_watch",
             "entry_pending",
         }:
@@ -1127,9 +1593,20 @@ def build_us_position_lifecycle_feed(
                 if decision.get("chase_veto")
                 else "technical_or_evidence"
             ] += 1
+        public_member_signals.append(public_member_signal)
+    stateful_replay_complete = bool(
+        replay_complete_codes == signal_eligible_codes
+    )
     items.sort(
         key=lambda item: (
-            0 if item["current"]["action"] == "entry_pending" else 1,
+            {
+                "entered": 0,
+                "holding": 1,
+                "full_exit_pending": 2,
+                "exited": 3,
+                "entry_pending": 4,
+                "entry_watch": 5,
+            }.get(str(item["current"].get("action") or ""), 9),
             -float(item.get("score") or 0),
             int(item["market_cap_rank"]),
         )
@@ -1169,15 +1646,28 @@ def build_us_position_lifecycle_feed(
     ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     universe_policy = {
         **dict(base["universe_policy"]),
-        "new_entries_allowed": effective_new_entries_allowed,
+        "new_entries_allowed": effective_new_entries_allowed and stateful_replay_complete,
     }
+    projected_preliminary_count = sum(
+        1 for item in selected if item.get("is_preliminary") is True
+    )
+    projected_confirmed_count = sum(
+        1
+        for item in selected
+        if isinstance(item.get("current"), dict)
+        and item["current"].get("position_open") is True
+    )
     return {
         **base,
-        "status": "ready" if effective_new_entries_allowed else "degraded",
-        "data_state": "ready" if effective_new_entries_allowed else "degraded",
-        "new_entries_allowed": effective_new_entries_allowed,
+        "status": "ready" if effective_new_entries_allowed and stateful_replay_complete else "degraded",
+        "data_state": "ready" if effective_new_entries_allowed and stateful_replay_complete else "degraded",
+        "new_entries_allowed": effective_new_entries_allowed and stateful_replay_complete,
         "universe_policy": universe_policy,
-        "preliminary_count": len(selected),
+        "stateful_lifecycle_replay_complete": stateful_replay_complete,
+        "stateful_lifecycle_replay_eligible_count": len(signal_eligible_codes),
+        "stateful_lifecycle_replay_completed_count": len(replay_complete_codes),
+        "confirmed_count": projected_confirmed_count,
+        "preliminary_count": projected_preliminary_count,
         "entry_pending_count": sum(
             1 for item in selected if item["current"]["action"] == "entry_pending"
         ),
@@ -1199,7 +1689,12 @@ def build_us_position_lifecycle_feed(
             "universe_count": len(members),
             "same_snapshot_evaluated_count": comparison_count,
             "comparison_complete": comparison_count == US_SIGNAL_UNIVERSE_LIMIT,
-            "candidate_preliminary_count": len(items),
+            "candidate_preliminary_count": sum(
+                1
+                for action in candidate_actions.values()
+                if action in {"entry_watch", "entry_pending"}
+            ),
+            "candidate_actions": dict(candidate_actions),
             "candidate_action_counts": dict(candidate_action_counts),
             "baseline_action_counts": dict(baseline_action_counts),
             "candidate_entry_pending_count": len(candidate_pending_codes),
@@ -1255,19 +1750,20 @@ def build_us_position_lifecycle_feed(
                 },
             },
             "rejection_counts": dict(rejection_counts),
-            "promotion_state": "not_eligible",
-            "promotion_reason": "forward shadow evidence, stateful lifecycle/reentry replay, complete reviewed CIK sector classification, and P0 QA are required",
+            "promotion_state": "simulation_only",
+            "promotion_reason": "완료 일봉과 다음 정규장 시가의 모델 replay만 제공합니다. 실제 주문·개인 보유·자동 실행은 비활성입니다.",
         },
         "public_member_signals": public_member_signals,
         "items": selected,
     }
 
 
-# The HTTP surface always reads this full, canonical result.  Parameterized
-# response limits are projections of one snapshot rather than independently
-# calculated feeds, so recommendations and quant signals cannot disagree.
+# The HTTP surface always reads this full, canonical result.  Keep the storage
+# key stable across model schema upgrades: a v1 row can then trigger the
+# one-time completed-session rebuild instead of leaving the US product empty
+# until the next market close.
 US_POSITION_LIFECYCLE_SNAPSHOT_KEY = (
-    f"us-signal:{US_STRATEGY_VERSION}:{US_SIGNAL_UNIVERSE_VERSION}:full"
+    f"us-signal:position-lifecycle-us-v1-rc1:{US_SIGNAL_UNIVERSE_VERSION}:full"
 )
 US_POSITION_LIFECYCLE_MAX_SNAPSHOT_AGE_DAYS = 7
 
@@ -1464,8 +1960,17 @@ def _snapshot_public_member_signals_are_valid(
             or signal.get("data_state")
             != ("insufficient" if is_insufficient else "ready")
             or current.get("action")
-            not in {"no_signal", "entry_watch", "entry_pending"}
-            or current.get("position_open") is not False
+            not in {
+                "no_signal",
+                "entry_watch",
+                "entry_pending",
+                "entered",
+                "holding",
+                "full_exit_pending",
+                "exited",
+            }
+            or current.get("position_open")
+            is not (current.get("action") in {"entered", "holding", "full_exit_pending"})
             or current.get("live_observation") is not False
             or _parse_snapshot_datetime(current.get("as_of")) != signal_at
         ):
@@ -1497,6 +2002,96 @@ def _snapshot_public_member_signals_are_valid(
             return False
         observed_codes.add(code)
     return observed_codes == set(universe_members)
+
+
+def _snapshot_model_lifecycle_item_is_valid(
+    item: dict[str, Any],
+    *,
+    universe_date: date,
+    member: dict[str, Any],
+    expected_close_at: Optional[datetime],
+) -> bool:
+    """Validate a replayed model position separately from a close candidate."""
+
+    current = item.get("current")
+    if not isinstance(current, dict):
+        return False
+    action = str(current.get("action") or "")
+    lifecycle = current.get("lifecycle")
+    transition = lifecycle.get("latest_transition") if isinstance(lifecycle, dict) else None
+    signal_date = _parse_snapshot_date(item.get("signal_date"))
+    signal_at = _parse_snapshot_datetime(item.get("signal_at"))
+    current_as_of = _parse_snapshot_datetime(current.get("as_of"))
+    entry_date = _parse_snapshot_date(current.get("entry_date"))
+    exit_date = _parse_snapshot_date(current.get("exit_date"))
+    entry_price = _finite_decimal(current.get("entry_price"))
+    current_price = _finite_decimal(current.get("price"))
+    exposure = _finite_decimal(current.get("model_exposure_percent"))
+    expected_open = action in {"entered", "holding", "full_exit_pending"}
+    expected_confirmed = action in {"entered", "holding", "exited"}
+    expected_exposure = Decimal("100") if expected_open else Decimal("0")
+    expected_label = _us_model_lifecycle_label(action)
+    expected_signal_at = _signal_close_at(signal_date) if signal_date else None
+    expected_sector_etf = sector_etf_for_cik(member.get("cik"))
+    public_reasons = item.get("public_reasons")
+    evidence = item.get("us_evidence")
+    events = item.get("events")
+    if (
+        action not in {"entered", "holding", "full_exit_pending", "exited"}
+        or item.get("status") != ("confirmed" if expected_confirmed else "preliminary")
+        or item.get("is_preliminary") is not (not expected_confirmed)
+        or item.get("side") != ("sell" if action in {"full_exit_pending", "exited"} else "buy")
+        or item.get("lifecycle_replay_version") != US_LIFECYCLE_REPLAY_VERSION
+        or item.get("stateful_lifecycle_replay_enabled")
+        is not US_STATEFUL_LIFECYCLE_REPLAY_ENABLED
+        or item.get("reentry_runtime_enabled") is not US_REENTRY_RUNTIME_ENABLED
+        or item.get("price_through") != universe_date.isoformat()
+        or signal_date is None
+        or signal_date > universe_date
+        or signal_at is None
+        or expected_signal_at is None
+        or signal_at != expected_signal_at.astimezone(timezone.utc)
+        or current_as_of is None
+        or (
+            expected_close_at is not None
+            and current_as_of != expected_close_at.astimezone(timezone.utc)
+        )
+        or current.get("position_open") is not expected_open
+        or exposure != expected_exposure
+        or current.get("live_observation") is not False
+        or current.get("label") != expected_label
+        or not isinstance(lifecycle, dict)
+        or lifecycle.get("state") != action
+        or lifecycle.get("label") != expected_label
+        or not isinstance(transition, dict)
+        or transition.get("label") != expected_label
+        or not isinstance(events, list)
+        or not events
+        or entry_date is None
+        or entry_date > universe_date
+        or entry_price is None
+        or entry_price <= 0
+        or current_price is None
+        or current_price <= 0
+        or not isinstance(evidence, dict)
+        or evidence.get("quality_state") != "ready"
+        or evidence.get("sector_etf") != expected_sector_etf
+        or not _snapshot_public_reasons_are_valid(
+            public_reasons,
+            expected_as_of=expected_close_at,
+        )
+    ):
+        return False
+    if expected_open:
+        stop_reference = _finite_decimal(current.get("stop_reference"))
+        if stop_reference is None or stop_reference <= 0 or stop_reference >= entry_price:
+            return False
+    if action == "exited":
+        if exit_date is None or exit_date > universe_date or _finite_decimal(current.get("exit_price")) is None:
+            return False
+    elif exit_date is not None:
+        return False
+    return True
 
 
 def _snapshot_items_are_valid(
@@ -1535,31 +2130,33 @@ def _snapshot_items_are_valid(
             or item.get("strategy_version") != US_STRATEGY_VERSION
             or item.get("rollout_mode") != US_ROLLOUT_MODE
             or item.get("execution_enabled") is not False
-            or item.get("stateful_lifecycle_replay_enabled") is not False
-            or item.get("reentry_runtime_enabled") is not False
-            or item.get("side") != "buy"
-            or item.get("status") != "preliminary"
-            or item.get("is_preliminary") is not True
+            or item.get("stateful_lifecycle_replay_enabled")
+            is not US_STATEFUL_LIFECYCLE_REPLAY_ENABLED
+            or item.get("reentry_runtime_enabled") is not US_REENTRY_RUNTIME_ENABLED
+            or item.get("lifecycle_replay_version") != US_LIFECYCLE_REPLAY_VERSION
             or item.get("currency") != "USD"
             or item.get("market") != member.get("market")
             or item.get("signal_scope") != "market"
             or item.get("universe_tier") != "core"
             or item.get("is_current_universe_member") is not True
-            or signal_date != universe_date
-            or str(item.get("signal_date")) != universe_date.isoformat()
             or item.get("price_through") != universe_date.isoformat()
             or signal_at is None
-            or signal_at.date() != universe_date
-            or (
-                expected_close_at is not None
-                and signal_at != expected_close_at.astimezone(timezone.utc)
-            )
             or item.get("flow_semantics") != "dollar_volume_participation_proxy"
-            or item.get("events") != []
             or not isinstance(current, dict)
         ):
             return False
         action = current.get("action")
+        if action in {"entered", "holding", "full_exit_pending", "exited"}:
+            if not _snapshot_model_lifecycle_item_is_valid(
+                item,
+                universe_date=universe_date,
+                member=member,
+                expected_close_at=expected_close_at,
+            ):
+                return False
+            codes.add(code)
+            ranks.add(rank)
+            continue
         lifecycle = current.get("lifecycle")
         if not isinstance(lifecycle, dict):
             return False
@@ -1579,6 +2176,17 @@ def _snapshot_items_are_valid(
         expected_label = "예비 매수" if action == "entry_pending" else "예비 포착"
         if (
             action not in {"entry_watch", "entry_pending"}
+            or item.get("side") != "buy"
+            or item.get("status") != "preliminary"
+            or item.get("is_preliminary") is not True
+            or signal_date != universe_date
+            or str(item.get("signal_date")) != universe_date.isoformat()
+            or signal_at.date() != universe_date
+            or (
+                expected_close_at is not None
+                and signal_at != expected_close_at.astimezone(timezone.utc)
+            )
+            or item.get("events") != []
             or current.get("position_open") is not False
             or current.get("live_observation") is not False
             or exposure_value is None
@@ -1770,7 +2378,14 @@ def _shadow_comparison_is_valid(
     universe_codes = set(universe_members)
     candidate_counts = _action_counts(shadow.get("candidate_action_counts"))
     baseline_counts = _action_counts(shadow.get("baseline_action_counts"))
-    if candidate_counts is None or baseline_counts is None:
+    candidate_actions = shadow.get("candidate_actions")
+    if (
+        candidate_counts is None
+        or baseline_counts is None
+        or not isinstance(candidate_actions, dict)
+        or set(candidate_actions) != universe_codes
+        or any(action not in {"entry_pending", "entry_watch", "no_signal"} for action in candidate_actions.values())
+    ):
         return False
     expected_baseline_actions = {
         code: str(
@@ -1785,26 +2400,17 @@ def _shadow_comparison_is_valid(
         for code, action in expected_baseline_actions.items()
         if action == "entry_pending"
     }
+    expected_candidate_actions = {
+        code: str(candidate_actions[code]) for code in universe_codes
+    }
     pending_codes = {
-        str(item.get("code"))
-        for item in items
-        if isinstance(item, dict)
-        and isinstance(item.get("current"), dict)
-        and item["current"].get("action") == "entry_pending"
+        code for code, action in expected_candidate_actions.items()
+        if action == "entry_pending"
     }
     watch_count = sum(
-        1
-        for item in items
-        if isinstance(item, dict)
-        and isinstance(item.get("current"), dict)
-        and item["current"].get("action") == "entry_watch"
+        1 for action in expected_candidate_actions.values()
+        if action == "entry_watch"
     )
-    expected_candidate_actions = {code: "no_signal" for code in universe_codes}
-    for item in items:
-        if isinstance(item, dict) and isinstance(item.get("current"), dict):
-            expected_candidate_actions[str(item.get("code"))] = str(
-                item["current"].get("action") or "no_signal"
-            )
     expected_disagreement_codes = {
         code
         for code in universe_codes
@@ -1884,7 +2490,8 @@ def _shadow_comparison_is_valid(
         and shadow.get("universe_count") == US_SIGNAL_UNIVERSE_LIMIT
         and shadow.get("same_snapshot_evaluated_count") == US_SIGNAL_UNIVERSE_LIMIT
         and shadow.get("comparison_complete") is True
-        and shadow.get("candidate_preliminary_count") == len(items)
+        and shadow.get("candidate_preliminary_count")
+        == candidate_counts["entry_pending"] + candidate_counts["entry_watch"]
         and sum(candidate_counts.values()) == US_SIGNAL_UNIVERSE_LIMIT
         and sum(baseline_counts.values()) == US_SIGNAL_UNIVERSE_LIMIT
         and baseline_counts
@@ -1896,7 +2503,7 @@ def _shadow_comparison_is_valid(
         and candidate_counts["entry_pending"] == len(pending_codes)
         and candidate_counts["entry_watch"] == watch_count
         and candidate_counts["no_signal"]
-        == US_SIGNAL_UNIVERSE_LIMIT - len(items)
+        == US_SIGNAL_UNIVERSE_LIMIT - candidate_counts["entry_pending"] - candidate_counts["entry_watch"]
         and candidate_pending_count == len(pending_codes)
         and payload.get("entry_pending_count") == candidate_pending_count
         and baseline_counts["entry_pending"] == baseline_pending_count
@@ -1916,9 +2523,8 @@ def _shadow_comparison_is_valid(
         and disagreement_codes == expected_disagreement_codes
         and agreement_count == expected_agreement_count
         and agreement_rate == expected_rate
-        and shadow.get("promotion_state") == "not_eligible"
-        and "stateful lifecycle/reentry replay"
-        in str(shadow.get("promotion_reason") or "")
+        and shadow.get("promotion_state") == "simulation_only"
+        and "실제 주문" in str(shadow.get("promotion_reason") or "")
         and isinstance(baseline_method, dict)
         and _finite_decimal(baseline_method.get("entry_score"))
         == US_BASELINE_ENTRY_SCORE
@@ -2025,8 +2631,15 @@ def _ready_snapshot_semantics_are_valid(
         == US_SECTOR_ETF_CLASSIFICATION_VERSION
         and payload.get("rollout_mode") == US_ROLLOUT_MODE
         and payload.get("execution_enabled") is False
-        and payload.get("stateful_lifecycle_replay_enabled") is False
-        and payload.get("reentry_runtime_enabled") is False
+        and payload.get("stateful_lifecycle_replay_enabled")
+        is US_STATEFUL_LIFECYCLE_REPLAY_ENABLED
+        and payload.get("reentry_runtime_enabled") is US_REENTRY_RUNTIME_ENABLED
+        and payload.get("lifecycle_replay_version") == US_LIFECYCLE_REPLAY_VERSION
+        and payload.get("stateful_lifecycle_replay_complete") is True
+        and payload.get("stateful_lifecycle_replay_eligible_count")
+        == payload.get("signal_eligible_count")
+        and payload.get("stateful_lifecycle_replay_completed_count")
+        == payload.get("signal_eligible_count")
         and payload.get("status") == "ready"
         and payload.get("data_state") == "ready"
         and payload.get("universe_data_state") == "ready"
@@ -2066,9 +2679,20 @@ def _ready_snapshot_semantics_are_valid(
         and payload.get("source_errors") in ({}, None)
         and payload.get("sector_classification_errors") in ({}, None)
         and payload.get("preliminary_history") == []
-        and payload.get("confirmed_count") == 0
+        and type(payload.get("confirmed_count")) is int
+        and payload.get("confirmed_count")
+        == sum(
+            1
+            for item in items
+            if isinstance(item, dict)
+            and isinstance(item.get("current"), dict)
+            and item["current"].get("position_open") is True
+        )
         and type(payload.get("preliminary_count")) is int
-        and payload.get("preliminary_count") == len(items)
+        and payload.get("preliminary_count")
+        == sum(
+            1 for item in items if isinstance(item, dict) and item.get("is_preliminary") is True
+        )
         and type(payload.get("entry_pending_count")) is int
         and payload.get("entry_pending_count") == pending_count
         and isinstance(coverage, dict)
@@ -2253,9 +2877,21 @@ def canonical_us_position_lifecycle_snapshot(
                 "complete": count_complete,
             },
             "new_entries_allowed": count_complete,
-            "stateful_lifecycle_replay_enabled": False,
-            "reentry_runtime_enabled": False,
+            "stateful_lifecycle_replay_enabled": US_STATEFUL_LIFECYCLE_REPLAY_ENABLED,
+            "reentry_runtime_enabled": US_REENTRY_RUNTIME_ENABLED,
             "refresh_required": not count_complete,
+            "confirmed_count": sum(
+                1
+                for item in list(payload.get("items") or [])
+                if isinstance(item, dict)
+                and isinstance(item.get("current"), dict)
+                and item["current"].get("position_open") is True
+            ),
+            "preliminary_count": sum(
+                1
+                for item in list(payload.get("items") or [])
+                if isinstance(item, dict) and item.get("is_preliminary") is True
+            ),
             "entry_pending_count": sum(
                 1
                 for item in list(payload.get("items") or [])
@@ -2321,8 +2957,9 @@ def us_position_lifecycle_preparing_payload(
         "baseline_strategy_version": US_BASELINE_STRATEGY_VERSION,
         "rollout_mode": US_ROLLOUT_MODE,
         "execution_enabled": False,
-        "stateful_lifecycle_replay_enabled": False,
-        "reentry_runtime_enabled": False,
+        "stateful_lifecycle_replay_enabled": US_STATEFUL_LIFECYCLE_REPLAY_ENABLED,
+        "reentry_runtime_enabled": US_REENTRY_RUNTIME_ENABLED,
+        "lifecycle_replay_version": US_LIFECYCLE_REPLAY_VERSION,
         "as_of": current,
         "snapshot_generated_at": None,
         "snapshot_id": None,
@@ -2487,6 +3124,15 @@ def load_us_position_lifecycle_snapshot(
         return None
     if not isinstance(payload, dict):
         return None
+    if payload.get("strategy_version") != US_STRATEGY_VERSION:
+        # A release that changes lifecycle semantics must not render the old
+        # row as if it were compatible.  Return a fail-closed marker that lets
+        # the collector perform its bounded schema rebuild even during a US
+        # regular session (using the most recent completed daily bars).
+        upgrade = us_position_lifecycle_preparing_payload(now=current)
+        upgrade["schema_upgrade_required"] = True
+        upgrade["source_strategy_version"] = payload.get("strategy_version")
+        return upgrade
     generated_at = snapshot.generated_at
     if generated_at.tzinfo is None or generated_at.utcoffset() is None:
         generated_at = generated_at.replace(tzinfo=timezone.utc)
@@ -2567,6 +3213,8 @@ def us_position_lifecycle_schema_upgrade_due(
 ) -> bool:
     """Require a one-time rebuild for snapshots predating per-member evidence."""
 
+    if payload and payload.get("schema_upgrade_required") is True:
+        return True
     if (
         not payload
         or payload.get("status") != "ready"

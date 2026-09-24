@@ -87,7 +87,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
     ids = [case["id"] for case in payload["cases"]]
 
     assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
-    assert payload["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
+    assert payload["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
     assert len(ids) == 123
     assert len(ids) == len(set(ids))
     assert {
@@ -178,7 +178,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "# 데이터 연동·시그널 판단 QA 카탈로그" in first
     assert "`position-lifecycle-v7.4.2`" in first
     assert "SIG-CONTRACT-003" in first
-    assert "`position-lifecycle-us-v1-rc1`" in first
+    assert "`position-lifecycle-us-v2-rc1`" in first
     assert "QA 항목: 123개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
@@ -225,7 +225,7 @@ def test_signal_filter_e2e_waits_for_a_ready_revision_before_comparing_counts() 
     assert "return snapshotReady" in signal_filter_case
 
 @pytest.mark.qa_gate
-def test_us_rc1_catalog_covers_calendar_snapshot_and_real_shadow_comparison() -> None:
+def test_us_v2_catalog_covers_calendar_snapshot_and_model_replay_comparison() -> None:
     cases = {case["id"]: case for case in load_qa_catalog()["cases"]}
     signal_input = json.dumps(cases["DATA-US-SIGNAL-INPUT-001"], ensure_ascii=False)
     evidence = json.dumps(cases["DATA-US-EVIDENCE-001"], ensure_ascii=False)
@@ -245,6 +245,7 @@ def test_us_rc1_catalog_covers_calendar_snapshot_and_real_shadow_comparison() ->
     assert shadow["inputs"]["comparison_fields"] == [
         "same_snapshot_evaluated_count",
         "comparison_complete",
+        "candidate_actions",
         "candidate_action_counts",
         "baseline_action_counts",
         "candidate_entry_pending_count",
@@ -257,6 +258,8 @@ def test_us_rc1_catalog_covers_calendar_snapshot_and_real_shadow_comparison() ->
         "action_disagreement_codes",
     ]
     assert "버전명만" in json.dumps(shadow, ensure_ascii=False)
+    assert shadow["inputs"]["rollout_mode"] == "model_replay"
+    assert shadow["inputs"]["lifecycle_replay_version"] == "us-next-open-model-replay-v1"
     assert all(
         token in contract
         for token in (
@@ -268,6 +271,7 @@ def test_us_rc1_catalog_covers_calendar_snapshot_and_real_shadow_comparison() ->
             "100/100/100",
             "future generated_at",
             "checksum-valid structural incompleteness",
+            "stateful_lifecycle_replay_completed_count_equals_eligible",
         )
     )
 
@@ -1403,7 +1407,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.4.2"
-    assert report["us_strategy_version"] == "position-lifecycle-us-v1-rc1"
+    assert report["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
     assert report["catalog_case_count"] == 123
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
@@ -1565,16 +1569,16 @@ class FakeReadOnlyApi:
             return {
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
-                "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260924us106",
+                "us_strategy_version": "position-lifecycle-us-v2-rc1",
+                "us_dashboard_version": "20260924us107",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
             return {
                 "status": "ok",
                 "database_ok": True,
-                "us_strategy_version": "position-lifecycle-us-v1-rc1",
-                "us_dashboard_version": "20260924us106",
+                "us_strategy_version": "position-lifecycle-us-v2-rc1",
+                "us_dashboard_version": "20260924us107",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1655,12 +1659,16 @@ class FakeReadOnlyApi:
             return {
                 "status": "ready",
                 "data_state": "ready",
-                "strategy_version": "position-lifecycle-us-v1-rc1",
+                "strategy_version": "position-lifecycle-us-v2-rc1",
                 "baseline_strategy_version": "us-momentum-watch-v1",
-                "rollout_mode": "shadow",
+                "rollout_mode": "model_replay",
                 "execution_enabled": False,
-                "stateful_lifecycle_replay_enabled": False,
-                "reentry_runtime_enabled": False,
+                "stateful_lifecycle_replay_enabled": True,
+                "reentry_runtime_enabled": True,
+                "lifecycle_replay_version": "us-next-open-model-replay-v1",
+                "stateful_lifecycle_replay_complete": True,
+                "stateful_lifecycle_replay_eligible_count": 98,
+                "stateful_lifecycle_replay_completed_count": 98,
                 "sector_classification_version": "us-sector-etf-cik-v4",
                 "sector_classification_error_count": 0,
                 "confirmed_count": 0,
@@ -1668,7 +1676,7 @@ class FakeReadOnlyApi:
                 "entry_pending_count": 0,
                 "new_entries_allowed": True,
                 "snapshot_id": (
-                    f"position-lifecycle-us-v1-rc1:{universe_as_of}:fixture"
+                    f"position-lifecycle-us-v2-rc1:{universe_as_of}:fixture"
                 ),
                 "snapshot_checksum": "canonical-fixture-checksum",
                 "universe_data_state": "ready",
@@ -1702,13 +1710,14 @@ class FakeReadOnlyApi:
             return {
                 "status": "ready",
                 "data_state": "ready",
-                "strategy_version": "position-lifecycle-us-v1-rc1",
+                "strategy_version": "position-lifecycle-us-v2-rc1",
                 "baseline_strategy_version": "us-momentum-watch-v1",
                 "sector_classification_version": "us-sector-etf-cik-v4",
-                "rollout_mode": "shadow",
+                "rollout_mode": "model_replay",
                 "execution_enabled": False,
-                "stateful_lifecycle_replay_enabled": False,
-                "reentry_runtime_enabled": False,
+                "stateful_lifecycle_replay_enabled": True,
+                "reentry_runtime_enabled": True,
+                "lifecycle_replay_version": "us-next-open-model-replay-v1",
                 "new_entries_allowed": True,
                 "recommendation_model_version": (
                     "us-independent-recommendation-v1"
@@ -1717,7 +1726,7 @@ class FakeReadOnlyApi:
                     "recommendation_score_ranked_independent_of_trade_signal"
                 ),
                 "snapshot_id": (
-                    f"position-lifecycle-us-v1-rc1:{universe_as_of}:fixture"
+                    f"position-lifecycle-us-v2-rc1:{universe_as_of}:fixture"
                 ),
                 "snapshot_checksum": "canonical-fixture-checksum",
                 "universe_count": 100,
@@ -1766,7 +1775,7 @@ class FakeReadOnlyApi:
                 "status": "ready",
                 "data_state": "ready",
                 "snapshot_id": (
-                    f"position-lifecycle-us-v1-rc1:{universe_as_of}:fixture"
+                    f"position-lifecycle-us-v2-rc1:{universe_as_of}:fixture"
                 ),
                 "snapshot_checksum": "canonical-fixture-checksum",
                 "new_entries_allowed": True,
@@ -1931,7 +1940,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20260924us106"}, self._meta(path)
+            return {"version": "20260924us107"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -1978,11 +1987,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20260924us106" />'
+                '<link href="/assets/dashboard/styles.css?v=20260924us107" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20260924us106"></script>'
+                '<script src="/dashboard-app-v170.js?v=20260924us107"></script>'
                 '</body></html>',
                 self._meta(path),
             )

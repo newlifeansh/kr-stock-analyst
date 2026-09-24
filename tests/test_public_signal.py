@@ -6,6 +6,8 @@ import json
 from app.services.public_signal import (
     PUBLIC_SIGNAL_DECISION_REASON,
     PUBLIC_SIGNAL_REASON_KEYS,
+    US_PUBLIC_MODEL_LIFECYCLE_NEXT_CHECK,
+    US_PUBLIC_MODEL_LIFECYCLE_REASON,
     public_market_signal_payload,
     public_quant_signal_payload,
     public_recommendation_signal_payload,
@@ -133,6 +135,34 @@ def test_quant_projection_exposes_only_three_public_reasons_and_keeps_input_immu
         "private-filter",
     ):
         assert private_token not in serialized
+
+
+def test_us_model_lifecycle_projection_keeps_the_model_disclaimer() -> None:
+    payload = _private_quant_payload()
+    payload.update(
+        {
+            "strategy_version": "position-lifecycle-us-v2-rc1",
+            "flow_semantics": "dollar_volume_participation_proxy",
+            "reason": "private model reason",
+        }
+    )
+    payload["current"].update(
+        {
+            "action": "holding",
+            "label": "전략 보유",
+            "position_open": True,
+            "model_exposure_percent": 100,
+            "entry_price": 100,
+            "stop_reference": 95,
+        }
+    )
+
+    public = public_quant_signal_payload(payload)
+
+    assert public["reason"] == US_PUBLIC_MODEL_LIFECYCLE_REASON
+    assert public["current"]["next_confirmation"] == US_PUBLIC_MODEL_LIFECYCLE_NEXT_CHECK
+    assert "entry_price" not in public["current"]
+    assert "stop_reference" not in public["current"]
 
 
 def test_market_projection_redacts_live_and_preliminary_history_reasons() -> None:

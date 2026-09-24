@@ -373,7 +373,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "SIG-US-VERSION-001": (
         "tests.test_us_position_lifecycle."
-        "test_us_feed_is_top100_shadow_only_and_never_creates_a_position",
+        "test_us_feed_replays_top100_model_lifecycle_without_orders",
         "tests.test_us_market."
         "test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed",
         "tests.test_us_position_lifecycle_runtime."
@@ -384,6 +384,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_shared_lifecycle_indicator_core_matches_v742_domestic_golden_vector",
         "tests.test_us_position_lifecycle."
         "test_us_entry_requires_market_relative_strength_and_dollar_volume_evidence",
+        "tests.test_us_position_lifecycle."
+        "test_us_model_replay_confirms_only_the_next_open_inside_gap",
         "tests.test_quant_signals."
         "test_v742_reentry_has_no_fixed_delay_but_requires_new_breakout_or_ema20_retest",
         "tests.test_us_position_lifecycle_runtime."
@@ -407,11 +409,11 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_position_lifecycle."
         "test_us_reentry_allows_ema20_retest_recovery_without_fixed_wait",
         "tests.test_us_position_lifecycle."
-        "test_us_feed_is_top100_shadow_only_and_never_creates_a_position",
+        "test_us_feed_replays_top100_model_lifecycle_without_orders",
         "tests.test_us_position_lifecycle_runtime."
-        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[stateful_lifecycle_replay_enabled-True]",
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[stateful_lifecycle_replay_enabled-False]",
         "tests.test_us_position_lifecycle_runtime."
-        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[reentry_runtime_enabled-True]",
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[reentry_runtime_enabled-False]",
     ),
     "SIG-US-SHADOW-001": (
         "tests.test_us_position_lifecycle."
@@ -421,7 +423,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_position_lifecycle."
         "test_legacy_us_momentum_baseline_preserves_rounding_and_quote_volume_semantics",
         "tests.test_us_position_lifecycle."
-        "test_us_feed_is_top100_shadow_only_and_never_creates_a_position",
+        "test_us_feed_replays_top100_model_lifecycle_without_orders",
         "tests.test_us_market."
         "test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed",
         "tests.test_us_position_lifecycle_runtime."
@@ -429,7 +431,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "SIG-US-CONTRACT-001": (
         "tests.test_us_position_lifecycle."
-        "test_us_feed_is_top100_shadow_only_and_never_creates_a_position",
+        "test_us_feed_replays_top100_model_lifecycle_without_orders",
         "tests.test_us_position_lifecycle_fail_closed."
         "test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy",
         "tests.test_us_position_lifecycle_fail_closed."
@@ -461,9 +463,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_position_lifecycle_runtime."
         "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[coverage_sector_classification_error_count-1]",
         "tests.test_us_position_lifecycle_runtime."
-        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[stateful_lifecycle_replay_enabled-True]",
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[stateful_lifecycle_replay_enabled-False]",
         "tests.test_us_position_lifecycle_runtime."
-        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[reentry_runtime_enabled-True]",
+        "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[reentry_runtime_enabled-False]",
         "tests.test_us_position_lifecycle_runtime."
         "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[item_currency-KRW]",
         "tests.test_us_position_lifecycle_runtime."
@@ -1103,7 +1105,10 @@ def _gate_checks(
     from app.services.us_position_lifecycle import (
         US_BASELINE_STRATEGY_VERSION,
         US_CHASE_POLICY,
+        US_LIFECYCLE_REPLAY_VERSION,
         US_ROLLOUT_MODE,
+        US_STATEFUL_LIFECYCLE_REPLAY_ENABLED,
+        US_REENTRY_RUNTIME_ENABLED,
         US_STRATEGY_VERSION,
     )
     from app.services.us_signal_universe import (
@@ -1167,9 +1172,12 @@ def _gate_checks(
             "미국 시그널 유니버스 정책이 Top 100 v2와 다릅니다.",
         )
         _assert(
-            US_ROLLOUT_MODE == "shadow"
+            US_ROLLOUT_MODE == "model_replay"
+            and US_LIFECYCLE_REPLAY_VERSION == "us-next-open-model-replay-v1"
+            and US_STATEFUL_LIFECYCLE_REPLAY_ENABLED is True
+            and US_REENTRY_RUNTIME_ENABLED is True
             and US_BASELINE_STRATEGY_VERSION == "us-momentum-watch-v1",
-            "미국 RC1 shadow 비교 계약이 다릅니다.",
+            "미국 v2 모델 replay 비교 계약이 다릅니다.",
         )
         _assert(
             US_CHASE_POLICY.max_extension_atr == 1.5
@@ -1188,7 +1196,7 @@ def _gate_checks(
     collector.check(
         "SIG-US-VERSION-001",
         us_strategy_contract,
-        pass_message="미국 RC1·baseline·Top 100 shadow 버전 계약을 확인했습니다.",
+        pass_message="미국 v2·baseline·Top 100 모델 replay 버전 계약을 확인했습니다.",
     )
 
     def input_contract() -> dict[str, Any]:
@@ -1890,12 +1898,13 @@ def _live_checks(
                 expected_version=expected_version,
             )
             _assert(
-                feed.get("rollout_mode") == "shadow"
+                feed.get("rollout_mode") == "model_replay"
                 and feed.get("execution_enabled") is False
-                and feed.get("stateful_lifecycle_replay_enabled") is False
-                and feed.get("reentry_runtime_enabled") is False
-                and int(feed.get("confirmed_count") or 0) == 0,
-                "미국 RC1이 shadow 예비 전용 계약을 벗어났습니다.",
+                and feed.get("stateful_lifecycle_replay_enabled") is True
+                and feed.get("reentry_runtime_enabled") is True
+                and feed.get("lifecycle_replay_version") == "us-next-open-model-replay-v1"
+                and feed.get("stateful_lifecycle_replay_complete") is True,
+                "미국 전략 생명주기 모델 replay 계약이 깨졌습니다.",
             )
             items = feed.get("items") or []
             _assert(isinstance(items, list), "미국 시그널 items가 배열이 아닙니다.")
@@ -1906,6 +1915,7 @@ def _live_checks(
             )
             invalid_items: list[str] = []
             entry_pending_count = 0
+            confirmed_position_count = 0
             for item in items:
                 if not isinstance(item, dict):
                     invalid_items.append("non_object")
@@ -1913,16 +1923,43 @@ def _live_checks(
                 current_signal = item.get("current") or {}
                 if current_signal.get("action") == "entry_pending":
                     entry_pending_count += 1
+                action = str(current_signal.get("action") or "")
+                preliminary = action in {
+                    "entry_watch",
+                    "entry_pending",
+                    "full_exit_pending",
+                }
+                position_open = action in {"entered", "holding", "full_exit_pending"}
+                if position_open:
+                    confirmed_position_count += 1
                 try:
                     rank = int(item.get("market_cap_rank"))
                 except (TypeError, ValueError):
                     rank = 0
                 if (
                     item.get("currency") != "USD"
-                    or item.get("status") != "preliminary"
-                    or item.get("is_preliminary") is not public_candidate_ready
-                    or current_signal.get("position_open") is not False
-                    or current_signal.get("model_exposure_percent") not in (0, 0.0, "0", "0.0", None)
+                    or action not in {
+                        "entry_watch",
+                        "entry_pending",
+                        "entered",
+                        "holding",
+                        "full_exit_pending",
+                        "exited",
+                        "no_signal",
+                    }
+                    or (
+                        action != "no_signal"
+                        and item.get("status")
+                        != ("preliminary" if preliminary else "confirmed")
+                    )
+                    or (
+                        action != "no_signal"
+                        and item.get("is_preliminary") is not preliminary
+                    )
+                    or current_signal.get("position_open") is not position_open
+                    or current_signal.get("model_exposure_percent") not in (
+                        (100, 100.0, "100", "100.0") if position_open else (0, 0.0, "0", "0.0", None)
+                    )
                     or not 1 <= rank <= 100
                 ):
                     invalid_items.append(str(item.get("code") or "unknown"))
@@ -1930,6 +1967,12 @@ def _live_checks(
                 not invalid_items,
                 "미국 공개 예비 신호의 USD·Top100·미체결 계약이 깨졌습니다.",
                 invalid_items=invalid_items,
+            )
+            _assert(
+                int(feed.get("confirmed_count") or 0) == confirmed_position_count,
+                "미국 모델 확정 수가 현재 전략상 열린 포지션 수와 다릅니다.",
+                confirmed_count=feed.get("confirmed_count"),
+                confirmed_position_count=confirmed_position_count,
             )
             recommendation_items = recommendations.get("items") or []
             _assert(
@@ -2176,8 +2219,10 @@ def _live_checks(
                 and recommendations.get("sector_classification_version")
                 == feed.get("sector_classification_version")
                 and recommendations.get("stateful_lifecycle_replay_enabled")
-                is False
-                and recommendations.get("reentry_runtime_enabled") is False,
+                is True
+                and recommendations.get("reentry_runtime_enabled") is True
+                and recommendations.get("lifecycle_replay_version")
+                == "us-next-open-model-replay-v1",
                 "미국 추천과 시그널의 baseline·섹터분류·runtime 계약이 다릅니다.",
             )
             invalid_recommendations: list[str] = []
@@ -4143,12 +4188,13 @@ def _live_us_checks(
                 recommendation_state=recommendations.get("data_state"),
             )
             _assert(
-                feed.get("rollout_mode") == "shadow"
+                feed.get("rollout_mode") == "model_replay"
                 and feed.get("execution_enabled") is False
-                and feed.get("stateful_lifecycle_replay_enabled") is False
-                and feed.get("reentry_runtime_enabled") is False
-                and int(feed.get("confirmed_count") or 0) == 0,
-                "미국 RC1이 shadow 예비 전용 계약을 벗어났습니다.",
+                and feed.get("stateful_lifecycle_replay_enabled") is True
+                and feed.get("reentry_runtime_enabled") is True
+                and feed.get("lifecycle_replay_version") == "us-next-open-model-replay-v1"
+                and feed.get("stateful_lifecycle_replay_complete") is True,
+                "미국 전략 생명주기 모델 replay 계약이 깨졌습니다.",
             )
             universe_count = int(feed.get("universe_count") or 0)
             evaluated_count = int(feed.get("evaluated_count") or 0)
@@ -4212,8 +4258,10 @@ def _live_us_checks(
                 and recommendations.get("sector_classification_version")
                 == feed.get("sector_classification_version")
                 and recommendations.get("stateful_lifecycle_replay_enabled")
-                is False
-                and recommendations.get("reentry_runtime_enabled") is False,
+                is True
+                and recommendations.get("reentry_runtime_enabled") is True
+                and recommendations.get("lifecycle_replay_version")
+                == "us-next-open-model-replay-v1",
                 "미국 추천과 시그널이 다른 canonical 커버리·runtime 계약을 사용합니다.",
             )
             try:

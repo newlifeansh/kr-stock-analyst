@@ -3707,6 +3707,7 @@ def build_us_recommendations(
             "stateful_lifecycle_replay_enabled", False
         ),
         "reentry_runtime_enabled": canonical.get("reentry_runtime_enabled", False),
+        "lifecycle_replay_version": canonical.get("lifecycle_replay_version"),
         "universe_as_of": canonical.get("universe_as_of"),
         "universe_count": canonical.get("universe_count", 0),
         "evaluated_count": canonical.get("evaluated_count", 0),
@@ -3782,8 +3783,23 @@ def build_us_quant_signals(
     except ValueError:
         canonical["preliminary_history"] = history
     canonical["recent_days"] = normalized_recent_days
-    canonical["total_preliminary_count"] = len(full_items)
-    canonical["preliminary_count"] = len(canonical["items"])
+    canonical["total_preliminary_count"] = sum(
+        1
+        for item in full_items
+        if isinstance(item, dict) and item.get("is_preliminary") is True
+    )
+    canonical["preliminary_count"] = sum(
+        1
+        for item in canonical["items"]
+        if isinstance(item, dict) and item.get("is_preliminary") is True
+    )
+    canonical["confirmed_count"] = sum(
+        1
+        for item in canonical["items"]
+        if isinstance(item, dict)
+        and isinstance(item.get("current"), dict)
+        and item["current"].get("position_open") is True
+    )
     return canonical
 
 

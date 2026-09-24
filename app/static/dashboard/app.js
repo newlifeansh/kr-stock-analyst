@@ -348,6 +348,7 @@ const elements = {
   aiSignalStageTabs: Array.from(document.querySelectorAll("[data-ai-signal-stage]")),
   aiSignalHistoryFilters: $("ai-signal-history-filters"),
   aiSignalHistorySideButtons: Array.from(document.querySelectorAll("[data-ai-signal-history-side]")),
+  aiSignalModelDisclaimer: $("ai-signal-model-disclaimer"),
   aiSignalSellDisclaimer: $("ai-signal-sell-disclaimer"),
   aiSignalsLiveStatus: $("ai-signals-live-status"),
   aiSignalsLiveStatusLabel: $("ai-signals-live-status-label"),
@@ -1296,6 +1297,7 @@ const state = {
   aiSignalHistorySide: "all",
   aiSignalItems: [],
   aiSignalMarketStatus: "loading",
+  aiSignalLifecycleMode: "",
   aiSignalLoadedMarketScopes: new Set(),
   aiSignalSnapshotSignature: "",
   aiSignalsPageRetryTimer: null,
@@ -15278,6 +15280,12 @@ function homeAiSignalView(item = {}) {
   const transitionLabel = String(transition?.label || "");
   const latestTransitionWasSell = /매도|청산/.test(transitionLabel);
   const preliminary = isPreliminaryAiSignal(item);
+  // Keep this helper self-contained: it is also exercised independently by
+  // the client contract tests and must not depend on page-level routing state.
+  const usModelReplay = String(
+    item.market_universe || item.market_scope || current.market_universe || current.market_scope || "",
+  ).toLowerCase() === "us"
+    && String(item.lifecycle_replay_version || "").startsWith("us-next-open-model-replay-");
   const canonicalPendingState = preliminary
     && item.is_preliminary !== true
     && item.status !== "preliminary";
@@ -15305,7 +15313,7 @@ function homeAiSignalView(item = {}) {
     return { key: "recent-sell", label: `부분 매도 대기(${profitStage}차)`, tone: "sell", signalDate, signalAt, updatedAt, preliminary };
   }
   if (action === "full_exit_pending") {
-    return { key: "recent-sell", label: "전량 매도 대기", tone: "sell", signalDate, signalAt, updatedAt, preliminary };
+    return { key: "recent-sell", label: usModelReplay ? "전략 매도 대기" : "전량 매도 대기", tone: "sell", signalDate, signalAt, updatedAt, preliminary };
   }
   if (action === "partially_exited" && current.position_open) {
     const profitStage = Number(current.profit_stage || transition?.profit_stage || 1);
@@ -15314,7 +15322,7 @@ function homeAiSignalView(item = {}) {
   if (action === "exited" || latestTransitionWasSell) {
     return {
       key: "recent-sell",
-      label: isSignalReconciliation(item) ? "전량 매도 확정 · 전략 버전 통일" : "전량 매도 확정",
+      label: usModelReplay ? "전략 매도 확정" : (isSignalReconciliation(item) ? "전량 매도 확정 · 전략 버전 통일" : "전량 매도 확정"),
       tone: "sell",
       signalDate,
       signalAt,
@@ -15323,10 +15331,13 @@ function homeAiSignalView(item = {}) {
     };
   }
   if (action === "entered") {
-    return { key: "recent-buy", label: "확정 매수", tone: "buy", signalDate, signalAt, updatedAt, preliminary: false };
+    return { key: "recent-buy", label: usModelReplay ? "전략 매수 확정" : "확정 매수", tone: "buy", signalDate, signalAt, updatedAt, preliminary: false };
+  }
+  if (action === "holding") {
+    return { key: "recent-buy", label: usModelReplay ? "전략 보유" : "확정 매수", tone: "buy", signalDate, signalAt, updatedAt, preliminary: false };
   }
   if (current.position_open) {
-    return { key: "recent-buy", label: "확정 매수", tone: "buy", signalDate, signalAt, updatedAt, preliminary: false };
+    return { key: "recent-buy", label: usModelReplay ? "전략 보유" : "확정 매수", tone: "buy", signalDate, signalAt, updatedAt, preliminary: false };
   }
   return null;
 }
@@ -15697,6 +15708,7 @@ function combineAiSignalPayloads(watchlistPayload = {}, marketPayload = {}) {
     market_scopes_ready: marketPayload.market_scopes_ready || [],
     market_status_by_scope: marketPayload.market_status_by_scope || {},
     market_revision_by_scope: marketPayload.market_revision_by_scope || {},
+    lifecycle_replay_version: marketPayload.lifecycle_replay_version || "",
     recent_days: marketPayload.recent_days || null,
     market_status: marketStatus,
     universe_count: marketPayload.universe_count || 0,
@@ -16158,6 +16170,9 @@ function commitAiSignalSnapshot(items, payload = {}, options = {}) {
   );
   state.aiSignalItems = frozenItems;
   state.aiSignalMarketStatus = payload.market_status || payload.status || "ready";
+  state.aiSignalLifecycleMode = payload.us_market_included === true
+    ? String(payload.lifecycle_replay_version || "")
+    : "";
   const loadedScopes = Array.isArray(payload.market_scopes_received)
     ? payload.market_scopes_received
     : (Array.isArray(payload.market_scopes_ready)
@@ -16663,6 +16678,7 @@ function prepareAiSignalEntrySurface(view) {
   state.aiSignalSnapshotReceivedAt = 0;
   state.aiSignalSnapshotAsOf = "";
   state.aiSignalMarketStatus = "loading";
+  state.aiSignalLifecycleMode = "";
   state.aiSignalLoadedMarketScopes.clear();
   state.aiSignalSnapshotSignature = "";
   if (view === "ai-signals" && elements.aiSignalsPageList) {
@@ -16773,6 +16789,13 @@ function renderAiSignalLiveStatus() {
   if (!elements.aiSignalsLiveStatus) return;
   const showStatus = state.aiSignalMode === "current";
   elements.aiSignalsLiveStatus.hidden = !showStatus;
+  if (elements.aiSignalModelDisclaimer) {
+    elements.aiSignalModelDisclaimer.hidden = !(
+      showStatus
+      && isUsHubContext
+      && state.aiSignalLifecycleMode === "us-next-open-model-replay-v1"
+    );
+  }
   if (!showStatus) {
     syncAiSignalFreshnessBadgeVisibility({ mixed: false });
     return;
@@ -19301,6 +19324,7 @@ function resetHomeAiSignalsForIdentity() {
   state.aiSignalLoadSequence += 1;
   state.aiSignalItems = [];
   state.aiSignalMarketStatus = "loading";
+  state.aiSignalLifecycleMode = "";
   state.aiSignalLoadedMarketScopes.clear();
   state.aiSignalSnapshotSignature = "";
   state.homeAiSignalsAsOf = "";
