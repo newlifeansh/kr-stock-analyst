@@ -81,6 +81,10 @@ def test_canonical_us_gateway_routes_shell_assets_api_and_isolates_cookies(monke
     assert seen[-1].url.path == "/dashboard-app-v170.js"
     assert seen[-1].url.query == b"v=us-test"
 
+    logo = client.get("/us-gateway/stock-logos/AAPL.png")
+    assert logo.json() == {"source": "us-dedicated"}
+    assert seen[-1].url.path == "/stock-logos/AAPL.png"
+
 
 def test_us_gateway_unavailable_or_wrong_market_shell_never_falls_back(monkeypatch):
     native_client = httpx.AsyncClient
@@ -141,11 +145,15 @@ def test_us_cutover_freezes_only_us_writes(monkeypatch):
 def test_public_us_bridge_rewrites_fetch_and_websocket_without_changing_us_staging():
     bridge = (ROOT / "app/static/us-public-bridge.js").read_text(encoding="utf-8")
     dashboard = (ROOT / "app/static/dashboard/app.js").read_text(encoding="utf-8")
+    staging = (ROOT / "app/static/staging/toss-ia.js").read_text(encoding="utf-8")
     assert 'window.__US_PUBLIC_GATEWAY__ = prefix;' in bridge
     assert 'url.origin !== window.location.origin' in bridge
     assert 'new Request(url, input)' in bridge
     assert 'if (window.__US_PUBLIC_GATEWAY__)' in dashboard
     assert 'window.__US_PUBLIC_GATEWAY__}${path}' in dashboard
+    for script in (dashboard, staging):
+        assert 'const logoOrigin = window.__US_PUBLIC_GATEWAY__ || "";' in script
+        assert '${logoOrigin}/stock-logos/' in script
 
 
 def test_public_us_bridge_routes_only_same_origin_fetches():

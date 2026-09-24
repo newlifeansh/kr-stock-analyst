@@ -1057,7 +1057,13 @@ def _run_us_e2e_checks(
                     bypasses = [
                         request
                         for request in requested_resources
-                        if request["resource_type"] in {"fetch", "xhr", "websocket"}
+                        if (
+                            request["resource_type"] in {"fetch", "xhr", "websocket"}
+                            or (
+                                request["resource_type"] == "image"
+                                and urlsplit(request["url"]).path.startswith("/stock-logos/")
+                            )
+                        )
                         and urlsplit(request["url"]).netloc == urlsplit(base_url).netloc
                         and not urlsplit(request["url"]).path.startswith("/us-gateway/")
                     ]

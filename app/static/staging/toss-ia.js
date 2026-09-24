@@ -3982,7 +3982,8 @@
       image.loading = "eager";
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
-      image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260921-domestic-market-v116`;
+      const logoOrigin = window.__US_PUBLIC_GATEWAY__ || "";
+      image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260921-domestic-market-v116`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }

@@ -1594,7 +1594,7 @@ def test_market_lists_share_stock_logo_identity():
 
     for expected in (
         'function createStockListLogo(code, className = "")',
-        "`/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=${encodeURIComponent(DASHBOARD_CLIENT_VERSION)}`",
+        "`${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=${encodeURIComponent(DASHBOARD_CLIENT_VERSION)}`",
         "fallbackIcon.src = STOCK_LOGO_FALLBACK_DATA_URL;",
         'image.loading = "eager";',
         'image.addEventListener("error", () => {',
