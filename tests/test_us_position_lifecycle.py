@@ -652,6 +652,7 @@ def test_us_feed_replays_top100_model_lifecycle_without_orders():
         "entry_watch": 99,
     }
     assert comparison["candidate_entry_pending_count"] == 100
+    assert comparison["displayed_entry_pending_count"] == 0
     assert comparison["baseline_entry_pending_count"] == 1
     assert comparison["entry_pending_overlap_count"] == 1
     assert comparison["candidate_only_entry_pending_count"] == 99

@@ -1698,6 +1698,11 @@ def build_us_position_lifecycle_feed(
             "candidate_action_counts": dict(candidate_action_counts),
             "baseline_action_counts": dict(baseline_action_counts),
             "candidate_entry_pending_count": len(candidate_pending_codes),
+            "displayed_entry_pending_count": sum(
+                1
+                for item in selected
+                if item["current"]["action"] == "entry_pending"
+            ),
             "baseline_entry_pending_count": len(baseline_pending_codes),
             "entry_pending_overlap_count": len(
                 candidate_pending_codes & baseline_pending_codes
@@ -2444,6 +2449,7 @@ def _shadow_comparison_is_valid(
     assert baseline_only_codes is not None
     assert disagreement_codes is not None
     candidate_pending_count = shadow.get("candidate_entry_pending_count")
+    displayed_pending_count = shadow.get("displayed_entry_pending_count")
     baseline_pending_count = shadow.get("baseline_entry_pending_count")
     overlap_count = shadow.get("entry_pending_overlap_count")
     candidate_only_count = shadow.get("candidate_only_entry_pending_count")
@@ -2470,6 +2476,7 @@ def _shadow_comparison_is_valid(
     ]
     numeric_counts = (
         candidate_pending_count,
+        displayed_pending_count,
         baseline_pending_count,
         overlap_count,
         candidate_only_count,
@@ -2505,7 +2512,19 @@ def _shadow_comparison_is_valid(
         and candidate_counts["no_signal"]
         == US_SIGNAL_UNIVERSE_LIMIT - candidate_counts["entry_pending"] - candidate_counts["entry_watch"]
         and candidate_pending_count == len(pending_codes)
-        and payload.get("entry_pending_count") == candidate_pending_count
+        # Candidate actions are calculated at the completed close. A
+        # candidate can subsequently become an entered/holding model position
+        # after its next regular-session open, so the UI's pending count is a
+        # separate display-state metric.
+        and displayed_pending_count
+        == sum(
+            1
+            for item in items
+            if isinstance(item, dict)
+            and isinstance(item.get("current"), dict)
+            and item["current"].get("action") == "entry_pending"
+        )
+        and payload.get("entry_pending_count") == displayed_pending_count
         and baseline_counts["entry_pending"] == baseline_pending_count
         and overlap_count == len(overlap_codes)
         and candidate_only_count == len(candidate_only_codes)
@@ -2820,6 +2839,7 @@ def _block_snapshot_entries(
     )
     if shadow:
         shadow["candidate_entry_pending_count"] = 0
+        shadow["displayed_entry_pending_count"] = 0
         result["shadow_comparison"] = shadow
     result["entry_pending_count"] = 0
     return result
