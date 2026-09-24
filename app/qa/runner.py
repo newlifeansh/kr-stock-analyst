@@ -86,6 +86,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_cutover_copies_only_missing_us_namespaced_state_idempotently",
         "tests.test_us_data_cutover."
         "test_us_cutover_blocks_conflicts_and_private_subscription_state",
+        "tests.test_data_signal_qa."
+        "test_us_gateway_live_requires_dedicated_shell_assets_and_api",
+        "tests.test_data_signal_qa."
+        "test_us_gateway_e2e_normalizes_news_api_path_without_hiding_bypass",
     ),
     "DATA-COM-007": (
         "tests.test_us_public_gateway."

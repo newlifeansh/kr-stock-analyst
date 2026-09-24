@@ -53,6 +53,13 @@ def _page_url(base_url: str, path: str, **query: str) -> str:
     return f"{base_url.rstrip('/')}{path}{suffix}"
 
 
+def _us_observed_path(url: str, *, gateway_expected: bool) -> str:
+    path = urlsplit(url).path
+    if gateway_expected and path.startswith("/us-gateway/"):
+        return path.removeprefix("/us-gateway")
+    return path
+
+
 def _safe_name(case_id: str, theme: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "-", f"{case_id}-{theme}")
 
@@ -1024,15 +1031,11 @@ def _run_us_e2e_checks(
 
                 forbidden_requests: list[dict[str, str]] = []
                 observed_paths = [
-                    urlsplit(item["url"]).path.removeprefix("/us-gateway")
-                    if gateway_expected and urlsplit(item["url"]).path.startswith("/us-gateway/")
-                    else urlsplit(item["url"]).path
+                    _us_observed_path(item["url"], gateway_expected=gateway_expected)
                     for item in requested_resources
                 ]
                 for request in requested_resources:
-                    path = urlsplit(request["url"]).path
-                    if gateway_expected and path.startswith("/us-gateway/"):
-                        path = path.removeprefix("/us-gateway")
+                    path = _us_observed_path(request["url"], gateway_expected=gateway_expected)
                     if path in {
                         "/market/cross-market",
                         "/market/indices",
@@ -1050,6 +1053,19 @@ def _run_us_e2e_checks(
                         "미국 화면이 국내 시장 연동을 호출했습니다.",
                         {"requests": forbidden_requests[:20]},
                     )
+                if gateway_expected:
+                    bypasses = [
+                        request
+                        for request in requested_resources
+                        if request["resource_type"] in {"fetch", "xhr", "websocket"}
+                        and urlsplit(request["url"]).netloc == urlsplit(base_url).netloc
+                        and not urlsplit(request["url"]).path.startswith("/us-gateway/")
+                    ]
+                    if bypasses:
+                        raise QaFailure(
+                            "미국 화면의 데이터·실시간 요청이 독립 서비스 관문을 우회했습니다.",
+                            {"requests": bypasses[:20]},
+                        )
                 if "/market/global-assets" not in observed_paths:
                     raise QaFailure(
                         "미국 홈이 글로벌 자산 스냅샷을 호출하지 않았습니다.",
@@ -1077,7 +1093,9 @@ def _run_us_e2e_checks(
                 requested_paths: list[str] = []
                 page.on(
                     "request",
-                    lambda request: requested_paths.append(urlsplit(request.url).path),
+                    lambda request: requested_paths.append(
+                        _us_observed_path(request.url, gateway_expected=gateway_expected)
+                    ),
                 )
                 _navigate_page(
                     page,

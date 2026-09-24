@@ -45,6 +45,7 @@ jobs:
       US_PRODUCTION_BASE_URL: ${{ vars.US_PRODUCTION_BASE_URL }}
       US_USER_DATA_MIGRATED_SOURCE_SHA: ${{ vars.US_USER_DATA_MIGRATED_SOURCE_SHA }}
       QA_DASHBOARD_SHARE_ID: qa-automation
+      QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -118,6 +119,7 @@ jobs:
           test -n "$invite_code"
           railway variable set "DASHBOARD_INVITE_CODE=$invite_code" --skip-deploys \
             --project "$US_PROJECT" --environment production --service "$US_WEB" > /dev/null 2>&1
+          echo "QA_DASHBOARD_INVITE_CODE=$invite_code" >> "$GITHUB_ENV"
           unset invite_code
           railway variable set "DASHBOARD_INVITE_HOSTS=secretnote.cloud,www.secretnote.cloud" --skip-deploys \
             --project "$US_PROJECT" --environment production --service "$US_WEB" > /dev/null
