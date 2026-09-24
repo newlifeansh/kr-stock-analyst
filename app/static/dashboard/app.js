@@ -10957,6 +10957,10 @@ function renderWatchlistGroupTabs() {
   state.watchlistGroups = normalizeWatchlistGroups(
     state.watchlistGroups.length ? state.watchlistGroups : readWatchlistGroups(),
   );
+  // The standalone US product has one saved-stock list.  Keep existing group
+  // memberships in storage for compatibility, but do not surface a second
+  // navigation layer above the list.
+  if (IS_US_ONLY_PRODUCT) state.activeWatchGroup = "default";
   const validIds = new Set(["default", "pinned", ...state.watchlistGroups.map((group) => group.id)]);
   if (!validIds.has(state.activeWatchGroup)) state.activeWatchGroup = "default";
   elements.watchUserGroupTabs.replaceChildren(...state.watchlistGroups.map(createWatchlistGroupTab));
@@ -10968,8 +10972,9 @@ function renderWatchlistGroupTabs() {
     tab.tabIndex = selected ? 0 : -1;
   }
   const customSelected = Boolean(watchlistGroupById());
+  const hasVisibleWatchlistItems = watchlistItemsForGroup("default").length > 0;
   if (elements.watchGroupEdit) {
-    elements.watchGroupEdit.hidden = false;
+    elements.watchGroupEdit.hidden = IS_US_ONLY_PRODUCT && !hasVisibleWatchlistItems;
     elements.watchGroupEdit.textContent = state.watchlistEditing ? "완료" : "편집";
     elements.watchGroupEdit.setAttribute("aria-pressed", String(state.watchlistEditing));
     if (customSelected) {
@@ -10997,6 +11002,7 @@ function renderWatchlistGroupTabs() {
   if (elements.portfolioView) {
     elements.portfolioView.dataset.activeWatchGroup = state.activeWatchGroup;
     elements.portfolioView.dataset.watchEditing = String(state.watchlistEditing);
+    elements.portfolioView.dataset.usWatchlistHasItems = String(hasVisibleWatchlistItems);
   }
   if (elements.watchlistView) {
     elements.watchlistView.dataset.groupKind = state.activeWatchGroup === "pinned"
