@@ -14,7 +14,7 @@ from app.models import (
     WatchlistGroupState,
     WatchlistItem,
 )
-from scripts.us_data_cutover import export_us_rows, migration_plan
+from app.us_data_cutover import export_us_rows, migration_plan
 
 
 NOW = datetime(2026, 9, 24, 9, 0)

@@ -382,9 +382,9 @@ WebSocket을 독립 미국 web로 전달하며, 미국 상류 장애 시 국내 
    재배포해 미국 쓰기만 일시 503으로 동결한다. `/health`의
    `us_cutover_freeze=true`를 확인한다.
 2. 등록된 Railway SSH 키를 가진 운영자 환경에서
-   `scripts/us_data_cutover.py export`의 stdout을 파일·로그에 저장하지
+   `python -m app.us_data_cutover export`의 stdout을 파일·로그에 저장하지
    않고 국내 web → 미국 web SSH 파이프로
-   `scripts/us_data_cutover.py import`에 전달한다. 기본 dry-run의
+   `python -m app.us_data_cutover import`에 전달한다. 기본 dry-run의
    충돌·추가 검토 건수가 0이면 같은 파이프를 `import --apply`로
    반복하고 마지막 dry-run에서 신규·충돌 0을 확인한다. 다른 내용의
    기존 행은 덮어쓰지 않으며 푸시 구독·데스크톱 설정은 자동 이전하지 않는다.
