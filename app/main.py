@@ -289,7 +289,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260924us106"
+US_DASHBOARD_CLIENT_VERSION = "20260924us107"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -4517,12 +4517,24 @@ def us_stock_ai_analysis(
     action = (
         source_action
         if canonical_candidate_ready
-        and source_action in {"entry_pending", "entry_watch"}
+        and source_action
+        in {
+            "entry_pending",
+            "entry_watch",
+            "entered",
+            "holding",
+            "full_exit_pending",
+            "exited",
+        }
         else "no_signal"
     )
     label_by_action = {
         "entry_pending": "예비 매수",
         "entry_watch": "예비 포착",
+        "entered": "전략 매수 확정",
+        "holding": "전략 보유",
+        "full_exit_pending": "전략 매도 대기",
+        "exited": "전략 매도 확정",
         "no_signal": "관망",
     }
     canonical_as_of = (
@@ -4533,7 +4545,10 @@ def us_stock_ai_analysis(
     canonical_current = {
         "action": action,
         "label": label_by_action[action],
-        "position_open": False,
+        "position_open": action in {"entered", "holding", "full_exit_pending"},
+        "model_exposure_percent": (
+            100 if action in {"entered", "holding", "full_exit_pending"} else 0
+        ),
         "live_observation": False,
         "as_of": (
             evidence_session_date
@@ -4541,6 +4556,13 @@ def us_stock_ai_analysis(
             else canonical_as_of
         ),
     }
+    if action in {"entered", "holding", "full_exit_pending", "exited"}:
+        canonical_current["lifecycle"] = dict(source_current.get("lifecycle") or {})
+        canonical_current["entry_date"] = source_current.get("entry_date")
+        canonical_current["entry_price"] = source_current.get("entry_price")
+        canonical_current["unrealized_return"] = source_current.get(
+            "unrealized_return"
+        )
     canonical_reasons = (
         signal_reasons
         if canonical_member_ready
@@ -4591,6 +4613,14 @@ def us_stock_ai_analysis(
                 if action == "entry_pending"
                 else "예비 포착"
                 if action == "entry_watch"
+                else "전략 매수 확정"
+                if action == "entered"
+                else "전략 보유"
+                if action == "holding"
+                else "전략 매도 대기"
+                if action == "full_exit_pending"
+                else "전략 매도 확정"
+                if action == "exited"
                 else "관망 우선"
             ),
             "strategy_version": feed.get("strategy_version"),

@@ -32911,6 +32911,7 @@ body[data-view="ai-signals"] .shell[data-ui-version="3.0"] {
   padding: 0 20px;
 }
 
+#ai-signals-view .ai-signal-model-disclaimer,
 #ai-signals-view .ai-signal-sell-disclaimer {
   margin: 0;
   padding: 12px 20px 8px;
@@ -32923,10 +32924,12 @@ body[data-view="ai-signals"] .shell[data-ui-version="3.0"] {
   word-break: keep-all;
 }
 
+#ai-signals-view .ai-signal-model-disclaimer[hidden],
 #ai-signals-view .ai-signal-sell-disclaimer[hidden] {
   display: none !important;
 }
 
+#ai-signals-view .ai-signal-model-disclaimer strong,
 #ai-signals-view .ai-signal-sell-disclaimer strong {
   color: inherit;
   font-weight: 750;
@@ -33124,6 +33127,7 @@ body[data-view="ai-signals"] .shell[data-ui-version="3.0"] {
 }
 
 @media (max-width: 720px) {
+  #ai-signals-view .ai-signal-model-disclaimer,
   #ai-signals-view .ai-signal-sell-disclaimer {
     padding-right: 16px;
     padding-left: 16px;

@@ -12,6 +12,12 @@ US_DOLLAR_VOLUME_FLOW_SEMANTICS = "dollar_volume_participation_proxy"
 US_DOLLAR_VOLUME_NOTICE = "가격×거래량 기반 참여도이며 투자자 순매수나 ETF 순유입이 아닙니다."
 US_PUBLIC_SIGNAL_DECISION_REASON = "20일·60일 가격 흐름과 거래대금 참여도를 함께 확인한 예비 판단입니다."
 US_PUBLIC_SIGNAL_NEXT_CHECK = "20일·60일 가격 흐름과 거래대금 참여도를 다시 확인하세요."
+US_PUBLIC_MODEL_LIFECYCLE_REASON = (
+    "완료된 미국장 종가 신호와 다음 정규장 시가를 기준으로 재현한 전략 상태입니다. 실제 주문이나 개인 보유 내역이 아닙니다."
+)
+US_PUBLIC_MODEL_LIFECYCLE_NEXT_CHECK = (
+    "다음 완료 미국장에서 위험선과 20일·60일 가격 흐름, 거래대금 참여도를 다시 확인하세요."
+)
 US_PUBLIC_SIGNAL_UNAVAILABLE_REASON = (
     "현재 공개 근거로는 예비 매수 조건이 확인되지 않아 관망합니다."
 )
@@ -30,7 +36,7 @@ US_PUBLIC_SIGNAL_OUTSIDE_REASON = (
 US_PUBLIC_SIGNAL_METHODOLOGY = (
     "완료된 미국 정규장의 시가총액 상위 100종목에서 분할·배당 수정 OHLC 가격 흐름, "
     "SPY·QQQ 시장 국면, 검토된 섹터 ETF 대비 상대 흐름과 거래대금 참여도를 비교한 "
-    f"예비 신호입니다. {US_DOLLAR_VOLUME_NOTICE}"
+    f"예비·전략 상태 신호입니다. 확정은 다음 정규장 시가를 통과한 모델 재현이며 실제 주문이 아닙니다. {US_DOLLAR_VOLUME_NOTICE}"
 )
 
 _POSITIVE_STATES = {"positive", "supportive", "approved", "ready", "bullish"}
@@ -479,7 +485,12 @@ def public_quant_signal_payload(
             )
         )
     if "reason" in result and is_us_candidate:
-        result["reason"] = US_PUBLIC_SIGNAL_DECISION_REASON
+        action = str(_mapping(result.get("current")).get("action") or "")
+        result["reason"] = (
+            US_PUBLIC_MODEL_LIFECYCLE_REASON
+            if action in {"entered", "holding", "full_exit_pending", "exited"}
+            else US_PUBLIC_SIGNAL_DECISION_REASON
+        )
 
     result["factors"] = [
         {
@@ -533,7 +544,12 @@ def public_quant_signal_payload(
     if "current" in result:
         result["current"] = _redact_current_signal(result.get("current"), public_reasons)
         if is_us_candidate and isinstance(result["current"], dict):
-            result["current"]["next_confirmation"] = US_PUBLIC_SIGNAL_NEXT_CHECK
+            action = str(result["current"].get("action") or "")
+            result["current"]["next_confirmation"] = (
+                US_PUBLIC_MODEL_LIFECYCLE_NEXT_CHECK
+                if action in {"entered", "holding", "full_exit_pending", "exited"}
+                else US_PUBLIC_SIGNAL_NEXT_CHECK
+            )
 
     if "latest_preliminary" in result:
         result["latest_preliminary"] = _redact_preliminary_signal(
@@ -618,8 +634,13 @@ def public_market_signal_payload(payload: Mapping[str, Any] | None) -> dict[str,
         )
         public_item["public_reasons"] = public_reasons
         if "reason" in public_item:
+            action = str(_mapping(public_item.get("current")).get("action") or "")
             public_item["reason"] = (
-                US_PUBLIC_SIGNAL_DECISION_REASON
+                US_PUBLIC_MODEL_LIFECYCLE_REASON
+                if is_us_candidate
+                and us_item_ready
+                and action in {"entered", "holding", "full_exit_pending", "exited"}
+                else US_PUBLIC_SIGNAL_DECISION_REASON
                 if is_us_candidate
                 else PUBLIC_SIGNAL_DECISION_REASON
             )
@@ -631,8 +652,12 @@ def public_market_signal_payload(payload: Mapping[str, Any] | None) -> dict[str,
                 public_reasons,
             )
             if is_us_candidate and isinstance(public_item["current"], dict):
+                action = str(public_item["current"].get("action") or "")
                 public_item["current"]["next_confirmation"] = (
-                    US_PUBLIC_SIGNAL_NEXT_CHECK
+                    US_PUBLIC_MODEL_LIFECYCLE_NEXT_CHECK
+                    if us_item_ready
+                    and action in {"entered", "holding", "full_exit_pending", "exited"}
+                    else US_PUBLIC_SIGNAL_NEXT_CHECK
                     if us_item_ready
                     else US_PUBLIC_SIGNAL_PREPARING_NEXT_CHECK
                 )
@@ -787,6 +812,9 @@ def public_stock_ai_analysis_payload(
             if current_action in {"entry_pending", "entry_watch"}:
                 decision_reason = US_PUBLIC_SIGNAL_DECISION_REASON
                 next_check = US_PUBLIC_SIGNAL_NEXT_CHECK
+            elif current_action in {"entered", "holding", "full_exit_pending", "exited"}:
+                decision_reason = US_PUBLIC_MODEL_LIFECYCLE_REASON
+                next_check = US_PUBLIC_MODEL_LIFECYCLE_NEXT_CHECK
             else:
                 decision_reason = US_PUBLIC_SIGNAL_UNAVAILABLE_REASON
                 next_check = US_PUBLIC_SIGNAL_UNAVAILABLE_NEXT_CHECK

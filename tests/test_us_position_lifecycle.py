@@ -9,8 +9,13 @@ from app.services.position_lifecycle_core import (
     calculate_indicators,
     chase_entry_veto_reason,
 )
+from app.services import us_position_lifecycle as lifecycle
 from app.services.us_position_lifecycle import (
     US_CHASE_POLICY,
+    US_LIFECYCLE_REPLAY_VERSION,
+    US_REENTRY_RUNTIME_ENABLED,
+    US_ROLLOUT_MODE,
+    US_STATEFUL_LIFECYCLE_REPLAY_ENABLED,
     US_STRATEGY_VERSION,
     USLifecycleBar,
     _aligned_recent_sessions,
@@ -19,6 +24,7 @@ from app.services.us_position_lifecycle import (
     build_us_position_lifecycle_feed,
     evaluate_us_entry_candidate,
     evaluate_us_momentum_watch_baseline,
+    replay_us_position_lifecycle,
     us_entry_execution_allowed,
     us_price_bars,
     us_reentry_allowed,
@@ -507,7 +513,58 @@ def test_us_next_open_gap_guard_uses_atr_and_percent_cap():
     assert us_entry_execution_allowed(0.0, 100.0, 2.0) is False
 
 
-def test_us_feed_is_top100_shadow_only_and_never_creates_a_position():
+def test_us_model_replay_confirms_only_the_next_open_inside_gap(monkeypatch):
+    stock = _bars(daily_return=0.0017)
+    spy = _bars(daily_return=0.0007)
+    qqq = _bars(daily_return=0.0009)
+    sector = _bars(daily_return=0.0010)
+    signal_index = 125
+    signal_date = stock[signal_index].trade_date
+
+    def decision_for_session(stock_rows, *_args, **_kwargs):
+        latest = stock_rows[-1]
+        if latest.trade_date == signal_date:
+            return {
+                "data_state": "ready",
+                "action": "entry_pending",
+                "price": latest.close,
+                "score": 70.0,
+                "technical": {"atr": 2.0},
+            }
+        return {
+            "data_state": "ready",
+            "action": "entry_watch",
+            "price": latest.close,
+            "score": 60.0,
+            "technical": {"atr": 2.0},
+        }
+
+    monkeypatch.setattr(lifecycle, "evaluate_us_entry_candidate", decision_for_session)
+    monkeypatch.setattr(lifecycle, "us_reentry_allowed", lambda *_args: True)
+
+    replay = replay_us_position_lifecycle(stock, spy, qqq, sector)
+
+    assert replay["complete"] is True
+    assert replay["action"] == "holding"
+    assert replay["position"]["entry_date"] == stock[signal_index + 1].trade_date
+    assert replay["position"]["entry_price"] == stock[signal_index + 1].open
+    assert replay["events"][-1]["side"] == "buy"
+    assert replay["events"][-1]["execution_date"] == stock[signal_index + 1].trade_date
+
+    gap_rejected = list(stock)
+    next_bar = gap_rejected[signal_index + 1]
+    gap_rejected[signal_index + 1] = replace(
+        next_bar,
+        open=stock[signal_index].close * 1.06,
+    )
+    rejected = replay_us_position_lifecycle(gap_rejected, spy, qqq, sector)
+
+    assert rejected["action"] == "entry_watch"
+    assert rejected["position"] is None
+    assert rejected["events"] == []
+
+
+def test_us_feed_replays_top100_model_lifecycle_without_orders():
     stock = _bars(daily_return=0.0017)
     spy = _bars(daily_return=0.0007)
     qqq = _bars(daily_return=0.0009)
@@ -554,12 +611,17 @@ def test_us_feed_is_top100_shadow_only_and_never_creates_a_position():
 
     assert payload["strategy_version"] == US_STRATEGY_VERSION
     assert payload["baseline_strategy_version"] == "us-momentum-watch-v1"
-    assert payload["rollout_mode"] == "shadow"
+    assert payload["rollout_mode"] == US_ROLLOUT_MODE
     assert payload["execution_enabled"] is False
-    assert payload["stateful_lifecycle_replay_enabled"] is False
-    assert payload["reentry_runtime_enabled"] is False
+    assert payload["stateful_lifecycle_replay_enabled"] is US_STATEFUL_LIFECYCLE_REPLAY_ENABLED
+    assert payload["reentry_runtime_enabled"] is US_REENTRY_RUNTIME_ENABLED
+    assert payload["lifecycle_replay_version"] == US_LIFECYCLE_REPLAY_VERSION
     assert payload["universe_count"] == 100
-    assert payload["confirmed_count"] == 0
+    assert payload["confirmed_count"] == 20
+    assert payload["preliminary_count"] == 0
+    assert payload["stateful_lifecycle_replay_complete"] is True
+    assert payload["stateful_lifecycle_replay_eligible_count"] == 100
+    assert payload["stateful_lifecycle_replay_completed_count"] == 100
     assert len(payload["public_member_signals"]) == 100
     assert {
         item["code"] for item in payload["public_member_signals"]
@@ -574,8 +636,11 @@ def test_us_feed_is_top100_shadow_only_and_never_creates_a_position():
         for item in payload["public_member_signals"]
         for reason in item["public_reasons"]
     )
-    assert all(item["status"] == "preliminary" for item in payload["items"])
-    assert all(item["current"]["position_open"] is False for item in payload["items"])
+    assert all(item["status"] == "confirmed" for item in payload["items"])
+    assert all(item["current"]["action"] == "holding" for item in payload["items"])
+    assert all(item["current"]["position_open"] is True for item in payload["items"])
+    assert all(item["current"]["model_exposure_percent"] == 100 for item in payload["items"])
+    assert all(item["events"] for item in payload["items"])
     assert all(item["market_cap_rank"] <= 100 for item in payload["items"])
     comparison = payload["shadow_comparison"]
     assert comparison["universe_checksum"] == "fixture"
@@ -596,3 +661,5 @@ def test_us_feed_is_top100_shadow_only_and_never_creates_a_position():
     assert comparison["candidate_only_entry_pending_codes"] == [
         f"A{index:03d}" for index in range(1, 100)
     ]
+    assert comparison["promotion_state"] == "simulation_only"
+    assert "실제 주문" in comparison["promotion_reason"]
