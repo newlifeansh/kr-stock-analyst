@@ -225,6 +225,10 @@ def test_production_promotion_selects_only_the_requested_existing_project() -> N
     assert '--production-url "$TARGET_PRODUCTION_BASE_URL"' in verify
     assert '--base-url "$TARGET_PRODUCTION_BASE_URL"' in verify
     assert 'test "$US_PRODUCTION_RAILWAY_PROJECT_ID" != "$PRODUCTION_RAILWAY_PROJECT_ID"' in workflow
+    assert 'test "$US_PRODUCTION_RAILWAY_PROJECT_ID" != "$US_STAGING_RAILWAY_PROJECT_ID"' not in workflow
+    assert 'test "$US_PRODUCTION_RAILWAY_WEB_SERVICE" != "$US_STAGING_RAILWAY_WEB_SERVICE"' in workflow
+    assert 'test "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE" != "$US_STAGING_RAILWAY_COLLECTOR_SERVICE"' in workflow
+    assert 'test "$US_PRODUCTION_BASE_URL" != "$US_STAGING_BASE_URL"' in workflow
 
 
 def test_scheduled_qa_never_reuses_the_preview_proxy() -> None:

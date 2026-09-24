@@ -363,7 +363,8 @@ Actions는 PR마다 `gate`, 평일 KST 08:20·10:00·16:20에 `live`, 스테이�
 빌드하지 않고 `product_surface`로 선택한 운영 프로젝트의 web·collector에만
 승격하고 해당 surface의 staging-production parity/live를 검증합니다.
 국내 운영은 `secretnote.cloud`, 미국 운영은 별도 Railway 프로젝트의
-`us-market-web-production-production.up.railway.app`입니다. 다만 현재
+`us-market-web-production-production.up.railway.app`입니다. `us-market` 프로젝트
+안에서 미국 staging/production은 서로 다른 환경·서비스·DB를 사용합니다. 다만 현재
 `secretnote.cloud/us` 공개 경로는 여전히 국내 운영 서비스가 제공하므로,
 공식 미국 URL·라우팅 이전이 승인되기 전에는 국내 운영의 기존 미국 경로와
 `US_MARKET_ENABLED` 값을 유지합니다. 미국 운영 프로젝트의 존재만으로
