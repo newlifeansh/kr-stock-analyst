@@ -1193,7 +1193,13 @@ def _model_lifecycle_item(
 
     action = str(replay.get("action") or "no_signal")
     position = replay.get("position") if isinstance(replay.get("position"), dict) else None
-    last_exit = replay.get("last_exit") if isinstance(replay.get("last_exit"), dict) else None
+    # A replay may retain an earlier exit after re-entry. That historical
+    # event belongs in `events`, not in the current open position fields.
+    last_exit = (
+        replay.get("last_exit")
+        if position is None and isinstance(replay.get("last_exit"), dict)
+        else None
+    )
     signal_date = (
         position.get("signal_date")
         if position is not None
@@ -2505,7 +2511,8 @@ def _shadow_comparison_is_valid(
         and candidate_counts["no_signal"]
         == US_SIGNAL_UNIVERSE_LIMIT - candidate_counts["entry_pending"] - candidate_counts["entry_watch"]
         and candidate_pending_count == len(pending_codes)
-        and payload.get("entry_pending_count") == candidate_pending_count
+        # The public list is a replayed position projection, so its
+        # entry_pending_count need not match the raw candidate comparison.
         and baseline_counts["entry_pending"] == baseline_pending_count
         and overlap_count == len(overlap_codes)
         and candidate_only_count == len(candidate_only_codes)

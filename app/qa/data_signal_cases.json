@@ -1761,12 +1761,12 @@
       "domain": "미국 시그널 생명주기",
       "priority": "P0",
       "modes": ["gate"],
-      "automation": "pytest 전량매도 후 지속조건·새20일돌파·EMA20 눌림회복·다음시가 모델 replay 계약",
-      "preconditions": ["전량매도 다음 정규장의 지속 조건과 두 신규 가격 사건을 준비한다.", "완료 종가 후보와 다음 정규장 시가가 포함된 v2 모델 replay 스냅샷을 준비한다."],
+      "automation": "pytest 전량매도 후 지속조건·새20일돌파·EMA20 눌림회복·다음시가 모델 replay 및 재진입 후 현재 포지션 투영 계약",
+      "preconditions": ["전량매도 다음 정규장의 지속 조건과 두 신규 가격 사건을 준비한다.", "완료 종가 후보와 다음 정규장 시가가 포함된 v2 모델 replay 스냅샷을 준비한다.", "과거 청산 이력을 가진 종목이 다시 진입해 현재 보유 중인 픽스처를 준비한다."],
       "inputs": {"fixed_cooldown_bars": 0, "fresh_events": ["new_20d_breakout", "ema20_retest_recovery"], "ema20_buffer": "2%", "stateful_lifecycle_replay_enabled": true, "reentry_runtime_enabled": true, "execution_enabled": false, "promotion_state": "simulation_only"},
-      "steps": ["pure primitive에서 단순히 이전 조건이 지속되는 다음 봉을 차단한다.", "pure primitive에서 새 20일 고점 돌파 또는 EMA20 2% 이내 눌림·회복은 즉시 허용한다.", "canonical feed·추천이 replay runtime true와 실제 주문 false를 명시하고 false로 변조한 저장 스냅샷을 거부하는지 확인한다.", "전량매도 뒤 재진입은 새 가격 사건과 다음 시가 갭 제한을 모두 통과할 때만 모델상 보유로 전환하는지 확인한다."],
-      "expected": ["재진입 primitive는 시간 기준 대기 없이 새 가격 사건만 허용하며 v2 모델 replay에 적용된다.", "전략 보유·매도는 재현 모델 상태이고 실제 주문·개인 보유로 표시되지 않는다."],
-      "failure_criteria": ["primitive에 고정 10봉 대기가 다시 생기거나 새 사건 없이 허용한다.", "다음 시가 갭 제한 없이 예비 매수를 확정으로 표시하거나 실제 주문으로 표현한다.", "runtime 플래그가 false인데 ready snapshot을 제공한다."]
+      "steps": ["pure primitive에서 단순히 이전 조건이 지속되는 다음 봉을 차단한다.", "pure primitive에서 새 20일 고점 돌파 또는 EMA20 2% 이내 눌림·회복은 즉시 허용한다.", "canonical feed·추천이 replay runtime true와 실제 주문 false를 명시하고 false로 변조한 저장 스냅샷을 거부하는지 확인한다.", "전량매도 뒤 재진입은 새 가격 사건과 다음 시가 갭 제한을 모두 통과할 때만 모델상 보유로 전환하는지 확인한다.", "재진입 후 열린 포지션은 과거 청산을 이벤트 이력에만 보존하고 현재 exit_date·exit_price를 null로 투영해 저장 스냅샷 검증을 통과하는지 확인한다."],
+      "expected": ["재진입 primitive는 시간 기준 대기 없이 새 가격 사건만 허용하며 v2 모델 replay에 적용된다.", "전략 보유·매도는 재현 모델 상태이고 실제 주문·개인 보유로 표시되지 않는다.", "과거 청산 이력은 현재 보유 포지션의 청산 필드와 섞이지 않고 canonical ready 스냅샷을 막지 않는다."],
+      "failure_criteria": ["primitive에 고정 10봉 대기가 다시 생기거나 새 사건 없이 허용한다.", "다음 시가 갭 제한 없이 예비 매수를 확정으로 표시하거나 실제 주문으로 표현한다.", "runtime 플래그가 false인데 ready snapshot을 제공한다.", "재진입 후 보유 항목에 과거 exit_date·exit_price가 남아 유효한 스냅샷을 degraded로 만든다."]
     },
     {
       "id": "SIG-US-SHADOW-001",
@@ -1777,9 +1777,9 @@
       "automation": "pytest 동일 Top100 candidate/legacy Yahoo baseline 행동·반올림·quote volume·valuation·일치/불일치 카운트·실행금지 결정적 픽스처",
       "preconditions": ["v2와 us-momentum-watch-v1을 동일 Top100·완료 세션 스냅샷으로 평가하고 legacy Yahoo regularMarketChangePercent·50/200일 평균 변화율·regularMarketVolume·PER·PBR을 보존한 결정적 픽스처를 준비한다."],
       "inputs": {"candidate": "position-lifecycle-us-v2-rc1", "baseline": "us-momentum-watch-v1", "baseline_point_in_time_inputs": ["regularMarketChangePercent", "fiftyDayAverageChangePercent", "twoHundredDayAverageChangePercent", "regularMarketVolume", "trailingPE", "priceToBook"], "baseline_return_rounding": "0.01 percentage point before scoring", "rollout_mode": "model_replay", "execution_enabled": false, "lifecycle_replay_version": "us-next-open-model-replay-v1", "comparison_fields": ["same_snapshot_evaluated_count", "comparison_complete", "candidate_actions", "candidate_action_counts", "baseline_action_counts", "candidate_entry_pending_count", "baseline_entry_pending_count", "entry_pending_overlap_count", "candidate_only_entry_pending_count", "baseline_only_entry_pending_count", "action_agreement_count", "action_agreement_rate", "action_disagreement_codes"]},
-      "steps": ["동일 Top100 스냅샷에서 후보와 기존 Yahoo baseline 원식을 종목별로 각각 계산한다.", "baseline의 50/200일 변화율 선반올림·quote volume 유무·PER/PBR 가치점수 경계를 재현한다.", "예비 후보·매수대기 건수와 두 전략의 매수대기 교집합·행동 일치·불일치 건수가 평가 종목 수와 정합하는지 확인한다.", "완료 종가 후보가 다음 정규장 시가 갭 제한을 통과할 때만 전략 매수 확정·보유로 전환되고, 매도는 완료 일봉 확인 후 다음 시가 모델 상태로 전환하는지 확인한다.", "promotion_state는 simulation_only로 유지하고 실제 주문·개인 보유가 아님을 확인한다."],
-      "expected": ["baseline은 버전명이나 대체 모멘텀 프록시가 아니라 같은 시점에 저장한 기존 Yahoo 입력과 원식으로 독립 산출된다.", "comparison_complete=true, same_snapshot_evaluated_count=evaluated_count이며 action_agreement_count+불일치 종목 수=evaluated_count이다.", "entry_pending_overlap_count는 두 전략의 entry_pending 건수보다 크지 않고 candidate_only·baseline_only과 각 전략 전체 건수가 정합한다.", "confirmed_count는 다음 시가 모델상 열린 포지션 수와 일치하며 실제 주문 상태와 분리된다."],
-      "failure_criteria": ["다음 시가 갭 제한 없이 확정매수·보유·매도를 게시하거나 실제 주문·개인 보유로 표현한다.", "baseline 버전명만 표시하거나 trailing close 대체값·고정 valuation·chart volume을 써서 기존 Yahoo 원식과 다른 행동을 계산한다.", "후보와 baseline이 다른 시점 스냅샷을 쓰거나 비교 카운트가 평가 수·교집합 제약을 위반한다.", "stateful lifecycle/reentry replay 완료 전 ready로 게시한다."]
+      "steps": ["동일 Top100 스냅샷에서 후보와 기존 Yahoo baseline 원식을 종목별로 각각 계산한다.", "baseline의 50/200일 변화율 선반올림·quote volume 유무·PER/PBR 가치점수 경계를 재현한다.", "예비 후보·매수대기 건수와 두 전략의 매수대기 교집합·행동 일치·불일치 건수가 평가 종목 수와 정합하는지 확인한다.", "완료 종가 후보가 다음 정규장 시가 갭 제한을 통과할 때만 전략 매수 확정·보유로 전환되고, 매도는 완료 일봉 확인 후 다음 시가 모델 상태로 전환하는지 확인한다.", "표시 목록이 보유로 전환돼 entry_pending_count=0이어도 비교용 candidate_entry_pending_count가 남는 경우 canonical shadow 검증이 통과하는지 확인한다.", "promotion_state는 simulation_only로 유지하고 실제 주문·개인 보유가 아님을 확인한다."],
+      "expected": ["baseline은 버전명이나 대체 모멘텀 프록시가 아니라 같은 시점에 저장한 기존 Yahoo 입력과 원식으로 독립 산출된다.", "comparison_complete=true, same_snapshot_evaluated_count=evaluated_count이며 action_agreement_count+불일치 종목 수=evaluated_count이다.", "entry_pending_overlap_count는 두 전략의 entry_pending 건수보다 크지 않고 candidate_only·baseline_only과 각 전략 전체 건수가 정합한다.", "표시 중인 entry_pending_count와 독립 비교용 candidate_entry_pending_count는 각자의 원천으로 검증되며 서로 같을 필요가 없다.", "confirmed_count는 다음 시가 모델상 열린 포지션 수와 일치하며 실제 주문 상태와 분리된다."],
+      "failure_criteria": ["다음 시가 갭 제한 없이 확정매수·보유·매도를 게시하거나 실제 주문·개인 보유로 표현한다.", "baseline 버전명만 표시하거나 trailing close 대체값·고정 valuation·chart volume을 써서 기존 Yahoo 원식과 다른 행동을 계산한다.", "후보와 baseline이 다른 시점 스냅샷을 쓰거나 비교 카운트가 평가 수·교집합 제약을 위반한다.", "표시 목록의 매수대기 건수를 원시 후보 건수와 강제로 같게 취급해 정상 replay 스냅샷을 거부한다.", "stateful lifecycle/reentry replay 완료 전 ready로 게시한다."]
     },
     {
       "id": "SIG-US-CONTRACT-001",

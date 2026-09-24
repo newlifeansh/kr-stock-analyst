@@ -409,6 +409,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_position_lifecycle."
         "test_us_reentry_allows_ema20_retest_recovery_without_fixed_wait",
         "tests.test_us_position_lifecycle."
+        "test_us_model_reentry_keeps_prior_exit_out_of_current_position",
+        "tests.test_us_position_lifecycle."
         "test_us_feed_replays_top100_model_lifecycle_without_orders",
         "tests.test_us_position_lifecycle_runtime."
         "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[stateful_lifecycle_replay_enabled-False]",
@@ -432,6 +434,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-US-CONTRACT-001": (
         "tests.test_us_position_lifecycle."
         "test_us_feed_replays_top100_model_lifecycle_without_orders",
+        "tests.test_us_position_lifecycle."
+        "test_us_model_reentry_keeps_prior_exit_out_of_current_position",
         "tests.test_us_position_lifecycle_fail_closed."
         "test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy",
         "tests.test_us_position_lifecycle_fail_closed."
