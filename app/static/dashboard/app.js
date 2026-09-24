@@ -8523,6 +8523,10 @@ function formatMultiple(value) {
 }
 
 function socketUrl(path) {
+  if (window.__US_PUBLIC_GATEWAY__) {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}${window.__US_PUBLIC_GATEWAY__}${path}`;
+  }
   if (path === "/ws/quotes") {
     const configured = document.querySelector(
       'meta[name="secret-note-quote-stream-url"]',

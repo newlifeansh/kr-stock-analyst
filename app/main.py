@@ -36,6 +36,7 @@ from app.config import get_settings
 from app.db import SessionLocal, get_db, init_db, recover_interrupted_ingestions
 from app.meta import integration_payload, insight_cadence_payload, research_source_payload
 from app.product_shell import render_dashboard_product_shell
+from app.us_public_gateway import checked_backend_url, forward_us_http, forward_us_websocket, gateway_target, should_freeze_us_write
 from app.collectors.research import ensure_stock_research_reports
 from app.models import (
     CompanyProfile,
@@ -1747,6 +1748,43 @@ if mcp_server is not None:
     app.mount("/mcp", mcp_server.streamable_http_app())
 
 
+@app.middleware("http")
+async def _route_public_us_market(request: Request, call_next):
+    if settings.us_cutover_freeze and should_freeze_us_write(
+        request.method,
+        request.url.path,
+        request.headers.get("referer", ""),
+        request.url.hostname or "",
+    ):
+        return Response(
+            status_code=503,
+            content="US market write temporarily unavailable during data cutover",
+            headers={"Retry-After": "120", "Cache-Control": "no-store", "X-US-Market-Route": "cutover-freeze"},
+        )
+    target = gateway_target(request.url.path)
+    configured = settings.us_public_backend_url
+    if not configured or target is None:
+        return await call_next(request)
+    try:
+        backend = checked_backend_url(configured, request.url.hostname or "")
+    except ValueError:
+        logger.error("Invalid US_PUBLIC_BACKEND_URL configuration")
+        return Response(status_code=503, content="US market route unavailable")
+    return await forward_us_http(request, backend, target)
+
+
+@app.websocket("/us-gateway/ws/{path:path}")
+async def us_public_market_websocket(websocket: WebSocket, path: str):
+    try:
+        backend = checked_backend_url(settings.us_public_backend_url, websocket.url.hostname or "")
+    except ValueError:
+        backend = None
+    if not backend:
+        await websocket.close(code=1008)
+        return
+    await forward_us_websocket(websocket, backend, path)
+
+
 PAGE_SUMMARY_PATH = "/ai/page-summary"
 PAGE_SUMMARY_MAX_BODY_BYTES = 64 * 1024
 PAGE_SUMMARY_RATE_WINDOW_SECONDS = 60.0
@@ -2978,6 +3016,8 @@ def health() -> dict[str, object]:
         "dashboard_version": DASHBOARD_CLIENT_VERSION,
         "us_dashboard_version": US_DASHBOARD_CLIENT_VERSION,
         "us_market_enabled": settings.us_market_enabled,
+        "us_cutover_freeze": settings.us_cutover_freeze,
+        "us_public_gateway_enabled": bool(settings.us_public_backend_url),
         "canonical_base_url": settings.canonical_public_base_url,
     }
 

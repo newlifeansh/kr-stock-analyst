@@ -139,6 +139,10 @@ class Settings(BaseSettings):
     # its own test fixtures and a future opt-in deployment, while the default
     # Korea product neither schedules nor notifies from the US data pipeline.
     us_market_enabled: bool = False
+    # When set on the canonical domestic web service, /us is served by the
+    # independent US production web service without changing the public URL.
+    us_public_backend_url: Optional[str] = None
+    us_cutover_freeze: bool = False
     canonical_public_base_url: str = "https://secretnote.cloud"
     canonical_redirect_hosts: str = (
         "insight-mcp-production-945f.up.railway.app,"

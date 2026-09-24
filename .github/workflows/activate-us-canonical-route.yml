@@ -1,0 +1,183 @@
+name: Activate dedicated US service at secretnote.cloud/us
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_version:
+        description: "Exact QA-approved candidate version"
+        required: true
+        type: string
+      source_sha:
+        description: "Exact 40-character staged source SHA"
+        required: true
+        type: string
+      image_ref:
+        description: "Exact image@sha256 already promoted to both production projects"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: activate-us-canonical-route
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment:
+      name: production
+      url: https://secretnote.cloud/us
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      IMAGE_REF: ${{ inputs.image_ref }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      DASHBOARD_STAGING_BASE_URL: ${{ vars.DASHBOARD_STAGING_BASE_URL }}
+      US_STAGING_BASE_URL: ${{ vars.US_STAGING_BASE_URL }}
+      DOMESTIC_PROJECT: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}
+      DOMESTIC_WEB: ${{ vars.PRODUCTION_RAILWAY_WEB_SERVICE }}
+      DOMESTIC_COLLECTOR: ${{ vars.PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
+      US_PROJECT: ${{ vars.US_PRODUCTION_RAILWAY_PROJECT_ID }}
+      US_WEB: ${{ vars.US_PRODUCTION_RAILWAY_WEB_SERVICE }}
+      US_COLLECTOR: ${{ vars.US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
+      US_PRODUCTION_BASE_URL: ${{ vars.US_PRODUCTION_BASE_URL }}
+      US_USER_DATA_MIGRATED_SOURCE_SHA: ${{ vars.US_USER_DATA_MIGRATED_SOURCE_SHA }}
+      QA_DASHBOARD_SHARE_ID: qa-automation
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Validate exact candidate and independent targets
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$IMAGE_REF" =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]]
+          test "$SOURCE_SHA" = "$(git rev-parse HEAD)"
+          for value in "$RAILWAY_API_TOKEN" "$DASHBOARD_STAGING_BASE_URL" "$US_STAGING_BASE_URL" \
+            "$DOMESTIC_PROJECT" "$DOMESTIC_WEB" "$DOMESTIC_COLLECTOR" \
+            "$US_PROJECT" "$US_WEB" "$US_COLLECTOR" "$US_PRODUCTION_BASE_URL"; do
+            test -n "$value"
+          done
+          test "$DOMESTIC_PROJECT" != "$US_PROJECT"
+          test "$DOMESTIC_WEB" != "$US_WEB"
+          test "$DOMESTIC_COLLECTOR" != "$US_COLLECTOR"
+          test "$US_PRODUCTION_BASE_URL" != "https://secretnote.cloud"
+          test "$US_USER_DATA_MIGRATED_SOURCE_SHA" = "$SOURCE_SHA"
+      - name: Install QA and Chromium
+        run: |
+          pip install -e '.[qa,mcp]'
+          playwright install --with-deps chromium
+      - name: Recheck both staged artifacts and canonical gateway
+        run: |
+          set -euo pipefail
+          analyst qa release-parity --surface us \
+            --staging-url "$US_STAGING_BASE_URL" --source-sha "$SOURCE_SHA" \
+            --output artifacts/qa-data-signal/us-staging-parity.json
+          analyst qa release-parity --surface dashboard \
+            --staging-url "$DASHBOARD_STAGING_BASE_URL" --source-sha "$SOURCE_SHA" \
+            --output artifacts/qa-data-signal/dashboard-staging-parity.json
+          analyst qa data-signal --mode live --surface us-gateway \
+            --base-url "$DASHBOARD_STAGING_BASE_URL" \
+            --output artifacts/qa-data-signal/us-gateway-staging-live.json
+          analyst qa data-signal --mode e2e --surface us-gateway \
+            --base-url "$DASHBOARD_STAGING_BASE_URL" \
+            --output artifacts/qa-data-signal/us-gateway-staging-e2e.json \
+            --artifact-dir artifacts/qa-data-signal/us-gateway-staging-screenshots
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.45.7
+      - name: Verify both production web and collector images are the exact candidate
+        run: |
+          set -euo pipefail
+          check_image() {
+            railway deployment list --json --limit 1 \
+              --project "$1" --environment production --service "$2" |
+              jq -e --arg image "$IMAGE_REF" \
+                '.[0].status == "SUCCESS" and .[0].meta.image == $image' > /dev/null
+          }
+          check_image "$US_PROJECT" "$US_WEB"
+          check_image "$US_PROJECT" "$US_COLLECTOR"
+          check_image "$DOMESTIC_PROJECT" "$DOMESTIC_WEB"
+          check_image "$DOMESTIC_PROJECT" "$DOMESTIC_COLLECTOR"
+      - name: Require completed US user-state migration and write freeze
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail --max-time 15 https://secretnote.cloud/health |
+            jq -e '.us_cutover_freeze == true and .us_public_gateway_enabled == false' > /dev/null
+      - name: Preserve the existing invite code on the isolated US service
+        run: |
+          set -euo pipefail
+          invite_code="$(railway variable list --json \
+            --project "$DOMESTIC_PROJECT" --environment production --service "$DOMESTIC_WEB" |
+            jq -r '.DASHBOARD_INVITE_CODE // empty')"
+          test -n "$invite_code"
+          railway variable set "DASHBOARD_INVITE_CODE=$invite_code" --skip-deploys \
+            --project "$US_PROJECT" --environment production --service "$US_WEB" > /dev/null 2>&1
+          unset invite_code
+          railway variable set "DASHBOARD_INVITE_HOSTS=secretnote.cloud,www.secretnote.cloud" --skip-deploys \
+            --project "$US_PROJECT" --environment production --service "$US_WEB" > /dev/null
+          railway service redeploy --yes --json \
+            --project "$US_PROJECT" --environment production --service "$US_WEB" > /dev/null
+      - name: Confirm canonical-host invite protection on the US service
+        run: |
+          set -euo pipefail
+          ready=0
+          for _ in $(seq 1 30); do
+            if curl --silent --show-error --fail --max-time 10 \
+              -H "X-Forwarded-Host: secretnote.cloud" \
+              "$US_PRODUCTION_BASE_URL/session/invite-status" |
+              jq -e '.required == true' > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ready" -eq 1
+      - name: Switch the canonical US route and disable domestic US collection
+        run: |
+          set -euo pipefail
+          railway variable set "US_MARKET_ENABLED=false" --skip-deploys \
+            --project "$DOMESTIC_PROJECT" --environment production --service "$DOMESTIC_COLLECTOR" > /dev/null
+          railway variable set "US_PUBLIC_BACKEND_URL=$US_PRODUCTION_BASE_URL" --skip-deploys \
+            --project "$DOMESTIC_PROJECT" --environment production --service "$DOMESTIC_WEB" > /dev/null
+          railway variable set "US_MARKET_ENABLED=false" --skip-deploys \
+            --project "$DOMESTIC_PROJECT" --environment production --service "$DOMESTIC_WEB" > /dev/null
+          railway variable set "US_CUTOVER_FREEZE=false" --skip-deploys \
+            --project "$DOMESTIC_PROJECT" --environment production --service "$DOMESTIC_WEB" > /dev/null
+          railway service source connect --image "$IMAGE_REF" --json \
+            --project "$DOMESTIC_PROJECT" --environment production --service "$DOMESTIC_COLLECTOR" > /dev/null
+          railway service source connect --image "$IMAGE_REF" --json \
+            --project "$DOMESTIC_PROJECT" --environment production --service "$DOMESTIC_WEB" > /dev/null
+      - name: Verify production parity and canonical market boundary
+        run: |
+          set -euo pipefail
+          analyst qa release-parity --surface dashboard \
+            --staging-url "$DASHBOARD_STAGING_BASE_URL" \
+            --production-url https://secretnote.cloud \
+            --source-sha "$SOURCE_SHA" --wait-seconds 600 \
+            --output artifacts/qa-data-signal/dashboard-production-parity.json
+          analyst qa release-parity --surface us \
+            --staging-url "$US_STAGING_BASE_URL" \
+            --production-url "$US_PRODUCTION_BASE_URL" \
+            --source-sha "$SOURCE_SHA" --wait-seconds 600 \
+            --output artifacts/qa-data-signal/us-production-parity.json
+          analyst qa data-signal --mode live --surface us-gateway \
+            --base-url https://secretnote.cloud \
+            --output artifacts/qa-data-signal/us-gateway-production-live.json
+          analyst qa data-signal --mode e2e --surface us-gateway \
+            --base-url https://secretnote.cloud \
+            --output artifacts/qa-data-signal/us-gateway-production-e2e.json \
+            --artifact-dir artifacts/qa-data-signal/us-gateway-production-screenshots
+      - name: Upload activation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: us-canonical-route-${{ inputs.candidate_version }}
+          path: artifacts/qa-data-signal
+          if-no-files-found: error
+          retention-days: 90

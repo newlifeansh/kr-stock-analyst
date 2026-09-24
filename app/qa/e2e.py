@@ -515,6 +515,22 @@ def _run_page_case(
                     ),
                 ),
             )
+            context.route(
+                "**/us-gateway/session/dashboard-access",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps(
+                        {
+                            "required": True,
+                            "authorized": True,
+                            "newly_registered": False,
+                            "registered_count": None,
+                            "limit": None,
+                        }
+                    ),
+                ),
+            )
             if dismiss_service_update:
                 context.add_init_script(
                     "localStorage.setItem('secret-note-service-update-dismissed:20260829-chart-analysis-v1', '1');"
@@ -619,35 +635,38 @@ def _browser_auth_state(
     base_url: str,
     timeout: float,
     invite_code: str,
+    us_gateway: bool = False,
 ) -> dict[str, Any] | None:
     context = browser.new_context()
     try:
-        status = context.request.get(
-            f"{base_url.rstrip('/')}/session/invite-status",
-            timeout=timeout * 1000,
-        )
-        if not status.ok:
-            raise QaFailure(
-                "스테이징 초대 상태를 확인하지 못했습니다.",
-                {"http_status": status.status},
+        for prefix in (("", "/us-gateway") if us_gateway else ("",)):
+            status = context.request.get(
+                f"{base_url.rstrip('/')}{prefix}/session/invite-status",
+                timeout=timeout * 1000,
             )
-        payload = status.json()
-        if payload.get("required") is not True:
-            return context.storage_state()
-        if not invite_code:
-            raise QaFailure(
-                "스테이징 E2E에 QA_DASHBOARD_INVITE_CODE가 필요합니다.",
-                {"invite_required": True},
+            if not status.ok:
+                raise QaFailure(
+                    "스테이징 초대 상태를 확인하지 못했습니다.",
+                    {"http_status": status.status, "surface": prefix or "dashboard"},
+                )
+            payload = status.json()
+            if payload.get("required") is not True:
+                continue
+            if not invite_code:
+                raise QaFailure(
+                    "스테이징 E2E에 QA_DASHBOARD_INVITE_CODE가 필요합니다.",
+                    {"invite_required": True, "surface": prefix or "dashboard"},
+                )
+            access = context.request.post(
+                f"{base_url.rstrip('/')}{prefix}/session/invite-access",
+                data={"invite_code": invite_code},
+                timeout=timeout * 1000,
             )
-        access = context.request.post(
-            f"{base_url.rstrip('/')}/session/invite-access",
-            data={"invite_code": invite_code},
-            timeout=timeout * 1000,
-        )
-        if not access.ok:
-            raise QaFailure(
-                "스테이징 초대 인증에 실패했습니다.", {"http_status": access.status}
-            )
+            if not access.ok:
+                raise QaFailure(
+                    "스테이징 초대 인증에 실패했습니다.",
+                    {"http_status": access.status, "surface": prefix or "dashboard"},
+                )
         return context.storage_state()
     finally:
         context.close()
@@ -659,16 +678,18 @@ def _run_us_e2e_checks(
     base_url: str,
     timeout: float,
     artifact_dir: Path | str | None = None,
+    gateway_expected: bool = False,
 ) -> list[dict[str, Any]]:
     catalog_by_id = {case["id"]: case for case in catalog["cases"]}
     output_dir = Path(artifact_dir or "artifacts/qa-data-signal/e2e-us")
+    required_case_ids = US_E2E_CASE_IDS + (("DATA-COM-006",) if gateway_expected else ())
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
         message = "Playwright가 설치되지 않았습니다. `pip install -e '.[qa]'` 후 `playwright install chromium`을 실행하세요."
         return [
             _result(catalog_by_id, case_id, "fail", message, monotonic())
-            for case_id in US_E2E_CASE_IDS
+            for case_id in required_case_ids
         ]
 
     try:
@@ -694,7 +715,7 @@ def _run_us_e2e_checks(
             )
             return [
                 _result(catalog_by_id, case_id, "fail", message, monotonic())
-                for case_id in US_E2E_CASE_IDS
+                for case_id in required_case_ids
             ]
         try:
             try:
@@ -703,6 +724,7 @@ def _run_us_e2e_checks(
                     base_url=base_url,
                     timeout=timeout,
                     invite_code=invite_code,
+                    us_gateway=gateway_expected,
                 )
             except QaFailure as exc:
                 return [
@@ -714,7 +736,7 @@ def _run_us_e2e_checks(
                         monotonic(),
                         exc.evidence,
                     )
-                    for case_id in US_E2E_CASE_IDS
+                    for case_id in required_case_ids
                 ]
 
             def us_product_boundary_case(page: Any, theme: str) -> dict[str, Any]:
@@ -753,8 +775,9 @@ def _run_us_e2e_checks(
                       marketCodes: Array.from(document.querySelectorAll('#home-market-carousel .home-index-card[data-code]')).map(node => node.dataset.code),
                       homeVisible: !document.querySelector('#home-view')?.hidden,
                       loginHidden: document.querySelector('#login-gate')?.hidden === true,
-                      commonCss: document.querySelector('link[href^="/assets/dashboard/styles.css?"]')?.getAttribute('href'),
-                      commonScript: document.querySelector('script[src^="/dashboard-app-v170.js?"]')?.getAttribute('src'),
+                      commonCss: document.querySelector('link[href*="/assets/dashboard/styles.css?"]')?.getAttribute('href'),
+                      commonScript: document.querySelector('script[src*="/dashboard-app-v170.js?"]')?.getAttribute('src'),
+                      gateway: window.__US_PUBLIC_GATEWAY__ || '',
                       nav: Array.from(document.querySelectorAll('#bottom-nav [data-app-view]')).map(node => ({
                         view: node.dataset.appView,
                         label: node.innerText.trim(),
@@ -800,6 +823,12 @@ def _run_us_e2e_checks(
                     )
                 ):
                     raise QaFailure("미국증시가 국내 대시보드와 같은 화면 구조·내비게이션을 사용하지 않습니다.", shell)
+                if gateway_expected and (
+                    shell["gateway"] != "/us-gateway"
+                    or not shell["commonCss"].startswith("/us-gateway/")
+                    or not shell["commonScript"].startswith("/us-gateway/")
+                ):
+                    raise QaFailure("공식 /us 화면이 미국 독립 서비스 자산을 사용하지 않습니다.", shell)
                 forbidden_copy = [
                     text
                     for text in (
@@ -994,9 +1023,16 @@ def _run_us_e2e_checks(
                     )
 
                 forbidden_requests: list[dict[str, str]] = []
-                observed_paths = [urlsplit(item["url"]).path for item in requested_resources]
+                observed_paths = [
+                    urlsplit(item["url"]).path.removeprefix("/us-gateway")
+                    if gateway_expected and urlsplit(item["url"]).path.startswith("/us-gateway/")
+                    else urlsplit(item["url"]).path
+                    for item in requested_resources
+                ]
                 for request in requested_resources:
                     path = urlsplit(request["url"]).path
+                    if gateway_expected and path.startswith("/us-gateway/"):
+                        path = path.removeprefix("/us-gateway")
                     if path in {
                         "/market/cross-market",
                         "/market/indices",
@@ -1179,7 +1215,11 @@ def _run_us_e2e_checks(
                     storage_state=storage_state,
                     share_id=share_id,
                 )
-                for case_id in ("SIG-UI-031", "REC-US-INDEPENDENT-001")
+                for case_id in (
+                    "SIG-UI-031",
+                    "REC-US-INDEPENDENT-001",
+                    *(("DATA-COM-006",) if gateway_expected else ()),
+                )
             ]
             return [news_result, *product_results]
         finally:
@@ -1194,15 +1234,16 @@ def run_e2e_checks(
     artifact_dir: Path | str | None = None,
     surface: str = "dashboard",
 ) -> list[dict[str, Any]]:
-    if surface == "us":
+    if surface in {"us", "us-gateway"}:
         return _run_us_e2e_checks(
             catalog=catalog,
             base_url=base_url,
             timeout=timeout,
             artifact_dir=artifact_dir,
+            gateway_expected=surface == "us-gateway",
         )
     if surface != "dashboard":
-        raise ValueError("surface must be dashboard or us")
+        raise ValueError("surface must be dashboard, us, or us-gateway")
     catalog_by_id = {case["id"]: case for case in catalog["cases"]}
     output_dir = Path(artifact_dir or "artifacts/qa-data-signal/e2e")
     try:
