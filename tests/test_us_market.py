@@ -259,11 +259,20 @@ def _completed_regular_intraday_chart(*, final_hour: int = 20):
     }
 
 
-def _gap_free_regular_intraday_chart():
+def _gap_free_regular_intraday_chart(
+    session_date=date(2026, 9, 14),
+):
     timestamps = [
         int(
             (
-                datetime(2026, 9, 14, 13, 30, tzinfo=UTC)
+                datetime(
+                    session_date.year,
+                    session_date.month,
+                    session_date.day,
+                    13,
+                    30,
+                    tzinfo=UTC,
+                )
                 + timedelta(minutes=5 * index)
             ).timestamp()
         )
@@ -352,6 +361,96 @@ def test_signal_daily_row_repairs_fully_null_completed_day_before_forming_row(
     )
     assert repaired["indicators"]["adjclose"][0]["adjclose"][0] == 101.27
     assert repaired_quote["close"][1] == 103.0
+
+
+def test_signal_daily_row_repairs_recent_completed_gap_after_newer_daily_close(
+    monkeypatch,
+):
+    daily = _provider_lagged_daily_chart()
+    daily["timestamp"] = [
+        int(datetime(2026, 9, 22, 13, 30, tzinfo=UTC).timestamp()),
+        int(datetime(2026, 9, 23, 13, 30, tzinfo=UTC).timestamp()),
+    ]
+    quote = daily["indicators"]["quote"][0]
+    for key, value in {
+        "open": 1174.0,
+        "high": 1188.0,
+        "low": 1145.0,
+        "close": 1150.0,
+        "volume": 2_100_000,
+    }.items():
+        quote[key] = [None, value]
+    daily["indicators"]["adjclose"][0]["adjclose"] = [None, 1150.0]
+    intraday = _gap_free_regular_intraday_chart(date(2026, 9, 22))
+    for interval_index in (20, 40, 50):
+        for values in intraday["indicators"]["quote"][0].values():
+            values[interval_index] = None
+    monkeypatch.setattr(us_market, "_fetch_chart", lambda *_args, **_kwargs: intraday)
+
+    repaired = us_market._repair_completed_daily_close_from_intraday(
+        "AAPL",
+        daily,
+        now=datetime(2026, 9, 23, 20, 16, tzinfo=UTC),
+    )
+
+    repaired_quote = repaired["indicators"]["quote"][0]
+    assert daily["indicators"]["quote"][0]["open"] == [None, 1174.0]
+    assert repaired_quote["open"][0] == 100.0
+    assert repaired_quote["high"][0] == max(
+        value
+        for value in intraday["indicators"]["quote"][0]["high"]
+        if value is not None
+    )
+    assert repaired_quote["low"][0] == min(
+        value
+        for value in intraday["indicators"]["quote"][0]["low"]
+        if value is not None
+    )
+    assert repaired_quote["close"] == [101.27, 1150.0]
+    assert repaired["indicators"]["adjclose"][0]["adjclose"] == [
+        101.27,
+        1150.0,
+    ]
+    assert repaired_quote["volume"][0] == sum(
+        value or 0
+        for value in intraday["indicators"]["quote"][0]["volume"]
+    )
+
+
+def test_signal_daily_row_keeps_recent_completed_gap_without_exact_intraday_vector(
+    monkeypatch,
+):
+    daily = _provider_lagged_daily_chart()
+    daily["timestamp"] = [
+        int(datetime(2026, 9, 22, 13, 30, tzinfo=UTC).timestamp()),
+        int(datetime(2026, 9, 23, 13, 30, tzinfo=UTC).timestamp()),
+    ]
+    quote = daily["indicators"]["quote"][0]
+    for key, value in {
+        "open": 1174.0,
+        "high": 1188.0,
+        "low": 1145.0,
+        "close": 1150.0,
+        "volume": 2_100_000,
+    }.items():
+        quote[key] = [None, value]
+    daily["indicators"]["adjclose"][0]["adjclose"] = [None, 1150.0]
+    intraday = _gap_free_regular_intraday_chart(date(2026, 9, 22))
+    for values in [
+        intraday["timestamp"],
+        *intraday["indicators"]["quote"][0].values(),
+    ]:
+        values.pop(20)
+    monkeypatch.setattr(us_market, "_fetch_chart", lambda *_args, **_kwargs: intraday)
+
+    repaired = us_market._repair_completed_daily_close_from_intraday(
+        "AAPL",
+        daily,
+        now=datetime(2026, 9, 23, 20, 16, tzinfo=UTC),
+    )
+
+    assert repaired is daily
+    assert repaired["indicators"]["quote"][0]["close"] == [None, 1150.0]
 
 
 def test_signal_daily_row_repair_rejects_intraday_session_gap(monkeypatch):
