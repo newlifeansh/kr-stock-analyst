@@ -2355,7 +2355,9 @@ def _live_checks(
                 "universe_checksum": feed.get("universe_checksum"),
                 "snapshot_id": feed.get("snapshot_id"),
                 "snapshot_checksum": feed.get("snapshot_checksum"),
-                "preliminary_count": len(items),
+                "preliminary_count": feed.get("preliminary_count"),
+                "confirmed_count": feed.get("confirmed_count"),
+                "visible_item_count": len(items),
                 "entry_pending_count": entry_pending_count,
                 "recommendation_entry_pending_count": recommendation_entry_pending_count,
                 "recommendation_model_version": recommendations.get(
@@ -4509,7 +4511,9 @@ def _live_us_checks(
                 "snapshot_id": feed.get("snapshot_id"),
                 "snapshot_checksum": feed.get("snapshot_checksum"),
                 "data_state": feed.get("data_state"),
-                "preliminary_count": len(items),
+                "preliminary_count": feed.get("preliminary_count"),
+                "confirmed_count": feed.get("confirmed_count"),
+                "visible_item_count": len(items),
                 "entry_pending_count": entry_pending_count,
                 "recommendation_entry_pending_count": recommendation_entry_pending_count,
                 "recommendation_model_version": recommendations.get(
