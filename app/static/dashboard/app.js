@@ -10929,6 +10929,7 @@ function watchlistItemsForGroup(groupId = state.activeWatchGroup) {
 }
 
 function activeWatchlistGroupName() {
+  if (IS_US_ONLY_PRODUCT) return "관심 종목";
   return WATCHLIST_SYSTEM_GROUPS[state.activeWatchGroup]?.name
     || watchlistGroupById()?.name
     || WATCHLIST_SYSTEM_GROUPS.default.name;
