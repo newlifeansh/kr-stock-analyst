@@ -55,6 +55,10 @@ env:
   PRODUCTION_RAILWAY_WEB_SERVICE: ${{ vars.PRODUCTION_RAILWAY_WEB_SERVICE }}
   PRODUCTION_RAILWAY_COLLECTOR_SERVICE: ${{ vars.PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
   PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+  US_PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.US_PRODUCTION_RAILWAY_PROJECT_ID }}
+  US_PRODUCTION_RAILWAY_WEB_SERVICE: ${{ vars.US_PRODUCTION_RAILWAY_WEB_SERVICE }}
+  US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE: ${{ vars.US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
+  US_PRODUCTION_BASE_URL: ${{ vars.US_PRODUCTION_BASE_URL }}
   PRODUCT_SURFACE: ${{ inputs.product_surface }}
 
 jobs:
@@ -78,13 +82,20 @@ jobs:
               "$US_STAGING_RAILWAY_COLLECTOR_SERVICE" "$US_STAGING_BASE_URL" \
               "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE" \
               "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE" "$DASHBOARD_STAGING_BASE_URL" \
-              "$PRODUCTION_RAILWAY_PROJECT_ID" "$PRODUCTION_BASE_URL"; do
+              "$PRODUCTION_RAILWAY_PROJECT_ID" "$PRODUCTION_RAILWAY_WEB_SERVICE" \
+              "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" "$PRODUCTION_BASE_URL" \
+              "$US_PRODUCTION_RAILWAY_PROJECT_ID" "$US_PRODUCTION_RAILWAY_WEB_SERVICE" \
+              "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE" "$US_PRODUCTION_BASE_URL"; do
               test -n "$value"
             done
             test "$US_STAGING_RAILWAY_PROJECT_ID" != "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"
             test "$US_STAGING_RAILWAY_PROJECT_ID" != "$PRODUCTION_RAILWAY_PROJECT_ID"
             test "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" != "$PRODUCTION_RAILWAY_PROJECT_ID"
+            test "$US_PRODUCTION_RAILWAY_PROJECT_ID" != "$PRODUCTION_RAILWAY_PROJECT_ID"
+            test "$US_PRODUCTION_RAILWAY_PROJECT_ID" != "$US_STAGING_RAILWAY_PROJECT_ID"
+            test "$US_PRODUCTION_RAILWAY_PROJECT_ID" != "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"
             test "$US_STAGING_BASE_URL" != "$DASHBOARD_STAGING_BASE_URL"
+            test "$US_PRODUCTION_BASE_URL" != "$PRODUCTION_BASE_URL"
             test "$US_STAGING_RAILWAY_WEB_SERVICE" != "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
             test "$US_STAGING_RAILWAY_COLLECTOR_SERVICE" != "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
           fi
@@ -184,7 +195,7 @@ jobs:
             --arg image_ref "$image_ref" \
             --arg image_digest "$IMAGE_DIGEST" \
             --arg product_surface "$PRODUCT_SURFACE" \
-            '{candidate_version:$candidate, product_surface:$product_surface, source_sha:$source_sha, image_ref:$image_ref, image_digest:$image_digest, staging_runtime:{dashboard:{US_MARKET_ENABLED:false},us:{US_MARKET_ENABLED:true}}, production_runtime:{US_MARKET_ENABLED:true}, promotion_state:"built"}' \
+            '{candidate_version:$candidate, product_surface:$product_surface, source_sha:$source_sha, image_ref:$image_ref, image_digest:$image_digest, staging_runtime:{dashboard:{US_MARKET_ENABLED:false},us:{US_MARKET_ENABLED:true}}, production_runtime:{dashboard:{US_MARKET_ENABLED:"preserve_existing_until_url_cutover"},us:{US_MARKET_ENABLED:true}}, promotion_state:"built"}' \
             > artifacts/qa-data-signal/release-candidate/candidate.json
       - name: Upload immutable candidate identity
         uses: actions/upload-artifact@v4
@@ -346,55 +357,58 @@ jobs:
     timeout-minutes: 20
     environment:
       name: production
-      url: ${{ vars.PRODUCTION_BASE_URL }}
+      url: ${{ inputs.product_surface == 'us' && vars.US_PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL }}
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       IMAGE_REF: ${{ inputs.image_ref }}
+      TARGET_PRODUCTION_RAILWAY_PROJECT_ID: ${{ inputs.product_surface == 'us' && vars.US_PRODUCTION_RAILWAY_PROJECT_ID || vars.PRODUCTION_RAILWAY_PROJECT_ID }}
+      TARGET_PRODUCTION_RAILWAY_WEB_SERVICE: ${{ inputs.product_surface == 'us' && vars.US_PRODUCTION_RAILWAY_WEB_SERVICE || vars.PRODUCTION_RAILWAY_WEB_SERVICE }}
+      TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE: ${{ inputs.product_surface == 'us' && vars.US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE || vars.PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
+      TARGET_PRODUCTION_BASE_URL: ${{ inputs.product_surface == 'us' && vars.US_PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL }}
     steps:
       - name: Validate exact production artifact and Railway configuration
         run: |
           test -n "$RAILWAY_API_TOKEN"
-          test -n "$PRODUCTION_RAILWAY_PROJECT_ID"
-          test -n "$PRODUCTION_RAILWAY_WEB_SERVICE"
-          test -n "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
-          test -n "$PRODUCTION_BASE_URL"
+          test -n "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"
+          test -n "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"
+          test -n "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          test -n "$TARGET_PRODUCTION_BASE_URL"
           [[ "$IMAGE_REF" =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]]
       - name: Install Railway CLI
         run: npm install --global @railway/cli@5.45.7
-      - name: Keep both isolated product runtimes available in production
+      - name: Enable the US runtime only on the dedicated US production target
         run: |
           set -euo pipefail
-          railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
-            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
-            --service "$PRODUCTION_RAILWAY_WEB_SERVICE"
-          railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
-            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
-            --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
-      - name: Promote the exact staged image to production
+          if [[ "$PRODUCT_SURFACE" == "us" ]]; then
+            railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
+              --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+              --service "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"
+            railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
+              --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+              --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          fi
+      - name: Promote the exact staged image to the selected production surface
         run: |
           set -euo pipefail
           railway service source connect --image "$IMAGE_REF" --json \
-            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
-            --service "$PRODUCTION_RAILWAY_WEB_SERVICE"
+            --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"
           railway service source connect --image "$IMAGE_REF" --json \
-            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
-            --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+            --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
 
   verify_production:
     if: inputs.action == 'promote-production'
     needs: [validate_request, deploy_production]
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        surface: [dashboard, us]
     environment:
       name: production
-      url: ${{ vars.PRODUCTION_BASE_URL }}
+      url: ${{ inputs.product_surface == 'us' && vars.US_PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL }}
     env:
-      PRODUCT_SURFACE: ${{ matrix.surface }}
-      QA_STAGING_BASE_URL: ${{ matrix.surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL }}
+      PRODUCT_SURFACE: ${{ inputs.product_surface }}
+      QA_STAGING_BASE_URL: ${{ inputs.product_surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL }}
+      TARGET_PRODUCTION_BASE_URL: ${{ inputs.product_surface == 'us' && vars.US_PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -410,7 +424,7 @@ jobs:
           analyst qa release-parity
           --surface "$PRODUCT_SURFACE"
           --staging-url "$QA_STAGING_BASE_URL"
-          --production-url "$PRODUCTION_BASE_URL"
+          --production-url "$TARGET_PRODUCTION_BASE_URL"
           --source-sha "${{ needs.validate_request.outputs.source_sha }}"
           --wait-seconds 600
           --output artifacts/qa-data-signal/production-parity.json
@@ -419,13 +433,13 @@ jobs:
           analyst qa data-signal
           --mode live
           --surface "$PRODUCT_SURFACE"
-          --base-url "$PRODUCTION_BASE_URL"
+          --base-url "$TARGET_PRODUCTION_BASE_URL"
           --output artifacts/qa-data-signal/production-live.json
       - name: Upload production verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: production-verification-${{ inputs.candidate_version }}-${{ matrix.surface }}
+          name: production-verification-${{ inputs.candidate_version }}-${{ inputs.product_surface }}
           path: artifacts/qa-data-signal
           if-no-files-found: error
           retention-days: 90
