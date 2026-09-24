@@ -23,6 +23,10 @@ from app.qa.catalog import load_qa_catalog
 KST = ZoneInfo("Asia/Seoul")
 QaMode = Literal["gate", "live", "e2e"]
 QaStatus = Literal["pass", "warn", "fail", "skip"]
+DEFAULT_STAGING_BASE_URLS = {
+    "dashboard": "https://domestic-market-web-staging-staging.up.railway.app",
+    "us": "https://us-market-web-staging.up.railway.app",
+}
 SECRET_KEY_RE = re.compile(
     r"(authorization|token|secret|password|api[_-]?key|app[_-]?key|app[_-]?secret|approval[_-]?key)",
     re.IGNORECASE,
@@ -43,6 +47,14 @@ QUOTE_STREAM_META_RE = re.compile(
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-COM-005": (
+        "tests.test_release_parity."
+        "test_deployment_workflow_promotes_one_immutable_image_after_staging",
+        "tests.test_release_parity."
+        "test_staging_targets_and_qa_evidence_are_separate_for_both_products",
+        "tests.test_release_parity."
+        "test_scheduled_qa_never_reuses_the_preview_proxy",
+    ),
     "DATA-US-NEWS-001": (
         "tests.test_us_market."
         "test_us_market_trends_uses_real_recent_articles_and_rejects_synthetic_freshness",
@@ -4829,7 +4841,7 @@ def _summary(results: list[QaCheckResult], mode: QaMode) -> dict[str, Any]:
 def run_data_signal_qa(
     *,
     mode: QaMode,
-    base_url: str = "https://dark-theme-preview-staging.up.railway.app",
+    base_url: str | None = None,
     timeout: float = 20.0,
     artifact_dir: Path | str | None = None,
     direct_kis: bool = False,
@@ -4840,6 +4852,7 @@ def run_data_signal_qa(
         raise ValueError("mode must be gate, live, or e2e")
     if surface not in {"dashboard", "us"}:
         raise ValueError("surface must be dashboard or us")
+    base_url = base_url or DEFAULT_STAGING_BASE_URLS[surface]
     catalog = load_qa_catalog()
     collector = ResultCollector(catalog)
     market_state: str | None = None
