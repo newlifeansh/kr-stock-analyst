@@ -168,6 +168,11 @@ def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> Non
     assert '--base-url "$QA_BASE_URL"' in workflow
     assert workflow.count("matrix:\n        surface: [dashboard, us]") == 2
     assert "dark-theme-preview-staging" not in workflow
+    assert "id: live_qa\n        continue-on-error: true" in workflow
+    assert "id: browser_qa\n        continue-on-error: true" in workflow
+    assert "Enforce both staging QA reports" in workflow
+    assert 'test -f artifacts/qa-data-signal/live.json' in workflow
+    assert 'test -f artifacts/qa-data-signal/e2e.json' in workflow
 
     assert DEFAULT_STAGING_BASE_URLS["dashboard"] != DEFAULT_STAGING_BASE_URLS["us"]
     assert "domestic-market-web-staging" in DEFAULT_STAGING_BASE_URLS["dashboard"]

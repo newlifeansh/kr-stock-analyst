@@ -294,6 +294,8 @@ jobs:
           --wait-seconds 600
           --output artifacts/qa-data-signal/staging-parity.json
       - name: Run read-only staging integrations
+        id: live_qa
+        continue-on-error: true
         shell: bash
         run: |
           kis_flag=""
@@ -309,6 +311,8 @@ jobs:
       - name: Allow API rate-limit window to reset before browser E2E
         run: sleep 65
       - name: Run mobile dark and light staging E2E
+        id: browser_qa
+        continue-on-error: true
         run: >-
           analyst qa data-signal
           --mode e2e
@@ -316,6 +320,16 @@ jobs:
           --base-url "$QA_BASE_URL"
           --output artifacts/qa-data-signal/e2e.json
           --artifact-dir artifacts/qa-data-signal/screenshots
+      - name: Enforce both staging QA reports
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f artifacts/qa-data-signal/staging-parity.json
+          test -f artifacts/qa-data-signal/live.json
+          test -f artifacts/qa-data-signal/e2e.json
+          test "${{ steps.live_qa.outcome }}" = "success"
+          test "${{ steps.browser_qa.outcome }}" = "success"
       - name: Upload staging QA evidence
         if: always()
         uses: actions/upload-artifact@v4
