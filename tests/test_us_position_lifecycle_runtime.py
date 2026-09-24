@@ -682,6 +682,7 @@ def test_snapshot_identity_must_match_strategy_date_and_checksum(
 def test_failed_refresh_keeps_last_good_snapshot_and_blocks_returned_entries(
     snapshot_db,
     monkeypatch,
+    caplog,
 ):
     generated_at = datetime(2026, 9, 8, 21, 0, tzinfo=UTC)
     monkeypatch.setattr(
@@ -715,9 +716,14 @@ def test_failed_refresh_keeps_last_good_snapshot_and_blocks_returned_entries(
     assert returned["data_state"] == "degraded"
     assert returned["entry_pending_count"] == 0
     assert returned["items"][0]["current"]["action"] == "entry_watch"
+    assert "refresh failed before publication" in caplog.text
 
 
-def test_incomplete_refresh_never_overwrites_last_good(snapshot_db, monkeypatch):
+def test_incomplete_refresh_never_overwrites_last_good(
+    snapshot_db,
+    monkeypatch,
+    caplog,
+):
     generated_at = datetime(2026, 9, 8, 21, 0, tzinfo=UTC)
     monkeypatch.setattr(
         lifecycle,
@@ -750,6 +756,8 @@ def test_incomplete_refresh_never_overwrites_last_good(snapshot_db, monkeypatch)
     )
     assert persisted is not None
     assert json.loads(persisted.payload)["snapshot_id"] == stored["snapshot_id"]
+    assert "refresh produced degraded data" in caplog.text
+    assert "history_error_count=1" in caplog.text
 
 
 def test_invalid_ready_save_never_overwrites_last_good(snapshot_db) -> None:

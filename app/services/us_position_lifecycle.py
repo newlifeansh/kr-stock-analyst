@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 import json
+import logging
 from typing import Any, Callable, Optional
 
 from sqlalchemy import update
@@ -48,6 +49,9 @@ from app.services.us_signal_universe import (
     _snapshot_payload_is_valid as _universe_snapshot_payload_is_valid,
     build_us_signal_universe,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 US_STRATEGY_VERSION = "position-lifecycle-us-v1-rc1"
@@ -2603,6 +2607,23 @@ def refresh_us_position_lifecycle_snapshot(
             generated_at=current,
         )
         if canonical.get("data_state") != "ready":
+            logger.warning(
+                "US position-lifecycle refresh produced degraded data: "
+                "universe_status=%s universe_state=%s universe_as_of=%s "
+                "universe_count=%s evaluated_count=%s data_coverage_count=%s "
+                "history_error_count=%s sector_error_count=%s source_error=%s "
+                "source_errors=%s",
+                generated.get("status"),
+                generated.get("universe_data_state") or generated.get("data_state"),
+                generated.get("universe_as_of"),
+                generated.get("universe_count"),
+                generated.get("evaluated_count"),
+                generated.get("data_coverage_count"),
+                generated.get("history_error_count"),
+                generated.get("sector_classification_error_count"),
+                generated.get("source_error"),
+                generated.get("source_errors"),
+            )
             db.rollback()
             previous = load_us_position_lifecycle_snapshot(db, now=current)
             return previous or canonical
@@ -2612,6 +2633,7 @@ def refresh_us_position_lifecycle_snapshot(
             generated_at=current,
         )
     except Exception as exc:
+        logger.exception("US position-lifecycle refresh failed before publication")
         db.rollback()
         previous = load_us_position_lifecycle_snapshot(db, now=current)
         if previous is not None:

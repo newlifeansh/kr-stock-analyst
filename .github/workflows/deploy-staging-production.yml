@@ -225,6 +225,7 @@ jobs:
       name: staging
       url: ${{ vars.STAGING_BASE_URL }}
     env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
       QA_DASHBOARD_SHARE_ID: qa-automation
       KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
@@ -264,6 +265,21 @@ jobs:
             --base-url "$STAGING_BASE_URL" \
             --output artifacts/qa-data-signal/live.json \
             $kis_flag
+      - name: Capture staging runtime logs
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts/qa-data-signal/railway
+          npx -y @railway/cli@5.45.7 logs \
+            --lines 500 --since 30m --json \
+            --project "$STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$STAGING_RAILWAY_WEB_SERVICE" \
+            > artifacts/qa-data-signal/railway/web.jsonl || true
+          npx -y @railway/cli@5.45.7 logs \
+            --lines 500 --since 30m --json \
+            --project "$STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$STAGING_RAILWAY_COLLECTOR_SERVICE" \
+            > artifacts/qa-data-signal/railway/collector.jsonl || true
       - name: Allow API rate-limit window to reset before browser E2E
         run: sleep 65
       - name: Run mobile dark and light staging E2E
