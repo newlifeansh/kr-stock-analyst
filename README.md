@@ -355,7 +355,9 @@ Actions는 PR마다 `gate`, 평일 KST 08:20·10:00·16:20에 `live`, 스테이�
 프로젝트의 web·collector·Postgres 및 URL을 사용합니다. 동일한 불변 이미지를
 배포하되 국내는 `US_MARKET_ENABLED=false`, 미국은 `true`로 운영합니다.
 `product_surface`는 후보의 주 제품을 기록하며 양쪽 QA는 모두 필수입니다.
-기존 `dark-theme-preview`는 화면 프리뷰로 유지하고 릴리스 QA 대상에서 제외합니다.
+기존 `dark-theme-preview`는 최근 접근 기록에서 자동화 QA 요청만 확인되어
+2026-09-24에 배포를 중지했습니다. 서비스 설정과 도메인은 복구를 위해 보존하며
+릴리스 QA 대상에서 제외합니다.
 운영자가 두 스테이징 결과와 정확한 후보를 승인한 뒤
 `promote-production`에 검증된 `image@sha256`과 source SHA를 입력하면 새 이미지를
 빌드하지 않고 canonical 운영 프로젝트에 승격하고 두 surface의
