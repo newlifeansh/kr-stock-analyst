@@ -10929,6 +10929,7 @@ function watchlistItemsForGroup(groupId = state.activeWatchGroup) {
 }
 
 function activeWatchlistGroupName() {
+  if (IS_US_ONLY_PRODUCT) return "관심 종목";
   return WATCHLIST_SYSTEM_GROUPS[state.activeWatchGroup]?.name
     || watchlistGroupById()?.name
     || WATCHLIST_SYSTEM_GROUPS.default.name;
@@ -10957,6 +10958,10 @@ function renderWatchlistGroupTabs() {
   state.watchlistGroups = normalizeWatchlistGroups(
     state.watchlistGroups.length ? state.watchlistGroups : readWatchlistGroups(),
   );
+  // The standalone US product has one saved-stock list.  Keep existing group
+  // memberships in storage for compatibility, but do not surface a second
+  // navigation layer above the list.
+  if (IS_US_ONLY_PRODUCT) state.activeWatchGroup = "default";
   const validIds = new Set(["default", "pinned", ...state.watchlistGroups.map((group) => group.id)]);
   if (!validIds.has(state.activeWatchGroup)) state.activeWatchGroup = "default";
   elements.watchUserGroupTabs.replaceChildren(...state.watchlistGroups.map(createWatchlistGroupTab));
@@ -10968,8 +10973,9 @@ function renderWatchlistGroupTabs() {
     tab.tabIndex = selected ? 0 : -1;
   }
   const customSelected = Boolean(watchlistGroupById());
+  const hasVisibleWatchlistItems = watchlistItemsForGroup("default").length > 0;
   if (elements.watchGroupEdit) {
-    elements.watchGroupEdit.hidden = false;
+    elements.watchGroupEdit.hidden = IS_US_ONLY_PRODUCT && !hasVisibleWatchlistItems;
     elements.watchGroupEdit.textContent = state.watchlistEditing ? "완료" : "편집";
     elements.watchGroupEdit.setAttribute("aria-pressed", String(state.watchlistEditing));
     if (customSelected) {
@@ -10997,6 +11003,7 @@ function renderWatchlistGroupTabs() {
   if (elements.portfolioView) {
     elements.portfolioView.dataset.activeWatchGroup = state.activeWatchGroup;
     elements.portfolioView.dataset.watchEditing = String(state.watchlistEditing);
+    elements.portfolioView.dataset.usWatchlistHasItems = String(hasVisibleWatchlistItems);
   }
   if (elements.watchlistView) {
     elements.watchlistView.dataset.groupKind = state.activeWatchGroup === "pinned"
@@ -12435,6 +12442,58 @@ function dashboardLocationRoute() {
   };
 }
 
+function dashboardLocationRouteForUrl(rawUrl, options = {}) {
+  if (!rawUrl) return null;
+  let location;
+  try {
+    location = new URL(rawUrl, window.location.origin);
+  } catch (_error) {
+    return null;
+  }
+  if (location.origin !== window.location.origin) return null;
+  const parts = location.pathname.split("/").filter(Boolean);
+  const expectedRoot = String(options.rootPath || "").replace(/^\//, "");
+  if (expectedRoot && parts[0] !== expectedRoot) return null;
+  if (parts[0] === "dashboard" && parts[1]) {
+    return {
+      route: "stock",
+      stockQuery: decodeURIComponent(parts[1]),
+      url: `${location.pathname}${location.search}${location.hash}`,
+    };
+  }
+  if (parts[0] === "us" && parts[1] === "stock" && parts[2]) {
+    return {
+      route: "stock",
+      stockQuery: decodeURIComponent(parts[2]),
+      url: `${location.pathname}${location.search}${location.hash}`,
+    };
+  }
+  if (!(["dashboard", "us"].includes(parts[0]) && parts.length <= 1)) {
+    return null;
+  }
+  const requested = location.searchParams.get("view") || "home";
+  return {
+    route: ["trend", "trend-past", "trend-impact"].includes(requested) ? "home" : requested,
+    stockQuery: "",
+    url: `${location.pathname}${location.search}${location.hash}`,
+  };
+}
+
+function resolveStockDetailReturnDestination(options = {}) {
+  const routeOptions = { rootPath: options.rootPath };
+  const visible = dashboardLocationRouteForUrl(options.visibleUrl, routeOptions);
+  if (options.currentView === "stock" && visible?.route && visible.route !== "stock") {
+    return visible;
+  }
+  for (const candidate of [options.historyReturnUrl, options.referrer]) {
+    const route = dashboardLocationRouteForUrl(candidate, routeOptions);
+    if (route?.route && route.route !== "stock") {
+      return route;
+    }
+  }
+  return dashboardLocationRouteForUrl(options.fallbackUrl, routeOptions);
+}
+
 function dashboardRouteUrl(routeName, marketScope = state.marketScope) {
   const route = String(routeName || "home");
   const root = isDashboardRootPath || !isUsHubContext ? "/dashboard" : "/us";
@@ -12489,6 +12548,8 @@ function createDashboardHistoryState(route, index, options = {}) {
     scrollY: Math.max(0, Number(options.scrollY) || 0),
     stockQuery: options.stockQuery || "",
     returnView: options.returnView || "",
+    returnUrl: options.returnUrl || "",
+    returnScrollY: Math.max(0, Number(options.returnScrollY) || 0),
     rootBase: options.rootBase === true,
     rootGuard: options.rootGuard === true,
   };
@@ -12708,6 +12769,48 @@ function navigateBackOrFallback(fallbackView = "home") {
     return;
   }
   setView(fallbackView, { historyMode: "replace" });
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+function stockDetailReturnDestination() {
+  const current = isDashboardHistoryState(window.history.state)
+    ? window.history.state
+    : currentDashboardHistorySnapshot;
+  return resolveStockDetailReturnDestination({
+    currentView: state.view,
+    rootPath: isDashboardRootPath || !isUsHubContext ? "/dashboard" : "/us",
+    visibleUrl: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+    historyReturnUrl: current?.returnUrl,
+    referrer: document.referrer,
+    fallbackUrl: dashboardRouteUrl("home"),
+  });
+}
+
+function replaceDashboardRouteAndSync(destination, options = {}) {
+  if (!destination?.route || !destination.url) return false;
+  const current = isDashboardHistoryState(window.history.state)
+    ? window.history.state
+    : currentDashboardHistorySnapshot;
+  const next = createDashboardHistoryState(destination.route, Number.isInteger(current?.index) ? current.index : 0, {
+    stockQuery: destination.stockQuery,
+    scrollY: Math.max(0, Number(options.scrollY) || 0),
+  });
+  window.history.replaceState(next, "", destination.url);
+  currentDashboardHistorySnapshot = next;
+  void syncViewFromLocation();
+  restoreDashboardScroll(next);
+  return true;
+}
+
+function returnFromStockDetail() {
+  const current = isDashboardHistoryState(window.history.state)
+    ? window.history.state
+    : currentDashboardHistorySnapshot;
+  const destination = stockDetailReturnDestination();
+  if (replaceDashboardRouteAndSync(destination, { scrollY: current?.returnScrollY })) {
+    return;
+  }
+  setView("home", { historyMode: "replace" });
   window.scrollTo({ top: 0, behavior: "auto" });
 }
 
@@ -30800,11 +30903,24 @@ async function loadStockRequest(query, options = {}) {
     ? unifiedMarketUrl(`/us/stock/${encodeURIComponent(stock.code)}`, usStockRequest ? "us" : "kr")
     : `/dashboard/${encodeURIComponent(stock.name)}`;
   if (options.historyMode !== "none") {
+    const currentHistory = isDashboardHistoryState(window.history.state)
+      ? window.history.state
+      : currentDashboardHistorySnapshot;
+    const enteringFromStock = state.view === "stock";
     writeDashboardHistory(
       "stock",
       stockUrl,
-      state.view === "stock" ? "replace" : "push",
-      { stockQuery: stock.name },
+      enteringFromStock ? "replace" : "push",
+      {
+        stockQuery: stock.name,
+        returnView: enteringFromStock ? currentHistory?.returnView : state.view,
+        returnUrl: enteringFromStock
+          ? currentHistory?.returnUrl
+          : `${window.location.pathname}${window.location.search}${window.location.hash}`,
+        returnScrollY: enteringFromStock
+          ? currentHistory?.returnScrollY
+          : currentScrollTop(),
+      },
     );
   }
   setView("stock", { historyMode: "none" });
@@ -31391,12 +31507,9 @@ elements.input?.addEventListener("keydown", (event) => {
     collapseStockSearch({ blur: true });
   }
 });
-elements.stockDetailBack?.addEventListener("click", () => {
-  if (stockDashboardIsUs() && !canNavigateBackWithinDashboard() && !document.referrer.startsWith(window.location.origin)) {
-    window.location.assign("/us");
-    return;
-  }
-  navigateBackOrFallback("home");
+elements.stockDetailBack?.addEventListener("click", (event) => {
+  event.preventDefault();
+  returnFromStockDetail();
 });
 elements.stockEtfDividendMore?.addEventListener("click", openStockEtfDividendPage);
 elements.stockEtfDividendBack?.addEventListener("click", () => closeStockEtfDividendPage());

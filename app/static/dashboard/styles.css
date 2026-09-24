@@ -45968,6 +45968,32 @@ body[data-staging-ia="tds-video"] .watch-stock-group-option > svg.watch-stock-gr
   height: 18px !important;
 }
 
+/* US watchlist v519: the bottom-sheet "종목 추가" is the single entry point.
+   Stored group data remains compatible, but group navigation and duplicate
+   search chrome do not compete with the empty-state action. */
+html[data-market-universe="us"] #portfolio-view[data-watchlist-layout="compact"] > .watch-group-shell {
+  padding-block: 12px 0;
+}
+
+html[data-market-universe="us"] #portfolio-view[data-watchlist-layout="compact"] .watch-hub-toolbar {
+  min-height: 44px;
+  justify-content: flex-end;
+}
+
+html[data-market-universe="us"] #portfolio-view[data-watchlist-layout="compact"] .watch-hub-toolbar h1,
+html[data-market-universe="us"] #portfolio-view[data-watchlist-layout="compact"] .watch-group-selection,
+html[data-market-universe="us"] #portfolio-view[data-watchlist-layout="compact"] .watchlist-search {
+  display: none !important;
+}
+
+html[data-market-universe="us"] #portfolio-view[data-watchlist-layout="compact"] .watch-group-actions {
+  margin-left: auto;
+}
+
+html[data-market-universe="us"] #portfolio-view[data-watchlist-layout="compact"][data-us-watchlist-has-items="false"] > .watch-group-shell {
+  display: none !important;
+}
+
 /* Amazon logo centering v516: the transparent source uses a white "a". The
    shared white image background hid that mark and made the orange smile look
    bottom-aligned, so retain Amazon's dark brand tile in every circular frame. */
