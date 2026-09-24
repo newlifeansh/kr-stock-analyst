@@ -19,8 +19,13 @@ jobs:
   live:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        surface: [dashboard, us]
+    environment: staging
     env:
-      STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL || 'https://dark-theme-preview-staging.up.railway.app' }}
+      QA_BASE_URL: ${{ matrix.surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL }}
       KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
       KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
       KIS_ENV: ${{ vars.KIS_ENV || 'real' }}
@@ -36,20 +41,22 @@ jobs:
       - name: Run read-only staging and source checks
         shell: bash
         run: |
+          test -n "$QA_BASE_URL"
           kis_flag=""
           if [[ -n "$KIS_APP_KEY" && -n "$KIS_APP_SECRET" ]]; then
             kis_flag="--direct-kis"
           fi
           analyst qa data-signal \
             --mode live \
-            --base-url "$STAGING_BASE_URL" \
+            --surface "${{ matrix.surface }}" \
+            --base-url "$QA_BASE_URL" \
             --output artifacts/qa-data-signal/live.json \
             $kis_flag
       - name: Upload live evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-data-signal-live-${{ github.run_id }}
+          name: qa-data-signal-live-${{ matrix.surface }}-${{ github.run_id }}
           path: artifacts/qa-data-signal/live.json
           if-no-files-found: error
           retention-days: 30

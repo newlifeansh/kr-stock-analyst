@@ -6,6 +6,8 @@ from app.qa.release_parity import (
     compare_release_contracts,
     local_release_contract,
 )
+from app.qa.catalog import load_qa_catalog
+from app.qa.runner import DEFAULT_STAGING_BASE_URLS
 
 
 def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
@@ -116,20 +118,21 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "^ghcr\\.io/.+@sha256:[0-9a-f]{64}$" in workflow
     assert "--environment staging" in workflow
     assert "--environment production" in workflow
-    assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 4
-    assert workflow.count('--project "$STAGING_RAILWAY_PROJECT_ID"') == 4
+    assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 6
+    assert workflow.count('--project "$US_STAGING_RAILWAY_PROJECT_ID"') == 2
+    assert workflow.count('--project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project "$PRODUCTION_RAILWAY_PROJECT_ID"') == 4
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
-    assert (
-        'STAGING_RAILWAY_PROJECT_ID: ${{ vars.STAGING_RAILWAY_PROJECT_ID }}'
-        in workflow
-    )
+    assert 'US_STAGING_RAILWAY_PROJECT_ID: ${{ vars.US_STAGING_RAILWAY_PROJECT_ID }}' in workflow
+    assert 'DASHBOARD_STAGING_RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}' in workflow
     assert (
         'PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}'
         in workflow
     )
-    assert '--service "$STAGING_RAILWAY_WEB_SERVICE"' in workflow
-    assert '--service "$STAGING_RAILWAY_COLLECTOR_SERVICE"' in workflow
+    assert '--service "$US_STAGING_RAILWAY_WEB_SERVICE"' in workflow
+    assert '--service "$US_STAGING_RAILWAY_COLLECTOR_SERVICE"' in workflow
+    assert '--service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"' in workflow
+    assert '--service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"' in workflow
     assert '--service "$PRODUCTION_RAILWAY_WEB_SERVICE"' in workflow
     assert '--service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"' in workflow
     assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 2
@@ -143,6 +146,56 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "product_surface:" in workflow
     assert workflow.count('--surface "$PRODUCT_SURFACE"') == 5
     assert workflow.count('railway variable set "US_MARKET_ENABLED=true"') == 4
-    assert "US_MARKET_ENABLED=false" not in workflow
-    assert "runtime_config:{US_MARKET_ENABLED:true}" in workflow
+    assert workflow.count('railway variable set "US_MARKET_ENABLED=false"') == 2
+    assert "staging_runtime:{dashboard:{US_MARKET_ENABLED:false},us:{US_MARKET_ENABLED:true}}" in workflow
     assert "/us/market/" not in workflow
+
+
+def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> None:
+    workflow = Path(".github/workflows/deploy-staging-production.yml").read_text(
+        encoding="utf-8"
+    )
+    us_deploy = workflow.index("Deploy the exact image to us-market staging")
+    dashboard_deploy = workflow.index("Deploy the exact image to domestic staging")
+    qa = workflow.index("  staging_qa:")
+    production = workflow.index("  deploy_production:")
+    assert us_deploy < dashboard_deploy < qa < production
+    assert 'test "$US_STAGING_RAILWAY_PROJECT_ID" != "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"' in workflow
+    assert 'test "$US_STAGING_BASE_URL" != "$DASHBOARD_STAGING_BASE_URL"' in workflow
+    assert 'matrix:\n        surface: [dashboard, us]' in workflow[qa:]
+    assert "matrix.surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL" in workflow
+    assert '--staging-url "$QA_BASE_URL"' in workflow
+    assert '--base-url "$QA_BASE_URL"' in workflow
+    assert workflow.count("matrix:\n        surface: [dashboard, us]") == 2
+    assert "dark-theme-preview-staging" not in workflow
+    assert "id: live_qa\n        continue-on-error: true" in workflow
+    assert "id: browser_qa\n        continue-on-error: true" in workflow
+    assert "Enforce both staging QA reports" in workflow
+    assert 'test -f artifacts/qa-data-signal/live.json' in workflow
+    assert 'test -f artifacts/qa-data-signal/e2e.json' in workflow
+
+    assert DEFAULT_STAGING_BASE_URLS["dashboard"] != DEFAULT_STAGING_BASE_URLS["us"]
+    assert "domestic-market-web-staging" in DEFAULT_STAGING_BASE_URLS["dashboard"]
+    assert "us-market-web-staging" in DEFAULT_STAGING_BASE_URLS["us"]
+
+    catalog = {case["id"]: case for case in load_qa_catalog()["cases"]}
+    release_case = catalog["DATA-COM-005"]
+    assert release_case["priority"] == "P0"
+    assert release_case["inputs"]["railway_projects"] == {
+        "dashboard_staging": "DASHBOARD_STAGING_RAILWAY_PROJECT_ID",
+        "us_staging": "US_STAGING_RAILWAY_PROJECT_ID",
+        "production": "PRODUCTION_RAILWAY_PROJECT_ID",
+    }
+    assert release_case["inputs"]["staging_market_flags"] == {
+        "dashboard": False,
+        "us": True,
+    }
+
+
+def test_scheduled_qa_never_reuses_the_preview_proxy() -> None:
+    for name in ("qa-data-signal-live.yml", "qa-data-signal-e2e.yml"):
+        workflow = Path(".github/workflows", name).read_text(encoding="utf-8")
+        assert "surface: [dashboard, us]" in workflow
+        assert 'surface "${{ matrix.surface }}"' in workflow
+        assert "vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL" in workflow
+        assert "dark-theme-preview-staging" not in workflow

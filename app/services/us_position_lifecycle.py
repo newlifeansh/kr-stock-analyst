@@ -1193,7 +1193,13 @@ def _model_lifecycle_item(
 
     action = str(replay.get("action") or "no_signal")
     position = replay.get("position") if isinstance(replay.get("position"), dict) else None
-    last_exit = replay.get("last_exit") if isinstance(replay.get("last_exit"), dict) else None
+    # A replay may retain an earlier exit after re-entry. That historical
+    # event belongs in `events`, not in the current open position fields.
+    last_exit = (
+        replay.get("last_exit")
+        if position is None and isinstance(replay.get("last_exit"), dict)
+        else None
+    )
     signal_date = (
         position.get("signal_date")
         if position is not None
@@ -1564,16 +1570,20 @@ def build_us_position_lifecycle_feed(
         if replay.get("complete") is True and code in signal_eligible_codes:
             replay_complete_codes.add(code)
         replay_action = str(replay.get("action") or "no_signal")
-        if action == "no_signal" and replay_action in {
-            "entered",
-            "holding",
-            "full_exit_pending",
-            "exited",
-        }:
-            # A completed lifecycle is neither a fresh close-time candidate
-            # nor a rejected candidate. Keep it separate from the rejection
-            # total used by the legacy shadow comparison.
-            lifecycle_no_signal_count += 1
+        if action == "no_signal":
+            if replay_action in {
+                "entered", "holding", "full_exit_pending", "exited",
+            }:
+                # A replayed position is not a rejected close-time candidate.
+                lifecycle_no_signal_count += 1
+            else:
+                rejection_counts[
+                    "insufficient_history"
+                    if code in insufficient_history_codes
+                    else "chase_guard"
+                    if decision.get("chase_veto")
+                    else "technical_or_evidence"
+                ] += 1
         if (
             complete_source_coverage
             and universe_date is not None
@@ -1614,14 +1624,6 @@ def build_us_position_lifecycle_feed(
             "entry_pending",
         }:
             items.append(_candidate_item(member, decision, sector_symbol, current))
-        else:
-            rejection_counts[
-                "insufficient_history"
-                if code in insufficient_history_codes
-                else "chase_guard"
-                if decision.get("chase_veto")
-                else "technical_or_evidence"
-            ] += 1
         public_member_signals.append(public_member_signal)
     stateful_replay_complete = bool(
         replay_complete_codes == signal_eligible_codes

@@ -249,6 +249,7 @@ def test_us_v2_catalog_covers_calendar_snapshot_and_model_replay_comparison() ->
         "candidate_action_counts",
         "baseline_action_counts",
         "candidate_entry_pending_count",
+        "lifecycle_no_signal_count",
         "displayed_entry_pending_count",
         "baseline_entry_pending_count",
         "entry_pending_overlap_count",
@@ -1423,6 +1424,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 @pytest.mark.qa_gate
 def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -> None:
     expected_case_ids = {
+        "DATA-COM-005",
         "DATA-US-NEWS-001",
         "DATA-US-NEWS-TABS-001",
         "REC-US-INDEPENDENT-001",
@@ -1438,6 +1440,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-US-MIGRATION-001",
         "SIG-CONTRACT-007",
         "SIG-UI-022",
+        "SIG-UI-025",
         "SIG-UI-030",
         "SIG-UI-031",
     }
@@ -2084,6 +2087,101 @@ def test_live_us_surface_runs_full_data_contract_and_product_boundary(
 
 
 @pytest.mark.qa_live
+def test_us_live_accepts_confirmed_model_holdings_and_exits(monkeypatch) -> None:
+    from app.qa import runner
+
+    class ModelLifecycleApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/us/market/quant-signals":
+                holding = {
+                    "code": "MSFT", "currency": "USD", "market_cap_rank": 4,
+                    "status": "confirmed", "is_preliminary": False,
+                    "current": {"action": "holding", "position_open": True,
+                                "model_exposure_percent": "100.00"},
+                    "public_reasons": [
+                        {"key": key, "available": True}
+                        for key in ("trend_20d", "trend_60d", "flow")
+                    ],
+                }
+                exited = {
+                    **holding, "code": "NVDA", "market_cap_rank": 1,
+                    "current": {"action": "exited", "position_open": False,
+                                "model_exposure_percent": "0.00"},
+                }
+                payload = {**payload, "items": [holding, exited], "confirmed_count": 1}
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", ModelLifecycleApi)
+    report = run_data_signal_qa(
+        mode="live", surface="us", base_url="https://fixture-staging.test"
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+    assert by_id["SIG-US-CONTRACT-001"]["status"] == "pass", by_id["SIG-US-CONTRACT-001"]
+
+
+@pytest.mark.qa_live
+def test_us_live_rejects_inconsistent_model_exposure(monkeypatch) -> None:
+    from app.qa import runner
+
+    class BrokenExposureApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/us/market/quant-signals":
+                payload = {
+                    **payload,
+                    "items": [{
+                        "code": "MSFT", "currency": "USD", "market_cap_rank": 4,
+                        "status": "confirmed", "is_preliminary": False,
+                        "current": {"action": "holding", "position_open": True,
+                                    "model_exposure_percent": "0.00"},
+                        "public_reasons": [
+                            {"key": key, "available": True}
+                            for key in ("trend_20d", "trend_60d", "flow")
+                        ],
+                    }],
+                    "confirmed_count": 1,
+                }
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", BrokenExposureApi)
+    report = run_data_signal_qa(
+        mode="live", surface="us", base_url="https://fixture-staging.test"
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+    assert by_id["SIG-US-CONTRACT-001"]["status"] == "fail"
+    assert "MSFT" in by_id["SIG-US-VERSION-001"]["evidence"]["invalid_items"]
+
+
+@pytest.mark.qa_live
+def test_domestic_live_skips_us_snapshot_when_collector_disabled(monkeypatch) -> None:
+    from app.qa import runner
+
+    class DomesticOnlyApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            if path == "/us/market/quant-signals":
+                raise AssertionError("domestic live must not request the US snapshot")
+            payload, meta = super().get(path, **params)
+            if path in {"/health", "/readyz"}:
+                payload = {**payload, "us_market_enabled": False}
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", DomesticOnlyApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(
+        mode="live", surface="dashboard", base_url="https://fixture-staging.test"
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+    for case_id in (
+        "SIG-US-VERSION-001", "DATA-US-UNIVERSE-001",
+        "DATA-US-SIGNAL-INPUT-001", "DATA-US-EVIDENCE-001",
+        "SIG-US-CONTRACT-001", "REC-US-INDEPENDENT-001", "SIG-UI-022",
+    ):
+        assert by_id[case_id]["status"] == "skip"
+        assert by_id[case_id]["evidence"]["us_market_enabled"] is False
+
+
+@pytest.mark.qa_live
 def test_live_us_contract_accepts_confirmed_model_lifecycle_items(monkeypatch) -> None:
     """Live QA must distinguish model holds/exits from preliminary entries."""
 
@@ -2206,6 +2304,80 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     assert by_id["SIG-UI-026"]["evidence"]["item_count"] == 1
     assert report["market_state"] == "closed"
     assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_live
+def test_live_intraday_transient_unavailable_recovers_with_bounded_retry(
+    monkeypatch,
+) -> None:
+    from app.qa import runner
+
+    class TransientIntradayApi(FakeReadOnlyApi):
+        intraday_calls = 0
+
+        def get(self, path: str, **params: object):
+            if path == "/stocks/005930/intraday" and params.get("limit") == "390":
+                self.intraday_calls += 1
+                if self.intraday_calls < 3:
+                    return {"source": "unavailable", "points": []}, self._meta(path)
+            return super().get(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", TransientIntradayApi)
+    monkeypatch.setattr(runner, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "SIG-UI-025")
+
+    assert check["status"] == "pass"
+    assert check["evidence"]["intraday"]["domestic"]["attempts"] == 3
+    assert check["evidence"]["intraday"]["domestic"]["initial_source"] == "unavailable"
+
+
+@pytest.mark.qa_live
+def test_live_intraday_persistent_unavailable_remains_p0(monkeypatch) -> None:
+    from app.qa import runner
+
+    class UnavailableIntradayApi(FakeReadOnlyApi):
+        intraday_calls = 0
+
+        def get(self, path: str, **params: object):
+            if path == "/stocks/005930/intraday" and params.get("limit") == "390":
+                self.intraday_calls += 1
+                return {"source": "unavailable", "points": []}, self._meta(path)
+            return super().get(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", UnavailableIntradayApi)
+    monkeypatch.setattr(runner, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "SIG-UI-025")
+
+    assert check["status"] == "fail"
+    assert check["evidence"]["attempts"] == 31
+    assert "SIG-UI-025" in report["summary"]["p0_failures"]
+
+
+@pytest.mark.qa_live
+def test_live_intraday_malformed_empty_response_is_not_retried(monkeypatch) -> None:
+    from app.qa import runner
+
+    class MalformedIntradayApi(FakeReadOnlyApi):
+        intraday_calls = 0
+
+        def get(self, path: str, **params: object):
+            if path == "/stocks/005930/intraday" and params.get("limit") == "390":
+                self.intraday_calls += 1
+                return {"source": "kis_rest", "points": []}, self._meta(path)
+            return super().get(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", MalformedIntradayApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "SIG-UI-025")
+
+    assert check["status"] == "fail"
+    assert check["evidence"]["attempts"] == 1
+    assert "SIG-UI-025" in report["summary"]["p0_failures"]
 
 
 @pytest.mark.qa_live

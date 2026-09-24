@@ -43,13 +43,17 @@ concurrency:
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
-  STAGING_RAILWAY_PROJECT_ID: ${{ vars.STAGING_RAILWAY_PROJECT_ID }}
+  US_STAGING_RAILWAY_PROJECT_ID: ${{ vars.US_STAGING_RAILWAY_PROJECT_ID }}
+  US_STAGING_RAILWAY_WEB_SERVICE: ${{ vars.US_STAGING_RAILWAY_WEB_SERVICE }}
+  US_STAGING_RAILWAY_COLLECTOR_SERVICE: ${{ vars.US_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+  US_STAGING_BASE_URL: ${{ vars.US_STAGING_BASE_URL }}
+  DASHBOARD_STAGING_RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
+  DASHBOARD_STAGING_RAILWAY_WEB_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
+  DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+  DASHBOARD_STAGING_BASE_URL: ${{ vars.DASHBOARD_STAGING_BASE_URL }}
   PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}
-  STAGING_RAILWAY_WEB_SERVICE: ${{ vars.STAGING_RAILWAY_WEB_SERVICE }}
-  STAGING_RAILWAY_COLLECTOR_SERVICE: ${{ vars.STAGING_RAILWAY_COLLECTOR_SERVICE }}
   PRODUCTION_RAILWAY_WEB_SERVICE: ${{ vars.PRODUCTION_RAILWAY_WEB_SERVICE }}
   PRODUCTION_RAILWAY_COLLECTOR_SERVICE: ${{ vars.PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
-  STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
   PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
   PRODUCT_SURFACE: ${{ inputs.product_surface }}
 
@@ -69,6 +73,21 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$PRODUCT_SURFACE" == "dashboard" || "$PRODUCT_SURFACE" == "us" ]]
+          if [[ "$REQUESTED_ACTION" == "stage" || "$REQUESTED_ACTION" == "promote-production" ]]; then
+            for value in "$US_STAGING_RAILWAY_PROJECT_ID" "$US_STAGING_RAILWAY_WEB_SERVICE" \
+              "$US_STAGING_RAILWAY_COLLECTOR_SERVICE" "$US_STAGING_BASE_URL" \
+              "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE" \
+              "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE" "$DASHBOARD_STAGING_BASE_URL" \
+              "$PRODUCTION_RAILWAY_PROJECT_ID" "$PRODUCTION_BASE_URL"; do
+              test -n "$value"
+            done
+            test "$US_STAGING_RAILWAY_PROJECT_ID" != "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"
+            test "$US_STAGING_RAILWAY_PROJECT_ID" != "$PRODUCTION_RAILWAY_PROJECT_ID"
+            test "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" != "$PRODUCTION_RAILWAY_PROJECT_ID"
+            test "$US_STAGING_BASE_URL" != "$DASHBOARD_STAGING_BASE_URL"
+            test "$US_STAGING_RAILWAY_WEB_SERVICE" != "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
+            test "$US_STAGING_RAILWAY_COLLECTOR_SERVICE" != "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          fi
           if [[ "$REQUESTED_ACTION" == "promote-production" ]]; then
             [[ "$REQUESTED_IMAGE_REF" =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]]
             [[ "$REQUESTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -165,7 +184,7 @@ jobs:
             --arg image_ref "$image_ref" \
             --arg image_digest "$IMAGE_DIGEST" \
             --arg product_surface "$PRODUCT_SURFACE" \
-            '{candidate_version:$candidate, product_surface:$product_surface, source_sha:$source_sha, image_ref:$image_ref, image_digest:$image_digest, runtime_config:{US_MARKET_ENABLED:true}, promotion_state:"built"}' \
+            '{candidate_version:$candidate, product_surface:$product_surface, source_sha:$source_sha, image_ref:$image_ref, image_digest:$image_digest, staging_runtime:{dashboard:{US_MARKET_ENABLED:false},us:{US_MARKET_ENABLED:true}}, production_runtime:{US_MARKET_ENABLED:true}, promotion_state:"built"}' \
             > artifacts/qa-data-signal/release-candidate/candidate.json
       - name: Upload immutable candidate identity
         uses: actions/upload-artifact@v4
@@ -182,49 +201,72 @@ jobs:
     timeout-minutes: 20
     environment:
       name: staging
-      url: ${{ vars.STAGING_BASE_URL }}
+      url: ${{ vars.US_STAGING_BASE_URL }}
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       IMAGE_REF: ${{ needs.build_image.outputs.image_ref }}
     steps:
-      - name: Validate Railway staging configuration
+      - name: Validate both Railway staging targets
         run: |
           test -n "$RAILWAY_API_TOKEN"
-          test -n "$STAGING_RAILWAY_PROJECT_ID"
-          test -n "$STAGING_RAILWAY_WEB_SERVICE"
-          test -n "$STAGING_RAILWAY_COLLECTOR_SERVICE"
-          test -n "$STAGING_BASE_URL"
+          test -n "$US_STAGING_RAILWAY_PROJECT_ID"
+          test -n "$US_STAGING_RAILWAY_WEB_SERVICE"
+          test -n "$US_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          test -n "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"
+          test -n "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
+          test -n "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
           [[ "$IMAGE_REF" =~ @sha256:[0-9a-f]{64}$ ]]
       - name: Install Railway CLI
         run: npm install --global @railway/cli@5.45.7
-      - name: Keep both isolated product runtimes available in staging
+      - name: Set isolated market runtimes
         run: |
           set -euo pipefail
           railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
-            --project="$STAGING_RAILWAY_PROJECT_ID" --environment staging \
-            --service "$STAGING_RAILWAY_WEB_SERVICE"
+            --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$US_STAGING_RAILWAY_WEB_SERVICE"
           railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
-            --project="$STAGING_RAILWAY_PROJECT_ID" --environment staging \
-            --service "$STAGING_RAILWAY_COLLECTOR_SERVICE"
+            --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$US_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "US_MARKET_ENABLED=false" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
+          railway variable set "US_MARKET_ENABLED=false" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
       - name: Deploy the exact image to us-market staging
         run: |
           set -euo pipefail
           railway service source connect --image "$IMAGE_REF" --json \
-            --project "$STAGING_RAILWAY_PROJECT_ID" --environment staging \
-            --service "$STAGING_RAILWAY_WEB_SERVICE"
+            --project "$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$US_STAGING_RAILWAY_WEB_SERVICE"
           railway service source connect --image "$IMAGE_REF" --json \
-            --project "$STAGING_RAILWAY_PROJECT_ID" --environment staging \
-            --service "$STAGING_RAILWAY_COLLECTOR_SERVICE"
+            --project "$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$US_STAGING_RAILWAY_COLLECTOR_SERVICE"
+      - name: Deploy the exact image to domestic staging
+        run: |
+          set -euo pipefail
+          railway service source connect --image "$IMAGE_REF" --json \
+            --project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
+          railway service source connect --image "$IMAGE_REF" --json \
+            --project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
 
   staging_qa:
     if: inputs.action == 'stage'
     needs: [validate_request, build_image, deploy_staging]
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        surface: [dashboard, us]
     environment:
       name: staging
-      url: ${{ vars.STAGING_BASE_URL }}
+      url: ${{ matrix.surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL }}
     env:
+      PRODUCT_SURFACE: ${{ matrix.surface }}
+      QA_BASE_URL: ${{ matrix.surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL }}
       QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
       QA_DASHBOARD_SHARE_ID: qa-automation
       KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
@@ -247,11 +289,13 @@ jobs:
         run: >-
           analyst qa release-parity
           --surface "$PRODUCT_SURFACE"
-          --staging-url "$STAGING_BASE_URL"
+          --staging-url "$QA_BASE_URL"
           --source-sha "${{ needs.validate_request.outputs.source_sha }}"
           --wait-seconds 600
           --output artifacts/qa-data-signal/staging-parity.json
       - name: Run read-only staging integrations
+        id: live_qa
+        continue-on-error: true
         shell: bash
         run: |
           kis_flag=""
@@ -261,42 +305,36 @@ jobs:
           analyst qa data-signal \
             --mode live \
             --surface "$PRODUCT_SURFACE" \
-            --base-url "$STAGING_BASE_URL" \
+            --base-url "$QA_BASE_URL" \
             --output artifacts/qa-data-signal/live.json \
             $kis_flag
-      - name: Capture staging runtime logs
-        if: always()
-        shell: bash
-        env:
-          STAGING_LOG_RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-        run: |
-          export RAILWAY_API_TOKEN="$STAGING_LOG_RAILWAY_TOKEN"
-          mkdir -p artifacts/qa-data-signal/railway
-          npx -y @railway/cli@5.45.7 logs \
-            --lines 500 --since 30m --json \
-            --project "$STAGING_RAILWAY_PROJECT_ID" --environment staging \
-            --service "$STAGING_RAILWAY_WEB_SERVICE" \
-            > artifacts/qa-data-signal/railway/web.jsonl || true
-          npx -y @railway/cli@5.45.7 logs \
-            --lines 500 --since 30m --json \
-            --project "$STAGING_RAILWAY_PROJECT_ID" --environment staging \
-            --service "$STAGING_RAILWAY_COLLECTOR_SERVICE" \
-            > artifacts/qa-data-signal/railway/collector.jsonl || true
       - name: Allow API rate-limit window to reset before browser E2E
         run: sleep 65
       - name: Run mobile dark and light staging E2E
+        id: browser_qa
+        continue-on-error: true
         run: >-
           analyst qa data-signal
           --mode e2e
           --surface "$PRODUCT_SURFACE"
-          --base-url "$STAGING_BASE_URL"
+          --base-url "$QA_BASE_URL"
           --output artifacts/qa-data-signal/e2e.json
           --artifact-dir artifacts/qa-data-signal/screenshots
+      - name: Enforce both staging QA reports
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f artifacts/qa-data-signal/staging-parity.json
+          test -f artifacts/qa-data-signal/live.json
+          test -f artifacts/qa-data-signal/e2e.json
+          test "${{ steps.live_qa.outcome }}" = "success"
+          test "${{ steps.browser_qa.outcome }}" = "success"
       - name: Upload staging QA evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: staging-qa-${{ inputs.candidate_version }}
+          name: staging-qa-${{ inputs.candidate_version }}-${{ matrix.surface }}
           path: artifacts/qa-data-signal
           if-no-files-found: error
           retention-days: 90
@@ -346,10 +384,17 @@ jobs:
     if: inputs.action == 'promote-production'
     needs: [validate_request, deploy_production]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        surface: [dashboard, us]
     environment:
       name: production
       url: ${{ vars.PRODUCTION_BASE_URL }}
+    env:
+      PRODUCT_SURFACE: ${{ matrix.surface }}
+      QA_STAGING_BASE_URL: ${{ matrix.surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -364,7 +409,7 @@ jobs:
         run: >-
           analyst qa release-parity
           --surface "$PRODUCT_SURFACE"
-          --staging-url "$STAGING_BASE_URL"
+          --staging-url "$QA_STAGING_BASE_URL"
           --production-url "$PRODUCTION_BASE_URL"
           --source-sha "${{ needs.validate_request.outputs.source_sha }}"
           --wait-seconds 600
@@ -380,7 +425,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: production-verification-${{ inputs.candidate_version }}
+          name: production-verification-${{ inputs.candidate_version }}-${{ matrix.surface }}
           path: artifacts/qa-data-signal
           if-no-files-found: error
           retention-days: 90

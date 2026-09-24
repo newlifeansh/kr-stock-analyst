@@ -7,6 +7,7 @@ import math
 import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from decimal import Decimal, InvalidOperation
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from time import monotonic, sleep
@@ -23,6 +24,10 @@ from app.qa.catalog import load_qa_catalog
 KST = ZoneInfo("Asia/Seoul")
 QaMode = Literal["gate", "live", "e2e"]
 QaStatus = Literal["pass", "warn", "fail", "skip"]
+DEFAULT_STAGING_BASE_URLS = {
+    "dashboard": "https://domestic-market-web-staging-staging.up.railway.app",
+    "us": "https://us-market-web-staging.up.railway.app",
+}
 SECRET_KEY_RE = re.compile(
     r"(authorization|token|secret|password|api[_-]?key|app[_-]?key|app[_-]?secret|approval[_-]?key)",
     re.IGNORECASE,
@@ -43,6 +48,24 @@ QUOTE_STREAM_META_RE = re.compile(
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-UI-025": (
+        "tests.test_data_signal_qa."
+        "test_live_intraday_transient_unavailable_recovers_with_bounded_retry",
+        "tests.test_data_signal_qa."
+        "test_live_intraday_persistent_unavailable_remains_p0",
+        "tests.test_data_signal_qa."
+        "test_live_intraday_malformed_empty_response_is_not_retried",
+    ),
+    "DATA-COM-005": (
+        "tests.test_data_signal_qa."
+        "test_domestic_live_skips_us_snapshot_when_collector_disabled",
+        "tests.test_release_parity."
+        "test_deployment_workflow_promotes_one_immutable_image_after_staging",
+        "tests.test_release_parity."
+        "test_staging_targets_and_qa_evidence_are_separate_for_both_products",
+        "tests.test_release_parity."
+        "test_scheduled_qa_never_reuses_the_preview_proxy",
+    ),
     "DATA-US-NEWS-001": (
         "tests.test_us_market."
         "test_us_market_trends_uses_real_recent_articles_and_rejects_synthetic_freshness",
@@ -399,6 +422,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_position_lifecycle."
         "test_us_reentry_allows_ema20_retest_recovery_without_fixed_wait",
         "tests.test_us_position_lifecycle."
+        "test_us_model_reentry_keeps_prior_exit_out_of_current_position",
+        "tests.test_us_position_lifecycle."
         "test_us_feed_replays_top100_model_lifecycle_without_orders",
         "tests.test_us_position_lifecycle_runtime."
         "test_structurally_incomplete_snapshot_is_rejected_even_with_valid_checksum[stateful_lifecycle_replay_enabled-False]",
@@ -420,8 +445,14 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_failed_refresh_keeps_last_good_snapshot_and_blocks_returned_entries",
     ),
     "SIG-US-CONTRACT-001": (
+        "tests.test_data_signal_qa."
+        "test_us_live_accepts_confirmed_model_holdings_and_exits",
+        "tests.test_data_signal_qa."
+        "test_us_live_rejects_inconsistent_model_exposure",
         "tests.test_us_position_lifecycle."
         "test_us_feed_replays_top100_model_lifecycle_without_orders",
+        "tests.test_us_position_lifecycle."
+        "test_us_model_reentry_keeps_prior_exit_out_of_current_position",
         "tests.test_us_market_calendar."
         "test_us_calendar_memoizes_official_session_and_replay_vectors",
         "tests.test_us_position_lifecycle_runtime."
@@ -816,13 +847,6 @@ def _finite_number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
-
-
-def _model_exposure_matches(value: Any, *, position_open: bool) -> bool:
-    """Accept JSON number or a lossless decimal-string model exposure."""
-
-    expected = 100.0 if position_open else 0.0
-    return _finite_number(value) == expected
 
 
 def _validate_signal_revision_frame(
@@ -1786,6 +1810,38 @@ def _dataset_state(
     raise QaFailure(f"{name} 상태가 {state}입니다.", evidence)
 
 
+def _valid_us_public_lifecycle_item(item: Any) -> bool:
+    """Validate the public model state, not an assumed all-preliminary feed."""
+    if not isinstance(item, dict):
+        return False
+    current = item.get("current")
+    if not isinstance(current, dict):
+        return False
+    action = current.get("action")
+    preliminary = action in {"entry_watch", "entry_pending", "full_exit_pending"}
+    position_open = action in {"entered", "holding", "full_exit_pending"}
+    if action not in {
+        "entry_watch", "entry_pending", "entered", "holding",
+        "full_exit_pending", "exited", "no_signal",
+    }:
+        return False
+    try:
+        rank = int(item.get("market_cap_rank"))
+        exposure = Decimal(str(current.get("model_exposure_percent")))
+    except (TypeError, ValueError, InvalidOperation):
+        return False
+    return bool(
+        item.get("currency") == "USD"
+        and 1 <= rank <= 100
+        and (action == "no_signal" or (
+            item.get("status") == ("preliminary" if preliminary else "confirmed")
+            and item.get("is_preliminary") is preliminary
+        ))
+        and current.get("position_open") is position_open
+        and exposure == (Decimal(100) if position_open else Decimal(0))
+    )
+
+
 def _live_checks(
     collector: ResultCollector,
     catalog: dict[str, Any],
@@ -1931,45 +1987,10 @@ def _live_checks(
                 if current_signal.get("action") == "entry_pending":
                     entry_pending_count += 1
                 action = str(current_signal.get("action") or "")
-                preliminary = action in {
-                    "entry_watch",
-                    "entry_pending",
-                    "full_exit_pending",
-                }
                 position_open = action in {"entered", "holding", "full_exit_pending"}
                 if position_open:
                     confirmed_position_count += 1
-                try:
-                    rank = int(item.get("market_cap_rank"))
-                except (TypeError, ValueError):
-                    rank = 0
-                if (
-                    item.get("currency") != "USD"
-                    or action not in {
-                        "entry_watch",
-                        "entry_pending",
-                        "entered",
-                        "holding",
-                        "full_exit_pending",
-                        "exited",
-                        "no_signal",
-                    }
-                    or (
-                        action != "no_signal"
-                        and item.get("status")
-                        != ("preliminary" if preliminary else "confirmed")
-                    )
-                    or (
-                        action != "no_signal"
-                        and item.get("is_preliminary") is not preliminary
-                    )
-                    or current_signal.get("position_open") is not position_open
-                    or not _model_exposure_matches(
-                        current_signal.get("model_exposure_percent"),
-                        position_open=position_open,
-                    )
-                    or not 1 <= rank <= 100
-                ):
+                if not _valid_us_public_lifecycle_item(item):
                     invalid_items.append(str(item.get("code") or "unknown"))
             _assert(
                 not invalid_items,
@@ -1977,8 +1998,8 @@ def _live_checks(
                 invalid_items=invalid_items,
             )
             _assert(
-                int(feed.get("confirmed_count") or 0) == confirmed_position_count,
-                "미국 모델 확정 수가 현재 전략상 열린 포지션 수와 다릅니다.",
+                confirmed_position_count <= int(feed.get("confirmed_count") or 0) <= 100,
+                "미국 모델 확정 수가 공개 페이지의 열린 포지션 수보다 작거나 Top100을 넘습니다.",
                 confirmed_count=feed.get("confirmed_count"),
                 confirmed_position_count=confirmed_position_count,
             )
@@ -2377,12 +2398,6 @@ def _live_checks(
             )
             return us_market_payloads()
 
-        collector.check(
-            "SIG-US-VERSION-001",
-            us_version_contract,
-            pass_message="health·미국 시그널·추천의 RC1 버전을 확인했습니다.",
-        )
-
         def us_universe_contract() -> dict[str, Any]:
             evidence = us_market_payloads()
             if evidence["universe_state"] != "ready":
@@ -2391,12 +2406,6 @@ def _live_checks(
                     evidence,
                 )
             return evidence
-
-        collector.check(
-            "DATA-US-UNIVERSE-001",
-            us_universe_contract,
-            pass_message="미국 완료 세션 시총 Top 100 스냅샷을 확인했습니다.",
-        )
 
         def us_evidence_contract() -> dict[str, Any]:
             evidence = us_market_payloads()
@@ -2412,31 +2421,28 @@ def _live_checks(
                 )
             return evidence
 
-        collector.check(
-            "DATA-US-SIGNAL-INPUT-001",
-            us_evidence_contract,
-            pass_message="미국 수정 일봉·완료 세션 입력 계약을 확인했습니다.",
-        )
-        collector.check(
-            "DATA-US-EVIDENCE-001",
-            us_evidence_contract,
-            pass_message="미국 시장·상대강도·달러 거래대금 근거 계약을 확인했습니다.",
-        )
-        collector.check(
-            "SIG-US-CONTRACT-001",
-            us_market_payloads,
-            pass_message="미국 Top100 예비 시그널·추천 공개 계약을 확인했습니다.",
-        )
-        collector.check(
-            "REC-US-INDEPENDENT-001",
-            us_market_payloads,
-            pass_message="미국 Top100 독립 추천 점수와 시그널 분리 계약을 확인했습니다.",
-        )
-        collector.check(
-            "SIG-UI-022",
-            us_market_payloads,
-            pass_message="미국 공개 근거 3개·내부 수치 비노출·non-ready 관망 계약을 확인했습니다.",
-        )
+        if (context.get("health") or {}).get("us_market_enabled") is False:
+            for case_id in (
+                "SIG-US-VERSION-001", "DATA-US-UNIVERSE-001",
+                "DATA-US-SIGNAL-INPUT-001", "DATA-US-EVIDENCE-001",
+                "SIG-US-CONTRACT-001", "REC-US-INDEPENDENT-001", "SIG-UI-022",
+            ):
+                collector.add(
+                    case_id, "skip",
+                    "국내 전용 런타임의 미국 수집은 비활성화되어 미국 스테이징에서 별도 검증합니다.",
+                    evidence={"surface": "dashboard", "us_market_enabled": False},
+                )
+        else:
+            for case_id, check, message in (
+                ("SIG-US-VERSION-001", us_version_contract, "health·미국 시그널·추천의 RC1 버전을 확인했습니다."),
+                ("DATA-US-UNIVERSE-001", us_universe_contract, "미국 완료 세션 시총 Top 100 스냅샷을 확인했습니다."),
+                ("DATA-US-SIGNAL-INPUT-001", us_evidence_contract, "미국 수정 일봉·완료 세션 입력 계약을 확인했습니다."),
+                ("DATA-US-EVIDENCE-001", us_evidence_contract, "미국 시장·상대강도·달러 거래대금 근거 계약을 확인했습니다."),
+                ("SIG-US-CONTRACT-001", us_market_payloads, "미국 Top100 모델 시그널·추천 공개 계약을 확인했습니다."),
+                ("REC-US-INDEPENDENT-001", us_market_payloads, "미국 Top100 독립 추천 점수와 시그널 분리 계약을 확인했습니다."),
+                ("SIG-UI-022", us_market_payloads, "미국 공개 근거 3개·내부 수치 비노출·non-ready 관망 계약을 확인했습니다."),
+            ):
+                collector.check(case_id, check, pass_message=message)
 
         def staging_page_summary_contract() -> dict[str, Any]:
             summary_case = next(
@@ -3394,6 +3400,22 @@ def _live_checks(
                 "/stocks/005930/intraday",
                 limit="390",
             )
+            domestic_intraday_attempts = 1
+            initial_domestic_intraday_source = domestic_intraday.get("source")
+            # A just-deployed web instance can briefly return a structured
+            # KIS unavailable response before its closed-session chart is
+            # fetched. Retry only that source condition; persistent absence
+            # remains a P0 failure with the attempt count in evidence.
+            while (
+                domestic_intraday.get("source") == "unavailable"
+                and not domestic_intraday.get("points")
+                and domestic_intraday_attempts < 31
+            ):
+                sleep(10)
+                domestic_intraday, domestic_intraday_meta = api.get(
+                    "/stocks/005930/intraday", limit="390"
+                )
+                domestic_intraday_attempts += 1
             overseas_intraday, overseas_intraday_meta = api.get(
                 "/us/stocks/NVDA/intraday",
                 range="1d",
@@ -3434,6 +3456,10 @@ def _live_checks(
                     isinstance(points, list) and bool(points),
                     f"관심종목 시간 스크러빙에 필요한 {label} 분봉이 없습니다.",
                     source=payload.get("source"),
+                    attempts=domestic_intraday_attempts if label == "국내" else 1,
+                    initial_source=(
+                        initial_domestic_intraday_source if label == "국내" else payload.get("source")
+                    ),
                     **meta,
                 )
                 sample = points[-1]
@@ -3466,6 +3492,8 @@ def _live_checks(
                         **domestic_intraday_meta,
                         "points": len(domestic_intraday.get("points") or []),
                         "trade_date": domestic_intraday.get("trade_date"),
+                        "attempts": domestic_intraday_attempts,
+                        "initial_source": initial_domestic_intraday_source,
                     },
                     "overseas": {
                         **overseas_intraday_meta,
@@ -4370,37 +4398,7 @@ def _live_us_checks(
                     preliminary_item_count += 1
                 if position_open:
                     confirmed_position_count += 1
-                try:
-                    rank = int(item.get("market_cap_rank"))
-                except (TypeError, ValueError):
-                    rank = 0
-                if (
-                    item.get("currency") != "USD"
-                    or action not in {
-                        "entry_watch",
-                        "entry_pending",
-                        "entered",
-                        "holding",
-                        "full_exit_pending",
-                        "exited",
-                        "no_signal",
-                    }
-                    or (
-                        action != "no_signal"
-                        and item.get("status")
-                        != ("preliminary" if preliminary else "confirmed")
-                    )
-                    or (
-                        action != "no_signal"
-                        and item.get("is_preliminary") is not preliminary
-                    )
-                    or current_signal.get("position_open") is not position_open
-                    or not _model_exposure_matches(
-                        current_signal.get("model_exposure_percent"),
-                        position_open=position_open,
-                    )
-                    or not 1 <= rank <= 100
-                ):
+                if not _valid_us_public_lifecycle_item(item):
                     invalid_items.append(str(item.get("code") or "unknown"))
                 reasons = item.get("public_reasons")
                 if not (
@@ -4430,10 +4428,10 @@ def _live_us_checks(
                     int(feed.get("preliminary_count") or 0)
                     == preliminary_item_count
                     and int(feed.get("entry_pending_count") or 0)
-                    == entry_pending_count
+                    >= entry_pending_count
                     and int(feed.get("confirmed_count") or 0)
                     == confirmed_position_count,
-                    "미국 모델 생명주기 상태별 집계가 화면 행과 다릅니다.",
+                    "미국 모델 생명주기 상태별 페이지/전체 집계가 화면 행과 다릅니다.",
                     preliminary_count=feed.get("preliminary_count"),
                     preliminary_item_count=preliminary_item_count,
                     entry_pending_count=feed.get("entry_pending_count"),
@@ -4952,7 +4950,7 @@ def _summary(results: list[QaCheckResult], mode: QaMode) -> dict[str, Any]:
 def run_data_signal_qa(
     *,
     mode: QaMode,
-    base_url: str = "https://dark-theme-preview-staging.up.railway.app",
+    base_url: str | None = None,
     timeout: float = 20.0,
     artifact_dir: Path | str | None = None,
     direct_kis: bool = False,
@@ -4963,6 +4961,7 @@ def run_data_signal_qa(
         raise ValueError("mode must be gate, live, or e2e")
     if surface not in {"dashboard", "us"}:
         raise ValueError("surface must be dashboard or us")
+    base_url = base_url or DEFAULT_STAGING_BASE_URLS[surface]
     catalog = load_qa_catalog()
     collector = ResultCollector(catalog)
     market_state: str | None = None

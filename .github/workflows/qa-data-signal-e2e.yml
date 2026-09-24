@@ -19,9 +19,14 @@ jobs:
        github.event.deployment_status.state == 'success' &&
        contains(github.event.deployment.environment, 'staging'))
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        surface: [dashboard, us]
+    environment: staging
     env:
-      STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL || 'https://dark-theme-preview-staging.up.railway.app' }}
+      QA_BASE_URL: ${{ matrix.surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL }}
       QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
       QA_DASHBOARD_SHARE_ID: qa-automation
     steps:
@@ -36,10 +41,12 @@ jobs:
           playwright install --with-deps chromium
       - name: Run mobile dark and light E2E
         run: |
+          test -n "$QA_BASE_URL"
           set +e
           analyst qa data-signal \
             --mode e2e \
-            --base-url "$STAGING_BASE_URL" \
+            --surface "${{ matrix.surface }}" \
+            --base-url "$QA_BASE_URL" \
             --output artifacts/qa-data-signal/e2e.json \
             --artifact-dir artifacts/qa-data-signal/screenshots
           qa_exit=$?
@@ -57,7 +64,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-data-signal-e2e-${{ github.run_id }}
+          name: qa-data-signal-e2e-${{ matrix.surface }}-${{ github.run_id }}
           path: artifacts/qa-data-signal
           if-no-files-found: error
           retention-days: 30

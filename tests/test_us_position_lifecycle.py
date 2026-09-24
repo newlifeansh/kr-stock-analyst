@@ -564,7 +564,56 @@ def test_us_model_replay_confirms_only_the_next_open_inside_gap(monkeypatch):
     assert rejected["events"] == []
 
 
-def test_us_feed_replays_top100_model_lifecycle_without_orders():
+def test_us_model_reentry_keeps_prior_exit_out_of_current_position():
+    stock = _bars(daily_return=0.0017)
+    spy = _bars(daily_return=0.0007)
+    qqq = _bars(daily_return=0.0009)
+    sector = _bars(daily_return=0.0010)
+    decision = evaluate_us_entry_candidate(stock, spy, qqq, sector)
+    replay = replay_us_position_lifecycle(
+        stock, spy, qqq, sector, latest_decision=decision
+    )
+    assert replay["action"] == "holding"
+    assert replay["position"] is not None
+    replay["last_exit"] = {
+        "signal_date": stock[99].trade_date,
+        "exit_date": stock[100].trade_date,
+        "entry_date": stock[90].trade_date,
+        "entry_price": 100.0,
+        "exit_price": 102.0,
+        "return_rate": 2.0,
+    }
+    member = {
+        "code": "MSFT",
+        "name": "Microsoft",
+        "market": "NASDAQ",
+        "sector": "Technology",
+        "cik": "0000789019",
+        "market_cap_rank": 1,
+        "market_cap": 1_000_000_000,
+    }
+    universe_date = stock[-1].trade_date
+    item = lifecycle._model_lifecycle_item(
+        member,
+        decision,
+        "XLK",
+        replay,
+        as_of=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+        universe_date=universe_date,
+    )
+
+    assert item["current"]["exit_date"] is None
+    assert item["current"]["exit_price"] is None
+    assert item["current"]["return_rate"] == item["current"]["unrealized_return"]
+    assert lifecycle._snapshot_model_lifecycle_item_is_valid(
+        item,
+        universe_date=universe_date,
+        member=member,
+        expected_close_at=None,
+    )
+
+
+def test_us_feed_replays_top100_model_lifecycle_without_orders(monkeypatch):
     stock = _bars(daily_return=0.0017)
     spy = _bars(daily_return=0.0007)
     qqq = _bars(daily_return=0.0009)
@@ -664,3 +713,46 @@ def test_us_feed_replays_top100_model_lifecycle_without_orders():
     ]
     assert comparison["promotion_state"] == "simulation_only"
     assert "실제 주문" in comparison["promotion_reason"]
+    assert payload["entry_pending_count"] == 0
+    assert lifecycle._shadow_comparison_is_valid(
+        payload,
+        universe_date=date(2026, 9, 8),
+        universe_members={member["code"]: member for member in members},
+    )
+
+    original_evaluate = lifecycle.evaluate_us_entry_candidate
+
+    def no_current_close_candidate(stock_bars, *args, **kwargs):
+        decision = original_evaluate(stock_bars, *args, **kwargs)
+        return (
+            {**decision, "action": "no_signal"}
+            if len(stock_bars) == len(stock)
+            else decision
+        )
+
+    monkeypatch.setattr(
+        lifecycle, "evaluate_us_entry_candidate", no_current_close_candidate
+    )
+    held_without_new_candidate = build_us_position_lifecycle_feed(
+        limit=20,
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+        universe_payload={
+            "status": "ready",
+            "data_state": "ready",
+            "universe_as_of": date(2026, 9, 8),
+            "universe_count": 100,
+            "checksum": "fixture",
+            "items": members,
+        },
+        history_loader=lambda symbol: histories[symbol],
+    )
+    shadow = held_without_new_candidate["shadow_comparison"]
+    assert held_without_new_candidate["confirmed_count"] == 20
+    assert shadow["candidate_action_counts"] == {"no_signal": 100}
+    assert shadow["lifecycle_no_signal_count"] == 100
+    assert sum(shadow["rejection_counts"].values()) == 0
+    assert lifecycle._shadow_comparison_is_valid(
+        held_without_new_candidate,
+        universe_date=date(2026, 9, 8),
+        universe_members={member["code"]: member for member in members},
+    )

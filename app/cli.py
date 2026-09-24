@@ -61,10 +61,10 @@ def qa_data_signal_command(
         "--mode",
         help="QA mode: gate, live, or e2e.",
     ),
-    base_url: str = typer.Option(
-        "https://dark-theme-preview-staging.up.railway.app",
+    base_url: Optional[str] = typer.Option(
+        None,
         "--base-url",
-        help="Read-only API and browser target.",
+        help="Read-only API and browser target; defaults to the selected surface's staging URL.",
     ),
     output: Optional[Path] = typer.Option(
         None,

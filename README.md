@@ -313,7 +313,7 @@ analyst qa data-signal --mode gate \
 # 스테이징 API와 외부 원천의 읽기 전용 실연동 검사
 analyst qa data-signal --mode live \
   --surface dashboard \
-  --base-url https://dark-theme-preview-staging.up.railway.app \
+  --base-url https://domestic-market-web-staging-staging.up.railway.app \
   --output artifacts/qa-data-signal/live.json
 
 # 미국증시 독립 제품과 미국 데이터 파이프라인 검사
@@ -324,13 +324,13 @@ analyst qa data-signal --mode live \
 
 # KIS 자격증명이 있는 환경에서 원천 REST/OAuth도 직접 검사
 analyst qa data-signal --mode live --direct-kis \
-  --base-url https://dark-theme-preview-staging.up.railway.app
+  --base-url https://domestic-market-web-staging-staging.up.railway.app
 
 # 모바일 다크·라이트 브라우저 검사와 실패 스크린샷
 playwright install chromium
 analyst qa data-signal --mode e2e \
   --surface dashboard \
-  --base-url https://dark-theme-preview-staging.up.railway.app \
+  --base-url https://domestic-market-web-staging-staging.up.railway.app \
   --output artifacts/qa-data-signal/e2e.json
 
 analyst qa data-signal --mode e2e \
@@ -350,22 +350,30 @@ Actions는 PR마다 `gate`, 평일 KST 08:20·10:00·16:20에 `live`, 스테이�
 ### Railway 스테이징 → 프로덕션 승격
 
 수동 실행은 `.github/workflows/deploy-staging-production.yml`의 단일 파이프라인을
-사용합니다. `stage`는 `product_surface=dashboard|us`에 따라 검증 대상을 정한 뒤
-`gate → build-once → us-market staging 배포 → staging release-parity/live/e2e`를
-실행합니다. 하나의 불변 이미지가 `/dashboard` 국내증시와 `/us` 미국증시를 함께
-제공하며 `US_MARKET_ENABLED=true`를 유지합니다. surface 선택은 한 제품을 끄는
-스위치가 아니라 해당 승격에서 집중 검증할 제품 경계를 뜻합니다. 운영자가 그 결과와 정확한 후보를 승인한 뒤
+사용합니다. `stage`는 `gate → build-once → 미국 스테이징 → 국내 스테이징 →
+각 surface의 release-parity/live/e2e`를 실행합니다. 두 스테이징은 별도 Railway
+프로젝트의 web·collector·Postgres 및 URL을 사용합니다. 동일한 불변 이미지를
+배포하되 국내는 `US_MARKET_ENABLED=false`, 미국은 `true`로 운영합니다.
+`product_surface`는 후보의 주 제품을 기록하며 양쪽 QA는 모두 필수입니다.
+기존 `dark-theme-preview`는 최근 접근 기록에서 자동화 QA 요청만 확인되어
+2026-09-24에 배포를 중지했습니다. 서비스 설정과 도메인은 복구를 위해 보존하며
+릴리스 QA 대상에서 제외합니다.
+운영자가 두 스테이징 결과와 정확한 후보를 승인한 뒤
 `promote-production`에 검증된 `image@sha256`과 source SHA를 입력하면 새 이미지를
-빌드하지 않고 canonical 운영 프로젝트에 승격하고 staging-production parity를
-검증합니다. 어느 단계든 실패하면 뒤 단계는 실행되지 않습니다.
+빌드하지 않고 canonical 운영 프로젝트에 승격하고 두 surface의
+staging-production parity를 검증합니다. 현재 운영은 한 Railway 프로젝트의
+`/dashboard`와 `/us` 제품 경로로 구성되어 있습니다. 어느 단계든 실패하면 뒤
+단계는 실행되지 않습니다.
 
 GitHub 저장소에는 다음 설정이 필요합니다.
 
-- Repository variables: `STAGING_RAILWAY_PROJECT_ID`,
-  `STAGING_RAILWAY_WEB_SERVICE`, `STAGING_RAILWAY_COLLECTOR_SERVICE`,
+- Repository variables: `DASHBOARD_STAGING_RAILWAY_PROJECT_ID`,
+  `DASHBOARD_STAGING_RAILWAY_WEB_SERVICE`,
+  `DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE`, `DASHBOARD_STAGING_BASE_URL`,
+  `US_STAGING_RAILWAY_PROJECT_ID`, `US_STAGING_RAILWAY_WEB_SERVICE`,
+  `US_STAGING_RAILWAY_COLLECTOR_SERVICE`, `US_STAGING_BASE_URL`,
   `PRODUCTION_RAILWAY_PROJECT_ID`, `PRODUCTION_RAILWAY_WEB_SERVICE`,
-  `PRODUCTION_RAILWAY_COLLECTOR_SERVICE`, `STAGING_BASE_URL`,
-  `PRODUCTION_BASE_URL`
+  `PRODUCTION_RAILWAY_COLLECTOR_SERVICE`, `PRODUCTION_BASE_URL`
 - GitHub environments: `staging`, `production`
 - 각 environment 또는 저장소 secret: 두 대상 프로젝트에 접근 가능한
   `RAILWAY_API_TOKEN`
@@ -373,9 +381,9 @@ GitHub 저장소에는 다음 설정이 필요합니다.
 - 선택적 staging QA secret: `DASHBOARD_INVITE_CODE`, `KIS_APP_KEY`,
   `KIS_APP_SECRET`, `DART_API_KEY`
 
-프로덕션 배포 전에는 선택한 surface에 맞춰 현재 체크아웃과 스테이징의
+프로덕션 배포 전에는 두 surface 모두 현재 체크아웃과 각 스테이징의
 `/dashboard-version` 또는 `/us-version`, 버전 지정 정적 자산 URL과 SHA-256이
-일치해야 합니다. 배포 후에는 같은 검사를 스테이징과 프로덕션에 다시 적용합니다.
+일치해야 합니다. 배포 후에는 각각의 스테이징과 프로덕션을 다시 비교합니다.
 미국증시 후보는 `secretnote.cloud/us`를 최종 경로로 사용하고 레거시 `/nasdaq`는
 종목 경로와 쿼리를 보존해 `/us`로 이동합니다.
 
