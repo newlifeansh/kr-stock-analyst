@@ -422,6 +422,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-US-CONTRACT-001": (
         "tests.test_us_position_lifecycle."
         "test_us_feed_replays_top100_model_lifecycle_without_orders",
+        "tests.test_us_market_calendar."
+        "test_us_calendar_memoizes_official_session_and_replay_vectors",
         "tests.test_us_position_lifecycle_runtime."
         "test_canonical_snapshot_keeps_model_holdings_when_raw_candidates_are_pending",
         "tests.test_us_position_lifecycle_fail_closed."

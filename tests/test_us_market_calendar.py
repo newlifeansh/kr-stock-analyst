@@ -22,6 +22,21 @@ def test_us_calendar_rejects_holiday_and_weekend():
     assert us_market_session(date(2026, 7, 4)) is None
 
 
+def test_us_calendar_memoizes_official_session_and_replay_vectors():
+    us_market_session.cache_clear()
+    recent_us_market_session_dates.cache_clear()
+
+    first_session = us_market_session(date(2026, 9, 23))
+    second_session = us_market_session(date(2026, 9, 23))
+    first_vector = recent_us_market_session_dates(date(2026, 9, 23), 125)
+    second_vector = recent_us_market_session_dates(date(2026, 9, 23), 125)
+
+    assert first_session == second_session
+    assert first_vector == second_vector
+    assert us_market_session.cache_info().hits >= 1
+    assert recent_us_market_session_dates.cache_info().hits >= 1
+
+
 def test_recent_session_vector_uses_only_consecutive_official_xnys_sessions():
     sessions = recent_us_market_session_dates(date(2026, 7, 6), 3)
 
