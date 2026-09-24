@@ -121,7 +121,7 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 6
     assert workflow.count('--project "$US_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 2
-    assert workflow.count('--project "$PRODUCTION_RAILWAY_PROJECT_ID"') == 4
+    assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 4
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
     assert 'US_STAGING_RAILWAY_PROJECT_ID: ${{ vars.US_STAGING_RAILWAY_PROJECT_ID }}' in workflow
     assert 'DASHBOARD_STAGING_RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}' in workflow
@@ -129,19 +129,23 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
         'PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}'
         in workflow
     )
+    assert (
+        'US_PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.US_PRODUCTION_RAILWAY_PROJECT_ID }}'
+        in workflow
+    )
     assert '--service "$US_STAGING_RAILWAY_WEB_SERVICE"' in workflow
     assert '--service "$US_STAGING_RAILWAY_COLLECTOR_SERVICE"' in workflow
     assert '--service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"' in workflow
     assert '--service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"' in workflow
-    assert '--service "$PRODUCTION_RAILWAY_WEB_SERVICE"' in workflow
-    assert '--service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"' in workflow
+    assert '--service "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"' in workflow
+    assert '--service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"' in workflow
     assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 2
     assert workflow.count('test -n "$RAILWAY_API_TOKEN"') == 2
     assert "      RAILWAY_TOKEN:" not in workflow
     assert workflow.count("npm install --global @railway/cli@5.45.7") == 2
     assert "railway up" not in workflow
     assert "name: production" in workflow
-    assert "--production-url \"$PRODUCTION_BASE_URL\"" in workflow
+    assert "--production-url \"$TARGET_PRODUCTION_BASE_URL\"" in workflow
     assert "Wait for the staged product surface" in workflow
     assert "product_surface:" in workflow
     assert workflow.count('--surface "$PRODUCT_SURFACE"') == 5
@@ -166,7 +170,7 @@ def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> Non
     assert "matrix.surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL" in workflow
     assert '--staging-url "$QA_BASE_URL"' in workflow
     assert '--base-url "$QA_BASE_URL"' in workflow
-    assert workflow.count("matrix:\n        surface: [dashboard, us]") == 2
+    assert workflow.count("matrix:\n        surface: [dashboard, us]") == 1
     assert "dark-theme-preview-staging" not in workflow
     assert "id: live_qa\n        continue-on-error: true" in workflow
     assert "id: browser_qa\n        continue-on-error: true" in workflow
@@ -184,12 +188,47 @@ def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> Non
     assert release_case["inputs"]["railway_projects"] == {
         "dashboard_staging": "DASHBOARD_STAGING_RAILWAY_PROJECT_ID",
         "us_staging": "US_STAGING_RAILWAY_PROJECT_ID",
-        "production": "PRODUCTION_RAILWAY_PROJECT_ID",
+        "dashboard_production": "PRODUCTION_RAILWAY_PROJECT_ID",
+        "us_production": "US_PRODUCTION_RAILWAY_PROJECT_ID",
+    }
+    assert release_case["inputs"]["production_urls"] == {
+        "dashboard": "PRODUCTION_BASE_URL",
+        "us": "US_PRODUCTION_BASE_URL",
     }
     assert release_case["inputs"]["staging_market_flags"] == {
         "dashboard": False,
         "us": True,
     }
+
+
+def test_production_promotion_selects_only_the_requested_existing_project() -> None:
+    workflow = Path(".github/workflows/deploy-staging-production.yml").read_text(
+        encoding="utf-8"
+    )
+    deploy = workflow.split("  deploy_production:", 1)[1].split("  verify_production:", 1)[0]
+    verify = workflow.split("  verify_production:", 1)[1]
+
+    for suffix in ("RAILWAY_PROJECT_ID", "RAILWAY_WEB_SERVICE", "RAILWAY_COLLECTOR_SERVICE"):
+        assert (
+            f"TARGET_PRODUCTION_{suffix}: ${{{{ inputs.product_surface == 'us' "
+            f"&& vars.US_PRODUCTION_{suffix} || vars.PRODUCTION_{suffix} }}}}"
+        ) in deploy
+    assert (
+        "TARGET_PRODUCTION_BASE_URL: ${{ inputs.product_surface == 'us' "
+        "&& vars.US_PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL }}"
+    ) in deploy
+    assert '--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"' in deploy
+    assert 'if [[ "$PRODUCT_SURFACE" == "us" ]]; then' in deploy
+    assert 'railway variable set "US_MARKET_ENABLED=false"' not in deploy
+    assert "matrix:" not in verify
+    assert 'PRODUCT_SURFACE: ${{ inputs.product_surface }}' in verify
+    assert '--production-url "$TARGET_PRODUCTION_BASE_URL"' in verify
+    assert '--base-url "$TARGET_PRODUCTION_BASE_URL"' in verify
+    assert 'test "$US_PRODUCTION_RAILWAY_PROJECT_ID" != "$PRODUCTION_RAILWAY_PROJECT_ID"' in workflow
+    assert 'test "$US_PRODUCTION_RAILWAY_PROJECT_ID" != "$US_STAGING_RAILWAY_PROJECT_ID"' not in workflow
+    assert 'test "$US_PRODUCTION_RAILWAY_WEB_SERVICE" != "$US_STAGING_RAILWAY_WEB_SERVICE"' in workflow
+    assert 'test "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE" != "$US_STAGING_RAILWAY_COLLECTOR_SERVICE"' in workflow
+    assert 'test "$US_PRODUCTION_BASE_URL" != "$US_STAGING_BASE_URL"' in workflow
 
 
 def test_scheduled_qa_never_reuses_the_preview_proxy() -> None:

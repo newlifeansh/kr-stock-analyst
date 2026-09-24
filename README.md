@@ -360,10 +360,16 @@ Actions는 PR마다 `gate`, 평일 KST 08:20·10:00·16:20에 `live`, 스테이�
 릴리스 QA 대상에서 제외합니다.
 운영자가 두 스테이징 결과와 정확한 후보를 승인한 뒤
 `promote-production`에 검증된 `image@sha256`과 source SHA를 입력하면 새 이미지를
-빌드하지 않고 canonical 운영 프로젝트에 승격하고 두 surface의
-staging-production parity를 검증합니다. 현재 운영은 한 Railway 프로젝트의
-`/dashboard`와 `/us` 제품 경로로 구성되어 있습니다. 어느 단계든 실패하면 뒤
-단계는 실행되지 않습니다.
+빌드하지 않고 `product_surface`로 선택한 운영 프로젝트의 web·collector에만
+승격하고 해당 surface의 staging-production parity/live를 검증합니다.
+국내 운영은 `secretnote.cloud`, 미국 운영은 별도 Railway 프로젝트의
+`us-market-web-production-production.up.railway.app`입니다. `us-market` 프로젝트
+안에서 미국 staging/production은 서로 다른 환경·서비스·DB를 사용합니다. 다만 현재
+`secretnote.cloud/us` 공개 경로는 여전히 국내 운영 서비스가 제공하므로,
+공식 미국 URL·라우팅 이전이 승인되기 전에는 국내 운영의 기존 미국 경로와
+`US_MARKET_ENABLED` 값을 유지합니다. 미국 운영 프로젝트의 존재만으로
+공개 URL 이전이 완료됐다고 간주하지 않습니다. 어느 단계든 실패하면 뒤 단계는
+실행되지 않습니다.
 
 GitHub 저장소에는 다음 설정이 필요합니다.
 
@@ -373,9 +379,11 @@ GitHub 저장소에는 다음 설정이 필요합니다.
   `US_STAGING_RAILWAY_PROJECT_ID`, `US_STAGING_RAILWAY_WEB_SERVICE`,
   `US_STAGING_RAILWAY_COLLECTOR_SERVICE`, `US_STAGING_BASE_URL`,
   `PRODUCTION_RAILWAY_PROJECT_ID`, `PRODUCTION_RAILWAY_WEB_SERVICE`,
-  `PRODUCTION_RAILWAY_COLLECTOR_SERVICE`, `PRODUCTION_BASE_URL`
+  `PRODUCTION_RAILWAY_COLLECTOR_SERVICE`, `PRODUCTION_BASE_URL`,
+  `US_PRODUCTION_RAILWAY_PROJECT_ID`, `US_PRODUCTION_RAILWAY_WEB_SERVICE`,
+  `US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE`, `US_PRODUCTION_BASE_URL`
 - GitHub environments: `staging`, `production`
-- 각 environment 또는 저장소 secret: 두 대상 프로젝트에 접근 가능한
+- 각 environment 또는 저장소 secret: 두 스테이징·두 운영 프로젝트에 접근 가능한
   `RAILWAY_API_TOKEN`
 - `production` environment: required reviewer를 지정해 사람 승인 후에만 승격
 - 선택적 staging QA secret: `DASHBOARD_INVITE_CODE`, `KIS_APP_KEY`,
@@ -383,9 +391,9 @@ GitHub 저장소에는 다음 설정이 필요합니다.
 
 프로덕션 배포 전에는 두 surface 모두 현재 체크아웃과 각 스테이징의
 `/dashboard-version` 또는 `/us-version`, 버전 지정 정적 자산 URL과 SHA-256이
-일치해야 합니다. 배포 후에는 각각의 스테이징과 프로덕션을 다시 비교합니다.
-미국증시 후보는 `secretnote.cloud/us`를 최종 경로로 사용하고 레거시 `/nasdaq`는
-종목 경로와 쿼리를 보존해 `/us`로 이동합니다.
+일치해야 합니다. 배포 후에는 선택한 surface의 스테이징과 운영을 비교합니다.
+기존 미국증시 공개 경로 `secretnote.cloud/us`와 레거시 `/nasdaq` 리디렉션은
+별도 URL 전환 계획이 승인될 때까지 유지합니다.
 
 ## API 키
 
