@@ -2085,6 +2085,101 @@ def test_live_us_surface_runs_full_data_contract_and_product_boundary(
 
 
 @pytest.mark.qa_live
+def test_us_live_accepts_confirmed_model_holdings_and_exits(monkeypatch) -> None:
+    from app.qa import runner
+
+    class ModelLifecycleApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/us/market/quant-signals":
+                holding = {
+                    "code": "MSFT", "currency": "USD", "market_cap_rank": 4,
+                    "status": "confirmed", "is_preliminary": False,
+                    "current": {"action": "holding", "position_open": True,
+                                "model_exposure_percent": "100.00"},
+                    "public_reasons": [
+                        {"key": key, "available": True}
+                        for key in ("trend_20d", "trend_60d", "flow")
+                    ],
+                }
+                exited = {
+                    **holding, "code": "NVDA", "market_cap_rank": 1,
+                    "current": {"action": "exited", "position_open": False,
+                                "model_exposure_percent": "0.00"},
+                }
+                payload = {**payload, "items": [holding, exited], "confirmed_count": 1}
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", ModelLifecycleApi)
+    report = run_data_signal_qa(
+        mode="live", surface="us", base_url="https://fixture-staging.test"
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+    assert by_id["SIG-US-CONTRACT-001"]["status"] == "pass", by_id["SIG-US-CONTRACT-001"]
+
+
+@pytest.mark.qa_live
+def test_us_live_rejects_inconsistent_model_exposure(monkeypatch) -> None:
+    from app.qa import runner
+
+    class BrokenExposureApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/us/market/quant-signals":
+                payload = {
+                    **payload,
+                    "items": [{
+                        "code": "MSFT", "currency": "USD", "market_cap_rank": 4,
+                        "status": "confirmed", "is_preliminary": False,
+                        "current": {"action": "holding", "position_open": True,
+                                    "model_exposure_percent": "0.00"},
+                        "public_reasons": [
+                            {"key": key, "available": True}
+                            for key in ("trend_20d", "trend_60d", "flow")
+                        ],
+                    }],
+                    "confirmed_count": 1,
+                }
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", BrokenExposureApi)
+    report = run_data_signal_qa(
+        mode="live", surface="us", base_url="https://fixture-staging.test"
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+    assert by_id["SIG-US-CONTRACT-001"]["status"] == "fail"
+    assert "MSFT" in by_id["SIG-US-VERSION-001"]["evidence"]["invalid_items"]
+
+
+@pytest.mark.qa_live
+def test_domestic_live_skips_us_snapshot_when_collector_disabled(monkeypatch) -> None:
+    from app.qa import runner
+
+    class DomesticOnlyApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            if path == "/us/market/quant-signals":
+                raise AssertionError("domestic live must not request the US snapshot")
+            payload, meta = super().get(path, **params)
+            if path in {"/health", "/readyz"}:
+                payload = {**payload, "us_market_enabled": False}
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", DomesticOnlyApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(
+        mode="live", surface="dashboard", base_url="https://fixture-staging.test"
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+    for case_id in (
+        "SIG-US-VERSION-001", "DATA-US-UNIVERSE-001",
+        "DATA-US-SIGNAL-INPUT-001", "DATA-US-EVIDENCE-001",
+        "SIG-US-CONTRACT-001", "REC-US-INDEPENDENT-001", "SIG-UI-022",
+    ):
+        assert by_id[case_id]["status"] == "skip"
+        assert by_id[case_id]["evidence"]["us_market_enabled"] is False
+
+
+@pytest.mark.qa_live
 def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     monkeypatch,
 ) -> None:
