@@ -1526,6 +1526,16 @@ def build_us_position_lifecycle_feed(
         )
         action = str(decision.get("action") or "no_signal")
         candidate_actions[code] = action
+        # Shadow rejection reasons describe the raw close candidate, even
+        # when the replayed public item is an already-open model position.
+        if action == "no_signal":
+            rejection_counts[
+                "insufficient_history"
+                if code in insufficient_history_codes
+                else "chase_guard"
+                if decision.get("chase_veto")
+                else "technical_or_evidence"
+            ] += 1
         public_member_signal = _public_member_signal(
             member,
             decision,
@@ -1591,14 +1601,6 @@ def build_us_position_lifecycle_feed(
             "entry_pending",
         }:
             items.append(_candidate_item(member, decision, sector_symbol, current))
-        else:
-            rejection_counts[
-                "insufficient_history"
-                if code in insufficient_history_codes
-                else "chase_guard"
-                if decision.get("chase_veto")
-                else "technical_or_evidence"
-            ] += 1
         public_member_signals.append(public_member_signal)
     stateful_replay_complete = bool(
         replay_complete_codes == signal_eligible_codes

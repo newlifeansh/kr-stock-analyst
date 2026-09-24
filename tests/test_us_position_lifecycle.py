@@ -613,7 +613,7 @@ def test_us_model_reentry_keeps_prior_exit_out_of_current_position():
     )
 
 
-def test_us_feed_replays_top100_model_lifecycle_without_orders():
+def test_us_feed_replays_top100_model_lifecycle_without_orders(monkeypatch):
     stock = _bars(daily_return=0.0017)
     spy = _bars(daily_return=0.0007)
     qqq = _bars(daily_return=0.0009)
@@ -715,6 +715,42 @@ def test_us_feed_replays_top100_model_lifecycle_without_orders():
     assert payload["entry_pending_count"] == 0
     assert lifecycle._shadow_comparison_is_valid(
         payload,
+        universe_date=date(2026, 9, 8),
+        universe_members={member["code"]: member for member in members},
+    )
+
+    original_evaluate = lifecycle.evaluate_us_entry_candidate
+
+    def no_current_close_candidate(stock_bars, *args, **kwargs):
+        decision = original_evaluate(stock_bars, *args, **kwargs)
+        return (
+            {**decision, "action": "no_signal"}
+            if len(stock_bars) == len(stock)
+            else decision
+        )
+
+    monkeypatch.setattr(
+        lifecycle, "evaluate_us_entry_candidate", no_current_close_candidate
+    )
+    held_without_new_candidate = build_us_position_lifecycle_feed(
+        limit=20,
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+        universe_payload={
+            "status": "ready",
+            "data_state": "ready",
+            "universe_as_of": date(2026, 9, 8),
+            "universe_count": 100,
+            "checksum": "fixture",
+            "items": members,
+        },
+        history_loader=lambda symbol: histories[symbol],
+    )
+    shadow = held_without_new_candidate["shadow_comparison"]
+    assert held_without_new_candidate["confirmed_count"] == 20
+    assert shadow["candidate_action_counts"] == {"no_signal": 100}
+    assert sum(shadow["rejection_counts"].values()) == 100
+    assert lifecycle._shadow_comparison_is_valid(
+        held_without_new_candidate,
         universe_date=date(2026, 9, 8),
         universe_members={member["code"]: member for member in members},
     )
