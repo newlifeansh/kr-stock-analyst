@@ -426,6 +426,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_calendar_memoizes_official_session_and_replay_vectors",
         "tests.test_us_position_lifecycle_runtime."
         "test_canonical_snapshot_keeps_model_holdings_when_raw_candidates_are_pending",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_canonical_snapshot_separates_lifecycle_no_signal_from_rejections",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_open_model_reentry_does_not_project_historical_exit_as_current_exit",
         "tests.test_us_position_lifecycle_fail_closed."
         "test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy",
         "tests.test_us_position_lifecycle_fail_closed."

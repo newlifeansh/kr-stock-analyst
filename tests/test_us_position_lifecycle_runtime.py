@@ -219,6 +219,7 @@ def _complete_feed() -> dict[str, object]:
             "candidate_action_counts": {"entry_pending": 1, "entry_watch": 0, "no_signal": 99},
             "baseline_action_counts": {"entry_watch": 100},
             "candidate_entry_pending_count": 1,
+            "lifecycle_no_signal_count": 0,
             "displayed_entry_pending_count": 1,
             "baseline_entry_pending_count": 0,
             "entry_pending_overlap_count": 0,
@@ -493,6 +494,123 @@ def test_canonical_snapshot_keeps_model_holdings_when_raw_candidates_are_pending
     assert canonical["entry_pending_count"] == 0
     assert canonical["shadow_comparison"]["candidate_entry_pending_count"] == 1
     assert canonical["shadow_comparison"]["displayed_entry_pending_count"] == 0
+
+
+def test_canonical_snapshot_separates_lifecycle_no_signal_from_rejections():
+    """A model holding is not a rejected fresh close-time candidate."""
+
+    generated_at = datetime(2026, 9, 8, 21, 0, tzinfo=UTC)
+    payload = _complete_feed()
+    item = payload["items"][0]
+    assert isinstance(item, dict)
+    item.update(
+        {
+            "side": "buy",
+            "status": "confirmed",
+            "is_preliminary": False,
+            "signal": "전략 보유",
+            "events": [{"side": "buy", "execution_date": date(2026, 9, 8)}],
+        }
+    )
+    current = item["current"]
+    assert isinstance(current, dict)
+    current.update(
+        {
+            "action": "holding",
+            "label": "전략 보유",
+            "position_open": True,
+            "model_exposure_percent": 100,
+            "live_observation": False,
+            "as_of": datetime(2026, 9, 8, 20, 0, tzinfo=UTC),
+            "entry_date": date(2026, 9, 8),
+            "entry_price": "100",
+            "stop_reference": "95",
+        }
+    )
+    lifecycle_state = current["lifecycle"]
+    assert isinstance(lifecycle_state, dict)
+    lifecycle_state.update(
+        {
+            "state": "holding",
+            "label": "전략 보유",
+            "latest_transition": {"label": "전략 보유"},
+        }
+    )
+    payload["confirmed_count"] = 1
+    payload["preliminary_count"] = 0
+    payload["entry_pending_count"] = 0
+    shadow = payload["shadow_comparison"]
+    assert isinstance(shadow, dict)
+    shadow.update(
+        {
+            "candidate_preliminary_count": 0,
+            "candidate_actions": {
+                code: "no_signal" for code in shadow["candidate_actions"]
+            },
+            "candidate_action_counts": {"no_signal": 100},
+            "candidate_entry_pending_count": 0,
+            "displayed_entry_pending_count": 0,
+            "candidate_only_entry_pending_count": 0,
+            "candidate_only_entry_pending_codes": [],
+            "action_agreement_count": 0,
+            "action_disagreement_codes": list(shadow["candidate_actions"]),
+            "rejection_counts": {"technical_or_evidence": 99},
+            "lifecycle_no_signal_count": 1,
+        }
+    )
+
+    canonical = lifecycle.canonical_us_position_lifecycle_snapshot(
+        payload,
+        generated_at=generated_at,
+    )
+
+    assert canonical["status"] == "ready"
+    assert canonical["shadow_comparison"]["lifecycle_no_signal_count"] == 1
+
+
+def test_open_model_reentry_does_not_project_historical_exit_as_current_exit():
+    session_date = date(2026, 9, 8)
+    member = _universe_members(session_date)[0]
+    projected = lifecycle._model_lifecycle_item(
+        member,
+        {
+            "price": 110.0,
+            "change_rate": 0.0,
+            "one_month_return": 0.0,
+            "three_month_return": 0.0,
+            "trading_value": 1_000_000.0,
+            "trading_value_change": 0.0,
+            "technical": {"momentum20": 0.0},
+            "confirmation": {"stock_dollar_volume_participation": 1.0},
+        },
+        "XLK",
+        {
+            "action": "holding",
+            "position": {
+                "signal_date": date(2026, 9, 4),
+                "entry_date": date(2026, 9, 5),
+                "entry_price": 100.0,
+                "stop_reference": 95.0,
+            },
+            "last_exit": {
+                "signal_date": date(2026, 8, 27),
+                "entry_date": date(2026, 8, 20),
+                "entry_price": 90.0,
+                "exit_date": date(2026, 8, 28),
+                "exit_price": 92.0,
+                "return_rate": 2.22,
+            },
+            "events": [],
+        },
+        as_of=datetime(2026, 9, 8, 21, 0, tzinfo=UTC),
+        universe_date=session_date,
+    )
+
+    current = projected["current"]
+    assert isinstance(current, dict)
+    assert current["entry_date"] == date(2026, 9, 5)
+    assert current["exit_date"] is None
+    assert current["exit_price"] is None
 
 
 def test_future_dated_snapshot_is_blocked_and_refresh_is_due(
