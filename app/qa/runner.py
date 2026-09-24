@@ -374,6 +374,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-US-VERSION-001": (
         "tests.test_us_position_lifecycle."
         "test_us_feed_replays_top100_model_lifecycle_without_orders",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_canonical_snapshot_keeps_model_holdings_when_raw_candidates_are_pending",
         "tests.test_us_market."
         "test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed",
         "tests.test_us_position_lifecycle_runtime."
@@ -436,6 +438,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_feed_replays_top100_model_lifecycle_without_orders",
         "tests.test_us_position_lifecycle."
         "test_us_model_reentry_keeps_prior_exit_out_of_current_position",
+        "tests.test_us_market_calendar."
+        "test_us_calendar_memoizes_official_session_and_replay_vectors",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_canonical_snapshot_keeps_model_holdings_when_raw_candidates_are_pending",
         "tests.test_us_position_lifecycle_fail_closed."
         "test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy",
         "tests.test_us_position_lifecycle_fail_closed."

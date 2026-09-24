@@ -219,6 +219,7 @@ def _complete_feed() -> dict[str, object]:
             "candidate_action_counts": {"entry_pending": 1, "entry_watch": 0, "no_signal": 99},
             "baseline_action_counts": {"entry_watch": 100},
             "candidate_entry_pending_count": 1,
+            "displayed_entry_pending_count": 1,
             "baseline_entry_pending_count": 0,
             "entry_pending_overlap_count": 0,
             "entry_pending_overlap_codes": [],
@@ -432,6 +433,66 @@ def test_canonical_snapshot_waits_for_provider_grace_after_official_close():
     assert before["entry_pending_count"] == 0
     assert at_grace["status"] == "ready"
     assert at_grace["new_entries_allowed"] is True
+
+
+def test_canonical_snapshot_keeps_model_holdings_when_raw_candidates_are_pending():
+    """A next-open model fill must not invalidate its complete Top100 scan."""
+
+    generated_at = datetime(2026, 9, 8, 21, 0, tzinfo=UTC)
+    payload = _complete_feed()
+    item = payload["items"][0]
+    assert isinstance(item, dict)
+    item.update(
+        {
+            "side": "buy",
+            "status": "confirmed",
+            "is_preliminary": False,
+            "signal": "전략 보유",
+            "events": [{"side": "buy", "execution_date": date(2026, 9, 8)}],
+        }
+    )
+    current = item["current"]
+    assert isinstance(current, dict)
+    current.update(
+        {
+            "action": "holding",
+            "label": "전략 보유",
+            "position_open": True,
+            "model_exposure_percent": 100,
+            "live_observation": False,
+            "as_of": datetime(2026, 9, 8, 20, 0, tzinfo=UTC),
+            "entry_date": date(2026, 9, 8),
+            "entry_price": "100",
+            "stop_reference": "95",
+        }
+    )
+    lifecycle_state = current["lifecycle"]
+    assert isinstance(lifecycle_state, dict)
+    lifecycle_state.update(
+        {
+            "state": "holding",
+            "label": "전략 보유",
+            "latest_transition": {"label": "전략 보유"},
+        }
+    )
+    payload["confirmed_count"] = 1
+    payload["preliminary_count"] = 0
+    payload["entry_pending_count"] = 0
+    shadow = payload["shadow_comparison"]
+    assert isinstance(shadow, dict)
+    shadow["displayed_entry_pending_count"] = 0
+
+    canonical = lifecycle.canonical_us_position_lifecycle_snapshot(
+        payload,
+        generated_at=generated_at,
+    )
+
+    assert canonical["status"] == "ready"
+    assert canonical["data_state"] == "ready"
+    assert canonical["confirmed_count"] == 1
+    assert canonical["entry_pending_count"] == 0
+    assert canonical["shadow_comparison"]["candidate_entry_pending_count"] == 1
+    assert canonical["shadow_comparison"]["displayed_entry_pending_count"] == 0
 
 
 def test_future_dated_snapshot_is_blocked_and_refresh_is_due(

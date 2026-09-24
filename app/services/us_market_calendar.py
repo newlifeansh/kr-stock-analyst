@@ -43,6 +43,11 @@ def _calendar_for_year(year: int) -> Any:
     )
 
 
+# The Top100 lifecycle replay repeatedly validates the same completed-session
+# dates for every member. A date's official XNYS session is immutable, so keep
+# enough entries for a multi-year replay instead of reloading pandas calendar
+# state thousands of times during one collector refresh.
+@lru_cache(maxsize=4096)
 def us_market_session(session_date: date) -> Optional[USMarketSession]:
     """Return the regular session, including the exchange-defined early close."""
 
@@ -72,7 +77,8 @@ def us_market_session(session_date: date) -> Optional[USMarketSession]:
     )
 
 
-@lru_cache(maxsize=256)
+# Retain all replay window variants used by a full Top100 collector cycle.
+@lru_cache(maxsize=4096)
 def recent_us_market_session_dates(
     through: date,
     count: int,
