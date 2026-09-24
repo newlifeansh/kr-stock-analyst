@@ -364,12 +364,41 @@ Actions는 PR마다 `gate`, 평일 KST 08:20·10:00·16:20에 `live`, 스테이�
 승격하고 해당 surface의 staging-production parity/live를 검증합니다.
 국내 운영은 `secretnote.cloud`, 미국 운영은 별도 Railway 프로젝트의
 `us-market-web-production-production.up.railway.app`입니다. `us-market` 프로젝트
-안에서 미국 staging/production은 서로 다른 환경·서비스·DB를 사용합니다. 다만 현재
-`secretnote.cloud/us` 공개 경로는 여전히 국내 운영 서비스가 제공하므로,
-공식 미국 URL·라우팅 이전이 승인되기 전에는 국내 운영의 기존 미국 경로와
-`US_MARKET_ENABLED` 값을 유지합니다. 미국 운영 프로젝트의 존재만으로
-공개 URL 이전이 완료됐다고 간주하지 않습니다. 어느 단계든 실패하면 뒤 단계는
-실행되지 않습니다.
+안에서 미국 staging/production은 서로 다른 환경·서비스·DB를 사용합니다.
+공식 미국 공개 주소는 **`secretnote.cloud/us`를 유지**합니다. 현재 운영에서는
+아직 국내 web이 이 경로를 직접 처리합니다. 새 후보의 국내 web에는
+`US_PUBLIC_BACKEND_URL` 관문을 준비해 `/us` 화면·미국 API·정적 자산·
+WebSocket을 독립 미국 web로 전달하며, 미국 상류 장애 시 국내 데이터로
+대체하지 않고 502로 차단합니다. 국내 스테이징 관문은 미국 스테이징 web를
+가리키고 `us-gateway` live/E2E 증거를 별도로 남깁니다.
+
+운영 전환은 두 운영 프로젝트의 web·collector가 **동일한 승인 후보
+`image@sha256`**를 사용하고 양쪽 스테이징 및 공개 관문 QA가 통과한 뒤에만
+진행합니다. 기존 국내 운영 DB의 `us.` 사용자 상태는 공개 URL의 기존
+관심종목·그룹·추천 추적 기록이므로 주소만 넘겨서는 안 됩니다. 운영자 승인
+후 같은 후보로 두 운영 프로젝트를 각각 승격한 다음:
+
+1. 국내 web에 `US_CUTOVER_FREEZE=true`를 설정하고 같은 OCI 이미지만
+   재배포해 미국 쓰기만 일시 503으로 동결한다. `/health`의
+   `us_cutover_freeze=true`를 확인한다.
+2. 등록된 Railway SSH 키를 가진 운영자 환경에서
+   `python -m app.us_data_cutover export`의 stdout을 파일·로그에 저장하지
+   않고 국내 web → 미국 web SSH 파이프로
+   `python -m app.us_data_cutover import`에 전달한다. 기본 dry-run의
+   충돌·추가 검토 건수가 0이면 같은 파이프를 `import --apply`로
+   반복하고 마지막 dry-run에서 신규·충돌 0을 확인한다. 다른 내용의
+   기존 행은 덮어쓰지 않으며 푸시 구독·데스크톱 설정은 자동 이전하지 않는다.
+3. 집계만 담은 이관 증거를 검토한 운영자가 저장소 변수
+   `US_USER_DATA_MIGRATED_SOURCE_SHA`를 **정확한 후보 SHA**로 설정한다.
+   그 후 `.github/workflows/activate-us-canonical-route.yml`을 같은
+   후보·이미지로 수동 실행하고 `production` 환경 승인을 받는다.
+
+활성화 워크플로는 네 운영 서비스의 동일 이미지, 이관 SHA, 쓰기 동결을
+재확인한 뒤 국내 관문을 켜고 동결·국내 미국 수집을 해제합니다. 기존
+국내 초대 코드는 로그·산출물에 남기지 않고 미국 web에 옮기며, 미국 쿠키는
+`us_` 접두어와 `/us-gateway` 경로로 분리합니다. 미국 수집·저장·계산은
+독립 운영 프로젝트에 남습니다. 주소 선택만으로 운영 승격, 데이터 이동
+또는 관문 활성화가 승인된 것은 아닙니다.
 
 GitHub 저장소에는 다음 설정이 필요합니다.
 
@@ -392,8 +421,10 @@ GitHub 저장소에는 다음 설정이 필요합니다.
 프로덕션 배포 전에는 두 surface 모두 현재 체크아웃과 각 스테이징의
 `/dashboard-version` 또는 `/us-version`, 버전 지정 정적 자산 URL과 SHA-256이
 일치해야 합니다. 배포 후에는 선택한 surface의 스테이징과 운영을 비교합니다.
-기존 미국증시 공개 경로 `secretnote.cloud/us`와 레거시 `/nasdaq` 리디렉션은
-별도 URL 전환 계획이 승인될 때까지 유지합니다.
+미국증시 공개 경로 `secretnote.cloud/us`와 레거시 `/nasdaq` 리디렉션은
+유지합니다. 활성화 전후 `/us-version`·`/us/market/*`의
+`X-US-Market-Route: dedicated-service` 헤더와 독립 미국 서비스의 버전,
+초대 인증, 자산 및 모바일 화면을 확인해야 합니다.
 
 ## API 키
 

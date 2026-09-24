@@ -27,6 +27,7 @@ QaStatus = Literal["pass", "warn", "fail", "skip"]
 DEFAULT_STAGING_BASE_URLS = {
     "dashboard": "https://domestic-market-web-staging-staging.up.railway.app",
     "us": "https://us-market-web-staging.up.railway.app",
+    "us-gateway": "https://domestic-market-web-staging-staging.up.railway.app",
 }
 SECRET_KEY_RE = re.compile(
     r"(authorization|token|secret|password|api[_-]?key|app[_-]?key|app[_-]?secret|approval[_-]?key)",
@@ -65,6 +66,40 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_staging_targets_and_qa_evidence_are_separate_for_both_products",
         "tests.test_release_parity."
         "test_scheduled_qa_never_reuses_the_preview_proxy",
+    ),
+    "DATA-COM-006": (
+        "tests.test_us_public_gateway."
+        "test_canonical_us_gateway_routes_shell_assets_api_and_isolates_cookies",
+        "tests.test_us_public_gateway."
+        "test_us_gateway_unavailable_or_wrong_market_shell_never_falls_back",
+        "tests.test_us_public_gateway."
+        "test_us_gateway_requires_distinct_https_origin_and_does_not_route_domestic",
+        "tests.test_us_public_gateway."
+        "test_us_cutover_freezes_only_us_writes",
+        "tests.test_us_public_gateway."
+        "test_public_us_bridge_rewrites_fetch_and_websocket_without_changing_us_staging",
+        "tests.test_us_public_gateway."
+        "test_public_us_bridge_routes_only_same_origin_fetches",
+        "tests.test_release_parity."
+        "test_us_canonical_route_activation_requires_exact_production_candidate",
+        "tests.test_us_data_cutover."
+        "test_us_cutover_copies_only_missing_us_namespaced_state_idempotently",
+        "tests.test_us_data_cutover."
+        "test_us_cutover_blocks_conflicts_and_private_subscription_state",
+        "tests.test_data_signal_qa."
+        "test_us_gateway_live_requires_dedicated_shell_assets_and_api",
+        "tests.test_data_signal_qa."
+        "test_us_gateway_e2e_normalizes_news_api_path_without_hiding_bypass",
+    ),
+    "DATA-COM-007": (
+        "tests.test_us_public_gateway."
+        "test_us_cutover_freezes_only_us_writes",
+        "tests.test_us_data_cutover."
+        "test_us_cutover_copies_only_missing_us_namespaced_state_idempotently",
+        "tests.test_us_data_cutover."
+        "test_us_cutover_blocks_conflicts_and_private_subscription_state",
+        "tests.test_release_parity."
+        "test_us_canonical_route_activation_requires_exact_production_candidate",
     ),
     "DATA-US-NEWS-001": (
         "tests.test_us_market."
@@ -989,6 +1024,7 @@ class ReadOnlyApi:
             "latency_ms": latency_ms,
             "content_type": response.headers.get("content-type"),
             "cache_control": response.headers.get("cache-control"),
+            "us_market_route": response.headers.get("x-us-market-route"),
         }
         if response.status_code >= 400:
             raise QaFailure(f"GET {path} returned HTTP {response.status_code}", meta)
@@ -1009,6 +1045,7 @@ class ReadOnlyApi:
             "latency_ms": round((monotonic() - started) * 1000),
             "content_type": response.headers.get("content-type"),
             "cache_control": response.headers.get("cache-control"),
+            "us_market_route": response.headers.get("x-us-market-route"),
         }
         if response.status_code >= 400:
             raise QaFailure(f"GET {path} returned HTTP {response.status_code}", meta)
@@ -1935,6 +1972,47 @@ def _live_checks(
             domestic_product_boundary_contract,
             pass_message="스테이징의 국내증시 단일 제품 경계와 지수 계약을 확인했습니다.",
         )
+
+        def canonical_us_gateway_contract() -> dict[str, Any]:
+            us_shell, shell_meta = api.get_text("/us", view="home")
+            version, version_meta = api.get("/us-version")
+            bridge, bridge_meta = api.get_text("/us-gateway/assets/us-public-bridge.js")
+            _assert(
+                shell_meta.get("us_market_route") == "dedicated-service"
+                and version_meta.get("us_market_route") == "dedicated-service"
+                and bridge_meta.get("us_market_route") == "dedicated-service",
+                "공식 /us 요청이 미국 독립 서비스 관문을 통과하지 않았습니다.",
+                shell=shell_meta, version=version_meta, bridge=bridge_meta,
+            )
+            _assert(
+                '<meta name="secret-note-market-universe" content="us"' in us_shell
+                and '/us-gateway/dashboard-app-v170.js' in us_shell
+                and '/us-gateway/assets/dashboard/styles.css' in us_shell
+                and '/us-gateway/assets/us-public-bridge.js' in us_shell,
+                "미국 셸이 독립 서비스 자산을 사용하지 않습니다.",
+                shell=shell_meta,
+            )
+            _assert(
+                bool(version.get("version"))
+                and 'window.__US_PUBLIC_GATEWAY__ = prefix;' in bridge,
+                "미국 독립 버전 또는 데이터 요청 관문이 없습니다.",
+                version=version_meta, bridge=bridge_meta,
+            )
+            return {"shell": shell_meta, "version": version_meta, "bridge": bridge_meta}
+
+        if (context.get("health") or {}).get("us_market_enabled") is False:
+            collector.check(
+                "DATA-COM-006",
+                canonical_us_gateway_contract,
+                pass_message="공식 /us 주소의 독립 미국 셸·버전·자산 관문을 확인했습니다.",
+            )
+        else:
+            collector.add(
+                "DATA-COM-006",
+                "skip",
+                "기존 미국 수집 런타임에서는 아직 공식 /us 관문을 활성화하지 않았습니다.",
+                evidence={"us_market_enabled": True},
+            )
 
         def us_market_payloads() -> dict[str, Any]:
             cached = context.get("us_market_contract")
@@ -3718,6 +3796,46 @@ def _live_checks(
     return _market_state(context.get("quote"), context.get("quality")), context
 
 
+def _live_us_gateway_checks(
+    collector: ResultCollector,
+    *,
+    base_url: str,
+    timeout: float,
+) -> None:
+    api = ReadOnlyApi(base_url, timeout)
+    try:
+        def contract() -> dict[str, Any]:
+            shell, shell_meta = api.get_text("/us", view="home")
+            version, version_meta = api.get("/us-version")
+            bridge, bridge_meta = api.get_text("/us-gateway/assets/us-public-bridge.js")
+            signal, signal_meta = api.get("/us/market/quant-signals", limit=1)
+            for meta in (shell_meta, version_meta, bridge_meta, signal_meta):
+                _assert(
+                    meta.get("us_market_route") == "dedicated-service",
+                    "미국 공개 경로의 일부가 독립 서비스를 우회합니다.",
+                    request=meta,
+                )
+            _assert(
+                '<meta name="secret-note-market-universe" content="us"' in shell
+                and '/us-gateway/dashboard-app-v170.js' in shell
+                and '/us-gateway/assets/dashboard/styles.css' in shell
+                and 'window.__US_PUBLIC_GATEWAY__ = prefix;' in bridge
+                and bool(version.get("version"))
+                and isinstance(signal, dict),
+                "미국 공개 셸·자산·API 경계가 불완전합니다.",
+                shell=shell_meta, version=version_meta, bridge=bridge_meta, signal=signal_meta,
+            )
+            return {"shell": shell_meta, "version": version_meta, "bridge": bridge_meta, "signal": signal_meta}
+
+        collector.check(
+            "DATA-COM-006",
+            contract,
+            pass_message="공식 /us 주소가 미국 전용 셸·자산·API로 전달됩니다.",
+        )
+    finally:
+        api.close()
+
+
 def _live_us_checks(
     collector: ResultCollector,
     catalog: dict[str, Any],
@@ -4959,8 +5077,8 @@ def run_data_signal_qa(
 ) -> dict[str, Any]:
     if mode not in {"gate", "live", "e2e"}:
         raise ValueError("mode must be gate, live, or e2e")
-    if surface not in {"dashboard", "us"}:
-        raise ValueError("surface must be dashboard or us")
+    if surface not in {"dashboard", "us", "us-gateway"}:
+        raise ValueError("surface must be dashboard, us, or us-gateway")
     base_url = base_url or DEFAULT_STAGING_BASE_URLS[surface]
     catalog = load_qa_catalog()
     collector = ResultCollector(catalog)
@@ -4968,7 +5086,9 @@ def run_data_signal_qa(
     if mode == "gate":
         _gate_checks(collector, catalog, pytest_junit=pytest_junit)
     elif mode == "live":
-        if surface == "us":
+        if surface == "us-gateway":
+            _live_us_gateway_checks(collector, base_url=base_url, timeout=timeout)
+        elif surface == "us":
             market_state, _ = _live_us_checks(
                 collector,
                 catalog,

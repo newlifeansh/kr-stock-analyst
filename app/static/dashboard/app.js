@@ -8523,6 +8523,10 @@ function formatMultiple(value) {
 }
 
 function socketUrl(path) {
+  if (window.__US_PUBLIC_GATEWAY__) {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}${window.__US_PUBLIC_GATEWAY__}${path}`;
+  }
   if (path === "/ws/quotes") {
     const configured = document.querySelector(
       'meta[name="secret-note-quote-stream-url"]',
@@ -9526,7 +9530,8 @@ function createStockListLogo(code, className = "") {
     frame.classList.add("is-fallback");
     image.remove();
   }, { once: true });
-  image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=${encodeURIComponent(DASHBOARD_CLIENT_VERSION)}`;
+  const logoOrigin = window.__US_PUBLIC_GATEWAY__ || "";
+  image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=${encodeURIComponent(DASHBOARD_CLIENT_VERSION)}`;
   frame.appendChild(image);
   return frame;
 }

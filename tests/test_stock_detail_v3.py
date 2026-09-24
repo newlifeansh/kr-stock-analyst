@@ -339,7 +339,8 @@ def test_stock_detail_title_logo_tracks_the_selected_stock_with_a_fallback():
     assert 'function renderStockTitleLogo(stock = state.currentStock)' in logo_source
     assert 'elements.stockTitleLogo.dataset.stockCode === code' in logo_source
     assert 'createStockListLogo(code, "stock-title-logo-frame")' in logo_source
-    assert 'image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png' in logo_source
+    assert 'const logoOrigin = window.__US_PUBLIC_GATEWAY__ || "";' in logo_source
+    assert 'image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png' in logo_source
     assert 'image.addEventListener("error", () => {' in logo_source
     assert "image.remove();" in logo_source
     assert "renderStockTitleLogo(null);" in source

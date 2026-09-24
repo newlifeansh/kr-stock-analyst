@@ -642,7 +642,8 @@ def test_staging_tds_ia_asset_preserves_data_contracts_and_remaps_navigation():
     assert "실제 계좌·보유·주문 내역이 아닙니다." not in response.text
     assert 'aiSignalsView.querySelector(".ai-signals-commandbar")?.remove()' not in response.text
     assert 'source.classList.add("staging-proxied-commandbar")' in response.text
-    assert 'image.src = `/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260921-domestic-market-v116`' in response.text
+    assert 'const logoOrigin = window.__US_PUBLIC_GATEWAY__ || "";' in response.text
+    assert 'image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260921-domestic-market-v116`' in response.text
     assert 'className = "staging-pinned-empty"' in response.text
     assert "현재 AI 전략 비중은" in response.text
     for role in (

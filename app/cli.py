@@ -93,16 +93,16 @@ def qa_data_signal_command(
         help="JUnit XML evidence from the deterministic pytest gate.",
     ),
     surface: str = typer.Option(
-        "dashboard", "--surface", help="Product surface: dashboard or us."
+        "dashboard", "--surface", help="Product surface: dashboard, us, or us-gateway."
     ),
 ) -> None:
     normalized_mode = mode.strip().lower()
     if normalized_mode not in {"gate", "live", "e2e"}:
         raise typer.BadParameter("mode must be gate, live, or e2e", param_hint="--mode")
     normalized_surface = surface.strip().lower()
-    if normalized_surface not in {"dashboard", "us"}:
+    if normalized_surface not in {"dashboard", "us", "us-gateway"}:
         raise typer.BadParameter(
-            "surface must be dashboard or us", param_hint="--surface"
+            "surface must be dashboard, us, or us-gateway", param_hint="--surface"
         )
     report = run_data_signal_qa(
         mode=normalized_mode,  # type: ignore[arg-type]

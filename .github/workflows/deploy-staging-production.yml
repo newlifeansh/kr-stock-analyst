@@ -243,6 +243,9 @@ jobs:
           railway variable set "US_MARKET_ENABLED=false" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
+          railway variable set "US_PUBLIC_BACKEND_URL=$US_STAGING_BASE_URL" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
           railway variable set "US_MARKET_ENABLED=false" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
@@ -348,6 +351,66 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: staging-qa-${{ inputs.candidate_version }}-${{ matrix.surface }}
+          path: artifacts/qa-data-signal
+          if-no-files-found: error
+          retention-days: 90
+
+  staging_us_gateway_qa:
+    if: inputs.action == 'stage'
+    needs: [validate_request, deploy_staging]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment:
+      name: staging
+      url: ${{ vars.DASHBOARD_STAGING_BASE_URL }}/us
+    env:
+      QA_BASE_URL: ${{ vars.DASHBOARD_STAGING_BASE_URL }}
+      QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
+      QA_DASHBOARD_SHARE_ID: qa-automation
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate_request.outputs.source_sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install QA and Chromium
+        run: |
+          pip install -e '.[qa,mcp]'
+          playwright install --with-deps chromium
+      - name: Check the same-origin US service route
+        id: live_gateway
+        continue-on-error: true
+        run: >-
+          analyst qa data-signal
+          --mode live
+          --surface us-gateway
+          --base-url "$QA_BASE_URL"
+          --output artifacts/qa-data-signal/us-gateway-live.json
+      - name: Check the public US shell on mobile dark and light
+        id: e2e_gateway
+        continue-on-error: true
+        run: >-
+          analyst qa data-signal
+          --mode e2e
+          --surface us-gateway
+          --base-url "$QA_BASE_URL"
+          --output artifacts/qa-data-signal/us-gateway-e2e.json
+          --artifact-dir artifacts/qa-data-signal/us-gateway-screenshots
+      - name: Enforce US gateway QA evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          test -f artifacts/qa-data-signal/us-gateway-live.json
+          test -f artifacts/qa-data-signal/us-gateway-e2e.json
+          test "${{ steps.live_gateway.outcome }}" = "success"
+          test "${{ steps.e2e_gateway.outcome }}" = "success"
+      - name: Upload US gateway QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-qa-${{ inputs.candidate_version }}-us-gateway
           path: artifacts/qa-data-signal
           if-no-files-found: error
           retention-days: 90

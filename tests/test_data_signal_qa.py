@@ -16,6 +16,7 @@ from app.qa.e2e import (
     _chart_study_payload_with_recent_pattern,
     _navigate_page,
     _page_url,
+    _us_observed_path,
 )
 from app.qa.runner import (
     PYTEST_QA_CASE_TESTS,
@@ -88,7 +89,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert len(ids) == 123
+    assert len(ids) == 125
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -96,6 +97,8 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "DATA-DART-003",
         "DATA-LOGO-001",
         "DATA-COM-005",
+        "DATA-COM-006",
+        "DATA-COM-007",
         "DATA-ETF-001",
         "DATA-FUND-ANALYSIS-001",
         "DATA-FUND-ANALYSIS-002",
@@ -179,7 +182,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v7.4.2`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v2-rc1`" in first
-    assert "QA 항목: 123개" in first
+    assert "QA 항목: 125개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1410,7 +1413,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.4.2"
     assert report["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert report["catalog_case_count"] == 123
+    assert report["catalog_case_count"] == 125
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1425,6 +1428,8 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -> None:
     expected_case_ids = {
         "DATA-COM-005",
+        "DATA-COM-006",
+        "DATA-COM-007",
         "DATA-US-NEWS-001",
         "DATA-US-NEWS-TABS-001",
         "REC-US-INDEPENDENT-001",
@@ -2084,6 +2089,64 @@ def test_live_us_surface_runs_full_data_contract_and_product_boundary(
     assert by_id["SIG-US-CONTRACT-001"]["status"] == "pass"
     assert by_id["DATA-US-UNIVERSE-001"]["status"] == "pass"
     assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_live
+def test_us_gateway_live_requires_dedicated_shell_assets_and_api(monkeypatch) -> None:
+    from app.qa import runner
+
+    class GatewayApi(FakeReadOnlyApi):
+        route_enabled = True
+
+        def _gateway_meta(self, path: str) -> dict[str, object]:
+            return {
+                **self._meta(path),
+                "us_market_route": "dedicated-service" if self.route_enabled else None,
+            }
+
+        def get(self, path: str, **params: object):
+            if path == "/us-version":
+                return {"version": "us-test"}, self._gateway_meta(path)
+            if path == "/us/market/quant-signals":
+                return {"items": []}, self._gateway_meta(path)
+            return super().get(path, **params)
+
+        def get_text(self, path: str, **params: object):
+            if path == "/us":
+                return (
+                    '<meta name="secret-note-market-universe" content="us" />'
+                    '<link href="/us-gateway/assets/dashboard/styles.css?v=us-test" />'
+                    '<script src="/us-gateway/dashboard-app-v170.js?v=us-test"></script>',
+                    self._gateway_meta(path),
+                )
+            if path == "/us-gateway/assets/us-public-bridge.js":
+                return 'window.__US_PUBLIC_GATEWAY__ = prefix;', self._gateway_meta(path)
+            return super().get_text(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", GatewayApi)
+    report = run_data_signal_qa(
+        mode="live", surface="us-gateway", base_url="https://fixture-staging.test"
+    )
+    assert report["summary"]["p0_failures"] == []
+    assert report["checks"][0]["id"] == "DATA-COM-006"
+    assert report["checks"][0]["status"] == "pass"
+
+    GatewayApi.route_enabled = False
+    blocked = run_data_signal_qa(
+        mode="live", surface="us-gateway", base_url="https://fixture-staging.test"
+    )
+    assert blocked["summary"]["p0_failures"] == ["DATA-COM-006"]
+
+
+@pytest.mark.qa_gate
+def test_us_gateway_e2e_normalizes_news_api_path_without_hiding_bypass() -> None:
+    gateway_url = "https://fixture-staging.test/us-gateway/us/market/trends?limit=10"
+    bypass_url = "https://fixture-staging.test/us/market/trends?limit=10"
+    assert _us_observed_path(gateway_url, gateway_expected=True) == "/us/market/trends"
+    assert _us_observed_path(bypass_url, gateway_expected=True) == "/us/market/trends"
+    assert _us_observed_path(gateway_url, gateway_expected=False) == (
+        "/us-gateway/us/market/trends"
+    )
 
 
 @pytest.mark.qa_live

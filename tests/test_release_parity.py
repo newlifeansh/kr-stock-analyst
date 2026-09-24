@@ -152,7 +152,39 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.count('railway variable set "US_MARKET_ENABLED=true"') == 4
     assert workflow.count('railway variable set "US_MARKET_ENABLED=false"') == 2
     assert "staging_runtime:{dashboard:{US_MARKET_ENABLED:false},us:{US_MARKET_ENABLED:true}}" in workflow
+    assert 'railway variable set "US_PUBLIC_BACKEND_URL=$US_STAGING_BASE_URL"' in workflow
+    assert "staging_us_gateway_qa:" in workflow
+    assert "--surface us-gateway" in workflow
     assert "/us/market/" not in workflow
+
+
+def test_us_canonical_route_activation_requires_exact_production_candidate() -> None:
+    workflow = Path(".github/workflows/activate-us-canonical-route.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "workflow_dispatch:" in workflow
+    assert "name: production" in workflow
+    assert "url: https://secretnote.cloud/us" in workflow
+    assert 'test "$SOURCE_SHA" = "$(git rev-parse HEAD)"' in workflow
+    assert '.[0].status == "SUCCESS" and .[0].meta.image == $image' in workflow
+    assert 'test "$US_USER_DATA_MIGRATED_SOURCE_SHA" = "$SOURCE_SHA"' in workflow
+    assert ".us_cutover_freeze == true and .us_public_gateway_enabled == false" in workflow
+    for target in (
+        'check_image "$US_PROJECT" "$US_WEB"',
+        'check_image "$US_PROJECT" "$US_COLLECTOR"',
+        'check_image "$DOMESTIC_PROJECT" "$DOMESTIC_WEB"',
+        'check_image "$DOMESTIC_PROJECT" "$DOMESTIC_COLLECTOR"',
+    ):
+        assert target in workflow
+    assert workflow.index("Recheck both staged artifacts") < workflow.index(
+        "Switch the canonical US route"
+    )
+    assert 'railway variable set "US_PUBLIC_BACKEND_URL=$US_PRODUCTION_BASE_URL"' in workflow
+    assert 'railway variable set "US_MARKET_ENABLED=false"' in workflow
+    assert 'railway variable set "US_CUTOVER_FREEZE=false"' in workflow
+    assert 'DASHBOARD_INVITE_CODE=$invite_code" --skip-deploys' in workflow
+    assert "us-gateway-production-live.json" in workflow
 
 
 def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> None:
