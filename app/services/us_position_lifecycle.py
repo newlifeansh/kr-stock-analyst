@@ -1393,8 +1393,8 @@ def _snapshot_public_reasons_are_valid(
     ) != PUBLIC_SIGNAL_REASON_KEYS:
         return False
     expected_labels = {
-        "trend_20d": "20일",
-        "trend_60d": "60일",
+        "trend_20d": "20일 가격",
+        "trend_60d": "60일 가격",
         "flow": "거래대금 참여도",
     }
     for reason in value:

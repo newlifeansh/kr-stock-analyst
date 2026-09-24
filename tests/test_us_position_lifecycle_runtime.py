@@ -281,7 +281,7 @@ def _complete_feed() -> dict[str, object]:
                 "public_reasons": [
                     {
                         "key": "trend_20d",
-                        "label": "20일",
+                        "label": "20일 가격",
                         "state": "positive",
                         "summary": "20일 흐름이 우호적입니다.",
                         "as_of": datetime(2026, 9, 8, 20, 0, tzinfo=UTC),
@@ -289,7 +289,7 @@ def _complete_feed() -> dict[str, object]:
                     },
                     {
                         "key": "trend_60d",
-                        "label": "60일",
+                        "label": "60일 가격",
                         "state": "positive",
                         "summary": "60일 흐름이 우호적입니다.",
                         "as_of": datetime(2026, 9, 8, 20, 0, tzinfo=UTC),
