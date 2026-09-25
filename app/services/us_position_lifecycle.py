@@ -897,14 +897,15 @@ def build_us_member_public_evidence(
     now: Optional[datetime] = None,
     history_loader: Optional[Callable[[str], list[Any]]] = None,
 ) -> dict[str, Any]:
-    """Recover completed-session public evidence for one canonical member.
+    """Build completed-session public evidence for one US stock.
 
     Older ready snapshots do not contain ``public_member_signals``. Rebuilding
     the full Top-100 snapshot can take several minutes or fail when an
     unrelated ticker is throttled, so the stock-detail endpoint may repair its
-    three non-actionable public reasons from that member's own adjusted daily
+    three non-actionable public reasons from that stock's own adjusted daily
     history. Membership and the decision state still come from the immutable
-    canonical snapshot; this helper never promotes an entry signal.
+    canonical snapshot; this helper never promotes an entry signal, including
+    when the requested stock is outside the current Top-100 universe.
     """
 
     current = now or datetime.now(timezone.utc)

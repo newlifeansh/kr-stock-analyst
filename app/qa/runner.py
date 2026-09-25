@@ -603,7 +603,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_home_ai_response."
         "test_us_stock_signal_evidence_preserves_proxy_labels_and_completed_date",
         "tests.test_home_ai_response."
-        "test_us_stock_signal_outside_top100_is_not_mislabelled_as_missing_data",
+        "test_us_stock_signal_outside_top100_shows_completed_session_evidence",
         "tests.test_home_ai_response."
         "test_us_recommendation_detail_requires_matching_ready_snapshot_identity",
         "tests.test_home_ai_response."

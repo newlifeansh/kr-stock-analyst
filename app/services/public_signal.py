@@ -33,6 +33,10 @@ US_PUBLIC_SIGNAL_PREPARING_NEXT_CHECK = (
 US_PUBLIC_SIGNAL_OUTSIDE_REASON = (
     "현재 미국 시가총액 상위 100종목 밖이어서 관망합니다."
 )
+US_PUBLIC_SIGNAL_OUTSIDE_NEXT_CHECK = (
+    "20일·60일 가격 흐름과 거래대금 참여도는 참고하되, "
+    "매수·매도 시그널은 Top100 편입 뒤 다시 확인하세요."
+)
 US_PUBLIC_SIGNAL_METHODOLOGY = (
     "완료된 미국 정규장의 시가총액 상위 100종목에서 분할·배당 수정 OHLC 가격 흐름, "
     "SPY·QQQ 시장 국면, 검토된 섹터 ETF 대비 상대 흐름과 거래대금 참여도를 비교한 "
@@ -819,13 +823,16 @@ def public_stock_ai_analysis_payload(
         is_us_proxy
         and _us_public_snapshot_identity_ready(result)
         and result.get("data_state") == "ready"
-        and result.get("is_current_universe_member") is True
+        and public_evidence_status == "ready"
         and all(item.get("available") is True for item in public_reasons)
     )
     if is_us_proxy:
         status_ready = _us_public_snapshot_identity_ready(result)
         if us_public_evidence_ready:
-            if current_action in {"entry_pending", "entry_watch"}:
+            if result.get("is_current_universe_member") is False:
+                decision_reason = US_PUBLIC_SIGNAL_OUTSIDE_REASON
+                next_check = US_PUBLIC_SIGNAL_OUTSIDE_NEXT_CHECK
+            elif current_action in {"entry_pending", "entry_watch"}:
                 decision_reason = US_PUBLIC_SIGNAL_DECISION_REASON
                 next_check = US_PUBLIC_SIGNAL_NEXT_CHECK
             elif current_action in {"entered", "holding", "full_exit_pending", "exited"}:

@@ -1723,7 +1723,7 @@ console.log(JSON.stringify({{
     ).read_text(encoding="utf-8")
 
 
-def test_us_stock_signal_outside_top100_is_not_mislabelled_as_missing_data() -> None:
+def test_us_stock_signal_outside_top100_shows_completed_session_evidence() -> None:
     source = app_source()
     start = source.index("function quantEvidenceStateMeta(")
     end = source.index("function quantSvgPath(", start)
@@ -1742,9 +1742,13 @@ const elements = {{
 const state = {{ stockQuantSignals: null }};
 {function_source}
 renderQuantDecisionEvidence({{
-  public_evidence_status: "not_applicable",
+  public_evidence_status: "ready",
   evidence_session_date: "2026-09-22",
-  public_reasons: [],
+  public_reasons: [
+    {{ key: "trend_20d", label: "20일 가격", state: "positive", available: true }},
+    {{ key: "trend_60d", label: "60일 가격", state: "neutral", available: true }},
+    {{ key: "flow", label: "거래대금 참여도", state: "negative", available: true }},
+  ],
 }});
 console.log(JSON.stringify({{
   title: elements.quantEvidenceTitle.textContent,
@@ -1761,9 +1765,12 @@ console.log(JSON.stringify({{
     )
     payload = json.loads(completed.stdout)
 
-    assert payload["title"] == "Top100 공개 근거 평가 대상"
-    assert payload["asOf"] == "2026-09-22 Top100 유니버스 기준"
-    assert "평가 대상 아님" in payload["html"]
+    assert payload["title"] == "20일 · 60일 · 거래대금 참여도"
+    assert payload["asOf"] == "2026-09-22 미국장 마감 기준"
+    assert "20일 가격 흐름" in payload["html"]
+    assert "60일 가격 흐름" in payload["html"]
+    assert "거래대금 참여도" in payload["html"]
+    assert "평가 대상 아님" not in payload["html"]
     assert "정보 부족" not in payload["html"]
 
 

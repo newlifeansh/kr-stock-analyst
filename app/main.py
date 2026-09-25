@@ -290,7 +290,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260925us114"
+US_DASHBOARD_CLIENT_VERSION = "20260925us115"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -4466,17 +4466,21 @@ def us_stock_ai_analysis(
     if (
         public_member_signal is None
         and signal is None
-        and feed_ready
-        and is_current_universe_member is True
+        and snapshot_ready
     ):
         try:
             universe_date = date.fromisoformat(
                 str(feed.get("universe_as_of") or "")[:10]
             )
-            evidence_symbol = str(universe_member.get("code") or normalized_symbol)
+            evidence_symbol = str(
+                universe_member.get("code")
+                if isinstance(universe_member, dict)
+                and universe_member.get("code")
+                else normalized_symbol
+            )
             public_member_signal = api_cache.get_or_set(
                 (
-                    "us_member_public_evidence",
+                    "us_stock_public_evidence",
                     str(feed.get("snapshot_id") or ""),
                     evidence_symbol,
                 ),
@@ -4489,7 +4493,7 @@ def us_stock_ai_analysis(
             )
         except Exception:
             logger.exception(
-                "US member public evidence recovery failed: %s",
+                "US stock public evidence recovery failed: %s",
                 normalized_symbol,
             )
     reason_source = (
@@ -4512,12 +4516,16 @@ def us_stock_ai_analysis(
             for item in signal_reasons
         )
     )
-    canonical_member_ready = bool(
-        feed_ready
-        and is_current_universe_member
+    canonical_evidence_ready = bool(
+        snapshot_ready
         and isinstance(reason_source, dict)
         and reason_source.get("data_state") == "ready"
         and canonical_reasons_valid
+    )
+    canonical_member_ready = bool(
+        canonical_evidence_ready
+        and feed_ready
+        and is_current_universe_member
     )
     canonical_candidate_ready = bool(
         canonical_member_ready
@@ -4525,16 +4533,14 @@ def us_stock_ai_analysis(
     )
     public_evidence_status = (
         "ready"
-        if canonical_member_ready
-        else "not_applicable"
-        if snapshot_ready and is_current_universe_member is False
+        if canonical_evidence_ready
         else "preparing"
         if not snapshot_ready
         else "unavailable"
     )
     evidence_session_date = (
         reason_source.get("signal_date")
-        if canonical_member_ready
+        if canonical_evidence_ready
         and isinstance(reason_source, dict)
         and reason_source.get("signal_date")
         else feed.get("universe_as_of")
@@ -4587,6 +4593,11 @@ def us_stock_ai_analysis(
             else canonical_as_of
         ),
     }
+    if is_current_universe_member is False:
+        canonical_current["next_confirmation"] = (
+            "20일·60일 가격 흐름과 거래대금 참여도는 참고하되, "
+            "매수·매도 시그널은 Top100 편입 뒤 다시 확인하세요."
+        )
     if action in {"entered", "holding", "full_exit_pending", "exited"}:
         canonical_current["lifecycle"] = dict(source_current.get("lifecycle") or {})
         canonical_current["entry_date"] = source_current.get("entry_date")
@@ -4596,9 +4607,7 @@ def us_stock_ai_analysis(
         )
     canonical_reasons = (
         signal_reasons
-        if canonical_member_ready
-        else []
-        if public_evidence_status == "not_applicable"
+        if canonical_evidence_ready
         else [
             {
                 "key": key,
@@ -4637,7 +4646,7 @@ def us_stock_ai_analysis(
             ),
             "as_of": canonical_as_of,
             "confidence": None,
-            "data_covered": 3 if canonical_member_ready else 0,
+            "data_covered": 3 if canonical_evidence_ready else 0,
             "data_total": 3,
             "stance": (
                 "예비 매수"
