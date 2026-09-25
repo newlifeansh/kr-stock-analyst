@@ -37,6 +37,13 @@ US_PUBLIC_SIGNAL_OUTSIDE_NEXT_CHECK = (
     "20일·60일 가격 흐름과 거래대금 참여도는 참고하되, "
     "매수·매도 시그널은 Top100 편입 뒤 다시 확인하세요."
 )
+US_PUBLIC_DETAIL_SIGNAL_DECISION_REASON = (
+    "선택한 종목의 완료된 미국장 가격·거래대금과 시장·섹터 흐름을 "
+    "함께 확인한 종목별 AI 판단입니다."
+)
+US_PUBLIC_DETAIL_SIGNAL_NEXT_CHECK = (
+    "다음 완료 미국장에서 20일·60일 가격 흐름과 거래대금 참여도를 다시 확인하세요."
+)
 US_PUBLIC_SIGNAL_METHODOLOGY = (
     "완료된 미국 정규장의 시가총액 상위 100종목에서 분할·배당 수정 OHLC 가격 흐름, "
     "SPY·QQQ 시장 국면, 검토된 섹터 ETF 대비 상대 흐름과 거래대금 참여도를 비교한 "
@@ -828,8 +835,28 @@ def public_stock_ai_analysis_payload(
     )
     if is_us_proxy:
         status_ready = _us_public_snapshot_identity_ready(result)
+        detail_signal_ready = bool(
+            source.get("signal_scope") == "stock_detail"
+            and source.get("detail_signal_ready") is True
+            and source.get("new_entries_allowed") is True
+        )
         if us_public_evidence_ready:
-            if result.get("is_current_universe_member") is False:
+            if detail_signal_ready and current_action in {
+                "entry_pending",
+                "entry_watch",
+                "no_signal",
+            }:
+                decision_reason = US_PUBLIC_DETAIL_SIGNAL_DECISION_REASON
+                next_check = US_PUBLIC_DETAIL_SIGNAL_NEXT_CHECK
+            elif detail_signal_ready and current_action in {
+                "entered",
+                "holding",
+                "full_exit_pending",
+                "exited",
+            }:
+                decision_reason = US_PUBLIC_MODEL_LIFECYCLE_REASON
+                next_check = US_PUBLIC_MODEL_LIFECYCLE_NEXT_CHECK
+            elif result.get("is_current_universe_member") is False:
                 decision_reason = US_PUBLIC_SIGNAL_OUTSIDE_REASON
                 next_check = US_PUBLIC_SIGNAL_OUTSIDE_NEXT_CHECK
             elif current_action in {"entry_pending", "entry_watch"}:

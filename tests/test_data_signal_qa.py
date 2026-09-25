@@ -89,7 +89,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert len(ids) == 127
+    assert len(ids) == 128
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -183,7 +183,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v7.4.2`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v2-rc1`" in first
-    assert "QA 항목: 127개" in first
+    assert "QA 항목: 128개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1134,6 +1134,7 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "SIG-UI-030" in E2E_CASE_IDS
     from app.qa.e2e import US_E2E_CASE_IDS
     assert "REC-US-INDEPENDENT-001" in US_E2E_CASE_IDS
+    assert "SIG-US-DETAIL-001" in US_E2E_CASE_IDS
     assert '"#recommend-list .recommend-card",\n                    state="visible"' in source
     assert "from urllib.parse import unquote, urlencode, urlsplit" in source
     assert 'moving_end.get("originalCount") != 2' in source
@@ -1415,7 +1416,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.4.2"
     assert report["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert report["catalog_case_count"] == 127
+    assert report["catalog_case_count"] == 128
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1445,6 +1446,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-US-QUOTE-001",
         "SIG-US-SHADOW-001",
         "SIG-US-CONTRACT-001",
+        "SIG-US-DETAIL-001",
         "SIG-US-MIGRATION-001",
         "SIG-CONTRACT-007",
         "SIG-UI-022",
@@ -1582,7 +1584,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20260925us118",
+                "us_dashboard_version": "20260926us119",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1590,7 +1592,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20260925us118",
+                "us_dashboard_version": "20260926us119",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1820,6 +1822,56 @@ class FakeReadOnlyApi:
                     },
                 ],
             }, self._meta(path)
+        if path == "/us/stocks/WMB/ai-analysis":
+            universe_as_of = self._us_universe_as_of()
+            return {
+                "code": "WMB",
+                "status": "ready",
+                "data_state": "ready",
+                "strategy_version": "position-lifecycle-us-v2-rc1",
+                "rollout_mode": "model_replay",
+                "execution_enabled": False,
+                "snapshot_id": (
+                    f"position-lifecycle-us-v2-rc1:{universe_as_of}:fixture"
+                ),
+                "snapshot_checksum": "canonical-fixture-checksum",
+                "new_entries_allowed": True,
+                "is_current_universe_member": False,
+                "signal_scope": "stock_detail",
+                "detail_signal_ready": True,
+                "public_evidence_status": "ready",
+                "evidence_session_date": universe_as_of,
+                "stance": "전략 보유",
+                "data_covered": 3,
+                "data_total": 3,
+                "as_of": f"{universe_as_of}T20:00:00+00:00",
+                "current": {
+                    "action": "holding",
+                    "label": "전략 보유",
+                    "position_open": True,
+                    "model_exposure_percent": 100,
+                },
+                "public_reasons": [
+                    {
+                        "key": "trend_20d",
+                        "label": "20일 가격",
+                        "state": "positive",
+                        "available": True,
+                    },
+                    {
+                        "key": "trend_60d",
+                        "label": "60일 가격",
+                        "state": "positive",
+                        "available": True,
+                    },
+                    {
+                        "key": "flow",
+                        "label": "거래대금 참여도",
+                        "state": "neutral",
+                        "available": True,
+                    },
+                ],
+            }, self._meta(path)
         if path == "/stocks/005930":
             return {
                 "code": "005930",
@@ -1952,7 +2004,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20260925us118"}, self._meta(path)
+            return {"version": "20260926us119"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -1999,11 +2051,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20260925us118" />'
+                '<link href="/assets/dashboard/styles.css?v=20260926us119" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20260925us118"></script>'
+                '<script src="/dashboard-app-v170.js?v=20260926us119"></script>'
                 '</body></html>',
                 self._meta(path),
             )

@@ -260,6 +260,7 @@ from app.services.us_market import (
 from app.services.us_position_lifecycle import (
     US_STRATEGY_VERSION,
     build_us_member_public_evidence,
+    build_us_stock_detail_signal,
     load_us_position_lifecycle_snapshot,
     refresh_us_position_lifecycle_snapshot,
     us_position_lifecycle_preparing_payload,
@@ -290,7 +291,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260925us118"
+US_DASHBOARD_CLIENT_VERSION = "20260926us119"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -4413,12 +4414,13 @@ def us_stock_ai_analysis(
         feed = None
     if feed is None:
         feed = us_position_lifecycle_preparing_payload(now=current_time)
-    # The collector owns the expensive Top100 publication. A public detail
-    # request must remain read-only and must never start a second provider scan
-    # inside a web worker.
+    # The collector owns the expensive Top100 publication. A detail request
+    # never rebuilds that feed; outside-Top100 analysis is limited to the one
+    # selected ticker plus its three cached market/sector comparison series.
 
     normalized_symbol = _normalize_us_symbol(symbol)
     normalized_signal_key = normalized_symbol.replace("-", ".")
+    dashboard = us_stock_dashboard(symbol, refresh=refresh)
     universe_members = [
         item
         for item in list(feed.get("universe_members") or [])
@@ -4463,11 +4465,7 @@ def us_stock_ai_analysis(
         None,
     )
     feed_ready = bool(snapshot_ready and feed.get("new_entries_allowed") is True)
-    if (
-        public_member_signal is None
-        and signal is None
-        and snapshot_ready
-    ):
+    if public_member_signal is None and signal is None and snapshot_ready:
         try:
             universe_date = date.fromisoformat(
                 str(feed.get("universe_as_of") or "")[:10]
@@ -4478,19 +4476,53 @@ def us_stock_ai_analysis(
                 and universe_member.get("code")
                 else normalized_symbol
             )
-            public_member_signal = api_cache.get_or_set(
-                (
-                    "us_stock_public_evidence",
-                    str(feed.get("snapshot_id") or ""),
-                    evidence_symbol,
-                ),
-                300,
-                lambda: build_us_member_public_evidence(
-                    evidence_symbol,
-                    universe_date=universe_date,
-                    now=current_time,
-                ),
-            )
+            if is_current_universe_member is False:
+                sector_symbol = str(
+                    (dashboard.get("flows") or {}).get("etf_symbol") or ""
+                ).upper()
+                try:
+                    public_member_signal = api_cache.get_or_set(
+                        (
+                            "us_stock_detail_signal",
+                            str(feed.get("snapshot_id") or ""),
+                            evidence_symbol,
+                            sector_symbol,
+                        ),
+                        300,
+                        lambda: build_us_stock_detail_signal(
+                            evidence_symbol,
+                            name=str(dashboard.get("name") or evidence_symbol),
+                            market=str(dashboard.get("market") or "NASDAQ"),
+                            sector=str(
+                                (dashboard.get("company_profile") or {}).get("sector")
+                                or ""
+                            )
+                            or None,
+                            sector_symbol=sector_symbol,
+                            signal_date=universe_date,
+                            is_current_universe_member=False,
+                            now=current_time,
+                        ),
+                    )
+                except Exception:
+                    logger.exception(
+                        "US stock-detail signal evaluation failed: %s",
+                        normalized_symbol,
+                    )
+            if public_member_signal is None:
+                public_member_signal = api_cache.get_or_set(
+                    (
+                        "us_stock_public_evidence",
+                        str(feed.get("snapshot_id") or ""),
+                        evidence_symbol,
+                    ),
+                    300,
+                    lambda: build_us_member_public_evidence(
+                        evidence_symbol,
+                        universe_date=universe_date,
+                        now=current_time,
+                    ),
+                )
         except Exception:
             logger.exception(
                 "US stock public evidence recovery failed: %s",
@@ -4522,15 +4554,21 @@ def us_stock_ai_analysis(
         and reason_source.get("data_state") == "ready"
         and canonical_reasons_valid
     )
+    detail_signal_ready = bool(
+        canonical_evidence_ready
+        and isinstance(reason_source, dict)
+        and reason_source.get("signal_scope") == "stock_detail"
+        and reason_source.get("detail_signal_ready") is True
+        and reason_source.get("new_entries_allowed") is True
+    )
     canonical_member_ready = bool(
         canonical_evidence_ready
-        and feed_ready
-        and is_current_universe_member
+        and (
+            detail_signal_ready
+            or (feed_ready and is_current_universe_member is True)
+        )
     )
-    canonical_candidate_ready = bool(
-        canonical_member_ready
-        and isinstance(signal, dict)
-    )
+    canonical_candidate_ready = canonical_member_ready
     public_evidence_status = (
         "ready"
         if canonical_evidence_ready
@@ -4548,7 +4586,9 @@ def us_stock_ai_analysis(
         else None
     )
     source_current = (
-        dict(signal.get("current") or {}) if isinstance(signal, dict) else {}
+        dict(reason_source.get("current") or {})
+        if isinstance(reason_source, dict)
+        else {}
     )
     source_action = str(source_current.get("action") or "")
     action = (
@@ -4593,11 +4633,15 @@ def us_stock_ai_analysis(
             else canonical_as_of
         ),
     }
-    if is_current_universe_member is False:
+    if is_current_universe_member is False and not detail_signal_ready:
         canonical_current["next_confirmation"] = (
             "20일·60일 가격 흐름과 거래대금 참여도는 참고하되, "
             "매수·매도 시그널은 Top100 편입 뒤 다시 확인하세요."
         )
+    elif source_current.get("next_confirmation"):
+        canonical_current["next_confirmation"] = source_current[
+            "next_confirmation"
+        ]
     if action in {"entered", "holding", "full_exit_pending", "exited"}:
         canonical_current["lifecycle"] = dict(source_current.get("lifecycle") or {})
         canonical_current["entry_date"] = source_current.get("entry_date")
@@ -4619,7 +4663,6 @@ def us_stock_ai_analysis(
         ]
     )
 
-    dashboard = us_stock_dashboard(symbol, refresh=refresh)
     analysis = dict(build_stock_ai_analysis(dashboard))
     analysis.update(
         {
@@ -4672,6 +4715,10 @@ def us_stock_ai_analysis(
             "snapshot_checksum": feed.get("snapshot_checksum"),
             "new_entries_allowed": canonical_member_ready,
             "is_current_universe_member": is_current_universe_member,
+            "signal_scope": (
+                "stock_detail" if detail_signal_ready else "market"
+            ),
+            "detail_signal_ready": detail_signal_ready,
             "public_evidence_status": public_evidence_status,
             "evidence_session_date": evidence_session_date,
             "current": canonical_current,

@@ -1662,10 +1662,20 @@ const preparing = normalizeUsAIAnalysisForDisplay({{
 const outside = normalizeUsAIAnalysisForDisplay({{
   ...base, is_current_universe_member: false, new_entries_allowed: false,
 }});
+const detail = normalizeUsAIAnalysisForDisplay({{
+  ...base,
+  is_current_universe_member: false,
+  new_entries_allowed: true,
+  signal_scope: "stock_detail",
+  detail_signal_ready: true,
+  stance: "전략 보유",
+  current: {{ action: "holding", label: "전략 보유", position_open: true, evidence: "detail" }},
+}});
 console.log(JSON.stringify({{
   ready: [ready.status, ready.data_state, ready.snapshot_id, ready.snapshot_checksum, ready.current.action, ready.current.evidence, ready.stance],
   preparing: [preparing.status, preparing.data_state, preparing.snapshot_id, preparing.is_current_universe_member, preparing.current.action, preparing.stance, preparing.trade_levels, preparing.current.next_confirmation],
   outside: [outside.is_current_universe_member, outside.new_entries_allowed, outside.current.action, outside.stance, outside.trade_levels, outside.current.next_confirmation],
+  detail: [detail.is_current_universe_member, detail.new_entries_allowed, detail.signal_scope, detail.detail_signal_ready, detail.canonical_display_ready, detail.current.action, detail.current.evidence, detail.stance],
 }}));
 """
 
@@ -1675,12 +1685,15 @@ console.log(JSON.stringify({{
         "ready": ["ready", "ready", "us-snapshot-1", "checksum-1", "entry_pending", "keep", "예비 매수"],
         "preparing": ["preparing", "preparing", None, None, "no_signal", "관망 우선", None, "준비 완료된 동일 스냅샷을 확인한 뒤 신규 진입을 다시 판단합니다."],
         "outside": [False, False, "no_signal", "관망 우선", None, "현재 미국 시가총액 Top100 유니버스 밖 종목이어서 신규 진입을 판단하지 않습니다."],
+        "detail": [False, True, "stock_detail", True, True, "holding", "detail", "전략 보유"],
     }
     renderer = source[source.index("function renderUsAIAnalysis("):source.index("function renderAIAnalysis(")]
     assert "data_state: \"ready\"" not in renderer
     assert "current: { action: \"waiting\"" not in renderer
     assert "snapshot_id: displayPayload.snapshot_id" in renderer
     assert "snapshot_checksum: displayPayload.snapshot_checksum" in renderer
+    assert "displayPayload.detail_signal_ready === true" in renderer
+    assert "홈 Top100 선별과 별도로" in renderer
     assert "20일·60일·수급" not in renderer
     assert 'action: "no_signal"' in source[source.index("function normalizeUsAIAnalysisForDisplay("):source.index("function renderUsAIAnalysis(")]
 

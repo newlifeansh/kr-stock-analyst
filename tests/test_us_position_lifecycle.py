@@ -22,6 +22,7 @@ from app.services.us_position_lifecycle import (
     _load_histories,
     build_us_member_public_evidence,
     build_us_position_lifecycle_feed,
+    build_us_stock_detail_signal,
     evaluate_us_entry_candidate,
     evaluate_us_momentum_watch_baseline,
     replay_us_position_lifecycle,
@@ -168,6 +169,77 @@ def test_us_member_public_evidence_rejects_a_completed_session_gap():
         assert "session gap" in str(exc)
     else:
         raise AssertionError("a completed-session gap must fail closed")
+
+
+def test_us_stock_detail_signal_evaluates_outside_top100_with_same_strategy():
+    rates = {
+        "WMB": 0.0017,
+        "SPY": 0.0007,
+        "QQQ": 0.0009,
+        "XLU": 0.0010,
+    }
+
+    signal = build_us_stock_detail_signal(
+        "WMB",
+        name="Williams Companies Inc. (The)",
+        market="NYSE",
+        sector="유틸리티",
+        sector_symbol="XLU",
+        signal_date=date(2026, 9, 8),
+        is_current_universe_member=False,
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+        history_loader=lambda symbol: _bars(
+            daily_return=rates[symbol],
+            recent_volume_multiplier=1.25,
+        ),
+    )
+
+    assert signal["code"] == "WMB"
+    assert signal["signal_scope"] == "stock_detail"
+    assert signal["detail_signal_ready"] is True
+    assert signal["new_entries_allowed"] is True
+    assert signal["is_current_universe_member"] is False
+    assert signal["universe_tier"] == "detail"
+    assert signal["price_through"] == "2026-09-08"
+    assert signal["current"]["action"] == "holding"
+    assert signal["current"]["position_open"] is True
+    assert signal["execution_enabled"] is False
+    assert [reason["key"] for reason in signal["public_reasons"]] == [
+        "trend_20d",
+        "trend_60d",
+        "flow",
+    ]
+    assert all(reason["available"] is True for reason in signal["public_reasons"])
+
+
+def test_us_stock_detail_signal_rejects_misaligned_market_or_sector_history():
+    rates = {
+        "WMB": 0.0017,
+        "SPY": 0.0007,
+        "QQQ": 0.0009,
+        "XLU": 0.0010,
+    }
+
+    def loader(symbol: str) -> list[USLifecycleBar]:
+        rows = _bars(daily_return=rates[symbol])
+        return rows[:-1] if symbol == "XLU" else rows
+
+    try:
+        build_us_stock_detail_signal(
+            "WMB",
+            name="Williams Companies Inc. (The)",
+            market="NYSE",
+            sector="유틸리티",
+            sector_symbol="XLU",
+            signal_date=date(2026, 9, 8),
+            is_current_universe_member=False,
+            now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+            history_loader=loader,
+        )
+    except ValueError as exc:
+        assert "incomplete or misaligned" in str(exc)
+    else:
+        raise AssertionError("misaligned detail histories must fail closed")
 
 
 def test_us_entry_requires_market_relative_strength_and_dollar_volume_evidence():

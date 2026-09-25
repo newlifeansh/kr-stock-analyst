@@ -44,6 +44,7 @@ E2E_CASE_IDS = (
 US_E2E_CASE_IDS = (
     "SIG-UI-031",
     "SIG-UI-032",
+    "SIG-US-DETAIL-001",
     "REC-US-INDEPENDENT-001",
     "DATA-US-NEWS-001",
 )
@@ -1431,6 +1432,147 @@ def _run_us_e2e_checks(
                 storage_state=storage_state,
                 share_id=share_id,
             )
+
+            def us_stock_detail_signal_case(page: Any, theme: str) -> dict[str, Any]:
+                analysis_response = page.request.get(
+                    _page_url(base_url, "/us/stocks/WMB/ai-analysis"),
+                    timeout=int(timeout * 1000),
+                )
+                if not analysis_response.ok:
+                    raise QaFailure(
+                        "WMB 종목별 AI 시그널 API를 읽지 못했습니다.",
+                        {"status": analysis_response.status},
+                    )
+                analysis = analysis_response.json()
+                reasons = analysis.get("public_reasons") or []
+                action = str((analysis.get("current") or {}).get("action") or "")
+                allowed_actions = {
+                    "entry_watch",
+                    "entry_pending",
+                    "entered",
+                    "holding",
+                    "full_exit_pending",
+                    "exited",
+                    "no_signal",
+                }
+                if (
+                    analysis.get("status") != "ready"
+                    or analysis.get("data_state") != "ready"
+                    or analysis.get("is_current_universe_member") is not False
+                    or analysis.get("signal_scope") != "stock_detail"
+                    or analysis.get("detail_signal_ready") is not True
+                    or analysis.get("new_entries_allowed") is not True
+                    or analysis.get("execution_enabled") is not False
+                    or action not in allowed_actions
+                    or [
+                        reason.get("key")
+                        for reason in reasons
+                        if isinstance(reason, dict)
+                    ]
+                    != ["trend_20d", "trend_60d", "flow"]
+                    or not all(
+                        isinstance(reason, dict)
+                        and reason.get("available") is True
+                        for reason in reasons
+                    )
+                    or not analysis.get("evidence_session_date")
+                ):
+                    raise QaFailure(
+                        "WMB 상세가 Top100 유니버스와 독립된 종목별 시그널을 제공하지 않습니다.",
+                        {
+                            "status": analysis.get("status"),
+                            "data_state": analysis.get("data_state"),
+                            "membership": analysis.get("is_current_universe_member"),
+                            "signal_scope": analysis.get("signal_scope"),
+                            "detail_signal_ready": analysis.get("detail_signal_ready"),
+                            "new_entries_allowed": analysis.get("new_entries_allowed"),
+                            "execution_enabled": analysis.get("execution_enabled"),
+                            "action": action,
+                            "reason_keys": [
+                                reason.get("key")
+                                for reason in reasons
+                                if isinstance(reason, dict)
+                            ],
+                            "evidence_session_date": analysis.get(
+                                "evidence_session_date"
+                            ),
+                        },
+                    )
+
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/us/stock/WMB",
+                        market_scope="us",
+                        qa_run=datetime.now(KST).strftime("%H%M%S"),
+                    ),
+                    wait_until="commit",
+                    ready_selector="#stock-view",
+                )
+                page.wait_for_selector("#login-gate", state="hidden")
+                page.wait_for_selector("#stock-view", state="visible")
+                _select_tab(page.locator('[data-stock-tab="strategy"]'))
+                page.wait_for_selector("#quant-signal-content", state="visible")
+                page.wait_for_selector(
+                    '#quant-public-evidence [data-public-reason="trend_20d"]',
+                    state="visible",
+                )
+                ui = page.evaluate(
+                    """() => ({
+                      text: document.querySelector('#stock-strategy-section')?.innerText || '',
+                      statusHidden: document.querySelector('#quant-signal-status')?.hidden === true,
+                      actionLabel: document.querySelector('#quant-current-label')?.textContent?.trim(),
+                      reasonKeys: [...document.querySelectorAll('#quant-public-evidence [data-public-reason]')].map(node => node.dataset.publicReason),
+                      evidenceAsOf: document.querySelector('#quant-evidence-asof')?.textContent?.trim(),
+                      rootWidth: document.documentElement.scrollWidth,
+                      viewport: innerWidth,
+                    })"""
+                )
+                forbidden_copy = (
+                    "Top100 유니버스 밖 종목이라 관망"
+                    in str(ui.get("text") or "")
+                    or "Top100 편입 뒤" in str(ui.get("text") or "")
+                )
+                if (
+                    not ui.get("statusHidden")
+                    or not ui.get("actionLabel")
+                    or ui.get("reasonKeys") != ["trend_20d", "trend_60d", "flow"]
+                    or "미국장 마감 기준" not in str(ui.get("evidenceAsOf") or "")
+                    or forbidden_copy
+                    or ui.get("rootWidth", 0) > ui.get("viewport", 0) + 2
+                ):
+                    raise QaFailure(
+                        "WMB 종목 상세 AI 시그널 화면이 종목별 판단을 정상 표시하지 않습니다.",
+                        ui,
+                    )
+                return {
+                    "theme": theme,
+                    "api": {
+                        "status": analysis.get("status"),
+                        "data_state": analysis.get("data_state"),
+                        "membership": analysis.get("is_current_universe_member"),
+                        "signal_scope": analysis.get("signal_scope"),
+                        "detail_signal_ready": analysis.get("detail_signal_ready"),
+                        "action": action,
+                        "evidence_session_date": analysis.get(
+                            "evidence_session_date"
+                        ),
+                    },
+                    "ui": ui,
+                }
+
+            detail_result = _run_page_case(
+                browser=browser,
+                catalog_by_id=catalog_by_id,
+                case_id="SIG-US-DETAIL-001",
+                base_url=base_url,
+                timeout=max(timeout, 45),
+                artifact_dir=output_dir,
+                callback=us_stock_detail_signal_case,
+                storage_state=storage_state,
+                share_id=share_id,
+            )
             product_results = [
                 _run_page_case(
                     browser=browser,
@@ -1456,7 +1598,7 @@ def _run_us_e2e_checks(
                     *(("DATA-COM-006",) if gateway_expected else ()),
                 )
             ]
-            return [news_result, *product_results]
+            return [news_result, detail_result, *product_results]
         finally:
             browser.close()
 

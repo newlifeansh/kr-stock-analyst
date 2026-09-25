@@ -1345,6 +1345,138 @@ def _model_lifecycle_item(
     }
 
 
+def build_us_stock_detail_signal(
+    symbol: str,
+    *,
+    name: str,
+    market: str,
+    sector: str | None,
+    sector_symbol: str,
+    signal_date: date,
+    is_current_universe_member: bool,
+    now: Optional[datetime] = None,
+    history_loader: Optional[Callable[[str], list[Any]]] = None,
+    recent_days: int = 30,
+) -> dict[str, Any]:
+    """Evaluate one selected US stock independently of the home Top100 list.
+
+    The home signal feed remains a point-in-time Top100 publication. A stock
+    detail request, however, is an explicit request to inspect that ticker, so
+    it may evaluate the ticker with the same completed-session strategy when
+    its own stock, SPY, QQQ, and sector-proxy histories are complete. This is
+    still a model replay and never represents a broker order or user holding.
+    """
+
+    current = now or datetime.now(timezone.utc)
+    code = str(symbol or "").strip().upper().replace("-", ".")
+    proxy = str(sector_symbol or "").strip().upper()
+    if not code or not proxy:
+        raise ValueError("US stock-detail signal requires a ticker and sector proxy")
+
+    loader = history_loader or _history_loader
+    symbols = list(dict.fromkeys([code, "SPY", "QQQ", proxy]))
+    histories, errors = _load_histories(symbols, loader)
+    if errors:
+        raise ValueError(
+            "US stock-detail signal history is unavailable: "
+            + ",".join(sorted(errors))
+        )
+
+    from app.services.us_market_calendar import us_signal_session_state
+
+    market_session = str(us_signal_session_state(current)["session"])
+    bars_by_symbol = {
+        item: us_price_bars(rows, now=current, market_session=market_session)
+        for item, rows in histories.items()
+    }
+    stock_bars = bars_by_symbol.get(code, [])
+    spy_bars = bars_by_symbol.get("SPY", [])
+    qqq_bars = bars_by_symbol.get("QQQ", [])
+    sector_bars = bars_by_symbol.get(proxy, [])
+    series = (stock_bars, spy_bars, qqq_bars, sector_bars)
+    if (
+        min(len(rows) for rows in series) < US_MIN_HISTORY_ROWS
+        or not _aligned_recent_sessions(*series)
+        or any(rows[-1].trade_date != signal_date for rows in series)
+    ):
+        raise ValueError("US stock-detail signal history is incomplete or misaligned")
+
+    decision = evaluate_us_entry_candidate(
+        stock_bars,
+        spy_bars,
+        qqq_bars,
+        sector_bars,
+        new_entries_allowed=True,
+    )
+    replay = replay_us_position_lifecycle(
+        stock_bars,
+        spy_bars,
+        qqq_bars,
+        sector_bars,
+        latest_decision=decision,
+    )
+    member = {
+        "code": code,
+        "name": name or code,
+        "market": market or "NASDAQ",
+        "sector": sector,
+        "market_cap_rank": None,
+        "market_cap": None,
+    }
+    replay_action = str(replay.get("action") or "no_signal")
+    lifecycle_item: dict[str, Any] | None = None
+    if replay.get("complete") is True and replay_action in {
+        "entered",
+        "holding",
+        "full_exit_pending",
+        "exited",
+    }:
+        lifecycle_item = _model_lifecycle_item(
+            member,
+            decision,
+            proxy,
+            replay,
+            as_of=current,
+            universe_date=signal_date,
+        )
+        if replay_action == "exited":
+            exit_date = (replay.get("last_exit") or {}).get("exit_date")
+            if not isinstance(exit_date, date) or exit_date < (
+                signal_date - timedelta(days=max(1, min(90, int(recent_days))))
+            ):
+                lifecycle_item = None
+
+    if lifecycle_item is not None:
+        result = lifecycle_item
+    elif decision.get("data_state") == "ready" and decision.get("action") in {
+        "entry_watch",
+        "entry_pending",
+    }:
+        result = _candidate_item(member, decision, proxy, current)
+    else:
+        result = _public_member_signal(
+            member,
+            decision,
+            as_of=current,
+            universe_date=signal_date,
+        )
+
+    result.update(
+        {
+            "strategy_version": US_STRATEGY_VERSION,
+            "rollout_mode": US_ROLLOUT_MODE,
+            "execution_enabled": False,
+            "signal_scope": "stock_detail",
+            "detail_signal_ready": True,
+            "new_entries_allowed": True,
+            "is_current_universe_member": is_current_universe_member,
+            "universe_tier": "detail",
+            "price_through": signal_date.isoformat(),
+        }
+    )
+    return result
+
+
 def build_us_position_lifecycle_feed(
     *,
     limit: int = 20,

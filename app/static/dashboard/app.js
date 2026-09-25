@@ -25991,18 +25991,28 @@ function normalizeUsAIAnalysisForDisplay(payload = {}) {
     ? source.current
     : null;
   const sourceAction = String(sourceCurrent?.action || "");
+  const detailSignalReady = source.signal_scope === "stock_detail"
+    && source.detail_signal_ready === true;
   const canonicalReady = isCanonicalUsSnapshotReady(source)
-    && source.is_current_universe_member === true
+    && (source.is_current_universe_member === true || detailSignalReady)
     && source.new_entries_allowed === true
     && source.execution_enabled !== true
-    && ["entry_pending", "entry_watch", "no_signal"].includes(sourceAction);
+    && [
+      "entry_pending",
+      "entry_watch",
+      "entered",
+      "holding",
+      "full_exit_pending",
+      "exited",
+      "no_signal",
+    ].includes(sourceAction);
   if (canonicalReady) {
     return { ...source, canonical_display_ready: true };
   }
   const snapshotReady = isCanonicalUsSnapshotReady(source);
   const reason = !snapshotReady
     ? "준비 완료된 동일 스냅샷을 확인한 뒤 신규 진입을 다시 판단합니다."
-    : source.is_current_universe_member === false
+    : source.is_current_universe_member === false && !detailSignalReady
       ? "현재 미국 시가총액 Top100 유니버스 밖 종목이어서 신규 진입을 판단하지 않습니다."
       : "공개 근거에서 예비 매수 조건이 확인될 때까지 관망합니다.";
   return {
@@ -26034,6 +26044,7 @@ function renderUsAIAnalysis(payload) {
       : !isCanonicalUsSnapshotReady(displayPayload)
         ? "미국 시그널 스냅샷을 준비 중이라 관망으로 표시합니다."
         : displayPayload.is_current_universe_member === false
+          && displayPayload.detail_signal_ready !== true
           ? "현재 미국 시가총액 Top100 유니버스 밖 종목이라 관망으로 표시합니다."
           : "현재 예비 매수 조건이 없어 관망으로 표시합니다.";
   }
@@ -26041,10 +26052,17 @@ function renderUsAIAnalysis(payload) {
   const dashboard = state.currentDashboard || {};
   const currentPrice = toNumber(dashboard.quote?.price);
   const stance = displayPayload.stance || displayPayload.current?.label || "관찰 우선";
-  const stanceTone = stance.includes("매도") || stance.includes("축소") || stance.includes("보류")
+  const currentAction = String(displayPayload.current?.action || "");
+  const stanceTone = ["full_exit_pending", "exited"].includes(currentAction)
+    || stance.includes("매도") || stance.includes("축소") || stance.includes("보류")
     ? "exited"
-    : displayPayload.canonical_display_ready
-      && (stance.includes("매수") || stance.includes("접근") || stance.includes("돌파") || stance.includes("추세"))
+    : displayPayload.canonical_display_ready && (
+      ["entry_pending", "entry_watch", "entered", "holding"].includes(currentAction)
+      || stance.includes("매수")
+      || stance.includes("접근")
+      || stance.includes("돌파")
+      || stance.includes("추세")
+    )
       ? "holding"
       : "waiting";
   const rows = stockPriceRowsWithLiveQuote(state.stockPriceRows, dashboard.quote).slice(-260);
@@ -26060,6 +26078,8 @@ function renderUsAIAnalysis(payload) {
     snapshot_checksum: displayPayload.snapshot_checksum ?? null,
     is_current_universe_member: displayPayload.is_current_universe_member ?? null,
     new_entries_allowed: displayPayload.new_entries_allowed === true,
+    signal_scope: displayPayload.signal_scope || null,
+    detail_signal_ready: displayPayload.detail_signal_ready === true,
     public_evidence_status: displayPayload.public_evidence_status || null,
     evidence_session_date: displayPayload.evidence_session_date || null,
     current: displayPayload.current,
@@ -26087,7 +26107,12 @@ function renderUsAIAnalysis(payload) {
   const firstDate = rows[0]?.date;
   const lastDate = rows.at(-1)?.date;
   setText(elements.quantPerformancePeriod, firstDate && lastDate ? `${formatDateLabel(firstDate)}~${formatDateLabel(lastDate)}` : "기간 확인 중");
-  setText(elements.quantSampleNote, "미국 종목은 20일·60일 가격 흐름과 거래대금 참여도 세 가지 공개 근거만 보여줍니다.");
+  setText(
+    elements.quantSampleNote,
+    displayPayload.detail_signal_ready === true
+      ? "홈 Top100 선별과 별도로, 선택한 종목의 완료 미국장 데이터로 계산한 종목별 AI 시그널입니다."
+      : "미국 종목은 20일·60일 가격 흐름과 거래대금 참여도 세 가지 공개 근거만 보여줍니다.",
+  );
   elements.quantSampleNote.classList.remove("limited");
   elements.quantTradeList.replaceChildren();
   setText(elements.quantDisclaimer, "AI가 공개 데이터로 계산한 참고 분석이며, 투자 권유·자문·수익 보장 또는 실제 주문이 아닙니다.");

@@ -603,7 +603,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app."
         "test_us_stock_ai_analysis_fails_closed_without_canonical_candidate[preparing]",
         "tests.test_app."
-        "test_us_stock_ai_analysis_fails_closed_without_canonical_candidate[outside_top100]",
+        "test_us_stock_ai_analysis_evaluates_outside_top100_in_detail_scope",
         "tests.test_app."
         "test_us_stock_ai_analysis_keeps_top100_member_ready_without_signal[share_class_alias]",
         "tests.test_app."
@@ -642,6 +642,16 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_member_public_evidence_rejects_a_completed_session_gap",
         "tests.test_app."
         "test_us_stock_ai_analysis_repairs_legacy_member_evidence_without_full_scan",
+    ),
+    "SIG-US-DETAIL-001": (
+        "tests.test_us_position_lifecycle."
+        "test_us_stock_detail_signal_evaluates_outside_top100_with_same_strategy",
+        "tests.test_us_position_lifecycle."
+        "test_us_stock_detail_signal_rejects_misaligned_market_or_sector_history",
+        "tests.test_app."
+        "test_us_stock_ai_analysis_evaluates_outside_top100_in_detail_scope",
+        "tests.test_home_ai_response."
+        "test_us_ai_analysis_display_preserves_canonical_fields_and_fails_closed",
     ),
 }
 
@@ -4280,6 +4290,88 @@ def _live_us_checks(
             "SIG-UI-026",
             us_community_bare_symbol_contract,
             pass_message="WMB bare ticker 커뮤니티 최신글과 원문 링크를 확인했습니다.",
+        )
+
+        def us_stock_detail_signal_contract() -> dict[str, Any]:
+            payload, meta = api.get("/us/stocks/WMB/ai-analysis")
+            reasons = payload.get("public_reasons") or []
+            current = payload.get("current") or {}
+            action = str(current.get("action") or "")
+            allowed_actions = {
+                "entry_watch",
+                "entry_pending",
+                "entered",
+                "holding",
+                "full_exit_pending",
+                "exited",
+                "no_signal",
+            }
+            _assert(
+                payload.get("status") == "ready"
+                and payload.get("data_state") == "ready"
+                and bool(payload.get("snapshot_id"))
+                and bool(payload.get("snapshot_checksum"))
+                and payload.get("is_current_universe_member") is False
+                and payload.get("signal_scope") == "stock_detail"
+                and payload.get("detail_signal_ready") is True
+                and payload.get("new_entries_allowed") is True
+                and payload.get("execution_enabled") is False
+                and payload.get("public_evidence_status") == "ready"
+                and payload.get("data_covered") == 3
+                and action in allowed_actions
+                and [
+                    reason.get("key")
+                    for reason in reasons
+                    if isinstance(reason, dict)
+                ]
+                == ["trend_20d", "trend_60d", "flow"]
+                and all(
+                    isinstance(reason, dict)
+                    and reason.get("available") is True
+                    for reason in reasons
+                )
+                and bool(payload.get("evidence_session_date")),
+                "WMB 상세가 Top100 편입 여부와 독립된 종목별 시그널을 제공하지 않습니다.",
+                status=payload.get("status"),
+                data_state=payload.get("data_state"),
+                snapshot_id=payload.get("snapshot_id"),
+                membership=payload.get("is_current_universe_member"),
+                signal_scope=payload.get("signal_scope"),
+                detail_signal_ready=payload.get("detail_signal_ready"),
+                new_entries_allowed=payload.get("new_entries_allowed"),
+                public_evidence_status=payload.get("public_evidence_status"),
+                action=action,
+                reason_keys=[
+                    reason.get("key")
+                    for reason in reasons
+                    if isinstance(reason, dict)
+                ],
+                evidence_session_date=payload.get("evidence_session_date"),
+                **meta,
+            )
+            serialized = json.dumps(payload, ensure_ascii=False)
+            _assert(
+                "Top100 편입 뒤" not in serialized
+                and "Top100 유니버스 밖 종목이라 관망"
+                not in serialized,
+                "WMB 상세에 Top100 외부 강제 관망 문구가 남았습니다.",
+                **meta,
+            )
+            return {
+                **meta,
+                "snapshot_id": payload.get("snapshot_id"),
+                "membership": payload.get("is_current_universe_member"),
+                "signal_scope": payload.get("signal_scope"),
+                "detail_signal_ready": payload.get("detail_signal_ready"),
+                "action": action,
+                "evidence_session_date": payload.get("evidence_session_date"),
+                "reason_keys": [reason.get("key") for reason in reasons],
+            }
+
+        collector.check(
+            "SIG-US-DETAIL-001",
+            us_stock_detail_signal_contract,
+            pass_message="WMB 상세의 Top100 독립 종목별 AI 시그널과 3개 공개 근거를 확인했습니다.",
         )
 
         def us_signal_contract() -> dict[str, Any]:
