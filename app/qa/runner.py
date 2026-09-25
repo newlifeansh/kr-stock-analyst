@@ -193,6 +193,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_market_index_live_endpoint."
         "test_us_entry_uses_the_us_only_shell_and_global_market_snapshot",
     ),
+    "SIG-US-QUOTE-001": (
+        "tests.test_initial_live_hydration."
+        "test_us_ai_signal_uses_completed_session_return_instead_of_permanent_quote_checking",
+    ),
     "SIG-UI-022": (
         "tests.test_public_signal."
         "test_quant_projection_exposes_only_three_public_reasons_and_keeps_input_immutable",

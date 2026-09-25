@@ -881,6 +881,48 @@ def _run_us_e2e_checks(
                         "미국 시그널 영역의 시그널 감시 후보 명칭이 일관되지 않습니다.",
                         signal_labels,
                     )
+                page.wait_for_selector(
+                    "#ai-signals-page-list .home-ai-signal-row",
+                    state="visible",
+                )
+                signal_quote_state = page.evaluate(
+                    """() => {
+                      const rows = [...document.querySelectorAll(
+                        '#ai-signals-page-list .home-ai-signal-row[data-code]'
+                      )];
+                      const holdings = rows.filter(
+                        row => row.aiSignalSnapshotItem?.current?.position_open === true
+                      );
+                      return {
+                        holdingCount: holdings.length,
+                        summary: document.querySelector('#ai-signals-live-status-label')?.textContent?.trim() || '',
+                        detail: document.querySelector('#ai-signals-live-status-detail')?.textContent?.trim() || '',
+                        rows: holdings.map(row => ({
+                          code: row.dataset.code,
+                          text: row.textContent || '',
+                          value: row.querySelector('[data-field="ai_signal_return"]')?.textContent?.trim() || '',
+                          freshness: row.querySelector('[data-field="ai_signal_return"]')?.dataset?.freshnessState || '',
+                        })),
+                      };
+                    }"""
+                )
+                if (
+                    signal_quote_state["holdingCount"] > 0
+                    and (
+                        "최근 미국장 종가" not in signal_quote_state["summary"]
+                        or "실시간 체결가는 아니에요" not in signal_quote_state["detail"]
+                        or any(
+                            "현재가 확인 중" in row["text"]
+                            or not row["value"]
+                            or row["freshness"] != "reference"
+                            for row in signal_quote_state["rows"]
+                        )
+                    )
+                ):
+                    raise QaFailure(
+                        "미국 보유 시그널이 완료 세션 가격 대신 현재가 확인 중에 고정됐습니다.",
+                        signal_quote_state,
+                    )
                 page.evaluate(
                     """() => {
                       window.__qaHistoryBackCalls = 0;
@@ -1087,6 +1129,7 @@ def _run_us_e2e_checks(
                     "shell": shell,
                     "signal_back": signal_back,
                     "signal_labels": signal_labels,
+                    "signal_quote_state": signal_quote_state,
                     "reflow": reflow,
                     "search": search_state,
                     "stock": stock_state,

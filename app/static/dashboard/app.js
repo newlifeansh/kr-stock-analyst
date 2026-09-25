@@ -16048,13 +16048,14 @@ function aiSignalReleasedOutcomeLine(item = {}, view = {}) {
 const AI_SIGNAL_FRESHNESS_LABELS = {
   realtime: "실시간",
   delayed: "약 10초 지연",
+  reference: "최근 미국장 종가",
   offline: "오프라인",
   closed: "장 마감",
   checking: "상태 확인 중",
   confirmed: "확정",
 };
 
-const AI_SIGNAL_FRESHNESS_SUMMARY_ORDER = ["realtime", "delayed", "checking", "offline", "closed"];
+const AI_SIGNAL_FRESHNESS_SUMMARY_ORDER = ["realtime", "delayed", "reference", "checking", "offline", "closed"];
 
 function aiSignalFreshnessSummary(states = []) {
   const normalized = (Array.isArray(states) ? states : [])
@@ -16067,6 +16068,7 @@ function aiSignalFreshnessSummary(states = []) {
   let stateName = "checking";
   if (counts.checking > 0) stateName = "checking";
   else if (counts.offline > 0) stateName = "offline";
+  else if (total > 0 && counts.reference === total) stateName = "reference";
   else if (total > 0 && counts.closed === total) stateName = "closed";
   else if (counts.delayed > 0) stateName = "delayed";
   else if (total > 0 && counts.realtime === total) stateName = "realtime";
@@ -16086,6 +16088,7 @@ function aiSignalFreshnessSummaryLabel(summary = {}) {
     const labels = {
       realtime: "실시간",
       delayed: "약 10초 지연",
+      reference: "최근 미국장 종가",
       checking: "확인 중",
       offline: "오프라인",
       closed: "장 마감",
@@ -16097,6 +16100,7 @@ function aiSignalFreshnessSummaryLabel(summary = {}) {
   }
   if (summary.state === "realtime") return `보유 ${total}개 모두 실시간`;
   if (summary.state === "delayed") return `보유 ${total}개 현재가 약 10초 지연`;
+  if (summary.state === "reference") return `보유 ${total}개 최근 미국장 종가`;
   if (summary.state === "offline") return `보유 ${total}개 오프라인`;
   if (summary.state === "closed") return `장 마감 · 보유 ${total}개`;
   return `보유 ${total}개 시세 확인 중`;
@@ -16226,6 +16230,14 @@ function aiSignalQuoteUsesActiveSession(quote = {}) {
   ].includes(String(quote.market_session || ""));
 }
 
+function aiSignalItemIsUs(item = {}) {
+  const scope = String(item.market_scope || item.country || "").toLowerCase();
+  const market = String(item.market || item.exchange || "").toUpperCase();
+  return item.currency === "USD"
+    || ["us", "usa", "united_states"].includes(scope)
+    || ["NASDAQ", "NYSE", "AMEX", "SP500", "US"].includes(market);
+}
+
 function aiSignalLiveFreshnessState(item = {}, overlay = null, now = Date.now()) {
   if (isAiSignalSnapshotStale(now)) return "checking";
   if (!isCurrentAiSignalHolding(item)) return "confirmed";
@@ -16244,6 +16256,11 @@ function aiSignalLiveFreshnessState(item = {}, overlay = null, now = Date.now())
   const currentTime = new Date(now);
   const fallbackActive = state.aiSignalQuoteStatuses.get(code)?.status === "fallback";
   if (!overlay?.payload) {
+    const snapshotPrice = toNumber(item.current?.price ?? item.price);
+    const snapshotReturn = toNumber(item.current?.unrealized_return ?? item.current?.return_rate);
+    if (aiSignalItemIsUs(item) && snapshotPrice !== null && snapshotReturn !== null) {
+      return "reference";
+    }
     return !koreaExtendedQuoteLive(currentTime) && isDomesticMarketClosed(currentTime)
       ? "closed"
       : "checking";
@@ -16274,6 +16291,21 @@ function aiSignalItemWithLiveOverlay(item = {}, now = Date.now()) {
   const freshnessState = aiSignalLiveFreshnessState(item, overlay, now);
   if (!isCurrentAiSignalHolding(item)) {
     return { ...item, live_freshness_state: freshnessState };
+  }
+  if (!overlay?.payload && freshnessState === "reference") {
+    const snapshotPrice = toNumber(item.current?.price ?? item.price);
+    const snapshotReturn = toNumber(item.current?.unrealized_return ?? item.current?.return_rate);
+    return {
+      ...item,
+      live_price: snapshotPrice,
+      live_return_rate: null,
+      live_return_pending: false,
+      live_updated_at: item.current?.as_of || item.as_of || "",
+      live_source: "completed_us_session",
+      live_freshness_state: "reference",
+      display_return_rate: snapshotReturn,
+      display_return_kind: "completed_session_position",
+    };
   }
   let displayReady = overlay?.displayReady === true;
   if (!displayReady && ["realtime", "delayed", "closed"].includes(freshnessState)) {
@@ -16765,6 +16797,7 @@ function aiSignalPageFreshnessView(now = Date.now()) {
   const detail = {
     realtime: "평가수익률 반영 중",
     delayed: "실시간 연결을 보완해 약 10초 간격의 현재가로 계산해요.",
+    reference: "완료된 최근 미국장 종가로 계산한 평가수익률이며 실시간 체결가는 아니에요.",
     offline: "연결이 복구되면 시그널과 현재가를 다시 확인해요.",
     closed: "마지막 확인 가격 기준이며 확정 수익률은 바뀌지 않아요.",
     checking: "현재가 출처를 확인하는 동안 실시간 수익률 계산을 멈췄어요.",

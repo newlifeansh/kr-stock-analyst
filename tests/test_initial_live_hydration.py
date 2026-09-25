@@ -181,7 +181,18 @@ freshness = "realtime";
 const realtime = aiSignalItemWithLiveOverlay(base, 1);
 freshness = "checking";
 const checkingWithAcceptedQuote = aiSignalItemWithLiveOverlay(base, 1);
-process.stdout.write(JSON.stringify({{ pending, activeStoredFallback, checkingWithAcceptedQuote, realtime }}));
+freshness = "reference";
+const usReference = aiSignalItemWithLiveOverlay({{
+  code: "MU",
+  currency: "USD",
+  current: {{
+    position_open: true,
+    price: 1080.53,
+    unrealized_return: 3.4,
+    as_of: "2026-09-24T20:00:00+00:00",
+  }},
+}}, 1);
+process.stdout.write(JSON.stringify({{ pending, activeStoredFallback, checkingWithAcceptedQuote, realtime, usReference }}));
 """
     completed = subprocess.run(
         ["node", "-e", script],
@@ -201,6 +212,11 @@ process.stdout.write(JSON.stringify({{ pending, activeStoredFallback, checkingWi
     assert result["realtime"]["live_return_pending"] is False
     assert result["realtime"]["live_return_rate"] == 8.25
     assert result["realtime"]["display_return_kind"] == "live_open_position"
+    assert result["usReference"]["live_return_pending"] is False
+    assert result["usReference"]["live_price"] == 1080.53
+    assert result["usReference"]["display_return_rate"] == 3.4
+    assert result["usReference"]["live_freshness_state"] == "reference"
+    assert result["usReference"]["display_return_kind"] == "completed_session_position"
 
     outcome_source = _function_source(
         DASHBOARD_SOURCE.read_text(encoding="utf-8"),
@@ -209,6 +225,58 @@ process.stdout.write(JSON.stringify({{ pending, activeStoredFallback, checkingWi
     )
     assert "pendingEntry || item.live_return_pending === true" in outcome_source
     assert 'value: freshnessState === "offline" ? "연결 후 확인" : "현재가 확인 중"' in outcome_source
+
+
+@pytest.mark.qa_gate
+def test_us_ai_signal_uses_completed_session_return_instead_of_permanent_quote_checking() -> None:
+    source_path = str(DASHBOARD_SOURCE)
+    script = f"""
+const fs = require("fs");
+const source = fs.readFileSync({json.dumps(source_path)}, "utf8");
+const start = source.indexOf("function aiSignalItemIsUs(");
+const end = source.indexOf("function aiSignalItemWithLiveOverlay(", start);
+const state = {{
+  aiSignalQuoteStatuses: new Map(),
+  quoteStreamOverflowCodes: new Set(),
+  quoteStreamRejectedCodes: new Set(),
+  quoteStreamConnectionState: "checking",
+  quoteStreamSubscribedCodes: new Set(),
+}};
+function isAiSignalSnapshotStale() {{ return false; }}
+function isCurrentAiSignalHolding() {{ return true; }}
+function koreaExtendedQuoteLive() {{ return true; }}
+function isDomesticMarketClosed() {{ return false; }}
+function toNumber(value) {{
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}}
+eval(source.slice(start, end));
+const ready = aiSignalLiveFreshnessState({{
+  code: "MU",
+  market_scope: "us",
+  currency: "USD",
+  current: {{ position_open: true, price: 1080.53, unrealized_return: 3.4 }},
+}}, null, 1);
+const incomplete = aiSignalLiveFreshnessState({{
+  code: "MU",
+  market_scope: "us",
+  currency: "USD",
+  current: {{ position_open: true, price: 1080.53, unrealized_return: null }},
+}}, null, 1);
+process.stdout.write(JSON.stringify({{ ready, incomplete }}));
+"""
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "ready": "reference",
+        "incomplete": "checking",
+    }
 
 
 @pytest.mark.qa_gate
