@@ -14,8 +14,8 @@ def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     contract = local_release_contract()
 
     assert contract["surface"] == "dashboard"
-    assert contract["product_version"] == "20260923v553"
-    assert contract["dashboard_version"] == "20260923v553"
+    assert contract["product_version"] == "20260925v554"
+    assert contract["dashboard_version"] == "20260925v554"
     assert len(contract["assets"]) == 8
     assert len(contract["asset_sha256"]) == 8
     assert set(contract["asset_sha256"]) == {

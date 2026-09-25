@@ -174,6 +174,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_domestic_surface_disables_unified_runtime_and_preserves_dormant_us_implementation",
         "tests.test_app."
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
+        "tests.test_staging_dark_theme."
+        "test_domestic_fold_layout_expands_content_and_keeps_compact_navigation",
     ),
     "SIG-UI-031": (
         "tests.test_domestic_market_scope."

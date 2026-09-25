@@ -2042,11 +2042,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20260923v553" />'
+            '<link href="/assets/dashboard/styles.css?v=20260925v554" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20260923v553"></script>'
+            '<script src="/dashboard-app-v170.js?v=20260925v554"></script>'
             '</body></html>',
             self._meta(path),
         )

@@ -509,6 +509,24 @@ def test_us_fold_layout_expands_content_and_keeps_compact_navigation():
     assert "width: 451px !important" in css
 
 
+def test_domestic_fold_layout_expands_content_and_keeps_compact_navigation():
+    client = TestClient(staging_app)
+    css = client.get("/assets/staging/toss-fidelity.css").text
+
+    rules = css.split(
+        "/* v172 — give the domestic product the same fold-sized hybrid canvas. */",
+        1,
+    )[1]
+    assert "@media (min-width: 600px) and (max-width: 1023px)" in rules
+    assert 'html[data-market-universe="kr"] body[data-staging-ia="tds-video"]' in rules
+    assert "--tds-mobile-canvas: min(calc(100vw - 48px), 760px)" in rules
+    assert "--tds-space-gutter: 24px" in rules
+    assert "calc((100vw - var(--tc-content)) / 2 + var(--tc-gutter))" in rules
+    assert "calc((100vw - var(--tc-content)) / 2 + 6px)" in rules
+    assert "@media (min-width: 472px)" in css
+    assert "width: 451px !important" in css
+
+
 def test_staging_theme_runtime_follows_system_and_supports_review_override():
     client = TestClient(staging_app)
     response = client.get("/assets/staging/adaptive-theme.js")
@@ -2828,7 +2846,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20260923v553' in shell
+    assert 'dashboard-app-v170.js?v=20260925v554' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 
