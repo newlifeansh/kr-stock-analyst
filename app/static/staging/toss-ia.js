@@ -7339,6 +7339,13 @@
     });
   };
 
+  const stagingStockChartViewportWidth = (chart, responsive = false) => {
+    if (!responsive) return 360;
+    const measuredWidth = Number(chart?.getBoundingClientRect?.().width || chart?.clientWidth || 0);
+    if (!Number.isFinite(measuredWidth) || measuredWidth < 280) return 360;
+    return Math.round(measuredWidth);
+  };
+
   const upgradeStagingStockPriceChart = () => {
     if (!/^\/(?:dashboard\/|us\/stock\/)/.test(window.location.pathname) || typeof state === "undefined") return;
     const chart = document.getElementById("stock-mini-chart");
@@ -7357,6 +7364,7 @@
     const isDenseWeek = periodConfig.key === "1W";
     const stockCode = String(state.currentStock?.code || state.currentDashboard?.code || "").trim();
     const isCandle = stagingSelectedChartType === "candle";
+    const chartWidth = stagingStockChartViewportWidth(chart, usStock);
     for (const button of periods.querySelectorAll("[data-staging-chart-period]")) {
       button.hidden = false;
       const active = button.dataset.stagingChartPeriod === periodConfig.key;
@@ -7406,6 +7414,7 @@
       state.currentStock?.code || "",
       periodConfig.key,
       stagingSelectedChartType,
+      chartWidth,
       phase,
       rows.length,
       `${rows[0].date}${rows[0].time || ""}${rows[0].open ?? ""}${rows[0].high ?? ""}${rows[0].low ?? ""}${rows[0].price}`,
@@ -7414,7 +7423,7 @@
     ].join("|");
     if (chart.dataset.stagingChartSignature === signature && chart.querySelector(".staging-toss-stock-chart")) return;
 
-    const width = 360;
+    const width = chartWidth;
     const height = 300;
     const left = 4;
     const right = 4;
@@ -8378,6 +8387,15 @@
     });
   };
 
+  let responsiveStockChartFrame = 0;
+  const scheduleResponsiveStockChart = () => {
+    if (responsiveStockChartFrame || !stagingStockIsUsd()) return;
+    responsiveStockChartFrame = window.requestAnimationFrame(() => {
+      responsiveStockChartFrame = 0;
+      upgradeStagingStockPriceChart();
+    });
+  };
+
   const syncShell = () => {
     syncStagingAiStockResponseRoute();
     const observedView = document.body.dataset.view || "";
@@ -8447,7 +8465,9 @@
   }
   window.addEventListener("scroll", scheduleStockScrollChrome, { passive: true, capture: true });
   window.addEventListener("resize", scheduleStockScrollChrome, { passive: true });
+  window.addEventListener("resize", scheduleResponsiveStockChart, { passive: true });
   window.addEventListener("orientationchange", scheduleStockScrollChrome, { passive: true });
+  window.addEventListener("orientationchange", scheduleResponsiveStockChart, { passive: true });
   window.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       clearMarketContextRotation();

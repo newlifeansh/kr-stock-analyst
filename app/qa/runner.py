@@ -197,6 +197,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_staging_dark_theme."
         "test_us_fold_layout_expands_content_and_keeps_compact_navigation",
     ),
+    "SIG-UI-032": (
+        "tests.test_staging_dark_theme."
+        "test_us_fold_stock_chart_keeps_phone_typography_scale",
+    ),
     "SIG-US-QUOTE-001": (
         "tests.test_initial_live_hydration."
         "test_us_ai_signal_uses_completed_session_return_instead_of_permanent_quote_checking",

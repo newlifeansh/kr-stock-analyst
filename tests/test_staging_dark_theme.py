@@ -9,7 +9,12 @@ from fastapi.testclient import TestClient
 
 from app.main import app as production_app
 import app.staging_app as staging_module
-from app.staging_app import STAGING_IA_VERSION, THEME_VERSION, app as staging_app
+from app.staging_app import (
+    STAGING_IA_VERSION,
+    STAGING_TOSS_IA_VERSION,
+    THEME_VERSION,
+    app as staging_app,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -394,7 +399,7 @@ def test_staging_entry_point_injects_adaptive_tds_assets_into_every_html_shell()
         assert 'media="(prefers-color-scheme: dark)"' in response.text, route
         assert '/assets/staging/toss-fidelity.css' in response.text, route
         assert '/assets/staging/toss-ia.js' in response.text, route
-        assert f'/assets/staging/toss-ia.js?v={STAGING_IA_VERSION}' in response.text, route
+        assert f'/assets/staging/toss-ia.js?v={STAGING_TOSS_IA_VERSION}' in response.text, route
         assert response.headers["x-staging-theme"] == THEME_VERSION
         assert response.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
 
@@ -507,6 +512,19 @@ def test_us_fold_layout_expands_content_and_keeps_compact_navigation():
     assert "calc((100vw - var(--tc-content)) / 2 + 6px)" in rules
     assert "@media (min-width: 472px)" in css
     assert "width: 451px !important" in css
+
+
+def test_us_fold_stock_chart_keeps_phone_typography_scale():
+    client = TestClient(staging_app)
+    script = client.get("/assets/staging/toss-ia.js").text
+
+    assert "const stagingStockChartViewportWidth = (chart, responsive = false) =>" in script
+    assert "chart?.getBoundingClientRect?.().width || chart?.clientWidth" in script
+    assert "const chartWidth = stagingStockChartViewportWidth(chart, usStock);" in script
+    assert "const width = chartWidth;" in script
+    assert "stagingSelectedChartType,\n      chartWidth,\n      phase," in script
+    assert 'window.addEventListener("resize", scheduleResponsiveStockChart' in script
+    assert 'window.addEventListener("orientationchange", scheduleResponsiveStockChart' in script
 
 
 def test_domestic_fold_layout_expands_content_and_keeps_compact_navigation():

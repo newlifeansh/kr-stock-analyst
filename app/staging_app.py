@@ -51,6 +51,7 @@ Send = Callable[[Message], Awaitable[None]]
 
 THEME_VERSION = "20260828-tds-adaptive-v77-shortcuts"
 STAGING_IA_VERSION = "20260921-domestic-market-v116"
+STAGING_TOSS_IA_VERSION = "20260925-us-fold-chart-v118"
 STAGING_STYLE_VERSION = (
     f"{THEME_VERSION}-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161-ai-signal-landing-v165-recommendation-overview-v166-recommendation-evidence-v169-domestic-market-v170-us-fold-v171-domestic-fold-v172"
 )
@@ -70,7 +71,7 @@ THEME_HEAD = (
     f'<link rel="stylesheet" href="/assets/staging/toss-fidelity.css?v={STAGING_STYLE_VERSION}" />'
     f'<script src="/assets/staging/ai-stock-response-logic.js?v={STAGING_IA_VERSION}" defer></script>'
     f'<script src="/assets/staging/stock-change-copy-logic.js?v={STAGING_IA_VERSION}" defer></script>'
-    f'<script src="/assets/staging/toss-ia.js?v={STAGING_IA_VERSION}" defer></script>'
+    f'<script src="/assets/staging/toss-ia.js?v={STAGING_TOSS_IA_VERSION}" defer></script>'
 )
 
 # The staging service intentionally has no production database credentials or
@@ -1164,8 +1165,13 @@ def _inject_theme(document: bytes) -> bytes:
             html,
         )
         html = re.sub(
-            r'(/assets/staging/(?:ai-stock-response-logic|stock-change-copy-logic|toss-ia)\.js\?v=)[^"&]+',
+            r'(/assets/staging/(?:ai-stock-response-logic|stock-change-copy-logic)\.js\?v=)[^"&]+',
             rf'\g<1>{STAGING_IA_VERSION}',
+            html,
+        )
+        html = re.sub(
+            r'(/assets/staging/toss-ia\.js\?v=)[^"&]+',
+            rf'\g<1>{STAGING_TOSS_IA_VERSION}',
             html,
         )
         if STAGING_ENVIRONMENT_META not in html:

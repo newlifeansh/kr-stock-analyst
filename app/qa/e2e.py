@@ -43,6 +43,7 @@ E2E_CASE_IDS = (
 )
 US_E2E_CASE_IDS = (
     "SIG-UI-031",
+    "SIG-UI-032",
     "REC-US-INDEPENDENT-001",
     "DATA-US-NEWS-001",
 )
@@ -1132,6 +1133,89 @@ def _run_us_e2e_checks(
                 ):
                     raise QaFailure("미국 종목 상세 전환이 공통 대시보드 계약과 다릅니다.", stock_state)
 
+                page.wait_for_selector(
+                    "#stock-mini-chart .staging-toss-chart-extrema text",
+                    state="visible",
+                )
+                page.wait_for_timeout(300)
+                stock_chart_phone_type = page.evaluate(
+                    """() => {
+                      const stage = document.querySelector('#stock-mini-chart .staging-toss-chart-stage');
+                      const svg = stage?.querySelector('svg');
+                      const label = svg?.querySelector('.staging-toss-chart-extrema text');
+                      const period = document.querySelector('#stock-v2-price-periods [data-staging-chart-period]');
+                      const stageBox = stage?.getBoundingClientRect();
+                      const labelBox = label?.getBoundingClientRect();
+                      return {
+                        viewport: innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                        stageWidth: stageBox?.width || 0,
+                        viewBoxWidth: svg?.viewBox?.baseVal?.width || 0,
+                        labelHeight: labelBox?.height || 0,
+                        labelFontSize: label ? parseFloat(getComputedStyle(label).fontSize) : 0,
+                        periodFontSize: period ? parseFloat(getComputedStyle(period).fontSize) : 0,
+                      };
+                    }"""
+                )
+
+                page.set_viewport_size({"width": 963, "height": 872})
+                page.wait_for_function(
+                    """() => {
+                      const stage = document.querySelector('#stock-mini-chart .staging-toss-chart-stage');
+                      const svg = stage?.querySelector('svg');
+                      return Boolean(
+                        stage
+                        && svg
+                        && Math.abs(svg.viewBox.baseVal.width - stage.getBoundingClientRect().width) <= 2
+                      );
+                    }"""
+                )
+                stock_chart_fold_type = page.evaluate(
+                    """() => {
+                      const stage = document.querySelector('#stock-mini-chart .staging-toss-chart-stage');
+                      const svg = stage?.querySelector('svg');
+                      const label = svg?.querySelector('.staging-toss-chart-extrema text');
+                      const period = document.querySelector('#stock-v2-price-periods [data-staging-chart-period]');
+                      const stageBox = stage?.getBoundingClientRect();
+                      const labelBox = label?.getBoundingClientRect();
+                      return {
+                        viewport: innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                        stageWidth: stageBox?.width || 0,
+                        viewBoxWidth: svg?.viewBox?.baseVal?.width || 0,
+                        labelHeight: labelBox?.height || 0,
+                        labelFontSize: label ? parseFloat(getComputedStyle(label).fontSize) : 0,
+                        periodFontSize: period ? parseFloat(getComputedStyle(period).fontSize) : 0,
+                      };
+                    }"""
+                )
+                if (
+                    stock_chart_fold_type["viewport"] != 963
+                    or stock_chart_fold_type["rootWidth"] > 965
+                    or stock_chart_fold_type["stageWidth"] < 650
+                    or abs(
+                        stock_chart_fold_type["viewBoxWidth"]
+                        - stock_chart_fold_type["stageWidth"]
+                    )
+                    > 2
+                    or stock_chart_fold_type["labelHeight"] > 16
+                    or stock_chart_fold_type["labelFontSize"] > 12
+                    or stock_chart_fold_type["periodFontSize"] > 15
+                    or abs(
+                        stock_chart_fold_type["labelHeight"]
+                        - stock_chart_phone_type["labelHeight"]
+                    )
+                    > 2
+                ):
+                    raise QaFailure(
+                        "폴드에서 미국 종목 차트의 글자가 캔버스 폭과 함께 확대됐습니다.",
+                        {
+                            "phone": stock_chart_phone_type,
+                            "fold": stock_chart_fold_type,
+                        },
+                    )
+                page.set_viewport_size(MOBILE_VIEWPORT)
+
                 _navigate_page(
                     page,
                     _page_url(base_url, "/nasdaq", view="home"),
@@ -1208,6 +1292,8 @@ def _run_us_e2e_checks(
                     "reflow": reflow,
                     "search": search_state,
                     "stock": stock_state,
+                    "stock_chart_phone_type": stock_chart_phone_type,
+                    "stock_chart_fold_type": stock_chart_fold_type,
                     "legacy_redirect": page.url,
                     "request_count": len(requested_resources),
                     "forbidden_request_count": 0,
@@ -1365,6 +1451,7 @@ def _run_us_e2e_checks(
                 )
                 for case_id in (
                     "SIG-UI-031",
+                    "SIG-UI-032",
                     "REC-US-INDEPENDENT-001",
                     *(("DATA-COM-006",) if gateway_expected else ()),
                 )

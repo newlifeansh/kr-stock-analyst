@@ -1886,6 +1886,19 @@
       "failure_criteria": ["/us가 /dashboard와 다른 전용 NASDAQ 셸·CSS·JavaScript·정보구조를 사용하거나 공통 내비게이션·페이지·상호작용이 누락된다.", "미국 홈에 #home-ai-response·‘미국 관심종목 대응’ 문구·빈 여백이 남거나 제거된 카드를 위한 반복 갱신이 계속된다.", "미국 AI 시그널 백키를 한 번 눌렀는데 주소만 app_build 이력으로 바뀌고 시그널 화면에 남거나 /dashboard로 이동한다.", "미국 종목 상세 백키를 한 번 눌렀는데 상세에 남거나, 출발 화면 대신 빈 홈·국내 화면·외부 URL로 이동하거나, 주소와 표시 화면이 서로 다르게 남는다.", "미국 관심 화면에 관심 제목·그룹 뱃지·상단 돋보기가 남거나 빈 상태에서 종목 추가보다 편집·그룹 전환이 먼저 노출된다.", "/us가 /dashboard로 이동하거나 국가 토글·국내 문구·KOSPI·KOSDAQ를 노출한다.", "US_MARKET_ENABLED=false인 환경을 미국 서비스 준비 완료로 판정한다.", "미국 화면이 /market/indices·/market/rankings·/market/quant-signals·/market/calendar·/stocks/*·/briefings/* 또는 국내 관심종목 경로를 호출한다.", "서비스워커나 복구 페이지가 국내 캐시를 삭제하거나 미국 캐시 버전을 국내 버전으로 공유한다.", "레거시 /nasdaq 리다이렉트가 종목·쿼리를 잃거나 순환한다.", "모바일·확대 화면에 가로 넘침·빈 본문·포커스 오류·44px 미만 핵심 조작 영역이 생긴다.", "843px 폴드 화면에서도 본문이 471px에 고정돼 큰 좌우 여백이 남거나 상단 콘텐츠 축이 본문과 어긋나거나 하단 내비게이션이 화면 전체로 과도하게 벌어진다."]
     },
     {
+      "id": "SIG-UI-032",
+      "title": "미국 폴드 종목 차트 캔버스·타이포그래피 비례 분리",
+      "domain": "미국증시 종목 차트 반응형 QA",
+      "priority": "P0",
+      "modes": ["gate", "e2e"],
+      "automation": "pytest 실측 차트 폭을 SVG 좌표계에 반영하는 결정적 JavaScript 계약 + Playwright 458/963px 다크·라이트 차트 라벨 노확대 E2E",
+      "preconditions": ["미국 종목 상세에 최고·최저 지점이 다른 시세 데이터를 준비한다.", "폰과 폴드가 같은 종목·기간·차트 유형을 표시하도록 준비한다."],
+      "inputs": {"route": "/us/stock/NVDA?market_scope=us", "client_version": "20260925us118", "viewports": [458, 963], "fold_canvas_px": 760, "chart_label_max_height_px": 16, "phone_fold_label_delta_px": 2, "period_font_max_px": 15, "themes": ["dark", "light"]},
+      "steps": ["458px에서 종목 차트의 실제 폭·SVG viewBox 폭·최고·최저 라벨 높이·기간 버튼 글자 크기를 기록한다.", "뷰포트를 963px로 늘려 캔버스가 폴드 폭으로 확장되는지 확인한다.", "리사이즈 후 SVG viewBox 폭이 실제 차트 폭과 2px 이내로 일치하고 라벨은 16px 이하·폰 대비 2px 이내를 유지하는지 확인한다."],
+      "expected": ["폴드에서는 가로 차트 표현 범위만 넓어지고 최고·최저 라벨·포인트·기간 버튼은 폰과 같은 시각 크기를 유지한다.", "폴드를 열거나 닫아 뷰포트가 바뀌어도 차트만 즉시 재계산되고 가로 넘침이 생기지 않는다."],
+      "failure_criteria": ["고정 360 SVG viewBox를 760px 폴드 캔버스로 늘려 차트 글자·포인트가 가로로 두 배 가까이 커진다.", "폴드 라벨 높이가 16px를 넘거나 폰 대비 2px 이상 커진다.", "폴드 크기 전환 후 기존 viewBox가 남아 차트가 왜곡되거나 포인터 탐색 좌표가 틀어진다."]
+    },
+    {
       "id": "SIG-US-QUOTE-001",
       "title": "미국 시그널 보유 종목 완료 세션 가격 표시",
       "domain": "미국 시그널 현재가·평가수익률 QA",
