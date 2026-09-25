@@ -379,6 +379,55 @@ jobs:
         run: |
           pip install -e '.[qa,mcp]'
           playwright install --with-deps chromium
+      - name: Wait for the canonical US recommendation snapshot
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import time
+
+          import httpx
+
+          url = (
+              os.environ["QA_BASE_URL"].rstrip("/")
+              + "/us-gateway/us/market/recommendations?limit=1"
+          )
+          deadline = time.monotonic() + 600
+          last_state = "not requested"
+          with httpx.Client(timeout=20, follow_redirects=True) as client:
+              while time.monotonic() < deadline:
+                  try:
+                      response = client.get(
+                          url,
+                          headers={"Cache-Control": "no-cache"},
+                      )
+                      payload = response.json()
+                      last_state = (
+                          f"http={response.status_code} "
+                          f"status={payload.get('status')} "
+                          f"data_state={payload.get('data_state')} "
+                          f"items={len(payload.get('items') or [])}"
+                      )
+                      if (
+                          response.status_code == 200
+                          and payload.get("status") == "ready"
+                          and payload.get("data_state") == "ready"
+                          and payload.get("snapshot_id")
+                          and payload.get("snapshot_checksum")
+                          and payload.get("items")
+                      ):
+                          print(f"US recommendation snapshot ready: {last_state}")
+                          break
+                  except (httpx.HTTPError, ValueError) as exc:
+                      last_state = f"{type(exc).__name__}: {exc}"
+                  print(f"Waiting for US recommendation snapshot: {last_state}")
+                  time.sleep(15)
+              else:
+                  raise SystemExit(
+                      "US recommendation snapshot did not become ready within "
+                      f"600 seconds: {last_state}"
+                  )
+          PY
       - name: Check the same-origin US service route
         id: live_gateway
         continue-on-error: true

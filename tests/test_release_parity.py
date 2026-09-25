@@ -154,8 +154,16 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "staging_runtime:{dashboard:{US_MARKET_ENABLED:false},us:{US_MARKET_ENABLED:true}}" in workflow
     assert 'railway variable set "US_PUBLIC_BACKEND_URL=$US_STAGING_BASE_URL"' in workflow
     assert "staging_us_gateway_qa:" in workflow
+    assert "Wait for the canonical US recommendation snapshot" in workflow
+    assert 'os.environ["QA_BASE_URL"].rstrip("/")' in workflow
+    assert '"/us-gateway/us/market/recommendations?limit=1"' in workflow
+    assert 'payload.get("status") == "ready"' in workflow
+    assert 'payload.get("data_state") == "ready"' in workflow
+    assert "deadline = time.monotonic() + 600" in workflow
+    assert workflow.index("Wait for the canonical US recommendation snapshot") < workflow.index(
+        "Check the same-origin US service route"
+    )
     assert "--surface us-gateway" in workflow
-    assert "/us/market/" not in workflow
 
 
 def test_us_canonical_route_activation_requires_exact_production_candidate() -> None:
