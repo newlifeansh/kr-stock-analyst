@@ -201,6 +201,7 @@ def _valid_payload(
         "data_state": "ready",
         "universe_version": universe.US_SIGNAL_UNIVERSE_VERSION,
         "universe_as_of": as_of,
+        "ranking_as_of": as_of,
         "universe_count": 100,
         "source_candidate_count": 101,
         "validated_quote_count": 101,
@@ -1024,6 +1025,38 @@ def test_screener_as_of_must_match_quotes_and_completed_session(monkeypatch, fai
 
     assert payload["status"] == "unavailable"
     assert payload["new_entries_allowed"] is False
+
+
+def test_previous_official_session_screener_ranking_is_accepted(monkeypatch):
+    candidates = _candidates(101)
+    for item in candidates:
+        # 2026-09-07 was Labor Day, so 09-04 is the immediately preceding
+        # XNYS session before the completed 09-08 quote session.
+        item["screen_as_of"] = "2026-09-04"
+    quotes = {
+        str(item["code"]): _quote(str(item["code"]), 2_000_000_000 - index)
+        for index, item in enumerate(candidates)
+    }
+    monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_batch",
+        lambda symbols, **_kwargs: quotes,
+    )
+    monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
+
+    payload = universe.build_us_signal_universe(
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["universe_as_of"] == datetime(2026, 9, 8).date()
+    assert payload["ranking_as_of"] == datetime(2026, 9, 4).date()
+    assert {item["screen_as_of"] for item in payload["items"]} == {"2026-09-04"}
+    assert {item["quote_date"] for item in payload["items"]} == {
+        datetime(2026, 9, 8).date()
+    }
+    assert universe._snapshot_payload_is_valid(payload) is True
 
 
 def test_forming_regular_session_never_publishes_current_day_snapshot(monkeypatch):

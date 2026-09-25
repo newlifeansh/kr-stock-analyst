@@ -290,7 +290,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260924us113"
+US_DASHBOARD_CLIENT_VERSION = "20260925us114"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -4413,18 +4413,9 @@ def us_stock_ai_analysis(
         feed = None
     if feed is None:
         feed = us_position_lifecycle_preparing_payload(now=current_time)
-    refresh_allowed = _us_position_lifecycle_refresh_allowed(current_time)
-    schema_upgrade_due = us_position_lifecycle_schema_upgrade_due(feed)
-    if (
-        (refresh or us_position_lifecycle_refresh_due(feed, now=current_time))
-        and refresh_allowed
-    ):
-        _enqueue_us_position_lifecycle_refresh(background_tasks)
-    elif schema_upgrade_due:
-        _enqueue_us_position_lifecycle_refresh(
-            background_tasks,
-            allow_schema_upgrade=True,
-        )
+    # The collector owns the expensive Top100 publication. A public detail
+    # request must remain read-only and must never start a second provider scan
+    # inside a web worker.
 
     normalized_symbol = _normalize_us_symbol(symbol)
     normalized_signal_key = normalized_symbol.replace("-", ".")
@@ -4724,21 +4715,9 @@ def us_market_recommendations(
         feed = None
     if feed is None:
         feed = us_position_lifecycle_preparing_payload(now=current)
-    refresh_enqueued = False
-    refresh_allowed = _us_position_lifecycle_refresh_allowed(current)
-    schema_upgrade_due = us_position_lifecycle_schema_upgrade_due(feed)
-    if (
-        (refresh or us_position_lifecycle_refresh_due(feed, now=current))
-        and refresh_allowed
-    ):
-        refresh_enqueued = _enqueue_us_position_lifecycle_refresh(background_tasks)
-    elif schema_upgrade_due:
-        refresh_enqueued = _enqueue_us_position_lifecycle_refresh(
-            background_tasks,
-            allow_schema_upgrade=True,
-        )
     feed["refresh_requested"] = refresh
-    feed["refresh_enqueued"] = refresh_enqueued
+    feed["refresh_enqueued"] = False
+    feed["refresh_mode"] = "collector_owned"
     payload = build_us_recommendations(
         limit=limit,
         candidate_limit=candidate_limit,
@@ -4768,21 +4747,9 @@ def us_market_quant_signals(
         feed = None
     if feed is None:
         feed = us_position_lifecycle_preparing_payload(now=current)
-    refresh_enqueued = False
-    refresh_allowed = _us_position_lifecycle_refresh_allowed(current)
-    schema_upgrade_due = us_position_lifecycle_schema_upgrade_due(feed)
-    if (
-        (refresh or us_position_lifecycle_refresh_due(feed, now=current))
-        and refresh_allowed
-    ):
-        refresh_enqueued = _enqueue_us_position_lifecycle_refresh(background_tasks)
-    elif schema_upgrade_due:
-        refresh_enqueued = _enqueue_us_position_lifecycle_refresh(
-            background_tasks,
-            allow_schema_upgrade=True,
-        )
     feed["refresh_requested"] = refresh
-    feed["refresh_enqueued"] = refresh_enqueued
+    feed["refresh_enqueued"] = False
+    feed["refresh_mode"] = "collector_owned"
     payload = build_us_quant_signals(
         limit=limit,
         recent_days=recent_days,

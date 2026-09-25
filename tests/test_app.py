@@ -238,8 +238,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="home-view" class="app-page app-home"' in response.text
     assert 'id="search-view" class="app-page app-search"' in response.text
     assert 'id="bottom-nav" aria-label="주요 메뉴"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260924us113"' in response.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us113&amp;build=20260924us113"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260925us114"' in response.text
+    assert 'href="/assets/dashboard/styles.css?v=20260925us114&amp;build=20260925us114"' in response.text
     assert 'setCopy("home-market-signal-title", "미국 시그널 감시 후보")' in source
     assert 'setCopy("home-ai-signals-title", "시그널 감시 후보")' in source
     assert 'signalPageTitle.textContent = "시그널 감시 후보"' in source
@@ -258,7 +258,7 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
-        .replace("20260924us113", "20260923v553")
+        .replace("20260925us114", "20260923v553")
     )
     assert normalized_us == dashboard.text
 
@@ -491,9 +491,12 @@ def test_us_market_quant_signals_endpoint_returns_preliminary_us_candidates(monk
             (limit, recent_days, feed.get("snapshot_id"))
         ) or {
             "status": "ready",
+            "data_state": "ready",
             "strategy_version": "position-lifecycle-us-v1-rc1",
             "methodology": ["1.5ATR private threshold"],
             "snapshot_id": feed.get("snapshot_id"),
+            "snapshot_checksum": "feed-checksum",
+            "new_entries_allowed": True,
             "confirmed_count": 0,
             "preliminary_count": 1,
             "items": [{
@@ -558,7 +561,11 @@ def test_us_market_recommendations_endpoint_exposes_independent_score_and_hides_
         "build_us_recommendations",
         lambda **_kwargs: {
             "status": "ready",
+            "data_state": "ready",
             "strategy_version": "position-lifecycle-us-v1-rc1",
+            "snapshot_id": "us-rc1-snapshot",
+            "snapshot_checksum": "feed-checksum",
+            "new_entries_allowed": True,
             "methodology": ["1.5ATR private threshold"],
             "universe_members": [{"code": "PRIVATE", "cik": "private-cik"}],
             "items": [
@@ -1053,11 +1060,10 @@ def test_us_stock_ai_analysis_repairs_legacy_member_evidence_without_full_scan(
     ]
 
 
-def test_us_market_cold_request_returns_preparing_and_only_enqueues_refresh(monkeypatch):
+def test_us_market_cold_request_is_read_only_and_collector_owned(monkeypatch):
     from app import main as main_module
     from app.services import us_position_lifecycle
 
-    enqueued = []
     monkeypatch.setattr(main_module, "_enforce_rate_limit", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         main_module,
@@ -1072,7 +1078,9 @@ def test_us_market_cold_request_returns_preparing_and_only_enqueues_refresh(monk
     monkeypatch.setattr(
         main_module,
         "_enqueue_us_position_lifecycle_refresh",
-        lambda _tasks: enqueued.append(True) or True,
+        lambda _tasks: (_ for _ in ()).throw(
+            AssertionError("GET must not enqueue a provider scan")
+        ),
     )
     monkeypatch.setattr(
         us_position_lifecycle,
@@ -1088,11 +1096,11 @@ def test_us_market_cold_request_returns_preparing_and_only_enqueues_refresh(monk
     assert response.json()["status"] == "preparing"
     assert response.json()["data_state"] == "preparing"
     assert response.json()["items"] == []
-    assert response.json()["refresh_enqueued"] is True
-    assert enqueued == [True]
+    assert response.json()["refresh_enqueued"] is False
+    assert response.json()["refresh_mode"] == "collector_owned"
 
 
-def test_us_market_refresh_query_serves_fresh_snapshot_while_enqueuing(monkeypatch):
+def test_us_market_refresh_query_remains_read_only(monkeypatch):
     from app import main as main_module
 
     canonical = {
@@ -1104,7 +1112,6 @@ def test_us_market_refresh_query_serves_fresh_snapshot_while_enqueuing(monkeypat
         "refresh_required": False,
         "items": [],
     }
-    enqueued = []
     monkeypatch.setattr(main_module, "_enforce_rate_limit", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         main_module,
@@ -1124,7 +1131,9 @@ def test_us_market_refresh_query_serves_fresh_snapshot_while_enqueuing(monkeypat
     monkeypatch.setattr(
         main_module,
         "_enqueue_us_position_lifecycle_refresh",
-        lambda _tasks: enqueued.append(True) or True,
+        lambda _tasks: (_ for _ in ()).throw(
+            AssertionError("refresh query must not enqueue a provider scan")
+        ),
     )
 
     response = TestClient(app).get("/us/market/recommendations?refresh=true")
@@ -1132,8 +1141,8 @@ def test_us_market_refresh_query_serves_fresh_snapshot_while_enqueuing(monkeypat
     assert response.status_code == 200
     assert response.json()["snapshot_id"] == "us-rc1-snapshot"
     assert response.json()["refresh_requested"] is True
-    assert response.json()["refresh_enqueued"] is True
-    assert enqueued == [True]
+    assert response.json()["refresh_enqueued"] is False
+    assert response.json()["refresh_mode"] == "collector_owned"
 
 
 def test_us_market_regular_session_request_never_enqueues_publication(monkeypatch):
@@ -1167,7 +1176,7 @@ def test_us_market_regular_session_request_never_enqueues_publication(monkeypatc
     assert response.json()["entry_pending_count"] == 0
 
 
-def test_us_market_regular_session_request_enqueues_one_time_schema_upgrade(
+def test_us_market_schema_upgrade_is_collector_owned(
     monkeypatch,
 ):
     from app import main as main_module
@@ -1185,7 +1194,6 @@ def test_us_market_regular_session_request_enqueues_one_time_schema_upgrade(
         ],
         "items": [],
     }
-    enqueued = []
     monkeypatch.setattr(main_module, "_enforce_rate_limit", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         main_module,
@@ -1206,7 +1214,9 @@ def test_us_market_regular_session_request_enqueues_one_time_schema_upgrade(
         main_module,
         "_enqueue_us_position_lifecycle_refresh",
         lambda _tasks, *, allow_schema_upgrade=False: (
-            enqueued.append(allow_schema_upgrade) or True
+            (_ for _ in ()).throw(
+                AssertionError("schema upgrade must remain collector-owned")
+            )
         ),
     )
 
@@ -1214,8 +1224,8 @@ def test_us_market_regular_session_request_enqueues_one_time_schema_upgrade(
 
     assert response.status_code == 200
     assert response.json()["snapshot_id"] == "legacy-us-rc1-snapshot"
-    assert response.json()["refresh_enqueued"] is True
-    assert enqueued == [True]
+    assert response.json()["refresh_enqueued"] is False
+    assert response.json()["refresh_mode"] == "collector_owned"
 
 
 def test_us_collector_backfills_legacy_member_evidence_during_regular_session(
@@ -1301,8 +1311,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260924us113"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us113&amp;build=20260924us113"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260925us114"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260925us114&amp;build=20260925us114"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1592,7 +1602,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260924us113"}
+    assert version.json() == {"version": "20260925us114"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1601,9 +1611,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260924us113" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260925us114" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20260924us113")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20260925us114")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1617,12 +1627,12 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20260924us113"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20260925us114"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20260924us113' in worker.text
-    assert '"/dashboard-app-v170.js?v=20260924us113"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20260925us114' in worker.text
+    assert '"/dashboard-app-v170.js?v=20260925us114"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
@@ -3053,8 +3063,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20260924us113"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us113&amp;build=20260924us113"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260925us114"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260925us114&amp;build=20260925us114"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()

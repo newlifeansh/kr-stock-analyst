@@ -372,8 +372,6 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_canonical_snapshot_waits_for_provider_grace_after_official_close",
         "tests.test_app."
         "test_us_market_regular_session_request_never_enqueues_publication",
-        "tests.test_app."
-        "test_us_market_regular_session_request_enqueues_one_time_schema_upgrade",
         "tests.test_home_ai_response."
         "test_dashboard_us_market_session_payload_overrides_fixed_clock_phase",
         "tests.test_home_ai_response."
@@ -573,9 +571,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app."
         "test_us_market_recommendations_endpoint_exposes_independent_score_and_hides_signal_score",
         "tests.test_app."
-        "test_us_market_cold_request_returns_preparing_and_only_enqueues_refresh",
+        "test_us_market_cold_request_is_read_only_and_collector_owned",
         "tests.test_app."
-        "test_us_market_refresh_query_serves_fresh_snapshot_while_enqueuing",
+        "test_us_market_refresh_query_remains_read_only",
         "tests.test_app."
         "test_us_market_regular_session_request_never_enqueues_publication",
         "tests.test_app."
@@ -617,7 +615,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app."
         "test_us_market_regular_session_request_never_enqueues_publication",
         "tests.test_app."
-        "test_us_market_regular_session_request_enqueues_one_time_schema_upgrade",
+        "test_us_market_cold_request_is_read_only_and_collector_owned",
         "tests.test_app."
         "test_us_collector_backfills_legacy_member_evidence_during_regular_session",
         "tests.test_us_position_lifecycle_runtime."
@@ -1236,8 +1234,8 @@ def _gate_checks(
         )
         _assert(
             US_SIGNAL_UNIVERSE_LIMIT == 100
-            and US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v2",
-            "미국 시그널 유니버스 정책이 Top 100 v2와 다릅니다.",
+            and US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v3",
+            "미국 시그널 유니버스 정책이 Top 100 v3와 다릅니다.",
         )
         _assert(
             US_ROLLOUT_MODE == "model_replay"

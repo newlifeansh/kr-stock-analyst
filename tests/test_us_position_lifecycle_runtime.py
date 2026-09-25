@@ -117,6 +117,7 @@ def snapshot_db():
                         "data_state": "ready",
                         "universe_version": lifecycle.US_SIGNAL_UNIVERSE_VERSION,
                         "universe_as_of": feed["universe_as_of"],
+                        "ranking_as_of": feed["universe_as_of"],
                         "generated_at": datetime(2026, 9, 8, 21, 0, tzinfo=UTC),
                         "universe_count": 100,
                         "source_candidate_count": 101,
@@ -175,6 +176,7 @@ def _complete_feed() -> dict[str, object]:
         "lifecycle_replay_version": lifecycle.US_LIFECYCLE_REPLAY_VERSION,
         "as_of": datetime(2026, 9, 8, 21, 0, tzinfo=UTC),
         "universe_as_of": session_date,
+        "ranking_as_of": session_date,
         "universe_count": 100,
         "universe_members": members,
         "universe_version": lifecycle.US_SIGNAL_UNIVERSE_VERSION,
@@ -408,8 +410,12 @@ def test_canonical_snapshot_round_trip_and_stale_state_blocks_entries(
     assert stale["status"] == "degraded"
     assert stale["data_state"] == "stale"
     assert stale["new_entries_allowed"] is False
+    assert stale["confirmed_count"] == 0
+    assert stale["preliminary_count"] == 0
     assert stale["entry_pending_count"] == 0
-    assert stale["items"][0]["current"]["action"] == "entry_watch"
+    assert stale["items"][0]["current"]["action"] == "no_signal"
+    assert stale["items"][0]["current"]["position_open"] is False
+    assert stale["items"][0]["is_current_holding"] is False
 
 
 def test_canonical_snapshot_waits_for_provider_grace_after_official_close():
@@ -638,8 +644,12 @@ def test_future_dated_snapshot_is_blocked_and_refresh_is_due(
     assert loaded["status"] == "degraded"
     assert loaded["data_state"] == "stale"
     assert loaded["new_entries_allowed"] is False
+    assert loaded["confirmed_count"] == 0
+    assert loaded["preliminary_count"] == 0
     assert loaded["entry_pending_count"] == 0
-    assert loaded["items"][0]["current"]["action"] == "entry_watch"
+    assert loaded["items"][0]["current"]["action"] == "no_signal"
+    assert loaded["items"][0]["current"]["position_open"] is False
+    assert loaded["items"][0]["is_current_holding"] is False
     assert lifecycle.us_position_lifecycle_refresh_due(loaded, now=generated_at) is True
 
 
@@ -902,8 +912,12 @@ def test_failed_refresh_keeps_last_good_snapshot_and_blocks_returned_entries(
     assert json.loads(persisted.payload)["snapshot_id"] == stored["snapshot_id"]
     assert returned["snapshot_id"] == stored["snapshot_id"]
     assert returned["data_state"] == "degraded"
+    assert returned["confirmed_count"] == 0
+    assert returned["preliminary_count"] == 0
     assert returned["entry_pending_count"] == 0
-    assert returned["items"][0]["current"]["action"] == "entry_watch"
+    assert returned["items"][0]["current"]["action"] == "no_signal"
+    assert returned["items"][0]["current"]["position_open"] is False
+    assert returned["items"][0]["is_current_holding"] is False
     assert "refresh failed before publication" in caplog.text
 
 

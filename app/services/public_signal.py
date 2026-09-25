@@ -609,6 +609,17 @@ def public_market_signal_payload(payload: Mapping[str, Any] | None) -> dict[str,
         result.pop("universe_members", None)
         result.pop("public_member_signals", None)
         result["methodology"] = [US_PUBLIC_SIGNAL_METHODOLOGY]
+        if not us_snapshot_ready:
+            # A previous-session lifecycle is diagnostic history, not a
+            # current signal. Do not let legacy side/is_current_holding fields
+            # reconstruct confirmed rows in the browser while the canonical
+            # snapshot is stale or degraded.
+            result["items"] = []
+            result["preliminary_history"] = []
+            result["confirmed_count"] = 0
+            result["preliminary_count"] = 0
+            result["total_preliminary_count"] = 0
+            result["entry_pending_count"] = 0
     public_items = []
     for item in _items(result.get("items")):
         public_item = deepcopy(dict(item))
@@ -699,6 +710,11 @@ def public_recommendation_signal_payload(
         result.pop("universe_members", None)
         result.pop("public_member_signals", None)
         result["methodology"] = [US_PUBLIC_SIGNAL_METHODOLOGY]
+        if not us_snapshot_ready:
+            result["items"] = []
+            result["candidate_count"] = 0
+            result["total_candidate_count"] = 0
+            result["selection_state"] = "unavailable"
     public_items = []
     for item in _items(result.get("items")):
         public_item = deepcopy(dict(item))

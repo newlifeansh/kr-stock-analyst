@@ -1374,6 +1374,7 @@ def build_us_position_lifecycle_feed(
         "as_of": current,
         "snapshot_generated_at": current,
         "universe_as_of": universe.get("universe_as_of"),
+        "ranking_as_of": universe.get("ranking_as_of"),
         "universe_count": len(members),
         "universe_members": [dict(member) for member in members],
         "universe_version": US_SIGNAL_UNIVERSE_VERSION,
@@ -2660,6 +2661,7 @@ def _ready_snapshot_semantics_are_valid(
             "data_state": "ready",
             "universe_version": payload.get("universe_version"),
             "universe_as_of": payload.get("universe_as_of"),
+            "ranking_as_of": payload.get("ranking_as_of"),
             "universe_count": payload.get("universe_count"),
             "checksum": payload.get("universe_checksum"),
             "items": payload.get("universe_members"),
@@ -2817,6 +2819,8 @@ def _authoritative_universe_matches(db: Session, payload: dict[str, Any]) -> boo
         authoritative.get("checksum") == payload.get("universe_checksum")
         and authoritative.get("universe_as_of")
         == str(payload.get("universe_as_of"))
+        and authoritative.get("ranking_as_of")
+        == str(payload.get("ranking_as_of"))
         and authoritative.get("universe_count") == payload.get("universe_count")
         and _snapshot_json({"items": authoritative.get("items")})
         == _snapshot_json({"items": payload.get("universe_members")})
@@ -2848,27 +2852,39 @@ def _block_snapshot_entries(
     universe_policy = dict(result.get("universe_policy") or {})
     universe_policy["new_entries_allowed"] = False
     result["universe_policy"] = universe_policy
-    for collection_name in ("items", "preliminary_history"):
+    for collection_name in ("items", "public_member_signals"):
         for item in list(result.get(collection_name) or []):
             if not isinstance(item, dict):
                 continue
             current = item.get("current") if isinstance(item.get("current"), dict) else {}
-            if current.get("action") == "entry_pending":
-                current["action"] = "entry_watch"
-                current["label"] = "예비 포착"
-                current["next_confirmation"] = reason
-                lifecycle = (
-                    current.get("lifecycle")
-                    if isinstance(current.get("lifecycle"), dict)
-                    else {}
-                )
-                lifecycle["state"] = "entry_watch"
-                lifecycle["label"] = "예비 포착"
-                current["lifecycle"] = lifecycle
-                item["current"] = current
-                item["signal"] = "예비 포착"
-            if item.get("action") == "entry_pending":
-                item["action"] = "entry_watch"
+            lifecycle = (
+                current.get("lifecycle")
+                if isinstance(current.get("lifecycle"), dict)
+                else {}
+            )
+            lifecycle["state"] = "no_signal"
+            lifecycle["label"] = "관망"
+            current.update(
+                {
+                    "action": "no_signal",
+                    "label": "관망",
+                    "position_open": False,
+                    "model_exposure_percent": 0,
+                    "live_observation": False,
+                    "next_confirmation": reason,
+                    "lifecycle": lifecycle,
+                }
+            )
+            item.update(
+                {
+                    "action": "no_signal",
+                    "signal": "관망",
+                    "is_preliminary": False,
+                    "is_current_holding": False,
+                    "latest_preliminary": None,
+                    "current": current,
+                }
+            )
     shadow = (
         dict(result.get("shadow_comparison") or {})
         if isinstance(result.get("shadow_comparison"), dict)
@@ -2878,6 +2894,9 @@ def _block_snapshot_entries(
         shadow["candidate_entry_pending_count"] = 0
         shadow["displayed_entry_pending_count"] = 0
         result["shadow_comparison"] = shadow
+    result["confirmed_count"] = 0
+    result["preliminary_count"] = 0
+    result["total_preliminary_count"] = 0
     result["entry_pending_count"] = 0
     return result
 
@@ -3022,6 +3041,7 @@ def us_position_lifecycle_preparing_payload(
         "snapshot_id": None,
         "snapshot_checksum": None,
         "universe_as_of": None,
+        "ranking_as_of": None,
         "universe_count": 0,
         "universe_version": US_SIGNAL_UNIVERSE_VERSION,
         "sector_classification_version": US_SECTOR_ETF_CLASSIFICATION_VERSION,

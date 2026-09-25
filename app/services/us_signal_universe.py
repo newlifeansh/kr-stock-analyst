@@ -24,8 +24,8 @@ from app.models import MarketRankingSnapshot
 from app.services.ttl_cache import TTLCache
 
 
-US_SIGNAL_UNIVERSE_VERSION = "us-market-cap-top100-v2"
-US_SIGNAL_UNIVERSE_AUDIT_VERSION = "us-market-cap-source-audit-v1"
+US_SIGNAL_UNIVERSE_VERSION = "us-market-cap-top100-v3"
+US_SIGNAL_UNIVERSE_AUDIT_VERSION = "us-market-cap-source-audit-v2"
 US_SIGNAL_UNIVERSE_LIMIT = 100
 US_SIGNAL_UNIVERSE_CATEGORY = "us_signal_universe"
 NASDAQ_SCREENER_URL = "https://api.nasdaq.com/api/screener/stocks"
@@ -950,6 +950,30 @@ def _parse_snapshot_datetime(value: object) -> Optional[datetime]:
     return parsed.astimezone(timezone.utc)
 
 
+def _ranking_date_is_current_enough(
+    ranking_date: Optional[date],
+    universe_date: Optional[date],
+) -> bool:
+    """Accept Nasdaq's latest published ranking without inventing its date.
+
+    Nasdaq's screener can publish the completed session's classification and
+    market-cap ranking one XNYS session after Yahoo's completed-session quote
+    is available. The signal prices still have to match ``universe_date``;
+    only the issuer boundary may use the immediately preceding official
+    session. Anything older, mixed, or from a non-session remains blocked.
+    """
+
+    if ranking_date is None or universe_date is None:
+        return False
+    try:
+        from app.services.us_market_calendar import recent_us_market_session_dates
+
+        allowed = recent_us_market_session_dates(universe_date, 2)
+    except Exception:
+        return False
+    return ranking_date in allowed
+
+
 def _sha256_digest_is_valid(value: object) -> bool:
     return isinstance(value, str) and bool(re.fullmatch(r"[0-9a-f]{64}", value))
 
@@ -1102,7 +1126,7 @@ def _source_audit_is_valid(
         classification_date_state = exchange_audit["classification_date_state"]
         if classification_date_state == "reported_match":
             if _parse_snapshot_date(classification_as_of) != _parse_snapshot_date(
-                payload.get("universe_as_of")
+                payload.get("ranking_as_of")
             ):
                 return False
         elif classification_as_of is not None:
@@ -1252,7 +1276,11 @@ def _snapshot_payload_is_valid(
     if payload.get("universe_version") != US_SIGNAL_UNIVERSE_VERSION:
         return False
     universe_date = _parse_snapshot_date(payload.get("universe_as_of"))
-    if universe_date is None:
+    ranking_date = _parse_snapshot_date(payload.get("ranking_as_of"))
+    if universe_date is None or not _ranking_date_is_current_enough(
+        ranking_date,
+        universe_date,
+    ):
         return False
     if snapshot_id is not None and snapshot_id != (
         f"{US_SIGNAL_UNIVERSE_VERSION}:{universe_date.isoformat()}"
@@ -1339,7 +1367,7 @@ def _snapshot_payload_is_valid(
             or str(item.get("exchange") or "").upper() not in VALID_YAHOO_EXCHANGES
             or item.get("currency") != "USD"
             or not str(item.get("sector") or "").strip()
-            or _parse_snapshot_date(item.get("screen_as_of")) != universe_date
+            or _parse_snapshot_date(item.get("screen_as_of")) != ranking_date
             or _parse_snapshot_date(item.get("quote_date")) != universe_date
         ):
             return False
@@ -1538,7 +1566,7 @@ def build_us_signal_universe(
             len(members) != US_SIGNAL_UNIVERSE_LIMIT
             or target_date is None
             or screen_date is None
-            or screen_date != target_date
+            or not _ranking_date_is_current_enough(screen_date, target_date)
             or target_date != completed_date
         ):
             raise ValueError(
@@ -1561,6 +1589,7 @@ def build_us_signal_universe(
             "data_state": "ready",
             "universe_version": US_SIGNAL_UNIVERSE_VERSION,
             "universe_as_of": target_date,
+            "ranking_as_of": screen_date,
             "universe_count": len(ranked),
             "source_candidate_count": len(candidates),
             "validated_quote_count": len(quotes),
@@ -1575,7 +1604,7 @@ def build_us_signal_universe(
                 universe_as_of=target_date,
             ),
             "generated_at": generated_at,
-            "source": "Nasdaq NYSE/Nasdaq market-cap ranking + Yahoo Finance quote validation + SEC CIK",
+            "source": "Latest published Nasdaq NYSE/Nasdaq market-cap ranking + completed-session Yahoo Finance quote validation + SEC CIK",
             "new_entries_allowed": True,
             "items": ranked,
         }
