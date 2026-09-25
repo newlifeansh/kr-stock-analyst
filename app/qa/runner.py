@@ -192,6 +192,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_ai_signal_back_returns_home_without_relying_on_browser_history",
         "tests.test_market_index_live_endpoint."
         "test_us_entry_uses_the_us_only_shell_and_global_market_snapshot",
+        "tests.test_staging_dark_theme."
+        "test_us_fold_layout_expands_content_and_keeps_compact_navigation",
     ),
     "SIG-US-QUOTE-001": (
         "tests.test_initial_live_hydration."

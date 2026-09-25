@@ -961,6 +961,73 @@ def _run_us_e2e_checks(
                         signal_back,
                     )
 
+                page.set_viewport_size({"width": 843, "height": 872})
+                page.wait_for_timeout(300)
+                fold_layout = page.evaluate(
+                    """() => {
+                      const rect = selector => {
+                        const node = document.querySelector(selector);
+                        if (!node) return null;
+                        const value = node.getBoundingClientRect();
+                        return {
+                          left: Math.round(value.left * 10) / 10,
+                          right: Math.round(value.right * 10) / 10,
+                          width: Math.round(value.width * 10) / 10,
+                          height: Math.round(value.height * 10) / 10,
+                        };
+                      };
+                      return {
+                        viewport: innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                        bodyWidth: document.body.scrollWidth,
+                        shell: rect('.shell[data-ui-version="3.0"]'),
+                        home: rect('#home-view'),
+                        marketContext: rect('.staging-market-context'),
+                        topActions: rect('.staging-top-actions'),
+                        bottomNav: rect('#bottom-nav'),
+                        navTargets: [...document.querySelectorAll(
+                          '#bottom-nav [data-app-view]'
+                        )].map(node => {
+                          const value = node.getBoundingClientRect();
+                          return {
+                            width: Math.round(value.width * 10) / 10,
+                            height: Math.round(value.height * 10) / 10,
+                          };
+                        }),
+                      };
+                    }"""
+                )
+                fold_shell = fold_layout.get("shell") or {}
+                fold_home = fold_layout.get("home") or {}
+                fold_market = fold_layout.get("marketContext") or {}
+                fold_actions = fold_layout.get("topActions") or {}
+                fold_nav = fold_layout.get("bottomNav") or {}
+                shell_width = float(fold_shell.get("width") or 0)
+                shell_left = float(fold_shell.get("left") or 0)
+                if (
+                    fold_layout.get("viewport") != 843
+                    or fold_layout.get("rootWidth", 0) > 845
+                    or fold_layout.get("bodyWidth", 0) > 845
+                    or not 758 <= shell_width <= 762
+                    or abs(float(fold_home.get("width") or 0) - shell_width) > 2
+                    or abs(float(fold_market.get("left") or 0) - (shell_left + 24)) > 2
+                    or abs((843 - float(fold_actions.get("right") or 0)) - (shell_left + 6)) > 2
+                    or not 449 <= float(fold_nav.get("width") or 0) <= 453
+                    or abs(
+                        (float(fold_nav.get("left") or 0) + float(fold_nav.get("right") or 0))
+                        - 843
+                    )
+                    > 2
+                    or any(
+                        target.get("width", 0) < 44 or target.get("height", 0) < 44
+                        for target in fold_layout.get("navTargets") or []
+                    )
+                ):
+                    raise QaFailure(
+                        "843px 폴드 화면의 유동 본문·정렬·컴팩트 내비게이션 계약이 깨졌습니다.",
+                        fold_layout,
+                    )
+
                 page.set_viewport_size({"width": 320, "height": 760})
                 page.evaluate("document.documentElement.style.fontSize = '200%'")
                 page.wait_for_timeout(300)
@@ -1137,6 +1204,7 @@ def _run_us_e2e_checks(
                     "signal_back": signal_back,
                     "signal_labels": signal_labels,
                     "signal_quote_state": signal_quote_state,
+                    "fold_layout": fold_layout,
                     "reflow": reflow,
                     "search": search_state,
                     "stock": stock_state,

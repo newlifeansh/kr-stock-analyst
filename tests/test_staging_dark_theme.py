@@ -491,6 +491,24 @@ def test_staging_tds_layer_is_adaptive_and_preserves_reference_tokens():
     assert response.headers["x-staging-theme"] == THEME_VERSION
 
 
+def test_us_fold_layout_expands_content_and_keeps_compact_navigation():
+    client = TestClient(staging_app)
+    css = client.get("/assets/staging/toss-fidelity.css").text
+
+    rules = css.split(
+        "/* v171 — let the US product use a fold-sized canvas without losing phone ergonomics. */",
+        1,
+    )[1]
+    assert "@media (min-width: 600px) and (max-width: 1023px)" in rules
+    assert 'html[data-market-universe="us"] body[data-staging-ia="tds-video"]' in rules
+    assert "--tds-mobile-canvas: min(calc(100vw - 48px), 760px)" in rules
+    assert "--tds-space-gutter: 24px" in rules
+    assert "calc((100vw - var(--tc-content)) / 2 + var(--tc-gutter))" in rules
+    assert "calc((100vw - var(--tc-content)) / 2 + 6px)" in rules
+    assert "@media (min-width: 472px)" in css
+    assert "width: 451px !important" in css
+
+
 def test_staging_theme_runtime_follows_system_and_supports_review_override():
     client = TestClient(staging_app)
     response = client.get("/assets/staging/adaptive-theme.js")

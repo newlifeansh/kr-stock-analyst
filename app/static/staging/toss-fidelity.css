@@ -20950,3 +20950,24 @@ body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-publi
 body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-public-evidence-row > p {
   color: var(--tc-text) !important;
 }
+
+/* v171 — let the US product use a fold-sized canvas without losing phone ergonomics. */
+@media (min-width: 600px) and (max-width: 1023px) {
+  html[data-market-universe="us"] body[data-staging-ia="tds-video"] {
+    --tds-mobile-canvas: min(calc(100vw - 48px), 760px);
+    --tds-space-gutter: 24px;
+  }
+
+  html[data-market-universe="us"]
+    body[data-staging-ia="tds-video"]
+    .staging-market-context {
+    right: max(146px, calc((100vw - var(--tc-content)) / 2 + 146px)) !important;
+    left: max(var(--tc-gutter), calc((100vw - var(--tc-content)) / 2 + var(--tc-gutter))) !important;
+  }
+
+  html[data-market-universe="us"]
+    body[data-staging-ia="tds-video"]
+    .staging-top-actions {
+    right: max(6px, calc((100vw - var(--tc-content)) / 2 + 6px)) !important;
+  }
+}
