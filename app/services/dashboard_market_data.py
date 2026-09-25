@@ -8,6 +8,11 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from app.services.economic_calendar import (
+    BLS_MARKET_RELEASE_TITLES,
+    BLS_RELEASE_CALENDAR_URL,
+    bls_market_releases_between,
+)
 from app.services.trends import scheduled_calendar_events_between
 
 
@@ -72,6 +77,50 @@ async def build_korea_market_calendar(
         "window_end": window_end.isoformat(),
         "events": upcoming,
         "past_events": past,
+    }
+
+
+async def build_us_market_calendar(
+    *,
+    days: int = 16,
+    now: Optional[datetime] = None,
+) -> dict[str, object]:
+    if not 1 <= int(days) <= 31:
+        raise ValueError("days must be between 1 and 31")
+    current = now or datetime.now(KST)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=KST)
+    current = current.astimezone(KST)
+    window_start = current - timedelta(days=2)
+    window_end = current + timedelta(days=int(days))
+    try:
+        releases = await asyncio.to_thread(
+            bls_market_releases_between,
+            window_start.replace(tzinfo=None),
+            window_end.replace(tzinfo=None),
+        )
+    except Exception as exc:
+        raise DashboardMarketDataError("US market calendar source failed") from exc
+    titles = {key: title for key, title in BLS_MARKET_RELEASE_TITLES.values()}
+    rows = [
+        {
+            "id": f"{key}-{starts_at:%Y%m%d%H%M}",
+            "starts_at": starts_at.replace(tzinfo=KST).isoformat(),
+            "title": titles[key],
+            "category": "미국",
+            "source_name": "U.S. Bureau of Labor Statistics",
+            "source_url": BLS_RELEASE_CALENDAR_URL,
+            "expected_impact": "미국 금리와 주식시장에 영향을 줄 수 있는 주요 경제지표 발표",
+            "timeline": [],
+        }
+        for key, starts_at in releases
+    ]
+    return {
+        "as_of": current.isoformat(),
+        "window_start": window_start.isoformat(),
+        "window_end": window_end.isoformat(),
+        "events": [row for row in rows if datetime.fromisoformat(row["starts_at"]) >= current],
+        "past_events": [row for row in reversed(rows) if datetime.fromisoformat(row["starts_at"]) < current],
     }
 
 
