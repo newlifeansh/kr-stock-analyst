@@ -131,6 +131,7 @@ from app.services.community_feed import (
 from app.services.dashboard_market_data import (
     DashboardMarketDataError,
     build_korea_market_calendar,
+    build_us_market_calendar,
     fetch_stock_week_chart,
 )
 from app.services.etf_profiles import (
@@ -291,7 +292,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260926us119"
+US_DASHBOARD_CLIENT_VERSION = "20260926us120"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -4827,6 +4828,21 @@ def us_market_trends(
         api_cache.set(key, payload, TREND_ANALYSIS_TTL_SECONDS)
         return payload
     return api_cache.get_or_set(key, TREND_ANALYSIS_TTL_SECONDS, lambda: build_us_trends(days=days))
+
+
+@app.get("/us/market/calendar")
+async def us_market_calendar(days: int = Query(16, ge=1, le=31)):
+    try:
+        payload = await build_us_market_calendar(days=days)
+    except DashboardMarketDataError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="미국 주요 일정을 불러오지 못했습니다.",
+        ) from exc
+    return JSONResponse(
+        payload,
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @app.get("/us/market/trends/{event_id}/graph")

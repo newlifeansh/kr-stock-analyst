@@ -5674,7 +5674,7 @@
     calendarPanel.innerHTML = `
       <header class="staging-calendar-head">
         <h2 data-staging-calendar-month>캘린더</h2>
-        <span>${svg(icons.clock)} 현지 기준</span>
+        <span>${svg(icons.clock)} ${stagingUsMarketContext ? "한국시간 기준" : "현지 기준"}</span>
       </header>
       <div class="staging-calendar-list" data-staging-calendar-list aria-live="polite">
         <p class="staging-feed-loading">주요 일정을 불러오고 있어요.</p>
@@ -5695,6 +5695,7 @@
     let calendarSignature = "";
     let stagingCalendarPayload = null;
     let stagingKoreaCalendarPayload = null;
+    let stagingUsCalendarFailed = false;
 
     const dateKey = (value) => {
       const parsed = value instanceof Date ? value : new Date(value || "");
@@ -5913,6 +5914,10 @@
       const payload = calendarPayload() || {};
       const koreaPayload = stagingKoreaCalendarPayload || {};
       if (!calendarList) return;
+      if (stagingUsMarketContext && stagingUsCalendarFailed) {
+        calendarList.innerHTML = '<p class="staging-feed-loading">미국 주요 일정을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>';
+        return;
+      }
       const events = [
         ...(Array.isArray(payload.past_events) ? payload.past_events : []),
         ...(Array.isArray(payload.events) ? payload.events : []),
@@ -6009,26 +6014,30 @@
               editorialEditions = [];
             }
           }
-          try {
-            const signalPath = stagingUsMarketContext
-              ? "/us/market/quant-signals?limit=20&recent_days=30"
-              : "/market/quant-signals?universe_limit=150&limit=0&recent_days=30";
-            const signalPayload = await fetchJsonCached(signalPath, { ttlMs: 120_000, timeoutMs: 25_000 });
-            stagingEditorialSignalPayload = signalPayload && typeof signalPayload === "object"
-              ? signalPayload
-              : null;
-          } catch {
-            stagingEditorialSignalPayload = null;
-          }
-          try {
-            const trendsPath = stagingUsMarketContext ? "/us/market/trends?days=14" : "/market/trends?days=14";
-            stagingCalendarPayload = await fetchJsonCached(trendsPath, { ttlMs: 120_000, timeoutMs: 20_000 });
-          } catch {
-            stagingCalendarPayload = null;
-          }
           if (stagingUsMarketContext) {
+            stagingEditorialSignalPayload = null;
             stagingKoreaCalendarPayload = null;
+            try {
+              stagingCalendarPayload = await fetchJsonCached("/us/market/calendar?days=16", { ttlMs: 300_000, timeoutMs: 12_000 });
+              stagingUsCalendarFailed = false;
+            } catch {
+              stagingCalendarPayload = null;
+              stagingUsCalendarFailed = true;
+            }
           } else {
+            try {
+              const signalPayload = await fetchJsonCached("/market/quant-signals?universe_limit=150&limit=0&recent_days=30", { ttlMs: 120_000, timeoutMs: 25_000 });
+              stagingEditorialSignalPayload = signalPayload && typeof signalPayload === "object"
+                ? signalPayload
+                : null;
+            } catch {
+              stagingEditorialSignalPayload = null;
+            }
+            try {
+              stagingCalendarPayload = await fetchJsonCached("/market/trends?days=14", { ttlMs: 120_000, timeoutMs: 20_000 });
+            } catch {
+              stagingCalendarPayload = null;
+            }
             try {
               stagingKoreaCalendarPayload = await fetchJsonCached("/market/calendar?days=14", { ttlMs: 300_000, timeoutMs: 12_000 });
             } catch {

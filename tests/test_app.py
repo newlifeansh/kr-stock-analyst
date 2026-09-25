@@ -238,8 +238,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="home-view" class="app-page app-home"' in response.text
     assert 'id="search-view" class="app-page app-search"' in response.text
     assert 'id="bottom-nav" aria-label="주요 메뉴"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260926us119"' in response.text
-    assert 'href="/assets/dashboard/styles.css?v=20260926us119&amp;build=20260926us119"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260926us120"' in response.text
+    assert 'href="/assets/dashboard/styles.css?v=20260926us120&amp;build=20260926us120"' in response.text
     assert 'setCopy("home-market-signal-title", "미국 시그널 감시 후보")' in source
     assert 'setCopy("home-ai-signals-title", "시그널 감시 후보")' in source
     assert 'signalPageTitle.textContent = "시그널 감시 후보"' in source
@@ -258,7 +258,7 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
-        .replace("20260926us119", "20260925v554")
+        .replace("20260926us120", "20260925v554")
     )
     assert normalized_us == dashboard.text
 
@@ -450,8 +450,8 @@ def test_us_surface_keeps_shared_staging_shell_and_market_scope_routes():
     assert 'signalChevron.href = stagingUsHubContext' in source
     assert '? `${stagingRootPath}?view=ai-signals&market_scope=${stagingMarketScope}`' in source
     assert 'if (homeResponse && !stagingUsMarketContext)' in source
-    assert '"/us/market/quant-signals?limit=20&recent_days=30"' in source
-    assert '"/us/market/trends?days=14"' in source
+    assert 'fetchJsonCached("/us/market/calendar?days=16"' in source
+    assert 'stagingEditorialSignalPayload = null;' in source
     assert '`/us/market/rankings?category=${hotCommunityState.mode}${modeQuery}&market=NASDAQ&limit=15`' in source
     assert '`/us/stocks/${encodeURIComponent(normalizedCode)}/community-feed?limit=5`' in source
     assert '"secret-note-staging-recent-stocks-us-v1"' in source
@@ -1503,8 +1503,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260926us119"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260926us119&amp;build=20260926us119"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260926us120"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260926us120&amp;build=20260926us120"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1794,7 +1794,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260926us119"}
+    assert version.json() == {"version": "20260926us120"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1803,9 +1803,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260926us119" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260926us120" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20260926us119")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20260926us120")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1819,12 +1819,12 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20260926us119"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20260926us120"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20260926us119' in worker.text
-    assert '"/dashboard-app-v170.js?v=20260926us119"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20260926us120' in worker.text
+    assert '"/dashboard-app-v170.js?v=20260926us120"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
@@ -3255,8 +3255,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20260926us119"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260926us119&amp;build=20260926us119"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260926us120"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260926us120&amp;build=20260926us120"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()

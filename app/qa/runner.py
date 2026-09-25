@@ -112,6 +112,14 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_and_dashboard_paths_serve_independently_versioned_products",
         "tests.test_staging_dark_theme."
         "test_staging_theme_has_touch_and_spacing_contract_for_tds_ia",
+        "tests.test_economic_calendar."
+        "test_parse_bls_market_calendar_keeps_official_major_releases_only",
+        "tests.test_dashboard_market_data."
+        "test_us_market_calendar_uses_official_bls_dates_and_korean_time",
+        "tests.test_dashboard_market_data."
+        "test_public_us_market_calendar_contract_and_upstream_failure",
+        "tests.test_staging_dark_theme."
+        "test_staging_v50_builds_inline_feed_content_calendar_and_editorial_detail",
     ),
     "DATA-US-NEWS-TABS-001": (
         "tests.test_us_market."
@@ -4074,6 +4082,22 @@ def _live_us_checks(
                 invalid=invalid[:10],
                 **payload_meta,
             )
+            calendar, calendar_meta = api.get("/us/market/calendar", days=31)
+            _assert(isinstance(calendar, dict), "미국 일정 응답이 객체가 아닙니다.")
+            scheduled = (calendar.get("events") or []) + (calendar.get("past_events") or [])
+            _assert(
+                bool(scheduled)
+                and all(
+                    isinstance(item, dict)
+                    and str(item.get("id") or "").startswith(("us-employment-", "us-cpi-", "us-ppi-"))
+                    and str(item.get("starts_at") or "").endswith("+09:00")
+                    and item.get("source_url") == "https://www.bls.gov/schedule/news_release/bls.ics"
+                    for item in scheduled
+                ),
+                "미국 공식 경제일정·한국시간 계약이 깨졌습니다.",
+                event_count=len(scheduled),
+                **calendar_meta,
+            )
             source, source_meta = api.get_text("/dashboard-app-v170.js")
             ia, ia_meta = api.get_text("/assets/staging/toss-ia.js")
             css, css_meta = api.get_text("/assets/staging/toss-fidelity.css")
@@ -4082,6 +4106,7 @@ def _live_us_checks(
                 and "한국시간" in source
                 and 'feedModes.dataset.feedColumns = stagingUsMarketContext ? "2" : "3"'
                 in ia
+                and 'fetchJsonCached("/us/market/calendar?days=16"' in ia
                 and '.staging-feed-modes[data-feed-columns="2"]' in css
                 and "grid-template-columns: repeat(2, minmax(0, 1fr)) !important"
                 in css
@@ -4094,6 +4119,8 @@ def _live_us_checks(
             )
             return {
                 "feed": payload_meta,
+                "calendar": calendar_meta,
+                "calendar_count": len(scheduled),
                 "article_count": len(timeline),
                 "oldest_allowed": cutoff.isoformat(),
                 "forbidden_source_count": 0,
