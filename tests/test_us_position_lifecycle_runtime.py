@@ -20,6 +20,7 @@ def _universe_audit_metadata(
     members: list[dict[str, object]],
 ) -> dict[str, object]:
     digest = universe._canonical_digest
+    universe_as_of = members[0]["screen_as_of"]
     source_audit = {
         "version": universe.US_SIGNAL_UNIVERSE_AUDIT_VERSION,
         "trust_model": "trusted_database_integrity_checksum_not_external_signature",
@@ -42,6 +43,16 @@ def _universe_audit_metadata(
             ],
             "prefilter_candidate_count": 101,
             "prefilter_candidate_digest": digest(["candidates", 101]),
+        },
+        "alignment": {
+            "mode": "same_session_nasdaq",
+            "screen_as_of": universe_as_of,
+            "quote_as_of": universe_as_of,
+            "completed_session": universe_as_of,
+            "adjusted_candidate_count": 0,
+            "evidence_digest": digest(
+                ["same_session_nasdaq", universe_as_of]
+            ),
         },
         "quotes": {
             "requested_count": 101,
@@ -82,7 +93,6 @@ def _universe_audit_metadata(
         },
     }
     member_checksum = universe._snapshot_checksum(members)
-    universe_as_of = members[0]["screen_as_of"]
     return {
         "source_audit": source_audit,
         "boundary_evidence": boundary_evidence,

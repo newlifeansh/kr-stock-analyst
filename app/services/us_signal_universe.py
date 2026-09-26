@@ -24,8 +24,8 @@ from app.models import MarketRankingSnapshot
 from app.services.ttl_cache import TTLCache
 
 
-US_SIGNAL_UNIVERSE_VERSION = "us-market-cap-top100-v2"
-US_SIGNAL_UNIVERSE_AUDIT_VERSION = "us-market-cap-source-audit-v1"
+US_SIGNAL_UNIVERSE_VERSION = "us-market-cap-top100-v3"
+US_SIGNAL_UNIVERSE_AUDIT_VERSION = "us-market-cap-source-audit-v2"
 US_SIGNAL_UNIVERSE_LIMIT = 100
 US_SIGNAL_UNIVERSE_CATEGORY = "us_signal_universe"
 NASDAQ_SCREENER_URL = "https://api.nasdaq.com/api/screener/stocks"
@@ -47,6 +47,7 @@ EXCLUDED_NAME_PATTERNS = tuple(
         r"\bunits?\b",
         r"\brights?\b",
         r"\bnotes? due\b",
+        r"\bsubordinated notes?\b",
         r"\bdebentures?\b",
         r"\bbonds?\b",
         r"\bzones\b",
@@ -410,6 +411,7 @@ def _normalized_candidate_row(item: dict[str, Any]) -> dict[str, Any]:
         "name": _normalized_text(item.get("name")),
         "screen_exchange": str(item.get("screen_exchange") or "").upper(),
         "screen_market_cap": _decimal_text(item.get("screen_market_cap")),
+        "screen_last_price": _decimal_text(item.get("screen_last_price")),
         "screen_as_of": (
             screen_as_of.isoformat()
             if isinstance(screen_as_of, date)
@@ -472,6 +474,123 @@ def _screen_source_audit(
     }
 
 
+def _align_candidates_to_completed_session(
+    candidates: list[dict[str, Any]],
+    quotes: dict[str, dict[str, Any]],
+    completed_date: date,
+) -> tuple[list[dict[str, Any]], dict[str, Any], str]:
+    """Return a completed-session ranking input and its audit evidence.
+
+    Nasdaq is authoritative when its screen is current. If it is exactly one
+    XNYS session behind, Yahoo may bridge only when every prefiltered candidate
+    has a fully validated latest-session equity quote and market cap. A wider
+    lag, a partial quote set, or an invalid identity fails closed.
+    """
+
+    from app.services.us_market_calendar import recent_us_market_session_dates
+
+    screen_dates = {
+        value
+        for value in (
+            _parse_snapshot_date(item.get("screen_as_of")) for item in candidates
+        )
+        if value is not None
+    }
+    if len(screen_dates) != 1 or len(candidates) < US_SIGNAL_UNIVERSE_LIMIT + 1:
+        raise ValueError("US screener dates are missing or misaligned")
+    screen_date = next(iter(screen_dates))
+    if screen_date == completed_date:
+        alignment = {
+            "mode": "same_session_nasdaq",
+            "screen_as_of": screen_date.isoformat(),
+            "quote_as_of": completed_date.isoformat(),
+            "completed_session": completed_date.isoformat(),
+            "adjusted_candidate_count": 0,
+            "evidence_digest": _canonical_digest(
+                {
+                    "mode": "same_session_nasdaq",
+                    "screen_as_of": screen_date,
+                    "completed_session": completed_date,
+                    "candidate_count": len(candidates),
+                }
+            ),
+        }
+        return list(candidates), alignment, "nasdaq_screener_market_cap"
+
+    recent_sessions = recent_us_market_session_dates(completed_date, 2)
+    if len(recent_sessions) != 2 or screen_date != recent_sessions[0]:
+        raise ValueError(
+            "US screener is more than one completed XNYS session behind"
+        )
+    if len(quotes) != len(candidates):
+        raise ValueError(
+            "US latest-session market-cap bridge requires every candidate quote"
+        )
+
+    aligned: list[dict[str, Any]] = []
+    evidence: list[dict[str, Any]] = []
+    for candidate in candidates:
+        code = str(candidate["code"])
+        quote = dict(quotes.get(code) or {})
+        market_cap = _decimal(quote.get("marketCap"))
+        price = _decimal(quote.get("regularMarketPrice"))
+        quote_date = _quote_date(quote.get("regularMarketTime"))
+        quote_type = str(quote.get("quoteType") or "").upper()
+        exchange = str(quote.get("exchange") or "").upper()
+        currency = str(quote.get("currency") or "").upper()
+        quote_symbol = _ticker(quote.get("symbol"))
+        if (
+            market_cap is None
+            or market_cap <= 0
+            or price is None
+            or price <= 0
+            or quote_date != completed_date
+            or quote_type != "EQUITY"
+            or exchange not in VALID_YAHOO_EXCHANGES
+            or currency != "USD"
+            or quote_symbol.replace("-", ".") != code.replace("-", ".")
+        ):
+            raise ValueError(
+                f"US latest-session market-cap bridge quote is invalid for {code}"
+            )
+        aligned.append(
+            {
+                **candidate,
+                "source_screen_as_of": screen_date,
+                "source_screen_market_cap": candidate.get("screen_market_cap"),
+                "screen_market_cap": market_cap,
+                "screen_as_of": completed_date,
+            }
+        )
+        evidence.append(
+            {
+                "code": code,
+                "screen_as_of": screen_date,
+                "source_screen_market_cap": _decimal_text(
+                    candidate.get("screen_market_cap")
+                ),
+                "quote_as_of": quote_date,
+                "quote_market_cap": _decimal_text(market_cap),
+            }
+        )
+
+    alignment = {
+        "mode": "prior_session_yahoo_market_cap_bridge",
+        "screen_as_of": screen_date.isoformat(),
+        "quote_as_of": completed_date.isoformat(),
+        "completed_session": completed_date.isoformat(),
+        "adjusted_candidate_count": len(aligned),
+        "evidence_digest": _canonical_digest(
+            sorted(evidence, key=lambda item: str(item["code"]))
+        ),
+    }
+    return (
+        aligned,
+        alignment,
+        "yahoo_market_cap_validated_against_prior_nasdaq_candidate_pool",
+    )
+
+
 def _screen_candidates(
     *,
     refresh: bool = False,
@@ -502,6 +621,7 @@ def _screen_candidates(
                     "name": str(raw.get("name") or raw.get("symbol") or "").strip(),
                     "screen_exchange": exchange.upper(),
                     "screen_market_cap": _decimal(raw.get("marketCap")),
+                    "screen_last_price": _decimal(raw.get("lastsale")),
                     "screen_as_of": raw.get("_screen_as_of"),
                     "sector": str(raw.get("sector") or "").strip() or "기타",
                     "industry": str(raw.get("industry") or "").strip() or None,
@@ -567,13 +687,16 @@ def _screen_issuer_boundary(
     candidates: list[dict[str, Any]],
     cik_by_code: dict[str, str],
     *,
+    ranking_authority: str = "nasdaq_screener_market_cap",
     evidence_out: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
-    """Freeze the top 100 issuers using Nasdaq screen market cap only.
+    """Freeze the top 100 issuers using the audited candidate market cap.
 
-    Yahoo validates security type, price, market cap presence, and quote date;
-    it does not reorder the Nasdaq ranking.  SEC CIK must be complete through
-    the 100/101 boundary, including every market-cap tie at that boundary.
+    The normal path uses the same-session Nasdaq market cap. When Nasdaq is
+    exactly one completed XNYS session behind, the caller may supply an
+    all-candidate Yahoo market-cap bridge for the latest completed session.
+    SEC CIK must be complete through the 100/101 boundary, including every
+    market-cap tie at that boundary.
     """
 
     ordered = sorted(
@@ -672,7 +795,7 @@ def _screen_issuer_boundary(
         tie_keys = sorted(str(item["issuer_key"]) for item in tie_issuers)
         evidence_out.update(
             {
-                "ranking_authority": "nasdaq_screener_market_cap",
+                "ranking_authority": ranking_authority,
                 "issuer_identity": "sec_cik",
                 "proven_issuer_count": len(ranked_issuers),
                 "rank_100": boundary_record(rank_100, US_SIGNAL_UNIVERSE_LIMIT),
@@ -702,6 +825,7 @@ def _validated_members(
     quotes: dict[str, dict[str, Any]],
     cik_by_code: dict[str, str],
     *,
+    ranking_authority: str = "nasdaq_screener_market_cap",
     boundary_evidence_out: Optional[dict[str, Any]] = None,
 ) -> tuple[list[dict[str, Any]], Optional[date]]:
     # Freeze the authoritative issuer boundary before consulting Yahoo. A
@@ -709,6 +833,7 @@ def _validated_members(
     eligible_issuers = _screen_issuer_boundary(
         candidates,
         cik_by_code,
+        ranking_authority=ranking_authority,
         evidence_out=boundary_evidence_out,
     )
 
@@ -1019,7 +1144,14 @@ def _source_audit_is_valid(
     if (
         not isinstance(source_audit, dict)
         or set(source_audit)
-        != {"version", "trust_model", "screen", "quotes", "sec_identities"}
+        != {
+            "version",
+            "trust_model",
+            "screen",
+            "alignment",
+            "quotes",
+            "sec_identities",
+        }
         or source_audit.get("version") != US_SIGNAL_UNIVERSE_AUDIT_VERSION
         or source_audit.get("trust_model")
         != "trusted_database_integrity_checksum_not_external_signature"
@@ -1033,7 +1165,6 @@ def _source_audit_is_valid(
             "rank_101",
             "tie",
         }
-        or boundary.get("ranking_authority") != "nasdaq_screener_market_cap"
         or boundary.get("issuer_identity") != "sec_cik"
         or not _sha256_digest_is_valid(audit_checksum)
         or not hmac.compare_digest(
@@ -1047,6 +1178,54 @@ def _source_audit_is_valid(
             ),
         )
     ):
+        return False
+
+    alignment = source_audit.get("alignment")
+    universe_date = _parse_snapshot_date(payload.get("universe_as_of"))
+    if (
+        not isinstance(alignment, dict)
+        or set(alignment)
+        != {
+            "mode",
+            "screen_as_of",
+            "quote_as_of",
+            "completed_session",
+            "adjusted_candidate_count",
+            "evidence_digest",
+        }
+        or universe_date is None
+        or _parse_snapshot_date(alignment.get("quote_as_of")) != universe_date
+        or _parse_snapshot_date(alignment.get("completed_session")) != universe_date
+        or not _sha256_digest_is_valid(alignment.get("evidence_digest"))
+    ):
+        return False
+    alignment_mode = alignment.get("mode")
+    screen_as_of = _parse_snapshot_date(alignment.get("screen_as_of"))
+    ranking_authority = boundary.get("ranking_authority")
+    if alignment_mode == "same_session_nasdaq":
+        if (
+            screen_as_of != universe_date
+            or alignment.get("adjusted_candidate_count") != 0
+            or ranking_authority != "nasdaq_screener_market_cap"
+        ):
+            return False
+    elif alignment_mode == "prior_session_yahoo_market_cap_bridge":
+        try:
+            from app.services.us_market_calendar import recent_us_market_session_dates
+
+            sessions = recent_us_market_session_dates(universe_date, 2)
+        except Exception:
+            return False
+        if (
+            len(sessions) != 2
+            or screen_as_of != sessions[0]
+            or alignment.get("adjusted_candidate_count") != source_candidate_count
+            or ranking_authority
+            != "yahoo_market_cap_validated_against_prior_nasdaq_candidate_pool"
+            or validated_quote_count != source_candidate_count
+        ):
+            return False
+    else:
         return False
 
     screen = source_audit.get("screen")
@@ -1102,7 +1281,7 @@ def _source_audit_is_valid(
         classification_date_state = exchange_audit["classification_date_state"]
         if classification_date_state == "reported_match":
             if _parse_snapshot_date(classification_as_of) != _parse_snapshot_date(
-                payload.get("universe_as_of")
+                alignment.get("screen_as_of")
             ):
                 return False
         elif classification_as_of is not None:
@@ -1516,6 +1695,13 @@ def build_us_signal_universe(
             [str(item["code"]) for item in candidates],
             refresh=True,
         )
+        candidates, source_alignment, ranking_authority = (
+            _align_candidates_to_completed_session(
+                candidates,
+                quotes,
+                completed_date,
+            )
+        )
         cik_by_code = us_market._sec_ticker_map()
         if not cik_by_code:
             raise ValueError("SEC CIK issuer map is empty")
@@ -1524,21 +1710,12 @@ def build_us_signal_universe(
             candidates,
             quotes,
             cik_by_code,
+            ranking_authority=ranking_authority,
             boundary_evidence_out=boundary_evidence,
         )
-        screen_dates = {
-            value
-            for value in (
-                _parse_snapshot_date(item.get("screen_as_of")) for item in candidates
-            )
-            if value is not None
-        }
-        screen_date = next(iter(screen_dates)) if len(screen_dates) == 1 else None
         if (
             len(members) != US_SIGNAL_UNIVERSE_LIMIT
             or target_date is None
-            or screen_date is None
-            or screen_date != target_date
             or target_date != completed_date
         ):
             raise ValueError(
@@ -1552,6 +1729,7 @@ def build_us_signal_universe(
             "version": US_SIGNAL_UNIVERSE_AUDIT_VERSION,
             "trust_model": "trusted_database_integrity_checksum_not_external_signature",
             "screen": screen_audit,
+            "alignment": source_alignment,
             "quotes": _quote_source_audit(candidates, quotes),
             "sec_identities": _sec_identity_source_audit(candidates, cik_by_code),
         }
@@ -1575,7 +1753,7 @@ def build_us_signal_universe(
                 universe_as_of=target_date,
             ),
             "generated_at": generated_at,
-            "source": "Nasdaq NYSE/Nasdaq market-cap ranking + Yahoo Finance quote validation + SEC CIK",
+            "source": "Nasdaq NYSE/Nasdaq market-cap ranking with audited latest-session Yahoo bridge + SEC CIK",
             "new_entries_allowed": True,
             "items": ranked,
         }

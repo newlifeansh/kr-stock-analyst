@@ -115,6 +115,19 @@ def _valid_audit_metadata(
                 {"candidate_count": source_candidate_count}
             ),
         },
+        "alignment": {
+            "mode": "same_session_nasdaq",
+            "screen_as_of": universe_as_of,
+            "quote_as_of": universe_as_of,
+            "completed_session": universe_as_of,
+            "adjusted_candidate_count": 0,
+            "evidence_digest": digest(
+                {
+                    "mode": "same_session_nasdaq",
+                    "universe_as_of": universe_as_of,
+                }
+            ),
+        },
         "quotes": {
             "requested_count": source_candidate_count,
             "returned_count": validated_quote_count,
@@ -372,6 +385,7 @@ def test_us_signal_universe_security_name_filter_rejects_non_common_equity():
         "Example Acquisition Corp Unit",
         "Example Warrants",
         "Example Notes due 2030",
+        "Example 4.50% Perpetual Subordinated Notes",
         "Example ETF",
     ):
         assert (
@@ -1024,6 +1038,86 @@ def test_screener_as_of_must_match_quotes_and_completed_session(monkeypatch, fai
 
     assert payload["status"] == "unavailable"
     assert payload["new_entries_allowed"] is False
+
+
+def test_prior_completed_session_screener_uses_complete_yahoo_market_cap_bridge(
+    monkeypatch,
+):
+    candidates = _candidates(101)
+    for item in candidates:
+        # 2026-09-04 is the immediately preceding XNYS session before Sep 8.
+        item["screen_as_of"] = "2026-09-04"
+    quotes = {
+        str(item["code"]): _quote(
+            str(item["code"]),
+            2_000_000_000 - index,
+        )
+        for index, item in enumerate(candidates)
+    }
+    # Prove that the bridge, rather than the prior-session Nasdaq order, owns
+    # the completed-session boundary.
+    quotes["A100"]["marketCap"] = 3_000_000_000
+    monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_batch",
+        lambda symbols, **_kwargs: quotes,
+    )
+    monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
+
+    payload = universe.build_us_signal_universe(
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["universe_as_of"].isoformat() == "2026-09-08"
+    assert payload["items"][0]["code"] == "A100"
+    assert payload["items"][0]["market_cap"] == Decimal("3000000000")
+    assert payload["source_audit"]["alignment"] == {
+        "mode": "prior_session_yahoo_market_cap_bridge",
+        "screen_as_of": "2026-09-04",
+        "quote_as_of": "2026-09-08",
+        "completed_session": "2026-09-08",
+        "adjusted_candidate_count": 101,
+        "evidence_digest": payload["source_audit"]["alignment"][
+            "evidence_digest"
+        ],
+    }
+    assert (
+        payload["boundary_evidence"]["ranking_authority"]
+        == "yahoo_market_cap_validated_against_prior_nasdaq_candidate_pool"
+    )
+    assert universe._snapshot_payload_is_valid(payload) is True
+
+
+def test_prior_session_bridge_fails_closed_when_any_candidate_quote_is_missing(
+    monkeypatch,
+):
+    candidates = _candidates(101)
+    for item in candidates:
+        item["screen_as_of"] = "2026-09-04"
+    quotes = {
+        str(item["code"]): _quote(
+            str(item["code"]),
+            2_000_000_000 - index,
+        )
+        for index, item in enumerate(candidates[:-1])
+    }
+    monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_batch",
+        lambda symbols, **_kwargs: quotes,
+    )
+    monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
+
+    payload = universe.build_us_signal_universe(
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+    )
+
+    assert payload["status"] == "unavailable"
+    assert payload["new_entries_allowed"] is False
+    assert "requires every candidate quote" in payload["source_error"]
 
 
 def test_forming_regular_session_never_publishes_current_day_snapshot(monkeypatch):

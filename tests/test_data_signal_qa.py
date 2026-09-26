@@ -1579,7 +1579,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v7.4.2",
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20260926us121",
+                "us_dashboard_version": "20260926us122",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1587,7 +1587,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20260926us121",
+                "us_dashboard_version": "20260926us122",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1949,7 +1949,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20260926us121"}, self._meta(path)
+            return {"version": "20260926us122"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -1996,11 +1996,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20260926us121" />'
+                '<link href="/assets/dashboard/styles.css?v=20260926us122" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20260926us121"></script>'
+                '<script src="/dashboard-app-v170.js?v=20260926us122"></script>'
                 '</body></html>',
                 self._meta(path),
             )
