@@ -12,7 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.collectors.news import preferred_news_url
+from app.collectors.research import preferred_research_url
 from app.db import SessionLocal
 from app.meta import integration_payload, insight_cadence_payload, research_source_payload
 from app.models import StockMaster
@@ -29,6 +29,7 @@ from app.repository import (
 )
 from app.services.briefing import briefing_runtime
 from app.services.company_briefs import build_company_briefs
+from app.services.external_links import preferred_disclosure_url
 from app.services.market_impact import build_market_impact
 from app.services.market_rankings import build_market_rankings
 from app.services.recommendations import build_recommendations
@@ -165,7 +166,13 @@ def _format_reports(items: list[Any]) -> list[dict[str, object]]:
                 "opinion": item.opinion,
                 "target_price": item.target_price,
                 "published_at": item.published_at,
-                "detail_url": preferred_news_url(item.source, item.external_id, item.detail_url),
+                "detail_url": preferred_research_url(
+                    item.stock_code,
+                    item.external_id,
+                    item.pdf_url,
+                    item.detail_url,
+                    source=item.source,
+                ),
                 "pdf_url": item.pdf_url,
                 "source_category": item.source_category,
             }
@@ -184,7 +191,11 @@ def _format_disclosures(items: list[Any]) -> list[dict[str, object]]:
                 "report_name": item.report_name,
                 "filer_name": item.filer_name,
                 "published_at": item.published_at,
-                "detail_url": item.detail_url,
+                "detail_url": preferred_disclosure_url(
+                    item.source,
+                    item.external_id,
+                    item.detail_url,
+                ),
                 "remark": item.remark,
             }
             for item in items

@@ -2,6 +2,7 @@ from datetime import datetime
 
 from app.collectors.disclosures import classify_disclosure_category, fetch_dart_disclosures, fetch_dart_web_disclosures
 from app.config import Settings
+from app.services.external_links import preferred_disclosure_url
 
 
 def test_fetch_dart_web_disclosures(monkeypatch):
@@ -57,6 +58,19 @@ def test_classify_disclosure_category():
     assert classify_disclosure_category("신규시설투자등") == "facility_investment"
     assert classify_disclosure_category("유상증자결정") == "rights_offering"
     assert classify_disclosure_category("사업보고서 (2025.12)") == "business_report"
+
+
+def test_preferred_disclosure_url_rebuilds_official_dart_receipt_link():
+    assert preferred_disclosure_url(
+        "dart_api",
+        "20260922000361",
+        "https://broken.example/report",
+    ) == "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260922000361"
+    assert preferred_disclosure_url(
+        "other",
+        "not-a-receipt",
+        "javascript:alert(1)",
+    ) is None
 
 
 def test_fetch_dart_disclosures_falls_back_to_web_when_api_key_is_invalid(monkeypatch):

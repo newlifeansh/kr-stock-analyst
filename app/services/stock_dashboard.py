@@ -30,6 +30,7 @@ from app.models import (
 from app.repository import upsert_many
 from app.services.chart_patterns import CHART_PATTERN_SCHEMA_VERSION, detect_chart_patterns
 from app.services.company_profiles import company_profile_payload
+from app.services.external_links import preferred_disclosure_url
 from app.services.ttl_cache import TTLCache
 
 POSITIVE_WORDS = (
@@ -1394,6 +1395,7 @@ def _research_revision(
                     report.external_id,
                     report.pdf_url,
                     report.detail_url,
+                    source=report.source,
                 ),
                 "source": report.source,
                 "source_category": report.source_category,
@@ -1445,7 +1447,13 @@ def _disclosure_events(
         "positive_count": positive_count,
         "negative_count": negative_count,
         "latest_events": [
-            _event_row(item.report_name, item.source, item.detail_url, item.published_at) for item in matched[:5]
+            _event_row(
+                item.report_name,
+                item.source,
+                preferred_disclosure_url(item.source, item.external_id, item.detail_url),
+                item.published_at,
+            )
+            for item in matched[:5]
         ],
         "latest_revenue": None,
         "latest_operating_profit": None,

@@ -18,10 +18,14 @@ from zoneinfo import ZoneInfo
 from app.config import Settings, get_settings
 from app.models import DailyPrice, ResearchReport, StockMaster
 from app.repository import finish_ingestion, latest_research_reports, start_ingestion, upsert_many
+from app.services.external_links import (
+    naver_mobile_research_url,
+    preferred_research_url,
+    stockhub_stock_url,
+)
 
 KST = ZoneInfo("Asia/Seoul")
 NAVER_FINANCE_BASE = "https://finance.naver.com/research/"
-NAVER_MOBILE_RESEARCH_BASE = "https://m.stock.naver.com/domestic/stock"
 NAVER_RESEARCH_API_BASE = "https://stock.naver.com/api/stockSecurity/researches/v2"
 NAVER_RESEARCH_WEB_BASE = "https://stock.naver.com/research"
 NAVER_RESEARCH_PAGE_SIZE = 20
@@ -37,32 +41,6 @@ CATEGORY_PATHS = {
 }
 CANONICAL_RESEARCH_SOURCES = {"naver_finance", "stockhub"}
 CANONICAL_STOCK_REPORT_LIMIT = 20
-
-
-def naver_mobile_research_url(stock_code: object, external_id: object) -> Optional[str]:
-    """Return Naver's mobile report detail URL when the report identifiers are usable."""
-    code = str(stock_code or "").strip()
-    report_id = str(external_id or "").strip()
-    if not re.fullmatch(r"\d{6}", code) or not re.fullmatch(r"\d+", report_id):
-        return None
-    return f"{NAVER_MOBILE_RESEARCH_BASE}/{code}/research/{report_id}"
-
-
-def preferred_research_url(
-    stock_code: object,
-    external_id: object,
-    pdf_url: object,
-    detail_url: object,
-) -> Optional[str]:
-    """Prefer a report-specific mobile page, then a direct PDF, over Naver's desktop page."""
-    mobile_url = naver_mobile_research_url(stock_code, external_id)
-    if mobile_url:
-        return mobile_url
-    for candidate in (pdf_url, detail_url):
-        normalized = str(candidate or "").strip()
-        if normalized:
-            return normalized
-    return None
 
 
 @dataclass
@@ -347,9 +325,11 @@ def _fetch_naver_research_json_page(
         f"{NAVER_RESEARCH_API_BASE}/{category}",
         params=params,
     )
-    if not isinstance(payload, dict):
-        raise ValueError("Naver research API response must be an object")
+    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+        raise ValueError("Naver research API response must contain an items array")
     items = parse_naver_research_json(payload, category)
+    if payload["items"] and not items:
+        raise ValueError("Naver research API response has no usable items")
     has_next = payload.get("hasNext") is True
     return items, has_next
 
@@ -607,7 +587,7 @@ def fetch_stockhub_reports_for_stock(
                 company_name=None,
                 stock_code=code,
                 broker_name=broker_name,
-                detail_url=source_url,
+                detail_url=stockhub_stock_url(code),
                 pdf_url=pdf_url,
                 published_at=published_at,
                 views=None,
@@ -720,6 +700,25 @@ def collect_research_reports(
             include_detail=include_detail,
         )
         if not items:
+            source_reachable = False
+            for category in categories:
+                if category not in CATEGORY_PATHS:
+                    continue
+                try:
+                    _fetch_naver_research_json_page(category, index=0)
+                    source_reachable = True
+                    break
+                except (requests.RequestException, ValueError):
+                    continue
+            if source_reachable:
+                finish_ingestion(
+                    db,
+                    run,
+                    "success",
+                    0,
+                    f"categories={','.join(categories)}, no_new_rows=true",
+                )
+                return 0
             finish_ingestion(
                 db,
                 run,
@@ -910,6 +909,7 @@ def latest_report_events(db: Session, limit: int = 10) -> list[dict[str, object]
                 report.external_id,
                 report.pdf_url,
                 report.detail_url,
+                source=report.source,
             ),
             "published_at": report.published_at,
             "raw": report.raw,
