@@ -1414,10 +1414,47 @@ def _run_us_e2e_checks(
                     )
                 ):
                     raise QaFailure("320px 미국 피드 리플로가 불안정합니다.", feed_reflow)
+                page.locator('[data-staging-feed-mode="calendar"]').click()
+                page.wait_for_selector(".staging-calendar-day", timeout=int(timeout * 1000))
+                calendar_state = page.evaluate(
+                    """() => ({
+                      dayCount: document.querySelectorAll('.staging-calendar-day').length,
+                      titles: [...document.querySelectorAll('.staging-calendar-event strong')]
+                        .map(node => node.textContent.trim()),
+                      timezone: document.querySelector('.staging-calendar-head span')?.textContent?.trim(),
+                      error: document.querySelector('.staging-calendar-list')?.textContent?.includes(
+                        '미국 주요 일정을 불러오지 못했습니다.'
+                      ),
+                    })"""
+                )
+                calendar_response = page.request.get(
+                    _page_url(base_url, "/us/market/calendar", days="16"),
+                    timeout=int(timeout * 1000),
+                )
+                if not calendar_response.ok:
+                    raise QaFailure("미국 일정 API를 읽지 못했습니다.", {"status": calendar_response.status})
+                scheduled = calendar_response.json()
+                if (
+                    "/us/market/calendar" not in requested_paths
+                    or calendar_state["dayCount"] != 18
+                    or "한국시간 기준" not in str(calendar_state["timezone"])
+                    or calendar_state["error"]
+                    or any(
+                        item.get("title") not in calendar_state["titles"]
+                        for item in (scheduled.get("events") or []) + (scheduled.get("past_events") or [])
+                        if item.get("starts_at", "")[:10]
+                        in [
+                            row.get_attribute("data-staging-calendar-date")
+                            for row in page.locator(".staging-calendar-day").all()
+                        ]
+                    )
+                ):
+                    raise QaFailure("미국 일정 탭에 공식 발표 일정이 표시되지 않았습니다.", calendar_state)
                 return {
                     "theme": theme,
                     "feed": feed_state,
                     "feed_reflow": feed_reflow,
+                    "calendar": calendar_state,
                     "request_count": len(requested_paths),
                 }
 

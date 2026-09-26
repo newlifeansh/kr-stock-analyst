@@ -15,6 +15,11 @@ BLS_RELEASE_CALENDAR_URL = "https://www.bls.gov/schedule/news_release/bls.ics"
 BLS_CPI_RELEASE_URL = "https://www.bls.gov/schedule/news_release/cpi.htm"
 BLS_CALENDAR_CACHE = TTLCache(maxsize=2)
 BLS_CALENDAR_TTL_SECONDS = 6 * 60 * 60
+BLS_MARKET_RELEASE_TITLES = {
+    "Employment Situation": ("us-employment", "미국 고용보고서"),
+    "Consumer Price Index": ("us-cpi", "미국 CPI 소비자물가지수"),
+    "Producer Price Index": ("us-ppi", "미국 PPI 생산자물가지수"),
+}
 BLS_REQUEST_TIMEOUT_SECONDS = 10
 BLS_HEADERS = {
     "User-Agent": "kr-stock-analyst/0.1 contact=admin@secret-note.app",
@@ -169,6 +174,59 @@ def _parse_bls_cpi_calendar(payload: bytes | str) -> list[datetime]:
         if base_name in {"SUMMARY", "DTSTART"}:
             event[base_name] = (property_name, value)
     return sorted(set(releases))
+
+
+def _parse_bls_market_calendar(payload: bytes | str) -> list[tuple[str, datetime]]:
+    text = payload.decode("utf-8-sig", errors="replace") if isinstance(payload, bytes) else payload
+    releases: set[tuple[str, datetime]] = set()
+    event: dict[str, tuple[str, str]] | None = None
+    for line in _unfold_ical_lines(text):
+        if line == "BEGIN:VEVENT":
+            event = {}
+            continue
+        if line == "END:VEVENT":
+            if event:
+                summary_entry = event.get("SUMMARY")
+                starts_entry = event.get("DTSTART")
+                summary = _unescape_ical_text(summary_entry[1]).strip() if summary_entry else ""
+                release = BLS_MARKET_RELEASE_TITLES.get(summary)
+                if release and starts_entry:
+                    starts_at = _parse_ical_datetime(starts_entry[0], starts_entry[1])
+                    if starts_at is not None:
+                        releases.add((release[0], starts_at))
+            event = None
+            continue
+        if event is None or ":" not in line:
+            continue
+        property_name, value = line.split(":", 1)
+        base_name = property_name.split(";", 1)[0].upper()
+        if base_name in {"SUMMARY", "DTSTART"}:
+            event[base_name] = (property_name, value)
+    return sorted(releases, key=lambda item: (item[1], item[0]))
+
+
+def _fetch_bls_market_releases() -> tuple[tuple[str, datetime], ...]:
+    response = requests.get(
+        BLS_RELEASE_CALENDAR_URL,
+        headers=BLS_HEADERS,
+        timeout=BLS_REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    releases = _parse_bls_market_calendar(response.content)
+    if not releases:
+        raise ValueError("BLS market schedule not found in release calendar")
+    return tuple(releases)
+
+
+def bls_market_releases_between(start: datetime, end: datetime) -> list[tuple[str, datetime]]:
+    if start > end:
+        return []
+    releases = BLS_CALENDAR_CACHE.get_or_set(
+        ("bls_market_release_calendar",),
+        BLS_CALENDAR_TTL_SECONDS,
+        _fetch_bls_market_releases,
+    )
+    return [(key, release) for key, release in releases if start <= release <= end]
 
 
 def _bok_event_key(title: str) -> str | None:

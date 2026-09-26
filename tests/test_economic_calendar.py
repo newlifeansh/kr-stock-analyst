@@ -35,6 +35,31 @@ def test_parse_bls_cpi_calendar_converts_eastern_time_to_kst():
     ]
 
 
+def test_parse_bls_market_calendar_keeps_official_major_releases_only():
+    assert economic_calendar._parse_bls_market_calendar(BLS_SAMPLE_ICS) == [
+        ("us-cpi", datetime(2026, 1, 13, 22, 30)),
+        ("us-cpi", datetime(2026, 8, 12, 21, 30)),
+        ("us-ppi", datetime(2026, 8, 13, 21, 30)),
+    ]
+
+
+def test_bls_market_calendar_fails_closed_on_official_source_failure(monkeypatch):
+    economic_calendar.BLS_CALENDAR_CACHE.clear()
+    monkeypatch.setattr(
+        economic_calendar,
+        "_fetch_bls_market_releases",
+        lambda: (_ for _ in ()).throw(RuntimeError("BLS unavailable")),
+    )
+    try:
+        economic_calendar.bls_market_releases_between(
+            datetime(2026, 8, 10), datetime(2026, 8, 14)
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "BLS unavailable"
+    else:
+        raise AssertionError("source failure must not become an empty calendar")
+
+
 def test_cpi_release_schedule_uses_cached_live_bls_calendar(monkeypatch):
     calls = []
 

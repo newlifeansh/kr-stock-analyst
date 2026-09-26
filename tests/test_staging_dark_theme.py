@@ -1580,7 +1580,9 @@ def test_staging_v50_builds_inline_feed_content_calendar_and_editorial_detail():
         "아침, 점심, 장 마감 후에 꼭 볼 시장 소식",
         'data-staging-editorial-feed',
         'data-staging-content-open',
-        'stagingUsMarketContext ? "/us/market/trends?days=14" : "/market/trends?days=14"',
+        'fetchJsonCached("/us/market/calendar?days=16"',
+        'stagingUsMarketContext ? "한국시간 기준" : "현지 기준"',
+        '미국 주요 일정을 불러오지 못했습니다.',
         'Array.from({ length: 18 }',
         'data-staging-calendar-date',
         'data-staging-calendar-today',
@@ -3196,7 +3198,7 @@ def test_staging_editorial_editions_explain_midday_preliminary_and_close_confirm
     assert '오늘 확정 매수 ${formatNumber(confirmedBuys.length)}종목' in staging_js
     assert 'stagingConfirmedBuyReason(item, 88)' in staging_js
     assert '오늘 새로 확정된 매수 종목은 없었어요.' in staging_js
-    assert ': "/market/quant-signals?universe_limit=150&limit=0&recent_days=30";' in staging_js
+    assert 'fetchJsonCached("/market/quant-signals?universe_limit=150&limit=0&recent_days=30"' in staging_js
     assert 'preliminary_buys: stagingPreliminaryBuysForEdition(selected)' in staging_js
     assert 'preliminary_buys_available: stagingPreliminaryBuyDataAvailableForEdition(selected)' in staging_js
     assert 'confirmed_buys: stagingConfirmedBuysForEdition(selected)' in staging_js
