@@ -635,6 +635,18 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_home_ai_response."
         "test_us_public_ui_never_renders_private_scores_or_synthesized_trade_levels",
     ),
+    "SIG-US-MCP-001": (
+        "tests.test_us_mcp_server."
+        "test_us_mcp_server_exposes_only_personal_signal_and_analysis_tools",
+        "tests.test_us_mcp_server."
+        "test_us_mcp_signal_list_reads_stored_snapshot_without_refresh",
+        "tests.test_us_mcp_server."
+        "test_us_mcp_stock_analysis_uses_cached_non_refresh_dashboard",
+        "tests.test_us_mcp_server."
+        "test_personal_us_mcp_requires_bearer_token_and_limits_bursts",
+        "tests.test_us_mcp_server."
+        "test_personal_us_mcp_remote_health_fails_closed_without_token",
+    ),
     "SIG-US-MIGRATION-001": (
         "tests.test_app."
         "test_us_market_regular_session_request_never_enqueues_publication",

@@ -169,6 +169,56 @@ source .venv/bin/activate
 analyst verify-mcp-endpoint --url https://your-mcp-domain/
 ```
 
+### 개인용 미국 시그널 MCP
+
+국내 MCP와 분리된 미국 전용 앱은 `app.us_mcp_app:app` 입니다. 이 앱은
+저장된 미국 Top100 시그널과 종목별 공개 분석만 읽기 전용으로 제공하며,
+MCP 요청에서 강제 원천 갱신이나 주문을 실행하지 않습니다.
+
+- `list_us_stock_signals`: 마지막 완료 미국장 canonical 스냅샷 조회
+- `get_us_stock_analysis`: 티커별 공개 분석과 동일 스냅샷의 시그널 조회
+- `GET /healthz`: 프로세스 상태와 인증 설정 여부
+- `GET /readyz`: DB·MCP SDK·원격 인증 준비 상태
+
+로컬 실행:
+
+```bash
+source .venv/bin/activate
+uvicorn app.us_mcp_app:app --host 127.0.0.1 --port 8003
+```
+
+Railway 전용 서비스는 기존 미국 Postgres를 private reference로 연결하고 다음
+변수를 설정합니다. `MCP_PUBLIC_BASE_URL`을 설정한 원격 배포는
+`US_MCP_BEARER_TOKEN`이 없으면 `/readyz`가 503이고 MCP 요청도 차단됩니다.
+
+```dotenv
+APP_MODULE=app.us_mcp_app:app
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+MCP_PUBLIC_BASE_URL=https://your-us-mcp-domain
+MCP_ALLOWED_HOSTS=your-us-mcp-domain,healthcheck.railway.app
+MCP_ALLOWED_ORIGINS=https://chatgpt.com,https://chat.openai.com
+US_MCP_SERVER_NAME=미국증시 비밀노트
+US_MCP_BEARER_TOKEN=<openssl-rand-hex-32>
+US_MCP_RATE_LIMIT_PER_MINUTE=60
+BOOTSTRAP_ON_START=false
+PROCESS_ROLE=web
+```
+
+개인 MCP 클라이언트에는 URL과 Authorization 헤더를 함께 등록합니다.
+
+```json
+{
+  "mcpServers": {
+    "secret-note-us": {
+      "url": "https://your-us-mcp-domain/",
+      "headers": {
+        "Authorization": "Bearer <US_MCP_BEARER_TOKEN>"
+      }
+    }
+  }
+}
+```
+
 등록할 때 바로 넣을 문구와 체크리스트는 [docs/playmcp-registration-checklist.md](/Users/sukhwan/Documents/주식애널리스트%20보고서/docs/playmcp-registration-checklist.md) 에 정리해두었습니다.
 
 Railway에 바로 올릴 계획이면 저장소 루트의 [railway.json](/Users/sukhwan/Documents/주식애널리스트%20보고서/railway.json) 을 그대로 사용할 수 있습니다.

@@ -168,6 +168,9 @@ class Settings(BaseSettings):
         "http://127.0.0.1:8001,http://localhost:8001"
     )
     mcp_log_level: str = "INFO"
+    us_mcp_server_name: str = "미국증시 비밀노트"
+    us_mcp_bearer_token: Optional[str] = None
+    us_mcp_rate_limit_per_minute: int = 60
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
