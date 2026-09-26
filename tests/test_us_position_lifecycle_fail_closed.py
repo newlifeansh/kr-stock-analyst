@@ -35,6 +35,7 @@ def test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy():
         ("0001181412", "Technology", "XLC"),  # SpaceX
         ("0000820313", "Industrials", "XLK"),  # Amphenol
         ("0001551182", "Technology", "XLI"),  # Eaton
+        ("0001022837", "Technology", "XLF"),  # Sumitomo Mitsui Financial
     ]
     for cik, misleading_display_sector, expected in cases:
         assert (
