@@ -16,6 +16,7 @@ from app.config import Settings, get_settings
 from app.integrations.opendart import fetch_opendart_json
 from app.models import DisclosureItem
 from app.repository import finish_ingestion, latest_disclosures, start_ingestion, upsert_many
+from app.services.external_links import preferred_disclosure_url
 
 KST = ZoneInfo("Asia/Seoul")
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
@@ -187,7 +188,7 @@ def fetch_dart_web_disclosures() -> list[DisclosureListItem]:
                 report_name=report_name,
                 filer_name=company_name,
                 remark=market_name.strip() if market_name else None,
-                detail_url=f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={receipt_no}" if receipt_no else None,
+                detail_url=preferred_disclosure_url("dart_web", receipt_no, None),
                 published_at=published_at,
                 raw=json.dumps(
                     {
@@ -270,7 +271,7 @@ def fetch_dart_disclosures(
                     report_name=report_name,
                     filer_name=row.get("flr_nm") or None,
                     remark=row.get("rm") or None,
-                    detail_url=f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={external_id}" if external_id else None,
+                    detail_url=preferred_disclosure_url("dart_api", external_id, None),
                     published_at=_parse_dart_datetime(row.get("rcept_dt")),
                     raw=json.dumps(row, ensure_ascii=False),
                 )
@@ -356,7 +357,7 @@ def latest_disclosure_events(db: Session, limit: int = 10) -> list[dict[str, obj
             "title": item.report_name,
             "company_name": item.company_name,
             "stock_code": item.stock_code,
-            "url": item.detail_url,
+            "url": preferred_disclosure_url(item.source, item.external_id, item.detail_url),
             "published_at": item.published_at,
             "raw": item.raw,
         }

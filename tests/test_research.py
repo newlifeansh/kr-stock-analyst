@@ -1,5 +1,6 @@
 from datetime import date
 
+import pytest
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 
@@ -229,6 +230,21 @@ def test_fetch_naver_research_reports_prefers_current_json_feed(monkeypatch):
     assert calls == [("company", 0, None)]
 
 
+def test_naver_research_page_rejects_missing_items_array(monkeypatch):
+    monkeypatch.setattr(research, "_naver_get_json", lambda *_args, **_kwargs: {})
+
+    with pytest.raises(ValueError, match="items array"):
+        research._fetch_naver_research_json_page("company", index=0)
+
+    monkeypatch.setattr(
+        research,
+        "_naver_get_json",
+        lambda *_args, **_kwargs: {"items": [{"nid": "broken"}]},
+    )
+    with pytest.raises(ValueError, match="no usable items"):
+        research._fetch_naver_research_json_page("company", index=0)
+
+
 def test_fetch_company_detail_fields(monkeypatch):
     monkeypatch.setattr(research, "_naver_get_html", lambda url: COMPANY_DETAIL_HTML)
 
@@ -287,6 +303,13 @@ def test_fetch_company_reports_for_stock_retains_legacy_html_fallback(monkeypatc
 
 def test_collect_research_reports_marks_zero_row_source_as_failed(monkeypatch):
     monkeypatch.setattr(research, "fetch_naver_research_reports", lambda **_kwargs: [])
+    monkeypatch.setattr(
+        research,
+        "_fetch_naver_research_json_page",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            research.requests.RequestException("source unavailable")
+        ),
+    )
 
     with _session() as db:
         assert research.collect_research_reports(db) == 0
@@ -295,6 +318,23 @@ def test_collect_research_reports_marks_zero_row_source_as_failed(monkeypatch):
         assert run.status == "failed"
         assert run.rows_loaded == 0
         assert "no usable reports" in str(run.message)
+
+
+def test_collect_research_reports_marks_valid_empty_source_as_success(monkeypatch):
+    monkeypatch.setattr(research, "fetch_naver_research_reports", lambda **_kwargs: [])
+    monkeypatch.setattr(
+        research,
+        "_fetch_naver_research_json_page",
+        lambda *_args, **_kwargs: ([], False),
+    )
+
+    with _session() as db:
+        assert research.collect_research_reports(db, categories=["company"]) == 0
+
+        run = db.query(IngestionRun).one()
+        assert run.status == "success"
+        assert run.rows_loaded == 0
+        assert run.message == "categories=company, no_new_rows=true"
 
 
 def test_fetch_stockhub_reports_for_stock_parses_broker_metadata():
@@ -310,7 +350,8 @@ def test_fetch_stockhub_reports_for_stock_parses_broker_metadata():
     assert reports[0].external_id == "stockhub-13793"
     assert reports[0].broker_name == "DB증권"
     assert reports[0].target_price == 120000
-    assert reports[0].detail_url.startswith("https://www.db-fi.com/")
+    assert reports[0].detail_url == "https://www.stockhub.kr/stock/078930"
+    assert "https://www.db-fi.com/" in str(reports[0].raw)
 
 
 def test_naver_mobile_research_url_points_to_the_report_detail():
@@ -330,3 +371,29 @@ def test_naver_mobile_research_url_points_to_the_report_detail():
         "https://stock.pstatic.net/stock-research/company/report.pdf",
         "https://finance.naver.com/research/company_read.naver?nid=94963",
     ) == "https://stock.pstatic.net/stock-research/company/report.pdf"
+
+
+def test_preferred_research_url_replaces_mobile_blocked_stockhub_broker_board():
+    blocked_board = "https://www.db-fi.com/bbs/board.php?bo_table=research"
+
+    assert preferred_research_url(
+        "000660",
+        "stockhub-16331",
+        None,
+        blocked_board,
+        source="stockhub",
+    ) == "https://www.stockhub.kr/stock/000660"
+    assert preferred_research_url(
+        "000660",
+        "stockhub-16331",
+        "https://broker.example/report.pdf",
+        blocked_board,
+        source="stockhub",
+    ) == "https://broker.example/report.pdf"
+    assert preferred_research_url(
+        "000660",
+        "stockhub-16331",
+        None,
+        "javascript:alert(1)",
+        source="other",
+    ) is None

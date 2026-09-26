@@ -1431,6 +1431,9 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "DATA-COM-005",
         "DATA-COM-006",
         "DATA-COM-007",
+        "DATA-DART-001",
+        "DATA-FUND-RESEARCH-002",
+        "DATA-FUND-RESEARCH-003",
         "DATA-US-NEWS-001",
         "DATA-US-NEWS-TABS-001",
         "REC-US-INDEPENDENT-001",
@@ -1554,6 +1557,16 @@ class FakeReadOnlyApi:
 
     def close(self) -> None:
         return None
+
+    @staticmethod
+    def probe_mobile_external_url(url: object) -> dict[str, object]:
+        return {
+            "url": str(url),
+            "final_url": str(url),
+            "http_status": 200,
+            "latency_ms": 1,
+            "content_type": "text/html",
+        }
 
     @staticmethod
     def _meta(path: str) -> dict[str, object]:
@@ -1932,6 +1945,32 @@ class FakeReadOnlyApi:
                 ],
                 "status": "ready",
             }, self._meta(path)
+        if path == "/research-reports":
+            return [
+                {
+                    "source": "stockhub",
+                    "external_id": "stockhub-16331",
+                    "stock_code": "000660",
+                    "detail_url": "https://www.stockhub.kr/stock/000660",
+                    "pdf_url": None,
+                },
+                {
+                    "source": "naver_finance",
+                    "external_id": "96025",
+                    "stock_code": "000660",
+                    "detail_url": "https://m.stock.naver.com/domestic/stock/000660/research/96025",
+                    "pdf_url": None,
+                },
+            ], self._meta(path)
+        if path == "/disclosures":
+            return [
+                {
+                    "source": "dart_api",
+                    "external_id": "20260923900787",
+                    "stock_code": "473050",
+                    "detail_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260923900787",
+                }
+            ], self._meta(path)
         if path == "/market/global-assets":
             return {
                 "items": [
@@ -2064,6 +2103,41 @@ class FakeReadOnlyApi:
             "total_tokens": None,
             "estimated_cost_usd": None,
         }, self._meta(path)
+
+
+@pytest.mark.qa_live
+def test_live_link_audit_rejects_mobile_blocked_stockhub_board(monkeypatch) -> None:
+    from app.qa import runner
+
+    class BrokenResearchLinkApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            if path == "/research-reports":
+                return [
+                    {
+                        "source": "stockhub",
+                        "external_id": "stockhub-16331",
+                        "stock_code": "000660",
+                        "detail_url": "https://www.db-fi.com/bbs/board.php?bo_table=research",
+                        "pdf_url": None,
+                    }
+                ], self._meta(path)
+            return super().get(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", BrokenResearchLinkApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+
+    report = run_data_signal_qa(
+        mode="live",
+        surface="dashboard",
+        base_url="https://fixture-staging.test",
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+
+    assert by_id["DATA-FUND-RESEARCH-003"]["status"] == "fail"
+    assert by_id["DATA-FUND-RESEARCH-003"]["evidence"]["external_id"] == (
+        "stockhub-16331"
+    )
+    assert by_id["DATA-DART-001"]["status"] == "pass"
 
 
 @pytest.mark.qa_live

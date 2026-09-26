@@ -20,20 +20,22 @@ def test_disclosure_events_can_fall_back_to_recent_general_filings():
             [
                 DisclosureItem(
                     source="dart",
-                    external_id="a",
+                    external_id="20260925000001",
                     disclosure_category="filings",
                     company_name="삼성전자",
                     stock_code="005930",
                     report_name="풍문또는보도에대한해명(미확정)",
+                    detail_url="https://broken.example/first",
                     published_at=datetime.utcnow() - timedelta(days=1),
                 ),
                 DisclosureItem(
                     source="dart",
-                    external_id="b",
+                    external_id="20260924000002",
                     disclosure_category="insider_trade",
                     company_name="삼성전자",
                     stock_code="005930",
                     report_name="임원ㆍ주요주주특정증권등소유상황보고서",
+                    detail_url="https://broken.example/second",
                     published_at=datetime.utcnow() - timedelta(days=2),
                 ),
             ]
@@ -50,4 +52,8 @@ def test_disclosure_events_can_fall_back_to_recent_general_filings():
         assert [item["title"] for item in fallback["latest_events"]] == [
             "풍문또는보도에대한해명(미확정)",
             "임원ㆍ주요주주특정증권등소유상황보고서",
+        ]
+        assert [item["url"] for item in fallback["latest_events"]] == [
+            "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260925000001",
+            "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260924000002",
         ]

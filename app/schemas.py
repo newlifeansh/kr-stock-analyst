@@ -4,8 +4,10 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic import Field
+
+from app.services.external_links import preferred_disclosure_url, preferred_research_url
 
 
 class StockOut(BaseModel):
@@ -386,6 +388,17 @@ class ResearchReportOut(BaseModel):
     published_at: Optional[datetime] = None
     views: Optional[int] = None
 
+    @model_validator(mode="after")
+    def normalize_public_link(self) -> ResearchReportOut:
+        self.detail_url = preferred_research_url(
+            self.stock_code,
+            self.external_id,
+            self.pdf_url,
+            self.detail_url,
+            source=self.source,
+        )
+        return self
+
 
 class DisclosureItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -403,6 +416,15 @@ class DisclosureItemOut(BaseModel):
     remark: Optional[str] = None
     detail_url: Optional[str] = None
     published_at: Optional[datetime] = None
+
+    @model_validator(mode="after")
+    def normalize_public_link(self) -> DisclosureItemOut:
+        self.detail_url = preferred_disclosure_url(
+            self.source,
+            self.external_id,
+            self.detail_url,
+        )
+        return self
 
 
 class NewsItemOut(BaseModel):

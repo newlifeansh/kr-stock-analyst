@@ -12,6 +12,7 @@ from app.collectors.news import preferred_news_url
 from app.collectors.research import preferred_research_url
 from app.models import DisclosureItem, NewsItem, ResearchReport, StockMaster
 from app.repository import latest_prices_by_codes
+from app.services.external_links import preferred_disclosure_url
 
 
 def _normalize_name(value: Optional[str]) -> str:
@@ -181,6 +182,7 @@ def build_company_briefs(
                 item.external_id,
                 item.pdf_url,
                 item.detail_url,
+                source=item.source,
             )
             entry.latest_report_at = item.published_at
             entry.latest_report_broker = item.broker_name
@@ -193,7 +195,11 @@ def build_company_briefs(
         entry.touch(item.published_at)
         if item.published_at and (entry.latest_disclosure_at is None or item.published_at > entry.latest_disclosure_at):
             entry.latest_disclosure_title = item.report_name
-            entry.latest_disclosure_url = item.detail_url
+            entry.latest_disclosure_url = preferred_disclosure_url(
+                item.source,
+                item.external_id,
+                item.detail_url,
+            )
             entry.latest_disclosure_at = item.published_at
             entry.latest_disclosure_category = item.disclosure_category
 

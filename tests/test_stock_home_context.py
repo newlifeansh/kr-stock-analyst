@@ -41,11 +41,12 @@ def test_stock_home_context_combines_detail_sections(monkeypatch):
         return [
             {
                 "id": 1,
-                "source": "broker",
+                "source": "stockhub",
                 "source_category": "company",
-                "external_id": "r-1",
+                "external_id": "stockhub-1",
                 "title": "신라젠 목표가 상향",
                 "stock_code": "215600",
+                "detail_url": "https://www.db-fi.com/bbs/board.php?bo_table=research",
                 "published_at": datetime(2026, 7, 29, 9, 30),
             }
         ]
@@ -55,12 +56,13 @@ def test_stock_home_context_combines_detail_sections(monkeypatch):
         return [
             {
                 "id": 2,
-                "source": "dart",
-                "external_id": "d-1",
+                "source": "dart_api",
+                "external_id": "20260729000002",
                 "disclosure_category": "report",
                 "company_name": "신라젠",
                 "stock_code": "215600",
                 "report_name": "사업보고서",
+                "detail_url": "https://broken.example/disclosure",
                 "published_at": datetime(2026, 7, 29, 10, 15),
             }
         ]
@@ -149,7 +151,11 @@ def test_stock_home_context_combines_detail_sections(monkeypatch):
         assert payload["name"] == "신라젠"
         assert payload["flows"] == []
         assert payload["research_reports"][0]["title"] == "신라젠 목표가 상향"
+        assert payload["research_reports"][0]["detail_url"] == "https://www.stockhub.kr/stock/215600"
         assert payload["disclosures"][0]["report_name"] == "사업보고서"
+        assert payload["disclosures"][0]["detail_url"] == (
+            "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260729000002"
+        )
         assert payload["news_items"][0]["title"] == "신라젠 임상 기대감"
         assert payload["community"]["providers"][0]["items"][0]["title"] == "신라젠 다시 상승 준비"
         assert research_calls[0]["stock_code"] == "215600"

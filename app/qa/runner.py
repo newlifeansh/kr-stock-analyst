@@ -43,12 +43,34 @@ QUOTE_STREAM_META_RE = re.compile(
     [^>]*>""",
     re.IGNORECASE | re.VERBOSE,
 )
+MOBILE_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+    "AppleWebKit/605.1.15 Mobile/15E148"
+)
 
 # Gate evidence is intentionally traceable at the pytest testcase level. New
 # cases must be added here with every deterministic test that is required to
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-DART-001": (
+        "tests.test_disclosures.test_fetch_dart_disclosures_uses_api_when_transport_succeeds",
+        "tests.test_disclosures.test_preferred_disclosure_url_rebuilds_official_dart_receipt_link",
+        "tests.test_stock_home_context.test_stock_home_context_combines_detail_sections",
+        "tests.test_stock_dashboard_disclosures.test_disclosure_events_can_fall_back_to_recent_general_filings",
+    ),
+    "DATA-FUND-RESEARCH-003": (
+        "tests.test_research.test_fetch_stockhub_reports_for_stock_parses_broker_metadata",
+        "tests.test_research.test_preferred_research_url_replaces_mobile_blocked_stockhub_broker_board",
+        "tests.test_stock_home_context.test_stock_home_context_combines_detail_sections",
+        "tests.test_mcp_server.test_mcp_research_links_use_the_same_mobile_safe_normalization",
+        "tests.test_data_signal_qa.test_live_link_audit_rejects_mobile_blocked_stockhub_board",
+    ),
+    "DATA-FUND-RESEARCH-002": (
+        "tests.test_research.test_collect_research_reports_marks_zero_row_source_as_failed",
+        "tests.test_research.test_collect_research_reports_marks_valid_empty_source_as_success",
+        "tests.test_briefing_runtime.test_short_cadence_research_uses_canonical_when_direct_source_is_empty",
+    ),
     "SIG-UI-025": (
         "tests.test_data_signal_qa."
         "test_live_intraday_transient_unavailable_recovers_with_bounded_retry",
@@ -1000,6 +1022,7 @@ def _validate_quote_status_frame(frame: dict[str, Any]) -> dict[str, Any]:
 class ReadOnlyApi:
     def __init__(self, base_url: str, timeout: float):
         self.base_url = base_url.rstrip("/") + "/"
+        self.timeout = timeout
         self.client = httpx.Client(
             timeout=httpx.Timeout(timeout),
             follow_redirects=True,
@@ -1011,6 +1034,9 @@ class ReadOnlyApi:
 
     def close(self) -> None:
         self.client.close()
+
+    def probe_mobile_external_url(self, url: object) -> dict[str, Any]:
+        return _probe_mobile_external_url(url, timeout=self.timeout)
 
     def get(self, path: str, **params: Any) -> tuple[Any, dict[str, Any]]:
         started = monotonic()
@@ -1070,6 +1096,36 @@ class ReadOnlyApi:
         except ValueError:
             response_payload = None
         return response.status_code, response_payload, meta
+
+
+def _probe_mobile_external_url(url: object, *, timeout: float) -> dict[str, Any]:
+    normalized = str(url or "").strip()
+    parsed = urlparse(normalized)
+    _assert(
+        parsed.scheme in {"http", "https"} and bool(parsed.hostname),
+        "외부 원문 URL이 안전한 HTTP(S) 주소가 아닙니다.",
+        url=normalized,
+    )
+    started = monotonic()
+    with httpx.Client(
+        timeout=httpx.Timeout(timeout),
+        follow_redirects=True,
+        headers={"User-Agent": MOBILE_BROWSER_USER_AGENT},
+    ) as client:
+        with client.stream("GET", normalized) as response:
+            evidence = {
+                "url": normalized,
+                "final_url": str(response.url),
+                "http_status": response.status_code,
+                "latency_ms": round((monotonic() - started) * 1000),
+                "content_type": response.headers.get("content-type"),
+            }
+    _assert(
+        200 <= response.status_code < 300,
+        "모바일 원문 링크가 2xx 응답을 반환하지 않았습니다.",
+        **evidence,
+    )
+    return evidence
 
 
 def _pytest_evidence(pytest_junit: Path | str | None) -> dict[str, Any] | None:
@@ -3400,17 +3456,122 @@ def _live_checks(
                 pass_message="대표 종목의 저장 일봉·실시간 시세 격리 계약을 확인했습니다.",
             )
 
+        def research_link_contract() -> dict[str, Any]:
+            payload, meta = api.get(
+                "/research-reports",
+                stock_code="000660",
+                limit=5,
+            )
+            _assert(
+                isinstance(payload, list) and payload,
+                "SK하이닉스 리서치 원문 링크 표본이 비어 있습니다.",
+                **meta,
+            )
+            probes: list[dict[str, Any]] = []
+            seen_urls: set[str] = set()
+            for item in payload:
+                _assert(isinstance(item, dict), "리서치 항목이 객체가 아닙니다.")
+                source = str(item.get("source") or "").strip()
+                stock_code = str(item.get("stock_code") or "").strip()
+                external_id = str(item.get("external_id") or "").strip()
+                detail_url = str(item.get("detail_url") or "").strip()
+                pdf_url = str(item.get("pdf_url") or "").strip()
+                if (
+                    source == "naver_finance"
+                    and re.fullmatch(r"\d{6}", stock_code)
+                    and re.fullmatch(r"\d+", external_id)
+                ):
+                    expected = (
+                        "https://m.stock.naver.com/domestic/stock/"
+                        f"{stock_code}/research/{external_id}"
+                    )
+                    _assert(
+                        detail_url == expected,
+                        "네이버 리서치가 종목·리포트별 모바일 상세 URL이 아닙니다.",
+                        source=source,
+                        external_id=external_id,
+                        detail_url=detail_url,
+                        expected=expected,
+                    )
+                    target_url = detail_url
+                elif source == "stockhub":
+                    if pdf_url:
+                        target_url = pdf_url
+                    else:
+                        expected = f"https://www.stockhub.kr/stock/{stock_code}"
+                        _assert(
+                            detail_url == expected,
+                            "Stockhub 리서치가 모바일 차단 증권사 공용 게시판을 우회하지 못했습니다.",
+                            source=source,
+                            external_id=external_id,
+                            detail_url=detail_url,
+                            expected=expected,
+                        )
+                        target_url = detail_url
+                else:
+                    target_url = pdf_url or detail_url
+                if target_url in seen_urls:
+                    continue
+                seen_urls.add(target_url)
+                probes.append(api.probe_mobile_external_url(target_url))
+            return {**meta, "item_count": len(payload), "mobile_url_probes": probes}
+
+        collector.check(
+            "DATA-FUND-RESEARCH-003",
+            research_link_contract,
+            pass_message="SK하이닉스 리서치의 모바일 안전 URL과 2xx 원문 응답을 확인했습니다.",
+        )
+
+        def dart_link_contract() -> dict[str, Any]:
+            payload, meta = api.get("/disclosures", limit=5)
+            _assert(
+                isinstance(payload, list) and payload,
+                "DART 공시 원문 링크 표본이 비어 있습니다.",
+                **meta,
+            )
+            probes: list[dict[str, Any]] = []
+            seen_urls: set[str] = set()
+            for item in payload:
+                _assert(isinstance(item, dict), "공시 항목이 객체가 아닙니다.")
+                source = str(item.get("source") or "").strip()
+                external_id = str(item.get("external_id") or "").strip()
+                detail_url = str(item.get("detail_url") or "").strip()
+                _assert(
+                    source in {"dart", "dart_api", "dart_web"}
+                    and re.fullmatch(r"\d{14}", external_id),
+                    "DART 공시 출처 또는 14자리 접수번호가 잘못됐습니다.",
+                    source=source,
+                    external_id=external_id,
+                )
+                expected = (
+                    "https://dart.fss.or.kr/dsaf001/main.do?rcpNo="
+                    f"{external_id}"
+                )
+                _assert(
+                    detail_url == expected,
+                    "공시 URL이 공식 DART 접수번호 원문 주소가 아닙니다.",
+                    external_id=external_id,
+                    detail_url=detail_url,
+                    expected=expected,
+                )
+                if detail_url in seen_urls:
+                    continue
+                seen_urls.add(detail_url)
+                probes.append(api.probe_mobile_external_url(detail_url))
+            return {**meta, "item_count": len(payload), "mobile_url_probes": probes}
+
+        collector.check(
+            "DATA-DART-001",
+            dart_link_contract,
+            pass_message="DART 공식 접수번호 URL과 모바일 2xx 원문 응답을 확인했습니다.",
+        )
+
         endpoint_cases = (
             ("DATA-KIS-003", "/market/indices", {"limit": 5}),
             (
                 "DATA-KRX-NAVER-004",
                 "/market/rankings",
                 {"category": "market_cap", "limit": 15},
-            ),
-            (
-                "DATA-FUND-RESEARCH-003",
-                "/research-reports",
-                {"stock_code": "005930", "limit": 5},
             ),
             ("DATA-DART-003", "/disclosures", {"stock_code": "005930", "limit": 5}),
             ("DATA-GLOBAL-002", "/market/global-assets", {"limit": 5}),
