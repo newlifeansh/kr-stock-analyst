@@ -321,6 +321,9 @@ class PushSubscription(Base):
     content_encoding: Mapped[str] = mapped_column(String(40), default="aes128gcm", nullable=False)
     user_agent: Mapped[Optional[str]] = mapped_column(String(500))
     notification_preferences: Mapped[Optional[str]] = mapped_column(Text)
+    market_scope: Mapped[str] = mapped_column(
+        String(8), default="kr", server_default="kr", nullable=False, index=True
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -364,6 +367,9 @@ class PushNotificationHistory(Base):
     title: Mapped[str] = mapped_column(String(240), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     url: Mapped[Optional[str]] = mapped_column(String(1000))
+    market_scope: Mapped[str] = mapped_column(
+        String(8), default="kr", server_default="kr", nullable=False, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 

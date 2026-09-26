@@ -100,10 +100,12 @@ class PushSubscriptionIn(BaseModel):
     endpoint: str = Field(..., min_length=20, max_length=2048)
     keys: PushSubscriptionKeysIn
     conditions: list[str] = Field(default_factory=list, max_length=10)
+    market_scope: Literal["kr", "us"] = "kr"
 
 
 class PushSubscriptionDeleteIn(BaseModel):
     endpoint: str = Field(..., min_length=20, max_length=2048)
+    market_scope: Literal["kr", "us"] = "kr"
 
 
 class DailyPriceOut(BaseModel):

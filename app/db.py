@@ -103,6 +103,37 @@ def init_db() -> None:
     if "notification_preferences" not in push_subscription_columns:
         with engine.begin() as connection:
             connection.execute(text('ALTER TABLE "push_subscription" ADD COLUMN "notification_preferences" TEXT'))
+    if "market_scope" not in push_subscription_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    'ALTER TABLE "push_subscription" ADD COLUMN "market_scope" '
+                    "VARCHAR(8) NOT NULL DEFAULT 'kr'"
+                )
+            )
+            connection.execute(
+                text(
+                    'CREATE INDEX IF NOT EXISTS "ix_push_subscription_market_scope" '
+                    'ON "push_subscription" ("market_scope")'
+                )
+            )
+    push_history_columns = {
+        column["name"] for column in inspector.get_columns("push_notification_history")
+    }
+    if "market_scope" not in push_history_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    'ALTER TABLE "push_notification_history" ADD COLUMN "market_scope" '
+                    "VARCHAR(8) NOT NULL DEFAULT 'kr'"
+                )
+            )
+            connection.execute(
+                text(
+                    'CREATE INDEX IF NOT EXISTS "ix_push_notification_history_market_scope" '
+                    'ON "push_notification_history" ("market_scope")'
+                )
+            )
     watchlist_item_columns = {column["name"] for column in inspector.get_columns("watchlist_item")}
     if "investor_state" not in watchlist_item_columns:
         with engine.begin() as connection:

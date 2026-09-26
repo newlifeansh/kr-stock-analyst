@@ -238,8 +238,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="home-view" class="app-page app-home"' in response.text
     assert 'id="search-view" class="app-page app-search"' in response.text
     assert 'id="bottom-nav" aria-label="주요 메뉴"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260924us113"' in response.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us113&amp;build=20260924us113"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260926us121"' in response.text
+    assert 'href="/assets/dashboard/styles.css?v=20260926us121&amp;build=20260926us121"' in response.text
     assert 'setCopy("home-market-signal-title", "미국 시그널 감시 후보")' in source
     assert 'setCopy("home-ai-signals-title", "시그널 감시 후보")' in source
     assert 'signalPageTitle.textContent = "시그널 감시 후보"' in source
@@ -258,7 +258,7 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
-        .replace("20260924us113", "20260923v553")
+        .replace("20260926us121", "20260923v553")
     )
     assert normalized_us == dashboard.text
 
@@ -376,7 +376,8 @@ def test_domestic_surface_disables_unified_runtime_and_preserves_dormant_us_impl
     assert 'marketStockDashboardUrl(track.code, { item: track })' in source
     assert 'connectWatchlistQuoteStream(item.code, item);' in source
     assert 'elements.morningMoneyPopover.hidden = true;' in source
-    assert '.filter((option) => option.id !== "morning_briefing")' in source
+    assert 'label: "미국 시장 소식"' in source
+    assert '.filter((option) => option.id !== "morning_briefing")' not in source
     assert 'label: "미국장 시작·마감"' in source
     assert '? { key: "confirmation", label: "다음 확인", value: "미국 정규장 종가" }' in source
     assert 'if (domesticSource) domesticSource.hidden = false;' in source
@@ -1301,8 +1302,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260924us113"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us113&amp;build=20260924us113"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260926us121"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260926us121&amp;build=20260926us121"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1592,7 +1593,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260924us113"}
+    assert version.json() == {"version": "20260926us121"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1601,9 +1602,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260924us113" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260926us121" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20260924us113")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20260926us121")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1617,15 +1618,19 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20260924us113"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20260926us121"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20260924us113' in worker.text
-    assert '"/dashboard-app-v170.js?v=20260924us113"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20260926us121' in worker.text
+    assert '"/dashboard-app-v170.js?v=20260926us121"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
+    assert 'self.addEventListener("push"' in worker.text
+    assert 'self.addEventListener("notificationclick"' in worker.text
+    assert 'requestedUrl.pathname.startsWith("/us")' in worker.text
+    assert 'data: { url: targetUrl, kind: payload.kind || "general", market_scope: "us" }' in worker.text
 
     legacy_worker = client.get("/nasdaq-sw.js")
     assert legacy_worker.status_code == 200
@@ -2388,7 +2393,7 @@ def test_dashboard_notification_button_opens_notification_page_before_settings()
         'const nextTab = tab.dataset.notificationTab || "all";',
         "pushNotificationHistoryScrollTop: new Map()",
         "renderPushNotificationHistory({ restoreScroll: true });",
-        'fetch(`/push/notifications/${encodeURIComponent(state.watchlistId)}`',
+        'fetch(`/push/notifications/${encodeURIComponent(state.watchlistId)}?market_scope=${marketScope}`',
         'elements.pushHistorySettings?.addEventListener("click", openPushSettingsFromHistory)',
     ):
         assert expected in source
@@ -2446,6 +2451,30 @@ def test_push_config_includes_briefing_and_domestic_market_signal_alerts():
     assert 'recommendation_update: "추천 업데이트"' in source
     shell = client.get("/dashboard?view=notifications").text
     assert 'data-notification-tab="recommendation_update">추천<' in shell
+
+
+def test_us_push_config_keeps_the_same_conditions_with_us_market_copy():
+    client = TestClient(app)
+
+    response = client.get("/push/config?market_scope=us")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["market_scope"] == "us"
+    assert payload["conditions"] == [item["id"] for item in payload["condition_options"]]
+    options = {item["id"]: item for item in payload["condition_options"]}
+    assert options["morning_briefing"]["required"] is True
+    assert options["morning_briefing"]["label"] == "미국 시장 소식"
+    assert options["market_session"]["label"] == "미국장 시작·마감"
+    assert options["ai_signal"]["required"] is True
+    assert "미국 관심종목" in options["ai_signal"]["description"]
+    assert "미국 대표 종목" in options["market_ai_signal"]["description"]
+    assert "SEC" in options["disclosure_report"]["description"]
+
+    source = client.get("/dashboard-app-v170.js").text
+    assert "function pushMarketScope()" in source
+    assert 'body: JSON.stringify({ ...subscription.toJSON(), conditions, market_scope: marketScope })' in source
+    assert 'ensureWriteToken(shareId, { marketScope })' in source
 
 
 def test_secondary_pages_use_stock_detail_navigation_contract():
@@ -3053,8 +3082,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20260924us113"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260924us113&amp;build=20260924us113"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260926us121"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260926us121&amp;build=20260926us121"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()
@@ -3418,7 +3447,8 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert dashboard_app.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert '.filter((item) => includeHistorical || isCurrentAiSignalHolding(item) || isRecentAiSignal(item))' in dashboard_app.text
     assert "PUSH_HISTORY_SIGNAL_KINDS" in dashboard_app.text
-    assert "eventDate === receivedKstDate" in dashboard_app.text
+    assert "eventDate === receivedMarketDate" in dashboard_app.text
+    assert 'timeZone: "America/New_York"' in dashboard_app.text
     assert "window.setInterval(checkForUpdate, 60000);" in dashboard_app.text
     assert 'fetch(PRODUCT_VERSION_ENDPOINT, { cache: "no-store" })' in dashboard_app.text
     assert "registerDashboardVersionWatchdog();" in dashboard_app.text

@@ -290,7 +290,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260924us113"
+US_DASHBOARD_CLIENT_VERSION = "20260926us121"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -567,10 +567,60 @@ PUSH_CONDITION_OPTIONS = [
         "description": "관심종목에 영향이 큰 일정이 가까워지면 알려드립니다.",
     },
 ]
+
+US_PUSH_CONDITION_COPY = {
+    "morning_briefing": (
+        "미국 시장 소식",
+        "매일 오전 8시·낮 12시·오후 4시에 미국 시장 새 소식을 알려드립니다.",
+    ),
+    "market_session": (
+        "미국장 시작·마감",
+        "미국 정규장 시작과 마감 5분 전에 알려드립니다.",
+    ),
+    "ai_signal": (
+        "AI 시그널",
+        "미국 관심종목의 장 마감 기준 예비·확정 신호를 알려드립니다.",
+    ),
+    "market_ai_signal": (
+        "시장 AI 시그널",
+        "미국 대표 종목의 장 마감 기준 예비·확정 신호를 알려드립니다.",
+    ),
+    "recommendation_update": (
+        "추천 업데이트",
+        "미국 추천 상위 10 신규 진입과 매수·매도 단계 변경을 알려드립니다.",
+    ),
+    "price_move": (
+        "급등락",
+        f"미국 관심종목 변동이 {settings.web_push_price_threshold:.0f}% 이상이면 알려드립니다.",
+    ),
+    "disclosure_report": (
+        "중요 공시·리포트",
+        "새 SEC 공시와 애널리스트 변화 중 중요한 것만 알려드립니다.",
+    ),
+    "major_event": (
+        "주요 이벤트",
+        "미국 관심종목에 영향이 큰 시장 소식과 일정이 가까워지면 알려드립니다.",
+    ),
+}
 DEFAULT_PUSH_CONDITIONS = tuple(item["id"] for item in PUSH_CONDITION_OPTIONS)
 REQUIRED_PUSH_CONDITIONS = tuple(
     item["id"] for item in PUSH_CONDITION_OPTIONS if item.get("required")
 )
+
+
+def _push_market_scope(value: object) -> str:
+    return "us" if str(value or "").strip().lower() == "us" else "kr"
+
+
+def _push_condition_options(market_scope: object) -> list[dict[str, object]]:
+    options = deepcopy(PUSH_CONDITION_OPTIONS)
+    if _push_market_scope(market_scope) != "us":
+        return options
+    for option in options:
+        label, description = US_PUSH_CONDITION_COPY[str(option["id"])]
+        option["label"] = label
+        option["description"] = description
+    return options
 
 
 async def _run_bootstrap_task() -> None:
@@ -3911,12 +3961,14 @@ def put_watchlist(share_id: str, payload: WatchlistUpdateIn, request: Request, d
 
 
 @app.get("/push/config")
-def push_config():
+def push_config(market_scope: str = Query(default="kr", pattern="^(kr|us)$")):
+    scope = _push_market_scope(market_scope)
     return {
         "enabled": web_push_runtime.configured,
         "public_key": settings.web_push_vapid_public_key if web_push_runtime.configured else None,
+        "market_scope": scope,
         "conditions": list(DEFAULT_PUSH_CONDITIONS),
-        "condition_options": deepcopy(PUSH_CONDITION_OPTIONS),
+        "condition_options": _push_condition_options(scope),
         "price_threshold": settings.web_push_price_threshold,
     }
 
@@ -3925,18 +3977,22 @@ def push_config():
 def push_subscription_status(
     share_id: str,
     endpoint: str = Query(..., min_length=20, max_length=2048),
+    market_scope: str = Query(default="kr", pattern="^(kr|us)$"),
     db: Session = Depends(get_db),
 ):
-    normalized_id = _normalize_watchlist_id(share_id)
+    scope = _push_market_scope(market_scope)
+    normalized_id = _normalize_write_scope(share_id, scope)
     subscription = db.scalar(
         select(PushSubscription).where(
             PushSubscription.share_id == normalized_id,
             PushSubscription.endpoint == endpoint,
+            PushSubscription.market_scope == scope,
             PushSubscription.enabled.is_(True),
         )
     )
     return {
         "enabled": subscription is not None,
+        "market_scope": scope,
         "conditions": _subscription_conditions(subscription),
     }
 
@@ -3951,9 +4007,11 @@ def push_notification_history(
     share_id: str,
     request: Request,
     limit: int = Query(50, ge=1, le=100),
+    market_scope: str = Query(default="kr", pattern="^(kr|us)$"),
     db: Session = Depends(get_db),
 ):
-    normalized_id = _normalize_watchlist_id(share_id)
+    scope = _push_market_scope(market_scope)
+    normalized_id = _normalize_write_scope(share_id, scope)
     _require_write_access(request, normalized_id)
     cutoff = datetime.utcnow() - timedelta(days=3)
     db.execute(delete(PushNotificationHistory).where(PushNotificationHistory.created_at < cutoff))
@@ -3963,6 +4021,7 @@ def push_notification_history(
             select(PushNotificationHistory)
             .where(
                 PushNotificationHistory.share_id == normalized_id,
+                PushNotificationHistory.market_scope == scope,
                 PushNotificationHistory.created_at >= cutoff,
             )
             .order_by(desc(PushNotificationHistory.created_at), desc(PushNotificationHistory.id))
@@ -3995,6 +4054,7 @@ def push_notification_history(
                 "title": row.title,
                 "body": row.body,
                 "url": row.url,
+                "market_scope": row.market_scope,
                 "event_date": _push_notification_event_date(row),
                 "created_at": f"{row.created_at.isoformat(timespec='seconds')}Z",
             }
@@ -4010,7 +4070,8 @@ def save_push_subscription(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    normalized_id = _normalize_watchlist_id(share_id)
+    scope = _push_market_scope(payload.market_scope)
+    normalized_id = _normalize_write_scope(share_id, scope)
     _require_write_access(request, normalized_id)
     if not web_push_runtime.configured:
         raise HTTPException(status_code=503, detail="웹푸시 발송 키가 설정되지 않았습니다.")
@@ -4020,7 +4081,12 @@ def save_push_subscription(
     subscription = db.scalar(
         select(PushSubscription).where(PushSubscription.endpoint == payload.endpoint)
     )
-    should_test = subscription is None or not subscription.enabled or subscription.share_id != normalized_id
+    should_test = (
+        subscription is None
+        or not subscription.enabled
+        or subscription.share_id != normalized_id
+        or subscription.market_scope != scope
+    )
     if subscription is None:
         subscription = PushSubscription(
             share_id=normalized_id,
@@ -4028,6 +4094,7 @@ def save_push_subscription(
             p256dh=payload.keys.p256dh,
             auth=payload.keys.auth,
             notification_preferences=json.dumps(conditions, ensure_ascii=False),
+            market_scope=scope,
             user_agent=str(request.headers.get("user-agent") or "")[:500] or None,
         )
         db.add(subscription)
@@ -4038,6 +4105,7 @@ def save_push_subscription(
         subscription.p256dh = payload.keys.p256dh
         subscription.auth = payload.keys.auth
         subscription.notification_preferences = json.dumps(conditions, ensure_ascii=False)
+        subscription.market_scope = scope
         subscription.user_agent = str(request.headers.get("user-agent") or "")[:500] or None
         subscription.enabled = True
     db.commit()
@@ -4051,6 +4119,7 @@ def save_push_subscription(
         )
     return {
         "enabled": subscription.enabled,
+        "market_scope": scope,
         "test_required": should_test,
         "test_sent": test_sent,
         "conditions": conditions,
@@ -4064,7 +4133,8 @@ def test_push_subscription(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    normalized_id = _normalize_watchlist_id(share_id)
+    scope = _push_market_scope(payload.market_scope)
+    normalized_id = _normalize_write_scope(share_id, scope)
     _require_write_access(request, normalized_id)
     if not web_push_runtime.configured:
         raise HTTPException(status_code=503, detail="웹푸시 발송 키가 설정되지 않았습니다.")
@@ -4072,6 +4142,7 @@ def test_push_subscription(
         select(PushSubscription).where(
             PushSubscription.share_id == normalized_id,
             PushSubscription.endpoint == payload.endpoint,
+            PushSubscription.market_scope == scope,
             PushSubscription.enabled.is_(True),
         )
     )
@@ -4089,12 +4160,14 @@ def delete_push_subscription(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    normalized_id = _normalize_watchlist_id(share_id)
+    scope = _push_market_scope(payload.market_scope)
+    normalized_id = _normalize_write_scope(share_id, scope)
     _require_write_access(request, normalized_id)
     subscription = db.scalar(
         select(PushSubscription).where(
             PushSubscription.share_id == normalized_id,
             PushSubscription.endpoint == payload.endpoint,
+            PushSubscription.market_scope == scope,
         )
     )
     if subscription:

@@ -1,15 +1,15 @@
-const DASHBOARD_SW_VERSION = "20260924us113";
+const DASHBOARD_SW_VERSION = "20260926us121";
 const STATIC_CACHE = `secret-note-us-static-${DASHBOARD_SW_VERSION}`;
 const STATIC_ASSETS = [
   "/us?view=home",
-  "/assets/dashboard/styles.css?v=20260924us113&build=20260924us113",
+  "/assets/dashboard/styles.css?v=20260926us121&build=20260926us121",
   "/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts",
   "/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161-ai-signal-landing-v165-recommendation-overview-v166-recommendation-evidence-v169-domestic-market-v170",
   "/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161-ai-signal-landing-v165-recommendation-overview-v166-recommendation-evidence-v169-domestic-market-v170",
   "/assets/staging/ai-stock-response-logic.js?v=20260921-domestic-market-v116",
   "/assets/staging/stock-change-copy-logic.js?v=20260921-domestic-market-v116",
   "/assets/staging/toss-ia.js?v=20260921-domestic-market-v116",
-  "/dashboard-app-v170.js?v=20260924us113",
+  "/dashboard-app-v170.js?v=20260926us121",
   "/assets/dashboard/icons/icon-192.png?v=20260620bq",
   "/assets/dashboard/icons/icon-512.png?v=20260620bq",
   "/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq"
@@ -56,4 +56,46 @@ self.addEventListener("fetch", (event) => {
       }))
     );
   }
+});
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { title: "미국증시 새 알림", body: event.data?.text() || "미국 시장의 중요한 변화가 있어요." };
+  }
+  const requestedUrl = new URL(payload.url || "/us?view=portfolio&market_scope=us", self.location.origin);
+  const targetUrl = requestedUrl.origin === self.location.origin && requestedUrl.pathname.startsWith("/us")
+    ? requestedUrl.href
+    : new URL("/us?view=portfolio&market_scope=us", self.location.origin).href;
+  event.waitUntil(self.registration.showNotification(payload.title || "미국증시 새 알림", {
+    body: payload.body || "미국 시장의 중요한 변화가 있어요.",
+    icon: "/assets/dashboard/icons/icon-192.png?v=20260620bq",
+    badge: "/assets/dashboard/icons/icon-192.png?v=20260620bq",
+    tag: payload.tag || "secret-note-us-push",
+    renotify: true,
+    data: { url: targetUrl, kind: payload.kind || "general", market_scope: "us" },
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const requestedUrl = new URL(
+    event.notification.data?.url || "/us?view=portfolio&market_scope=us",
+    self.location.origin,
+  );
+  const targetUrl = requestedUrl.origin === self.location.origin && requestedUrl.pathname.startsWith("/us")
+    ? requestedUrl.href
+    : new URL("/us?view=portfolio&market_scope=us", self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if (new URL(client.url).pathname.startsWith("/us") && "focus" in client) {
+          return client.navigate(targetUrl).then(() => client.focus());
+        }
+      }
+      return self.clients.openWindow ? self.clients.openWindow(targetUrl) : undefined;
+    })
+  );
 });

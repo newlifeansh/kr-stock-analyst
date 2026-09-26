@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 import hashlib
@@ -48,6 +48,7 @@ from app.services.signal_reconciliations import (
     apply_stock_signal_reconciliations,
 )
 from app.services.us_market_calendar import us_market_session, us_signal_session_state
+from app.services.us_market import build_us_dashboard, build_us_recommendations, build_us_trends
 from app.services.us_position_lifecycle import load_us_position_lifecycle_snapshot
 from app.services.trends import (
     _matched_template_sectors,
@@ -94,6 +95,13 @@ MONEY_BRIEFING_PUSH_WINDOWS = (
         "낮 12시부터 오후 4시까지의 핵심 소식과 투자 포인트를 정리했어요.",
     ),
 )
+US_MARKET_NEWS_PUSH_WINDOWS = (
+    (time(8, 0), time(8, 5), "morning", "아침에 보는 미국 시장 소식"),
+    (time(12, 0), time(12, 5), "midday", "점심에 보는 미국 시장 소식"),
+    (time(16, 0), time(16, 5), "afternoon", "오후에 보는 미국 시장 소식"),
+)
+US_CONTENT_SCAN_INTERVAL = timedelta(minutes=10)
+IMPORTANT_SEC_FORMS = frozenset({"8-K", "10-Q", "10-K", "6-K", "20-F", "DEF 14A"})
 
 IMPORTANT_DISCLOSURE_CATEGORIES = {
     "earnings_flash",
@@ -144,6 +152,13 @@ MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN = re.compile(
 )
 US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN = re.compile(
     r"^us-market-ai-preliminary:([^:]+):(buy|sell):(\d{4}-\d{2}-\d{2})$"
+)
+US_WATCHLIST_SIGNAL_EVENT_PATTERN = re.compile(
+    r"^us-ai-signal:([^:]+):([^:]+):(\d{4}-\d{2}-\d{2})$"
+)
+US_PRICE_EVENT_DATE_PATTERN = re.compile(r"^us-price:(\d{4}-\d{2}-\d{2}):")
+US_MARKET_SESSION_EVENT_PATTERN = re.compile(
+    r"^us-market-session:(?:open|close):(\d{4}-\d{2}-\d{2})$"
 )
 WATCHLIST_SIGNAL_EVENT_PATTERN = re.compile(
     r"^ai-signal:([^:]+):"
@@ -211,7 +226,10 @@ def notification_history_signal_name(title: str) -> str:
 def notification_history_event_date(kind: str, event_key: str) -> Optional[date]:
     if kind not in MARKET_NOTIFICATION_KINDS:
         return None
-    pattern = PRICE_EVENT_DATE_PATTERN if kind == "price_move" else SIGNAL_EVENT_DATE_PATTERN
+    if kind == "price_move" and str(event_key or "").startswith("us-price:"):
+        pattern = US_PRICE_EVENT_DATE_PATTERN
+    else:
+        pattern = PRICE_EVENT_DATE_PATTERN if kind == "price_move" else SIGNAL_EVENT_DATE_PATTERN
     match = pattern.search(event_key or "")
     if not match:
         return None
@@ -239,6 +257,23 @@ def notification_history_signal_context(
             "side": side,
             "phase": "preliminary",
             "action": "entry_pending" if side == "buy" else "full_exit_pending",
+            "event_date": event_date,
+            "market_scope": "us",
+        }
+    us_watchlist_match = US_WATCHLIST_SIGNAL_EVENT_PATTERN.fullmatch(event_key or "")
+    if us_watchlist_match:
+        code, action, event_date = us_watchlist_match.groups()
+        preliminary = action in {
+            "entry_watch",
+            "entry_pending",
+            "partial_exit_pending",
+            "full_exit_pending",
+        }
+        return {
+            "code": code,
+            "side": "sell" if action in {"partial_exit_pending", "full_exit_pending", "exited"} else "buy",
+            "phase": "preliminary" if preliminary else "confirmed",
+            "action": action,
             "event_date": event_date,
             "market_scope": "us",
         }
@@ -284,7 +319,12 @@ def notification_history_is_valid(
     received_at = created_at
     if received_at.tzinfo is None:
         received_at = received_at.replace(tzinfo=timezone.utc)
-    if US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN.fullmatch(event_key or ""):
+    if (
+        US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN.fullmatch(event_key or "")
+        or US_WATCHLIST_SIGNAL_EVENT_PATTERN.fullmatch(event_key or "")
+        or US_PRICE_EVENT_DATE_PATTERN.match(event_key or "")
+        or US_MARKET_SESSION_EVENT_PATTERN.fullmatch(event_key or "")
+    ):
         try:
             session = us_market_session(event_date)
         except Exception:
@@ -335,6 +375,7 @@ class NotificationCandidate:
     stock_codes: tuple[str, ...] = ()
     ttl_seconds: int = PUSH_DELIVERY_TTL_SECONDS
     predecessor_event_key: Optional[str] = None
+    market_scope: str = "kr"
 
 
 @dataclass(frozen=True)
@@ -368,7 +409,13 @@ def subscription_conditions(subscription: PushSubscription) -> set[str]:
     return REQUIRED_PUSH_CONDITIONS | (normalized or set(DEFAULT_PUSH_CONDITIONS))
 
 
+def subscription_market_scope(subscription: PushSubscription) -> str:
+    return "us" if str(subscription.market_scope or "").strip().lower() == "us" else "kr"
+
+
 def candidate_enabled(subscription: PushSubscription, candidate: NotificationCandidate) -> bool:
+    if subscription_market_scope(subscription) != candidate.market_scope:
+        return False
     if candidate.kind == "test":
         return True
     condition = PUSH_KIND_TO_CONDITION.get(candidate.kind)
@@ -766,8 +813,9 @@ def _recommendation_batch_candidate(
             for code in candidate.stock_codes
         )
     )
+    scope_prefix = "us-" if representative.market_scope == "us" else ""
     return NotificationCandidate(
-        event_key=f"recommendation-batch:{now.date().isoformat()}:{digest}",
+        event_key=f"{scope_prefix}recommendation-batch:{now.date().isoformat()}:{digest}",
         kind="recommendation_update",
         title=f"{representative_name} 외 {additional_count}건의 추천종목이 업데이트되었어요",
         body=(
@@ -775,9 +823,10 @@ def _recommendation_batch_candidate(
             f"{representative_name}의 상세에서 변경 내용을 확인하세요."
         ),
         url=representative.url,
-        tag=f"recommendation-batch-{now.date().isoformat()}-{digest}",
+        tag=f"{scope_prefix}recommendation-batch-{now.date().isoformat()}-{digest}",
         occurred_at=now,
         stock_codes=stock_codes,
+        market_scope=representative.market_scope,
     )
 
 
@@ -802,6 +851,8 @@ class WebPushRuntime:
         self.last_success_at: Optional[datetime] = None
         self.last_error: Optional[str] = None
         self.last_recommendation_scan_at: Optional[datetime] = None
+        self.last_recommendation_scan_by_scope: dict[str, datetime] = {}
+        self.last_us_content_scan_at: Optional[datetime] = None
 
     @property
     def configured(self) -> bool:
@@ -915,6 +966,298 @@ class WebPushRuntime:
                     )
                 ]
         return []
+
+    @staticmethod
+    def _us_market_news_candidates(now: datetime) -> list[NotificationCandidate]:
+        """Mirror the domestic scheduled-news condition with US-only content."""
+
+        current = now.astimezone(KST) if now.tzinfo else now.replace(tzinfo=KST)
+        for starts_at, ends_at, edition, title in US_MARKET_NEWS_PUSH_WINDOWS:
+            if not starts_at <= current.time() < ends_at:
+                continue
+            publication_date = current.date().isoformat()
+            return [
+                NotificationCandidate(
+                    event_key=f"us-market-news:{publication_date}:{edition}",
+                    kind="morning_briefing",
+                    title=title,
+                    body="미국 시장의 최신 뉴스와 주요 종목 영향을 확인하세요.",
+                    url="/us?view=news&market_scope=us",
+                    tag=f"us-market-news-{publication_date}-{edition}",
+                    occurred_at=current,
+                    ttl_seconds=MONEY_BRIEFING_PUSH_TTL_SECONDS,
+                    market_scope="us",
+                )
+            ]
+        return []
+
+    @staticmethod
+    def _us_market_session_candidates(now: datetime) -> list[NotificationCandidate]:
+        """Use the XNYS calendar so DST, holidays, and early closes stay correct."""
+
+        current = now if now.tzinfo and now.utcoffset() is not None else now.replace(tzinfo=timezone.utc)
+        current = current.astimezone(timezone.utc)
+        local_date = current.astimezone(NEW_YORK_TZ).date()
+        try:
+            session = us_market_session(local_date)
+        except Exception:
+            logger.exception("US market-session notification calendar lookup failed")
+            return []
+        if session is None:
+            return []
+        windows = (
+            (
+                session.open_at - timedelta(minutes=5),
+                session.open_at,
+                "open",
+                "미국장 시작 5분 전",
+                "잠시 뒤 미국 정규장이 시작돼요.",
+            ),
+            (
+                session.close_at - timedelta(minutes=5),
+                session.close_at,
+                "close",
+                "미국장 마감 5분 전",
+                "잠시 뒤 미국 정규장이 마감돼요.",
+            ),
+        )
+        for starts_at, ends_at, phase, title, body in windows:
+            if starts_at <= current < ends_at:
+                session_date = session.session_date.isoformat()
+                return [
+                    NotificationCandidate(
+                        event_key=f"us-market-session:{phase}:{session_date}",
+                        kind="market_session",
+                        title=title,
+                        body=body,
+                        url="/us?view=home&market_scope=us",
+                        tag=f"us-market-session-{phase}-{session_date}",
+                        occurred_at=current,
+                        market_scope="us",
+                    )
+                ]
+        return []
+
+    @staticmethod
+    def _us_price_candidates(
+        watchlists: dict[str, list[WatchlistItem]],
+        snapshot: object,
+        threshold: Decimal,
+        now: datetime,
+    ) -> dict[str, list[NotificationCandidate]]:
+        output = {share_id: [] for share_id in watchlists}
+        if not isinstance(snapshot, dict) or snapshot.get("status") != "ready":
+            return output
+        rows = {
+            str(item.get("code") or "").strip().upper(): item
+            for item in snapshot.get("items") or []
+            if isinstance(item, dict)
+        }
+        for share_id, items in watchlists.items():
+            for item in items:
+                row = rows.get(item.code.upper())
+                if not row:
+                    continue
+                try:
+                    change_rate = Decimal(str(row.get("change_rate")))
+                except Exception:
+                    continue
+                if not change_rate.is_finite() or abs(change_rate) < threshold:
+                    continue
+                event_date = str(row.get("signal_date") or snapshot.get("universe_as_of") or "")[:10]
+                try:
+                    date.fromisoformat(event_date)
+                except ValueError:
+                    continue
+                direction = "rise" if change_rate > 0 else "fall"
+                direction_label = "급등" if change_rate > 0 else "급락"
+                price = row.get("price")
+                price_text = f" · ${Decimal(str(price)):,.2f}" if price is not None else ""
+                output[share_id].append(
+                    NotificationCandidate(
+                        event_key=(
+                            f"us-price:{event_date}:{item.code.upper()}:{direction}:{threshold}"
+                        ),
+                        kind="price_move",
+                        title=f"{item.name} {direction_label} {change_rate:+.2f}%",
+                        body=f"미국 관심종목 변동이 {threshold:.0f}% 기준을 넘었습니다{price_text}.",
+                        url=_us_stock_url(item.code),
+                        tag=f"us-price-{item.code.upper()}-{direction}",
+                        occurred_at=now,
+                        stock_codes=(item.code.upper(),),
+                        market_scope="us",
+                    )
+                )
+        return output
+
+    @staticmethod
+    def _us_watchlist_signal_candidates(
+        watchlists: dict[str, list[WatchlistItem]],
+        snapshot: object,
+        now: datetime,
+    ) -> dict[str, list[NotificationCandidate]]:
+        output = {share_id: [] for share_id in watchlists}
+        if not isinstance(snapshot, dict) or snapshot.get("status") != "ready":
+            return output
+        signal_date = str(snapshot.get("universe_as_of") or "")[:10]
+        try:
+            date.fromisoformat(signal_date)
+        except ValueError:
+            return output
+        rows = {
+            str(item.get("code") or "").strip().upper(): item
+            for item in snapshot.get("items") or []
+            if isinstance(item, dict)
+        }
+        labels = {
+            "entry_watch": "예비 포착",
+            "entry_pending": "예비 매수",
+            "entered": "전략 매수 확정",
+            "holding": "전략 보유",
+            "partial_exit_pending": "수익확정 대기",
+            "partially_exited": "수익확정",
+            "full_exit_pending": "전략 매도 대기",
+            "exited": "전략 매도 확정",
+        }
+        for share_id, items in watchlists.items():
+            for item in items:
+                row = rows.get(item.code.upper())
+                current_signal = row.get("current") if isinstance(row, dict) else None
+                if not isinstance(current_signal, dict):
+                    continue
+                action = str(current_signal.get("action") or "").strip()
+                label = labels.get(action)
+                if not label:
+                    continue
+                lifecycle = (
+                    current_signal.get("lifecycle")
+                    if isinstance(current_signal.get("lifecycle"), dict)
+                    else {}
+                )
+                transition = (
+                    lifecycle.get("latest_transition")
+                    if isinstance(lifecycle.get("latest_transition"), dict)
+                    else {}
+                )
+                transition_date = str(
+                    transition.get("transition_date") or transition.get("signal_date") or ""
+                )[:10]
+                if action not in {"entry_watch", "entry_pending", "partial_exit_pending", "full_exit_pending"} and transition_date != signal_date:
+                    continue
+                body = str(
+                    current_signal.get("next_confirmation")
+                    or "종목 상세에서 미국장 기준과 다음 확인 조건을 확인하세요."
+                )
+                output[share_id].append(
+                    NotificationCandidate(
+                        event_key=f"us-ai-signal:{item.code.upper()}:{action}:{signal_date}",
+                        kind="ai_signal",
+                        title=_signal_notification_title(item.name, label, action),
+                        body=body,
+                        url=_us_stock_url(item.code),
+                        tag=f"us-ai-signal-{item.code.upper()}",
+                        occurred_at=now,
+                        stock_codes=(item.code.upper(),),
+                        market_scope="us",
+                    )
+                )
+        return output
+
+    def _us_content_candidates(
+        self,
+        watchlists: dict[str, list[WatchlistItem]],
+        now: datetime,
+    ) -> dict[str, list[NotificationCandidate]]:
+        output = {share_id: [] for share_id in watchlists}
+        if (
+            self.last_us_content_scan_at is not None
+            and now - self.last_us_content_scan_at < US_CONTENT_SCAN_INTERVAL
+        ):
+            return output
+        self.last_us_content_scan_at = now
+        codes = {item.code.upper() for items in watchlists.values() for item in items}
+        dashboards: dict[str, dict[str, object]] = {}
+        if codes:
+            with ThreadPoolExecutor(max_workers=min(6, len(codes))) as executor:
+                futures = {executor.submit(build_us_dashboard, code): code for code in codes}
+                for future in as_completed(futures):
+                    try:
+                        payload = future.result()
+                    except Exception:
+                        continue
+                    if isinstance(payload, dict):
+                        dashboards[futures[future]] = payload
+        cutoff = now - timedelta(hours=24)
+        for share_id, items in watchlists.items():
+            for item in items:
+                dashboard = dashboards.get(item.code.upper()) or {}
+                guidance = dashboard.get("guidance") if isinstance(dashboard, dict) else {}
+                filings = guidance.get("latest_events") if isinstance(guidance, dict) else []
+                for filing in filings or []:
+                    if not isinstance(filing, dict) or str(filing.get("form") or "") not in IMPORTANT_SEC_FORMS:
+                        continue
+                    published_at = filing.get("published_at")
+                    if not isinstance(published_at, datetime):
+                        continue
+                    if published_at.tzinfo is None:
+                        published_at = published_at.replace(tzinfo=timezone.utc)
+                    if published_at.astimezone(timezone.utc) < cutoff:
+                        continue
+                    identity = str(filing.get("accession_number") or filing.get("url") or filing.get("title") or "")
+                    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
+                    output[share_id].append(
+                        NotificationCandidate(
+                            event_key=f"us-filing:{item.code.upper()}:{digest}",
+                            kind="disclosure",
+                            title=f"{item.name} 중요 SEC 공시",
+                            body=str(filing.get("title") or filing.get("original_title") or "새 SEC 공시"),
+                            url=_us_stock_url(item.code),
+                            tag=f"us-filing-{item.code.upper()}",
+                            occurred_at=published_at,
+                            stock_codes=(item.code.upper(),),
+                            market_scope="us",
+                        )
+                    )
+        try:
+            trends = build_us_trends(days=2, now=now)
+        except Exception:
+            trends = {}
+        watched_names = {
+            share_id: {item.code.upper(): item.name for item in items}
+            for share_id, items in watchlists.items()
+        }
+        for news in ((trends.get("timeline") or []) if isinstance(trends, dict) else []):
+            if not isinstance(news, dict):
+                continue
+            published_at = news.get("published_at")
+            if not isinstance(published_at, datetime):
+                continue
+            if published_at.tzinfo is None:
+                published_at = published_at.replace(tzinfo=timezone.utc)
+            if published_at.astimezone(timezone.utc) < cutoff:
+                continue
+            leaders = {str(code).upper() for code in news.get("leader_stocks") or []}
+            for share_id, names in watched_names.items():
+                matched = sorted(leaders & set(names))
+                if not matched:
+                    continue
+                event_id = str(news.get("id") or "") or hashlib.sha256(
+                    str(news.get("url") or news.get("title") or "").encode("utf-8")
+                ).hexdigest()[:20]
+                output[share_id].append(
+                    NotificationCandidate(
+                        event_key=f"us-major-event:{event_id}",
+                        kind="major_event",
+                        title=f"미국 주요 소식 · {news.get('title')}",
+                        body=f"{', '.join(names[code] for code in matched[:3])}에 영향을 줄 수 있어요.",
+                        url="/us?view=news&market_scope=us",
+                        tag=f"us-major-event-{event_id}",
+                        occurred_at=published_at,
+                        stock_codes=tuple(matched),
+                        market_scope="us",
+                    )
+                )
+        return output
 
     def _content_candidates(
         self,
@@ -1165,6 +1508,7 @@ class WebPushRuntime:
         self,
         db: Session,
         now: Optional[datetime] = None,
+        snapshot: Optional[dict[str, object]] = None,
     ) -> list[NotificationCandidate]:
         """Build fresh US close-signal alerts from the canonical snapshot only."""
 
@@ -1186,7 +1530,7 @@ class WebPushRuntime:
         if not refresh_after <= current < refresh_after + US_SIGNAL_NOTIFICATION_WINDOW:
             return []
 
-        snapshot = load_us_position_lifecycle_snapshot(db, now=current)
+        snapshot = snapshot or load_us_position_lifecycle_snapshot(db, now=current)
         if not isinstance(snapshot, dict):
             return []
         if (
@@ -1249,6 +1593,7 @@ class WebPushRuntime:
                     tag=f"us-market-ai-signal-{code}",
                     occurred_at=current,
                     stock_codes=(code,),
+                    market_scope="us",
                 )
             )
         return candidates
@@ -1257,15 +1602,24 @@ class WebPushRuntime:
         self,
         db: Session,
         now: datetime,
+        market_scope: str = "kr",
     ) -> Optional[dict[str, object]]:
         interval = max(60, int(self.settings.web_push_recommendation_poll_seconds))
+        previous_scan_at = self.last_recommendation_scan_by_scope.get(market_scope)
         if (
-            self.last_recommendation_scan_at is not None
-            and (now - self.last_recommendation_scan_at).total_seconds() < interval
+            previous_scan_at is not None
+            and (now - previous_scan_at).total_seconds() < interval
         ):
             return None
+        self.last_recommendation_scan_by_scope[market_scope] = now
         self.last_recommendation_scan_at = now
         try:
+            if market_scope == "us":
+                return build_us_recommendations(
+                    db=db,
+                    limit=RECOMMENDATION_PUSH_LIMIT,
+                    candidate_limit=45,
+                )
             return build_recommendations(
                 db,
                 limit=RECOMMENDATION_PUSH_LIMIT,
@@ -1282,7 +1636,10 @@ class WebPushRuntime:
         preference_epoch = (subscription.updated_at or subscription.created_at).isoformat(
             timespec="microseconds"
         )
-        return f"recommendation-state:{subscription.id}:{preference_epoch}"
+        return (
+            f"recommendation-state:{subscription_market_scope(subscription)}:"
+            f"{subscription.id}:{preference_epoch}"
+        )
 
     def _recommendation_state(
         self,
@@ -1456,6 +1813,7 @@ class WebPushRuntime:
         subscription: PushSubscription,
         payload: dict[str, object],
         now: datetime,
+        market_scope: str = "kr",
     ) -> int:
         items, candidates, initialized = self._recommendation_changes(
             db,
@@ -1469,6 +1827,23 @@ class WebPushRuntime:
             self._replace_recommendation_state(db, subscription, items)
             db.commit()
             return 0
+
+        if market_scope == "us":
+            candidates = [
+                replace(
+                    candidate,
+                    event_key=f"us-{candidate.event_key}",
+                    url=(
+                        _us_stock_url(candidate.stock_codes[0])
+                        if candidate.stock_codes
+                        else "/us?view=recommend&market_scope=us"
+                    ),
+                    tag=f"us-{candidate.tag}",
+                    predecessor_event_key=None,
+                    market_scope="us",
+                )
+                for candidate in candidates
+            ]
 
         if len(candidates) >= RECOMMENDATION_BATCH_THRESHOLD:
             # Keep recommendation updates behind every required market-signal
@@ -1502,7 +1877,13 @@ class WebPushRuntime:
         if not self._predecessor_delivery_ready(db, subscription, candidate):
             return False
         if candidate.kind in {"report", "disclosure"} and candidate.occurred_at:
-            if candidate.occurred_at < subscription.created_at:
+            occurred_at = candidate.occurred_at
+            created_at = subscription.created_at
+            if occurred_at.tzinfo is not None:
+                occurred_at = occurred_at.astimezone(timezone.utc).replace(tzinfo=None)
+            if created_at.tzinfo is not None:
+                created_at = created_at.astimezone(timezone.utc).replace(tzinfo=None)
+            if occurred_at < created_at:
                 return False
         delivery = db.scalar(
             select(PushDelivery).where(
@@ -1535,6 +1916,7 @@ class WebPushRuntime:
                 "url": candidate.url,
                 "tag": candidate.tag,
                 "kind": candidate.kind,
+                "market_scope": candidate.market_scope,
             },
             ensure_ascii=False,
         )
@@ -1576,6 +1958,7 @@ class WebPushRuntime:
                         title=candidate.title,
                         body=candidate.body,
                         url=candidate.url,
+                        market_scope=candidate.market_scope,
                     )
                 )
             db.commit()
@@ -1754,6 +2137,7 @@ class WebPushRuntime:
             return 0
         now_utc = datetime.utcnow()
         now_kst = datetime.now(KST).replace(tzinfo=None)
+        now_utc_aware = now_kst.replace(tzinfo=KST).astimezone(timezone.utc)
         with PushSessionLocal() as db:
             db.execute(
                 delete(PushNotificationHistory).where(
@@ -1771,16 +2155,12 @@ class WebPushRuntime:
             )
             if not subscriptions:
                 return 0
-            recommendation_subscriptions = [
-                subscription
-                for subscription in subscriptions
-                if "recommendation_update" in subscription_conditions(subscription)
+            domestic_subscriptions = [
+                item for item in subscriptions if subscription_market_scope(item) == "kr"
             ]
-            recommendation_snapshot = (
-                self._recommendation_snapshot(db, now_kst)
-                if recommendation_subscriptions
-                else None
-            )
+            us_subscriptions = [
+                item for item in subscriptions if subscription_market_scope(item) == "us"
+            ]
             share_ids = sorted({item.share_id for item in subscriptions})
             watch_items = list(
                 db.scalars(
@@ -1792,39 +2172,120 @@ class WebPushRuntime:
             watchlists = {share_id: [] for share_id in share_ids}
             for item in watch_items:
                 watchlists[item.share_id].append(item)
-
-            regular_market_open = is_korea_regular_market_session(now_kst)
-            snapshots = self._quote_snapshots({item.code for item in watch_items}) if regular_market_open else {}
             candidates_by_share = {share_id: [] for share_id in share_ids}
             threshold = Decimal(str(self.settings.web_push_price_threshold))
-            if regular_market_open:
-                for share_id, items in watchlists.items():
-                    for item in items:
-                        candidate = _price_candidate(item, snapshots.get(item.code, {}), now_kst, threshold)
-                        if candidate:
-                            candidates_by_share[share_id].append(candidate)
-            for source in (
-                self._ai_signal_candidates(db, watchlists, now_kst, snapshots),
-                self._content_candidates(db, watchlists, now_utc),
-                self._event_candidates(db, watchlists, now_kst),
-            ):
-                for share_id, candidates in source.items():
-                    candidates_by_share[share_id].extend(candidates)
 
-            market_signal_candidates = self._market_ai_signal_candidates(db, now_kst)
-            us_market_signal_candidates = (
-                self._us_market_ai_signal_candidates(
-                    db,
-                    now_kst.replace(tzinfo=KST).astimezone(timezone.utc),
+            domestic_share_ids = {item.share_id for item in domestic_subscriptions}
+            domestic_watchlists = {
+                share_id: watchlists.get(share_id, []) for share_id in domestic_share_ids
+            }
+            domestic_quotes: dict[str, dict[str, object]] = {}
+            if domestic_subscriptions:
+                regular_market_open = is_korea_regular_market_session(now_kst)
+                domestic_items = [
+                    item for items in domestic_watchlists.values() for item in items
+                ]
+                domestic_quotes = (
+                    self._quote_snapshots({item.code for item in domestic_items})
+                    if regular_market_open
+                    else {}
                 )
+                if regular_market_open:
+                    for share_id, items in domestic_watchlists.items():
+                        for item in items:
+                            candidate = _price_candidate(
+                                item,
+                                domestic_quotes.get(item.code, {}),
+                                now_kst,
+                                threshold,
+                            )
+                            if candidate:
+                                candidates_by_share[share_id].append(candidate)
+                for source in (
+                    self._ai_signal_candidates(
+                        db, domestic_watchlists, now_kst, domestic_quotes
+                    ),
+                    self._content_candidates(db, domestic_watchlists, now_utc),
+                    self._event_candidates(db, domestic_watchlists, now_kst),
+                ):
+                    for share_id, candidates in source.items():
+                        candidates_by_share[share_id].extend(candidates)
+
+            us_snapshot: Optional[dict[str, object]] = None
+            us_market_signal_candidates: list[NotificationCandidate] = []
+            us_share_ids = {item.share_id for item in us_subscriptions}
+            us_watchlists = {
+                share_id: watchlists.get(share_id, []) for share_id in us_share_ids
+            }
+            if us_subscriptions and self.settings.us_market_enabled:
+                try:
+                    us_snapshot = load_us_position_lifecycle_snapshot(db, now=now_utc_aware)
+                except Exception:
+                    logger.exception("US push snapshot read failed")
+                    us_snapshot = None
+                for source in (
+                    self._us_watchlist_signal_candidates(
+                        us_watchlists, us_snapshot, now_utc_aware
+                    ),
+                    self._us_price_candidates(
+                        us_watchlists, us_snapshot, threshold, now_utc_aware
+                    ),
+                    self._us_content_candidates(us_watchlists, now_utc_aware),
+                ):
+                    for share_id, candidates in source.items():
+                        candidates_by_share[share_id].extend(candidates)
+                us_market_signal_candidates = self._us_market_ai_signal_candidates(
+                    db,
+                    now_utc_aware,
+                    snapshot=us_snapshot,
+                )
+
+            domestic_recommendation_snapshot = (
+                self._recommendation_snapshot(db, now_kst, "kr")
+                if any(
+                    "recommendation_update" in subscription_conditions(item)
+                    for item in domestic_subscriptions
+                )
+                else None
+            )
+            us_recommendation_snapshot = (
+                self._recommendation_snapshot(db, now_kst, "us")
                 if self.settings.us_market_enabled
+                and any(
+                    "recommendation_update" in subscription_conditions(item)
+                    for item in us_subscriptions
+                )
+                else None
+            )
+            domestic_market_signal_candidates = (
+                self._market_ai_signal_candidates(db, now_kst)
+                if domestic_subscriptions
                 else []
             )
-            morning_briefing_candidates = self._morning_briefing_candidates(now_kst)
-            market_session_candidates = self._market_session_candidates(now_kst)
+            domestic_briefing_candidates = (
+                self._morning_briefing_candidates(now_kst)
+                if domestic_subscriptions
+                else []
+            )
+            domestic_session_candidates = (
+                self._market_session_candidates(now_kst)
+                if domestic_subscriptions
+                else []
+            )
+            us_briefing_candidates = (
+                self._us_market_news_candidates(now_kst)
+                if us_subscriptions and self.settings.us_market_enabled
+                else []
+            )
+            us_session_candidates = (
+                self._us_market_session_candidates(now_utc_aware)
+                if us_subscriptions and self.settings.us_market_enabled
+                else []
+            )
 
             sent = 0
             for subscription in subscriptions:
+                scope = subscription_market_scope(subscription)
                 items = watchlists.get(subscription.share_id, [])
                 initialized_codes = self._initialized_watch_codes(db, subscription, items)
                 for candidate in candidates_by_share.get(subscription.share_id, []):
@@ -1834,19 +2295,20 @@ class WebPushRuntime:
                         continue
                     sent += int(self._send(db, subscription, candidate))
                 self._mark_watchlist_initialized(db, subscription, items, initialized_codes)
-                for candidate in morning_briefing_candidates:
+
+                briefing_candidates = (
+                    us_briefing_candidates if scope == "us" else domestic_briefing_candidates
+                )
+                session_candidates = (
+                    us_session_candidates if scope == "us" else domestic_session_candidates
+                )
+                for candidate in briefing_candidates:
                     sent += int(self._send(db, subscription, candidate))
-                for candidate in market_session_candidates:
+                for candidate in session_candidates:
                     sent += int(self._send(db, subscription, candidate))
+
                 if "market_ai_signal" in subscription_conditions(subscription):
-                    if self._market_signal_initialized(db, subscription):
-                        for candidate in market_signal_candidates:
-                            sent += int(self._send(db, subscription, candidate))
-                    else:
-                        for candidate in market_signal_candidates:
-                            self._record_candidate_baseline(db, subscription, candidate)
-                        self._mark_market_signal_initialized(db, subscription)
-                    if self.settings.us_market_enabled:
+                    if scope == "us":
                         if self._us_market_signal_initialized(db, subscription):
                             for candidate in us_market_signal_candidates:
                                 sent += int(self._send(db, subscription, candidate))
@@ -1854,6 +2316,19 @@ class WebPushRuntime:
                             for candidate in us_market_signal_candidates:
                                 self._record_candidate_baseline(db, subscription, candidate)
                             self._mark_us_market_signal_initialized(db, subscription)
+                    elif self._market_signal_initialized(db, subscription):
+                        for candidate in domestic_market_signal_candidates:
+                            sent += int(self._send(db, subscription, candidate))
+                    else:
+                        for candidate in domestic_market_signal_candidates:
+                            self._record_candidate_baseline(db, subscription, candidate)
+                        self._mark_market_signal_initialized(db, subscription)
+
+                recommendation_snapshot = (
+                    us_recommendation_snapshot
+                    if scope == "us"
+                    else domestic_recommendation_snapshot
+                )
                 if (
                     recommendation_snapshot is not None
                     and "recommendation_update" in subscription_conditions(subscription)
@@ -1863,23 +2338,34 @@ class WebPushRuntime:
                         subscription,
                         recommendation_snapshot,
                         now_kst,
+                        market_scope=scope,
                     )
                 db.commit()
             return sent
 
     def send_test(self, db: Session, subscription: PushSubscription) -> bool:
         now = datetime.utcnow()
+        scope = subscription_market_scope(subscription)
         return self._send(
             db,
             subscription,
             NotificationCandidate(
                 event_key=f"test:{subscription.id}:{now.isoformat(timespec='seconds')}",
                 kind="test",
-                title="알림 설정 완료",
-                body="추천 업데이트, AI 시그널, 급등락, 중요 공시·리포트를 알려드립니다.",
-                url="/dashboard?view=watchlist",
-                tag="push-test",
+                title="미국증시 알림 설정 완료" if scope == "us" else "알림 설정 완료",
+                body=(
+                    "미국 시장 소식, 추천 업데이트, AI 시그널, 급등락, 중요 SEC 공시를 알려드립니다."
+                    if scope == "us"
+                    else "추천 업데이트, AI 시그널, 급등락, 중요 공시·리포트를 알려드립니다."
+                ),
+                url=(
+                    "/us?view=portfolio&market_scope=us"
+                    if scope == "us"
+                    else "/dashboard?view=watchlist"
+                ),
+                tag=f"{scope}-push-test",
                 occurred_at=now,
+                market_scope=scope,
             ),
         )
 

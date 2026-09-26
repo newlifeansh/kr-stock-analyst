@@ -12974,8 +12974,14 @@ function pushNotificationOptions() {
   const options = state.pushConfig?.condition_options || PUSH_NOTIFICATION_FALLBACK_OPTIONS;
   const marketOptions = isUsHubContext && state.marketScope === "us"
     ? options
-      .filter((option) => option.id !== "morning_briefing")
       .map((option) => {
+        if (option.id === "morning_briefing") {
+          return {
+            ...option,
+            label: "미국 시장 소식",
+            description: "매일 오전 8시·낮 12시·오후 4시에 미국 시장 새 소식을 알려드립니다.",
+          };
+        }
         if (option.id === "market_session") {
           return {
             ...option,
@@ -13394,6 +13400,21 @@ const PUSH_HISTORY_KIND_LABELS = {
 const PUSH_HISTORY_WATCHLIST_KINDS = new Set(["price_move", "report", "disclosure"]);
 const PUSH_HISTORY_SIGNAL_KINDS = new Set(["ai_signal", "market_ai_signal"]);
 
+function pushHistoryMarketDate(timestamp, marketScope = "kr") {
+  if (marketScope !== "us") {
+    return new Date(timestamp + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  }
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date(timestamp)).map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 function pushHistoryCacheKey() {
   return scopedStorageKey(PUSH_HISTORY_CACHE_PREFIX);
 }
@@ -13413,8 +13434,8 @@ function recentPushHistoryItems(items = []) {
       return true;
     }
     const eventDate = String(item?.event_date || "").trim();
-    const receivedKstDate = new Date(timestamp + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(eventDate) && eventDate === receivedKstDate;
+    const receivedMarketDate = pushHistoryMarketDate(timestamp, item?.market_scope);
+    return /^\d{4}-\d{2}-\d{2}$/.test(eventDate) && eventDate === receivedMarketDate;
   });
 }
 
@@ -13546,7 +13567,11 @@ function renderPushNotificationHistory(options = {}) {
     row.setAttribute("role", "listitem");
     const meta = el("span", "push-history-item-meta");
     const kind = el("span");
-    kind.textContent = PUSH_HISTORY_KIND_LABELS[item.kind] || "알림";
+    kind.textContent = item.market_scope === "us" && item.kind === "market_session"
+      ? "미국장"
+      : item.market_scope === "us" && item.kind === "morning_briefing"
+        ? "미국 시장 소식"
+        : PUSH_HISTORY_KIND_LABELS[item.kind] || "알림";
     const time = el("time");
     time.dateTime = item.created_at || "";
     const receivedTime = formattedTime.slice(11) || formattedTime;
@@ -13590,8 +13615,9 @@ async function loadPushNotificationHistory(options = {}) {
     }
   }
   try {
-    const writeToken = await ensureWriteToken(state.watchlistId);
-    const response = await fetch(`/push/notifications/${encodeURIComponent(state.watchlistId)}`, {
+    const marketScope = pushMarketScope();
+    const writeToken = await ensureWriteToken(state.watchlistId, { marketScope });
+    const response = await fetch(`/push/notifications/${encodeURIComponent(state.watchlistId)}?market_scope=${marketScope}`, {
       credentials: "same-origin",
       cache: "no-store",
       headers: { "X-Write-Token": writeToken },
@@ -14074,6 +14100,10 @@ function webPushSupported() {
   return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
 
+function pushMarketScope() {
+  return IS_US_ONLY_PRODUCT || (isUsHubContext && state.marketScope === "us") ? "us" : "kr";
+}
+
 function pushApplicationServerKey(value) {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
   const base64 = `${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
@@ -14195,7 +14225,7 @@ async function loadPushConfig() {
   if (state.pushConfig) {
     return state.pushConfig;
   }
-  const response = await fetch("/push/config", { cache: "no-store" });
+  const response = await fetch(`/push/config?market_scope=${pushMarketScope()}`, { cache: "no-store" });
   if (!response.ok) {
     throw new Error("push config failed");
   }
@@ -14212,7 +14242,8 @@ async function currentPushSubscription() {
 }
 
 async function savePushSubscription(shareId, subscription) {
-  const writeToken = await ensureWriteToken(shareId);
+  const marketScope = pushMarketScope();
+  const writeToken = await ensureWriteToken(shareId, { marketScope });
   const conditions = normalizePushNotificationConditions(state.pushNotificationConditions);
   const response = await fetch(`/push/subscriptions/${encodeURIComponent(shareId)}`, {
     method: "POST",
@@ -14221,7 +14252,7 @@ async function savePushSubscription(shareId, subscription) {
       "Content-Type": "application/json",
       "X-Write-Token": writeToken,
     },
-    body: JSON.stringify({ ...subscription.toJSON(), conditions }),
+    body: JSON.stringify({ ...subscription.toJSON(), conditions, market_scope: marketScope }),
   });
   if (!response.ok) {
     throw new Error("push subscription save failed");
@@ -14230,7 +14261,7 @@ async function savePushSubscription(shareId, subscription) {
 }
 
 async function fetchPushSubscriptionStatus(shareId, endpoint) {
-  const url = `/push/subscriptions/${encodeURIComponent(shareId)}/status?endpoint=${encodeURIComponent(endpoint)}`;
+  const url = `/push/subscriptions/${encodeURIComponent(shareId)}/status?endpoint=${encodeURIComponent(endpoint)}&market_scope=${pushMarketScope()}`;
   const response = await fetch(url, { credentials: "same-origin", cache: "no-store" });
   if (!response.ok) {
     throw new Error("push subscription status failed");
@@ -14246,7 +14277,8 @@ async function disablePushNotifications(shareId = state.watchlistId) {
   if (!subscription) {
     return;
   }
-  const writeToken = await ensureWriteToken(shareId);
+  const marketScope = pushMarketScope();
+  const writeToken = await ensureWriteToken(shareId, { marketScope });
   const response = await fetch(`/push/subscriptions/${encodeURIComponent(shareId)}`, {
     method: "DELETE",
     credentials: "same-origin",
@@ -14254,7 +14286,7 @@ async function disablePushNotifications(shareId = state.watchlistId) {
       "Content-Type": "application/json",
       "X-Write-Token": writeToken,
     },
-    body: JSON.stringify({ endpoint: subscription.endpoint }),
+    body: JSON.stringify({ endpoint: subscription.endpoint, market_scope: marketScope }),
   });
   if (!response.ok) {
     throw new Error("push subscription delete failed");
@@ -14422,7 +14454,8 @@ async function sendPushTestNotification() {
     if (!subscription) {
       throw new Error("push subscription missing");
     }
-    const writeToken = await ensureWriteToken(state.watchlistId);
+    const marketScope = pushMarketScope();
+    const writeToken = await ensureWriteToken(state.watchlistId, { marketScope });
     const response = await fetch(`/push/subscriptions/${encodeURIComponent(state.watchlistId)}/test`, {
       method: "POST",
       credentials: "same-origin",
@@ -14430,7 +14463,7 @@ async function sendPushTestNotification() {
         "Content-Type": "application/json",
         "X-Write-Token": writeToken,
       },
-      body: JSON.stringify({ endpoint: subscription.endpoint }),
+      body: JSON.stringify({ endpoint: subscription.endpoint, market_scope: marketScope }),
     });
     if (!response.ok) {
       throw new Error("push test failed");
