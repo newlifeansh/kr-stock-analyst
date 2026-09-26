@@ -24,7 +24,7 @@ from app.models import MarketRankingSnapshot
 from app.services.ttl_cache import TTLCache
 
 
-US_SIGNAL_UNIVERSE_VERSION = "us-market-cap-top100-v3"
+US_SIGNAL_UNIVERSE_VERSION = "us-market-cap-top100-v4"
 US_SIGNAL_UNIVERSE_AUDIT_VERSION = "us-market-cap-source-audit-v2"
 US_SIGNAL_UNIVERSE_LIMIT = 100
 US_SIGNAL_UNIVERSE_CATEGORY = "us_signal_universe"
