@@ -48,6 +48,8 @@ SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 US_CACHE = TTLCache(maxsize=2048)
 US_TTL_SECONDS = 180
+US_QUOTE_OPEN_TTL_SECONDS = 15
+US_QUOTE_CLOSED_TTL_SECONDS = 300
 US_STOCK_NEWS_MAX_AGE_DAYS = 120
 US_STOCK_NEWS_FUTURE_TOLERANCE = timedelta(minutes=15)
 US_FX_TTL_SECONDS = 300
@@ -914,6 +916,110 @@ def fetch_us_quote_batch(
                 rows[code] = quote
     US_CACHE.set(key, rows, US_TTL_SECONDS)
     return rows
+
+
+def _us_quote_observation(
+    raw: dict[str, object],
+    session: dict[str, object],
+) -> tuple[Optional[Decimal], Optional[datetime], bool]:
+    """Return the best public quote without presenting a stale venue as live."""
+
+    session_name = str(session.get("session") or "closed")
+    candidates: list[tuple[str, str, str]] = []
+    if session_name == "premarket":
+        candidates.append(("preMarketPrice", "preMarketTime", "premarket"))
+    elif session_name == "afterhours":
+        candidates.append(("postMarketPrice", "postMarketTime", "afterhours"))
+    candidates.append(("regularMarketPrice", "regularMarketTime", "regular"))
+
+    for price_key, time_key, venue in candidates:
+        price = _to_decimal(raw.get(price_key))
+        if price is None or price <= 0:
+            continue
+        observed_at: Optional[datetime] = None
+        timestamp = _to_decimal(raw.get(time_key))
+        if timestamp is not None and timestamp > 0:
+            try:
+                observed_at = datetime.fromtimestamp(float(timestamp), timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                observed_at = None
+        venue_is_live = bool(session.get("is_live")) and venue == session_name
+        return price, observed_at, venue_is_live
+    return None, None, False
+
+
+def us_quote_snapshots(
+    symbols: list[str],
+    *,
+    refresh: bool = False,
+    now: Optional[datetime] = None,
+) -> dict[str, object]:
+    """Build one bounded quote response for signal-list return calculations."""
+
+    canonical = list(dict.fromkeys(_symbol(symbol) for symbol in symbols if _symbol(symbol)))
+    canonical = canonical[:20]
+    session = _us_market_session(now)
+    ttl = US_QUOTE_OPEN_TTL_SECONDS if session["is_live"] else US_QUOTE_CLOSED_TTL_SECONDS
+    key = ("us_quote_snapshots", tuple(sorted(canonical)), str(session["session"]))
+    if not refresh:
+        return US_CACHE.get_or_set(
+            key,
+            ttl,
+            lambda: us_quote_snapshots(canonical, refresh=True, now=now),
+        )
+
+    requested_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    raw_quotes = fetch_us_quote_batch(canonical, refresh=True)
+    items: list[dict[str, object]] = []
+    for code in canonical:
+        raw = raw_quotes.get(code) or {}
+        price, observed_at, venue_is_live = _us_quote_observation(raw, session)
+        if price is None:
+            continue
+        previous_close = (
+            _to_decimal(raw.get("regularMarketPreviousClose"))
+            or _to_decimal(raw.get("previousClose"))
+        )
+        effective_observed_at = observed_at or requested_at
+        items.append(
+            {
+                "type": "quote",
+                "code": code,
+                "as_of": effective_observed_at,
+                "observed_at": effective_observed_at,
+                "source": "yahoo_quote_batch",
+                "interval_seconds": ttl,
+                "quote": {
+                    "trade_date": effective_observed_at.astimezone(NEW_YORK_TZ).date(),
+                    "price": price,
+                    "previous_close": previous_close,
+                    "change_value": (
+                        price - previous_close
+                        if previous_close is not None
+                        else None
+                    ),
+                    "change_rate": _rate(price, previous_close),
+                    "market_session": session["session"] if venue_is_live else "closed",
+                    "market_session_label": (
+                        session["label"] if venue_is_live else "최근 미국 정규장 시세"
+                    ),
+                    "market_local_time": session["local_time"],
+                    "is_live": venue_is_live,
+                },
+            }
+        )
+    payload = {
+        "type": "quotes",
+        "market_scope": "us",
+        "as_of": requested_at,
+        "market_session": session["session"],
+        "market_session_label": session["label"],
+        "interval_seconds": ttl,
+        "requested_codes": canonical,
+        "items": items,
+    }
+    US_CACHE.set(key, payload, ttl)
+    return payload
 
 
 def fetch_us_research_summary(symbol: str, refresh: bool = False) -> dict[str, object]:
