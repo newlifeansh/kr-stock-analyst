@@ -2,6 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 APP_JS = Path(__file__).parents[1] / "app" / "static" / "dashboard" / "app.js"
 NASDAQ_JS = Path(__file__).parents[1] / "app" / "static" / "nasdaq" / "app.js"
@@ -467,6 +469,7 @@ const summarize = states => {{
 console.log(JSON.stringify({{
   healthy: summarize(["realtime", "realtime"]),
   mixed: summarize(["realtime", "delayed", "checking"]),
+  recent: summarize(["recent", "recent"]),
   closed: summarize(["closed", "closed"]),
 }}));
 """
@@ -479,6 +482,7 @@ console.log(JSON.stringify({{
         "counts": {
             "realtime": 2,
             "delayed": 0,
+            "recent": 0,
             "checking": 0,
             "offline": 0,
             "closed": 0,
@@ -490,7 +494,79 @@ console.log(JSON.stringify({{
     assert result["mixed"]["state"] == "checking"
     assert result["mixed"]["mixed"] is True
     assert result["mixed"]["label"] == "실시간 1 · 약 10초 지연 1 · 확인 중 1"
+    assert result["recent"]["state"] == "recent"
+    assert result["recent"]["label"] == "보유 2개 미국 최근 시세 확인"
     assert result["closed"]["label"] == "장 마감 · 보유 2개"
+
+
+def test_us_confirmed_signal_uses_model_entry_event_and_current_quote_return() -> None:
+    source = app_source()
+    entry_start = source.index("function aiSignalConfirmedEntry(")
+    entry_end = source.index("function aiSignalPriceLine(", entry_start)
+    entry_source = source[entry_start:entry_end]
+    return_start = source.index("function aiSignalLiveReturnRate(")
+    return_end = source.index("function applyStockQuantSignalLiveQuote(", return_start)
+    return_source = source[return_start:return_end]
+    script = f"""
+const toNumber = value => value === null || value === undefined || value === "" ? null : Number(value);
+const isCurrentAiSignalHolding = item => item.current?.position_open === true;
+const homeAiSignalView = () => ({{ preliminary: false }});
+{entry_source}
+{return_source}
+const item = {{
+  code: "MU",
+  market_scope: "us",
+  currency: "USD",
+  price: "1082.28",
+  current: {{
+    action: "holding",
+    position_open: true,
+    entry_date: "2026-09-21",
+    price: "1082.28",
+    unrealized_return: "3.57",
+    model_exposure_percent: "100",
+    lifecycle: {{
+      latest_transition: {{
+        side: "buy",
+        signal_date: "2026-09-18",
+        transition_date: "2026-09-21",
+        price: "1044.99",
+      }},
+    }},
+  }},
+  events: [{{
+    side: "buy",
+    signal_date: "2026-09-18",
+    execution_date: "2026-09-21",
+    price: "1044.99",
+    state_after: "holding",
+  }}],
+}};
+const entry = aiSignalConfirmedEntry(item);
+const trade = aiSignalTradeContext(item, {{ preliminary: false }});
+console.log(JSON.stringify({{
+  entry,
+  trade,
+  returnRate: aiSignalLiveReturnRate(item, {{ price: "1100.00" }}),
+}}));
+"""
+
+    completed = subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True)
+    result = json.loads(completed.stdout)
+    assert result["entry"] == {"price": "1044.99", "executionDate": "2026-09-21"}
+    assert result["trade"] == {"side": "buy", "price": "1044.99"}
+    assert result["returnRate"] == pytest.approx(5.2657, abs=0.001)
+
+
+def test_us_signal_list_polls_one_bounded_quote_batch() -> None:
+    source = app_source()
+
+    assert '`/us/stocks/quotes?symbols=${encodeURIComponent(requestedCodes.join(","))}`' in source
+    assert "const generation = ++state.aiSignalUsQuoteGeneration;" in source
+    assert ".filter((item) => isCurrentAiSignalHolding(item) && marketScopeForItem(item) === \"us\")" in source
+    assert "void refreshUsAiSignalQuotes(codes, generation);" in source
+    assert 'source === "yahoo_quote_batch"' in source
+    assert '["realtime", "delayed", "recent", "closed"].includes(freshnessState)' in source
 
 
 def test_home_ai_signal_view_accepts_a_missing_watchlist_signal() -> None:
@@ -2021,9 +2097,15 @@ def test_confirmed_holding_card_uses_separate_live_basis_during_preliminary_exit
     source = app_source()
     market_start = source.index("function marketAiSignalItems(")
     market_end = source.index("function combineAiSignalPayloads(", market_start)
+    entry_start = source.index("function aiSignalConfirmedEntry(")
+    entry_end = source.index("function aiSignalTradeContext(", entry_start)
     live_start = source.index("function aiSignalLiveReturnRate(")
     live_end = source.index("function applyStockQuantSignalLiveQuote(", live_start)
-    function_source = source[market_start:market_end] + source[live_start:live_end]
+    function_source = (
+        source[market_start:market_end]
+        + source[entry_start:entry_end]
+        + source[live_start:live_end]
+    )
     script = f"""
 function toNumber(value) {{
   if (value === null || value === undefined || value === "") return null;

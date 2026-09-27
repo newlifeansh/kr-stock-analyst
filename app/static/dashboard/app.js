@@ -617,6 +617,9 @@ const AI_SIGNAL_ACTIVE_STALE_MS = 6 * 60_000;
 const AI_SIGNAL_CLOSED_STALE_MS = 12 * 60 * 60_000;
 const AI_SIGNAL_REALTIME_QUOTE_MAX_AGE_MS = 5_000;
 const AI_SIGNAL_DELAYED_QUOTE_MAX_AGE_MS = 30_000;
+const AI_SIGNAL_US_QUOTE_MAX_AGE_MS = 30 * 60_000;
+const AI_SIGNAL_US_QUOTE_ACTIVE_REFRESH_MS = 30_000;
+const AI_SIGNAL_US_QUOTE_CLOSED_REFRESH_MS = 5 * 60_000;
 const STOCK_INITIAL_QUOTE_TIMEOUT_MS = 1_800;
 const QUOTE_STREAM_DEFAULT_CODE_LIMIT = 64;
 const QUOTE_STREAM_DETAIL_STALE_MS = 4_000;
@@ -1312,6 +1315,8 @@ const state = {
   aiSignalRevisionRetryCount: 0,
   aiSignalLiveQuotes: new Map(),
   aiSignalQuoteStatuses: new Map(),
+  aiSignalUsQuoteTimer: null,
+  aiSignalUsQuoteGeneration: 0,
   aiSignalLastStaleState: null,
   aiSignalLiveAsOf: "",
   homeAiSignalsAsOf: "",
@@ -15922,6 +15927,38 @@ function formatAiSignalTimestamp(value, fallback = "시각 확인 중") {
   return formatted === "-" ? fallback : `${formatted} 발생`;
 }
 
+function aiSignalConfirmedEntry(item = {}) {
+  const current = item.current || {};
+  const transition = current.lifecycle?.latest_transition || {};
+  const entryDate = String(current.entry_date || item.execution_date || "").slice(0, 10);
+  const events = Array.isArray(item.events) ? item.events : [];
+  const matchingEvent = [...events].reverse().find((event) => {
+    const eventSide = String(event?.side || "").toLowerCase();
+    const eventDate = String(event?.execution_date || event?.transition_date || "").slice(0, 10);
+    return eventSide === "buy"
+      && event?.price !== null
+      && event?.price !== undefined
+      && (!entryDate || eventDate === entryDate);
+  });
+  const transitionIsEntry = String(transition.side || "").toLowerCase() === "buy"
+    && transition.price !== null
+    && transition.price !== undefined
+    && (
+      !entryDate
+      || String(transition.transition_date || transition.execution_date || "").slice(0, 10) === entryDate
+    );
+  const price = item.entry_price
+    ?? current.entry_price
+    ?? item.holding_context?.entry_price
+    ?? matchingEvent?.price
+    ?? (transitionIsEntry ? transition.price : null);
+  const executionDate = item.execution_date
+    || current.entry_date
+    || matchingEvent?.execution_date
+    || (transitionIsEntry ? transition.transition_date : null);
+  return { price, executionDate };
+}
+
 function aiSignalTradeContext(item = {}, view = homeAiSignalView(item) || {}) {
   const current = item.current || {};
   const transition = current.lifecycle?.latest_transition || {};
@@ -15945,8 +15982,8 @@ function aiSignalTradeContext(item = {}, view = homeAiSignalView(item) || {}) {
       reference: "signal",
     };
   }
-  const entryPrice = item.entry_price
-    ?? current.entry_price
+  const confirmedEntry = aiSignalConfirmedEntry(item);
+  const entryPrice = confirmedEntry.price
     ?? transition.entry_price
     ?? latestEvent.entry_price;
   if (side === "sell") {
@@ -16021,7 +16058,8 @@ function aiSignalDateLine(item = {}, view = {}) {
     const basis = item.current?.live_observation === true ? "장중 기준" : "장 마감 기준";
     return `${signalDate} ${basis}`;
   }
-  const executionDate = item.execution_date ? compactSignalDate(item.execution_date) : "";
+  const confirmedEntry = aiSignalConfirmedEntry(item);
+  const executionDate = confirmedEntry.executionDate ? compactSignalDate(confirmedEntry.executionDate) : "";
   return executionDate && executionDate !== signalDate
     ? `신호 ${signalDate} · 체결 ${executionDate}`
     : `신호 ${signalDate}`;
@@ -16081,13 +16119,14 @@ function aiSignalReleasedOutcomeLine(item = {}, view = {}) {
 const AI_SIGNAL_FRESHNESS_LABELS = {
   realtime: "실시간",
   delayed: "약 10초 지연",
+  recent: "최근 시세",
   offline: "오프라인",
   closed: "장 마감",
   checking: "상태 확인 중",
   confirmed: "확정",
 };
 
-const AI_SIGNAL_FRESHNESS_SUMMARY_ORDER = ["realtime", "delayed", "checking", "offline", "closed"];
+const AI_SIGNAL_FRESHNESS_SUMMARY_ORDER = ["realtime", "delayed", "recent", "checking", "offline", "closed"];
 
 function aiSignalFreshnessSummary(states = []) {
   const normalized = (Array.isArray(states) ? states : [])
@@ -16101,6 +16140,7 @@ function aiSignalFreshnessSummary(states = []) {
   if (counts.checking > 0) stateName = "checking";
   else if (counts.offline > 0) stateName = "offline";
   else if (total > 0 && counts.closed === total) stateName = "closed";
+  else if (total > 0 && counts.recent === total) stateName = "recent";
   else if (counts.delayed > 0) stateName = "delayed";
   else if (total > 0 && counts.realtime === total) stateName = "realtime";
   return {
@@ -16119,6 +16159,7 @@ function aiSignalFreshnessSummaryLabel(summary = {}) {
     const labels = {
       realtime: "실시간",
       delayed: "약 10초 지연",
+      recent: "최근 시세",
       checking: "확인 중",
       offline: "오프라인",
       closed: "장 마감",
@@ -16130,6 +16171,7 @@ function aiSignalFreshnessSummaryLabel(summary = {}) {
   }
   if (summary.state === "realtime") return `보유 ${total}개 모두 실시간`;
   if (summary.state === "delayed") return `보유 ${total}개 현재가 약 10초 지연`;
+  if (summary.state === "recent") return `보유 ${total}개 미국 최근 시세 확인`;
   if (summary.state === "offline") return `보유 ${total}개 오프라인`;
   if (summary.state === "closed") return `장 마감 · 보유 ${total}개`;
   return `보유 ${total}개 시세 확인 중`;
@@ -16264,12 +16306,16 @@ function aiSignalLiveFreshnessState(item = {}, overlay = null, now = Date.now())
   if (!isCurrentAiSignalHolding(item)) return "confirmed";
   if (typeof navigator !== "undefined" && navigator.onLine === false) return "offline";
   const code = String(item.code || "");
+  const usItem = marketScopeForItem(item) === "us";
   if (
-    state.quoteStreamOverflowCodes.has(code)
-    || state.quoteStreamRejectedCodes.has(code)
-    || (
-      state.quoteStreamConnectionState === "connected"
-      && !state.quoteStreamSubscribedCodes.has(code)
+    !usItem
+    && (
+      state.quoteStreamOverflowCodes.has(code)
+      || state.quoteStreamRejectedCodes.has(code)
+      || (
+        state.quoteStreamConnectionState === "connected"
+        && !state.quoteStreamSubscribedCodes.has(code)
+      )
     )
   ) {
     return "checking";
@@ -16277,6 +16323,9 @@ function aiSignalLiveFreshnessState(item = {}, overlay = null, now = Date.now())
   const currentTime = new Date(now);
   const fallbackActive = state.aiSignalQuoteStatuses.get(code)?.status === "fallback";
   if (!overlay?.payload) {
+    if (usItem) {
+      return usMarketPhase(currentTime, state.usSectorMoves) === "closed" ? "closed" : "checking";
+    }
     return !koreaExtendedQuoteLive(currentTime) && isDomesticMarketClosed(currentTime)
       ? "closed"
       : "checking";
@@ -16285,6 +16334,10 @@ function aiSignalLiveFreshnessState(item = {}, overlay = null, now = Date.now())
   const quote = payload.quote || {};
   const age = Math.max(0, now - (quoteFrameTimestamp(payload) ?? overlay.receivedAt ?? now));
   const source = String(payload.source || "").toLowerCase();
+  if (usItem && source === "yahoo_quote_batch") {
+    if (quote.is_live === true && age <= AI_SIGNAL_US_QUOTE_MAX_AGE_MS) return "recent";
+    return "closed";
+  }
   if (quotePayloadIsStoredFallbackDuringActiveSession(payload, currentTime)) return "checking";
   if (fallbackActive) {
     return koreaExtendedQuoteLive(currentTime) || aiSignalQuoteUsesActiveSession(quote)
@@ -16309,7 +16362,7 @@ function aiSignalItemWithLiveOverlay(item = {}, now = Date.now()) {
     return { ...item, live_freshness_state: freshnessState };
   }
   let displayReady = overlay?.displayReady === true;
-  if (!displayReady && ["realtime", "delayed", "closed"].includes(freshnessState)) {
+  if (!displayReady && ["realtime", "delayed", "recent", "closed"].includes(freshnessState)) {
     displayReady = true;
     if (overlay) overlay.displayReady = true;
   }
@@ -16616,8 +16669,12 @@ function aiSignalLiveReturnRate(item = {}, quote = {}) {
   if (!isCurrentAiSignalHolding(item)) {
     return null;
   }
+  const entry = aiSignalConfirmedEntry(item);
+  const context = item.holding_context || item.current || {};
   return quantSignalLiveReturnRate(
-    item.holding_context || item.current || {},
+    entry.price === null || entry.price === undefined
+      ? context
+      : { ...context, entry_price: context.entry_price ?? entry.price },
     quote.price,
     item.display_return_rate ?? item.return_rate,
   );
@@ -16888,7 +16945,7 @@ function refreshAiSignalLiveRows(code = "") {
         returnValue.dataset.freshnessState = returnMetric.freshnessState || "";
         setLiveCellTone(returnValue, returnMetric.numericValue);
       }
-      metrics.dataset.live = String(["realtime", "delayed"].includes(item.live_freshness_state));
+      metrics.dataset.live = String(["realtime", "delayed", "recent"].includes(item.live_freshness_state));
       metrics.setAttribute("aria-label", `${aiSignalPriceLine(item, view)} · ${aiSignalOutcomeLine(item, view)}`);
       if (item.live_price !== null && item.live_price !== undefined) {
         metrics.title = `${AI_SIGNAL_FRESHNESS_LABELS[item.live_freshness_state] || "최근"} 현재가 ${formatAiSignalPrice(item.live_price, item)} 기준`;
@@ -16957,7 +17014,63 @@ function updateAiSignalQuoteStatus(code, payload = {}) {
   return true;
 }
 
+function scheduleUsAiSignalQuoteRefresh(codes = [], generation = state.aiSignalUsQuoteGeneration, delayMs = null) {
+  window.clearTimeout(state.aiSignalUsQuoteTimer);
+  state.aiSignalUsQuoteTimer = null;
+  if (!codes.length || generation !== state.aiSignalUsQuoteGeneration) return;
+  const defaultDelay = aiSignalLifecycleIsActive()
+    ? AI_SIGNAL_US_QUOTE_ACTIVE_REFRESH_MS
+    : AI_SIGNAL_US_QUOTE_CLOSED_REFRESH_MS;
+  const requestedDelay = Number(delayMs);
+  const nextDelay = Number.isFinite(requestedDelay)
+    ? Math.max(AI_SIGNAL_US_QUOTE_ACTIVE_REFRESH_MS, requestedDelay)
+    : defaultDelay;
+  state.aiSignalUsQuoteTimer = window.setTimeout(() => {
+    state.aiSignalUsQuoteTimer = null;
+    void refreshUsAiSignalQuotes(codes, generation);
+  }, nextDelay);
+}
+
+async function refreshUsAiSignalQuotes(codes = [], generation = state.aiSignalUsQuoteGeneration) {
+  const requestedCodes = [...new Set(codes.map((code) => String(code || "").trim().toUpperCase()).filter(Boolean))].slice(0, 20);
+  if (!requestedCodes.length || generation !== state.aiSignalUsQuoteGeneration) return false;
+  try {
+    const payload = await fetchJsonCached(
+      `/us/stocks/quotes?symbols=${encodeURIComponent(requestedCodes.join(","))}`,
+      { force: true, ttlMs: 0, timeoutMs: 10_000 },
+    );
+    if (generation !== state.aiSignalUsQuoteGeneration) return false;
+    const receivedCodes = new Set();
+    (Array.isArray(payload?.items) ? payload.items : []).forEach((frame) => {
+      const code = String(frame?.code || "").trim().toUpperCase();
+      if (!code || !requestedCodes.includes(code) || !frame?.quote) return;
+      receivedCodes.add(code);
+      updateAiSignalLiveQuote(code, frame.quote, frame);
+    });
+    requestedCodes.forEach((code) => {
+      if (receivedCodes.has(code)) {
+        state.aiSignalQuoteStatuses.delete(code);
+      } else {
+        updateAiSignalQuoteStatus(code, { status: "fallback", message: "미국 현재가 확인 중" });
+      }
+    });
+    const intervalMs = Number(payload?.interval_seconds) * 1000;
+    scheduleUsAiSignalQuoteRefresh(requestedCodes, generation, intervalMs);
+    return receivedCodes.size > 0;
+  } catch {
+    if (generation !== state.aiSignalUsQuoteGeneration) return false;
+    requestedCodes.forEach((code) => {
+      updateAiSignalQuoteStatus(code, { status: "fallback", message: "미국 현재가 확인 중" });
+    });
+    scheduleUsAiSignalQuoteRefresh(requestedCodes, generation);
+    return false;
+  }
+}
+
 function closeAiSignalQuoteStreams() {
+  state.aiSignalUsQuoteGeneration += 1;
+  window.clearTimeout(state.aiSignalUsQuoteTimer);
+  state.aiSignalUsQuoteTimer = null;
   state.quoteStreamSignalControlActive = false;
   clearQuoteStreamScope("ai-signals");
   renderAiSignalLiveStatus();
@@ -16965,11 +17078,22 @@ function closeAiSignalQuoteStreams() {
 
 function connectAiSignalQuoteStreams(_items = state.aiSignalItems) {
   if (isUsHubContext && state.marketScope === "us") {
+    const generation = ++state.aiSignalUsQuoteGeneration;
+    window.clearTimeout(state.aiSignalUsQuoteTimer);
+    state.aiSignalUsQuoteTimer = null;
     state.quoteStreamSignalControlActive = false;
     clearQuoteStreamScope("ai-signals");
+    const codes = visibleAiSignalSnapshotItems()
+      .filter((item) => isCurrentAiSignalHolding(item) && marketScopeForItem(item) === "us")
+      .map((item) => String(item.code || ""))
+      .filter(Boolean);
+    void refreshUsAiSignalQuotes(codes, generation);
     renderAiSignalLiveStatus();
     return;
   }
+  state.aiSignalUsQuoteGeneration += 1;
+  window.clearTimeout(state.aiSignalUsQuoteTimer);
+  state.aiSignalUsQuoteTimer = null;
   state.quoteStreamSignalControlActive = true;
   const codes = visibleAiSignalSnapshotItems()
     .filter((item) => isCurrentAiSignalHolding(item) && marketScopeForItem(item) === "kr")

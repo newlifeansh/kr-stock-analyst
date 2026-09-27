@@ -61,6 +61,94 @@ def test_chart_price_rows_use_adjusted_ohlc_but_raw_dollar_notional():
     assert rows[0].adjusted_ohlc_complete is True
 
 
+def test_us_quote_snapshots_batch_current_prices_for_signal_returns(monkeypatch):
+    observed_at = datetime(2026, 9, 28, 15, 1, tzinfo=UTC)
+    monkeypatch.setattr(
+        us_market,
+        "_us_market_session",
+        lambda *_args, **_kwargs: {
+            "session": "regular",
+            "label": "미국 정규장 진행 중",
+            "is_live": True,
+            "local_time": observed_at,
+        },
+    )
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_batch",
+        lambda symbols, refresh=False: {
+            "MU": {
+                "regularMarketPrice": Decimal("1100.00"),
+                "regularMarketPreviousClose": Decimal("1082.28"),
+                "regularMarketTime": int(observed_at.timestamp()),
+            },
+            "JNJ": {
+                "regularMarketPrice": Decimal("272.10"),
+                "regularMarketPreviousClose": Decimal("271.22"),
+                "regularMarketTime": int(observed_at.timestamp()),
+            },
+        },
+    )
+
+    payload = us_market.us_quote_snapshots(
+        ["mu", "JNJ", "MU"],
+        refresh=True,
+        now=observed_at,
+    )
+
+    assert payload["requested_codes"] == ["MU", "JNJ"]
+    assert payload["interval_seconds"] == us_market.US_QUOTE_OPEN_TTL_SECONDS
+    assert [item["code"] for item in payload["items"]] == ["MU", "JNJ"]
+    mu = payload["items"][0]
+    assert mu["source"] == "yahoo_quote_batch"
+    assert mu["observed_at"] == observed_at
+    assert mu["quote"] == {
+        "trade_date": date(2026, 9, 28),
+        "price": Decimal("1100.00"),
+        "previous_close": Decimal("1082.28"),
+        "change_value": Decimal("17.72"),
+        "change_rate": Decimal("1.64"),
+        "market_session": "regular",
+        "market_session_label": "미국 정규장 진행 중",
+        "market_local_time": observed_at,
+        "is_live": True,
+    }
+
+
+def test_us_quote_snapshots_mark_regular_fallback_closed_during_afterhours(monkeypatch):
+    requested_at = datetime(2026, 9, 28, 23, 30, tzinfo=UTC)
+    regular_at = datetime(2026, 9, 28, 20, 0, tzinfo=UTC)
+    monkeypatch.setattr(
+        us_market,
+        "_us_market_session",
+        lambda *_args, **_kwargs: {
+            "session": "afterhours",
+            "label": "미국 애프터장 진행 중",
+            "is_live": True,
+            "local_time": requested_at,
+        },
+    )
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_batch",
+        lambda *_args, **_kwargs: {
+            "MU": {
+                "regularMarketPrice": Decimal("1082.28"),
+                "regularMarketPreviousClose": Decimal("1050.00"),
+                "regularMarketTime": int(regular_at.timestamp()),
+            },
+        },
+    )
+
+    payload = us_market.us_quote_snapshots(["MU"], refresh=True, now=requested_at)
+
+    quote = payload["items"][0]["quote"]
+    assert quote["price"] == Decimal("1082.28")
+    assert quote["market_session"] == "closed"
+    assert quote["market_session_label"] == "최근 미국 정규장 시세"
+    assert quote["is_live"] is False
+
+
 @pytest.mark.parametrize(
     ("market_session", "price_key", "time_key", "quote_price", "observed_at"),
     [
