@@ -255,6 +255,7 @@ from app.services.us_market import (
     usdkrw_rate,
     us_intraday_prices,
     us_prices,
+    us_quote_snapshots,
     us_sector_moves,
 )
 from app.services.us_position_lifecycle import (
@@ -290,7 +291,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260926us124"
+US_DASHBOARD_CLIENT_VERSION = "20260928us125"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -4230,6 +4231,30 @@ def us_stock_resolve(query: str = Query(..., min_length=1)):
         return resolve_us_stock(query)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="US stock not found") from exc
+
+
+@app.get("/us/stocks/quotes")
+def us_stock_quotes(
+    response: Response,
+    symbols: str = Query(..., min_length=1, max_length=220),
+    refresh: bool = Query(default=False),
+):
+    normalized = list(
+        dict.fromkeys(
+            _normalize_us_symbol(symbol)
+            for symbol in symbols.split(",")
+            if _normalize_us_symbol(symbol)
+        )
+    )
+    if not normalized or len(normalized) > 20:
+        raise HTTPException(status_code=422, detail="Provide between 1 and 20 US symbols")
+    try:
+        payload = us_quote_snapshots(normalized, refresh=refresh)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="US quotes not available") from exc
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return payload
 
 
 @app.get("/us/stocks/{symbol}")

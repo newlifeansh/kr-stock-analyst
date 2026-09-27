@@ -238,8 +238,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="home-view" class="app-page app-home"' in response.text
     assert 'id="search-view" class="app-page app-search"' in response.text
     assert 'id="bottom-nav" aria-label="주요 메뉴"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260926us124"' in response.text
-    assert 'href="/assets/dashboard/styles.css?v=20260926us124&amp;build=20260926us124"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20260928us125"' in response.text
+    assert 'href="/assets/dashboard/styles.css?v=20260928us125&amp;build=20260928us125"' in response.text
     assert 'setCopy("home-market-signal-title", "미국 시그널 감시 후보")' in source
     assert 'setCopy("home-ai-signals-title", "시그널 감시 후보")' in source
     assert 'signalPageTitle.textContent = "시그널 감시 후보"' in source
@@ -258,7 +258,7 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
-        .replace("20260926us124", "20260923v553")
+        .replace("20260928us125", "20260923v553")
     )
     assert normalized_us == dashboard.text
 
@@ -460,6 +460,41 @@ def test_us_surface_keeps_shared_staging_shell_and_market_scope_routes():
     assert 'const upgradeHomeUsRankingRows = () => {' in source
     assert 'rail.querySelector(\'[data-staging-view="morning-briefing"]\')?.remove();' in source
     assert 'if (!stagingUsMarketContext) decorateStagingBriefingArticle();' in source
+
+
+def test_us_stock_quotes_endpoint_batches_signal_list_prices(monkeypatch):
+    from app import main as main_module
+
+    calls = []
+    monkeypatch.setattr(
+        main_module,
+        "us_quote_snapshots",
+        lambda symbols, refresh=False: calls.append((symbols, refresh)) or {
+            "type": "quotes",
+            "market_scope": "us",
+            "items": [{
+                "type": "quote",
+                "code": "MU",
+                "source": "yahoo_quote_batch",
+                "quote": {"price": "1100.00", "market_session": "regular", "is_live": True},
+            }],
+        },
+    )
+
+    response = TestClient(app).get("/us/stocks/quotes?symbols=mu,JNJ,MU&refresh=true")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
+    assert calls == [(["MU", "JNJ"], True)]
+    assert response.json()["items"][0]["quote"]["price"] == "1100.00"
+
+
+def test_us_stock_quotes_endpoint_rejects_more_than_twenty_symbols():
+    symbols = ",".join(f"US{index}" for index in range(21))
+
+    response = TestClient(app).get(f"/us/stocks/quotes?symbols={symbols}")
+
+    assert response.status_code == 422
 
 
 def test_us_market_quant_signals_endpoint_returns_preliminary_us_candidates(monkeypatch):
@@ -1302,8 +1337,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260926us124"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260926us124&amp;build=20260926us124"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260928us125"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260928us125&amp;build=20260928us125"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1593,7 +1628,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260926us124"}
+    assert version.json() == {"version": "20260928us125"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1602,9 +1637,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260926us124" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260928us125" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20260926us124")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20260928us125")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1618,12 +1653,12 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20260926us124"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20260928us125"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20260926us124' in worker.text
-    assert '"/dashboard-app-v170.js?v=20260926us124"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20260928us125' in worker.text
+    assert '"/dashboard-app-v170.js?v=20260928us125"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
@@ -3082,8 +3117,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20260926us124"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260926us124&amp;build=20260926us124"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260928us125"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20260928us125&amp;build=20260928us125"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()
@@ -4019,13 +4054,19 @@ def test_ai_signal_sell_cards_keep_confirmed_entry_price_and_stream_live_returns
         source.index("function aiSignalTradeContext"):
         source.index("function aiSignalPriceLine")
     ]
+    entry_context = source[
+        source.index("function aiSignalConfirmedEntry"):
+        source.index("function aiSignalTradeContext")
+    ]
     for field in (
         "item.entry_price",
         "current.entry_price",
-        "transition.entry_price",
-        "latestEvent.entry_price",
+        "matchingEvent?.price",
+        "transition.price",
     ):
-        assert field in trade_context
+        assert field in entry_context
+    assert "transition.entry_price" in trade_context
+    assert "latestEvent.entry_price" in trade_context
     assert trade_context.index('(view.preliminary ? actionSide : "")') < trade_context.index("|| item.side")
     assert 'if (side === "sell") {\n    return { side, price: entryPrice };\n  }' in trade_context
     assert "current.partial_exit_price" not in trade_context
