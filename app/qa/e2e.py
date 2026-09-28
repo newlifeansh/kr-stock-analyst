@@ -9122,6 +9122,20 @@ def run_e2e_checks(
                         "미국 관심종목이 시가총액 순으로 표시되지 않았습니다.",
                         {"actual": actual_orders, "expected": expected_us_orders},
                     )
+                page.wait_for_function(
+                    """() => {
+                      const home = document.querySelector('#home-view');
+                      const marketMap = document.querySelector('#watch-market-map');
+                      const top50 = document.querySelector('#home-surge');
+                      if (!home?.contains(marketMap) || !home.contains(top50)) return false;
+                      const marketMapRect = marketMap.getBoundingClientRect();
+                      const top50Rect = top50.getBoundingClientRect();
+                      const visualGap = top50Rect.top - marketMapRect.bottom;
+                      return Boolean(
+                        marketMap.compareDocumentPosition(top50) & Node.DOCUMENT_POSITION_FOLLOWING
+                      ) && visualGap >= -2 && visualGap <= 48;
+                    }"""
+                )
                 placement = page.evaluate(
                     """() => {
                       const home = document.querySelector('#home-view');
