@@ -8966,7 +8966,7 @@ def run_e2e_checks(
                 )
                 page.route(
                     re.compile(
-                        rf"{re.escape(base_url.rstrip('/'))}/watchlists/{re.escape(share_id)}(?:\?.*)?$"
+                        rf"^https?://[^/]+/watchlists/{re.escape(share_id)}(?:\?.*)?$"
                     ),
                     lambda route: fulfill_json(
                         route,
@@ -8978,7 +8978,7 @@ def run_e2e_checks(
                 )
                 page.route(
                     re.compile(
-                        rf"{re.escape(base_url.rstrip('/'))}/us/watchlists/{re.escape(share_id)}(?:\?.*)?$"
+                        rf"^https?://[^/]+/(?:us-gateway/)?us/watchlists/{re.escape(share_id)}(?:\?.*)?$"
                     ),
                     lambda route: fulfill_json(
                         route,
