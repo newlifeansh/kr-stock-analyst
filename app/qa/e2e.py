@@ -9126,7 +9126,7 @@ def run_e2e_checks(
                     """() => {
                       const home = document.querySelector('#home-view');
                       const marketMap = document.querySelector('#watch-market-map');
-                      const top50 = document.querySelector('#home-surge');
+                      const top50 = document.querySelector('#home-surge-us');
                       if (!home?.contains(marketMap) || !home.contains(top50)) return false;
                       const marketMapRect = marketMap.getBoundingClientRect();
                       const top50Rect = top50.getBoundingClientRect();
@@ -9140,7 +9140,7 @@ def run_e2e_checks(
                     """() => {
                       const home = document.querySelector('#home-view');
                       const marketMap = document.querySelector('#watch-market-map');
-                      const top50 = document.querySelector('#home-surge');
+                      const top50 = document.querySelector('#home-surge-us');
                       const portfolio = document.querySelector('#portfolio-view');
                       const localToggle = document.querySelector('#watch-market-map-market-toggle');
                       const marketMapRect = marketMap?.getBoundingClientRect();
