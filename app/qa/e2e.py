@@ -10137,7 +10137,6 @@ def run_e2e_checks(
                     "session_states": session_states,
                     "market_scope_orders": actual_orders,
                     "intraday_fallback_requests": intraday_requests,
-                    "folder_order": folder_order,
                     "layouts": layouts,
                     "timeline": layouts["390"]["timeline"],
                     "timeline_scrub": {
