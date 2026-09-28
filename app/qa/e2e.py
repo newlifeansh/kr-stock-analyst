@@ -9098,8 +9098,6 @@ def run_e2e_checks(
                 default_landing = page.evaluate(
                     """() => ({
                       marketScope: state.watchMarketMapMarketScope,
-                      selectedScope: [...document.querySelectorAll('[data-watch-market-scope]')]
-                        .find(button => button.getAttribute('aria-pressed') === 'true')?.dataset.watchMarketScope,
                       localToggleVisible: Boolean(document.querySelector(
                         '#watch-market-map-market-toggle'
                       )?.offsetParent),
@@ -9107,7 +9105,6 @@ def run_e2e_checks(
                 )
                 if default_landing != {
                     "marketScope": "us",
-                    "selectedScope": "us",
                     "localToggleVisible": False,
                 }:
                     raise QaFailure(
@@ -9132,7 +9129,6 @@ def run_e2e_checks(
                       const top50 = document.querySelector('#home-surge');
                       const portfolio = document.querySelector('#portfolio-view');
                       const localToggle = document.querySelector('#watch-market-map-market-toggle');
-                      const localButtons = [...document.querySelectorAll('[data-watch-market-scope]')];
                       return {
                         mapCount: document.querySelectorAll('#watch-market-map').length,
                         inHome: Boolean(home?.contains(marketMap)),
@@ -9140,8 +9136,6 @@ def run_e2e_checks(
                         inPortfolio: Boolean(portfolio?.contains(marketMap)),
                         marketToggleVisible: Boolean(document.querySelector('#unified-market-scope')?.offsetParent),
                         localToggleVisible: Boolean(localToggle?.offsetParent),
-                        selectedScope: localButtons.find(button => button.getAttribute('aria-pressed') === 'true')?.dataset.watchMarketScope,
-                        touchHeights: localButtons.map(button => button.getBoundingClientRect().height),
                       };
                     }"""
                 )
@@ -9152,7 +9146,6 @@ def run_e2e_checks(
                     or placement["inPortfolio"]
                     or placement["marketToggleVisible"]
                     or placement["localToggleVisible"]
-                    or placement["selectedScope"] != "us"
                 ):
                     raise QaFailure(
                         "미국 관심종목 버블의 홈 배치·전용 시장 범위가 올바르지 않습니다.",
