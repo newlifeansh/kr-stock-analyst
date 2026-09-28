@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from time import monotonic
 from typing import Any
-from urllib.parse import unquote, urlencode, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -6485,6 +6485,10 @@ def run_e2e_checks(
                     ),
                     wait_until="commit",
                 )
+                # The portfolio lightbox listener is installed by a deferred
+                # script. Cached images can be complete before that script has
+                # executed, so wait for DOMContentLoaded before exercising it.
+                page.wait_for_load_state("domcontentloaded")
                 page.wait_for_selector("body", state="visible", timeout=20_000)
                 shell = page.evaluate(
                     """requestedTheme => ({
@@ -8807,7 +8811,8 @@ def run_e2e_checks(
                     "kr": [item[0] for item in domestic_items],
                     "us": [item[0] for item in overseas_items],
                 }
-                folder_codes = ["NVDA", "005930", "000660", "SMALL"]
+                folder_codes = ["NVDA", "AAPL", "AMD", "SMALL"]
+                intraday_requests: list[dict[str, str]] = []
 
                 def fulfill_json(route: Any, payload: dict[str, Any]) -> None:
                     route.fulfill(
@@ -8854,7 +8859,12 @@ def run_e2e_checks(
                         "coverage": {"price": True},
                     }
 
-                def intraday(item: tuple[Any, ...], scope: str) -> dict[str, Any]:
+                def intraday(
+                    item: tuple[Any, ...],
+                    scope: str,
+                    *,
+                    extended_only: bool = False,
+                ) -> dict[str, Any]:
                     code, _name, _market, _cap, change, price = item
                     reference = price / (1 + change / 100) if change != -100 else price
                     if code == "NVDA":
@@ -8864,11 +8874,15 @@ def run_e2e_checks(
                     else:
                         rates = (change * 0.35, change * 0.72, change)
                     market_timezone = "America/New_York" if scope == "us" else "Asia/Seoul"
-                    trade_times = ("093000", "103000", "124500") if scope == "us" else (
-                        "090000",
-                        "100000",
-                        "121500",
-                    )
+                    if scope == "us" and extended_only:
+                        trade_times = ("040000", "080000")
+                        rates = (change * 0.1, change * 0.2)
+                    else:
+                        trade_times = ("093000", "103000", "124500") if scope == "us" else (
+                            "090000",
+                            "100000",
+                            "121500",
+                        )
                     trade_date = (
                         datetime.now(ZoneInfo("America/New_York")).date().isoformat()
                         if scope == "us"
@@ -8883,7 +8897,7 @@ def run_e2e_checks(
                                 "price": reference * (1 + rate / 100),
                             }
                         )
-                    return {
+                    payload = {
                         "code": code,
                         "source": "qa-fixture",
                         "as_of": us_as_of if scope == "us" else domestic_as_of,
@@ -8893,6 +8907,30 @@ def run_e2e_checks(
                         "reference_price": reference,
                         "points": points,
                     }
+                    if scope == "us":
+                        payload["regular_trade_date"] = None if extended_only else trade_date
+                        payload["regular_reference_price"] = reference
+                    return payload
+
+                def fulfill_us_intraday(route: Any, item: tuple[Any, ...]) -> None:
+                    query = parse_qs(urlsplit(route.request.url).query)
+                    range_value = str((query.get("range") or [""])[0])
+                    interval_value = str((query.get("interval") or [""])[0])
+                    intraday_requests.append(
+                        {
+                            "code": str(item[0]),
+                            "range": range_value,
+                            "interval": interval_value,
+                        }
+                    )
+                    fulfill_json(
+                        route,
+                        intraday(
+                            item,
+                            "us",
+                            extended_only=range_value == "1d",
+                        ),
+                    )
 
                 page.route(
                     re.compile(
@@ -8972,8 +9010,8 @@ def run_e2e_checks(
                     )
                     page.route(
                         re.compile(rf".*/us/stocks/{item[0]}/intraday(?:\?.*)?$"),
-                        lambda route, _request, item=item: fulfill_json(
-                            route, intraday(item, "us")
+                        lambda route, _request, item=item: fulfill_us_intraday(
+                            route, item
                         ),
                     )
                 page.route(
@@ -9029,42 +9067,63 @@ def run_e2e_checks(
                       state.watchMarketMapResults.length === expected
                       && state.watchMarketMapIntradayByKey.size === expected
                       && state.watchMarketMapTimelineLoading === false
-                      && state.watchMarketMapMarketScope === 'kr'
+                      && state.watchMarketMapMarketScope === 'us'
                       && document.querySelector('#watch-market-map:not([hidden])')
                       && !document.querySelector('#watch-market-map-stage')?.hasAttribute('aria-busy')
                     )""",
-                    arg=len(domestic_items) + len(overseas_items),
+                    arg=len(overseas_items),
                     timeout=int(timeout * 1000),
                 )
+
+                expected_us_codes = sorted(item[0] for item in overseas_items)
+                primary_codes = sorted(
+                    request["code"]
+                    for request in intraday_requests
+                    if request["range"] == "1d" and request["interval"] == "1m"
+                )
+                fallback_codes = sorted(
+                    request["code"]
+                    for request in intraday_requests
+                    if request["range"] == "5d" and request["interval"] == "5m"
+                )
+                if primary_codes != expected_us_codes or fallback_codes != expected_us_codes:
+                    raise QaFailure(
+                        "미국 당일 장외 전용 분봉이 직전 정규장 폴백으로 이어지지 않았습니다.",
+                        {
+                            "requests": intraday_requests,
+                            "expected_codes": expected_us_codes,
+                        },
+                    )
 
                 default_landing = page.evaluate(
                     """() => ({
                       marketScope: state.watchMarketMapMarketScope,
                       selectedScope: [...document.querySelectorAll('[data-watch-market-scope]')]
                         .find(button => button.getAttribute('aria-pressed') === 'true')?.dataset.watchMarketScope,
+                      localToggleVisible: Boolean(document.querySelector(
+                        '#watch-market-map-market-toggle'
+                      )?.offsetParent),
                     })"""
                 )
-                if default_landing != {"marketScope": "kr", "selectedScope": "kr"}:
+                if default_landing != {
+                    "marketScope": "us",
+                    "selectedScope": "us",
+                    "localToggleVisible": False,
+                }:
                     raise QaFailure(
-                        "첫 홈 랜딩의 관심종목 기본 시장이 국내가 아닙니다.",
+                        "미국 전용 홈의 관심종목 범위가 미국으로 고정되지 않았습니다.",
                         default_landing,
                     )
                 actual_orders = {
-                    "kr": page.evaluate(
+                    "us": page.evaluate(
                         "() => watchMarketMapEntries().map(entry => entry.item.code)"
                     )
                 }
-                page.locator('[data-watch-market-scope="us"]').click()
-                page.wait_for_function(
-                    "() => state.watchMarketMapMarketScope === 'us' && document.querySelector('#watch-market-map')?.dataset.marketScope === 'us'"
-                )
-                actual_orders["us"] = page.evaluate(
-                    "() => watchMarketMapEntries().map(entry => entry.item.code)"
-                )
-                if actual_orders != expected_orders:
+                expected_us_orders = {"us": expected_orders["us"]}
+                if actual_orders != expected_us_orders:
                     raise QaFailure(
-                        "국내·미국 관심종목이 선택 시장 안의 시가총액 순으로 분리되지 않았습니다.",
-                        {"actual": actual_orders, "expected": expected_orders},
+                        "미국 관심종목이 시가총액 순으로 표시되지 않았습니다.",
+                        {"actual": actual_orders, "expected": expected_us_orders},
                     )
                 placement = page.evaluate(
                     """() => {
@@ -9092,12 +9151,11 @@ def run_e2e_checks(
                     or not placement["immediatelyBeforeTop50"]
                     or placement["inPortfolio"]
                     or placement["marketToggleVisible"]
-                    or not placement["localToggleVisible"]
+                    or placement["localToggleVisible"]
                     or placement["selectedScope"] != "us"
-                    or min(placement["touchHeights"], default=0) < 44
                 ):
                     raise QaFailure(
-                        "관심종목 버블이 증권 홈 TOP 50 직전에 유일하게 배치되지 않았습니다.",
+                        "미국 관심종목 버블의 홈 배치·전용 시장 범위가 올바르지 않습니다.",
                         placement,
                     )
 
@@ -9928,9 +9986,7 @@ def run_e2e_checks(
                         "작은 관심종목 바텀시트의 목록·접근성·reduced-motion 계약이 다릅니다.",
                         sheet_snapshot,
                     )
-                expected_scope = {
-                    code: "kr" for code, *_rest in domestic_items
-                } | {code: "us" for code, *_rest in overseas_items}
+                expected_scope = {code: "us" for code, *_rest in overseas_items}
                 malformed_hrefs = []
                 for href in sheet_snapshot["hrefs"]:
                     match = re.match(r"^/us/stock/([^?]+)\?market_scope=(kr|us)$", href or "")
@@ -10010,12 +10066,9 @@ def run_e2e_checks(
                       const element = document.querySelector(
                         '#watch-market-map-stage.is-empty .watch-market-map-empty button'
                       );
-                      const previous = document.querySelector(
-                        '#watch-market-map-market-toggle [data-watch-market-scope="us"]'
-                      );
-                      if (!element || !previous) return false;
-                      previous.focus();
-                      return true;
+                      if (!element) return false;
+                      element.focus({preventScroll: true});
+                      return document.activeElement === element;
                     }"""
                 )
                 if not empty_cta_ready:
@@ -10023,7 +10076,6 @@ def run_e2e_checks(
                         "관심종목 빈 상태 CTA를 렌더링하지 못했습니다.",
                         {"empty_cta_ready": empty_cta_ready},
                     )
-                page.keyboard.press("Tab")
                 empty_cta_snapshot = page.locator(
                     "#watch-market-map-stage.is-empty .watch-market-map-empty button"
                 ).evaluate(
@@ -10081,6 +10133,7 @@ def run_e2e_checks(
                     "placement": placement,
                     "session_states": session_states,
                     "market_scope_orders": actual_orders,
+                    "intraday_fallback_requests": intraday_requests,
                     "folder_order": folder_order,
                     "layouts": layouts,
                     "timeline": layouts["390"]["timeline"],
@@ -10111,7 +10164,7 @@ def run_e2e_checks(
                         **empty_cta_snapshot,
                         "keyboard_activated_search": True,
                     },
-                    "market_toggle_visible": True,
+                    "market_toggle_visible": False,
                 }
 
             results.append(

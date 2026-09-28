@@ -170,6 +170,11 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "mouse_horizontal_drag",
         "full_track_tap",
     ]
+    assert watch_timeline["inputs"]["product_scope"] == {
+        "dashboard": "kr",
+        "us": "us",
+    }
+    assert watch_timeline["inputs"]["market_toggle"] == "hidden_in_dedicated_products"
     assert all(case["priority"] in {"P0", "P1", "P2"} for case in payload["cases"])
 
 
@@ -1135,12 +1140,13 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     from app.qa.e2e import US_E2E_CASE_IDS
     assert "REC-US-INDEPENDENT-001" in US_E2E_CASE_IDS
     assert '"#recommend-list .recommend-card",\n                    state="visible"' in source
-    assert "from urllib.parse import unquote, urlencode, urlsplit" in source
+    assert "from urllib.parse import parse_qs, unquote, urlencode, urlsplit" in source
     assert 'moving_end.get("originalCount") != 2' in source
     assert 'refreshed.get("originalCount") != 2' in source
     assert "def portfolio_production_screens_case" in source
     assert "feature-ai-signals-production.jpg" in source
     assert "매수 확정 종목의 전략 기준가와 수익률" in source
+    assert 'page.wait_for_load_state("domcontentloaded")' in source
     assert "def stock_title_logo_case" in source
     assert '("278470", "official")' in source
     assert '("014950", "fallback")' in source
@@ -1168,9 +1174,10 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert 'case_id="SIG-UI-025"' in source
     assert "def domestic_product_boundary_case" in source
     assert 'case_id="SIG-UI-030"' in source
-    assert "증권 홈 TOP 50 직전에 유일하게 배치" in source
-    assert "첫 홈 랜딩의 관심종목 기본 시장이 국내가 아닙니다." in source
-    assert "선택 시장 안의 시가총액 순으로 분리" in source
+    assert "미국 관심종목 버블의 홈 배치·전용 시장 범위" in source
+    assert "미국 전용 홈의 관심종목 범위가 미국으로 고정" in source
+    assert "미국 관심종목이 시가총액 순으로 표시" in source
+    assert "미국 당일 장외 전용 분봉이 직전 정규장 폴백" in source
     assert "장전·장중·시간외·장 마감 상태 계약" in source
     assert "직전 정규장 마감 기준" in source
     assert "timeline.hasHistory && timeline.latestMinutes > timeline.openMinutes" in source
