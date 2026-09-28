@@ -237,6 +237,8 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         '직전 정규장 ${isLatest ? "마감" : "선택 시세"} 기준',
         '"(prefers-reduced-motion: reduce)"',
         'elements.watchMarketMapStage?.querySelector(".watch-market-map-tile.is-overflow")',
+        'state.watchMarketMapSheetTrigger = replacementOverflowTrigger;',
+        'replacementOverflowTrigger.focus({ preventScroll: true });',
         'watchMarketMapMarketScope: requestedMarketScopeValue === "us" ? "us" : "kr",',
     ):
         assert expected in source

@@ -22558,6 +22558,12 @@ function renderWatchMarketMap(results = state.watchMarketMapResults, options = {
   elements.watchMarketMapStage.removeAttribute("aria-busy");
   elements.watchMarketMapStage.dataset.sizeEncoding = "absolute-return";
   elements.watchMarketMapStage.dataset.timelineMinute = String(timeline.selectedMinutes);
+  const focusedOverflowTrigger = document.activeElement?.matches?.(
+    "#watch-market-map-stage .watch-market-map-tile.is-overflow",
+  );
+  const sheetOverflowTrigger = state.watchMarketMapSheetTrigger?.matches?.(
+    ".watch-market-map-tile.is-overflow",
+  );
   const motionSnapshot = watchMarketMapMotionSnapshot(elements.watchMarketMapStage);
   const bounds = elements.watchMarketMapStage.getBoundingClientRect();
   const width = Math.max(1, bounds.width || elements.watchMarketMapStage.clientWidth || 1);
@@ -22567,6 +22573,17 @@ function renderWatchMarketMap(results = state.watchMarketMapResults, options = {
   elements.watchMarketMapStage.replaceChildren(
     ...layout.nodes.map((node) => createWatchMarketMapTile(node, width, height)),
   );
+  const replacementOverflowTrigger = elements.watchMarketMapStage.querySelector(
+    ".watch-market-map-tile.is-overflow",
+  );
+  if (sheetOverflowTrigger && watchMarketMapSheetOpen()) {
+    state.watchMarketMapSheetTrigger = replacementOverflowTrigger;
+  }
+  if (focusedOverflowTrigger && replacementOverflowTrigger) {
+    window.requestAnimationFrame(() => {
+      replacementOverflowTrigger.focus({ preventScroll: true });
+    });
+  }
   animateWatchMarketMapLayout(motionSnapshot);
   renderWatchMarketMapLegend(entries);
   renderWatchMarketMapTimeline(baseEntries, timeline);
