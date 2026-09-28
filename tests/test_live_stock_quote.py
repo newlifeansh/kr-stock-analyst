@@ -342,7 +342,14 @@ def test_dashboard_surfaces_extended_session_status_and_live_intraday_refresh():
     assert "formatQuoteTradeTime" not in mobile
     assert "setText(elements.stockMarketStatusLabel, displayStatus);" in mobile
     assert "trapStockTradingHoursFocus" in mobile
-    assert 'if (!stockDashboardIsUs()) openStockTradingHoursSheet();' in mobile
+    assert "function renderStockTradingHoursSheet(" in mobile
+    assert 'elements.stockPreMarket?.addEventListener("click", openStockTradingHoursSheet);' in mobile
+    assert 'title.textContent = "미국주식 거래 시간 안내";' in mobile
+    assert "04:00–09:30" in mobile
+    assert "09:30–16:00" in mobile
+    assert "16:00–20:00" in mobile
+    assert "서머타임 적용 여부와 관계없이" in mobile
+    assert "미국주식 거래시간 안내 열기" in mobile
     assert "KIS 실시간" not in mobile
     assert "usMarketPhase(new Date(), state.currentDashboard?.quote)" in mobile
     assert ": koreaExtendedQuoteLive();" in mobile

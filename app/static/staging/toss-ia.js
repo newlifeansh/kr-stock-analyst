@@ -8056,7 +8056,7 @@
     marketStatus.dataset.stagingOrderability = state;
     const spokenStatus = showDetail ? `${summary}, ${detailText}` : summary;
     marketStatus.setAttribute("aria-label", stagingStockIsUsd()
-      ? `${spokenStatus}, 미국 동부시간 기준`
+      ? `${spokenStatus}, 미국주식 거래시간 안내 열기, 미국 동부시간 기준`
       : `${spokenStatus}, 국내주식 거래시간 안내 열기`);
   };
 

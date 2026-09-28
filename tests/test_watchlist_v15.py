@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260923v553"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260928v554"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -205,6 +205,8 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         "function watchMarketMapCanonicalTradeDate",
         "function watchMarketMapZonedEpoch",
         "function normalizeWatchMarketMapIntraday",
+        "function watchMarketMapIntradayFallbackEndpoint",
+        "function watchMarketMapIntradayHasRegularPoints",
         "async function loadWatchMarketMapIntraday",
         "function renderWatchMarketMap",
         "async function loadHomeWatchMarketMap",
@@ -223,6 +225,7 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         'physics.stage.dataset.motion = motionKind === "dragging" ? "dragging" : "settling";',
         'elements.watchMarketMapStage.dataset.sizeEncoding = "absolute-return";',
         '? `/us/stocks/${code}/intraday?range=1d&interval=1m`',
+        'return `/us/stocks/${code}/intraday?range=5d&interval=5m`;',
         ': `/stocks/${code}/intraday?limit=390`;',
         'elements.watchMarketMapTimelineTrack?.addEventListener("input", handleWatchMarketMapTimelineInput);',
         '"pointerdown",\n  handleWatchMarketMapTimelinePointerDown,',
@@ -473,6 +476,19 @@ const timezoneSeries = normalizeWatchMarketMapIntraday({
   ],
 }, timezoneEntry);
 state.watchMarketMapIntradayByKey.set(watchMarketMapEntryKey(timezoneEntry), timezoneSeries);
+const extendedHoursSeries = normalizeWatchMarketMapIntraday({
+  code: "TZ",
+  trade_date: "2026-09-10",
+  regular_trade_date: "2026-09-09",
+  market_timezone: "America/New_York",
+  reference_price: 88,
+  regular_reference_price: 100,
+  points: [
+    {trade_date: "2026-09-09", trade_time: "093000", price: 101},
+    {trade_date: "2026-09-09", trade_time: "160000", price: 103},
+    {trade_date: "2026-09-10", trade_time: "080000", price: 104},
+  ],
+}, timezoneEntry);
 const krRegularNow = new Date("2026-09-09T12:15:00+09:00");
 const usRegularNow = new Date("2026-09-09T12:45:00-04:00");
 const timelineAtTen = watchMarketMapTimelineRange(dynamicEntries, "kr", krRegularNow);
@@ -598,6 +614,13 @@ console.log(JSON.stringify({
     dateKey: point.dateKey,
     minute: point.minute,
   })),
+  extendedHoursRecovery: {
+    tradeDate: extendedHoursSeries.tradeDate,
+    referencePrice: extendedHoursSeries.referencePrice,
+    dates: [...new Set(extendedHoursSeries.points.map(point => point.dateKey))],
+    hasRegularPoints: watchMarketMapIntradayHasRegularPoints(extendedHoursSeries, timezoneEntry),
+    fallbackEndpoint: watchMarketMapIntradayFallbackEndpoint(timezoneEntry),
+  },
   usTimeline: {
     session: usTimeline.sessionLabel,
     open: usTimeline.openMinutes,
@@ -692,6 +715,13 @@ console.log(JSON.stringify({
             {"dateKey": "2026-09-09", "minute": 660},
             {"dateKey": "2026-09-09", "minute": 960},
         ],
+        "extendedHoursRecovery": {
+            "tradeDate": "2026-09-09",
+            "referencePrice": 100,
+            "dates": ["2026-09-09"],
+            "hasRegularPoints": True,
+            "fallbackEndpoint": "/us/stocks/TZ/intraday?range=5d&interval=5m",
+        },
         "usTimeline": {
             "session": "미국 정규장 · 뉴욕시간",
             "open": 570,

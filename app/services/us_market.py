@@ -2396,6 +2396,18 @@ def us_intraday_prices(
             "price": close,
             "volume": int(volume) if volume is not None else None,
         })
+    regular_points_by_date: dict[date, list[dict[str, object]]] = {}
+    for point in points:
+        trade_time = str(point["trade_time"])
+        if "093000" <= trade_time <= "160000":
+            regular_points_by_date.setdefault(point["trade_date"], []).append(point)
+    regular_trade_dates = sorted(regular_points_by_date)
+    regular_trade_date = regular_trade_dates[-1] if regular_trade_dates else None
+    regular_reference_price = _us_intraday_reference_price(meta)
+    if len(regular_trade_dates) >= 2:
+        previous_session_points = regular_points_by_date[regular_trade_dates[-2]]
+        if previous_session_points:
+            regular_reference_price = _to_decimal(previous_session_points[-1].get("close")) or regular_reference_price
     return {
         "code": stock["code"],
         "source": "Yahoo Finance",
@@ -2407,7 +2419,9 @@ def us_intraday_prices(
         "range": range_,
         "interval": interval,
         "trade_date": points[-1]["trade_date"] if points else None,
+        "regular_trade_date": regular_trade_date,
         "reference_price": _us_intraday_reference_price(meta),
+        "regular_reference_price": regular_reference_price,
         "points": points,
     }
 

@@ -2613,7 +2613,7 @@ function renderUsQuoteSession(quote = null) {
   elements.stockPreMarket.hidden = false;
   elements.stockPreMarket.dataset.session = `us_${phase}`;
   elements.stockPreMarket.dataset.statusTone = tone;
-  elements.stockPreMarket.setAttribute("aria-label", `${displayStatus}, 미국 동부시간 기준`);
+  elements.stockPreMarket.setAttribute("aria-label", `${displayStatus}, 미국주식 거래시간 안내 열기, 미국 동부시간 기준`);
   setText(elements.stockMarketStatusLabel, "미국 동부시간 기준");
 }
 
@@ -13352,10 +13352,59 @@ function trapStockTradingHoursFocus(event) {
   focusable[nextIndex].focus();
 }
 
+function renderStockTradingHoursSheet(isUs = stockDashboardIsUs()) {
+  if (!elements.stockTradingHoursSheet) return;
+  const title = elements.stockTradingHoursSheet.querySelector("#stock-trading-hours-title");
+  const summary = elements.stockTradingHoursSheet.querySelector("#stock-trading-hours-summary");
+  const tableWrap = elements.stockTradingHoursSheet.querySelector(".stock-trading-hours-table-wrap");
+  const caption = elements.stockTradingHoursSheet.querySelector(".stock-trading-hours-table caption");
+  const tableBody = elements.stockTradingHoursSheet.querySelector(".stock-trading-hours-table tbody");
+  const note = elements.stockTradingHoursSheet.querySelector("#stock-trading-hours-note");
+  const guide = elements.stockTradingHoursSheet.querySelector(".stock-trading-hours-guide ul");
+  if (!title || !summary || !tableWrap || !caption || !tableBody || !note || !guide) return;
+
+  elements.stockTradingHoursSheet.dataset.marketScope = isUs ? "us" : "kr";
+  if (isUs) {
+    title.textContent = "미국주식 거래 시간 안내";
+    summary.textContent = "화면의 장 상태와 시간은 미국 동부시간(ET) 기준입니다.";
+    tableWrap.setAttribute("aria-label", "미국주식 거래시간 표");
+    caption.textContent = "미국주식 시장별 거래 시간과 시세 안내";
+    tableBody.innerHTML = `
+      <tr><th scope="row">프리마켓</th><td>04:00–09:30</td><td>시세 제공</td></tr>
+      <tr><th scope="row">정규장</th><td>09:30–16:00</td><td>시세 제공</td></tr>
+      <tr><th scope="row">애프터마켓</th><td>16:00–20:00</td><td>시세 제공</td></tr>
+    `;
+    note.textContent = "서머타임 적용 여부와 관계없이 뉴욕 현지 시간으로 표시합니다.";
+    guide.replaceChildren(
+      el("li", "", "정규장이 시작하기 전에는 직전 정규장 마감 시세를 기준으로 표시해요."),
+      el("li", "", "프리마켓과 애프터마켓은 거래량이 적어 가격 변동이 커질 수 있어요."),
+      el("li", "", "실제 주문 가능 시간과 지원 종목은 이용 중인 증권사에서 확인해 주세요."),
+    );
+    return;
+  }
+
+  title.textContent = "국내주식 거래 시간 안내";
+  summary.textContent = "장 상태는 한국시간 기준으로 표시됩니다.";
+  tableWrap.setAttribute("aria-label", "국내주식 거래시간 표");
+  caption.textContent = "국내주식 시장별 거래 시간과 지원 종목";
+  tableBody.innerHTML = `
+    <tr><th scope="row">프리장</th><td>08:00–08:50</td><td>일부 종목</td></tr>
+    <tr><th scope="row">정규장</th><td>09:00–15:30</td><td>모든 종목</td></tr>
+    <tr><th scope="row">애프터장</th><td>15:40–20:00</td><td>일부 종목</td></tr>
+  `;
+  note.textContent = "NXT 메인마켓은 09:00:30–15:20에 운영됩니다.";
+  guide.replaceChildren(
+    el("li", "", "프리장과 애프터장은 넥스트레이드(NXT) 지원 종목만 시세가 제공됩니다."),
+    el("li", "", "휴장일이나 시장 운영 상황에 따라 거래 시간이 달라질 수 있습니다."),
+    el("li", "", "실제 주문 가능 여부는 이용 중인 증권사에서 확인해 주세요."),
+  );
+}
+
 function openStockTradingHoursSheet() {
   if (!elements.stockTradingHoursSheet) {
     return;
   }
+  renderStockTradingHoursSheet();
   const wasHidden = elements.stockTradingHoursSheet.hidden;
   if (wasHidden && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
     stockTradingHoursReturnFocus = document.activeElement;
@@ -21157,6 +21206,13 @@ function watchMarketMapIntradayEndpoint(entry = {}) {
     : `/stocks/${code}/intraday?limit=390`;
 }
 
+function watchMarketMapIntradayFallbackEndpoint(entry = {}) {
+  const item = entry.item || entry;
+  const code = encodeURIComponent(String(item?.code || item?.symbol || "").trim());
+  if (!code || marketScopeForItem(item) !== "us") return "";
+  return `/us/stocks/${code}/intraday?range=5d&interval=5m`;
+}
+
 function watchMarketMapMinuteFromTradeTime(value) {
   const digits = String(value || "").replace(/\D/g, "").padStart(6, "0").slice(-6);
   const hour = Number(digits.slice(0, 2));
@@ -21255,6 +21311,7 @@ function normalizeWatchMarketMapIntraday(payload = {}, entry = {}) {
     || (marketScopeForItem(entry.item || entry) === "us" ? "America/New_York" : "Asia/Seoul"),
   );
   const payloadTradeDate = watchMarketMapCanonicalTradeDate(payload?.trade_date);
+  const payloadRegularTradeDate = watchMarketMapCanonicalTradeDate(payload?.regular_trade_date);
   const dated = source
     .map((point, sourceIndex) => {
       const sourceTradeDate = watchMarketMapCanonicalTradeDate(point?.trade_date) || payloadTradeDate;
@@ -21270,7 +21327,14 @@ function normalizeWatchMarketMapIntraday(payload = {}, entry = {}) {
       };
     })
     .filter((point) => point.minute !== null && point.price !== null && point.price > 0);
-  const latestTradeDate = payloadTradeDate
+  const scope = marketScopeForItem(entry.item || entry);
+  const session = WATCH_MARKET_MAP_SESSIONS[scope] || WATCH_MARKET_MAP_SESSIONS.kr;
+  const latestRegularTradeDate = dated
+    .filter((point) => point.minute >= session.openMinutes && point.minute <= session.closeMinutes)
+    .reduce((latest, point) => point.sourceTradeDate > latest ? point.sourceTradeDate : latest, "");
+  const latestTradeDate = latestRegularTradeDate
+    || payloadRegularTradeDate
+    || payloadTradeDate
     || dated.reduce((latest, point) => point.sourceTradeDate > latest ? point.sourceTradeDate : latest, "");
   const pointsByMinute = new Map();
   for (const point of dated) {
@@ -21287,7 +21351,8 @@ function normalizeWatchMarketMapIntraday(payload = {}, entry = {}) {
       epoch,
     }));
   const quote = entry.dashboard?.quote || {};
-  const referencePrice = toNumber(payload?.reference_price)
+  const referencePrice = toNumber(payload?.regular_reference_price)
+    ?? toNumber(payload?.reference_price)
     ?? previousCloseFromQuote(quote)
     ?? points[0]?.price
     ?? null;
@@ -21300,6 +21365,14 @@ function normalizeWatchMarketMapIntraday(payload = {}, entry = {}) {
     source: String(payload?.source || ""),
     loaded: true,
   };
+}
+
+function watchMarketMapIntradayHasRegularPoints(series = {}, entry = {}) {
+  const scope = marketScopeForItem(entry.item || entry);
+  const session = WATCH_MARKET_MAP_SESSIONS[scope] || WATCH_MARKET_MAP_SESSIONS.kr;
+  return (series.points || []).some((point) => (
+    point.minute >= session.openMinutes && point.minute <= session.closeMinutes
+  ));
 }
 
 function watchMarketMapIntradaySeries(entry = {}) {
@@ -22514,32 +22587,41 @@ async function loadWatchMarketMapIntraday(entries, options = {}) {
   const source = Array.isArray(entries) ? entries : [];
   await mapWithConcurrency(source, 4, async (entry) => {
     const key = watchMarketMapEntryKey(entry);
-    const endpoint = watchMarketMapIntradayEndpoint(entry);
-    if (!key || !endpoint) return null;
-    try {
-      const payload = await Promise.race([
-        fetchJsonCached(endpoint, {
-          force,
-          ttlMs: force ? 0 : PAGE_ENTRY_MINUTE_MS,
-        }),
-        rejectAfter(12_000, "watch market map intraday timeout"),
-      ]);
-      if (
-        generation !== state.watchMarketMapIntradayLoadSequence
-        || homeLoadSequence !== state.homeWatchMarketMapLoadSequence
-      ) return null;
-      const normalized = normalizeWatchMarketMapIntraday(payload, entry);
-      state.watchMarketMapIntradayByKey.set(key, normalized);
-      return normalized;
-    } catch {
-      if (
-        generation === state.watchMarketMapIntradayLoadSequence
-        && homeLoadSequence === state.homeWatchMarketMapLoadSequence
-      ) {
-        state.watchMarketMapIntradayByKey.set(key, normalizeWatchMarketMapIntraday({}, entry));
+    const endpoints = [
+      watchMarketMapIntradayEndpoint(entry),
+      watchMarketMapIntradayFallbackEndpoint(entry),
+    ].filter(Boolean);
+    if (!key || !endpoints.length) return null;
+    let normalized = null;
+    for (const endpoint of endpoints) {
+      try {
+        const payload = await Promise.race([
+          fetchJsonCached(endpoint, {
+            force,
+            ttlMs: force ? 0 : PAGE_ENTRY_MINUTE_MS,
+          }),
+          rejectAfter(12_000, "watch market map intraday timeout"),
+        ]);
+        if (
+          generation !== state.watchMarketMapIntradayLoadSequence
+          || homeLoadSequence !== state.homeWatchMarketMapLoadSequence
+        ) return null;
+        normalized = normalizeWatchMarketMapIntraday(payload, entry);
+        if (watchMarketMapIntradayHasRegularPoints(normalized, entry)) break;
+      } catch {
+        // The wider US window below recovers a premarket 1d response that is
+        // empty or contains only extended-hours prices.
       }
-      return null;
     }
+    if (
+      generation !== state.watchMarketMapIntradayLoadSequence
+      || homeLoadSequence !== state.homeWatchMarketMapLoadSequence
+    ) return null;
+    if (!normalized || !watchMarketMapIntradayHasRegularPoints(normalized, entry)) {
+      normalized = normalizeWatchMarketMapIntraday({}, entry);
+    }
+    state.watchMarketMapIntradayByKey.set(key, normalized);
+    return normalized;
   });
   if (
     generation !== state.watchMarketMapIntradayLoadSequence
@@ -31427,9 +31509,7 @@ elements.appExitDialog?.addEventListener("cancel", (event) => {
   event.preventDefault();
   cancelAppExit();
 });
-elements.stockPreMarket?.addEventListener("click", () => {
-  if (!stockDashboardIsUs()) openStockTradingHoursSheet();
-});
+elements.stockPreMarket?.addEventListener("click", openStockTradingHoursSheet);
 elements.stockTradingHoursBackdrop?.addEventListener("click", closeStockTradingHoursSheet);
 elements.stockTradingHoursConfirm?.addEventListener("click", closeStockTradingHoursSheet);
 

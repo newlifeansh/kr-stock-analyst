@@ -760,6 +760,7 @@ def test_staging_stock_hero_preserves_simple_market_status_and_adaptive_sheet():
     assert 'id="stock-trading-hours-sheet"' in shell
     assert 'marketStatusButton.classList.add("staging-stock-market-status")' in js
     assert "stockHero.appendChild(marketStatusButton)" in js
+    assert "미국주식 거래시간 안내 열기" in js
     assert 'copyText("[data-staging-stock-as-of]"' not in js
     assert ".staging-stock-market-status:not([hidden])" in css
     assert '[data-status-tone="live"]' in css
@@ -2810,7 +2811,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20260923v553' in shell
+    assert 'dashboard-app-v170.js?v=20260928v554' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 

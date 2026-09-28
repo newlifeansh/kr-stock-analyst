@@ -1826,6 +1826,8 @@ def test_us_intraday_prices_normalizes_new_york_market_points(monkeypatch):
     assert payload["market_timezone"] == "America/New_York"
     assert payload["market_session"] == "regular"
     assert payload["reference_price"] == Decimal("170.25")
+    assert payload["regular_trade_date"] == date(2026, 9, 4)
+    assert payload["regular_reference_price"] == Decimal("170.25")
     assert payload["points"] == [{
         "trade_date": date(2026, 9, 4),
         "trade_time": "093100",
@@ -1836,6 +1838,54 @@ def test_us_intraday_prices_normalizes_new_york_market_points(monkeypatch):
         "price": Decimal("172.0"),
         "volume": 12345,
     }]
+
+
+def test_us_intraday_prices_keeps_latest_regular_session_when_premarket_is_newer(monkeypatch):
+    timestamps = [
+        int(datetime(2026, 9, 3, 19, 59, tzinfo=UTC).timestamp()),
+        int(datetime(2026, 9, 4, 13, 30, tzinfo=UTC).timestamp()),
+        int(datetime(2026, 9, 4, 20, 0, tzinfo=UTC).timestamp()),
+        int(datetime(2026, 9, 8, 12, 0, tzinfo=UTC).timestamp()),
+    ]
+    closes = [100.0, 101.0, 105.0, 106.0]
+    monkeypatch.setattr(
+        us_market,
+        "resolve_us_stock",
+        lambda symbol: {"code": "NVDA", "name": "NVIDIA"},
+    )
+    monkeypatch.setattr(
+        us_market,
+        "fetch_chart_range",
+        lambda *args, **kwargs: {
+            "meta": {"regularMarketPreviousClose": 105.0, "chartPreviousClose": 95.0},
+            "timestamp": timestamps,
+            "indicators": {
+                "quote": [{
+                    "open": closes,
+                    "high": closes,
+                    "low": closes,
+                    "close": closes,
+                    "volume": [100, 200, 300, 50],
+                }]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        us_market,
+        "_us_market_session",
+        lambda: {
+            "session": "premarket",
+            "label": "미국 프리마켓",
+            "is_live": True,
+            "local_time": datetime(2026, 9, 8, 8, 0, tzinfo=us_market.NEW_YORK_TZ),
+        },
+    )
+
+    payload = us_market.us_intraday_prices("NVDA", range_="5d", interval="5m")
+
+    assert payload["trade_date"] == date(2026, 9, 8)
+    assert payload["regular_trade_date"] == date(2026, 9, 4)
+    assert payload["regular_reference_price"] == Decimal("100.0")
 
 
 def test_us_previous_close_prefers_current_daily_reference_over_stale_chart_metadata():
