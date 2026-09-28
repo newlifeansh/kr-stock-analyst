@@ -8811,7 +8811,6 @@ def run_e2e_checks(
                     "kr": [item[0] for item in domestic_items],
                     "us": [item[0] for item in overseas_items],
                 }
-                folder_codes = ["NVDA", "AAPL", "AMD", "SMALL"]
                 intraday_requests: list[dict[str, str]] = []
 
                 def fulfill_json(route: Any, payload: dict[str, Any]) -> None:
@@ -8932,25 +8931,6 @@ def run_e2e_checks(
                         ),
                     )
 
-                page.route(
-                    re.compile(
-                        rf".*/watchlists/us\.{re.escape(share_id)}/groups(?:\?.*)?$"
-                    ),
-                    lambda route: fulfill_json(
-                        route,
-                        {
-                            "share_id": f"us.{share_id}",
-                            "initialized": True,
-                            "groups": [
-                                {
-                                    "id": "qa-ai-semiconductor",
-                                    "name": "AI·반도체",
-                                    "codes": folder_codes,
-                                }
-                            ],
-                        },
-                    ),
-                )
                 page.route(
                     re.compile(
                         rf".*/watchlists/us\.{re.escape(share_id)}/recommendation-tracks(?:\?.*)?$"
@@ -10060,32 +10040,6 @@ def run_e2e_checks(
                     "() => document.activeElement?.matches('#watch-market-map-stage .is-overflow')",
                     "Escape로 닫은 뒤 더보기 버튼으로 포커스가 복귀되지 않았습니다.",
                 )
-
-                page.evaluate(
-                    """async () => {
-                      setActiveWatchGroup('qa-ai-semiconductor', {load: false});
-                      await loadHomeWatchMarketMap({force: true, ttlMs: 0});
-                    }"""
-                )
-                wait_for_market_map_state(
-                    """() => (
-                      state.activeWatchGroup === 'qa-ai-semiconductor'
-                      && state.watchMarketMapResults.length === 4
-                      && document.querySelector('#watch-market-map-group')?.textContent.includes('AI·반도체')
-                    )""",
-                    "미국 관심종목 사용자 폴더로 버블 지도가 전환되지 않았습니다.",
-                )
-                folder_order = page.evaluate(
-                    "() => watchMarketMapEntries().map(entry => entry.item.code)"
-                )
-                expected_folder_order = [
-                    code for code in expected_orders["us"] if code in folder_codes
-                ]
-                if folder_order != expected_folder_order:
-                    raise QaFailure(
-                        "선택한 관심종목 폴더 밖의 종목이 버블맵에 섞였습니다.",
-                        {"actual": folder_order, "expected": expected_folder_order},
-                    )
 
                 first_tile = page.locator(
                     "#watch-market-map-stage a.watch-market-map-tile"

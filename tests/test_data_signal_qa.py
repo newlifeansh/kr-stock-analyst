@@ -1178,6 +1178,7 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "미국 전용 홈의 관심종목 범위가 미국으로 고정" in source
     assert "미국 관심종목이 시가총액 순으로 표시" in source
     assert "미국 당일 장외 전용 분봉이 직전 정규장 폴백" in source
+    assert "qa-ai-semiconductor" not in source
     assert 'rf"^https?://[^/]+/(?:us-gateway/)?us/watchlists/' in source
     assert 'or placement["selectedScope"] != "us"' not in source
     assert 'or not -2 <= placement["top50VisualGap"] <= 48' in source
