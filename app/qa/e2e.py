@@ -10016,18 +10016,49 @@ def run_e2e_checks(
                         {"hrefs": malformed_hrefs},
                     )
 
+                def wait_for_market_map_state(script: str, message: str) -> None:
+                    try:
+                        page.wait_for_function(script)
+                    except Exception as exc:  # noqa: BLE001 - attach browser state to a timed-out QA assertion.
+                        if not _is_playwright_timeout(exc):
+                            raise
+                        evidence = page.evaluate(
+                            """() => ({
+                              activeElement: document.activeElement ? {
+                                id: document.activeElement.id || null,
+                                className: document.activeElement.className || null,
+                                tagName: document.activeElement.tagName,
+                                isConnected: document.activeElement.isConnected,
+                              } : null,
+                              sheetOpen: Boolean(document.querySelector('#watch-market-map-sheet')?.open),
+                              storedTrigger: state.watchMarketMapSheetTrigger ? {
+                                className: state.watchMarketMapSheetTrigger.className || null,
+                                isConnected: state.watchMarketMapSheetTrigger.isConnected,
+                              } : null,
+                              overflowCount: document.querySelectorAll(
+                                '#watch-market-map-stage .is-overflow'
+                              ).length,
+                              activeWatchGroup: state.activeWatchGroup,
+                              groupLabel: document.querySelector('#watch-market-map-group')?.textContent.trim(),
+                              resultCount: state.watchMarketMapResults.length,
+                            })"""
+                        )
+                        raise QaFailure(message, evidence) from exc
+
                 page.evaluate("() => renderWatchMarketMap(state.watchMarketMapResults)")
                 page.locator("#watch-market-map-sheet-close").click()
                 sheet.wait_for(state="hidden")
-                page.wait_for_function(
-                    "() => document.activeElement?.matches('#watch-market-map-stage .is-overflow')"
+                wait_for_market_map_state(
+                    "() => document.activeElement?.matches('#watch-market-map-stage .is-overflow')",
+                    "바텀시트 배경 갱신 후 더보기 버튼으로 포커스가 복귀되지 않았습니다.",
                 )
                 page.keyboard.press("Enter")
                 sheet.wait_for(state="visible")
                 page.keyboard.press("Escape")
                 sheet.wait_for(state="hidden")
-                page.wait_for_function(
-                    "() => document.activeElement?.matches('#watch-market-map-stage .is-overflow')"
+                wait_for_market_map_state(
+                    "() => document.activeElement?.matches('#watch-market-map-stage .is-overflow')",
+                    "Escape로 닫은 뒤 더보기 버튼으로 포커스가 복귀되지 않았습니다.",
                 )
 
                 page.evaluate(
@@ -10036,13 +10067,13 @@ def run_e2e_checks(
                       await loadHomeWatchMarketMap({force: true, ttlMs: 0});
                     }"""
                 )
-                page.wait_for_function(
+                wait_for_market_map_state(
                     """() => (
                       state.activeWatchGroup === 'qa-ai-semiconductor'
                       && state.watchMarketMapResults.length === 4
                       && document.querySelector('#watch-market-map-group')?.textContent.includes('AI·반도체')
                     )""",
-                    timeout=int(timeout * 1000),
+                    "미국 관심종목 사용자 폴더로 버블 지도가 전환되지 않았습니다.",
                 )
                 folder_order = page.evaluate(
                     "() => watchMarketMapEntries().map(entry => entry.item.code)"
