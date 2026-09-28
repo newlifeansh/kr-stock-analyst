@@ -1180,6 +1180,7 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "미국 당일 장외 전용 분봉이 직전 정규장 폴백" in source
     assert 'rf"^https?://[^/]+/(?:us-gateway/)?us/watchlists/' in source
     assert 'or placement["selectedScope"] != "us"' not in source
+    assert 'or not -2 <= placement["top50VisualGap"] <= 48' in source
     assert "장전·장중·시간외·장 마감 상태 계약" in source
     assert "직전 정규장 마감 기준" in source
     assert "timeline.hasHistory && timeline.latestMinutes > timeline.openMinutes" in source

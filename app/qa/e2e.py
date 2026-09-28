@@ -9129,10 +9129,19 @@ def run_e2e_checks(
                       const top50 = document.querySelector('#home-surge');
                       const portfolio = document.querySelector('#portfolio-view');
                       const localToggle = document.querySelector('#watch-market-map-market-toggle');
+                      const marketMapRect = marketMap?.getBoundingClientRect();
+                      const top50Rect = top50?.getBoundingClientRect();
                       return {
                         mapCount: document.querySelectorAll('#watch-market-map').length,
                         inHome: Boolean(home?.contains(marketMap)),
-                        immediatelyBeforeTop50: marketMap?.nextElementSibling === top50,
+                        beforeTop50: Boolean(
+                          marketMap
+                          && top50
+                          && (marketMap.compareDocumentPosition(top50) & Node.DOCUMENT_POSITION_FOLLOWING)
+                        ),
+                        top50VisualGap: marketMapRect && top50Rect
+                          ? top50Rect.top - marketMapRect.bottom
+                          : null,
                         inPortfolio: Boolean(portfolio?.contains(marketMap)),
                         marketToggleVisible: Boolean(document.querySelector('#unified-market-scope')?.offsetParent),
                         localToggleVisible: Boolean(localToggle?.offsetParent),
@@ -9142,7 +9151,9 @@ def run_e2e_checks(
                 if (
                     placement["mapCount"] != 1
                     or not placement["inHome"]
-                    or not placement["immediatelyBeforeTop50"]
+                    or not placement["beforeTop50"]
+                    or placement["top50VisualGap"] is None
+                    or not -2 <= placement["top50VisualGap"] <= 48
                     or placement["inPortfolio"]
                     or placement["marketToggleVisible"]
                     or placement["localToggleVisible"]
