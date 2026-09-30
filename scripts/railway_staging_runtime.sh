@@ -30,7 +30,7 @@ scale_service() {
 
   echo "Scaling domestic staging $role to $replicas replica(s)" >&2
   railway scale \
-    --project "$RAILWAY_PROJECT_ID" \
+    -p "$RAILWAY_PROJECT_ID" \
     --environment "$RAILWAY_ENVIRONMENT" \
     --service "$service" \
     "${RAILWAY_REGION}=${replicas}" \
