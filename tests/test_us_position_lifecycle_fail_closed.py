@@ -32,6 +32,7 @@ def test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy():
         ("0000811809", "Energy", "XLB"),  # BHP
         ("0000097745", "Industrials", "XLV"),  # Thermo Fisher
         ("0000078003", "Technology", "XLV"),  # Pfizer
+        ("0000313616", "Industrials", "XLV"),  # Danaher
         ("0001181412", "Technology", "XLC"),  # SpaceX
         ("0000820313", "Industrials", "XLK"),  # Amphenol
         ("0001551182", "Technology", "XLI"),  # Eaton
