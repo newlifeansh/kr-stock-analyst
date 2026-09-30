@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.qa.catalog import load_qa_catalog
 from app.qa.release_parity import (
     compare_release_contracts,
     local_release_contract,
 )
-from app.qa.catalog import load_qa_catalog
 from app.qa.runner import DEFAULT_STAGING_BASE_URLS
 
 
@@ -139,10 +139,10 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert '--service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"' in workflow
     assert '--service "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"' in workflow
     assert '--service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"' in workflow
-    assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 2
+    assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 4
     assert workflow.count('test -n "$RAILWAY_API_TOKEN"') == 2
     assert "      RAILWAY_TOKEN:" not in workflow
-    assert workflow.count("npm install --global @railway/cli@5.45.7") == 2
+    assert workflow.count("npm install --global @railway/cli@5.45.7") == 4
     assert "railway up" not in workflow
     assert "name: production" in workflow
     assert "--production-url \"$TARGET_PRODUCTION_BASE_URL\"" in workflow
@@ -278,3 +278,39 @@ def test_scheduled_qa_never_reuses_the_preview_proxy() -> None:
         assert 'surface "${{ matrix.surface }}"' in workflow
         assert "vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL" in workflow
         assert "dark-theme-preview-staging" not in workflow
+
+
+def test_domestic_staging_runtime_is_serialized_and_always_stopped() -> None:
+    release = Path(".github/workflows/deploy-staging-production.yml").read_text(
+        encoding="utf-8"
+    )
+    live = Path(".github/workflows/qa-data-signal-live.yml").read_text(
+        encoding="utf-8"
+    )
+    e2e = Path(".github/workflows/qa-data-signal-e2e.yml").read_text(
+        encoding="utf-8"
+    )
+
+    for workflow in (release, live, e2e):
+        assert (
+            "group: domestic-staging-runtime" in workflow
+            or "'domestic-staging-runtime'" in workflow
+        )
+        assert "cancel-in-progress: false" in workflow
+        assert "DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE" in workflow
+        assert "DASHBOARD_STAGING_RAILWAY_REGION" in workflow
+        assert "./scripts/railway_staging_runtime.sh up" in workflow
+        assert "./scripts/railway_staging_runtime.sh down" in workflow
+        assert "always()" in workflow
+
+    assert "shutdown_domestic_staging:" in release
+    assert "needs: [deploy_staging, staging_qa, staging_us_gateway_qa]" in release
+    assert "if: ${{ always() && inputs.action == 'stage' }}" in release
+    start = release.index("Start domestic staging only for deployment and QA")
+    deploy = release.index("Deploy the exact image to domestic staging")
+    assert start < deploy
+    assert release.index("Deploy the exact image to domestic staging") < release.index(
+        "shutdown_domestic_staging:"
+    )
+    assert "if: ${{ always() && matrix.surface == 'dashboard' }}" in live
+    assert "if: ${{ always() && matrix.surface == 'dashboard' }}" in e2e

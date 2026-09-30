@@ -8,8 +8,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: qa-data-signal-e2e-${{ github.ref }}
-  cancel-in-progress: true
+  group: domestic-staging-runtime
+  cancel-in-progress: false
 
 jobs:
   e2e:
@@ -19,7 +19,7 @@ jobs:
        github.event.deployment_status.state == 'success' &&
        contains(github.event.deployment.environment, 'staging'))
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -29,6 +29,13 @@ jobs:
       QA_BASE_URL: ${{ matrix.surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL }}
       QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
       QA_DASHBOARD_SHARE_ID: qa-automation
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
+      RAILWAY_WEB_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
+      RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+      RAILWAY_DATABASE_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
+      RAILWAY_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
+      RAILWAY_READY_URL: ${{ vars.DASHBOARD_STAGING_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,6 +46,12 @@ jobs:
         run: |
           pip install -e '.[qa,mcp]'
           playwright install --with-deps chromium
+      - name: Install Railway CLI for domestic staging
+        if: matrix.surface == 'dashboard'
+        run: npm install --global @railway/cli@5.45.7
+      - name: Start domestic staging for browser QA
+        if: matrix.surface == 'dashboard'
+        run: ./scripts/railway_staging_runtime.sh up
       - name: Run mobile dark and light E2E
         run: |
           test -n "$QA_BASE_URL"
@@ -68,3 +81,6 @@ jobs:
           path: artifacts/qa-data-signal
           if-no-files-found: error
           retention-days: 30
+      - name: Stop domestic staging after browser QA
+        if: ${{ always() && matrix.surface == 'dashboard' }}
+        run: ./scripts/railway_staging_runtime.sh down

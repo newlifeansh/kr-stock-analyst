@@ -241,11 +241,16 @@ const state = {{
   quoteStreamRejectedCodes: new Set(),
   quoteStreamConnectionState: "checking",
   quoteStreamSubscribedCodes: new Set(),
+  usSectorMoves: {{}},
 }};
 function isAiSignalSnapshotStale() {{ return false; }}
 function isCurrentAiSignalHolding() {{ return true; }}
 function koreaExtendedQuoteLive() {{ return true; }}
 function isDomesticMarketClosed() {{ return false; }}
+function marketScopeForItem(item = {{}}) {{
+  return item.currency === "USD" || item.market_scope === "us" ? "us" : "kr";
+}}
+function usMarketPhase() {{ return "regular"; }}
 function toNumber(value) {{
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
