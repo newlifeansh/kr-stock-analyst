@@ -141,10 +141,10 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert '--service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"' in workflow
     assert '--service "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"' in workflow
     assert '--service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"' in workflow
-    assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 2
+    assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 4
     assert workflow.count('test -n "$RAILWAY_API_TOKEN"') == 2
     assert "      RAILWAY_TOKEN:" not in workflow
-    assert workflow.count("npm install --global @railway/cli@5.45.7") == 2
+    assert workflow.count("npm install --global @railway/cli@5.45.7") == 4
     assert "railway up" not in workflow
     assert "name: production" in workflow
     assert "--production-url \"$TARGET_PRODUCTION_BASE_URL\"" in workflow
@@ -161,6 +161,16 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "staging_us_gateway_qa:" in workflow
     assert "--surface us-gateway" in workflow
     assert "/us/market/" not in workflow
+    assert "shutdown_domestic_staging:" in workflow
+    assert "Start domestic staging only for deployment and QA" in workflow
+    assert "Stop domestic staging after every QA outcome" in workflow
+    assert "Start domestic staging for production parity" in workflow
+    assert "Stop domestic staging after production parity" in workflow
+    assert "DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE" in workflow
+    assert "DASHBOARD_STAGING_RAILWAY_REGION" in workflow
+    assert workflow.index("Start domestic staging only for deployment and QA") < workflow.index(
+        "Deploy the exact image to domestic staging"
+    )
 
 
 def test_us_canonical_route_activation_requires_exact_production_candidate() -> None:
@@ -235,6 +245,29 @@ def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> Non
     assert release_case["inputs"]["staging_market_flags"] == {
         "dashboard": False,
         "us": True,
+    }
+    assert release_case["inputs"]["dashboard_staging_runtime"] == {
+        "services": [
+            "DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE",
+            "DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE",
+            "DASHBOARD_STAGING_RAILWAY_WEB_SERVICE",
+        ],
+        "region": "DASHBOARD_STAGING_RAILWAY_REGION",
+        "idle_state": {
+            "web_replicas": 0,
+            "collector_replicas": 0,
+            "database_deployment": "stopped",
+        },
+        "qa_state": {
+            "web_replicas": 1,
+            "collector_replicas": 1,
+            "database_deployment": "running",
+        },
+        "database_start": "redeploy-configured-source-and-wait",
+        "database_stop": "remove-active-deployment-preserve-volume",
+        "database_state_timeout_seconds": 300,
+        "start_order": ["database", "collector", "web"],
+        "stop_order": ["web", "collector", "database"],
     }
 
 
