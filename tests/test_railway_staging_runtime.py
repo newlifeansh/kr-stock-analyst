@@ -130,6 +130,13 @@ def test_staging_runtime_starts_and_stops_in_dependency_order(tmp_path: Path) ->
     ]
 
 
+def test_staging_runtime_does_not_gate_new_candidate_deployment_on_old_public_health() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+
+    assert "RAILWAY_READY_URL" not in script
+    assert "wait_until_ready" not in script
+
+
 def test_failed_start_rolls_back_every_staging_service(tmp_path: Path) -> None:
     result, lines = _run_runtime(
         tmp_path,

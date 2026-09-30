@@ -171,36 +171,6 @@ rollback_after_failed_start() {
   exit 1
 }
 
-wait_until_ready() {
-  local base_url="${RAILWAY_READY_URL:-}"
-  local timeout_seconds="${RAILWAY_READY_TIMEOUT_SECONDS:-300}"
-  local deadline
-
-  if [[ -z "$base_url" ]]; then
-    return 0
-  fi
-  if [[ ! "$base_url" =~ ^https://[^[:space:]]+$ ]]; then
-    echo "RAILWAY_READY_URL must be an https URL" >&2
-    return 1
-  fi
-  if [[ ! "$timeout_seconds" =~ ^[0-9]+$ || "$timeout_seconds" -eq 0 ]]; then
-    echo "RAILWAY_READY_TIMEOUT_SECONDS must be a positive integer" >&2
-    return 1
-  fi
-
-  deadline=$((SECONDS + timeout_seconds))
-  while ((SECONDS < deadline)); do
-    if curl --fail --silent --show-error --max-time 10 \
-      "${base_url%/}/healthz" >/dev/null 2>&1; then
-      echo "Domestic staging health check passed" >&2
-      return 0
-    fi
-    sleep 5
-  done
-  echo "Domestic staging did not become healthy within ${timeout_seconds}s" >&2
-  return 1
-}
-
 if [[ $# -ne 1 || ("$1" != "up" && "$1" != "down") ]]; then
   usage
   exit 2
@@ -240,4 +210,3 @@ if [[ "$RAILWAY_DATABASE_WARMUP_SECONDS" -gt 0 ]]; then
 fi
 scale_service collector "$RAILWAY_COLLECTOR_SERVICE" 1 || rollback_after_failed_start
 scale_service web "$RAILWAY_WEB_SERVICE" 1 || rollback_after_failed_start
-wait_until_ready || rollback_after_failed_start
