@@ -672,6 +672,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_collector_backfills_legacy_member_evidence_during_regular_session",
         "tests.test_us_position_lifecycle_runtime."
         "test_legacy_snapshot_requires_one_time_public_member_evidence_upgrade",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_sector_classification_version_change_requires_fail_closed_upgrade",
         "tests.test_us_position_lifecycle."
         "test_us_history_loader_retries_only_transient_failures_with_lower_concurrency",
         "tests.test_us_position_lifecycle."

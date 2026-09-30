@@ -3181,14 +3181,22 @@ def load_us_position_lifecycle_snapshot(
         return None
     if not isinstance(payload, dict):
         return None
-    if payload.get("strategy_version") != US_STRATEGY_VERSION:
-        # A release that changes lifecycle semantics must not render the old
-        # row as if it were compatible.  Return a fail-closed marker that lets
-        # the collector perform its bounded schema rebuild even during a US
-        # regular session (using the most recent completed daily bars).
+    if (
+        payload.get("strategy_version") != US_STRATEGY_VERSION
+        or payload.get("sector_classification_version")
+        != US_SECTOR_ETF_CLASSIFICATION_VERSION
+    ):
+        # A release that changes lifecycle or sector-classification semantics
+        # must not render the old row as if it were compatible. Return a
+        # fail-closed marker that lets the collector perform its bounded schema
+        # rebuild even during a US regular session (using the most recent
+        # completed daily bars).
         upgrade = us_position_lifecycle_preparing_payload(now=current)
         upgrade["schema_upgrade_required"] = True
         upgrade["source_strategy_version"] = payload.get("strategy_version")
+        upgrade["source_sector_classification_version"] = payload.get(
+            "sector_classification_version"
+        )
         return upgrade
     generated_at = snapshot.generated_at
     if generated_at.tzinfo is None or generated_at.utcoffset() is None:

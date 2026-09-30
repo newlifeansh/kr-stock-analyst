@@ -682,6 +682,48 @@ def test_legacy_snapshot_requires_one_time_public_member_evidence_upgrade() -> N
     )
 
 
+def test_sector_classification_version_change_requires_fail_closed_upgrade(
+    snapshot_db,
+) -> None:
+    generated_at = datetime(2026, 9, 8, 21, 0, tzinfo=UTC)
+    lifecycle.save_us_position_lifecycle_snapshot(
+        snapshot_db,
+        _complete_feed(),
+        generated_at=generated_at,
+    )
+    row = snapshot_db.get(
+        MarketQuantSignalSnapshot,
+        lifecycle.US_POSITION_LIFECYCLE_SNAPSHOT_KEY,
+    )
+    assert row is not None
+    payload = json.loads(row.payload)
+    payload["sector_classification_version"] = "us-sector-etf-cik-v5"
+    row.payload = json.dumps(payload)
+    snapshot_db.commit()
+
+    loaded = lifecycle.load_us_position_lifecycle_snapshot(
+        snapshot_db,
+        now=generated_at,
+    )
+
+    assert loaded is not None
+    assert loaded["status"] == "preparing"
+    assert loaded["data_state"] == "preparing"
+    assert loaded["schema_upgrade_required"] is True
+    assert loaded["source_strategy_version"] == lifecycle.US_STRATEGY_VERSION
+    assert (
+        loaded["source_sector_classification_version"]
+        == "us-sector-etf-cik-v5"
+    )
+    assert (
+        loaded["sector_classification_version"]
+        == lifecycle.US_SECTOR_ETF_CLASSIFICATION_VERSION
+    )
+    assert loaded["items"] == []
+    assert loaded["new_entries_allowed"] is False
+    assert lifecycle.us_position_lifecycle_schema_upgrade_due(loaded) is True
+
+
 @pytest.mark.parametrize(
     ("mutation", "value"),
     [
