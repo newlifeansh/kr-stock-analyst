@@ -21467,7 +21467,8 @@ function computeWatchMarketMapLayout(entries, width, height) {
   const source = Array.isArray(entries) ? entries : [];
   if (!source.length) return { nodes: [], visibleEntries: [], hiddenEntries: [] };
   const compact = width < 520;
-  const minRadius = compact ? 22 : 31;
+  const sparse = source.length <= 3;
+  const minRadius = compact ? (sparse ? 36 : 22) : (sparse ? 42 : 31);
   const maxRadius = Math.max(
     minRadius + 8,
     Math.min(compact ? 62 : 102, Math.min(width, height) * (compact ? 0.18 : 0.24)),
@@ -22513,6 +22514,8 @@ function renderWatchMarketMap(results = state.watchMarketMapResults, options = {
   if (!entries.length) {
     stopWatchMarketMapPhysics();
     state.watchMarketMapHiddenEntries = [];
+    delete elements.watchMarketMapStage.dataset.itemCount;
+    delete elements.watchMarketMapStage.dataset.density;
     renderWatchMarketMapLegend([]);
     renderWatchMarketMapTimeline([], timeline);
     closeWatchMarketMapSheet();
@@ -22556,6 +22559,8 @@ function renderWatchMarketMap(results = state.watchMarketMapResults, options = {
   elements.watchMarketMap.hidden = false;
   elements.watchMarketMapStage.className = "watch-market-map-stage is-bubble-map";
   elements.watchMarketMapStage.removeAttribute("aria-busy");
+  elements.watchMarketMapStage.dataset.itemCount = String(entries.length);
+  elements.watchMarketMapStage.dataset.density = entries.length <= 3 ? "sparse" : "dense";
   elements.watchMarketMapStage.dataset.sizeEncoding = "absolute-return";
   elements.watchMarketMapStage.dataset.timelineMinute = String(timeline.selectedMinutes);
   const focusedOverflowTrigger = document.activeElement?.matches?.(
@@ -27323,37 +27328,14 @@ function recommendationReasonSummary(item = {}) {
 }
 
 function recommendationCandidateStageView(item = {}) {
-  if (marketScopeForItem(item) === "us") {
-    const signal = item.ai_trade_signal && typeof item.ai_trade_signal === "object"
-      ? item.ai_trade_signal
-      : {};
-    const current = signal.current && typeof signal.current === "object" ? signal.current : {};
-    const canonicalReady = isCanonicalUsSnapshotReady(item)
-      && isCanonicalUsSnapshotReady(signal)
-      && canonicalUsSnapshotIdentityMatches(item, signal);
-    const action = canonicalReady ? String(current.action || "no_signal") : "no_signal";
-    return {
-      headline: action === "entry_pending" ? "예비 매수" : action === "entry_watch" ? "예비 포착" : "관망",
-      tone: action === "entry_pending" ? "positive" : "watching",
-      detail: `시장 후보 #${item.rank || "-"}`,
-    };
-  }
-  const action = item.action || "관찰";
   const score = toNumber(item.score);
-  const headline = action === "분할 접근"
-    ? "추천 강도 높음"
-    : action === "매수 우선검토"
-      ? "조건 근접"
-      : action === "신중"
-        ? "신중 검토"
-        : "관찰 후보";
-  const tone = action.includes("매수") || action.includes("분할")
+  const tone = score !== null && score >= 70
     ? "positive"
-    : action === "신중"
+    : score !== null && score < 50
       ? "cautious"
       : "watching";
   return {
-    headline,
+    headline: "추천 점수 후보",
     tone,
     detail: `추천 ${score === null ? "-" : formatNumber(score)}점 · 시장 후보 #${item.rank || "-"}`,
   };
@@ -27695,7 +27677,7 @@ function createRecommendationDecisionFlow(item = {}, options = {}) {
   const heading = el("div", "recommend-decision-flow-head");
   const badge = el("strong", `recommend-signal-stage is-${stage.tone}`, stage.headline);
   heading.append(
-    el("span", "", options.detail ? "AI 시그널 여정" : "현재 단계"),
+    el("span", "", options.detail ? "AI 시그널 여정" : "현재 AI 시그널"),
     badge,
   );
   const facts = document.createElement("dl");
@@ -32208,7 +32190,7 @@ elements.recommendList.addEventListener("click", (event) => {
     const card = watchButton.closest(".recommend-card");
     const item = card?.recommendationItem;
     if (item) {
-      const added = toggleWatchlistItem({ code: item.code, name: item.name, market: item.market });
+      const added = toggleWatchlistItem(item);
       watchButton.classList.toggle("active", added);
       watchButton.textContent = added ? "관심 해제" : "관심 추가";
       updateWatchButton();

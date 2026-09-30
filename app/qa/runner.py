@@ -88,6 +88,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_staging_targets_and_qa_evidence_are_separate_for_both_products",
         "tests.test_release_parity."
         "test_scheduled_qa_never_reuses_the_preview_proxy",
+        "tests.test_process_role."
+        "test_web_role_never_enqueues_us_position_lifecycle_scan",
     ),
     "DATA-COM-006": (
         "tests.test_us_public_gateway."
@@ -214,6 +216,18 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_ai_signal_back_returns_home_without_relying_on_browser_history",
         "tests.test_market_index_live_endpoint."
         "test_us_entry_uses_the_us_only_shell_and_global_market_snapshot",
+    ),
+    "SIG-UI-032": (
+        "tests.test_staging_dark_theme."
+        "test_stock_quote_stays_above_tabs_and_market_tab_contracts_match",
+    ),
+    "SIG-UI-033": (
+        "tests.test_watchlist_v15."
+        "test_low_cardinality_watch_bubbles_keep_readable_density",
+        "tests.test_watchlist_v15."
+        "test_recommendation_watch_handoff_preserves_market_context",
+        "tests.test_watchlist_v15."
+        "test_recommendation_score_and_current_signal_use_separate_labels",
     ),
     "SIG-UI-022": (
         "tests.test_public_signal."
@@ -610,6 +624,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_legacy_snapshot_requires_one_time_public_member_evidence_upgrade",
         "tests.test_app."
         "test_us_market_refresh_queue_is_process_single_flight",
+        "tests.test_process_role."
+        "test_web_role_never_enqueues_us_position_lifecycle_scan",
         "tests.test_app."
         "test_us_stock_ai_analysis_endpoint_labels_dollar_volume_proxy",
         "tests.test_app."

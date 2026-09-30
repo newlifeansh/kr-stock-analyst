@@ -20950,3 +20950,14 @@ body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-publi
 body[data-staging-ia="tds-video"] #recommend-detail-page .recommend-detail-public-evidence-row > p {
   color: var(--tc-text) !important;
 }
+
+/* v171 — keep a legacy price SVG compact if chart enhancement is interrupted. */
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs
+  .stock-v3-chart-pane.staging-stock-chart-legacy-fallback {
+  min-height: 0 !important;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs
+  #stock-mini-chart.staging-stock-chart-legacy-fallback {
+  min-height: 0 !important;
+}

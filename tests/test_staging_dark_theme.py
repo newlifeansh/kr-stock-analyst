@@ -643,7 +643,7 @@ def test_staging_tds_ia_asset_preserves_data_contracts_and_remaps_navigation():
     assert 'aiSignalsView.querySelector(".ai-signals-commandbar")?.remove()' not in response.text
     assert 'source.classList.add("staging-proxied-commandbar")' in response.text
     assert 'const logoOrigin = window.__US_PUBLIC_GATEWAY__ || "";' in response.text
-    assert 'image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260921-domestic-market-v116`' in response.text
+    assert 'image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260929-chart-fallback-v117`' in response.text
     assert 'className = "staging-pinned-empty"' in response.text
     assert "현재 AI 전략 비중은" in response.text
     for role in (
@@ -693,6 +693,24 @@ def test_stock_quote_stays_above_tabs_and_market_tab_contracts_match():
     assert '"tradingkey", "investing"' in dashboard_js
     assert 'normalized === stockCode' in dashboard_js
 
+    content_sync = js.split("const scheduleContentSync = () => {", 1)[1].split(
+        "const syncShell = () => {", 1
+    )[0]
+    assert content_sync.index("upgradeStagingStockPriceChart();") < content_sync.index(
+        "syncStockHero();"
+    )
+    assert "syncStagingStockChartFallbackState();" in content_sync
+    assert "try {\n        upgradeStagingStockPriceChart();" in content_sync
+    assert "stock chart enhancement failed; keeping the compact fallback" in content_sync
+    assert "} finally {\n        syncStagingStockChartFallbackState();" in content_sync
+    assert (
+        ':scope > .stock-v3-price-svg, :scope > .stock-v2-price-svg' in js
+    )
+    assert (
+        'classList.toggle("staging-stock-chart-legacy-fallback", hasLegacyChart)'
+        in js
+    )
+
     for selector in (
         "#stock-view .staging-stock-quote-before-tabs {",
         "#stock-view .staging-stock-quote-before-tabs > :is(",
@@ -703,6 +721,22 @@ def test_stock_quote_stays_above_tabs_and_market_tab_contracts_match():
         assert selector in css
     assert "#stock-summary-section > .stock-v3-quote-card" not in css
     assert "#stock-summary-section .stock-v3-quote-card" not in css
+
+    legacy_chart_fallback = css.split(
+        "/* v171 — keep a legacy price SVG compact if chart enhancement is interrupted. */",
+        1,
+    )[1].split(
+        "/*", 1
+    )[0]
+    assert (
+        ".stock-v3-chart-pane.staging-stock-chart-legacy-fallback"
+        in legacy_chart_fallback
+    )
+    assert (
+        "#stock-mini-chart.staging-stock-chart-legacy-fallback"
+        in legacy_chart_fallback
+    )
+    assert legacy_chart_fallback.count("min-height: 0 !important") == 2
 
 
 def test_staging_theme_has_touch_and_spacing_contract_for_tds_ia():
@@ -938,7 +972,7 @@ def test_staging_v122_keeps_feed_root_header_and_bottom_navigation_visible():
     css = client.get("/assets/staging/toss-fidelity.css").text
     js = client.get("/assets/staging/toss-ia.js").text
 
-    assert STAGING_IA_VERSION == "20260921-domestic-market-v116"
+    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
     rules = css.split(
         "/* v122 — Feed is a primary route: keep the global header and bottom navigation. */",
         1,
@@ -1002,7 +1036,7 @@ def test_staging_v128_falls_back_for_ios_standalone_chart_headers():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert "contextual-safe-area-v128" in shell
-    assert "20260921-domestic-market-v116" in shell
+    assert "20260929-chart-fallback-v117" in shell
     for contract in (
         'const isIosDevice = /iP(?:hone|ad|od)/.test(navigator.userAgent)',
         'navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1',
@@ -2135,7 +2169,7 @@ def test_staging_v69_rolls_the_header_through_major_market_indices():
     css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260921-domestic-market-v116"
+    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
     for contract in (
         'data-staging-index-ticker aria-live="off"',
         'const STAGING_MARKET_CONTEXT_CODES = ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "DOW", "SOX"]',
@@ -2226,7 +2260,7 @@ def test_staging_v74_removes_exchange_metadata_and_aligns_ai_signal_rows():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260921-domestic-market-v116"
+    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
     assert 'codeLine.className = "staging-ai-code"' not in js
     assert 'identity?.querySelector(".staging-ai-code")?.remove()' in js
 
@@ -2811,7 +2845,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20260928v554' in shell
+    assert 'dashboard-app-v170.js?v=20260930v556' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 
@@ -3422,7 +3456,7 @@ def test_staging_v166_distinguishes_recommendation_states_and_reflows_mobile_car
     js = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
 
-    assert STAGING_IA_VERSION == "20260921-domestic-market-v116"
+    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
     assert "recommendation-overview-v166-recommendation-evidence-v169" in shell
     model_source = "const recommendationOverviewModel" + js.split(
         "const recommendationOverviewModel", 1,
@@ -3516,7 +3550,7 @@ def test_staging_v132_uses_home_only_notification_action_and_compact_sheet_rows(
     js = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v132 — make notifications the home action") :]
-    assert STAGING_IA_VERSION == "20260921-domestic-market-v116"
+    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
     assert "notification-sheet-v132" in shell
     assert 'bell: \'<path d="M27.5 16.5a9.5 9.5 0 0 0-19 0' in js
     for contract in (
@@ -3553,7 +3587,7 @@ def test_staging_v143_unifies_root_header_action_icon_geometry():
     js = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v143 — one optical outline system") :]
-    assert STAGING_IA_VERSION == "20260921-domestic-market-v116"
+    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
     assert "header-action-icons-v143" in shell
     for contract in (
         "const topActionGlyphs = Object.freeze({",
@@ -3590,7 +3624,7 @@ def test_staging_v146_explains_two_detail_pages_without_exposing_model_provenanc
     js = staging_client.get("/assets/staging/toss-ia.js").text
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v146 — the model stays invisible") :]
-    assert STAGING_IA_VERSION == "20260921-domestic-market-v116"
+    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
     assert "plain-language-detail-v146" in staging_shell
     assert "investor-action-copy-v147" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
@@ -3712,7 +3746,7 @@ def test_staging_v151_shows_live_quote_and_separates_pullback_from_breakout_conf
     logic = client.get("/assets/staging/ai-stock-response-logic.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v151 — live quote context") :]
-    assert STAGING_IA_VERSION == "20260921-domestic-market-v116"
+    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
     assert "position-input-v150-live-quote-decision-plan-v151" in shell
     for contract in (
         "현재 주당 가격",
@@ -3782,7 +3816,7 @@ def test_staging_v152_requires_manual_reanalysis_and_adds_personal_strategy_pric
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v152 — manual quote reanalysis") :]
 
-    assert STAGING_IA_VERSION == "20260921-domestic-market-v116"
+    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
     assert "live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154" in shell
     for contract in (
         'data-staging-response-analysis-refresh data-analysis-state="loading"',
@@ -3859,7 +3893,7 @@ def test_staging_v145_refines_three_daily_briefings_without_changing_news_or_sig
     js = staging_client.get("/assets/staging/toss-ia.js").text
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v145 — GPT refines the current morning") :]
-    assert STAGING_IA_VERSION == "20260921-domestic-market-v116"
+    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
     assert "gpt-briefing-v145" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' not in production_shell
@@ -3991,7 +4025,7 @@ def test_staging_v156_keeps_public_signals_short_and_hides_numeric_scores():
     staging_source = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
 
-    assert STAGING_IA_VERSION == "20260921-domestic-market-v116"
+    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
     assert "signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161" in shell
     outcome_source = dashboard_source[
         dashboard_source.index("function aiSignalOutcomeMetrics(")

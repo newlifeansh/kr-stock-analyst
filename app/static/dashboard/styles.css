@@ -43811,6 +43811,11 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
     height: clamp(310px, 88vw, 370px);
     border-radius: 18px;
   }
+
+  #home-view .watch-market-map-stage[data-density="sparse"] {
+    height: clamp(220px, 64vw, 270px);
+    min-height: 220px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -43857,6 +43862,11 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
 
   #home-view .watch-market-map-stage {
     height: clamp(300px, 92vw, 360px);
+  }
+
+  #home-view .watch-market-map-stage[data-density="sparse"] {
+    height: clamp(210px, 62vw, 245px);
+    min-height: 210px;
   }
 
   .watch-market-map-sheet {
@@ -43914,6 +43924,11 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
 
   #home-view .watch-market-map-stage {
     height: 286px;
+  }
+
+  #home-view .watch-market-map-stage[data-density="sparse"] {
+    height: 210px;
+    min-height: 210px;
   }
 
   .watch-market-map-sheet-row {

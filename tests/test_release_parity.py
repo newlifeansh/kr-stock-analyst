@@ -14,8 +14,8 @@ def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     contract = local_release_contract()
 
     assert contract["surface"] == "dashboard"
-    assert contract["product_version"] == "20260928v554"
-    assert contract["dashboard_version"] == "20260928v554"
+    assert contract["product_version"] == "20260930v556"
+    assert contract["dashboard_version"] == "20260930v556"
     assert len(contract["assets"]) == 8
     assert len(contract["asset_sha256"]) == 8
     assert set(contract["asset_sha256"]) == {
@@ -32,7 +32,7 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
     contract = local_release_contract(surface="us")
 
     assert contract["surface"] == "us"
-    assert contract["product_version"] == "20260928us126"
+    assert contract["product_version"] == "20260930us128"
     assert len(contract["assets"]) == 12
     assert len(contract["asset_sha256"]) == 12
     assert set(contract["asset_sha256"]) == {
@@ -121,7 +121,9 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 6
     assert workflow.count('--project "$US_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 2
-    assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 4
+    assert workflow.count('--project="$US_STAGING_RAILWAY_PROJECT_ID"') == 4
+    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 5
+    assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 6
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
     assert 'US_STAGING_RAILWAY_PROJECT_ID: ${{ vars.US_STAGING_RAILWAY_PROJECT_ID }}' in workflow
     assert 'DASHBOARD_STAGING_RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}' in workflow
@@ -151,7 +153,10 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.count('--surface "$PRODUCT_SURFACE"') == 5
     assert workflow.count('railway variable set "US_MARKET_ENABLED=true"') == 4
     assert workflow.count('railway variable set "US_MARKET_ENABLED=false"') == 2
-    assert "staging_runtime:{dashboard:{US_MARKET_ENABLED:false},us:{US_MARKET_ENABLED:true}}" in workflow
+    assert workflow.count('railway variable set "PROCESS_ROLE=web"') == 3
+    assert workflow.count('railway variable set "PROCESS_ROLE=collector"') == 3
+    assert 'web:{PROCESS_ROLE:"web"}' in workflow
+    assert 'collector:{PROCESS_ROLE:"collector"}' in workflow
     assert 'railway variable set "US_PUBLIC_BACKEND_URL=$US_STAGING_BASE_URL"' in workflow
     assert "staging_us_gateway_qa:" in workflow
     assert "--surface us-gateway" in workflow

@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260928v554"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20260930v556"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -293,6 +293,90 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         ".watch-market-map-sheet-name em",
     ):
         assert removed not in styles
+
+
+def test_low_cardinality_watch_bubbles_keep_readable_density():
+    source = Path("app/static/dashboard/app.js").read_text(encoding="utf-8")
+    styles = Path("app/static/dashboard/styles.css").read_text(encoding="utf-8")
+    script = r'''
+const fs = require("fs");
+const source = fs.readFileSync("app/static/dashboard/app.js", "utf8");
+function functionSource(name, nextName) {
+  const start = source.indexOf(`function ${name}(`);
+  const end = source.indexOf(`function ${nextName}(`, start + 1);
+  if (start < 0 || end < 0) throw new Error(`${name} not found`);
+  return source.slice(start, end);
+}
+function toNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+eval(functionSource("watchMarketMapDisplayChange", "watchMarketMapDisplayPrice"));
+eval(functionSource("packWatchMarketMapBubbles", "computeWatchMarketMapLayout"));
+eval(functionSource("computeWatchMarketMapLayout", "watchMarketMapTimeParts"));
+const entry = (index, changeRate) => ({
+  item: { code: `QA${index}`, name: `관심 ${index}`, market_scope: "kr" },
+  dashboard: { quote: { change_rate: changeRate } },
+});
+const evidence = [1, 2, 3].map((count) => {
+  const entries = Array.from({ length: count }, (_, index) => entry(index + 1, index * 0.1));
+  const layout = computeWatchMarketMapLayout(entries, 350, 343);
+  return {
+    count,
+    diameters: layout.nodes.filter((node) => node.kind === "stock").map((node) => node.radius * 2),
+  };
+});
+console.log(JSON.stringify(evidence));
+'''
+    result = subprocess.run(
+        ["node", "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    evidence = json.loads(result.stdout)
+
+    assert all(len(item["diameters"]) == item["count"] for item in evidence)
+    assert min(
+        diameter
+        for item in evidence
+        for diameter in item["diameters"]
+    ) >= 72
+    assert 'dataset.density = entries.length <= 3 ? "sparse" : "dense";' in source
+    assert '#home-view .watch-market-map-stage[data-density="sparse"] {' in styles
+    assert "min-height: 210px;" in styles
+
+
+def test_recommendation_watch_handoff_preserves_market_context():
+    source = Path("app/static/dashboard/app.js").read_text(encoding="utf-8")
+    handler = source.split('elements.recommendList.addEventListener("click"', 1)[1].split(
+        'elements.recommendDetailBack?.addEventListener', 1
+    )[0]
+
+    assert "toggleWatchlistItem(item);" in handler
+    assert "toggleWatchlistItem({ code: item.code, name: item.name, market: item.market });" not in handler
+    toggle = source.split("function toggleWatchlistItem", 1)[1].split(
+        "function updateRecommendationWatchButtons", 1
+    )[0]
+    assert "market_scope: marketScopeForItem(stock)" in toggle
+    assert 'currency: stock.currency || (marketScopeForItem(stock) === "us" ? "USD" : "KRW")' in toggle
+
+
+def test_recommendation_score_and_current_signal_use_separate_labels():
+    source = Path("app/static/dashboard/app.js").read_text(encoding="utf-8")
+    candidate = source.split("function recommendationCandidateStageView", 1)[1].split(
+        "function recommendationTimestampValue", 1
+    )[0]
+    signal_flow = source.split("function createRecommendationDecisionFlow", 1)[1].split(
+        "function createRecommendationCard", 1
+    )[0]
+
+    assert 'headline: "추천 점수 후보"' in candidate
+    assert "ai_trade_signal" not in candidate
+    assert "current.action" not in candidate
+    assert 'options.detail ? "AI 시그널 여정" : "현재 AI 시그널"' in signal_flow
 
 
 def test_watchlist_return_timeline_recomputes_bubble_size_color_inputs_and_overflow():
@@ -1277,7 +1361,7 @@ def test_recommendation_detail_is_single_column_and_action_first_on_mobile():
     signal_flow = detail_render.index("createRecommendationDecisionFlow(item, {")
     assert detail_render.index("hero,") < signal_flow
     assert signal_flow < detail_render.index("action,")
-    assert 'options.detail ? "AI 시그널 여정" : "현재 단계"' in source
+    assert 'options.detail ? "AI 시그널 여정" : "현재 AI 시그널"' in source
     assert '"AI 대응 · 지금 할 일"' in source
 
     assert ".recommend-detail-content {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);" in styles

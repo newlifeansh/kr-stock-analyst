@@ -197,7 +197,7 @@ jobs:
             --arg image_ref "$image_ref" \
             --arg image_digest "$IMAGE_DIGEST" \
             --arg product_surface "$PRODUCT_SURFACE" \
-            '{candidate_version:$candidate, product_surface:$product_surface, source_sha:$source_sha, image_ref:$image_ref, image_digest:$image_digest, staging_runtime:{dashboard:{US_MARKET_ENABLED:false},us:{US_MARKET_ENABLED:true}}, production_runtime:{dashboard:{US_MARKET_ENABLED:"preserve_existing_until_url_cutover"},us:{US_MARKET_ENABLED:true}}, promotion_state:"built"}' \
+            '{candidate_version:$candidate, product_surface:$product_surface, source_sha:$source_sha, image_ref:$image_ref, image_digest:$image_digest, staging_runtime:{dashboard:{US_MARKET_ENABLED:false,web:{PROCESS_ROLE:"web"},collector:{PROCESS_ROLE:"collector"}},us:{US_MARKET_ENABLED:true,web:{PROCESS_ROLE:"web"},collector:{PROCESS_ROLE:"collector"}}}, production_runtime:{dashboard:{US_MARKET_ENABLED:"preserve_existing_until_url_cutover",web:{PROCESS_ROLE:"web"},collector:{PROCESS_ROLE:"collector"}},us:{US_MARKET_ENABLED:true,web:{PROCESS_ROLE:"web"},collector:{PROCESS_ROLE:"collector"}}}, promotion_state:"built"}' \
             > artifacts/qa-data-signal/release-candidate/candidate.json
       - name: Upload immutable candidate identity
         uses: actions/upload-artifact@v4
@@ -234,6 +234,12 @@ jobs:
       - name: Set isolated market runtimes
         run: |
           set -euo pipefail
+          railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
+            --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$US_STAGING_RAILWAY_WEB_SERVICE"
+          railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$US_STAGING_RAILWAY_COLLECTOR_SERVICE"
           railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
             --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$US_STAGING_RAILWAY_WEB_SERVICE"
@@ -243,9 +249,15 @@ jobs:
           railway variable set "US_MARKET_ENABLED=false" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
+          railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
           railway variable set "US_PUBLIC_BACKEND_URL=$US_STAGING_BASE_URL" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
+          railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
           railway variable set "US_MARKET_ENABLED=false" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
@@ -441,9 +453,15 @@ jobs:
           [[ "$IMAGE_REF" =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]]
       - name: Install Railway CLI
         run: npm install --global @railway/cli@5.45.7
-      - name: Enable the US runtime only on the dedicated US production target
+      - name: Set dedicated production runtime roles and US flag
         run: |
           set -euo pipefail
+          railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
+            --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"
+          railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
           if [[ "$PRODUCT_SURFACE" == "us" ]]; then
             railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
               --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \

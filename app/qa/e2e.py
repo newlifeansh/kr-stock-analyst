@@ -43,6 +43,7 @@ E2E_CASE_IDS = (
 )
 US_E2E_CASE_IDS = (
     "SIG-UI-031",
+    "SIG-UI-032",
     "REC-US-INDEPENDENT-001",
     "DATA-US-NEWS-001",
 )
@@ -1216,6 +1217,92 @@ def _run_us_e2e_checks(
                     "request_count": len(requested_paths),
                 }
 
+            def us_legacy_stock_chart_fallback_case(
+                page: Any, theme: str
+            ) -> dict[str, Any]:
+                viewport_evidence: list[dict[str, Any]] = []
+                for width in (390, 320):
+                    page.set_viewport_size({"width": width, "height": 844})
+                    _navigate_page(
+                        page,
+                        _page_url(
+                            base_url,
+                            "/us/stock/XOM",
+                            qa_chart_fallback=str(width),
+                        ),
+                        wait_until="commit",
+                        ready_selector="#stock-view",
+                    )
+                    page.wait_for_selector("#login-gate", state="hidden")
+                    page.wait_for_selector("#stock-view", state="visible")
+                    page.wait_for_selector(
+                        ".staging-stock-quote-before-tabs #stock-mini-chart",
+                        state="visible",
+                    )
+                    page.wait_for_selector(
+                        ".staging-stock-quote-before-tabs #stock-v2-price-periods",
+                        state="visible",
+                    )
+                    page.wait_for_load_state("load")
+                    fallback_state = page.evaluate(
+                        """() => {
+                          // Rebuild only the relevant DOM after the product assets load.
+                          // Replacing body disconnects the app observer so it cannot repair
+                          // the intentionally interrupted enhancement used by this fixture.
+                          const fixtureBody = document.createElement('body');
+                          fixtureBody.dataset.stagingIa = 'tds-video';
+                          fixtureBody.innerHTML = `
+                            <main id="stock-view" class="stock-detail-v3">
+                              <section class="stock-v3-quote-card staging-stock-quote-before-tabs">
+                                <div class="stock-v3-chart-pane staging-stock-chart-legacy-fallback">
+                                  <div id="stock-mini-chart" class="stock-mini-chart staging-stock-chart-legacy-fallback">
+                                    <svg class="stock-v3-price-svg" viewBox="0 0 760 300" aria-label="QA legacy chart fallback">
+                                      <path d="M0 150 L760 150" stroke="currentColor"></path>
+                                    </svg>
+                                  </div>
+                                  <div id="stock-v2-price-periods" class="stock-v3-price-periods">
+                                    <button type="button">1일</button>
+                                    <button type="button">1개월</button>
+                                  </div>
+                                </div>
+                              </section>
+                            </main>`;
+                          document.body.replaceWith(fixtureBody);
+                          const chart = document.querySelector('#stock-mini-chart');
+                          const pane = chart?.closest('.stock-v3-chart-pane');
+                          const periods = pane?.querySelector('#stock-v2-price-periods');
+                          const svg = chart?.querySelector('.stock-v3-price-svg');
+                          if (!chart || !pane || !periods || !svg) return { missing: true };
+                          const svgRect = svg.getBoundingClientRect();
+                          const periodRect = periods.getBoundingClientRect();
+                          const paneRect = pane.getBoundingClientRect();
+                          return {
+                            missing: false,
+                            viewport: innerWidth,
+                            rootWidth: document.documentElement.scrollWidth,
+                            paneMinHeight: getComputedStyle(pane).minHeight,
+                            chartMinHeight: getComputedStyle(chart).minHeight,
+                            svgHeight: Math.round(svgRect.height * 10) / 10,
+                            paneHeight: Math.round(paneRect.height * 10) / 10,
+                            blankGap: Math.round(Math.max(0, periodRect.top - svgRect.bottom) * 10) / 10,
+                          };
+                        }"""
+                    )
+                    if (
+                        fallback_state.get("missing")
+                        or fallback_state.get("paneMinHeight") != "0px"
+                        or fallback_state.get("chartMinHeight") != "0px"
+                        or fallback_state.get("blankGap", 999) > 100
+                        or fallback_state.get("rootWidth", 0)
+                        > fallback_state.get("viewport", 0) + 2
+                    ):
+                        raise QaFailure(
+                            "구형 미국 종목 차트 폴백에 과도한 세로 여백이 남았습니다.",
+                            {"theme": theme, "width": width, "state": fallback_state},
+                        )
+                    viewport_evidence.append(fallback_state)
+                return {"theme": theme, "viewports": viewport_evidence}
+
             news_result = _run_page_case(
                 browser=browser,
                 catalog_by_id=catalog_by_id,
@@ -1224,6 +1311,17 @@ def _run_us_e2e_checks(
                 timeout=timeout,
                 artifact_dir=output_dir,
                 callback=us_market_news_feed_case,
+                storage_state=storage_state,
+                share_id=share_id,
+            )
+            chart_fallback_result = _run_page_case(
+                browser=browser,
+                catalog_by_id=catalog_by_id,
+                case_id="SIG-UI-032",
+                base_url=base_url,
+                timeout=timeout,
+                artifact_dir=output_dir,
+                callback=us_legacy_stock_chart_fallback_case,
                 storage_state=storage_state,
                 share_id=share_id,
             )
@@ -1245,7 +1343,7 @@ def _run_us_e2e_checks(
                     *(("DATA-COM-006",) if gateway_expected else ()),
                 )
             ]
-            return [news_result, *product_results]
+            return [news_result, chart_fallback_result, *product_results]
         finally:
             browser.close()
 
