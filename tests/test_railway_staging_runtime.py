@@ -14,10 +14,34 @@ def _scale(service: str, replicas: int) -> str:
     )
 
 
-def _runtime_env(tmp_path: Path, *, fail_on: str = "") -> tuple[dict[str, str], Path]:
+def _database_status() -> str:
+    return "service list -p project-id --environment staging --json"
+
+
+def _database_start() -> str:
+    return (
+        "redeploy -p project-id --environment staging --service database-id "
+        "--from-source --yes --json"
+    )
+
+
+def _database_stop() -> str:
+    return (
+        "down -p project-id --environment staging --service database-id --yes"
+    )
+
+
+def _runtime_env(
+    tmp_path: Path,
+    *,
+    fail_on: str = "",
+    database_state: str,
+) -> tuple[dict[str, str], Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(parents=True)
     log_path = tmp_path / "railway.log"
+    database_state_path = tmp_path / "database-state"
+    database_state_path.write_text(database_state, encoding="utf-8")
     railway = bin_dir / "railway"
     railway.write_text(
         """#!/usr/bin/env bash
@@ -25,6 +49,18 @@ set -euo pipefail
 printf '%s\\n' "$*" >> "$RAILWAY_TEST_LOG"
 if [[ -n "${RAILWAY_TEST_FAIL_ON:-}" && "$*" == *"$RAILWAY_TEST_FAIL_ON"* ]]; then
   exit 23
+fi
+if [[ "$*" == "service list -p project-id --environment staging --json" ]]; then
+  state="$(<"$RAILWAY_TEST_DB_STATE")"
+  if [[ "$state" == "running" ]]; then
+    printf '%s\\n' '[{"id":"database-id","status":"SUCCESS","deploymentStopped":false,"replicas":{"running":1}}]'
+  else
+    printf '%s\\n' '[{"id":"database-id","status":"REMOVED","deploymentStopped":true,"replicas":{"running":0}}]'
+  fi
+elif [[ "$*" == redeploy* ]]; then
+  printf '%s' running > "$RAILWAY_TEST_DB_STATE"
+elif [[ "$*" == down* ]]; then
+  printf '%s' inactive > "$RAILWAY_TEST_DB_STATE"
 fi
 """,
         encoding="utf-8",
@@ -35,6 +71,7 @@ fi
         {
             "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
             "RAILWAY_TEST_LOG": str(log_path),
+            "RAILWAY_TEST_DB_STATE": str(database_state_path),
             "RAILWAY_TEST_FAIL_ON": fail_on,
             "RAILWAY_PROJECT_ID": "project-id",
             "RAILWAY_ENVIRONMENT": "staging",
@@ -43,6 +80,7 @@ fi
             "RAILWAY_DATABASE_SERVICE": "database-id",
             "RAILWAY_REGION": "us-west",
             "RAILWAY_DATABASE_WARMUP_SECONDS": "0",
+            "RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS": "5",
         }
     )
     return env, log_path
@@ -53,8 +91,13 @@ def _run_runtime(
     action: str,
     *,
     fail_on: str = "",
+    database_state: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
-    env, log_path = _runtime_env(tmp_path, fail_on=fail_on)
+    env, log_path = _runtime_env(
+        tmp_path,
+        fail_on=fail_on,
+        database_state=database_state or ("inactive" if action == "up" else "running"),
+    )
     result = subprocess.run(
         [str(SCRIPT), action],
         cwd=Path.cwd(),
@@ -73,7 +116,9 @@ def test_staging_runtime_scales_up_and_down_in_dependency_order(tmp_path: Path) 
 
     assert up.returncode == 0, up.stderr
     assert up_lines == [
-        _scale("database-id", 1),
+        _database_status(),
+        _database_start(),
+        _database_status(),
         _scale("collector-id", 1),
         _scale("web-id", 1),
     ]
@@ -81,7 +126,9 @@ def test_staging_runtime_scales_up_and_down_in_dependency_order(tmp_path: Path) 
     assert down_lines == [
         _scale("web-id", 0),
         _scale("collector-id", 0),
-        _scale("database-id", 0),
+        _database_status(),
+        _database_stop(),
+        _database_status(),
     ]
 
 
@@ -94,11 +141,15 @@ def test_failed_start_rolls_every_service_back_to_zero(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert lines == [
-        _scale("database-id", 1),
+        _database_status(),
+        _database_start(),
+        _database_status(),
         _scale("collector-id", 1),
         _scale("web-id", 0),
         _scale("collector-id", 0),
-        _scale("database-id", 0),
+        _database_status(),
+        _database_stop(),
+        _database_status(),
     ]
 
 
@@ -110,7 +161,22 @@ def test_shutdown_attempts_every_service_when_one_scale_fails(tmp_path: Path) ->
     )
 
     assert result.returncode != 0
-    assert len(lines) == 3
+    assert len(lines) == 5
     assert "--service web-id" in lines[0]
     assert "--service collector-id" in lines[1]
-    assert "--service database-id" in lines[2]
+    assert lines[2] == _database_status()
+    assert lines[3] == _database_stop()
+    assert lines[4] == _database_status()
+
+
+def test_shutdown_does_not_remove_older_database_deployment_when_already_stopped(
+    tmp_path: Path,
+) -> None:
+    result, lines = _run_runtime(tmp_path, "down", database_state="inactive")
+
+    assert result.returncode == 0, result.stderr
+    assert lines == [
+        _scale("web-id", 0),
+        _scale("collector-id", 0),
+        _database_status(),
+    ]

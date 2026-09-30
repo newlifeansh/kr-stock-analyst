@@ -359,11 +359,14 @@ Actions는 PR마다 `gate`, 평일 KST 08:20·10:00·16:20에 `live`, 스테이�
 기존 `dark-theme-preview`는 최근 접근 기록에서 자동화 QA 요청만 확인되어
 2026-09-24에 배포를 중지했습니다. 서비스 설정과 도메인은 복구를 위해 보존하며
 릴리스 QA 대상에서 제외합니다.
-국내 스테이징의 Postgres·collector·web은 평소 replica 0을 유지하고,
-배포·예약 live QA·수동 E2E·국내 운영 parity가 시작될 때만 순서대로
-`DB → collector → web` replica 1로 기동합니다. QA 성공·실패와 관계없이
-`web → collector → DB` 순서로 다시 0으로 내리며, 일부 기동 실패도 같은
-종료 절차로 롤백합니다. 모든 스테이징 작업은 `domestic-staging-runtime`
+국내 스테이징의 collector·web은 평소 replica 0을 유지하고, 볼륨이
+연결된 Postgres는 서비스·볼륨을 보존한 채 배포만 중지합니다. 배포·예약
+live QA·수동 E2E·국내 운영 parity가 시작되면 `DB 재배포 및 준비 확인 →
+collector replica 1 → web replica 1`로 기동합니다. QA 성공·실패와 관계없이
+`web replica 0 → collector replica 0 → DB 배포 중지`로 다시 절전하며, 일부
+기동 실패도 같은 종료 절차로 롤백합니다. DB 종료는 현재 상태를 먼저
+확인해 이미 중지된 배포의 과거 이력을 중복 삭제하지 않습니다. 모든 스테이징
+작업은 `domestic-staging-runtime`
 concurrency 그룹으로 직렬화해 QA 중에 다른 작업이 서비스를 내리지 않게 합니다.
 운영자가 두 스테이징 결과와 정확한 후보를 승인한 뒤
 `promote-production`에 검증된 `image@sha256`과 source SHA를 입력하면 새 이미지를
