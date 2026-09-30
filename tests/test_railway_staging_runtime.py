@@ -9,7 +9,7 @@ SCRIPT = Path("scripts/railway_staging_runtime.sh")
 
 def _scale(service: str, replicas: int) -> str:
     return (
-        "scale --project project-id --environment staging "
+        "scale -p project-id --environment staging "
         f"--service {service} us-west={replicas} --json"
     )
 
