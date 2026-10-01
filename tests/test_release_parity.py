@@ -308,3 +308,27 @@ def test_scheduled_qa_never_reuses_the_preview_proxy() -> None:
         assert 'surface "${{ matrix.surface }}"' in workflow
         assert "vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL" in workflow
         assert "dark-theme-preview-staging" not in workflow
+
+
+def test_scheduled_qa_starts_domestic_runtime_only_while_collecting_evidence() -> None:
+    for name, start, stop in (
+        (
+            "qa-data-signal-live.yml",
+            "Start domestic staging for live QA",
+            "Stop domestic staging after live QA",
+        ),
+        (
+            "qa-data-signal-e2e.yml",
+            "Start domestic staging for browser QA",
+            "Stop domestic staging after browser QA",
+        ),
+    ):
+        workflow = Path(".github/workflows", name).read_text(encoding="utf-8")
+
+        assert "group: domestic-staging-runtime" in workflow
+        assert "RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}" in workflow
+        assert "RAILWAY_DATABASE_SERVICE" in workflow
+        assert "RAILWAY_REGION" in workflow
+        assert start in workflow
+        assert stop in workflow
+        assert workflow.index(start) < workflow.index("Upload") < workflow.index(stop)

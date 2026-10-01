@@ -12,13 +12,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: qa-data-signal-live
+  group: domestic-staging-runtime
   cancel-in-progress: false
 
 jobs:
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -30,6 +30,12 @@ jobs:
       KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
       KIS_ENV: ${{ vars.KIS_ENV || 'real' }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
+      RAILWAY_WEB_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
+      RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+      RAILWAY_DATABASE_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
+      RAILWAY_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,6 +44,12 @@ jobs:
           cache: pip
       - name: Install project and QA dependencies
         run: pip install -e '.[qa,mcp]'
+      - name: Install Railway CLI for domestic staging
+        if: matrix.surface == 'dashboard'
+        run: npm install --global @railway/cli@5.45.7
+      - name: Start domestic staging for live QA
+        if: matrix.surface == 'dashboard'
+        run: ./scripts/railway_staging_runtime.sh up
       - name: Run read-only staging and source checks
         shell: bash
         run: |
@@ -60,3 +72,6 @@ jobs:
           path: artifacts/qa-data-signal/live.json
           if-no-files-found: error
           retention-days: 30
+      - name: Stop domestic staging after live QA
+        if: ${{ always() && matrix.surface == 'dashboard' }}
+        run: ./scripts/railway_staging_runtime.sh down
