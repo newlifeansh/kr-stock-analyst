@@ -451,6 +451,60 @@ def test_signal_daily_row_repairs_fully_null_completed_day_before_forming_row(
     assert repaired_quote["close"][1] == 103.0
 
 
+def test_signal_daily_row_repairs_contradictory_ohlc_with_exact_intraday_vector(
+    monkeypatch,
+):
+    daily = _provider_lagged_daily_chart()
+    daily["indicators"]["quote"][0]["open"] = [120.0]
+    intraday = _gap_free_regular_intraday_chart()
+    intraday["timestamp"].append(
+        int(datetime(2026, 9, 14, 20, 0, tzinfo=UTC).timestamp())
+    )
+    for key, value in {
+        "open": 101.2,
+        "high": 101.2,
+        "low": 101.2,
+        "close": 101.2,
+        "volume": 0,
+    }.items():
+        intraday["indicators"]["quote"][0][key].append(value)
+    monkeypatch.setattr(us_market, "_fetch_chart", lambda *_args, **_kwargs: intraday)
+
+    repaired = us_market._repair_completed_daily_close_from_intraday(
+        "AAPL", daily, now=datetime(2026, 9, 14, 20, 16, tzinfo=UTC)
+    )
+
+    repaired_quote = repaired["indicators"]["quote"][0]
+    assert daily["indicators"]["quote"][0]["close"] == [None]
+    assert repaired_quote["open"] == [100.0]
+    assert repaired_quote["high"] == [max(intraday["indicators"]["quote"][0]["high"])]
+    assert repaired_quote["low"] == [99.0]
+    assert repaired_quote["close"] == [101.2]
+    assert repaired_quote["volume"] == [1_234_567]
+    assert repaired["indicators"]["adjclose"][0]["adjclose"] == [101.2]
+
+
+def test_signal_daily_row_keeps_contradictory_ohlc_when_intraday_has_gap(
+    monkeypatch,
+):
+    daily = _provider_lagged_daily_chart()
+    daily["indicators"]["quote"][0]["open"] = [120.0]
+    intraday = _gap_free_regular_intraday_chart()
+    for values in [
+        intraday["timestamp"],
+        *intraday["indicators"]["quote"][0].values(),
+    ]:
+        values.pop(20)
+    monkeypatch.setattr(us_market, "_fetch_chart", lambda *_args, **_kwargs: intraday)
+
+    repaired = us_market._repair_completed_daily_close_from_intraday(
+        "AAPL", daily, now=datetime(2026, 9, 14, 20, 16, tzinfo=UTC)
+    )
+
+    assert repaired is daily
+    assert repaired["indicators"]["quote"][0]["close"] == [None]
+
+
 def test_signal_daily_row_repairs_recent_completed_gap_after_newer_daily_close(
     monkeypatch,
 ):
@@ -1906,6 +1960,7 @@ def test_us_market_trends_fails_closed_when_all_live_sources_fail(monkeypatch):
         raise RuntimeError("upstream unavailable")
 
     monkeypatch.setattr(us_market, "_google_news_items", unavailable_source)
+    monkeypatch.setattr(us_market, "_marketwatch_news_items", unavailable_source)
 
     payload = us_market.build_us_trends(
         days=7,
@@ -1916,3 +1971,39 @@ def test_us_market_trends_fails_closed_when_all_live_sources_fail(monkeypatch):
     assert payload["data_state"] == "unavailable"
     assert payload["timeline"] == []
     assert payload["events"] == []
+
+
+def test_us_market_trends_uses_recent_marketwatch_rss_when_google_returns_503(monkeypatch):
+    now = datetime(2026, 10, 1, 1, 0, tzinfo=UTC)
+
+    class MarketWatchResponse:
+        content = b"""<rss><channel>
+          <item><title>The 15 worst-performing S&amp;P 500 stocks in September</title>
+            <link>https://www.marketwatch.com/story/us-stocks-september</link>
+            <pubDate>Thu, 01 Oct 2026 00:30:00 GMT</pubDate></item>
+          <item><title>Old S&amp;P 500 stocks report</title>
+            <link>https://www.marketwatch.com/story/old-report</link>
+            <pubDate>Mon, 14 Sep 2026 00:30:00 GMT</pubDate></item>
+        </channel></rss>"""
+
+        def raise_for_status(self):
+            return None
+
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        assert url == us_market.MARKETWATCH_NEWS_RSS_URL
+        return MarketWatchResponse()
+
+    monkeypatch.setattr(us_market, "_google_news_items", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("503")))
+    monkeypatch.setattr(us_market.requests, "get", fake_get)
+
+    payload = us_market.build_us_trends(days=7, now=now)
+
+    assert calls == [us_market.MARKETWATCH_NEWS_RSS_URL]
+    assert payload["status"] == "ready"
+    assert payload["source_name"] == "MarketWatch RSS"
+    assert len(payload["timeline"]) == 1
+    assert payload["timeline"][0]["source"] == "MarketWatch"
+    assert payload["timeline"][0]["url"] == "https://www.marketwatch.com/story/us-stocks-september"

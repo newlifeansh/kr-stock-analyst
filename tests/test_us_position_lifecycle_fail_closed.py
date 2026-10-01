@@ -205,6 +205,40 @@ def test_gapped_short_history_still_blocks_all_new_entries():
     assert payload["entry_pending_count"] == 0
 
 
+def test_transient_short_history_gap_is_retried_before_publication():
+    universe = _universe()
+    stock = _bars(0.0017)
+    short_gapped = list(stock[-46:])
+    short_gapped.pop(-10)
+    histories = {
+        "SPY": _bars(0.0007),
+        "QQQ": _bars(0.0009),
+        "XLK": _bars(0.0010),
+        **{str(item["code"]): stock for item in universe["items"]},
+    }
+    histories["A099"] = stock[-45:]
+    calls: dict[str, int] = {}
+
+    def load(symbol: str) -> list[USLifecycleBar]:
+        calls[symbol] = calls.get(symbol, 0) + 1
+        if symbol == "A099" and calls[symbol] == 1:
+            return short_gapped
+        return histories.get(symbol, [])
+
+    payload = build_us_position_lifecycle_feed(
+        limit=100,
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+        universe_payload=universe,
+        history_loader=load,
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["data_coverage_count"] == 100
+    assert payload["insufficient_history_codes"] == ["A099"]
+    assert calls["A099"] == 2
+    assert calls["A098"] == 1
+
+
 def test_one_unreviewed_issuer_sector_blocks_every_new_entry():
     universe = _universe()
     universe["items"][-1]["cik"] = "9999999999"

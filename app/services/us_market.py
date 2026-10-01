@@ -34,6 +34,7 @@ YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 YAHOO_CHART_FALLBACK_URL = "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
 YAHOO_SEARCH_URL = "https://query2.finance.yahoo.com/v1/finance/search"
 GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search"
+MARKETWATCH_NEWS_RSS_URL = "https://feeds.content.dowjones.io/public/rss/mw_topstories"
 YAHOO_COOKIE_URL = "https://fc.yahoo.com"
 YAHOO_CRUMB_URL = "https://query1.finance.yahoo.com/v1/test/getcrumb"
 YAHOO_QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
@@ -2035,9 +2036,10 @@ def _repair_completed_daily_close_from_intraday(
     Some Yahoo edges publish the latest daily timestamp, official open/high/low
     and volume before close/adjclose. During the next regular session, the same
     edge can retain a fully-null row for an earlier completed day even after a
-    newer daily row is complete. The signal must remain fail-closed, so only
+    newer daily row is complete. A daily row can also have a null close and
+    contradictory open/high geometry. The signal must remain fail-closed, so only
     official XNYS sessions past the 15-minute publication grace are considered.
-    A fully-null OHLCV row is rebuilt only from an exact, gap-free vector of
+    A fully-null or contradictory OHLCV row is rebuilt only from an exact, gap-free vector of
     same-symbol regular-session five-minute bars still present in Yahoo's 5d
     intraday window.
     """
@@ -2093,22 +2095,28 @@ def _repair_completed_daily_close_from_intraday(
         raw_volume = _to_decimal(
             _list_get(quote.get("volume") or [], completed_index)
         )
-        provider_ohlv_complete = bool(
+        provider_ohlv_numeric = bool(
             raw_open is not None
             and raw_open > 0
             and raw_high is not None
             and raw_high > 0
             and raw_low is not None
             and raw_low > 0
-            and raw_high >= raw_low
             and raw_volume is not None
             and raw_volume > 0
+        )
+        provider_ohlv_complete = bool(
+            provider_ohlv_numeric
+            and raw_high >= raw_low
+            and raw_high + raw_open * YAHOO_OHLC_BOUND_TOLERANCE >= raw_open
+            and raw_low - raw_open * YAHOO_OHLC_BOUND_TOLERANCE <= raw_open
         )
         provider_ohlv_empty = all(
             value is None
             for value in (raw_open, raw_high, raw_low, raw_volume)
         )
-        if not provider_ohlv_complete and not provider_ohlv_empty:
+        provider_ohlv_invalid = provider_ohlv_numeric and not provider_ohlv_complete
+        if not (provider_ohlv_complete or provider_ohlv_empty or provider_ohlv_invalid):
             continue
         repair_candidates[session_date] = {
             "index": completed_index,
@@ -2232,6 +2240,12 @@ def _repair_completed_daily_close_from_intraday(
             ):
                 continue
         else:
+            # An invalid daily OHLC geometry can accompany a missing close.
+            # Rebuild only from every regular five-minute interval; a closing
+            # auction quote at the exact close is optional and not one of them.
+            session_rows = [
+                row for row in regular_rows if row[0] < completed.close_at
+            ]
             expected_timestamps = tuple(
                 completed.open_at + timedelta(minutes=5 * interval_index)
                 for interval_index in range(
@@ -2241,13 +2255,20 @@ def _repair_completed_daily_close_from_intraday(
                     )
                 )
             )
-            observed_timestamps = tuple(row[0] for row in regular_rows)
+            observed_timestamps = tuple(row[0] for row in session_rows)
             if observed_timestamps != expected_timestamps:
                 continue
-            raw_open = regular_rows[0][1]
-            raw_high = max(row[2] for row in regular_rows)
-            raw_low = min(row[3] for row in regular_rows)
-            raw_volume = sum((row[5] for row in regular_rows), Decimal("0"))
+            raw_open = session_rows[0][1]
+            raw_high = max(row[2] for row in session_rows)
+            raw_low = min(row[3] for row in session_rows)
+            if candidate["provider_ohlv_empty"]:
+                raw_volume = sum((row[5] for row in session_rows), Decimal("0"))
+            bound_tolerance = max(raw_open, intraday_close) * YAHOO_OHLC_BOUND_TOLERANCE
+            if (
+                raw_high + bound_tolerance < max(raw_open, intraday_close)
+                or raw_low - bound_tolerance > min(raw_open, intraday_close)
+            ):
+                continue
             if raw_volume <= 0:
                 continue
         repairs.append(
@@ -2258,7 +2279,7 @@ def _repair_completed_daily_close_from_intraday(
                 "raw_high": raw_high,
                 "raw_low": raw_low,
                 "raw_volume": raw_volume,
-                "provider_ohlv_empty": candidate["provider_ohlv_empty"],
+                "replace_ohlv": not candidate["provider_ohlv_complete"],
             }
         )
     if not repairs:
@@ -2288,7 +2309,7 @@ def _repair_completed_daily_close_from_intraday(
         repaired_close = repair["close"]
         repaired_close_values[completed_index] = float(repaired_close)
         repaired_adjusted_values[completed_index] = float(repaired_close)
-        if repair["provider_ohlv_empty"]:
+        if repair["replace_ohlv"]:
             for key, value in (
                 ("open", repair["raw_open"]),
                 ("high", repair["raw_high"]),
@@ -4044,19 +4065,52 @@ def _us_market_news_items(
     timeline: list[dict[str, object]] = []
     seen_urls: set[str] = set()
     seen_titles: set[str] = set()
-    for item in raw_items:
-        normalized = _normalize_us_market_news_item(item, now=now, cutoff=cutoff)
-        if not normalized:
-            continue
-        url_key = str(normalized["url"]).casefold()
-        title_key = re.sub(r"\W+", "", str(normalized["title"]).casefold())
-        if url_key in seen_urls or title_key in seen_titles:
-            continue
-        seen_urls.add(url_key)
-        seen_titles.add(title_key)
-        timeline.append(normalized)
+
+    def append_normalized(items: list[dict[str, object]]) -> None:
+        for item in items:
+            normalized = _normalize_us_market_news_item(item, now=now, cutoff=cutoff)
+            if not normalized:
+                continue
+            url_key = str(normalized["url"]).casefold()
+            title_key = re.sub(r"\W+", "", str(normalized["title"]).casefold())
+            if url_key in seen_urls or title_key in seen_titles:
+                continue
+            seen_urls.add(url_key)
+            seen_titles.add(title_key)
+            timeline.append(normalized)
+
+    append_normalized(raw_items)
+    if not timeline:
+        try:
+            append_normalized(_marketwatch_news_items())
+        except Exception:
+            pass
     timeline.sort(key=lambda item: item["published_at"], reverse=True)
     return timeline[:limit]
+
+
+def _marketwatch_news_items(limit: int = 30) -> list[dict[str, object]]:
+    response = requests.get(
+        MARKETWATCH_NEWS_RSS_URL,
+        headers=US_HEADERS,
+        timeout=12,
+    )
+    response.raise_for_status()
+    root = ET.fromstring(response.content)
+    rows: list[dict[str, object]] = []
+    for item in root.findall("./channel/item")[:limit]:
+        pub_date = item.findtext("pubDate")
+        try:
+            published_at = parsedate_to_datetime(pub_date).astimezone(timezone.utc) if pub_date else None
+        except (TypeError, ValueError):
+            published_at = None
+        rows.append({
+            "title": item.findtext("title") or "",
+            "source": "MarketWatch",
+            "url": item.findtext("link"),
+            "published_at": published_at,
+        })
+    return rows
 
 
 def build_us_trends(
@@ -4094,7 +4148,9 @@ def build_us_trends(
         "window_start": cutoff,
         "window_end": current,
         "headline": "실제 보도된 미국 시장 뉴스를 최신순으로 보여드립니다.",
-        "source_name": "Google News RSS",
+        "source_name": "MarketWatch RSS" if timeline and all(
+            item["source"] == "MarketWatch" for item in timeline
+        ) else "Google News RSS",
         "events": [],
         "past_events": [],
         "timeline": timeline,
