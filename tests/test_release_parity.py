@@ -32,7 +32,7 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
     contract = local_release_contract(surface="us")
 
     assert contract["surface"] == "us"
-    assert contract["product_version"] == "20261001us130"
+    assert contract["product_version"] == "20261001us131"
     assert len(contract["assets"]) == 12
     assert len(contract["asset_sha256"]) == 12
     assert set(contract["asset_sha256"]) == {
@@ -171,6 +171,8 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     ) < workflow.index("  staging_qa:")
     assert workflow.count("railway redeploy --from-source --yes --json") == 2
     assert '"${DASHBOARD_STAGING_BASE_URL%/}/readyz"' in workflow
+    runtime = Path("scripts/railway_staging_runtime.sh").read_text(encoding="utf-8")
+    assert '"sfo=0"' in runtime
 
 
 def test_us_canonical_route_activation_requires_exact_production_candidate() -> None:
@@ -253,6 +255,7 @@ def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> Non
             "DASHBOARD_STAGING_RAILWAY_WEB_SERVICE",
         ],
         "region": "DASHBOARD_STAGING_RAILWAY_REGION",
+        "legacy_region": "sfo",
         "idle_state": {
             "web_replicas": 0,
             "collector_replicas": 0,

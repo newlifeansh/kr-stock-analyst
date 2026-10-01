@@ -34,6 +34,7 @@ YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 YAHOO_CHART_FALLBACK_URL = "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
 YAHOO_SEARCH_URL = "https://query2.finance.yahoo.com/v1/finance/search"
 GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search"
+MARKETWATCH_NEWS_RSS_URL = "https://feeds.content.dowjones.io/public/rss/mw_topstories"
 YAHOO_COOKIE_URL = "https://fc.yahoo.com"
 YAHOO_CRUMB_URL = "https://query1.finance.yahoo.com/v1/test/getcrumb"
 YAHOO_QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
@@ -4044,19 +4045,52 @@ def _us_market_news_items(
     timeline: list[dict[str, object]] = []
     seen_urls: set[str] = set()
     seen_titles: set[str] = set()
-    for item in raw_items:
-        normalized = _normalize_us_market_news_item(item, now=now, cutoff=cutoff)
-        if not normalized:
-            continue
-        url_key = str(normalized["url"]).casefold()
-        title_key = re.sub(r"\W+", "", str(normalized["title"]).casefold())
-        if url_key in seen_urls or title_key in seen_titles:
-            continue
-        seen_urls.add(url_key)
-        seen_titles.add(title_key)
-        timeline.append(normalized)
+
+    def append_normalized(items: list[dict[str, object]]) -> None:
+        for item in items:
+            normalized = _normalize_us_market_news_item(item, now=now, cutoff=cutoff)
+            if not normalized:
+                continue
+            url_key = str(normalized["url"]).casefold()
+            title_key = re.sub(r"\W+", "", str(normalized["title"]).casefold())
+            if url_key in seen_urls or title_key in seen_titles:
+                continue
+            seen_urls.add(url_key)
+            seen_titles.add(title_key)
+            timeline.append(normalized)
+
+    append_normalized(raw_items)
+    if not timeline:
+        try:
+            append_normalized(_marketwatch_news_items())
+        except Exception:
+            pass
     timeline.sort(key=lambda item: item["published_at"], reverse=True)
     return timeline[:limit]
+
+
+def _marketwatch_news_items(limit: int = 30) -> list[dict[str, object]]:
+    response = requests.get(
+        MARKETWATCH_NEWS_RSS_URL,
+        headers=US_HEADERS,
+        timeout=12,
+    )
+    response.raise_for_status()
+    root = ET.fromstring(response.content)
+    rows: list[dict[str, object]] = []
+    for item in root.findall("./channel/item")[:limit]:
+        pub_date = item.findtext("pubDate")
+        try:
+            published_at = parsedate_to_datetime(pub_date).astimezone(timezone.utc) if pub_date else None
+        except (TypeError, ValueError):
+            published_at = None
+        rows.append({
+            "title": item.findtext("title") or "",
+            "source": "MarketWatch",
+            "url": item.findtext("link"),
+            "published_at": published_at,
+        })
+    return rows
 
 
 def build_us_trends(
@@ -4094,7 +4128,9 @@ def build_us_trends(
         "window_start": cutoff,
         "window_end": current,
         "headline": "실제 보도된 미국 시장 뉴스를 최신순으로 보여드립니다.",
-        "source_name": "Google News RSS",
+        "source_name": "MarketWatch RSS" if timeline and all(
+            item["source"] == "MarketWatch" for item in timeline
+        ) else "Google News RSS",
         "events": [],
         "past_events": [],
         "timeline": timeline,

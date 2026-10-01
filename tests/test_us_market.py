@@ -1906,6 +1906,7 @@ def test_us_market_trends_fails_closed_when_all_live_sources_fail(monkeypatch):
         raise RuntimeError("upstream unavailable")
 
     monkeypatch.setattr(us_market, "_google_news_items", unavailable_source)
+    monkeypatch.setattr(us_market, "_marketwatch_news_items", unavailable_source)
 
     payload = us_market.build_us_trends(
         days=7,
@@ -1916,3 +1917,39 @@ def test_us_market_trends_fails_closed_when_all_live_sources_fail(monkeypatch):
     assert payload["data_state"] == "unavailable"
     assert payload["timeline"] == []
     assert payload["events"] == []
+
+
+def test_us_market_trends_uses_recent_marketwatch_rss_when_google_returns_503(monkeypatch):
+    now = datetime(2026, 10, 1, 1, 0, tzinfo=UTC)
+
+    class MarketWatchResponse:
+        content = b"""<rss><channel>
+          <item><title>The 15 worst-performing S&amp;P 500 stocks in September</title>
+            <link>https://www.marketwatch.com/story/us-stocks-september</link>
+            <pubDate>Thu, 01 Oct 2026 00:30:00 GMT</pubDate></item>
+          <item><title>Old S&amp;P 500 stocks report</title>
+            <link>https://www.marketwatch.com/story/old-report</link>
+            <pubDate>Mon, 14 Sep 2026 00:30:00 GMT</pubDate></item>
+        </channel></rss>"""
+
+        def raise_for_status(self):
+            return None
+
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        assert url == us_market.MARKETWATCH_NEWS_RSS_URL
+        return MarketWatchResponse()
+
+    monkeypatch.setattr(us_market, "_google_news_items", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("503")))
+    monkeypatch.setattr(us_market.requests, "get", fake_get)
+
+    payload = us_market.build_us_trends(days=7, now=now)
+
+    assert calls == [us_market.MARKETWATCH_NEWS_RSS_URL]
+    assert payload["status"] == "ready"
+    assert payload["source_name"] == "MarketWatch RSS"
+    assert len(payload["timeline"]) == 1
+    assert payload["timeline"][0]["source"] == "MarketWatch"
+    assert payload["timeline"][0]["url"] == "https://www.marketwatch.com/story/us-stocks-september"

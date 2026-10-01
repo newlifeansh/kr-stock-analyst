@@ -34,6 +34,7 @@ scale_service() {
     --environment "$RAILWAY_ENVIRONMENT" \
     --service "$service" \
     "${RAILWAY_REGION}=${replicas}" \
+    "sfo=0" \
     --json >/dev/null
 }
 
