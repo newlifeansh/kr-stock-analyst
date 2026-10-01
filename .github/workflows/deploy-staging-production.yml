@@ -38,7 +38,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: railway-release-${{ inputs.product_surface }}-${{ inputs.action }}
+  group: ${{ (inputs.action == 'stage' || (inputs.action == 'promote-production' && inputs.product_surface == 'dashboard')) && 'domestic-staging-runtime' || format('railway-release-{0}-{1}', inputs.product_surface, inputs.action) }}
   cancel-in-progress: false
 
 env:
@@ -50,6 +50,8 @@ env:
   DASHBOARD_STAGING_RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
   DASHBOARD_STAGING_RAILWAY_WEB_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
   DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+  DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
+  DASHBOARD_STAGING_RAILWAY_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
   DASHBOARD_STAGING_BASE_URL: ${{ vars.DASHBOARD_STAGING_BASE_URL }}
   PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}
   PRODUCTION_RAILWAY_WEB_SERVICE: ${{ vars.PRODUCTION_RAILWAY_WEB_SERVICE }}
@@ -81,7 +83,9 @@ jobs:
             for value in "$US_STAGING_RAILWAY_PROJECT_ID" "$US_STAGING_RAILWAY_WEB_SERVICE" \
               "$US_STAGING_RAILWAY_COLLECTOR_SERVICE" "$US_STAGING_BASE_URL" \
               "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE" \
-              "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE" "$DASHBOARD_STAGING_BASE_URL" \
+              "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE" \
+              "$DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE" \
+              "$DASHBOARD_STAGING_RAILWAY_REGION" "$DASHBOARD_STAGING_BASE_URL" \
               "$PRODUCTION_RAILWAY_PROJECT_ID" "$PRODUCTION_RAILWAY_WEB_SERVICE" \
               "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" "$PRODUCTION_BASE_URL" \
               "$US_PRODUCTION_RAILWAY_PROJECT_ID" "$US_PRODUCTION_RAILWAY_WEB_SERVICE" \
@@ -219,6 +223,9 @@ jobs:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       IMAGE_REF: ${{ needs.build_image.outputs.image_ref }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate_request.outputs.source_sha }}
       - name: Validate both Railway staging targets
         run: |
           test -n "$RAILWAY_API_TOKEN"
@@ -228,9 +235,20 @@ jobs:
           test -n "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"
           test -n "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
           test -n "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          test -n "$DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE"
+          test -n "$DASHBOARD_STAGING_RAILWAY_REGION"
           [[ "$IMAGE_REF" =~ @sha256:[0-9a-f]{64}$ ]]
       - name: Install Railway CLI
         run: npm install --global @railway/cli@5.45.7
+      - name: Start domestic staging only for deployment and QA
+        env:
+          RAILWAY_PROJECT_ID: ${{ env.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
+          RAILWAY_WEB_SERVICE: ${{ env.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
+          RAILWAY_COLLECTOR_SERVICE: ${{ env.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+          RAILWAY_DATABASE_SERVICE: ${{ env.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
+          RAILWAY_REGION: ${{ env.DASHBOARD_STAGING_RAILWAY_REGION }}
+          RAILWAY_READY_URL: ${{ env.DASHBOARD_STAGING_BASE_URL }}
+        run: ./scripts/railway_staging_runtime.sh up
       - name: Set isolated market runtimes
         run: |
           set -euo pipefail
@@ -415,6 +433,26 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  shutdown_domestic_staging:
+    if: ${{ always() && inputs.action == 'stage' }}
+    needs: [deploy_staging, staging_qa, staging_us_gateway_qa]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
+      RAILWAY_WEB_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
+      RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+      RAILWAY_DATABASE_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
+      RAILWAY_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.45.7
+      - name: Stop domestic staging after every QA outcome
+        run: ./scripts/railway_staging_runtime.sh down
+
   deploy_production:
     if: inputs.action == 'promote-production'
     needs: validate_request
@@ -474,6 +512,13 @@ jobs:
       PRODUCT_SURFACE: ${{ inputs.product_surface }}
       QA_STAGING_BASE_URL: ${{ inputs.product_surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL }}
       TARGET_PRODUCTION_BASE_URL: ${{ inputs.product_surface == 'us' && vars.US_PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
+      RAILWAY_WEB_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
+      RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+      RAILWAY_DATABASE_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
+      RAILWAY_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
+      RAILWAY_READY_URL: ${{ vars.DASHBOARD_STAGING_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -482,6 +527,12 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      - name: Install Railway CLI for dashboard staging parity
+        if: inputs.product_surface == 'dashboard'
+        run: npm install --global @railway/cli@5.45.7
+      - name: Start domestic staging for production parity
+        if: inputs.product_surface == 'dashboard'
+        run: ./scripts/railway_staging_runtime.sh up
       - name: Install project and QA dependencies
         run: pip install -e '.[qa,mcp]'
       - name: Verify staging and production release parity
@@ -500,6 +551,9 @@ jobs:
           --surface "$PRODUCT_SURFACE"
           --base-url "$TARGET_PRODUCTION_BASE_URL"
           --output artifacts/qa-data-signal/production-live.json
+      - name: Stop domestic staging after production parity
+        if: ${{ always() && inputs.product_surface == 'dashboard' }}
+        run: ./scripts/railway_staging_runtime.sh down
       - name: Upload production verification evidence
         if: always()
         uses: actions/upload-artifact@v4
