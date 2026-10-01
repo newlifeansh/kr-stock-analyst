@@ -27,14 +27,31 @@ scale_service() {
   local role="$1"
   local service="$2"
   local replicas="$3"
+  local scale_error
 
   echo "Scaling domestic staging $role to $replicas replica(s)" >&2
+  if [[ "$replicas" -gt 0 ]]; then
+    # The first staging migration must remove the retired sfo replica. After
+    # that region is gone, Railway rejects an explicit sfo=0 selector.
+    if scale_error="$(railway scale \
+      -p "$RAILWAY_PROJECT_ID" \
+      --environment "$RAILWAY_ENVIRONMENT" \
+      --service "$service" \
+      "${RAILWAY_REGION}=${replicas}" \
+      "sfo=0" \
+      --json 2>&1 >/dev/null)"; then
+      return 0
+    fi
+    if [[ "$scale_error" != *'Unknown region `sfo`'* ]]; then
+      printf '%s\n' "$scale_error" >&2
+      return 1
+    fi
+  fi
   railway scale \
     -p "$RAILWAY_PROJECT_ID" \
     --environment "$RAILWAY_ENVIRONMENT" \
     --service "$service" \
     "${RAILWAY_REGION}=${replicas}" \
-    "sfo=0" \
     --json >/dev/null
 }
 

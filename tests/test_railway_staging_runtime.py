@@ -7,10 +7,11 @@ from pathlib import Path
 SCRIPT = Path("scripts/railway_staging_runtime.sh")
 
 
-def _scale(service: str, replicas: int) -> str:
+def _scale(service: str, replicas: int, *, legacy_region: bool = True) -> str:
     return (
         "scale -p project-id --environment staging "
-        f"--service {service} us-west={replicas} sfo=0 --json"
+        f"--service {service} us-west={replicas}"
+        f"{' sfo=0' if replicas and legacy_region else ''} --json"
     )
 
 
@@ -34,6 +35,7 @@ def _runtime_env(
     *,
     fail_on: str = "",
     database_state: str,
+    unknown_sfo: bool = False,
 ) -> tuple[dict[str, str], Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(parents=True)
@@ -46,6 +48,10 @@ def _runtime_env(
 set -euo pipefail
 printf '%s\\n' "$*" >> "$RAILWAY_TEST_LOG"
 if [[ -n "${RAILWAY_TEST_FAIL_ON:-}" && "$*" == *"$RAILWAY_TEST_FAIL_ON"* ]]; then
+  exit 23
+fi
+if [[ "${RAILWAY_TEST_UNKNOWN_SFO:-0}" == 1 && "$*" == scale* && "$*" == *"sfo=0"* ]]; then
+  printf '%s\n' 'Unknown region `sfo`' >&2
   exit 23
 fi
 if [[ "$*" == "service list -p project-id --environment staging --json" ]]; then
@@ -71,6 +77,7 @@ fi
             "RAILWAY_TEST_LOG": str(log_path),
             "RAILWAY_TEST_DB_STATE": str(database_state_path),
             "RAILWAY_TEST_FAIL_ON": fail_on,
+            "RAILWAY_TEST_UNKNOWN_SFO": "1" if unknown_sfo else "0",
             "RAILWAY_PROJECT_ID": "project-id",
             "RAILWAY_ENVIRONMENT": "staging",
             "RAILWAY_WEB_SERVICE": "web-id",
@@ -90,11 +97,13 @@ def _run_runtime(
     *,
     fail_on: str = "",
     database_state: str | None = None,
+    unknown_sfo: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     env, log_path = _runtime_env(
         tmp_path,
         fail_on=fail_on,
         database_state=database_state or ("inactive" if action == "up" else "running"),
+        unknown_sfo=unknown_sfo,
     )
     result = subprocess.run(
         [str(SCRIPT), action],
@@ -127,6 +136,23 @@ def test_staging_runtime_starts_and_stops_in_dependency_order(tmp_path: Path) ->
         _database_status(),
         _database_stop(),
         _database_status(),
+    ]
+
+
+def test_staging_runtime_reuses_only_current_region_after_legacy_region_removed(
+    tmp_path: Path,
+) -> None:
+    result, lines = _run_runtime(tmp_path, "up", unknown_sfo=True)
+
+    assert result.returncode == 0, result.stderr
+    assert lines == [
+        _database_status(),
+        _database_start(),
+        _database_status(),
+        _scale("collector-id", 1),
+        _scale("collector-id", 1, legacy_region=False),
+        _scale("web-id", 1),
+        _scale("web-id", 1, legacy_region=False),
     ]
 
 
