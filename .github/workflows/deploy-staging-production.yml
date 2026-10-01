@@ -284,6 +284,25 @@ jobs:
           railway service source connect --image "$IMAGE_REF" --json \
             --project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
+      - name: Restart the exact domestic candidate after database network warmup
+        run: |
+          set -euo pipefail
+          sleep 90
+          railway redeploy --from-source --yes --json \
+            --project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          railway redeploy --from-source --yes --json \
+            --project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
+          for attempt in $(seq 1 24); do
+            if curl --fail --silent --show-error --max-time 10 \
+              "${DASHBOARD_STAGING_BASE_URL%/}/readyz" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Domestic staging candidate did not become ready after database warmup" >&2
+          exit 1
 
   staging_qa:
     if: inputs.action == 'stage'

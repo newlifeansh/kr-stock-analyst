@@ -32,7 +32,7 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
     contract = local_release_contract(surface="us")
 
     assert contract["surface"] == "us"
-    assert contract["product_version"] == "20261001us129"
+    assert contract["product_version"] == "20261001us130"
     assert len(contract["assets"]) == 12
     assert len(contract["asset_sha256"]) == 12
     assert set(contract["asset_sha256"]) == {
@@ -120,7 +120,7 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "--environment production" in workflow
     assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 6
     assert workflow.count('--project "$US_STAGING_RAILWAY_PROJECT_ID"') == 2
-    assert workflow.count('--project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 2
+    assert workflow.count('--project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 4
     assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 4
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
     assert 'US_STAGING_RAILWAY_PROJECT_ID: ${{ vars.US_STAGING_RAILWAY_PROJECT_ID }}' in workflow
@@ -166,6 +166,11 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.index("Start domestic staging only for deployment and QA") < workflow.index(
         "Deploy the exact image to domestic staging"
     )
+    assert workflow.index("Deploy the exact image to domestic staging") < workflow.index(
+        "Restart the exact domestic candidate after database network warmup"
+    ) < workflow.index("  staging_qa:")
+    assert workflow.count("railway redeploy --from-source --yes --json") == 2
+    assert '"${DASHBOARD_STAGING_BASE_URL%/}/readyz"' in workflow
 
 
 def test_us_canonical_route_activation_requires_exact_production_candidate() -> None:

@@ -1481,35 +1481,65 @@ def build_us_position_lifecycle_feed(
                     for symbol, rows in refreshed_histories.items()
                 }
             )
+    spy_bars = bars_by_symbol.get("SPY", [])
+    qqq_bars = bars_by_symbol.get("QQQ", [])
     covered_codes: set[str] = set()
     signal_eligible_codes: set[str] = set()
     insufficient_history_codes: set[str] = set()
+
+    def mark_covered(code: str) -> None:
+        sector_symbol = sector_by_code[code]
+        stock_bars = bars_by_symbol.get(code, [])
+        sector_bars = bars_by_symbol.get(sector_symbol, [])
+        series = (stock_bars, spy_bars, qqq_bars, sector_bars)
+        if (
+            _aligned_recent_sessions(*series)
+            and all(bars[-1].trade_date == universe_date for bars in series)
+        ):
+            covered_codes.add(code)
+            signal_eligible_codes.add(code)
+        elif _aligned_short_history_sessions(
+            stock_bars,
+            spy_bars,
+            qqq_bars,
+            sector_bars,
+            universe_date=universe_date,
+        ):
+            covered_codes.add(code)
+            insufficient_history_codes.add(code)
+
     if (
         universe_date is not None
         and len(spy_bars) >= US_MIN_HISTORY_ROWS
         and len(qqq_bars) >= US_MIN_HISTORY_ROWS
     ):
         for member in members:
-            code = str(member["code"])
-            sector_symbol = sector_by_code[code]
-            stock_bars = bars_by_symbol.get(code, [])
-            sector_bars = bars_by_symbol.get(sector_symbol, [])
-            series = (stock_bars, spy_bars, qqq_bars, sector_bars)
-            if (
-                _aligned_recent_sessions(*series)
-                and all(bars[-1].trade_date == universe_date for bars in series)
-            ):
-                covered_codes.add(code)
-                signal_eligible_codes.add(code)
-            elif _aligned_short_history_sessions(
-                stock_bars,
-                spy_bars,
-                qqq_bars,
-                sector_bars,
-                universe_date=universe_date,
-            ):
-                covered_codes.add(code)
-                insufficient_history_codes.add(code)
+            mark_covered(str(member["code"]))
+        # An otherwise complete source response can omit an interior session
+        # for a newly listed member. Retry only a small uncovered set once;
+        # persistent gaps still block publication.
+        uncovered_codes = [
+            str(member["code"])
+            for member in members
+            if str(member["code"]) not in covered_codes
+        ]
+        if 0 < len(uncovered_codes) <= 8 and not sector_classification_errors:
+            refreshed_histories, refreshed_errors = _load_histories(
+                uncovered_codes,
+                loader,
+            )
+            for code, rows in refreshed_histories.items():
+                if rows:
+                    histories[code] = rows
+                    bars_by_symbol[code] = us_price_bars(
+                        rows,
+                        now=current,
+                        market_session=market_session,
+                    )
+                    errors.pop(code, None)
+            errors.update(refreshed_errors)
+            for code in uncovered_codes:
+                mark_covered(code)
     complete_source_coverage = bool(
         len(members) == US_SIGNAL_UNIVERSE_LIMIT
         and len(covered_codes) == US_SIGNAL_UNIVERSE_LIMIT
