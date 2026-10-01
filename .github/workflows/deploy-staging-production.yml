@@ -247,7 +247,6 @@ jobs:
           RAILWAY_COLLECTOR_SERVICE: ${{ env.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
           RAILWAY_DATABASE_SERVICE: ${{ env.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
           RAILWAY_REGION: ${{ env.DASHBOARD_STAGING_RAILWAY_REGION }}
-          RAILWAY_READY_URL: ${{ env.DASHBOARD_STAGING_BASE_URL }}
         run: ./scripts/railway_staging_runtime.sh up
       - name: Set isolated market runtimes
         run: |
@@ -518,7 +517,6 @@ jobs:
       RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
       RAILWAY_DATABASE_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
       RAILWAY_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
-      RAILWAY_READY_URL: ${{ vars.DASHBOARD_STAGING_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
         with:
