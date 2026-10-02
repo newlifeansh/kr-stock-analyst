@@ -22,6 +22,25 @@ logger = logging.getLogger(__name__)
 UTC = timezone.utc
 KST = ZoneInfo("Asia/Seoul")
 NY = ZoneInfo("America/New_York")
+US_KIS_EXCHANGES = {
+    "NMS": "NAS", "NGM": "NAS", "NCM": "NAS", "NASDAQ": "NAS", "NAS": "NAS",
+    "NYQ": "NYS", "NYSE": "NYS", "NYS": "NYS",
+}
+SAFE_SOURCE_REASONS = frozenset({
+    "unknown_exchange", "exchange_market_mismatch", "source_identity_mismatch", "invalid_bars",
+})
+
+
+def us_kis_exchange(item):
+    # The audited universe preserves Yahoo's exchange code, while `market`
+    # holds NASDAQ/NYSE. Do not assume the two schemas are interchangeable.
+    exchange = US_KIS_EXCHANGES.get(str(item.get("exchange") or "").upper())
+    if not exchange:
+        raise ValueError("unknown_exchange")
+    market = item.get("market")
+    if market and {"NASDAQ": "NAS", "NYSE": "NYS"}.get(str(market).upper()) != exchange:
+        raise ValueError("exchange_market_mismatch")
+    return exchange
 
 
 def session_bounds(market, now):
@@ -118,9 +137,7 @@ class IntradayMonitor:
                  "FID_INPUT_HOUR_1": now.astimezone(KST).strftime("%H%M%S"),
                  "FID_PW_DATA_INCU_YN": "N", "FID_ETC_CLS_CODE": ""})
         else:
-            exchange = {"NASDAQ": "NAS", "NYSE": "NYS", "NAS": "NAS", "NYS": "NYS"}.get(str(item.get("exchange", "")).upper())
-            if not exchange:
-                raise ValueError("unknown_exchange")
+            exchange = us_kis_exchange(item)
             symbol = item["code"].replace(".", "/")
             data = self.provider._get(
                 "/uapi/overseas-price/v1/quotations/inquire-time-itemchartprice", "HHDFS76950200",
@@ -290,10 +307,14 @@ class IntradayMonitor:
                             in_universe=universe_ready and item["code"] in codes,
                             max_age=self.settings.intraday_signal_max_age_seconds)
                     counts[status] += 1
-                except Exception:
-                    counts["source_or_context_error"] += 1
+                except Exception as exc:
+                    # Only fixed internal reason codes are public. Provider
+                    # exceptions may contain credentials; never expose them.
+                    reason = str(exc) if isinstance(exc, ValueError) else ""
+                    counts[reason if reason in SAFE_SOURCE_REASONS else "source_or_context_error"] += 1
         failures = sum(counts[k] for k in ("stale", "future_bars", "invalid_bars",
-            "source_or_context_error", "wrong_session", "conflicting_bars", "out_of_order"))
+            "source_or_context_error", "wrong_session", "conflicting_bars", "out_of_order",
+            "unknown_exchange", "exchange_market_mismatch", "source_identity_mismatch"))
         self.status(market, {"state": "monitoring" if universe_ready and not failures else "degraded",
             "universe_count": len(codes), "evaluated": sum(counts.values()),
             "decisions": dict(counts), "cycle_seconds": (datetime.now(UTC)-started).total_seconds(),

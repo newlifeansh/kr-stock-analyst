@@ -12,10 +12,10 @@
       "modes": ["gate"],
       "automation": "pytest 순수 판정·DB 재시작·시장별 시각 픽스처",
       "preconditions": ["별도 intraday-top100-v1-rc1 원장과 off/shadow/alerts 모드를 사용한다."],
-      "inputs": {"markets": ["kr", "us"], "confirmation_minutes": 5, "max_quote_age_seconds": 90},
+      "inputs": {"markets": ["kr", "us"], "confirmation_minutes": 5, "max_quote_age_seconds": 90, "universe_exchange_to_kis": {"NMS": "NAS", "NGM": "NAS", "NCM": "NAS", "NASDAQ": "NAS", "NYQ": "NYS", "NYSE": "NYS"}},
       "steps": ["완료·미완료 봉, 시세 지연·미래 시각·누락·역순·중복을 재생한다.", "매수 뒤 재평가·재시작해 기존 확정 기록과 이벤트 개수를 비교한다."],
       "expected": ["확정 매수는 완료된 봉과 당시의 유효 근거로만 생성되며 취소·중복되지 않는다.", "시세 오류와 근거 누락은 신규 확정을 차단하고 shadow 기록은 alerts에서 노출하지 않는다."],
-      "failure_criteria": ["진행 중인 봉·미래 정보·지연 시세로 확정하거나 이미 발생한 매수를 지운다."]
+      "failure_criteria": ["진행 중인 봉·미래 정보·지연 시세로 확정하거나 이미 발생한 매수를 지운다.", "실제 Top100 스냅샷의 거래소 코드가 KIS 요청에 연결되지 않거나 시장 불일치를 허용한다."]
     },
     {
       "id": "SIG-INTRA-002",
