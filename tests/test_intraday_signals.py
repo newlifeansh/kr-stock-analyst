@@ -155,6 +155,34 @@ def test_intraday_default_off_has_no_collection_or_push():
     assert monitor.run_once() is None
 
 
+def test_intraday_audited_universe_exchange_reaches_kis_provider():
+    from app.services.us_signal_universe import VALID_YAHOO_EXCHANGES
+    cases = [("NMS", "NASDAQ", "NAS"), ("NGM", "NASDAQ", "NAS"),
+             ("NCM", "NASDAQ", "NAS"), ("NASDAQ", "NASDAQ", "NAS"),
+             ("NYQ", "NYSE", "NYS"), ("NYSE", "NYSE", "NYS")]
+    assert {exchange for exchange, _, _ in cases} == VALID_YAHOO_EXCHANGES
+    calls = []
+    def get(path, tr, params):
+        calls.append(params)
+        return {"output1": {"rsym": "D" + params["EXCD"] + params["SYMB"]},
+                "output2": [dict(xymd="20261002", xhms="093100", open="100",
+                    high="101", low="99", last="100", evol="1000")]}
+    monitor = IntradayMonitor(SimpleNamespace(), SimpleNamespace(_get=get), None)
+    for exchange, market, expected in cases:
+        item = {"code": "AAPL" if market == "NASDAQ" else "BRK.B",
+                "market": market, "exchange": exchange, "currency": "USD"}
+        bars = monitor.bars("us", item, OPEN)
+        assert calls[-1]["EXCD"] == expected
+        assert calls[-1]["SYMB"] == item["code"].replace(".", "/")
+        assert bars[0].start.isoformat() == "2026-10-02T13:31:00+00:00"
+    assert len(calls) == len(cases)
+    for exchange, market, reason in [("UNKNOWN", "NASDAQ", "unknown_exchange"),
+                                    ("NMS", "NYSE", "exchange_market_mismatch")]:
+        with pytest.raises(ValueError, match=reason):
+            monitor.bars("us", {"code": "AAPL", "exchange": exchange, "market": market}, OPEN)
+    assert len(calls) == len(cases)  # No request made under an ambiguous identity.
+
+
 def test_intraday_us_notification_history_uses_new_york_session_date():
     from app.services.web_push import notification_history_is_valid, notification_history_signal_context
     key = "intraday:us:AAPL:buy:" + "a"*64 + ":2026-10-01"
@@ -211,6 +239,18 @@ def test_intraday_worker_scans_top100_without_subscribers_and_retains_positions(
         events = list(db.scalars(select(IntradayEvent)))
         assert len(events) == 200
         assert sum(json.loads(e.payload)["side"] == "sell" for e in events) == 100
+    monkeypatch.setattr(module, "universe", lambda *a: items)
+    for message, reason in [("unknown_exchange", "unknown_exchange"),
+                            ("api_key=sentinel-secret", "source_or_context_error")]:
+        def failed_bars(*args):
+            raise ValueError(message)
+        monkeypatch.setattr(monitor, "bars", failed_bars)
+        monitor.run_once(now=args["now"])
+        with factory() as db:
+            status = feed(db, "kr", "shadow")["monitor"]
+            assert status["state"] == "degraded"
+            assert status["decisions"] == {reason: 100}
+            assert "sentinel-secret" not in json.dumps(status)
 
 
 def test_intraday_push_optin_mode_scope_and_no_historical_delivery(tmp_path, monkeypatch):
