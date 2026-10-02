@@ -77,6 +77,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "SIG-INTRA-004": (
         "tests.test_intraday_signals.test_intraday_http_market_isolation_and_monitor_page",
+        "tests.test_intraday_signals.test_intraday_staging_preserves_bases_and_never_promotes",
     ),
     "SIG-UI-025": (
         "tests.test_data_signal_qa."

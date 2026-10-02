@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import math
+from functools import lru_cache
+from pathlib import Path
 
 from sqlalchemy import DateTime, String, Text, select
 from sqlalchemy.orm import Mapped, mapped_column, Session
@@ -20,6 +22,16 @@ from app.db import Base
 
 VERSION = "intraday-top100-v1-rc1"
 UTC = timezone.utc
+
+
+@lru_cache(maxsize=1)
+def implementation_digest() -> str:
+    root = Path(__file__).resolve().parents[1]
+    digest = hashlib.sha256()
+    for relative in ("services/intraday_signals.py", "services/intraday_monitor.py", "static/intraday-alerts.html"):
+        digest.update(relative.encode())
+        digest.update((root / relative).read_bytes())
+    return digest.hexdigest()
 
 
 class IntradayState(Base):
@@ -233,6 +245,7 @@ def feed(db: Session, market: str, mode: str, limit: int = 100) -> dict:
     if mode == "off":
         monitor = dict(monitor, state="disabled")
     return dict(strategy_version=VERSION, market=market, mode=mode,
+                implementation_digest=implementation_digest(),
                 monitor=monitor,
                 items=[json.loads(item.payload) for item in items],
                 execution="signal_only_not_broker_fill")

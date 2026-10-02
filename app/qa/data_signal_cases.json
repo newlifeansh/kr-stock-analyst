@@ -49,7 +49,7 @@
       "domain": "국내·미국 장중 신호",
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
-      "automation": "pytest HTTP + scripts/qa_intraday_monitor.py live/e2e",
+      "automation": "pytest HTTP·운영 기준 보존·staging-only 불변 이미지 계약 + scripts/qa_intraday_monitor.py live/e2e",
       "preconditions": ["분리된 시장의 후보 서버와 읽기 전용 감시 화면이 준비된다."],
       "inputs": {"routes": ["/intraday-alerts", "/us/intraday-alerts"], "widths": [320, 458, 1280]},
       "steps": ["시장별 API의 버전·모드·감시 상태를 확인하고 다른 시장 요청을 차단한다.", "브라우저에서 시험 모드·지연·오류·빈 기록을 확인한다."],

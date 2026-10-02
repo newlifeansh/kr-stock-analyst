@@ -263,3 +263,18 @@ def test_intraday_http_market_isolation_and_monitor_page(tmp_path, monkeypatch):
             assert "실제 주문" in page.text and "상태 조회 실패" in page.text
     finally:
         main.app.dependency_overrides.pop(get_db, None)
+
+
+def test_intraday_staging_preserves_bases_and_never_promotes():
+    from pathlib import Path
+    workflow = Path(".github/workflows/deploy-staging-production.yml").read_text()
+    job = workflow.split("  intraday_shadow_staging:", 1)[1].split("  validate_request:", 1)[0]
+    assert "needs: [validate_request, gate, build_image]" in job
+    assert "git merge-base --is-ancestor f794377 HEAD" in job
+    assert "git merge-base --is-ancestor 2da0ebf HEAD" in job
+    assert "INTRADAY_SIGNAL_MODE=shadow" in job
+    assert "INTRADAY_SIGNAL_MODE=alerts" not in job
+    assert "--environment staging" in job
+    assert "--environment production" not in job
+    assert '--expected-digest "$EXPECTED_DIGEST"' in job
+    assert 'image_ref:$image' in job
