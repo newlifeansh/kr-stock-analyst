@@ -140,8 +140,8 @@ jobs:
               --project "$TARGET_PROJECT" --environment staging --service "$service"
             railway service source connect --image "$IMAGE_REF" --json \
               --project "$TARGET_PROJECT" --environment staging --service "$service"
-            railway service scale us-west=1 --json \
-              --project "$TARGET_PROJECT" --environment staging --service "$service"
+            railway scale -p "$TARGET_PROJECT" --environment staging \
+              --service "$service" us-west=1 --json
           done
       - name: Wait for candidate and verify scoped live and browser contracts
         shell: bash

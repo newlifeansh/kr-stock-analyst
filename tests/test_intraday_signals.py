@@ -298,3 +298,5 @@ def test_intraday_staging_preserves_bases_and_never_promotes():
     assert 'if [[ "$TARGET_MARKET" == "kr" ]]' in job
     assert 'DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE' in job
     assert '--from-source --yes --json' in job
+    assert 'railway scale -p "$TARGET_PROJECT" --environment staging' in job
+    assert 'railway service scale' not in job
