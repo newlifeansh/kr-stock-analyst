@@ -14,6 +14,7 @@ def main():
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--market", choices=["kr", "us"], required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--expected-digest")
     args = parser.parse_args()
     prefix = "/us" if args.market == "us" else ""
     base = args.base_url.rstrip("/")
@@ -25,9 +26,11 @@ def main():
         payload = response.json()
         assert payload["strategy_version"] == "intraday-top100-v1-rc1"
         assert payload["market"] == args.market
+        if args.expected_digest:
+            assert payload["implementation_digest"] == args.expected_digest
         assert payload["mode"] == "shadow", "staging must not send user alerts"
         assert response.headers.get("cache-control") == "no-store"
-        assert payload["monitor"]["state"] not in ("not_started", "disabled", "stale")
+        assert payload["monitor"]["state"] in ("closed", "monitoring"), "collector unavailable or degraded"
         report["checks"].append({"api": "pass", "monitor": payload["monitor"]})
         monitor = payload["monitor"]
         report["regular_session_verified"] = bool(

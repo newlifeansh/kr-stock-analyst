@@ -82,6 +82,14 @@ to us-market preproduction before any domestic production promotion; never
 overwrite another active candidate without coordination. Production remains
 unchanged until the operator approves the exact tested artifact.
 
+The existing immutable-release workflow now has a `stage-intraday` action:
+build/gate once, select only the requested market's staging web/collector,
+set shadow mode, deploy the exact image digest, and run scoped live/e2e.
+It never invokes a production operation. Before staging the domestic candidate,
+the same intraday implementation digest must already be verified on US
+preproduction. Separate market-specific production ancestors are enforced;
+the counterpart's unrelated production fixes are never downgraded.
+
 Source API contracts:
 - https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/inquire_time_itemchartprice
 - https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/overseas_stock/inquire_time_itemchartprice

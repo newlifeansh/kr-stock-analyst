@@ -10,6 +10,7 @@ on:
         options:
           - build
           - stage
+          - stage-intraday
           - promote-production
         default: build
       candidate_version:
@@ -62,6 +63,103 @@ env:
   PRODUCT_SURFACE: ${{ inputs.product_surface }}
 
 jobs:
+  # Market-specific production bases must not overwrite the other market's
+  # staging with an older baseline. This path has no production operation.
+  intraday_shadow_staging:
+    if: inputs.action == 'stage-intraday'
+    needs: [validate_request, gate, build_image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: staging
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      IMAGE_REF: ${{ needs.build_image.outputs.image_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate_request.outputs.source_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e '.[qa,mcp]'
+      - run: python -m playwright install --with-deps chromium
+      - run: npm install --global @railway/cli@5.45.7
+      - name: Validate isolated target and preserved production ancestor
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_REF" =~ @sha256:[0-9a-f]{64}$ ]]
+          if [[ "$PRODUCT_SURFACE" == "us" ]]; then
+            git merge-base --is-ancestor f794377 HEAD
+            echo "TARGET_PROJECT=$US_STAGING_RAILWAY_PROJECT_ID" >> "$GITHUB_ENV"
+            echo "TARGET_WEB=$US_STAGING_RAILWAY_WEB_SERVICE" >> "$GITHUB_ENV"
+            echo "TARGET_COLLECTOR=$US_STAGING_RAILWAY_COLLECTOR_SERVICE" >> "$GITHUB_ENV"
+            echo "TARGET_URL=$US_STAGING_BASE_URL" >> "$GITHUB_ENV"
+            echo "TARGET_MARKET=us" >> "$GITHUB_ENV"
+          else
+            git merge-base --is-ancestor 2da0ebf HEAD
+            echo "TARGET_PROJECT=$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" >> "$GITHUB_ENV"
+            echo "TARGET_WEB=$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE" >> "$GITHUB_ENV"
+            echo "TARGET_COLLECTOR=$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE" >> "$GITHUB_ENV"
+            echo "TARGET_URL=$DASHBOARD_STAGING_BASE_URL" >> "$GITHUB_ENV"
+            echo "TARGET_MARKET=kr" >> "$GITHUB_ENV"
+          fi
+          test "$US_STAGING_RAILWAY_WEB_SERVICE" != "$US_PRODUCTION_RAILWAY_WEB_SERVICE"
+          test "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE" != "$PRODUCTION_RAILWAY_WEB_SERVICE"
+          digest=$(python -c 'from app.services.intraday_signals import implementation_digest; print(implementation_digest())')
+          echo "EXPECTED_DIGEST=$digest" >> "$GITHUB_ENV"
+      - name: Verify identical intraday implementation in US preproduction first
+        if: inputs.product_surface == 'dashboard'
+        run: >-
+          python scripts/qa_intraday_monitor.py --mode live --market us
+          --base-url "$US_STAGING_BASE_URL" --expected-digest "$EXPECTED_DIGEST"
+          --output artifacts/intraday/us-prerequisite.json
+      - name: Start shadow collectors with the exact built image in staging only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$TARGET_PROJECT"
+          test -n "$TARGET_WEB"
+          test -n "$TARGET_COLLECTOR"
+          for service in "$TARGET_WEB" "$TARGET_COLLECTOR"; do
+            railway variable set "INTRADAY_SIGNAL_MODE=shadow" --skip-deploys --json \
+              --project "$TARGET_PROJECT" --environment staging --service "$service"
+            railway service source connect --image "$IMAGE_REF" --json \
+              --project "$TARGET_PROJECT" --environment staging --service "$service"
+            railway service scale us-west=1 --json \
+              --project "$TARGET_PROJECT" --environment staging --service "$service"
+          done
+      - name: Wait for candidate and verify scoped live and browser contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 40); do
+            if python scripts/qa_intraday_monitor.py --mode live --market "$TARGET_MARKET" \
+              --base-url "$TARGET_URL" --expected-digest "$EXPECTED_DIGEST" \
+              --output artifacts/intraday/live.json; then
+              break
+            fi
+            sleep 15
+          done
+          python scripts/qa_intraday_monitor.py --mode live --market "$TARGET_MARKET" \
+            --base-url "$TARGET_URL" --expected-digest "$EXPECTED_DIGEST" \
+            --output artifacts/intraday/live.json
+          python scripts/qa_intraday_monitor.py --mode e2e --market "$TARGET_MARKET" \
+            --base-url "$TARGET_URL" --expected-digest "$EXPECTED_DIGEST" \
+            --output artifacts/intraday/e2e.json
+          jq -n --arg source "${{ needs.validate_request.outputs.source_sha }}" \
+            --arg image "$IMAGE_REF" --arg surface "$PRODUCT_SURFACE" \
+            --arg implementation "$EXPECTED_DIGEST" \
+            '{source_sha:$source,image_ref:$image,surface:$surface,implementation_digest:$implementation,mode:"shadow",production_approved:false}' \
+            > artifacts/intraday/candidate.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: intraday-shadow-${{ inputs.product_surface }}-${{ github.sha }}
+          path: artifacts/intraday
+          retention-days: 90
+
   validate_request:
     runs-on: ubuntu-latest
     outputs:
