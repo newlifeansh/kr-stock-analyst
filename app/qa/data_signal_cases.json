@@ -26,7 +26,7 @@
       "automation": "pytest 완료 거래일·rank=1·오래된 글·외부 URL 픽스처",
       "preconditions": ["기존 Top100 확정 스냅샷과 네이버 인기글을 이용한다."],
       "inputs": {"ranking": "latest completed session", "post_day": "Asia/Seoul today", "sort": "likes, views, replies, created_at"},
-      "steps": ["배열 첫 항목과 실제 rank=1을 다르게 구성한다.", "어제·미래·타종목·외부 호스트·잘못된 출처를 입력한다."],
+      "steps": ["배열 첫 항목과 실제 rank=1을 다르게 구성한다.", "어제·미래·타종목·외부 호스트·잘못된 출처를 입력한다.", "네이버 writtenAt의 시간대 없는 KST·+09:00·UTC를 동일한 시각으로 정규화하고 KST 자정 경계를 재생한다."],
       "expected": ["확정 순위 1위의 오늘 글만 선택하고 실패 시 예전 글로 대체하지 않는다.", "원문 제목과 커뮤니티 의견 고지를 함께 보내며 매수 권유로 표현하지 않는다."],
       "failure_criteria": ["불완전 순위를 1위로 오인하거나 오래된 글·타종목·임의 URL을 전송한다."]
     },

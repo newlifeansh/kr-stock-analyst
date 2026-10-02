@@ -118,6 +118,18 @@ def _today_kst() -> date:
     return datetime.now(KST).date()
 
 
+def _naver_discussion_utc(value: object) -> datetime | None:
+    # Naver sends both timezone-less KST and offset-aware writtenAt values.
+    # Preserve the legacy display field; provide an unambiguous instant for
+    # notification freshness checks instead of guessing from a naive datetime.
+    parsed = _parse_naver_discussion_source_datetime(value)
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=KST)
+    return parsed.astimezone(timezone.utc)
+
+
 def _naver_board_post_id(href: str) -> str:
     parsed = urlparse(str(href or "").strip())
     query_post_ids = parse_qs(parsed.query).get("nid") or []
@@ -405,6 +417,7 @@ def _naver_discussion_post_row(
             )
         ),
         "created_at": _parse_naver_world_datetime(post.get("writtenAt")),
+        "created_at_utc": _naver_discussion_utc(post.get("writtenAt")),
         "like_count": _to_int(post.get("recommendCount")),
         "dislike_count": _to_int(post.get("notRecommendCount")),
         "reply_count": _to_int(post.get("commentCount")),

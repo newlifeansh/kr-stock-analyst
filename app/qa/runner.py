@@ -58,6 +58,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "NOTIFY-COM-002": (
         "tests.test_community_alerts.test_community_today_post_and_safe_original_url",
         "tests.test_community_alerts.test_community_rank_one_uses_completed_snapshot",
+        "tests.test_community_alerts.test_community_naver_naive_kst_and_offset_aware_written_at",
     ),
     "NOTIFY-COM-003": (
         "tests.test_community_alerts.test_community_http_read_only_market_isolation",
