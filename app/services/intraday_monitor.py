@@ -85,6 +85,7 @@ class IntradayMonitor:
         self.task = None
         self.contexts = {}
         self.histories = {}
+        self.cache_session = None
         self.cycle_lock = threading.Lock()
 
     async def start(self):
@@ -120,10 +121,14 @@ class IntradayMonitor:
             exchange = {"NASDAQ": "NAS", "NYSE": "NYS", "NAS": "NAS", "NYS": "NYS"}.get(str(item.get("exchange", "")).upper())
             if not exchange:
                 raise ValueError("unknown_exchange")
+            symbol = item["code"].replace(".", "/")
             data = self.provider._get(
                 "/uapi/overseas-price/v1/quotations/inquire-time-itemchartprice", "HHDFS76950200",
-                {"AUTH": "", "EXCD": exchange, "SYMB": item["code"], "NMIN": "1",
+                {"AUTH": "", "EXCD": exchange, "SYMB": symbol, "NMIN": "1",
                  "PINC": "0", "NEXT": "", "NREC": "30", "FILL": "", "KEYB": ""})
+            identity = str((data.get("output1") or {}).get("rsym") or "")
+            if identity not in {exchange + symbol, "D" + exchange + symbol, "R" + exchange + symbol}:
+                raise ValueError("source_identity_mismatch")
         return normalize_bars(data.get("output2") or [], market)
 
     def context(self, market, item, bounds):
@@ -177,6 +182,8 @@ class IntradayMonitor:
                 db.add(row)
             row.payload = encode(dict(payload, strategy_version=VERSION,
                 mode=self.settings.intraday_signal_mode,
+                provider_ready=bool(self.provider.is_configured()),
+                push_ready=bool(self.push.configured),
                 observed_at=datetime.now(UTC).isoformat()))
             row.updated_at = datetime.utcnow()
             db.commit()
@@ -225,6 +232,10 @@ class IntradayMonitor:
         if bounds is None:
             self.status(market, {"state": "closed", "evaluated": 0})
             return
+        if self.cache_session != bounds[0]:
+            self.contexts.clear()
+            self.histories.clear()
+            self.cache_session = bounds[0]
         if not self.provider.is_configured():
             self.status(market, {"state": "unavailable", "reason": "provider_not_configured"})
             return
@@ -242,11 +253,13 @@ class IntradayMonitor:
                         if json.loads(r.payload).get("remaining", 0) > 0]
         codes = {item["code"] for item in items}
         scan = {item["code"]: item for item in [*items, *[r for r in retained if r]]}
+        held_codes = {item["code"] for item in retained if item}
         counts = Counter()
         started = datetime.now(UTC)
         # Rate limiting remains centralized in the existing KIS provider.
         with ThreadPoolExecutor(max_workers=4) as executor:
-            jobs = {executor.submit(self.bars, market, item, now): item for item in scan.values()}
+            ordered = sorted(scan.values(), key=lambda item: (item["code"] not in held_codes, item["code"]))
+            jobs = {executor.submit(self.bars, market, item, now): item for item in ordered}
             for job in as_completed(jobs):
                 item = jobs[job]
                 try:
@@ -259,11 +272,15 @@ class IntradayMonitor:
                     with SessionLocal() as db:
                         # Persist only completed minutes. Never rewrite an
                         # archived observation after a vendor revision.
-                        for bar in minutes:
-                            if not bounds[0] <= bar.start < bounds[1] or bar.start + timedelta(minutes=1) > observed_now:
-                                continue
-                            key = f"{market}:{item['code']}:{bar.start.isoformat()}"
-                            if db.get(IntradayMinute, key) is None:
+                        completed = {
+                            f"{market}:{item['code']}:{bar.start.isoformat()}": bar
+                            for bar in minutes if bounds[0] <= bar.start < bounds[1]
+                            and bar.start + timedelta(minutes=1) <= observed_now
+                        }
+                        archived = set(db.scalars(select(IntradayMinute.key).where(
+                            IntradayMinute.key.in_(list(completed)))))
+                        for key, bar in completed.items():
+                            if key not in archived:
                                 db.add(IntradayMinute(key=key, market=market, code=item["code"],
                                     start_at=bar.start.replace(tzinfo=None), payload=encode(bar.__dict__)))
                         db.commit()
@@ -286,7 +303,7 @@ class IntradayMonitor:
             self.deliver(market)
 
     def deliver(self, market):
-        if not self.push.configured:
+        if self.settings.intraday_signal_mode != "alerts" or not self.push.configured:
             return
         from app.services.web_push import NotificationCandidate, subscription_conditions
         cutoff = datetime.utcnow() - timedelta(minutes=3)

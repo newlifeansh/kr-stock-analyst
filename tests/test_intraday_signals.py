@@ -138,6 +138,18 @@ def test_intraday_us_local_date_and_kr_time_normalization():
     assert kr.start.isoformat() == "2026-10-02T00:01:00+00:00"
 
 
+def test_intraday_us_provider_share_classes_and_identity():
+    calls = []
+    def get(path, tr, params):
+        calls.append(params)
+        return {"output1":{"rsym":"DNYSBRK/B"},"output2":[]}
+    monitor = IntradayMonitor(SimpleNamespace(), SimpleNamespace(_get=get), None)
+    assert monitor.bars("us", {"code":"BRK.B","exchange":"NYSE"}, OPEN) == []
+    assert calls[0]["SYMB"] == "BRK/B" and calls[0]["NMIN"] == "1"
+    with pytest.raises(ValueError, match="source_identity_mismatch"):
+        monitor.bars("us", {"code":"AAPL","exchange":"NASDAQ"}, OPEN)
+
+
 def test_intraday_default_off_has_no_collection_or_push():
     monitor = IntradayMonitor(SimpleNamespace(intraday_signal_mode="off"), None, None)
     assert monitor.run_once() is None
@@ -229,7 +241,11 @@ def test_intraday_push_optin_mode_scope_and_no_historical_delivery(tmp_path, mon
         db.commit()
     sent = []
     push = SimpleNamespace(configured=True, _send=lambda db, sub, candidate: sent.append(sub.share_id))
-    monitor = IntradayMonitor(SimpleNamespace(), None, push)
+    settings = SimpleNamespace(intraday_signal_mode="shadow")
+    monitor = IntradayMonitor(settings, None, push)
+    monitor.deliver("kr")
+    assert sent == []
+    settings.intraday_signal_mode = "alerts"
     monitor.deliver("kr")
     assert sent == ["kr.user"]
 
