@@ -124,6 +124,10 @@ class Settings(BaseSettings):
     macro_poll_seconds: int = 1800
     macro_range: str = "1y"
     web_push_enabled: bool = True
+    # Separate intraday ledger; never changes the audited daily strategy.
+    intraday_signal_mode: Literal["off", "shadow", "alerts"] = "off"
+    intraday_signal_poll_seconds: int = 30
+    intraday_signal_max_age_seconds: int = 90
     web_push_poll_seconds: int = 60
     web_push_recommendation_poll_seconds: int = 600
     web_push_price_threshold: float = 5.0

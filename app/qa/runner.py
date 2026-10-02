@@ -49,6 +49,35 @@ QUOTE_STREAM_META_RE = re.compile(
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-INTRA-001": (
+        "tests.test_intraday_signals.test_intraday_completed_buy_is_immutable_and_not_repeated[kr]",
+        "tests.test_intraday_signals.test_intraday_completed_buy_is_immutable_and_not_repeated[us]",
+        *(
+            f"tests.test_intraday_signals.test_intraday_fail_closed[{case}]"
+            for case in (
+                "forming-await_completed_bar", "gap-minute_gap", "future-future_bars",
+                "stale-stale", "context-evidence_unavailable", "old_context-stale_context",
+                "universe-outside_top100", "closed-closed", "nan-invalid_bars",
+                "score-quality_filter", "chase-chase_guard", "duplicate-conflicting_bars",
+            )
+        ),
+        "tests.test_intraday_signals.test_intraday_durable_restart_and_shadow_alert_isolation",
+        "tests.test_intraday_signals.test_intraday_us_local_date_and_kr_time_normalization",
+        "tests.test_intraday_signals.test_intraday_us_holiday_and_dst_calendar",
+    ),
+    "SIG-INTRA-002": (
+        "tests.test_intraday_signals.test_intraday_targets_stop_and_no_same_session_reentry",
+        "tests.test_intraday_signals.test_intraday_exit_survives_universe_and_evidence_outage",
+        "tests.test_intraday_signals.test_intraday_worker_scans_top100_without_subscribers_and_retains_positions",
+    ),
+    "SIG-INTRA-003": (
+        "tests.test_intraday_signals.test_intraday_default_off_has_no_collection_or_push",
+        "tests.test_intraday_signals.test_intraday_push_optin_mode_scope_and_no_historical_delivery",
+        "tests.test_intraday_signals.test_intraday_us_notification_history_uses_new_york_session_date",
+    ),
+    "SIG-INTRA-004": (
+        "tests.test_intraday_signals.test_intraday_http_market_isolation_and_monitor_page",
+    ),
     "SIG-UI-025": (
         "tests.test_data_signal_qa."
         "test_live_intraday_transient_unavailable_recovers_with_bounded_retry",
