@@ -3,10 +3,18 @@
 - 카탈로그 버전: `1.0`
 - 기준 전략: `position-lifecycle-v7.4.2`
 - 미국 후보 전략: `position-lifecycle-us-v2-rc1`
-- QA 항목: 130개
+- QA 항목: 133개
 - 상태 규칙: `PASS` 정상, `WARN` 외부 원천 일시 장애 또는 허용된 caution, `FAIL` 계약 위반
 
 이 문서는 `app/qa/data_signal_cases.json`에서 생성합니다. 직접 수정하지 않습니다.
+
+## 커뮤니티 알림
+
+| QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| NOTIFY-COM-001 | P0 | 시장별 전체 활성 구독자·일일 원장·재시작 중복 방지 | gate<br>pytest 실제 PushDelivery 원장 + 외부 webpush 전송만 mock | 국내·미국 활성·해제·신규 구독을 분리한다. | kr_time_kst=12:00, us_time_kst=23:30, late_window_minutes=5, retry_limit=3 | 정시·미국 단발 시각·만료 시각을 재생한다.<br>구독 조건과 시장이 다른 기기에서 발송 후 collector를 재생성한다. | 해당 시장 활성 구독에만 하루 1개 이벤트를 전송하고 등록 이후 과거 이벤트는 보내지 않는다.<br>동일 이벤트는 성공 원장으로 중복 차단하며 일시 실패 재시도는 최대 3회다.<br>shadow/off는 실제 푸시를 발송하지 않는다. | 시장 혼입·해제 기기 발송·무제한 재시도·만료 단발 재발송·shadow 실발송 |
+| NOTIFY-COM-002 | P0 | 최신 확정 시총 1위·당일 네이버 인기글 출처 검증 | gate<br>pytest 완료 거래일·rank=1·오래된 글·외부 URL 픽스처 | 기존 Top100 확정 스냅샷과 네이버 인기글을 이용한다. | ranking=latest completed session, post_day=Asia/Seoul today, sort=likes, views, replies, created_at | 배열 첫 항목과 실제 rank=1을 다르게 구성한다.<br>어제·미래·타종목·외부 호스트·잘못된 출처를 입력한다. | 확정 순위 1위의 오늘 글만 선택하고 실패 시 예전 글로 대체하지 않는다.<br>원문 제목과 커뮤니티 의견 고지를 함께 보내며 매수 권유로 표현하지 않는다. | 불완전 순위를 1위로 오인하거나 오래된 글·타종목·임의 URL을 전송한다. |
+| NOTIFY-COM-003 | P0 | 커뮤니티 shadow 상태·읽기 전용 API·알림 원문 링크 | gate, live, e2e<br>pytest API·서비스워커 링크 + scripts/qa_community_alerts.py live/e2e | us-market에 새 불변 이미지를 shadow로 먼저 배포한다. | routes=['/market/community-alerts', '/us/market/community-alerts'], mode=shadow | 버전·구현 해시·당일 원문·전송 0건과 시장 분리를 확인한다.<br>배포된 서비스워커로 인기글 푸시 클릭을 브라우저에서 재생한다. | API는 no-store이며 수신자 식별자와 비밀값을 공개하지 않는다.<br>승인 전 실제 발송 없이 네이버 원문 URL만 새 창으로 연다. | 수신자 정보 노출·API 조회로 발송·구버전 배포·shadow 실발송·원문 링크 손실 |
 
 ## 국내·미국 장중 신호
 

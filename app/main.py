@@ -242,6 +242,7 @@ from app.services.web_push import (
     web_push_runtime,
 )
 from app.services.intraday_monitor import IntradayMonitor
+from app.services.community_alerts import CommunityAlertRuntime, status as community_alert_status
 from app.services.intraday_signals import VERSION as INTRADAY_STRATEGY_VERSION, feed as intraday_feed
 from app.services.us_market import (
     US_SECTOR_ETFS,
@@ -312,6 +313,7 @@ MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS = 6 * 60 * 60
 kis_realtime_provider = KisRealtimeQuoteProvider(settings)
 kis_rest_provider = KisRestBriefingProvider(settings)
 intraday_signal_runtime = IntradayMonitor(settings, kis_rest_provider, web_push_runtime)
+community_alert_runtime = CommunityAlertRuntime(settings, web_push_runtime)
 mcp_server = (
     build_insight_mcp_server(settings)
     if settings.mcp_enabled and settings.runs_web_services()
@@ -1621,6 +1623,7 @@ async def lifespan(_: FastAPI):
             await briefing_runtime.start()
             await web_push_runtime.start()
             await intraday_signal_runtime.start()
+            await community_alert_runtime.start()
             collectors_started = True
             await _get_complete_snapshot_runtime().start()
             complete_snapshot_schedule_task = asyncio.create_task(
@@ -1671,6 +1674,7 @@ async def lifespan(_: FastAPI):
                 with suppress(asyncio.CancelledError):
                     await complete_snapshot_schedule_task
             if collectors_started:
+                await community_alert_runtime.stop()
                 await intraday_signal_runtime.stop()
                 await _get_complete_snapshot_runtime().stop()
                 await web_push_runtime.stop()
@@ -3027,6 +3031,15 @@ def health() -> dict[str, object]:
         "us_public_gateway_enabled": bool(settings.us_public_backend_url),
         "canonical_base_url": settings.canonical_public_base_url,
     }
+
+
+@app.get("/market/community-alerts")
+@app.get("/us/market/community-alerts")
+def community_alert_feed(request: Request, db: Session = Depends(get_db)):
+    market = "us" if request.url.path.startswith("/us/") else "kr"
+    if market != ("us" if settings.us_market_enabled else "kr"):
+        raise HTTPException(status_code=404, detail="Market is served independently")
+    return JSONResponse(community_alert_status(db, settings), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/market/intraday-signals")

@@ -49,6 +49,21 @@ QUOTE_STREAM_META_RE = re.compile(
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "NOTIFY-COM-001": (
+        "tests.test_community_alerts.test_community_schedule_and_one_shot_expiry",
+        "tests.test_community_alerts.test_community_off_shadow_restart_and_blocked_source",
+        "tests.test_community_alerts.test_community_broadcast_scope_all_enabled_and_durable_dedup",
+        "tests.test_community_alerts.test_community_bounded_retry_and_unsubscribe",
+    ),
+    "NOTIFY-COM-002": (
+        "tests.test_community_alerts.test_community_today_post_and_safe_original_url",
+        "tests.test_community_alerts.test_community_rank_one_uses_completed_snapshot",
+    ),
+    "NOTIFY-COM-003": (
+        "tests.test_community_alerts.test_community_http_read_only_market_isolation",
+        "tests.test_community_alerts.test_community_worker_opens_original_post",
+        "tests.test_community_alerts.test_community_staging_never_sends",
+    ),
     "SIG-INTRA-001": (
         "tests.test_intraday_signals.test_intraday_completed_buy_is_immutable_and_not_repeated[kr]",
         "tests.test_intraday_signals.test_intraday_completed_buy_is_immutable_and_not_repeated[us]",

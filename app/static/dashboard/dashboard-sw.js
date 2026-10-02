@@ -102,6 +102,10 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const targetUrl = new URL(event.notification.data?.url || "/dashboard?view=portfolio", self.location.origin).href;
+  if (new URL(targetUrl).origin !== self.location.origin) {
+    event.waitUntil(self.clients.openWindow(targetUrl));
+    return;
+  }
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {
