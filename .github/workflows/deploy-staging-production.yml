@@ -11,6 +11,7 @@ on:
           - build
           - stage
           - stage-intraday
+          - stage-community
           - promote-production
         default: build
       candidate_version:
@@ -68,7 +69,7 @@ jobs:
   # Market-specific production bases must not overwrite the other market's
   # staging with an older baseline. This path has no production operation.
   intraday_shadow_staging:
-    if: inputs.action == 'stage-intraday'
+    if: inputs.action == 'stage-intraday' || inputs.action == 'stage-community'
     needs: [validate_request, gate, build_image]
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -111,6 +112,14 @@ jobs:
           test "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE" != "$PRODUCTION_RAILWAY_WEB_SERVICE"
           digest=$(python -c 'from app.services.intraday_signals import implementation_digest; print(implementation_digest())')
           echo "EXPECTED_DIGEST=$digest" >> "$GITHUB_ENV"
+          community_digest=$(python -c 'from app.services.community_alerts import implementation_digest; print(implementation_digest())')
+          echo "COMMUNITY_DIGEST=$community_digest" >> "$GITHUB_ENV"
+      - name: Verify identical community implementation in US preproduction first
+        if: inputs.action == 'stage-community' && inputs.product_surface == 'dashboard'
+        run: >-
+          python scripts/qa_community_alerts.py --mode live --market us
+          --base-url "$US_STAGING_BASE_URL" --expected-digest "$COMMUNITY_DIGEST"
+          --output artifacts/intraday/community-us-prerequisite.json
       - name: Verify identical intraday implementation in US preproduction first
         if: inputs.product_surface == 'dashboard'
         run: >-
@@ -137,6 +146,10 @@ jobs:
             fi
           fi
           for service in "$TARGET_WEB" "$TARGET_COLLECTOR"; do
+            if [[ "${{ inputs.action }}" == "stage-community" ]]; then
+              railway variable set "COMMUNITY_POPULAR_MODE=shadow" "COMMUNITY_POPULAR_IMMEDIATE_AT=" --skip-deploys --json \
+                --project "$TARGET_PROJECT" --environment staging --service "$service"
+            fi
             railway variable set "INTRADAY_SIGNAL_MODE=shadow" --skip-deploys --json \
               --project "$TARGET_PROJECT" --environment staging --service "$service"
             railway service source connect --image "$IMAGE_REF" --json \
@@ -162,6 +175,20 @@ jobs:
           python scripts/qa_intraday_monitor.py --mode e2e --market "$TARGET_MARKET" \
             --base-url "$TARGET_URL" --expected-digest "$EXPECTED_DIGEST" \
             --output artifacts/intraday/e2e.json
+          if [[ "${{ inputs.action }}" == "stage-community" ]]; then
+            for attempt in $(seq 1 12); do
+              if python scripts/qa_community_alerts.py --mode live --market "$TARGET_MARKET" \
+                --base-url "$TARGET_URL" --expected-digest "$COMMUNITY_DIGEST" \
+                --output artifacts/intraday/community-live.json; then break; fi
+              sleep 15
+            done
+            python scripts/qa_community_alerts.py --mode live --market "$TARGET_MARKET" \
+              --base-url "$TARGET_URL" --expected-digest "$COMMUNITY_DIGEST" \
+              --output artifacts/intraday/community-live.json
+            python scripts/qa_community_alerts.py --mode e2e --market "$TARGET_MARKET" \
+              --base-url "$TARGET_URL" --expected-digest "$COMMUNITY_DIGEST" \
+              --output artifacts/intraday/community-e2e.json
+          fi
           jq -n --arg source "${{ needs.validate_request.outputs.source_sha }}" \
             --arg image "$IMAGE_REF" --arg surface "$PRODUCT_SURFACE" \
             --arg implementation "$EXPECTED_DIGEST" \

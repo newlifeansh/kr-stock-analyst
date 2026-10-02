@@ -126,6 +126,20 @@ class Settings(BaseSettings):
     web_push_enabled: bool = True
     # Separate intraday ledger; never changes the audited daily strategy.
     intraday_signal_mode: Literal["off", "shadow", "alerts"] = "off"
+    community_popular_mode: Literal["off", "shadow", "alerts"] = "off"
+    # Optional US one-shot timestamp, with timezone. Expires after five minutes.
+    community_popular_immediate_at: str = ""
+
+    @field_validator("community_popular_immediate_at")
+    @classmethod
+    def validate_community_immediate(cls, value: str) -> str:
+        if value:
+            from datetime import datetime
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                raise ValueError("community immediate timestamp requires timezone")
+        return value
+
     intraday_signal_poll_seconds: int = 30
     intraday_signal_max_age_seconds: int = 90
     web_push_poll_seconds: int = 60
