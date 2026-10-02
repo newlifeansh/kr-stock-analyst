@@ -58,6 +58,12 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
+function communityOriginalUrl(url, kind) {
+  return kind === "community_popular" && url.origin === "https://m.stock.naver.com"
+    && !url.search && !url.hash
+    && /^\/worldstock\/stock\/[A-Z0-9.-]+\/discussion\/[0-9]+$/.test(url.pathname);
+}
+
 self.addEventListener("push", (event) => {
   let payload = {};
   try {
@@ -66,7 +72,8 @@ self.addEventListener("push", (event) => {
     payload = { title: "미국증시 새 알림", body: event.data?.text() || "미국 시장의 중요한 변화가 있어요." };
   }
   const requestedUrl = new URL(payload.url || "/us?view=portfolio&market_scope=us", self.location.origin);
-  const targetUrl = requestedUrl.origin === self.location.origin && requestedUrl.pathname.startsWith("/us")
+  const targetUrl = communityOriginalUrl(requestedUrl, payload.kind)
+    || (requestedUrl.origin === self.location.origin && requestedUrl.pathname.startsWith("/us"))
     ? requestedUrl.href
     : new URL("/us?view=portfolio&market_scope=us", self.location.origin).href;
   event.waitUntil(self.registration.showNotification(payload.title || "미국증시 새 알림", {
@@ -85,6 +92,10 @@ self.addEventListener("notificationclick", (event) => {
     event.notification.data?.url || "/us?view=portfolio&market_scope=us",
     self.location.origin,
   );
+  if (communityOriginalUrl(requestedUrl, event.notification.data?.kind)) {
+    event.waitUntil(self.clients.openWindow(requestedUrl.href));
+    return;
+  }
   const targetUrl = requestedUrl.origin === self.location.origin && requestedUrl.pathname.startsWith("/us")
     ? requestedUrl.href
     : new URL("/us?view=portfolio&market_scope=us", self.location.origin).href;
