@@ -241,6 +241,8 @@ from app.services.web_push import (
     notification_history_signal_context,
     web_push_runtime,
 )
+from app.services.intraday_monitor import IntradayMonitor
+from app.services.intraday_signals import VERSION as INTRADAY_STRATEGY_VERSION, feed as intraday_feed
 from app.services.us_market import (
     US_SECTOR_ETFS,
     build_us_dashboard,
@@ -309,6 +311,7 @@ MARKET_QUANT_SIGNAL_ACTIVE_MAX_AGE_SECONDS = 10 * 60
 MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS = 6 * 60 * 60
 kis_realtime_provider = KisRealtimeQuoteProvider(settings)
 kis_rest_provider = KisRestBriefingProvider(settings)
+intraday_signal_runtime = IntradayMonitor(settings, kis_rest_provider, web_push_runtime)
 mcp_server = (
     build_insight_mcp_server(settings)
     if settings.mcp_enabled and settings.runs_web_services()
@@ -1617,6 +1620,7 @@ async def lifespan(_: FastAPI):
         if settings.runs_collectors():
             await briefing_runtime.start()
             await web_push_runtime.start()
+            await intraday_signal_runtime.start()
             collectors_started = True
             await _get_complete_snapshot_runtime().start()
             complete_snapshot_schedule_task = asyncio.create_task(
@@ -1667,6 +1671,7 @@ async def lifespan(_: FastAPI):
                 with suppress(asyncio.CancelledError):
                     await complete_snapshot_schedule_task
             if collectors_started:
+                await intraday_signal_runtime.stop()
                 await _get_complete_snapshot_runtime().stop()
                 await web_push_runtime.stop()
                 await briefing_runtime.stop()
@@ -3013,6 +3018,8 @@ def health() -> dict[str, object]:
         "app": settings.app_name,
         "strategy_version": STRATEGY_VERSION,
         "us_strategy_version": US_STRATEGY_VERSION,
+        "intraday_strategy_version": INTRADAY_STRATEGY_VERSION,
+        "intraday_signal_mode": settings.intraday_signal_mode,
         "dashboard_version": DASHBOARD_CLIENT_VERSION,
         "us_dashboard_version": US_DASHBOARD_CLIENT_VERSION,
         "us_market_enabled": settings.us_market_enabled,
@@ -3020,6 +3027,26 @@ def health() -> dict[str, object]:
         "us_public_gateway_enabled": bool(settings.us_public_backend_url),
         "canonical_base_url": settings.canonical_public_base_url,
     }
+
+
+@app.get("/market/intraday-signals")
+@app.get("/us/market/intraday-signals")
+def intraday_signal_feed(request: Request, db: Session = Depends(get_db)):
+    market = "us" if request.url.path.startswith("/us/") else "kr"
+    owned_market = "us" if settings.us_market_enabled else "kr"
+    if market != owned_market:
+        raise HTTPException(status_code=404, detail="Market is served independently")
+    return JSONResponse(intraday_feed(db, market, settings.intraday_signal_mode),
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/intraday-alerts")
+@app.get("/us/intraday-alerts")
+def intraday_alert_page(request: Request):
+    return FileResponse(
+        Path(__file__).parent / "static" / "intraday-alerts.html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/readyz")

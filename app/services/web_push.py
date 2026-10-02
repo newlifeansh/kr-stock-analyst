@@ -229,6 +229,15 @@ def notification_history_signal_context(
 
     if kind not in SIGNAL_NOTIFICATION_KINDS:
         return None
+    intraday = re.fullmatch(
+        r"intraday:(kr|us):([A-Za-z0-9.\-]+):(buy|partial_sell|sell):[a-f0-9]{64}:(\d{4}-\d{2}-\d{2})",
+        event_key or "",
+    )
+    if intraday:
+        market, code, side, event_date = intraday.groups()
+        return {"code": code, "side": "buy" if side == "buy" else "sell",
+                "phase": "confirmed", "action": {"buy": "entered", "partial_sell": "partially_exited", "sell": "exited"}[side],
+                "event_date": event_date, "market_scope": market}
     us_market_match = US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN.fullmatch(
         event_key or ""
     )
@@ -284,7 +293,7 @@ def notification_history_is_valid(
     received_at = created_at
     if received_at.tzinfo is None:
         received_at = received_at.replace(tzinfo=timezone.utc)
-    if US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN.fullmatch(event_key or ""):
+    if US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN.fullmatch(event_key or "") or (event_key or "").startswith("intraday:us:"):
         try:
             session = us_market_session(event_date)
         except Exception:
