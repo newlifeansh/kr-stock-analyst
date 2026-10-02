@@ -84,6 +84,18 @@ def test_community_today_post_and_safe_original_url():
     assert ca.select_post(feed([domestic]), {"code": "005930"}, "kr", NOW)["title"] == "Hello"
 
 
+def test_community_naver_naive_kst_and_offset_aware_written_at():
+    from app.services.community_feed import _naver_discussion_post_row
+    for raw in ("2026-10-02T22:06:14", "2026-10-02T22:06:14+09:00", "2026-10-02T13:06:14Z"):
+        item = _naver_discussion_post_row("NVDA.O", {"id": "430110865", "title": "실제 형식 회귀", "writtenAt": raw}, world=True)
+        feed = {"providers": [{"key": "naver_board", "configured": True, "items": [item]}]}
+        chosen = ca.select_post(feed, STOCK, "us", NOW)
+        assert chosen["created_at"] == "2026-10-02T13:06:14+00:00"
+        # After KST midnight, yesterday's popular post must stop being eligible.
+        with pytest.raises(ValueError):
+            ca.select_post(feed, STOCK, "us", NOW.replace(hour=15, minute=0))
+
+
 def test_community_off_shadow_restart_and_blocked_source(factory, monkeypatch):
     calls = []
     monkeypatch.setattr(ca, "prepare", lambda *args: calls.append("source") or selected())

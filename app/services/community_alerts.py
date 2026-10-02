@@ -78,7 +78,7 @@ def select_post(feed, stock, market, now):
             continue
         for item in provider.get("items", []):
             try:
-                stamp = aware(item["created_at"])
+                stamp = aware(item.get("created_at_utc") or item["created_at"])
                 url = urlparse(item["url"])
                 valid_path = any(re.fullmatch(
                     rf"/{section}/stock/{re.escape(code)}/discussion/[0-9]+", url.path
