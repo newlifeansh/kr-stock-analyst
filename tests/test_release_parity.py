@@ -118,7 +118,8 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "^ghcr\\.io/.+@sha256:[0-9a-f]{64}$" in workflow
     assert "--environment staging" in workflow
     assert "--environment production" in workflow
-    assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 6
+    # Six existing promotion sites plus the staging-only intraday loop.
+    assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 7
     assert workflow.count('--project "$US_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 4
