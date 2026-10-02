@@ -8045,6 +8045,15 @@
     if (!marketStatus || !orderability || !separator || !detail) return;
 
     const detailText = detail.textContent?.replace(/\s+/g, " ")?.trim() || "장 상태 확인 중";
+    if (stagingStockIsUsd()) {
+      const summary = marketStatus.dataset.quoteLabel || "시세 확인 중";
+      if (orderability.textContent !== summary) orderability.textContent = summary;
+      separator.hidden = true;
+      detail.hidden = false;
+      marketStatus.dataset.stagingOrderability = marketStatus.dataset.quoteFreshness || "checking";
+      marketStatus.setAttribute("aria-label", `${summary}, ${detailText}`);
+      return;
+    }
     const tone = marketStatus.dataset.statusTone || "";
     const isClosed = tone === "closed" || /마감|종료|휴장/.test(detailText);
     const isWaiting = tone === "waiting" || /대기/.test(detailText);

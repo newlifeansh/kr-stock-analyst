@@ -50,6 +50,7 @@ SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 US_CACHE = TTLCache(maxsize=2048)
 US_TTL_SECONDS = 180
 US_QUOTE_OPEN_TTL_SECONDS = 15
+US_QUOTE_FRESH_SECONDS = 30
 US_QUOTE_CLOSED_TTL_SECONDS = 300
 US_STOCK_NEWS_MAX_AGE_DAYS = 120
 US_STOCK_NEWS_FUTURE_TOLERANCE = timedelta(minutes=15)
@@ -949,6 +950,21 @@ def _us_quote_observation(
     return None, None, False
 
 
+def us_quote_freshness(observed_at, venue_is_live, now):
+    """Source time, never request time, determines freshness."""
+    age = (now - observed_at).total_seconds() if observed_at is not None else None
+    if age is None:
+        freshness = "unknown"
+    elif age < -5:
+        freshness = "future"
+    elif not venue_is_live:
+        freshness = "closed"
+    else:
+        freshness = "recent" if age <= US_QUOTE_FRESH_SECONDS else "delayed"
+    return {"observed_at": observed_at, "age_seconds": age, "freshness": freshness,
+            "is_live": freshness == "recent"}
+
+
 def us_quote_snapshots(
     symbols: list[str],
     *,
@@ -963,11 +979,19 @@ def us_quote_snapshots(
     ttl = US_QUOTE_OPEN_TTL_SECONDS if session["is_live"] else US_QUOTE_CLOSED_TTL_SECONDS
     key = ("us_quote_snapshots", tuple(sorted(canonical)), str(session["session"]))
     if not refresh:
-        return US_CACHE.get_or_set(
+        cached = US_CACHE.get_or_set(
             key,
             ttl,
             lambda: us_quote_snapshots(canonical, refresh=True, now=now),
         )
+        checked_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        return {**cached, "items": [
+            {**item, "quote": {**item["quote"], **us_quote_freshness(
+                item.get("observed_at"),
+                bool(session["is_live"]) and item["quote"]["market_session"] == session["session"],
+                checked_at,
+            )}} for item in cached["items"]
+        ]}
 
     requested_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     raw_quotes = fetch_us_quote_batch(canonical, refresh=True)
@@ -981,17 +1005,17 @@ def us_quote_snapshots(
             _to_decimal(raw.get("regularMarketPreviousClose"))
             or _to_decimal(raw.get("previousClose"))
         )
-        effective_observed_at = observed_at or requested_at
+        freshness = us_quote_freshness(observed_at, venue_is_live, requested_at)
         items.append(
             {
                 "type": "quote",
                 "code": code,
-                "as_of": effective_observed_at,
-                "observed_at": effective_observed_at,
+                "as_of": observed_at,
+                "observed_at": observed_at,
                 "source": "yahoo_quote_batch",
                 "interval_seconds": ttl,
                 "quote": {
-                    "trade_date": effective_observed_at.astimezone(NEW_YORK_TZ).date(),
+                    "trade_date": observed_at.astimezone(NEW_YORK_TZ).date() if observed_at else None,
                     "price": price,
                     "previous_close": previous_close,
                     "change_value": (
@@ -1005,7 +1029,7 @@ def us_quote_snapshots(
                         session["label"] if venue_is_live else "최근 미국 정규장 시세"
                     ),
                     "market_local_time": session["local_time"],
-                    "is_live": venue_is_live,
+                    **freshness,
                 },
             }
         )
@@ -3084,6 +3108,8 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
         latest,
         str(market_session["session"]),
     )
+    _, quote_observed_at, quote_venue_live = _us_quote_observation(meta, market_session)
+    quote_freshness = us_quote_freshness(quote_observed_at, quote_venue_live, datetime.now(timezone.utc))
     previous_close = _us_previous_close(meta, previous.close if previous else None)
     day_high = _to_decimal(meta.get("regularMarketDayHigh"))
     day_low = _to_decimal(meta.get("regularMarketDayLow"))
@@ -3175,7 +3201,7 @@ def build_us_dashboard(symbol: str, refresh: bool = False) -> dict[str, object]:
             "market_session": market_session["session"],
             "market_session_label": market_session["label"],
             "market_local_time": market_session["local_time"],
-            "is_live": market_session["is_live"],
+            **quote_freshness,
         },
         "revisions": {
             **research,

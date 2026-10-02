@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal
+import re
 
 
 MarketUniverse = Literal["kr", "us"]
@@ -34,6 +35,12 @@ def render_dashboard_product_shell(
     document = source
     for placeholder, value in values.items():
         document = document.replace(placeholder, value)
+    if market_universe == "us":
+        document = re.sub(
+            r'(/assets/staging/toss-ia\.js\?v=)[^"\s]+',
+            lambda match: match.group(1) + client_version,
+            document,
+        )
     unresolved = [placeholder for placeholder in values if placeholder in document]
     if unresolved:
         raise ValueError(f"dashboard shell placeholder replacement failed: {unresolved}")

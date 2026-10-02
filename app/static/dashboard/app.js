@@ -617,8 +617,8 @@ const AI_SIGNAL_ACTIVE_STALE_MS = 6 * 60_000;
 const AI_SIGNAL_CLOSED_STALE_MS = 12 * 60 * 60_000;
 const AI_SIGNAL_REALTIME_QUOTE_MAX_AGE_MS = 5_000;
 const AI_SIGNAL_DELAYED_QUOTE_MAX_AGE_MS = 30_000;
-const AI_SIGNAL_US_QUOTE_MAX_AGE_MS = 30 * 60_000;
-const AI_SIGNAL_US_QUOTE_ACTIVE_REFRESH_MS = 30_000;
+const AI_SIGNAL_US_QUOTE_MAX_AGE_MS = 30_000;
+const AI_SIGNAL_US_QUOTE_ACTIVE_REFRESH_MS = 15_000;
 const AI_SIGNAL_US_QUOTE_CLOSED_REFRESH_MS = 5 * 60_000;
 const STOCK_INITIAL_QUOTE_TIMEOUT_MS = 1_800;
 const QUOTE_STREAM_DEFAULT_CODE_LIMIT = 64;
@@ -2590,31 +2590,30 @@ function renderKoreaQuoteSession(quote = null) {
   const displayStatus = koreaMarketStatusDisplayLabel(quote);
   const tone = status.includes("진행중") ? "live" : status.includes("대기") ? "waiting" : "closed";
   elements.stockPreMarket.hidden = false;
+  delete elements.stockPreMarket.dataset.quoteFreshness;
+  delete elements.stockPreMarket.dataset.quoteLabel;
   elements.stockPreMarket.dataset.session = quote.market_session || "";
   elements.stockPreMarket.dataset.statusTone = tone;
   elements.stockPreMarket.setAttribute("aria-label", `${displayStatus}, 국내주식 거래시간 안내 열기`);
   setText(elements.stockMarketStatusLabel, displayStatus);
 }
 
-function renderUsQuoteSession(quote = null) {
-  const phase = usMarketPhase(new Date(), quote);
-  const labels = {
-    premarket: "미국 프리마켓",
-    regular: "미국 정규장 진행중",
-    afterhours: "미국 애프터마켓",
-    closed: "미국장 마감",
-  };
-  const displayStatus = quote?.market_session_label || labels[phase] || labels.closed;
-  const tone = phase === "regular" ? "live" : phase === "closed" ? "closed" : "waiting";
-  setText(elements.stockLiveBadge, displayStatus);
+function renderUsQuoteBasis(basis) {
+  setText(elements.stockLiveBadge, basis.label);
   if (!elements.stockPreMarket) {
     return;
   }
   elements.stockPreMarket.hidden = false;
-  elements.stockPreMarket.dataset.session = `us_${phase}`;
-  elements.stockPreMarket.dataset.statusTone = tone;
-  elements.stockPreMarket.setAttribute("aria-label", `${displayStatus}, 미국 동부시간 기준`);
-  setText(elements.stockMarketStatusLabel, "미국 동부시간 기준");
+  elements.stockPreMarket.dataset.quoteFreshness = basis.state;
+  elements.stockPreMarket.dataset.quoteLabel = basis.label;
+  elements.stockPreMarket.dataset.statusTone = basis.state === "recent" ? "live" : basis.state === "closed" ? "closed" : "waiting";
+  setText(elements.stockMarketStatusLabel, basis.time);
+  elements.stockPreMarket.setAttribute("aria-label", `${basis.label}, ${basis.time}`);
+}
+
+function renderUsQuoteSession(quote = null) {
+  renderUsQuoteBasis(usQuoteBasis({ quote }));
+  if (elements.stockPreMarket) elements.stockPreMarket.dataset.session = `us_${usMarketPhase(new Date(), quote)}`;
 }
 
 function renderStockQuoteSession(quote = null, data = state.currentDashboard) {
@@ -8787,6 +8786,9 @@ function quotePayloadHasOpeningAuctionPrice(payload = {}) {
 
 function stockQuotePayloadIsDisplayReady(payload = {}, now = Date.now()) {
   if (!quoteStreamPayloadHasUsablePrice(payload)) return false;
+  if (payload.source === "yahoo_quote_batch") {
+    return ["recent", "closed"].includes(usQuoteBasis(payload, Number(now)).state);
+  }
   const currentTime = now instanceof Date ? now : new Date(now);
   const activeSession = koreaExtendedQuoteLive(currentTime)
     || aiSignalQuoteUsesActiveSession(payload.quote || {});
@@ -9110,16 +9112,125 @@ function setQuoteStreamSignalControlActive(active) {
   syncQuoteStreamSubscriptions();
 }
 
+// US transport is bounded HTTP polling, not an exchange tick stream. One
+// collector for visible detail/watchlist scopes; stale responses cannot cross
+// a navigation/visibility generation or overwrite a newer observation.
+const usVisibleQuotes = { scopes: new Map(), frames: new Map(), failed: new Set(), timer: null, clock: null, generation: 0 };
+
+function usQuoteBasis(frame = {}, now = Date.now(), failed = false) {
+  const quote = frame.quote || {};
+  const raw = quote.observed_at ?? frame.observed_at;
+  const stamp = raw ? Date.parse(raw) : NaN;
+  const age = now - stamp;
+  const valid = Number.isFinite(stamp) && age >= -5000;
+  const closed = quote.market_session === "closed" || quote.freshness === "closed";
+  const stateName = failed ? "offline" : !valid ? "checking" : closed ? "closed"
+    : age <= AI_SIGNAL_US_QUOTE_MAX_AGE_MS ? "recent" : "checking";
+  const time = valid ? `${new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).format(stamp)} KST 기준` : "시세 기준 시각 확인 불가";
+  const label = failed ? "시세 연결 재시도" : !valid ? "시세 확인 중" : closed ? "마감·참고 시세"
+    : stateName === "recent" ? "최근 시세 · 15초 갱신" : "시세 지연 · 갱신 확인 중";
+  return { state: stateName, stamp, label, time };
+}
+
+function refreshUsVisibleQuoteStatus() {
+  for (const handlers of usVisibleQuotes.scopes.values()) {
+    for (const [code, handler] of handlers) {
+      handler.onState?.(usQuoteBasis(usVisibleQuotes.frames.get(code), Date.now(), usVisibleQuotes.failed.has(code)));
+    }
+  }
+}
+
+function scheduleUsVisibleQuotes() {
+  window.clearTimeout(usVisibleQuotes.timer);
+  window.clearInterval(usVisibleQuotes.clock);
+  const generation = ++usVisibleQuotes.generation;
+  if (document.hidden || !usVisibleQuotes.scopes.size) return;
+  usVisibleQuotes.clock = window.setInterval(refreshUsVisibleQuoteStatus, 1000);
+  usVisibleQuotes.timer = window.setTimeout(() => void pollUsVisibleQuotes(generation), 50);
+}
+
+function setUsVisibleQuote(scope, code, handler) {
+  if (!usVisibleQuotes.scopes.has(scope)) usVisibleQuotes.scopes.set(scope, new Map());
+  usVisibleQuotes.scopes.get(scope).set(code, handler);
+  scheduleUsVisibleQuotes();
+}
+
+function clearUsVisibleQuotes(scope) {
+  usVisibleQuotes.scopes.delete(scope);
+  const remaining = new Set([...usVisibleQuotes.scopes.values()].flatMap(m => [...m.keys()]));
+  for (const code of usVisibleQuotes.frames.keys()) if (!remaining.has(code)) {
+    usVisibleQuotes.frames.delete(code);
+    usVisibleQuotes.failed.delete(code);
+  }
+  scheduleUsVisibleQuotes();
+}
+
+async function pollUsVisibleQuotes(generation) {
+  const codes = [...new Set([...usVisibleQuotes.scopes.values()].flatMap(m => [...m.keys()]))];
+  if (generation !== usVisibleQuotes.generation || document.hidden || !codes.length) return;
+  for (let offset = 0; offset < codes.length; offset += 20) {
+    const batch = codes.slice(offset, offset + 20);
+    try {
+      const data = await fetchJsonCached(`/us/stocks/quotes?symbols=${encodeURIComponent(batch.join(","))}`,
+        { force: true, ttlMs: 0, timeoutMs: 10_000 });
+      if (generation !== usVisibleQuotes.generation || document.hidden) return;
+      const received = new Set();
+      for (const frame of data.items || []) {
+        if (!batch.includes(frame.code) || !quoteStreamPayloadHasUsablePrice(frame)) continue;
+        received.add(frame.code);
+        const basis = usQuoteBasis(frame);
+        if (!Number.isFinite(basis.stamp) || basis.stamp > Date.now() + 5000) {
+          usVisibleQuotes.failed.add(frame.code);
+          continue;
+        }
+        const previous = usVisibleQuotes.frames.get(frame.code);
+        if (previous && Number.isFinite(basis.stamp) && basis.stamp < usQuoteBasis(previous).stamp) continue;
+        usVisibleQuotes.frames.set(frame.code, frame);
+        usVisibleQuotes.failed.delete(frame.code);
+        if (!["recent", "closed"].includes(basis.state)) continue;
+        for (const handlers of usVisibleQuotes.scopes.values()) handlers.get(frame.code)?.onQuote?.(frame);
+      }
+      for (const code of batch) if (!received.has(code)) usVisibleQuotes.failed.add(code);
+    } catch {
+      if (generation !== usVisibleQuotes.generation) return;
+      for (const code of batch) usVisibleQuotes.failed.add(code);
+    }
+  }
+  if (generation !== usVisibleQuotes.generation || document.hidden) return;
+  refreshUsVisibleQuoteStatus();
+  usVisibleQuotes.timer = window.setTimeout(() => void pollUsVisibleQuotes(generation), AI_SIGNAL_US_QUOTE_ACTIVE_REFRESH_MS);
+}
+
 function closeQuoteStream() {
+  clearUsVisibleQuotes("detail");
   clearQuoteStreamScope("detail");
 }
 
 function connectQuoteStream(stock) {
-  if (!stock?.code || stockDashboardIsUs()) {
+  if (!stock?.code) {
     closeQuoteStream();
     return;
   }
   const code = String(stock.code);
+  if (stockDashboardIsUs()) {
+    clearQuoteStreamScope("detail");
+    clearUsVisibleQuotes("detail");
+    setUsVisibleQuote("detail", code, {
+      onQuote: (frame) => {
+        if (state.currentStock?.code === code) updateQuoteStrip(frame.quote, frame);
+      },
+      onState: (basis) => {
+        if (state.currentStock?.code !== code) return;
+        // Rejected/stale frames change the status, never the timestamp of
+        // the price that is actually still displayed.
+        renderUsQuoteBasis({ ...basis, time: usQuoteBasis({ quote: state.currentDashboard?.quote }).time });
+      },
+    });
+    return;
+  }
+  clearUsVisibleQuotes("detail");
   replaceQuoteStreamScope("detail", [{
     code,
     handlers: {
@@ -9139,6 +9250,7 @@ function connectQuoteStream(stock) {
 }
 
 function closeWatchlistQuoteStreams() {
+  clearUsVisibleQuotes("watchlist");
   clearQuoteStreamScope("watchlist");
 }
 
@@ -9259,7 +9371,31 @@ function updateWatchlistRowQuote(code, quote, payload = null) {
 }
 
 function connectWatchlistQuoteStream(code, item = {}) {
-  if (!code || marketScopeForItem(item) === "us") return;
+  if (!code) return;
+  if (marketScopeForItem(item) === "us") {
+    setUsVisibleQuote("watchlist", code, {
+      onQuote: (frame) => {
+        if (!updateWatchlistRowQuote(code, frame.quote, frame)) return;
+        const card = elements.watchlistBody.querySelector(`[data-watch-card][data-code="${selectorEscape(code)}"]`);
+        if (card) card.usDisplayedQuote = frame.quote;
+      },
+      onState: (basis) => {
+        const card = elements.watchlistBody.querySelector(`[data-watch-card][data-code="${selectorEscape(code)}"]`);
+        if (!card) return;
+        let label = card.querySelector("[data-us-quote-basis]");
+        if (!label) {
+          label = document.createElement("div");
+          label.dataset.usQuoteBasis = "";
+          label.className = "watch-quote-basis muted";
+          card.append(label);
+        }
+        const displayed = usQuoteBasis({ quote: card.usDisplayedQuote || card.watchDashboard?.quote });
+        label.textContent = `${basis.label} · ${displayed.time}`;
+        label.dataset.freshness = basis.state;
+      },
+    });
+    return;
+  }
   setQuoteStreamHandler("watchlist", code, {
     onStatus: (payload) => updateWatchlistStreamStatus(code, payload),
     onQuote: (payload) => updateWatchlistRowQuote(code, payload.quote, payload),
@@ -16335,8 +16471,7 @@ function aiSignalLiveFreshnessState(item = {}, overlay = null, now = Date.now())
   const age = Math.max(0, now - (quoteFrameTimestamp(payload) ?? overlay.receivedAt ?? now));
   const source = String(payload.source || "").toLowerCase();
   if (usItem && source === "yahoo_quote_batch") {
-    if (quote.is_live === true && age <= AI_SIGNAL_US_QUOTE_MAX_AGE_MS) return "recent";
-    return "closed";
+    return usQuoteBasis(payload, now, fallbackActive).state;
   }
   if (quotePayloadIsStoredFallbackDuringActiveSession(payload, currentTime)) return "checking";
   if (fallbackActive) {
@@ -16854,6 +16989,7 @@ function aiSignalPageFreshnessView(now = Date.now()) {
   const stateName = summary.state;
   const detail = {
     realtime: "평가수익률 반영 중",
+    recent: "공급원 기준 30초 이내 시세이며, 약 15초 간격으로 조회해요.",
     delayed: "실시간 연결을 보완해 약 10초 간격의 현재가로 계산해요.",
     offline: "연결이 복구되면 시그널과 현재가를 다시 확인해요.",
     closed: "마지막 확인 가격 기준이며 확정 수익률은 바뀌지 않아요.",
@@ -30759,7 +30895,7 @@ function render(data, options = {}) {
   if (stockDashboardIsUs(data)) {
     renderUsStockCompanyAnalysis(data);
     renderUsStockResearch(data);
-    closeQuoteStream();
+    connectQuoteStream(state.currentStock);
   } else {
     void loadStockEtfProfile(data);
     connectQuoteStream(state.currentStock);
@@ -32367,7 +32503,7 @@ document.addEventListener("visibilitychange", () => {
         .forEach((item) => connectMarketQuoteStream(item.code));
     }
     scheduleMarketRankingRefresh();
-  } else if (state.view === "stock" && state.currentStock && !stockDashboardIsUs()) {
+  } else if (state.view === "stock" && state.currentStock) {
     connectQuoteStream(state.currentStock);
   } else if (state.view === "portfolio" && state.portfolioTab === "watchlist") {
     elements.watchlistBody.querySelectorAll("[data-watch-card][data-code]").forEach((card) => {

@@ -46120,3 +46120,25 @@ html[data-market-universe="kr"] :is(
 ) {
   display: none !important;
 }
+:where(.watch-quote-basis) {
+  grid-column: 1 / -1;
+  flex-basis: 100%;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero > .stock-pre-market.staging-stock-market-status[data-quote-freshness]:not([hidden]) {
+  flex-wrap: wrap !important;
+  column-gap: 7px !important;
+  row-gap: 2px !important;
+}
+body[data-staging-ia="tds-video"] #stock-view [data-quote-freshness] .staging-stock-orderability {
+  flex: 0 0 100%;
+  white-space: nowrap;
+}
+body[data-staging-ia="tds-video"] #stock-view [data-quote-freshness] #stock-market-status-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

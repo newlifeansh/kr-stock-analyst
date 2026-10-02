@@ -117,6 +117,7 @@ def test_us_spinout_shell_is_separate_from_the_domestic_product():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
+        .replace('/assets/staging/toss-ia.js?v=us-version', '/assets/staging/toss-ia.js?v=20260921-domestic-market-v116')
         .replace("us-version", "kr-version")
     )
     assert normalized_us == domestic_shell

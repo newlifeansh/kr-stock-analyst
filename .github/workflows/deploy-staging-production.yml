@@ -11,6 +11,7 @@ on:
           - build
           - stage
           - stage-intraday
+          - stage-us-quotes
           - promote-production
         default: build
       candidate_version:
@@ -68,7 +69,7 @@ jobs:
   # Market-specific production bases must not overwrite the other market's
   # staging with an older baseline. This path has no production operation.
   intraday_shadow_staging:
-    if: inputs.action == 'stage-intraday'
+    if: inputs.action == 'stage-intraday' || inputs.action == 'stage-us-quotes'
     needs: [validate_request, gate, build_image]
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -92,6 +93,9 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$IMAGE_REF" =~ @sha256:[0-9a-f]{64}$ ]]
+          if [[ "${{ inputs.action }}" == "stage-us-quotes" ]]; then
+            test "$PRODUCT_SURFACE" == "us"
+          fi
           if [[ "$PRODUCT_SURFACE" == "us" ]]; then
             git merge-base --is-ancestor f794377 HEAD
             echo "TARGET_PROJECT=$US_STAGING_RAILWAY_PROJECT_ID" >> "$GITHUB_ENV"
@@ -162,6 +166,19 @@ jobs:
           python scripts/qa_intraday_monitor.py --mode e2e --market "$TARGET_MARKET" \
             --base-url "$TARGET_URL" --expected-digest "$EXPECTED_DIGEST" \
             --output artifacts/intraday/e2e.json
+          if [[ "${{ inputs.action }}" == "stage-us-quotes" ]]; then
+            expected_version=$(python -c 'from app.main import US_DASHBOARD_CLIENT_VERSION; print(US_DASHBOARD_CLIENT_VERSION)')
+            for attempt in $(seq 1 40); do
+              actual_version=$(curl --fail --silent --max-time 15 "$TARGET_URL/us-version" | jq -r '.version' || true)
+              if [[ "$actual_version" == "$expected_version" ]]; then break; fi
+              sleep 15
+            done
+            test "$actual_version" == "$expected_version"
+            python scripts/qa_us_quote_freshness.py --mode live --base-url "$TARGET_URL" \
+              --output artifacts/intraday/us-quotes-live.json
+            python scripts/qa_us_quote_freshness.py --mode e2e --base-url "$TARGET_URL" \
+              --output artifacts/intraday/us-quotes-e2e.json
+          fi
           jq -n --arg source "${{ needs.validate_request.outputs.source_sha }}" \
             --arg image "$IMAGE_REF" --arg surface "$PRODUCT_SURFACE" \
             --arg implementation "$EXPECTED_DIGEST" \

@@ -1493,6 +1493,10 @@ def test_run_once_dispatches_new_us_signal_after_independent_baseline(monkeypatc
     batches = [[existing], [new], [new]]
     payloads = []
     runtime = web_push.WebPushRuntime(_settings(us_market_enabled=True))
+    # This fixture tests signal baseline delivery, independently of wall-clock
+    # scheduled news/open-close broadcasts (covered by their own fixtures).
+    monkeypatch.setattr(runtime, "_us_market_news_candidates", lambda *_args: [])
+    monkeypatch.setattr(runtime, "_us_market_session_candidates", lambda *_args: [])
     monkeypatch.setattr(web_push, "PushSessionLocal", push_session)
     monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda _now=None: False)
     monkeypatch.setattr(runtime, "_ai_signal_candidates", lambda _db, watchlists, *_args: {key: [] for key in watchlists})

@@ -238,8 +238,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="home-view" class="app-page app-home"' in response.text
     assert 'id="search-view" class="app-page app-search"' in response.text
     assert 'id="bottom-nav" aria-label="주요 메뉴"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20261001us132"' in response.text
-    assert 'href="/assets/dashboard/styles.css?v=20261001us132&amp;build=20261001us132"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20261003us133"' in response.text
+    assert 'href="/assets/dashboard/styles.css?v=20261003us133&amp;build=20261003us133"' in response.text
     assert 'setCopy("home-market-signal-title", "미국 시그널 감시 후보")' in source
     assert 'setCopy("home-ai-signals-title", "시그널 감시 후보")' in source
     assert 'signalPageTitle.textContent = "시그널 감시 후보"' in source
@@ -258,7 +258,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
-        .replace("20261001us132", "20260923v553")
+        .replace('/assets/staging/toss-ia.js?v=20261003us133', '/assets/staging/toss-ia.js?v=20260921-domestic-market-v116')
+        .replace("20261003us133", "20260923v553")
     )
     assert normalized_us == dashboard.text
 
@@ -382,7 +383,8 @@ def test_domestic_surface_disables_unified_runtime_and_preserves_dormant_us_impl
     assert '? { key: "confirmation", label: "다음 확인", value: "미국 정규장 종가" }' in source
     assert 'if (domesticSource) domesticSource.hidden = false;' in source
     assert 'if (usSource) usSource.hidden = false;' in source
-    assert source.count('if (!code || marketScopeForItem(item) === "us") return;') >= 2
+    assert 'setUsVisibleQuote("watchlist", code,' in source
+    assert 'if (!code || marketScopeForItem(item) === "us") return;' in source
     assert 'return `/dashboard/${encodeURIComponent(name)}`;' in source
     unified_scope_styles = styles[styles.index("/* /us country scope") :]
     assert unified_scope_styles.count("min-height: 44px;") >= 2
@@ -1337,8 +1339,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20261001us132"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20261001us132&amp;build=20261001us132"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261003us133"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20261003us133&amp;build=20261003us133"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1363,7 +1365,7 @@ def test_us_stock_detail_frontend_uses_us_contract_without_domestic_quote_subscr
     assert 'const dashboardUrl = usStockRequest' in load_source
     assert '`/us/stocks/${encodeURIComponent(stock.code)}/dashboard`' in load_source
     assert 'const initialQuoteRequest = usStockRequest ? Promise.resolve(null)' in load_source
-    assert "if (!stock?.code || stockDashboardIsUs())" in stream_source
+    assert 'setUsVisibleQuote("detail", code,' in stream_source
     assert 'function fetchUnifiedStockSearch(query, limit, signal, marketScope = state.marketScope)' in source
     assert 'const endpoint = scope === "us" ? "/us/stocks/search" : "/stocks/search";' in source
     assert 'const analysisBase = stockDashboardIsUs() ? "/us/stocks" : "/stocks";' in source
@@ -1376,7 +1378,7 @@ def test_us_stock_detail_frontend_uses_us_contract_without_domestic_quote_subscr
     assert 'if (stockDashboardIsUs()) {\n    return loadAIAnalysis(options);\n  }' in source
     assert 'url.searchParams.set("market", "us");' in source
     assert 'formatUsdPrice' in source
-    assert '미국 동부시간 기준' in source
+    assert 'KST 기준' in source
     assert 'stagingStockPriceText' in toss
     assert '20260921-domestic-market-v116' in toss
     assert 'body[data-stock-market="us"] [data-stock-tab="community"]' not in styles
@@ -1628,7 +1630,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20261001us132"}
+    assert version.json() == {"version": "20261003us133"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1637,9 +1639,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261001us132" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261003us133" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20261001us132")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20261003us133")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1653,12 +1655,12 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20261001us132"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20261003us133"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20261001us132' in worker.text
-    assert '"/dashboard-app-v170.js?v=20261001us132"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20261003us133' in worker.text
+    assert '"/dashboard-app-v170.js?v=20261003us133"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
@@ -3117,8 +3119,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20261001us132"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20261001us132&amp;build=20261001us132"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261003us133"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20261003us133&amp;build=20261003us133"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()

@@ -112,6 +112,9 @@ def test_us_quote_snapshots_batch_current_prices_for_signal_returns(monkeypatch)
         "market_session_label": "미국 정규장 진행 중",
         "market_local_time": observed_at,
         "is_live": True,
+        "observed_at": observed_at,
+        "age_seconds": 0,
+        "freshness": "recent",
     }
 
 

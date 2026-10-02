@@ -49,6 +49,20 @@ QUOTE_STREAM_META_RE = re.compile(
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "QUOTE-US-LIVE-001": (
+        *(f"tests.test_us_quote_freshness.test_us_quote_source_age_not_request_time[{offset}-{expected}]"
+          for offset, expected in [(0,"recent"),(30,"recent"),(31,"delayed"),(1800,"delayed"),(-6,"future"),(None,"unknown")]),
+        "tests.test_us_quote_freshness.test_us_quote_cache_rechecks_age_without_faking_timestamp",
+    ),
+    "QUOTE-US-LIVE-002": (
+        "tests.test_us_quote_freshness.test_us_visible_quotes_batch_all_scopes_and_stop_when_hidden",
+        "tests.test_us_quote_freshness.test_us_visible_quotes_navigation_generation_and_old_future_frames",
+        "tests.test_us_quote_freshness.test_us_visible_quotes_failure_staleness_missing_time_and_recovery",
+    ),
+    "QUOTE-US-LIVE-003": (
+        "tests.test_us_quote_freshness.test_us_quote_detail_watchlist_visibility_and_signal_wiring",
+        "tests.test_us_quote_freshness.test_us_quote_candidate_workflow_staging_only",
+    ),
     "SIG-INTRA-001": (
         "tests.test_intraday_signals.test_intraday_completed_buy_is_immutable_and_not_repeated[kr]",
         "tests.test_intraday_signals.test_intraday_completed_buy_is_immutable_and_not_repeated[us]",
