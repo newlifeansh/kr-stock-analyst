@@ -63,6 +63,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         ),
         "tests.test_intraday_signals.test_intraday_durable_restart_and_shadow_alert_isolation",
         "tests.test_intraday_signals.test_intraday_us_local_date_and_kr_time_normalization",
+        "tests.test_intraday_signals.test_intraday_us_provider_share_classes_and_identity",
         "tests.test_intraday_signals.test_intraday_us_holiday_and_dst_calendar",
     ),
     "SIG-INTRA-002": (
