@@ -51,7 +51,7 @@
       "modes": ["gate", "live", "e2e"],
       "automation": "pytest HTTP·운영 기준 보존·staging-only 불변 이미지 계약 + scripts/qa_intraday_monitor.py live/e2e",
       "preconditions": ["분리된 시장의 후보 서버와 읽기 전용 감시 화면이 준비된다."],
-      "inputs": {"routes": ["/intraday-alerts", "/us/intraday-alerts"], "widths": [320, 458, 1280]},
+      "inputs": {"routes": ["/intraday-alerts", "/us/intraday-alerts"], "widths": [320, 458, 1280], "staging_runtime": "선택한 staging 컨텍스트 연결 후 필요 시 국내 DB만 재기동; 운영 변경 금지"},
       "steps": ["시장별 API의 버전·모드·감시 상태를 확인하고 다른 시장 요청을 차단한다.", "브라우저에서 시험 모드·지연·오류·빈 기록을 확인한다."],
       "expected": ["감시 미시작·장외·지연·연결 오류를 정상 감시로 표시하지 않는다.", "모바일 리플로와 키보드 재조회가 가능하고 확정 기록은 주문 체결로 표현하지 않는다."],
       "failure_criteria": ["오래된 상태가 정상으로 보이거나 API 실패를 숨기거나 가로 스크롤·시장 혼입이 있다."]

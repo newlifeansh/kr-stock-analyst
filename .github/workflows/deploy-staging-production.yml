@@ -122,6 +122,18 @@ jobs:
           test -n "$TARGET_PROJECT"
           test -n "$TARGET_WEB"
           test -n "$TARGET_COLLECTOR"
+          # CLI 5.45.7 scale still consults linked context even with --project.
+          railway link --project "$TARGET_PROJECT" --environment staging --service "$TARGET_WEB" --json
+          if [[ "$TARGET_MARKET" == "kr" ]]; then
+            test -n "$DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE"
+            db_state=$(railway service list --project "$TARGET_PROJECT" --environment staging --json |
+              jq -er --arg id "$DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE" \
+                '.[] | select(.id == $id) | if .deploymentStopped or .status == "REMOVED" or .status == null then "inactive" else .status end')
+            if [[ "$db_state" == "inactive" || "$db_state" == "FAILED" || "$db_state" == "CRASHED" ]]; then
+              railway redeploy --project "$TARGET_PROJECT" --environment staging \
+                --service "$DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE" --from-source --yes --json
+            fi
+          fi
           for service in "$TARGET_WEB" "$TARGET_COLLECTOR"; do
             railway variable set "INTRADAY_SIGNAL_MODE=shadow" --skip-deploys --json \
               --project "$TARGET_PROJECT" --environment staging --service "$service"

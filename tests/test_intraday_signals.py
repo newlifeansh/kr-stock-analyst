@@ -294,3 +294,7 @@ def test_intraday_staging_preserves_bases_and_never_promotes():
     assert "--environment production" not in job
     assert '--expected-digest "$EXPECTED_DIGEST"' in job
     assert 'image_ref:$image' in job
+    assert 'railway link --project "$TARGET_PROJECT" --environment staging' in job
+    assert 'if [[ "$TARGET_MARKET" == "kr" ]]' in job
+    assert 'DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE' in job
+    assert '--from-source --yes --json' in job
