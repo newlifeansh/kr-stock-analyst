@@ -152,7 +152,7 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "Wait for current staging data" in workflow
     assert "Wait for current US gateway data" in workflow
     assert "Wait for current production data" in workflow
-    assert "scripts/wait_release_data_ready.py" in workflow
+    assert "python -m app.qa.release_data_readiness" in workflow
     assert "staging-data-readiness.json" in workflow
     assert "us-gateway-data-readiness.json" in workflow
     assert "production-data-readiness.json" in workflow

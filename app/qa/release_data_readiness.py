@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Wait until a staged or promoted surface has current critical datasets."""
 
 from __future__ import annotations

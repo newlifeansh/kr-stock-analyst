@@ -1,4 +1,4 @@
-from scripts.wait_release_data_ready import dashboard_readiness, us_readiness
+from app.qa.release_data_readiness import dashboard_readiness, us_readiness
 
 
 def test_dashboard_readiness_requires_current_general_and_complete_stock_news():

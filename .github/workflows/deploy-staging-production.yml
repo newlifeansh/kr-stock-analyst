@@ -340,7 +340,7 @@ jobs:
           --output artifacts/qa-data-signal/staging-parity.json
       - name: Wait for current staging data
         run: >-
-          python scripts/wait_release_data_ready.py
+          python -m app.qa.release_data_readiness
           --surface "$PRODUCT_SURFACE"
           --base-url "$QA_BASE_URL"
           --wait-seconds 900
@@ -417,7 +417,7 @@ jobs:
           playwright install --with-deps chromium
       - name: Wait for current US gateway data
         run: >-
-          python scripts/wait_release_data_ready.py
+          python -m app.qa.release_data_readiness
           --surface us-gateway
           --base-url "$QA_BASE_URL"
           --wait-seconds 900
@@ -576,7 +576,7 @@ jobs:
           --output artifacts/qa-data-signal/production-parity.json
       - name: Wait for current production data
         run: >-
-          python scripts/wait_release_data_ready.py
+          python -m app.qa.release_data_readiness
           --surface "$PRODUCT_SURFACE"
           --base-url "$TARGET_PRODUCTION_BASE_URL"
           --wait-seconds 900
