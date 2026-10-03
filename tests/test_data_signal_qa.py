@@ -1598,6 +1598,8 @@ class FakeReadOnlyApi:
             "latency_ms": 1,
             "content_type": "application/json",
             "cache_control": "no-store",
+            "data_state": "ready",
+            "data_as_of": "2026-10-03T09:00:00+09:00",
         }
 
     @staticmethod
@@ -1716,7 +1718,7 @@ class FakeReadOnlyApi:
                 "stateful_lifecycle_replay_complete": True,
                 "stateful_lifecycle_replay_eligible_count": 98,
                 "stateful_lifecycle_replay_completed_count": 98,
-                "sector_classification_version": "us-sector-etf-cik-v6",
+                "sector_classification_version": "us-sector-etf-cik-v7",
                 "sector_classification_error_count": 0,
                 "confirmed_count": 0,
                 "preliminary_count": 0,
@@ -1759,7 +1761,7 @@ class FakeReadOnlyApi:
                 "data_state": "ready",
                 "strategy_version": "position-lifecycle-us-v2-rc1",
                 "baseline_strategy_version": "us-momentum-watch-v1",
-                "sector_classification_version": "us-sector-etf-cik-v6",
+                "sector_classification_version": "us-sector-etf-cik-v7",
                 "rollout_mode": "model_replay",
                 "execution_enabled": False,
                 "stateful_lifecycle_replay_enabled": True,

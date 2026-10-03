@@ -338,6 +338,13 @@ jobs:
           --source-sha "${{ needs.validate_request.outputs.source_sha }}"
           --wait-seconds 600
           --output artifacts/qa-data-signal/staging-parity.json
+      - name: Wait for current staging data
+        run: >-
+          python scripts/wait_release_data_ready.py
+          --surface "$PRODUCT_SURFACE"
+          --base-url "$QA_BASE_URL"
+          --wait-seconds 900
+          --output artifacts/qa-data-signal/staging-data-readiness.json
       - name: Run read-only staging integrations
         id: live_qa
         continue-on-error: true
@@ -408,6 +415,13 @@ jobs:
         run: |
           pip install -e '.[qa,mcp]'
           playwright install --with-deps chromium
+      - name: Wait for current US gateway data
+        run: >-
+          python scripts/wait_release_data_ready.py
+          --surface us-gateway
+          --base-url "$QA_BASE_URL"
+          --wait-seconds 900
+          --output artifacts/qa-data-signal/us-gateway-data-readiness.json
       - name: Check the same-origin US service route
         id: live_gateway
         continue-on-error: true
@@ -560,6 +574,13 @@ jobs:
           --source-sha "${{ needs.validate_request.outputs.source_sha }}"
           --wait-seconds 600
           --output artifacts/qa-data-signal/production-parity.json
+      - name: Wait for current production data
+        run: >-
+          python scripts/wait_release_data_ready.py
+          --surface "$PRODUCT_SURFACE"
+          --base-url "$TARGET_PRODUCTION_BASE_URL"
+          --wait-seconds 900
+          --output artifacts/qa-data-signal/production-data-readiness.json
       - name: Run production read-only smoke checks
         run: >-
           analyst qa data-signal

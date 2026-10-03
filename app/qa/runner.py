@@ -4310,7 +4310,7 @@ def _live_us_checks(
                 and bool(timeline),
                 "스테이징 미국 시장 뉴스가 live ready 상태가 아닙니다.",
                 status=payload.get("status"),
-                data_state=payload.get("data_state"),
+                payload_data_state=payload.get("data_state"),
                 timeline_count=len(timeline) if isinstance(timeline, list) else None,
                 **payload_meta,
             )

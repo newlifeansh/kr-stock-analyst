@@ -697,7 +697,7 @@ def test_sector_classification_version_change_requires_fail_closed_upgrade(
     )
     assert row is not None
     payload = json.loads(row.payload)
-    payload["sector_classification_version"] = "us-sector-etf-cik-v5"
+    payload["sector_classification_version"] = "us-sector-etf-cik-v6"
     row.payload = json.dumps(payload)
     snapshot_db.commit()
 
@@ -713,7 +713,7 @@ def test_sector_classification_version_change_requires_fail_closed_upgrade(
     assert loaded["source_strategy_version"] == lifecycle.US_STRATEGY_VERSION
     assert (
         loaded["source_sector_classification_version"]
-        == "us-sector-etf-cik-v5"
+        == "us-sector-etf-cik-v6"
     )
     assert (
         loaded["sector_classification_version"]

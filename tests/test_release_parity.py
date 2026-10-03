@@ -149,8 +149,15 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "name: production" in workflow
     assert "--production-url \"$TARGET_PRODUCTION_BASE_URL\"" in workflow
     assert "Wait for the staged product surface" in workflow
+    assert "Wait for current staging data" in workflow
+    assert "Wait for current US gateway data" in workflow
+    assert "Wait for current production data" in workflow
+    assert "scripts/wait_release_data_ready.py" in workflow
+    assert "staging-data-readiness.json" in workflow
+    assert "us-gateway-data-readiness.json" in workflow
+    assert "production-data-readiness.json" in workflow
     assert "product_surface:" in workflow
-    assert workflow.count('--surface "$PRODUCT_SURFACE"') == 5
+    assert workflow.count('--surface "$PRODUCT_SURFACE"') == 7
     assert workflow.count('railway variable set "US_MARKET_ENABLED=true"') == 4
     assert workflow.count('railway variable set "US_MARKET_ENABLED=false"') == 2
     assert workflow.count('railway variable set "PROCESS_ROLE=web"') == 3
