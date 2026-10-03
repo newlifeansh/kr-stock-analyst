@@ -306,17 +306,17 @@ def collect_stock_news_snapshots(
     )
     pending_codes = [code for code in codes if code not in fresh_codes]
     run = start_ingestion(db, "naver_finance", "stock_news_snapshot")
-    rows_loaded = 0
+    rows_refreshed = 0
     news_items = 0
     empty_snapshots = 0
     failures: dict[str, str] = {}
     pending_rows: list[dict[str, object]] = []
 
     def flush() -> None:
-        nonlocal pending_rows, rows_loaded
+        nonlocal pending_rows, rows_refreshed
         if not pending_rows:
             return
-        rows_loaded += upsert_many(db, StockNewsSnapshot, pending_rows)
+        rows_refreshed += upsert_many(db, StockNewsSnapshot, pending_rows)
         db.commit()
         pending_rows = []
 
@@ -350,8 +350,9 @@ def collect_stock_news_snapshots(
                 if len(pending_rows) >= batch_size:
                     flush()
         flush()
+        rows_loaded = rows_refreshed + len(fresh_codes)
         message = (
-            f"target={len(codes)} refreshed={rows_loaded} skipped={len(fresh_codes)} "
+            f"target={len(codes)} refreshed={rows_refreshed} skipped={len(fresh_codes)} "
             f"items={news_items} empty={empty_snapshots} failed={len(failures)}"
         )
         status = (
@@ -365,6 +366,7 @@ def collect_stock_news_snapshots(
         return {
             "target": len(codes),
             "rows_loaded": rows_loaded,
+            "refreshed": rows_refreshed,
             "skipped": len(fresh_codes),
             "news_items": news_items,
             "empty": empty_snapshots,
@@ -374,7 +376,7 @@ def collect_stock_news_snapshots(
         }
     except Exception as exc:
         db.rollback()
-        finish_ingestion(db, run, "failed", rows_loaded, str(exc))
+        finish_ingestion(db, run, "failed", rows_refreshed, str(exc))
         raise
 
 
