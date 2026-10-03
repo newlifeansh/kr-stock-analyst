@@ -89,7 +89,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert len(ids) == 129
+    assert len(ids) == 130
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -113,6 +113,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "DATA-CALENDAR-CONTENT-004",
         "DATA-CALENDAR-CONTENT-005",
         "DATA-CALENDAR-CONTENT-006",
+        "DATA-CALENDAR-CONTENT-007",
         "SIG-UI-031",
         "SIG-UI-032",
         "SIG-UI-033",
@@ -191,7 +192,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v7.4.2`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v2-rc1`" in first
-    assert "QA 항목: 129개" in first
+    assert "QA 항목: 130개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1431,7 +1432,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v7.4.2"
     assert report["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert report["catalog_case_count"] == 129
+    assert report["catalog_case_count"] == 130
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1449,6 +1450,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "DATA-COM-006",
         "DATA-COM-007",
         "DATA-DART-001",
+        "DATA-CALENDAR-CONTENT-007",
         "DATA-FUND-RESEARCH-002",
         "DATA-FUND-RESEARCH-003",
         "DATA-US-NEWS-001",
@@ -1653,6 +1655,8 @@ class FakeReadOnlyApi:
                         **ready,
                         "api": {"last_success_at": "2026-08-29T09:55:00"},
                     },
+                    "news": ready,
+                    "stock_news": ready,
                     "entry_evidence_snapshot": ready,
                 },
                 "coherence": {
@@ -1671,6 +1675,7 @@ class FakeReadOnlyApi:
                     "items": [
                         {"key": "price", "state": "ready"},
                         {"key": "disclosure", "state": "unavailable"},
+                        {"key": "news", "state": "ready"},
                     ]
                 },
             }, self._meta(path)
@@ -2001,6 +2006,22 @@ class FakeReadOnlyApi:
                 ],
                 "status": "ready",
             }, self._meta(path)
+        if path in {"/news-items", "/stocks/005930/news-items"}:
+            meta = {
+                **self._meta(path),
+                "cache_control": "no-store, no-cache, must-revalidate",
+            }
+            if path.endswith("/news-items") and path.startswith("/stocks/"):
+                meta["data_state"] = "ready"
+                meta["data_as_of"] = datetime.now(UTC).isoformat()
+            return [
+                {
+                    "source": "naver_finance",
+                    "external_id": "015:fixture",
+                    "title": "최신 반도체 뉴스",
+                    "published_at": datetime.now(UTC).isoformat(),
+                }
+            ], meta
         if path == "/us.webmanifest":
             return {
                 "name": "비밀노트 미국증시",

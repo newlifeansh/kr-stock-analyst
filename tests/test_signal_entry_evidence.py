@@ -18,10 +18,12 @@ from app.models import (
     IngestionRun,
     InvestorFlow,
     MacroObservation,
+    NewsItem,
     QuantSignalEvidenceSnapshot,
     ResearchReport,
     StockFundamentalSnapshot,
     StockMaster,
+    StockNewsSnapshot,
 )
 from app.services.sector_taxonomy import investment_sector_fields
 from app.services import quant_signals
@@ -181,6 +183,35 @@ def _seed_stock_data(db: Session) -> tuple[StockMaster, list[DailyPrice]]:
                 started_at=datetime(2026, 8, 21, 6, 35),
                 finished_at=datetime(2026, 8, 21, 6, 40),
                 rows_loaded=10,
+            ),
+            NewsItem(
+                source="naver_finance",
+                source_category="market",
+                external_id="015:news-1",
+                title="시장 뉴스",
+                published_at=datetime(2026, 8, 21, 7, 0),
+            ),
+            StockNewsSnapshot(
+                stock_code=stock.code,
+                source="naver_finance",
+                payload="[]",
+                fetched_at=datetime(2026, 8, 21, 6, 42),
+            ),
+            IngestionRun(
+                source="news",
+                dataset="naver_finance",
+                status="success",
+                started_at=datetime(2026, 8, 21, 6, 40),
+                finished_at=datetime(2026, 8, 21, 6, 41),
+                rows_loaded=10,
+            ),
+            IngestionRun(
+                source="naver_finance",
+                dataset="stock_news_snapshot",
+                status="success",
+                started_at=datetime(2026, 8, 21, 6, 40),
+                finished_at=datetime(2026, 8, 21, 6, 42),
+                rows_loaded=1,
             ),
         ]
     )
@@ -458,6 +489,51 @@ def test_signal_data_quality_reports_cross_source_coherence(monkeypatch):
     )
     assert degraded["status"] == "degraded"
     assert degraded["coherence"]["orphan_stock_codes"]["flow"] == 1
+
+
+def test_signal_data_quality_surfaces_latest_stock_news_failure(monkeypatch):
+    db = _session()
+    _seed_stock_data(db)
+    for series_code in ("^KS11", "^KQ11"):
+        db.add(
+            MacroObservation(
+                source="yahoo",
+                series_code=series_code,
+                item_code="close",
+                period=SIGNAL_DATE.isoformat(),
+                value=Decimal("3000"),
+            )
+        )
+    db.add(
+        IngestionRun(
+            source="naver_finance",
+            dataset="stock_news_snapshot",
+            status="failed",
+            started_at=datetime(2026, 8, 21, 6, 43),
+            finished_at=datetime(2026, 8, 21, 6, 44),
+            rows_loaded=0,
+            message="target=1 refreshed=0 failed=1",
+        )
+    )
+    db.commit()
+    monkeypatch.setattr(
+        "app.services.signal_data_quality.latest_completed_korea_market_session_date",
+        lambda _now: SIGNAL_DATE,
+    )
+    monkeypatch.setattr(
+        "app.services.signal_data_quality.latest_published_korea_investor_flow_date",
+        lambda _now: SIGNAL_DATE,
+    )
+
+    payload = signal_data_quality_status(
+        db,
+        Settings(fundamental_snapshot_refresh_days=2),
+        now=datetime(2026, 8, 21, 15, 45),
+    )
+
+    assert payload["status"] == "degraded"
+    assert payload["datasets"]["stock_news"]["state"] == "stale"
+    assert payload["datasets"]["stock_news"]["api"]["last_attempt_status"] == "failed"
 
 
 def test_fundamental_quality_keeps_two_day_sla_while_collector_uses_headroom():
@@ -751,6 +827,16 @@ def test_source_probe_uses_current_naver_json_endpoints(monkeypatch):
                 return {"items": [{"nid": "96144", "writeDate": "2026-09-15"}]}
             if "finance/chart" in self.url:
                 return {"chart": {"result": [{"timestamp": [1]}]}}
+            if self.url.endswith("/news/stock/list"):
+                return {
+                    "isSuccess": True,
+                    "result": [
+                        {
+                            "articleId": "1",
+                            "datetime": "202609150730",
+                        }
+                    ],
+                }
             raise AssertionError(f"unexpected JSON probe: {self.url}")
 
     def fake_get(url, *, params=None, headers=None, timeout=None):

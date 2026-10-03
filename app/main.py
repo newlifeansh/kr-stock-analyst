@@ -213,6 +213,7 @@ from app.services.stock_dashboard import (
     build_stock_dashboard,
     ensure_stock_price_history,
     stock_news_item_payloads,
+    stock_news_snapshot_metadata,
 )
 from app.services.complete_snapshots import (
     SnapshotPublishConflictError,
@@ -8074,12 +8075,15 @@ def stock_quant_signals(
 @app.get("/stocks/{code}/prices", response_model=list[DailyPriceOut])
 def stock_prices(
     code: str,
+    response: Response,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     limit: int = Query(default=250, ge=1, le=2000),
     db: Session = Depends(get_db),
 ):
     code = _normalize_stock_code(code)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     statement = (
         select(DailyPrice)
         .where(DailyPrice.code == code)
@@ -9024,6 +9028,7 @@ def disclosures(
 
 @app.get("/news-items", response_model=list[NewsItemOut])
 def news_items(
+    response: Response,
     limit: int = Query(default=50, ge=1, le=500),
     category: Optional[str] = None,
     press_name: Optional[str] = None,
@@ -9032,6 +9037,8 @@ def news_items(
     to_date: Optional[date] = None,
     db: Session = Depends(get_db),
 ):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     return [
         _news_item_payload(item)
         for item in latest_news_items(
@@ -9059,9 +9066,15 @@ def stock_news_items(
         stock = _ensure_stock_master_from_naver(db, code)
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
-    response.headers["Cache-Control"] = "private, max-age=120, stale-while-revalidate=120"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     response.headers["X-Stock-News-Source"] = "naver-stock-code"
-    return stock_news_item_payloads(db, stock.code, limit=limit)
+    payload = stock_news_item_payloads(db, stock.code, limit=limit)
+    freshness = stock_news_snapshot_metadata(db, stock.code)
+    response.headers["X-Data-State"] = str(freshness["state"])
+    if freshness["as_of"]:
+        response.headers["X-Data-As-Of"] = freshness["as_of"].isoformat()
+    return payload
 
 
 @app.get("/insight/feed")

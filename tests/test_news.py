@@ -1,4 +1,10 @@
+from datetime import datetime
+
+import pytest
+
 from app.collectors.news import (
+    fetch_naver_news_items,
+    fetch_naver_stock_news_items,
     naver_news_detail_url,
     normalize_naver_news_url,
     parse_naver_news_list_html,
@@ -154,3 +160,103 @@ def test_naver_news_detail_url_builds_roiter_shareholder_return_article():
     assert naver_news_detail_url("011:0004648965") == (
         "https://n.news.naver.com/mnews/article/011/0004648965"
     )
+
+
+def test_current_mobile_news_api_normalizes_and_deduplicates_rows(monkeypatch):
+    calls = []
+
+    class Response:
+        def __init__(self, params):
+            self.params = params
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "isSuccess": True,
+                "result": [
+                    {
+                        "articleId": "0001",
+                        "officeId": "015",
+                        "officeName": "한국경제",
+                        "titleFull": "반도체 &quot;신기록&quot;",
+                        "body": "시장 요약",
+                        "datetime": "20261003083512",
+                        "imageOriginLink": "https://img.test/news.jpg",
+                    }
+                ],
+            }
+
+    def fake_get(url, *, params, headers, timeout):
+        calls.append((url, params, headers, timeout))
+        return Response(params)
+
+    monkeypatch.setattr("app.collectors.news.requests.get", fake_get)
+
+    items = fetch_naver_news_items(
+        ["market", "bond"],
+        max_pages=1,
+        days_back=2,
+        now=datetime(2026, 10, 3, 12, 0),
+    )
+
+    assert len(calls) == 1
+    assert calls[0][0].endswith("/front-api/news/category")
+    assert calls[0][1] == {"page": 1, "pageSize": 20, "category": "mainnews"}
+    assert [item.external_id for item in items] == ["015:0001"]
+    assert items[0].title == '반도체 "신기록"'
+    assert items[0].published_at == datetime(2026, 10, 3, 8, 35, 12)
+    assert items[0].detail_url == "https://n.news.naver.com/mnews/article/015/0001"
+
+
+def test_current_mobile_stock_news_api_accepts_minute_precision(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "isSuccess": True,
+                "result": [
+                    {
+                        "articleId": "2",
+                        "officeId": "050",
+                        "officeName": "한경비즈니스",
+                        "title": "삼성전자 기사",
+                        "datetime": "202610030837",
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(
+        "app.collectors.news.requests.get",
+        lambda *args, **kwargs: Response(),
+    )
+
+    items = fetch_naver_stock_news_items("005930")
+
+    assert items[0].published_at == datetime(2026, 10, 3, 8, 37)
+    assert items[0].external_id == "050:2"
+
+
+def test_current_mobile_news_api_fails_closed_on_empty_source(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"isSuccess": True, "result": []}
+
+    monkeypatch.setattr(
+        "app.collectors.news.requests.get",
+        lambda *args, **kwargs: Response(),
+    )
+
+    with pytest.raises(RuntimeError, match="no source rows"):
+        fetch_naver_news_items(
+            ["market"],
+            max_pages=1,
+            days_back=2,
+            now=datetime(2026, 10, 3, 12, 0),
+        )

@@ -467,6 +467,19 @@
       "failure_criteria": ["중복 기사 또는 오종목 콘텐츠가 노출된다."]
     },
     {
+      "id": "DATA-CALENDAR-CONTENT-007",
+      "title": "뉴스 현재 API·신선도·실패 표면화",
+      "domain": "캘린더·콘텐츠 연동",
+      "priority": "P0",
+      "modes": ["gate", "live", "e2e"],
+      "automation": "pytest Naver mobile news JSON normalization·empty/failure·retry·cache-header fixtures + live source probe and latest-published checks + Playwright market/stock news freshness",
+      "preconditions": ["네이버 모바일 금융 전역·종목 뉴스 JSON의 정상, 빈 결과, HTTP 실패 픽스처를 준비한다.", "신선한 종목 뉴스 스냅샷과 만료된 스냅샷을 각각 준비한다.", "us-market 사전운영 표면에 동일한 후보 이미지를 배포한다."],
+      "inputs": {"general_endpoint": "/front-api/news/category", "stock_endpoint": "/front-api/news/stock/list", "sample_code": "005930", "maximum_stock_snapshot_age_hours": 12, "retry_seconds": 900, "api_cache_policy": "no-store"},
+      "steps": ["현재 모바일 JSON의 articleId·officeId·datetime·title·body를 정규화하고 HTML entity, 12/14자리 발행시각, 원문 URL, 중복을 검증한다.", "전역 뉴스 원천이 비거나 실패하면 0건 성공으로 기록하지 않는지 확인한다.", "전 종목 뉴스 새로고침이 전량 실패하면 failed, 일부 실패하면 partial로 기록하고 15분 안에 재시도하는지 확인한다.", "만료된 종목 뉴스 갱신이 실패할 때 예전 기사를 현재 기사처럼 다시 노출하지 않는지 검사한다.", "/news-items·/stocks/{code}/news-items·/stocks/{code}/prices의 no-store 계약과 신호 데이터 품질 API의 news·stock_news 상태를 확인한다.", "us-market에서 실제 최신 발행시각과 종목 연결을 확인하고 피드·종목 소식 화면에서 재검증한다."],
+      "expected": ["전역·종목 뉴스가 현재 JSON 원천에서 수집되고 기사 시각·제목·언론사·원문 링크가 보존된다.", "원천 장애가 성공 0건으로 숨겨지지 않고 품질 상태를 degraded로 낮추며 짧은 주기로 재시도한다.", "만료 스냅샷은 신선한 응답처럼 재노출되지 않고 뉴스·시세 API는 중간 캐시의 이전 응답을 재사용하지 않는다.", "us-market 검증에서 최신 기사와 품질 상태가 일치한다."],
+      "failure_criteria": ["폐기된 finance.naver.com 뉴스 HTML 경로를 호출하거나 HTTP 410을 성공·0건으로 기록한다.", "종목 뉴스 100% 실패를 success로 남기고 6시간 동안 재시도하지 않는다.", "만료된 스냅샷이 신선도 경고 없이 현재 뉴스로 노출되거나 API가 stale-while-revalidate로 이전 기사를 재사용한다.", "news·stock_news 품질 상태가 stale/unavailable인데 전체를 ready로 표시하거나 us-market 화면에 예전 기사가 남는다."]
+    },
+    {
       "id": "DATA-CALENDAR-CONTENT-006",
       "title": "뉴스 재무위험·중립 영향도 분류",
       "domain": "캘린더·콘텐츠 연동",

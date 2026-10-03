@@ -360,6 +360,9 @@ class BriefingRuntimeStatusOut(BaseModel):
     next_fundamental_snapshot_retry_at: Optional[datetime] = None
     last_stock_news_snapshot_at: Optional[datetime] = None
     last_stock_news_snapshot_message: Optional[str] = None
+    last_stock_news_snapshot_state: str = "idle"
+    last_stock_news_snapshot_failed: int = 0
+    next_stock_news_snapshot_retry_at: Optional[datetime] = None
     last_stock_company_snapshot_at: Optional[datetime] = None
     last_stock_company_snapshot_message: Optional[str] = None
     last_macro_at: Optional[datetime] = None

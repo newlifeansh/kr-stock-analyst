@@ -53,6 +53,21 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-CALENDAR-CONTENT-007": (
+        "tests.test_news.test_current_mobile_news_api_normalizes_and_deduplicates_rows",
+        "tests.test_news.test_current_mobile_stock_news_api_accepts_minute_precision",
+        "tests.test_news.test_current_mobile_news_api_fails_closed_on_empty_source",
+        "tests.test_stock_universe_data."
+        "test_full_universe_news_snapshot_records_total_failure_as_failed",
+        "tests.test_briefing_runtime."
+        "test_stock_news_snapshot_failure_is_degraded_and_retried",
+        "tests.test_mobile_loading_fast_paths."
+        "test_stock_news_does_not_replay_expired_snapshot_when_refresh_fails",
+        "tests.test_stock_universe_data."
+        "test_news_and_price_apis_disable_intermediate_stale_caches",
+        "tests.test_signal_entry_evidence."
+        "test_signal_data_quality_surfaces_latest_stock_news_failure",
+    ),
     "DATA-DART-001": (
         "tests.test_disclosures.test_fetch_dart_disclosures_uses_api_when_transport_succeeds",
         "tests.test_disclosures.test_preferred_disclosure_url_rebuilds_official_dart_receipt_link",
@@ -1080,6 +1095,8 @@ class ReadOnlyApi:
             "latency_ms": latency_ms,
             "content_type": response.headers.get("content-type"),
             "cache_control": response.headers.get("cache-control"),
+            "data_state": response.headers.get("x-data-state"),
+            "data_as_of": response.headers.get("x-data-as-of"),
             "us_market_route": response.headers.get("x-us-market-route"),
         }
         if response.status_code >= 400:
@@ -3638,6 +3655,102 @@ def _live_checks(
                 endpoint_contract,
                 pass_message=f"{path} 읽기 전용 연동 계약을 확인했습니다.",
             )
+
+        def news_freshness_contract() -> dict[str, Any]:
+            quality, quality_meta = api.get(
+                "/meta/signal-data-quality",
+                probe="true",
+                sample_code="005930",
+            )
+            datasets = quality.get("datasets") if isinstance(quality, dict) else {}
+            news_quality = (datasets or {}).get("news") or {}
+            stock_news_quality = (datasets or {}).get("stock_news") or {}
+            _assert(
+                news_quality.get("state") == "ready"
+                and stock_news_quality.get("state") == "ready",
+                "뉴스 수집 또는 Top100 종목뉴스 스냅샷이 최신 상태가 아닙니다.",
+                news_state=news_quality.get("state"),
+                stock_news_state=stock_news_quality.get("state"),
+                **quality_meta,
+            )
+            probe_items = ((quality.get("api_probe") or {}).get("items") or [])
+            news_probe = next(
+                (
+                    item
+                    for item in probe_items
+                    if isinstance(item, dict) and item.get("key") == "news"
+                ),
+                {},
+            )
+            _assert(
+                news_probe.get("state") == "ready",
+                "네이버 현재 뉴스 JSON 원천 프로브가 ready가 아닙니다.",
+                news_probe=news_probe,
+            )
+
+            general_items, general_meta = api.get("/news-items", limit=5)
+            stock_items, stock_meta = api.get("/stocks/005930/news-items", limit=5)
+            _assert(
+                isinstance(general_items, list)
+                and general_items
+                and isinstance(stock_items, list)
+                and stock_items,
+                "전역 또는 삼성전자 최신 뉴스가 비어 있습니다.",
+                general_count=len(general_items) if isinstance(general_items, list) else None,
+                stock_count=len(stock_items) if isinstance(stock_items, list) else None,
+            )
+            _assert(
+                general_meta.get("cache_control")
+                == "no-store, no-cache, must-revalidate"
+                and stock_meta.get("cache_control")
+                == "no-store, no-cache, must-revalidate"
+                and stock_meta.get("data_state") == "ready",
+                "뉴스 API의 no-store 또는 신선도 헤더 계약이 잘못됐습니다.",
+                general=general_meta,
+                stock=stock_meta,
+            )
+
+            cutoff = datetime.now(KST).replace(tzinfo=None) - timedelta(days=3)
+            stale_items: list[dict[str, Any]] = []
+            for scope, items in (("general", general_items), ("stock", stock_items)):
+                for item in items:
+                    try:
+                        published_at = datetime.fromisoformat(
+                            str(item.get("published_at") or "").replace("Z", "+00:00")
+                        )
+                        if published_at.tzinfo is not None:
+                            published_at = published_at.astimezone(KST).replace(tzinfo=None)
+                    except (AttributeError, ValueError):
+                        published_at = None
+                    if published_at is None or published_at < cutoff:
+                        stale_items.append(
+                            {
+                                "scope": scope,
+                                "title": str(item.get("title") or "")[:100],
+                                "published_at": item.get("published_at"),
+                            }
+                        )
+            _assert(
+                not stale_items,
+                "최신 뉴스 API에 3일을 넘긴 기사가 포함됐습니다.",
+                stale_items=stale_items,
+            )
+            return {
+                "quality": quality_meta,
+                "news_state": news_quality.get("state"),
+                "stock_news_state": stock_news_quality.get("state"),
+                "news_probe": news_probe,
+                "general": general_meta,
+                "stock": stock_meta,
+                "general_count": len(general_items),
+                "stock_count": len(stock_items),
+            }
+
+        collector.check(
+            "DATA-CALENDAR-CONTENT-007",
+            news_freshness_contract,
+            pass_message="현재 뉴스 원천·Top100 커버리지·API 신선도를 확인했습니다.",
+        )
 
         def us_contract() -> dict[str, Any]:
             payload, meta = api.get("/us/stocks/AAPL/dashboard")

@@ -354,7 +354,14 @@ def collect_stock_news_snapshots(
             f"target={len(codes)} refreshed={rows_loaded} skipped={len(fresh_codes)} "
             f"items={news_items} empty={empty_snapshots} failed={len(failures)}"
         )
-        finish_ingestion(db, run, "success", rows_loaded, message)
+        status = (
+            "failed"
+            if pending_codes and len(failures) == len(pending_codes)
+            else "partial"
+            if failures
+            else "success"
+        )
+        finish_ingestion(db, run, status, rows_loaded, message)
         return {
             "target": len(codes),
             "rows_loaded": rows_loaded,

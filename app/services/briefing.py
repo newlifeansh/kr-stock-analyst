@@ -74,6 +74,7 @@ KST = ZoneInfo("Asia/Seoul")
 SECONDS_PER_DAY = 86_400
 FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT = 100
 FUNDAMENTAL_SNAPSHOT_RETRY_SECONDS = 3_600
+STOCK_NEWS_SNAPSHOT_RETRY_SECONDS = 900
 
 
 def _has_complete_price_ohlc(row: DailyPrice) -> bool:
@@ -125,6 +126,9 @@ class BriefingRuntime:
         self.next_fundamental_snapshot_retry_at: Optional[datetime] = None
         self.last_stock_news_snapshot_at: Optional[datetime] = None
         self.last_stock_news_snapshot_message: Optional[str] = None
+        self.last_stock_news_snapshot_state = "idle"
+        self.last_stock_news_snapshot_failed = 0
+        self.next_stock_news_snapshot_retry_at: Optional[datetime] = None
         self.last_stock_company_snapshot_at: Optional[datetime] = None
         self.last_stock_company_snapshot_message: Optional[str] = None
         self.last_macro_at: Optional[datetime] = None
@@ -434,6 +438,7 @@ class BriefingRuntime:
                     else:
                         self.last_fundamental_snapshot_state = "ready"
                         self.next_fundamental_snapshot_retry_at = None
+                        self.source_errors.pop("fundamental_snapshot", None)
                 except Exception as exc:
                     failed_at = datetime.utcnow()
                     self.last_fundamental_snapshot_at = failed_at
@@ -452,8 +457,36 @@ class BriefingRuntime:
                     if stock_news_result["rows_loaded"]:
                         refreshed_any = True
                     self.last_stock_news_snapshot_message = str(stock_news_result["message"])
-                    self.last_stock_news_snapshot_at = datetime.utcnow()
+                    completed_at = datetime.utcnow()
+                    failed = int(stock_news_result.get("failed") or 0)
+                    self.last_stock_news_snapshot_at = completed_at
+                    self.last_stock_news_snapshot_failed = failed
+                    if failed:
+                        self.last_stock_news_snapshot_state = "degraded"
+                        self.next_stock_news_snapshot_retry_at = completed_at + timedelta(
+                            seconds=min(
+                                STOCK_NEWS_SNAPSHOT_RETRY_SECONDS,
+                                max(1, int(self.settings.stock_news_snapshot_poll_seconds)),
+                            )
+                        )
+                        self.source_errors["stock_news_snapshot"] = (
+                            f"failed={failed}; "
+                            f"retry_at={self.next_stock_news_snapshot_retry_at.isoformat()}"
+                        )
+                    else:
+                        self.last_stock_news_snapshot_state = "ready"
+                        self.next_stock_news_snapshot_retry_at = None
+                        self.source_errors.pop("stock_news_snapshot", None)
                 except Exception as exc:
+                    failed_at = datetime.utcnow()
+                    self.last_stock_news_snapshot_at = failed_at
+                    self.last_stock_news_snapshot_state = "error"
+                    self.next_stock_news_snapshot_retry_at = failed_at + timedelta(
+                        seconds=min(
+                            STOCK_NEWS_SNAPSHOT_RETRY_SECONDS,
+                            max(1, int(self.settings.stock_news_snapshot_poll_seconds)),
+                        )
+                    )
                     self.source_errors["stock_news_snapshot"] = str(exc)
             if self.settings.stock_company_snapshot_enabled and self._stock_company_snapshot_due():
                 try:
@@ -578,9 +611,12 @@ class BriefingRuntime:
         return max(0, freshness_days - poll_days)
 
     def _stock_news_snapshot_due(self) -> bool:
+        now = datetime.utcnow()
+        if self.next_stock_news_snapshot_retry_at is not None:
+            return now >= self.next_stock_news_snapshot_retry_at
         if self.last_stock_news_snapshot_at is None:
             return True
-        elapsed = (datetime.utcnow() - self.last_stock_news_snapshot_at).total_seconds()
+        elapsed = (now - self.last_stock_news_snapshot_at).total_seconds()
         return elapsed >= self.settings.stock_news_snapshot_poll_seconds
 
     def _stock_company_snapshot_due(self) -> bool:
@@ -1341,6 +1377,9 @@ class BriefingRuntime:
             "next_fundamental_snapshot_retry_at": self.next_fundamental_snapshot_retry_at,
             "last_stock_news_snapshot_at": self.last_stock_news_snapshot_at,
             "last_stock_news_snapshot_message": self.last_stock_news_snapshot_message,
+            "last_stock_news_snapshot_state": self.last_stock_news_snapshot_state,
+            "last_stock_news_snapshot_failed": self.last_stock_news_snapshot_failed,
+            "next_stock_news_snapshot_retry_at": self.next_stock_news_snapshot_retry_at,
             "last_stock_company_snapshot_at": self.last_stock_company_snapshot_at,
             "last_stock_company_snapshot_message": self.last_stock_company_snapshot_message,
             "last_macro_at": self.last_macro_at,
