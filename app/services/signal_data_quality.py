@@ -18,10 +18,12 @@ from app.models import (
     IngestionRun,
     InvestorFlow,
     MacroObservation,
+    NewsItem,
     QuantSignalEvidenceSnapshot,
     ResearchReport,
     StockFundamentalSnapshot,
     StockMaster,
+    StockNewsSnapshot,
 )
 from app.services.market_calendar import (
     latest_completed_korea_market_session_date,
@@ -31,7 +33,11 @@ from app.services.signal_entry_evidence import (
     ENTRY_EVIDENCE_EFFECTIVE_DATE,
     ENTRY_EVIDENCE_STRATEGY_VERSION,
 )
-from app.services.quant_signals import STRATEGY_VERSION
+from app.services.quant_signals import (
+    EXECUTION_MODEL,
+    INTRADAY_EXECUTION_EFFECTIVE_DATE,
+    STRATEGY_VERSION,
+)
 
 
 KST = ZoneInfo("Asia/Seoul")
@@ -82,6 +88,24 @@ def _latest_ingestion(
     )
 
 
+def _latest_ingestion_attempt(
+    db: Session,
+    *,
+    source: str,
+    datasets: tuple[str, ...],
+) -> Optional[IngestionRun]:
+    return db.scalar(
+        select(IngestionRun)
+        .where(
+            IngestionRun.source == source,
+            IngestionRun.dataset.in_(datasets),
+            IngestionRun.finished_at.is_not(None),
+        )
+        .order_by(desc(IngestionRun.finished_at), desc(IngestionRun.id))
+        .limit(1)
+    )
+
+
 def _run_freshness(
     db: Session,
     *,
@@ -89,18 +113,36 @@ def _run_freshness(
     datasets: tuple[str, ...],
     now: datetime,
     max_age_seconds: int,
+    require_rows: bool = False,
 ) -> dict[str, Any]:
     run = _latest_ingestion(db, source=source, datasets=datasets)
+    attempt = _latest_ingestion_attempt(db, source=source, datasets=datasets)
     age_seconds = (
         max(0.0, (_utc_naive(now) - run.finished_at).total_seconds())
         if run and run.finished_at
         else None
     )
+    row_requirement_met = bool(run and (not require_rows or int(run.rows_loaded or 0) > 0))
+    latest_attempt_failed = bool(
+        attempt
+        and attempt.status != "success"
+        and (
+            run is None
+            or (attempt.finished_at or datetime.min) >= (run.finished_at or datetime.min)
+        )
+    )
     state = (
         "ready"
-        if age_seconds is not None and age_seconds <= max_age_seconds
+        if (
+            age_seconds is not None
+            and age_seconds <= max_age_seconds
+            and row_requirement_met
+            and not latest_attempt_failed
+        )
+        else "caution"
+        if latest_attempt_failed and attempt and attempt.status == "partial"
         else "stale"
-        if run
+        if run or attempt
         else "unavailable"
     )
     return {
@@ -110,6 +152,10 @@ def _run_freshness(
         "last_success_at": run.finished_at if run else None,
         "age_seconds": round(age_seconds) if age_seconds is not None else None,
         "rows_loaded": int(run.rows_loaded or 0) if run else 0,
+        "row_requirement_met": row_requirement_met,
+        "last_attempt_at": attempt.finished_at if attempt else None,
+        "last_attempt_status": attempt.status if attempt else None,
+        "last_attempt_message": attempt.message if attempt else None,
         "message": run.message if run else "성공한 수집 이력이 없습니다.",
     }
 
@@ -335,6 +381,41 @@ def signal_data_quality_status(
         now=current,
         max_age_seconds=max(1200, int(settings.disclosure_poll_seconds) * 3),
     )
+    news_api = _run_freshness(
+        db,
+        source="news",
+        datasets=("naver_finance",),
+        now=current,
+        max_age_seconds=max(1800, int(settings.news_poll_seconds) * 3),
+        require_rows=True,
+    )
+    stock_news_max_age_seconds = max(
+        43_200,
+        int(settings.stock_news_snapshot_poll_seconds) * 2,
+    )
+    stock_news_cutoff = _utc_naive(current) - timedelta(seconds=stock_news_max_age_seconds)
+    stock_news_ready = (
+        int(
+            db.scalar(
+                select(func.count(distinct(StockNewsSnapshot.stock_code))).where(
+                    StockNewsSnapshot.stock_code.in_(tuple(top_codes)),
+                    StockNewsSnapshot.fetched_at >= stock_news_cutoff,
+                )
+            )
+            or 0
+        )
+        if top_codes
+        else 0
+    )
+    stock_news_rate = _ratio(stock_news_ready, top_total)
+    stock_news_api = _run_freshness(
+        db,
+        source="naver_finance",
+        datasets=("stock_news_snapshot",),
+        now=current,
+        max_age_seconds=stock_news_max_age_seconds,
+        require_rows=True,
+    )
 
     index_latest_rows = db.execute(
         select(MacroObservation.series_code, func.max(MacroObservation.period))
@@ -542,6 +623,23 @@ def signal_data_quality_status(
             "state": disclosure_api["state"],
             "api": disclosure_api,
         },
+        "news": {
+            "state": news_api["state"],
+            "api": news_api,
+            "latest_published_at": db.scalar(select(func.max(NewsItem.published_at))),
+        },
+        "stock_news": {
+            "state": (
+                stock_news_api["state"]
+                if stock_news_api["state"] != "ready"
+                else _state_for_coverage(stock_news_rate)
+            ),
+            "fresh_after": stock_news_cutoff,
+            "covered": stock_news_ready,
+            "total": top_total,
+            "coverage_rate": stock_news_rate,
+            "api": stock_news_api,
+        },
         "entry_evidence_snapshot": {
             "state": evidence_state,
             "signal_date": evidence_target,
@@ -560,6 +658,10 @@ def signal_data_quality_status(
     ]
     if evidence_state != "not_applicable":
         critical_states.append(evidence_state)
+    if settings.news_enabled:
+        critical_states.append(datasets["news"]["state"])
+    if settings.stock_news_snapshot_enabled:
+        critical_states.append(datasets["stock_news"]["state"])
     coherence_ok = (
         not any(signal_window_orphan_counts.values())
         and not any(future_counts.values())
@@ -573,6 +675,8 @@ def signal_data_quality_status(
     return {
         "status": status,
         "strategy_version": STRATEGY_VERSION,
+        "execution_model": EXECUTION_MODEL,
+        "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
         "as_of": current,
         "universe": {
             "basis": "point-in-time market-cap top 100",
@@ -686,6 +790,18 @@ def probe_signal_source_apis(
         payload = response.json()
         return bool(((payload.get("chart") or {}).get("result") or []))
 
+    def news_has_rows(response: requests.Response) -> bool:
+        payload = response.json()
+        return bool(
+            isinstance(payload, dict)
+            and payload.get("isSuccess") is True
+            and isinstance(payload.get("result"), list)
+            and payload["result"]
+            and isinstance(payload["result"][0], dict)
+            and str(payload["result"][0].get("articleId") or "").strip()
+            and str(payload["result"][0].get("datetime") or "").strip()
+        )
+
     probes: list[tuple[str, str, str, dict[str, object], Callable[[requests.Response], bool]]] = [
         (
             "price",
@@ -714,6 +830,13 @@ def probe_signal_source_apis(
             "https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11",
             {"range": "5d", "interval": "1d"},
             yahoo_has_rows,
+        ),
+        (
+            "news",
+            "Naver mobile Finance news API",
+            "https://m.stock.naver.com/front-api/news/stock/list",
+            {"itemCode": sample_code, "page": 1, "pageSize": 3},
+            news_has_rows,
         ),
     ]
     if settings.dart_api_key:

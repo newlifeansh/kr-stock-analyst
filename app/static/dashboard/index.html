@@ -1259,6 +1259,16 @@
           <button class="active" id="ai-signal-mode-current" type="button" role="tab" aria-selected="true" aria-controls="ai-signals-page-list" data-ai-signal-mode="current">현재 신호 <span>0</span></button>
           <button id="ai-signal-mode-history" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-mode="history">해제 이력 <span>0</span></button>
         </nav>
+        <article class="ai-signal-performance" id="ai-signal-performance" aria-labelledby="ai-signal-performance-title" hidden>
+          <header class="ai-signal-performance-header">
+            <p>실현 성과</p>
+            <h2 id="ai-signal-performance-title">최근 시그널 결과</h2>
+            <time id="ai-signal-performance-asof"></time>
+          </header>
+          <p class="ai-signal-performance-lead" id="ai-signal-performance-lead"></p>
+          <div class="ai-signal-performance-rows" id="ai-signal-performance-rows"></div>
+          <p class="ai-signal-performance-note" id="ai-signal-performance-note"></p>
+        </article>
         <nav class="ai-signal-stage-tabs" id="ai-signal-stage-tabs" role="tablist" aria-label="AI 시그널 상태" aria-orientation="horizontal">
           <button class="active" id="ai-signal-stage-all" type="button" role="tab" aria-selected="true" aria-controls="ai-signals-page-list" data-ai-signal-stage="all">전체 <span>0</span></button>
           <button id="ai-signal-stage-buy-holding" type="button" role="tab" aria-selected="false" aria-controls="ai-signals-page-list" tabindex="-1" data-ai-signal-stage="buy-holding">확정 매수·보유 <span>0</span></button>

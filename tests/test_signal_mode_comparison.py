@@ -8,6 +8,7 @@ from app.services.signal_mode_comparison import (
     compare_entry_filter_backtest,
     intraday_exit_decision,
     simulate_full_intraday_ohlc_proxy,
+    simulate_v8_intraday_ohlc_proxy,
 )
 
 
@@ -117,6 +118,42 @@ def test_full_intraday_proxy_enters_at_signal_day_close(monkeypatch) -> None:
     simulate_full_intraday_ohlc_proxy(bars, indicators)
 
     assert captured_entry_prices == [100.0]
+
+
+def test_v8_proxy_enters_on_next_session_frozen_breakout(monkeypatch) -> None:
+    bars = [
+        qs.PriceBar(
+            trade_date=date(2026, 8, 1) + timedelta(days=index),
+            open=99.0,
+            high=101.0,
+            low=99.0,
+            close=100.0,
+            volume=1_000_000.0,
+            trading_value=30_000_000_000.0,
+        )
+        for index in range(70)
+    ]
+    indicators = [_indicator() for _ in bars]
+    captured_entry_prices: list[float | None] = []
+    original_new_position = mode_comparison._new_position
+
+    def capture_entry_price(*args, **kwargs):
+        captured_entry_prices.append(kwargs.get("entry_price"))
+        return original_new_position(*args, **kwargs)
+
+    monkeypatch.setattr(qs, "_entry_signal", lambda bar, indicator, **kwargs: True)
+    monkeypatch.setattr(
+        qs,
+        "_entry_setup_kind",
+        lambda bar, indicator, **kwargs: "trend_continuation",
+    )
+    monkeypatch.setattr(qs, "_signal_reason", lambda indicator, side: "test entry")
+    monkeypatch.setattr(mode_comparison, "_new_position", capture_entry_price)
+
+    result = simulate_v8_intraday_ohlc_proxy(bars, indicators)
+
+    assert captured_entry_prices == [100.0]
+    assert result["mode"] == qs.EXECUTION_MODEL
 
 
 def test_entry_filter_shadow_replay_keeps_h2_h3_out_of_active_state():

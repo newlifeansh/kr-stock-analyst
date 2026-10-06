@@ -317,6 +317,7 @@ function isCurrentAiSignalHolding(item) {{ return item?.current?.position_open =
 function marketScopeForItem() {{ return "kr"; }}
 function aiSignalSnapshotSignature() {{ return "kr-snapshot"; }}
 function renderAiSignalLiveStatus() {{ renders += 1; }}
+function renderAiSignalPerformance() {{}}
 {snapshot_source}
 const holding = {{ code: "005930", name: "삼성전자", current: {{ position_open: true }} }};
 const newerTokenAccepted = commitAiSignalSnapshot(

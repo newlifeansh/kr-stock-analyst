@@ -87,9 +87,9 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
     payload = load_qa_catalog()
     ids = [case["id"] for case in payload["cases"]]
 
-    assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
+    assert payload["strategy_version"] == "position-lifecycle-v8.0"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert len(ids) == 129
+    assert len(ids) == 134
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -113,6 +113,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "DATA-CALENDAR-CONTENT-004",
         "DATA-CALENDAR-CONTENT-005",
         "DATA-CALENDAR-CONTENT-006",
+        "DATA-CALENDAR-CONTENT-007",
         "SIG-UI-031",
         "SIG-UI-032",
         "SIG-UI-033",
@@ -121,6 +122,10 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-ENTRY-005",
         "SIG-ENTRY-006",
         "SIG-ENTRY-007",
+        "SIG-PERF-001",
+        "SIG-ENTRY-008",
+        "SIG-ENTRY-009",
+        "SIG-EXECUTION-005",
         "SIG-US-VERSION-001",
         "SIG-US-LIFECYCLE-001",
         "SIG-US-CHASE-001",
@@ -188,10 +193,10 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
 
     assert first == second
     assert "# 데이터 연동·시그널 판단 QA 카탈로그" in first
-    assert "`position-lifecycle-v7.4.2`" in first
+    assert "`position-lifecycle-v8.0`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v2-rc1`" in first
-    assert "QA 항목: 129개" in first
+    assert "QA 항목: 134개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1134,6 +1139,7 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "SIG-UI-019" in E2E_CASE_IDS
     assert "SIG-UI-020" in E2E_CASE_IDS
     assert "SIG-UI-021" in E2E_CASE_IDS
+    assert "SIG-PERF-001" in E2E_CASE_IDS
     assert "SIG-UI-023" not in E2E_CASE_IDS
     assert "SIG-UI-024" not in E2E_CASE_IDS
     assert "SIG-UI-025" not in E2E_CASE_IDS
@@ -1147,6 +1153,8 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert 'moving_end.get("originalCount") != 2' in source
     assert 'refreshed.get("originalCount") != 2' in source
     assert "def portfolio_production_screens_case" in source
+    assert "def signal_performance_overview_case" in source
+    assert 'case_id="SIG-PERF-001"' in source
     assert "feature-ai-signals-production.jpg" in source
     assert "매수 확정 종목의 전략 기준가와 수익률" in source
     assert 'page.wait_for_load_state("domcontentloaded")' in source
@@ -1429,9 +1437,9 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     by_id = {item["id"]: item for item in report["checks"]}
 
     assert report["schema_version"] == "1.0"
-    assert report["strategy_version"] == "position-lifecycle-v7.4.2"
+    assert report["strategy_version"] == "position-lifecycle-v8.0"
     assert report["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert report["catalog_case_count"] == 129
+    assert report["catalog_case_count"] == 134
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1449,6 +1457,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "DATA-COM-006",
         "DATA-COM-007",
         "DATA-DART-001",
+        "DATA-CALENDAR-CONTENT-007",
         "DATA-FUND-RESEARCH-002",
         "DATA-FUND-RESEARCH-003",
         "DATA-US-NEWS-001",
@@ -1472,6 +1481,9 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-UI-031",
         "SIG-UI-032",
         "SIG-UI-033",
+        "SIG-PERF-001",
+        "SIG-ENTRY-008",
+        "SIG-ENTRY-009",
     }
     assert set(PYTEST_QA_CASE_TESTS) == expected_case_ids
     assert all(PYTEST_QA_CASE_TESTS.values())
@@ -1596,6 +1608,8 @@ class FakeReadOnlyApi:
             "latency_ms": 1,
             "content_type": "application/json",
             "cache_control": "no-store",
+            "data_state": "ready",
+            "data_as_of": "2026-10-03T09:00:00+09:00",
         }
 
     @staticmethod
@@ -1610,9 +1624,9 @@ class FakeReadOnlyApi:
         if path == "/health":
             return {
                 "status": "ok",
-                "strategy_version": "position-lifecycle-v7.4.2",
+                "strategy_version": "position-lifecycle-v8.0",
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20260930us128",
+                "us_dashboard_version": "20261001us130",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1620,7 +1634,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20260930us128",
+                "us_dashboard_version": "20261001us130",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1634,7 +1648,7 @@ class FakeReadOnlyApi:
             }
             return {
                 "status": "degraded",
-                "strategy_version": "position-lifecycle-v7.4.2",
+                "strategy_version": "position-lifecycle-v8.0",
                 "as_of": "2026-08-29T10:00:00+09:00",
                 "datasets": {
                     "price": {**ready, "state": self.quality_price_state},
@@ -1653,6 +1667,8 @@ class FakeReadOnlyApi:
                         **ready,
                         "api": {"last_success_at": "2026-08-29T09:55:00"},
                     },
+                    "news": ready,
+                    "stock_news": ready,
                     "entry_evidence_snapshot": ready,
                 },
                 "coherence": {
@@ -1671,13 +1687,20 @@ class FakeReadOnlyApi:
                     "items": [
                         {"key": "price", "state": "ready"},
                         {"key": "disclosure", "state": "unavailable"},
+                        {"key": "news", "state": "ready"},
                     ]
                 },
             }, self._meta(path)
         if path == "/market/quant-signals":
+            filter_versions = (
+                "buy-filter-v7.4-baseline",
+                "buy-filter-h1",
+                "buy-filter-h2",
+                "buy-filter-h3",
+            )
             return {
                 "status": "ready",
-                "strategy_version": "position-lifecycle-v7.4.2",
+                "strategy_version": "position-lifecycle-v8.0",
                 "as_of": "2026-08-29T10:00:00+09:00",
                 "snapshot_generated_at": "2026-08-29T10:00:00+09:00",
                 "signal_revision": 7,
@@ -1685,6 +1708,99 @@ class FakeReadOnlyApi:
                 "signal_revision_scope": "canonical_market_feed",
                 "recent_days": 30,
                 "items": self.market_signal_items,
+                "performance_summary": {
+                    "version": "market-signal-realized-performance-v1",
+                    "as_of": "2026-08-29T10:00:00+09:00",
+                    "return_basis": "completed_trade_net_of_costs",
+                    "benchmark_basis": "same_market_same_holding_period",
+                    "windows": {
+                        "30d": {
+                            "window_days": 30,
+                            "completed_trades": 20,
+                            "wins": 12,
+                            "losses": 8,
+                            "breakeven": 0,
+                            "win_rate": 60.0,
+                            "average_return": 1.25,
+                            "median_return": 0.8,
+                            "matched_benchmark_trades": 20,
+                            "average_benchmark_return": 0.4,
+                            "average_excess_return": 0.85,
+                            "sample_state": "sufficient",
+                            "minimum_required_trades": 20,
+                        },
+                        "90d": {
+                            "window_days": 90,
+                            "completed_trades": 30,
+                            "wins": 18,
+                            "losses": 12,
+                            "breakeven": 0,
+                            "win_rate": 60.0,
+                            "average_return": 1.5,
+                            "median_return": 1.0,
+                            "matched_benchmark_trades": 29,
+                            "average_benchmark_return": 0.5,
+                            "average_excess_return": 1.0,
+                            "sample_state": "sufficient",
+                            "minimum_required_trades": 20,
+                        },
+                    },
+                },
+                "entry_safety_guard": {
+                    "version": "market-signal-entry-safety-v1",
+                    "active": False,
+                    "state": "inactive",
+                    "effective_on": None,
+                    "window_days": 30,
+                    "minimum_required_trades": 20,
+                    "completed_trades": 20,
+                    "average_return": 1.25,
+                    "decisions": [],
+                },
+                "filter_forward_comparison": {
+                    "version": "entry-filter-fixed-cohort-forward-v1",
+                    "cohort_market_cap_date": "2026-09-02",
+                    "period_start": "2026-09-04",
+                    "period_end": "2026-09-28",
+                    "execution_model": "close-confirmed-intraday-trigger-v1",
+                    "filters": {
+                        version: {
+                            "symbols": 100,
+                            "completed_trades": 12,
+                            "win_rate": 58.33,
+                            "average_trade_return": 0.5,
+                            "average_max_drawdown": -0.2,
+                        }
+                        for version in filter_versions
+                    },
+                    "rolling_last_trades": {
+                        version: {
+                            "requested_trades": 20,
+                            "completed_trades": 12,
+                            "win_rate": 58.33,
+                            "average_trade_return": 0.5,
+                        }
+                        for version in filter_versions
+                    },
+                    "promotion_assessment": {
+                        "candidate": "buy-filter-h3",
+                        "current_active": "buy-filter-h1",
+                        "status": "shadow_collecting",
+                        "eligible_for_operator_review": False,
+                        "automatic_promotion": False,
+                        "operator_approval_required": True,
+                        "minimum_forward_trades": 40,
+                        "minimum_recent_trades": 20,
+                        "checks": {
+                            "minimum_forward_trades": False,
+                            "minimum_recent_trades": False,
+                            "positive_recent_expectancy": True,
+                            "recent_expectancy_not_below_h1": True,
+                            "forward_expectancy_not_below_h1": True,
+                            "drawdown_not_worse_than_h1": True,
+                        },
+                    },
+                },
             }, self._meta(path)
         if path == "/market/recommendations":
             return {
@@ -1711,7 +1827,7 @@ class FakeReadOnlyApi:
                 "stateful_lifecycle_replay_complete": True,
                 "stateful_lifecycle_replay_eligible_count": 98,
                 "stateful_lifecycle_replay_completed_count": 98,
-                "sector_classification_version": "us-sector-etf-cik-v6",
+                "sector_classification_version": "us-sector-etf-cik-v7",
                 "sector_classification_error_count": 0,
                 "confirmed_count": 0,
                 "preliminary_count": 0,
@@ -1754,7 +1870,7 @@ class FakeReadOnlyApi:
                 "data_state": "ready",
                 "strategy_version": "position-lifecycle-us-v2-rc1",
                 "baseline_strategy_version": "us-momentum-watch-v1",
-                "sector_classification_version": "us-sector-etf-cik-v6",
+                "sector_classification_version": "us-sector-etf-cik-v7",
                 "rollout_mode": "model_replay",
                 "execution_enabled": False,
                 "stateful_lifecycle_replay_enabled": True,
@@ -1938,7 +2054,7 @@ class FakeReadOnlyApi:
             }, self._meta(path)
         if path == "/stocks/005930/quant-signals":
             return {
-                "strategy_version": "position-lifecycle-v7.4.2",
+                "strategy_version": "position-lifecycle-v8.0",
                 "current": {"action": "hold"},
                 "as_of": "2026-08-29T10:00:00+09:00",
             }, self._meta(path)
@@ -2001,6 +2117,22 @@ class FakeReadOnlyApi:
                 ],
                 "status": "ready",
             }, self._meta(path)
+        if path in {"/news-items", "/stocks/005930/news-items"}:
+            meta = {
+                **self._meta(path),
+                "cache_control": "no-store, no-cache, must-revalidate",
+            }
+            if path.endswith("/news-items") and path.startswith("/stocks/"):
+                meta["data_state"] = "ready"
+                meta["data_as_of"] = datetime.now(UTC).isoformat()
+            return [
+                {
+                    "source": "naver_finance",
+                    "external_id": "015:fixture",
+                    "title": "최신 반도체 뉴스",
+                    "published_at": datetime.now(UTC).isoformat(),
+                }
+            ], meta
         if path == "/us.webmanifest":
             return {
                 "name": "비밀노트 미국증시",
@@ -2008,7 +2140,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20260930us128"}, self._meta(path)
+            return {"version": "20261001us130"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2055,11 +2187,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20260930us128" />'
+                '<link href="/assets/dashboard/styles.css?v=20261001us130" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20260930us128"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261001us130"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2099,11 +2231,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20260930v556" />'
+            '<link href="/assets/dashboard/styles.css?v=20261001v558" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20260930v556"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261001v558"></script>'
             '</body></html>',
             self._meta(path),
         )
@@ -2460,6 +2592,22 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     assert watch_map_evidence["intraday"]["overseas"]["reference_price"] == pytest.approx(170.25)
     assert by_id["SIG-UI-026"]["status"] == "pass"
     assert by_id["SIG-UI-026"]["evidence"]["item_count"] == 1
+    assert by_id["SIG-PERF-001"]["status"] == "pass"
+    assert by_id["SIG-PERF-001"]["evidence"]["windows"]["30d"] == {
+        "completed_trades": 20,
+        "win_rate": 60.0,
+        "average_return": 1.25,
+        "median_return": 0.8,
+        "matched_benchmark_trades": 20,
+        "average_excess_return": 0.85,
+        "sample_state": "sufficient",
+    }
+    assert by_id["SIG-ENTRY-008"]["status"] == "pass"
+    assert by_id["SIG-ENTRY-008"]["evidence"]["active"] is False
+    assert by_id["SIG-ENTRY-009"]["status"] == "pass"
+    assert by_id["SIG-ENTRY-009"]["evidence"]["promotion_assessment"][
+        "automatic_promotion"
+    ] is False
     assert report["market_state"] == "closed"
     assert report["deployment_blocked"] is False
 

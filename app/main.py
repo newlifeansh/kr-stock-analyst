@@ -173,6 +173,8 @@ from app.services.recommendations import build_recommendations
 from app.services.stock_ai_analysis import build_stock_ai_analysis
 from app.services.local_stock_ai import enrich_stock_ai_analysis
 from app.services.quant_signals import (
+    EXECUTION_MODEL,
+    INTRADAY_EXECUTION_EFFECTIVE_DATE,
     MARKET_SIGNAL_UNIVERSE_LIMIT,
     MIN_BACKTEST_HISTORY_ROWS,
     STRATEGY_VERSION,
@@ -198,7 +200,10 @@ from app.services.public_signal import (
     public_recommendation_signal_payload,
     public_stock_ai_analysis_payload,
 )
-from app.services.entry_filter_backtest import refresh_entry_filter_shadow_snapshot
+from app.services.entry_filter_backtest import (
+    load_entry_filter_shadow_snapshot,
+    refresh_entry_filter_shadow_snapshot,
+)
 from app.services.signal_reconciliations import (
     apply_market_signal_reconciliations,
     apply_stock_signal_reconciliations,
@@ -213,6 +218,7 @@ from app.services.stock_dashboard import (
     build_stock_dashboard,
     ensure_stock_price_history,
     stock_news_item_payloads,
+    stock_news_snapshot_metadata,
 )
 from app.services.complete_snapshots import (
     SnapshotPublishConflictError,
@@ -283,7 +289,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260930v556"
+DASHBOARD_CLIENT_VERSION = "20261001v558"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -291,7 +297,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260930us128"
+US_DASHBOARD_CLIENT_VERSION = "20261001us130"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -1174,6 +1180,21 @@ async def _run_entry_filter_shadow_backtest_loop() -> None:
         await asyncio.sleep(300)
 
 
+def _attach_entry_filter_forward_comparison(
+    db: Session,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    shadow_report = load_entry_filter_shadow_snapshot(db)
+    comparison = (
+        shadow_report.get("forward_comparison")
+        if isinstance(shadow_report, dict)
+        else None
+    )
+    if isinstance(comparison, dict):
+        payload["filter_forward_comparison"] = comparison
+    return payload
+
+
 def _build_market_quant_signal_payload(
     db: Session,
     *,
@@ -1200,7 +1221,9 @@ def _build_market_quant_signal_payload(
             recent_days=recent_days,
             now=current_time,
             live_quotes=_market_quant_signal_live_quotes(db, universe_limit, current_time),
+            persist_entry_safety_guard=True,
         )
+    payload = _attach_entry_filter_forward_comparison(db, payload)
     payload = apply_market_signal_reconciliations(payload, now=current_time) or payload
     return enrich_market_quant_signal_sectors(db, payload)
 
@@ -3065,6 +3088,8 @@ def health() -> dict[str, object]:
         "status": "ok",
         "app": settings.app_name,
         "strategy_version": STRATEGY_VERSION,
+        "execution_model": EXECUTION_MODEL,
+        "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
         "us_strategy_version": US_STRATEGY_VERSION,
         "dashboard_version": DASHBOARD_CLIENT_VERSION,
         "us_dashboard_version": US_DASHBOARD_CLIENT_VERSION,
@@ -3084,6 +3109,8 @@ def readyz() -> dict[str, object]:
         "app": settings.app_name,
         "database_ok": True,
         "strategy_version": STRATEGY_VERSION,
+        "execution_model": EXECUTION_MODEL,
+        "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
         "us_strategy_version": US_STRATEGY_VERSION,
         "dashboard_version": DASHBOARD_CLIENT_VERSION,
         "us_dashboard_version": US_DASHBOARD_CLIENT_VERSION,
@@ -3873,6 +3900,8 @@ def get_market_quant_signals(
         payload = {
             "status": "preparing",
             "strategy_version": STRATEGY_VERSION,
+            "execution_model": EXECUTION_MODEL,
+            "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
             "as_of": datetime.now(KST),
             "universe_as_of": None,
             "universe_count": 0,
@@ -3885,6 +3914,7 @@ def get_market_quant_signals(
     else:
         current_time = datetime.now(KST)
         payload = deepcopy(payload)
+        payload = _attach_entry_filter_forward_comparison(db, payload)
         freshness = _market_quant_signal_snapshot_freshness(payload, current_time)
         payload.update(freshness)
         if freshness["snapshot_state"] == "stale":
@@ -8074,12 +8104,15 @@ def stock_quant_signals(
 @app.get("/stocks/{code}/prices", response_model=list[DailyPriceOut])
 def stock_prices(
     code: str,
+    response: Response,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     limit: int = Query(default=250, ge=1, le=2000),
     db: Session = Depends(get_db),
 ):
     code = _normalize_stock_code(code)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     statement = (
         select(DailyPrice)
         .where(DailyPrice.code == code)
@@ -9024,6 +9057,7 @@ def disclosures(
 
 @app.get("/news-items", response_model=list[NewsItemOut])
 def news_items(
+    response: Response,
     limit: int = Query(default=50, ge=1, le=500),
     category: Optional[str] = None,
     press_name: Optional[str] = None,
@@ -9032,6 +9066,8 @@ def news_items(
     to_date: Optional[date] = None,
     db: Session = Depends(get_db),
 ):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     return [
         _news_item_payload(item)
         for item in latest_news_items(
@@ -9059,9 +9095,15 @@ def stock_news_items(
         stock = _ensure_stock_master_from_naver(db, code)
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
-    response.headers["Cache-Control"] = "private, max-age=120, stale-while-revalidate=120"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     response.headers["X-Stock-News-Source"] = "naver-stock-code"
-    return stock_news_item_payloads(db, stock.code, limit=limit)
+    payload = stock_news_item_payloads(db, stock.code, limit=limit)
+    freshness = stock_news_snapshot_metadata(db, stock.code)
+    response.headers["X-Data-State"] = str(freshness["state"])
+    if freshness["as_of"]:
+        response.headers["X-Data-As-Of"] = freshness["as_of"].isoformat()
+    return payload
 
 
 @app.get("/insight/feed")

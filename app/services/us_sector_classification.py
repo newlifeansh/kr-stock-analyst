@@ -11,7 +11,7 @@ fails closed for an issuer that has not yet been reviewed for this version.
 from typing import Final
 
 
-US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v6"
+US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v7"
 US_SECTOR_ETFS: Final[frozenset[str]] = frozenset(
     {"XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"}
 )
@@ -86,7 +86,7 @@ US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
         0000012927 0001551182
         """,
     ),
-    **_cik_map("XLB", "0001707925 0000811809 0001001838"),
+    **_cik_map("XLB", "0001707925 0000811809 0000863064 0001001838"),
     **_cik_map("XLU", "0000753308"),
     **_cik_map("XLRE", "0000766704"),
 }

@@ -551,6 +551,11 @@ def test_canonical_signal_response_exposes_the_same_revision_as_the_socket_frame
         "_merge_market_preliminary_notification_history",
         lambda _db, value: value,
     )
+    monkeypatch.setattr(
+        main_module,
+        "load_entry_filter_shadow_snapshot",
+        lambda _db: None,
+    )
 
     result = main_module.get_market_quant_signals(
         request=object(),
@@ -612,6 +617,11 @@ def test_nondefault_signal_response_cannot_replace_the_canonical_revision(monkey
         main_module,
         "_merge_market_preliminary_notification_history",
         lambda _db, value: value,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_entry_filter_shadow_snapshot",
+        lambda _db: None,
     )
 
     result = main_module.get_market_quant_signals(

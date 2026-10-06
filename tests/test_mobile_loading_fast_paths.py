@@ -199,34 +199,84 @@ def test_stock_news_snapshot_refreshes_by_code_and_deduplicates_in_latest_order(
         db.close()
 
 
-def test_naver_stock_news_excludes_cluster_related_rows(monkeypatch):
+def test_stock_news_does_not_replay_expired_snapshot_when_refresh_fails(monkeypatch):
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    db = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
+    db.add(
+        StockNewsSnapshot(
+            stock_code="005930",
+            source="naver_finance",
+            payload=json.dumps(
+                [
+                    {
+                        "title": "만료된 기사",
+                        "source": "테스트경제",
+                        "url": "https://n.news.naver.com/mnews/article/011/1",
+                        "published_at": "2026-09-01T09:00:00",
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+            fetched_at=datetime.utcnow() - timedelta(hours=1),
+        )
+    )
+    db.commit()
+    monkeypatch.setattr(
+        stock_dashboard,
+        "_naver_item_news",
+        lambda _code: (_ for _ in ()).throw(RuntimeError("source unavailable")),
+    )
+    try:
+        assert stock_dashboard.stock_news_item_payloads(db, "005930", limit=10) == []
+        assert stock_dashboard.stock_news_snapshot_metadata(db, "005930")["state"] == "stale"
+    finally:
+        db.close()
+
+
+def test_naver_stock_news_uses_current_mobile_json_feed(monkeypatch):
     class FakeResponse:
-        text = """
-        <table class="type5"><tbody>
-          <tr class="first relation_tit">
-            <td class="title"><a href="/item/news_read.naver?article_id=10&amp;office_id=011">종목 대표 기사</a></td>
-            <td class="info">서울경제</td><td class="date">2026.08.28 17:00</td>
-          </tr>
-          <tr class="relation_lst _clusterId01110"><td colspan="3"><table><tbody>
-            <tr><td class="title"><a href="/item/news_read.naver?article_id=11&amp;office_id=009">연관 기사</a></td>
-            <td class="info">매일경제</td><td class="date">2026.08.28 16:50</td></tr>
-          </tbody></table></td></tr>
-          <tr>
-            <td class="title"><a href="/item/news_read.naver?article_id=12&amp;office_id=018">다음 종목 기사</a></td>
-            <td class="info">이데일리</td><td class="date">2026.08.28 16:00</td>
-          </tr>
-        </tbody></table>
-        """
-        encoding = None
+        status_code = 200
 
         def raise_for_status(self):
             return None
+
+        def json(self):
+            return {
+                "isSuccess": True,
+                "result": [
+                    {
+                        "articleId": "10",
+                        "officeId": "011",
+                        "officeName": "서울경제",
+                        "titleFull": "종목 &quot;대표&quot; 기사",
+                        "body": "기사 요약",
+                        "datetime": "202608281700",
+                        "imageOriginLink": None,
+                    },
+                    {
+                        "articleId": "12",
+                        "officeId": "018",
+                        "officeName": "이데일리",
+                        "titleFull": "다음 종목 기사",
+                        "body": "",
+                        "datetime": "20260828160000",
+                        "imageOriginLink": None,
+                    },
+                ],
+            }
 
     monkeypatch.setattr(stock_dashboard.requests, "get", lambda *args, **kwargs: FakeResponse())
 
     rows = stock_dashboard._fetch_naver_item_news("373220", strict=True)
 
-    assert [row["title"] for row in rows] == ["종목 대표 기사", "다음 종목 기사"]
+    assert [row["title"] for row in rows] == ['종목 "대표" 기사', "다음 종목 기사"]
+    assert rows[0]["url"] == "https://n.news.naver.com/mnews/article/011/10"
 
 
 def test_stock_sentiment_prioritizes_fresh_code_news_over_an_older_exact_name_match(monkeypatch):

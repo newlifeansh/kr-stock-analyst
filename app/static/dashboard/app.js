@@ -344,6 +344,11 @@ const elements = {
   homeAiResponseWatchLabel: $("home-ai-response-watch-label"),
   aiSignalsBack: $("ai-signals-back"),
   aiSignalModeTabs: Array.from(document.querySelectorAll("[data-ai-signal-mode]")),
+  aiSignalPerformance: $("ai-signal-performance"),
+  aiSignalPerformanceAsOf: $("ai-signal-performance-asof"),
+  aiSignalPerformanceLead: $("ai-signal-performance-lead"),
+  aiSignalPerformanceRows: $("ai-signal-performance-rows"),
+  aiSignalPerformanceNote: $("ai-signal-performance-note"),
   aiSignalStageTabsContainer: $("ai-signal-stage-tabs"),
   aiSignalStageTabs: Array.from(document.querySelectorAll("[data-ai-signal-stage]")),
   aiSignalHistoryFilters: $("ai-signal-history-filters"),
@@ -610,6 +615,7 @@ const STOCK_DASHBOARD_WARMING_SOURCE = "stored_database_warming";
 const STOCK_DASHBOARD_WARM_RETRY_BASE_MS = 2_000;
 const HOME_MARKET_SIGNAL_RECENT_DAYS = 30;
 const AI_SIGNAL_HISTORY_DAYS = 30;
+const AI_SIGNAL_PERFORMANCE_DAYS = 90;
 const AI_SIGNAL_RECONCILE_TICK_MS = 30_000;
 const AI_SIGNAL_ACTIVE_REFRESH_MS = 2 * 60_000;
 const AI_SIGNAL_CLOSED_REFRESH_MS = 10 * 60_000;
@@ -1299,6 +1305,9 @@ const state = {
   aiSignalStage: "all",
   aiSignalHistorySide: "all",
   aiSignalItems: [],
+  aiSignalPerformanceSummary: null,
+  aiSignalFilterForwardComparison: null,
+  aiSignalEntrySafetyGuard: null,
   aiSignalMarketStatus: "loading",
   aiSignalLifecycleMode: "",
   aiSignalLoadedMarketScopes: new Set(),
@@ -15807,6 +15816,9 @@ function combineAiSignalPayloads(watchlistPayload = {}, marketPayload = {}) {
     confirmed_count: marketRefreshing ? marketItems.length : (marketPayload.confirmed_count || 0),
     preliminary_count: marketRefreshing ? 0 : (marketPayload.preliminary_count || 0),
     entry_pending_count: entryPendingItemCount(marketItems),
+    performance_summary: marketPayload.performance_summary || null,
+    filter_forward_comparison: marketPayload.filter_forward_comparison || null,
+    entry_safety_guard: marketPayload.entry_safety_guard || null,
     preliminary_history: Array.isArray(marketPayload.preliminary_history)
       ? marketPayload.preliminary_history
       : [],
@@ -16298,6 +16310,9 @@ function commitAiSignalSnapshot(items, payload = {}, options = {}) {
     (Array.isArray(items) ? items : []).map((item) => freezeAiSignalSnapshot(item)),
   );
   state.aiSignalItems = frozenItems;
+  state.aiSignalPerformanceSummary = payload.performance_summary || null;
+  state.aiSignalFilterForwardComparison = payload.filter_forward_comparison || null;
+  state.aiSignalEntrySafetyGuard = payload.entry_safety_guard || null;
   state.aiSignalMarketStatus = payload.market_status || payload.status || "ready";
   state.aiSignalLifecycleMode = payload.us_market_included === true
     ? String(payload.lifecycle_replay_version || "")
@@ -16337,6 +16352,7 @@ function commitAiSignalSnapshot(items, payload = {}, options = {}) {
   state.aiSignalRevisionRetryCount = 0;
   state.aiSignalLastStaleState = false;
   renderAiSignalLiveStatus();
+  renderAiSignalPerformance();
   return true;
 }
 
@@ -19032,12 +19048,125 @@ function setAiSignalHistorySide(sideName, options = {}) {
   }
 }
 
+function aiSignalPerformanceTone(value) {
+  const number = toNumber(value);
+  if (number === null) return "neutral";
+  return number >= 0 ? "positive" : "negative";
+}
+
+function formatAiSignalRate(value) {
+  const number = toNumber(value);
+  return number === null ? "-" : `${number.toFixed(2)}%`;
+}
+
+function renderAiSignalPerformance() {
+  if (!elements.aiSignalPerformance || !elements.aiSignalPerformanceRows) return;
+  const summary = state.aiSignalPerformanceSummary;
+  const windows = summary?.windows || {};
+  if (!summary || (isUsHubContext && state.marketScope === "us")) {
+    elements.aiSignalPerformance.hidden = true;
+    return;
+  }
+  elements.aiSignalPerformance.hidden = false;
+  if (elements.aiSignalPerformanceAsOf) {
+    const asOf = formatDate(summary.as_of);
+    elements.aiSignalPerformanceAsOf.textContent = asOf === "-" ? "집계 기준 확인 중" : `${asOf} 기준`;
+  }
+  const guard = state.aiSignalEntrySafetyGuard || {};
+  const recentAverage = toNumber(windows["30d"]?.average_return);
+  if (elements.aiSignalPerformanceLead) {
+    elements.aiSignalPerformanceLead.textContent = guard.active === true
+      ? "최근 실현 기대값이 음수라 새 매수 신호를 관찰 단계로 낮추고 있습니다. 기존 보유·매도 이력은 유지됩니다."
+      : recentAverage !== null && recentAverage < 0
+        ? "최근 실현 수익이 약해 표본과 지수 대비 성과를 함께 확인하세요."
+        : recentAverage === null
+          ? "완료 거래 표본을 수집 중입니다. 수익률은 거래비용 반영 후 같은 보유기간의 시장지수와 비교합니다."
+          : "거래비용을 반영한 완료 거래만 집계하며, 같은 보유기간의 시장지수와 비교합니다.";
+  }
+  const rows = [[30, windows["30d"]], [90, windows["90d"]]].map(([days, performanceWindow]) => {
+    const windowSummary = performanceWindow || {};
+    const completed = Number(windowSummary.completed_trades || 0);
+    const average = toNumber(windowSummary.average_return);
+    const row = el("div", "ai-signal-performance-row");
+    const heading = el("div", "ai-signal-performance-row-heading");
+    heading.append(
+      el("span", "ai-signal-performance-label", `최근 ${days}일`),
+      el(
+        "span",
+        `ai-signal-performance-status is-${windowSummary.sample_state || "limited"}`,
+        completed === 0
+          ? "집계 중"
+          : windowSummary.sample_state === "sufficient"
+            ? "표본 충족"
+            : "참고 표본",
+      ),
+    );
+    const value = el(
+      "strong",
+      `ai-signal-performance-value is-${aiSignalPerformanceTone(average)}`,
+      average === null ? "집계 중" : formatPercent(average),
+    );
+    const evidenceParts = [
+      `완료 ${formatNumber(completed)}건`,
+      `승률 ${formatAiSignalRate(windowSummary.win_rate)}`,
+      `중앙값 ${windowSummary.median_return == null ? "-" : formatPercent(windowSummary.median_return)}`,
+    ];
+    if (Number(windowSummary.matched_benchmark_trades || 0) > 0) {
+      evidenceParts.push(`지수 대비 ${formatPercent(windowSummary.average_excess_return)}`);
+    } else {
+      evidenceParts.push("지수 비교 표본 확인 중");
+    }
+    const evidence = el("p", "ai-signal-performance-evidence", evidenceParts.join(" · "));
+    row.append(heading, value, evidence);
+    return row;
+  });
+  const comparison = state.aiSignalFilterForwardComparison;
+  if (comparison?.filters) {
+    const assessment = comparison.promotion_assessment || {};
+    const filterRow = el("div", "ai-signal-performance-row ai-signal-performance-filter-row");
+    const heading = el("div", "ai-signal-performance-row-heading");
+    heading.append(
+      el("span", "ai-signal-performance-label", "동일 코호트 필터"),
+      el(
+        "span",
+        `ai-signal-performance-status is-${assessment.eligible_for_operator_review ? "sufficient" : "limited"}`,
+        assessment.eligible_for_operator_review ? "검토 가능" : "검증 중",
+      ),
+    );
+    const h3 = comparison.filters["buy-filter-h3"] || {};
+    const value = el(
+      "strong",
+      "ai-signal-performance-value is-neutral",
+      assessment.eligible_for_operator_review ? "H3 운영자 검토" : "H1 유지",
+    );
+    const filterEvidence = ["buy-filter-h1", "buy-filter-h2", "buy-filter-h3"]
+      .map((version, index) => {
+        const data = comparison.filters[version] || {};
+        return `H${index + 1} ${data.average_trade_return == null ? "-" : formatPercent(data.average_trade_return)}`;
+      });
+    filterEvidence.push(`H3 완료 ${formatNumber(h3.completed_trades || 0)}건`);
+    const evidence = el("p", "ai-signal-performance-evidence", filterEvidence.join(" · "));
+    filterRow.append(heading, value, evidence);
+    rows.push(filterRow);
+  }
+  elements.aiSignalPerformanceRows.replaceChildren(...rows);
+  if (elements.aiSignalPerformanceNote) {
+    elements.aiSignalPerformanceNote.textContent = "평균 수익률은 실제 주문 수익이 아닌 모델 체결 성과이며, H3는 충분한 표본과 운영자 승인 전까지 자동 승격하지 않습니다.";
+  }
+}
+
 function renderAiSignalsPage() {
   if (!elements.aiSignalsPageList) {
     return;
   }
+  renderAiSignalPerformance();
   const items = normalizedAiSignalItems(state.aiSignalItems)
-    .filter((item) => !isUsHubContext || itemMatchesMarketScope(item, state.marketScope));
+    .filter((item) => !isUsHubContext || itemMatchesMarketScope(item, state.marketScope))
+    .filter((item) => (
+      isRecentAiSignal(item)
+      || isCurrentAiSignalHolding(item)
+      || (isPreliminaryAiSignal(item) && item.preliminary_active !== false)
+    ));
   const modeCounts = aiSignalModeCounts(items);
   for (const tab of elements.aiSignalModeTabs) {
     const countNode = tab.querySelector("span");
@@ -19139,6 +19268,7 @@ async function loadAiSignalsPage(options = {}) {
   try {
     const payload = await fetchCombinedAiSignals({
       ...options,
+      recentDays: AI_SIGNAL_PERFORMANCE_DAYS,
       requireCompleteMarkets: isUsHubContext,
     });
     if (requestSequence !== state.aiSignalLoadSequence || state.view !== "ai-signals") return false;
@@ -19250,6 +19380,7 @@ async function fetchMarketAiSignals(options = {}) {
     .filter(Boolean);
   const complete = requestedScopes.every((scope) => readyScopes.includes(scope));
   const usPayload = payloads.find((payload) => payload.market_scope === "us") || null;
+  const krPayload = payloads.find((payload) => payload.market_scope === "kr") || null;
   const rawItems = payloads.flatMap((payload) => payload.items || []);
   const rawPreliminaryHistory = payloads.flatMap((payload) => payload.preliminary_history || []);
   const canComposeUs = complete
@@ -19284,6 +19415,9 @@ async function fetchMarketAiSignals(options = {}) {
     confirmed_count: payloads.reduce((sum, payload) => sum + (Number(payload.confirmed_count) || 0), 0),
     preliminary_count: payloads.reduce((sum, payload) => sum + (Number(payload.preliminary_count) || 0), 0),
     entry_pending_count: entryPendingItemCount(items),
+    performance_summary: krPayload?.performance_summary || null,
+    filter_forward_comparison: krPayload?.filter_forward_comparison || null,
+    entry_safety_guard: krPayload?.entry_safety_guard || null,
     items,
     preliminary_history: preliminaryHistory,
   };
@@ -27897,7 +28031,7 @@ function renderRecommendationDetail(
     : signalStage.key === "buy_wait"
       ? isUsItem
         ? "예비 조건이 포착됐으며 다음 정규장 시가의 갭 위험을 다시 확인합니다."
-        : "종가 조건이 확정돼 다음 시가 체결을 기다립니다."
+        : "종가 조건이 확정돼 다음 정규장 장중 돌파를 기다립니다."
       : signalStage.key === "holding"
         ? "현재 보유 상태이므로 새 매수보다 보유·매도 조건을 확인합니다."
         : signalStage.key === "sell_wait"

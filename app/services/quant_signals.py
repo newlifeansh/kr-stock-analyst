@@ -6,6 +6,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 import json
 from math import isfinite, sqrt
+from statistics import median
 from typing import Any, Optional
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -19,6 +20,7 @@ from app.models import (
     DailyPrice,
     DisclosureItem,
     InvestorFlow,
+    MacroObservation,
     MarketQuantSignalSnapshot,
     NewsItem,
     ResearchReport,
@@ -59,13 +61,12 @@ V7_1_STRATEGY_VERSION = "position-lifecycle-v7.1"
 V7_3_STRATEGY_VERSION = "position-lifecycle-v7.3"
 V7_4_STRATEGY_VERSION = "position-lifecycle-v7.4"
 V7_4_1_STRATEGY_VERSION = "position-lifecycle-v7.4.1"
-STRATEGY_VERSION = "position-lifecycle-v7.4.2"
-# The released v7.4.2 line remains the comparison baseline until the H1
-# candidate is explicitly promoted.  Keeping the candidate separate makes
-# the released baseline and the new entry gate independently reproducible.
+V7_4_2_STRATEGY_VERSION = "position-lifecycle-v7.4.2"
 V7_5_RC3_CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc3"
-CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc4"
-STRATEGY_NAME = "독립 근거 확인·조기 추세 포착·단기 전술형 수익확정 전략"
+V7_5_RC4_CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc4"
+STRATEGY_VERSION = "position-lifecycle-v8.0"
+CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v8.1-rc1"
+STRATEGY_NAME = "독립 근거 확인·장중 돌파 진입·장중 위험관리 전략"
 MIN_HISTORY_ROWS = 125
 WARMUP_ROWS = 65
 BACKTEST_ROWS = 252
@@ -104,6 +105,8 @@ REENTRY_RETEST_EMA20_BUFFER = 0.02
 # EMA20 retest-and-recovery. The independent chase guard above is evaluated
 # first, so removing elapsed-time waiting does not permit late entries.
 REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE = date(2026, 9, 9)
+INTRADAY_EXECUTION_EFFECTIVE_DATE = date(2026, 10, 3)
+EXECUTION_MODEL = "close-confirmed-intraday-trigger-v1"
 MAX_ENTRY_GAP_ATR = 1.5
 MAX_ENTRY_GAP_PERCENT = 0.05
 MIN_AVERAGE_TRADING_VALUE = 5_000_000_000.0
@@ -164,18 +167,32 @@ STRATEGY_VERSION_HISTORY = (
         "scope": "v7.4.1 baseline + buy-filter-h1",
     },
     {
-        "version": STRATEGY_VERSION,
+        "version": V7_4_2_STRATEGY_VERSION,
         "effective_from": "2026-09-09",
-        "effective_to": None,
-        "status": "baseline",
+        "effective_to": "2026-10-02",
+        "status": "historical",
         "scope": "v7.4.1 추격매수 veto + 고정 유예 없는 이벤트 기반 재진입",
     },
     {
-        "version": CANDIDATE_STRATEGY_VERSION,
+        "version": V7_5_RC4_CANDIDATE_STRATEGY_VERSION,
         "effective_from": "2026-09-09",
+        "effective_to": "2026-10-02",
+        "status": "historical_candidate",
+        "scope": "v7.4.2 baseline + buy-filter-h1; promotion pending",
+    },
+    {
+        "version": STRATEGY_VERSION,
+        "effective_from": INTRADAY_EXECUTION_EFFECTIVE_DATE.isoformat(),
+        "effective_to": None,
+        "status": "baseline",
+        "scope": "종가 확인 후 다음 KRX 세션 장중 돌파 매수·손절·+3%/+5% 장중 매도",
+    },
+    {
+        "version": CANDIDATE_STRATEGY_VERSION,
+        "effective_from": INTRADAY_EXECUTION_EFFECTIVE_DATE.isoformat(),
         "effective_to": None,
         "status": "candidate",
-        "scope": "v7.4.2 baseline + buy-filter-h1; promotion pending",
+        "scope": "v8.0 장중 체결 baseline + H2·H3 진입필터 shadow",
     },
 )
 EXIT_SCORE = 42.0
@@ -238,8 +255,13 @@ MARKET_SIGNAL_EXTENDED_EFFECTIVE_DATE = date(2026, 8, 27)
 # silently discard events that are also eligible for push notifications.
 MARKET_SIGNAL_FEED_LIMIT = 0
 MARKET_SIGNAL_RECENT_DAYS = 30
-MARKET_SIGNAL_SNAPSHOT_VERSION = "v32"
+MARKET_SIGNAL_SNAPSHOT_VERSION = "v35"
 SNAPSHOT_MAX_FUTURE_SKEW_SECONDS = 60
+MARKET_SIGNAL_PERFORMANCE_VERSION = "market-signal-realized-performance-v1"
+ENTRY_SAFETY_GUARD_VERSION = "market-signal-entry-safety-v1"
+ENTRY_SAFETY_GUARD_CACHE_KEY = f"entry-safety-guard:{ENTRY_SAFETY_GUARD_VERSION}"
+ENTRY_SAFETY_GUARD_WINDOW_DAYS = 30
+ENTRY_SAFETY_GUARD_MIN_TRADES = MIN_COMPLETED_TRADES_FOR_SAMPLE
 
 POSITIVE_WORDS = (
     "상향",
@@ -289,6 +311,17 @@ class PriceBar:
     volume: float
     trading_value: float
     ohlc_complete: bool = True
+
+
+@dataclass(frozen=True)
+class IntradayExecutionDecision:
+    """One deterministic execution inferred from a verified KRX OHLC bar."""
+
+    side: str
+    price: float
+    reason: str
+    target_stage: Optional[int] = None
+    sell_fraction: Optional[float] = None
 
 
 def _decimal(value: Optional[float], places: str = "0.01") -> Optional[Decimal]:
@@ -436,11 +469,10 @@ def _indicator_rows(bars: list[PriceBar]) -> list[dict[str, float]]:
 def strategy_version_for_date(strategy_date: Optional[date]) -> str:
     """Return the immutable position-lifecycle version for a decision date."""
 
-    if (
-        strategy_date is None
-        or strategy_date >= REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE
-    ):
+    if strategy_date is None or strategy_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE:
         return STRATEGY_VERSION
+    if strategy_date >= REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE:
+        return V7_4_2_STRATEGY_VERSION
     if strategy_date >= CHASE_GUARD_EFFECTIVE_DATE:
         return V7_4_1_STRATEGY_VERSION
     if strategy_date >= STABLE_PROFIT_EFFECTIVE_DATE:
@@ -818,6 +850,38 @@ def _entry_execution_allowed(execution_price: float, pending: dict[str, Any]) ->
     return abs(float(execution_price) - signal_price) <= allowed_gap
 
 
+def _intraday_entry_execution_price(
+    bar: PriceBar,
+    pending: dict[str, Any],
+) -> Optional[float]:
+    """Resolve a next-session breakout fill without inventing an OHLC path.
+
+    The completed close still approves the setup and evidence.  From v8 the
+    order becomes active in the following regular KRX session and fills only
+    when that session reaches the frozen confirmation line.  A gap above the
+    line uses the actual open; an intraday touch uses the line itself.  The
+    existing gap envelope remains the final anti-chase guard.
+    """
+
+    if not bar.ohlc_complete:
+        return None
+    if bar.trade_date < INTRADAY_EXECUTION_EFFECTIVE_DATE:
+        legacy_price = float(bar.open)
+        return legacy_price if _entry_execution_allowed(legacy_price, pending) else None
+    trigger = _safe_number(pending.get("entry_trigger_price")) or _safe_number(
+        pending.get("signal_price")
+    )
+    if trigger is None:
+        return None
+    if float(bar.open) >= trigger:
+        execution_price = float(bar.open)
+    elif float(bar.high) + 1e-9 >= trigger:
+        execution_price = trigger
+    else:
+        return None
+    return execution_price if _entry_execution_allowed(execution_price, pending) else None
+
+
 def _profit_ladder_steps(
     strategy_date: Optional[date],
 ) -> tuple[tuple[float, float, float, float], ...]:
@@ -1000,6 +1064,81 @@ def _position_levels(
     }
 
 
+def _intraday_sell_price(bar: PriceBar, trigger: float, *, protective: bool) -> float:
+    """Use the open only when the session gaps through an executable level."""
+
+    if protective:
+        return float(bar.open) if float(bar.open) <= trigger else trigger
+    return float(bar.open) if float(bar.open) >= trigger else trigger
+
+
+def _intraday_exit_decisions(
+    position: dict[str, Any],
+    bar: PriceBar,
+    indicator: dict[str, float],
+) -> list[IntradayExecutionDecision]:
+    """Return conservative stop-first executions for one verified OHLC bar.
+
+    OHLC has no within-bar ordering.  If a protective floor and one or more
+    profit targets are both touched, only the adverse protective execution is
+    accepted.  Otherwise every reached +3%/+5% stage is emitted at its own
+    frozen target so a single strong session cannot silently lose a stage.
+    """
+
+    if bar.trade_date < INTRADAY_EXECUTION_EFFECTIVE_DATE or not bar.ohlc_complete:
+        return []
+    prior_peak = float(position.get("peak_price") or position["entry_price"])
+    levels = _position_levels(
+        position,
+        indicator,
+        prior_peak,
+        strategy_date=bar.trade_date,
+    )
+    hard_floor = float(levels["hard_floor"])
+    if float(bar.low) <= hard_floor:
+        return [
+            IntradayExecutionDecision(
+                side="sell",
+                price=_intraday_sell_price(bar, hard_floor, protective=True),
+                reason="장중 하드 위험선 이탈(OHLC 보수적 판정)",
+            )
+        ]
+
+    steps = _resolved_profit_ladder_steps(position, bar.trade_date)
+    current_stage = max(0, int(position.get("profit_stage") or 0))
+    current_remaining = float(position.get("remaining_fraction") or 0.0)
+    runner = _minimum_runner_fraction(bar.trade_date)
+    decisions: list[IntradayExecutionDecision] = []
+    for stage in range(current_stage + 1, len(steps) + 1):
+        trigger_r, _configured_fraction, _locked_r, _trailing_atr = steps[stage - 1]
+        target = float(position["entry_price"]) + float(position["initial_risk"]) * trigger_r
+        if float(bar.high) + 1e-9 < target:
+            break
+        intended_remaining = max(
+            runner,
+            1.0 - sum(step[1] for step in steps[:stage]),
+        )
+        sell_fraction = max(0.0, current_remaining - intended_remaining)
+        if sell_fraction <= 1e-9:
+            continue
+        side = "sell" if sell_fraction >= current_remaining - 1e-9 else "partial_sell"
+        decisions.append(
+            IntradayExecutionDecision(
+                side=side,
+                price=_intraday_sell_price(bar, target, protective=False),
+                reason=(
+                    f"장중 {stage}차 수익확정·잔여분 전량 매도(OHLC 보수적 판정)"
+                    if side == "sell"
+                    else f"장중 {stage}차 수익확정(OHLC 보수적 판정)"
+                ),
+                target_stage=stage,
+                sell_fraction=sell_fraction,
+            )
+        )
+        current_remaining = intended_remaining
+    return decisions
+
+
 def _full_exit_signal(
     bar: PriceBar,
     indicator: dict[str, float],
@@ -1176,12 +1315,104 @@ def _target_sell_delta(actual_price: Optional[float], target_price: Optional[flo
     return _price(actual_price - target_price)
 
 
+def _date_value(value: Any) -> Optional[date]:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if value:
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def entry_safety_guard_active(
+    guard: Optional[dict[str, Any]],
+    signal_date: date,
+) -> bool:
+    """Return the append-only guard decision that applied on a signal date."""
+
+    decisions = guard.get("decisions") if isinstance(guard, dict) else None
+    applicable: list[tuple[date, bool]] = []
+    for decision in decisions if isinstance(decisions, list) else []:
+        if not isinstance(decision, dict):
+            continue
+        effective_on = _date_value(decision.get("effective_on"))
+        if effective_on is not None and effective_on <= signal_date:
+            applicable.append((effective_on, bool(decision.get("active"))))
+    if applicable:
+        return sorted(applicable, key=lambda item: item[0])[-1][1]
+    effective_on = _date_value((guard or {}).get("effective_on"))
+    return bool((guard or {}).get("active")) and (
+        effective_on is None or effective_on <= signal_date
+    )
+
+
+def load_entry_safety_guard(db: Session) -> dict[str, Any]:
+    snapshot = db.get(MarketQuantSignalSnapshot, ENTRY_SAFETY_GUARD_CACHE_KEY)
+    if snapshot is None:
+        return {
+            "version": ENTRY_SAFETY_GUARD_VERSION,
+            "active": False,
+            "state": "collecting",
+            "window_days": ENTRY_SAFETY_GUARD_WINDOW_DAYS,
+            "minimum_required_trades": ENTRY_SAFETY_GUARD_MIN_TRADES,
+            "decisions": [],
+        }
+    try:
+        payload = json.loads(snapshot.payload)
+    except (TypeError, ValueError):
+        payload = None
+    return payload if isinstance(payload, dict) else {
+        "version": ENTRY_SAFETY_GUARD_VERSION,
+        "active": False,
+        "state": "collecting",
+        "window_days": ENTRY_SAFETY_GUARD_WINDOW_DAYS,
+        "minimum_required_trades": ENTRY_SAFETY_GUARD_MIN_TRADES,
+        "decisions": [],
+    }
+
+
+def save_entry_safety_guard(
+    db: Session,
+    guard: dict[str, Any],
+    *,
+    generated_at: Optional[datetime] = None,
+) -> dict[str, Any]:
+    stored_at = (generated_at or datetime.now(timezone.utc)).replace(tzinfo=None)
+    serialized = json.dumps(
+        guard,
+        ensure_ascii=False,
+        default=lambda value: value.isoformat()
+        if isinstance(value, (date, datetime))
+        else str(value),
+    )
+    snapshot = db.get(MarketQuantSignalSnapshot, ENTRY_SAFETY_GUARD_CACHE_KEY)
+    if snapshot is None:
+        db.add(
+            MarketQuantSignalSnapshot(
+                cache_key=ENTRY_SAFETY_GUARD_CACHE_KEY,
+                payload=serialized,
+                generated_at=stored_at,
+            )
+        )
+    else:
+        snapshot.payload = serialized
+        snapshot.generated_at = stored_at
+    db.commit()
+    return guard
+
+
 def _simulate(
     bars: list[PriceBar],
     indicators: list[dict[str, float]],
     entry_evidence_by_date: Optional[dict[date, dict[str, Any]]] = None,
     *,
     performance_start_index_override: Optional[int] = None,
+    entry_safety_guard: Optional[dict[str, Any]] = None,
+    forming_bar_date: Optional[date] = None,
 ) -> dict[str, Any]:
     lifecycle_start_index = WARMUP_ROWS
     performance_start_index = (
@@ -1208,6 +1439,7 @@ def _simulate(
     turnover = 0.0
     rejected_entries = 0
     rejected_evidence_entries = 0
+    rejected_performance_guard_entries = 0
     rejected_missing_open_executions = 0
     last_exit_index: Optional[int] = None
 
@@ -1229,11 +1461,12 @@ def _simulate(
         if pending:
             active_pending = pending
             pending = None
-            execution_price = bar.open
+            execution_price: Optional[float] = float(bar.open)
+            if active_pending["side"] == "buy":
+                execution_price = _intraday_entry_execution_price(bar, active_pending)
             execution_data_available = bar.ohlc_complete
             execution_allowed = execution_data_available and (
-                active_pending["side"] != "buy"
-                or _entry_execution_allowed(execution_price, active_pending)
+                active_pending["side"] != "buy" or execution_price is not None
             )
             protective_floor = _safe_number(active_pending.get("protective_floor"))
             if (
@@ -1242,6 +1475,7 @@ def _simulate(
                 and execution_data_available
                 and bar.trade_date >= PROFIT_PRESERVATION_EFFECTIVE_DATE
                 and protective_floor is not None
+                and execution_price is not None
                 and execution_price <= protective_floor
             ):
                 active_pending = {
@@ -1253,7 +1487,15 @@ def _simulate(
             if not execution_data_available:
                 rejected_missing_open_executions += 1
             elif not execution_allowed:
-                if index >= performance_start_index and active_pending["side"] == "buy":
+                if (
+                    active_pending["side"] == "buy"
+                    and forming_bar_date == bar.trade_date
+                ):
+                    # Keep today's verified breakout order live until the
+                    # regular session completes. A completed bar with no touch
+                    # expires normally and is counted as a rejected entry.
+                    pending = active_pending
+                elif index >= performance_start_index and active_pending["side"] == "buy":
                     rejected_entries += 1
             else:
                 execution_cost = float(active_pending["execution_cost"])
@@ -1261,6 +1503,7 @@ def _simulate(
                     execution_costs.append(execution_cost)
 
             if active_pending["side"] == "buy" and execution_allowed:
+                assert execution_price is not None
                 strategy_equity_at_entry = cash
                 initial_risk = _initial_risk(
                     execution_price,
@@ -1307,8 +1550,13 @@ def _simulate(
                         "signal_at": _signal_at(active_pending["signal_date"]),
                         "execution_date": bar.trade_date,
                         "side": "buy",
-                        "label": "전략상 진입",
+                        "label": (
+                            "장중 돌파 진입"
+                            if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                            else "전략상 진입"
+                        ),
                         "price": _price(execution_price),
+                        "entry_date": position["entry_date"],
                         "entry_price": _price(position["entry_price"]),
                         "target_sell_price": _price(position["target_sell_price"]),
                         "target_sell_status": "planned",
@@ -1319,9 +1567,15 @@ def _simulate(
                         "entry_confirmation": deepcopy(position.get("entry_confirmation")),
                         "position_percent": _decimal(100.0),
                         "state_after": "holding",
+                        "execution_model": (
+                            EXECUTION_MODEL
+                            if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                            else "close-confirmed-next-open"
+                        ),
                     }
                 )
             elif active_pending["side"] == "partial_sell" and position and execution_allowed:
+                assert execution_price is not None
                 target_sell_price = active_pending.get("target_sell_price") or position.get("target_sell_price")
                 execution_profit_steps = _resolved_profit_ladder_steps(position, bar.trade_date)
                 requested_stage = max(
@@ -1382,6 +1636,7 @@ def _simulate(
                         "side": "partial_sell",
                         "label": f"{target_stage}차 수익확정",
                         "price": _price(execution_price),
+                        "entry_date": position["entry_date"],
                         "entry_price": _price(position["entry_price"]),
                         "target_sell_price": _price(target_sell_price),
                         "target_sell_status": _target_sell_status(execution_price, target_sell_price),
@@ -1395,6 +1650,7 @@ def _simulate(
                     }
                 )
             elif active_pending["side"] == "sell" and position and execution_allowed:
+                assert execution_price is not None
                 target_sell_price = active_pending.get("target_sell_price") or position.get("target_sell_price")
                 target_stage = active_pending.get("target_stage")
                 if target_stage is not None:
@@ -1443,6 +1699,7 @@ def _simulate(
                         "side": "sell",
                         "label": "전략상 전량 매도",
                         "price": _price(execution_price),
+                        "entry_date": position["entry_date"],
                         "entry_price": _price(position["entry_price"]),
                         "target_sell_price": _price(target_sell_price),
                         "target_sell_status": _target_sell_status(execution_price, target_sell_price),
@@ -1460,8 +1717,169 @@ def _simulate(
                 position = None
                 last_exit_index = index
 
+        if position and bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE:
+            for intraday_decision in _intraday_exit_decisions(position, bar, indicator):
+                execution_cost = _execution_cost(indicator)
+                if index >= performance_start_index:
+                    execution_costs.append(execution_cost)
+                if intraday_decision.side == "partial_sell":
+                    target_stage = max(
+                        int(position.get("profit_stage") or 0),
+                        int(intraday_decision.target_stage or 1),
+                    )
+                    sold_shares = min(
+                        shares,
+                        float(position["initial_shares"])
+                        * max(0.0, float(intraday_decision.sell_fraction or 0.0)),
+                    )
+                    sold_fraction = sold_shares / float(position["initial_shares"])
+                    if sold_shares <= 0:
+                        continue
+                    if index >= performance_start_index:
+                        turnover += sold_fraction
+                    proceeds = (
+                        sold_shares
+                        * float(intraday_decision.price)
+                        * (1.0 - execution_cost)
+                    )
+                    cash += proceeds
+                    shares -= sold_shares
+                    position["realized_proceeds"] += proceeds
+                    position["gross_realized_value"] += (
+                        sold_shares * float(intraday_decision.price)
+                    )
+                    position["partial_exit_done"] = True
+                    position["partial_exit_date"] = bar.trade_date
+                    position["partial_exit_price"] = float(intraday_decision.price)
+                    position["profit_stage"] = target_stage
+                    position["remaining_fraction"] = shares / float(position["initial_shares"])
+                    partial_exit_record = {
+                        "stage": target_stage,
+                        "execution_date": bar.trade_date,
+                        "price": _price(intraday_decision.price),
+                        "sold_percent": _decimal(sold_fraction * 100.0),
+                        "remaining_percent": _decimal(
+                            float(position["remaining_fraction"]) * 100.0
+                        ),
+                        "target_price": _price(intraday_decision.price),
+                    }
+                    position["partial_exits"].append(partial_exit_record)
+                    execution_profit_steps = _resolved_profit_ladder_steps(
+                        position, bar.trade_date
+                    )
+                    next_stage = target_stage + 1
+                    position["target_sell_price"] = (
+                        None
+                        if next_stage > len(execution_profit_steps)
+                        else float(position["entry_price"])
+                        + float(position["initial_risk"])
+                        * execution_profit_steps[next_stage - 1][0]
+                    )
+                    lifecycle_events.append(
+                        {
+                            "signal_date": bar.trade_date,
+                            "signal_at": _signal_at(bar.trade_date),
+                            "execution_date": bar.trade_date,
+                            "side": "partial_sell",
+                            "label": f"{target_stage}차 장중 수익확정",
+                            "price": _price(intraday_decision.price),
+                            "entry_date": position["entry_date"],
+                            "entry_price": _price(position["entry_price"]),
+                            "target_sell_price": _price(intraday_decision.price),
+                            "target_sell_status": "hit",
+                            "target_sell_delta": 0,
+                            "score": _decimal(indicator["score"]),
+                            "reason": intraday_decision.reason,
+                            "profit_stage": target_stage,
+                            "sold_percent": _decimal(sold_fraction * 100.0),
+                            "position_percent": _decimal(
+                                float(position["remaining_fraction"]) * 100.0
+                            ),
+                            "state_after": "partially_exited",
+                            "execution_model": EXECUTION_MODEL,
+                        }
+                    )
+                    continue
+
+                sold_fraction = shares / float(position["initial_shares"])
+                if index >= performance_start_index:
+                    turnover += sold_fraction
+                gross_value = shares * float(intraday_decision.price)
+                proceeds = gross_value * (1.0 - execution_cost)
+                cash += proceeds
+                position["realized_proceeds"] += proceeds
+                position["gross_realized_value"] += gross_value
+                if intraday_decision.target_stage is not None:
+                    position["profit_stage"] = max(
+                        int(position.get("profit_stage") or 0),
+                        int(intraday_decision.target_stage),
+                    )
+                net_return = (
+                    float(position["realized_proceeds"])
+                    / float(position["entry_equity"])
+                ) - 1.0
+                gross_return = (
+                    float(position["gross_realized_value"])
+                    / (
+                        float(position["initial_shares"])
+                        * float(position["entry_price"])
+                    )
+                ) - 1.0
+                holding_days = max(1, index - int(position["entry_index"]))
+                trade = {
+                    "entry_date": position["entry_date"],
+                    "entry_price": _price(position["entry_price"]),
+                    "target_sell_price": _price(intraday_decision.price),
+                    "partial_exit_date": position.get("partial_exit_date"),
+                    "partial_exit_price": _price(position.get("partial_exit_price")),
+                    "partial_exits": list(position.get("partial_exits") or []),
+                    "profit_stage": int(position.get("profit_stage") or 0),
+                    "exit_date": bar.trade_date,
+                    "exit_price": _price(intraday_decision.price),
+                    "gross_return": _decimal(gross_return * 100.0),
+                    "net_return": _decimal(net_return * 100.0),
+                    "holding_days": holding_days,
+                    "status": "closed",
+                    "exit_reason": intraday_decision.reason,
+                    "remaining_percent": _decimal(0.0),
+                    "execution_model": EXECUTION_MODEL,
+                }
+                lifecycle_trades.append(trade)
+                lifecycle_events.append(
+                    {
+                        "signal_date": bar.trade_date,
+                        "signal_at": _signal_at(bar.trade_date),
+                        "execution_date": bar.trade_date,
+                        "side": "sell",
+                        "label": "장중 전량 매도",
+                        "price": _price(intraday_decision.price),
+                        "entry_date": position["entry_date"],
+                        "entry_price": _price(position["entry_price"]),
+                        "target_sell_price": _price(intraday_decision.price),
+                        "target_sell_status": "hit",
+                        "target_sell_delta": 0,
+                        "score": _decimal(indicator["score"]),
+                        "reason": intraday_decision.reason,
+                        "return_rate": trade["net_return"],
+                        "holding_days": holding_days,
+                        "profit_stage": int(position.get("profit_stage") or 0),
+                        "position_percent": _decimal(0.0),
+                        "state_after": "exited",
+                        "execution_model": EXECUTION_MODEL,
+                    }
+                )
+                shares = 0.0
+                position = None
+                last_exit_index = index
+                break
+
         if position:
-            position["peak_price"] = max(position["peak_price"], bar.close)
+            position["peak_price"] = max(
+                position["peak_price"],
+                bar.high
+                if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                else bar.close,
+            )
             marked_equity = cash + (shares * bar.close * (1.0 - _execution_cost(indicator)))
         else:
             marked_equity = cash
@@ -1571,7 +1989,13 @@ def _simulate(
                 entry_setup,
                 signal_date=bar.trade_date,
             )
-            if confirmation["allowed"]:
+            if confirmation["allowed"] and entry_safety_guard_active(
+                entry_safety_guard,
+                bar.trade_date,
+            ):
+                if index >= performance_start_index:
+                    rejected_performance_guard_entries += 1
+            elif confirmation["allowed"]:
                 reason_indicator = {**indicator, "entry_setup": entry_setup}
                 pending = {
                     "side": "buy",
@@ -1587,6 +2011,10 @@ def _simulate(
                     "entry_confirmation": confirmation,
                     "atr": indicator["atr"],
                     "signal_price": bar.close,
+                    "entry_trigger_price": max(
+                        float(bar.close),
+                        float(indicator.get("prior_high") or bar.close),
+                    ),
                     "execution_cost": _execution_cost(indicator),
                 }
             elif index >= performance_start_index:
@@ -1753,6 +2181,7 @@ def _simulate(
             "execution_count": len(execution_costs),
             "rejected_gap_entries": rejected_entries,
             "rejected_evidence_entries": rejected_evidence_entries,
+            "rejected_performance_guard_entries": rejected_performance_guard_entries,
             "rejected_missing_open_executions": rejected_missing_open_executions,
             "average_holding_days": _decimal(sum(holding_days) / completed, "0.1") if completed else None,
             "transaction_cost_per_side": _decimal(
@@ -1981,11 +2410,12 @@ def _live_execution_bars(
     live_quote: Optional[dict[str, Any]],
     now: datetime,
 ) -> tuple[list[PriceBar], bool]:
-    """Append one fail-closed KRX bar used only to execute prior-close orders.
+    """Append one fail-closed forming KRX bar for intraday execution.
 
-    The forming bar stays last, so ``_simulate`` may execute the prior order at
-    its open but cannot create and execute a same-day signal. Price-only,
-    stale, pre-market, NXT, halted, and synthetic-date quotes are rejected.
+    The forming bar stays last, so ``_simulate`` can execute only an order
+    approved by a completed prior close; it cannot create and execute a new
+    same-day signal. Price-only, stale, pre-market, NXT, halted, and
+    synthetic-date quotes are rejected.
     """
     if not confirmed or not live_quote:
         return confirmed, False
@@ -2393,12 +2823,18 @@ def _current_signal(
     live_quote: Optional[dict[str, Any]],
     now: datetime,
     entry_evidence_by_date: Optional[dict[date, dict[str, Any]]] = None,
+    entry_safety_guard: Optional[dict[str, Any]] = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     observation_bars, live_observation = _live_bar(confirmed, live_quote, now)
     indicators = _indicator_rows(observation_bars)
     bar = observation_bars[-1]
     indicator = indicators[-1]
     position = simulation.get("position")
+    pending_action = (
+        simulation.get("pending")
+        if isinstance(simulation.get("pending"), dict)
+        else None
+    )
     lifecycle_events = simulation.get("lifecycle_events") or simulation.get("events") or []
     last_event = lifecycle_events[-1] if lifecycle_events else None
 
@@ -2544,11 +2980,19 @@ def _current_signal(
                 if profit_stage < len(active_profit_steps)
                 else f"남은 {_minimum_runner_fraction(bar.trade_date) * 100:.0f}%는 고점 대비 변동성 추적선으로 상승 추세를 끝까지 추적"
             )
-        elif position["entry_date"] == confirmed[-1].trade_date:
+        elif position["entry_date"] == bar.trade_date:
             state = "entered"
-            label = "전략상 진입 완료"
-            reasons.append("전일 종가 신호를 다음 거래일 시가에 반영함")
-            next_confirmation = "초기 위험선과 1차 계단형 수익확정 기준을 매일 확인"
+            label = (
+                "장중 돌파 진입 완료"
+                if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                else "전략상 진입 완료"
+            )
+            reasons.append(
+                "전일 종가 신호의 확인선을 KRX 정규장에서 돌파해 장중 체결함"
+                if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                else "전일 종가 신호를 다음 거래일 시가에 반영함"
+            )
+            next_confirmation = "초기 위험선과 1차 장중 수익확정 기준을 확인"
         else:
             state = "holding"
             label = "전략상 보유 중"
@@ -2605,6 +3049,27 @@ def _current_signal(
             f"전량 매도 후 재진입 유예 {LEGACY_REENTRY_COOLDOWN_BARS}거래일을 적용 중"
         )
         next_confirmation = f"약 {reentry_wait_bars}거래일 뒤 새 매수 조건을 다시 확인"
+    elif (
+        live_observation
+        and pending_action
+        and pending_action.get("side") == "buy"
+        and bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+    ):
+        state = "entry_pending"
+        label = "장중 매수 트리거 대기"
+        entry_setup = str(pending_action.get("entry_setup") or "trend_continuation")
+        entry_confirmation = deepcopy(pending_action.get("entry_confirmation"))
+        trigger_price = _safe_number(pending_action.get("entry_trigger_price"))
+        reasons.append(str(pending_action.get("reason") or "전일 종가 매수 조건 확인"))
+        next_confirmation = "KRX 정규장에서 고정된 진입 확인선을 돌파하면 장중 체결"
+        levels.append(
+            {
+                "key": "intraday_entry_trigger",
+                "label": "장중 매수 확인선",
+                "price": _price(trigger_price),
+                "condition": next_confirmation,
+            }
+        )
     elif raw_entry_setup and chase_veto_reason:
         state = "entry_watch"
         label = "추격매수 위험으로 관망"
@@ -2629,13 +3094,26 @@ def _current_signal(
             entry_setup,
             signal_date=bar.trade_date,
         )
-        if entry_confirmation["allowed"]:
+        performance_guard_active = entry_safety_guard_active(
+            entry_safety_guard,
+            bar.trade_date,
+        )
+        if entry_confirmation["allowed"] and performance_guard_active:
+            state = "entry_watch"
+            label = "성과 회복 확인 중"
+            reasons.append("최근 완료 거래의 평균 수익률이 음수여서 신규 매수를 관찰로 낮췄습니다.")
+            next_confirmation = "최근 30일 완료 거래의 평균 수익률이 0% 이상으로 회복되는지 확인"
+        elif entry_confirmation["allowed"]:
             state = "entry_pending"
             label = "매수 조건 확정"
             reasons.append(_signal_reason(reason_indicator, "buy"))
             if entry_confirmation["state"] != "legacy":
                 reasons.append(str(entry_confirmation["reason"]))
-            next_confirmation = "독립 근거 확인 후 다음 거래일 시가의 갭 범위를 확인해 매수"
+            next_confirmation = (
+                "독립 근거 확인 후 다음 KRX 정규장에서 고정 확인선 돌파 시 장중 매수"
+                if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                else "독립 근거 확인 후 다음 거래일 시가의 갭 범위를 확인해 매수"
+            )
         else:
             state = "entry_watch"
             label = (
@@ -2647,8 +3125,16 @@ def _current_signal(
             next_confirmation = str(entry_confirmation["reason"])
         levels.append(
             {
-                "key": "entry" if entry_confirmation["allowed"] else "entry_evidence",
-                "label": "진입 확인선" if entry_confirmation["allowed"] else "독립 근거 확인",
+                "key": (
+                    "entry_performance_guard"
+                    if performance_guard_active and entry_confirmation["allowed"]
+                    else "entry" if entry_confirmation["allowed"] else "entry_evidence"
+                ),
+                "label": (
+                    "성과 회복 확인"
+                    if performance_guard_active and entry_confirmation["allowed"]
+                    else "진입 확인선" if entry_confirmation["allowed"] else "독립 근거 확인"
+                ),
                 "price": _price(max(indicator["ema20"], indicator["prior_high"])),
                 "condition": (
                     f"기존 추세·조기 전환 {ENTRY_SCORE:.0f}점 이상·"
@@ -2750,6 +3236,7 @@ def _current_signal(
             "target_sell_delta": last_event.get("target_sell_delta"),
             "profit_stage": last_event.get("profit_stage"),
             "sold_percent": last_event.get("sold_percent"),
+            "execution_model": last_event.get("execution_model"),
         }
     if position:
         target_sell_price = partial_target
@@ -2831,6 +3318,7 @@ def build_quant_signal_payload(
     now: Optional[datetime] = None,
     context: Optional[dict[str, Any]] = None,
     entry_evidence_by_date: Optional[dict[date, dict[str, Any]]] = None,
+    entry_safety_guard: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     current_time = now or datetime.now(KST)
     bars = _normalize_prices(rows)
@@ -2878,6 +3366,8 @@ def build_quant_signal_payload(
         "strategy_version": STRATEGY_VERSION,
         "candidate_strategy_version": CANDIDATE_STRATEGY_VERSION,
         "strategy_version_history": [dict(item) for item in STRATEGY_VERSION_HISTORY],
+        "execution_model": EXECUTION_MODEL,
+        "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
         "entry_filter_version": ENTRY_FILTER_VERSION,
         "entry_filter_effective_date": ENTRY_FILTER_EFFECTIVE_DATE,
         "entry_filter_shadow_versions": list(ENTRY_FILTER_SHADOW_VERSIONS),
@@ -2900,14 +3390,16 @@ def build_quant_signal_payload(
             "EMA 10·20·60일, 5·10·20일 흐름, 20일 고점, 거래량, ATR14를 동일 규칙으로 계산합니다.",
             "각 종목은 관망→예비 포착→매수 대기→보유→+3%·+5% 수익확정→전량 매도로 전환합니다.",
             "수익률은 종목별 매수가·각 수익확정가·최종 매도가와 거래비용만으로 계산합니다.",
-            "신호는 종가에서 판정하고 다음 거래일의 검증된 KRX 실제 시가에 즉시 반영하여 미래 가격을 참조하지 않습니다.",
-            "시가·고가·저가·종가가 모두 확인된 일봉만 신호와 다음 시가 체결 계산에 사용합니다.",
+            "신호와 독립 근거는 완료 종가에서 확정하고, 다음 KRX 정규장에서 고정된 확인선을 돌파할 때 장중 매수합니다.",
+            "장중 매도는 검증된 KRX OHLC의 저가·고가로 손절선과 +3%·+5% 목표 도달을 판정하며, 같은 봉에서 둘 다 닿으면 손절을 먼저 반영합니다.",
+            "시가·고가·저가·종가가 모두 확인된 일봉과 현재 KRX 정규장의 검증된 형성 봉만 체결 판정에 사용합니다.",
+            f"{INTRADAY_EXECUTION_EFFECTIVE_DATE.isoformat()}부터 종가 확정·다음 시가 체결을 종가 확정·다음 세션 장중 돌파 체결로 전환합니다.",
             f"{STABLE_PROFIT_EFFECTIVE_DATE.isoformat()}부터 +3%에서 50%, +5%에서 잔여 50%를 수익확정하고 수익이 큰 종목도 빠르게 전량 확정합니다.",
             f"{PROFIT_PRESERVATION_EFFECTIVE_DATE.isoformat()}의 2R·4R·6R 규칙과 그 이전 3R·5R·8R 이력은 각 결정일 기준으로 보존하고 소급해 바꾸지 않습니다.",
             f"기존 보유 종목을 단기 전술형으로 전환할 때는 하루 최대 {MAX_TACTICAL_TRANSITION_SELL_FRACTION * 100:.0f}%만 수익확정합니다.",
             "기존 v7.1 보유 종목이 이미 확보한 더 높은 수익 보호선은 v7.2 전환 후에도 낮추지 않습니다.",
             f"최초 위험폭은 ATR을 사용하되 매수가의 {MAX_INITIAL_RISK_PERCENT * 100:.0f}% 이내로 제한합니다.",
-            f"초기·수익 보호선의 종가 이탈은 확인 대기 없이 다음 거래일 시가에 전량 매도하고, 일반 추세 이탈은 최소 {MIN_HOLDING_BARS}거래일 후 종가 1회로 확인합니다.",
+            f"초기·수익 보호선은 장중 저가 이탈 시 즉시 전량 매도하고, 일반 추세 이탈은 최소 {MIN_HOLDING_BARS}거래일 후 종가 1회로 확인합니다.",
             f"기준 v7.4 신규 진입은 {ENTRY_SCORE:.0f}점 이상과 5일 흐름 0% 이상·거래량 20일 평균의 0.8배 이상, ATR {MAX_ENTRY_ATR_PERCENT * 100:.1f}% 이하·20일선 이격 {MAX_ENTRY_EXTENSION_ATR:.1f}ATR 이하·20일 평균 거래대금 {MIN_AVERAGE_TRADING_VALUE / 100_000_000:.0f}억원 이상을 요구합니다.",
             f"{CHASE_GUARD_EFFECTIVE_DATE.isoformat()}부터 종합점수와 무관하게 20일선 이격 {CHASE_MAX_ENTRY_EXTENSION_ATR:.1f}ATR 이상 또는 {CHASE_MAX_ENTRY_EXTENSION_PERCENT * 100:.0f}% 이상을 차단하고, 5일 급등률 {CHASE_MOMENTUM_5_MAX * 100:.0f}% 초과는 이후 2거래일까지 신규매수를 보류합니다.",
             f"후보 {CANDIDATE_STRATEGY_VERSION}의 활성 H1 매수필터는 {ENTRY_FILTER_EFFECTIVE_DATE.isoformat()}부터 5일 흐름 {0.5:.1f}% 이상·거래량 20일 평균의 {1.0:.1f}배 이상을 추가 요구하며, H2·H3({', '.join(ENTRY_FILTER_SHADOW_VERSIONS)})는 백엔드 비교만 수행합니다.",
@@ -2915,7 +3407,7 @@ def build_quant_signal_payload(
             "OpenDART 중대 위험 공시와 시장 급락·고변동 국면은 점수와 무관하게 신규매수를 보류합니다.",
             "외부 근거는 종목·신호일·전략 버전별 스냅샷으로 고정하여 나중 데이터가 과거 매수 판단을 바꾸지 못하게 합니다.",
             f"매수 확정 전에는 {PRE_ENTRY_SCORE:.0f}점 이상·단기 흐름 개선 종목을 예비 포착으로 분리해 다음 부족 조건을 표시합니다.",
-            f"종가 신호 뒤 다음 시가가 {MAX_ENTRY_GAP_ATR:.1f}ATR 또는 {MAX_ENTRY_GAP_PERCENT * 100:.0f}% 범위를 벗어나면 오래된 진입 주문을 취소합니다.",
+            f"장중 돌파 체결가가 신호 종가에서 {MAX_ENTRY_GAP_ATR:.1f}ATR 또는 {MAX_ENTRY_GAP_PERCENT * 100:.0f}% 범위를 벗어나면 추격 매수를 취소합니다.",
             "매수가 대비 +2%에 도달하면 매수·매도 예상 비용을 반영한 수익 보호선을 적용합니다.",
             "수익확정 예정 다음 시가가 이미 수익 보호선 아래면 소량만 매도하지 않고 잔여비중을 전량 매도합니다.",
             f"{REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE.isoformat()}부터 전량 매도 후 고정 재진입 유예를 적용하지 않습니다. 다만 기존 조건을 그대로 승계하지 않고 새 돌파 또는 20일선 눌림·회복을 요구합니다.",
@@ -2924,6 +3416,8 @@ def build_quant_signal_payload(
         ],
         "applied_principles": [
             "실시간·백테스트에서 같은 신호 함수 사용",
+            "완료 종가 확인과 KRX 장중 체결 시점의 역할 분리",
+            "일봉 OHLC 경로가 모호하면 손절 우선으로 보수적 체결",
             "슬라이딩 윈도우와 상태 순차 갱신",
             "목표 보유비중과 현재 비중의 차이로 상태 전환",
             "변동성 위험선·+3%/+5% 고정 수익확정·잔여 비중 최소화",
@@ -2986,7 +3480,12 @@ def build_quant_signal_payload(
     confirmed = complete_suffix
     indicators = _indicator_rows(confirmed)
     evidence_timeline = entry_evidence_by_date or {}
-    historical_simulation = _simulate(confirmed, indicators, evidence_timeline)
+    historical_simulation = _simulate(
+        confirmed,
+        indicators,
+        evidence_timeline,
+        entry_safety_guard=entry_safety_guard,
+    )
     simulation_bars, live_execution = _live_execution_bars(
         confirmed,
         live_quote,
@@ -2998,6 +3497,8 @@ def build_quant_signal_payload(
             _indicator_rows(simulation_bars),
             evidence_timeline,
             performance_start_index_override=historical_simulation["start_index"],
+            entry_safety_guard=entry_safety_guard,
+            forming_bar_date=simulation_bars[-1].trade_date,
         )
         # A forming candle may execute yesterday's order, but it must not
         # change the completed-candle backtest until the session is complete.
@@ -3005,11 +3506,12 @@ def build_quant_signal_payload(
     else:
         simulation = historical_simulation
     current, factors = _current_signal(
-        simulation_bars,
+        confirmed,
         simulation,
         live_quote,
         current_time,
         evidence_timeline,
+        entry_safety_guard,
     )
     latest_signal_date = confirmed[-1].trade_date
     confirmation_signal_date = latest_signal_date
@@ -3056,6 +3558,7 @@ def build_quant_signal_payload(
         "factors": factors,
         "events": simulation["events"],
         "trades": list(reversed(simulation["trades"][-12:])),
+        "entry_safety_guard": deepcopy(entry_safety_guard),
     }
     result.update(quant_signal_display_return_fields(result))
     return result
@@ -3456,7 +3959,279 @@ def load_quant_signal_payload(
         now=current_time,
         context=context,
         entry_evidence_by_date=evidence_timeline,
+        entry_safety_guard=load_entry_safety_guard(db),
     )
+
+
+def _benchmark_series_by_date(
+    db: Session,
+    *,
+    start_date: date,
+    end_date: date,
+) -> dict[str, list[tuple[date, float]]]:
+    rows = list(
+        db.scalars(
+            select(MacroObservation).where(
+                MacroObservation.source.in_(("naver_finance", "yahoo")),
+                MacroObservation.series_code.in_(("^KS11", "^KQ11")),
+                MacroObservation.item_code == "close",
+                MacroObservation.period >= start_date.isoformat(),
+                MacroObservation.period <= end_date.isoformat(),
+                MacroObservation.value.is_not(None),
+            )
+        )
+    )
+    selected: dict[tuple[str, date], tuple[int, float]] = {}
+    source_priority = {"naver_finance": 0, "yahoo": 1}
+    for row in rows:
+        observed_on = _date_value(row.period)
+        if observed_on is None or row.value is None:
+            continue
+        key = (str(row.series_code), observed_on)
+        candidate = (source_priority.get(str(row.source), 9), float(row.value))
+        if key not in selected or candidate[0] < selected[key][0]:
+            selected[key] = candidate
+    result: dict[str, list[tuple[date, float]]] = {"^KS11": [], "^KQ11": []}
+    for (series_code, observed_on), (_priority, value) in selected.items():
+        result.setdefault(series_code, []).append((observed_on, value))
+    for values in result.values():
+        values.sort(key=lambda item: item[0])
+    return result
+
+
+def _benchmark_value_on_or_before(
+    values: list[tuple[date, float]],
+    target: date,
+) -> Optional[float]:
+    matches = [value for observed_on, value in values if observed_on <= target]
+    return matches[-1] if matches else None
+
+
+def build_market_signal_performance_summary(
+    db: Session,
+    items: list[dict[str, Any]],
+    *,
+    as_of: datetime,
+    windows: tuple[int, ...] = (30, 90),
+) -> dict[str, Any]:
+    """Summarize realized exits and same-holding-period market benchmarks."""
+
+    closed = [
+        item
+        for item in items
+        if isinstance(item, dict)
+        and item.get("status") == "confirmed"
+        and item.get("event_side") == "sell"
+        and item.get("state_after") == "exited"
+        and item.get("return_rate") is not None
+        and _date_value(item.get("execution_date")) is not None
+    ]
+    entry_dates = [
+        value
+        for value in (_date_value(item.get("entry_date")) for item in closed)
+        if value is not None
+    ]
+    earliest = min(entry_dates, default=as_of.date() - timedelta(days=max(windows, default=90) + 30))
+    benchmark_by_series = _benchmark_series_by_date(
+        db,
+        start_date=earliest - timedelta(days=7),
+        end_date=as_of.date(),
+    )
+    result_windows: dict[str, Any] = {}
+    for window_days in windows:
+        cutoff = as_of.date() - timedelta(days=int(window_days))
+        trades = [
+            item
+            for item in closed
+            if (_date_value(item.get("execution_date")) or date.min) >= cutoff
+        ]
+        returns = [float(item["return_rate"]) for item in trades]
+        winners = [value for value in returns if value > 0]
+        losers = [value for value in returns if value < 0]
+        breakeven = [value for value in returns if value == 0]
+        matched_benchmarks: list[float] = []
+        matched_excess: list[float] = []
+        for item in trades:
+            entry_on = _date_value(item.get("entry_date"))
+            exit_on = _date_value(item.get("execution_date"))
+            if entry_on is None or exit_on is None:
+                continue
+            series_code = "^KS11" if str(item.get("market") or "").upper() == "KOSPI" else "^KQ11"
+            values = benchmark_by_series.get(series_code, [])
+            entry_value = _benchmark_value_on_or_before(values, entry_on)
+            exit_value = _benchmark_value_on_or_before(values, exit_on)
+            if entry_value is None or exit_value is None or entry_value <= 0:
+                continue
+            benchmark_return = ((exit_value / entry_value) - 1.0) * 100.0
+            matched_benchmarks.append(benchmark_return)
+            matched_excess.append(float(item["return_rate"]) - benchmark_return)
+        completed = len(returns)
+        result_windows[f"{window_days}d"] = {
+            "window_days": int(window_days),
+            "period_start": cutoff,
+            "period_end": as_of.date(),
+            "completed_trades": completed,
+            "wins": len(winners),
+            "losses": len(losers),
+            "breakeven": len(breakeven),
+            "win_rate": _decimal(len(winners) / completed * 100.0) if completed else None,
+            "average_return": _decimal(sum(returns) / completed) if completed else None,
+            "median_return": _decimal(median(returns)) if returns else None,
+            "average_winner_return": _decimal(sum(winners) / len(winners)) if winners else None,
+            "average_loser_return": _decimal(sum(losers) / len(losers)) if losers else None,
+            "matched_benchmark_trades": len(matched_benchmarks),
+            "average_benchmark_return": (
+                _decimal(sum(matched_benchmarks) / len(matched_benchmarks))
+                if matched_benchmarks
+                else None
+            ),
+            "average_excess_return": (
+                _decimal(sum(matched_excess) / len(matched_excess))
+                if matched_excess
+                else None
+            ),
+            "sample_state": (
+                "sufficient"
+                if completed >= MIN_COMPLETED_TRADES_FOR_SAMPLE
+                else "limited"
+            ),
+            "minimum_required_trades": MIN_COMPLETED_TRADES_FOR_SAMPLE,
+        }
+    return {
+        "version": MARKET_SIGNAL_PERFORMANCE_VERSION,
+        "as_of": as_of,
+        "return_basis": "completed_trade_net_of_costs",
+        "benchmark_basis": "same_market_same_holding_period",
+        "windows": result_windows,
+    }
+
+
+def evaluate_entry_safety_guard(
+    previous: Optional[dict[str, Any]],
+    performance_summary: dict[str, Any],
+    *,
+    effective_on: date,
+    evaluated_at: datetime,
+) -> dict[str, Any]:
+    window = (performance_summary.get("windows") or {}).get(
+        f"{ENTRY_SAFETY_GUARD_WINDOW_DAYS}d",
+        {},
+    )
+    completed = int(window.get("completed_trades") or 0)
+    try:
+        average_return = float(window.get("average_return"))
+    except (TypeError, ValueError):
+        average_return = None
+    previous_active = bool((previous or {}).get("active"))
+    enough_sample = completed >= ENTRY_SAFETY_GUARD_MIN_TRADES
+    active = previous_active
+    state = "active" if active else "collecting"
+    reason = "성과 표본을 수집 중입니다."
+    if enough_sample and average_return is not None:
+        active = average_return < 0
+        state = "active" if active else "clear"
+        reason = (
+            "최근 30일 완료 거래의 평균 수익률이 음수여서 신규 매수를 관찰로 낮춥니다."
+            if active
+            else "최근 30일 완료 거래의 평균 수익률이 0% 이상입니다."
+        )
+    elif previous_active:
+        state = "active_limited_sample"
+        reason = "회복을 확인할 표본이 부족해 기존 신규매수 관찰 상태를 유지합니다."
+    decisions = [
+        dict(item)
+        for item in ((previous or {}).get("decisions") or [])
+        if isinstance(item, dict)
+    ]
+    if active != previous_active:
+        decision = {
+            "effective_on": effective_on,
+            "active": active,
+            "reason": reason,
+            "completed_trades": completed,
+            "average_return": window.get("average_return"),
+        }
+        if decisions and _date_value(decisions[-1].get("effective_on")) == effective_on:
+            decisions[-1] = decision
+        else:
+            decisions.append(decision)
+    return {
+        "version": ENTRY_SAFETY_GUARD_VERSION,
+        "active": active,
+        "state": state,
+        "effective_on": (
+            effective_on
+            if active != previous_active
+            else (previous or {}).get("effective_on")
+        ),
+        "evaluated_at": evaluated_at,
+        "window_days": ENTRY_SAFETY_GUARD_WINDOW_DAYS,
+        "minimum_required_trades": ENTRY_SAFETY_GUARD_MIN_TRADES,
+        "completed_trades": completed,
+        "average_return": window.get("average_return"),
+        "reason": reason,
+        "decisions": decisions,
+    }
+
+
+def evaluate_entry_safety_guard_for_market_scope(
+    previous: Optional[dict[str, Any]],
+    performance_summary: dict[str, Any],
+    *,
+    universe_limit: int,
+    effective_on: date,
+    evaluated_at: datetime,
+) -> dict[str, Any]:
+    """Allow only the canonical extended universe to change guard history."""
+
+    if int(universe_limit) != MARKET_SIGNAL_UNIVERSE_LIMIT:
+        return deepcopy(previous or {
+            "version": ENTRY_SAFETY_GUARD_VERSION,
+            "active": False,
+            "state": "collecting",
+            "window_days": ENTRY_SAFETY_GUARD_WINDOW_DAYS,
+            "minimum_required_trades": ENTRY_SAFETY_GUARD_MIN_TRADES,
+            "decisions": [],
+        })
+    return evaluate_entry_safety_guard(
+        previous,
+        performance_summary,
+        effective_on=effective_on,
+        evaluated_at=evaluated_at,
+    )
+
+
+def apply_entry_safety_guard_to_market_payload(
+    payload: dict[str, Any],
+    guard: dict[str, Any],
+) -> dict[str, Any]:
+    """Downgrade only unexecuted buy signals when the current guard is active."""
+
+    result = deepcopy(payload)
+    result["entry_safety_guard"] = deepcopy(guard)
+    if not guard.get("active"):
+        return result
+    for item in result.get("items") or []:
+        if not isinstance(item, dict) or not item.get("is_preliminary"):
+            continue
+        current = item.get("current") if isinstance(item.get("current"), dict) else None
+        if not current or current.get("position_open") or current.get("action") != "entry_pending":
+            continue
+        current["action"] = "entry_watch"
+        current["label"] = "성과 회복 확인 중"
+        current["next_confirmation"] = "최근 30일 완료 거래의 평균 수익률이 0% 이상으로 회복되는지 확인"
+        current["reasons"] = [guard.get("reason")]
+        if isinstance(current.get("lifecycle"), dict):
+            current["lifecycle"]["state"] = "entry_watch"
+            current["lifecycle"]["label"] = "성과 회복 확인 중"
+            current["lifecycle"]["stage_index"] = 1
+        item["action"] = "entry_watch"
+        item["signal"] = "성과 회복 확인 중"
+        item["reason"] = guard.get("reason")
+    result["preliminary_count"] = sum(
+        1 for item in result.get("items") or [] if item.get("is_preliminary")
+    )
+    return result
 
 
 MARKET_SIGNAL_PENDING_ACTIONS = {
@@ -3739,6 +4514,7 @@ def load_market_quant_signal_feed(
     recent_days: int = MARKET_SIGNAL_RECENT_DAYS,
     now: Optional[datetime] = None,
     live_quotes: Optional[dict[str, dict[str, Any]]] = None,
+    persist_entry_safety_guard: bool = False,
 ) -> dict[str, Any]:
     """Build recent transitions for stocks that belonged to the market universe.
 
@@ -3751,6 +4527,7 @@ def load_market_quant_signal_feed(
     admitted, the previous snapshot keeps it tracked until execution or cancel.
     """
     current_time = now or datetime.now(KST)
+    entry_safety_guard = load_entry_safety_guard(db)
     capped_universe_limit = max(1, min(int(universe_limit), MARKET_SIGNAL_UNIVERSE_LIMIT))
     core_universe_limit = min(
         capped_universe_limit,
@@ -3770,6 +4547,8 @@ def load_market_quant_signal_feed(
     empty = {
         "status": "ready",
         "strategy_version": STRATEGY_VERSION,
+        "execution_model": EXECUTION_MODEL,
+        "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
         "as_of": current_time,
         "universe_as_of": market_cap_date,
         "universe_count": 0,
@@ -3993,6 +4772,7 @@ def load_market_quant_signal_feed(
             now=current_time,
             context=None,
             entry_evidence_by_date=evidence_timeline,
+            entry_safety_guard=entry_safety_guard,
         )
         public_reasons = build_public_signal_reasons(payload)
         current = payload.get("current") if isinstance(payload.get("current"), dict) else None
@@ -4172,6 +4952,7 @@ def load_market_quant_signal_feed(
                 "signal_at": event.get("signal_at") or _signal_at(event.get("signal_date")),
                 "execution_date": execution_date,
                 "price": event.get("price"),
+                "entry_date": event.get("entry_date"),
                 "entry_price": event.get("entry_price"),
                 "target_sell_price": event.get("target_sell_price"),
                 "target_sell_status": event.get("target_sell_status"),
@@ -4262,6 +5043,8 @@ def load_market_quant_signal_feed(
     result = {
         "status": "ready",
         "strategy_version": STRATEGY_VERSION,
+        "execution_model": EXECUTION_MODEL,
+        "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
         "as_of": current_time,
         "universe_as_of": market_cap_date,
         "universe_count": len(stock_by_code),
@@ -4286,6 +5069,25 @@ def load_market_quant_signal_feed(
         "items": items,
     }
     result = apply_market_signal_reconciliations(result, now=current_time) or result
+    result["performance_summary"] = build_market_signal_performance_summary(
+        db,
+        result.get("items") or [],
+        as_of=current_time,
+    )
+    evaluated_guard = evaluate_entry_safety_guard_for_market_scope(
+        entry_safety_guard,
+        result["performance_summary"],
+        universe_limit=capped_universe_limit,
+        effective_on=market_cap_date,
+        evaluated_at=current_time,
+    )
+    if persist_entry_safety_guard and capped_universe_limit == MARKET_SIGNAL_UNIVERSE_LIMIT:
+        evaluated_guard = save_entry_safety_guard(
+            db,
+            evaluated_guard,
+            generated_at=current_time.astimezone(timezone.utc),
+        )
+    result = apply_entry_safety_guard_to_market_payload(result, evaluated_guard)
     if capped_limit:
         result["items"] = result["items"][:capped_limit]
     return result

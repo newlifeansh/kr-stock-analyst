@@ -516,6 +516,60 @@ def test_fundamental_snapshot_refresh_zero_avoids_duplicate_priority_fetch(monke
     assert calls[0]["refresh_days"] == 0
 
 
+def test_stock_news_snapshot_failure_is_degraded_and_retried(monkeypatch):
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=False,
+            disclosure_enabled=False,
+            news_enabled=False,
+            price_enabled=False,
+            stock_universe_enabled=False,
+            investor_flow_enabled=False,
+            financials_enabled=False,
+            fundamental_snapshot_enabled=False,
+            stock_news_snapshot_enabled=True,
+            stock_news_snapshot_poll_seconds=21_600,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=False,
+        )
+    )
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    results = [
+        {"rows_loaded": 0, "failed": 1, "message": "failed=1"},
+        {"rows_loaded": 1, "failed": 0, "message": "failed=0"},
+    ]
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        briefing,
+        "collect_stock_news_snapshots",
+        lambda *_args, **_kwargs: results.pop(0),
+    )
+    monkeypatch.setattr(briefing, "collect_home_briefing", lambda *_args, **_kwargs: None)
+
+    runtime.run_once()
+
+    assert runtime.last_stock_news_snapshot_state == "degraded"
+    assert runtime.last_stock_news_snapshot_failed == 1
+    assert runtime.next_stock_news_snapshot_retry_at is not None
+    assert runtime._stock_news_snapshot_due() is False
+
+    runtime.next_stock_news_snapshot_retry_at = datetime.utcnow() - timedelta(seconds=1)
+    runtime.run_once()
+
+    assert runtime.last_stock_news_snapshot_state == "ready"
+    assert runtime.last_stock_news_snapshot_failed == 0
+    assert runtime.next_stock_news_snapshot_retry_at is None
+    assert "stock_news_snapshot" not in runtime.source_errors
+
+
 def test_collect_prices_uses_krx_market_before_fallback(monkeypatch):
     calls = []
     runtime = briefing.BriefingRuntime(Settings(price_max_workers=3))

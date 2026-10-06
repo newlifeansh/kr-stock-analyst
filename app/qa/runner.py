@@ -53,6 +53,46 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-CALENDAR-CONTENT-007": (
+        "tests.test_news.test_current_mobile_news_api_normalizes_and_deduplicates_rows",
+        "tests.test_news.test_current_mobile_stock_news_api_accepts_minute_precision",
+        "tests.test_news.test_current_mobile_news_api_fails_closed_on_empty_source",
+        "tests.test_stock_universe_data."
+        "test_full_universe_news_snapshot_records_total_failure_as_failed",
+        "tests.test_briefing_runtime."
+        "test_stock_news_snapshot_failure_is_degraded_and_retried",
+        "tests.test_mobile_loading_fast_paths."
+        "test_stock_news_does_not_replay_expired_snapshot_when_refresh_fails",
+        "tests.test_stock_universe_data."
+        "test_news_and_price_apis_disable_intermediate_stale_caches",
+        "tests.test_signal_entry_evidence."
+        "test_signal_data_quality_surfaces_latest_stock_news_failure",
+        "tests.test_release_data_readiness."
+        "test_dashboard_readiness_requires_current_general_and_complete_stock_news",
+        "tests.test_release_data_readiness."
+        "test_us_readiness_rejects_schema_upgrade_and_empty_recommendations",
+    ),
+    "SIG-PERF-001": (
+        "tests.test_quant_signals."
+        "test_market_signal_performance_summary_uses_completed_net_returns_and_matched_index_periods",
+        "tests.test_app.test_ai_signal_performance_overview_contract_is_responsive_and_uses_90_day_source",
+    ),
+    "SIG-ENTRY-008": (
+        "tests.test_quant_signals."
+        "test_negative_expectancy_guard_is_append_only_and_only_changes_unexecuted_entries",
+        "tests.test_quant_signals."
+        "test_negative_expectancy_guard_prevents_only_new_simulated_entry",
+        "tests.test_quant_signals."
+        "test_noncanonical_market_scope_cannot_toggle_entry_safety_guard",
+    ),
+    "SIG-ENTRY-009": (
+        "tests.test_entry_filter_backtest."
+        "test_h3_promotion_stays_shadow_until_fixed_cohort_samples_are_sufficient",
+        "tests.test_entry_filter_backtest."
+        "test_h3_promotion_can_only_become_eligible_for_operator_review",
+        "tests.test_entry_filter_backtest."
+        "test_h3_promotion_with_enough_samples_stays_ineligible_when_quality_fails",
+    ),
     "DATA-DART-001": (
         "tests.test_disclosures.test_fetch_dart_disclosures_uses_api_when_transport_succeeds",
         "tests.test_disclosures.test_preferred_disclosure_url_rebuilds_official_dart_receipt_link",
@@ -1080,6 +1120,8 @@ class ReadOnlyApi:
             "latency_ms": latency_ms,
             "content_type": response.headers.get("content-type"),
             "cache_control": response.headers.get("cache-control"),
+            "data_state": response.headers.get("x-data-state"),
+            "data_as_of": response.headers.get("x-data-as-of"),
             "us_market_route": response.headers.get("x-us-market-route"),
         }
         if response.status_code >= 400:
@@ -1666,7 +1708,77 @@ def _gate_checks(
     collector.check(
         "SIG-ENTRY-005",
         versioned_entry_filters,
-        pass_message="v7.5-rc4 H1 활성 필터와 H2·H3 백엔드 shadow 비교 계약을 확인했습니다.",
+        pass_message="v8.1-rc1 H1 활성 필터와 H2·H3 백엔드 shadow 비교 계약을 확인했습니다.",
+    )
+
+    def intraday_execution_contract() -> dict[str, Any]:
+        pending = {
+            "side": "buy",
+            "signal_price": 100.0,
+            "entry_trigger_price": 102.0,
+            "atr": 2.0,
+        }
+        touched = qs.PriceBar(
+            date(2026, 10, 6),
+            100.5,
+            102.2,
+            99.5,
+            102.0,
+            1_000_000,
+            50_000_000_000,
+        )
+        position = {
+            "entry_date": date(2026, 10, 3),
+            "entry_price": 100.0,
+            "entry_index": 100,
+            "entry_cost": 0.002,
+            "initial_risk": 2.0,
+            "initial_shares": 1.0,
+            "entry_equity": 100.0,
+            "peak_price": 100.0,
+            "initial_stop": 98.0,
+            "profit_stage": 0,
+            "remaining_fraction": 1.0,
+        }
+        target_bar = qs.PriceBar(
+            date(2026, 10, 6),
+            100.0,
+            105.2,
+            99.0,
+            104.0,
+            1_000_000,
+            50_000_000_000,
+        )
+        decisions = qs._intraday_exit_decisions(
+            position,
+            target_bar,
+            {"atr": 1.0, "average_trading_value": 50_000_000_000.0},
+        )
+        _assert(
+            qs.STRATEGY_VERSION == "position-lifecycle-v8.0"
+            and qs.EXECUTION_MODEL == "close-confirmed-intraday-trigger-v1",
+            "장중 전략 버전·체결 모델이 다릅니다.",
+        )
+        _assert(
+            qs._intraday_entry_execution_price(touched, pending) == 102.0,
+            "다음 KRX 세션 돌파 매수가가 고정된 확인선과 다릅니다.",
+        )
+        _assert(
+            [(item.side, item.price) for item in decisions]
+            == [("partial_sell", 103.0), ("sell", 105.0)],
+            "장중 +3%·+5% 수익확정이 재현되지 않습니다.",
+        )
+        return {
+            "strategy_version": qs.STRATEGY_VERSION,
+            "execution_model": qs.EXECUTION_MODEL,
+            "entry_price": 102.0,
+            "exit_sides": [item.side for item in decisions],
+        }
+
+    collector.check(
+        "SIG-EXECUTION-005",
+        intraday_execution_contract,
+        pass_message="v8.0 KRX 장중 돌파 매수·손절·수익확정 계약을 확인했습니다.",
     )
 
     def shadow_refresh_contract() -> dict[str, Any]:
@@ -3042,6 +3154,271 @@ def _live_checks(
                 pass_message="예비 시그널 거래정보 비노출을 확인했습니다.",
             )
 
+            def market_performance_payload() -> dict[str, Any]:
+                cached = context.get("market_signals_90d")
+                if isinstance(cached, dict):
+                    return cached
+                payload, meta = api.get(
+                    "/market/quant-signals",
+                    universe_limit=150,
+                    limit=0,
+                    recent_days=90,
+                )
+                _assert(
+                    isinstance(payload, dict),
+                    "90일 시장 시그널 응답이 객체가 아닙니다.",
+                    **meta,
+                )
+                context["market_signals_90d"] = payload
+                return payload
+
+            def signal_performance_contract() -> dict[str, Any]:
+                payload = market_performance_payload()
+                summary = payload.get("performance_summary") or {}
+                _assert(
+                    isinstance(summary, dict)
+                    and summary.get("version")
+                    == "market-signal-realized-performance-v1",
+                    "시장 시그널 실현 성과 요약 버전이 없거나 다릅니다.",
+                )
+                _assert(
+                    summary.get("return_basis") == "completed_trade_net_of_costs"
+                    and summary.get("benchmark_basis")
+                    == "same_market_same_holding_period",
+                    "완료 거래 순수익·동일 보유기간 지수 비교 기준이 다릅니다.",
+                )
+                windows = summary.get("windows") or {}
+                evidence: dict[str, Any] = {
+                    "version": summary.get("version"),
+                    "as_of": summary.get("as_of"),
+                    "windows": {},
+                }
+                for key, expected_days in (("30d", 30), ("90d", 90)):
+                    window = windows.get(key) if isinstance(windows, dict) else None
+                    _assert(isinstance(window, dict), f"{key} 성과 창이 없습니다.")
+                    completed = int(window.get("completed_trades") or 0)
+                    wins = int(window.get("wins") or 0)
+                    losses = int(window.get("losses") or 0)
+                    breakeven = int(window.get("breakeven") or 0)
+                    minimum = int(window.get("minimum_required_trades") or 0)
+                    matched = int(window.get("matched_benchmark_trades") or 0)
+                    _assert(
+                        int(window.get("window_days") or 0) == expected_days
+                        and completed == wins + losses + breakeven
+                        and minimum == 20
+                        and window.get("sample_state")
+                        == ("sufficient" if completed >= minimum else "limited")
+                        and 0 <= matched <= completed,
+                        f"{key} 성과 표본·상태·지수 매칭 수가 일관되지 않습니다.",
+                        window=window,
+                    )
+                    if completed:
+                        win_rate = _finite_number(window.get("win_rate"))
+                        _assert(
+                            win_rate is not None
+                            and abs(win_rate - round(wins / completed * 100, 2)) < 0.011
+                            and _finite_number(window.get("average_return")) is not None
+                            and _finite_number(window.get("median_return")) is not None,
+                            f"{key} 승률·평균·중앙값이 재현 가능한 숫자가 아닙니다.",
+                            window=window,
+                        )
+                    if matched:
+                        _assert(
+                            _finite_number(window.get("average_benchmark_return"))
+                            is not None
+                            and _finite_number(window.get("average_excess_return"))
+                            is not None,
+                            f"{key} 동일 보유기간 지수·초과수익이 없습니다.",
+                            window=window,
+                        )
+                    evidence["windows"][key] = {
+                        "completed_trades": completed,
+                        "win_rate": window.get("win_rate"),
+                        "average_return": window.get("average_return"),
+                        "median_return": window.get("median_return"),
+                        "matched_benchmark_trades": matched,
+                        "average_excess_return": window.get("average_excess_return"),
+                        "sample_state": window.get("sample_state"),
+                    }
+                return evidence
+
+            collector.check(
+                "SIG-PERF-001",
+                signal_performance_contract,
+                pass_message="30일·90일 완료 거래 순수익과 동일 보유기간 지수 비교 계약을 확인했습니다.",
+            )
+
+            def entry_safety_guard_contract() -> dict[str, Any]:
+                payload = market_performance_payload()
+                guard = payload.get("entry_safety_guard") or {}
+                _assert(
+                    isinstance(guard, dict)
+                    and guard.get("version") == "market-signal-entry-safety-v1"
+                    and int(guard.get("window_days") or 0) == 30
+                    and int(guard.get("minimum_required_trades") or 0) == 20,
+                    "신규 매수 성과 안전 가드 계약이 없거나 다릅니다.",
+                    guard=guard,
+                )
+                decisions = guard.get("decisions") or []
+                _assert(isinstance(decisions, list), "성과 안전 가드 결정 이력이 배열이 아닙니다.")
+                decision_dates = [
+                    str(item.get("effective_on") or "")
+                    for item in decisions
+                    if isinstance(item, dict)
+                ]
+                _assert(
+                    len(decision_dates) == len(decisions)
+                    and decision_dates == sorted(decision_dates)
+                    and len(decision_dates) == len(set(decision_dates)),
+                    "성과 안전 가드 결정 이력이 날짜순 append-only 형태가 아닙니다.",
+                    decision_dates=decision_dates,
+                )
+                active = guard.get("active") is True
+                if decisions:
+                    _assert(
+                        active is (decisions[-1].get("active") is True),
+                        "현재 가드 상태가 마지막 결정과 다릅니다.",
+                        guard=guard,
+                    )
+                performance = payload.get("performance_summary") or {}
+                recent = (performance.get("windows") or {}).get("30d") or {}
+                completed = int(recent.get("completed_trades") or 0)
+                minimum = int(guard.get("minimum_required_trades") or 20)
+                average = _finite_number(recent.get("average_return"))
+                if completed >= minimum and average is not None:
+                    _assert(
+                        active is (average < 0),
+                        "충분한 최근 표본의 기대값 부호와 안전 가드 상태가 다릅니다.",
+                        completed_trades=completed,
+                        average_return=average,
+                        active=active,
+                    )
+                pending_codes: list[str] = []
+                if active:
+                    for item in payload.get("items") or []:
+                        if not isinstance(item, dict):
+                            continue
+                        current = item.get("current") or {}
+                        if item.get("action") == "entry_pending" or (
+                            isinstance(current, dict)
+                            and current.get("action") == "entry_pending"
+                        ):
+                            pending_codes.append(str(item.get("code") or "unknown"))
+                    _assert(
+                        not pending_codes,
+                        "성과 안전 가드 활성 중 새 매수대기가 남아 있습니다.",
+                        pending_codes=pending_codes,
+                    )
+                return {
+                    "active": active,
+                    "effective_on": guard.get("effective_on"),
+                    "completed_trades": completed,
+                    "average_return": average,
+                    "decision_dates": decision_dates,
+                    "remaining_entry_pending": pending_codes,
+                }
+
+            collector.check(
+                "SIG-ENTRY-008",
+                entry_safety_guard_contract,
+                pass_message="음수 기대값 신규매수 관찰 하향과 append-only 결정 계약을 확인했습니다.",
+            )
+
+            def entry_filter_forward_contract() -> dict[str, Any]:
+                payload = market_performance_payload()
+                comparison = payload.get("filter_forward_comparison") or {}
+                _assert(
+                    isinstance(comparison, dict)
+                    and comparison.get("version")
+                    == "entry-filter-fixed-cohort-forward-v1",
+                    "고정 코호트 순방향 필터 비교가 없거나 버전이 다릅니다.",
+                )
+                try:
+                    cohort_date = date.fromisoformat(
+                        str(comparison.get("cohort_market_cap_date") or "")
+                    )
+                except ValueError:
+                    raise QaFailure(
+                        "고정 코호트 시가총액 기준일을 해석할 수 없습니다.",
+                        {"cohort_market_cap_date": comparison.get("cohort_market_cap_date")},
+                    ) from None
+                _assert(
+                    cohort_date <= date(2026, 9, 4)
+                    and str(comparison.get("period_start") or "") == "2026-09-04",
+                    "고정 코호트 기준일 또는 순방향 시작일이 필터 적용일과 맞지 않습니다.",
+                    cohort_market_cap_date=cohort_date.isoformat(),
+                    period_start=comparison.get("period_start"),
+                )
+                versions = (
+                    "buy-filter-v7.4-baseline",
+                    "buy-filter-h1",
+                    "buy-filter-h2",
+                    "buy-filter-h3",
+                )
+                filters = comparison.get("filters") or {}
+                rolling = comparison.get("rolling_last_trades") or {}
+                _assert(
+                    isinstance(filters, dict)
+                    and isinstance(rolling, dict)
+                    and all(isinstance(filters.get(version), dict) for version in versions)
+                    and all(isinstance(rolling.get(version), dict) for version in versions),
+                    "H1·H2·H3 고정 코호트 전체·최근 거래 비교가 완전하지 않습니다.",
+                )
+                symbol_counts = {int(filters[version].get("symbols") or 0) for version in versions}
+                _assert(
+                    len(symbol_counts) == 1
+                    and next(iter(symbol_counts)) > 0
+                    and all(
+                        int(rolling[version].get("requested_trades") or 0) == 20
+                        and 0 <= int(rolling[version].get("completed_trades") or 0) <= 20
+                        for version in versions
+                    ),
+                    "필터별 고정 코호트 크기 또는 최근 20건 비교 조건이 다릅니다.",
+                    symbol_counts=sorted(symbol_counts),
+                )
+                assessment = comparison.get("promotion_assessment") or {}
+                checks = assessment.get("checks") or {}
+                eligible = assessment.get("eligible_for_operator_review") is True
+                enough_sample = bool(
+                    checks.get("minimum_forward_trades") is True
+                    and checks.get("minimum_recent_trades") is True
+                )
+                expected_status = (
+                    "eligible_for_operator_review"
+                    if eligible
+                    else "shadow_not_eligible" if enough_sample else "shadow_collecting"
+                )
+                _assert(
+                    assessment.get("candidate") == "buy-filter-h3"
+                    and assessment.get("current_active") == "buy-filter-h1"
+                    and assessment.get("automatic_promotion") is False
+                    and assessment.get("operator_approval_required") is True
+                    and int(assessment.get("minimum_forward_trades") or 0) == 40
+                    and int(assessment.get("minimum_recent_trades") or 0) == 20
+                    and isinstance(checks, dict)
+                    and bool(checks)
+                    and eligible is all(value is True for value in checks.values())
+                    and assessment.get("status") == expected_status,
+                    "H3 승격 판정이 표본·H1 비교·운영자 승인 계약과 다릅니다.",
+                    promotion_assessment=assessment,
+                )
+                return {
+                    "cohort_market_cap_date": cohort_date.isoformat(),
+                    "period_start": comparison.get("period_start"),
+                    "period_end": comparison.get("period_end"),
+                    "symbols": next(iter(symbol_counts)),
+                    "h1": filters["buy-filter-h1"],
+                    "h2": filters["buy-filter-h2"],
+                    "h3": filters["buy-filter-h3"],
+                    "promotion_assessment": assessment,
+                }
+
+            collector.check(
+                "SIG-ENTRY-009",
+                entry_filter_forward_contract,
+                pass_message="H1·H2·H3 고정 코호트 순방향 비교와 H3 운영자 검토 게이트를 확인했습니다.",
+            )
+
             def recommendation_eligibility_contract() -> dict[str, Any]:
                 recommendations, meta = api.get(
                     "/market/recommendations",
@@ -3639,6 +4016,100 @@ def _live_checks(
                 pass_message=f"{path} 읽기 전용 연동 계약을 확인했습니다.",
             )
 
+        def news_freshness_contract() -> dict[str, Any]:
+            quality, quality_meta = api.get(
+                "/meta/signal-data-quality",
+                probe="true",
+                sample_code="005930",
+            )
+            datasets = quality.get("datasets") if isinstance(quality, dict) else {}
+            news_quality = (datasets or {}).get("news") or {}
+            stock_news_quality = (datasets or {}).get("stock_news") or {}
+            _assert(
+                news_quality.get("state") == "ready"
+                and stock_news_quality.get("state") == "ready",
+                "뉴스 수집 또는 Top100 종목뉴스 스냅샷이 최신 상태가 아닙니다.",
+                news_state=news_quality.get("state"),
+                stock_news_state=stock_news_quality.get("state"),
+                **quality_meta,
+            )
+            probe_items = ((quality.get("api_probe") or {}).get("items") or [])
+            news_probe = next(
+                (
+                    item
+                    for item in probe_items
+                    if isinstance(item, dict) and item.get("key") == "news"
+                ),
+                {},
+            )
+            _assert(
+                news_probe.get("state") == "ready",
+                "네이버 현재 뉴스 JSON 원천 프로브가 ready가 아닙니다.",
+                news_probe=news_probe,
+            )
+            general_items, general_meta = api.get("/news-items", limit=5)
+            stock_items, stock_meta = api.get("/stocks/005930/news-items", limit=5)
+            _assert(
+                isinstance(general_items, list)
+                and general_items
+                and isinstance(stock_items, list)
+                and stock_items,
+                "전역 또는 삼성전자 최신 뉴스가 비어 있습니다.",
+                general_count=len(general_items) if isinstance(general_items, list) else None,
+                stock_count=len(stock_items) if isinstance(stock_items, list) else None,
+            )
+            _assert(
+                general_meta.get("cache_control")
+                == "no-store, no-cache, must-revalidate"
+                and stock_meta.get("cache_control")
+                == "no-store, no-cache, must-revalidate"
+                and stock_meta.get("data_state") == "ready",
+                "뉴스 API의 no-store 또는 신선도 헤더 계약이 잘못됐습니다.",
+                general=general_meta,
+                stock=stock_meta,
+            )
+            cutoff = datetime.now(KST).replace(tzinfo=None) - timedelta(days=3)
+            stale_items: list[dict[str, Any]] = []
+            for scope, items in (("general", general_items), ("stock", stock_items)):
+                for item in items:
+                    try:
+                        published_at = datetime.fromisoformat(
+                            str(item.get("published_at") or "").replace("Z", "+00:00")
+                        )
+                        if published_at.tzinfo is not None:
+                            published_at = published_at.astimezone(KST).replace(tzinfo=None)
+                    except (AttributeError, ValueError):
+                        published_at = None
+                    if published_at is None or published_at < cutoff:
+                        stale_items.append(
+                            {
+                                "scope": scope,
+                                "title": str(item.get("title") or "")[:100],
+                                "published_at": item.get("published_at"),
+                            }
+                        )
+            _assert(
+                not stale_items,
+                "최신 뉴스 API에 3일을 넘긴 기사가 포함됐습니다.",
+                stale_items=stale_items,
+            )
+            return {
+                "quality": quality_meta,
+                "news_state": news_quality.get("state"),
+                "stock_news_state": stock_news_quality.get("state"),
+                "news_probe": news_probe,
+                "general": general_meta,
+                "stock": stock_meta,
+                "general_count": len(general_items),
+                "stock_count": len(stock_items),
+            }
+
+        collector.check(
+            "DATA-CALENDAR-CONTENT-007",
+            news_freshness_contract,
+            pass_message="현재 뉴스 원천·Top100 커버리지·API 신선도를 확인했습니다.",
+        )
+
         def us_contract() -> dict[str, Any]:
             payload, meta = api.get("/us/stocks/AAPL/dashboard")
             _assert(
@@ -4197,7 +4668,7 @@ def _live_us_checks(
                 and bool(timeline),
                 "스테이징 미국 시장 뉴스가 live ready 상태가 아닙니다.",
                 status=payload.get("status"),
-                data_state=payload.get("data_state"),
+                payload_data_state=payload.get("data_state"),
                 timeline_count=len(timeline) if isinstance(timeline, list) else None,
                 **payload_meta,
             )

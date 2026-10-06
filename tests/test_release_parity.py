@@ -14,8 +14,8 @@ def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     contract = local_release_contract()
 
     assert contract["surface"] == "dashboard"
-    assert contract["product_version"] == "20260930v556"
-    assert contract["dashboard_version"] == "20260930v556"
+    assert contract["product_version"] == "20261001v558"
+    assert contract["dashboard_version"] == "20261001v558"
     assert len(contract["assets"]) == 8
     assert len(contract["asset_sha256"]) == 8
     assert set(contract["asset_sha256"]) == {
@@ -32,7 +32,7 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
     contract = local_release_contract(surface="us")
 
     assert contract["surface"] == "us"
-    assert contract["product_version"] == "20260930us128"
+    assert contract["product_version"] == "20261001us130"
     assert len(contract["assets"]) == 12
     assert len(contract["asset_sha256"]) == 12
     assert set(contract["asset_sha256"]) == {
@@ -149,8 +149,15 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "name: production" in workflow
     assert "--production-url \"$TARGET_PRODUCTION_BASE_URL\"" in workflow
     assert "Wait for the staged product surface" in workflow
+    assert "Wait for current staging data" in workflow
+    assert "Wait for current US gateway data" in workflow
+    assert "Wait for current production data" in workflow
+    assert "python -m app.qa.release_data_readiness" in workflow
+    assert "staging-data-readiness.json" in workflow
+    assert "us-gateway-data-readiness.json" in workflow
+    assert "production-data-readiness.json" in workflow
     assert "product_surface:" in workflow
-    assert workflow.count('--surface "$PRODUCT_SURFACE"') == 5
+    assert workflow.count('--surface "$PRODUCT_SURFACE"') == 7
     assert workflow.count('railway variable set "US_MARKET_ENABLED=true"') == 4
     assert workflow.count('railway variable set "US_MARKET_ENABLED=false"') == 2
     assert workflow.count('railway variable set "PROCESS_ROLE=web"') == 3

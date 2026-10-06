@@ -19,6 +19,7 @@ KST = ZoneInfo("Asia/Seoul")
 MOBILE_VIEWPORT = {"width": 458, "height": 872}
 E2E_CASE_IDS = (
     "SIG-CONTRACT-003",
+    "SIG-PERF-001",
     "SIG-UI-001",
     "SIG-UI-002",
     "SIG-UI-003",
@@ -2536,6 +2537,199 @@ def run_e2e_checks(
                     "대표 화면에서 확인했습니다."
                 )
             results.append(signal_contract_result)
+
+            def signal_performance_overview_case(
+                page: Any, theme: str
+            ) -> dict[str, Any]:
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/dashboard",
+                        view="ai-signals",
+                        market_scope="kr",
+                        theme=theme,
+                        qa_performance=datetime.now(KST).strftime("%H%M%S"),
+                    ),
+                    wait_until="commit",
+                    ready_selector="body[data-view='ai-signals']",
+                )
+                shell = _assert_page_shell(page, theme=theme)
+                page.wait_for_function(
+                    """() => {
+                      const summary = state.aiSignalPerformanceSummary;
+                      const comparison = state.aiSignalFilterForwardComparison;
+                      const overview = document.querySelector('#ai-signal-performance');
+                      return Boolean(
+                        summary?.windows?.['30d']
+                        && summary?.windows?.['90d']
+                        && comparison?.filters?.['buy-filter-h3']
+                        && overview
+                        && !overview.hidden
+                        && overview.querySelectorAll('.ai-signal-performance-row').length >= 3
+                      );
+                    }""",
+                    timeout=int(timeout * 1000),
+                )
+                contract = page.evaluate(
+                    """() => {
+                      const summary = state.aiSignalPerformanceSummary;
+                      const guard = state.aiSignalEntrySafetyGuard || {};
+                      const comparison = state.aiSignalFilterForwardComparison || {};
+                      const overview = document.querySelector('#ai-signal-performance');
+                      const rows = [...overview.querySelectorAll('.ai-signal-performance-row')];
+                      return {
+                        asOf: overview.querySelector('#ai-signal-performance-asof')?.textContent?.trim() || '',
+                        lead: overview.querySelector('#ai-signal-performance-lead')?.textContent?.trim() || '',
+                        note: overview.querySelector('#ai-signal-performance-note')?.textContent?.trim() || '',
+                        labels: rows.map(row => row.querySelector('.ai-signal-performance-label')?.textContent?.trim() || ''),
+                        statuses: rows.map(row => row.querySelector('.ai-signal-performance-status')?.textContent?.trim() || ''),
+                        values: rows.map(row => row.querySelector('.ai-signal-performance-value')?.textContent?.trim() || ''),
+                        evidence: rows.map(row => row.querySelector('.ai-signal-performance-evidence')?.textContent?.trim() || ''),
+                        windows: summary.windows,
+                        guard,
+                        assessment: comparison.promotion_assessment || {},
+                      };
+                    }"""
+                )
+                windows = contract.get("windows") or {}
+                window_30 = windows.get("30d") or {}
+                window_90 = windows.get("90d") or {}
+                guard = contract.get("guard") or {}
+                assessment = contract.get("assessment") or {}
+                if (
+                    contract.get("labels")
+                    != ["최근 30일", "최근 90일", "동일 코호트 필터"]
+                    or not contract.get("asOf")
+                    or len(contract.get("statuses") or []) != 3
+                    or any(not value for value in contract.get("values") or [])
+                    or any(not value for value in contract.get("evidence") or [])
+                    or int(window_90.get("completed_trades") or 0)
+                    < int(window_30.get("completed_trades") or 0)
+                    or any(
+                        "승률 +" in evidence
+                        for evidence in contract.get("evidence") or []
+                    )
+                    or "자동 승격하지 않습니다" not in str(contract.get("note") or "")
+                    or assessment.get("automatic_promotion") is not False
+                    or assessment.get("operator_approval_required") is not True
+                    or (
+                        guard.get("active") is True
+                        and "관찰 단계" not in str(contract.get("lead") or "")
+                    )
+                ):
+                    raise QaFailure(
+                        "30일·90일 성과, 안전 가드 또는 H3 운영자 검토 문구가 화면 계약과 다릅니다.",
+                        contract,
+                    )
+
+                reflow: dict[str, Any] = {}
+                for label, viewport_size in (
+                    ("360px", {"width": 360, "height": 800}),
+                    ("desktop", {"width": 1280, "height": 900}),
+                    ("200_percent_equivalent", {"width": 320, "height": 800}),
+                ):
+                    page.set_viewport_size(viewport_size)
+                    page.wait_for_timeout(100)
+                    measurement = page.evaluate(
+                        """() => {
+                          const overview = document.querySelector('#ai-signal-performance');
+                          const overviewRect = overview.getBoundingClientRect();
+                          const rows = [...overview.querySelectorAll('.ai-signal-performance-row')];
+                          return {
+                            viewport: innerWidth,
+                            rootWidth: document.documentElement.scrollWidth,
+                            overviewLeft: overviewRect.left,
+                            overviewRight: overviewRect.right,
+                            overviewScrollWidth: overview.scrollWidth,
+                            overviewClientWidth: overview.clientWidth,
+                            rowOverflow: rows.map(row => row.scrollWidth - row.clientWidth),
+                          };
+                        }"""
+                    )
+                    reflow[label] = measurement
+                    if (
+                        measurement["rootWidth"] > measurement["viewport"] + 1
+                        or measurement["overviewLeft"] < -1
+                        or measurement["overviewRight"]
+                        > measurement["viewport"] + 1
+                        or measurement["overviewScrollWidth"]
+                        > measurement["overviewClientWidth"] + 1
+                        or any(value > 1 for value in measurement["rowOverflow"])
+                    ):
+                        raise QaFailure(
+                            f"성과 개요가 {label}에서 가로로 넘칩니다.", measurement
+                        )
+
+                missing_state = page.evaluate(
+                    """() => {
+                      const original = state.aiSignalPerformanceSummary;
+                      state.aiSignalPerformanceSummary = {
+                        ...original,
+                        windows: {
+                          ...original.windows,
+                          '30d': {
+                            window_days: 30,
+                            completed_trades: 0,
+                            wins: 0,
+                            losses: 0,
+                            breakeven: 0,
+                            win_rate: null,
+                            average_return: null,
+                            median_return: null,
+                            matched_benchmark_trades: 0,
+                            average_excess_return: null,
+                            sample_state: 'limited',
+                            minimum_required_trades: 20,
+                          },
+                        },
+                      };
+                      renderAiSignalPerformance();
+                      const overview = document.querySelector('#ai-signal-performance');
+                      const first = overview.querySelector('.ai-signal-performance-row');
+                      const observed = {
+                        hidden: overview.hidden,
+                        lead: overview.querySelector('#ai-signal-performance-lead')?.textContent?.trim() || '',
+                        status: first?.querySelector('.ai-signal-performance-status')?.textContent?.trim() || '',
+                        value: first?.querySelector('.ai-signal-performance-value')?.textContent?.trim() || '',
+                        overflow: overview.scrollWidth - overview.clientWidth,
+                      };
+                      state.aiSignalPerformanceSummary = original;
+                      renderAiSignalPerformance();
+                      return observed;
+                    }"""
+                )
+                if (
+                    missing_state.get("hidden") is True
+                    or missing_state.get("status") != "집계 중"
+                    or missing_state.get("value") != "집계 중"
+                    or "표본을 수집 중" not in str(missing_state.get("lead") or "")
+                    or float(missing_state.get("overflow") or 0) > 1
+                ):
+                    raise QaFailure(
+                        "성과 표본이 없을 때 집계 중 상태와 리플로가 유지되지 않습니다.",
+                        missing_state,
+                    )
+                return {
+                    **shell,
+                    "contract": contract,
+                    "reflow": reflow,
+                    "missing_state": missing_state,
+                }
+
+            results.append(
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id="SIG-PERF-001",
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=signal_performance_overview_case,
+                    storage_state=storage_state,
+                    share_id=share_id,
+                )
+            )
 
             def stock_case(page: Any, theme: str) -> dict[str, Any]:
                 fixtures: list[dict[str, Any]] = []

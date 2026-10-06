@@ -18,6 +18,7 @@ from app.models import (
     DailyPrice,
     DisclosureItem,
     InvestorFlow,
+    MacroObservation,
     NewsItem,
     ResearchReport,
     StockCompanySnapshot,
@@ -755,7 +756,7 @@ def test_v74_entry_filter_and_initial_risk_cap():
     assert quant_signals._initial_risk(100.0, 20.0, strategy_date=bar.trade_date) == 4.0
 
 
-def test_v75_rc4_activates_h1_and_keeps_h2_h3_shadow_only():
+def test_v8_keeps_h1_active_and_h2_h3_shadow_only():
     bar = quant_signals.PriceBar(
         trade_date=date(2026, 9, 4),
         open=100.0,
@@ -781,8 +782,8 @@ def test_v75_rc4_activates_h1_and_keeps_h2_h3_shadow_only():
         "average_trading_value": 5_000_000_000.0,
     }
 
-    assert quant_signals.STRATEGY_VERSION == "position-lifecycle-v7.4.2"
-    assert quant_signals.CANDIDATE_STRATEGY_VERSION == "position-lifecycle-v7.5-rc4"
+    assert quant_signals.STRATEGY_VERSION == "position-lifecycle-v8.0"
+    assert quant_signals.CANDIDATE_STRATEGY_VERSION == "position-lifecycle-v8.1-rc1"
     assert [item["version"] for item in quant_signals.STRATEGY_VERSION_HISTORY] == [
         "position-lifecycle-legacy",
         "position-lifecycle-v7.1",
@@ -792,6 +793,8 @@ def test_v75_rc4_activates_h1_and_keeps_h2_h3_shadow_only():
         "position-lifecycle-v7.5-rc3",
         "position-lifecycle-v7.4.2",
         "position-lifecycle-v7.5-rc4",
+        "position-lifecycle-v8.0",
+        "position-lifecycle-v8.1-rc1",
     ]
     assert quant_signals.active_entry_filter_version(bar.trade_date) == "buy-filter-h1"
     assert quant_signals._entry_signal(bar, indicator) is True
@@ -822,6 +825,157 @@ def test_strategy_version_for_date_preserves_previous_releases():
     assert quant_signals.strategy_version_for_date(date(2026, 9, 7)) == "position-lifecycle-v7.4"
     assert quant_signals.strategy_version_for_date(date(2026, 9, 8)) == "position-lifecycle-v7.4.1"
     assert quant_signals.strategy_version_for_date(date(2026, 9, 9)) == "position-lifecycle-v7.4.2"
+    assert quant_signals.strategy_version_for_date(date(2026, 10, 2)) == "position-lifecycle-v7.4.2"
+    assert quant_signals.strategy_version_for_date(date(2026, 10, 3)) == "position-lifecycle-v8.0"
+
+
+def test_v8_intraday_buy_waits_for_frozen_breakout_and_keeps_gap_guard():
+    pending = {
+        "side": "buy",
+        "signal_price": 100.0,
+        "entry_trigger_price": 102.0,
+        "atr": 2.0,
+    }
+
+    untouched = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 6),
+        open=100.5,
+        high=101.9,
+        low=99.5,
+        close=101.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    touched = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 6),
+        open=100.5,
+        high=102.2,
+        low=99.5,
+        close=102.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    chased = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 6),
+        open=104.0,
+        high=105.0,
+        low=103.5,
+        close=104.5,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    incomplete = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 6),
+        open=100.5,
+        high=102.2,
+        low=99.5,
+        close=102.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+        ohlc_complete=False,
+    )
+
+    assert quant_signals._intraday_entry_execution_price(untouched, pending) is None
+    assert quant_signals._intraday_entry_execution_price(touched, pending) == 102.0
+    assert quant_signals._intraday_entry_execution_price(chased, pending) is None
+    assert quant_signals._intraday_entry_execution_price(incomplete, pending) is None
+
+
+def test_v8_intraday_sell_is_stop_first_and_emits_every_reached_profit_stage():
+    position = {
+        "entry_date": date(2026, 10, 3),
+        "entry_price": 100.0,
+        "entry_index": 100,
+        "entry_cost": 0.002,
+        "initial_risk": 2.0,
+        "initial_shares": 1.0,
+        "entry_equity": 100.0,
+        "peak_price": 100.0,
+        "initial_stop": 98.0,
+        "profit_stage": 0,
+        "remaining_fraction": 1.0,
+    }
+    indicator = {"atr": 1.0, "average_trading_value": 50_000_000_000.0}
+    target_bar = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 6),
+        open=100.0,
+        high=105.2,
+        low=99.0,
+        close=104.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    ambiguous_bar = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 6),
+        open=100.0,
+        high=105.2,
+        low=97.5,
+        close=104.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+
+    targets = quant_signals._intraday_exit_decisions(position, target_bar, indicator)
+    assert [(item.side, item.price, item.target_stage) for item in targets] == [
+        ("partial_sell", 103.0, 1),
+        ("sell", 105.0, 2),
+    ]
+    stop_first = quant_signals._intraday_exit_decisions(position, ambiguous_bar, indicator)
+    assert len(stop_first) == 1
+    assert stop_first[0].side == "sell"
+    assert stop_first[0].price == 98.0
+    assert "하드 위험선" in stop_first[0].reason
+
+
+def test_v8_simulation_executes_prior_close_signal_at_next_session_breakout(monkeypatch):
+    bars, indicators = _strategy_test_inputs(70)
+    bars[65] = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 3),
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    bars[66] = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 6),
+        open=100.0,
+        high=101.5,
+        low=100.0,
+        close=101.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    for index in range(67, len(bars)):
+        bars[index] = quant_signals.PriceBar(
+            trade_date=date(2026, 10, 6) + timedelta(days=index - 66),
+            open=101.0,
+            high=102.0,
+            low=100.0,
+            close=101.0,
+            volume=1_000_000,
+            trading_value=50_000_000_000,
+        )
+    _set_entry_indicator(indicators[65])
+    monkeypatch.setattr(
+        quant_signals,
+        "entry_confirmation_decision",
+        lambda *_args, **_kwargs: {
+            "allowed": True,
+            "state": "approved",
+            "reason": "fixture",
+        },
+    )
+
+    result = quant_signals._simulate(bars, indicators)
+
+    buy = next(event for event in result["events"] if event["side"] == "buy")
+    assert buy["signal_date"] == date(2026, 10, 3)
+    assert buy["execution_date"] == date(2026, 10, 6)
+    assert buy["price"] == 101
+    assert buy["label"] == "장중 돌파 진입"
+    assert buy["execution_model"] == quant_signals.EXECUTION_MODEL
 
 
 def test_v741_chase_veto_preserves_meritz_history_and_blocks_new_overheated_entries():
@@ -2248,6 +2402,8 @@ def test_quant_signal_endpoint_uses_same_engine_for_multiple_stocks(monkeypatch)
         assert hynix.status_code == 200
         assert samsung.headers["cache-control"].startswith("no-store")
         assert samsung.json()["strategy_version"] == hynix.json()["strategy_version"]
+        assert samsung.json()["execution_model"] == quant_signals.EXECUTION_MODEL
+        assert samsung.json()["intraday_execution_effective_date"] == "2026-10-03"
         assert samsung.json()["entry_score_threshold"] is None
         assert [item["key"] for item in samsung.json()["public_reasons"]] == [
             "trend_20d",
@@ -2760,6 +2916,8 @@ def test_market_quant_signal_feed_returns_all_recent_transitions_and_normalizes_
     )
 
     assert payload["universe_count"] == 2
+    assert payload["execution_model"] == quant_signals.EXECUTION_MODEL
+    assert payload["intraday_execution_effective_date"] == date(2026, 10, 3)
     assert [item["code"] for item in payload["items"]] == ["000001", "000002", "000001"]
     assert [item["signal"] for item in payload["items"]] == ["매수", "수익확정", "전량 매도"]
     assert [item["event_side"] for item in payload["items"]] == ["buy", "partial_sell", "sell"]
@@ -3551,7 +3709,202 @@ def test_trade_metadata_requires_entry_price_and_uses_new_snapshot_namespace():
     assert quant_signals.market_payload_has_trade_metadata(market_payload) is True
     del market_payload["items"][0]["entry_price"]
     assert quant_signals.market_payload_has_trade_metadata(market_payload) is False
-    assert quant_signals.market_quant_signal_snapshot_key(150, 0, 30) == "v32:150:0:30"
+    assert quant_signals.market_quant_signal_snapshot_key(150, 0, 30) == "v35:150:0:30"
+
+
+def test_market_signal_performance_summary_uses_completed_net_returns_and_matched_index_periods():
+    with _session() as db:
+        for period, value in (("2026-08-31", 100.0), ("2026-09-10", 102.0), ("2026-09-20", 99.0)):
+            db.add(
+                MacroObservation(
+                    source="naver_finance",
+                    series_code="^KS11",
+                    item_code="close",
+                    period=period,
+                    value=Decimal(str(value)),
+                )
+            )
+        db.commit()
+        items = [
+            {
+                "status": "confirmed",
+                "event_side": "sell",
+                "state_after": "exited",
+                "market": "KOSPI",
+                "entry_date": date(2026, 8, 31),
+                "execution_date": date(2026, 9, 10),
+                "return_rate": Decimal("5.00"),
+            },
+            {
+                "status": "confirmed",
+                "event_side": "sell",
+                "state_after": "exited",
+                "market": "KOSPI",
+                "entry_date": date(2026, 9, 10),
+                "execution_date": date(2026, 9, 20),
+                "return_rate": Decimal("-3.00"),
+            },
+            {
+                "status": "confirmed",
+                "event_side": "partial_sell",
+                "state_after": "partially_exited",
+                "market": "KOSPI",
+                "entry_date": date(2026, 9, 10),
+                "execution_date": date(2026, 9, 20),
+                "return_rate": Decimal("50.00"),
+            },
+        ]
+
+        summary = quant_signals.build_market_signal_performance_summary(
+            db,
+            items,
+            as_of=datetime(2026, 9, 25, 18, 0, tzinfo=quant_signals.KST),
+        )
+
+    recent = summary["windows"]["30d"]
+    assert recent["completed_trades"] == 2
+    assert recent["wins"] == 1
+    assert recent["average_return"] == Decimal("1.00")
+    assert recent["median_return"] == Decimal("1.00")
+    assert recent["matched_benchmark_trades"] == 2
+    assert recent["average_excess_return"] == Decimal("1.47")
+    assert summary["benchmark_basis"] == "same_market_same_holding_period"
+
+
+def test_negative_expectancy_guard_is_append_only_and_only_changes_unexecuted_entries():
+    performance = {
+        "windows": {
+            "30d": {
+                "completed_trades": 23,
+                "average_return": Decimal("-0.54"),
+            }
+        }
+    }
+    guard = quant_signals.evaluate_entry_safety_guard(
+        None,
+        performance,
+        effective_on=date(2026, 10, 1),
+        evaluated_at=datetime(2026, 10, 1, 18, 0, tzinfo=quant_signals.KST),
+    )
+    assert guard["active"] is True
+    assert quant_signals.entry_safety_guard_active(guard, date(2026, 9, 30)) is False
+    assert quant_signals.entry_safety_guard_active(guard, date(2026, 10, 1)) is True
+
+    payload = {
+        "items": [
+            {
+                "code": "NEW",
+                "is_preliminary": True,
+                "action": "entry_pending",
+                "current": {
+                    "action": "entry_pending",
+                    "position_open": False,
+                    "lifecycle": {"state": "entry_pending", "stage_index": 2},
+                },
+            },
+            {
+                "code": "HELD",
+                "is_preliminary": True,
+                "current": {"action": "holding", "position_open": True},
+            },
+            {
+                "code": "OLD",
+                "is_preliminary": False,
+                "event_side": "buy",
+            },
+        ]
+    }
+    guarded = quant_signals.apply_entry_safety_guard_to_market_payload(payload, guard)
+
+    assert guarded["items"][0]["current"]["action"] == "entry_watch"
+    assert guarded["items"][0]["current"]["label"] == "성과 회복 확인 중"
+    assert guarded["items"][1]["current"]["action"] == "holding"
+    assert guarded["items"][2]["event_side"] == "buy"
+
+
+def test_noncanonical_market_scope_cannot_toggle_entry_safety_guard():
+    previous = {
+        "version": quant_signals.ENTRY_SAFETY_GUARD_VERSION,
+        "active": False,
+        "state": "clear",
+        "window_days": 30,
+        "minimum_required_trades": 20,
+        "decisions": [],
+    }
+    negative_performance = {
+        "windows": {
+            "30d": {
+                "completed_trades": 20,
+                "average_return": Decimal("-0.14"),
+            }
+        }
+    }
+    evaluated_at = datetime(2026, 10, 1, 18, 0, tzinfo=quant_signals.KST)
+
+    noncanonical = quant_signals.evaluate_entry_safety_guard_for_market_scope(
+        previous,
+        negative_performance,
+        universe_limit=100,
+        effective_on=date(2026, 10, 1),
+        evaluated_at=evaluated_at,
+    )
+    canonical = quant_signals.evaluate_entry_safety_guard_for_market_scope(
+        previous,
+        negative_performance,
+        universe_limit=quant_signals.MARKET_SIGNAL_UNIVERSE_LIMIT,
+        effective_on=date(2026, 10, 1),
+        evaluated_at=evaluated_at,
+    )
+
+    assert noncanonical == previous
+    assert canonical["active"] is True
+    assert canonical["decisions"] == [
+        {
+            "effective_on": date(2026, 10, 1),
+            "active": True,
+            "reason": "최근 30일 완료 거래의 평균 수익률이 음수여서 신규 매수를 관찰로 낮춥니다.",
+            "completed_trades": 20,
+            "average_return": Decimal("-0.14"),
+        }
+    ]
+
+
+def test_negative_expectancy_guard_prevents_only_new_simulated_entry(monkeypatch) -> None:
+    bars = quant_signals._normalize_prices(_price_rows("GUARD", 340))
+    indicators = quant_signals._indicator_rows(bars)
+    signal_date = bars[-2].trade_date
+    monkeypatch.setattr(
+        quant_signals,
+        "_entry_setup_kind",
+        lambda bar, _indicator, **_kwargs: (
+            "trend_continuation" if bar.trade_date == signal_date else None
+        ),
+    )
+    monkeypatch.setattr(quant_signals, "_reentry_entry_allowed", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        quant_signals,
+        "entry_confirmation_decision",
+        lambda *_args, **_kwargs: {
+            "allowed": True,
+            "state": "legacy",
+            "reason": "fixture",
+        },
+    )
+
+    unguarded = quant_signals._simulate(bars, indicators)
+    guarded = quant_signals._simulate(
+        bars,
+        indicators,
+        entry_safety_guard={
+            "active": True,
+            "effective_on": signal_date,
+            "decisions": [{"effective_on": signal_date, "active": True}],
+        },
+    )
+
+    assert unguarded["position"] is not None
+    assert guarded["position"] is None
+    assert guarded["performance"]["rejected_performance_guard_entries"] == 1
 
 
 def test_market_preliminary_history_keeps_cleared_signals_for_same_day():
