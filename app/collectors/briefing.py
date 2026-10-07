@@ -513,6 +513,72 @@ class KisRestBriefingProvider:
 
         return sorted(points.values(), key=lambda row: (str(row["trade_date"]), str(row["trade_time"])))[:max_points]
 
+    def fetch_historical_intraday_chart(
+        self,
+        code: str,
+        trade_date: date,
+        *,
+        max_points: int = 390,
+        market_division: str = "J",
+    ) -> list[dict[str, object]]:
+        """Fetch one completed KRX session with KIS's dated minute-chart API.
+
+        This is deliberately separate from the current-day chart endpoint:
+        a past execution must be replayed from the same dated session, never
+        from whatever day's chart the quote endpoint happens to return.
+        """
+
+        if market_division != "J":
+            raise ValueError("historical signal replay requires KRX market J")
+        if not isinstance(trade_date, date):
+            raise ValueError("trade_date must be a date")
+        target = trade_date.strftime("%Y%m%d")
+        points: dict[str, dict[str, object]] = {}
+        cursor = "153000"
+        for _ in range(max(1, min(5, (max_points + 119) // 120))):
+            payload = self._get(
+                "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice",
+                "FHKST03010230",
+                {
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD": code,
+                    "FID_INPUT_HOUR_1": cursor,
+                    "FID_INPUT_DATE_1": target,
+                    "FID_PW_DATA_INCU_YN": "Y",
+                    "FID_FAKE_TICK_INCU_YN": "",
+                },
+            )
+            rows = payload.get("output2", []) or []
+            if not rows:
+                break
+            valid_times: list[str] = []
+            for row in rows:
+                if str(row.get("stck_bsop_date") or "") != target:
+                    continue
+                trade_time = str(row.get("stck_cntg_hour") or "").zfill(6)
+                if not ("090000" <= trade_time <= "153000"):
+                    continue
+                valid_times.append(trade_time)
+                points[trade_time] = {
+                    "trade_date": target,
+                    "trade_time": trade_time,
+                    "price": _int(row.get("stck_prpr")),
+                    "open": _int(row.get("stck_oprc")),
+                    "high": _int(row.get("stck_hgpr")),
+                    "low": _int(row.get("stck_lwpr")),
+                    "volume": _int(row.get("cntg_vol")),
+                    "trading_value": _int(row.get("acml_tr_pbmn")),
+                }
+            if not valid_times or min(valid_times) <= "090000" or len(points) >= max_points:
+                break
+            next_cursor = (
+                datetime.strptime(min(valid_times), "%H%M%S") - timedelta(minutes=1)
+            ).strftime("%H%M%S")
+            if next_cursor >= cursor:
+                break
+            cursor = next_cursor
+        return [points[key] for key in sorted(points)][:max_points]
+
     def _fetch_fluctuation(self, list_type: str, limit: int, min_rate: str, max_rate: str) -> list[BriefingMoverPayload]:
         payload = self._get(
             "/uapi/domestic-stock/v1/ranking/fluctuation",

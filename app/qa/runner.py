@@ -232,6 +232,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_quant_signals."
         "test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
         "tests.test_quant_signals."
+        "test_v8_live_buy_waits_for_a_closed_verified_minute",
+        "tests.test_quant_signals."
         "test_market_feed_only_projects_fresh_kis_intraday_execution_as_verified",
         "tests.test_web_push."
         "test_market_ai_confirmed_intraday_push_requires_verified_v8_events_and_reuses_close_key",
@@ -252,7 +254,25 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_quant_signals."
         "test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
         "tests.test_quant_signals."
+        "test_v8_live_buy_waits_for_a_closed_verified_minute",
+        "tests.test_quant_signals."
         "test_market_feed_only_projects_fresh_kis_intraday_execution_as_verified",
+    ),
+    "SIG-KR-INTRADAY-REPLAY-001": (
+        "tests.test_intraday_cache."
+        "test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
+        "tests.test_quant_signals."
+        "test_v8_completed_replay_keeps_verified_partial_sale_before_later_stop",
+        "tests.test_quant_signals."
+        "test_v8_dated_minute_path_is_durable_and_finalized_before_next_day_replay",
+        "tests.test_quant_signals."
+        "test_market_feed_isolates_dated_minute_chart_outage_and_keeps_other_signals",
+        "tests.test_quant_signals."
+        "test_stock_detail_refreshes_existing_ordered_path_before_display",
+        "tests.test_quant_signals."
+        "test_stock_signal_detail_fails_closed_when_published_minute_path_cannot_replay",
+        "tests.test_web_push."
+        "test_market_ai_push_skips_frozen_unverified_replay_at_open_and_close",
     ),
     "SIG-UI-030": (
         "tests.test_domestic_market_scope."

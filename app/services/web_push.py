@@ -1476,6 +1476,8 @@ class WebPushRuntime:
         for item in snapshot.get("items") or []:
             if not isinstance(item, dict):
                 continue
+            if item.get("execution_replay_state") == "unverified" or item.get("alert_eligible") is False:
+                continue
             code = str(item.get("code") or "").strip()
             name = str(item.get("name") or code).strip()
             side = str(item.get("side") or "").strip()

@@ -20,6 +20,7 @@ from app.models import (
     InvestorFlow,
     MacroObservation,
     NewsItem,
+    QuantSignalIntradayPathSnapshot,
     ResearchReport,
     StockCompanySnapshot,
     StockMaster,
@@ -531,22 +532,14 @@ def test_v8_verified_live_krx_bar_confirms_three_percent_half_sale(monkeypatch):
     )
 
     buy = next(event for event in payload["events"] if event["side"] == "buy")
-    partial = next(
-        event
-        for event in payload["events"]
-        if event["side"] == "partial_sell" and event["execution_date"] == live_date
-    )
     assert buy["execution_date"] == date(2026, 10, 6)
     assert buy["intraday_execution_verified"] is False
-    assert partial["signal_date"] == live_date
-    assert partial["execution_model"] == quant_signals.EXECUTION_MODEL
-    assert partial["intraday_execution_verified"] is True
-    assert partial["intraday_order_verified"] is False
-    assert partial["price"] == 105
-    assert partial["price"] >= buy["price"] * 1.03
-    assert partial["sold_percent"] == Decimal("50.00")
-    assert partial["position_percent"] == Decimal("50.00")
-    assert payload["current"]["action"] == "partially_exited"
+    assert not any(
+        event["side"] == "partial_sell" and event["execution_date"] == live_date
+        for event in payload["events"]
+    )
+    assert payload["unverified_live_execution_candidate"] is True
+    assert payload["intraday_execution_evidence_state"] == "awaiting_verified_minutes"
     assert payload["performance"]["period_end"] == bars[-1].trade_date
 
     observed_at = datetime(2026, 10, 8, 9, 3, tzinfo=quant_signals.KST)
@@ -574,7 +567,7 @@ def test_v8_verified_live_krx_bar_confirms_three_percent_half_sale(monkeypatch):
     assert ordered_partial["intraday_order_verified"] is True
     assert ordered_payload["performance"] == payload["performance"]
 
-    after_stop = build_quant_signal_payload(
+    still_forming = build_quant_signal_payload(
         _stock(),
         _daily_rows_from_bars("005930", bars),
         live_quote={
@@ -591,6 +584,26 @@ def test_v8_verified_live_krx_bar_confirms_three_percent_half_sale(monkeypatch):
         },
         now=datetime(2026, 10, 8, 9, 3),
     )
+    assert [event["side"] for event in still_forming["events"]
+            if event["execution_date"] == live_date and event["side"] in {"partial_sell", "sell"}] == ["partial_sell"]
+
+    after_stop = build_quant_signal_payload(
+        _stock(),
+        _daily_rows_from_bars("005930", bars),
+        live_quote={
+            **live_quote,
+            "price": 97,
+            "low": 97,
+            "observed_at": observed_at + timedelta(minutes=1),
+            "intraday_minutes_observed_at": observed_at + timedelta(minutes=1),
+            "intraday_minutes": [
+                {"trade_date": "20261008", "trade_time": "090100", "open": 101, "high": 102, "low": 100.5, "price": 101, "volume": 100},
+                {"trade_date": "20261008", "trade_time": "090200", "open": 101, "high": 105, "low": 101, "price": 105, "volume": 100},
+                {"trade_date": "20261008", "trade_time": "090300", "open": 105, "high": 105, "low": 97, "price": 97, "volume": 100},
+            ],
+        },
+        now=datetime(2026, 10, 8, 9, 4),
+    )
     same_day_exits = [
         event for event in after_stop["events"]
         if event["execution_date"] == live_date and event["side"] in {"partial_sell", "sell"}
@@ -598,6 +611,81 @@ def test_v8_verified_live_krx_bar_confirms_three_percent_half_sale(monkeypatch):
     assert [event["side"] for event in same_day_exits] == ["partial_sell", "sell"]
     assert same_day_exits[0]["sold_percent"] == Decimal("50.00")
     assert all(event["intraday_order_verified"] for event in same_day_exits)
+
+
+def test_v8_live_buy_waits_for_a_closed_verified_minute(monkeypatch):
+    bars, indicators = _strategy_test_inputs(66)
+    bars[-1] = quant_signals.PriceBar(
+        date(2026, 10, 7), 100, 101, 99, 100,
+        1_000_000, 50_000_000_000,
+    )
+    _set_entry_indicator(indicators[-1])
+    monkeypatch.setattr(quant_signals, "MIN_HISTORY_ROWS", len(bars))
+    monkeypatch.setattr(quant_signals, "_normalize_prices", lambda _rows: list(bars))
+    monkeypatch.setattr(
+        quant_signals, "latest_completed_korea_market_session_date",
+        lambda *_args, **_kwargs: bars[-1].trade_date,
+    )
+    monkeypatch.setattr(
+        quant_signals, "is_korea_market_session_date", lambda *_args, **_kwargs: True
+    )
+    monkeypatch.setattr(
+        quant_signals, "entry_confirmation_decision",
+        lambda *_args, **_kwargs: {
+            "allowed": True, "state": "approved", "reason": "fixture"
+        },
+    )
+
+    def indicator_rows(candidate_bars):
+        result = [dict(item) for item in indicators]
+        if len(candidate_bars) == len(bars) + 1:
+            result.append(dict(indicators[-1]))
+        return result
+
+    monkeypatch.setattr(quant_signals, "_indicator_rows", indicator_rows)
+    observed = datetime(2026, 10, 8, 9, 2, tzinfo=quant_signals.KST)
+    quote = {
+        "trade_date": date(2026, 10, 8),
+        "trade_date_verified": True,
+        "quote_source": "kis_rest",
+        "market_venue": "KRX",
+        "market_division": "J",
+        "price": 101,
+        "open": 100,
+        "high": 102,
+        "low": 100,
+        "volume": 1_000_000,
+        "trading_value": 50_000_000_000,
+        "observed_at": observed,
+    }
+    daily_rows = _daily_rows_from_bars("005930", bars)
+    awaiting = build_quant_signal_payload(
+        _stock(), daily_rows, live_quote=quote, now=observed
+    )
+    assert awaiting["unverified_live_execution_candidate"] is True
+    assert not any(
+        event["side"] == "buy" and event["execution_date"] == observed.date()
+        for event in awaiting["events"]
+    )
+    verified = build_quant_signal_payload(
+        _stock(), daily_rows,
+        live_quote={
+            **quote,
+            "intraday_minutes_observed_at": observed,
+            "intraday_minutes": [{
+                "trade_date": "20261008", "trade_time": "090100",
+                "open": 100, "high": 102, "low": 100,
+                "price": 101, "volume": 100,
+            }],
+        },
+        now=observed,
+    )
+    buys = [
+        event for event in verified["events"]
+        if event["side"] == "buy" and event["execution_date"] == observed.date()
+    ]
+    assert len(buys) == 1
+    assert buys[0]["intraday_order_verified"] is True
 
 
 @pytest.mark.parametrize(
@@ -1309,10 +1397,16 @@ def test_v8_ordered_minutes_require_fresh_complete_chart_matching_krx_quote():
         "intraday_minutes_observed_at": observed_at,
         "intraday_minutes": rows,
     }
-    assert len(quant_signals._verified_intraday_minutes(quote, bar) or []) == 3
-    assert quant_signals._verified_intraday_minutes(
+    assert len(quant_signals._verified_intraday_minutes(quote, bar) or []) == 2
+    assert len(quant_signals._verified_intraday_minutes(
         {**quote, "intraday_minutes": rows[:2]}, bar
-    ) is None
+    ) or []) == 2
+    later_quote = {
+        **quote,
+        "observed_at": observed_at + timedelta(minutes=1),
+        "intraday_minutes_observed_at": observed_at + timedelta(minutes=1),
+    }
+    assert len(quant_signals._verified_intraday_minutes(later_quote, bar) or []) == 3
     assert quant_signals._verified_intraday_minutes(
         {**quote, "intraday_minutes": [{**rows[0], "trade_date": "20261007"}, *rows[1:]]}, bar
     ) is None
@@ -1419,6 +1513,263 @@ def test_v8_ordered_entry_does_not_sell_on_a_low_before_the_breakout(monkeypatch
     assert any(event["side"] == "sell" for event in baseline["events"])
     assert [event["side"] for event in ordered["events"]] == ["buy"]
     assert ordered["events"][0]["intraday_order_verified"] is True
+
+
+def test_v8_completed_replay_keeps_verified_partial_sale_before_later_stop(monkeypatch):
+    bars, indicators = _strategy_test_inputs(69)
+    bars[65] = quant_signals.PriceBar(
+        date(2026, 10, 3), 100, 101, 99, 100, 1_000_000, 50_000_000_000
+    )
+    bars[66] = quant_signals.PriceBar(
+        date(2026, 10, 6), 100, 101, 100, 101, 1_000_000, 50_000_000_000
+    )
+    bars[67] = quant_signals.PriceBar(
+        date(2026, 10, 7), 101, 105, 97, 97, 1_000_000, 50_000_000_000
+    )
+    bars[68] = quant_signals.PriceBar(
+        date(2026, 10, 8), 97, 98, 96, 97, 1_000_000, 50_000_000_000
+    )
+    _set_entry_indicator(indicators[65])
+    monkeypatch.setattr(
+        quant_signals,
+        "entry_confirmation_decision",
+        lambda *_args, **_kwargs: {
+            "allowed": True, "state": "approved", "reason": "fixture"
+        },
+    )
+    minutes = [
+        quant_signals.PriceBar(date(2026, 10, 7), 101, 102, 100, 101, 100, 10_000),
+        quant_signals.PriceBar(date(2026, 10, 7), 101, 105, 101, 105, 100, 10_000),
+        quant_signals.PriceBar(date(2026, 10, 7), 105, 105, 97, 97, 100, 10_000),
+    ]
+    live = quant_signals._simulate(
+        bars[:68], indicators[:68],
+        forming_bar_date=date(2026, 10, 7), intraday_minutes=minutes,
+    )
+    replay = quant_signals._simulate(
+        bars, indicators,
+        intraday_minutes_by_date={date(2026, 10, 7): minutes},
+    )
+    live_exits = [
+        (event["side"], event["price"], event.get("sold_percent"))
+        for event in live["events"]
+        if event["execution_date"] == date(2026, 10, 7)
+    ]
+    replay_exits = [
+        (event["side"], event["price"], event.get("sold_percent"))
+        for event in replay["events"]
+        if event["execution_date"] == date(2026, 10, 7)
+    ]
+    assert live_exits == replay_exits
+    assert [side for side, *_rest in replay_exits] == ["partial_sell", "sell"]
+    assert replay["trades"][-1]["partial_exit_date"] == date(2026, 10, 7)
+
+
+def test_v8_dated_minute_path_is_durable_and_finalized_before_next_day_replay():
+    trade_date = date(2026, 10, 7)
+    observed = datetime(2026, 10, 7, 9, 3, tzinfo=quant_signals.KST)
+    rows = [
+        {"trade_date": "20261007", "trade_time": "090000", "open": 101,
+         "high": 102, "low": 100, "price": 101, "volume": 100},
+        {"trade_date": "20261007", "trade_time": "090100", "open": 101,
+         "high": 105, "low": 101, "price": 105, "volume": 100},
+        {"trade_date": "20261007", "trade_time": "090200", "open": 105,
+         "high": 105, "low": 97, "price": 97, "volume": 100},
+    ]
+    final_rows = [
+        *rows,
+        *[
+            {"trade_date": "20261007", "trade_time": (
+                datetime(2026, 10, 7, 9, 0) + timedelta(minutes=minute)
+            ).strftime("%H%M%S"), "open": 97, "high": 97, "low": 97,
+             "price": 97, "volume": 100}
+            for minute in range(3, 381)
+        ],
+        {"trade_date": "20261007", "trade_time": "153000", "open": 97,
+         "high": 97, "low": 97, "price": 97, "volume": 100},
+    ]
+    bar = quant_signals.PriceBar(
+        trade_date, 101, 105, 97, 97, 1_000_000, 50_000_000_000
+    )
+    db = _session()
+    try:
+        quant_signals._store_verified_intraday_path(
+            db, "005930", trade_date, rows[:2],
+            observed_at=observed, is_final=False,
+        )
+        db.commit()
+        snapshot = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
+        assert snapshot is not None and snapshot.is_final is False
+        with pytest.raises(quant_signals.UnverifiedIntradayPathError):
+            quant_signals._load_verified_historical_intraday_paths(
+                db, "005930", [bar],
+                datetime(2026, 10, 8, 10, 0, tzinfo=quant_signals.KST),
+                historical_chart_loader=lambda *_args: rows,
+            )
+        with pytest.raises(quant_signals.UnverifiedIntradayPathError):
+            quant_signals._load_verified_historical_intraday_paths(
+                db, "005930", [bar],
+                datetime(2026, 10, 8, 10, 0, tzinfo=quant_signals.KST),
+                historical_chart_loader=lambda *_args: [
+                    {**final_rows[0], "high": 104}, *final_rows[1:]
+                ],
+            )
+        assert snapshot.is_final is False
+        replay_paths = quant_signals._load_verified_historical_intraday_paths(
+            db, "005930", [bar],
+            datetime(2026, 10, 8, 10, 0, tzinfo=quant_signals.KST),
+            historical_chart_loader=lambda *_args: final_rows,
+        )
+        db.commit()
+        assert len(replay_paths[trade_date]) == len(final_rows)
+        db.expire_all()
+        snapshot = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
+        assert snapshot is not None and snapshot.is_final is True
+        assert len(
+            quant_signals._load_verified_historical_intraday_paths(
+                db, "005930", [bar],
+                datetime(2026, 10, 8, 10, 0, tzinfo=quant_signals.KST),
+            )[trade_date]
+        ) == len(final_rows)
+    finally:
+        db.close()
+
+
+def test_market_feed_isolates_dated_minute_chart_outage_and_keeps_other_signals(monkeypatch):
+    db = _session()
+    trade_date = date(2026, 10, 7)
+    try:
+        db.add(_stock("005930"))
+        db.add(_stock("000660", "SK하이닉스"))
+        db.add(DailyPrice(
+            code="005930", trade_date=trade_date,
+            open=101, high=105, low=97, close=97,
+            volume=1_000_000, trading_value=50_000_000_000,
+            market_cap=300_000_000,
+        ))
+        db.add(DailyPrice(
+            code="000660", trade_date=trade_date,
+            open=200, high=205, low=199, close=204,
+            volume=1_000_000, trading_value=50_000_000_000,
+            market_cap=200_000_000,
+        ))
+        quant_signals._store_verified_intraday_path(
+            db, "005930", trade_date,
+            [{"trade_date": "20261007", "trade_time": "090100",
+              "open": 101, "high": 105, "low": 100, "price": 105,
+              "volume": 100}],
+            observed_at=datetime(2026, 10, 7, 9, 1, tzinfo=quant_signals.KST),
+            is_final=False,
+        )
+        db.commit()
+        quant_signals.save_market_quant_signal_snapshot(
+            db,
+            {"strategy_version": quant_signals.STRATEGY_VERSION, "items": [{
+                "code": "005930", "name": "삼성전자", "side": "sell",
+                "event_side": "partial_sell", "status": "confirmed",
+                "is_preliminary": False, "signal": "1차 수익확정",
+                "signal_date": "2026-10-07",
+                "signal_at": "2026-10-07T09:01:00+09:00",
+                "execution_date": "2026-10-07", "price": 105,
+                "entry_price": 101, "target_sell_price": 105,
+                "return_rate": 1.5, "intraday_execution_verified": True,
+            }]},
+            universe_limit=2, limit=0, recent_days=30,
+        )
+        monkeypatch.setattr(
+            quant_signals, "ensure_entry_evidence_snapshot", lambda *_args, **_kwargs: None
+        )
+        monkeypatch.setattr(
+            quant_signals, "build_quant_signal_payload",
+            lambda stock, *_args, **_kwargs: {
+                "events": [{
+                    "signal_date": trade_date, "execution_date": trade_date,
+                    "side": "buy", "price": 204, "entry_price": 204,
+                    "score": 70, "reason": "fixture", "position_percent": 100,
+                    "state_after": "holding",
+                }] if stock.code == "000660" else [],
+                "current": None,
+            },
+        )
+
+        def unavailable(_code, _date):
+            raise RuntimeError("KIS historical chart unavailable")
+
+        result = load_market_quant_signal_feed(
+            db, universe_limit=2, limit=0, recent_days=30,
+            now=datetime(2026, 10, 8, 10, 0, tzinfo=quant_signals.KST),
+            historical_intraday_chart_loader=unavailable,
+        )
+        assert result["data_state"] == "degraded"
+        assert result["execution_replay_unverified_codes"] == ["005930"]
+        by_code = {item["code"]: item for item in result["items"]}
+        assert by_code["005930"]["execution_replay_state"] == "unverified"
+        assert by_code["005930"]["alert_eligible"] is False
+        assert by_code["005930"]["intraday_execution_verified"] is False
+        assert by_code["000660"]["status"] == "confirmed"
+        assert db.get(
+            QuantSignalIntradayPathSnapshot, ("005930", trade_date)
+        ).is_final is False
+    finally:
+        db.close()
+
+
+def test_stock_detail_refreshes_existing_ordered_path_before_display(monkeypatch):
+    db = _session()
+    live_date = date(2026, 10, 8)
+    now = datetime(2026, 10, 8, 9, 3, tzinfo=quant_signals.KST)
+    minute_rows = [
+        {"trade_date": "20261008", "trade_time": "090100", "open": 101,
+         "high": 102, "low": 100, "price": 101, "volume": 100},
+        {"trade_date": "20261008", "trade_time": "090200", "open": 101,
+         "high": 105, "low": 101, "price": 105, "volume": 100},
+    ]
+    quote = {
+        "quote_source": "kis_rest", "market_venue": "KRX", "market_division": "J",
+        "trade_date": live_date, "trade_date_verified": True,
+        "observed_at": now, "price": 105, "open": 101,
+        "high": 105, "low": 100, "volume": 1_000_000,
+        "trading_value": 50_000_000_000,
+    }
+    captured: list[dict[str, object]] = []
+    try:
+        db.add(_stock())
+        db.add(DailyPrice(
+            code="005930", trade_date=date(2026, 10, 7),
+            open=100, high=101, low=99, close=100,
+            volume=1_000_000, trading_value=50_000_000_000,
+        ))
+        quant_signals._store_verified_intraday_path(
+            db, "005930", live_date, minute_rows[:1],
+            observed_at=now - timedelta(minutes=1), is_final=False,
+        )
+        db.commit()
+        monkeypatch.setattr(
+            quant_signals, "ensure_entry_evidence_snapshot", lambda *_args, **_kwargs: None
+        )
+        monkeypatch.setattr(
+            quant_signals, "is_korea_market_session_date", lambda *_args, **_kwargs: True
+        )
+        monkeypatch.setattr(
+            quant_signals, "latest_completed_korea_market_session_date",
+            lambda *_args, **_kwargs: date(2026, 10, 7),
+        )
+        monkeypatch.setattr(
+            quant_signals, "build_quant_signal_payload",
+            lambda *_args, **kwargs: captured.append(kwargs) or {"data_state": "ready"},
+        )
+        payload = quant_signals.load_quant_signal_payload(
+            db, "005930", live_quote=quote, now=now,
+            intraday_chart_loader=lambda _code: (minute_rows, now),
+        )
+        assert payload == {"data_state": "ready"}
+        assert captured[0]["live_quote"]["intraday_minutes"] == minute_rows
+        db.expire_all()
+        stored = db.get(QuantSignalIntradayPathSnapshot, ("005930", live_date))
+        assert stored is not None
+        assert len(json.loads(stored.payload)) == 2
+    finally:
+        db.close()
 
 
 def test_v741_chase_veto_preserves_meritz_history_and_blocks_new_overheated_entries():
@@ -2762,6 +3113,36 @@ def test_stock_signal_response_preserves_non_trading_state(monkeypatch):
         db.close()
 
 
+def test_stock_signal_detail_fails_closed_when_published_minute_path_cannot_replay(monkeypatch):
+    db = _session()
+    db.add(_stock("005930"))
+    db.commit()
+
+    def override_db():
+        yield db
+
+    monkeypatch.setattr(main, "ensure_stock_price_history", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(
+        main, "_fetch_uncached_current_quote", lambda *_args, **_kwargs: ({}, "test")
+    )
+    monkeypatch.setattr(
+        main, "load_reference_quant_signal_payload",
+        lambda *_args, **_kwargs: (
+            (_ for _ in ()).throw(
+                quant_signals.UnverifiedIntradayPathError("missing dated minute chart")
+            )
+        ),
+    )
+    app.dependency_overrides[get_db] = override_db
+    try:
+        response = TestClient(app).get("/stocks/005930/quant-signals")
+        assert response.status_code == 503
+        assert "재검증 중" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
 def test_quant_signals_stop_when_a_weekday_candle_has_no_confirmed_open():
     rows = _price_rows("096770")
     rows[-2].open = None
@@ -3395,6 +3776,9 @@ def test_market_feed_only_projects_fresh_kis_intraday_execution_as_verified(monk
         db.commit()
         def signal_payload(*_args, **kwargs):
             return {
+                "unverified_live_execution_candidate": not bool(
+                    (kwargs.get("live_quote") or {}).get("intraday_minutes")
+                ),
                 "events": [{
                     "signal_date": date(2026, 10, 7),
                     "execution_date": date(2026, 10, 8),

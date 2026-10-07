@@ -324,6 +324,45 @@ def test_nxt_intraday_collection_starts_at_8_and_uses_nx_market(monkeypatch):
     assert [row["trade_time"] for row in rows] == ["080000", "080100"]
 
 
+def test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates(monkeypatch):
+    provider = KisRestBriefingProvider(Settings(kis_app_key="key", kis_app_secret="secret"))
+    calls: list[tuple[str, str, dict[str, str]]] = []
+
+    def fake_get(path, tr_id, params):
+        calls.append((path, tr_id, dict(params)))
+        times = (
+            ["090300", "090200"]
+            if params["FID_INPUT_HOUR_1"] == "153000"
+            else ["090100", "090000"]
+        )
+        return {
+            "output2": [
+                {
+                    "stck_bsop_date": "20261007",
+                    "stck_cntg_hour": minute,
+                    "stck_prpr": "101",
+                    "stck_oprc": "100",
+                    "stck_hgpr": "102",
+                    "stck_lwpr": "99",
+                    "cntg_vol": "10",
+                }
+                for minute in times
+            ] + [{"stck_bsop_date": "20261006", "stck_cntg_hour": "090000"}]
+        }
+
+    monkeypatch.setattr(provider, "_get", fake_get)
+    rows = provider.fetch_historical_intraday_chart("005930", date(2026, 10, 7))
+
+    assert [row["trade_time"] for row in rows] == [
+        "090000", "090100", "090200", "090300"
+    ]
+    assert len(calls) == 2
+    assert all(call[0].endswith("/inquire-time-dailychartprice") for call in calls)
+    assert all(call[1] == "FHKST03010230" for call in calls)
+    assert all(call[2]["FID_INPUT_DATE_1"] == "20261007" for call in calls)
+    assert all(call[2]["FID_COND_MRKT_DIV_CODE"] == "J" for call in calls)
+
+
 def test_intraday_warmup_does_not_run_during_regular_market(monkeypatch):
     monkeypatch.setattr(main, "_korea_intraday_session", lambda _now=None: {"is_live": True})
     monkeypatch.setattr(

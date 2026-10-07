@@ -161,6 +161,23 @@ class MarketQuantSignalSnapshot(Base):
     )
 
 
+class QuantSignalIntradayPathSnapshot(Base):
+    """Dated KRX minute evidence needed to replay an alerted execution."""
+
+    __tablename__ = "quant_signal_intraday_path_snapshot"
+
+    stock_code: Mapped[str] = mapped_column(String(12), primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    strategy_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="kis_rest")
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    is_final: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 class QuantSignalEvidenceSnapshot(Base):
     """Point-in-time evidence used to approve a daily quant entry.
 

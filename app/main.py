@@ -180,6 +180,7 @@ from app.services.quant_signals import (
     MARKET_SIGNAL_UNIVERSE_LIMIT,
     MIN_BACKTEST_HISTORY_ROWS,
     STRATEGY_VERSION,
+    UnverifiedIntradayPathError,
     enrich_market_quant_signal_sectors,
     enrich_quant_signal_payload_sector,
     load_external_market_quant_signal_feed,
@@ -1293,7 +1294,7 @@ def _build_market_quant_signal_payload(
                     lambda code: (
                         kis_rest_provider.fetch_intraday_chart(
                             code,
-                            max_points=390,
+                            max_points=391,
                             market_division="J",
                             now=current_time,
                         ),
@@ -1302,6 +1303,13 @@ def _build_market_quant_signal_payload(
                 )
                 if kis_rest_provider.is_configured()
                 and is_korea_regular_market_session(current_time)
+                else None
+            ),
+            historical_intraday_chart_loader=(
+                lambda code, trade_date: kis_rest_provider.fetch_historical_intraday_chart(
+                    code, trade_date, max_points=391, market_division="J"
+                )
+                if kis_rest_provider.is_configured()
                 else None
             ),
             persist_entry_safety_guard=True,
@@ -8177,11 +8185,38 @@ def stock_quant_signals(
 
     ensure_stock_price_history(db, code, require_recent_complete_ohlc=True)
     live_quote, _source = _fetch_uncached_current_quote(code)
-    payload = load_reference_quant_signal_payload(
-        db,
-        code,
-        live_quote=live_quote,
-    )
+    try:
+        payload = load_reference_quant_signal_payload(
+            db,
+            code,
+            live_quote=live_quote,
+            intraday_chart_loader=(
+                lambda stock_code: (
+                    kis_rest_provider.fetch_intraday_chart(
+                        stock_code, max_points=391, market_division="J"
+                    ),
+                    datetime.now(KST),
+                )
+                if kis_rest_provider.is_configured()
+                and is_korea_regular_market_session(datetime.now(KST))
+                else None
+            ),
+            historical_intraday_chart_loader=(
+                lambda stock_code, trade_date: (
+                    kis_rest_provider.fetch_historical_intraday_chart(
+                        stock_code, trade_date,
+                        max_points=391, market_division="J",
+                    )
+                )
+                if kis_rest_provider.is_configured()
+                else None
+            ),
+        )
+    except UnverifiedIntradayPathError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="이전 장중 매매 기록을 재검증 중입니다. 확인 전에는 다른 확정 신호를 표시하지 않습니다.",
+        ) from exc
     if not payload:
         raise HTTPException(status_code=404, detail="Stock not found")
     payload = sanitize_pending_entry_signal_payload(payload)

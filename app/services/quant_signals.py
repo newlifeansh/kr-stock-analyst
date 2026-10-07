@@ -23,6 +23,7 @@ from app.models import (
     MacroObservation,
     MarketQuantSignalSnapshot,
     NewsItem,
+    QuantSignalIntradayPathSnapshot,
     ResearchReport,
     StockCompanySnapshot,
     StockMaster,
@@ -1233,7 +1234,7 @@ def _verified_intraday_minutes(
     if observed_local.date() != bar.trade_date:
         return None
     rows = quote["intraday_minutes"]
-    if not rows or len(rows) > 390:
+    if not rows or len(rows) > 391:
         return None
     parsed: list[tuple[datetime, PriceBar]] = []
     seen_times: set[str] = set()
@@ -1281,19 +1282,202 @@ def _verified_intraday_minutes(
             )
         )
     parsed.sort(key=lambda item: item[0])
+    # The latest minute can still change after a quote is observed. Confirm
+    # touches only in minutes that ended before the quote's current minute.
+    completed_before = observed_local.replace(second=0, microsecond=0).time()
+    parsed = [item for item in parsed if item[0].time() < completed_before]
+    if not parsed:
+        return None
     if (
         parsed[0][0].time() > time(9, 2)
+        or (
+            (observed_local.replace(tzinfo=None) - parsed[-1][0]).total_seconds() > 180
+            and not (
+                time(15, 20) <= observed_local.time() <= time(15, 30)
+                and time(15, 19) <= parsed[-1][0].time() <= time(15, 20)
+            )
+        )
         or any(
             (following[0] - previous[0]).total_seconds() > 61
+            and not (
+                following[0].time() == time(15, 30)
+                and time(15, 19) <= previous[0].time() <= time(15, 20)
+            )
             for previous, following in zip(parsed, parsed[1:])
         )
         or abs(parsed[0][1].open - bar.open) > 1e-9
-        or abs(parsed[-1][1].close - bar.close) > 1e-9
-        or abs(max(item.high for _, item in parsed) - bar.high) > 1e-9
-        or abs(min(item.low for _, item in parsed) - bar.low) > 1e-9
+        or max(item.high for _, item in parsed) > bar.high + 1e-9
+        or min(item.low for _, item in parsed) < bar.low - 1e-9
     ):
         return None
     return [minute for _, minute in parsed]
+
+
+class UnverifiedIntradayPathError(RuntimeError):
+    """A published ordered execution cannot safely be replayed yet."""
+
+
+def _verified_completed_intraday_minutes(
+    rows: list[dict[str, Any]], bar: PriceBar
+) -> Optional[list[PriceBar]]:
+    if (
+        not rows
+        or not isinstance(rows[-1], dict)
+        or str(rows[-1].get("trade_time") or "").zfill(6) != "153000"
+    ):
+        return None
+    after_close = datetime.combine(bar.trade_date, time(15, 31), tzinfo=KST)
+    verified = _verified_intraday_minutes(
+        {
+            "observed_at": after_close,
+            "intraday_minutes_observed_at": after_close,
+            "intraday_minutes": rows,
+        },
+        bar,
+    )
+    if (
+        verified is None
+        or abs(verified[-1].close - bar.close) > 1e-9
+        or abs(max(item.high for item in verified) - bar.high) > 1e-9
+        or abs(min(item.low for item in verified) - bar.low) > 1e-9
+    ):
+        return None
+    return verified
+
+
+def _intraday_path_preserves_prior_touches(
+    previous: list[dict[str, Any]], current: list[dict[str, Any]]
+) -> bool:
+    """Only closed minutes are saved, so none may change on later reads."""
+
+    if len(current) < len(previous):
+        return False
+    for old, new in zip(previous, current):
+        if (old.get("trade_date"), old.get("trade_time")) != (
+            new.get("trade_date"), new.get("trade_time")
+        ):
+            return False
+    for old, new in zip(previous, current):
+        if any(
+            _safe_number(old.get(field)) != _safe_number(new.get(field))
+            for field in ("open", "high", "low", "price")
+        ):
+            return False
+    return True
+
+
+def _store_verified_intraday_path(
+    db: Session,
+    code: str,
+    trade_date: date,
+    rows: list[dict[str, Any]],
+    *,
+    observed_at: datetime,
+    is_final: bool,
+) -> None:
+    snapshot = db.get(QuantSignalIntradayPathSnapshot, (code, trade_date))
+    if snapshot is not None:
+        if snapshot.strategy_version != STRATEGY_VERSION:
+            raise UnverifiedIntradayPathError("장중 체결 근거의 전략 버전이 다릅니다")
+        if snapshot.is_final and not is_final:
+            return
+        try:
+            previous = json.loads(snapshot.payload)
+        except (TypeError, ValueError) as exc:
+            raise UnverifiedIntradayPathError("저장된 분봉 근거를 읽을 수 없습니다") from exc
+        if not isinstance(previous, list) or not previous:
+            raise UnverifiedIntradayPathError("저장된 분봉 근거가 불완전합니다")
+        if not _intraday_path_preserves_prior_touches(previous, rows):
+            raise UnverifiedIntradayPathError("이전 장중 체결 근거와 새 분봉이 충돌합니다")
+    stored_at = _snapshot_generated_at_utc_naive(observed_at)
+    payload = json.dumps(rows, ensure_ascii=False)
+    if snapshot is None:
+        db.add(
+            QuantSignalIntradayPathSnapshot(
+                stock_code=code,
+                trade_date=trade_date,
+                strategy_version=STRATEGY_VERSION,
+                source="kis_rest",
+                payload=payload,
+                is_final=is_final,
+                observed_at=stored_at,
+            )
+        )
+    else:
+        snapshot.payload = payload
+        snapshot.is_final = is_final
+        snapshot.observed_at = stored_at
+
+
+def _load_verified_historical_intraday_paths(
+    db: Session,
+    code: str,
+    bars: list[PriceBar],
+    now: datetime,
+    *,
+    historical_chart_loader: Optional[
+        Callable[[str, date], list[dict[str, Any]]]
+    ] = None,
+) -> dict[date, list[PriceBar]]:
+    if not bars:
+        return {}
+    by_date = {bar.trade_date: bar for bar in bars}
+    completed_through = latest_completed_korea_market_session_date(now)
+    local_now = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
+    if (
+        local_now.time() >= time(15, 40)
+        and is_korea_market_session_date(local_now.date(), local_now)
+    ):
+        # Price and its closing auction complete before the investor-flow
+        # publication window used by latest_completed_korea_market_session_date.
+        completed_through = local_now.date()
+    rows = list(
+        db.scalars(
+            select(QuantSignalIntradayPathSnapshot)
+            .where(
+                QuantSignalIntradayPathSnapshot.stock_code == code,
+                QuantSignalIntradayPathSnapshot.trade_date >= bars[0].trade_date,
+                QuantSignalIntradayPathSnapshot.trade_date <= bars[-1].trade_date,
+            )
+            .order_by(QuantSignalIntradayPathSnapshot.trade_date)
+        )
+    )
+    result: dict[date, list[PriceBar]] = {}
+    for snapshot in rows:
+        if snapshot.strategy_version != STRATEGY_VERSION:
+            raise UnverifiedIntradayPathError("저장된 분봉 근거의 전략 버전이 다릅니다")
+        bar = by_date.get(snapshot.trade_date)
+        if bar is None or not bar.ohlc_complete:
+            raise UnverifiedIntradayPathError("장중 체결 근거의 확정 일봉이 없습니다")
+        if not snapshot.is_final:
+            if (
+                historical_chart_loader is None
+                or completed_through is None
+                or snapshot.trade_date > completed_through
+            ):
+                raise UnverifiedIntradayPathError("과거 장중 체결 분봉의 최종 확인을 기다립니다")
+            try:
+                historical_rows = historical_chart_loader(code, snapshot.trade_date)
+            except Exception as exc:
+                raise UnverifiedIntradayPathError("과거 분봉 조회에 실패했습니다") from exc
+            verified = _verified_completed_intraday_minutes(historical_rows, bar)
+            if verified is None:
+                raise UnverifiedIntradayPathError("과거 분봉과 확정 일봉이 일치하지 않습니다")
+            _store_verified_intraday_path(
+                db, code, snapshot.trade_date, historical_rows,
+                observed_at=datetime.now(timezone.utc), is_final=True,
+            )
+            result[snapshot.trade_date] = verified
+        else:
+            try:
+                stored_rows = json.loads(snapshot.payload)
+            except (TypeError, ValueError) as exc:
+                raise UnverifiedIntradayPathError("확정 분봉 근거를 읽을 수 없습니다") from exc
+            verified = _verified_completed_intraday_minutes(stored_rows, bar)
+            if verified is None:
+                raise UnverifiedIntradayPathError("확정 분봉 근거와 일봉이 달라졌습니다")
+            result[snapshot.trade_date] = verified
+    return result
 
 
 def _ordered_intraday_exit_decisions(
@@ -1611,6 +1795,7 @@ def _simulate(
     entry_safety_guard: Optional[dict[str, Any]] = None,
     forming_bar_date: Optional[date] = None,
     intraday_minutes: Optional[list[PriceBar]] = None,
+    intraday_minutes_by_date: Optional[dict[date, list[PriceBar]]] = None,
 ) -> dict[str, Any]:
     lifecycle_start_index = WARMUP_ROWS
     performance_start_index = (
@@ -1644,9 +1829,9 @@ def _simulate(
     for index in range(lifecycle_start_index, len(bars)):
         bar = bars[index]
         indicator = indicators[index]
-        session_minutes = (
-            intraday_minutes if forming_bar_date == bar.trade_date else None
-        )
+        session_minutes = (intraday_minutes_by_date or {}).get(bar.trade_date)
+        if forming_bar_date == bar.trade_date and intraday_minutes is not None:
+            session_minutes = intraday_minutes
         entry_minute_index: Optional[int] = None
 
         if index == performance_start_index:
@@ -3599,6 +3784,7 @@ def build_quant_signal_payload(
     context: Optional[dict[str, Any]] = None,
     entry_evidence_by_date: Optional[dict[date, dict[str, Any]]] = None,
     entry_safety_guard: Optional[dict[str, Any]] = None,
+    historical_intraday_minutes_by_date: Optional[dict[date, list[PriceBar]]] = None,
 ) -> dict[str, Any]:
     current_time = now or datetime.now(KST)
     bars = _normalize_prices(rows)
@@ -3671,7 +3857,7 @@ def build_quant_signal_payload(
             "각 종목은 관망→예비 포착→매수 대기→보유→+3%·+5% 수익확정→전량 매도로 전환합니다.",
             "수익률은 종목별 매수가·각 수익확정가·최종 매도가와 거래비용만으로 계산합니다.",
             "신호와 독립 근거는 완료 종가에서 확정하고, 다음 KRX 정규장에서 고정된 확인선을 돌파할 때 장중 매수합니다.",
-            "장중 매도는 검증된 KRX 1분봉이 당일 현재가와 완전히 일치할 때 시각순으로 판정합니다. 분봉이 없거나 불완전하면 기존 일중 OHLC를 사용하고, 같은 봉에서 손절선과 목표에 모두 닿으면 손절을 먼저 반영합니다.",
+            "장중 매도는 종료된 KRX 1분봉이 당일 현재가의 누적 고저가 범위 안에 있을 때 최대 1분 늦게 시각순으로 판정합니다. 첫 분봉 검증이 불가능하면 보수적 OHLC를 쓰고, 이미 확정한 분봉 이력이 있으면 그 종목만 재검증 대기로 분리합니다. 같은 1분봉에서 손절선과 목표에 모두 닿으면 손절을 먼저 반영합니다.",
             "시가·고가·저가·종가가 모두 확인된 일봉과 현재 KRX 정규장의 검증된 형성 봉만 체결 판정에 사용합니다.",
             f"{INTRADAY_EXECUTION_EFFECTIVE_DATE.isoformat()}부터 종가 확정·다음 시가 체결을 종가 확정·다음 세션 장중 돌파 체결로 전환합니다.",
             f"{STABLE_PROFIT_EFFECTIVE_DATE.isoformat()}부터 +3%에서 50%, +5%에서 잔여 50%를 수익확정하고 수익이 큰 종목도 빠르게 전량 확정합니다.",
@@ -3765,6 +3951,7 @@ def build_quant_signal_payload(
         indicators,
         evidence_timeline,
         entry_safety_guard=entry_safety_guard,
+        intraday_minutes_by_date=historical_intraday_minutes_by_date,
     )
     simulation_bars, live_execution = _live_execution_bars(
         confirmed,
@@ -3775,7 +3962,7 @@ def build_quant_signal_payload(
         verified_minutes = _verified_intraday_minutes(
             live_quote, simulation_bars[-1]
         )
-        simulation = _simulate(
+        live_simulation = _simulate(
             simulation_bars,
             _indicator_rows(simulation_bars),
             evidence_timeline,
@@ -3783,10 +3970,31 @@ def build_quant_signal_payload(
             entry_safety_guard=entry_safety_guard,
             forming_bar_date=simulation_bars[-1].trade_date,
             intraday_minutes=verified_minutes,
+            intraday_minutes_by_date=historical_intraday_minutes_by_date,
         )
-        # A forming candle may execute yesterday's order, but it must not
-        # change the completed-candle backtest until the session is complete.
-        simulation["performance"] = historical_simulation["performance"]
+        if (
+            verified_minutes is None
+            and simulation_bars[-1].trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+        ):
+            # The cumulative quote's high/low has no order and can still
+            # change. It may nominate a chart fetch, never confirm an alert.
+            base["unverified_live_execution_candidate"] = any(
+                event.get("execution_date") == simulation_bars[-1].trade_date
+                and event.get("side") in {"buy", "partial_sell", "sell"}
+                for event in live_simulation.get("events") or []
+            )
+            base["intraday_execution_evidence_state"] = "awaiting_verified_minutes"
+            simulation = historical_simulation
+        else:
+            base["unverified_live_execution_candidate"] = False
+            base["intraday_execution_evidence_state"] = (
+                "verified_closed_minutes" if verified_minutes is not None
+                else "legacy_live_ohlc"
+            )
+            simulation = live_simulation
+            # A forming candle may execute yesterday's order, but it must not
+            # change the completed-candle backtest until the session is complete.
+            simulation["performance"] = historical_simulation["performance"]
     else:
         simulation = historical_simulation
     current, factors = _current_signal(
@@ -4186,6 +4394,12 @@ def load_quant_signal_payload(
     limit: int = SIGNAL_HISTORY_ROWS,
     include_context: bool = True,
     include_stored_intraday: bool = False,
+    intraday_chart_loader: Optional[
+        Callable[[str], tuple[list[dict[str, Any]], datetime]]
+    ] = None,
+    historical_intraday_chart_loader: Optional[
+        Callable[[str, date], list[dict[str, Any]]]
+    ] = None,
 ) -> Optional[dict[str, Any]]:
     stock = db.get(StockMaster, code)
     if not stock or not stock.is_active:
@@ -4208,6 +4422,51 @@ def load_quant_signal_payload(
         effective_live_quote = _forming_bar_quote(_normalize_prices(rows), current_time)
     normalized = _normalize_prices(rows)
     confirmed = _confirmed_bars(normalized, current_time)
+    historical_intraday_paths = _load_verified_historical_intraday_paths(
+        db,
+        code,
+        confirmed,
+        current_time,
+        historical_chart_loader=historical_intraday_chart_loader,
+    )
+    stored_live_path = db.get(
+        QuantSignalIntradayPathSnapshot, (code, current_time.date())
+    )
+    if stored_live_path is not None and not stored_live_path.is_final:
+        if (
+            intraday_chart_loader is None
+            or effective_live_quote is None
+            or not _fresh_kis_intraday_quote_for_market_alert(
+                effective_live_quote, current_time
+            )
+        ):
+            raise UnverifiedIntradayPathError("장중 분봉을 다시 확인할 수 없습니다")
+        try:
+            minute_rows, chart_fetched_at = intraday_chart_loader(code)
+        except Exception as exc:
+            raise UnverifiedIntradayPathError("장중 분봉 조회에 실패했습니다") from exc
+        candidate_quote = {
+            **effective_live_quote,
+            "intraday_minutes": minute_rows,
+            "intraday_minutes_observed_at": chart_fetched_at,
+        }
+        candidate_bars, is_live = _live_execution_bars(
+            confirmed, candidate_quote, current_time
+        )
+        verified = (
+            _verified_intraday_minutes(candidate_quote, candidate_bars[-1])
+            if is_live else None
+        )
+        if verified is None:
+            raise UnverifiedIntradayPathError("새 장중 분봉과 현재가가 일치하지 않습니다")
+        _store_verified_intraday_path(
+            db, code, current_time.date(),
+            sorted(minute_rows, key=lambda row: str(row.get("trade_time") or ""))[
+                : len(verified)
+            ],
+            observed_at=chart_fetched_at, is_final=False,
+        )
+        effective_live_quote = candidate_quote
     evidence_timeline = load_entry_evidence_timeline(db, stock.code)
     latest_confirmed_date = confirmed[-1].trade_date if confirmed else None
     if (
@@ -4236,7 +4495,7 @@ def load_quant_signal_payload(
             live_quote=effective_live_quote,
             now=current_time,
         )
-    return build_quant_signal_payload(
+    result = build_quant_signal_payload(
         stock,
         rows,
         live_quote=effective_live_quote,
@@ -4244,7 +4503,51 @@ def load_quant_signal_payload(
         context=context,
         entry_evidence_by_date=evidence_timeline,
         entry_safety_guard=load_entry_safety_guard(db),
+        historical_intraday_minutes_by_date=historical_intraday_paths,
     )
+    if (
+        stored_live_path is None
+        and result.get("unverified_live_execution_candidate") is True
+        and intraday_chart_loader is not None
+        and effective_live_quote is not None
+        and _fresh_kis_intraday_quote_for_market_alert(
+            effective_live_quote, current_time
+        )
+    ):
+        try:
+            candidate_rows, candidate_at = intraday_chart_loader(code)
+        except Exception:
+            candidate_rows, candidate_at = [], None
+        if candidate_rows:
+            candidate_quote = {
+                **effective_live_quote,
+                "intraday_minutes": candidate_rows,
+                "intraday_minutes_observed_at": candidate_at,
+            }
+            candidate_bars, is_live = _live_execution_bars(
+                confirmed, candidate_quote, current_time
+            )
+            verified = (
+                _verified_intraday_minutes(candidate_quote, candidate_bars[-1])
+                if is_live else None
+            )
+            if verified is not None:
+                _store_verified_intraday_path(
+                    db, code, current_time.date(),
+                    sorted(candidate_rows, key=lambda row: str(row.get("trade_time") or ""))[
+                        : len(verified)
+                    ],
+                    observed_at=candidate_at, is_final=False,
+                )
+                result = build_quant_signal_payload(
+                    stock, rows, live_quote=candidate_quote, now=current_time,
+                    context=context, entry_evidence_by_date=evidence_timeline,
+                    entry_safety_guard=load_entry_safety_guard(db),
+                    historical_intraday_minutes_by_date=historical_intraday_paths,
+                )
+    if db.new or db.dirty:
+        db.commit()
+    return result
 
 
 def _benchmark_series_by_date(
@@ -4790,6 +5093,92 @@ def _market_preliminary_signal_item(
     return item
 
 
+def _market_stock_payload_with_intraday_path(
+    db: Session,
+    stock: StockMaster,
+    stock_price_rows: list[DailyPrice],
+    confirmed_stock_bars: list[PriceBar],
+    forming_quote: Optional[dict[str, Any]],
+    evidence_timeline: dict[date, dict[str, Any]],
+    entry_safety_guard: Optional[dict[str, Any]],
+    current_time: datetime,
+    intraday_chart_loader: Optional[
+        Callable[[str], tuple[list[dict[str, Any]], datetime]]
+    ],
+    historical_intraday_chart_loader: Optional[
+        Callable[[str, date], list[dict[str, Any]]]
+    ],
+) -> dict[str, Any]:
+    code = stock.code
+    historical_paths = _load_verified_historical_intraday_paths(
+        db, code, confirmed_stock_bars, current_time,
+        historical_chart_loader=historical_intraday_chart_loader,
+    )
+    payload = build_quant_signal_payload(
+        stock, stock_price_rows, live_quote=forming_quote, now=current_time,
+        context=None, entry_evidence_by_date=evidence_timeline,
+        entry_safety_guard=entry_safety_guard,
+        historical_intraday_minutes_by_date=historical_paths,
+    )
+    stored_live_path = db.get(
+        QuantSignalIntradayPathSnapshot, (code, current_time.date())
+    )
+    should_fetch = bool(
+        intraday_chart_loader is not None
+        and forming_quote
+        and _fresh_kis_intraday_quote_for_market_alert(forming_quote, current_time)
+        and (
+            stored_live_path is not None
+            or payload.get("unverified_live_execution_candidate") is True
+        )
+    )
+    if should_fetch:
+        try:
+            minute_rows, chart_fetched_at = intraday_chart_loader(code)
+        except Exception:
+            minute_rows = []
+            chart_fetched_at = None
+        if minute_rows:
+            candidate_quote = {
+                **forming_quote,
+                "intraday_minutes": minute_rows,
+                "intraday_minutes_observed_at": chart_fetched_at,
+            }
+            candidate_bars, live_execution = _live_execution_bars(
+                confirmed_stock_bars, candidate_quote, current_time
+            )
+            verified_minutes = (
+                _verified_intraday_minutes(candidate_quote, candidate_bars[-1])
+                if live_execution else None
+            )
+            if verified_minutes is not None:
+                _store_verified_intraday_path(
+                    db, code, current_time.date(),
+                    sorted(minute_rows, key=lambda row: str(row.get("trade_time") or ""))[
+                        : len(verified_minutes)
+                    ],
+                    observed_at=chart_fetched_at, is_final=False,
+                )
+            elif stored_live_path is not None and not stored_live_path.is_final:
+                raise UnverifiedIntradayPathError(
+                    "기존 장중 체결 이후 새 분봉을 검증할 수 없습니다"
+                )
+            payload = build_quant_signal_payload(
+                stock, stock_price_rows, live_quote=candidate_quote,
+                now=current_time, context=None,
+                entry_evidence_by_date=evidence_timeline,
+                entry_safety_guard=entry_safety_guard,
+                historical_intraday_minutes_by_date=historical_paths,
+            )
+        elif stored_live_path is not None and not stored_live_path.is_final:
+            raise UnverifiedIntradayPathError("기존 장중 체결 이후 분봉 조회가 끊겼습니다")
+    elif stored_live_path is not None and not stored_live_path.is_final:
+        raise UnverifiedIntradayPathError(
+            "기존 장중 체결 이후 현재가·분봉을 확인할 수 없습니다"
+        )
+    return payload
+
+
 def load_market_quant_signal_feed(
     db: Session,
     *,
@@ -4800,6 +5189,9 @@ def load_market_quant_signal_feed(
     live_quotes: Optional[dict[str, dict[str, Any]]] = None,
     intraday_chart_loader: Optional[
         Callable[[str], tuple[list[dict[str, Any]], datetime]]
+    ] = None,
+    historical_intraday_chart_loader: Optional[
+        Callable[[str, date], list[dict[str, Any]]]
     ] = None,
     persist_entry_safety_guard: bool = False,
 ) -> dict[str, Any]:
@@ -4906,6 +5298,18 @@ def load_market_quant_signal_feed(
         limit=capped_limit,
         recent_days=capped_recent_days,
     )
+    previous_snapshot = load_market_quant_signal_snapshot(
+        db,
+        universe_limit=capped_universe_limit,
+        limit=capped_limit,
+        recent_days=capped_recent_days,
+    )
+    previous_items_by_code: dict[str, list[dict[str, Any]]] = {}
+    for previous_item in (previous_snapshot or {}).get("items") or []:
+        if isinstance(previous_item, dict) and previous_item.get("code"):
+            previous_items_by_code.setdefault(
+                str(previous_item["code"]), []
+            ).append(previous_item)
     if not membership_rows and not retention_state:
         return empty
 
@@ -5014,6 +5418,7 @@ def load_market_quant_signal_feed(
     extended_qualified_codes: set[str] = set()
     current_extended_qualified_codes: set[str] = set()
     retained_signal_codes: set[str] = set()
+    unverified_codes: set[str] = set()
     evidence_snapshots_pending = False
     relative_context_by_date: dict[date, dict[str, Any]] = {}
     for code, stock in stock_by_code.items():
@@ -5052,47 +5457,33 @@ def load_market_quant_signal_feed(
             if snapshot:
                 evidence_timeline[latest_confirmed_date] = snapshot
                 evidence_snapshots_pending = True
-        payload = build_quant_signal_payload(
-            stock,
-            stock_price_rows,
-            live_quote=forming_quote,
-            now=current_time,
-            context=None,
-            entry_evidence_by_date=evidence_timeline,
-            entry_safety_guard=entry_safety_guard,
-        )
-        if (
-            intraday_chart_loader is not None
-            and forming_quote
-            and _fresh_kis_intraday_quote_for_market_alert(
-                forming_quote, current_time
+        try:
+            payload = _market_stock_payload_with_intraday_path(
+                db, stock, stock_price_rows, confirmed_stock_bars,
+                forming_quote, evidence_timeline, entry_safety_guard,
+                current_time, intraday_chart_loader,
+                historical_intraday_chart_loader,
             )
-            and any(
-                event.get("execution_date") == current_time.date()
-                and event.get("intraday_execution_verified") is True
-                and event.get("side") in {"buy", "partial_sell", "sell"}
-                for event in payload.get("events") or []
-            )
-        ):
-            try:
-                minute_rows, chart_fetched_at = intraday_chart_loader(code)
-            except Exception:
-                minute_rows = []
-                chart_fetched_at = None
-            if minute_rows:
-                payload = build_quant_signal_payload(
-                    stock,
-                    stock_price_rows,
-                    live_quote={
-                        **forming_quote,
-                        "intraday_minutes": minute_rows,
-                        "intraday_minutes_observed_at": chart_fetched_at,
-                    },
-                    now=current_time,
-                    context=None,
-                    entry_evidence_by_date=evidence_timeline,
-                    entry_safety_guard=entry_safety_guard,
+        except UnverifiedIntradayPathError as exc:
+            unverified_codes.add(code)
+            for previous_item in previous_items_by_code.get(code, []):
+                frozen = deepcopy(previous_item)
+                frozen["execution_replay_state"] = "unverified"
+                frozen["intraday_execution_verified"] = False
+                frozen["intraday_order_verified"] = False
+                frozen["alert_eligible"] = False
+                frozen["replay_warning"] = str(exc)
+                prior_signal = str(frozen.get("signal") or "기존 신호")
+                frozen["signal"] = (
+                    prior_signal if prior_signal.startswith("재검증 대기 · ")
+                    else f"재검증 대기 · {prior_signal}"
                 )
+                for field in ("execution_date", "signal_date"):
+                    parsed_date = _market_signal_date_value(frozen.get(field))
+                    if parsed_date is not None:
+                        frozen[field] = parsed_date
+                items.append(frozen)
+            continue
         public_reasons = build_public_signal_reasons(payload)
         current = payload.get("current") if isinstance(payload.get("current"), dict) else None
         events = payload.get("events") or []
@@ -5370,6 +5761,14 @@ def load_market_quant_signal_feed(
     current_extended_count = max(0, len(current_universe_codes) - current_core_count)
     result = {
         "status": "ready",
+        "data_state": "degraded" if unverified_codes else "ready",
+        "data_message": (
+            f"{len(unverified_codes)}개 종목의 장중 체결 근거를 재검증 중입니다. "
+            "해당 종목의 이전 신호만 표시하며 새 확정 알림은 보류합니다."
+            if unverified_codes else None
+        ),
+        "execution_replay_unverified_count": len(unverified_codes),
+        "execution_replay_unverified_codes": sorted(unverified_codes),
         "strategy_version": STRATEGY_VERSION,
         "execution_model": EXECUTION_MODEL,
         "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
@@ -5639,6 +6038,12 @@ def load_reference_quant_signal_payload(
     limit: int = SIGNAL_HISTORY_ROWS,
     include_context: bool = True,
     include_stored_intraday: bool = False,
+    intraday_chart_loader: Optional[
+        Callable[[str], tuple[list[dict[str, Any]], datetime]]
+    ] = None,
+    historical_intraday_chart_loader: Optional[
+        Callable[[str, date], list[dict[str, Any]]]
+    ] = None,
 ) -> Optional[dict[str, Any]]:
     """Use the configured canonical service first, with local calculation as fallback."""
     external = load_external_stock_quant_signal_payload(
@@ -5657,6 +6062,8 @@ def load_reference_quant_signal_payload(
         limit=limit,
         include_context=include_context,
         include_stored_intraday=include_stored_intraday,
+        intraday_chart_loader=intraday_chart_loader,
+        historical_intraday_chart_loader=historical_intraday_chart_loader,
     )
     if local is None:
         return None

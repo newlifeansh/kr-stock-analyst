@@ -1020,6 +1020,44 @@ def test_market_ai_confirmed_intraday_push_requires_verified_v8_events_and_reuse
         db.close()
 
 
+def test_market_ai_push_skips_frozen_unverified_replay_at_open_and_close(monkeypatch):
+    db = _session()
+    try:
+        monkeypatch.setattr(web_push, "is_korea_market_session_date", lambda *_args: True)
+        monkeypatch.setattr(web_push, "is_korea_daily_signal_window", lambda now: now.hour >= 15)
+        monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda now: now.hour < 15)
+        snapshot = {
+            "status": "ready", "execution_model": web_push.EXECUTION_MODEL,
+            "snapshot_generated_at": "2026-10-08T01:00:00+00:00",
+            "items": [{
+                "code": "005930", "name": "삼성전자", "side": "sell",
+                "event_side": "partial_sell", "signal": "재검증 대기 · 1차 수익확정",
+                "execution_date": "2026-10-08", "status": "confirmed",
+                "execution_model": web_push.EXECUTION_MODEL,
+                "intraday_execution_verified": True,
+                "execution_replay_state": "unverified",
+                "alert_eligible": False,
+            }, {
+                "code": "000660", "name": "SK하이닉스", "side": "buy",
+                "event_side": "buy", "signal": "장중 돌파 진입",
+                "execution_date": "2026-10-08", "status": "confirmed",
+                "execution_model": web_push.EXECUTION_MODEL,
+                "intraday_execution_verified": True,
+            }],
+        }
+        monkeypatch.setattr(
+            web_push, "load_market_quant_signal_snapshot", lambda *_args, **_kwargs: snapshot
+        )
+        runtime = web_push.WebPushRuntime(_settings())
+        for current in (datetime(2026, 10, 8, 10, 1), datetime(2026, 10, 8, 16, 0)):
+            candidates = runtime._market_ai_signal_candidates(db, current)
+            assert [candidate.event_key for candidate in candidates] == [
+                "market-ai-signal:000660:buy:2026-10-08"
+            ]
+    finally:
+        db.close()
+
+
 def test_market_ai_confirmed_intraday_push_fails_closed(monkeypatch):
     db = _session()
     try:
