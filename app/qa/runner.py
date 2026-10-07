@@ -237,6 +237,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_market_ai_confirmed_intraday_push_requires_verified_v8_events_and_reuses_close_key",
         "tests.test_web_push."
         "test_market_ai_confirmed_intraday_push_fails_closed",
+        "tests.test_web_push."
+        "test_run_once_dispatches_domestic_intraday_half_sale_once_after_baseline",
     ),
     "SIG-UI-030": (
         "tests.test_domestic_market_scope."

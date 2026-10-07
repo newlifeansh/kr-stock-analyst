@@ -1549,6 +1549,80 @@ def test_us_market_ai_signal_uses_independent_baseline(monkeypatch):
         db.close()
 
 
+def test_run_once_dispatches_domestic_intraday_half_sale_once_after_baseline(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    push_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    with push_session() as db:
+        db.add_all(
+            [
+                PushSubscription(
+                    share_id="tester",
+                    endpoint="https://push.example/domestic",
+                    p256dh="p" * 64,
+                    auth="a" * 24,
+                    notification_preferences='["market_ai_signal"]',
+                    market_scope="kr",
+                ),
+                PushSubscription(
+                    share_id="us.tester",
+                    endpoint="https://push.example/us",
+                    p256dh="p" * 64,
+                    auth="a" * 24,
+                    notification_preferences='["market_ai_signal"]',
+                    market_scope="us",
+                ),
+            ]
+        )
+        db.commit()
+
+    baseline = web_push.NotificationCandidate(
+        event_key="market-ai-signal:005930:buy:2026-10-08",
+        kind="market_ai_signal",
+        title="✅ [매수 확정] 삼성전자",
+        body="기존 장중 신호",
+        url="/dashboard?view=ai-signals",
+        tag="market-ai-signal-005930",
+    )
+    partial = web_push.NotificationCandidate(
+        event_key="market-ai-signal:000660:partial_sell:2026-10-08",
+        kind="market_ai_signal",
+        title="🎯 [1차 수익확정] SK하이닉스",
+        body="10:01 장중 1차 수익확정 신호예요.",
+        url="/dashboard?view=ai-signals",
+        tag="market-ai-signal-000660",
+    )
+    batches = [[baseline], [partial], [partial]]
+    payloads = []
+    runtime = web_push.WebPushRuntime(_settings(us_market_enabled=True))
+    monkeypatch.setattr(web_push, "PushSessionLocal", push_session)
+    monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda _now=None: False)
+    monkeypatch.setattr(web_push, "load_us_position_lifecycle_snapshot", lambda *_args, **_kwargs: None)
+    for name in ("_ai_signal_candidates", "_content_candidates", "_event_candidates"):
+        monkeypatch.setattr(runtime, name, lambda _db, watchlists, *_args: {key: [] for key in watchlists})
+    monkeypatch.setattr(runtime, "_market_ai_signal_candidates", lambda *_args, **_kwargs: batches.pop(0))
+    monkeypatch.setattr(runtime, "_us_market_ai_signal_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(runtime, "_us_content_candidates", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(runtime, "_us_market_news_candidates", lambda *_args: [])
+    monkeypatch.setattr(runtime, "_us_market_session_candidates", lambda *_args: [])
+    monkeypatch.setattr(runtime, "_morning_briefing_candidates", lambda *_args: [])
+    monkeypatch.setattr(runtime, "_market_session_candidates", lambda *_args: [])
+    monkeypatch.setattr(web_push, "webpush", lambda **kwargs: payloads.append(json.loads(kwargs["data"])))
+
+    assert runtime.run_once() == 0
+    assert payloads == []
+    assert runtime.run_once() == 1
+    assert runtime.run_once() == 0
+    assert [payload["title"] for payload in payloads] == [partial.title]
+
+    with push_session() as db:
+        deliveries = {
+            item.event_key: item.status for item in db.query(PushDelivery).all()
+        }
+    assert deliveries[baseline.event_key] == "baseline"
+    assert deliveries[partial.event_key] == "sent"
+
+
 def test_run_once_dispatches_new_us_signal_after_independent_baseline(monkeypatch):
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)
