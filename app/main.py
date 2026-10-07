@@ -7862,6 +7862,28 @@ def _intraday_trade_date(points: list[dict[str, object]]) -> Optional[date]:
     return None
 
 
+def _intraday_points_after_now(
+    points: list[dict[str, object]], now: datetime
+) -> bool:
+    """Reject premarket KIS charts stamped with future same-day minutes."""
+
+    current = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
+    for point in points:
+        if not isinstance(point, dict):
+            return True
+        raw_date = str(point.get("trade_date") or "").strip()
+        raw_time = str(point.get("trade_time") or "").strip().zfill(6)
+        try:
+            minute = datetime.strptime(
+                raw_date + raw_time, "%Y%m%d%H%M%S"
+            ).replace(tzinfo=KST)
+        except ValueError:
+            return True
+        if minute > current:
+            return True
+    return False
+
+
 def _closed_intraday_snapshot_is_current(
     *,
     trade_date: date,
@@ -7898,8 +7920,18 @@ def _intraday_record_is_usable(
     points = record.get("points")
     trade_date = record.get("trade_date")
     validated_on = record.get("validated_on")
+    fetched_at = record.get("fetched_at")
+    observed_at = (
+        fetched_at.replace(tzinfo=timezone.utc)
+        if isinstance(fetched_at, datetime) and fetched_at.tzinfo is None
+        else fetched_at
+    )
     return (
         isinstance(points, list)
+        and bool(points)
+        and isinstance(observed_at, datetime)
+        and not _intraday_points_after_now(points, observed_at)
+        and not _intraday_points_after_now(points, now)
         and int(record.get("max_points") or 0) >= limit
         and isinstance(trade_date, date)
         and isinstance(validated_on, date)
@@ -7960,8 +7992,10 @@ def _save_closed_intraday_snapshot(
     limit: int,
     now: datetime,
 ) -> Optional[dict[str, Any]]:
+    if _intraday_points_after_now(points, now):
+        return None
     trade_date = _intraday_trade_date(points)
-    if trade_date is None or trade_date > now.date():
+    if trade_date is None:
         return None
     fetched_at = datetime.utcnow()
     snapshot = db.get(StockIntradaySnapshot, code)
@@ -8090,6 +8124,14 @@ def stock_intraday_chart(
         except Exception as exc:
             source = "unavailable"
             message = str(exc)
+
+    if points and _intraday_points_after_now(points, now):
+        points = []
+        source = "unavailable"
+        message = "현재 시각 이후로 표시된 분봉은 제외했습니다."
+    elif not points and source == "kis_rest":
+        source = "unavailable"
+        message = "현재 시각까지 확인된 KRX 분봉이 없습니다."
 
     if market_open:
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"

@@ -1765,13 +1765,25 @@ def test_v8_replay_uses_only_matching_persisted_closed_kis_detail_chart():
         db.add(StockIntradaySnapshot(
             stock_code="005930", trade_date=trade_date, source="kis_rest",
             payload=json.dumps(rows), max_points=390, point_count=len(rows),
-            validated_on=trade_date, fetched_at=datetime(2026, 10, 7, 7),
+            validated_on=trade_date, fetched_at=datetime(2026, 10, 7, 3),
         ))
         quant_signals._store_verified_intraday_path(
             db, "005930", trade_date, rows[:2],
             observed_at=datetime(2026, 10, 7, 9, 3, tzinfo=quant_signals.KST),
             is_final=False,
         )
+        db.commit()
+        with pytest.raises(quant_signals.UnverifiedIntradayPathError):
+            quant_signals._load_verified_historical_intraday_paths(
+                db, "005930", [bar],
+                datetime(2026, 10, 8, 10, tzinfo=quant_signals.KST),
+                historical_chart_loader=lambda *_args: (_ for _ in ()).throw(
+                    RuntimeError("KIS dated endpoint 403")
+                ),
+            )
+        cached = db.get(StockIntradaySnapshot, "005930")
+        assert cached is not None
+        cached.fetched_at = datetime(2026, 10, 7, 7)
         db.commit()
         replay = quant_signals._load_verified_historical_intraday_paths(
             db, "005930", [bar],

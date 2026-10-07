@@ -1532,10 +1532,20 @@ def _load_verified_historical_intraday_paths(
             # denied the dated KIS endpoint, but only after exactly the same
             # full-session, daily-OHLC, and prior-touch checks as KIS replay.
             cached = db.get(StockIntradaySnapshot, code)
+            fetched_at = cached.fetched_at if cached is not None else None
+            cached_at = (
+                fetched_at.replace(tzinfo=timezone.utc)
+                if isinstance(fetched_at, datetime) and fetched_at.tzinfo is None
+                else fetched_at
+            )
             if (
                 cached is not None
                 and cached.source == "kis_rest"
                 and cached.trade_date == snapshot.trade_date
+                and isinstance(cached_at, datetime)
+                and cached_at >= datetime.combine(
+                    snapshot.trade_date, time(15, 31), tzinfo=KST
+                ).astimezone(timezone.utc)
             ):
                 try:
                     cached_rows = json.loads(cached.payload)

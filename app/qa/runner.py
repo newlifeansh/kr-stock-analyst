@@ -62,6 +62,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "DATA-KIS-003": (
         "tests.test_data_signal_qa.test_completed_kis_minute_chart_contract_requires_dated_open_and_close",
         "tests.test_intraday_cache.test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
+        "tests.test_intraday_cache.test_kis_premarket_chart_discards_future_same_day_minutes",
+        "tests.test_intraday_cache.test_premarket_future_chart_is_neither_cached_nor_published",
+        "tests.test_data_signal_qa.test_live_kis_intraday_chart_rejects_future_market_minutes",
     ),
     "DATA-CALENDAR-CONTENT-007": (
         "tests.test_news.test_current_mobile_news_api_normalizes_and_deduplicates_rows",
@@ -4287,8 +4290,66 @@ def _live_checks(
             pass_message="DART 공식 접수번호 URL과 모바일 2xx 원문 응답을 확인했습니다.",
         )
 
+        def kis_market_data_contract() -> dict[str, Any]:
+            indices_payload, indices_meta = api.get("/market/indices", limit=5)
+            indices = (
+                indices_payload.get("items")
+                if isinstance(indices_payload, dict)
+                else indices_payload
+            )
+            _assert(
+                isinstance(indices, list) and bool(indices),
+                "국내 지수 응답이 비어 있습니다.",
+                **indices_meta,
+            )
+            chart, chart_meta = api.get("/stocks/247540/intraday", limit=390)
+            _assert(isinstance(chart, dict), "국내 분봉 응답이 객체가 아닙니다.", **chart_meta)
+            try:
+                observed = datetime.fromisoformat(
+                    str(chart.get("as_of") or "").replace("Z", "+00:00")
+                )
+            except ValueError:
+                observed = None
+            _assert(
+                observed is not None and observed.tzinfo is not None,
+                "국내 분봉 기준 시각이 없습니다.",
+            )
+            points = chart.get("points")
+            _assert(isinstance(points, list), "국내 분봉 응답이 배열이 아닙니다.")
+            invalid = []
+            for point in points:
+                try:
+                    minute = datetime.strptime(
+                        str(point["trade_date"]) + str(point["trade_time"]).zfill(6),
+                        "%Y%m%d%H%M%S",
+                    ).replace(tzinfo=KST)
+                except (TypeError, ValueError, KeyError):
+                    invalid.append("invalid_timestamp")
+                    continue
+                if minute > observed.astimezone(KST):
+                    invalid.append(minute.isoformat())
+            _assert(
+                not invalid,
+                "KIS 분봉에 관측 시각보다 미래인 거래가 포함됐습니다.",
+                invalid=invalid[:5],
+                chart_trade_date=chart.get("trade_date"),
+                **chart_meta,
+            )
+            return {
+                "indices": len(indices),
+                "chart_points": len(points),
+                "chart_trade_date": chart.get("trade_date"),
+                "chart_source": chart.get("source"),
+                "chart_as_of": chart.get("as_of"),
+            }
+
+        collector.check(
+            "DATA-KIS-003",
+            kis_market_data_contract,
+            pass_message="국내 지수와 KIS 분봉의 미래 시각 차단을 확인했습니다.",
+        )
+
         endpoint_cases = (
-            ("DATA-KIS-003", "/market/indices", {"limit": 5}),
             (
                 "DATA-KRX-NAVER-004",
                 "/market/rankings",

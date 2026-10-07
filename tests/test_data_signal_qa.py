@@ -2162,6 +2162,14 @@ class FakeReadOnlyApi:
                     {"trade_date": "2026-08-29", "trade_time": "100000", "price": 100},
                 ],
             }, self._meta(path)
+        if path == "/stocks/247540/intraday":
+            return {
+                "source": "unavailable",
+                "as_of": "2026-10-08T08:30:00+09:00",
+                "market_state": "closed",
+                "trade_date": None,
+                "points": [],
+            }, self._meta(path)
         if path == "/stocks/005930/community-feed":
             return {
                 "code": "005930",
@@ -2852,6 +2860,32 @@ def test_live_current_day_minute_seal_blocks_unverified_promotion(
         item for item in report["checks"]
         if item["id"] == "SIG-KR-INTRADAY-SEAL-001"
     )
+    assert check["status"] == "fail"
+    assert report["deployment_blocked"] is True
+
+
+@pytest.mark.qa_live
+def test_live_kis_intraday_chart_rejects_future_market_minutes(monkeypatch) -> None:
+    from app.qa import runner
+
+    class FutureMinuteApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            if path == "/stocks/247540/intraday":
+                return {
+                    "source": "kis_rest",
+                    "as_of": "2026-10-08T08:30:00+09:00",
+                    "trade_date": "2026-10-08",
+                    "points": [{
+                        "trade_date": "20261008", "trade_time": "153000",
+                        "price": 100000,
+                    }],
+                }, self._meta(path)
+            return super().get(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", FutureMinuteApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "DATA-KIS-003")
     assert check["status"] == "fail"
     assert report["deployment_blocked"] is True
 

@@ -383,6 +383,7 @@ class KisRestBriefingProvider:
     ) -> list[dict[str, object]]:
         """Fetch today's one-minute chart without retaining a quote cache."""
         now = now or datetime.now(KST)
+        now = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
         market_division = str(market_division or "J").strip().upper()
         if market_division not in {"J", "NX", "UN"}:
             raise ValueError("market_division must be one of J, NX, or UN")
@@ -440,6 +441,13 @@ class KisRestBriefingProvider:
                 trade_date = str(row.get("stck_bsop_date") or "").strip()
                 trade_time = str(row.get("stck_cntg_hour") or "").strip().zfill(6)
                 if not trade_date or not trade_time:
+                    continue
+                # Some premarket responses stamp the prior full session with
+                # today's date. A future minute cannot be today's trade.
+                if trade_date > now.strftime("%Y%m%d") or (
+                    trade_date == now.strftime("%Y%m%d")
+                    and trade_time > now.strftime("%H%M%S")
+                ):
                     continue
                 latest_trade_date = latest_trade_date or trade_date
                 if trade_date != latest_trade_date:
