@@ -597,6 +597,37 @@ def test_v8_profit_waits_for_executable_quote_not_rounded_display_price():
     ]
 
 
+def test_v8_both_profit_stages_use_tradable_krx_quotes_and_equal_halves():
+    position = {
+        "entry_date": date(2026, 10, 6),
+        "entry_price": 444_500.0,
+        "entry_cost": 0.002,
+        "initial_risk": 10_000.0,
+        "initial_stop": 434_500.0,
+        "peak_price": 444_500.0,
+        "profit_stage": 0,
+        "remaining_fraction": 1.0,
+    }
+    bar = quant_signals.PriceBar(
+        date(2026, 10, 8),
+        444_500.0,
+        467_000.0,
+        440_000.0,
+        467_000.0,
+        1_000_000,
+        460_000_000_000,
+    )
+    decisions = quant_signals._intraday_exit_decisions(
+        position,
+        bar,
+        {"atr": 4_000.0, "average_trading_value": 460_000_000_000.0},
+    )
+    assert [(item.side, item.price, item.sell_fraction) for item in decisions] == [
+        ("partial_sell", 458_000.0, 0.5),
+        ("sell", 467_000.0, 0.5),
+    ]
+
+
 @pytest.mark.parametrize(
     ("decision_close", "live_open", "expected_side", "expected_action", "expected_exposure"),
     [
