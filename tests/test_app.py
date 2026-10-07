@@ -2561,7 +2561,7 @@ def test_push_config_includes_briefing_and_domestic_market_signal_alerts():
     assert options["market_ai_signal"] == {
         "id": "market_ai_signal",
         "label": "시장 AI 시그널",
-        "description": "국내장 장중 예비·장 마감 확정 신호를 알려드립니다.",
+        "description": "국내장 장중 예비 신호와 검증된 장중·장 마감 확정 매수·매도 신호를 알려드립니다.",
     }
     assert options["recommendation_update"] == {
         "id": "recommendation_update",

@@ -227,6 +227,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
     "SIG-PUSH-INTRADAY-001": (
+        "tests.test_app."
+        "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
         "tests.test_quant_signals."
         "test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
         "tests.test_quant_signals."
@@ -3200,6 +3202,22 @@ def _live_checks(
                     limit=0,
                     recent_days=30,
                 )
+                push_config, push_meta = api.get("/push/config")
+                market_option = next(
+                    (
+                        option
+                        for option in push_config.get("condition_options") or []
+                        if isinstance(option, dict)
+                        and option.get("id") == "market_ai_signal"
+                    ),
+                    {},
+                )
+                _assert(
+                    "검증된 장중·장 마감 확정 매수·매도"
+                    in str(market_option.get("description") or ""),
+                    "시장 AI 알림 설정에 검증된 장중 매수·매도 확정 안내가 없습니다.",
+                    **push_meta,
+                )
                 _assert(
                     feed.get("status") == "ready"
                     and feed.get("execution_model")
@@ -3250,6 +3268,7 @@ def _live_checks(
                 )
                 return {
                     "snapshot_generated_at": generated_at.isoformat(),
+                    "market_ai_signal_description": market_option["description"],
                     "total_events": len(items),
                     "verified_intraday_events": len(verified),
                     "delivery_observed": False,

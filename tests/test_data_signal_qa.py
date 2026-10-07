@@ -1712,6 +1712,20 @@ class FakeReadOnlyApi:
         return latest_completed_us_market_session().session_date.isoformat()
 
     def get(self, path: str, **params: object):
+        if path == "/push/config":
+            return {
+                "enabled": True,
+                "market_scope": "kr",
+                "condition_options": [
+                    {
+                        "id": "market_ai_signal",
+                        "description": (
+                            "국내장 장중 예비 신호와 검증된 장중·장 마감 확정 "
+                            "매수·매도 신호를 알려드립니다."
+                        ),
+                    }
+                ],
+            }, self._meta(path)
         if path == "/health":
             return {
                 "status": "ok",
@@ -2646,6 +2660,38 @@ def test_live_us_contract_accepts_confirmed_model_lifecycle_items(monkeypatch) -
     assert evidence["confirmed_count"] == 2
     assert evidence["visible_item_count"] == 3
     assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_live
+def test_live_intraday_push_contract_rejects_outdated_notification_copy(
+    monkeypatch,
+) -> None:
+    from app.qa import runner
+
+    class OutdatedPushCopyApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/push/config":
+                payload = {
+                    **payload,
+                    "condition_options": [
+                        {
+                            "id": "market_ai_signal",
+                            "description": "국내장 장중 예비·장 마감 확정 신호를 알려드립니다.",
+                        }
+                    ],
+                }
+            return payload, meta
+
+    FakeReadOnlyApi.quality_price_state = "ready"
+    monkeypatch.setattr(runner, "ReadOnlyApi", OutdatedPushCopyApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    by_id = {item["id"]: item for item in report["checks"]}
+
+    assert by_id["SIG-PUSH-INTRADAY-001"]["status"] == "fail"
+    assert report["deployment_blocked"] is True
 
 
 @pytest.mark.qa_live
