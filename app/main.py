@@ -6882,7 +6882,15 @@ def _stock_quote_stream_payload_uncached(code: str) -> Optional[dict[str, object
             quote.update({key: value for key, value in live_quote.items() if value is not None})
         else:
             source = "stored_daily_price"
-            quote.update(_korea_quote_session(current_time))
+            quote.update(
+                {
+                    "market_session": "closed",
+                    "market_session_label": "실시간 시세 확인 중 · 마지막 확정 종가",
+                    "market_venue": "KRX",
+                    "market_division": "J",
+                    "is_live": False,
+                }
+            )
         container = {"quote": quote}
         _enrich_pre_market_quote(container, normalized, current_time)
         return _json_ready(

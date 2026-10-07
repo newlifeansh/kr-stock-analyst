@@ -56,13 +56,16 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "DATA-KIS-002": (
         "tests.test_market_calendar.test_scheduled_krx_session_is_open_before_todays_closing_index_exists",
         "tests.test_briefing.test_briefing_market_status_follows_krx_holiday_calendar",
+        "tests.test_briefing.test_kis_rest_token_is_reused_across_probe_and_quote_providers",
         "tests.test_live_stock_quote.test_korea_quote_session_uses_exchange_holiday_not_weekday",
+        "tests.test_live_stock_quote.test_unavailable_live_quote_does_not_label_previous_close_as_live",
         "tests.test_quant_signals.test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
         "tests.test_data_signal_qa.test_live_korea_market_session_rejects_previous_close_at_open",
         "tests.test_data_signal_qa.test_live_korea_market_session_accepts_fresh_minutes_and_quote",
         "tests.test_data_signal_qa.test_live_korea_market_session_rejects_stale_minutes_and_quote",
     ),
     "DATA-KIS-008": (
+        "tests.test_briefing.test_kis_rest_token_is_reused_across_probe_and_quote_providers",
         "tests.test_signal_entry_evidence.test_historical_kis_probe_requires_completed_dated_minutes",
         "tests.test_intraday_cache.test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
         "tests.test_signal_entry_evidence.test_current_day_kis_probe_requires_completed_matching_session",

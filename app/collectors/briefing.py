@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time as time_module
 from concurrent.futures import ThreadPoolExecutor
@@ -33,6 +34,8 @@ from app.services.market_calendar import is_korea_market_session_date
 KST = ZoneInfo("Asia/Seoul")
 KIS_TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
 KIS_TRANSIENT_RETRY_DELAYS = (0.25, 0.75)
+_KIS_TOKEN_CACHE: dict[str, tuple[str, datetime]] = {}
+_KIS_TOKEN_CACHE_LOCK = Lock()
 
 
 @dataclass
@@ -154,7 +157,6 @@ class KisRestBriefingProvider:
         self.settings = settings
         self._token: Optional[str] = None
         self._token_expires_at: Optional[datetime] = None
-        self._token_lock = Lock()
         self._request_slot_lock = Lock()
         self._next_request_at = 0.0
 
@@ -291,9 +293,23 @@ class KisRestBriefingProvider:
         return "https://openapi.koreainvestment.com:9443"
 
     def _ensure_token(self) -> str:
-        with self._token_lock:
+        # A quality probe creates a short-lived provider while the quote and
+        # collector runtimes keep long-lived providers. Reuse their token
+        # within this process instead of issuing a new one for every probe.
+        identity = hashlib.sha256(
+            (
+                f"{self.settings.kis_env}\0{self.settings.kis_app_key}\0"
+                f"{self.settings.kis_app_secret}"
+            ).encode("utf-8")
+        ).hexdigest()
+        with _KIS_TOKEN_CACHE_LOCK:
             now = datetime.utcnow()
+            cached = _KIS_TOKEN_CACHE.get(identity)
+            if cached and cached[1] > now + timedelta(minutes=1):
+                self._token, self._token_expires_at = cached
+                return cached[0]
             if self._token and self._token_expires_at and self._token_expires_at > now + timedelta(minutes=1):
+                _KIS_TOKEN_CACHE[identity] = (self._token, self._token_expires_at)
                 return self._token
 
             response = requests.post(
@@ -311,6 +327,7 @@ class KisRestBriefingProvider:
             self._token = payload["access_token"]
             expires_in = int(payload.get("expires_in", 86400))
             self._token_expires_at = now + timedelta(seconds=expires_in)
+            _KIS_TOKEN_CACHE[identity] = (self._token, self._token_expires_at)
             return self._token
 
     def _wait_for_request_slot(self) -> None:

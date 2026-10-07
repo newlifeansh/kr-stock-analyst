@@ -25,6 +25,42 @@ def test_briefing_market_status_follows_krx_holiday_calendar():
     assert current_market_status(datetime(2026, 10, 9, 10, 0)) == "closed"
 
 
+def test_kis_rest_token_is_reused_across_probe_and_quote_providers(monkeypatch):
+    from app.collectors import briefing
+
+    issued: list[str] = []
+
+    class Response:
+        def __init__(self, token: str):
+            self.token = token
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"access_token": self.token, "expires_in": 86400}
+
+    def issue_token(_url, *, json, headers, timeout):
+        issued.append(str(json["appkey"]))
+        return Response(f"token-{len(issued)}")
+
+    monkeypatch.setattr(briefing.requests, "post", issue_token)
+    first_settings = Settings(
+        kis_app_key="shared-key-rc27",
+        kis_app_secret="shared-secret-rc27",
+    )
+    first = KisRestBriefingProvider(first_settings)
+    probe = KisRestBriefingProvider(first_settings)
+    other = KisRestBriefingProvider(
+        Settings(kis_app_key="other-key-rc27", kis_app_secret="shared-secret-rc27")
+    )
+
+    assert first._ensure_token() == "token-1"
+    assert probe._ensure_token() == "token-1"
+    assert other._ensure_token() == "token-2"
+    assert issued == ["shared-key-rc27", "other-key-rc27"]
+
+
 def test_kis_daily_price_rows_use_final_session_ohlc(monkeypatch):
     provider = KisRestBriefingProvider(
         Settings(kis_app_key="key", kis_app_secret="secret")

@@ -2,6 +2,7 @@ import json
 import subprocess
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -276,6 +277,49 @@ def test_stored_close_keeps_its_market_timestamp_and_realtime_ticks_are_shared()
 
     assert "datetime.combine(latest.trade_date, time(15, 30), tzinfo=KST)" in fallback_source
     assert "live_quote_cache.set" in broadcast_source
+
+
+def test_unavailable_live_quote_does_not_label_previous_close_as_live(monkeypatch):
+    observed = datetime(2026, 10, 8, 8, 30, tzinfo=main_module.KST)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return observed if tz is None else observed.astimezone(tz)
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, *_args):
+            return SimpleNamespace(name="삼성전자", market="KOSPI")
+
+        def scalars(self, *_args):
+            return [SimpleNamespace(
+                trade_date=date(2026, 10, 7),
+                close=269000,
+                volume=1000,
+                trading_value=269000000,
+                market_cap=1000000000,
+            )]
+
+    monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(main_module, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        main_module, "_fetch_uncached_current_quote", lambda *_args, **_kwargs: ({}, "stored_daily_price")
+    )
+    monkeypatch.setattr(main_module, "_enrich_pre_market_quote", lambda *_args, **_kwargs: None)
+
+    payload = main_module._stock_quote_stream_payload_uncached("005930")
+
+    assert payload["source"] == "stored_daily_price"
+    assert payload["as_of"] == "2026-10-07T15:30:00+09:00"
+    assert payload["quote"]["price"] == 269000
+    assert payload["quote"]["market_session"] == "closed"
+    assert payload["quote"]["is_live"] is False
 
 
 def test_dashboard_frontend_bypasses_quote_cache_and_shows_provider_badge():
