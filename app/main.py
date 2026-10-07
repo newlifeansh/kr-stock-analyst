@@ -1704,6 +1704,17 @@ async def lifespan(_: FastAPI):
                 us_position_lifecycle_task = asyncio.create_task(
                     _run_us_position_lifecycle_refresh_loop()
                 )
+            initial_shadow_refresh = await asyncio.to_thread(
+                _refresh_entry_filter_shadow_snapshot
+            )
+            if initial_shadow_refresh and initial_shadow_refresh.get("status") == "refreshed":
+                report = initial_shadow_refresh.get("report") or {}
+                logger.info(
+                    "Entry filter shadow backtest initial refresh: candidate=%s latest_price_date=%s symbols=%s",
+                    report.get("candidate_strategy_version"),
+                    report.get("latest_price_date"),
+                    report.get("symbols_evaluated"),
+                )
             entry_filter_shadow_task = asyncio.create_task(
                 _run_entry_filter_shadow_backtest_loop()
             )

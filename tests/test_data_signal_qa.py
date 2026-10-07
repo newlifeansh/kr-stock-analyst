@@ -7,6 +7,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 import pytest
+import httpx
 from typer.testing import CliRunner
 
 from app.cli import app
@@ -23,6 +24,7 @@ from app.qa.runner import (
     QaFailure,
     ResultCollector,
     _public_websocket_check,
+    _probe_mobile_external_url,
     _resolve_public_quote_stream_url,
     _validate_public_quote_frame,
     _validate_quote_status_frame,
@@ -30,6 +32,49 @@ from app.qa.runner import (
     redact,
     run_data_signal_qa,
 )
+
+
+@pytest.mark.qa_gate
+def test_mobile_external_probe_retries_transient_timeout_once(monkeypatch) -> None:
+    class FakeResponse:
+        url = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261007000001"
+        status_code = 200
+        headers = {"content-type": "text/html"}
+
+    class FakeStream:
+        def __enter__(self):
+            return FakeResponse()
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    class FakeClient:
+        calls = 0
+
+        def __init__(self, *args: object, **kwargs: object):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def stream(self, *_args: object, **_kwargs: object):
+            type(self).calls += 1
+            if self.calls == 1:
+                raise httpx.ReadTimeout("fixture timeout")
+            return FakeStream()
+
+    monkeypatch.setattr("app.qa.runner.httpx.Client", FakeClient)
+
+    evidence = _probe_mobile_external_url(
+        "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261007000001",
+        timeout=1,
+    )
+
+    assert evidence["http_status"] == 200
+    assert evidence["attempts"] == 2
 
 
 def _write_pytest_junit(

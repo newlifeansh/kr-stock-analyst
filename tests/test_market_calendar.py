@@ -1,6 +1,25 @@
 from datetime import date, datetime
+from types import SimpleNamespace
 
 from app.services import market_calendar
+
+
+def test_fetch_latest_market_session_has_history_for_collector_backfill(monkeypatch):
+    calls = []
+
+    def get(_url, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            content=b'<item data="20260918|1|2|1|2|100" />',
+            raise_for_status=lambda: None,
+        )
+
+    monkeypatch.setattr(market_calendar.requests, "get", get)
+
+    assert market_calendar._fetch_latest_market_session_date(date(2026, 9, 19)) == date(
+        2026, 9, 18
+    )
+    assert calls[0]["params"]["count"] == "60"
 
 
 def test_parse_latest_market_session_date_ignores_weekend_through_date():

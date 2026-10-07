@@ -40,7 +40,11 @@ def _parse_latest_market_session_date(payload: bytes, through: date) -> Optional
 def _fetch_latest_market_session_date(through: date) -> Optional[date]:
     response = requests.get(
         NAVER_INDEX_CHART_URL,
-        params={"symbol": "KOSPI", "timeframe": "day", "count": "10", "requestType": "0"},
+        # Collector recovery and deterministic backfills may ask about a
+        # completed session several weeks behind today. Ten rows is too short
+        # for that lookup and incorrectly turns a valid historical session
+        # into ``market_closed``.
+        params={"symbol": "KOSPI", "timeframe": "day", "count": "60", "requestType": "0"},
         headers={"User-Agent": "Mozilla/5.0"},
         timeout=8,
     )

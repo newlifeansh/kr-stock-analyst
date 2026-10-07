@@ -98,6 +98,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_disclosures.test_preferred_disclosure_url_rebuilds_official_dart_receipt_link",
         "tests.test_stock_home_context.test_stock_home_context_combines_detail_sections",
         "tests.test_stock_dashboard_disclosures.test_disclosure_events_can_fall_back_to_recent_general_filings",
+        "tests.test_data_signal_qa.test_mobile_external_probe_retries_transient_timeout_once",
     ),
     "DATA-FUND-RESEARCH-003": (
         "tests.test_research.test_fetch_stockhub_reports_for_stock_parses_broker_metadata",
@@ -326,6 +327,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_screener_as_of_must_match_quotes_and_completed_session[stale]",
         "tests.test_us_signal_universe."
         "test_screener_as_of_must_match_quotes_and_completed_session[mixed_exchange_dates]",
+        "tests.test_us_signal_universe."
+        "test_prior_session_bridge_excludes_explicitly_delisted_stale_quote",
         "tests.test_us_signal_universe."
         "test_forming_regular_session_never_publishes_current_day_snapshot",
         "tests.test_us_signal_universe."
@@ -1170,7 +1173,14 @@ class ReadOnlyApi:
         return response.status_code, response_payload, meta
 
 
-def _probe_mobile_external_url(url: object, *, timeout: float) -> dict[str, Any]:
+def _probe_mobile_external_url(
+    url: object,
+    *,
+    timeout: float,
+    attempts: int = 2,
+) -> dict[str, Any]:
+    if attempts < 1:
+        raise ValueError("attempts must be at least 1")
     normalized = str(url or "").strip()
     parsed = urlparse(normalized)
     _assert(
@@ -1179,25 +1189,43 @@ def _probe_mobile_external_url(url: object, *, timeout: float) -> dict[str, Any]
         url=normalized,
     )
     started = monotonic()
-    with httpx.Client(
-        timeout=httpx.Timeout(timeout),
-        follow_redirects=True,
-        headers={"User-Agent": MOBILE_BROWSER_USER_AGENT},
-    ) as client:
-        with client.stream("GET", normalized) as response:
-            evidence = {
-                "url": normalized,
-                "final_url": str(response.url),
-                "http_status": response.status_code,
-                "latency_ms": round((monotonic() - started) * 1000),
-                "content_type": response.headers.get("content-type"),
-            }
-    _assert(
-        200 <= response.status_code < 300,
-        "모바일 원문 링크가 2xx 응답을 반환하지 않았습니다.",
-        **evidence,
-    )
-    return evidence
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with httpx.Client(
+                timeout=httpx.Timeout(timeout),
+                follow_redirects=True,
+                headers={"User-Agent": MOBILE_BROWSER_USER_AGENT},
+            ) as client:
+                with client.stream("GET", normalized) as response:
+                    evidence = {
+                        "url": normalized,
+                        "final_url": str(response.url),
+                        "http_status": response.status_code,
+                        "latency_ms": round((monotonic() - started) * 1000),
+                        "content_type": response.headers.get("content-type"),
+                        "attempts": attempt,
+                    }
+            _assert(
+                200 <= response.status_code < 300,
+                "모바일 원문 링크가 2xx 응답을 반환하지 않았습니다.",
+                **evidence,
+            )
+            return evidence
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            last_error = exc
+            if attempt >= attempts:
+                raise QaFailure(
+                    "모바일 원문 링크 연결이 제한된 재시도 후에도 완료되지 않았습니다.",
+                    {
+                        "url": normalized,
+                        "attempts": attempt,
+                        "latency_ms": round((monotonic() - started) * 1000),
+                        "error_type": type(exc).__name__,
+                    },
+                ) from exc
+            sleep(0.15 * attempt)
+    raise AssertionError(f"external probe did not complete: {last_error}")
 
 
 def _pytest_evidence(pytest_junit: Path | str | None) -> dict[str, Any] | None:

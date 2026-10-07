@@ -25,7 +25,7 @@ from app.services.ttl_cache import TTLCache
 
 
 US_SIGNAL_UNIVERSE_VERSION = "us-market-cap-top100-v4"
-US_SIGNAL_UNIVERSE_AUDIT_VERSION = "us-market-cap-source-audit-v2"
+US_SIGNAL_UNIVERSE_AUDIT_VERSION = "us-market-cap-source-audit-v3"
 US_SIGNAL_UNIVERSE_LIMIT = 100
 US_SIGNAL_UNIVERSE_CATEGORY = "us_signal_universe"
 NASDAQ_SCREENER_URL = "https://api.nasdaq.com/api/screener/stocks"
@@ -478,7 +478,13 @@ def _align_candidates_to_completed_session(
     candidates: list[dict[str, Any]],
     quotes: dict[str, dict[str, Any]],
     completed_date: date,
-) -> tuple[list[dict[str, Any]], dict[str, Any], str]:
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, dict[str, Any]],
+    dict[str, Any],
+    str,
+    list[dict[str, Any]],
+]:
     """Return a completed-session ranking input and its audit evidence.
 
     Nasdaq is authoritative when its screen is current. If it is exactly one
@@ -515,7 +521,13 @@ def _align_candidates_to_completed_session(
                 }
             ),
         }
-        return list(candidates), alignment, "nasdaq_screener_market_cap"
+        return (
+            list(candidates),
+            dict(quotes),
+            alignment,
+            "nasdaq_screener_market_cap",
+            [],
+        )
 
     recent_sessions = recent_us_market_session_dates(completed_date, 2)
     if len(recent_sessions) != 2 or screen_date != recent_sessions[0]:
@@ -525,6 +537,16 @@ def _align_candidates_to_completed_session(
     if len(quotes) != len(candidates):
         raise ValueError(
             "US latest-session market-cap bridge requires every candidate quote"
+        )
+
+    candidates, quotes, exclusions = _filter_delisted_bridge_candidates(
+        candidates,
+        quotes,
+        completed_date,
+    )
+    if len(candidates) < US_SIGNAL_UNIVERSE_LIMIT + 1:
+        raise ValueError(
+            "US latest-session market-cap bridge lost the proven 101-candidate boundary"
         )
 
     aligned: list[dict[str, Any]] = []
@@ -586,8 +608,10 @@ def _align_candidates_to_completed_session(
     }
     return (
         aligned,
+        quotes,
         alignment,
         "yahoo_market_cap_validated_against_prior_nasdaq_candidate_pool",
+        exclusions,
     )
 
 
@@ -669,6 +693,73 @@ def _quote_date(value: object) -> Optional[date]:
         )
     except (TypeError, ValueError, OSError):
         return None
+
+
+def _has_explicit_delisting_action(quote: dict[str, Any]) -> bool:
+    """Return whether a provider quote explicitly reports a delisting.
+
+    A stale quote is normally a hard bridge failure.  The one safe exception
+    is a security that the provider has already marked as delisted: carrying
+    that non-tradable row into the completed-session ranking would be less
+    conservative than excluding it and documenting the exclusion.
+    """
+
+    actions = quote.get("corporateActions") or quote.get("corporate_actions")
+    if actions is None:
+        return False
+    if isinstance(actions, dict):
+        values: list[object] = [actions]
+    elif isinstance(actions, list):
+        values = list(actions)
+    else:
+        values = [actions]
+    for action in values:
+        if isinstance(action, dict):
+            text = " ".join(
+                str(action.get(key) or "")
+                for key in (
+                    "header",
+                    "message",
+                    "type",
+                    "eventType",
+                    "event_type",
+                    "action",
+                )
+            )
+        else:
+            text = str(action)
+        if "delist" in text.casefold():
+            return True
+    return False
+
+
+def _filter_delisted_bridge_candidates(
+    candidates: list[dict[str, Any]],
+    quotes: dict[str, dict[str, Any]],
+    completed_date: date,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    kept_candidates: list[dict[str, Any]] = []
+    kept_quotes: dict[str, dict[str, Any]] = {}
+    exclusions: list[dict[str, Any]] = []
+    for candidate in candidates:
+        code = str(candidate["code"])
+        quote = dict(quotes.get(code) or {})
+        quote_date = _quote_date(quote.get("regularMarketTime"))
+        if quote_date != completed_date and _has_explicit_delisting_action(quote):
+            exclusions.append(
+                {
+                    "code": code,
+                    "reason": "explicit_delisting_corporate_action",
+                    "quote_as_of": quote_date.isoformat()
+                    if quote_date is not None
+                    else None,
+                }
+            )
+            continue
+        kept_candidates.append(candidate)
+        if code in quotes:
+            kept_quotes[code] = quote
+    return kept_candidates, kept_quotes, exclusions
 
 
 def _cik_for_code(code: str, cik_by_code: dict[str, str]) -> Optional[str]:
@@ -1151,6 +1242,7 @@ def _source_audit_is_valid(
             "alignment",
             "quotes",
             "sec_identities",
+            "exclusions",
         }
         or source_audit.get("version") != US_SIGNAL_UNIVERSE_AUDIT_VERSION
         or source_audit.get("trust_model")
@@ -1227,6 +1319,32 @@ def _source_audit_is_valid(
             return False
     else:
         return False
+
+    exclusions = source_audit.get("exclusions")
+    if (
+        not isinstance(exclusions, dict)
+        or set(exclusions) != {"count", "items"}
+        or not _strict_int_at_least(exclusions.get("count"), 0)
+        or not isinstance(exclusions.get("items"), list)
+        or int(exclusions["count"]) != len(exclusions["items"])
+    ):
+        return False
+    exclusion_codes: set[str] = set()
+    for item in exclusions["items"]:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"code", "reason", "quote_as_of"}
+            or not isinstance(item.get("code"), str)
+            or item["code"] != _ticker(item["code"])
+            or item["code"] in exclusion_codes
+            or item.get("reason") != "explicit_delisting_corporate_action"
+            or (
+                item.get("quote_as_of") is not None
+                and _parse_snapshot_date(item.get("quote_as_of")) is None
+            )
+        ):
+            return False
+        exclusion_codes.add(item["code"])
 
     screen = source_audit.get("screen")
     if (
@@ -1695,13 +1813,19 @@ def build_us_signal_universe(
             [str(item["code"]) for item in candidates],
             refresh=True,
         )
-        candidates, source_alignment, ranking_authority = (
+        candidates, quotes, source_alignment, ranking_authority, exclusions = (
             _align_candidates_to_completed_session(
                 candidates,
                 quotes,
                 completed_date,
             )
         )
+        if exclusions:
+            # The provider's original exchange audit includes the excluded
+            # security. Rebuild the normalized audit over the exact candidate
+            # pool that was actually ranked so counts and digests remain
+            # internally consistent and immutable.
+            screen_audit = _screen_source_audit(candidates)
         cik_by_code = us_market._sec_ticker_map()
         if not cik_by_code:
             raise ValueError("SEC CIK issuer map is empty")
@@ -1732,6 +1856,10 @@ def build_us_signal_universe(
             "alignment": source_alignment,
             "quotes": _quote_source_audit(candidates, quotes),
             "sec_identities": _sec_identity_source_audit(candidates, cik_by_code),
+            "exclusions": {
+                "count": len(exclusions),
+                "items": exclusions,
+            },
         }
         member_checksum = _snapshot_checksum(ranked)
         payload = {

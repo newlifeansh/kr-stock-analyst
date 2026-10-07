@@ -140,6 +140,10 @@ def _valid_audit_metadata(
             "mapped_count": source_candidate_count,
             "identity_digest": digest({"sec_identity_count": source_candidate_count}),
         },
+        "exclusions": {
+            "count": 0,
+            "items": [],
+        },
     }
     rank_100 = items[-1]
     rank_100_cap = int(str(rank_100["market_cap"]))
@@ -1118,6 +1122,61 @@ def test_prior_session_bridge_fails_closed_when_any_candidate_quote_is_missing(
     assert payload["status"] == "unavailable"
     assert payload["new_entries_allowed"] is False
     assert "requires every candidate quote" in payload["source_error"]
+
+
+def test_prior_session_bridge_excludes_explicitly_delisted_stale_quote(
+    monkeypatch,
+):
+    candidates = _candidates(102)
+    for item in candidates:
+        item["screen_as_of"] = "2026-09-04"
+    candidates[0]["code"] = "WBD"
+    candidates[0]["name"] = "Warner Bros. Discovery, Inc."
+    quotes = {
+        str(item["code"]): _quote(
+            str(item["code"]),
+            2_000_000_000 - index,
+        )
+        for index, item in enumerate(candidates)
+    }
+    quotes["WBD"] = {
+        **quotes["WBD"],
+        "regularMarketTime": int(
+            datetime(2026, 9, 7, 20, tzinfo=UTC).timestamp()
+        ),
+        "corporateActions": [
+            {
+                "header": "Delisting",
+                "message": "WBD was delisted effective Sep. 9, 2026",
+            }
+        ],
+    }
+    monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_batch",
+        lambda symbols, **_kwargs: quotes,
+    )
+    monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
+
+    payload = universe.build_us_signal_universe(
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["universe_count"] == 100
+    assert "WBD" not in {item["code"] for item in payload["items"]}
+    assert payload["source_audit"]["exclusions"] == {
+        "count": 1,
+        "items": [
+            {
+                "code": "WBD",
+                "reason": "explicit_delisting_corporate_action",
+                "quote_as_of": "2026-09-07",
+            }
+        ],
+    }
+    assert universe._snapshot_payload_is_valid(payload) is True
 
 
 def test_forming_regular_session_never_publishes_current_day_snapshot(monkeypatch):

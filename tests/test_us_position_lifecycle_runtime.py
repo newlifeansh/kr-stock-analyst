@@ -64,6 +64,10 @@ def _universe_audit_metadata(
             "mapped_count": 101,
             "identity_digest": digest(["sec", 101]),
         },
+        "exclusions": {
+            "count": 0,
+            "items": [],
+        },
     }
     rank_100 = members[-1]
     boundary_evidence = {
