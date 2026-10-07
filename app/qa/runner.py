@@ -137,6 +137,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_staging_targets_and_qa_evidence_are_separate_for_both_products",
         "tests.test_release_parity."
         "test_scheduled_qa_never_reuses_the_preview_proxy",
+        "tests.test_release_parity."
+        "test_staging_e2e_does_not_retrigger_itself_from_deployment_status",
         "tests.test_process_role."
         "test_web_role_never_enqueues_us_position_lifecycle_scan",
     ),

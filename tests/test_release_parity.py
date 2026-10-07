@@ -325,6 +325,17 @@ def test_scheduled_qa_never_reuses_the_preview_proxy() -> None:
         assert "dark-theme-preview-staging" not in workflow
 
 
+def test_staging_e2e_does_not_retrigger_itself_from_deployment_status() -> None:
+    workflow = Path(".github/workflows/qa-data-signal-e2e.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "  workflow_dispatch:" in workflow
+    assert "  deployment_status:" not in workflow
+    assert "playwright install chromium" in workflow
+    assert "playwright install --with-deps chromium" not in workflow
+    assert "group: domestic-staging-runtime" in workflow
+
+
 def test_scheduled_qa_starts_domestic_runtime_only_while_collecting_evidence() -> None:
     for name, start, stop in (
         (
