@@ -1165,6 +1165,7 @@ async def _run_entry_filter_shadow_backtest_loop() -> None:
     """Keep H1/H2/H3 replayed together whenever a new daily dataset exists."""
 
     while True:
+        interval_seconds = 300
         try:
             result = await asyncio.to_thread(_refresh_entry_filter_shadow_snapshot)
             if result and result.get("status") == "refreshed":
@@ -1175,9 +1176,49 @@ async def _run_entry_filter_shadow_backtest_loop() -> None:
                     report.get("latest_price_date"),
                     report.get("symbols_evaluated"),
                 )
+            report = result.get("report") if isinstance(result, dict) else None
+            comparison = report.get("forward_comparison") if isinstance(report, dict) else None
+            if not isinstance(comparison, dict):
+                interval_seconds = 30
+                logger.warning(
+                    "Entry filter shadow backtest is not ready; retrying in %ss: status=%s",
+                    interval_seconds,
+                    result.get("status") if isinstance(result, dict) else "failed",
+                )
         except Exception:  # pragma: no cover - operational safeguard
             logger.exception("Entry filter shadow backtest loop failed")
-        await asyncio.sleep(300)
+            interval_seconds = 30
+        await asyncio.sleep(interval_seconds)
+
+
+async def _warm_entry_filter_shadow_snapshot() -> Optional[dict[str, Any]]:
+    """Retry the collector warm-up while the shared DB finishes its first refresh."""
+
+    retry_delays = (0, 10, 20, 30, 45, 60, 90, 120)
+    result: Optional[dict[str, Any]] = None
+    for attempt, delay_seconds in enumerate(retry_delays, start=1):
+        if delay_seconds:
+            await asyncio.sleep(delay_seconds)
+        result = await asyncio.to_thread(_refresh_entry_filter_shadow_snapshot)
+        report = result.get("report") if isinstance(result, dict) else None
+        comparison = report.get("forward_comparison") if isinstance(report, dict) else None
+        if isinstance(comparison, dict):
+            logger.info(
+                "Entry filter shadow backtest warm-up ready: attempt=%s status=%s candidate=%s latest_price_date=%s symbols=%s",
+                attempt,
+                result.get("status"),
+                report.get("candidate_strategy_version"),
+                report.get("latest_price_date"),
+                report.get("symbols_evaluated"),
+            )
+            return result
+        logger.warning(
+            "Entry filter shadow backtest warm-up incomplete: attempt=%s/%s status=%s",
+            attempt,
+            len(retry_delays),
+            result.get("status") if isinstance(result, dict) else "failed",
+        )
+    return result
 
 
 def _attach_entry_filter_forward_comparison(
@@ -1704,17 +1745,7 @@ async def lifespan(_: FastAPI):
                 us_position_lifecycle_task = asyncio.create_task(
                     _run_us_position_lifecycle_refresh_loop()
                 )
-            initial_shadow_refresh = await asyncio.to_thread(
-                _refresh_entry_filter_shadow_snapshot
-            )
-            if initial_shadow_refresh and initial_shadow_refresh.get("status") == "refreshed":
-                report = initial_shadow_refresh.get("report") or {}
-                logger.info(
-                    "Entry filter shadow backtest initial refresh: candidate=%s latest_price_date=%s symbols=%s",
-                    report.get("candidate_strategy_version"),
-                    report.get("latest_price_date"),
-                    report.get("symbols_evaluated"),
-                )
+            await _warm_entry_filter_shadow_snapshot()
             entry_filter_shadow_task = asyncio.create_task(
                 _run_entry_filter_shadow_backtest_loop()
             )

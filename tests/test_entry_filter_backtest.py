@@ -33,7 +33,14 @@ def test_shadow_backtest_refreshes_once_per_latest_price_date(monkeypatch) -> No
         calls.append(True)
         return {
             "latest_price_date": date(2026, 9, 4),
+            "candidate_strategy_version": qs.CANDIDATE_STRATEGY_VERSION,
+            "active_entry_filter_version": qs.ENTRY_FILTER_VERSION,
             "symbols_evaluated": 99,
+            "forward_comparison": {
+                "version": "entry-filter-fixed-cohort-forward-v1",
+                "filters": {version: {} for version in shadow.FILTER_VERSIONS},
+                "rolling_last_trades": {version: {} for version in shadow.FILTER_VERSIONS},
+            },
             "aggregate": {
                 version: {"symbols": 99}
                 for version in shadow.FILTER_VERSIONS
@@ -53,6 +60,43 @@ def test_shadow_backtest_refreshes_once_per_latest_price_date(monkeypatch) -> No
     assert db.snapshot.cache_key == shadow.ENTRY_FILTER_SHADOW_CACHE_KEY
     assert db.snapshot.cache_key.endswith(qs.CANDIDATE_STRATEGY_VERSION)
     assert json.loads(db.snapshot.payload)["symbols_evaluated"] == 99
+
+
+def test_shadow_refresh_rebuilds_legacy_report_with_same_price_date(monkeypatch) -> None:
+    db = _FakeDb()
+    db.snapshot = MarketQuantSignalSnapshot(
+        cache_key=shadow.ENTRY_FILTER_SHADOW_CACHE_KEY,
+        payload=json.dumps(
+            {
+                "latest_price_date": "2026-09-04",
+                "candidate_strategy_version": qs.CANDIDATE_STRATEGY_VERSION,
+                "active_entry_filter_version": qs.ENTRY_FILTER_VERSION,
+                "symbols_evaluated": 99,
+            }
+        ),
+    )
+    calls = []
+
+    def fake_build(_db, **_kwargs):
+        calls.append(True)
+        return {
+            "latest_price_date": date(2026, 9, 4),
+            "candidate_strategy_version": qs.CANDIDATE_STRATEGY_VERSION,
+            "active_entry_filter_version": qs.ENTRY_FILTER_VERSION,
+            "symbols_evaluated": 99,
+            "forward_comparison": {
+                "version": "entry-filter-fixed-cohort-forward-v1",
+                "filters": {version: {} for version in shadow.FILTER_VERSIONS},
+                "rolling_last_trades": {version: {} for version in shadow.FILTER_VERSIONS},
+            },
+        }
+
+    monkeypatch.setattr(shadow, "build_entry_filter_shadow_report", fake_build)
+
+    result = shadow.refresh_entry_filter_shadow_snapshot(db)
+
+    assert result["status"] == "refreshed"
+    assert len(calls) == 1
 
 
 def test_shadow_refresh_is_separate_from_user_signal_snapshot() -> None:

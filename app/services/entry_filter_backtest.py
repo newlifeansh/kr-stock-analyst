@@ -26,6 +26,27 @@ FORWARD_ROLLING_TRADE_COUNT = 20
 H3_PROMOTION_MIN_FORWARD_TRADES = 40
 
 
+def _shadow_report_is_current(report: dict[str, Any] | None) -> bool:
+    """Return whether a stored report contains the current comparison contract."""
+
+    if not isinstance(report, dict):
+        return False
+    comparison = report.get("forward_comparison")
+    if not isinstance(comparison, dict):
+        return False
+    filters = comparison.get("filters")
+    rolling = comparison.get("rolling_last_trades")
+    return bool(
+        report.get("candidate_strategy_version") == qs.CANDIDATE_STRATEGY_VERSION
+        and report.get("active_entry_filter_version") == qs.ENTRY_FILTER_VERSION
+        and comparison.get("version") == "entry-filter-fixed-cohort-forward-v1"
+        and isinstance(filters, dict)
+        and isinstance(rolling, dict)
+        and all(version in filters for version in FILTER_VERSIONS)
+        and all(version in rolling for version in FILTER_VERSIONS)
+    )
+
+
 def _aggregate(results: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     summaries: dict[str, Any] = {}
     for version, items in results.items():
@@ -380,6 +401,7 @@ def refresh_entry_filter_shadow_snapshot(
         and latest_price_date is not None
         and previous is not None
         and str(previous.get("latest_price_date")) == latest_price_date.isoformat()
+        and _shadow_report_is_current(previous)
     ):
         return {"status": "unchanged", "report": previous}
     report = build_entry_filter_shadow_report(
