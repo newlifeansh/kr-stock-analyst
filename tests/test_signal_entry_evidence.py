@@ -910,6 +910,7 @@ def test_historical_kis_probe_requires_completed_dated_minutes(monkeypatch):
     )
     result = _probe_historical_kis_minutes(Settings(), "005930", now)
     assert result["state"] == "ready"
+    assert result["environment"] in {"real", "demo"}
     assert result["trade_date"] == "2026-10-07"
     assert result["first_time"] == "090100"
     assert result["last_time"] == "153000"
@@ -929,6 +930,21 @@ def test_historical_kis_probe_requires_completed_dated_minutes(monkeypatch):
     )
     result = _probe_historical_kis_minutes(Settings(), "005930", now)
     assert result["state"] == "unavailable"
+    assert "do-not-expose" not in str(result)
+
+    response = requests.Response()
+    response.status_code = 403
+    response._content = b'{"msg_cd":"EGW00001","msg1":"secret=do-not-expose"}'
+
+    def forbidden(_self, _code, _trade_date, *, max_points):
+        raise requests.HTTPError("secret=do-not-expose", response=response)
+
+    monkeypatch.setattr(
+        KisRestBriefingProvider, "fetch_historical_intraday_chart", forbidden
+    )
+    result = _probe_historical_kis_minutes(Settings(), "005930", now)
+    assert result["http_status"] == 403
+    assert result["source_error_code"] == "EGW00001"
     assert "do-not-expose" not in str(result)
 
 

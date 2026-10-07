@@ -908,6 +908,7 @@ def _probe_historical_kis_minutes(
     result: dict[str, Any] = {
         "key": "kis_historical_intraday",
         "source": "KIS dated KRX minute chart",
+        "environment": settings.kis_env,
     }
     provider = KisRestBriefingProvider(settings)
     if not provider.is_configured():
@@ -930,10 +931,24 @@ def _probe_historical_kis_minutes(
             sample_code, completed_date, max_points=390
         )
     except Exception as exc:
+        response = exc.response if isinstance(exc, requests.HTTPError) else None
+        http_status = response.status_code if response is not None else None
+        error_code = None
+        if response is not None:
+            try:
+                candidate_code = str(response.json().get("msg_cd") or "")
+            except (TypeError, ValueError, AttributeError):
+                candidate_code = ""
+            if candidate_code and len(candidate_code) <= 32 and all(
+                char.isalnum() or char == "_" for char in candidate_code
+            ):
+                error_code = candidate_code
         return {
             **result,
             "state": "unavailable",
             "trade_date": completed_date.isoformat(),
+            "http_status": http_status,
+            "source_error_code": error_code,
             "latency_ms": round((monotonic() - started) * 1000),
             "message": f"{type(exc).__name__}: 날짜별 분봉 원천 확인 실패",
         }
