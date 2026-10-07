@@ -920,6 +920,22 @@ def test_v8_intraday_sell_is_stop_first_and_emits_every_reached_profit_stage():
         ("partial_sell", 103.0, 1),
         ("sell", 105.0, 2),
     ]
+    assert [item.sell_fraction for item in targets] == pytest.approx([0.50, 0.50])
+    first_target_only = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 6),
+        open=100.0,
+        high=103.2,
+        low=99.0,
+        close=102.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    assert [
+        (item.side, item.price, item.sell_fraction)
+        for item in quant_signals._intraday_exit_decisions(
+            position, first_target_only, indicator
+        )
+    ] == [("partial_sell", 103.0, 0.50)]
     stop_first = quant_signals._intraday_exit_decisions(position, ambiguous_bar, indicator)
     assert len(stop_first) == 1
     assert stop_first[0].side == "sell"
