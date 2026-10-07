@@ -3956,6 +3956,12 @@ def get_market_quant_signals(
         current_time = datetime.now(KST)
         payload = deepcopy(payload)
         payload = _attach_entry_filter_forward_comparison(db, payload)
+        if not isinstance(payload.get("filter_forward_comparison"), dict):
+            # A web-only deployment can be healthy while its collector is
+            # still warming the fixed-cohort replay.  Kick the same guarded
+            # refresh from the read path so the comparison cannot stay absent
+            # until the next five-minute collector tick.
+            background_tasks.add_task(_refresh_entry_filter_shadow_snapshot)
         freshness = _market_quant_signal_snapshot_freshness(payload, current_time)
         payload.update(freshness)
         if freshness["snapshot_state"] == "stale":

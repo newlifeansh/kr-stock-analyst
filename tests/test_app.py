@@ -2406,6 +2406,49 @@ def test_cached_market_signal_snapshot_attaches_latest_filter_forward_comparison
         main_module.market_quant_signal_cache.clear()
 
 
+def test_missing_filter_forward_comparison_schedules_guarded_refresh(monkeypatch):
+    from app import main as main_module
+
+    payload = {
+        "status": "ready",
+        "strategy_version": "position-lifecycle-v8.0",
+        "snapshot_generated_at": datetime.now(timezone.utc),
+        "as_of": datetime.now(ZoneInfo("Asia/Seoul")),
+        "universe_count": 100,
+        "recent_days": 30,
+        "preliminary_count": 0,
+        "confirmed_count": 0,
+        "items": [],
+    }
+    scheduled = []
+    main_module.market_quant_signal_cache.clear()
+    monkeypatch.setattr(
+        main_module,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: payload,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_entry_filter_shadow_snapshot",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_refresh_entry_filter_shadow_snapshot",
+        lambda: scheduled.append(True),
+    )
+    try:
+        response = TestClient(app).get(
+            "/market/quant-signals?universe_limit=150&limit=0&recent_days=30"
+        )
+
+        assert response.status_code == 200
+        assert scheduled == [True]
+        assert "filter_forward_comparison" not in response.json()
+    finally:
+        main_module.market_quant_signal_cache.clear()
+
+
 def test_market_quant_signal_preparing_payload_includes_active_reconciliation(monkeypatch):
     from app import main as main_module
 
