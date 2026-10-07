@@ -188,6 +188,25 @@ def test_korea_quote_session_routes_nxt_pre_market_and_integrated_regular(monkey
     assert regular["market_division"] == "UN"
 
 
+def test_korea_quote_session_uses_exchange_holiday_not_weekday():
+    session = main_module._korea_quote_session(
+        datetime(2026, 10, 8, 9, 3, tzinfo=main_module.KST)
+    )
+    holiday = main_module._korea_quote_session(
+        datetime(2026, 10, 9, 9, 3, tzinfo=main_module.KST)
+    )
+
+    assert session["is_live"] is True
+    assert session["market_session"] == "integrated_regular"
+    assert holiday["is_live"] is False
+    assert holiday["market_session"] == "closed"
+    expected = datetime(2026, 10, 12, 8, tzinfo=main_module.KST)
+    after_close = datetime(2026, 10, 8, 16, tzinfo=main_module.KST)
+    assert main_module._seconds_until_next_korea_open(after_close) == int(
+        (expected - after_close).total_seconds()
+    ) - 30
+
+
 def test_extended_quote_uses_nxt_price_as_primary_from_8am(monkeypatch):
     class Provider:
         @staticmethod

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -34,6 +34,7 @@ from app.qa.runner import (
     redact,
     run_data_signal_qa,
 )
+from app.services.market_calendar import KST, is_korea_regular_market_session
 
 
 @pytest.mark.qa_gate
@@ -1581,6 +1582,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "DATA-COM-006",
         "DATA-COM-007",
         "DATA-DART-001",
+        "DATA-KIS-002",
         "DATA-KIS-003",
         "DATA-KIS-008",
         "DATA-CALENDAR-CONTENT-007",
@@ -2149,17 +2151,32 @@ class FakeReadOnlyApi:
                 "quote": {"market_cap": 1_578_000_000_000_000},
             }, self._meta(path)
         if path == "/stocks/005930/quote":
+            observed = datetime.now(KST)
+            regular = is_korea_regular_market_session(observed)
             return {
                 "code": "005930",
                 "price": 100,
-                "market_state": "closed",
+                "as_of": observed.isoformat() if regular else "2026-08-29T10:00:00+09:00",
+                "market_state": "regular" if regular else "closed",
+                "quote": {
+                    "price": 100,
+                    "market_session": "integrated_regular" if regular else "closed",
+                },
             }, self._meta(path)
         if path == "/stocks/005930/intraday":
+            observed = datetime.now(KST)
+            regular = is_korea_regular_market_session(observed)
+            minute = observed - timedelta(minutes=1)
             return {
                 "source": "fixture",
-                "trade_date": "2026-08-29",
+                "market_state": "regular" if regular else "closed",
+                "trade_date": observed.date().isoformat() if regular else "2026-08-29",
                 "points": [
-                    {"trade_date": "2026-08-29", "trade_time": "100000", "price": 100},
+                    {
+                        "trade_date": minute.strftime("%Y%m%d") if regular else "20260829",
+                        "trade_time": minute.strftime("%H%M%S") if regular else "100000",
+                        "price": 100,
+                    },
                 ],
             }, self._meta(path)
         if path == "/stocks/247540/intraday":
@@ -2888,6 +2905,98 @@ def test_live_kis_intraday_chart_rejects_future_market_minutes(monkeypatch) -> N
     check = next(item for item in report["checks"] if item["id"] == "DATA-KIS-003")
     assert check["status"] == "fail"
     assert report["deployment_blocked"] is True
+
+
+@pytest.mark.qa_live
+def test_live_korea_market_session_rejects_previous_close_at_open(monkeypatch) -> None:
+    from app.qa import runner
+
+    observed = datetime(2026, 10, 8, 9, 5, tzinfo=runner.KST)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return observed if tz is None else observed.astimezone(tz)
+
+    class PreviousCloseApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/stocks/005930/intraday":
+                payload = {**payload, "market_state": "closed"}
+            if path == "/stocks/005930/quote":
+                payload = {
+                    **payload,
+                    "quote": {**payload.get("quote", {}), "market_session": "closed"},
+                }
+            return payload, meta
+
+    monkeypatch.setattr(runner, "datetime", FixedDatetime)
+    monkeypatch.setattr(runner, "ReadOnlyApi", PreviousCloseApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "DATA-KIS-002")
+    assert check["status"] == "fail"
+    assert "장마감 상태" in check["message"]
+    assert report["deployment_blocked"] is True
+
+
+def _check_live_korea_market_session_minutes_and_quote(
+    monkeypatch, stale: bool
+) -> None:
+    from app.qa import runner
+
+    observed = datetime(2026, 10, 8, 9, 5, tzinfo=runner.KST)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return observed if tz is None else observed.astimezone(tz)
+
+    class FreshSessionApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/stocks/005930/intraday":
+                payload = {
+                    **payload,
+                    "market_state": "regular",
+                    "trade_date": "2026-10-08",
+                    "points": [
+                        {
+                            "trade_date": "20261008",
+                            "trade_time": "090000" if stale else "090400",
+                            "price": 100,
+                        }
+                    ],
+                }
+            if path == "/stocks/005930/quote":
+                payload = {
+                    **payload,
+                    "as_of": (
+                        "2026-10-08T08:59:00+09:00"
+                        if stale else "2026-10-08T09:04:30+09:00"
+                    ),
+                    "quote": {**payload.get("quote", {}), "market_session": "krx_regular"},
+                }
+            return payload, meta
+
+    monkeypatch.setattr(runner, "datetime", FixedDatetime)
+    monkeypatch.setattr(runner, "ReadOnlyApi", FreshSessionApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "DATA-KIS-002")
+    assert check["status"] == ("fail" if stale else "pass")
+    if stale:
+        assert "5분 이상" in check["message"]
+
+
+@pytest.mark.qa_live
+def test_live_korea_market_session_accepts_fresh_minutes_and_quote(monkeypatch) -> None:
+    _check_live_korea_market_session_minutes_and_quote(monkeypatch, stale=False)
+
+
+@pytest.mark.qa_live
+def test_live_korea_market_session_rejects_stale_minutes_and_quote(monkeypatch) -> None:
+    _check_live_korea_market_session_minutes_and_quote(monkeypatch, stale=True)
 
 
 @pytest.mark.qa_live

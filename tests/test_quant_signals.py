@@ -491,11 +491,6 @@ def test_v8_verified_live_krx_bar_confirms_three_percent_half_sale(monkeypatch):
     )
     monkeypatch.setattr(
         quant_signals,
-        "is_korea_market_session_date",
-        lambda *_args, **_kwargs: True,
-    )
-    monkeypatch.setattr(
-        quant_signals,
         "entry_confirmation_decision",
         lambda *_args, **_kwargs: {
             "allowed": True,

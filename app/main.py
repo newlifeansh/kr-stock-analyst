@@ -151,6 +151,7 @@ from app.services.staging_page_summary import (
 from app.services.market_calendar import (
     is_korea_market_session_date,
     is_korea_regular_market_session,
+    is_scheduled_korea_market_session_date,
     latest_completed_korea_market_session_date,
     latest_published_korea_investor_flow_date,
 )
@@ -5608,7 +5609,7 @@ def _korea_quote_session(now: Optional[datetime] = None) -> dict[str, Any]:
     # Daily index candles do not include today's session before the KRX opens,
     # so they cannot be used to decide whether the 08:00 NXT feed should be
     # queried. The venue feed itself remains the authority for an actual tick.
-    session_open = current.weekday() < 5
+    session_open = is_korea_market_session_date(current.date(), current)
     if not session_open:
         return {
             "market_session": "closed",
@@ -7840,8 +7841,12 @@ def _seconds_until_next_korea_open(now: datetime) -> int:
     target = datetime.combine(current.date(), time(8, 0), tzinfo=KST)
     if current >= target:
         target += timedelta(days=1)
-    while target.weekday() >= 5:
+    for _ in range(14):
+        if is_scheduled_korea_market_session_date(target.date()):
+            break
         target += timedelta(days=1)
+    else:
+        return 3600
     return max(30, int((target - current).total_seconds()) - 30)
 
 

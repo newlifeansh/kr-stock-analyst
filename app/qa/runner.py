@@ -53,6 +53,14 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-KIS-002": (
+        "tests.test_market_calendar.test_scheduled_krx_session_is_open_before_todays_closing_index_exists",
+        "tests.test_live_stock_quote.test_korea_quote_session_uses_exchange_holiday_not_weekday",
+        "tests.test_quant_signals.test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
+        "tests.test_data_signal_qa.test_live_korea_market_session_rejects_previous_close_at_open",
+        "tests.test_data_signal_qa.test_live_korea_market_session_accepts_fresh_minutes_and_quote",
+        "tests.test_data_signal_qa.test_live_korea_market_session_rejects_stale_minutes_and_quote",
+    ),
     "DATA-KIS-008": (
         "tests.test_signal_entry_evidence.test_historical_kis_probe_requires_completed_dated_minutes",
         "tests.test_intraday_cache.test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
@@ -4141,6 +4149,62 @@ def _live_checks(
             )
             points = intraday.get("points") if isinstance(intraday, dict) else intraday
             _assert(isinstance(points, list), "분봉 points가 배열이 아닙니다.")
+            observed_now = datetime.now(KST)
+            if time(9, 2) <= observed_now.time() < time(15, 30):
+                import exchange_calendars
+
+                if exchange_calendars.get_calendar("XKRX").is_session(
+                    observed_now.date()
+                ):
+                    _assert(
+                        intraday.get("market_state") == "regular",
+                        "KRX 개장 중인데 분봉 API가 장마감 상태입니다.",
+                        market_state=intraday.get("market_state"),
+                        **intraday_meta,
+                    )
+                    quote_session = (
+                        (quote.get("quote") or {}).get("market_session")
+                    )
+                    _assert(
+                        quote_session in {"krx_regular", "integrated_regular"},
+                        "KRX 개장 중인데 대표 종목 현재가 세션이 장마감 상태입니다.",
+                        market_session=quote_session,
+                        **quote_meta,
+                    )
+                    if time(9, 5) <= observed_now.time() < time(15, 20):
+                        _assert(
+                            intraday.get("trade_date") == observed_now.date().isoformat()
+                            and bool(points),
+                            "KRX 개장 중 당일 분봉이 없습니다.",
+                            trade_date=intraday.get("trade_date"),
+                            point_count=len(points),
+                            **intraday_meta,
+                        )
+                        latest = points[-1]
+                        try:
+                            minute = datetime.strptime(
+                                str(latest["trade_date"])
+                                + str(latest["trade_time"]).zfill(6),
+                                "%Y%m%d%H%M%S",
+                            ).replace(tzinfo=KST)
+                            quote_at = datetime.fromisoformat(
+                                str(quote.get("as_of") or "").replace("Z", "+00:00")
+                            )
+                        except (KeyError, TypeError, ValueError):
+                            raise QaFailure(
+                                "KRX 개장 중 분봉·현재가 관측 시각을 읽을 수 없습니다."
+                            ) from None
+                        _assert(
+                            quote_at.tzinfo is not None
+                            and 0 <= (observed_now - minute).total_seconds() <= 300
+                            and 0 <= (
+                                observed_now - quote_at.astimezone(KST)
+                            ).total_seconds() <= 300,
+                            "KRX 개장 중 분봉·현재가가 5분 이상 오래됐습니다.",
+                            minute_at=minute.isoformat(),
+                            quote_as_of=quote.get("as_of"),
+                            **quote_meta,
+                        )
             _assert(
                 signal.get("strategy_version") == catalog["strategy_version"],
                 "상세 시그널 버전이 다릅니다.",
