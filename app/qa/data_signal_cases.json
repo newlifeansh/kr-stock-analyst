@@ -76,7 +76,7 @@
       "domain": "데이터 공통 계약",
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
-      "automation": "pytest HTTP 라우팅·미국 셸·자산·API·인증 쿠키·장애 fail-close 픽스처 + 두 스테이징 동일 후보의 canonical /us 모바일 다크·라이트와 live 헤더·버전·데이터 출처 검증",
+      "automation": "pytest HTTP 라우팅·미국 셸·자산·API·인증 쿠키·장애 fail-close·공유 미국 API rate-limit QA 순차실행 픽스처 + 두 스테이징 동일 후보의 canonical /us 모바일 다크·라이트와 live 헤더·버전·데이터 출처 검증",
       "preconditions": ["공개 주소는 secretnote.cloud/us로 유지한다.", "미국 web·collector·DB는 국내 운영과 분리된 프로젝트·환경에 두고 미국 staging/production URL을 각각 준비한다.", "국내 web의 US_PUBLIC_BACKEND_URL은 스테이징에서 미국 스테이징, 명시 승인된 운영 전환에서만 미국 운영 URL로 설정한다.", "두 시장의 정확한 후보·OCI 다이제스트·양쪽 스테이징 QA 및 각 운영 parity를 기록한다."],
       "inputs": {"canonical_path": "/us", "gateway_prefix": "/us-gateway", "backend_setting": "US_PUBLIC_BACKEND_URL", "us_required_paths": ["/us", "/us/stock/{symbol}", "/us/stocks/{symbol}", "/us/market/*", "/us-version", "/us-sw.js", "/session/*", "/watchlists/*", "/market/global-assets", "/stock-logos/{code}.png", "/ws/us/stocks/{symbol}/quote", "/ws/market/us-sector-moves"], "cookie_namespace": "us_", "failure_status": 502, "themes": ["dark", "light"], "viewport_widths": [320, 458]},
       "steps": ["국내 /dashboard가 국내 서비스·DB에 남고, 동일 도메인의 /us 셸·API가 미국 독립 web로 전달되며 X-US-Market-Route=dedicated-service를 반환하는지 확인한다.", "미국 셸의 버전 지정 HTML·CSS·JavaScript·매니페스트·서비스워커와 종목 로고가 미국 원본에서 공급되고 동일 출처 fetch/WebSocket·인증 요청이 미국 관문을 통해 미국 DB에 닿는지 확인한다.", "국내 인증 쿠키가 미국 서비스에 전달되지 않고, 미국 인증 쿠키는 us_ 네임스페이스로 격리되며 초대·관심종목 쓰기가 미국 저장소만 바꾸는지 검증한다.", "미국 상류 연결 실패·잘못된 market-universe 응답·버전 불일치 시 국내 미국 데이터나 국내 셸로 폴백하지 않고 502로 차단하는지 확인한다.", "미국 직접 스테이징과 국내 스테이징 /us 관문을 모바일 320/458px 다크·라이트에서 열어 국내 UI 혼입·자산 누락·API 또는 WebSocket 우회를 기록한다.", "운영 전환은 두 시장의 정확한 불변 후보 배포·parity·운영자 승인이 끝난 다음 실행하고 공개 주소가 변하지 않는지 확인한다."],
@@ -134,6 +134,19 @@
       "steps": ["지수 현재값, 당일 분봉 정렬·중복, 10단계 호가 형식을 확인한다.", "실제 KIS 날짜별 분봉을 완료 거래일로 조회해 첫 시각·15:30 종가경매·날짜·가격·중복 없는 정렬을 확인한다."],
       "expected": ["값이 양수이고 시각이 오름차순이며 호가 단계가 유효하다.", "완료 거래일의 날짜별 분봉이 09:02 이전부터 15:30까지 유효한 가격으로 정렬된다."],
       "failure_criteria": ["역순·중복·음수 가격·스키마 누락이 발생한다.", "과거 날짜 분봉이 비거나 다른 날짜를 반환하거나 15:30 종가경매가 누락된다."]
+    },
+    {
+      "id": "DATA-KIS-008",
+      "title": "KIS 과거 날짜 KRX 분봉 실연동·완료 세션 검증",
+      "domain": "KIS 연동",
+      "priority": "P0",
+      "modes": ["gate", "live"],
+      "automation": "pytest 날짜별 KIS 분봉 probe·파서 fixture + 스테이징 서버가 직접 실행하는 KIS read-only probe",
+      "preconditions": ["국내 스테이징 서버에 KIS REST 인증정보가 있고 최근 완료 KRX 거래일의 005930 분봉이 제공된다."],
+      "inputs": {"code": "005930", "market_division": "J", "trade_date": "latest_completed_krx_session", "close_time": "153000"},
+      "steps": ["서버의 5분 캐시·호출제한이 적용된 /meta/signal-data-quality?probe=true를 조회한다.", "서버 내부 KIS 날짜별 분봉 TR이 완료 거래일·09:02 이전 시작·15:30 종료·중복 없는 시간순·양수 OHLC로 응답하는지 확인한다.", "공개 probe는 인증정보와 원시 분봉 대신 검증 상태·날짜·건수·첫/마지막 시각만 반환하는지 확인한다."],
+      "expected": ["KIS 과거 날짜 분봉 원천이 ready이고 스테이징 live QA에 실제 조회 근거가 남는다.", "CI 실행기에 KIS 자격정보가 없어도 서버측 실연동 검사는 생략되지 않는다."],
+      "failure_criteria": ["당일 분봉 API만 확인하고 과거 날짜 TR을 실행하지 않는다.", "과거 분봉이 비거나 날짜·시각·가격이 틀리거나 KIS 인증정보가 없어도 P0를 통과시킨다.", "공개 진단에 KIS 토큰·원시 분봉을 노출한다."]
     },
     {
       "id": "DATA-KIS-004",

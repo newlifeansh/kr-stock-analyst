@@ -53,6 +53,10 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-KIS-008": (
+        "tests.test_signal_entry_evidence.test_historical_kis_probe_requires_completed_dated_minutes",
+        "tests.test_intraday_cache.test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
+    ),
     "DATA-KIS-003": (
         "tests.test_data_signal_qa.test_completed_kis_minute_chart_contract_requires_dated_open_and_close",
         "tests.test_intraday_cache.test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
@@ -3154,6 +3158,40 @@ def _live_checks(
             "DATA-GLOBAL-003",
             source_probes,
             pass_message="외부 원천 읽기 전용 probe 응답 형식을 확인했습니다.",
+        )
+
+        def dated_kis_chart_contract() -> dict[str, Any]:
+            probe = quality.get("api_probe") or {}
+            item = next(
+                (
+                    item for item in probe.get("items") or []
+                    if isinstance(item, dict)
+                    and item.get("key") == "kis_historical_intraday"
+                ),
+                None,
+            )
+            _assert(isinstance(item, dict), "KIS 날짜별 분봉 실연동 근거가 없습니다.")
+            _assert(
+                item.get("state") == "ready"
+                and int(item.get("points") or 0) > 0
+                and str(item.get("first_time") or "") <= "090200"
+                and item.get("last_time") == "153000"
+                and bool(item.get("trade_date")),
+                "KIS 과거 완료 거래일 분봉이 검증되지 않았습니다.",
+                probe=item,
+            )
+            return {
+                "trade_date": item["trade_date"],
+                "points": item["points"],
+                "first_time": item["first_time"],
+                "last_time": item["last_time"],
+                "source": item["source"],
+            }
+
+        collector.check(
+            "DATA-KIS-008",
+            dated_kis_chart_contract,
+            pass_message="스테이징 서버의 KIS 과거 날짜 분봉 원천 조회를 확인했습니다.",
         )
 
         def market_feed_contract() -> dict[str, Any]:

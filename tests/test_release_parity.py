@@ -166,6 +166,12 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert 'collector:{PROCESS_ROLE:"collector"}' in workflow
     assert 'railway variable set "US_PUBLIC_BACKEND_URL=$US_STAGING_BASE_URL"' in workflow
     assert "staging_us_gateway_qa:" in workflow
+    gateway_section = workflow.split("  staging_us_gateway_qa:", 1)[1].split(
+        "  shutdown_domestic_staging:", 1
+    )[0]
+    assert "needs: [validate_request, deploy_staging, staging_qa]" in gateway_section
+    assert "Let shared US API rate limits reset before gateway live QA" in gateway_section
+    assert "run: sleep 65" in gateway_section
     assert workflow.count("playwright install chromium") == 2
     assert "playwright install --with-deps chromium" not in workflow
     assert "--surface us-gateway" in workflow

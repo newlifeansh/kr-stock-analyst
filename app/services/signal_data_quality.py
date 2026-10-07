@@ -887,10 +887,83 @@ def probe_signal_source_apis(
         }
         for future in as_completed(futures):
             results.append(future.result())
+    results.append(_probe_historical_kis_minutes(settings, sample_code, current))
     results.sort(key=lambda item: item["key"])
     return {
         "status": "ready" if all(item["state"] == "ready" for item in results) else "degraded",
         "as_of": current,
         "sample_code": sample_code,
         "items": results,
+    }
+
+
+def _probe_historical_kis_minutes(
+    settings: Settings, sample_code: str, current: datetime
+) -> dict[str, Any]:
+    """Return only a bounded, credential-free summary of dated KRX minutes."""
+
+    from app.collectors.briefing import KisRestBriefingProvider
+
+    started = monotonic()
+    result: dict[str, Any] = {
+        "key": "kis_historical_intraday",
+        "source": "KIS dated KRX minute chart",
+    }
+    provider = KisRestBriefingProvider(settings)
+    if not provider.is_configured():
+        return {
+            **result,
+            "state": "not_configured",
+            "latency_ms": round((monotonic() - started) * 1000),
+            "message": "KIS 날짜별 분봉 인증정보가 설정되지 않았습니다.",
+        }
+    completed_date = latest_completed_korea_market_session_date(current)
+    if completed_date is None:
+        return {
+            **result,
+            "state": "unavailable",
+            "latency_ms": round((monotonic() - started) * 1000),
+            "message": "완료 KRX 거래일을 확인할 수 없습니다.",
+        }
+    try:
+        rows = provider.fetch_historical_intraday_chart(
+            sample_code, completed_date, max_points=390
+        )
+    except Exception as exc:
+        return {
+            **result,
+            "state": "unavailable",
+            "trade_date": completed_date.isoformat(),
+            "latency_ms": round((monotonic() - started) * 1000),
+            "message": f"{type(exc).__name__}: 날짜별 분봉 원천 확인 실패",
+        }
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        rows = []
+    times = [str(row.get("trade_time") or "") for row in rows]
+    valid = bool(
+        rows
+        and times == sorted(set(times))
+        and times[0] <= "090200"
+        and times[-1] == "153000"
+        and all(
+            str(row.get("trade_date") or "") == completed_date.strftime("%Y%m%d")
+            and all(
+                isinstance(row.get(key), (int, float)) and row[key] > 0
+                for key in ("open", "high", "low", "price")
+            )
+            for row in rows
+        )
+    )
+    return {
+        **result,
+        "state": "ready" if valid else "invalid",
+        "trade_date": completed_date.isoformat(),
+        "points": len(rows),
+        "first_time": times[0] if times else None,
+        "last_time": times[-1] if times else None,
+        "latency_ms": round((monotonic() - started) * 1000),
+        "message": (
+            "완료 거래일 KIS 날짜별 분봉 형식 확인"
+            if valid else "날짜별 분봉 날짜·시각·가격 형식이 불완전합니다."
+        ),
     }

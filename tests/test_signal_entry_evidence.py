@@ -30,6 +30,7 @@ from app.services import quant_signals
 from app.services import briefing
 from app.services.signal_data_quality import (
     _http_probe,
+    _probe_historical_kis_minutes,
     probe_signal_source_apis,
     signal_data_quality_status,
 )
@@ -803,6 +804,10 @@ def test_entry_market_context_prefers_confirmed_naver_index_close():
 
 
 def test_source_probe_uses_current_naver_json_endpoints(monkeypatch):
+    monkeypatch.setattr(
+        "app.collectors.briefing.KisRestBriefingProvider.is_configured",
+        lambda _self: False,
+    )
     calls = []
 
     class Response:
@@ -857,8 +862,15 @@ def test_source_probe_uses_current_naver_json_endpoints(monkeypatch):
         now=datetime(2026, 9, 15, 8, 0),
     )
 
-    assert result["status"] == "ready"
-    assert {item["state"] for item in result["items"]} == {"ready"}
+    assert result["status"] == "degraded"
+    assert {
+        item["state"] for item in result["items"]
+        if item["key"] != "kis_historical_intraday"
+    } == {"ready"}
+    assert next(
+        item for item in result["items"]
+        if item["key"] == "kis_historical_intraday"
+    )["state"] == "not_configured"
     flow_call = next(call for call in calls if call[0].endswith("/trend"))
     assert flow_call[1] == {
         "tradeType": "KRX",
@@ -868,6 +880,56 @@ def test_source_probe_uses_current_naver_json_endpoints(monkeypatch):
     assert any(call[0].endswith("/researches/v2/company") for call in calls)
     assert not any("finance.naver.com/item/frgn.naver" in call[0] for call in calls)
     assert not any("company_list.naver" in call[0] for call in calls)
+
+
+def test_historical_kis_probe_requires_completed_dated_minutes(monkeypatch):
+    from app.collectors.briefing import KisRestBriefingProvider
+
+    completed = date(2026, 10, 7)
+    now = datetime(2026, 10, 8, 5, 20)
+    monkeypatch.setattr(
+        "app.services.signal_data_quality.latest_completed_korea_market_session_date",
+        lambda _now: completed,
+    )
+    monkeypatch.setattr(KisRestBriefingProvider, "is_configured", lambda _self: True)
+    rows = [
+        {
+            "trade_date": "20261007", "trade_time": minute,
+            "open": 100, "high": 101, "low": 99, "price": 100,
+        }
+        for minute in ("090100", "090200", "153000")
+    ]
+    captured = []
+
+    def chart(_self, code, trade_date, *, max_points):
+        captured.append((code, trade_date, max_points))
+        return rows
+
+    monkeypatch.setattr(
+        KisRestBriefingProvider, "fetch_historical_intraday_chart", chart
+    )
+    result = _probe_historical_kis_minutes(Settings(), "005930", now)
+    assert result["state"] == "ready"
+    assert result["trade_date"] == "2026-10-07"
+    assert result["first_time"] == "090100"
+    assert result["last_time"] == "153000"
+    assert captured == [("005930", completed, 390)]
+    assert "token" not in str(result).lower()
+
+    rows[-1] = {**rows[-1], "trade_date": "20261006"}
+    assert _probe_historical_kis_minutes(Settings(), "005930", now)["state"] == "invalid"
+    rows[-1] = {**rows[-1], "trade_date": "20261007", "trade_time": "152000"}
+    assert _probe_historical_kis_minutes(Settings(), "005930", now)["state"] == "invalid"
+
+    def unavailable(_self, _code, _trade_date, *, max_points):
+        raise RuntimeError("sensitive-key=do-not-expose")
+
+    monkeypatch.setattr(
+        KisRestBriefingProvider, "fetch_historical_intraday_chart", unavailable
+    )
+    result = _probe_historical_kis_minutes(Settings(), "005930", now)
+    assert result["state"] == "unavailable"
+    assert "do-not-expose" not in str(result)
 
 
 def test_source_probe_never_echoes_a_credential_from_request_error(monkeypatch):

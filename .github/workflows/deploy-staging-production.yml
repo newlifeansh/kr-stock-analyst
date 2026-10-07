@@ -395,7 +395,9 @@ jobs:
 
   staging_us_gateway_qa:
     if: inputs.action == 'stage'
-    needs: [validate_request, deploy_staging]
+    # The dedicated US live QA uses the same upstream rate-limit bucket.
+    # Run the gateway probe only after both market jobs finish.
+    needs: [validate_request, deploy_staging, staging_qa]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     environment:
@@ -425,6 +427,8 @@ jobs:
           --base-url "$QA_BASE_URL"
           --wait-seconds 900
           --output artifacts/qa-data-signal/us-gateway-data-readiness.json
+      - name: Let shared US API rate limits reset before gateway live QA
+        run: sleep 65
       - name: Check the same-origin US service route
         id: live_gateway
         continue-on-error: true
