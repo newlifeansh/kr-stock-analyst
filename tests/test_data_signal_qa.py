@@ -18,6 +18,7 @@ from app.qa.e2e import (
     _navigate_page,
     _page_url,
     _us_observed_path,
+    _wait_for_ai_signal_list_ready,
 )
 from app.qa.runner import (
     PYTEST_QA_CASE_TESTS,
@@ -280,11 +281,15 @@ def test_signal_filter_e2e_waits_for_a_ready_revision_before_comparing_counts() 
     signal_filter_case = source.split("def signal_filter_case", 1)[1].split(
         "mode_tabs = page.locator", 1
     )[0]
+    readiness_helper = source.split("def _wait_for_ai_signal_list_ready", 1)[1].split(
+        "def _assert_stock_quote_text", 1
+    )[0]
 
-    assert "const snapshotReady = state.aiSignalMarketStatus === 'ready'" in signal_filter_case
-    assert "Number.isSafeInteger(state.aiSignalRevision)" in signal_filter_case
-    assert "state.aiSignalRevision >= 0" in signal_filter_case
-    assert "return snapshotReady" in signal_filter_case
+    assert "_wait_for_ai_signal_list_ready(page" in signal_filter_case
+    assert "const snapshotReady = state.aiSignalMarketStatus === 'ready'" in readiness_helper
+    assert "Number.isSafeInteger(state.aiSignalRevision)" in readiness_helper
+    assert "state.aiSignalRevision >= 0" in readiness_helper
+    assert "return snapshotReady" in readiness_helper
 
 @pytest.mark.qa_gate
 def test_us_v2_catalog_covers_calendar_snapshot_and_model_replay_comparison() -> None:
@@ -1115,6 +1120,45 @@ def test_e2e_navigation_keeps_retry_evidence_on_terminal_timeout() -> None:
     evidence = exc_info.value.evidence
     assert evidence["attempts"] == 2
     assert [item["attempt"] for item in evidence["navigation_retries"]] == [1, 2]
+
+
+def test_signal_list_p0_timeout_records_readiness_inputs() -> None:
+    expected = {
+        "url": "/dashboard",
+        "marketStatus": "refreshing",
+        "revision": 6,
+        "itemCount": 14,
+        "currentCount": 14,
+        "stageCounts": [{"stage": "all", "count": 14}],
+        "loading": False,
+    }
+
+    class FakePage:
+        def wait_for_function(self, expression: str, *, timeout: int) -> None:
+            assert "state.aiSignalMarketStatus === 'ready'" in expression
+            assert timeout == 20_000
+            raise TimeoutError("fixture readiness timeout")
+
+        def evaluate(self, expression: str) -> dict:
+            assert "stageCounts" in expression
+            return expected
+
+    with pytest.raises(QaFailure, match="AI 시그널 목록 준비 조건") as exc_info:
+        _wait_for_ai_signal_list_ready(FakePage(), timeout_ms=20_000)
+
+    assert exc_info.value.evidence == {"ui_snapshot": expected}
+
+
+def test_signal_list_p0_wait_keeps_success_contract() -> None:
+    class FakePage:
+        def wait_for_function(self, expression: str, *, timeout: int) -> None:
+            assert "tabs.length === 5" in expression
+            assert timeout == 1_000
+
+        def evaluate(self, _expression: str) -> None:
+            raise AssertionError("successful readiness must not collect failure evidence")
+
+    _wait_for_ai_signal_list_ready(FakePage(), timeout_ms=1_000)
 
 
 def test_e2e_reload_retries_commit_without_replaying_app_readiness() -> None:

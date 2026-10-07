@@ -383,6 +383,63 @@ def _wait_for_ui_contract(
         ) from exc
 
 
+def _wait_for_ai_signal_list_ready(page: Any, *, timeout_ms: int) -> None:
+    """Preserve the exact failed readiness inputs for the signal-list P0 gate."""
+
+    readiness = """() => {
+      const tabs = [...document.querySelectorAll('[data-ai-signal-stage]')];
+      const count = tab => Number(
+        (tab.querySelector('span')?.textContent || '').replace(/[^0-9]/g, '')
+      );
+      const current = Number(
+        (document.querySelector('#ai-signal-mode-current span')?.textContent || '')
+          .replace(/[^0-9]/g, '')
+      );
+      const loading = document.querySelector('#ai-signals-page-list')?.textContent
+        ?.includes('불러오는 중입니다.');
+      const snapshotReady = state.aiSignalMarketStatus === 'ready'
+        && Number.isSafeInteger(state.aiSignalRevision)
+        && state.aiSignalRevision >= 0
+        && Array.isArray(state.aiSignalItems);
+      return snapshotReady
+        && tabs.length === 5
+        && !loading
+        && count(tabs[0]) === current
+        && tabs.slice(1).reduce((sum, tab) => sum + count(tab), 0) === current;
+    }"""
+    try:
+        page.wait_for_function(readiness, timeout=timeout_ms)
+    except Exception as exc:
+        if not _is_playwright_timeout(exc):
+            raise
+        try:
+            snapshot = page.evaluate(
+                """() => {
+                  const tabs = [...document.querySelectorAll('[data-ai-signal-stage]')];
+                  const count = tab => Number(
+                    (tab?.querySelector('span')?.textContent || '').replace(/[^0-9]/g, '')
+                  );
+                  return {
+                    url: location.pathname,
+                    marketStatus: typeof state === 'undefined' ? null : state.aiSignalMarketStatus,
+                    revision: typeof state === 'undefined' ? null : state.aiSignalRevision,
+                    itemCount: typeof state === 'undefined' || !Array.isArray(state.aiSignalItems)
+                      ? null : state.aiSignalItems.length,
+                    currentCount: count(document.querySelector('#ai-signal-mode-current')),
+                    stageCounts: tabs.map(tab => ({ stage: tab.dataset.aiSignalStage, count: count(tab) })),
+                    loading: document.querySelector('#ai-signals-page-list')?.textContent
+                      ?.includes('불러오는 중입니다.') ?? null,
+                  };
+                }"""
+            )
+        except Exception:  # noqa: BLE001 - diagnostics must not mask the P0 timeout.
+            snapshot = {"url": getattr(page, "url", "")}
+        raise QaFailure(
+            "AI 시그널 목록 준비 조건이 제한 시간 안에 충족되지 않았습니다.",
+            {"ui_snapshot": snapshot},
+        ) from exc
+
+
 def _assert_stock_quote_text(text: str, stock: dict[str, Any]) -> None:
     if stock.get("name") and stock["name"] not in text:
         raise QaFailure(
@@ -1660,30 +1717,7 @@ def run_e2e_checks(
                 )
                 shell = _assert_page_shell(page, theme=theme)
                 page.wait_for_selector("#ai-signals-view", state="visible")
-                page.wait_for_function(
-                    """() => {
-                      const tabs = [...document.querySelectorAll('[data-ai-signal-stage]')];
-                      const count = tab => Number(
-                        (tab.querySelector('span')?.textContent || '').replace(/[^0-9]/g, '')
-                      );
-                      const current = Number(
-                        (document.querySelector('#ai-signal-mode-current span')?.textContent || '')
-                          .replace(/[^0-9]/g, '')
-                      );
-                      const loading = document.querySelector('#ai-signals-page-list')?.textContent
-                        ?.includes('불러오는 중입니다.');
-                      const snapshotReady = state.aiSignalMarketStatus === 'ready'
-                        && Number.isSafeInteger(state.aiSignalRevision)
-                        && state.aiSignalRevision >= 0
-                        && Array.isArray(state.aiSignalItems);
-                      return snapshotReady
-                        && tabs.length === 5
-                        && !loading
-                        && count(tabs[0]) === current
-                        && tabs.slice(1).reduce((sum, tab) => sum + count(tab), 0) === current;
-                    }""",
-                    timeout=int(timeout * 1000),
-                )
+                _wait_for_ai_signal_list_ready(page, timeout_ms=int(timeout * 1000))
                 page.evaluate(
                     """() => {
                       // Hold the loaded revision stable while the test walks
