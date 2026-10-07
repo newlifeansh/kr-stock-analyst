@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import desc, func, select
@@ -24,6 +24,63 @@ FILTER_VERSIONS = (
 )
 FORWARD_ROLLING_TRADE_COUNT = 20
 H3_PROMOTION_MIN_FORWARD_TRADES = 40
+SHADOW_HISTORY_LOOKBACK_DAYS = 600
+SHADOW_HISTORY_MAX_WORKERS = 8
+
+
+def _codes_needing_shadow_history(
+    counts: dict[str, int],
+    *,
+    minimum_rows: int = qs.MIN_BACKTEST_HISTORY_ROWS,
+) -> list[str]:
+    """Return codes that cannot yet support the fixed-cohort replay."""
+
+    return sorted(
+        code for code, count in counts.items() if int(count or 0) < int(minimum_rows)
+    )
+
+
+def _ensure_shadow_history(
+    db: Session,
+    codes: list[str],
+    *,
+    latest_price_date: date,
+    minimum_rows: int = qs.MIN_BACKTEST_HISTORY_ROWS,
+) -> dict[str, int]:
+    """Backfill the fixed cohort before treating a shadow run as complete.
+
+    Staging can contain today's 100/100 quote coverage while still having only
+    a short recent history.  The replay needs the same long history as the
+    production strategy, so fill that gap through the existing KRX/FDR batch
+    collector before building the report.
+    """
+
+    if not codes:
+        return {"requested_codes": 0, "rows_loaded": 0}
+    rows = db.execute(
+        select(DailyPrice.code, func.count(DailyPrice.code))
+        .where(DailyPrice.code.in_(tuple(codes)))
+        .group_by(DailyPrice.code)
+    ).all()
+    counts = {str(code): int(count or 0) for code, count in rows}
+    missing = _codes_needing_shadow_history(
+        {code: counts.get(code, 0) for code in codes},
+        minimum_rows=minimum_rows,
+    )
+    if not missing:
+        return {"requested_codes": 0, "rows_loaded": 0}
+
+    from app.collectors.krx import collect_prices_for_codes
+
+    from_date = latest_price_date - timedelta(days=SHADOW_HISTORY_LOOKBACK_DAYS)
+    rows_loaded = collect_prices_for_codes(
+        db,
+        missing,
+        from_yyyymmdd=from_date.strftime("%Y%m%d"),
+        to_yyyymmdd=latest_price_date.strftime("%Y%m%d"),
+        max_workers=SHADOW_HISTORY_MAX_WORKERS,
+    )
+    return {"requested_codes": len(missing), "rows_loaded": int(rows_loaded)}
 
 
 def _shadow_report_is_current(report: dict[str, Any] | None) -> bool:
@@ -250,6 +307,12 @@ def build_entry_filter_shadow_report(
         .limit(universe_limit)
     ).all()
 
+    history_backfill = _ensure_shadow_history(
+        db,
+        [stock.code for stock, _latest in universe],
+        latest_price_date=latest_price_date,
+    )
+
     full_results = {version: [] for version in FILTER_VERSIONS}
     recent_results = {version: [] for version in FILTER_VERSIONS}
     skipped: list[dict[str, Any]] = []
@@ -318,6 +381,7 @@ def build_entry_filter_shadow_report(
         "universe_market_cap_date": cohort_market_cap_date,
         "universe_limit": universe_limit,
         "history_rows_requested": history_rows,
+        "history_backfill": history_backfill,
         "recent_trading_days": recent_trading_days,
         "symbols_evaluated": sum(len(items) for items in full_results.values()) // len(FILTER_VERSIONS),
         "symbols_skipped": skipped,

@@ -25,6 +25,52 @@ class _FakeDb:
         return None
 
 
+class _HistoryCountDb:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def execute(self, _statement):
+        return self
+
+    def all(self):
+        return self.rows
+
+
+def test_shadow_history_backfill_repairs_short_staging_history(monkeypatch) -> None:
+    db = _HistoryCountDb([("000001", 38), ("000002", qs.MIN_BACKTEST_HISTORY_ROWS)])
+    calls = []
+
+    def fake_collect(_db, codes, **kwargs):
+        calls.append((codes, kwargs))
+        return 31700
+
+    monkeypatch.setattr("app.collectors.krx.collect_prices_for_codes", fake_collect)
+
+    result = shadow._ensure_shadow_history(
+        db,
+        ["000001", "000002"],
+        latest_price_date=date(2026, 10, 7),
+    )
+
+    assert result == {"requested_codes": 1, "rows_loaded": 31700}
+    assert calls == [
+        (
+            ["000001"],
+            {
+                "from_yyyymmdd": "20250214",
+                "to_yyyymmdd": "20261007",
+                "max_workers": shadow.SHADOW_HISTORY_MAX_WORKERS,
+            },
+        )
+    ]
+
+
+def test_codes_needing_shadow_history_are_deterministic() -> None:
+    assert shadow._codes_needing_shadow_history(
+        {"000002": 317, "000001": 0, "000003": 316}
+    ) == ["000001", "000003"]
+
+
 def test_shadow_backtest_refreshes_once_per_latest_price_date(monkeypatch) -> None:
     db = _FakeDb()
     calls = []
