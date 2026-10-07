@@ -240,6 +240,20 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_web_push."
         "test_run_once_dispatches_domestic_intraday_half_sale_once_after_baseline",
     ),
+    "SIG-KR-INTRADAY-ORDER-001": (
+        "tests.test_quant_signals."
+        "test_v8_ordered_minutes_keep_first_profit_sale_before_a_later_stop",
+        "tests.test_quant_signals."
+        "test_v8_ordered_entry_cancels_after_first_overheated_gap_touch",
+        "tests.test_quant_signals."
+        "test_v8_ordered_minutes_require_fresh_complete_chart_matching_krx_quote",
+        "tests.test_quant_signals."
+        "test_v8_ordered_entry_does_not_sell_on_a_low_before_the_breakout",
+        "tests.test_quant_signals."
+        "test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
+        "tests.test_quant_signals."
+        "test_market_feed_only_projects_fresh_kis_intraday_execution_as_verified",
+    ),
     "SIG-UI-030": (
         "tests.test_domestic_market_scope."
         "test_domestic_market_is_the_default_product_boundary",

@@ -7,7 +7,7 @@ from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
 import json
 from math import isfinite, sqrt
 from statistics import median
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
@@ -906,6 +906,24 @@ def _intraday_entry_execution_price(
     return execution_price if _entry_execution_allowed(execution_price, pending) else None
 
 
+def _ordered_intraday_entry_execution(
+    minutes: list[PriceBar], pending: dict[str, Any]
+) -> tuple[Optional[float], Optional[int]]:
+    """Resolve only the first breakout touch, including an anti-chase veto."""
+
+    trigger = _safe_number(pending.get("entry_trigger_price")) or _safe_number(
+        pending.get("signal_price")
+    )
+    if trigger is None:
+        return None, None
+    for minute_index, minute in enumerate(minutes):
+        if minute.open < trigger and minute.high + 1e-9 < trigger:
+            continue
+        price = _intraday_entry_execution_price(minute, pending)
+        return price, minute_index if price is not None else None
+    return None, None
+
+
 def _profit_ladder_steps(
     strategy_date: Optional[date],
 ) -> tuple[tuple[float, float, float, float], ...]:
@@ -1176,6 +1194,141 @@ def _intraday_exit_decisions(
             )
         )
         current_remaining = intended_remaining
+    return decisions
+
+
+def _verified_intraday_minutes(
+    quote: Optional[dict[str, Any]], bar: PriceBar
+) -> Optional[list[PriceBar]]:
+    """Accept a complete, same-observation KRX minute path, never a partial chart.
+
+    Missing minutes or a mismatch with the cumulative quote can invert the
+    order of a target and a stop.  Such a chart must not override the existing
+    conservative daily-OHLC interpretation.
+    """
+
+    if not quote or not isinstance(quote.get("intraday_minutes"), list):
+        return None
+    observed_at = quote.get("observed_at")
+    chart_at = quote.get("intraday_minutes_observed_at")
+    if isinstance(observed_at, str):
+        try:
+            observed_at = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if isinstance(chart_at, str):
+        try:
+            chart_at = datetime.fromisoformat(chart_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if (
+        not isinstance(observed_at, datetime)
+        or observed_at.tzinfo is None
+        or not isinstance(chart_at, datetime)
+        or chart_at.tzinfo is None
+        or not (0 <= (chart_at - observed_at).total_seconds() <= 180)
+    ):
+        return None
+    observed_local = observed_at.astimezone(KST)
+    if observed_local.date() != bar.trade_date:
+        return None
+    rows = quote["intraday_minutes"]
+    if not rows or len(rows) > 390:
+        return None
+    parsed: list[tuple[datetime, PriceBar]] = []
+    seen_times: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            return None
+        raw_date = str(row.get("trade_date") or "").replace("-", "")
+        raw_time = str(row.get("trade_time") or "").zfill(6)
+        if raw_date != bar.trade_date.strftime("%Y%m%d") or raw_time in seen_times:
+            return None
+        try:
+            minute_at = datetime.strptime(raw_date + raw_time, "%Y%m%d%H%M%S")
+        except ValueError:
+            return None
+        if not (time(9, 0) <= minute_at.time() <= time(15, 30)):
+            return None
+        # A chart returned after the quote must not leak later trades into the
+        # earlier confirmed signal snapshot.
+        if minute_at.time() > observed_local.time():
+            return None
+        minute_open = _safe_number(row.get("open"))
+        minute_high = _safe_number(row.get("high"))
+        minute_low = _safe_number(row.get("low"))
+        minute_close = _safe_number(row.get("price"))
+        minute_volume = _safe_number(row.get("volume"))
+        if (
+            not _has_complete_ohlc(minute_open, minute_high, minute_low, minute_close)
+            or minute_volume is None
+            or minute_volume <= 0
+        ):
+            return None
+        seen_times.add(raw_time)
+        parsed.append(
+            (
+                minute_at,
+                PriceBar(
+                    trade_date=bar.trade_date,
+                    open=float(minute_open),
+                    high=float(minute_high),
+                    low=float(minute_low),
+                    close=float(minute_close),
+                    volume=float(minute_volume),
+                    trading_value=float(_safe_number(row.get("trading_value")) or 0),
+                ),
+            )
+        )
+    parsed.sort(key=lambda item: item[0])
+    if (
+        parsed[0][0].time() > time(9, 2)
+        or any(
+            (following[0] - previous[0]).total_seconds() > 61
+            for previous, following in zip(parsed, parsed[1:])
+        )
+        or abs(parsed[0][1].open - bar.open) > 1e-9
+        or abs(parsed[-1][1].close - bar.close) > 1e-9
+        or abs(max(item.high for _, item in parsed) - bar.high) > 1e-9
+        or abs(min(item.low for _, item in parsed) - bar.low) > 1e-9
+    ):
+        return None
+    return [minute for _, minute in parsed]
+
+
+def _ordered_intraday_exit_decisions(
+    position: dict[str, Any],
+    minutes: list[PriceBar],
+    indicator: dict[str, float],
+) -> list[IntradayExecutionDecision]:
+    """Replay a verified minute path; retain stop-first only within one minute."""
+
+    shadow = dict(position)
+    decisions: list[IntradayExecutionDecision] = []
+    for minute in minutes:
+        opening = PriceBar(
+            trade_date=minute.trade_date,
+            open=minute.open,
+            high=minute.open,
+            low=minute.open,
+            close=minute.open,
+            volume=minute.volume,
+            trading_value=minute.trading_value,
+        )
+        for segment in (opening, minute):
+            for decision in _intraday_exit_decisions(shadow, segment, indicator):
+                decisions.append(decision)
+                if decision.side == "sell":
+                    return decisions
+                shadow["profit_stage"] = int(decision.target_stage or 0)
+                shadow["remaining_fraction"] = max(
+                    0.0,
+                    float(shadow.get("remaining_fraction") or 0.0)
+                    - float(decision.sell_fraction or 0.0),
+                )
+            shadow["peak_price"] = max(
+                float(shadow.get("peak_price") or 0), segment.high
+            )
     return decisions
 
 
@@ -1457,6 +1610,7 @@ def _simulate(
     performance_start_index_override: Optional[int] = None,
     entry_safety_guard: Optional[dict[str, Any]] = None,
     forming_bar_date: Optional[date] = None,
+    intraday_minutes: Optional[list[PriceBar]] = None,
 ) -> dict[str, Any]:
     lifecycle_start_index = WARMUP_ROWS
     performance_start_index = (
@@ -1490,6 +1644,10 @@ def _simulate(
     for index in range(lifecycle_start_index, len(bars)):
         bar = bars[index]
         indicator = indicators[index]
+        session_minutes = (
+            intraday_minutes if forming_bar_date == bar.trade_date else None
+        )
+        entry_minute_index: Optional[int] = None
 
         if index == performance_start_index:
             if index > lifecycle_start_index and position:
@@ -1507,7 +1665,14 @@ def _simulate(
             pending = None
             execution_price: Optional[float] = float(bar.open)
             if active_pending["side"] == "buy":
-                execution_price = _intraday_entry_execution_price(bar, active_pending)
+                if session_minutes:
+                    execution_price, entry_minute_index = (
+                        _ordered_intraday_entry_execution(
+                            session_minutes, active_pending
+                        )
+                    )
+                else:
+                    execution_price = _intraday_entry_execution_price(bar, active_pending)
             execution_data_available = bar.ohlc_complete
             execution_allowed = execution_data_available and (
                 active_pending["side"] != "buy" or execution_price is not None
@@ -1618,7 +1783,10 @@ def _simulate(
                             else "close-confirmed-next-open"
                         ),
                         **(
-                            {"intraday_execution_verified": forming_bar_date == bar.trade_date}
+                            {
+                                "intraday_execution_verified": forming_bar_date == bar.trade_date,
+                                "intraday_order_verified": bool(session_minutes),
+                            }
                             if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                             else {}
                         ),
@@ -1702,6 +1870,7 @@ def _simulate(
                             {
                                 "execution_model": EXECUTION_MODEL,
                                 "intraday_execution_verified": forming_bar_date == bar.trade_date,
+                                "intraday_order_verified": bool(session_minutes),
                             }
                             if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                             else {}
@@ -1774,6 +1943,7 @@ def _simulate(
                             {
                                 "execution_model": EXECUTION_MODEL,
                                 "intraday_execution_verified": forming_bar_date == bar.trade_date,
+                                "intraday_order_verified": bool(session_minutes),
                             }
                             if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                             else {}
@@ -1785,7 +1955,19 @@ def _simulate(
                 last_exit_index = index
 
         if position and bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE:
-            for intraday_decision in _intraday_exit_decisions(position, bar, indicator):
+            ordered_minutes = session_minutes
+            if ordered_minutes and position["entry_date"] == bar.trade_date:
+                ordered_minutes = (
+                    ordered_minutes[entry_minute_index:]
+                    if entry_minute_index is not None
+                    else None
+                )
+            intraday_decisions = (
+                _ordered_intraday_exit_decisions(position, ordered_minutes, indicator)
+                if ordered_minutes
+                else _intraday_exit_decisions(position, bar, indicator)
+            )
+            for intraday_decision in intraday_decisions:
                 execution_cost = _execution_cost(indicator)
                 if index >= performance_start_index:
                     execution_costs.append(execution_cost)
@@ -1868,6 +2050,7 @@ def _simulate(
                             "state_after": "partially_exited",
                             "execution_model": EXECUTION_MODEL,
                             "intraday_execution_verified": forming_bar_date == bar.trade_date,
+                            "intraday_order_verified": bool(session_minutes),
                         }
                     )
                     continue
@@ -1938,6 +2121,7 @@ def _simulate(
                         "state_after": "exited",
                         "execution_model": EXECUTION_MODEL,
                         "intraday_execution_verified": forming_bar_date == bar.trade_date,
+                        "intraday_order_verified": bool(session_minutes),
                     }
                 )
                 shares = 0.0
@@ -3487,7 +3671,7 @@ def build_quant_signal_payload(
             "각 종목은 관망→예비 포착→매수 대기→보유→+3%·+5% 수익확정→전량 매도로 전환합니다.",
             "수익률은 종목별 매수가·각 수익확정가·최종 매도가와 거래비용만으로 계산합니다.",
             "신호와 독립 근거는 완료 종가에서 확정하고, 다음 KRX 정규장에서 고정된 확인선을 돌파할 때 장중 매수합니다.",
-            "장중 매도는 검증된 KRX OHLC의 저가·고가로 손절선과 +3%·+5% 목표 도달을 판정하며, 같은 봉에서 둘 다 닿으면 손절을 먼저 반영합니다.",
+            "장중 매도는 검증된 KRX 1분봉이 당일 현재가와 완전히 일치할 때 시각순으로 판정합니다. 분봉이 없거나 불완전하면 기존 일중 OHLC를 사용하고, 같은 봉에서 손절선과 목표에 모두 닿으면 손절을 먼저 반영합니다.",
             "시가·고가·저가·종가가 모두 확인된 일봉과 현재 KRX 정규장의 검증된 형성 봉만 체결 판정에 사용합니다.",
             f"{INTRADAY_EXECUTION_EFFECTIVE_DATE.isoformat()}부터 종가 확정·다음 시가 체결을 종가 확정·다음 세션 장중 돌파 체결로 전환합니다.",
             f"{STABLE_PROFIT_EFFECTIVE_DATE.isoformat()}부터 +3%에서 50%, +5%에서 잔여 50%를 수익확정하고 수익이 큰 종목도 빠르게 전량 확정합니다.",
@@ -3588,6 +3772,9 @@ def build_quant_signal_payload(
         current_time,
     )
     if live_execution:
+        verified_minutes = _verified_intraday_minutes(
+            live_quote, simulation_bars[-1]
+        )
         simulation = _simulate(
             simulation_bars,
             _indicator_rows(simulation_bars),
@@ -3595,6 +3782,7 @@ def build_quant_signal_payload(
             performance_start_index_override=historical_simulation["start_index"],
             entry_safety_guard=entry_safety_guard,
             forming_bar_date=simulation_bars[-1].trade_date,
+            intraday_minutes=verified_minutes,
         )
         # A forming candle may execute yesterday's order, but it must not
         # change the completed-candle backtest until the session is complete.
@@ -4610,6 +4798,9 @@ def load_market_quant_signal_feed(
     recent_days: int = MARKET_SIGNAL_RECENT_DAYS,
     now: Optional[datetime] = None,
     live_quotes: Optional[dict[str, dict[str, Any]]] = None,
+    intraday_chart_loader: Optional[
+        Callable[[str], tuple[list[dict[str, Any]], datetime]]
+    ] = None,
     persist_entry_safety_guard: bool = False,
 ) -> dict[str, Any]:
     """Build recent transitions for stocks that belonged to the market universe.
@@ -4870,6 +5061,38 @@ def load_market_quant_signal_feed(
             entry_evidence_by_date=evidence_timeline,
             entry_safety_guard=entry_safety_guard,
         )
+        if (
+            intraday_chart_loader is not None
+            and forming_quote
+            and _fresh_kis_intraday_quote_for_market_alert(
+                forming_quote, current_time
+            )
+            and any(
+                event.get("execution_date") == current_time.date()
+                and event.get("intraday_execution_verified") is True
+                and event.get("side") in {"buy", "partial_sell", "sell"}
+                for event in payload.get("events") or []
+            )
+        ):
+            try:
+                minute_rows, chart_fetched_at = intraday_chart_loader(code)
+            except Exception:
+                minute_rows = []
+                chart_fetched_at = None
+            if minute_rows:
+                payload = build_quant_signal_payload(
+                    stock,
+                    stock_price_rows,
+                    live_quote={
+                        **forming_quote,
+                        "intraday_minutes": minute_rows,
+                        "intraday_minutes_observed_at": chart_fetched_at,
+                    },
+                    now=current_time,
+                    context=None,
+                    entry_evidence_by_date=evidence_timeline,
+                    entry_safety_guard=entry_safety_guard,
+                )
         public_reasons = build_public_signal_reasons(payload)
         current = payload.get("current") if isinstance(payload.get("current"), dict) else None
         events = payload.get("events") or []
@@ -5065,6 +5288,10 @@ def load_market_quant_signal_feed(
                 "execution_model": event.get("execution_model"),
                 "intraday_execution_verified": (
                     event.get("intraday_execution_verified") is True
+                    and _fresh_kis_intraday_quote_for_market_alert(live_quote, current_time)
+                ),
+                "intraday_order_verified": (
+                    event.get("intraday_order_verified") is True
                     and _fresh_kis_intraday_quote_for_market_alert(live_quote, current_time)
                 ),
                 "status": "confirmed",

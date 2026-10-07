@@ -1288,6 +1288,22 @@ def _build_market_quant_signal_payload(
             recent_days=recent_days,
             now=current_time,
             live_quotes=_market_quant_signal_live_quotes(db, universe_limit, current_time),
+            intraday_chart_loader=(
+                (
+                    lambda code: (
+                        kis_rest_provider.fetch_intraday_chart(
+                            code,
+                            max_points=390,
+                            market_division="J",
+                            now=current_time,
+                        ),
+                        datetime.now(KST),
+                    )
+                )
+                if kis_rest_provider.is_configured()
+                and is_korea_regular_market_session(current_time)
+                else None
+            ),
             persist_entry_safety_guard=True,
         )
     payload = _attach_entry_filter_forward_comparison(db, payload)

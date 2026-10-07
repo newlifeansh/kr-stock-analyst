@@ -1545,7 +1545,13 @@ class WebPushRuntime:
                         else f"{execution_date} {action} 신호예요. 종목 상세에서 가격과 기준을 확인하세요."
                     ),
                     url=_stock_url(name),
-                    tag=f"market-ai-signal-{code}",
+                    # A later full exit must not replace a +3% half-sale in
+                    # the device tray when both resolve in one snapshot.
+                    tag=(
+                        f"market-ai-signal-{code}-partial_sell"
+                        if event_side == "partial_sell"
+                        else f"market-ai-signal-{code}"
+                    ),
                 )
             )
         return candidates

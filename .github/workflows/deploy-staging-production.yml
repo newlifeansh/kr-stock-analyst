@@ -329,7 +329,9 @@ jobs:
       - name: Install project and browser runtime
         run: |
           pip install -e '.[qa,mcp]'
-          playwright install --with-deps chromium
+          # ubuntu-latest already provides Chromium runtime libraries; avoid
+          # an unbounded apt mirror refresh before the actual staged QA.
+          playwright install chromium
       - name: Wait for the staged product surface
         run: >-
           analyst qa release-parity
@@ -414,7 +416,8 @@ jobs:
       - name: Install QA and Chromium
         run: |
           pip install -e '.[qa,mcp]'
-          playwright install --with-deps chromium
+          # Keep gateway QA independent of intermittent apt mirror stalls.
+          playwright install chromium
       - name: Wait for current US gateway data
         run: >-
           python -m app.qa.release_data_readiness

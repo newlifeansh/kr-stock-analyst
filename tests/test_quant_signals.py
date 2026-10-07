@@ -510,22 +510,23 @@ def test_v8_verified_live_krx_bar_confirms_three_percent_half_sale(monkeypatch):
 
     monkeypatch.setattr(quant_signals, "_indicator_rows", indicator_rows)
     live_date = date(2026, 10, 8)
+    live_quote = {
+        "trade_date": live_date,
+        "trade_date_verified": True,
+        "quote_source": "kis_rest",
+        "market_venue": "KRX",
+        "market_division": "J",
+        "price": 105.0,
+        "open": 101.0,
+        "high": 105.0,
+        "low": 100.5,
+        "volume": 1_000_000,
+        "trading_value": 100_000_000_000,
+    }
     payload = build_quant_signal_payload(
         _stock(),
         _daily_rows_from_bars("005930", bars),
-        live_quote={
-            "trade_date": live_date,
-            "trade_date_verified": True,
-            "quote_source": "kis_rest",
-            "market_venue": "KRX",
-            "market_division": "J",
-            "price": 105.0,
-            "open": 101.0,
-            "high": 105.0,
-            "low": 100.5,
-            "volume": 1_000_000,
-            "trading_value": 100_000_000_000,
-        },
+        live_quote=live_quote,
         now=datetime(2026, 10, 8, 10, 0),
     )
 
@@ -540,12 +541,63 @@ def test_v8_verified_live_krx_bar_confirms_three_percent_half_sale(monkeypatch):
     assert partial["signal_date"] == live_date
     assert partial["execution_model"] == quant_signals.EXECUTION_MODEL
     assert partial["intraday_execution_verified"] is True
+    assert partial["intraday_order_verified"] is False
     assert partial["price"] == 105
     assert partial["price"] >= buy["price"] * 1.03
     assert partial["sold_percent"] == Decimal("50.00")
     assert partial["position_percent"] == Decimal("50.00")
     assert payload["current"]["action"] == "partially_exited"
     assert payload["performance"]["period_end"] == bars[-1].trade_date
+
+    observed_at = datetime(2026, 10, 8, 9, 3, tzinfo=quant_signals.KST)
+    ordered_payload = build_quant_signal_payload(
+        _stock(),
+        _daily_rows_from_bars("005930", bars),
+        live_quote={
+            **live_quote,
+            "observed_at": observed_at,
+            "intraday_minutes_observed_at": observed_at,
+            "intraday_minutes": [
+                {"trade_date": "20261008", "trade_time": "090100", "open": 101, "high": 102, "low": 100.5, "price": 101, "volume": 100},
+                {"trade_date": "20261008", "trade_time": "090200", "open": 101, "high": 105, "low": 101, "price": 105, "volume": 100},
+                {"trade_date": "20261008", "trade_time": "090300", "open": 105, "high": 105, "low": 105, "price": 105, "volume": 100},
+            ],
+        },
+        now=datetime(2026, 10, 8, 9, 3),
+    )
+    ordered_partial = next(
+        event for event in ordered_payload["events"]
+        if event["side"] == "partial_sell" and event["execution_date"] == live_date
+    )
+    assert ordered_partial["sold_percent"] == Decimal("50.00")
+    assert ordered_partial["price"] == 105
+    assert ordered_partial["intraday_order_verified"] is True
+    assert ordered_payload["performance"] == payload["performance"]
+
+    after_stop = build_quant_signal_payload(
+        _stock(),
+        _daily_rows_from_bars("005930", bars),
+        live_quote={
+            **live_quote,
+            "price": 97,
+            "low": 97,
+            "observed_at": observed_at,
+            "intraday_minutes_observed_at": observed_at,
+            "intraday_minutes": [
+                {"trade_date": "20261008", "trade_time": "090100", "open": 101, "high": 102, "low": 100.5, "price": 101, "volume": 100},
+                {"trade_date": "20261008", "trade_time": "090200", "open": 101, "high": 105, "low": 101, "price": 105, "volume": 100},
+                {"trade_date": "20261008", "trade_time": "090300", "open": 105, "high": 105, "low": 97, "price": 97, "volume": 100},
+            ],
+        },
+        now=datetime(2026, 10, 8, 9, 3),
+    )
+    same_day_exits = [
+        event for event in after_stop["events"]
+        if event["execution_date"] == live_date and event["side"] in {"partial_sell", "sell"}
+    ]
+    assert [event["side"] for event in same_day_exits] == ["partial_sell", "sell"]
+    assert same_day_exits[0]["sold_percent"] == Decimal("50.00")
+    assert all(event["intraday_order_verified"] for event in same_day_exits)
 
 
 @pytest.mark.parametrize(
@@ -1152,6 +1204,132 @@ def test_v8_intraday_sell_is_stop_first_and_emits_every_reached_profit_stage():
     assert "하드 위험선" in stop_first[0].reason
 
 
+def test_v8_ordered_minutes_keep_first_profit_sale_before_a_later_stop():
+    position = {
+        "entry_date": date(2026, 10, 6),
+        "entry_price": 100.0,
+        "entry_cost": 0.002,
+        "initial_risk": 2.0,
+        "initial_stop": 98.0,
+        "peak_price": 100.0,
+        "profit_stage": 0,
+        "remaining_fraction": 1.0,
+    }
+    indicator = {"atr": 1.0, "ema20": 100.0, "average_trading_value": 50_000_000_000.0}
+
+    def minute(open_price, high, low, close):
+        return quant_signals.PriceBar(
+            trade_date=date(2026, 10, 8),
+            open=open_price,
+            high=high,
+            low=low,
+            close=close,
+            volume=100,
+            trading_value=10_000,
+        )
+
+    target_then_stop = [
+        minute(100, 101, 99, 100),
+        minute(100, 103, 100, 103),
+        minute(103, 104, 97, 97),
+    ]
+    ordered = quant_signals._ordered_intraday_exit_decisions(
+        position, target_then_stop, indicator
+    )
+    assert [item.side for item in ordered] == ["partial_sell", "sell"]
+    assert ordered[0].price == 103.0
+    assert ordered[0].sell_fraction == pytest.approx(0.5)
+    assert ordered[1].price >= 98.0
+
+    stop_then_target = [
+        minute(100, 101, 99, 100),
+        minute(100, 102, 97, 97),
+        minute(97, 104, 97, 104),
+    ]
+    assert [
+        item.side
+        for item in quant_signals._ordered_intraday_exit_decisions(
+            position, stop_then_target, indicator
+        )
+    ] == ["sell"]
+
+    opening_gap_then_stop = [minute(103, 104, 97, 97)]
+    assert [
+        item.side
+        for item in quant_signals._ordered_intraday_exit_decisions(
+            position, opening_gap_then_stop, indicator
+        )
+    ] == ["partial_sell", "sell"]
+
+
+def test_v8_ordered_entry_cancels_after_first_overheated_gap_touch():
+    pending = {
+        "entry_trigger_price": 101,
+        "signal_price": 100,
+        "atr": 1,
+    }
+    later_retouch = quant_signals.PriceBar(
+        date(2026, 10, 8), 100, 101.5, 100, 101, 100, 10_000
+    )
+    initial_gap = quant_signals.PriceBar(
+        date(2026, 10, 8), 105, 106, 104, 105, 100, 10_000
+    )
+    assert quant_signals._ordered_intraday_entry_execution(
+        [initial_gap, later_retouch], pending
+    ) == (None, None)
+    assert quant_signals._ordered_intraday_entry_execution(
+        [
+            quant_signals.PriceBar(
+                date(2026, 10, 8), 100, 100.5, 99, 100, 100, 10_000
+            ),
+            later_retouch,
+        ],
+        pending,
+    ) == (101, 1)
+
+
+def test_v8_ordered_minutes_require_fresh_complete_chart_matching_krx_quote():
+    observed_at = datetime(2026, 10, 8, 9, 3, tzinfo=quant_signals.KST)
+    bar = quant_signals.PriceBar(
+        trade_date=observed_at.date(),
+        open=100,
+        high=104,
+        low=97,
+        close=97,
+        volume=300,
+        trading_value=30_000,
+    )
+    rows = [
+        {"trade_date": "20261008", "trade_time": "090100", "open": 100, "high": 101, "low": 99, "price": 100, "volume": 100},
+        {"trade_date": "20261008", "trade_time": "090200", "open": 100, "high": 103, "low": 100, "price": 103, "volume": 100},
+        {"trade_date": "20261008", "trade_time": "090300", "open": 103, "high": 104, "low": 97, "price": 97, "volume": 100},
+    ]
+    quote = {
+        "observed_at": observed_at,
+        "intraday_minutes_observed_at": observed_at,
+        "intraday_minutes": rows,
+    }
+    assert len(quant_signals._verified_intraday_minutes(quote, bar) or []) == 3
+    assert quant_signals._verified_intraday_minutes(
+        {**quote, "intraday_minutes": rows[:2]}, bar
+    ) is None
+    assert quant_signals._verified_intraday_minutes(
+        {**quote, "intraday_minutes": [{**rows[0], "trade_date": "20261007"}, *rows[1:]]}, bar
+    ) is None
+    assert quant_signals._verified_intraday_minutes(
+        {**quote, "intraday_minutes": [rows[0], {**rows[1], "trade_time": "090400"}, rows[2]]}, bar
+    ) is None
+    assert quant_signals._verified_intraday_minutes(
+        {**quote, "intraday_minutes_observed_at": observed_at + timedelta(minutes=4)}, bar
+    ) is None
+    assert quant_signals._verified_intraday_minutes(
+        {**quote, "intraday_minutes_observed_at": observed_at - timedelta(seconds=1)}, bar
+    ) is None
+    assert quant_signals._verified_intraday_minutes(
+        {**quote, "intraday_minutes": [*rows, {**rows[-1], "trade_time": "090400"}]}, bar
+    ) is None
+
+
 def test_v8_simulation_executes_prior_close_signal_at_next_session_breakout(monkeypatch):
     bars, indicators = _strategy_test_inputs(70)
     bars[65] = quant_signals.PriceBar(
@@ -1208,6 +1386,39 @@ def test_v8_simulation_executes_prior_close_signal_at_next_session_breakout(monk
     )
     live_buy = next(event for event in live_result["events"] if event["side"] == "buy")
     assert live_buy["intraday_execution_verified"] is True
+
+
+def test_v8_ordered_entry_does_not_sell_on_a_low_before_the_breakout(monkeypatch):
+    bars, indicators = _strategy_test_inputs(70)
+    bars[65] = quant_signals.PriceBar(
+        date(2026, 10, 3), 100, 101, 99, 100, 1_000_000, 50_000_000_000
+    )
+    bars[66] = quant_signals.PriceBar(
+        date(2026, 10, 6), 100, 102, 90, 102, 1_000_000, 50_000_000_000
+    )
+    _set_entry_indicator(indicators[65])
+    monkeypatch.setattr(
+        quant_signals,
+        "entry_confirmation_decision",
+        lambda *_args, **_kwargs: {
+            "allowed": True, "state": "approved", "reason": "fixture"
+        },
+    )
+    minutes = [
+        quant_signals.PriceBar(date(2026, 10, 6), 100, 100.5, 90, 100, 100, 10_000),
+        quant_signals.PriceBar(date(2026, 10, 6), 100, 101.5, 100, 101.5, 100, 10_000),
+        quant_signals.PriceBar(date(2026, 10, 6), 101.5, 102, 101, 102, 100, 10_000),
+    ]
+    baseline = quant_signals._simulate(
+        bars[:67], indicators[:67], forming_bar_date=date(2026, 10, 6)
+    )
+    ordered = quant_signals._simulate(
+        bars[:67], indicators[:67], forming_bar_date=date(2026, 10, 6),
+        intraday_minutes=minutes,
+    )
+    assert any(event["side"] == "sell" for event in baseline["events"])
+    assert [event["side"] for event in ordered["events"]] == ["buy"]
+    assert ordered["events"][0]["intraday_order_verified"] is True
 
 
 def test_v741_chase_veto_preserves_meritz_history_and_blocks_new_overheated_entries():
@@ -3182,9 +3393,8 @@ def test_market_feed_only_projects_fresh_kis_intraday_execution_as_verified(monk
             market_cap=300_000_000,
         ))
         db.commit()
-        monkeypatch.setattr(
-            quant_signals, "build_quant_signal_payload",
-            lambda *_args, **_kwargs: {
+        def signal_payload(*_args, **kwargs):
+            return {
                 "events": [{
                     "signal_date": date(2026, 10, 7),
                     "execution_date": date(2026, 10, 8),
@@ -3193,10 +3403,14 @@ def test_market_feed_only_projects_fresh_kis_intraday_execution_as_verified(monk
                     "entry_price": 101_000,
                     "execution_model": quant_signals.EXECUTION_MODEL,
                     "intraday_execution_verified": True,
+                    "intraday_order_verified": bool(
+                        (kwargs.get("live_quote") or {}).get("intraday_minutes")
+                    ),
                 }],
                 "current": None,
-            },
-        )
+            }
+
+        monkeypatch.setattr(quant_signals, "build_quant_signal_payload", signal_payload)
         live_quote = {
             "quote_source": "kis_rest",
             "market_venue": "KRX",
@@ -3205,19 +3419,42 @@ def test_market_feed_only_projects_fresh_kis_intraday_execution_as_verified(monk
             "observed_at": "2026-10-08T01:00:00+00:00",
         }
 
-        def feed(quote):
+        chart_codes: list[str] = []
+
+        def chart_loader(code):
+            chart_codes.append(code)
+            return (
+                [{"trade_date": "20261008", "trade_time": "100000"}],
+                datetime(2026, 10, 8, 10, 0, tzinfo=quant_signals.KST),
+            )
+
+        def feed(quote, loader=chart_loader):
             return load_market_quant_signal_feed(
                 db, universe_limit=1, limit=0, recent_days=30,
                 live_quotes={"000001": quote}, now=datetime(2026, 10, 8, 10, 0),
+                intraday_chart_loader=loader,
             )
 
-        assert feed(live_quote)["items"][0]["intraday_execution_verified"] is True
+        fresh_payload = feed(live_quote)
+        assert fresh_payload["items"][0]["intraday_execution_verified"] is True
+        assert fresh_payload["items"][0]["intraday_order_verified"] is True
+        assert chart_codes == ["000001"]
+
+        def unavailable_chart(_code):
+            raise RuntimeError("KIS chart unavailable")
+
+        assert feed(live_quote, unavailable_chart)["items"][0][
+            "intraday_order_verified"
+        ] is False
+        assert chart_codes == ["000001"]
         assert feed({**live_quote, "observed_at": "2026-10-08T00:50:00+00:00"})[
             "items"
         ][0]["intraday_execution_verified"] is False
+        assert chart_codes == ["000001"]
         assert feed({**live_quote, "quote_source": "stored_daily_price"})["items"][0][
             "intraday_execution_verified"
         ] is False
+        assert chart_codes == ["000001"]
     finally:
         db.close()
 

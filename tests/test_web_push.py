@@ -991,6 +991,7 @@ def test_market_ai_confirmed_intraday_push_requires_verified_v8_events_and_reuse
                 for code, name, side, event_side, action in [
                     ("005930", "삼성전자", "buy", "buy", "장중 돌파 진입"),
                     ("000660", "SK하이닉스", "sell", "partial_sell", "1차 수익확정"),
+                    ("000660", "SK하이닉스", "sell", "sell", "전량 매도"),
                     ("035420", "NAVER", "sell", "sell", "전량 매도"),
                 ]
             ],
@@ -1004,10 +1005,13 @@ def test_market_ai_confirmed_intraday_push_requires_verified_v8_events_and_reuse
         assert [candidate.event_key for candidate in intraday] == [
             "market-ai-signal:005930:buy:2026-10-08",
             "market-ai-signal:000660:partial_sell:2026-10-08",
+            "market-ai-signal:000660:sell:2026-10-08",
             "market-ai-signal:035420:sell:2026-10-08",
         ]
         assert all("10:01 장중" in candidate.body for candidate in intraday)
         assert "1차 수익확정" in intraday[1].title
+        assert intraday[1].tag != intraday[2].tag
+        assert intraday[1].tag == "market-ai-signal-000660-partial_sell"
         close = runtime._market_ai_signal_candidates(db, datetime(2026, 10, 8, 16, 0))
         assert [candidate.event_key for candidate in close] == [
             candidate.event_key for candidate in intraday
