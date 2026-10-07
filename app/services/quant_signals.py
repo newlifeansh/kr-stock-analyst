@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
 import json
 from math import isfinite, sqrt
 from statistics import median
@@ -334,6 +334,30 @@ def _price(value: Optional[float]) -> Optional[int]:
     if value is None:
         return None
     return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _krx_executable_price(value: float, *, upward: bool) -> int:
+    """Move a stock trigger to the next tradable KRX quote, never through it."""
+
+    price = max(Decimal("1"), Decimal(str(value)))
+    # KRX stock quotation units: https://global.krx.co.kr/contents/GLB/06/0602/0602010201/GLB0602010201T3.jsp
+    bands = (
+        (Decimal("2000"), Decimal("1")),
+        (Decimal("5000"), Decimal("5")),
+        (Decimal("20000"), Decimal("10")),
+        (Decimal("50000"), Decimal("50")),
+        (Decimal("200000"), Decimal("100")),
+        (Decimal("500000"), Decimal("500")),
+    )
+    tick = next((unit for upper, unit in bands if price < upper), Decimal("1000"))
+    rounding = ROUND_CEILING if upward else ROUND_FLOOR
+    return int((price / tick).to_integral_value(rounding=rounding) * tick)
+
+
+def _executable_profit_target(raw_target: float, strategy_date: Optional[date]) -> float:
+    if strategy_date is not None and strategy_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE:
+        return float(_krx_executable_price(raw_target, upward=True))
+    return raw_target
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -978,7 +1002,13 @@ def _position_levels(
         profit_ladder_steps,
         start=1,
     ):
-        if peak_r + 1e-9 < trigger_r:
+        if strategy_date is not None and strategy_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE:
+            below_trigger = peak_price + 1e-9 < _executable_profit_target(
+                entry_price + initial_risk * trigger_r, strategy_date
+            )
+        else:
+            below_trigger = peak_r + 1e-9 < trigger_r
+        if below_trigger:
             break
         reached_stage = stage
         locked_r = max(locked_r, step_locked_r)
@@ -1015,7 +1045,10 @@ def _position_levels(
             trailing_atr = min(trailing_atr, previous_trailing_atr)
     next_stage = current_stage + 1 if current_stage < len(profit_ladder_steps) else None
     next_partial_target = (
-        entry_price + (initial_risk * profit_ladder_steps[next_stage - 1][0])
+        _executable_profit_target(
+            entry_price + (initial_risk * profit_ladder_steps[next_stage - 1][0]),
+            strategy_date,
+        )
         if next_stage is not None
         else None
     )
@@ -1099,7 +1132,11 @@ def _intraday_exit_decisions(
         return [
             IntradayExecutionDecision(
                 side="sell",
-                price=_intraday_sell_price(bar, hard_floor, protective=True),
+                price=_intraday_sell_price(
+                    bar,
+                    float(_krx_executable_price(hard_floor, upward=False)),
+                    protective=True,
+                ),
                 reason="장중 하드 위험선 이탈(OHLC 보수적 판정)",
             )
         ]
@@ -1111,7 +1148,10 @@ def _intraday_exit_decisions(
     decisions: list[IntradayExecutionDecision] = []
     for stage in range(current_stage + 1, len(steps) + 1):
         trigger_r, _configured_fraction, _locked_r, _trailing_atr = steps[stage - 1]
-        target = float(position["entry_price"]) + float(position["initial_risk"]) * trigger_r
+        target = _executable_profit_target(
+            float(position["entry_price"]) + float(position["initial_risk"]) * trigger_r,
+            bar.trade_date,
+        )
         if float(bar.high) + 1e-9 < target:
             break
         intended_remaining = max(
@@ -1199,7 +1239,10 @@ def _partial_exit_signal(
         profit_ladder_steps,
         start=1,
     ):
-        target = float(position["entry_price"]) + (levels["initial_risk"] * trigger_r)
+        target = _executable_profit_target(
+            float(position["entry_price"]) + (levels["initial_risk"] * trigger_r),
+            bar.trade_date,
+        )
         if stage > current_stage and bar.close >= target:
             target_stage = stage
 
@@ -1259,8 +1302,9 @@ def _partial_exit_signal(
             runner_fraction,
             current_remaining_fraction - sell_fraction,
         )
-        levels["target_price"] = (
-            float(position["entry_price"]) + (levels["initial_risk"] * trigger_r)
+        levels["target_price"] = _executable_profit_target(
+            float(position["entry_price"]) + (levels["initial_risk"] * trigger_r),
+            bar.trade_date,
         )
         transition_label = (
             "안정 수익확정형 전환 · "
@@ -1541,8 +1585,9 @@ def _simulate(
                     "exit_confirmation_reason": None,
                 }
                 entry_profit_steps = _resolved_profit_ladder_steps(position, bar.trade_date)
-                position["target_sell_price"] = execution_price + (
-                    initial_risk * entry_profit_steps[0][0]
+                position["target_sell_price"] = _executable_profit_target(
+                    execution_price + (initial_risk * entry_profit_steps[0][0]),
+                    bar.trade_date,
                 )
                 lifecycle_events.append(
                     {
@@ -1622,10 +1667,11 @@ def _simulate(
                 position["target_sell_price"] = (
                     None
                     if next_stage > len(execution_profit_steps)
-                    else float(position["entry_price"])
-                    + (
-                        float(position["initial_risk"])
-                        * execution_profit_steps[next_stage - 1][0]
+                    else _executable_profit_target(
+                        float(position["entry_price"])
+                        + float(position["initial_risk"])
+                        * execution_profit_steps[next_stage - 1][0],
+                        bar.trade_date,
                     )
                 )
                 lifecycle_events.append(
@@ -1771,9 +1817,12 @@ def _simulate(
                     position["target_sell_price"] = (
                         None
                         if next_stage > len(execution_profit_steps)
-                        else float(position["entry_price"])
-                        + float(position["initial_risk"])
-                        * execution_profit_steps[next_stage - 1][0]
+                        else _executable_profit_target(
+                            float(position["entry_price"])
+                            + float(position["initial_risk"])
+                            * execution_profit_steps[next_stage - 1][0],
+                            bar.trade_date,
+                        )
                     )
                     lifecycle_events.append(
                         {

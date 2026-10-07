@@ -449,6 +449,154 @@ def test_verified_live_krx_bar_executes_previous_close_buy_during_session(monkey
     assert payload["performance"]["period_end"] == bars[-1].trade_date
 
 
+def test_v8_verified_live_krx_bar_confirms_three_percent_half_sale(monkeypatch):
+    bars, indicators = _strategy_test_inputs(68)
+    bars[65] = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 3),
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    bars[66] = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 6),
+        open=100.0,
+        high=101.5,
+        low=100.0,
+        close=101.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    bars[67] = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 7),
+        open=101.0,
+        high=102.0,
+        low=100.5,
+        close=101.0,
+        volume=1_000_000,
+        trading_value=50_000_000_000,
+    )
+    _set_entry_indicator(indicators[65])
+    monkeypatch.setattr(quant_signals, "MIN_HISTORY_ROWS", len(bars))
+    monkeypatch.setattr(quant_signals, "_normalize_prices", lambda _rows: list(bars))
+    monkeypatch.setattr(
+        quant_signals,
+        "latest_completed_korea_market_session_date",
+        lambda *_args, **_kwargs: bars[-1].trade_date,
+    )
+    monkeypatch.setattr(
+        quant_signals,
+        "is_korea_market_session_date",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        quant_signals,
+        "entry_confirmation_decision",
+        lambda *_args, **_kwargs: {
+            "allowed": True,
+            "state": "approved",
+            "reason": "fixture",
+        },
+    )
+
+    def indicator_rows(candidate_bars):
+        result = [dict(item) for item in indicators]
+        if len(candidate_bars) == len(bars) + 1:
+            result.append(dict(indicators[-1]))
+        return result
+
+    monkeypatch.setattr(quant_signals, "_indicator_rows", indicator_rows)
+    live_date = date(2026, 10, 8)
+    payload = build_quant_signal_payload(
+        _stock(),
+        _daily_rows_from_bars("005930", bars),
+        live_quote={
+            "trade_date": live_date,
+            "trade_date_verified": True,
+            "quote_source": "kis_rest",
+            "market_venue": "KRX",
+            "market_division": "J",
+            "price": 105.0,
+            "open": 101.0,
+            "high": 105.0,
+            "low": 100.5,
+            "volume": 1_000_000,
+            "trading_value": 100_000_000_000,
+        },
+        now=datetime(2026, 10, 8, 10, 0),
+    )
+
+    buy = next(event for event in payload["events"] if event["side"] == "buy")
+    partial = next(
+        event
+        for event in payload["events"]
+        if event["side"] == "partial_sell" and event["execution_date"] == live_date
+    )
+    assert buy["execution_date"] == date(2026, 10, 6)
+    assert partial["signal_date"] == live_date
+    assert partial["price"] == 105
+    assert partial["price"] >= buy["price"] * 1.03
+    assert partial["sold_percent"] == Decimal("50.00")
+    assert partial["position_percent"] == Decimal("50.00")
+    assert payload["current"]["action"] == "partially_exited"
+    assert payload["performance"]["period_end"] == bars[-1].trade_date
+
+
+@pytest.mark.parametrize(
+    ("raw_target", "expected"),
+    [
+        (104.03, 105),
+        (1999.1, 2000),
+        (2000.1, 2005),
+        (4999.1, 5000),
+        (5000.1, 5010),
+        (19999.1, 20000),
+        (20000.1, 20050),
+        (49999.1, 50000),
+        (50000.1, 50100),
+        (199999.1, 200000),
+        (200000.1, 200500),
+        (499999.1, 500000),
+        (500000.1, 501000),
+        (457835, 458000),
+    ],
+)
+def test_v8_profit_target_uses_first_tradable_krx_quote(raw_target, expected):
+    assert quant_signals._executable_profit_target(raw_target, date(2026, 10, 8)) == expected
+    assert quant_signals._executable_profit_target(raw_target, date(2026, 10, 2)) == raw_target
+
+
+def test_v8_profit_waits_for_executable_quote_not_rounded_display_price():
+    position = {
+        "entry_date": date(2026, 10, 6),
+        "entry_price": 101.0,
+        "entry_cost": 0.002,
+        "initial_risk": 2.0,
+        "initial_stop": 97.0,
+        "peak_price": 101.0,
+        "profit_stage": 0,
+        "remaining_fraction": 1.0,
+    }
+    indicator = {"atr": 1.0, "average_trading_value": 50_000_000_000.0}
+    below = quant_signals.PriceBar(
+        date(2026, 10, 8), 101.0, 104.0, 100.0, 104.0, 1_000_000, 50_000_000_000
+    )
+    reached = quant_signals.PriceBar(
+        date(2026, 10, 8), 101.0, 105.0, 100.0, 105.0, 1_000_000, 50_000_000_000
+    )
+
+    assert quant_signals._position_levels(
+        position, indicator, 104.0, strategy_date=below.trade_date
+    )["next_partial_target"] == 105.0
+    assert quant_signals._intraday_exit_decisions(position, below, indicator) == []
+    decisions = quant_signals._intraday_exit_decisions(position, reached, indicator)
+    assert [(item.side, item.price, item.sell_fraction) for item in decisions] == [
+        ("partial_sell", 105.0, 0.5)
+    ]
+
+
 @pytest.mark.parametrize(
     ("decision_close", "live_open", "expected_side", "expected_action", "expected_exposure"),
     [

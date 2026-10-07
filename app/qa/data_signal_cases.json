@@ -858,12 +858,12 @@
       "domain": "시그널 체결 모델",
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
-      "automation": "pytest 장중 돌파·갭 상한·손절 우선·복수 수익확정 fixture + live KRX OHLC 체결 계약 + 시그널 상태 E2E",
+      "automation": "pytest 장중 돌파·갭 상한·손절 우선·복수 수익확정·KRX 호가 경계 fixture 및 KIS형 OHLC→+3% 50% 이벤트 통합 검사 + live KRX OHLC 체결 계약 + 시그널 상태 E2E",
       "preconditions": ["완료 종가에서 가격·독립 근거가 확인된 매수 신호와 다음 KRX 정규장의 검증된 OHLC를 준비한다.", "기존 보유 포지션의 손절선·+3%·+5% 도달 및 같은 봉 동시 도달을 준비한다."],
-      "inputs": {"strategy_version": "position-lifecycle-v8.0", "effective_date": "2026-10-03", "execution_model": "close-confirmed-intraday-trigger-v1", "entry_trigger": "max(signal close, frozen prior 20-session high)", "entry_gap_limits": ["1.5ATR", "5%"], "profit_targets": ["+3%/50%", "+5%/remaining 50%"], "ambiguous_candle": "protective stop first", "allowed_venue": "KRX regular session"},
-      "steps": ["종가 확정 봉에서 진입 확인선을 고정하고 다음 세션 고가가 돌파하기 전에는 매수하지 않는지 확인한다.", "시가가 확인선 위에서 시작하면 시가, 장중에 돌파하면 고정 확인선에 체결하고 갭 상한을 벗어난 추격매수는 취소한다.", "보유 중 저가가 하드 위험선을 이탈하면 장중 전량 매도하고, 고가가 +3%·+5%에 닿으면 각 목표가에서 50%·잔여 50%를 체결한다.", "같은 OHLC 봉에서 손절선과 수익목표가 모두 닿으면 손절 체결만 남기고 수익체결을 만들지 않는다.", "2026-10-02 이전 v7.4.2 신호를 재생해 기존 다음 시가 체결과 손익이 변하지 않는지 확인한다.", "live에서 현재 KRX 정규장·완전 OHLC·거래일 검증을 모두 충족할 때만 장중 체결 상태가 나오는지 확인한다."],
-      "expected": ["매수는 종가 확정 후 다음 KRX 세션의 돌파에서만 체결되고 장중 미도달 주문은 세션 마감까지 대기한다.", "장중 손절과 +3%·+5% 체결은 검증된 OHLC에서 재현되며 모호한 봉은 손절 우선이다.", "v8.0 이전 과거 이력은 소급 변경되지 않고 API·품질·화면의 전략 버전과 체결 모델이 일치한다."],
-      "failure_criteria": ["종가 확정 전 당일 신호로 매수하거나 돌파 없이 체결한다.", "NXT·시간외·주말·가격만 있는 시세를 장중 체결 봉으로 사용한다.", "손절과 목표가가 함께 닿은 봉을 수익 우선으로 계산하거나 +5% 도달 후 잔여 비중이 남는다.", "v7.4.2 과거 체결·손익을 v8.0 장중 규칙로 다시 쓰거나 스냅샷 버전을 공유한다."]
+      "inputs": {"strategy_version": "position-lifecycle-v8.0", "effective_date": "2026-10-03", "execution_model": "close-confirmed-intraday-trigger-v1", "entry_trigger": "max(signal close, frozen prior 20-session high)", "entry_gap_limits": ["1.5ATR", "5%"], "profit_targets": ["+3%/50%", "+5%/remaining 50%"], "profit_target_tick_policy": "first KRX executable stock quote at or above raw target; old strategy dates unchanged", "tick_source": "https://global.krx.co.kr/contents/GLB/06/0602/0602010201/GLB0602010201T3.jsp", "ambiguous_candle": "protective stop first", "allowed_venue": "KRX regular session"},
+      "steps": ["종가 확정 봉에서 진입 확인선을 고정하고 다음 세션 고가가 돌파하기 전에는 매수하지 않는지 확인한다.", "시가가 확인선 위에서 시작하면 시가, 장중에 돌파하면 고정 확인선에 체결하고 갭 상한을 벗어난 추격매수는 취소한다.", "보유 중 저가가 하드 위험선을 이탈하면 장중 전량 매도하고, 고가가 +3%·+5%에 닿으면 각 목표가에서 50%·잔여 50%를 체결한다.", "계산상 +3%·+5%가 호가 사이에 걸리면 해당 가격 이상 첫 KRX 유효 호가를 목표·판정·표시 체결가에 동일하게 적용하고, 목표 호가 미도달 시 매도 이벤트를 만들지 않는다.", "KIS형 검증 OHLC로 전일 진입 포지션을 장중 재생해 +3% 첫 목표의 50% 부분매도와 잔여 50%가 실제 이벤트·현재 상태에 반영되는지 확인한다.", "같은 OHLC 봉에서 손절선과 수익목표가 모두 닿으면 손절 체결만 남기고 수익체결을 만들지 않는다.", "2026-10-02 이전 v7.4.2 신호를 재생해 기존 다음 시가 체결과 손익이 변하지 않는지 확인한다.", "live에서 현재 KRX 정규장·완전 OHLC·거래일 검증을 모두 충족할 때만 장중 체결 상태가 나오는지 확인한다."],
+      "expected": ["매수는 종가 확정 후 다음 KRX 세션의 돌파에서만 체결되고 장중 미도달 주문은 세션 마감까지 대기한다.", "장중 손절과 +3%·+5% 체결은 검증된 OHLC에서 재현되며 모호한 봉은 손절 우선이다.", "v8 수익목표의 표시·판정·모의 체결가는 거래 가능한 호가로 일치하고 +3% 첫 매도는 원래 비중의 정확히 50%다.", "v8.0 이전 과거 이력은 소급 변경되지 않고 API·품질·화면의 전략 버전과 체결 모델이 일치한다."],
+      "failure_criteria": ["종가 확정 전 당일 신호로 매수하거나 돌파 없이 체결한다.", "NXT·시간외·주말·가격만 있는 시세를 장중 체결 봉으로 사용한다.", "목표가를 거래 불가능한 소수·호가 사이 가격으로 체결하거나 표시 가격이 +3% 미만으로 반올림되고, 첫 수익확정에서 원래 비중의 50%가 아닌 수량을 판다.", "손절과 목표가가 함께 닿은 봉을 수익 우선으로 계산하거나 +5% 도달 후 잔여 비중이 남는다.", "v7.4.2 과거 체결·손익을 v8.0 장중 규칙로 다시 쓰거나 스냅샷 버전을 공유한다."]
     },
 
     {

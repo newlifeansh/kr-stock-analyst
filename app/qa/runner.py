@@ -1796,11 +1796,23 @@ def _gate_checks(
             == [("partial_sell", 103.0), ("sell", 105.0)],
             "장중 +3%·+5% 수익확정이 재현되지 않습니다.",
         )
+        _assert(
+            [item.sell_fraction for item in decisions] == [0.5, 0.5],
+            "장중 1차·2차 매도량이 원래 비중의 각 50%가 아닙니다.",
+        )
+        rounded_target = qs._executable_profit_target(104.03, date(2026, 10, 8))
+        _assert(
+            rounded_target == 105.0
+            and qs._executable_profit_target(104.03, date(2026, 10, 2)) == 104.03,
+            "v8 목표가의 KRX 유효 호가 올림 또는 v7 이력 보존이 깨졌습니다.",
+        )
         return {
             "strategy_version": qs.STRATEGY_VERSION,
             "execution_model": qs.EXECUTION_MODEL,
             "entry_price": 102.0,
             "exit_sides": [item.side for item in decisions],
+            "sell_fractions": [item.sell_fraction for item in decisions],
+            "v8_first_executable_target_for_104_03": rounded_target,
         }
 
     collector.check(
