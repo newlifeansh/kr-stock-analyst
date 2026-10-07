@@ -31,6 +31,7 @@ from app.services import briefing
 from app.services.signal_data_quality import (
     _http_probe,
     _probe_historical_kis_minutes,
+    _probe_current_day_kis_minutes,
     probe_signal_source_apis,
     signal_data_quality_status,
 )
@@ -946,6 +947,53 @@ def test_historical_kis_probe_requires_completed_dated_minutes(monkeypatch):
     assert result["http_status"] == 403
     assert result["source_error_code"] == "EGW00001"
     assert "do-not-expose" not in str(result)
+
+
+def test_current_day_kis_probe_requires_completed_matching_session(monkeypatch):
+    from app.collectors.briefing import KisRestBriefingProvider
+
+    now = datetime(2026, 10, 7, 15, 45, tzinfo=quant_signals.KST)
+    rows = [
+        {
+            "trade_date": "20261007",
+            "trade_time": (
+                datetime(2026, 10, 7, 9, 0) + timedelta(minutes=minute)
+            ).strftime("%H%M%S"),
+            "open": 101, "high": 101, "low": 101, "price": 101,
+            "volume": 100,
+        }
+        for minute in range(380)
+    ]
+    rows.append({
+        "trade_date": "20261007", "trade_time": "153000",
+        "open": 101, "high": 101, "low": 101, "price": 101,
+        "volume": 100,
+    })
+    monkeypatch.setattr(KisRestBriefingProvider, "is_configured", lambda _self: True)
+    monkeypatch.setattr(
+        KisRestBriefingProvider,
+        "fetch_intraday_chart",
+        lambda _self, code, *, max_points, market_division, now: rows,
+    )
+    ready = _probe_current_day_kis_minutes(Settings(), "005930", now)
+    assert ready["state"] == "ready"
+    assert ready["first_time"] == "090000"
+    assert ready["last_time"] == "153000"
+    assert ready["ohlc"] == {
+        "open": 101.0, "high": 101.0, "low": 101.0, "close": 101.0,
+    }
+    rows[-1] = {**rows[-1], "trade_date": "20261006"}
+    assert _probe_current_day_kis_minutes(Settings(), "005930", now)["state"] == "invalid"
+    rows[-1] = {**rows[-1], "trade_date": "20261007", "trade_time": "152000"}
+    assert _probe_current_day_kis_minutes(Settings(), "005930", now)["state"] == "invalid"
+
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("secret=do-not-expose")
+
+    monkeypatch.setattr(KisRestBriefingProvider, "fetch_intraday_chart", unavailable)
+    failure = _probe_current_day_kis_minutes(Settings(), "005930", now)
+    assert failure["state"] == "unavailable"
+    assert "do-not-expose" not in str(failure)
 
 
 def test_source_probe_never_echoes_a_credential_from_request_error(monkeypatch):

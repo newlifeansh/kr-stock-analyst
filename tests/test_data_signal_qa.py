@@ -166,7 +166,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v8.0"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert len(ids) == 138
+    assert len(ids) == 139
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -214,6 +214,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-PUSH-INTRADAY-001",
         "SIG-KR-INTRADAY-ORDER-001",
         "SIG-KR-INTRADAY-REPLAY-001",
+        "SIG-KR-INTRADAY-SEAL-001",
         "SIG-EXIT-001",
         "SIG-EXIT-005",
         "SIG-UI-003",
@@ -276,7 +277,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v8.0`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v2-rc1`" in first
-    assert "QA 항목: 138개" in first
+    assert "QA 항목: 139개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1562,7 +1563,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v8.0"
     assert report["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert report["catalog_case_count"] == 138
+    assert report["catalog_case_count"] == 139
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1603,6 +1604,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-PUSH-INTRADAY-001",
         "SIG-KR-INTRADAY-ORDER-001",
         "SIG-KR-INTRADAY-REPLAY-001",
+        "SIG-KR-INTRADAY-SEAL-001",
         "SIG-UI-022",
         "SIG-UI-025",
         "SIG-UI-030",
@@ -1792,6 +1794,10 @@ class FakeReadOnlyApi:
                 "status": "degraded",
                 "strategy_version": "position-lifecycle-v8.0",
                 "as_of": "2026-08-29T10:00:00+09:00",
+                "intraday_path_seal": {
+                    "trade_date": "2026-10-07", "finalized": 1,
+                    "pending": 0, "version_mismatch": 0,
+                },
                 "datasets": {
                     "price": {**ready, "state": self.quality_price_state},
                     "investor_flow": ready,
@@ -1834,11 +1840,26 @@ class FakeReadOnlyApi:
                             "trade_date": "2026-08-29", "points": 382,
                             "first_time": "090000", "last_time": "153000",
                         },
+                        {
+                            "key": "kis_current_day_intraday", "state": "ready",
+                            "source": "KIS current-day KRX minute chart",
+                            "trade_date": "2026-10-07", "points": 381,
+                            "first_time": "090000", "last_time": "153000",
+                            "ohlc": {
+                                "open": 100000, "high": 105000,
+                                "low": 99000, "close": 103000,
+                            },
+                        },
                         {"key": "disclosure", "state": "unavailable"},
                         {"key": "news", "state": "ready"},
                     ]
                 },
             }, self._meta(path)
+        if path == "/stocks/005930/prices":
+            return [{
+                "trade_date": "2026-10-07", "open": 100000,
+                "high": 105000, "low": 99000, "close": 103000,
+            }], self._meta(path)
         if path == "/market/quant-signals":
             filter_versions = (
                 "buy-filter-v7.4-baseline",
@@ -2791,6 +2812,87 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     ] is False
     assert report["market_state"] == "closed"
     assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_live
+@pytest.mark.parametrize(
+    "failure", ["no_chart", "pending_path", "version_mismatch", "ohlc_mismatch"]
+)
+def test_live_current_day_minute_seal_blocks_unverified_promotion(
+    monkeypatch, failure: str
+) -> None:
+    from app.qa import runner
+
+    class UnverifiedSealApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/meta/signal-data-quality":
+                payload = json.loads(json.dumps(payload))
+                if failure == "no_chart":
+                    payload["api_probe"]["items"] = [
+                        row for row in payload["api_probe"]["items"]
+                        if row["key"] != "kis_current_day_intraday"
+                    ]
+                elif failure == "pending_path":
+                    payload["intraday_path_seal"]["pending"] = 1
+                elif failure == "version_mismatch":
+                    payload["intraday_path_seal"]["version_mismatch"] = 1
+                else:
+                    item = next(
+                        row for row in payload["api_probe"]["items"]
+                        if row["key"] == "kis_current_day_intraday"
+                    )
+                    item["ohlc"]["close"] += 1000
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", UnverifiedSealApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(
+        item for item in report["checks"]
+        if item["id"] == "SIG-KR-INTRADAY-SEAL-001"
+    )
+    assert check["status"] == "fail"
+    assert report["deployment_blocked"] is True
+
+
+@pytest.mark.qa_live
+def test_live_dated_kis_403_requires_verified_current_day_replay_source(
+    monkeypatch,
+) -> None:
+    from app.qa import runner
+
+    class ForbiddenHistoricalApi(FakeReadOnlyApi):
+        current_day_ready = True
+
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/meta/signal-data-quality":
+                payload = json.loads(json.dumps(payload))
+                for item in payload["api_probe"]["items"]:
+                    if item["key"] == "kis_historical_intraday":
+                        item.update(state="unavailable", http_status=403)
+                if not self.current_day_ready:
+                    payload["api_probe"]["items"] = [
+                        item for item in payload["api_probe"]["items"]
+                        if item["key"] != "kis_current_day_intraday"
+                    ]
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", ForbiddenHistoricalApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "DATA-KIS-008")
+    assert check["status"] == "pass"
+    assert check["evidence"]["replay_source"] == "sealed_current_day"
+    assert check["evidence"]["historical_kis_http_status"] == 403
+    assert report["deployment_blocked"] is False
+
+    ForbiddenHistoricalApi.current_day_ready = False
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "DATA-KIS-008")
+    assert check["status"] == "fail"
+    assert report["deployment_blocked"] is True
 
 
 @pytest.mark.qa_live

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 import json
 from time import monotonic
 from typing import Any, Callable, Optional
@@ -20,12 +20,14 @@ from app.models import (
     MacroObservation,
     NewsItem,
     QuantSignalEvidenceSnapshot,
+    QuantSignalIntradayPathSnapshot,
     ResearchReport,
     StockFundamentalSnapshot,
     StockMaster,
     StockNewsSnapshot,
 )
 from app.services.market_calendar import (
+    is_korea_market_session_date,
     latest_completed_korea_market_session_date,
     latest_published_korea_investor_flow_date,
 )
@@ -36,7 +38,9 @@ from app.services.signal_entry_evidence import (
 from app.services.quant_signals import (
     EXECUTION_MODEL,
     INTRADAY_EXECUTION_EFFECTIVE_DATE,
+    PriceBar,
     STRATEGY_VERSION,
+    _verified_completed_intraday_minutes,
 )
 
 
@@ -672,11 +676,24 @@ def signal_data_quality_status(
         if all(state == "ready" for state in critical_states) and coherence_ok
         else "degraded"
     )
+    session_paths = list(db.scalars(
+        select(QuantSignalIntradayPathSnapshot).where(
+            QuantSignalIntradayPathSnapshot.trade_date == current.date(),
+        )
+    ))
     return {
         "status": status,
         "strategy_version": STRATEGY_VERSION,
         "execution_model": EXECUTION_MODEL,
         "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
+        "intraday_path_seal": {
+            "trade_date": current.date(),
+            "finalized": sum(1 for path in session_paths if path.is_final),
+            "pending": sum(1 for path in session_paths if not path.is_final),
+            "version_mismatch": sum(
+                1 for path in session_paths if path.strategy_version != STRATEGY_VERSION
+            ),
+        },
         "as_of": current,
         "universe": {
             "basis": "point-in-time market-cap top 100",
@@ -888,12 +905,75 @@ def probe_signal_source_apis(
         for future in as_completed(futures):
             results.append(future.result())
     results.append(_probe_historical_kis_minutes(settings, sample_code, current))
+    if (
+        current.time() >= time(15, 40)
+        and is_korea_market_session_date(current.date(), current)
+    ):
+        results.append(_probe_current_day_kis_minutes(settings, sample_code, current))
     results.sort(key=lambda item: item["key"])
     return {
         "status": "ready" if all(item["state"] == "ready" for item in results) else "degraded",
         "as_of": current,
         "sample_code": sample_code,
         "items": results,
+    }
+
+
+def _probe_current_day_kis_minutes(
+    settings: Settings, sample_code: str, current: datetime
+) -> dict[str, Any]:
+    """Verify the after-close current-day KRX chart without exporting raw rows."""
+
+    from app.collectors.briefing import KisRestBriefingProvider
+
+    started = monotonic()
+    result = {
+        "key": "kis_current_day_intraday",
+        "source": "KIS current-day KRX minute chart",
+        "environment": settings.kis_env,
+        "trade_date": current.date().isoformat(),
+    }
+    provider = KisRestBriefingProvider(settings)
+    if not provider.is_configured():
+        return {**result, "state": "not_configured", "latency_ms": 0}
+    try:
+        rows = provider.fetch_intraday_chart(
+            sample_code, max_points=391, market_division="J", now=current
+        )
+    except Exception as exc:
+        response = exc.response if isinstance(exc, requests.HTTPError) else None
+        return {
+            **result, "state": "unavailable",
+            "http_status": response.status_code if response is not None else None,
+            "latency_ms": round((monotonic() - started) * 1000),
+            "message": f"{type(exc).__name__}: 당일 분봉 원천 확인 실패",
+        }
+    if not isinstance(rows, list) or not rows or any(not isinstance(row, dict) for row in rows):
+        rows = []
+    try:
+        bar = PriceBar(
+            current.date(),
+            float(rows[0]["open"]),
+            max(float(row["high"]) for row in rows),
+            min(float(row["low"]) for row in rows),
+            float(rows[-1]["price"]),
+            0,
+            0,
+        )
+        verified = _verified_completed_intraday_minutes(rows, bar)
+    except (ValueError, TypeError, KeyError, IndexError):
+        verified = None
+    return {
+        **result,
+        "state": "ready" if verified is not None else "invalid",
+        "points": len(rows),
+        "first_time": str(rows[0].get("trade_time") or "") if rows else None,
+        "last_time": str(rows[-1].get("trade_time") or "") if rows else None,
+        "ohlc": (
+            {"open": bar.open, "high": bar.high, "low": bar.low, "close": bar.close}
+            if verified is not None else None
+        ),
+        "latency_ms": round((monotonic() - started) * 1000),
     }
 
 

@@ -1409,6 +1409,77 @@ def _store_verified_intraday_path(
         snapshot.observed_at = stored_at
 
 
+def finalize_open_intraday_paths_for_session(
+    db: Session,
+    now: datetime,
+    chart_loader: Callable[[str], list[dict[str, Any]]],
+) -> dict[str, int]:
+    """Seal today's alerted minute paths while the current-day KRX API is valid.
+
+    The dated KIS endpoint is not available to every credential. Never infer a
+    completed path from a different trading date or from mutable daily OHLC.
+    Unsealed paths remain fail-closed for next-day replay.
+    """
+
+    local_now = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
+    result = {"pending": 0, "finalized": 0, "unverified": 0}
+    if not (
+        time(15, 40) <= local_now.time() <= time(18, 0)
+        and is_korea_market_session_date(local_now.date(), local_now)
+    ):
+        return result
+    snapshots = list(
+        db.scalars(
+            select(QuantSignalIntradayPathSnapshot).where(
+                QuantSignalIntradayPathSnapshot.trade_date == local_now.date(),
+                QuantSignalIntradayPathSnapshot.is_final.is_(False),
+            )
+        )
+    )
+    result["pending"] = len(snapshots)
+    for snapshot in snapshots:
+        daily = db.scalar(
+            select(DailyPrice).where(
+                DailyPrice.code == snapshot.stock_code,
+                DailyPrice.trade_date == snapshot.trade_date,
+            )
+        )
+        if daily is None or not _has_complete_ohlc(
+            daily.open, daily.high, daily.low, daily.close
+        ):
+            result["unverified"] += 1
+            continue
+        bar = PriceBar(
+            trade_date=daily.trade_date,
+            open=float(daily.open),
+            high=float(daily.high),
+            low=float(daily.low),
+            close=float(daily.close),
+            volume=float(daily.volume or 0),
+            trading_value=float(daily.trading_value or 0),
+        )
+        try:
+            rows = chart_loader(snapshot.stock_code)
+        except Exception:
+            result["unverified"] += 1
+            continue
+        if not isinstance(rows, list) or _verified_completed_intraday_minutes(rows, bar) is None:
+            result["unverified"] += 1
+            continue
+        try:
+            _store_verified_intraday_path(
+                db, snapshot.stock_code, snapshot.trade_date, rows,
+                observed_at=local_now, is_final=True,
+            )
+        except UnverifiedIntradayPathError:
+            result["unverified"] += 1
+            continue
+        result["finalized"] += 1
+    if result["finalized"]:
+        db.commit()
+    return result
+
+
 def _load_verified_historical_intraday_paths(
     db: Session,
     code: str,

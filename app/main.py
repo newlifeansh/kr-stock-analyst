@@ -183,6 +183,7 @@ from app.services.quant_signals import (
     UnverifiedIntradayPathError,
     enrich_market_quant_signal_sectors,
     enrich_quant_signal_payload_sector,
+    finalize_open_intraday_paths_for_session,
     load_external_market_quant_signal_feed,
     load_external_stock_quant_signal_payload,
     load_market_quant_signal_feed,
@@ -1062,6 +1063,19 @@ def _refresh_market_quant_signal_snapshot(
             )
             if repaired_rows:
                 logger.info("Market quant signal OHLC repair completed: %s rows", repaired_rows)
+            if kis_rest_provider.is_configured():
+                sealed = finalize_open_intraday_paths_for_session(
+                    db,
+                    current_time,
+                    lambda code: kis_rest_provider.fetch_intraday_chart(
+                        code,
+                        max_points=391,
+                        market_division="J",
+                        now=current_time,
+                    ),
+                )
+                if sealed["pending"]:
+                    logger.info("Market quant signal minute path finalization: %s", sealed)
             payload = _build_market_quant_signal_payload(
                 db,
                 universe_limit=universe_limit,

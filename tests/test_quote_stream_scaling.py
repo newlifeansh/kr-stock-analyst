@@ -686,6 +686,14 @@ def test_canonical_refresh_swaps_cache_before_publishing_transformed_revision(
     monkeypatch.setattr(
         main_module, "_repair_market_quant_signal_ohlc", lambda *_args, **_kwargs: 0
     )
+    monkeypatch.setattr(main_module.kis_rest_provider, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        main_module,
+        "finalize_open_intraday_paths_for_session",
+        lambda *_args: events.append("seal") or {
+            "pending": 0, "finalized": 0, "unverified": 0
+        },
+    )
     monkeypatch.setattr(
         main_module,
         "_build_market_quant_signal_payload",
@@ -720,7 +728,7 @@ def test_canonical_refresh_swaps_cache_before_publishing_transformed_revision(
     result = main_module._refresh_market_quant_signal_snapshot()
 
     assert result is stored
-    assert events == ["cache", "canonicalize", "revision"]
+    assert events == ["seal", "cache", "canonicalize", "revision"]
 
 
 def test_kis_recovery_status_only_reaches_realtime_codes(monkeypatch):

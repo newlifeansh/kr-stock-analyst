@@ -1635,6 +1635,106 @@ def test_v8_dated_minute_path_is_durable_and_finalized_before_next_day_replay():
         db.close()
 
 
+def test_v8_current_day_path_is_sealed_after_close_and_replays_without_dated_kis(monkeypatch):
+    trade_date = date(2026, 10, 7)
+    close_time = datetime(2026, 10, 7, 15, 45, tzinfo=quant_signals.KST)
+    rows = [
+        {
+            "trade_date": "20261007",
+            "trade_time": (
+                datetime(2026, 10, 7, 9, 0) + timedelta(minutes=minute)
+            ).strftime("%H%M%S"),
+            "open": 101 if minute == 0 else 105 if minute == 1 else 97,
+            "high": 105 if minute == 1 else 102 if minute == 0 else 97,
+            "low": 100 if minute == 0 else 101 if minute == 1 else 97,
+            "price": 101 if minute == 0 else 105 if minute == 1 else 97,
+            "volume": 100,
+        }
+        for minute in range(380)
+    ]
+    rows.append({
+        "trade_date": "20261007", "trade_time": "153000",
+        "open": 97, "high": 97, "low": 97, "price": 97, "volume": 100,
+    })
+    monkeypatch.setattr(
+        quant_signals, "is_korea_market_session_date", lambda *_args: True
+    )
+    db = _session()
+    try:
+        db.add(_stock())
+        db.add(DailyPrice(
+            code="005930", trade_date=trade_date,
+            open=101, high=105, low=97, close=97,
+            volume=1_000_000, trading_value=50_000_000_000,
+        ))
+        quant_signals._store_verified_intraday_path(
+            db, "005930", trade_date, rows[:2],
+            observed_at=datetime(2026, 10, 7, 9, 3, tzinfo=quant_signals.KST),
+            is_final=False,
+        )
+        db.commit()
+        calls = []
+        assert quant_signals.finalize_open_intraday_paths_for_session(
+            db, close_time.replace(hour=9), lambda code: calls.append(code) or rows
+        ) == {"pending": 0, "finalized": 0, "unverified": 0}
+        assert calls == []
+        assert quant_signals.finalize_open_intraday_paths_for_session(
+            db, close_time, lambda code: calls.append(code) or rows
+        ) == {"pending": 1, "finalized": 1, "unverified": 0}
+        assert calls == ["005930"]
+        db.expire_all()
+        snapshot = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
+        assert snapshot is not None and snapshot.is_final is True
+        assert len(quant_signals._load_verified_historical_intraday_paths(
+            db, "005930", [quant_signals.PriceBar(
+                trade_date, 101, 105, 97, 97, 1_000_000, 50_000_000_000
+            )], datetime(2026, 10, 8, 10, tzinfo=quant_signals.KST),
+            historical_chart_loader=lambda *_args: pytest.fail("dated KIS must not be called"),
+        )[trade_date]) == len(rows)
+    finally:
+        db.close()
+
+
+def test_v8_current_day_seal_fails_closed_on_mismatch_or_provider_outage(monkeypatch):
+    trade_date = date(2026, 10, 7)
+    now = datetime(2026, 10, 7, 15, 45, tzinfo=quant_signals.KST)
+    monkeypatch.setattr(
+        quant_signals, "is_korea_market_session_date", lambda *_args: True
+    )
+    db = _session()
+    try:
+        db.add(_stock())
+        db.add(DailyPrice(
+            code="005930", trade_date=trade_date,
+            open=101, high=105, low=97, close=97,
+            volume=1_000_000, trading_value=50_000_000_000,
+        ))
+        original = [{
+            "trade_date": "20261007", "trade_time": "090000",
+            "open": 101, "high": 105, "low": 100, "price": 105, "volume": 100,
+        }]
+        quant_signals._store_verified_intraday_path(
+            db, "005930", trade_date, original,
+            observed_at=datetime(2026, 10, 7, 9, 1, tzinfo=quant_signals.KST),
+            is_final=False,
+        )
+        db.commit()
+
+        def outage(_code):
+            raise RuntimeError("current-day KIS unavailable")
+
+        for loader in (outage, lambda _code: [{**original[0], "price": 104}]):
+            assert quant_signals.finalize_open_intraday_paths_for_session(
+                db, now, loader
+            ) == {"pending": 1, "finalized": 0, "unverified": 1}
+            db.expire_all()
+            snapshot = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
+            assert snapshot is not None and snapshot.is_final is False
+            assert json.loads(snapshot.payload) == original
+    finally:
+        db.close()
+
+
 def test_market_feed_isolates_dated_minute_chart_outage_and_keeps_other_signals(monkeypatch):
     db = _session()
     trade_date = date(2026, 10, 7)

@@ -8,7 +8,7 @@ import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, Literal
@@ -56,6 +56,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "DATA-KIS-008": (
         "tests.test_signal_entry_evidence.test_historical_kis_probe_requires_completed_dated_minutes",
         "tests.test_intraday_cache.test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
+        "tests.test_signal_entry_evidence.test_current_day_kis_probe_requires_completed_matching_session",
+        "tests.test_data_signal_qa.test_live_dated_kis_403_requires_verified_current_day_replay_source",
     ),
     "DATA-KIS-003": (
         "tests.test_data_signal_qa.test_completed_kis_minute_chart_contract_requires_dated_open_and_close",
@@ -283,6 +285,16 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_stock_signal_detail_fails_closed_when_published_minute_path_cannot_replay",
         "tests.test_web_push."
         "test_market_ai_push_skips_frozen_unverified_replay_at_open_and_close",
+    ),
+    "SIG-KR-INTRADAY-SEAL-001": (
+        "tests.test_quant_signals."
+        "test_v8_current_day_path_is_sealed_after_close_and_replays_without_dated_kis",
+        "tests.test_quant_signals."
+        "test_v8_current_day_seal_fails_closed_on_mismatch_or_provider_outage",
+        "tests.test_quote_stream_scaling."
+        "test_canonical_refresh_swaps_cache_before_publishing_transformed_revision",
+        "tests.test_signal_entry_evidence."
+        "test_current_day_kis_probe_requires_completed_matching_session",
     ),
     "SIG-UI-030": (
         "tests.test_domestic_market_scope."
@@ -3164,7 +3176,7 @@ def _live_checks(
 
         def dated_kis_chart_contract() -> dict[str, Any]:
             probe = quality.get("api_probe") or {}
-            item = next(
+            dated = next(
                 (
                     item for item in probe.get("items") or []
                     if isinstance(item, dict)
@@ -3172,28 +3184,112 @@ def _live_checks(
                 ),
                 None,
             )
-            _assert(isinstance(item, dict), "KIS 날짜별 분봉 실연동 근거가 없습니다.")
+            _assert(isinstance(dated, dict), "KIS 날짜별 분봉 실연동 근거가 없습니다.")
+            if (
+                dated.get("state") == "ready"
+                and int(dated.get("points") or 0) > 0
+                and str(dated.get("first_time") or "") <= "090200"
+                and dated.get("last_time") == "153000"
+                and bool(dated.get("trade_date"))
+            ):
+                return {
+                    "replay_source": "dated_kis",
+                    "trade_date": dated["trade_date"],
+                    "points": dated["points"],
+                    "historical_kis_state": dated["state"],
+                }
+            same_day = next(
+                (
+                    item for item in probe.get("items") or []
+                    if isinstance(item, dict)
+                    and item.get("key") == "kis_current_day_intraday"
+                ),
+                None,
+            )
+            seal = quality.get("intraday_path_seal") or {}
             _assert(
-                item.get("state") == "ready"
-                and int(item.get("points") or 0) > 0
-                and str(item.get("first_time") or "") <= "090200"
-                and item.get("last_time") == "153000"
-                and bool(item.get("trade_date")),
-                "KIS 과거 완료 거래일 분봉이 검증되지 않았습니다.",
-                probe=item,
+                isinstance(same_day, dict)
+                and same_day.get("state") == "ready"
+                and same_day.get("trade_date") == seal.get("trade_date")
+                and int(seal.get("pending") or 0) == 0
+                and int(seal.get("version_mismatch") or 0) == 0,
+                "과거 KIS 분봉이 실패했고 당일 봉인 대체 근거도 검증되지 않았습니다.",
+                historical_kis=dated,
+                current_day_kis=same_day,
+                seal=seal,
             )
             return {
-                "trade_date": item["trade_date"],
-                "points": item["points"],
-                "first_time": item["first_time"],
-                "last_time": item["last_time"],
-                "source": item["source"],
+                "replay_source": "sealed_current_day",
+                "trade_date": same_day["trade_date"],
+                "points": same_day["points"],
+                "historical_kis_state": dated.get("state"),
+                "historical_kis_http_status": dated.get("http_status"),
+                "pending_paths": seal.get("pending"),
+                "finalized_paths": seal.get("finalized"),
             }
 
         collector.check(
             "DATA-KIS-008",
             dated_kis_chart_contract,
-            pass_message="스테이징 서버의 KIS 과거 날짜 분봉 원천 조회를 확인했습니다.",
+            pass_message="스테이징 서버의 날짜별 분봉 또는 장마감 당일 봉인 대체 경로를 확인했습니다.",
+        )
+
+        def current_day_seal_contract() -> dict[str, Any]:
+            seal = quality.get("intraday_path_seal") or {}
+            probe = quality.get("api_probe") or {}
+            item = next(
+                (
+                    row for row in probe.get("items") or []
+                    if isinstance(row, dict)
+                    and row.get("key") == "kis_current_day_intraday"
+                ),
+                None,
+            )
+            _assert(isinstance(item, dict), "당일 KIS 장마감 분봉 실연동 근거가 없습니다.")
+            _assert(
+                item.get("state") == "ready"
+                and item.get("trade_date") == seal.get("trade_date")
+                and int(item.get("points") or 0) > 0
+                and str(item.get("first_time") or "") <= "090200"
+                and item.get("last_time") == "153000",
+                "당일 KIS 장마감 완료 분봉이 검증되지 않았습니다.",
+                probe=item,
+            )
+            _assert(
+                int(seal.get("pending") or 0) == 0
+                and int(seal.get("version_mismatch") or 0) == 0,
+                "장마감 미봉인 또는 다른 버전의 장중 매매 근거가 남아 있습니다.",
+                seal=seal,
+            )
+            prices, _meta = api.get(
+                "/stocks/005930/prices",
+                from_date=item["trade_date"],
+                to_date=item["trade_date"],
+                limit=1,
+            )
+            _assert(isinstance(prices, list) and prices, "장마감 005930 확정 일봉이 없습니다.")
+            price = prices[0]
+            ohlc = item.get("ohlc") or {}
+            _assert(
+                all(
+                    float(price.get(field) or 0) == float(ohlc.get(field) or -1)
+                    for field in ("open", "high", "low", "close")
+                ),
+                "당일 KIS 분봉과 확정 일봉의 OHLC가 다릅니다.",
+                price_date=price.get("trade_date"),
+                probe_date=item["trade_date"],
+            )
+            return {
+                "trade_date": item["trade_date"],
+                "points": item["points"],
+                "finalized_paths": seal.get("finalized"),
+                "pending_paths": seal.get("pending"),
+            }
+
+        collector.check(
+            "SIG-KR-INTRADAY-SEAL-001",
+            current_day_seal_contract,
+            pass_message="당일 KIS 장마감 분봉·일봉·저장 경로 상태를 확인했습니다.",
         )
 
         def market_feed_contract() -> dict[str, Any]:
@@ -5877,15 +5973,37 @@ def _direct_kis_checks(collector: ResultCollector) -> None:
     )
 
     def market_data_contract() -> dict[str, Any]:
-        from app.services.market_calendar import latest_completed_korea_market_session_date
+        from app.services.market_calendar import (
+            is_korea_market_session_date,
+            latest_completed_korea_market_session_date,
+        )
 
         indices = provider.fetch_market_indices()
         intraday = provider.fetch_intraday_chart("005930", max_points=5)
         completed_date = latest_completed_korea_market_session_date()
         _assert(completed_date is not None, "완료된 KRX 거래일을 확인할 수 없습니다.")
-        historical = provider.fetch_historical_intraday_chart(
-            "005930", completed_date, max_points=390
-        )
+        try:
+            historical = provider.fetch_historical_intraday_chart(
+                "005930", completed_date, max_points=390
+            )
+        except Exception as exc:
+            response = getattr(exc, "response", None)
+            now = datetime.now(KST)
+            _assert(
+                getattr(response, "status_code", None) == 403
+                and now.time() >= time(15, 40)
+                and is_korea_market_session_date(now.date(), now),
+                "KIS 날짜별 분봉 실패 후 당일 장마감 대체 경로를 확인할 수 없습니다.",
+            )
+            historical = provider.fetch_intraday_chart(
+                "005930", max_points=391, market_division="J", now=now
+            )
+            completed_date = now.date()
+            replay_source = "current_day_afterclose"
+            dated_http_status = 403
+        else:
+            replay_source = "dated_kis"
+            dated_http_status = None
         orderbook = provider._get(
             "/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
             "FHKST01010200",
@@ -5906,6 +6024,8 @@ def _direct_kis_checks(collector: ResultCollector) -> None:
             "indices": [item.get("code") for item in indices],
             "intraday_points": len(intraday),
             **historical_evidence,
+            "replay_source": replay_source,
+            "dated_http_status": dated_http_status,
             "orderbook_present": True,
         }
 
