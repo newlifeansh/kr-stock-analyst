@@ -226,6 +226,16 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app."
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
+    "SIG-PUSH-INTRADAY-001": (
+        "tests.test_quant_signals."
+        "test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
+        "tests.test_quant_signals."
+        "test_market_feed_only_projects_fresh_kis_intraday_execution_as_verified",
+        "tests.test_web_push."
+        "test_market_ai_confirmed_intraday_push_requires_verified_v8_events_and_reuses_close_key",
+        "tests.test_web_push."
+        "test_market_ai_confirmed_intraday_push_fails_closed",
+    ),
     "SIG-UI-030": (
         "tests.test_domestic_market_scope."
         "test_domestic_market_is_the_default_product_boundary",
@@ -3183,6 +3193,73 @@ def _live_checks(
             pass_message="시장 시그널 버전·상태·중복·예비정보 계약을 확인했습니다.",
         )
         if context.get("market_signals"):
+            def intraday_market_push_contract() -> dict[str, Any]:
+                feed, meta = api.get(
+                    "/market/quant-signals",
+                    universe_limit=100,
+                    limit=0,
+                    recent_days=30,
+                )
+                _assert(
+                    feed.get("status") == "ready"
+                    and feed.get("execution_model")
+                    == "close-confirmed-intraday-trigger-v1",
+                    "장중 알림 원천 피드가 v8 준비 상태가 아닙니다.",
+                    status=feed.get("status"),
+                    execution_model=feed.get("execution_model"),
+                    **meta,
+                )
+                generated_at = _stream_timestamp(
+                    feed.get("snapshot_generated_at"),
+                    "market-signals.snapshot_generated_at",
+                )
+                from app.services.market_calendar import is_korea_market_session_date
+
+                observed_now = datetime.now(KST)
+                if (
+                    is_korea_market_session_date(observed_now.date(), observed_now)
+                    and (9, 0) <= (observed_now.hour, observed_now.minute) < (15, 40)
+                ):
+                    snapshot_age_seconds = (
+                        observed_now - generated_at.astimezone(KST)
+                    ).total_seconds()
+                    _assert(
+                        -60 <= snapshot_age_seconds <= 600,
+                        "장중 알림 원천 스냅샷이 10분을 초과해 오래됐습니다.",
+                        snapshot_age_seconds=snapshot_age_seconds,
+                    )
+                items = feed.get("items")
+                _assert(isinstance(items, list), "시장 시그널 전체 항목이 배열이 아닙니다.")
+                verified = [
+                    item for item in items
+                    if isinstance(item, dict)
+                    and item.get("intraday_execution_verified") is True
+                ]
+                invalid = [
+                    str(item.get("code") or "")
+                    for item in verified
+                    if item.get("status") != "confirmed"
+                    or item.get("execution_model") != feed.get("execution_model")
+                    or str(item.get("execution_date") or "")
+                    != generated_at.astimezone(KST).date().isoformat()
+                ]
+                _assert(
+                    not invalid,
+                    "검증된 장중 알림 항목의 버전·날짜·상태가 다릅니다.",
+                    invalid_codes=invalid,
+                )
+                return {
+                    "snapshot_generated_at": generated_at.isoformat(),
+                    "total_events": len(items),
+                    "verified_intraday_events": len(verified),
+                    "delivery_observed": False,
+                }
+
+            collector.check(
+                "SIG-PUSH-INTRADAY-001",
+                intraday_market_push_contract,
+                pass_message="장중 알림 원천의 전략·스냅샷·이벤트 계약을 확인했습니다. 실제 전송은 거래 시간에 별도 확인이 필요합니다.",
+            )
             collector.check(
                 "SIG-LIFECYCLE-003",
                 market_feed_contract,

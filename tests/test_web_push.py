@@ -966,6 +966,100 @@ def test_market_ai_signal_candidates_are_built_from_saved_market_snapshot(monkey
         db.close()
 
 
+def test_market_ai_confirmed_intraday_push_requires_verified_v8_events_and_reuses_close_key(monkeypatch):
+    db = _session()
+    try:
+        monkeypatch.setattr(web_push, "is_korea_market_session_date", lambda *_args: True)
+        monkeypatch.setattr(web_push, "is_korea_daily_signal_window", lambda now: now.hour >= 15)
+        monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda now: now.hour < 15)
+        snapshot = {
+            "status": "ready",
+            "execution_model": web_push.EXECUTION_MODEL,
+            "snapshot_generated_at": "2026-10-08T01:00:00+00:00",
+            "items": [
+                {
+                    "code": code,
+                    "name": name,
+                    "side": side,
+                    "event_side": event_side,
+                    "signal": action,
+                    "execution_date": "2026-10-08",
+                    "status": "confirmed",
+                    "execution_model": web_push.EXECUTION_MODEL,
+                    "intraday_execution_verified": True,
+                }
+                for code, name, side, event_side, action in [
+                    ("005930", "삼성전자", "buy", "buy", "장중 돌파 진입"),
+                    ("000660", "SK하이닉스", "sell", "partial_sell", "1차 수익확정"),
+                    ("035420", "NAVER", "sell", "sell", "전량 매도"),
+                ]
+            ],
+        }
+        monkeypatch.setattr(
+            web_push, "load_market_quant_signal_snapshot", lambda *_args, **_kwargs: snapshot
+        )
+        runtime = web_push.WebPushRuntime(_settings())
+        intraday = runtime._market_ai_signal_candidates(db, datetime(2026, 10, 8, 10, 1))
+
+        assert [candidate.event_key for candidate in intraday] == [
+            "market-ai-signal:005930:buy:2026-10-08",
+            "market-ai-signal:000660:partial_sell:2026-10-08",
+            "market-ai-signal:035420:sell:2026-10-08",
+        ]
+        assert all("10:01 장중" in candidate.body for candidate in intraday)
+        assert "1차 수익확정" in intraday[1].title
+        close = runtime._market_ai_signal_candidates(db, datetime(2026, 10, 8, 16, 0))
+        assert [candidate.event_key for candidate in close] == [
+            candidate.event_key for candidate in intraday
+        ]
+    finally:
+        db.close()
+
+
+def test_market_ai_confirmed_intraday_push_fails_closed(monkeypatch):
+    db = _session()
+    try:
+        monkeypatch.setattr(web_push, "is_korea_market_session_date", lambda *_args: True)
+        monkeypatch.setattr(web_push, "is_korea_daily_signal_window", lambda _now: False)
+        monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda _now: True)
+        for override, item_override in [
+            ({"status": "preparing"}, {}),
+            ({"execution_model": "close-confirmed-next-open"}, {}),
+            ({"snapshot_generated_at": "2026-10-08T00:49:00+00:00"}, {}),
+            ({"snapshot_generated_at": "2026-10-08T01:02:01+00:00"}, {}),
+            ({"snapshot_generated_at": None}, {}),
+            ({}, {"intraday_execution_verified": False}),
+            ({}, {"execution_model": "close-confirmed-next-open"}),
+            ({}, {"status": "preliminary"}),
+            ({}, {"execution_date": "2026-10-07"}),
+        ]:
+            snapshot = {
+                "status": "ready",
+                "execution_model": web_push.EXECUTION_MODEL,
+                "snapshot_generated_at": "2026-10-08T01:00:00+00:00",
+                "items": [{
+                    "code": "005930",
+                    "name": "삼성전자",
+                    "side": "sell",
+                    "event_side": "partial_sell",
+                    "execution_date": "2026-10-08",
+                    "status": "confirmed",
+                    "execution_model": web_push.EXECUTION_MODEL,
+                    "intraday_execution_verified": True,
+                    **item_override,
+                }],
+                **override,
+            }
+            monkeypatch.setattr(
+                web_push, "load_market_quant_signal_snapshot", lambda *_args, **_kwargs: snapshot
+            )
+            assert web_push.WebPushRuntime(_settings())._market_ai_signal_candidates(
+                db, datetime(2026, 10, 8, 10, 1)
+            ) == []
+    finally:
+        db.close()
+
+
 def test_market_ai_signal_candidates_use_canonical_source_when_configured(monkeypatch):
     db = _session()
     try:

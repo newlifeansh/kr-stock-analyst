@@ -1617,6 +1617,11 @@ def _simulate(
                             if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                             else "close-confirmed-next-open"
                         ),
+                        **(
+                            {"intraday_execution_verified": forming_bar_date == bar.trade_date}
+                            if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                            else {}
+                        ),
                     }
                 )
             elif active_pending["side"] == "partial_sell" and position and execution_allowed:
@@ -1693,6 +1698,14 @@ def _simulate(
                         "sold_percent": _decimal(sold_fraction * 100.0),
                         "position_percent": _decimal(position["remaining_fraction"] * 100.0),
                         "state_after": "partially_exited",
+                        **(
+                            {
+                                "execution_model": EXECUTION_MODEL,
+                                "intraday_execution_verified": forming_bar_date == bar.trade_date,
+                            }
+                            if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                            else {}
+                        ),
                     }
                 )
             elif active_pending["side"] == "sell" and position and execution_allowed:
@@ -1757,6 +1770,14 @@ def _simulate(
                         "profit_stage": int(position.get("profit_stage") or 0),
                         "position_percent": _decimal(0.0),
                         "state_after": "exited",
+                        **(
+                            {
+                                "execution_model": EXECUTION_MODEL,
+                                "intraday_execution_verified": forming_bar_date == bar.trade_date,
+                            }
+                            if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                            else {}
+                        ),
                     }
                 )
                 shares = 0.0
@@ -1846,6 +1867,7 @@ def _simulate(
                             ),
                             "state_after": "partially_exited",
                             "execution_model": EXECUTION_MODEL,
+                            "intraday_execution_verified": forming_bar_date == bar.trade_date,
                         }
                     )
                     continue
@@ -1915,6 +1937,7 @@ def _simulate(
                         "position_percent": _decimal(0.0),
                         "state_after": "exited",
                         "execution_model": EXECUTION_MODEL,
+                        "intraday_execution_verified": forming_bar_date == bar.trade_date,
                     }
                 )
                 shares = 0.0
@@ -2530,6 +2553,30 @@ def _live_execution_bars(
     if len(observed) != len(confirmed) + 1 or observed[-1].trade_date != live_date:
         return confirmed, False
     return observed, True
+
+
+def _fresh_kis_intraday_quote_for_market_alert(
+    quote: dict[str, Any], now: datetime
+) -> bool:
+    """A recently generated feed cannot make an old stored quote alert-worthy."""
+
+    current = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
+    observed_at = quote.get("observed_at")
+    if isinstance(observed_at, str):
+        try:
+            observed_at = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+    if not isinstance(observed_at, datetime) or observed_at.tzinfo is None:
+        return False
+    age_seconds = (current - observed_at.astimezone(KST)).total_seconds()
+    return bool(
+        quote.get("quote_source") == "kis_rest"
+        and quote.get("market_venue") == "KRX"
+        and quote.get("market_division") == "J"
+        and _live_quote_trade_date(quote) == current.date()
+        and -SNAPSHOT_MAX_FUTURE_SKEW_SECONDS <= age_seconds <= 180
+    )
 
 
 def _keyword_score(text: str) -> int:
@@ -5015,6 +5062,11 @@ def load_market_quant_signal_feed(
                 "profit_stage": event.get("profit_stage"),
                 "sold_percent": event.get("sold_percent"),
                 "state_after": event.get("state_after"),
+                "execution_model": event.get("execution_model"),
+                "intraday_execution_verified": (
+                    event.get("intraday_execution_verified") is True
+                    and _fresh_kis_intraday_quote_for_market_alert(live_quote, current_time)
+                ),
                 "status": "confirmed",
                 "is_preliminary": False,
                 "public_reasons": public_reasons,

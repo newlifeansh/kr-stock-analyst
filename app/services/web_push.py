@@ -37,7 +37,9 @@ from app.services.market_calendar import (
 )
 from app.services.recommendations import build_recommendations
 from app.services.quant_signals import (
+    EXECUTION_MODEL,
     MARKET_SIGNAL_UNIVERSE_LIMIT,
+    SNAPSHOT_MAX_FUTURE_SKEW_SECONDS,
     load_external_market_quant_signal_feed,
     load_market_quant_signal_snapshot,
     load_quant_signal_payload,
@@ -602,6 +604,29 @@ def _ai_signal_candidate(
 
 def _stock_url(name: str) -> str:
     return f"/dashboard/{quote(name, safe='')}"
+
+
+def _fresh_v8_intraday_market_snapshot(snapshot: dict[str, object], now: datetime) -> bool:
+    """Allow confirmed regular-session pushes only from a recent verified v8 feed."""
+
+    current = now.astimezone(KST) if now.tzinfo else now.replace(tzinfo=KST)
+    if not (
+        is_korea_market_session_date(current.date(), current)
+        and time(9, 0) <= current.time() < time(15, 40)
+        and snapshot.get("status") == "ready"
+        and snapshot.get("execution_model") == EXECUTION_MODEL
+    ):
+        return False
+    try:
+        generated_at = datetime.fromisoformat(
+            str(snapshot.get("snapshot_generated_at") or "").replace("Z", "+00:00")
+        )
+    except ValueError:
+        return False
+    if generated_at.tzinfo is None or generated_at.utcoffset() is None:
+        return False
+    age_seconds = (current - generated_at.astimezone(KST)).total_seconds()
+    return -SNAPSHOT_MAX_FUTURE_SKEW_SECONDS <= age_seconds <= 600
 
 
 def _us_stock_url(code: str) -> str:
@@ -1412,10 +1437,19 @@ class WebPushRuntime:
         db: Session,
         now: Optional[datetime] = None,
     ) -> list[NotificationCandidate]:
-        current = now or datetime.now(KST)
+        observed_now = now or datetime.now(KST)
+        current = (
+            observed_now.astimezone(KST)
+            if observed_now.tzinfo
+            else observed_now.replace(tzinfo=KST)
+        )
         confirmed_window = is_korea_daily_signal_window(current)
         preliminary_window = not confirmed_window and is_korea_regular_market_session(current)
-        if not confirmed_window and not preliminary_window:
+        intraday_window = (
+            is_korea_market_session_date(current.date(), current)
+            and time(9, 0) <= current.time() < time(15, 40)
+        )
+        if not confirmed_window and not preliminary_window and not intraday_window:
             return []
         current_date = current.date()
         snapshot = load_external_market_quant_signal_feed(
@@ -1435,6 +1469,9 @@ class WebPushRuntime:
         if not snapshot:
             return []
         snapshot = apply_market_signal_reconciliations(snapshot, now=current) or snapshot
+        intraday_confirmed_ready = intraday_window and _fresh_v8_intraday_market_snapshot(
+            snapshot, current
+        )
         candidates: list[NotificationCandidate] = []
         for item in snapshot.get("items") or []:
             if not isinstance(item, dict):
@@ -1468,7 +1505,12 @@ class WebPushRuntime:
                     )
                 )
                 continue
-            if not confirmed_window:
+            if not confirmed_window and not (
+                intraday_confirmed_ready
+                and item.get("status") == "confirmed"
+                and item.get("intraday_execution_verified") is True
+                and item.get("execution_model") == EXECUTION_MODEL
+            ):
                 continue
             execution_date = str(item.get("execution_date") or "").strip()
             event_side = str(item.get("event_side") or side).strip()
@@ -1497,7 +1539,11 @@ class WebPushRuntime:
                     event_key=f"market-ai-signal:{code}:{event_side}:{execution_date}",
                     kind="market_ai_signal",
                     title=_signal_notification_title(name, action, notification_state),
-                    body=f"{execution_date} {action} 신호예요. 종목 상세에서 가격과 기준을 확인하세요.",
+                    body=(
+                        f"{current.strftime('%H:%M')} 장중 {action} 신호예요. 종목 상세에서 가격과 기준을 확인하세요."
+                        if not confirmed_window
+                        else f"{execution_date} {action} 신호예요. 종목 상세에서 가격과 기준을 확인하세요."
+                    ),
                     url=_stock_url(name),
                     tag=f"market-ai-signal-{code}",
                 )

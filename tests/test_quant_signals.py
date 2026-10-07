@@ -446,6 +446,7 @@ def test_verified_live_krx_bar_executes_previous_close_buy_during_session(monkey
         live_date,
         100,
     )
+    assert "intraday_execution_verified" not in buy
     assert payload["performance"]["period_end"] == bars[-1].trade_date
 
 
@@ -535,13 +536,42 @@ def test_v8_verified_live_krx_bar_confirms_three_percent_half_sale(monkeypatch):
         if event["side"] == "partial_sell" and event["execution_date"] == live_date
     )
     assert buy["execution_date"] == date(2026, 10, 6)
+    assert buy["intraday_execution_verified"] is False
     assert partial["signal_date"] == live_date
+    assert partial["execution_model"] == quant_signals.EXECUTION_MODEL
+    assert partial["intraday_execution_verified"] is True
     assert partial["price"] == 105
     assert partial["price"] >= buy["price"] * 1.03
     assert partial["sold_percent"] == Decimal("50.00")
     assert partial["position_percent"] == Decimal("50.00")
     assert payload["current"]["action"] == "partially_exited"
     assert payload["performance"]["period_end"] == bars[-1].trade_date
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected"),
+    [
+        ({}, True),
+        ({"observed_at": "2026-10-08T00:56:59+00:00"}, False),
+        ({"observed_at": None}, False),
+        ({"quote_source": "stored_daily_price"}, False),
+        ({"market_venue": "NXT"}, False),
+        ({"market_division": "NX"}, False),
+        ({"trade_date": date(2026, 10, 7)}, False),
+    ],
+)
+def test_market_intraday_alert_requires_fresh_kis_krx_quote(changes, expected):
+    quote = {
+        "quote_source": "kis_rest",
+        "market_venue": "KRX",
+        "market_division": "J",
+        "trade_date": date(2026, 10, 8),
+        "observed_at": "2026-10-08T01:00:00+00:00",
+        **changes,
+    }
+    assert quant_signals._fresh_kis_intraday_quote_for_market_alert(
+        quote, datetime(2026, 10, 8, 10, 0)
+    ) is expected
 
 
 @pytest.mark.parametrize(
@@ -1171,6 +1201,13 @@ def test_v8_simulation_executes_prior_close_signal_at_next_session_breakout(monk
     assert buy["price"] == 101
     assert buy["label"] == "장중 돌파 진입"
     assert buy["execution_model"] == quant_signals.EXECUTION_MODEL
+    assert buy["intraday_execution_verified"] is False
+
+    live_result = quant_signals._simulate(
+        bars[:67], indicators[:67], forming_bar_date=date(2026, 10, 6)
+    )
+    live_buy = next(event for event in live_result["events"] if event["side"] == "buy")
+    assert live_buy["intraday_execution_verified"] is True
 
 
 def test_v741_chase_veto_preserves_meritz_history_and_blocks_new_overheated_entries():
@@ -3128,11 +3165,61 @@ def test_market_quant_signal_feed_returns_all_recent_transitions_and_normalizes_
     assert [item["state_after"] for item in payload["items"]] == ["holding", "partially_exited", "exited"]
     assert [item["entry_price"] for item in payload["items"]] == [100_000, 95_000, 88_000]
     assert payload["items"][0]["display_return_rate"] == Decimal("4.25")
+    assert all(item["intraday_execution_verified"] is False for item in payload["items"])
     assert payload["items"][0]["display_return_kind"] == "open_position"
     assert payload["items"][0]["is_current_holding"] is True
     assert payload["items"][0]["current"]["unrealized_return"] == Decimal("4.25")
     assert [item["investment_sector_label"] for item in payload["items"]] == ["반도체", "소비재", "반도체"]
     db.close()
+
+
+def test_market_feed_only_projects_fresh_kis_intraday_execution_as_verified(monkeypatch):
+    db = _session()
+    try:
+        db.add(_stock("000001", "대형주"))
+        db.add(DailyPrice(
+            code="000001", trade_date=date(2026, 10, 7), close=100_000,
+            market_cap=300_000_000,
+        ))
+        db.commit()
+        monkeypatch.setattr(
+            quant_signals, "build_quant_signal_payload",
+            lambda *_args, **_kwargs: {
+                "events": [{
+                    "signal_date": date(2026, 10, 7),
+                    "execution_date": date(2026, 10, 8),
+                    "side": "buy",
+                    "price": 101_000,
+                    "entry_price": 101_000,
+                    "execution_model": quant_signals.EXECUTION_MODEL,
+                    "intraday_execution_verified": True,
+                }],
+                "current": None,
+            },
+        )
+        live_quote = {
+            "quote_source": "kis_rest",
+            "market_venue": "KRX",
+            "market_division": "J",
+            "trade_date": date(2026, 10, 8),
+            "observed_at": "2026-10-08T01:00:00+00:00",
+        }
+
+        def feed(quote):
+            return load_market_quant_signal_feed(
+                db, universe_limit=1, limit=0, recent_days=30,
+                live_quotes={"000001": quote}, now=datetime(2026, 10, 8, 10, 0),
+            )
+
+        assert feed(live_quote)["items"][0]["intraday_execution_verified"] is True
+        assert feed({**live_quote, "observed_at": "2026-10-08T00:50:00+00:00"})[
+            "items"
+        ][0]["intraday_execution_verified"] is False
+        assert feed({**live_quote, "quote_source": "stored_daily_price"})["items"][0][
+            "intraday_execution_verified"
+        ] is False
+    finally:
+        db.close()
 
 
 def test_signal_sector_enrichment_falls_back_to_company_snapshot():
