@@ -128,12 +128,12 @@
       "domain": "KIS 연동",
       "priority": "P0",
       "modes": ["gate", "live"],
-      "automation": "pytest parser fixture + 실제 read-only REST probe",
+      "automation": "pytest parser·과거 분봉 페이지네이션 fixture + 실제 당일·완료 거래일 read-only REST probe",
       "preconditions": ["KOSPI·KOSDAQ과 005930을 조회한다."],
-      "inputs": {"indices": "0001,1001", "code": "005930"},
-      "steps": ["지수 현재값, 분봉 정렬·중복, 10단계 호가 형식을 확인한다."],
-      "expected": ["값이 양수이고 시각이 오름차순이며 호가 단계가 유효하다."],
-      "failure_criteria": ["역순·중복·음수 가격·스키마 누락이 발생한다."]
+      "inputs": {"indices": "0001,1001", "code": "005930", "historical_date": "latest_completed_krx_session"},
+      "steps": ["지수 현재값, 당일 분봉 정렬·중복, 10단계 호가 형식을 확인한다.", "실제 KIS 날짜별 분봉을 완료 거래일로 조회해 첫 시각·15:30 종가경매·날짜·가격·중복 없는 정렬을 확인한다."],
+      "expected": ["값이 양수이고 시각이 오름차순이며 호가 단계가 유효하다.", "완료 거래일의 날짜별 분봉이 09:02 이전부터 15:30까지 유효한 가격으로 정렬된다."],
+      "failure_criteria": ["역순·중복·음수 가격·스키마 누락이 발생한다.", "과거 날짜 분봉이 비거나 다른 날짜를 반환하거나 15:30 종가경매가 누락된다."]
     },
     {
       "id": "DATA-KIS-004",

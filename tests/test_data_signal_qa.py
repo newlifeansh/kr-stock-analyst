@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -24,6 +24,7 @@ from app.qa.runner import (
     PYTEST_QA_CASE_TESTS,
     QaFailure,
     ResultCollector,
+    _completed_kis_minute_chart_evidence,
     _public_websocket_check,
     _probe_mobile_external_url,
     _resolve_public_quote_stream_url,
@@ -33,6 +34,36 @@ from app.qa.runner import (
     redact,
     run_data_signal_qa,
 )
+
+
+@pytest.mark.qa_gate
+def test_completed_kis_minute_chart_contract_requires_dated_open_and_close() -> None:
+    completed = date(2026, 10, 7)
+    rows = [
+        {
+            "trade_date": "20261007",
+            "trade_time": minute,
+            "open": 100,
+            "high": 101,
+            "low": 99,
+            "price": 100,
+        }
+        for minute in ("090000", "090100", "153000")
+    ]
+    assert _completed_kis_minute_chart_evidence(rows, completed) == {
+        "historical_date": "2026-10-07",
+        "historical_points": 3,
+    }
+    for invalid in (
+        [],
+        rows[:-1],
+        [rows[0], rows[0], rows[-1]],
+        [rows[-1], *rows[:-1]],
+        [{**rows[0], "trade_date": "20261006"}, *rows[1:]],
+        [{**rows[0], "high": 0}, *rows[1:]],
+    ):
+        with pytest.raises(QaFailure):
+            _completed_kis_minute_chart_evidence(invalid, completed)
 
 
 @pytest.mark.qa_gate
@@ -1549,6 +1580,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "DATA-COM-006",
         "DATA-COM-007",
         "DATA-DART-001",
+        "DATA-KIS-003",
         "DATA-CALENDAR-CONTENT-007",
         "DATA-FUND-RESEARCH-002",
         "DATA-FUND-RESEARCH-003",

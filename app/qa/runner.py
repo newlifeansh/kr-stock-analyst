@@ -53,6 +53,10 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-KIS-003": (
+        "tests.test_data_signal_qa.test_completed_kis_minute_chart_contract_requires_dated_open_and_close",
+        "tests.test_intraday_cache.test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
+    ),
     "DATA-CALENDAR-CONTENT-007": (
         "tests.test_news.test_current_mobile_news_api_normalizes_and_deduplicates_rows",
         "tests.test_news.test_current_mobile_stock_news_api_accepts_minute_precision",
@@ -5759,6 +5763,35 @@ def _public_websocket_check(
         )
 
 
+def _completed_kis_minute_chart_evidence(
+    historical: list[dict[str, Any]], completed_date: date
+) -> dict[str, Any]:
+    historical_times = [str(row.get("trade_time") or "") for row in historical]
+    _assert(
+        bool(historical)
+        and historical_times == sorted(set(historical_times))
+        and historical_times[0] <= "090200"
+        and historical_times[-1] == "153000"
+        and all(
+            str(row.get("trade_date") or "") == completed_date.strftime("%Y%m%d")
+            and all(
+                float(row.get(key) or 0) > 0
+                for key in ("open", "high", "low", "price")
+            )
+            for row in historical
+        ),
+        "KIS 과거 날짜 분봉이 완료 세션의 정렬·종가경매 계약을 만족하지 않습니다.",
+        date=completed_date.isoformat(),
+        count=len(historical),
+        first_time=historical_times[0] if historical_times else None,
+        last_time=historical_times[-1] if historical_times else None,
+    )
+    return {
+        "historical_date": completed_date.isoformat(),
+        "historical_points": len(historical),
+    }
+
+
 def _direct_kis_checks(collector: ResultCollector) -> None:
     from app.collectors.briefing import KisRestBriefingProvider
     from app.config import get_settings
@@ -5804,8 +5837,15 @@ def _direct_kis_checks(collector: ResultCollector) -> None:
     )
 
     def market_data_contract() -> dict[str, Any]:
+        from app.services.market_calendar import latest_completed_korea_market_session_date
+
         indices = provider.fetch_market_indices()
         intraday = provider.fetch_intraday_chart("005930", max_points=5)
+        completed_date = latest_completed_korea_market_session_date()
+        _assert(completed_date is not None, "완료된 KRX 거래일을 확인할 수 없습니다.")
+        historical = provider.fetch_historical_intraday_chart(
+            "005930", completed_date, max_points=390
+        )
         orderbook = provider._get(
             "/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
             "FHKST01010200",
@@ -5815,6 +5855,9 @@ def _direct_kis_checks(collector: ResultCollector) -> None:
             len(indices) == 2, "KIS 지수 2종이 완성되지 않았습니다.", count=len(indices)
         )
         _assert(isinstance(intraday, list), "KIS 분봉 응답이 배열이 아닙니다.")
+        historical_evidence = _completed_kis_minute_chart_evidence(
+            historical, completed_date
+        )
         _assert(
             bool(orderbook.get("output1") or orderbook.get("output")),
             "KIS 호가 응답이 비어 있습니다.",
@@ -5822,6 +5865,7 @@ def _direct_kis_checks(collector: ResultCollector) -> None:
         return {
             "indices": [item.get("code") for item in indices],
             "intraday_points": len(intraday),
+            **historical_evidence,
             "orderbook_present": True,
         }
 
