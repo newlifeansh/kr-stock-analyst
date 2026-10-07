@@ -63,11 +63,13 @@ from app.repository import (
     briefing_metrics,
     briefing_movers,
     briefing_quotes,
+    finish_ingestion,
     latest_briefing_snapshot,
     latest_prices_by_codes,
     latest_research_reports,
     list_briefing_snapshots,
     list_stocks,
+    start_ingestion,
 )
 from app.schemas import (
     BriefingQuoteOut,
@@ -1154,7 +1156,32 @@ def _refresh_entry_filter_shadow_snapshot() -> Optional[dict[str, Any]]:
         return None
     try:
         with SessionLocal() as db:
-            return refresh_entry_filter_shadow_snapshot(db)
+            run = start_ingestion(db, "shadow", "entry_filter_fixed_cohort_forward")
+            try:
+                result = refresh_entry_filter_shadow_snapshot(db)
+                report = result.get("report") if isinstance(result, dict) else None
+                current = _shadow_report_is_current(report)
+                message = json.dumps(
+                    {
+                        "status": result.get("status") if isinstance(result, dict) else "failed",
+                        "symbols_evaluated": int((report or {}).get("symbols_evaluated") or 0),
+                        "history_backfill": (report or {}).get("history_backfill"),
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                )
+                finish_ingestion(
+                    db,
+                    run,
+                    "success" if current else "failed",
+                    int((report or {}).get("symbols_evaluated") or 0),
+                    message,
+                )
+                return result
+            except Exception as exc:
+                db.rollback()
+                finish_ingestion(db, run, "failed", 0, str(exc))
+                raise
     except Exception:  # pragma: no cover - operational safeguard
         logger.exception("Entry filter shadow backtest refresh failed")
         return None
