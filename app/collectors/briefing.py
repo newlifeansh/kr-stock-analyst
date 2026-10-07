@@ -28,6 +28,7 @@ from app.models import (
 )
 from app.collectors.research import latest_report_events
 from app.repository import finish_ingestion, start_ingestion, upsert_many
+from app.services.market_calendar import is_korea_market_session_date
 
 KST = ZoneInfo("Asia/Seoul")
 KIS_TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
@@ -135,7 +136,7 @@ def current_market_status(now: Optional[datetime] = None) -> str:
         now = now.replace(tzinfo=KST)
     local = now.astimezone(KST)
 
-    if local.weekday() >= 5:
+    if not is_korea_market_session_date(local.date(), local):
         return "closed"
     if local.time() < time(8, 30):
         return "closed"

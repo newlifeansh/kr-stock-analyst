@@ -55,6 +55,7 @@ MOBILE_BROWSER_USER_AGENT = (
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "DATA-KIS-002": (
         "tests.test_market_calendar.test_scheduled_krx_session_is_open_before_todays_closing_index_exists",
+        "tests.test_briefing.test_briefing_market_status_follows_krx_holiday_calendar",
         "tests.test_live_stock_quote.test_korea_quote_session_uses_exchange_holiday_not_weekday",
         "tests.test_quant_signals.test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
         "tests.test_data_signal_qa.test_live_korea_market_session_rejects_previous_close_at_open",

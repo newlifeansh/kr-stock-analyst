@@ -11,11 +11,18 @@ from app.collectors.briefing import (
     BriefingMoverPayload,
     BriefingQuotePayload,
     KisRestBriefingProvider,
+    current_market_status,
     persist_briefing_bundle,
 )
 from app.config import Settings
 from app.db import Base
 from app.models import BriefingEvent, BriefingMetric, BriefingMover, BriefingQuote, BriefingSnapshot
+
+
+def test_briefing_market_status_follows_krx_holiday_calendar():
+    assert current_market_status(datetime(2026, 10, 8, 10, 0)) == "open"
+    assert current_market_status(datetime(2026, 10, 8, 8, 45)) == "pre_open"
+    assert current_market_status(datetime(2026, 10, 9, 10, 0)) == "closed"
 
 
 def test_kis_daily_price_rows_use_final_session_ohlc(monkeypatch):

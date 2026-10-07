@@ -623,9 +623,6 @@ def test_v8_live_buy_waits_for_a_closed_verified_minute(monkeypatch):
         lambda *_args, **_kwargs: bars[-1].trade_date,
     )
     monkeypatch.setattr(
-        quant_signals, "is_korea_market_session_date", lambda *_args, **_kwargs: True
-    )
-    monkeypatch.setattr(
         quant_signals, "entry_confirmation_decision",
         lambda *_args, **_kwargs: {
             "allowed": True, "state": "approved", "reason": "fixture"
