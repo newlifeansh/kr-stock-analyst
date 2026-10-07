@@ -26,6 +26,7 @@ from app.models import (
     QuantSignalIntradayPathSnapshot,
     ResearchReport,
     StockCompanySnapshot,
+    StockIntradaySnapshot,
     StockMaster,
     StockNewsSnapshot,
 )
@@ -1522,10 +1523,41 @@ def _load_verified_historical_intraday_paths(
             raise UnverifiedIntradayPathError("장중 체결 근거의 확정 일봉이 없습니다")
         if not snapshot.is_final:
             if (
-                historical_chart_loader is None
-                or completed_through is None
+                completed_through is None
                 or snapshot.trade_date > completed_through
             ):
+                raise UnverifiedIntradayPathError("과거 장중 체결 분봉의 최종 확인을 기다립니다")
+            # The detail chart is stored independently after the KRX close.
+            # It is a useful local recovery source when this credential is
+            # denied the dated KIS endpoint, but only after exactly the same
+            # full-session, daily-OHLC, and prior-touch checks as KIS replay.
+            cached = db.get(StockIntradaySnapshot, code)
+            if (
+                cached is not None
+                and cached.source == "kis_rest"
+                and cached.trade_date == snapshot.trade_date
+            ):
+                try:
+                    cached_rows = json.loads(cached.payload)
+                except (TypeError, ValueError):
+                    cached_rows = None
+                if (
+                    isinstance(cached_rows, list)
+                    and cached.point_count == len(cached_rows)
+                ):
+                    verified = _verified_completed_intraday_minutes(cached_rows, bar)
+                    if verified is not None:
+                        try:
+                            _store_verified_intraday_path(
+                                db, code, snapshot.trade_date, cached_rows,
+                                observed_at=datetime.now(timezone.utc), is_final=True,
+                            )
+                        except UnverifiedIntradayPathError:
+                            pass
+                        else:
+                            result[snapshot.trade_date] = verified
+                            continue
+            if historical_chart_loader is None:
                 raise UnverifiedIntradayPathError("과거 장중 체결 분봉의 최종 확인을 기다립니다")
             try:
                 historical_rows = historical_chart_loader(code, snapshot.trade_date)

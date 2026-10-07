@@ -23,6 +23,7 @@ from app.models import (
     QuantSignalIntradayPathSnapshot,
     ResearchReport,
     StockCompanySnapshot,
+    StockIntradaySnapshot,
     StockMaster,
     WatchlistItem,
 )
@@ -1731,6 +1732,75 @@ def test_v8_current_day_seal_fails_closed_on_mismatch_or_provider_outage(monkeyp
             snapshot = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
             assert snapshot is not None and snapshot.is_final is False
             assert json.loads(snapshot.payload) == original
+    finally:
+        db.close()
+
+
+def test_v8_replay_uses_only_matching_persisted_closed_kis_detail_chart():
+    trade_date = date(2026, 10, 7)
+    rows = [
+        {
+            "trade_date": "20261007",
+            "trade_time": (
+                datetime(2026, 10, 7, 9, 0) + timedelta(minutes=minute)
+            ).strftime("%H%M%S"),
+            "open": 101 if minute == 0 else 105 if minute == 1 else 97,
+            "high": 105 if minute == 1 else 102 if minute == 0 else 97,
+            "low": 100 if minute == 0 else 101 if minute == 1 else 97,
+            "price": 101 if minute == 0 else 105 if minute == 1 else 97,
+            "volume": 100,
+        }
+        for minute in range(380)
+    ]
+    rows.append({
+        "trade_date": "20261007", "trade_time": "153000",
+        "open": 97, "high": 97, "low": 97, "price": 97, "volume": 100,
+    })
+    bar = quant_signals.PriceBar(
+        trade_date, 101, 105, 97, 97, 1_000_000, 50_000_000_000
+    )
+    db = _session()
+    try:
+        db.add(_stock())
+        db.add(StockIntradaySnapshot(
+            stock_code="005930", trade_date=trade_date, source="kis_rest",
+            payload=json.dumps(rows), max_points=390, point_count=len(rows),
+            validated_on=trade_date, fetched_at=datetime(2026, 10, 7, 7),
+        ))
+        quant_signals._store_verified_intraday_path(
+            db, "005930", trade_date, rows[:2],
+            observed_at=datetime(2026, 10, 7, 9, 3, tzinfo=quant_signals.KST),
+            is_final=False,
+        )
+        db.commit()
+        replay = quant_signals._load_verified_historical_intraday_paths(
+            db, "005930", [bar],
+            datetime(2026, 10, 8, 10, tzinfo=quant_signals.KST),
+            historical_chart_loader=lambda *_args: pytest.fail("dated KIS must not be called"),
+        )
+        db.commit()
+        assert len(replay[trade_date]) == len(rows)
+        db.expire_all()
+        path = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
+        assert path is not None and path.is_final is True
+
+        path.is_final = False
+        path.payload = json.dumps(rows[:2])
+        cached = db.get(StockIntradaySnapshot, "005930")
+        assert cached is not None
+        cached.payload = json.dumps([{**rows[0], "price": 102}, *rows[1:]])
+        db.commit()
+        with pytest.raises(quant_signals.UnverifiedIntradayPathError):
+            quant_signals._load_verified_historical_intraday_paths(
+                db, "005930", [bar],
+                datetime(2026, 10, 8, 10, tzinfo=quant_signals.KST),
+                historical_chart_loader=lambda *_args: (_ for _ in ()).throw(
+                    RuntimeError("KIS dated endpoint 403")
+                ),
+            )
+        db.expire_all()
+        path = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
+        assert path is not None and path.is_final is False
     finally:
         db.close()
 

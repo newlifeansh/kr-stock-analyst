@@ -278,6 +278,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_quant_signals."
         "test_v8_dated_minute_path_is_durable_and_finalized_before_next_day_replay",
         "tests.test_quant_signals."
+        "test_v8_replay_uses_only_matching_persisted_closed_kis_detail_chart",
+        "tests.test_quant_signals."
         "test_market_feed_isolates_dated_minute_chart_outage_and_keeps_other_signals",
         "tests.test_quant_signals."
         "test_stock_detail_refreshes_existing_ordered_path_before_display",
