@@ -1098,6 +1098,7 @@ def _refresh_market_quant_signal_snapshot(
 def _refresh_us_position_lifecycle_snapshot(
     *,
     allow_schema_upgrade: bool = False,
+    allow_cold_bootstrap: bool = False,
 ) -> Optional[dict[str, Any]]:
     """Refresh the full US scan in a worker-owned database session."""
 
@@ -1106,6 +1107,10 @@ def _refresh_us_position_lifecycle_snapshot(
         if (
             not _us_position_lifecycle_refresh_allowed(current)
             and not allow_schema_upgrade
+            and not (
+                allow_cold_bootstrap
+                and _us_position_lifecycle_cold_bootstrap_due(current)
+            )
         ):
             return None
         with SessionLocal() as db:
@@ -1118,11 +1123,16 @@ def _refresh_us_position_lifecycle_snapshot(
 def _run_reserved_us_position_lifecycle_refresh(
     *,
     allow_schema_upgrade: bool = False,
+    allow_cold_bootstrap: bool = False,
 ) -> Optional[dict[str, Any]]:
     try:
         if allow_schema_upgrade:
             return _refresh_us_position_lifecycle_snapshot(
                 allow_schema_upgrade=True
+            )
+        if allow_cold_bootstrap:
+            return _refresh_us_position_lifecycle_snapshot(
+                allow_cold_bootstrap=True
             )
         return _refresh_us_position_lifecycle_snapshot()
     finally:
@@ -1494,6 +1504,22 @@ def _us_position_lifecycle_schema_upgrade_due(now: datetime) -> bool:
         return False
 
 
+def _us_position_lifecycle_cold_bootstrap_due(now: datetime) -> bool:
+    """Build a missing snapshot from the previous completed US session."""
+
+    try:
+        from app.services.us_market_calendar import us_signal_session_state
+
+        session = us_signal_session_state(now)
+        if not session["is_regular"] or now < session["refresh_after"]:
+            return False
+        with SessionLocal() as db:
+            return load_us_position_lifecycle_snapshot(db, now=now) is None
+    except Exception:  # pragma: no cover - operational safeguard
+        logger.exception("US position-lifecycle cold bootstrap check failed")
+        return False
+
+
 def _us_position_lifecycle_refresh_allowed(now: datetime) -> bool:
     try:
         from app.services.us_market_calendar import us_signal_refresh_allowed
@@ -1515,16 +1541,32 @@ async def _run_us_position_lifecycle_refresh_loop() -> None:
                 _us_position_lifecycle_schema_upgrade_due,
                 current,
             )
+            regular_refresh_allowed = _us_position_lifecycle_refresh_allowed(current)
+            cold_bootstrap_due = bool(
+                due
+                and not regular_refresh_allowed
+                and not schema_upgrade_due
+                and await asyncio.to_thread(
+                    _us_position_lifecycle_cold_bootstrap_due,
+                    current,
+                )
+            )
             allowed = bool(
-                _us_position_lifecycle_refresh_allowed(current)
+                regular_refresh_allowed
                 or schema_upgrade_due
+                or cold_bootstrap_due
             )
             if due and allowed and us_position_lifecycle_refresh_lock.acquire(
                 blocking=False
             ):
+                refresh_options = {}
+                if schema_upgrade_due:
+                    refresh_options["allow_schema_upgrade"] = True
+                if cold_bootstrap_due:
+                    refresh_options["allow_cold_bootstrap"] = True
                 await asyncio.to_thread(
                     _run_reserved_us_position_lifecycle_refresh,
-                    allow_schema_upgrade=schema_upgrade_due,
+                    **refresh_options,
                 )
         except Exception:  # pragma: no cover - operational safeguard
             logger.exception("US position-lifecycle scheduling failed")

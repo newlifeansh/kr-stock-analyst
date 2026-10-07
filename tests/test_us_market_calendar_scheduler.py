@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 
@@ -90,6 +91,7 @@ def _run_one_scheduler_iteration(
     now: datetime,
     *,
     schema_upgrade_due: bool = False,
+    cold_bootstrap_due: bool = False,
 ) -> None:
     from app import main as main_module
 
@@ -109,6 +111,11 @@ def _run_one_scheduler_iteration(
         main_module,
         "_us_position_lifecycle_schema_upgrade_due",
         lambda _now: schema_upgrade_due,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_us_position_lifecycle_cold_bootstrap_due",
+        lambda _now: cold_bootstrap_due,
     )
     monkeypatch.setattr(main_module.asyncio, "to_thread", inline_to_thread)
     monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_iteration)
@@ -140,6 +147,72 @@ def test_us_scheduler_does_not_refresh_during_official_regular_session(monkeypat
 
     assert refreshes == []
     assert main_module.us_position_lifecycle_refresh_lock.locked() is False
+
+
+def test_us_collector_bootstraps_missing_completed_session_during_regular_session(monkeypatch):
+    from app import main as main_module
+
+    refreshes = []
+    monkeypatch.setattr(main_module, "_us_position_lifecycle_snapshot_due", lambda _now: True)
+    monkeypatch.setattr(
+        main_module,
+        "_refresh_us_position_lifecycle_snapshot",
+        lambda **options: refreshes.append(options),
+    )
+
+    _run_one_scheduler_iteration(
+        monkeypatch,
+        datetime(2026, 11, 27, 17, 59, tzinfo=UTC),
+        cold_bootstrap_due=True,
+    )
+
+    assert refreshes == [{"allow_cold_bootstrap": True}]
+    assert main_module.us_position_lifecycle_refresh_lock.locked() is False
+
+
+def test_us_cold_bootstrap_requires_missing_snapshot_and_completed_provider_grace(monkeypatch):
+    from app import main as main_module
+
+    current_snapshot = None
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: nullcontext(object()))
+    monkeypatch.setattr(
+        main_module,
+        "load_us_position_lifecycle_snapshot",
+        lambda *_args, **_kwargs: current_snapshot,
+    )
+
+    regular = datetime(2026, 11, 27, 17, 59, tzinfo=UTC)
+    assert main_module._us_position_lifecycle_cold_bootstrap_due(regular) is True
+    current_snapshot = {"status": "ready"}
+    assert main_module._us_position_lifecycle_cold_bootstrap_due(regular) is False
+    current_snapshot = None
+    assert main_module._us_position_lifecycle_cold_bootstrap_due(
+        datetime(2026, 11, 27, 18, 1, tzinfo=UTC)
+    ) is False
+
+
+def test_us_cold_bootstrap_refresh_rechecks_missing_snapshot(monkeypatch):
+    from app import main as main_module
+
+    refreshes = []
+    monkeypatch.setattr(main_module, "_us_position_lifecycle_refresh_allowed", lambda _now: False)
+    monkeypatch.setattr(main_module, "_us_position_lifecycle_cold_bootstrap_due", lambda _now: False)
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: nullcontext(object()))
+    monkeypatch.setattr(
+        main_module,
+        "refresh_us_position_lifecycle_snapshot",
+        lambda _db, *, now: refreshes.append(now) or {"status": "ready"},
+    )
+
+    assert main_module._refresh_us_position_lifecycle_snapshot(
+        allow_cold_bootstrap=True
+    ) is None
+    assert refreshes == []
+    monkeypatch.setattr(main_module, "_us_position_lifecycle_cold_bootstrap_due", lambda _now: True)
+    assert main_module._refresh_us_position_lifecycle_snapshot(
+        allow_cold_bootstrap=True
+    ) == {"status": "ready"}
+    assert len(refreshes) == 1
 
 
 def test_us_scheduler_does_not_refresh_inside_post_close_provider_grace(monkeypatch):

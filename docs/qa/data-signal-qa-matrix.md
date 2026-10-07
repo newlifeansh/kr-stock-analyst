@@ -3,7 +3,7 @@
 - 카탈로그 버전: `1.0`
 - 기준 전략: `position-lifecycle-v8.0`
 - 미국 후보 전략: `position-lifecycle-us-v2-rc1`
-- QA 항목: 134개
+- QA 항목: 135개
 - 상태 규칙: `PASS` 정상, `WARN` 외부 원천 일시 장애 또는 허용된 caution, `FAIL` 계약 위반
 
 이 문서는 `app/qa/data_signal_cases.json`에서 생성합니다. 직접 수정하지 않습니다.
@@ -381,3 +381,9 @@
 | QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | DATA-US-NEWS-001 | P0 | 미국 시장 실시간 뉴스 실데이터·피드 레이아웃 | gate, live, e2e<br>pytest 최신 기사 정규화·중복·기간·fail-close·API·한국시간·2열 탭 CSS 계약 + live 기사 URL·발행시각·가짜 출처 배제 검사 + Playwright 320/458px 실제 피드 링크·2열 탭·여백·리플로 검사 | us-market 스테이징에 같은 미국 뉴스 RC 이미지를 배포한다.<br>Google News RSS 외부 기사 수집과 /us/market/trends 엔드포인트가 사용 가능하다.<br>비교 기준인 /dashboard?view=news 피드와 공통 컴포넌트 자산을 사용한다. | route=/us?view=news&filter=positive&market_scope=us, endpoint=/us/market/trends?days=7, reference_route=/dashboard?view=news, client_version=20261001us130, window_days=7, required_article_fields=['title', 'source', 'url', 'published_at', 'impact', 'category'], forbidden_sources=['NASDAQ Brief', 'Macro Brief'], display_timezone=Asia/Seoul, visible_feed_tabs=['뉴스', '일정'], viewports=[320, 458] | /us/market/trends?days=7&refresh=true를 조회해 status=ready, data_state=live와 기사 목록을 확인한다.<br>모든 기사가 HTTP(S) 원문 URL과 실제 출처·발행시각을 갖고 7일 범위와 미래 10분 허용치 안에 있는지 검사한다.<br>NASDAQ Brief·Macro Brief·URL이 없는 요약·조회 시각을 발행 시각으로 사용한 항목이 없는지 검사한다.<br>미국 피드를 458px·320px에서 열어 뉴스·일정이 2개의 같은 너비 탭으로 보이고 콘텐츠 빈 열이 없는지 확인한다.<br>각 기사의 원문 링크·한국시간 표시·시장 태그가 보이고 콘텐츠가 적을 때도 64vh 강제 여백이 생기지 않는지 확인한다.<br>외부 수집이 모두 실패하면 가짜 기사를 만들지 않고 잠시 후 재시도 문구로 fail-close하는지 확인한다. | 미국 시장 뉴스는 실제 원문·출처·발행시각을 가진 최근 7일 기사로만 구성된다.<br>중복 기사는 제거되고 호재·악재·중립과 AI·반도체·금리·시장 분류가 일관되게 노출된다.<br>UTC 발행시각은 한국 화면에 Asia/Seoul 시각과 ‘한국시간’ 라벨로 표시된다.<br>미국 피드는 국내증시와 같은 기사 목록 계층을 유지하되 미국에 없는 콘텐츠 탭을 빈 3열로 남기지 않고 2열로 표시한다.<br>수집 장애 시 status를 unavailable로 두고 사용자에게 재시도 안내를 표시한다. | 조회할 때마다 현재 시각으로 생성된 NASDAQ Brief·Macro Brief가 뉴스로 노출된다.<br>기사에 원문 URL이 없거나 7일보다 오래된 발행시각·미래 시각이 포함된다.<br>UTC 시각이 한국시간 변환 없이 표시된다.<br>콘텐츠 탭을 숨긴 자리가 남아 뉴스·일정 탭이 양끝으로 벌어지거나 64vh 최소 높이로 빈 여백이 생긴다.<br>뉴스 수집 실패를 현재 시각의 가짜 기사로 숨기거나 status=ready로 표시한다.<br>320px·458px에서 가로 넘침·단절·원문 링크 조작 불가가 발생한다. |
+
+## 미국 시그널 수집기
+
+| QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| SIG-US-COLD-001 | P0 | 미국 정규장 중 빈 수집기의 직전 완료 세션 초기화 | gate<br>pytest XNYS 조기마감·정규장·제공자 유예시간 픽스처와 수집기 단일 초기화 재검증 | 미국 web과 collector 역할을 분리하고 저장된 미국 생명주기 스냅샷이 없는 새 스테이징 DB를 준비한다.<br>직전 완료 XNYS 세션의 제공자 게시 유예시간이 지났고 현재 세션은 정규장 중이다. | bootstrap_source=latest_completed_XNYS_session, trigger_role=collector, regular_session_public_get_refresh=False, ready_snapshot_refresh_during_regular_session=False | 정규장 중 빈 DB에서 collector의 5분 주기를 실행해 직전 완료 세션의 갱신 작업이 한 번 시작되는지 확인한다.<br>실행 직전에 빈 스냅샷 상태를 다시 검사하고, 이미 준비된 스냅샷이 있으면 갱신을 생략하는지 확인한다.<br>기존 ready 스냅샷과 당일 마감 후 제공자 유예시간 중에는 이 초기화 예외를 허용하지 않는지 확인한다.<br>정규장 중 공개 GET은 별도의 미국 Top100 전체 수집을 시작하지 않는지 확인한다. | 새 스테이징 수집기는 정규장 중에도 직전 완료 세션의 온전한 Top100 스냅샷을 초기화할 수 있다.<br>ready 스냅샷은 정규장 중 다시 발행되지 않고 공개 GET은 저장된 결과만 읽는다. | 빈 미국 스테이징이 다음 장 마감까지 preparing에 머무르거나, 수집기가 없는 상태에서 web GET이 전체 스캔을 시작한다.<br>정규장 진행 중인 당일 데이터를 완료 세션으로 발행하거나, 기존 ready 스냅샷을 매 5분 다시 생성한다.<br>제공자 유예시간 안에 미완료 데이터로 새 스냅샷을 발행한다. |

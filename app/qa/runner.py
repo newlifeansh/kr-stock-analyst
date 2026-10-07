@@ -728,6 +728,18 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app."
         "test_us_stock_ai_analysis_repairs_legacy_member_evidence_without_full_scan",
     ),
+    "SIG-US-COLD-001": (
+        "tests.test_us_market_calendar_scheduler."
+        "test_us_collector_bootstraps_missing_completed_session_during_regular_session",
+        "tests.test_us_market_calendar_scheduler."
+        "test_us_cold_bootstrap_requires_missing_snapshot_and_completed_provider_grace",
+        "tests.test_us_market_calendar_scheduler."
+        "test_us_cold_bootstrap_refresh_rechecks_missing_snapshot",
+        "tests.test_us_market_calendar_scheduler."
+        "test_us_scheduler_does_not_refresh_during_official_regular_session",
+        "tests.test_app."
+        "test_us_market_regular_session_request_never_enqueues_publication",
+    ),
 }
 
 
