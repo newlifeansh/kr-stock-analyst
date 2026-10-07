@@ -65,6 +65,47 @@ def test_is_supported_price_code():
     assert not krx.is_supported_price_code("삼성전자")
 
 
+def test_derive_market_caps_for_date_fills_only_missing_caps(monkeypatch):
+    class Listing:
+        def iterrows(self):
+            return iter(
+                [
+                    (0, {"Code": "005930", "Stocks": 1_000}),
+                    (1, {"Code": "000660", "Stocks": 2_000}),
+                ]
+            )
+
+    class Fdr:
+        @staticmethod
+        def StockListing(_market):
+            return Listing()
+
+    monkeypatch.setitem(__import__("sys").modules, "FinanceDataReader", Fdr)
+    target = date(2026, 9, 4)
+    with _session() as db:
+        db.add_all(
+            [
+                StockMaster(code="005930", name="삼성전자", market="KOSPI"),
+                StockMaster(code="000660", name="SK하이닉스", market="KOSPI"),
+            ]
+        )
+        upsert_many(
+            db,
+            DailyPrice,
+            [
+                {"code": "005930", "trade_date": target, "close": 100, "market_cap": None},
+                {"code": "000660", "trade_date": target, "close": 200, "market_cap": 999_999},
+            ],
+        )
+        db.commit()
+
+        assert krx.derive_market_caps_for_date(db, target) == 1
+        rows = {row.code: row for row in db.query(DailyPrice).all()}
+        assert rows["005930"].market_cap == 100_000
+        assert rows["005930"].listed_shares == 1_000
+        assert rows["000660"].market_cap == 999_999
+
+
 def test_partial_quote_upsert_preserves_existing_daily_ohlc():
     trade_date = date(2026, 6, 19)
     with _session() as db:

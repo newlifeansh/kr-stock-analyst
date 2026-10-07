@@ -326,6 +326,70 @@ def collect_prices_for_codes(
         raise
 
 
+def derive_market_caps_for_date(db: Session, trade_date: date) -> int:
+    """Fill missing historical market caps from FDR's current share count.
+
+    FinanceDataReader's historical OHLC feed does not expose historical market
+    cap, while the KRX market-cap endpoint can be unavailable in staging.  A
+    missing cap must not make the fixed-cohort shadow comparison disappear, so
+    use the latest listed-share count as a clearly labelled ranking fallback.
+    Existing measured market caps are never overwritten.
+    """
+
+    run = start_ingestion(db, "finance_data_reader", f"market_cap_derived:{trade_date.isoformat()}")
+    try:
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+        try:
+            import FinanceDataReader as fdr
+        except ImportError as exc:
+            raise RuntimeError("FinanceDataReader is required for derived market-cap history") from exc
+
+        listing = fdr.StockListing("KRX")
+        shares_by_code: dict[str, int] = {}
+        for _, row in listing.iterrows():
+            code = str(row.get("Code") or "").strip().upper()
+            shares = _clean_int(row.get("Stocks"))
+            if is_supported_price_code(code) and shares and shares > 0:
+                shares_by_code[code] = shares
+        if not shares_by_code:
+            raise RuntimeError("FDR KRX listing did not provide listed shares")
+
+        candidates = db.execute(
+            select(DailyPrice.code, DailyPrice.close)
+            .join(StockMaster, StockMaster.code == DailyPrice.code)
+            .where(
+                DailyPrice.trade_date == trade_date,
+                DailyPrice.close.is_not(None),
+                DailyPrice.market_cap.is_(None),
+                StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+            )
+        ).all()
+        rows = [
+            {
+                "code": str(code),
+                "trade_date": trade_date,
+                "market_cap": int(close) * shares_by_code[str(code)],
+                "listed_shares": shares_by_code[str(code)],
+            }
+            for code, close in candidates
+            if str(code) in shares_by_code and int(close or 0) > 0
+        ]
+        count = upsert_many(db, DailyPrice, rows)
+        db.commit()
+        finish_ingestion(
+            db,
+            run,
+            "success",
+            count,
+            "source=fdr_current_listed_shares; existing_market_caps_preserved",
+        )
+        return count
+    except Exception as exc:
+        db.rollback()
+        finish_ingestion(db, run, "failed", 0, str(exc))
+        raise
+
+
 def collect_investor_flows(db: Session, yyyymmdd: str, market: str) -> int:
     stock = _stock_module()
     trade_date = parse_yyyymmdd(yyyymmdd)

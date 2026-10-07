@@ -288,6 +288,27 @@ def build_entry_filter_shadow_report(
             DailyPrice.close.is_not(None),
         )
     )
+    cohort_market_cap_source = "krx_historical_market_cap"
+    if cohort_market_cap_date is None:
+        fallback_date = db.scalar(
+            select(func.max(DailyPrice.trade_date)).where(
+                DailyPrice.trade_date <= qs.ENTRY_FILTER_EFFECTIVE_DATE,
+                DailyPrice.close.is_not(None),
+            )
+        )
+        if fallback_date is not None:
+            from app.collectors.krx import derive_market_caps_for_date
+
+            derive_market_caps_for_date(db, fallback_date)
+            cohort_market_cap_date = db.scalar(
+                select(func.max(DailyPrice.trade_date)).where(
+                    DailyPrice.trade_date <= qs.ENTRY_FILTER_EFFECTIVE_DATE,
+                    DailyPrice.market_cap.is_not(None),
+                    DailyPrice.close.is_not(None),
+                )
+            )
+            if cohort_market_cap_date is not None:
+                cohort_market_cap_source = "fdr_derived_current_listed_shares"
     if cohort_market_cap_date is None:
         raise RuntimeError("no market-cap cohort is available at the filter effective date")
 
@@ -379,6 +400,7 @@ def build_entry_filter_shadow_report(
         "shadow_entry_filter_versions": list(qs.ENTRY_FILTER_SHADOW_VERSIONS),
         "latest_price_date": latest_price_date,
         "universe_market_cap_date": cohort_market_cap_date,
+        "universe_market_cap_source": cohort_market_cap_source,
         "universe_limit": universe_limit,
         "history_rows_requested": history_rows,
         "history_backfill": history_backfill,
@@ -396,6 +418,7 @@ def build_entry_filter_shadow_report(
         "forward_comparison": {
             "version": "entry-filter-fixed-cohort-forward-v1",
             "cohort_market_cap_date": cohort_market_cap_date,
+            "cohort_market_cap_source": cohort_market_cap_source,
             "cohort_rule": f"{cohort_market_cap_date.isoformat()} 시가총액 상위 {universe_limit}개 고정",
             "period_start": qs.ENTRY_FILTER_EFFECTIVE_DATE,
             "period_end": latest_price_date,
