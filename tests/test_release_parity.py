@@ -177,8 +177,14 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "--surface us-gateway" in workflow
     assert "/us/market/" not in workflow
     assert "shutdown_domestic_staging:" in workflow
+    assert "stop-staging" in workflow
+    assert "observe_session:" in workflow
+    assert "type: boolean" in workflow
+    assert "inputs.action == 'stage' && !inputs.observe_session" in workflow
+    assert "inputs.action == 'stop-staging'" in workflow
+    assert "[[ \"$REQUESTED_ACTION\" == \"stage\" && \"$PRODUCT_SURFACE\" == \"dashboard\" ]]" in workflow
     assert "Start domestic staging only for deployment and QA" in workflow
-    assert "Stop domestic staging after every QA outcome" in workflow
+    assert "Stop domestic staging after QA or explicit session observation" in workflow
     assert "Start domestic staging for production parity" in workflow
     assert "Stop domestic staging after production parity" in workflow
     assert "DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE" in workflow
