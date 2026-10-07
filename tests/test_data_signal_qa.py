@@ -2908,6 +2908,38 @@ def test_live_kis_intraday_chart_rejects_future_market_minutes(monkeypatch) -> N
 
 
 @pytest.mark.qa_live
+def test_live_intraday_push_qa_uses_actual_dispatch_snapshot_scope(monkeypatch) -> None:
+    from app.qa import runner
+    from app.services.quant_signals import MARKET_SIGNAL_UNIVERSE_LIMIT
+
+    dispatch_requests: list[dict[str, object]] = []
+
+    class RecordingApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            if path == "/market/quant-signals" and params.get("limit") == 0:
+                dispatch_requests.append(params)
+            return super().get(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", RecordingApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    case = next(
+        item for item in load_qa_catalog()["cases"]
+        if item["id"] == "SIG-PUSH-INTRADAY-001"
+    )
+    assert case["inputs"]["dispatch_snapshot_universe_limit"] == MARKET_SIGNAL_UNIVERSE_LIMIT
+    assert case["inputs"]["dispatch_snapshot_limit"] == 0
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "SIG-PUSH-INTRADAY-001")
+    assert check["status"] == "pass"
+    assert check["evidence"]["dispatch_universe_limit"] == MARKET_SIGNAL_UNIVERSE_LIMIT
+    assert any(
+        request.get("universe_limit") == MARKET_SIGNAL_UNIVERSE_LIMIT
+        and request.get("recent_days") == 30
+        for request in dispatch_requests
+    )
+
+
+@pytest.mark.qa_live
 def test_live_korea_market_session_rejects_previous_close_at_open(monkeypatch) -> None:
     from app.qa import runner
 

@@ -683,6 +683,52 @@ def test_v8_live_buy_waits_for_a_closed_verified_minute(monkeypatch):
     assert len(buys) == 1
     assert buys[0]["intraday_order_verified"] is True
 
+    # The same verified KRX path must keep the new entry and its first profit
+    # sale in order, selling half of the original position on the next minute.
+    entry_price = float(buys[0]["price"])
+    first_target = float(
+        quant_signals._executable_profit_target(entry_price * 1.03, observed.date())
+    )
+    profitable_at = observed + timedelta(minutes=2)
+    profitable = build_quant_signal_payload(
+        _stock(), daily_rows,
+        live_quote={
+            **quote,
+            "observed_at": profitable_at,
+            "intraday_minutes_observed_at": profitable_at,
+            "price": first_target,
+            "high": first_target,
+            "intraday_minutes": [
+                {
+                    "trade_date": "20261008", "trade_time": "090100",
+                    "open": 100, "high": 102, "low": 100,
+                    "price": 101, "volume": 100,
+                },
+                {
+                    "trade_date": "20261008", "trade_time": "090200",
+                    "open": 101, "high": first_target, "low": 101,
+                    "price": first_target, "volume": 100,
+                },
+                {
+                    "trade_date": "20261008", "trade_time": "090300",
+                    "open": first_target, "high": first_target, "low": first_target,
+                    "price": first_target, "volume": 100,
+                },
+            ],
+        },
+        now=profitable_at,
+    )
+    same_day = [
+        event for event in profitable["events"]
+        if event["execution_date"] == observed.date()
+        and event["side"] in {"buy", "partial_sell", "sell"}
+    ]
+    assert [event["side"] for event in same_day] == ["buy", "partial_sell"]
+    assert same_day[1]["sold_percent"] == Decimal("50.00")
+    assert same_day[1]["position_percent"] == Decimal("50.00")
+    assert same_day[1]["price"] == first_target
+    assert all(event["intraday_order_verified"] is True for event in same_day)
+
 
 @pytest.mark.parametrize(
     ("changes", "expected"),

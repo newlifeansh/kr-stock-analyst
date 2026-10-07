@@ -250,6 +250,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
     "SIG-PUSH-INTRADAY-001": (
+        "tests.test_data_signal_qa."
+        "test_live_intraday_push_qa_uses_actual_dispatch_snapshot_scope",
         "tests.test_app."
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
         "tests.test_quant_signals."
@@ -3385,9 +3387,11 @@ def _live_checks(
         )
         if context.get("market_signals"):
             def intraday_market_push_contract() -> dict[str, Any]:
+                from app.services.quant_signals import MARKET_SIGNAL_UNIVERSE_LIMIT
+
                 feed, meta = api.get(
                     "/market/quant-signals",
-                    universe_limit=100,
+                    universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
                     limit=0,
                     recent_days=30,
                 )
@@ -3457,6 +3461,7 @@ def _live_checks(
                 )
                 return {
                     "snapshot_generated_at": generated_at.isoformat(),
+                    "dispatch_universe_limit": MARKET_SIGNAL_UNIVERSE_LIMIT,
                     "market_ai_signal_description": market_option["description"],
                     "total_events": len(items),
                     "verified_intraday_events": len(verified),
