@@ -201,6 +201,7 @@ from app.services.public_signal import (
     public_stock_ai_analysis_payload,
 )
 from app.services.entry_filter_backtest import (
+    _shadow_report_is_current,
     load_entry_filter_shadow_snapshot,
     refresh_entry_filter_shadow_snapshot,
 )
@@ -1177,8 +1178,7 @@ async def _run_entry_filter_shadow_backtest_loop() -> None:
                     report.get("symbols_evaluated"),
                 )
             report = result.get("report") if isinstance(result, dict) else None
-            comparison = report.get("forward_comparison") if isinstance(report, dict) else None
-            if not isinstance(comparison, dict):
+            if not _shadow_report_is_current(report):
                 interval_seconds = 30
                 logger.warning(
                     "Entry filter shadow backtest is not ready; retrying in %ss: status=%s",
@@ -1201,8 +1201,7 @@ async def _warm_entry_filter_shadow_snapshot() -> Optional[dict[str, Any]]:
             await asyncio.sleep(delay_seconds)
         result = await asyncio.to_thread(_refresh_entry_filter_shadow_snapshot)
         report = result.get("report") if isinstance(result, dict) else None
-        comparison = report.get("forward_comparison") if isinstance(report, dict) else None
-        if isinstance(comparison, dict):
+        if _shadow_report_is_current(report):
             logger.info(
                 "Entry filter shadow backtest warm-up ready: attempt=%s status=%s candidate=%s latest_price_date=%s symbols=%s",
                 attempt,

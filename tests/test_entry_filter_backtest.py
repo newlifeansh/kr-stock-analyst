@@ -99,6 +99,21 @@ def test_shadow_refresh_rebuilds_legacy_report_with_same_price_date(monkeypatch)
     assert len(calls) == 1
 
 
+def test_zero_symbol_shadow_report_is_not_current() -> None:
+    report = {
+        "candidate_strategy_version": qs.CANDIDATE_STRATEGY_VERSION,
+        "active_entry_filter_version": qs.ENTRY_FILTER_VERSION,
+        "symbols_evaluated": 0,
+        "forward_comparison": {
+            "version": "entry-filter-fixed-cohort-forward-v1",
+            "filters": {version: {} for version in shadow.FILTER_VERSIONS},
+            "rolling_last_trades": {version: {} for version in shadow.FILTER_VERSIONS},
+        },
+    }
+
+    assert shadow._shadow_report_is_current(report) is False
+
+
 def test_shadow_refresh_is_separate_from_user_signal_snapshot() -> None:
     assert shadow.ENTRY_FILTER_SHADOW_CACHE_KEY != qs.market_quant_signal_snapshot_key(
         qs.MARKET_SIGNAL_UNIVERSE_LIMIT,

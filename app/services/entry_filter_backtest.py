@@ -39,6 +39,7 @@ def _shadow_report_is_current(report: dict[str, Any] | None) -> bool:
     return bool(
         report.get("candidate_strategy_version") == qs.CANDIDATE_STRATEGY_VERSION
         and report.get("active_entry_filter_version") == qs.ENTRY_FILTER_VERSION
+        and int(report.get("symbols_evaluated") or 0) > 0
         and comparison.get("version") == "entry-filter-fixed-cohort-forward-v1"
         and isinstance(filters, dict)
         and isinstance(rolling, dict)
