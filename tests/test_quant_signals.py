@@ -1750,6 +1750,7 @@ def test_v8_zero_volume_close_requires_separate_krx_print_before_sealing(monkeyp
     trade_date = date(2026, 10, 8)
     capture_at = datetime(2026, 10, 8, 15, 34, tzinfo=quant_signals.KST)
     seal_at = capture_at.replace(minute=45)
+    late_seal_at = seal_at.replace(hour=21)
     rows = [
         {
             "trade_date": "20261008",
@@ -1823,7 +1824,7 @@ def test_v8_zero_volume_close_requires_separate_krx_print_before_sealing(monkeyp
         daily.high = 103
         db.commit()
         assert quant_signals.finalize_open_intraday_paths_for_session(
-            db, seal_at, lambda _code: rows
+            db, late_seal_at, lambda _code: rows
         ) == {"pending": 1, "finalized": 1, "unverified": 0}
         db.expire_all()
         snapshot = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
@@ -1853,7 +1854,7 @@ def test_v8_zero_volume_close_requires_separate_krx_print_before_sealing(monkeyp
         ]
         from app.services.signal_data_quality import signal_data_quality_status
 
-        quality = signal_data_quality_status(db, main.settings, now=seal_at)
+        quality = signal_data_quality_status(db, main.settings, now=late_seal_at)
         sample = quality["intraday_path_seal"]["sample"]
         assert sample["state"] == "ready"
         assert sample["source"] == quant_signals.KIS_CLOSING_AUCTION_SOURCE
@@ -1967,6 +1968,12 @@ def test_v8_current_day_seal_fails_closed_on_mismatch_or_provider_outage(monkeyp
             snapshot = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
             assert snapshot is not None and snapshot.is_final is False
             assert json.loads(snapshot.payload) == original
+        assert quant_signals.finalize_open_intraday_paths_for_session(
+            db, now + timedelta(days=1),
+            lambda _code: pytest.fail("전일 경로를 다음날 현재일 차트로 봉인해서는 안 됩니다"),
+        ) == {"pending": 0, "finalized": 0, "unverified": 0}
+        db.expire_all()
+        assert db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date)).is_final is False
     finally:
         db.close()
 

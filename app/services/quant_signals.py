@@ -1632,8 +1632,12 @@ def finalize_open_intraday_paths_for_session(
 
     local_now = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
     result = {"pending": 0, "finalized": 0, "unverified": 0}
+    # The completed daily candle can arrive after the evening flow window.
+    # Keep retrying against today's chart and the already captured 15:30 print
+    # until the session date rolls over. Never fetch a later day's chart to
+    # seal yesterday's execution path.
     if not (
-        time(15, 40) <= local_now.time() <= time(18, 0)
+        local_now.time() >= time(15, 40)
         and is_korea_market_session_date(local_now.date(), local_now)
     ):
         return result
