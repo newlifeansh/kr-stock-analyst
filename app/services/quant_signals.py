@@ -1396,7 +1396,7 @@ def _store_verified_intraday_path(
     *,
     observed_at: datetime,
     is_final: bool,
-) -> None:
+) -> QuantSignalIntradayPathSnapshot:
     # Store only executable minutes. Indicative auction rows can revise before
     # the close and must not invalidate a previously observed trade prefix.
     rows = [row for row in rows if not _non_trade_closing_auction_row(row)]
@@ -1405,7 +1405,7 @@ def _store_verified_intraday_path(
         if snapshot.strategy_version != STRATEGY_VERSION:
             raise UnverifiedIntradayPathError("장중 체결 근거의 전략 버전이 다릅니다")
         if snapshot.is_final and not is_final:
-            return
+            return snapshot
         try:
             previous = json.loads(snapshot.payload)
         except (TypeError, ValueError) as exc:
@@ -1417,21 +1417,21 @@ def _store_verified_intraday_path(
     stored_at = _snapshot_generated_at_utc_naive(observed_at)
     payload = json.dumps(rows, ensure_ascii=False)
     if snapshot is None:
-        db.add(
-            QuantSignalIntradayPathSnapshot(
-                stock_code=code,
-                trade_date=trade_date,
-                strategy_version=STRATEGY_VERSION,
-                source="kis_rest",
-                payload=payload,
-                is_final=is_final,
-                observed_at=stored_at,
-            )
+        snapshot = QuantSignalIntradayPathSnapshot(
+            stock_code=code,
+            trade_date=trade_date,
+            strategy_version=STRATEGY_VERSION,
+            source="kis_rest",
+            payload=payload,
+            is_final=is_final,
+            observed_at=stored_at,
         )
+        db.add(snapshot)
     else:
         snapshot.payload = payload
         snapshot.is_final = is_final
         snapshot.observed_at = stored_at
+    return snapshot
 
 
 KIS_CLOSING_AUCTION_SOURCE = "kis_rest+ccnl_auction"
@@ -1499,8 +1499,9 @@ def capture_closing_auction_trades_for_open_paths(
     trade_loader: Callable[[str], Optional[dict[str, Any]]],
     *,
     qa_sample_code: str = "005930",
+    tracked_recent_days: tuple[int, ...] = (MARKET_SIGNAL_RECENT_DAYS,),
 ) -> dict[str, int]:
-    """Freeze KRX 15:30 prints while the recent-trades API still retains them.
+    """Freeze KRX 15:30 prints for open paths and tracked positions.
 
     No execution is inferred from a zero-volume minute or from the current
     price.  An absent, contradictory, or late print leaves the path unsealed.
@@ -1519,6 +1520,15 @@ def capture_closing_auction_trades_for_open_paths(
     )))
     by_code = {snapshot.stock_code: snapshot for snapshot in snapshots}
     codes = set(by_code)
+    # A held or pending stock can have no path yet when the normal Top150 scan
+    # was delayed. Its closing print must not be missed solely for that reason.
+    for recent_days in tracked_recent_days:
+        codes.update(_market_signal_retention_state(
+            db,
+            universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
+            limit=MARKET_SIGNAL_FEED_LIMIT,
+            recent_days=recent_days,
+        ))
     if qa_sample_code:
         codes.add(qa_sample_code)
     for code in sorted(codes):
@@ -1594,15 +1604,11 @@ def capture_closing_auction_trades_for_open_paths(
             if verified is None or len(verified) != len(merged):
                 result["unverified"] += 1
                 continue
-            _store_verified_intraday_path(
+            stored = _store_verified_intraday_path(
                 db, code, local_now.date(), merged,
                 observed_at=local_now, is_final=False,
             )
         except (ValueError, TypeError, KeyError, UnverifiedIntradayPathError):
-            result["unverified"] += 1
-            continue
-        stored = db.get(QuantSignalIntradayPathSnapshot, (code, local_now.date()))
-        if stored is None:
             result["unverified"] += 1
             continue
         stored.source = KIS_CLOSING_AUCTION_SOURCE

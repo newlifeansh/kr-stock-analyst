@@ -178,6 +178,7 @@ from app.services.local_stock_ai import enrich_stock_ai_analysis
 from app.services.quant_signals import (
     EXECUTION_MODEL,
     INTRADAY_EXECUTION_EFFECTIVE_DATE,
+    MARKET_SIGNAL_RECENT_DAYS,
     MARKET_SIGNAL_UNIVERSE_LIMIT,
     MIN_BACKTEST_HISTORY_ROWS,
     STRATEGY_VERSION,
@@ -1176,6 +1177,10 @@ def _capture_market_closing_auction_trades() -> dict[str, int]:
             ),
             lambda code: kis_rest_provider.fetch_krx_closing_auction_trade(
                 code, now=current_time
+            ),
+            tracked_recent_days=(
+                MARKET_SIGNAL_RECENT_DAYS,
+                MARKET_SIGNAL_DETAIL_RECENT_DAYS,
             ),
         )
 

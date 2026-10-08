@@ -18,6 +18,7 @@ from app.models import (
     DailyPrice,
     DisclosureItem,
     InvestorFlow,
+    MarketQuantSignalSnapshot,
     MacroObservation,
     NewsItem,
     QuantSignalIntradayPathSnapshot,
@@ -1860,6 +1861,72 @@ def test_v8_zero_volume_close_requires_separate_krx_print_before_sealing(monkeyp
         assert sample["ohlc"] == {
             "open": 101.0, "high": 103.0, "low": 100.0, "close": 103.0,
         }
+    finally:
+        db.close()
+
+
+def test_v8_auction_capture_includes_tracked_holdings_without_open_path(monkeypatch):
+    trade_date = date(2026, 10, 8)
+    capture_at = datetime(2026, 10, 8, 15, 34, tzinfo=quant_signals.KST)
+    rows = [
+        {
+            "trade_date": "20261008",
+            "trade_time": (
+                datetime(2026, 10, 8, 9) + timedelta(minutes=minute)
+            ).strftime("%H%M%S"),
+            "open": 101, "high": 101, "low": 101, "price": 101, "volume": 100,
+        }
+        for minute in range(380)
+    ]
+    close_trade = {
+        "trade_date": "20261008", "trade_time": "153000",
+        "open": 103, "high": 103, "low": 103, "price": 103,
+        "volume": 500,
+    }
+    monkeypatch.setattr(
+        quant_signals, "is_korea_market_session_date", lambda *_args: True
+    )
+    db = _session()
+    try:
+        for recent_days, code, current in (
+            (30, "005930", {"position_open": True}),
+            (90, "000660", {"action": "entry_pending"}),
+        ):
+            db.add(MarketQuantSignalSnapshot(
+                cache_key=quant_signals.market_quant_signal_snapshot_key(
+                    150, 0, recent_days
+                ),
+                payload=json.dumps({"items": [{
+                    "code": code,
+                    "current": current,
+                    "is_preliminary": recent_days == 90,
+                }]}),
+                generated_at=capture_at.replace(tzinfo=None),
+            ))
+        db.commit()
+        assert db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date)) is None
+        assert db.get(QuantSignalIntradayPathSnapshot, ("000660", trade_date)) is None
+        requested_codes = []
+
+        def trade_loader(code):
+            requested_codes.append(code)
+            return close_trade
+
+        assert quant_signals.capture_closing_auction_trades_for_open_paths(
+            db, capture_at, lambda _code: rows, trade_loader,
+            qa_sample_code="", tracked_recent_days=(30, 90),
+        ) == {"candidates": 2, "captured": 2, "unverified": 0}
+        assert requested_codes == ["000660", "005930"]
+        for code in requested_codes:
+            snapshot = db.get(QuantSignalIntradayPathSnapshot, (code, trade_date))
+            assert snapshot is not None
+            assert snapshot.source == quant_signals.KIS_CLOSING_AUCTION_SOURCE
+            assert len(json.loads(snapshot.payload)) == 381
+        assert quant_signals.capture_closing_auction_trades_for_open_paths(
+            db, capture_at, lambda _code: rows, trade_loader,
+            qa_sample_code="", tracked_recent_days=(30, 90),
+        ) == {"candidates": 0, "captured": 0, "unverified": 0}
+        assert len(requested_codes) == 2
     finally:
         db.close()
 

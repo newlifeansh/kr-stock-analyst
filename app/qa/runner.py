@@ -352,6 +352,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_v8_current_day_path_is_sealed_after_close_and_replays_without_dated_kis",
         "tests.test_quant_signals."
         "test_v8_zero_volume_close_requires_separate_krx_print_before_sealing",
+        "tests.test_quant_signals."
+        "test_v8_auction_capture_includes_tracked_holdings_without_open_path",
         "tests.test_app."
         "test_closing_auction_capture_runs_independently_of_top150_scan",
         "tests.test_quant_signals."
