@@ -33,7 +33,7 @@ from sqlalchemy import delete, desc, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db import SessionLocal, get_db, init_db, recover_interrupted_ingestions
+from app.db import SessionLocal, get_db, init_db_with_retry, recover_interrupted_ingestions
 from app.meta import integration_payload, insight_cadence_payload, research_source_payload
 from app.product_shell import render_dashboard_product_shell
 from app.us_public_gateway import checked_backend_url, forward_us_http, forward_us_websocket, gateway_target, should_freeze_us_write
@@ -1860,7 +1860,7 @@ async def _run_complete_snapshot_schedule_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    init_db()
+    await asyncio.to_thread(init_db_with_retry)
     if settings.runs_collectors():
         recover_interrupted_ingestions()
     bootstrap_task: asyncio.Task | None = None

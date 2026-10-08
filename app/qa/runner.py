@@ -53,6 +53,11 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-COM-008": (
+        "tests.test_db.test_startup_waits_for_railway_private_dns_and_then_recovers",
+        "tests.test_db.test_startup_does_not_retry_bad_database_credentials",
+        "tests.test_db.test_startup_db_retry_has_a_deadline",
+    ),
     "DATA-KIS-002": (
         "tests.test_briefing.test_kis_token_failure_is_cached_briefly_across_providers",
         "tests.test_market_calendar.test_scheduled_krx_session_is_open_before_todays_closing_index_exists",

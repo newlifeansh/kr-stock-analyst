@@ -97,6 +97,19 @@
       "failure_criteria": ["국내 share_id 행이나 인증·푸시 비밀값이 미국 DB·로그·QA 산출물에 복사된다.", "충돌 행을 조용히 덮거나 부분 커밋하고 공개 URL을 먼저 전환한다.", "기존 미국 관심종목·그룹·추천 추적 상태가 새 서비스에서 사라지거나 국내 화면의 쓰기까지 동결한다.", "운영자 후보 승인 없이 운영 DB를 변경하거나 민감한 export JSON을 파일·Actions 로그에 남긴다."]
     },
     {
+      "id": "DATA-COM-008",
+      "title": "DB 일시 중단 후 웹·수집기 자동 기동 복구",
+      "domain": "데이터 공통 계약",
+      "priority": "P0",
+      "modes": ["gate"],
+      "automation": "pytest Railway 사설 DNS 실패→지수 백오프→성공, 잘못된 인증 즉시 실패, 재시도 기한 fixture; 스테이징 /health·/readyz·수집기 상태는 DATA-COM-002 live에서 별도 확인",
+      "preconditions": ["기존 PostgreSQL 데이터와 볼륨을 유지한다.", "웹과 수집기가 같은 DB에 연결하며 시작 시 일시적으로 사설 DNS를 찾지 못할 수 있다."],
+      "inputs": {"startup_retry_deadline_seconds": 300, "transient_error": "failed to resolve host postgres.railway.internal", "permanent_error": "password authentication failed"},
+      "steps": ["DB 호스트 일시 실패를 반복한 뒤 복구시켜 같은 프로세스가 기동을 완료하는지 검사한다.", "잘못된 인증정보·SQL 오류는 재시도하지 않고 실패하는지 확인한다.", "재시도 기한 이후에도 DB가 없으면 명시적으로 실패하고 비밀값을 로그에 남기지 않는지 확인한다.", "스테이징 웹과 수집기의 /health·/readyz 및 최신 데이터 수집 상태를 확인한다."],
+      "expected": ["일시 DB 장애가 Railway 컨테이너 재시작 한도를 소진시키지 않고 웹·수집기가 DB 복구 후 자동 기동한다.", "영구 설정 오류는 숨기지 않으며 재시도는 300초 안에 끝난다."],
+      "failure_criteria": ["DB가 복구됐어도 웹·수집기가 수동 재시작 전까지 CRASHED로 남는다.", "영구 인증 오류까지 재시도하거나 기한 없이 시작이 멈춘다.", "DB 접속 정보가 로그에 노출된다."]
+    },
+    {
       "id": "DATA-KIS-001",
       "title": "KIS OAuth 발급과 캐시",
       "domain": "KIS 연동",
