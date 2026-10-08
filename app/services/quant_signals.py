@@ -1199,6 +1199,21 @@ def _intraday_exit_decisions(
     return decisions
 
 
+def _non_trade_closing_auction_row(row: dict[str, Any]) -> bool:
+    """KIS may publish indicative, zero-trade rows during the close auction.
+
+    Those prices are not executions and must not trigger targets or stops.
+    The completed 15:30 auction trade is still required separately.
+    """
+
+    trade_time = str(row.get("trade_time") or "").zfill(6)
+    try:
+        volume = float(row.get("volume"))
+    except (TypeError, ValueError):
+        return False
+    return "152000" <= trade_time < "153000" and volume == 0
+
+
 def _verified_intraday_minutes(
     quote: Optional[dict[str, Any]], bar: PriceBar
 ) -> Optional[list[PriceBar]]:
@@ -1256,6 +1271,9 @@ def _verified_intraday_minutes(
         # earlier confirmed signal snapshot.
         if minute_at.time() > observed_local.time():
             return None
+        seen_times.add(raw_time)
+        if _non_trade_closing_auction_row(row):
+            continue
         minute_open = _safe_number(row.get("open"))
         minute_high = _safe_number(row.get("high"))
         minute_low = _safe_number(row.get("low"))
@@ -1267,7 +1285,6 @@ def _verified_intraday_minutes(
             or minute_volume <= 0
         ):
             return None
-        seen_times.add(raw_time)
         parsed.append(
             (
                 minute_at,
@@ -1376,6 +1393,9 @@ def _store_verified_intraday_path(
     observed_at: datetime,
     is_final: bool,
 ) -> None:
+    # Store only executable minutes. Indicative auction rows can revise before
+    # the close and must not invalidate a previously observed trade prefix.
+    rows = [row for row in rows if not _non_trade_closing_auction_row(row)]
     snapshot = db.get(QuantSignalIntradayPathSnapshot, (code, trade_date))
     if snapshot is not None:
         if snapshot.strategy_version != STRATEGY_VERSION:

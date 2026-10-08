@@ -29,6 +29,7 @@ from app.qa.runner import (
     QaFailure,
     ResultCollector,
     _completed_kis_minute_chart_evidence,
+    _duplicate_market_signal_keys,
     _public_websocket_check,
     _probe_mobile_external_url,
     _resolve_public_quote_stream_url,
@@ -39,6 +40,26 @@ from app.qa.runner import (
     run_data_signal_qa,
 )
 from app.services.market_calendar import KST, is_korea_regular_market_session
+
+
+@pytest.mark.qa_gate
+def test_market_feed_duplicate_check_distinguishes_partial_and_final_sell() -> None:
+    partial = {
+        "code": "066570",
+        "signal_date": "2026-10-06",
+        "status": "confirmed",
+        "side": "sell",
+        "event_side": "partial_sell",
+        "profit_stage": 1,
+        "action": None,
+    }
+    final = {**partial, "event_side": "sell", "profit_stage": 2}
+    second_partial = {**partial, "profit_stage": 2}
+
+    assert _duplicate_market_signal_keys([partial, final, second_partial]) == []
+    assert _duplicate_market_signal_keys([partial, final, dict(partial)]) == [
+        ("066570", "2026-10-06", "confirmed", "partial_sell", 1, None)
+    ]
 
 
 @pytest.mark.qa_gate

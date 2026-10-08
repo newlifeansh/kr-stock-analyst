@@ -41,6 +41,7 @@ from app.services.quant_signals import (
     INTRADAY_EXECUTION_EFFECTIVE_DATE,
     PriceBar,
     STRATEGY_VERSION,
+    _non_trade_closing_auction_row,
     _verified_completed_intraday_minutes,
 )
 
@@ -952,12 +953,16 @@ def _probe_current_day_kis_minutes(
     if not isinstance(rows, list) or not rows or any(not isinstance(row, dict) for row in rows):
         rows = []
     try:
+        traded_rows = [
+            row for row in rows
+            if not _non_trade_closing_auction_row(row)
+        ]
         bar = PriceBar(
             current.date(),
-            float(rows[0]["open"]),
-            max(float(row["high"]) for row in rows),
-            min(float(row["low"]) for row in rows),
-            float(rows[-1]["price"]),
+            float(traded_rows[0]["open"]),
+            max(float(row["high"]) for row in traded_rows),
+            min(float(row["low"]) for row in traded_rows),
+            float(traded_rows[-1]["price"]),
             0,
             0,
         )
@@ -968,6 +973,9 @@ def _probe_current_day_kis_minutes(
         **result,
         "state": "ready" if verified is not None else "invalid",
         "points": len(rows),
+        "non_trade_auction_points": sum(
+            _non_trade_closing_auction_row(row) for row in rows
+        ),
         "first_time": str(rows[0].get("trade_time") or "") if rows else None,
         "last_time": str(rows[-1].get("trade_time") or "") if rows else None,
         "ohlc": (

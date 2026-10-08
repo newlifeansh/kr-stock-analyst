@@ -1691,6 +1691,12 @@ def test_v8_current_day_path_is_sealed_after_close_and_replays_without_dated_kis
         }
         for minute in range(380)
     ]
+    rows.extend({
+        "trade_date": "20261007",
+        "trade_time": f"15{minute:02d}00",
+        "open": 97, "high": 999, "low": 1, "price": 999,
+        "volume": 0,
+    } for minute in range(20, 30))
     rows.append({
         "trade_date": "20261007", "trade_time": "153000",
         "open": 97, "high": 97, "low": 97, "price": 97, "volume": 100,
@@ -1724,12 +1730,17 @@ def test_v8_current_day_path_is_sealed_after_close_and_replays_without_dated_kis
         db.expire_all()
         snapshot = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
         assert snapshot is not None and snapshot.is_final is True
-        assert len(quant_signals._load_verified_historical_intraday_paths(
+        replay = quant_signals._load_verified_historical_intraday_paths(
             db, "005930", [quant_signals.PriceBar(
                 trade_date, 101, 105, 97, 97, 1_000_000, 50_000_000_000
             )], datetime(2026, 10, 8, 10, tzinfo=quant_signals.KST),
             historical_chart_loader=lambda *_args: pytest.fail("dated KIS must not be called"),
-        )[trade_date]) == len(rows)
+        )[trade_date]
+        assert len(rows) == 391
+        assert len(replay) == 381
+        assert max(minute.high for minute in replay) == 105
+        assert min(minute.low for minute in replay) == 97
+        assert len(json.loads(snapshot.payload)) == 381
     finally:
         db.close()
 

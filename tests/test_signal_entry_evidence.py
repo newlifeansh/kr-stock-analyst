@@ -974,6 +974,12 @@ def test_current_day_kis_probe_requires_completed_matching_session(monkeypatch):
         }
         for minute in range(380)
     ]
+    rows.extend({
+        "trade_date": "20261007",
+        "trade_time": f"15{minute:02d}00",
+        "open": 101, "high": 999, "low": 1, "price": 999,
+        "volume": 0,
+    } for minute in range(20, 30))
     rows.append({
         "trade_date": "20261007", "trade_time": "153000",
         "open": 101, "high": 101, "low": 101, "price": 101,
@@ -987,6 +993,8 @@ def test_current_day_kis_probe_requires_completed_matching_session(monkeypatch):
     )
     ready = _probe_current_day_kis_minutes(Settings(), "005930", now)
     assert ready["state"] == "ready"
+    assert ready["points"] == 391
+    assert ready["non_trade_auction_points"] == 10
     assert ready["first_time"] == "090000"
     assert ready["last_time"] == "153000"
     assert ready["ohlc"] == {

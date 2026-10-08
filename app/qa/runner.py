@@ -1021,6 +1021,28 @@ def _assert(condition: Any, message: str, **evidence: Any) -> None:
         raise QaFailure(message, evidence)
 
 
+def _duplicate_market_signal_keys(items: list[Any]) -> list[tuple[Any, ...]]:
+    """Distinguish separate lifecycle events without hiding repeated events."""
+
+    seen: set[tuple[Any, ...]] = set()
+    duplicates: list[tuple[Any, ...]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = (
+            item.get("code"),
+            item.get("signal_date"),
+            item.get("status"),
+            item.get("event_side") or item.get("side"),
+            item.get("profit_stage"),
+            item.get("action"),
+        )
+        if key in seen and key not in duplicates:
+            duplicates.append(key)
+        seen.add(key)
+    return duplicates
+
+
 def _environment_name(base_url: str) -> str:
     host = (urlparse(base_url).hostname or "").lower()
     if host in {"localhost", "127.0.0.1", "testserver"}:
@@ -3398,14 +3420,11 @@ def _live_checks(
             )
             items = payload.get("items") or []
             _assert(isinstance(items, list), "시장 시그널 items가 배열이 아닙니다.")
-            keys = [
-                (item.get("code"), item.get("signal_date"), item.get("action"))
-                for item in items
-                if isinstance(item, dict)
-            ]
+            duplicate_keys = _duplicate_market_signal_keys(items)
             _assert(
-                len(keys) == len(set(keys)),
-                "동일 종목·날짜·상태 시그널이 중복됐습니다.",
+                not duplicate_keys,
+                "동일 종목·날짜·매매 단계 시그널이 중복됐습니다.",
+                duplicate_keys=duplicate_keys,
             )
             pending_leaks = []
             for item in items:
