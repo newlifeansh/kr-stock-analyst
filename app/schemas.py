@@ -1392,7 +1392,8 @@ class MarketRecommendationOut(BaseModel):
     pending_count: int = 0
     entered_today_count: int = 0
     holding_count: int = 0
-    selection_rule: str = "recommendation_score_ranked_independent_of_trade_signal"
+    terminal_exit_excluded_count: int = 0
+    selection_rule: str = "recommendation_score_ranked_with_terminal_exit_exclusion"
     selection_state: str = "ready"
     selection_refreshing: bool = False
     selection_message: str = ""

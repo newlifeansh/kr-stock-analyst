@@ -1056,6 +1056,7 @@ def _run_us_e2e_checks(
                     or item.get("score") != item.get("recommendationScore")
                     or item.get("modelVersion") != "us-independent-recommendation-v1"
                     or item.get("nestedSignalScore") is not None
+                    or item.get("signalAction") == "exited"
                     or not item.get("scoreText")
                     or not item.get("stageText")
                     for item in search_state["recommendations"]

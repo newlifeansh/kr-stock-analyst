@@ -183,25 +183,22 @@ def test_staging_recommendations_keep_score_ranking_and_attach_signal_context():
     )
     payload = json.loads(rewritten)
 
-    assert payload["selection_rule"] == "recommendation_score_ranked_independent_of_trade_signal"
+    assert payload["selection_rule"] == "recommendation_score_ranked_with_terminal_exit_exclusion"
     assert payload["selection_state"] == "ready"
     assert payload["candidate_count"] == 20
     assert payload["qualified_count"] == 5
     assert payload["pending_count"] == 1
     assert payload["entered_today_count"] == 1
     assert payload["holding_count"] == 0
-    assert [item["code"] for item in payload["items"]] == ["078930", "003230", "105560"]
-    exited, pending, entered = payload["items"]
-    assert exited["rank"] == 1
-    assert exited["action"] == "우수"
-    assert exited["recommendation_state"] == "score_selected"
-    assert exited["ai_trade_signal"]["current"]["action"] == "exited"
-    assert pending["rank"] == 2
+    assert payload["terminal_exit_excluded_count"] == 1
+    assert [item["code"] for item in payload["items"]] == ["003230", "105560", "000001"]
+    pending, entered, live_preliminary = payload["items"]
+    assert pending["rank"] == 1
     assert pending["action"] == "관찰"
     assert pending["recommendation_state"] == "entry_confirmed"
     assert pending["condition_price"] == 1_531_000
     assert pending["ai_trade_signal"]["current"]["levels"][0]["price"] == 1_520_000
-    assert entered["rank"] == 3
+    assert entered["rank"] == 2
     assert entered["action"] == "관찰"
     assert entered["recommendation_state"] == "entered_today"
     assert entered["buy_condition_met"] is True
@@ -209,6 +206,12 @@ def test_staging_recommendations_keep_score_ranking_and_attach_signal_context():
     assert entered["strategy_entry_price"] == 169_100
     assert entered["condition_price"] == 173_300
     assert entered["ai_trade_signal"]["current"]["position_open"] is True
+    assert live_preliminary["rank"] == 3
+    assert live_preliminary["recommendation_state"] == "score_selected"
+    assert all(
+        item["ai_trade_signal"]["current"]["action"] != "exited"
+        for item in payload["items"]
+    )
 
 
 def test_staging_never_adds_a_recommendation_card_from_signal_membership(
@@ -331,7 +334,7 @@ def test_staging_recommendations_remain_visible_when_signal_context_is_unavailab
     assert [item["code"] for item in payload["items"]] == ["078930"]
     assert payload["items"][0]["recommendation_state"] == "score_selected"
     assert payload["selection_state"] == "ready"
-    assert "AI 시그널에서 별도로" in payload["selection_message"]
+    assert "매도를 완료한 종목" in payload["selection_message"]
 
 
 def test_staging_recommendations_do_not_depend_on_refreshing_signal_snapshot():
@@ -366,7 +369,7 @@ def test_staging_recommendations_do_not_depend_on_refreshing_signal_snapshot():
     assert [item["code"] for item in payload["items"]] == ["003230"]
     assert payload["selection_state"] == "ready"
     assert payload["selection_refreshing"] is True
-    assert "AI 시그널에서 별도로" in payload["selection_message"]
+    assert "매도를 완료한 종목" in payload["selection_message"]
 
     refreshing["snapshot_age_seconds"] = 1_801
     stale_payload = json.loads(
@@ -2845,7 +2848,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20261001v558' in shell
+    assert 'dashboard-app-v170.js?v=20261008v559' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 

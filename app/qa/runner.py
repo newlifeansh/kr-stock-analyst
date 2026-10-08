@@ -2710,7 +2710,7 @@ def _live_checks(
                     recommendations.get("recommendation_model_version")
                     == "us-independent-recommendation-v1"
                     and recommendations.get("recommendation_selection_rule")
-                    == "recommendation_score_ranked_independent_of_trade_signal",
+                    == "recommendation_score_ranked_with_terminal_exit_exclusion",
                     "미국 추천이 독립 점수 모델·선정 규칙을 공개하지 않았습니다.",
                     model_version=recommendations.get(
                         "recommendation_model_version"
@@ -2737,6 +2737,10 @@ def _live_checks(
                         or item.get("action") != "추천 후보"
                         or not isinstance(signal, dict)
                         or "score" in signal
+                        or (
+                            ((signal.get("current") or {}).get("action") == "exited")
+                            and (signal.get("current") or {}).get("position_open") is not True
+                        )
                     ):
                         invalid_recommendations.append(
                             str(item.get("code") or "unknown")
@@ -3822,8 +3826,8 @@ def _live_checks(
                 )
                 _assert(
                     recommendations.get("selection_rule")
-                    == "recommendation_score_ranked_independent_of_trade_signal",
-                    "종목 추천이 추천 점수와 AI 시그널을 분리하지 않았습니다.",
+                    == "recommendation_score_ranked_with_terminal_exit_exclusion",
+                    "종목 추천이 전량 매도 완료 제외 규칙을 반영하지 않았습니다.",
                     selection_rule=recommendations.get("selection_rule"),
                 )
                 items = recommendations.get("items") or []
@@ -3894,6 +3898,11 @@ def _live_checks(
                     if (
                         item.get("buy_condition_met") is not True
                         or not recommendation_score_is_independent
+                        or (
+                            signal_action == "exited"
+                            and current.get("position_open") is not True
+                            and current.get("live_observation") is not True
+                        )
                         or not (
                             score_selected_valid
                             or pending_valid
@@ -3935,6 +3944,9 @@ def _live_checks(
                 )
                 qualified_count = int(recommendations.get("qualified_count") or 0)
                 candidate_count = int(recommendations.get("candidate_count") or 0)
+                terminal_exit_excluded_count = int(
+                    recommendations.get("terminal_exit_excluded_count") or 0
+                )
                 _assert(
                     candidate_count >= qualified_count >= len(items),
                     "추천 후보·점수 계산·반환 건수의 관계가 올바르지 않습니다.",
@@ -3943,9 +3955,11 @@ def _live_checks(
                     returned_count=len(items),
                 )
                 _assert(
-                    len(items) == min(20, qualified_count),
-                    "AI 시그널 상태 때문에 점수 추천 후보가 누락됐습니다.",
-                    expected_returned=min(20, qualified_count),
+                    len(items) <= min(20, qualified_count)
+                    and len(items) + terminal_exit_excluded_count
+                    >= min(20, qualified_count),
+                    "전량 매도 완료 종목 제외 후 추천 후보 반환 건수가 올바르지 않습니다.",
+                    maximum_returned=min(20, qualified_count),
                     returned_count=len(items),
                 )
                 _assert(
@@ -3977,6 +3991,7 @@ def _live_checks(
                     "pending_count": recommendations.get("pending_count"),
                     "entered_today_count": recommendations.get("entered_today_count"),
                     "holding_count": recommendations.get("holding_count"),
+                    "terminal_exit_excluded_count": terminal_exit_excluded_count,
                     "returned_count": len(items),
                     "signal_actions": sorted(signal_actions),
                     "codes": [item.get("code") for item in items if isinstance(item, dict)],
@@ -3985,7 +4000,7 @@ def _live_checks(
             collector.check(
                 "SIG-CONTRACT-002",
                 recommendation_eligibility_contract,
-                pass_message="추천 점수 순위와 현재 AI 시그널이 독립적으로 유지됨을 확인했습니다.",
+                pass_message="추천 점수 순위를 유지하면서 전량 매도 완료 종목을 제외함을 확인했습니다.",
             )
 
             def signal_surface_contract() -> dict[str, Any]:
@@ -5776,7 +5791,7 @@ def _live_us_checks(
                 recommendations.get("recommendation_model_version")
                 == "us-independent-recommendation-v1"
                 and recommendations.get("recommendation_selection_rule")
-                == "recommendation_score_ranked_independent_of_trade_signal",
+                == "recommendation_score_ranked_with_terminal_exit_exclusion",
                 "미국 추천이 독립 점수 모델·선정 규칙을 공개하지 않았습니다.",
             )
             for item in recommendation_items:
@@ -5793,6 +5808,10 @@ def _live_us_checks(
                     or item.get("action") != "추천 후보"
                     or not isinstance(signal, dict)
                     or "score" in signal
+                    or (
+                        ((signal.get("current") or {}).get("action") == "exited")
+                        and (signal.get("current") or {}).get("position_open") is not True
+                    )
                 ):
                     invalid_recommendations.append(
                         str(item.get("code") or "unknown")

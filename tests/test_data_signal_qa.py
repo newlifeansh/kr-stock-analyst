@@ -359,6 +359,18 @@ def test_signal_filter_e2e_waits_for_a_ready_revision_before_comparing_counts() 
     assert "state.aiSignalRevision >= 0" in readiness_helper
     assert "return snapshotReady" in readiness_helper
 
+
+def test_recommendation_renderer_defensively_hides_completed_exit_cards() -> None:
+    source = Path("app/static/dashboard/app.js").read_text(encoding="utf-8")
+    renderer = source.split("function recommendationIsTerminalExit", 1)[1].split(
+        "function setTrendTab", 1
+    )[0]
+
+    assert 'String(current.action || "").trim().toLowerCase() === "exited"' in renderer
+    assert "current.position_open !== true" in renderer
+    assert "current.live_observation !== true" in renderer
+    assert "sourceItems.filter((item) => !recommendationIsTerminalExit(item))" in renderer
+
 @pytest.mark.qa_gate
 def test_us_v2_catalog_covers_calendar_snapshot_and_model_replay_comparison() -> None:
     cases = {case["id"]: case for case in load_qa_catalog()["cases"]}
@@ -374,7 +386,7 @@ def test_us_v2_catalog_covers_calendar_snapshot_and_model_replay_comparison() ->
     assert "미검토 CIK을 SPY·QQQ나 표시 sector로 대체하지 않는다" in evidence
     assert "전체 new_entries_allowed=false" in evidence
     assert "us-independent-recommendation-v1" in recommendation
-    assert "recommendation_score_ranked_independent_of_trade_signal" in recommendation
+    assert "recommendation_score_ranked_with_terminal_exit_exclusion" in recommendation
     assert "시그널 감시 후보" in recommendation
     assert "중립값" in recommendation
     assert shadow["inputs"]["comparison_fields"] == [
@@ -1808,7 +1820,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.0",
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261001us130",
+                "us_dashboard_version": "20261008us131",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1816,7 +1828,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261001us130",
+                "us_dashboard_version": "20261008us131",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2016,7 +2028,7 @@ class FakeReadOnlyApi:
         if path == "/market/recommendations":
             return {
                 "as_of": "2026-08-29T10:00:00+09:00",
-                "selection_rule": "recommendation_score_ranked_independent_of_trade_signal",
+                "selection_rule": "recommendation_score_ranked_with_terminal_exit_exclusion",
                 "candidate_count": 0,
                 "qualified_count": 0,
                 "pending_count": 0,
@@ -2092,7 +2104,7 @@ class FakeReadOnlyApi:
                     "us-independent-recommendation-v1"
                 ),
                 "recommendation_selection_rule": (
-                    "recommendation_score_ranked_independent_of_trade_signal"
+                    "recommendation_score_ranked_with_terminal_exit_exclusion"
                 ),
                 "snapshot_id": (
                     f"position-lifecycle-us-v2-rc1:{universe_as_of}:fixture"
@@ -2374,7 +2386,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261001us130"}, self._meta(path)
+            return {"version": "20261008us131"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2421,11 +2433,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261001us130" />'
+                '<link href="/assets/dashboard/styles.css?v=20261008us131" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261001us130"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261008us131"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2465,11 +2477,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261001v558" />'
+            '<link href="/assets/dashboard/styles.css?v=20261008v559" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261001v558"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261008v559"></script>'
             '</body></html>',
             self._meta(path),
         )
@@ -3262,7 +3274,7 @@ def test_live_recommendation_contract_accepts_redacted_entered_today_evidence(
             if path == "/market/recommendations":
                 return {
                     "as_of": "2026-08-29T10:00:00+09:00",
-                    "selection_rule": "recommendation_score_ranked_independent_of_trade_signal",
+                    "selection_rule": "recommendation_score_ranked_with_terminal_exit_exclusion",
                     "candidate_count": 1,
                     "qualified_count": 1,
                     "pending_count": 0,
@@ -3323,7 +3335,7 @@ def test_live_recommendation_contract_accepts_redacted_current_holding(
             if path == "/market/recommendations":
                 return {
                     "as_of": "2026-09-21T16:00:00+09:00",
-                    "selection_rule": "recommendation_score_ranked_independent_of_trade_signal",
+                    "selection_rule": "recommendation_score_ranked_with_terminal_exit_exclusion",
                     "candidate_count": 1,
                     "qualified_count": 1,
                     "pending_count": 0,

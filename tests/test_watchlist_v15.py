@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20261001v558"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261008v559"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -372,11 +372,16 @@ def test_recommendation_score_and_current_signal_use_separate_labels():
     signal_flow = source.split("function createRecommendationDecisionFlow", 1)[1].split(
         "function createRecommendationCard", 1
     )[0]
+    terminal_guard = source.split("function recommendationIsTerminalExit", 1)[1].split(
+        "function renderRecommendations", 1
+    )[0]
 
     assert 'headline: "추천 점수 후보"' in candidate
     assert "ai_trade_signal" not in candidate
     assert "current.action" not in candidate
     assert 'options.detail ? "AI 시그널 여정" : "현재 AI 시그널"' in signal_flow
+    assert 'String(current.action || "").trim().toLowerCase() === "exited"' in terminal_guard
+    assert "current.position_open !== true" in terminal_guard
 
 
 def test_watchlist_return_timeline_recomputes_bubble_size_color_inputs_and_overflow():

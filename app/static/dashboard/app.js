@@ -28292,17 +28292,31 @@ function appendRecommendationCard(item) {
   elements.recommendList.appendChild(createRecommendationCard(item));
 }
 
+function recommendationIsTerminalExit(item = {}) {
+  const current = item?.ai_trade_signal?.current;
+  return Boolean(
+    current
+    && String(current.action || "").trim().toLowerCase() === "exited"
+    && current.position_open !== true
+    && current.live_observation !== true
+  );
+}
+
 function renderRecommendations(payload, options = {}) {
   closeRecommendationQuoteStreams();
   if (options.usSectorMoves) {
     state.usSectorMoves = options.usSectorMoves;
   }
-  const rankedItems = rerankRecommendationItems(payload.items || []).map((item) => ({
+  const sourceItems = Array.isArray(payload.items) ? payload.items : [];
+  const visibleItems = sourceItems.filter((item) => !recommendationIsTerminalExit(item));
+  const rankedItems = rerankRecommendationItems(visibleItems).map((item) => ({
     ...item,
     recommended_at: item.recommended_at || payload.as_of || null,
   }));
   const normalizedPayload = {
     ...payload,
+    terminal_exit_excluded_count: Number(payload.terminal_exit_excluded_count || 0)
+      + (sourceItems.length - visibleItems.length),
     items: rankedItems,
   };
   if (options.save) {
