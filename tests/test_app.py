@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import nullcontext
 import json
 import logging
 import subprocess
@@ -1342,7 +1343,7 @@ def test_market_quant_signal_refresh_loop_retries_without_dying(
 
     monkeypatch.setattr(main_module, "datetime", FixedDatetime)
     monkeypatch.setattr(main_module, "_quant_signal_quote_refresh_active", lambda _now: True)
-    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_snapshot", refresh)
+    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_views_snapshot", refresh)
     monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
     monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_recovery)
 
@@ -1355,6 +1356,44 @@ def test_market_quant_signal_refresh_loop_retries_without_dying(
     assert "Market quant signal refresh loop started" in caplog.text
     assert "Market quant signal refresh started" in caplog.text
     assert "Market quant signal refresh completed" in caplog.text
+
+
+@pytest.mark.qa_gate
+def test_market_quant_signal_views_share_one_live_quote_scan(monkeypatch):
+    from app import main as main_module
+
+    quotes = {"005930": {"price": 100_000}}
+    scans = []
+    scopes = []
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        type("Settings", (), {"market_quant_signal_source_url": ""})(),
+    )
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: nullcontext(object()))
+    monkeypatch.setattr(
+        main_module,
+        "_market_quant_signal_live_quotes",
+        lambda _db, universe_limit, _now: scans.append(universe_limit) or quotes,
+    )
+
+    def refresh(**kwargs):
+        scopes.append((kwargs.get("recent_days", 30), kwargs["live_quotes"]))
+        return {"status": "ready"}
+
+    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_snapshot", refresh)
+
+    assert main_module._refresh_market_quant_signal_views_snapshot() == {"status": "ready"}
+    assert scans == [main_module.MARKET_SIGNAL_UNIVERSE_LIMIT]
+    assert scopes == [(30, quotes), (90, quotes)]
+    assert scopes[0][1] is scopes[1][1]
+
+    monkeypatch.setattr(
+        main_module,
+        "_refresh_market_quant_signal_snapshot",
+        lambda **kwargs: None if kwargs.get("recent_days") == 90 else {"status": "ready"},
+    )
+    assert main_module._refresh_market_quant_signal_views_snapshot() is None
 
 
 def test_us_market_refresh_queue_is_process_single_flight(monkeypatch):

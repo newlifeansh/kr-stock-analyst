@@ -288,6 +288,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_market_quant_signal_endpoint_reads_new_collector_snapshot_during_session",
         "tests.test_quant_signals."
         "test_market_quant_signal_closed_cache_does_not_extend_on_read",
+        "tests.test_app."
+        "test_market_quant_signal_views_share_one_live_quote_scan",
+        "tests.test_quant_signals."
+        "test_market_quant_signal_detail_build_reuses_shared_quotes",
     ),
     "SIG-KR-INTRADAY-ORDER-001": (
         "tests.test_quant_signals."

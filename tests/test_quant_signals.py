@@ -5209,6 +5209,39 @@ def test_market_quant_signal_closed_cache_does_not_extend_on_read(monkeypatch):
         db.close()
 
 
+@pytest.mark.qa_gate
+def test_market_quant_signal_detail_build_reuses_shared_quotes(monkeypatch):
+    quotes = {"005930": {"price": 100_000}}
+    captured = []
+    monkeypatch.setattr(main, "load_external_market_quant_signal_feed", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main,
+        "load_market_quant_signal_feed",
+        lambda _db, **kwargs: captured.append(kwargs) or {"items": []},
+    )
+    monkeypatch.setattr(
+        main,
+        "_market_quant_signal_live_quotes",
+        lambda *_args, **_kwargs: pytest.fail("shared quotes must not be fetched twice"),
+    )
+    monkeypatch.setattr(main, "_attach_entry_filter_forward_comparison", lambda _db, payload: payload)
+    monkeypatch.setattr(main, "apply_market_signal_reconciliations", lambda payload, **_kwargs: payload)
+    monkeypatch.setattr(main, "enrich_market_quant_signal_sectors", lambda _db, payload: payload)
+
+    result = main._build_market_quant_signal_payload(
+        object(),
+        universe_limit=main.MARKET_SIGNAL_UNIVERSE_LIMIT,
+        limit=0,
+        recent_days=90,
+        now=datetime(2026, 10, 8, 9, 10, tzinfo=main.KST),
+        live_quotes=quotes,
+    )
+
+    assert result == {"items": []}
+    assert captured[0]["live_quotes"] is quotes
+    assert captured[0]["recent_days"] == 90
+
+
 def test_external_market_quant_signal_feed_uses_canonical_payload():
     calls = []
 

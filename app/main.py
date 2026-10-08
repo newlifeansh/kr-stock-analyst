@@ -320,6 +320,7 @@ market_quant_signal_refresh_lock = RLock()
 us_position_lifecycle_refresh_lock = Lock()
 entry_filter_shadow_refresh_lock = RLock()
 MARKET_QUANT_SIGNAL_ACTIVE_MAX_AGE_SECONDS = 10 * 60
+MARKET_SIGNAL_DETAIL_RECENT_DAYS = 90
 MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS = 6 * 60 * 60
 kis_realtime_provider = KisRealtimeQuoteProvider(settings)
 kis_rest_provider = KisRestBriefingProvider(settings)
@@ -1052,6 +1053,7 @@ def _refresh_market_quant_signal_snapshot(
     universe_limit: int = MARKET_SIGNAL_UNIVERSE_LIMIT,
     limit: int = 0,
     recent_days: int = 30,
+    live_quotes: Optional[dict[str, dict[str, Any]]] = None,
 ) -> Optional[dict[str, Any]]:
     if not market_quant_signal_refresh_lock.acquire(blocking=False):
         return None
@@ -1091,6 +1093,7 @@ def _refresh_market_quant_signal_snapshot(
                 limit=limit,
                 recent_days=recent_days,
                 now=current_time,
+                live_quotes=live_quotes,
             )
             logger.info(
                 "Market quant signal payload build completed: duration_seconds=%.1f",
@@ -1121,6 +1124,28 @@ def _refresh_market_quant_signal_snapshot(
         return None
     finally:
         market_quant_signal_refresh_lock.release()
+
+
+def _refresh_market_quant_signal_views_snapshot() -> Optional[dict[str, Any]]:
+    """Keep the 30-day alert feed and 90-day detail view on one quote frame."""
+
+    shared_quotes = None
+    if not settings.market_quant_signal_source_url:
+        with SessionLocal() as db:
+            shared_quotes = _market_quant_signal_live_quotes(
+                db, MARKET_SIGNAL_UNIVERSE_LIMIT, datetime.now(KST)
+            )
+    current = _refresh_market_quant_signal_snapshot(live_quotes=shared_quotes)
+    if current is None:
+        return None
+    detail = _refresh_market_quant_signal_snapshot(
+        recent_days=MARKET_SIGNAL_DETAIL_RECENT_DAYS,
+        live_quotes=shared_quotes,
+    )
+    if detail is None:
+        logger.warning("Market quant signal 90-day detail refresh did not complete")
+        return None
+    return current
 
 
 def _refresh_us_position_lifecycle_snapshot(
@@ -1297,6 +1322,7 @@ def _build_market_quant_signal_payload(
     limit: int,
     recent_days: int,
     now: Optional[datetime] = None,
+    live_quotes: Optional[dict[str, dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     current_time = now or datetime.now(KST)
     external = load_external_market_quant_signal_feed(
@@ -1315,7 +1341,11 @@ def _build_market_quant_signal_payload(
             limit=limit,
             recent_days=recent_days,
             now=current_time,
-            live_quotes=_market_quant_signal_live_quotes(db, universe_limit, current_time),
+            live_quotes=(
+                live_quotes
+                if live_quotes is not None
+                else _market_quant_signal_live_quotes(db, universe_limit, current_time)
+            ),
             intraday_chart_loader=(
                 (
                     lambda code: (
@@ -1530,7 +1560,7 @@ async def _run_market_quant_signal_refresh_loop() -> None:
             if _quant_signal_quote_refresh_active(now) or premarket_refresh:
                 started_at = time_module.monotonic()
                 logger.info("Market quant signal refresh started: as_of=%s", now.isoformat())
-                refreshed = await asyncio.to_thread(_refresh_market_quant_signal_snapshot)
+                refreshed = await asyncio.to_thread(_refresh_market_quant_signal_views_snapshot)
                 if refreshed is None:
                     # A busy lock or failed refresh must not leave the market
                     # feed stale for another full scan interval.
