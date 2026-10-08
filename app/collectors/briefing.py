@@ -565,6 +565,51 @@ class KisRestBriefingProvider:
 
         return sorted(points.values(), key=lambda row: (str(row["trade_date"]), str(row["trade_time"])))[:max_points]
 
+    def fetch_krx_closing_auction_trade(
+        self, code: str, *, now: datetime
+    ) -> Optional[dict[str, object]]:
+        """Read a same-session 15:30 KRX print before after-hours trades replace it.
+
+        ``inquire-ccnl`` exposes only the most recent 30 prints and has no
+        trading-date field.  Its time alone is evidence only in the narrow
+        interval after today's closing auction and before after-hours opens.
+        The caller must also verify the same-day minute path and daily OHLC.
+        """
+
+        local_now = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
+        if not (time(15, 31) <= local_now.time() < time(15, 40)):
+            return None
+        payload = self._get(
+            "/uapi/domestic-stock/v1/quotations/inquire-ccnl",
+            "FHKST01010300",
+            {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code},
+        )
+        rows = payload.get("output") or []
+        if not isinstance(rows, list):
+            return None
+        prints: list[tuple[int, int]] = []
+        for row in rows:
+            trade_time = str(row.get("stck_cntg_hour") or "").zfill(6) if isinstance(row, dict) else ""
+            if not ("153000" <= trade_time <= "153059"):
+                continue
+            price = _int(row.get("stck_prpr"))
+            volume = _int(row.get("cntg_vol"))
+            if price is not None and price > 0 and volume is not None and volume > 0:
+                prints.append((price, volume))
+        if not prints or len({price for price, _volume in prints}) != 1:
+            return None
+        price = prints[0][0]
+        return {
+            "trade_date": local_now.strftime("%Y%m%d"),
+            "trade_time": "153000",
+            "open": price,
+            "high": price,
+            "low": price,
+            "price": price,
+            "volume": sum(volume for _price, volume in prints),
+            "trading_value": 0,
+        }
+
     def fetch_historical_intraday_chart(
         self,
         code: str,

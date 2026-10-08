@@ -1314,6 +1314,10 @@ def _verified_intraday_minutes(
                 time(15, 20) <= observed_local.time() <= time(15, 30)
                 and time(15, 19) <= parsed[-1][0].time() <= time(15, 20)
             )
+            and not (
+                time(15, 31) <= observed_local.time() < time(15, 40)
+                and parsed[-1][0].time() == time(15, 30)
+            )
         )
         or any(
             (following[0] - previous[0]).total_seconds() > 61
@@ -1430,6 +1434,184 @@ def _store_verified_intraday_path(
         snapshot.observed_at = stored_at
 
 
+KIS_CLOSING_AUCTION_SOURCE = "kis_rest+ccnl_auction"
+
+
+def _merge_verified_closing_auction_trade(
+    rows: list[dict[str, Any]], snapshot: QuantSignalIntradayPathSnapshot
+) -> Optional[list[dict[str, Any]]]:
+    """Use only the KRX print captured before after-hours, never an indicative bar."""
+
+    if snapshot.source != KIS_CLOSING_AUCTION_SOURCE:
+        return rows
+    try:
+        saved = json.loads(snapshot.payload)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(saved, list) or not saved or not isinstance(saved[-1], dict):
+        return None
+    trade = saved[-1]
+    if (
+        str(trade.get("trade_date") or "") != snapshot.trade_date.strftime("%Y%m%d")
+        or str(trade.get("trade_time") or "").zfill(6) != "153000"
+        or not _has_complete_ohlc(
+            _safe_number(trade.get("open")), _safe_number(trade.get("high")),
+            _safe_number(trade.get("low")), _safe_number(trade.get("price")),
+        )
+        or (_safe_number(trade.get("volume")) or 0) <= 0
+        or len({
+            _safe_number(trade.get(field))
+            for field in ("open", "high", "low", "price")
+        }) != 1
+        or any(not isinstance(row, dict) for row in rows)
+        or any(
+            "152000" <= str(row.get("trade_time") or "").zfill(6) < "153000"
+            and (_safe_number(row.get("volume")) or 0) > 0
+            for row in rows
+        )
+    ):
+        return None
+    closing_rows = [
+        row for row in rows
+        if isinstance(row, dict)
+        and str(row.get("trade_time") or "").zfill(6) == "153000"
+    ]
+    if len(closing_rows) > 1 or (
+        closing_rows
+        and (_safe_number(closing_rows[0].get("volume")) or 0) > 0
+        and (
+            _safe_number(closing_rows[0].get("price")) != _safe_number(trade.get("price"))
+            or _safe_number(closing_rows[0].get("volume")) != _safe_number(trade.get("volume"))
+        )
+    ):
+        return None
+    return sorted(
+        [row for row in rows if isinstance(row, dict) and str(row.get("trade_time") or "").zfill(6) != "153000"]
+        + [trade],
+        key=lambda row: str(row.get("trade_time") or ""),
+    )
+
+
+def capture_closing_auction_trades_for_open_paths(
+    db: Session,
+    now: datetime,
+    chart_loader: Callable[[str], list[dict[str, Any]]],
+    trade_loader: Callable[[str], Optional[dict[str, Any]]],
+    *,
+    qa_sample_code: str = "005930",
+) -> dict[str, int]:
+    """Freeze KRX 15:30 prints while the recent-trades API still retains them.
+
+    No execution is inferred from a zero-volume minute or from the current
+    price.  An absent, contradictory, or late print leaves the path unsealed.
+    """
+
+    local_now = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
+    result = {"candidates": 0, "captured": 0, "unverified": 0}
+    if not (
+        time(15, 31) <= local_now.time() < time(15, 40)
+        and is_korea_market_session_date(local_now.date(), local_now)
+    ):
+        return result
+    snapshots = list(db.scalars(select(QuantSignalIntradayPathSnapshot).where(
+        QuantSignalIntradayPathSnapshot.trade_date == local_now.date(),
+        QuantSignalIntradayPathSnapshot.is_final.is_(False),
+    )))
+    by_code = {snapshot.stock_code: snapshot for snapshot in snapshots}
+    codes = set(by_code)
+    if qa_sample_code:
+        codes.add(qa_sample_code)
+    for code in sorted(codes):
+        snapshot = by_code.get(code)
+        if snapshot is None:
+            snapshot = db.get(QuantSignalIntradayPathSnapshot, (code, local_now.date()))
+        if snapshot is not None and snapshot.is_final:
+            continue
+        if snapshot is not None and snapshot.source == KIS_CLOSING_AUCTION_SOURCE:
+            continue
+        result["candidates"] += 1
+        try:
+            trade = trade_loader(code)
+            rows = chart_loader(code)
+        except Exception:
+            result["unverified"] += 1
+            continue
+        if (
+            not isinstance(trade, dict)
+            or str(trade.get("trade_date") or "") != local_now.strftime("%Y%m%d")
+            or str(trade.get("trade_time") or "").zfill(6) != "153000"
+            or (_safe_number(trade.get("volume")) or 0) <= 0
+            or len({
+                _safe_number(trade.get(field))
+                for field in ("open", "high", "low", "price")
+            }) != 1
+            or (_safe_number(trade.get("price")) or 0) <= 0
+            or not isinstance(rows, list)
+            or not rows
+            or any(not isinstance(row, dict) for row in rows)
+            or any(
+                "152000" <= str(row.get("trade_time") or "").zfill(6) < "153000"
+                and (_safe_number(row.get("volume")) or 0) > 0
+                for row in rows
+            )
+        ):
+            result["unverified"] += 1
+            continue
+        closing_rows = [
+            row for row in rows
+            if str(row.get("trade_time") or "").zfill(6) == "153000"
+        ]
+        if len(closing_rows) > 1 or (
+            closing_rows
+            and (_safe_number(closing_rows[0].get("volume")) or 0) > 0
+            and (
+                _safe_number(closing_rows[0].get("price")) != _safe_number(trade.get("price"))
+                or _safe_number(closing_rows[0].get("volume")) != _safe_number(trade.get("volume"))
+            )
+        ):
+            result["unverified"] += 1
+            continue
+        merged = sorted(
+            [
+                row for row in rows
+                if not _non_trade_closing_auction_row(row)
+                and str(row.get("trade_time") or "").zfill(6) != "153000"
+            ] + [trade],
+            key=lambda row: str(row.get("trade_time") or ""),
+        )
+        try:
+            bar = PriceBar(
+                local_now.date(), float(merged[0]["open"]),
+                max(float(row["high"]) for row in merged),
+                min(float(row["low"]) for row in merged),
+                float(merged[-1]["price"]), 0, 0,
+            )
+            verified = _verified_intraday_minutes(
+                {"observed_at": local_now, "intraday_minutes_observed_at": local_now,
+                 "intraday_minutes": merged},
+                bar,
+            )
+            if verified is None or len(verified) != len(merged):
+                result["unverified"] += 1
+                continue
+            _store_verified_intraday_path(
+                db, code, local_now.date(), merged,
+                observed_at=local_now, is_final=False,
+            )
+        except (ValueError, TypeError, KeyError, UnverifiedIntradayPathError):
+            result["unverified"] += 1
+            continue
+        stored = db.get(QuantSignalIntradayPathSnapshot, (code, local_now.date()))
+        if stored is None:
+            result["unverified"] += 1
+            continue
+        stored.source = KIS_CLOSING_AUCTION_SOURCE
+        result["captured"] += 1
+    if result["captured"]:
+        db.commit()
+    return result
+
+
 def finalize_open_intraday_paths_for_session(
     db: Session,
     now: datetime,
@@ -1484,7 +1666,11 @@ def finalize_open_intraday_paths_for_session(
         except Exception:
             result["unverified"] += 1
             continue
-        if not isinstance(rows, list) or _verified_completed_intraday_minutes(rows, bar) is None:
+        if not isinstance(rows, list):
+            result["unverified"] += 1
+            continue
+        rows = _merge_verified_closing_auction_trade(rows, snapshot)
+        if rows is None or _verified_completed_intraday_minutes(rows, bar) is None:
             result["unverified"] += 1
             continue
         try:
@@ -1575,24 +1761,34 @@ def _load_verified_historical_intraday_paths(
                     isinstance(cached_rows, list)
                     and cached.point_count == len(cached_rows)
                 ):
-                    verified = _verified_completed_intraday_minutes(cached_rows, bar)
-                    if verified is not None:
-                        try:
-                            _store_verified_intraday_path(
-                                db, code, snapshot.trade_date, cached_rows,
-                                observed_at=datetime.now(timezone.utc), is_final=True,
-                            )
-                        except UnverifiedIntradayPathError:
-                            pass
-                        else:
-                            result[snapshot.trade_date] = verified
-                            continue
+                    cached_rows = _merge_verified_closing_auction_trade(
+                        cached_rows, snapshot
+                    )
+                    if isinstance(cached_rows, list):
+                        verified = _verified_completed_intraday_minutes(cached_rows, bar)
+                        if verified is not None:
+                            try:
+                                _store_verified_intraday_path(
+                                    db, code, snapshot.trade_date, cached_rows,
+                                    observed_at=datetime.now(timezone.utc), is_final=True,
+                                )
+                            except UnverifiedIntradayPathError:
+                                pass
+                            else:
+                                result[snapshot.trade_date] = verified
+                                continue
             if historical_chart_loader is None:
                 raise UnverifiedIntradayPathError("과거 장중 체결 분봉의 최종 확인을 기다립니다")
             try:
                 historical_rows = historical_chart_loader(code, snapshot.trade_date)
             except Exception as exc:
                 raise UnverifiedIntradayPathError("과거 분봉 조회에 실패했습니다") from exc
+            if isinstance(historical_rows, list):
+                historical_rows = _merge_verified_closing_auction_trade(
+                    historical_rows, snapshot
+                )
+            if historical_rows is None:
+                raise UnverifiedIntradayPathError("과거 종가경매 체결 근거가 불완전합니다")
             verified = _verified_completed_intraday_minutes(historical_rows, bar)
             if verified is None:
                 raise UnverifiedIntradayPathError("과거 분봉과 확정 일봉이 일치하지 않습니다")

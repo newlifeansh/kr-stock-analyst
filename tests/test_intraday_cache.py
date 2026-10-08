@@ -440,6 +440,41 @@ def test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates(monkeyp
     assert all(call[2]["FID_COND_MRKT_DIV_CODE"] == "J" for call in calls)
 
 
+def test_krx_closing_auction_trade_requires_live_window_and_consistent_prints(monkeypatch):
+    provider = KisRestBriefingProvider(Settings(kis_app_key="key", kis_app_secret="secret"))
+    calls = []
+    rows = [
+        {"stck_cntg_hour": "153000", "stck_prpr": "103000", "cntg_vol": "100"},
+        {"stck_cntg_hour": "153017", "stck_prpr": "103000", "cntg_vol": "50"},
+        {"stck_cntg_hour": "151900", "stck_prpr": "102000", "cntg_vol": "9"},
+    ]
+
+    def fake_get(path, tr_id, params):
+        calls.append((path, tr_id, params))
+        return {"output": rows}
+
+    monkeypatch.setattr(provider, "_get", fake_get)
+    now = datetime(2026, 10, 8, 15, 34, tzinfo=main.KST)
+    assert provider.fetch_krx_closing_auction_trade("005930", now=now) == {
+        "trade_date": "20261008", "trade_time": "153000", "open": 103000,
+        "high": 103000, "low": 103000, "price": 103000,
+        "volume": 150, "trading_value": 0,
+    }
+    assert calls[0][0].endswith("/inquire-ccnl")
+    assert calls[0][1] == "FHKST01010300"
+    assert calls[0][2]["FID_COND_MRKT_DIV_CODE"] == "J"
+    assert provider.fetch_krx_closing_auction_trade(
+        "005930", now=now.replace(hour=20)
+    ) is None
+    assert len(calls) == 1
+    rows[1]["stck_prpr"] = "104000"
+    assert provider.fetch_krx_closing_auction_trade("005930", now=now) is None
+    rows[1]["stck_prpr"] = "103000"
+    rows[0]["cntg_vol"] = "0"
+    rows[1]["cntg_vol"] = "0"
+    assert provider.fetch_krx_closing_auction_trade("005930", now=now) is None
+
+
 def test_intraday_warmup_does_not_run_during_regular_market(monkeypatch):
     monkeypatch.setattr(main, "_korea_intraday_session", lambda _now=None: {"is_live": True})
     monkeypatch.setattr(

@@ -182,6 +182,7 @@ from app.services.quant_signals import (
     MIN_BACKTEST_HISTORY_ROWS,
     STRATEGY_VERSION,
     UnverifiedIntradayPathError,
+    capture_closing_auction_trades_for_open_paths,
     enrich_market_quant_signal_sectors,
     enrich_quant_signal_payload_sector,
     finalize_open_intraday_paths_for_session,
@@ -1164,6 +1165,21 @@ def _refresh_market_quant_signal_views_snapshot() -> Optional[dict[str, Any]]:
     return current
 
 
+def _capture_market_closing_auction_trades() -> dict[str, int]:
+    current_time = datetime.now(KST)
+    with SessionLocal() as db:
+        return capture_closing_auction_trades_for_open_paths(
+            db,
+            current_time,
+            lambda code: kis_rest_provider.fetch_intraday_chart(
+                code, max_points=391, market_division="J", now=current_time
+            ),
+            lambda code: kis_rest_provider.fetch_krx_closing_auction_trade(
+                code, now=current_time
+            ),
+        )
+
+
 def _refresh_us_position_lifecycle_snapshot(
     *,
     allow_schema_upgrade: bool = False,
@@ -1613,6 +1629,26 @@ async def _run_market_quant_signal_refresh_loop() -> None:
         await asyncio.sleep(interval_seconds)
 
 
+async def _run_market_closing_auction_capture_loop() -> None:
+    """Do not let a long Top150 scan miss the short recent-print window."""
+
+    while True:
+        now = datetime.now(KST)
+        interval_seconds = 30 if time(15, 30) <= now.time() < time(15, 40) else 300
+        try:
+            if (
+                time(15, 31) <= now.time() < time(15, 40)
+                and is_korea_market_session_date(now.date(), now)
+                and kis_rest_provider.is_configured()
+            ):
+                result = await asyncio.to_thread(_capture_market_closing_auction_trades)
+                if result["captured"] or result["unverified"]:
+                    logger.info("Market KRX closing auction capture: %s", result)
+        except Exception:  # pragma: no cover - operational safeguard
+            logger.exception("Market KRX closing auction capture failed")
+        await asyncio.sleep(interval_seconds)
+
+
 def _us_position_lifecycle_snapshot_due(now: datetime) -> bool:
     try:
         with SessionLocal() as db:
@@ -1890,6 +1926,7 @@ async def lifespan(_: FastAPI):
     bootstrap_task: asyncio.Task | None = None
     intraday_warmup_task: asyncio.Task | None = None
     market_quant_signal_task: asyncio.Task | None = None
+    closing_auction_capture_task: asyncio.Task | None = None
     us_position_lifecycle_task: asyncio.Task | None = None
     entry_filter_shadow_task: asyncio.Task | None = None
     stock_logo_task: asyncio.Task | None = None
@@ -1908,6 +1945,9 @@ async def lifespan(_: FastAPI):
             )
             intraday_warmup_task = asyncio.create_task(_run_intraday_warmup_loop())
             market_quant_signal_task = asyncio.create_task(_run_market_quant_signal_refresh_loop())
+            closing_auction_capture_task = asyncio.create_task(
+                _run_market_closing_auction_capture_loop()
+            )
             if settings.us_market_enabled:
                 us_position_lifecycle_task = asyncio.create_task(
                     _run_us_position_lifecycle_refresh_loop()
@@ -1935,6 +1975,10 @@ async def lifespan(_: FastAPI):
                 market_quant_signal_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await market_quant_signal_task
+            if closing_auction_capture_task is not None:
+                closing_auction_capture_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await closing_auction_capture_task
             if us_position_lifecycle_task is not None:
                 us_position_lifecycle_task.cancel()
                 with suppress(asyncio.CancelledError):

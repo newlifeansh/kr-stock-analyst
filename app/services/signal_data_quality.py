@@ -39,6 +39,7 @@ from app.services.signal_entry_evidence import (
 from app.services.quant_signals import (
     EXECUTION_MODEL,
     INTRADAY_EXECUTION_EFFECTIVE_DATE,
+    KIS_CLOSING_AUCTION_SOURCE,
     PriceBar,
     STRATEGY_VERSION,
     _non_trade_closing_auction_row,
@@ -683,6 +684,41 @@ def signal_data_quality_status(
             QuantSignalIntradayPathSnapshot.trade_date == current.date(),
         )
     ))
+    sample_path = next(
+        (path for path in session_paths if path.stock_code == "005930" and path.is_final),
+        None,
+    )
+    sample_seal: dict[str, Any] = {"state": "missing"}
+    if sample_path is not None:
+        sample_seal = {"state": "invalid", "source": sample_path.source}
+        daily = db.scalar(select(DailyPrice).where(
+            DailyPrice.code == sample_path.stock_code,
+            DailyPrice.trade_date == sample_path.trade_date,
+        ))
+        try:
+            rows = json.loads(sample_path.payload)
+            bar = PriceBar(
+                daily.trade_date, float(daily.open), float(daily.high),
+                float(daily.low), float(daily.close),
+                float(daily.volume or 0), float(daily.trading_value or 0),
+            )
+            verified = _verified_completed_intraday_minutes(rows, bar)
+        except (AttributeError, ValueError, TypeError, KeyError):
+            verified = None
+        if verified is not None and sample_path.strategy_version == STRATEGY_VERSION:
+            sample_seal = {
+                "state": "ready",
+                "source": sample_path.source,
+                "points": len(verified),
+                "first_time": str(rows[0].get("trade_time") or ""),
+                "last_time": str(rows[-1].get("trade_time") or ""),
+                "closing_trade_volume": (
+                    int(rows[-1].get("volume") or 0)
+                    if sample_path.source == KIS_CLOSING_AUCTION_SOURCE else None
+                ),
+                "ohlc": {"open": bar.open, "high": bar.high,
+                         "low": bar.low, "close": bar.close},
+            }
     return {
         "status": status,
         "strategy_version": STRATEGY_VERSION,
@@ -695,6 +731,7 @@ def signal_data_quality_status(
             "version_mismatch": sum(
                 1 for path in session_paths if path.strategy_version != STRATEGY_VERSION
             ),
+            "sample": sample_seal,
         },
         "as_of": current,
         "universe": {

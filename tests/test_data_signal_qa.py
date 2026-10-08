@@ -2984,6 +2984,43 @@ def test_live_current_day_minute_seal_blocks_unverified_promotion(
 
 
 @pytest.mark.qa_live
+@pytest.mark.parametrize("closing_volume,expected", [(500, "pass"), (0, "fail")])
+def test_live_krx_recent_print_can_complete_zero_volume_chart_seal(
+    monkeypatch, closing_volume: int, expected: str
+) -> None:
+    from app.qa import runner
+
+    class AuctionPrintApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/meta/signal-data-quality":
+                payload = json.loads(json.dumps(payload))
+                historical = next(row for row in payload["api_probe"]["items"]
+                                  if row["key"] == "kis_historical_intraday")
+                historical.update({"state": "invalid", "points": 380,
+                                   "last_time": "151900"})
+                current = next(row for row in payload["api_probe"]["items"]
+                               if row["key"] == "kis_current_day_intraday")
+                current.update({"state": "invalid", "points": 391,
+                                "non_trade_auction_points": 10, "ohlc": None})
+                payload["intraday_path_seal"]["sample"] = {
+                    "state": "ready", "source": "kis_rest+ccnl_auction",
+                    "points": 381, "first_time": "090000", "last_time": "153000",
+                    "closing_trade_volume": closing_volume,
+                    "ohlc": {"open": 100000, "high": 105000,
+                             "low": 99000, "close": 103000},
+                }
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", AuctionPrintApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    checks = {item["id"]: item for item in report["checks"]}
+    assert checks["DATA-KIS-008"]["status"] == expected
+    assert checks["SIG-KR-INTRADAY-SEAL-001"]["status"] == expected
+
+
+@pytest.mark.qa_live
 def test_live_kis_intraday_chart_rejects_future_market_minutes(monkeypatch) -> None:
     from app.qa import runner
 

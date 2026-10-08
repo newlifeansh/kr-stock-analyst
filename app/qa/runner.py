@@ -81,6 +81,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_briefing.test_kis_rest_token_is_reused_across_probe_and_quote_providers",
         "tests.test_signal_entry_evidence.test_historical_kis_probe_requires_completed_dated_minutes",
         "tests.test_intraday_cache.test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
+        "tests.test_intraday_cache.test_krx_closing_auction_trade_requires_live_window_and_consistent_prints",
         "tests.test_signal_entry_evidence.test_current_day_kis_probe_requires_completed_matching_session",
         "tests.test_data_signal_qa.test_live_dated_kis_403_requires_verified_current_day_replay_source",
     ),
@@ -349,6 +350,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-KR-INTRADAY-SEAL-001": (
         "tests.test_quant_signals."
         "test_v8_current_day_path_is_sealed_after_close_and_replays_without_dated_kis",
+        "tests.test_quant_signals."
+        "test_v8_zero_volume_close_requires_separate_krx_print_before_sealing",
+        "tests.test_app."
+        "test_closing_auction_capture_runs_independently_of_top150_scan",
         "tests.test_quant_signals."
         "test_v8_current_day_seal_fails_closed_on_mismatch_or_provider_outage",
         "tests.test_quote_stream_scaling."
@@ -3297,9 +3302,16 @@ def _live_checks(
                 None,
             )
             seal = quality.get("intraday_path_seal") or {}
+            sample = seal.get("sample") or {}
+            sealed_auction = (
+                sample.get("state") == "ready"
+                and sample.get("source") == "kis_rest+ccnl_auction"
+                and int(sample.get("closing_trade_volume") or 0) > 0
+                and sample.get("last_time") == "153000"
+            )
             _assert(
                 isinstance(same_day, dict)
-                and same_day.get("state") == "ready"
+                and (same_day.get("state") == "ready" or sealed_auction)
                 and same_day.get("trade_date") == seal.get("trade_date")
                 and int(seal.get("pending") or 0) == 0
                 and int(seal.get("version_mismatch") or 0) == 0,
@@ -3315,6 +3327,7 @@ def _live_checks(
                 "historical_kis_state": dated.get("state"),
                 "historical_kis_http_status": dated.get("http_status"),
                 "historical_kis_failure_endpoint": dated.get("failure_endpoint"),
+                "sample_seal_source": sample.get("source") if sealed_auction else None,
                 "pending_paths": seal.get("pending"),
                 "finalized_paths": seal.get("finalized"),
             }
@@ -3337,8 +3350,16 @@ def _live_checks(
                 None,
             )
             _assert(isinstance(item, dict), "당일 KIS 장마감 분봉 실연동 근거가 없습니다.")
+            sample = seal.get("sample") or {}
+            sealed_auction = (
+                sample.get("state") == "ready"
+                and sample.get("source") == "kis_rest+ccnl_auction"
+                and int(sample.get("closing_trade_volume") or 0) > 0
+                and str(sample.get("first_time") or "") <= "090200"
+                and sample.get("last_time") == "153000"
+            )
             _assert(
-                item.get("state") == "ready"
+                (item.get("state") == "ready" or sealed_auction)
                 and item.get("trade_date") == seal.get("trade_date")
                 and int(item.get("points") or 0) > 0
                 and str(item.get("first_time") or "") <= "090200"
@@ -3360,7 +3381,7 @@ def _live_checks(
             )
             _assert(isinstance(prices, list) and prices, "장마감 005930 확정 일봉이 없습니다.")
             price = prices[0]
-            ohlc = item.get("ohlc") or {}
+            ohlc = sample.get("ohlc") if sealed_auction else item.get("ohlc") or {}
             _assert(
                 all(
                     float(price.get(field) or 0) == float(ohlc.get(field) or -1)
@@ -3373,6 +3394,8 @@ def _live_checks(
             return {
                 "trade_date": item["trade_date"],
                 "points": item["points"],
+                "closing_trade_source": sample.get("source") if sealed_auction else "kis_chart",
+                "closing_trade_volume": sample.get("closing_trade_volume") if sealed_auction else None,
                 "finalized_paths": seal.get("finalized"),
                 "pending_paths": seal.get("pending"),
             }

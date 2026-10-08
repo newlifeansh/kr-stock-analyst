@@ -1745,6 +1745,125 @@ def test_v8_current_day_path_is_sealed_after_close_and_replays_without_dated_kis
         db.close()
 
 
+def test_v8_zero_volume_close_requires_separate_krx_print_before_sealing(monkeypatch):
+    trade_date = date(2026, 10, 8)
+    capture_at = datetime(2026, 10, 8, 15, 34, tzinfo=quant_signals.KST)
+    seal_at = capture_at.replace(minute=45)
+    rows = [
+        {
+            "trade_date": "20261008",
+            "trade_time": (
+                datetime(2026, 10, 8, 9) + timedelta(minutes=minute)
+            ).strftime("%H%M%S"),
+            "open": 101, "high": 101,
+            "low": 100 if minute == 0 else 101,
+            "price": 101, "volume": 100,
+        }
+        for minute in range(380)
+    ]
+    rows.extend({
+        "trade_date": "20261008", "trade_time": f"15{minute:02d}00",
+        "open": 101, "high": 999, "low": 1, "price": 999,
+        "volume": 0,
+    } for minute in range(20, 30))
+    rows.append({
+        "trade_date": "20261008", "trade_time": "153000",
+        "open": 101, "high": 999, "low": 1, "price": 999,
+        "volume": 0,
+    })
+    close_trade = {
+        "trade_date": "20261008", "trade_time": "153000",
+        "open": 103, "high": 103, "low": 103, "price": 103,
+        "volume": 500, "trading_value": 0,
+    }
+    monkeypatch.setattr(
+        quant_signals, "is_korea_market_session_date", lambda *_args: True
+    )
+    db = _session()
+    try:
+        db.add(_stock())
+        daily = DailyPrice(
+            code="005930", trade_date=trade_date,
+            open=101, high=104, low=100, close=103,
+            volume=1_000_000, trading_value=50_000_000_000,
+        )
+        db.add(daily)
+        quant_signals._store_verified_intraday_path(
+            db, "005930", trade_date, rows[:2],
+            observed_at=datetime(2026, 10, 8, 9, 3, tzinfo=quant_signals.KST),
+            is_final=False,
+        )
+        db.commit()
+        assert quant_signals.capture_closing_auction_trades_for_open_paths(
+            db, capture_at.replace(hour=20), lambda _code: rows,
+            lambda _code: close_trade,
+        ) == {"candidates": 0, "captured": 0, "unverified": 0}
+        assert quant_signals.capture_closing_auction_trades_for_open_paths(
+            db, capture_at, lambda _code: rows,
+            lambda _code: None,
+        ) == {"candidates": 1, "captured": 0, "unverified": 1}
+        snapshot = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
+        assert snapshot is not None and snapshot.source == "kis_rest"
+        assert quant_signals.capture_closing_auction_trades_for_open_paths(
+            db, capture_at, lambda _code: rows,
+            lambda _code: close_trade,
+        ) == {"candidates": 1, "captured": 1, "unverified": 0}
+        db.expire_all()
+        snapshot = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
+        assert snapshot.source == quant_signals.KIS_CLOSING_AUCTION_SOURCE
+        assert snapshot.is_final is False
+        saved = json.loads(snapshot.payload)
+        assert len(saved) == 381
+        assert saved[-1]["price"] == 103 and saved[-1]["volume"] == 500
+        assert quant_signals.finalize_open_intraday_paths_for_session(
+            db, seal_at, lambda _code: rows
+        ) == {"pending": 1, "finalized": 0, "unverified": 1}
+        assert snapshot.is_final is False
+        daily.high = 103
+        db.commit()
+        assert quant_signals.finalize_open_intraday_paths_for_session(
+            db, seal_at, lambda _code: rows
+        ) == {"pending": 1, "finalized": 1, "unverified": 0}
+        db.expire_all()
+        snapshot = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
+        assert snapshot.is_final is True
+        replay = quant_signals._load_verified_historical_intraday_paths(
+            db, "005930", [quant_signals.PriceBar(
+                trade_date, 101, 103, 100, 103, 1_000_000, 50_000_000_000,
+            )], datetime(2026, 10, 9, 10, tzinfo=quant_signals.KST),
+            historical_chart_loader=lambda *_args: pytest.fail("dated KIS must not be called"),
+        )
+        assert len(replay[trade_date]) == 381
+        assert replay[trade_date][-1].close == 103
+        assert max(bar.high for bar in replay[trade_date]) == 103
+        decisions = quant_signals._ordered_intraday_exit_decisions(
+            {
+                "entry_date": trade_date, "entry_price": 100.0,
+                "initial_risk": 2.0, "initial_stop": 98.0,
+                "peak_price": 100.0, "profit_stage": 0,
+                "remaining_fraction": 1.0,
+            },
+            replay[trade_date],
+            {"atr": 1.0, "ema20": 100.0,
+             "average_trading_value": 50_000_000_000.0},
+        )
+        assert [(item.side, item.price, item.sell_fraction) for item in decisions] == [
+            ("partial_sell", 103.0, 0.5),
+        ]
+        from app.services.signal_data_quality import signal_data_quality_status
+
+        quality = signal_data_quality_status(db, main.settings, now=seal_at)
+        sample = quality["intraday_path_seal"]["sample"]
+        assert sample["state"] == "ready"
+        assert sample["source"] == quant_signals.KIS_CLOSING_AUCTION_SOURCE
+        assert sample["closing_trade_volume"] == 500
+        assert sample["ohlc"] == {
+            "open": 101.0, "high": 103.0, "low": 100.0, "close": 103.0,
+        }
+    finally:
+        db.close()
+
+
 def test_v8_current_day_seal_fails_closed_on_mismatch_or_provider_outage(monkeypatch):
     trade_date = date(2026, 10, 7)
     now = datetime(2026, 10, 7, 15, 45, tzinfo=quant_signals.KST)
@@ -1862,6 +1981,18 @@ def test_v8_replay_uses_only_matching_persisted_closed_kis_detail_chart():
         db.expire_all()
         path = db.get(QuantSignalIntradayPathSnapshot, ("005930", trade_date))
         assert path is not None and path.is_final is False
+        cached = db.get(StockIntradaySnapshot, "005930")
+        cached.payload = json.dumps(rows)
+        cached.point_count = len(rows) - 1
+        db.commit()
+        with pytest.raises(quant_signals.UnverifiedIntradayPathError):
+            quant_signals._load_verified_historical_intraday_paths(
+                db, "005930", [bar],
+                datetime(2026, 10, 8, 10, tzinfo=quant_signals.KST),
+                historical_chart_loader=lambda *_args: (_ for _ in ()).throw(
+                    RuntimeError("KIS dated endpoint 403")
+                ),
+            )
     finally:
         db.close()
 

@@ -1359,6 +1359,42 @@ def test_market_quant_signal_refresh_loop_retries_without_dying(
 
 
 @pytest.mark.qa_gate
+def test_closing_auction_capture_runs_independently_of_top150_scan(monkeypatch):
+    from app import main as main_module
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 8, 15, 34, tzinfo=tz)
+
+    calls = []
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def stop_after_first_iteration(seconds):
+        calls.append(("sleep", seconds))
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(main_module, "is_korea_market_session_date", lambda *_args: True)
+    monkeypatch.setattr(main_module.kis_rest_provider, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        main_module, "_capture_market_closing_auction_trades",
+        lambda: calls.append(("capture", None)) or {
+            "candidates": 1, "captured": 1, "unverified": 0,
+        },
+    )
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_first_iteration)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_market_closing_auction_capture_loop())
+
+    assert calls == [("capture", None), ("sleep", 30)]
+
+
+@pytest.mark.qa_gate
 def test_market_quant_signal_views_share_one_live_quote_scan(monkeypatch):
     from app import main as main_module
 
