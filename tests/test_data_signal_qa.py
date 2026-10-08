@@ -1788,6 +1788,7 @@ class FakeReadOnlyApi:
         if path == "/push/config":
             return {
                 "enabled": True,
+                "public_key": "fixture-public-vapid-key",
                 "market_scope": "kr",
                 "condition_options": [
                     {
@@ -2815,6 +2816,29 @@ def test_live_intraday_push_contract_rejects_outdated_notification_copy(
     by_id = {item["id"]: item for item in report["checks"]}
 
     assert by_id["SIG-PUSH-INTRADAY-001"]["status"] == "fail"
+    assert report["deployment_blocked"] is True
+
+
+@pytest.mark.qa_live
+@pytest.mark.parametrize("disabled_field", ["enabled", "public_key"])
+def test_live_intraday_push_contract_blocks_unconfigured_staging(
+    monkeypatch, disabled_field: str
+) -> None:
+    from app.qa import runner
+
+    class UnconfiguredPushApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/push/config":
+                payload = {**payload, disabled_field: False if disabled_field == "enabled" else None}
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", UnconfiguredPushApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "SIG-PUSH-INTRADAY-001")
+    assert check["status"] == "fail"
+    assert check["evidence"]["public_key_present"] is (disabled_field != "public_key")
     assert report["deployment_blocked"] is True
 
 

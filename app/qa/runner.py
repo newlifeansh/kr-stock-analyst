@@ -3426,6 +3426,14 @@ def _live_checks(
                     recent_days=30,
                 )
                 push_config, push_meta = api.get("/push/config")
+                _assert(
+                    push_config.get("enabled") is True
+                    and bool(push_config.get("public_key")),
+                    "스테이징 웹 푸시가 비활성화되어 장중 확정 알림 전송을 검증할 수 없습니다.",
+                    push_enabled=push_config.get("enabled"),
+                    public_key_present=bool(push_config.get("public_key")),
+                    **push_meta,
+                )
                 market_option = next(
                     (
                         option
@@ -3493,6 +3501,8 @@ def _live_checks(
                     "snapshot_generated_at": generated_at.isoformat(),
                     "dispatch_universe_limit": MARKET_SIGNAL_UNIVERSE_LIMIT,
                     "market_ai_signal_description": market_option["description"],
+                    "push_enabled": True,
+                    "public_key_present": True,
                     "total_events": len(items),
                     "verified_intraday_events": len(verified),
                     "delivery_observed": False,
