@@ -283,6 +283,12 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_web_push."
         "test_run_once_dispatches_domestic_intraday_half_sale_once_after_baseline",
     ),
+    "SIG-KR-SNAPSHOT-CACHE-001": (
+        "tests.test_quant_signals."
+        "test_market_quant_signal_endpoint_reads_new_collector_snapshot_during_session",
+        "tests.test_quant_signals."
+        "test_market_quant_signal_closed_cache_does_not_extend_on_read",
+    ),
     "SIG-KR-INTRADAY-ORDER-001": (
         "tests.test_quant_signals."
         "test_v8_ordered_minutes_keep_first_profit_sale_before_a_later_stop",

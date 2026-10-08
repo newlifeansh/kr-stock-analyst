@@ -4009,7 +4009,11 @@ def get_market_quant_signals(
 ):
     _enforce_rate_limit(request, "market_quant_signals", limit=30, window_seconds=60)
     cache_key = ("market_quant_signals", universe_limit, limit, recent_days)
-    payload = market_quant_signal_cache.get(cache_key)
+    # Collector and web processes have separate memory caches. During the
+    # session, read the shared snapshot so a web request cannot keep extending
+    # the lifetime of a pre-refresh signal after the collector has updated it.
+    active_quote_refresh = _quant_signal_quote_refresh_active()
+    payload = None if active_quote_refresh else market_quant_signal_cache.get(cache_key)
     if payload is None:
         payload = load_market_quant_signal_snapshot(
             db,
@@ -4017,6 +4021,8 @@ def get_market_quant_signals(
             limit=limit,
             recent_days=recent_days,
         )
+        if payload is not None and not active_quote_refresh:
+            market_quant_signal_cache.set(cache_key, payload, 300)
     if payload is None:
         if market_quant_signal_refresh_lock.acquire(blocking=False):
             try:
@@ -4080,7 +4086,6 @@ def get_market_quant_signals(
             )
         payload = apply_market_signal_reconciliations(payload, now=current_time) or payload
         payload = enrich_market_quant_signal_sectors(db, payload)
-        market_quant_signal_cache.set(cache_key, payload, 300)
         payload = _merge_market_preliminary_notification_history(db, payload)
     payload = sanitize_pending_entry_signal_items(payload)
     payload.setdefault("snapshot_generated_at", None)

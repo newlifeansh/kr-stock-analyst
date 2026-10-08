@@ -5121,6 +5121,94 @@ def test_market_quant_signal_endpoint_is_no_store(monkeypatch):
         db.close()
 
 
+@pytest.mark.qa_gate
+def test_market_quant_signal_endpoint_reads_new_collector_snapshot_during_session(monkeypatch):
+    db = _session()
+    cache_key = ("market_quant_signals", main.MARKET_SIGNAL_UNIVERSE_LIMIT, 0, 30)
+    current_count = {"value": 100}
+
+    def snapshot(count):
+        now = datetime.now(timezone.utc).isoformat()
+        return {
+            "status": "ready",
+            "as_of": now,
+            "snapshot_generated_at": now,
+            "universe_count": count,
+            "preliminary_count": 0,
+            "confirmed_count": 0,
+            "items": [],
+        }
+
+    def override_db():
+        yield db
+
+    monkeypatch.setattr(main, "_quant_signal_quote_refresh_active", lambda *_: True)
+    monkeypatch.setattr(
+        main,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: snapshot(current_count["value"]),
+    )
+    main.market_quant_signal_cache.clear()
+    main.market_quant_signal_cache.set(cache_key, snapshot(99), 300)
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        assert client.get("/market/quant-signals").json()["universe_count"] == 100
+        current_count["value"] = 101
+        assert client.get("/market/quant-signals").json()["universe_count"] == 101
+        assert main.market_quant_signal_cache.get(cache_key)["universe_count"] == 99
+    finally:
+        main.market_quant_signal_cache.clear()
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
+@pytest.mark.qa_gate
+def test_market_quant_signal_closed_cache_does_not_extend_on_read(monkeypatch):
+    db = _session()
+    cache_key = ("market_quant_signals", main.MARKET_SIGNAL_UNIVERSE_LIMIT, 0, 30)
+    current_count = {"value": 100}
+
+    def override_db():
+        yield db
+
+    def snapshot():
+        now = datetime.now(timezone.utc).isoformat()
+        return {
+            "status": "ready",
+            "as_of": now,
+            "snapshot_generated_at": now,
+            "universe_count": current_count["value"],
+            "preliminary_count": 0,
+            "confirmed_count": 0,
+            "items": [],
+        }
+
+    monkeypatch.setattr(main, "_quant_signal_quote_refresh_active", lambda *_: False)
+    monkeypatch.setattr(
+        main,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: snapshot(),
+    )
+    main.market_quant_signal_cache.clear()
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        assert client.get("/market/quant-signals").json()["universe_count"] == 100
+        expires_at = main.market_quant_signal_cache._items[cache_key].expires_at
+        current_count["value"] = 101
+        assert client.get("/market/quant-signals").json()["universe_count"] == 100
+        assert main.market_quant_signal_cache._items[cache_key].expires_at == expires_at
+        main.market_quant_signal_cache._items[cache_key].expires_at = (
+            datetime.utcnow() - timedelta(seconds=1)
+        )
+        assert client.get("/market/quant-signals").json()["universe_count"] == 101
+    finally:
+        main.market_quant_signal_cache.clear()
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
 def test_external_market_quant_signal_feed_uses_canonical_payload():
     calls = []
 

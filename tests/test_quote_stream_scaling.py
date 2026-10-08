@@ -529,6 +529,11 @@ def test_canonical_signal_response_exposes_the_same_revision_as_the_socket_frame
         main_module.market_quant_signal_cache, "get", lambda _key: payload
     )
     monkeypatch.setattr(
+        main_module,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: payload,
+    )
+    monkeypatch.setattr(
         main_module.market_quant_signal_cache, "set", lambda *_args: None
     )
     monkeypatch.setattr(
@@ -590,6 +595,15 @@ def test_nondefault_signal_response_cannot_replace_the_canonical_revision(monkey
         main_module.market_quant_signal_cache,
         "get",
         lambda _key: {
+            "strategy_version": "test-v1",
+            "as_of": "2026-08-31T10:05:00+09:00",
+            "items": [{"code": "000660", "side": "sell"}],
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: {
             "strategy_version": "test-v1",
             "as_of": "2026-08-31T10:05:00+09:00",
             "items": [{"code": "000660", "side": "sell"}],
