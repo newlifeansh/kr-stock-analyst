@@ -5347,6 +5347,7 @@ def test_market_quant_signal_live_quotes_refresh_ranked_universe(monkeypatch, ca
         "000001": {"trade_date": trade_date, "price": 111},
         "000002": {"trade_date": trade_date, "price": 222},
     }
+    assert quotes.expected_symbols == 2
     assert "Market quant signal quote fanout started: symbols=2" in caplog.text
     assert "Market quant signal quote fanout completed:" in caplog.text
     assert "kis_rest=1 naver_finance=1 other=0 missing=0 worker_failures=0" in caplog.text
@@ -5375,6 +5376,7 @@ def test_market_quant_signal_live_quotes_reports_missing_and_worker_failures(mon
     monkeypatch.setattr(main, "_fetch_uncached_current_quote", quote)
     result = main._market_quant_signal_live_quotes(db, universe_limit=3)
     assert list(result) == ["000001"]
+    assert result.expected_symbols == 3
     assert "kis_rest=1 naver_finance=0 other=0 missing=2 worker_failures=1" in caplog.text
     assert "sensitive upstream detail" not in caplog.text
     db.close()

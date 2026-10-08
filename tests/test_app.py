@@ -1396,6 +1396,47 @@ def test_market_quant_signal_views_share_one_live_quote_scan(monkeypatch):
     assert main_module._refresh_market_quant_signal_views_snapshot() is None
 
 
+@pytest.mark.qa_gate
+@pytest.mark.parametrize(
+    ("regular_session", "valid_quotes", "published"),
+    [(True, 53, False), (True, 142, False), (True, 143, True), (False, 53, True)],
+)
+def test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses(
+    monkeypatch, caplog, regular_session, valid_quotes, published,
+):
+    from app import main as main_module
+
+    caplog.set_level("WARNING", logger=main_module.logger.name)
+    quotes = main_module.MarketQuoteFanout(expected_symbols=150)
+    quotes.update({f"{index:06d}": {"price": 100} for index in range(valid_quotes)})
+    calls = []
+    monkeypatch.setattr(
+        main_module, "settings",
+        type("Settings", (), {"market_quant_signal_source_url": ""})(),
+    )
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: nullcontext(object()))
+    monkeypatch.setattr(
+        main_module, "is_korea_regular_market_session", lambda *_: regular_session,
+    )
+    monkeypatch.setattr(
+        main_module, "_market_quant_signal_live_quotes", lambda *_args: quotes,
+    )
+    monkeypatch.setattr(
+        main_module, "_refresh_market_quant_signal_snapshot",
+        lambda **kwargs: calls.append(kwargs) or {"status": "ready"},
+    )
+
+    result = main_module._refresh_market_quant_signal_views_snapshot()
+
+    assert (result is not None) is published
+    assert [call.get("recent_days", 30) for call in calls] == ([30, 90] if published else [])
+    if published:
+        assert all(call["live_quotes"] is quotes for call in calls)
+    else:
+        assert "preserving snapshot" in caplog.text
+        assert "valid_quotes=53" in caplog.text or "valid_quotes=142" in caplog.text
+
+
 def test_us_market_refresh_queue_is_process_single_flight(monkeypatch):
     from fastapi import BackgroundTasks
     from app import main as main_module

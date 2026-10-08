@@ -295,6 +295,14 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_run_once_dispatches_domestic_intraday_half_sale_once_after_baseline",
     ),
     "SIG-KR-SNAPSHOT-CACHE-001": (
+        "tests.test_app."
+        "test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses[True-53-False]",
+        "tests.test_app."
+        "test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses[True-142-False]",
+        "tests.test_app."
+        "test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses[True-143-True]",
+        "tests.test_app."
+        "test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses[False-53-True]",
         "tests.test_quant_signals."
         "test_market_quant_signal_endpoint_reads_new_collector_snapshot_during_session",
         "tests.test_quant_signals."

@@ -1135,6 +1135,22 @@ def _refresh_market_quant_signal_views_snapshot() -> Optional[dict[str, Any]]:
             shared_quotes = _market_quant_signal_live_quotes(
                 db, MARKET_SIGNAL_UNIVERSE_LIMIT, datetime.now(KST)
             )
+        if (
+            isinstance(shared_quotes, MarketQuoteFanout)
+            and shared_quotes.expected_symbols > 0
+            and is_korea_regular_market_session(datetime.now(KST))
+            and len(shared_quotes) * 100 < shared_quotes.expected_symbols * 95
+        ):
+            # A transient KIS outage must not turn a partly observed Top150
+            # frame into a new confirmed alert or erase previously published
+            # positions. The refresh loop retries a None result in 30s.
+            logger.warning(
+                "Market quant signal quote coverage below publication floor: "
+                "valid_quotes=%s symbols=%s required_percent=95; preserving snapshot",
+                len(shared_quotes),
+                shared_quotes.expected_symbols,
+            )
+            return None
     current = _refresh_market_quant_signal_snapshot(live_quotes=shared_quotes)
     if current is None:
         return None
@@ -1376,16 +1392,24 @@ def _build_market_quant_signal_payload(
     return enrich_market_quant_signal_sectors(db, payload)
 
 
+class MarketQuoteFanout(dict[str, dict[str, Any]]):
+    """Quote map carrying scan size for publication-quality decisions."""
+
+    def __init__(self, expected_symbols: int):
+        super().__init__()
+        self.expected_symbols = expected_symbols
+
+
 def _market_quant_signal_live_quotes(
     db: Session,
     universe_limit: int,
     now: Optional[datetime] = None,
-) -> dict[str, dict[str, Any]]:
+) -> MarketQuoteFanout:
     market_cap_date = db.scalar(
         select(func.max(DailyPrice.trade_date)).where(DailyPrice.market_cap.is_not(None))
     )
     if market_cap_date is None:
-        return {}
+        return MarketQuoteFanout(expected_symbols=0)
     capped_limit = max(1, min(int(universe_limit), MARKET_SIGNAL_UNIVERSE_LIMIT))
     codes = list(
         db.scalars(
@@ -1405,7 +1429,7 @@ def _market_quant_signal_live_quotes(
             .limit(capped_limit)
         )
     )
-    quotes: dict[str, dict[str, Any]] = {}
+    quotes = MarketQuoteFanout(expected_symbols=len(codes))
     source_counts = {"kis_rest": 0, "naver_finance": 0, "other": 0}
     worker_failures = 0
     started_at = time_module.monotonic()
