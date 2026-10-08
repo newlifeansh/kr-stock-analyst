@@ -48,6 +48,10 @@ US_E2E_CASE_IDS = (
     "REC-US-INDEPENDENT-001",
     "DATA-US-NEWS-001",
 )
+US_HOME_COUNTRY_TOGGLE_SELECTOR = (
+    "#unified-market-scope, #recommend-market-scope, "
+    "#watch-market-map-market-toggle, .staging-hot-community-market-toggle"
+)
 
 
 def _page_url(base_url: str, path: str, **query: str) -> str:
@@ -838,7 +842,7 @@ def _run_us_e2e_checks(
                     state="visible",
                 )
                 shell = page.evaluate(
-                    """() => ({
+                    """(countryToggleSelector) => ({
                       htmlUniverse: document.documentElement.dataset.marketUniverse,
                       metaUniverse: document.querySelector('meta[name="secret-note-market-universe"]')?.content,
                       marketScope: document.body.dataset.marketScope,
@@ -860,13 +864,14 @@ def _run_us_e2e_checks(
                       homeSections: Array.from(document.querySelectorAll('#home-view > section')).map(node => node.id),
                       hasUsTop50: Boolean(document.querySelector('#home-surge-us')),
                       hasDomesticTop50: Boolean(document.querySelector('#home-surge')),
-                      hasCountryToggle: Boolean(document.querySelector('#unified-market-scope, #recommend-market-scope, #watch-market-map-market-toggle, [data-hot-community-market]')),
+                      hasCountryToggle: Boolean(document.querySelector(countryToggleSelector)),
                       homeSignalLabel: document.querySelector('#home-ai-signals-title')?.textContent?.trim(),
                       homeSignalHeading: document.querySelector('#home-market-signal-title')?.textContent?.trim(),
                       hasHomeAiResponse: Boolean(document.querySelector('#home-ai-response')),
                       hasHomeAiResponseCopy: document.body.innerText.includes('미국 관심종목 대응'),
                       hasHomeAiResponseTimer: Boolean(state.homeAiResponseRefreshTimer),
-                    })"""
+                    })""",
+                    US_HOME_COUNTRY_TOGGLE_SELECTOR,
                 )
                 expected_nav = [
                     {"view": "home", "label": "증권"},

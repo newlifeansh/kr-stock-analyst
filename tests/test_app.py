@@ -1313,6 +1313,7 @@ def test_market_quant_signal_refresh_loop_retries_without_dying(
 ):
     from app import main as main_module
 
+    assert main_module.logger.level == logging.INFO
     caplog.set_level(logging.INFO)
 
     class FixedDatetime(datetime):

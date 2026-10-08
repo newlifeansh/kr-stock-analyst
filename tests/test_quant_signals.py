@@ -5197,7 +5197,8 @@ def test_reference_quant_signal_payload_falls_back_to_local_state(monkeypatch):
     assert payload == {**expected, "signal_source": "local"}
 
 
-def test_market_quant_signal_live_quotes_refresh_ranked_universe(monkeypatch):
+def test_market_quant_signal_live_quotes_refresh_ranked_universe(monkeypatch, caplog):
+    caplog.set_level("INFO", logger=main.logger.name)
     db = _session()
     trade_date = date(2026, 8, 3)
     db.add_all([_stock("000001", "대형주"), _stock("000002", "중형주")])
@@ -5225,6 +5226,8 @@ def test_market_quant_signal_live_quotes_refresh_ranked_universe(monkeypatch):
         "000001": {"trade_date": trade_date, "price": 111},
         "000002": {"trade_date": trade_date, "price": 222},
     }
+    assert "Market quant signal quote fanout started: symbols=2" in caplog.text
+    assert "Market quant signal quote fanout completed:" in caplog.text
     db.close()
 
 

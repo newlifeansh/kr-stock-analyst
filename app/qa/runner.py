@@ -225,6 +225,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "REC-US-INDEPENDENT-001": (
         "tests.test_data_signal_qa."
+        "test_us_country_toggle_check_ignores_community_market_scope_metadata",
+        "tests.test_data_signal_qa."
         "test_us_product_copy_check_ignores_only_user_written_community_posts",
         "tests.test_us_market."
         "test_us_recommendations_rank_top100_independently_of_trade_signal_action",
@@ -258,6 +260,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
     "SIG-PUSH-INTRADAY-001": (
+        "tests.test_quant_signals."
+        "test_market_quant_signal_live_quotes_refresh_ranked_universe",
         "tests.test_data_signal_qa."
         "test_live_intraday_push_qa_uses_actual_dispatch_snapshot_scope",
         "tests.test_app."
@@ -338,6 +342,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
     "SIG-UI-031": (
+        "tests.test_data_signal_qa."
+        "test_us_country_toggle_check_ignores_community_market_scope_metadata",
         "tests.test_data_signal_qa."
         "test_us_product_copy_check_ignores_only_user_written_community_posts",
         "tests.test_domestic_market_scope."

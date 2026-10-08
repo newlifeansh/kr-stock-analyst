@@ -283,6 +283,7 @@ from app.repository import latest_disclosures, latest_news_items
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 INSIGHT_INDEX = STATIC_DIR / "insight" / "index.html"
 DESKTOP_INDEX = STATIC_DIR / "desktop" / "index.html"
@@ -1057,6 +1058,7 @@ def _refresh_market_quant_signal_snapshot(
     try:
         with SessionLocal() as db:
             current_time = datetime.now(KST)
+            started_at = time_module.monotonic()
             repaired_rows = _repair_market_quant_signal_ohlc(
                 db,
                 universe_limit=universe_limit,
@@ -1064,6 +1066,10 @@ def _refresh_market_quant_signal_snapshot(
             )
             if repaired_rows:
                 logger.info("Market quant signal OHLC repair completed: %s rows", repaired_rows)
+            logger.info(
+                "Market quant signal preflight completed: duration_seconds=%.1f",
+                time_module.monotonic() - started_at,
+            )
             if kis_rest_provider.is_configured():
                 sealed = finalize_open_intraday_paths_for_session(
                     db,
@@ -1077,12 +1083,18 @@ def _refresh_market_quant_signal_snapshot(
                 )
                 if sealed["pending"]:
                     logger.info("Market quant signal minute path finalization: %s", sealed)
+            payload_started_at = time_module.monotonic()
+            logger.info("Market quant signal payload build started")
             payload = _build_market_quant_signal_payload(
                 db,
                 universe_limit=universe_limit,
                 limit=limit,
                 recent_days=recent_days,
                 now=current_time,
+            )
+            logger.info(
+                "Market quant signal payload build completed: duration_seconds=%.1f",
+                time_module.monotonic() - payload_started_at,
             )
             stored = save_market_quant_signal_snapshot(
                 db,
@@ -1364,6 +1376,8 @@ def _market_quant_signal_live_quotes(
         )
     )
     quotes: dict[str, dict[str, Any]] = {}
+    started_at = time_module.monotonic()
+    logger.info("Market quant signal quote fanout started: symbols=%s", len(codes))
     with ThreadPoolExecutor(max_workers=min(4, len(codes) or 1)) as executor:
         futures = {executor.submit(_fetch_uncached_current_quote, code): code for code in codes}
         for future in as_completed(futures):
@@ -1374,6 +1388,12 @@ def _market_quant_signal_live_quotes(
                 continue
             if quote:
                 quotes[code] = quote
+    logger.info(
+        "Market quant signal quote fanout completed: duration_seconds=%.1f valid_quotes=%s symbols=%s",
+        time_module.monotonic() - started_at,
+        len(quotes),
+        len(codes),
+    )
     return quotes
 
 

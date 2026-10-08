@@ -9,12 +9,14 @@ from xml.etree import ElementTree
 
 import pytest
 import httpx
+from bs4 import BeautifulSoup
 from typer.testing import CliRunner
 
 from app.cli import app
 from app.qa.catalog import load_qa_catalog, render_qa_catalog_markdown
 from app.qa.e2e import (
     E2E_CASE_IDS,
+    US_HOME_COUNTRY_TOGGLE_SELECTOR,
     _chart_study_payload_with_recent_pattern,
     _navigate_page,
     _page_url,
@@ -48,6 +50,21 @@ def test_us_product_copy_check_ignores_only_user_written_community_posts() -> No
         f"코스닥 시장 선택\n{shell}", community
     )
     assert "코스닥" in _us_product_shell_text(shell, "다른 게시물")
+
+
+@pytest.mark.qa_gate
+def test_us_country_toggle_check_ignores_community_market_scope_metadata() -> None:
+    section_only = BeautifulSoup(
+        '<section class="staging-hot-community" data-hot-community-market="us"></section>',
+        "html.parser",
+    )
+    assert section_only.select_one(US_HOME_COUNTRY_TOGGLE_SELECTOR) is None
+    with_toggle = BeautifulSoup(
+        '<section data-hot-community-market="us">'
+        '<div class="staging-hot-community-market-toggle"></div></section>',
+        "html.parser",
+    )
+    assert with_toggle.select_one(US_HOME_COUNTRY_TOGGLE_SELECTOR) is not None
 
 
 @pytest.mark.qa_gate
