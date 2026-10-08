@@ -18,7 +18,7 @@ def test_watchlist_v15_shell_and_asset_version():
     assert 'id="portfolio-view" class="app-page app-portfolio" data-ui-version="5.0" data-watch-group-layout="true" data-watchlist-layout="compact"' in shell.text
     assert 'id="watchlist-view" class="watchlist-v15 watchlist-v2 watchlist-v3" data-ui-version="3.0"' in shell.text
     assert 'name="application-version" content="5.8"' in shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260930v556"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261008v557"' in shell.text
     assert 'id="push-notification-disable-button"' not in shell.text
     assert '<h1 id="watch-group-heading">관심</h1>' in shell.text
     assert 'id="watch-group-edit" type="button" aria-pressed="false">편집</button>' in shell.text
@@ -190,6 +190,9 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         "function watchMarketMapMotionSnapshot",
         "function animateWatchMarketMapLayout",
         "function bindWatchMarketMapDrag",
+        "function connectHomeWatchMarketMapQuoteStreams",
+        "async function hydrateHomeWatchMarketMapLiveQuotes",
+        "function updateHomeWatchMarketMapQuote",
         "function watchMarketMapSessionState",
         "function watchMarketMapTimelineSnapshot",
         "function watchMarketMapTimelineRange",
@@ -222,6 +225,12 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         'gravitationalConstant: 0.02,',
         'stage.dataset.motionModel = "packedbubble-physics";',
         'tile.setPointerCapture?.(event.pointerId);',
+        'tile.dataset.lastPointerGesture = "vertical-scroll";',
+        'Math.abs(deltaY) > Math.abs(deltaX)',
+        'clearQuoteStreamScope("home-watch-map");',
+        'liveUrl(`/stocks/quotes?codes=${encodeURIComponent(codes.join(","))}`)',
+        'source: "live-pending"',
+        'livePending ? "확인 중" : formatPercent(change)',
         'physics.stage.dataset.motion = motionKind === "dragging" ? "dragging" : "settling";',
         'elements.watchMarketMapStage.dataset.sizeEncoding = "absolute-return";',
         '? `/us/stocks/${code}/intraday?range=1d&interval=1m`',
@@ -293,6 +302,86 @@ def test_watchlist_market_cap_bubbles_use_active_folder_timeline_and_bottom_shee
         ".watch-market-map-sheet-name em",
     ):
         assert removed not in styles
+    bubble_styles = styles.split("#home-view .watch-market-map-tile {", 1)[1].split(
+        "#home-view .watch-market-map-tile[data-watch-motion]", 1
+    )[0]
+    assert "touch-action: pan-y;" in bubble_styles
+    assert "touch-action: none;" not in bubble_styles
+
+
+def test_watch_market_map_fails_closed_until_current_quote_matches_detail():
+    script = r'''
+const fs = require("fs");
+const source = fs.readFileSync("app/static/dashboard/app.js", "utf8");
+function functionSource(name, nextName) {
+  const start = source.indexOf(`function ${name}(`);
+  const end = source.indexOf(`function ${nextName}(`, start + 1);
+  if (start < 0 || end < 0) throw new Error(`${name} not found`);
+  return source.slice(start, end);
+}
+function toNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+function marketScopeForItem(item = {}) { return item.market_scope === "us" ? "us" : "kr"; }
+function watchMarketMapIntradaySeries() { return null; }
+function previousCloseFromQuote() { return null; }
+function stockQuotePayloadIsDisplayReady(payload) { return payload.ready === true; }
+function applyLiveQuoteToDashboard(dashboard, quote, payload) {
+  Object.assign(dashboard.quote, quote);
+  dashboard.as_of = payload.as_of;
+  return true;
+}
+let renderScheduled = 0;
+function scheduleHomeWatchMarketMapQuoteRender() { renderScheduled += 1; }
+const entry = {
+  item: {code: "000660", market_scope: "kr"},
+  dashboard: {quote: {price: 1742000, change_rate: 0.99}},
+  liveQuoteReady: false,
+};
+const state = {watchMarketMapResults: [entry]};
+eval(functionSource("watchMarketMapEntrySnapshot", "watchMarketMapEntriesAtTimeline"));
+eval(functionSource("updateHomeWatchMarketMapQuote", "closeHomeWatchMarketMapQuoteStreams"));
+const timeline = {
+  sessionState: "regular", latestMinutes: 797, selectedMinutes: 797,
+  dateKey: "2026-10-08", openMinutes: 540,
+};
+const pending = watchMarketMapEntrySnapshot(entry, timeline);
+const rejected = updateHomeWatchMarketMapQuote("000660", {
+  type: "quote", code: "000660", ready: false,
+  quote: {price: 1742000, change_rate: 0.99},
+});
+const accepted = updateHomeWatchMarketMapQuote("000660", {
+  type: "quote", code: "000660", ready: true,
+  as_of: "2026-10-08T13:17:00+09:00",
+  quote: {price: 1702000, change_rate: -1.22},
+});
+const current = watchMarketMapEntrySnapshot(entry, timeline);
+console.log(JSON.stringify({pending, rejected, accepted, current, renderScheduled}));
+'''
+    result = subprocess.run(
+        ["node", "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    evidence = json.loads(result.stdout)
+
+    assert evidence["pending"] == {
+        "changeRate": None,
+        "price": None,
+        "pointMinute": 797,
+        "available": False,
+        "source": "live-pending",
+    }
+    assert evidence["rejected"] is False
+    assert evidence["accepted"] is True
+    assert evidence["current"]["source"] == "quote"
+    assert evidence["current"]["price"] == 1702000
+    assert evidence["current"]["changeRate"] == -1.22
+    assert evidence["renderScheduled"] == 1
 
 
 def test_low_cardinality_watch_bubbles_keep_readable_density():

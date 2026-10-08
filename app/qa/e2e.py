@@ -9255,6 +9255,44 @@ def run_e2e_checks(
                         placement,
                     )
 
+                live_quote_parity = page.evaluate(
+                    """() => {
+                      const priorResults = state.watchMarketMapResults;
+                      const entry = {
+                        item: {code: '000660', name: 'SK하이닉스', market_scope: 'kr'},
+                        dashboard: {quote: {price: 1742000, change_rate: 0.99}},
+                        liveQuoteReady: false,
+                      };
+                      const timeline = {
+                        sessionState: 'regular', latestMinutes: 797, selectedMinutes: 797,
+                        dateKey: '2026-10-08', openMinutes: 540,
+                      };
+                      const pending = watchMarketMapEntrySnapshot(entry, timeline);
+                      state.watchMarketMapResults = [entry];
+                      const accepted = updateHomeWatchMarketMapQuote('000660', {
+                        type: 'quote', code: '000660', source: 'kis_realtime',
+                        as_of: new Date().toISOString(),
+                        quote: {price: 1702000, change_rate: -1.22, market_session: 'regular'},
+                      });
+                      const current = watchMarketMapEntrySnapshot(entry, timeline);
+                      window.cancelAnimationFrame(state.watchMarketMapQuoteRenderFrame);
+                      state.watchMarketMapQuoteRenderFrame = null;
+                      state.watchMarketMapResults = priorResults;
+                      return {pending, accepted, current};
+                    }"""
+                )
+                if (
+                    live_quote_parity["pending"]["source"] != "live-pending"
+                    or live_quote_parity["pending"]["changeRate"] is not None
+                    or live_quote_parity["accepted"] is not True
+                    or live_quote_parity["current"]["price"] != 1_702_000
+                    or abs(live_quote_parity["current"]["changeRate"] - (-1.22)) > 0.001
+                ):
+                    raise QaFailure(
+                        "국내 버블이 현재 quote 전에는 fail-close하고 수신 후 상세 기준과 일치하지 않습니다.",
+                        live_quote_parity,
+                    )
+
                 session_states = page.evaluate(
                     """() => {
                       const priorMinute = state.watchMarketMapTimelineMinutes;
@@ -9970,6 +10008,97 @@ def run_e2e_checks(
                         },
                     )
 
+                page.set_viewport_size({"width": 390, "height": 844})
+                vertical_tile = page.locator(
+                    "#watch-market-map-stage a.watch-market-map-tile"
+                ).first
+                vertical_tile.evaluate(
+                    "element => element.scrollIntoView({block: 'center', inline: 'nearest'})"
+                )
+                page.wait_for_timeout(120)
+                vertical_box = vertical_tile.bounding_box()
+                if not vertical_box:
+                    raise QaFailure("세로 스크롤을 확인할 관심종목 버블의 위치를 찾지 못했습니다.")
+                vertical_start_x = vertical_box["x"] + vertical_box["width"] / 2
+                vertical_start_y = vertical_box["y"] + vertical_box["height"] / 2
+                vertical_end_y = max(72, vertical_start_y - 170)
+                page.evaluate(
+                    """() => {
+                      window.__qaBubbleVerticalClicks = 0;
+                      document.querySelector('#watch-market-map-stage a.watch-market-map-tile')
+                        ?.addEventListener('click', () => {
+                          window.__qaBubbleVerticalClicks += 1;
+                        });
+                    }"""
+                )
+                scroll_before = page.evaluate("window.scrollY")
+                cdp = page.context.new_cdp_session(page)
+                try:
+                    cdp.send(
+                        "Input.dispatchTouchEvent",
+                        {
+                            "type": "touchStart",
+                            "touchPoints": [
+                                {"x": vertical_start_x, "y": vertical_start_y}
+                            ],
+                        },
+                    )
+                    for step in range(1, 9):
+                        progress = step / 8
+                        cdp.send(
+                            "Input.dispatchTouchEvent",
+                            {
+                                "type": "touchMove",
+                                "touchPoints": [
+                                    {
+                                        "x": vertical_start_x,
+                                        "y": vertical_start_y
+                                        + (vertical_end_y - vertical_start_y) * progress,
+                                    }
+                                ],
+                            },
+                        )
+                    cdp.send(
+                        "Input.dispatchTouchEvent",
+                        {"type": "touchEnd", "touchPoints": []},
+                    )
+                finally:
+                    cdp.detach()
+                page.wait_for_function(
+                    "before => window.scrollY > before + 20",
+                    arg=scroll_before,
+                    timeout=2000,
+                )
+                vertical_scroll_snapshot = page.evaluate(
+                    """before => {
+                      const tile = document.querySelector(
+                        '#watch-market-map-stage a.watch-market-map-tile'
+                      );
+                      return {
+                        before,
+                        after: window.scrollY,
+                        touchAction: getComputedStyle(tile).touchAction,
+                        lastGesture: tile.dataset.lastPointerGesture || null,
+                        dragging: tile.classList.contains('is-dragging'),
+                        clicks: window.__qaBubbleVerticalClicks,
+                        stageMotion: document.querySelector('#watch-market-map-stage')?.dataset.motion,
+                      };
+                    }""",
+                    scroll_before,
+                )
+                if (
+                    vertical_scroll_snapshot["after"]
+                    <= vertical_scroll_snapshot["before"] + 20
+                    or vertical_scroll_snapshot["touchAction"] != "pan-y"
+                    or vertical_scroll_snapshot["dragging"]
+                    or vertical_scroll_snapshot["clicks"] != 0
+                    or vertical_scroll_snapshot["lastGesture"] == "bubble-drag"
+                ):
+                    raise QaFailure(
+                        "버블 위 실제 touch 세로 스와이프가 페이지 스크롤로 전달되지 않았습니다.",
+                        vertical_scroll_snapshot,
+                    )
+
                 page.emulate_media(reduced_motion="reduce")
                 page.set_viewport_size({"width": 320, "height": 760})
                 page.wait_for_timeout(180)
@@ -10257,6 +10386,8 @@ def run_e2e_checks(
                         "drag_settled": drag_settled_snapshot,
                         "reduced_motion": reduced_motion_snapshot,
                     },
+                    "live_quote_parity": live_quote_parity,
+                    "vertical_touch_scroll": vertical_scroll_snapshot,
                     "sheet": sheet_snapshot,
                     "focus_returned_after_live_render": True,
                     "bubble_click_href": activated_href,
