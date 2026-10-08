@@ -19,6 +19,7 @@ from app.qa.e2e import (
     _navigate_page,
     _page_url,
     _us_observed_path,
+    _us_product_shell_text,
     _wait_for_ai_signal_list_ready,
 )
 from app.qa.runner import (
@@ -36,6 +37,17 @@ from app.qa.runner import (
     run_data_signal_qa,
 )
 from app.services.market_calendar import KST, is_korea_regular_market_session
+
+
+@pytest.mark.qa_gate
+def test_us_product_copy_check_ignores_only_user_written_community_posts() -> None:
+    community = "감좋은코스닥기린 · 12분 전\n코스닥이 아니라 마이크론 얘기"
+    shell = f"미국 TOP 50\n핫한 커뮤니티\n{community}\n커뮤니티 더 보기"
+    assert "코스닥" not in _us_product_shell_text(shell, community)
+    assert "코스닥" in _us_product_shell_text(
+        f"코스닥 시장 선택\n{shell}", community
+    )
+    assert "코스닥" in _us_product_shell_text(shell, "다른 게시물")
 
 
 @pytest.mark.qa_gate

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import subprocess
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -1312,6 +1313,8 @@ def test_market_quant_signal_refresh_loop_retries_without_dying(
 ):
     from app import main as main_module
 
+    caplog.set_level(logging.INFO)
+
     class FixedDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
@@ -1348,6 +1351,9 @@ def test_market_quant_signal_refresh_loop_retries_without_dying(
     assert len(attempts) == 2
     assert intervals == [30, 300]
     assert "retrying in 30s" in caplog.text
+    assert "Market quant signal refresh loop started" in caplog.text
+    assert "Market quant signal refresh started" in caplog.text
+    assert "Market quant signal refresh completed" in caplog.text
 
 
 def test_us_market_refresh_queue_is_process_single_flight(monkeypatch):

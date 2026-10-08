@@ -54,6 +54,7 @@ MOBILE_BROWSER_USER_AGENT = (
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "DATA-KIS-002": (
+        "tests.test_briefing.test_kis_token_failure_is_cached_briefly_across_providers",
         "tests.test_market_calendar.test_scheduled_krx_session_is_open_before_todays_closing_index_exists",
         "tests.test_briefing.test_briefing_market_status_follows_krx_holiday_calendar",
         "tests.test_briefing.test_kis_rest_token_is_reused_across_probe_and_quote_providers",
@@ -65,6 +66,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_data_signal_qa.test_live_korea_market_session_rejects_stale_minutes_and_quote",
     ),
     "DATA-KIS-008": (
+        "tests.test_briefing.test_kis_token_failure_is_cached_briefly_across_providers",
         "tests.test_briefing.test_kis_rest_token_is_reused_across_probe_and_quote_providers",
         "tests.test_signal_entry_evidence.test_historical_kis_probe_requires_completed_dated_minutes",
         "tests.test_intraday_cache.test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
@@ -222,6 +224,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_stock_news_has_separate_domestic_and_yahoo_overseas_tabs",
     ),
     "REC-US-INDEPENDENT-001": (
+        "tests.test_data_signal_qa."
+        "test_us_product_copy_check_ignores_only_user_written_community_posts",
         "tests.test_us_market."
         "test_us_recommendations_rank_top100_independently_of_trade_signal_action",
         "tests.test_us_market."
@@ -334,6 +338,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
     "SIG-UI-031": (
+        "tests.test_data_signal_qa."
+        "test_us_product_copy_check_ignores_only_user_written_community_posts",
         "tests.test_domestic_market_scope."
         "test_us_spinout_shell_is_separate_from_the_domestic_product",
         "tests.test_app."

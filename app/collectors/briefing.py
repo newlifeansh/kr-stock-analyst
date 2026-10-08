@@ -34,7 +34,9 @@ from app.services.market_calendar import is_korea_market_session_date
 KST = ZoneInfo("Asia/Seoul")
 KIS_TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
 KIS_TRANSIENT_RETRY_DELAYS = (0.25, 0.75)
+KIS_TOKEN_FAILURE_RETRY_SECONDS = 30
 _KIS_TOKEN_CACHE: dict[str, tuple[str, datetime]] = {}
+_KIS_TOKEN_FAILURE_RETRY_AT: dict[str, float] = {}
 _KIS_TOKEN_CACHE_LOCK = Lock()
 
 
@@ -312,20 +314,31 @@ class KisRestBriefingProvider:
                 _KIS_TOKEN_CACHE[identity] = (self._token, self._token_expires_at)
                 return self._token
 
-            response = requests.post(
-                f"{self._base_url()}/oauth2/tokenP",
-                json={
-                    "grant_type": "client_credentials",
-                    "appkey": self.settings.kis_app_key,
-                    "appsecret": self.settings.kis_app_secret,
-                },
-                headers={"content-type": "application/json"},
-                timeout=30,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            self._token = payload["access_token"]
-            expires_in = int(payload.get("expires_in", 86400))
+            if time_module.monotonic() < _KIS_TOKEN_FAILURE_RETRY_AT.get(identity, 0):
+                raise RuntimeError("KIS token temporarily unavailable")
+
+            try:
+                response = requests.post(
+                    f"{self._base_url()}/oauth2/tokenP",
+                    json={
+                        "grant_type": "client_credentials",
+                        "appkey": self.settings.kis_app_key,
+                        "appsecret": self.settings.kis_app_secret,
+                    },
+                    headers={"content-type": "application/json"},
+                    timeout=30,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                token = payload["access_token"]
+                expires_in = int(payload.get("expires_in", 86400))
+            except Exception:
+                _KIS_TOKEN_FAILURE_RETRY_AT[identity] = (
+                    time_module.monotonic() + KIS_TOKEN_FAILURE_RETRY_SECONDS
+                )
+                raise
+            _KIS_TOKEN_FAILURE_RETRY_AT.pop(identity, None)
+            self._token = token
             self._token_expires_at = now + timedelta(seconds=expires_in)
             _KIS_TOKEN_CACHE[identity] = (self._token, self._token_expires_at)
             return self._token

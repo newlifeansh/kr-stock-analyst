@@ -62,6 +62,13 @@ def _us_observed_path(url: str, *, gateway_expected: bool) -> str:
     return path
 
 
+def _us_product_shell_text(body_text: str, community_posts_text: str) -> str:
+    """Keep user-written community posts out of the product-copy boundary check."""
+    if not community_posts_text:
+        return body_text
+    return body_text.replace(community_posts_text, "", 1)
+
+
 def _safe_name(case_id: str, theme: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "-", f"{case_id}-{theme}")
 
@@ -838,6 +845,7 @@ def _run_us_e2e_checks(
                       appMarket: document.body.dataset.appMarket,
                       title: document.title,
                       text: document.body.innerText,
+                      communityPostsText: document.querySelector('[data-staging-hot-community-posts]')?.innerText || '',
                       marketCodes: Array.from(document.querySelectorAll('#home-market-carousel .home-index-card[data-code]')).map(node => node.dataset.code),
                       homeVisible: !document.querySelector('#home-view')?.hidden,
                       loginHidden: document.querySelector('#login-gate')?.hidden === true,
@@ -852,7 +860,7 @@ def _run_us_e2e_checks(
                       homeSections: Array.from(document.querySelectorAll('#home-view > section')).map(node => node.id),
                       hasUsTop50: Boolean(document.querySelector('#home-surge-us')),
                       hasDomesticTop50: Boolean(document.querySelector('#home-surge')),
-                      hasCountryToggle: Boolean(document.querySelector('#unified-market-scope, #recommend-market-scope, #watch-market-map-market-toggle')),
+                      hasCountryToggle: Boolean(document.querySelector('#unified-market-scope, #recommend-market-scope, #watch-market-map-market-toggle, [data-hot-community-market]')),
                       homeSignalLabel: document.querySelector('#home-ai-signals-title')?.textContent?.trim(),
                       homeSignalHeading: document.querySelector('#home-market-signal-title')?.textContent?.trim(),
                       hasHomeAiResponse: Boolean(document.querySelector('#home-ai-response')),
@@ -906,7 +914,9 @@ def _run_us_e2e_checks(
                         "코스피",
                         "코스닥",
                     )
-                    if text in shell["text"]
+                    if text in _us_product_shell_text(
+                        shell["text"], shell["communityPostsText"]
+                    )
                 ]
                 if forbidden_copy:
                     raise QaFailure(

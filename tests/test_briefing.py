@@ -1,6 +1,8 @@
 from datetime import date, datetime
 from decimal import Decimal
 
+import pytest
+import requests
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
@@ -59,6 +61,44 @@ def test_kis_rest_token_is_reused_across_probe_and_quote_providers(monkeypatch):
     assert probe._ensure_token() == "token-1"
     assert other._ensure_token() == "token-2"
     assert issued == ["shared-key-rc27", "other-key-rc27"]
+
+
+def test_kis_token_failure_is_cached_briefly_across_providers(monkeypatch):
+    from app.collectors import briefing
+
+    now = [100.0]
+    attempts = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"access_token": "recovered", "expires_in": 86400}
+
+    def issue_token(*_args, **_kwargs):
+        attempts.append(now[0])
+        if len(attempts) == 1:
+            raise requests.HTTPError("temporary tokenP 403")
+        return Response()
+
+    monkeypatch.setattr(briefing.time_module, "monotonic", lambda: now[0])
+    monkeypatch.setattr(briefing.requests, "post", issue_token)
+    settings = Settings(kis_app_key="failure-key-rc29", kis_app_secret="failure-secret-rc29")
+    first = KisRestBriefingProvider(settings)
+    second = KisRestBriefingProvider(settings)
+
+    with pytest.raises(requests.HTTPError):
+        first._ensure_token()
+    now[0] += 29
+    with pytest.raises(RuntimeError, match="temporarily unavailable"):
+        second._ensure_token()
+    assert attempts == [100.0]
+
+    now[0] += 1
+    assert second._ensure_token() == "recovered"
+    assert first._ensure_token() == "recovered"
+    assert attempts == [100.0, 130.0]
 
 
 def test_kis_daily_price_rows_use_final_session_ohlc(monkeypatch):

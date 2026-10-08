@@ -1496,6 +1496,7 @@ def _suppress_stale_preliminary_market_signals(payload: dict[str, Any]) -> dict[
 
 async def _run_market_quant_signal_refresh_loop() -> None:
     last_premarket_refresh_date: Optional[date] = None
+    logger.info("Market quant signal refresh loop started")
     while True:
         interval_seconds = 300
         try:
@@ -1507,14 +1508,22 @@ async def _run_market_quant_signal_refresh_loop() -> None:
                 and last_premarket_refresh_date != now.date()
             )
             if _quant_signal_quote_refresh_active(now) or premarket_refresh:
+                started_at = time_module.monotonic()
+                logger.info("Market quant signal refresh started: as_of=%s", now.isoformat())
                 refreshed = await asyncio.to_thread(_refresh_market_quant_signal_snapshot)
                 if refreshed is None:
                     # A busy lock or failed refresh must not leave the market
                     # feed stale for another full scan interval.
                     logger.warning("Market quant signal refresh did not complete; retrying in 30s")
                     interval_seconds = 30
-                elif premarket_refresh:
-                    last_premarket_refresh_date = now.date()
+                else:
+                    logger.info(
+                        "Market quant signal refresh completed: duration_seconds=%.1f snapshot_generated_at=%s",
+                        time_module.monotonic() - started_at,
+                        refreshed.get("snapshot_generated_at"),
+                    )
+                    if premarket_refresh:
+                        last_premarket_refresh_date = now.date()
         except Exception:  # pragma: no cover - operational safeguard
             logger.exception("Market quant signal refresh loop failed; retrying in 30s")
             interval_seconds = 30
