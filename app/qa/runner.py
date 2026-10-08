@@ -3269,6 +3269,7 @@ def _live_checks(
                 "points": same_day["points"],
                 "historical_kis_state": dated.get("state"),
                 "historical_kis_http_status": dated.get("http_status"),
+                "historical_kis_failure_endpoint": dated.get("failure_endpoint"),
                 "pending_paths": seal.get("pending"),
                 "finalized_paths": seal.get("finalized"),
             }

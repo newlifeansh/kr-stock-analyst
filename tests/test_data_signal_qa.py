@@ -3112,7 +3112,10 @@ def test_live_dated_kis_403_requires_verified_current_day_replay_source(
                 payload = json.loads(json.dumps(payload))
                 for item in payload["api_probe"]["items"]:
                     if item["key"] == "kis_historical_intraday":
-                        item.update(state="unavailable", http_status=403)
+                        item.update(
+                            state="unavailable", http_status=403,
+                            failure_endpoint="oauth_token",
+                        )
                 if not self.current_day_ready:
                     payload["api_probe"]["items"] = [
                         item for item in payload["api_probe"]["items"]
@@ -3127,6 +3130,7 @@ def test_live_dated_kis_403_requires_verified_current_day_replay_source(
     assert check["status"] == "pass"
     assert check["evidence"]["replay_source"] == "sealed_current_day"
     assert check["evidence"]["historical_kis_http_status"] == 403
+    assert check["evidence"]["historical_kis_failure_endpoint"] == "oauth_token"
     assert report["deployment_blocked"] is False
 
     ForbiddenHistoricalApi.current_day_ready = False

@@ -5334,7 +5334,7 @@ def test_market_quant_signal_live_quotes_refresh_ranked_universe(monkeypatch, ca
     monkeypatch.setattr(
         main,
         "_fetch_uncached_current_quote",
-        lambda code: ({"trade_date": trade_date, "price": 111 if code == "000001" else 222}, "test"),
+        lambda code: ({"trade_date": trade_date, "price": 111 if code == "000001" else 222}, "kis_rest" if code == "000001" else "naver_finance"),
     )
 
     quotes = main._market_quant_signal_live_quotes(
@@ -5349,6 +5349,34 @@ def test_market_quant_signal_live_quotes_refresh_ranked_universe(monkeypatch, ca
     }
     assert "Market quant signal quote fanout started: symbols=2" in caplog.text
     assert "Market quant signal quote fanout completed:" in caplog.text
+    assert "kis_rest=1 naver_finance=1 other=0 missing=0 worker_failures=0" in caplog.text
+    db.close()
+
+
+def test_market_quant_signal_live_quotes_reports_missing_and_worker_failures(monkeypatch, caplog):
+    caplog.set_level("INFO", logger=main.logger.name)
+    db = _session()
+    trade_date = date(2026, 10, 8)
+    for rank, code in enumerate(("000001", "000002", "000003"), start=1):
+        db.add(_stock(code, f"종목{rank}"))
+        db.add(DailyPrice(
+            code=code, trade_date=trade_date, close=100,
+            market_cap=400_000_000 - rank * 100_000_000,
+        ))
+    db.commit()
+
+    def quote(code):
+        if code == "000001":
+            return {"trade_date": trade_date, "price": 101}, "kis_rest"
+        if code == "000002":
+            return {}, "stored_daily_price"
+        raise RuntimeError("sensitive upstream detail")
+
+    monkeypatch.setattr(main, "_fetch_uncached_current_quote", quote)
+    result = main._market_quant_signal_live_quotes(db, universe_limit=3)
+    assert list(result) == ["000001"]
+    assert "kis_rest=1 naver_finance=0 other=0 missing=2 worker_failures=1" in caplog.text
+    assert "sensitive upstream detail" not in caplog.text
     db.close()
 
 

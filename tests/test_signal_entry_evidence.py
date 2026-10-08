@@ -935,6 +935,7 @@ def test_historical_kis_probe_requires_completed_dated_minutes(monkeypatch):
 
     response = requests.Response()
     response.status_code = 403
+    response.url = "https://openapi.koreainvestment.com:9443/oauth2/tokenP"
     response._content = b'{"msg_cd":"EGW00001","msg1":"secret=do-not-expose"}'
 
     def forbidden(_self, _code, _trade_date, *, max_points):
@@ -945,8 +946,17 @@ def test_historical_kis_probe_requires_completed_dated_minutes(monkeypatch):
     )
     result = _probe_historical_kis_minutes(Settings(), "005930", now)
     assert result["http_status"] == 403
+    assert result["failure_endpoint"] == "oauth_token"
     assert result["source_error_code"] == "EGW00001"
     assert "do-not-expose" not in str(result)
+
+    response.url = (
+        "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/"
+        "quotations/inquire-time-dailychartprice?FID_INPUT_ISCD=005930"
+    )
+    result = _probe_historical_kis_minutes(Settings(), "005930", now)
+    assert result["failure_endpoint"] == "dated_chart"
+    assert "FID_INPUT_ISCD" not in str(result)
 
 
 def test_current_day_kis_probe_requires_completed_matching_session(monkeypatch):

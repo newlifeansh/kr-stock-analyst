@@ -1406,6 +1406,8 @@ def _market_quant_signal_live_quotes(
         )
     )
     quotes: dict[str, dict[str, Any]] = {}
+    source_counts = {"kis_rest": 0, "naver_finance": 0, "other": 0}
+    worker_failures = 0
     started_at = time_module.monotonic()
     logger.info("Market quant signal quote fanout started: symbols=%s", len(codes))
     with ThreadPoolExecutor(max_workers=min(4, len(codes) or 1)) as executor:
@@ -1413,16 +1415,23 @@ def _market_quant_signal_live_quotes(
         for future in as_completed(futures):
             code = futures[future]
             try:
-                quote, _source = future.result()
+                quote, source = future.result()
             except Exception:
+                worker_failures += 1
                 continue
             if quote:
                 quotes[code] = quote
+                source_counts[source if source in source_counts else "other"] += 1
     logger.info(
-        "Market quant signal quote fanout completed: duration_seconds=%.1f valid_quotes=%s symbols=%s",
+        "Market quant signal quote fanout completed: duration_seconds=%.1f valid_quotes=%s symbols=%s kis_rest=%s naver_finance=%s other=%s missing=%s worker_failures=%s",
         time_module.monotonic() - started_at,
         len(quotes),
         len(codes),
+        source_counts["kis_rest"],
+        source_counts["naver_finance"],
+        source_counts["other"],
+        len(codes) - len(quotes),
+        worker_failures,
     )
     return quotes
 

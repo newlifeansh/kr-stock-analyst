@@ -5,6 +5,7 @@ from datetime import date, datetime, time, timedelta, timezone
 import json
 from time import monotonic
 from typing import Any, Callable, Optional
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import requests
@@ -1013,6 +1014,14 @@ def _probe_historical_kis_minutes(
     except Exception as exc:
         response = exc.response if isinstance(exc, requests.HTTPError) else None
         http_status = response.status_code if response is not None else None
+        response_path = urlparse(str(response.url or "")).path if response is not None else ""
+        failure_endpoint = (
+            "oauth_token"
+            if response_path == "/oauth2/tokenP"
+            else "dated_chart"
+            if response_path == "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice"
+            else "unknown"
+        )
         error_code = None
         if response is not None:
             try:
@@ -1028,6 +1037,7 @@ def _probe_historical_kis_minutes(
             "state": "unavailable",
             "trade_date": completed_date.isoformat(),
             "http_status": http_status,
+            "failure_endpoint": failure_endpoint,
             "source_error_code": error_code,
             "latency_ms": round((monotonic() - started) * 1000),
             "message": f"{type(exc).__name__}: 날짜별 분봉 원천 확인 실패",
