@@ -53,6 +53,18 @@ def _price_runtime(monkeypatch):
     monkeypatch.setattr(runtime, '_post_close_price_repair_due', lambda *a: False)
     monkeypatch.setattr(runtime, '_recent_price_codes', lambda *a: [])
     monkeypatch.setattr(briefing, 'collect_market_prices', lambda *a, **k: 0)
+    # Keep these source-fallback fixtures independent from the live Naver
+    # calendar endpoint. 2026-09-18 is the pinned current/completed session.
+    monkeypatch.setattr(
+        briefing,
+        'is_korea_market_session_date',
+        lambda target, now=None: target == date(2026, 9, 18),
+    )
+    monkeypatch.setattr(
+        briefing,
+        'latest_completed_korea_market_session_date',
+        lambda now=None: date(2026, 9, 18),
+    )
     return briefing, runtime
 
 

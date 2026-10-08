@@ -172,6 +172,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_briefing_runtime.test_short_cadence_research_uses_canonical_when_direct_source_is_empty",
     ),
     "SIG-UI-025": (
+        "tests.test_watchlist_v15."
+        "test_watch_market_map_fails_closed_until_current_quote_matches_detail",
         "tests.test_data_signal_qa."
         "test_live_intraday_transient_unavailable_recovers_with_bounded_retry",
         "tests.test_data_signal_qa."
@@ -4797,6 +4799,10 @@ def _live_checks(
                 include_live="false",
             )
             overseas, overseas_meta = api.get("/us/stocks/NVDA/dashboard")
+            domestic_quotes, domestic_quotes_meta = api.get(
+                "/stocks/quotes",
+                codes="005930",
+            )
             domestic_intraday, domestic_intraday_meta = api.get(
                 "/stocks/005930/intraday",
                 limit="390",
@@ -4848,6 +4854,29 @@ def _live_checks(
                 "관심종목 버블맵에 필요한 미국 시가총액이 없습니다.",
                 **overseas_meta,
             )
+            domestic_quote_items = domestic_quotes.get("items") or []
+            domestic_current = next(
+                (
+                    item
+                    for item in domestic_quote_items
+                    if isinstance(item, dict) and str(item.get("code") or "") == "005930"
+                ),
+                None,
+            )
+            domestic_current_quote = (
+                domestic_current.get("quote") if isinstance(domestic_current, dict) else None
+            )
+            _assert(
+                isinstance(domestic_current, dict)
+                and domestic_current.get("type") == "quote"
+                and isinstance(domestic_current_quote, dict)
+                and positive_number(domestic_current_quote.get("price")) is not None
+                and domestic_current_quote.get("change_rate") is not None
+                and bool(domestic_current.get("observed_at") or domestic_current.get("as_of")),
+                "국내 관심종목 최신 버블에 필요한 batch quote 계약이 불완전합니다.",
+                item=domestic_current,
+                **domestic_quotes_meta,
+            )
             for label, payload, meta in (
                 ("국내", domestic_intraday, domestic_intraday_meta),
                 ("미국", overseas_intraday, overseas_intraday_meta),
@@ -4881,6 +4910,15 @@ def _live_checks(
                     "code": domestic.get("code") or "005930",
                     "market_scope": "kr",
                     "market_cap_krw": domestic_cap,
+                },
+                "current_quote": {
+                    **domestic_quotes_meta,
+                    "code": domestic_current.get("code"),
+                    "price": domestic_current_quote.get("price"),
+                    "change_rate": domestic_current_quote.get("change_rate"),
+                    "source": domestic_current.get("source"),
+                    "observed_at": domestic_current.get("observed_at")
+                    or domestic_current.get("as_of"),
                 },
                 "overseas": {
                     **overseas_meta,
