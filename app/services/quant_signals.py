@@ -1964,7 +1964,10 @@ def _partial_exit_signal(
             0.0,
             current_remaining_fraction - intended_remaining_fraction,
         )
-        if tactical_transition:
+        # Preserve the legacy 30%-per-day migration only for historical
+        # close-confirmed sessions. The v8 +3% first exit must reach 50% of
+        # the original position even when that position predates v7.4.
+        if tactical_transition and bar.trade_date < INTRADAY_EXECUTION_EFFECTIVE_DATE:
             sell_fraction = min(
                 sell_fraction,
                 MAX_TACTICAL_TRANSITION_SELL_FRACTION,

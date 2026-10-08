@@ -1675,6 +1675,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-KR-INTRADAY-ORDER-001",
         "SIG-KR-INTRADAY-REPLAY-001",
         "SIG-KR-INTRADAY-SEAL-001",
+        "SIG-EXIT-005",
         "SIG-UI-022",
         "SIG-UI-025",
         "SIG-UI-030",

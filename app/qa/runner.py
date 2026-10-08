@@ -53,6 +53,14 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-EXIT-005": (
+        "tests.test_quant_signals."
+        "test_v8_existing_position_first_profit_exit_reaches_fifty_percent_without_legacy_cap",
+        "tests.test_quant_signals."
+        "test_existing_position_transitions_to_tactical_ladder_at_no_more_than_thirty_percent_per_day",
+        "tests.test_quant_signals."
+        "test_v8_both_profit_stages_use_tradable_krx_quotes_and_equal_halves",
+    ),
     "DATA-KIS-009": (
         "tests.test_kis_token_cache.test_shared_kis_token_is_encrypted_and_reused_by_a_second_worker",
         "tests.test_kis_token_cache.test_shared_kis_token_failure_backoff_survives_worker_restart",

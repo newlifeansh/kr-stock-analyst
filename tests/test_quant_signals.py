@@ -2968,6 +2968,40 @@ def test_existing_position_transitions_to_tactical_ladder_at_no_more_than_thirty
     assert third["remaining_after_fraction"] == pytest.approx(0.30)
 
 
+def test_v8_existing_position_first_profit_exit_reaches_fifty_percent_without_legacy_cap():
+    _bars, indicators = _strategy_test_inputs(1)
+    bar = quant_signals.PriceBar(
+        trade_date=date(2026, 10, 8),
+        open=103.0, high=103.0, low=103.0, close=103.0,
+        volume=1_000_000, trading_value=50_000_000_000,
+    )
+    position = {
+        "entry_date": date(2026, 8, 24),
+        "entry_price": 100.0,
+        "entry_cost": 0.002,
+        "initial_risk": 2.0,
+        "initial_stop": 96.0,
+        "peak_price": 100.0,
+        "profit_stage": 0,
+        "remaining_fraction": 1.0,
+    }
+    should_partial, _reason, first = quant_signals._partial_exit_signal(
+        bar, indicators[0], position, peak_price=103.0,
+    )
+    assert should_partial is True
+    assert first["target_stage"] == 1
+    assert first["sell_fraction"] == pytest.approx(0.5)
+    assert first["remaining_after_fraction"] == pytest.approx(0.5)
+
+    position.update(profit_stage=1, remaining_fraction=0.7)
+    should_rebalance, _reason, remaining = quant_signals._partial_exit_signal(
+        bar, indicators[0], position, peak_price=103.0,
+    )
+    assert should_rebalance is True
+    assert remaining["sell_fraction"] == pytest.approx(0.2)
+    assert remaining["remaining_after_fraction"] == pytest.approx(0.5)
+
+
 def test_current_tactical_transition_exposes_one_consistent_pending_stage(monkeypatch):
     bars, indicators = _strategy_test_inputs(69)
     monkeypatch.setattr(
