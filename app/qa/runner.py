@@ -53,6 +53,12 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-KIS-009": (
+        "tests.test_kis_token_cache.test_shared_kis_token_is_encrypted_and_reused_by_a_second_worker",
+        "tests.test_kis_token_cache.test_shared_kis_token_failure_backoff_survives_worker_restart",
+        "tests.test_kis_token_cache.test_shared_kis_token_corrupt_ciphertext_never_returns_old_bearer",
+        "tests.test_kis_token_cache.test_postgres_provider_uses_shared_cache_before_token_endpoint",
+    ),
     "DATA-COM-008": (
         "tests.test_db.test_startup_waits_for_railway_private_dns_and_then_recovers",
         "tests.test_db.test_startup_does_not_retry_bad_database_credentials",

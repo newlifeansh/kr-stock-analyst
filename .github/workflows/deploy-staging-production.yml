@@ -366,6 +366,9 @@ jobs:
           --base-url "$QA_BASE_URL"
           --wait-seconds 900
           --output artifacts/qa-data-signal/staging-data-readiness.json
+      - name: Allow staged KIS token issuance window to reset before direct probe
+        if: matrix.surface == 'dashboard'
+        run: sleep 65
       - name: Run read-only staging integrations
         id: live_qa
         continue-on-error: true

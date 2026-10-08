@@ -197,7 +197,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v8.0"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert len(ids) == 141
+    assert len(ids) == 142
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -310,7 +310,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v8.0`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v2-rc1`" in first
-    assert "QA 항목: 141개" in first
+    assert "QA 항목: 142개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1596,7 +1596,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v8.0"
     assert report["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert report["catalog_case_count"] == 141
+    assert report["catalog_case_count"] == 142
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1618,6 +1618,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "DATA-KIS-002",
         "DATA-KIS-003",
         "DATA-KIS-008",
+        "DATA-KIS-009",
         "DATA-CALENDAR-CONTENT-007",
         "DATA-FUND-RESEARCH-002",
         "DATA-FUND-RESEARCH-003",

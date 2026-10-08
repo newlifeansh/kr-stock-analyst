@@ -115,12 +115,25 @@
       "domain": "KIS 연동",
       "priority": "P0",
       "modes": ["gate", "live"],
-      "automation": "pytest 같은 인증 구성의 토큰 재사용·일시 실패 30초 음성 캐시·복구 fixture + 선택적 실제 OAuth probe",
+      "automation": "pytest 같은 프로세스 인증 토큰 재사용·일시 실패 30초 음성 캐시·복구 fixture + 선택적 실제 OAuth probe; 프로세스 간 공유는 DATA-KIS-009",
       "preconditions": ["KIS_APP_KEY와 KIS_APP_SECRET을 설정한다."],
       "inputs": {"env": "real or demo"},
       "steps": ["토큰을 발급하고 만료 전 재사용·만료 후 재발급을 검사한다.", "토큰 발급이 HTTP 403으로 한 번 실패하면 동일 인증 구성의 병렬·후속 조회가 30초 안에 중복 발급을 하지 않고, 30초 후 새 토큰을 재시도하는지 확인한다."],
       "expected": ["유효 토큰을 캐시하며 토큰 값은 리포트에서 마스킹된다.", "일시 인증 장애는 30초 동안 중복 tokenP 호출을 억제하고 이후 복구를 허용한다."],
       "failure_criteria": ["인증 실패를 성공으로 표시하거나 토큰·비밀값을 노출한다.", "한 번의 tokenP 실패 후 Top150 종목마다 발급을 재시도해 장중 시그널 스냅샷 갱신을 지연시키거나 복구 시도 자체를 막는다."]
+    },
+    {
+      "id": "DATA-KIS-009",
+      "title": "웹·수집기 간 암호화 KIS 토큰 재사용과 발급 직렬화",
+      "domain": "KIS 연동",
+      "priority": "P0",
+      "modes": ["gate"],
+      "automation": "pytest 공유 저장소의 암호화·재사용·65초 실패 백오프·손상 암호문 교체·PostgreSQL provider 공유 경로 fixture; 스테이징 실증은 DATA-KIS-001·002·008 live 및 수집기 상태로 교차 확인",
+      "preconditions": ["웹과 수집기가 같은 PostgreSQL을 사용하고 동일한 KIS 인증 구성으로 기동한다.", "KIS_APP_SECRET은 애플리케이션 비밀 저장소에 유지하며 DB에는 보관하지 않는다."],
+      "inputs": {"shared_cache_table": "kis_oauth_token_cache", "failure_retry_seconds": 65, "token_expiry_margin_seconds": 60, "lock": "PostgreSQL transaction advisory lock"},
+      "steps": ["두 프로세스 역할의 인스턴스가 같은 인증 토큰을 만료 전 재사용하며 DB에 평문 토큰이 없는지 확인한다.", "발급 403 시 다른 인스턴스에서도 65초 동안 재발급하지 않고 이후 복구하는지 확인한다.", "손상 암호문은 이전 토큰으로 반환하지 않고 재발급하며 PostgreSQL 경로가 공유 캐시를 호출하는지 확인한다.", "스테이징 웹·수집기 기동 후 KIS 진단·현재가·150종목 수집 상태를 다시 검사한다."],
+      "expected": ["PostgreSQL 트랜잭션 락 아래 최초 발급만 일어나고 유효 토큰은 프로세스 간 암호화 재사용된다.", "일시 실패는 65초 음성 캐시 뒤 복구되며 토큰·비밀값이 DB 평문 또는 QA 리포트에 노출되지 않는다.", "스테이징 KIS 현재가와 수집기가 같은 장중 세션으로 회복한다."],
+      "failure_criteria": ["웹·수집기 시작 때 tokenP가 중복 호출되어 403·종목 수집 누락이 반복된다.", "DB에 평문 토큰·비밀값이 저장되거나 손상된 토큰을 재사용한다.", "65초가 지나도 인증 복구 시도가 차단되거나 발급 실패를 정상 시세로 취급한다."]
     },
     {
       "id": "DATA-KIS-002",

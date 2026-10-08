@@ -16,6 +16,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
+from app.db import SessionLocal, engine
+from app.integrations.kis_token_cache import get_or_issue_shared_token
 from app.collectors.disclosures import latest_disclosure_events
 from app.collectors.news import latest_news_events
 from app.integrations.opendart import fetch_opendart_json
@@ -317,7 +319,7 @@ class KisRestBriefingProvider:
             if time_module.monotonic() < _KIS_TOKEN_FAILURE_RETRY_AT.get(identity, 0):
                 raise RuntimeError("KIS token temporarily unavailable")
 
-            try:
+            def issue_token() -> tuple[str, int]:
                 response = requests.post(
                     f"{self._base_url()}/oauth2/tokenP",
                     json={
@@ -330,8 +332,19 @@ class KisRestBriefingProvider:
                 )
                 response.raise_for_status()
                 payload = response.json()
-                token = payload["access_token"]
-                expires_in = int(payload.get("expires_in", 86400))
+                return payload["access_token"], int(payload.get("expires_in", 86400))
+
+            try:
+                if engine.dialect.name == "postgresql":
+                    token, expires_at = get_or_issue_shared_token(
+                        SessionLocal,
+                        identity=identity,
+                        app_secret=self.settings.kis_app_secret or "",
+                        issue=issue_token,
+                    )
+                else:
+                    token, expires_in = issue_token()
+                    expires_at = now + timedelta(seconds=expires_in)
             except Exception:
                 _KIS_TOKEN_FAILURE_RETRY_AT[identity] = (
                     time_module.monotonic() + KIS_TOKEN_FAILURE_RETRY_SECONDS
@@ -339,7 +352,7 @@ class KisRestBriefingProvider:
                 raise
             _KIS_TOKEN_FAILURE_RETRY_AT.pop(identity, None)
             self._token = token
-            self._token_expires_at = now + timedelta(seconds=expires_in)
+            self._token_expires_at = expires_at
             _KIS_TOKEN_CACHE[identity] = (self._token, self._token_expires_at)
             return self._token
 
