@@ -43104,7 +43104,7 @@ body[data-stock-market="us"] #stock-view .staging-stock-logo.has-stock-logo > .s
   transition: filter 160ms ease, box-shadow 160ms ease;
   transform-origin: 50% 50%;
   backface-visibility: hidden;
-  touch-action: none;
+  touch-action: pan-y;
   user-select: none;
   -webkit-user-drag: none;
   -webkit-tap-highlight-color: transparent;

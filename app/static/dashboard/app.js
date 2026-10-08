@@ -1289,6 +1289,7 @@ const state = {
   watchMarketMapSheetTrigger: null,
   watchMarketMapResizeObserver: null,
   watchMarketMapRenderFrame: null,
+  watchMarketMapQuoteRenderFrame: null,
   watchMarketMapMotionGeneration: 0,
   watchMarketMapPhysics: null,
   watchMarketMapIntradayByKey: new Map(),
@@ -8704,6 +8705,7 @@ const QUOTE_STREAM_SCOPE_PRIORITIES = {
   detail: 1000,
   "ai-signals": 900,
   "home-ranking": 800,
+  "home-watch-map": 750,
   watchlist: 700,
   recommendation: 500,
   market: 400,
@@ -9149,6 +9151,71 @@ function connectQuoteStream(stock) {
 
 function closeWatchlistQuoteStreams() {
   clearQuoteStreamScope("watchlist");
+}
+
+function scheduleHomeWatchMarketMapQuoteRender() {
+  if (state.watchMarketMapQuoteRenderFrame !== null) return;
+  state.watchMarketMapQuoteRenderFrame = window.requestAnimationFrame(() => {
+    state.watchMarketMapQuoteRenderFrame = null;
+    if (state.view === "home") renderWatchMarketMap(state.watchMarketMapResults, { empty: true });
+  });
+}
+
+function updateHomeWatchMarketMapQuote(code, payload = {}) {
+  if (!stockQuotePayloadIsDisplayReady(payload)) return false;
+  const normalizedCode = String(code || payload.code || "");
+  const entry = state.watchMarketMapResults.find(
+    (candidate) => String(candidate?.item?.code || "") === normalizedCode,
+  );
+  if (!entry?.dashboard || marketScopeForItem(entry.item) !== "kr") return false;
+  const wasReady = entry.liveQuoteReady === true;
+  const changed = applyLiveQuoteToDashboard(entry.dashboard, payload.quote, payload);
+  entry.liveQuoteReady = true;
+  if (changed || !wasReady) scheduleHomeWatchMarketMapQuoteRender();
+  return changed || !wasReady;
+}
+
+function closeHomeWatchMarketMapQuoteStreams() {
+  window.cancelAnimationFrame(state.watchMarketMapQuoteRenderFrame);
+  state.watchMarketMapQuoteRenderFrame = null;
+  clearQuoteStreamScope("home-watch-map");
+}
+
+function connectHomeWatchMarketMapQuoteStreams(entries = state.watchMarketMapResults) {
+  const domesticEntries = (Array.isArray(entries) ? entries : []).filter(
+    (entry) => entry?.item?.code && marketScopeForItem(entry.item) === "kr",
+  );
+  for (const entry of domesticEntries) {
+    const cached = state.quoteStreamLatestByCode.get(String(entry.item.code))?.payload;
+    if (cached) updateHomeWatchMarketMapQuote(entry.item.code, cached);
+  }
+  replaceQuoteStreamScope("home-watch-map", domesticEntries.map((entry) => ({
+    code: String(entry.item.code),
+    handlers: {
+      onQuote: (payload) => updateHomeWatchMarketMapQuote(entry.item.code, payload),
+    },
+  })));
+}
+
+async function hydrateHomeWatchMarketMapLiveQuotes(entries, loadSequence) {
+  const codes = (Array.isArray(entries) ? entries : [])
+    .filter((entry) => entry?.item?.code && marketScopeForItem(entry.item) === "kr")
+    .map((entry) => String(entry.item.code));
+  if (!codes.length || navigator.onLine === false) return [];
+  try {
+    const payload = await fetchJsonCached(
+      liveUrl(`/stocks/quotes?codes=${encodeURIComponent(codes.join(","))}`),
+      { force: true, ttlMs: 0, timeoutMs: 10000 },
+    );
+    if (Number(loadSequence) !== state.homeWatchMarketMapLoadSequence) return [];
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    items.forEach(dispatchQuoteStreamPayload);
+    return items;
+  } catch {
+    // Keep current-session bubbles pending until the stream or its bounded
+    // REST watchdog supplies a display-ready frame.
+    return [];
+  }
 }
 
 function setLiveCellTone(cell, value) {
@@ -14746,6 +14813,7 @@ function setView(requestedViewName, options = {}) {
   }
   if (view !== "home") {
     closeHomeRankingQuoteStreams();
+    closeHomeWatchMarketMapQuoteStreams();
   }
   if (!["home", "ai-signals"].includes(view)) {
     closeAiSignalQuoteStreams();
@@ -21865,6 +21933,15 @@ function watchMarketMapEntrySnapshot(entry, timeline) {
   const selectedMinutes = Math.max(0, Number(timeline?.selectedMinutes) || 0);
   const quote = entry.dashboard?.quote || {};
   if (selectedMinutes >= latestMinutes && timeline?.sessionState === "regular") {
+    if (marketScopeForItem(entry.item || entry) === "kr" && entry.liveQuoteReady !== true) {
+      return {
+        changeRate: null,
+        price: null,
+        pointMinute: latestMinutes,
+        available: false,
+        source: "live-pending",
+      };
+    }
     return {
       changeRate: toNumber(quote.change_rate),
       price: toNumber(quote.price),
@@ -22482,15 +22559,26 @@ function bindWatchMarketMapDrag(tile) {
       previousX: node.x,
       previousY: node.y,
       dragging: false,
+      verticalScroll: false,
+      pointerType: event.pointerType,
     };
-    tile.setPointerCapture?.(event.pointerId);
   });
   tile.addEventListener("pointermove", (event) => {
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     const physics = state.watchMarketMapPhysics;
     const node = physics?.nodes.find((candidate) => candidate.tile === tile);
     if (!physics || !node) return;
-    const travel = Math.hypot(event.clientX - gesture.startClientX, event.clientY - gesture.startClientY);
+    const deltaX = event.clientX - gesture.startClientX;
+    const deltaY = event.clientY - gesture.startClientY;
+    const travel = Math.hypot(deltaX, deltaY);
+    if (!gesture.dragging && !gesture.verticalScroll && gesture.pointerType === "touch" && travel >= 6) {
+      if (Math.abs(deltaY) > Math.abs(deltaX)) {
+        gesture.verticalScroll = true;
+        tile.dataset.lastPointerGesture = "vertical-scroll";
+        return;
+      }
+    }
+    if (gesture.verticalScroll) return;
     if (!gesture.dragging && travel >= 6) {
       gesture.dragging = true;
       gesture.offsetX = event.clientX - (physics.stage.getBoundingClientRect().left + node.x);
@@ -22499,6 +22587,8 @@ function bindWatchMarketMapDrag(tile) {
       node.scale = 1.04;
       node.opacity = 1;
       tile.classList.add("is-dragging");
+      tile.dataset.lastPointerGesture = "bubble-drag";
+      tile.setPointerCapture?.(event.pointerId);
       startWatchMarketMapPhysics(physics, "dragging");
     }
     if (!gesture.dragging) return;
@@ -22525,9 +22615,12 @@ function bindWatchMarketMapDrag(tile) {
   const finishGesture = (event) => {
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     const wasDragging = gesture.dragging;
+    const wasVerticalScroll = gesture.verticalScroll;
     const physics = state.watchMarketMapPhysics;
     const node = physics?.nodes.find((candidate) => candidate.tile === tile);
     gesture = null;
+    if (tile.hasPointerCapture?.(event.pointerId)) tile.releasePointerCapture?.(event.pointerId);
+    if (wasVerticalScroll) return;
     if (!wasDragging || !physics || !node) return;
     event.preventDefault();
     node.dragging = false;
@@ -22565,6 +22658,7 @@ function createWatchMarketMapTile(node, width, height) {
 
   const entry = node.entry;
   const change = watchMarketMapDisplayChange(entry);
+  const livePending = entry.marketMapSnapshot?.source === "live-pending";
   const tone = watchMarketMapTone(change);
   const timeLabel = entry.marketMapTimeline?.isLatest
     ? "오늘 최신"
@@ -22578,7 +22672,9 @@ function createWatchMarketMapTile(node, width, height) {
   tile.dataset.changeRate = change === null ? "" : String(change);
   tile.setAttribute(
     "aria-label",
-    change === null
+    livePending
+      ? `${entry.item.name}, 최신 시세 확인 중, 종목 상세 보기`
+      : change === null
       ? `${entry.item.name}, ${timeLabel} 시세 없음, 종목 상세 보기`
       : `${entry.item.name}, ${timeLabel} ${tone.label} ${formatPercent(change)}, 종목 상세 보기`,
   );
@@ -22586,7 +22682,7 @@ function createWatchMarketMapTile(node, width, height) {
   const copy = el("span", "watch-market-map-tile-copy");
   copy.append(
     el("strong", "", entry.item.name),
-    el("span", "watch-market-map-change", formatPercent(change)),
+    el("span", "watch-market-map-change", livePending ? "확인 중" : formatPercent(change)),
   );
   tile.append(copy);
   positionWatchMarketMapTile(tile, node, width, height);
@@ -22794,6 +22890,7 @@ async function loadHomeWatchMarketMap(options = {}) {
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? pageEntryTtlMs("watchlist");
   const groupId = state.activeWatchGroup;
+  closeHomeWatchMarketMapQuoteStreams();
   if (state.watchMarketMapTimelineGroupId !== groupId) {
     state.watchMarketMapTimelineGroupId = groupId;
     state.watchMarketMapTimelineMinutes = null;
@@ -22826,7 +22923,7 @@ async function loadHomeWatchMarketMap(options = {}) {
       if (loadSequence !== state.homeWatchMarketMapLoadSequence) return { item, dashboard: null, cancelled: true };
       state.watchMarketMapResults = [
         ...state.watchMarketMapResults.filter((result) => result.item.code !== item.code),
-        { item, dashboard },
+        { item, dashboard, liveQuoteReady: marketScopeForItem(item) === "us" },
       ].sort((left, right) => (itemOrder.get(left.item.code) || 0) - (itemOrder.get(right.item.code) || 0));
       if (state.view === "home") {
         renderWatchMarketMap(state.watchMarketMapResults, {
@@ -22835,7 +22932,7 @@ async function loadHomeWatchMarketMap(options = {}) {
           totalCount: watchMarketMapItemsForScope(items).length,
         });
       }
-      return { item, dashboard };
+      return { item, dashboard, liveQuoteReady: marketScopeForItem(item) === "us" };
     } catch {
       return { item, dashboard: null };
     }
@@ -22843,6 +22940,7 @@ async function loadHomeWatchMarketMap(options = {}) {
   if (loadSequence !== state.homeWatchMarketMapLoadSequence) return [];
   state.watchMarketMapResults = results.filter((result) => result.dashboard);
   state.homeWatchMarketMapLoading = false;
+  connectHomeWatchMarketMapQuoteStreams(state.watchMarketMapResults);
   if (state.view === "home") {
     const selectedItems = watchMarketMapItemsForScope(items);
     const selectedResults = watchMarketMapEntries(state.watchMarketMapResults);
@@ -22852,11 +22950,15 @@ async function loadHomeWatchMarketMap(options = {}) {
       emptyDescription: selectedItems.length && !selectedResults.length ? "잠시 후 다시 확인해주세요." : "",
     });
   }
-  await loadWatchMarketMapIntraday(state.watchMarketMapResults, {
-    force,
-    generation: intradayLoadSequence,
-    homeLoadSequence: loadSequence,
-  });
+  await Promise.all([
+    hydrateHomeWatchMarketMapLiveQuotes(state.watchMarketMapResults, loadSequence),
+    loadWatchMarketMapIntraday(state.watchMarketMapResults, {
+      force,
+      generation: intradayLoadSequence,
+      homeLoadSequence: loadSequence,
+    }),
+  ]);
+  if (loadSequence !== state.homeWatchMarketMapLoadSequence) return [];
   return state.watchMarketMapResults;
 }
 
@@ -22872,15 +22974,18 @@ function createWatchMarketMapSheetRow(entry) {
   const values = el("span", "watch-market-map-sheet-values");
   const change = watchMarketMapDisplayChange(entry);
   const price = watchMarketMapDisplayPrice(entry);
+  const livePending = entry.marketMapSnapshot?.source === "live-pending";
   const tone = watchMarketMapTone(change);
   values.append(
-    el("strong", "", price === null ? "시세 없음" : formatStockPrice(price, entry.dashboard)),
-    el("small", `is-${tone.id}`, change === null ? "해당 시각 데이터 없음" : `${tone.label} ${formatPercent(change)}`),
+    el("strong", "", livePending ? "시세 확인 중" : price === null ? "시세 없음" : formatStockPrice(price, entry.dashboard)),
+    el("small", `is-${tone.id}`, livePending ? "최신 시세 연결 중" : change === null ? "해당 시각 데이터 없음" : `${tone.label} ${formatPercent(change)}`),
   );
   link.append(identity, values);
   link.setAttribute(
     "aria-label",
-    change === null
+    livePending
+      ? `${entry.item.name}, 최신 시세 확인 중, 종목 상세 보기`
+      : change === null
       ? `${entry.item.name}, 해당 시각 시세 없음, 종목 상세 보기`
       : `${entry.item.name}, 선택 시각 ${tone.label} ${formatPercent(change)}, 종목 상세 보기`,
   );
@@ -32560,6 +32665,7 @@ document.addEventListener("visibilitychange", () => {
     closeWatchlistQuoteStreams();
     closeMarketQuoteStreams();
     closeHomeRankingQuoteStreams();
+    closeHomeWatchMarketMapQuoteStreams();
     closeAiSignalQuoteStreams();
     stopAiSignalReconcileTimer();
     closeRecommendationQuoteStreams();

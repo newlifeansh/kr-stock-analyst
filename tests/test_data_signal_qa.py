@@ -1352,6 +1352,8 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "핀종목의 로고·스파크라인·현재가·오늘 등락률" in source
     assert "def watch_market_map_case" in source
     assert 'case_id="SIG-UI-025"' in source
+    assert 'r".*/market/global-assets(?:\\?.*)?$"' in source
+    assert '{"status": "ready", "data_state": "live", "items": []}' in source
     assert "def domestic_product_boundary_case" in source
     assert 'case_id="SIG-UI-030"' in source
     assert "미국 관심종목 버블의 홈 배치·전용 시장 범위" in source
@@ -1820,7 +1822,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.0",
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261008us131",
+                "us_dashboard_version": "20261008us132",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1828,7 +1830,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261008us131",
+                "us_dashboard_version": "20261008us132",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2201,6 +2203,20 @@ class FakeReadOnlyApi:
                 "stock": {"code": "005930"},
                 "quote": {"market_cap": 1_578_000_000_000_000},
             }, self._meta(path)
+        if path == "/stocks/quotes":
+            return {
+                "type": "quotes",
+                "items": [
+                    {
+                        "type": "quote",
+                        "code": "005930",
+                        "source": "fixture_realtime",
+                        "observed_at": "2026-10-08T13:17:00+09:00",
+                        "quote": {"price": 100, "change_rate": -1.22},
+                    }
+                ],
+                "rejected_codes": [],
+            }, self._meta(path)
         if path == "/stocks/005930/quote":
             observed = datetime.now(KST)
             regular = is_korea_regular_market_session(observed)
@@ -2386,7 +2402,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261008us131"}, self._meta(path)
+            return {"version": "20261008us132"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2433,11 +2449,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261008us131" />'
+                '<link href="/assets/dashboard/styles.css?v=20261008us132" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261008us131"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261008us132"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2477,11 +2493,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261008v559" />'
+            '<link href="/assets/dashboard/styles.css?v=20261008v560" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261008v559"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261008v560"></script>'
             '</body></html>',
             self._meta(path),
         )
@@ -2891,6 +2907,8 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     assert watch_map_evidence["domestic"]["market_cap_krw"] == pytest.approx(
         1_578_000_000_000_000
     )
+    assert watch_map_evidence["current_quote"]["code"] == "005930"
+    assert watch_map_evidence["current_quote"]["change_rate"] == pytest.approx(-1.22)
     assert watch_map_evidence["overseas"]["market_scope"] == "us"
     assert watch_map_evidence["overseas"]["market_cap_usd"] == pytest.approx(
         5_491_269_270_000
