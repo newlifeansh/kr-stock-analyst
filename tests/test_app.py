@@ -1306,6 +1306,50 @@ def test_us_collector_backfills_legacy_member_evidence_during_regular_session(
     assert calls == [True]
 
 
+@pytest.mark.parametrize("first_result", ["exception", "unavailable"])
+def test_market_quant_signal_refresh_loop_retries_without_dying(
+    monkeypatch, caplog, first_result
+):
+    from app import main as main_module
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 8, 9, 10, tzinfo=tz)
+
+    attempts = []
+    intervals = []
+
+    def refresh():
+        attempts.append(True)
+        if len(attempts) == 1:
+            if first_result == "exception":
+                raise RuntimeError("transient refresh failure")
+            return None
+        return {"status": "ready"}
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def stop_after_recovery(seconds):
+        intervals.append(seconds)
+        if len(intervals) == 2:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(main_module, "_quant_signal_quote_refresh_active", lambda _now: True)
+    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_snapshot", refresh)
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_recovery)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_market_quant_signal_refresh_loop())
+
+    assert len(attempts) == 2
+    assert intervals == [30, 300]
+    assert "retrying in 30s" in caplog.text
+
+
 def test_us_market_refresh_queue_is_process_single_flight(monkeypatch):
     from fastapi import BackgroundTasks
     from app import main as main_module

@@ -1497,18 +1497,28 @@ def _suppress_stale_preliminary_market_signals(payload: dict[str, Any]) -> dict[
 async def _run_market_quant_signal_refresh_loop() -> None:
     last_premarket_refresh_date: Optional[date] = None
     while True:
-        now = datetime.now(KST)
-        premarket_refresh = (
-            now.weekday() < 5
-            and time(6, 0) <= now.time() <= time(9, 0)
-            and is_korea_market_session_date(now.date(), now)
-            and last_premarket_refresh_date != now.date()
-        )
-        if _quant_signal_quote_refresh_active(now) or premarket_refresh:
-            refreshed = await asyncio.to_thread(_refresh_market_quant_signal_snapshot)
-            if premarket_refresh and refreshed is not None:
-                last_premarket_refresh_date = now.date()
-        await asyncio.sleep(300)
+        interval_seconds = 300
+        try:
+            now = datetime.now(KST)
+            premarket_refresh = (
+                now.weekday() < 5
+                and time(6, 0) <= now.time() <= time(9, 0)
+                and is_korea_market_session_date(now.date(), now)
+                and last_premarket_refresh_date != now.date()
+            )
+            if _quant_signal_quote_refresh_active(now) or premarket_refresh:
+                refreshed = await asyncio.to_thread(_refresh_market_quant_signal_snapshot)
+                if refreshed is None:
+                    # A busy lock or failed refresh must not leave the market
+                    # feed stale for another full scan interval.
+                    logger.warning("Market quant signal refresh did not complete; retrying in 30s")
+                    interval_seconds = 30
+                elif premarket_refresh:
+                    last_premarket_refresh_date = now.date()
+        except Exception:  # pragma: no cover - operational safeguard
+            logger.exception("Market quant signal refresh loop failed; retrying in 30s")
+            interval_seconds = 30
+        await asyncio.sleep(interval_seconds)
 
 
 def _us_position_lifecycle_snapshot_due(now: datetime) -> bool:

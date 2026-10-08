@@ -257,6 +257,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_data_signal_qa."
         "test_live_intraday_push_qa_uses_actual_dispatch_snapshot_scope",
         "tests.test_app."
+        "test_market_quant_signal_refresh_loop_retries_without_dying[exception]",
+        "tests.test_app."
+        "test_market_quant_signal_refresh_loop_retries_without_dying[unavailable]",
+        "tests.test_app."
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
         "tests.test_quant_signals."
         "test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from xml.etree import ElementTree
@@ -1874,7 +1875,10 @@ class FakeReadOnlyApi:
                 "strategy_version": "position-lifecycle-v8.0",
                 "execution_model": "close-confirmed-intraday-trigger-v1",
                 "as_of": "2026-08-29T10:00:00+09:00",
-                "snapshot_generated_at": "2026-08-29T10:00:00+09:00",
+                # Live QA has a market-hours freshness gate. Keep the baseline
+                # fixture fresh regardless of when this test suite is run;
+                # stale/future fixtures override this field explicitly.
+                "snapshot_generated_at": datetime.now(KST).isoformat(),
                 "signal_revision": 7,
                 "signal_revision_as_of": "2026-08-29T10:00:00+09:00",
                 "signal_revision_scope": "canonical_market_feed",
@@ -2789,6 +2793,13 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
 ) -> None:
     from app.qa import runner
 
+    class ClosedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 8, 8, 30, tzinfo=tz)
+
+    monkeypatch.setattr(sys.modules[__name__], "datetime", ClosedDatetime)
+    monkeypatch.setattr(runner, "datetime", ClosedDatetime)
     FakeReadOnlyApi.quality_price_state = "ready"
     monkeypatch.setattr(runner, "ReadOnlyApi", FakeReadOnlyApi)
     monkeypatch.setattr(
