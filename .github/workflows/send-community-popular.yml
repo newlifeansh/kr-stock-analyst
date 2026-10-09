@@ -74,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/operator
-          railway run --no-local \
+          railway ssh \
             --project "$PRODUCTION_RAILWAY_PROJECT_ID" \
             --environment production \
             --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" \
@@ -84,7 +84,7 @@ jobs:
               --expected-post-id "$EXPECTED_POST_ID" \
               --send \
               --confirm SEND-COMMUNITY-POPULAR \
-              --output artifacts/operator/community-popular-receipt.json
+              > artifacts/operator/community-popular-receipt.json
       - name: Upload redacted send receipt
         if: always()
         uses: actions/upload-artifact@v4

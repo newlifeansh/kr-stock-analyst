@@ -204,7 +204,7 @@ def test_manual_community_push_workflow_is_confirmed_scoped_and_receipted() -> N
     assert 'test "$CONFIRM" = "SEND-COMMUNITY-POPULAR"' in workflow
     assert "PRODUCTION_RAILWAY_PROJECT_ID" in workflow
     assert "PRODUCTION_RAILWAY_COLLECTOR_SERVICE" in workflow
-    assert "railway run --no-local" in workflow
+    assert "railway ssh" in workflow
     assert "--environment production" in workflow
     assert "send-community-popular" in workflow
     assert "--expected-post-id" in workflow
