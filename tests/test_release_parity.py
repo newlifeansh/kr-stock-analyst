@@ -209,6 +209,9 @@ def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> Non
     assert "name: production" in workflow
     assert "Deploy the exact image to US production first" in workflow
     assert "Deploy the same image to domestic production" in workflow
+    assert "Wait for all four exact-image deployments" in workflow
+    assert workflow.count("wait_for_exact_image \"") == 4
+    assert "did not reach the exact image within 15 minutes" in workflow
     assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 4
     assert "US_STAGING_RAILWAY_PROJECT_ID" not in workflow
     assert "DASHBOARD_STAGING_RAILWAY_PROJECT_ID" not in workflow
@@ -218,7 +221,16 @@ def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> Non
     assert "Verify US production version and asset hashes" in workflow
     assert "Run domestic production read-only checks" in workflow
     assert "Run US production read-only checks" in workflow
+    assert "Capture failed US collector runtime evidence" in workflow
+    assert "us-production-collector-runtime.jsonl" in workflow
     assert "Enforce post-deployment verification" in workflow
+    enforcement = workflow.split("- name: Enforce post-deployment verification", 1)[1]
+    assert 'steps.dashboard_readiness.outcome }}\" = \"success\"' in enforcement
+    assert 'steps.us_readiness.outcome }}\" = \"success\"' in enforcement
+    assert 'steps.dashboard_live.outcome }}\" = \"success\"' not in enforcement
+    assert 'steps.us_live.outcome }}\" = \"success\"' not in enforcement
+    assert "::warning::Domestic read-only live QA" in enforcement
+    assert "::warning::US read-only live QA" in enforcement
 
     catalog = {case["id"]: case for case in load_qa_catalog()["cases"]}
     release_case = catalog["DATA-COM-009"]
