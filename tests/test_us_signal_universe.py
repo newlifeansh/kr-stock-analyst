@@ -1124,6 +1124,41 @@ def test_prior_session_bridge_fails_closed_when_any_candidate_quote_is_missing(
     assert "requires every candidate quote" in payload["source_error"]
 
 
+def test_prior_session_bridge_retries_only_transiently_invalid_quotes(monkeypatch):
+    candidates = _candidates(101)
+    for item in candidates:
+        item["screen_as_of"] = "2026-09-04"
+    quotes = {
+        str(item["code"]): _quote(
+            str(item["code"]),
+            2_000_000_000 - index,
+        )
+        for index, item in enumerate(candidates)
+    }
+    transient_code = str(candidates[50]["code"])
+    incomplete = dict(quotes[transient_code])
+    incomplete.pop("marketCap")
+    calls: list[list[str]] = []
+
+    def fetch_quotes(symbols, **_kwargs):
+        requested = list(symbols)
+        calls.append(requested)
+        if len(calls) == 1:
+            return {**quotes, transient_code: incomplete}
+        return {code: quotes[code] for code in requested}
+
+    monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
+    monkeypatch.setattr(us_market, "fetch_us_quote_batch", fetch_quotes)
+    monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
+
+    payload = universe.build_us_signal_universe(
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+    )
+
+    assert payload["status"] == "ready"
+    assert calls == [[str(item["code"]) for item in candidates], [transient_code]]
+
+
 def test_prior_session_bridge_excludes_explicitly_delisted_stale_quote(
     monkeypatch,
 ):
@@ -1467,6 +1502,46 @@ def test_malformed_exact_daily_snapshot_is_never_overwritten(
     sqlite_db.refresh(row)
     assert universe._decode_valid_snapshot(row) is None
     assert "source_candidate_count" not in json.loads(row.payload)
+
+
+def test_new_universe_version_migrates_around_invalid_prior_version_row(
+    monkeypatch,
+    sqlite_db,
+):
+    sqlite_db.add(
+        MarketRankingSnapshot(
+            snapshot_id="us-market-cap-top100-v4:2026-09-08",
+            category=universe.US_SIGNAL_UNIVERSE_CATEGORY,
+            payload="{invalid-prior-version",
+            captured_at=datetime(2026, 9, 9, 1, 0),
+            expires_at=datetime(2027, 9, 9, 1, 0),
+        )
+    )
+    sqlite_db.commit()
+    candidates = _candidates(101)
+    quotes = {
+        str(item["code"]): _quote(str(item["code"]), 2_000_000_000 - index)
+        for index, item in enumerate(candidates)
+    }
+    monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_batch",
+        lambda *_args, **_kwargs: quotes,
+    )
+    monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
+
+    payload = universe.build_us_signal_universe(
+        db=sqlite_db,
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+    )
+
+    assert universe.US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v5"
+    assert payload["status"] == "ready"
+    assert sqlite_db.get(
+        MarketRankingSnapshot,
+        "us-market-cap-top100-v5:2026-09-08",
+    ) is not None
 
 
 def test_stale_fallback_skips_latest_malformed_snapshot(monkeypatch, sqlite_db):

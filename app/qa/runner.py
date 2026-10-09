@@ -1563,8 +1563,8 @@ def _gate_checks(
         )
         _assert(
             US_SIGNAL_UNIVERSE_LIMIT == 100
-            and US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v4",
-            "미국 시그널 유니버스 정책이 Top 100 v4와 다릅니다.",
+            and US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v5",
+            "미국 시그널 유니버스 정책이 Top 100 v5와 다릅니다.",
         )
         _assert(
             US_ROLLOUT_MODE == "model_replay"
@@ -1591,7 +1591,7 @@ def _gate_checks(
     collector.check(
         "SIG-US-VERSION-001",
         us_strategy_contract,
-        pass_message="미국 v2 생명주기·baseline·Top 100 v4 모델 replay 버전 계약을 확인했습니다.",
+        pass_message="미국 v2 생명주기·baseline·Top 100 v5 모델 replay 버전 계약을 확인했습니다.",
     )
 
     def input_contract() -> dict[str, Any]:
