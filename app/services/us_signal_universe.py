@@ -1841,7 +1841,13 @@ def build_us_signal_universe(
                 # The completed-session ranking is deliberately immutable.
                 # Reusing it prevents a later provider-field revision from
                 # turning a valid same-day retry into a permanent mismatch.
-                return exact_snapshot
+                return {
+                    **exact_snapshot,
+                    "ranking_as_of": (
+                        exact_snapshot.get("ranking_as_of")
+                        or exact_snapshot.get("universe_as_of")
+                    ),
+                }
         screen_audit: dict[str, Any] = {}
         candidates = _screen_candidates(refresh=True, audit_out=screen_audit)
         if not screen_audit:
@@ -1911,6 +1917,7 @@ def build_us_signal_universe(
             "data_state": "ready",
             "universe_version": US_SIGNAL_UNIVERSE_VERSION,
             "universe_as_of": target_date,
+            "ranking_as_of": target_date,
             "universe_count": len(ranked),
             "source_candidate_count": len(candidates),
             "validated_quote_count": len(quotes),

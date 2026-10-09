@@ -1454,6 +1454,7 @@ def test_exact_completed_daily_snapshot_is_reused_without_remote_calls(
     assert payload["status"] == "ready"
     assert payload["data_state"] == "ready"
     assert payload["universe_as_of"] == "2026-09-08"
+    assert payload["ranking_as_of"] == "2026-09-08"
     assert payload["checksum"] == completed["checksum"]
     assert payload["new_entries_allowed"] is True
     sqlite_db.refresh(row)
