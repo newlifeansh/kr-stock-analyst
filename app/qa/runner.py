@@ -92,6 +92,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_intraday_cache.test_krx_closing_auction_trade_requires_live_window_and_consistent_prints",
         "tests.test_signal_entry_evidence.test_current_day_kis_probe_requires_completed_matching_session",
         "tests.test_data_signal_qa.test_live_dated_kis_403_requires_verified_current_day_replay_source",
+        "tests.test_data_signal_qa."
+        "test_live_krx_holiday_skips_only_session_dependent_close_evidence",
+        "tests.test_data_signal_qa."
+        "test_live_krx_holiday_still_passes_valid_dated_replay",
     ),
     "DATA-KIS-003": (
         "tests.test_data_signal_qa.test_completed_kis_minute_chart_contract_requires_dated_open_and_close",
@@ -370,6 +374,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_canonical_refresh_swaps_cache_before_publishing_transformed_revision",
         "tests.test_signal_entry_evidence."
         "test_current_day_kis_probe_requires_completed_matching_session",
+        "tests.test_data_signal_qa."
+        "test_live_krx_holiday_skips_only_session_dependent_close_evidence",
+        "tests.test_data_signal_qa."
+        "test_live_krx_holiday_still_passes_valid_dated_replay",
     ),
     "SIG-UI-030": (
         "tests.test_domestic_market_scope."
@@ -902,6 +910,12 @@ class QaWarning(RuntimeError):
         self.evidence = evidence or {}
 
 
+class QaSkip(RuntimeError):
+    def __init__(self, message: str, evidence: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.evidence = evidence or {}
+
+
 def redact(value: Any) -> Any:
     """Return a JSON-safe value with credentials and prepared URLs removed."""
     if isinstance(value, dict):
@@ -998,6 +1012,14 @@ class ResultCollector:
         started = monotonic()
         try:
             evidence = callback() or {}
+        except QaSkip as exc:
+            self.add(
+                case_id,
+                "skip",
+                str(exc),
+                evidence=exc.evidence,
+                duration_ms=round((monotonic() - started) * 1000),
+            )
         except QaWarning as exc:
             self.add(
                 case_id,
@@ -1034,6 +1056,41 @@ class ResultCollector:
 def _assert(condition: Any, message: str, **evidence: Any) -> None:
     if not condition:
         raise QaFailure(message, evidence)
+
+
+def _korea_quality_session_context(quality: dict[str, Any]) -> dict[str, Any]:
+    """Classify the quality snapshot date without treating bad metadata as a holiday."""
+
+    raw_as_of = quality.get("as_of")
+    try:
+        if isinstance(raw_as_of, datetime):
+            observed = raw_as_of
+        else:
+            observed = datetime.fromisoformat(
+                str(raw_as_of or "").replace("Z", "+00:00")
+            )
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=KST)
+        observed = observed.astimezone(KST)
+    except (TypeError, ValueError):
+        return {
+            "market_date": None,
+            "is_krx_session": None,
+            "quality_as_of": raw_as_of,
+            "calendar_reason": "invalid_quality_as_of",
+        }
+
+    from app.services.market_calendar import is_korea_market_session_date
+
+    is_session = is_korea_market_session_date(observed.date(), observed)
+    return {
+        "market_date": observed.date().isoformat(),
+        "is_krx_session": is_session,
+        "quality_as_of": observed.isoformat(),
+        "calendar_reason": (
+            "scheduled_krx_session" if is_session else "krx_holiday_or_weekend"
+        ),
+    }
 
 
 def _duplicate_market_signal_keys(items: list[Any]) -> list[tuple[Any, ...]]:
@@ -3281,6 +3338,7 @@ def _live_checks(
 
         def dated_kis_chart_contract() -> dict[str, Any]:
             probe = quality.get("api_probe") or {}
+            session = _korea_quality_session_context(quality)
             dated = next(
                 (
                     item for item in probe.get("items") or []
@@ -3302,7 +3360,20 @@ def _live_checks(
                     "trade_date": dated["trade_date"],
                     "points": dated["points"],
                     "historical_kis_state": dated["state"],
+                    **session,
                 }
+            if session["is_krx_session"] is False:
+                raise QaSkip(
+                    "KRX 휴장일이므로 당일 분봉·봉인 대체 경로 검증을 건너뜁니다.",
+                    {
+                        **session,
+                        "replay_source": "not_applicable_on_non_session_day",
+                        "historical_kis_state": dated.get("state"),
+                        "historical_kis_trade_date": dated.get("trade_date"),
+                        "historical_kis_points": dated.get("points"),
+                        "historical_kis_last_time": dated.get("last_time"),
+                    },
+                )
             same_day = next(
                 (
                     item for item in probe.get("items") or []
@@ -3340,6 +3411,7 @@ def _live_checks(
                 "sample_seal_source": sample.get("source") if sealed_auction else None,
                 "pending_paths": seal.get("pending"),
                 "finalized_paths": seal.get("finalized"),
+                **session,
             }
 
         collector.check(
@@ -3349,6 +3421,15 @@ def _live_checks(
         )
 
         def current_day_seal_contract() -> dict[str, Any]:
+            session = _korea_quality_session_context(quality)
+            if session["is_krx_session"] is False:
+                raise QaSkip(
+                    "KRX 휴장일이므로 당일 15:30 분봉·일봉 봉인을 요구하지 않습니다.",
+                    {
+                        **session,
+                        "seal_requirement": "not_applicable_on_non_session_day",
+                    },
+                )
             seal = quality.get("intraday_path_seal") or {}
             probe = quality.get("api_probe") or {}
             item = next(
@@ -3408,6 +3489,7 @@ def _live_checks(
                 "closing_trade_volume": sample.get("closing_trade_volume") if sealed_auction else None,
                 "finalized_paths": seal.get("finalized"),
                 "pending_paths": seal.get("pending"),
+                **session,
             }
 
         collector.check(

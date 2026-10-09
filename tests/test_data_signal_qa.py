@@ -1865,7 +1865,7 @@ class FakeReadOnlyApi:
             return {
                 "status": "degraded",
                 "strategy_version": "position-lifecycle-v8.0",
-                "as_of": "2026-08-29T10:00:00+09:00",
+                "as_of": "2026-10-08T18:00:00+09:00",
                 "intraday_path_seal": {
                     "trade_date": "2026-10-07", "finalized": 1,
                     "pending": 0, "version_mismatch": 0,
@@ -2982,6 +2982,78 @@ def test_live_current_day_minute_seal_blocks_unverified_promotion(
     )
     assert check["status"] == "fail"
     assert report["deployment_blocked"] is True
+
+
+@pytest.mark.qa_live
+def test_live_krx_holiday_skips_only_session_dependent_close_evidence(
+    monkeypatch,
+) -> None:
+    from app.qa import runner
+
+    class HolidayApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/meta/signal-data-quality":
+                payload = json.loads(json.dumps(payload))
+                payload["as_of"] = "2026-10-09T18:00:00+09:00"
+                historical = next(
+                    row for row in payload["api_probe"]["items"]
+                    if row["key"] == "kis_historical_intraday"
+                )
+                historical.update(
+                    state="invalid", trade_date="2026-10-08",
+                    points=380, last_time="151900",
+                )
+                payload["api_probe"]["items"] = [
+                    row for row in payload["api_probe"]["items"]
+                    if row["key"] != "kis_current_day_intraday"
+                ]
+                payload["intraday_path_seal"] = {
+                    "trade_date": "2026-10-09",
+                    "finalized": 0,
+                    "pending": 0,
+                    "version_mismatch": 0,
+                }
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", HolidayApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    checks = {item["id"]: item for item in report["checks"]}
+
+    for case_id in ("DATA-KIS-008", "SIG-KR-INTRADAY-SEAL-001"):
+        assert checks[case_id]["status"] == "skip"
+        assert checks[case_id]["evidence"]["market_date"] == "2026-10-09"
+        assert checks[case_id]["evidence"]["is_krx_session"] is False
+        assert checks[case_id]["evidence"]["calendar_reason"] == "krx_holiday_or_weekend"
+    assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_live
+def test_live_krx_holiday_still_passes_valid_dated_replay(monkeypatch) -> None:
+    from app.qa import runner
+
+    class HolidayWithDatedReplayApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/meta/signal-data-quality":
+                payload = json.loads(json.dumps(payload))
+                payload["as_of"] = "2026-10-09T18:00:00+09:00"
+                payload["api_probe"]["items"] = [
+                    row for row in payload["api_probe"]["items"]
+                    if row["key"] != "kis_current_day_intraday"
+                ]
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", HolidayWithDatedReplayApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    checks = {item["id"]: item for item in report["checks"]}
+
+    assert checks["DATA-KIS-008"]["status"] == "pass"
+    assert checks["DATA-KIS-008"]["evidence"]["replay_source"] == "dated_kis"
+    assert checks["SIG-KR-INTRADAY-SEAL-001"]["status"] == "skip"
+    assert report["deployment_blocked"] is False
 
 
 @pytest.mark.qa_live
