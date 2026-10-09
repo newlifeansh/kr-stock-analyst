@@ -209,6 +209,8 @@ def test_manual_community_push_workflow_is_confirmed_scoped_and_receipted() -> N
     assert 'eval "$(ssh-agent -s)"' in workflow
     assert 'ssh-add "$key_path"' in workflow
     assert '--key "$fingerprint"' in workflow
+    assert "StrictHostKeyChecking accept-new" in workflow
+    assert "railway-community-known-hosts" in workflow
     assert "--identity-file" in workflow
     assert "railway ssh keys remove" in workflow
     assert "if: always()" in workflow

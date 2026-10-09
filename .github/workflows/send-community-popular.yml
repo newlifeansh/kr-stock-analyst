@@ -74,6 +74,12 @@ jobs:
           fingerprint="$(ssh-keygen -lf "$key_path.pub" -E sha256 | awk '{print $2}')"
           eval "$(ssh-agent -s)"
           ssh-add "$key_path"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf 'Host *\n  StrictHostKeyChecking accept-new\n  UserKnownHostsFile %s\n' \
+            "$RUNNER_TEMP/railway-community-known-hosts-${GITHUB_RUN_ID}" \
+            > "$HOME/.ssh/config"
+          chmod 600 "$HOME/.ssh/config"
           echo "RAILWAY_SSH_KEY_PATH=$key_path" >> "$GITHUB_ENV"
           echo "RAILWAY_SSH_KEY_FINGERPRINT=$fingerprint" >> "$GITHUB_ENV"
           echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
@@ -110,6 +116,8 @@ jobs:
           if test -n "${RAILWAY_SSH_KEY_PATH:-}"; then
             rm -f "$RAILWAY_SSH_KEY_PATH" "$RAILWAY_SSH_KEY_PATH.pub"
           fi
+          rm -f "$HOME/.ssh/config" \
+            "$RUNNER_TEMP/railway-community-known-hosts-${GITHUB_RUN_ID}"
           if test -n "${SSH_AGENT_PID:-}"; then
             kill "$SSH_AGENT_PID" || true
           fi
