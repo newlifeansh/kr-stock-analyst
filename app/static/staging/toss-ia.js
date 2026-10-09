@@ -3983,7 +3983,7 @@
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
       const logoOrigin = window.__US_PUBLIC_GATEWAY__ || "";
-      image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260921-domestic-market-v116`;
+      image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260929-chart-fallback-v117`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -8056,7 +8056,7 @@
     marketStatus.dataset.stagingOrderability = state;
     const spokenStatus = showDetail ? `${summary}, ${detailText}` : summary;
     marketStatus.setAttribute("aria-label", stagingStockIsUsd()
-      ? `${spokenStatus}, 미국 동부시간 기준`
+      ? `${spokenStatus}, 미국주식 거래시간 안내 열기, 미국 동부시간 기준`
       : `${spokenStatus}, 국내주식 거래시간 안내 열기`);
   };
 
@@ -8349,11 +8349,31 @@
     }
   };
 
+  const syncStagingStockChartFallbackState = () => {
+    const chart = document.getElementById("stock-mini-chart");
+    const pane = chart?.closest(".stock-v3-chart-pane");
+    const hasLegacyChart = Boolean(
+      chart?.querySelector(":scope > .stock-v3-price-svg, :scope > .stock-v2-price-svg")
+    );
+    chart?.classList.toggle("staging-stock-chart-legacy-fallback", hasLegacyChart);
+    pane?.classList.toggle("staging-stock-chart-legacy-fallback", hasLegacyChart);
+  };
+
   let syncFrame = 0;
   const scheduleContentSync = () => {
     if (syncFrame) return;
     syncFrame = window.requestAnimationFrame(() => {
       syncFrame = 0;
+      // Restore the canonical chart first. A stock-specific decorator must not
+      // leave the legacy chart inside the taller Toss chart frame when it fails.
+      syncStagingStockChartFallbackState();
+      try {
+        upgradeStagingStockPriceChart();
+      } catch (error) {
+        console.warn("[staging] stock chart enhancement failed; keeping the compact fallback", error);
+      } finally {
+        syncStagingStockChartFallbackState();
+      }
       syncMarketContext();
       upgradePreopenMarketCharts();
       syncHomeMarketMarquee();
@@ -8371,7 +8391,6 @@
       decoratePinnedEmptyState();
       decorateMobileIllustrations();
       syncStockHero();
-      upgradeStagingStockPriceChart();
       clarifyStrategyScope();
       markTDSContracts();
       scheduleStockScrollChrome();

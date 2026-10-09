@@ -20,6 +20,7 @@ def _universe_audit_metadata(
     members: list[dict[str, object]],
 ) -> dict[str, object]:
     digest = universe._canonical_digest
+    universe_as_of = members[0]["screen_as_of"]
     source_audit = {
         "version": universe.US_SIGNAL_UNIVERSE_AUDIT_VERSION,
         "trust_model": "trusted_database_integrity_checksum_not_external_signature",
@@ -43,6 +44,16 @@ def _universe_audit_metadata(
             "prefilter_candidate_count": 101,
             "prefilter_candidate_digest": digest(["candidates", 101]),
         },
+        "alignment": {
+            "mode": "same_session_nasdaq",
+            "screen_as_of": universe_as_of,
+            "quote_as_of": universe_as_of,
+            "completed_session": universe_as_of,
+            "adjusted_candidate_count": 0,
+            "evidence_digest": digest(
+                ["same_session_nasdaq", universe_as_of]
+            ),
+        },
         "quotes": {
             "requested_count": 101,
             "returned_count": 100,
@@ -52,6 +63,10 @@ def _universe_audit_metadata(
             "requested_count": 101,
             "mapped_count": 101,
             "identity_digest": digest(["sec", 101]),
+        },
+        "exclusions": {
+            "count": 0,
+            "items": [],
         },
     }
     rank_100 = members[-1]
@@ -82,7 +97,6 @@ def _universe_audit_metadata(
         },
     }
     member_checksum = universe._snapshot_checksum(members)
-    universe_as_of = members[0]["screen_as_of"]
     return {
         "source_audit": source_audit,
         "boundary_evidence": boundary_evidence,
@@ -680,6 +694,48 @@ def test_legacy_snapshot_requires_one_time_public_member_evidence_upgrade() -> N
         )
         is False
     )
+
+
+def test_sector_classification_version_change_requires_fail_closed_upgrade(
+    snapshot_db,
+) -> None:
+    generated_at = datetime(2026, 9, 8, 21, 0, tzinfo=UTC)
+    lifecycle.save_us_position_lifecycle_snapshot(
+        snapshot_db,
+        _complete_feed(),
+        generated_at=generated_at,
+    )
+    row = snapshot_db.get(
+        MarketQuantSignalSnapshot,
+        lifecycle.US_POSITION_LIFECYCLE_SNAPSHOT_KEY,
+    )
+    assert row is not None
+    payload = json.loads(row.payload)
+    payload["sector_classification_version"] = "us-sector-etf-cik-v6"
+    row.payload = json.dumps(payload)
+    snapshot_db.commit()
+
+    loaded = lifecycle.load_us_position_lifecycle_snapshot(
+        snapshot_db,
+        now=generated_at,
+    )
+
+    assert loaded is not None
+    assert loaded["status"] == "preparing"
+    assert loaded["data_state"] == "preparing"
+    assert loaded["schema_upgrade_required"] is True
+    assert loaded["source_strategy_version"] == lifecycle.US_STRATEGY_VERSION
+    assert (
+        loaded["source_sector_classification_version"]
+        == "us-sector-etf-cik-v6"
+    )
+    assert (
+        loaded["sector_classification_version"]
+        == lifecycle.US_SECTOR_ETF_CLASSIFICATION_VERSION
+    )
+    assert loaded["items"] == []
+    assert loaded["new_entries_allowed"] is False
+    assert lifecycle.us_position_lifecycle_schema_upgrade_due(loaded) is True
 
 
 @pytest.mark.parametrize(

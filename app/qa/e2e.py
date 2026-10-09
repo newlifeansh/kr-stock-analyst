@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from time import monotonic
 from typing import Any
-from urllib.parse import unquote, urlencode, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -19,6 +19,7 @@ KST = ZoneInfo("Asia/Seoul")
 MOBILE_VIEWPORT = {"width": 458, "height": 872}
 E2E_CASE_IDS = (
     "SIG-CONTRACT-003",
+    "SIG-PERF-001",
     "SIG-UI-001",
     "SIG-UI-002",
     "SIG-UI-003",
@@ -43,8 +44,13 @@ E2E_CASE_IDS = (
 )
 US_E2E_CASE_IDS = (
     "SIG-UI-031",
+    "SIG-UI-032",
     "REC-US-INDEPENDENT-001",
     "DATA-US-NEWS-001",
+)
+US_HOME_COUNTRY_TOGGLE_SELECTOR = (
+    "#unified-market-scope, #recommend-market-scope, "
+    "#watch-market-map-market-toggle, .staging-hot-community-market-toggle"
 )
 
 
@@ -58,6 +64,13 @@ def _us_observed_path(url: str, *, gateway_expected: bool) -> str:
     if gateway_expected and path.startswith("/us-gateway/"):
         return path.removeprefix("/us-gateway")
     return path
+
+
+def _us_product_shell_text(body_text: str, community_posts_text: str) -> str:
+    """Keep user-written community posts out of the product-copy boundary check."""
+    if not community_posts_text:
+        return body_text
+    return body_text.replace(community_posts_text, "", 1)
 
 
 def _safe_name(case_id: str, theme: str) -> str:
@@ -378,6 +391,63 @@ def _wait_for_ui_contract(
         raise QaFailure(
             f"{stage} 상태가 제한 시간 안에 완성되지 않았습니다.",
             {"stage": stage, "ui_snapshot": snapshot},
+        ) from exc
+
+
+def _wait_for_ai_signal_list_ready(page: Any, *, timeout_ms: int) -> None:
+    """Preserve the exact failed readiness inputs for the signal-list P0 gate."""
+
+    readiness = """() => {
+      const tabs = [...document.querySelectorAll('[data-ai-signal-stage]')];
+      const count = tab => Number(
+        (tab.querySelector('span')?.textContent || '').replace(/[^0-9]/g, '')
+      );
+      const current = Number(
+        (document.querySelector('#ai-signal-mode-current span')?.textContent || '')
+          .replace(/[^0-9]/g, '')
+      );
+      const loading = document.querySelector('#ai-signals-page-list')?.textContent
+        ?.includes('불러오는 중입니다.');
+      const snapshotReady = state.aiSignalMarketStatus === 'ready'
+        && Number.isSafeInteger(state.aiSignalRevision)
+        && state.aiSignalRevision >= 0
+        && Array.isArray(state.aiSignalItems);
+      return snapshotReady
+        && tabs.length === 5
+        && !loading
+        && count(tabs[0]) === current
+        && tabs.slice(1).reduce((sum, tab) => sum + count(tab), 0) === current;
+    }"""
+    try:
+        page.wait_for_function(readiness, timeout=timeout_ms)
+    except Exception as exc:
+        if not _is_playwright_timeout(exc):
+            raise
+        try:
+            snapshot = page.evaluate(
+                """() => {
+                  const tabs = [...document.querySelectorAll('[data-ai-signal-stage]')];
+                  const count = tab => Number(
+                    (tab?.querySelector('span')?.textContent || '').replace(/[^0-9]/g, '')
+                  );
+                  return {
+                    url: location.pathname,
+                    marketStatus: typeof state === 'undefined' ? null : state.aiSignalMarketStatus,
+                    revision: typeof state === 'undefined' ? null : state.aiSignalRevision,
+                    itemCount: typeof state === 'undefined' || !Array.isArray(state.aiSignalItems)
+                      ? null : state.aiSignalItems.length,
+                    currentCount: count(document.querySelector('#ai-signal-mode-current')),
+                    stageCounts: tabs.map(tab => ({ stage: tab.dataset.aiSignalStage, count: count(tab) })),
+                    loading: document.querySelector('#ai-signals-page-list')?.textContent
+                      ?.includes('불러오는 중입니다.') ?? null,
+                  };
+                }"""
+            )
+        except Exception:  # noqa: BLE001 - diagnostics must not mask the P0 timeout.
+            snapshot = {"url": getattr(page, "url", "")}
+        raise QaFailure(
+            "AI 시그널 목록 준비 조건이 제한 시간 안에 충족되지 않았습니다.",
+            {"ui_snapshot": snapshot},
         ) from exc
 
 
@@ -777,13 +847,14 @@ def _run_us_e2e_checks(
                     state="visible",
                 )
                 shell = page.evaluate(
-                    """() => ({
+                    """(countryToggleSelector) => ({
                       htmlUniverse: document.documentElement.dataset.marketUniverse,
                       metaUniverse: document.querySelector('meta[name="secret-note-market-universe"]')?.content,
                       marketScope: document.body.dataset.marketScope,
                       appMarket: document.body.dataset.appMarket,
                       title: document.title,
                       text: document.body.innerText,
+                      communityPostsText: document.querySelector('[data-staging-hot-community-posts]')?.innerText || '',
                       marketCodes: Array.from(document.querySelectorAll('#home-market-carousel .home-index-card[data-code]')).map(node => node.dataset.code),
                       homeVisible: !document.querySelector('#home-view')?.hidden,
                       loginHidden: document.querySelector('#login-gate')?.hidden === true,
@@ -798,13 +869,14 @@ def _run_us_e2e_checks(
                       homeSections: Array.from(document.querySelectorAll('#home-view > section')).map(node => node.id),
                       hasUsTop50: Boolean(document.querySelector('#home-surge-us')),
                       hasDomesticTop50: Boolean(document.querySelector('#home-surge')),
-                      hasCountryToggle: Boolean(document.querySelector('#unified-market-scope, #recommend-market-scope, #watch-market-map-market-toggle')),
+                      hasCountryToggle: Boolean(document.querySelector(countryToggleSelector)),
                       homeSignalLabel: document.querySelector('#home-ai-signals-title')?.textContent?.trim(),
                       homeSignalHeading: document.querySelector('#home-market-signal-title')?.textContent?.trim(),
                       hasHomeAiResponse: Boolean(document.querySelector('#home-ai-response')),
                       hasHomeAiResponseCopy: document.body.innerText.includes('미국 관심종목 대응'),
                       hasHomeAiResponseTimer: Boolean(state.homeAiResponseRefreshTimer),
-                    })"""
+                    })""",
+                    US_HOME_COUNTRY_TOGGLE_SELECTOR,
                 )
                 expected_nav = [
                     {"view": "home", "label": "증권"},
@@ -852,7 +924,9 @@ def _run_us_e2e_checks(
                         "코스피",
                         "코스닥",
                     )
-                    if text in shell["text"]
+                    if text in _us_product_shell_text(
+                        shell["text"], shell["communityPostsText"]
+                    )
                 ]
                 if forbidden_copy:
                     raise QaFailure(
@@ -1098,6 +1172,7 @@ def _run_us_e2e_checks(
                     or item.get("score") != item.get("recommendationScore")
                     or item.get("modelVersion") != "us-independent-recommendation-v1"
                     or item.get("nestedSignalScore") is not None
+                    or item.get("signalAction") == "exited"
                     or not item.get("scoreText")
                     or not item.get("stageText")
                     for item in search_state["recommendations"]
@@ -1334,6 +1409,92 @@ def _run_us_e2e_checks(
                     "request_count": len(requested_paths),
                 }
 
+            def us_legacy_stock_chart_fallback_case(
+                page: Any, theme: str
+            ) -> dict[str, Any]:
+                viewport_evidence: list[dict[str, Any]] = []
+                for width in (390, 320):
+                    page.set_viewport_size({"width": width, "height": 844})
+                    _navigate_page(
+                        page,
+                        _page_url(
+                            base_url,
+                            "/us/stock/XOM",
+                            qa_chart_fallback=str(width),
+                        ),
+                        wait_until="commit",
+                        ready_selector="#stock-view",
+                    )
+                    page.wait_for_selector("#login-gate", state="hidden")
+                    page.wait_for_selector("#stock-view", state="visible")
+                    page.wait_for_selector(
+                        ".staging-stock-quote-before-tabs #stock-mini-chart",
+                        state="visible",
+                    )
+                    page.wait_for_selector(
+                        ".staging-stock-quote-before-tabs #stock-v2-price-periods",
+                        state="visible",
+                    )
+                    page.wait_for_load_state("load")
+                    fallback_state = page.evaluate(
+                        """() => {
+                          // Rebuild only the relevant DOM after the product assets load.
+                          // Replacing body disconnects the app observer so it cannot repair
+                          // the intentionally interrupted enhancement used by this fixture.
+                          const fixtureBody = document.createElement('body');
+                          fixtureBody.dataset.stagingIa = 'tds-video';
+                          fixtureBody.innerHTML = `
+                            <main id="stock-view" class="stock-detail-v3">
+                              <section class="stock-v3-quote-card staging-stock-quote-before-tabs">
+                                <div class="stock-v3-chart-pane staging-stock-chart-legacy-fallback">
+                                  <div id="stock-mini-chart" class="stock-mini-chart staging-stock-chart-legacy-fallback">
+                                    <svg class="stock-v3-price-svg" viewBox="0 0 760 300" aria-label="QA legacy chart fallback">
+                                      <path d="M0 150 L760 150" stroke="currentColor"></path>
+                                    </svg>
+                                  </div>
+                                  <div id="stock-v2-price-periods" class="stock-v3-price-periods">
+                                    <button type="button">1일</button>
+                                    <button type="button">1개월</button>
+                                  </div>
+                                </div>
+                              </section>
+                            </main>`;
+                          document.body.replaceWith(fixtureBody);
+                          const chart = document.querySelector('#stock-mini-chart');
+                          const pane = chart?.closest('.stock-v3-chart-pane');
+                          const periods = pane?.querySelector('#stock-v2-price-periods');
+                          const svg = chart?.querySelector('.stock-v3-price-svg');
+                          if (!chart || !pane || !periods || !svg) return { missing: true };
+                          const svgRect = svg.getBoundingClientRect();
+                          const periodRect = periods.getBoundingClientRect();
+                          const paneRect = pane.getBoundingClientRect();
+                          return {
+                            missing: false,
+                            viewport: innerWidth,
+                            rootWidth: document.documentElement.scrollWidth,
+                            paneMinHeight: getComputedStyle(pane).minHeight,
+                            chartMinHeight: getComputedStyle(chart).minHeight,
+                            svgHeight: Math.round(svgRect.height * 10) / 10,
+                            paneHeight: Math.round(paneRect.height * 10) / 10,
+                            blankGap: Math.round(Math.max(0, periodRect.top - svgRect.bottom) * 10) / 10,
+                          };
+                        }"""
+                    )
+                    if (
+                        fallback_state.get("missing")
+                        or fallback_state.get("paneMinHeight") != "0px"
+                        or fallback_state.get("chartMinHeight") != "0px"
+                        or fallback_state.get("blankGap", 999) > 100
+                        or fallback_state.get("rootWidth", 0)
+                        > fallback_state.get("viewport", 0) + 2
+                    ):
+                        raise QaFailure(
+                            "구형 미국 종목 차트 폴백에 과도한 세로 여백이 남았습니다.",
+                            {"theme": theme, "width": width, "state": fallback_state},
+                        )
+                    viewport_evidence.append(fallback_state)
+                return {"theme": theme, "viewports": viewport_evidence}
+
             news_result = _run_page_case(
                 browser=browser,
                 catalog_by_id=catalog_by_id,
@@ -1342,6 +1503,17 @@ def _run_us_e2e_checks(
                 timeout=timeout,
                 artifact_dir=output_dir,
                 callback=us_market_news_feed_case,
+                storage_state=storage_state,
+                share_id=share_id,
+            )
+            chart_fallback_result = _run_page_case(
+                browser=browser,
+                catalog_by_id=catalog_by_id,
+                case_id="SIG-UI-032",
+                base_url=base_url,
+                timeout=timeout,
+                artifact_dir=output_dir,
+                callback=us_legacy_stock_chart_fallback_case,
                 storage_state=storage_state,
                 share_id=share_id,
             )
@@ -1369,7 +1541,7 @@ def _run_us_e2e_checks(
                     *(("DATA-COM-006",) if gateway_expected else ()),
                 )
             ]
-            return [news_result, *product_results]
+            return [news_result, chart_fallback_result, *product_results]
         finally:
             browser.close()
 
@@ -1685,30 +1857,7 @@ def run_e2e_checks(
                 )
                 shell = _assert_page_shell(page, theme=theme)
                 page.wait_for_selector("#ai-signals-view", state="visible")
-                page.wait_for_function(
-                    """() => {
-                      const tabs = [...document.querySelectorAll('[data-ai-signal-stage]')];
-                      const count = tab => Number(
-                        (tab.querySelector('span')?.textContent || '').replace(/[^0-9]/g, '')
-                      );
-                      const current = Number(
-                        (document.querySelector('#ai-signal-mode-current span')?.textContent || '')
-                          .replace(/[^0-9]/g, '')
-                      );
-                      const loading = document.querySelector('#ai-signals-page-list')?.textContent
-                        ?.includes('불러오는 중입니다.');
-                      const snapshotReady = state.aiSignalMarketStatus === 'ready'
-                        && Number.isSafeInteger(state.aiSignalRevision)
-                        && state.aiSignalRevision >= 0
-                        && Array.isArray(state.aiSignalItems);
-                      return snapshotReady
-                        && tabs.length === 5
-                        && !loading
-                        && count(tabs[0]) === current
-                        && tabs.slice(1).reduce((sum, tab) => sum + count(tab), 0) === current;
-                    }""",
-                    timeout=int(timeout * 1000),
-                )
+                _wait_for_ai_signal_list_ready(page, timeout_ms=int(timeout * 1000))
                 page.evaluate(
                     """() => {
                       // Hold the loaded revision stable while the test walks
@@ -2562,6 +2711,199 @@ def run_e2e_checks(
                     "대표 화면에서 확인했습니다."
                 )
             results.append(signal_contract_result)
+
+            def signal_performance_overview_case(
+                page: Any, theme: str
+            ) -> dict[str, Any]:
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/dashboard",
+                        view="ai-signals",
+                        market_scope="kr",
+                        theme=theme,
+                        qa_performance=datetime.now(KST).strftime("%H%M%S"),
+                    ),
+                    wait_until="commit",
+                    ready_selector="body[data-view='ai-signals']",
+                )
+                shell = _assert_page_shell(page, theme=theme)
+                page.wait_for_function(
+                    """() => {
+                      const summary = state.aiSignalPerformanceSummary;
+                      const comparison = state.aiSignalFilterForwardComparison;
+                      const overview = document.querySelector('#ai-signal-performance');
+                      return Boolean(
+                        summary?.windows?.['30d']
+                        && summary?.windows?.['90d']
+                        && comparison?.filters?.['buy-filter-h3']
+                        && overview
+                        && !overview.hidden
+                        && overview.querySelectorAll('.ai-signal-performance-row').length >= 3
+                      );
+                    }""",
+                    timeout=int(timeout * 1000),
+                )
+                contract = page.evaluate(
+                    """() => {
+                      const summary = state.aiSignalPerformanceSummary;
+                      const guard = state.aiSignalEntrySafetyGuard || {};
+                      const comparison = state.aiSignalFilterForwardComparison || {};
+                      const overview = document.querySelector('#ai-signal-performance');
+                      const rows = [...overview.querySelectorAll('.ai-signal-performance-row')];
+                      return {
+                        asOf: overview.querySelector('#ai-signal-performance-asof')?.textContent?.trim() || '',
+                        lead: overview.querySelector('#ai-signal-performance-lead')?.textContent?.trim() || '',
+                        note: overview.querySelector('#ai-signal-performance-note')?.textContent?.trim() || '',
+                        labels: rows.map(row => row.querySelector('.ai-signal-performance-label')?.textContent?.trim() || ''),
+                        statuses: rows.map(row => row.querySelector('.ai-signal-performance-status')?.textContent?.trim() || ''),
+                        values: rows.map(row => row.querySelector('.ai-signal-performance-value')?.textContent?.trim() || ''),
+                        evidence: rows.map(row => row.querySelector('.ai-signal-performance-evidence')?.textContent?.trim() || ''),
+                        windows: summary.windows,
+                        guard,
+                        assessment: comparison.promotion_assessment || {},
+                      };
+                    }"""
+                )
+                windows = contract.get("windows") or {}
+                window_30 = windows.get("30d") or {}
+                window_90 = windows.get("90d") or {}
+                guard = contract.get("guard") or {}
+                assessment = contract.get("assessment") or {}
+                if (
+                    contract.get("labels")
+                    != ["최근 30일", "최근 90일", "동일 코호트 필터"]
+                    or not contract.get("asOf")
+                    or len(contract.get("statuses") or []) != 3
+                    or any(not value for value in contract.get("values") or [])
+                    or any(not value for value in contract.get("evidence") or [])
+                    or int(window_90.get("completed_trades") or 0)
+                    < int(window_30.get("completed_trades") or 0)
+                    or any(
+                        "승률 +" in evidence
+                        for evidence in contract.get("evidence") or []
+                    )
+                    or "자동 승격하지 않습니다" not in str(contract.get("note") or "")
+                    or assessment.get("automatic_promotion") is not False
+                    or assessment.get("operator_approval_required") is not True
+                    or (
+                        guard.get("active") is True
+                        and "관찰 단계" not in str(contract.get("lead") or "")
+                    )
+                ):
+                    raise QaFailure(
+                        "30일·90일 성과, 안전 가드 또는 H3 운영자 검토 문구가 화면 계약과 다릅니다.",
+                        contract,
+                    )
+
+                reflow: dict[str, Any] = {}
+                for label, viewport_size in (
+                    ("360px", {"width": 360, "height": 800}),
+                    ("desktop", {"width": 1280, "height": 900}),
+                    ("200_percent_equivalent", {"width": 320, "height": 800}),
+                ):
+                    page.set_viewport_size(viewport_size)
+                    page.wait_for_timeout(100)
+                    measurement = page.evaluate(
+                        """() => {
+                          const overview = document.querySelector('#ai-signal-performance');
+                          const overviewRect = overview.getBoundingClientRect();
+                          const rows = [...overview.querySelectorAll('.ai-signal-performance-row')];
+                          return {
+                            viewport: innerWidth,
+                            rootWidth: document.documentElement.scrollWidth,
+                            overviewLeft: overviewRect.left,
+                            overviewRight: overviewRect.right,
+                            overviewScrollWidth: overview.scrollWidth,
+                            overviewClientWidth: overview.clientWidth,
+                            rowOverflow: rows.map(row => row.scrollWidth - row.clientWidth),
+                          };
+                        }"""
+                    )
+                    reflow[label] = measurement
+                    if (
+                        measurement["rootWidth"] > measurement["viewport"] + 1
+                        or measurement["overviewLeft"] < -1
+                        or measurement["overviewRight"]
+                        > measurement["viewport"] + 1
+                        or measurement["overviewScrollWidth"]
+                        > measurement["overviewClientWidth"] + 1
+                        or any(value > 1 for value in measurement["rowOverflow"])
+                    ):
+                        raise QaFailure(
+                            f"성과 개요가 {label}에서 가로로 넘칩니다.", measurement
+                        )
+
+                missing_state = page.evaluate(
+                    """() => {
+                      const original = state.aiSignalPerformanceSummary;
+                      state.aiSignalPerformanceSummary = {
+                        ...original,
+                        windows: {
+                          ...original.windows,
+                          '30d': {
+                            window_days: 30,
+                            completed_trades: 0,
+                            wins: 0,
+                            losses: 0,
+                            breakeven: 0,
+                            win_rate: null,
+                            average_return: null,
+                            median_return: null,
+                            matched_benchmark_trades: 0,
+                            average_excess_return: null,
+                            sample_state: 'limited',
+                            minimum_required_trades: 20,
+                          },
+                        },
+                      };
+                      renderAiSignalPerformance();
+                      const overview = document.querySelector('#ai-signal-performance');
+                      const first = overview.querySelector('.ai-signal-performance-row');
+                      const observed = {
+                        hidden: overview.hidden,
+                        lead: overview.querySelector('#ai-signal-performance-lead')?.textContent?.trim() || '',
+                        status: first?.querySelector('.ai-signal-performance-status')?.textContent?.trim() || '',
+                        value: first?.querySelector('.ai-signal-performance-value')?.textContent?.trim() || '',
+                        overflow: overview.scrollWidth - overview.clientWidth,
+                      };
+                      state.aiSignalPerformanceSummary = original;
+                      renderAiSignalPerformance();
+                      return observed;
+                    }"""
+                )
+                if (
+                    missing_state.get("hidden") is True
+                    or missing_state.get("status") != "집계 중"
+                    or missing_state.get("value") != "집계 중"
+                    or "표본을 수집 중" not in str(missing_state.get("lead") or "")
+                    or float(missing_state.get("overflow") or 0) > 1
+                ):
+                    raise QaFailure(
+                        "성과 표본이 없을 때 집계 중 상태와 리플로가 유지되지 않습니다.",
+                        missing_state,
+                    )
+                return {
+                    **shell,
+                    "contract": contract,
+                    "reflow": reflow,
+                    "missing_state": missing_state,
+                }
+
+            results.append(
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id="SIG-PERF-001",
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=signal_performance_overview_case,
+                    storage_state=storage_state,
+                    share_id=share_id,
+                )
+            )
 
             def stock_case(page: Any, theme: str) -> dict[str, Any]:
                 fixtures: list[dict[str, Any]] = []
@@ -6609,6 +6951,10 @@ def run_e2e_checks(
                     ),
                     wait_until="commit",
                 )
+                # The portfolio lightbox listener is installed by a deferred
+                # script. Cached images can be complete before that script has
+                # executed, so wait for DOMContentLoaded before exercising it.
+                page.wait_for_load_state("domcontentloaded")
                 page.wait_for_selector("body", state="visible", timeout=20_000)
                 shell = page.evaluate(
                     """requestedTheme => ({
@@ -8931,7 +9277,7 @@ def run_e2e_checks(
                     "kr": [item[0] for item in domestic_items],
                     "us": [item[0] for item in overseas_items],
                 }
-                folder_codes = ["NVDA", "005930", "000660", "SMALL"]
+                intraday_requests: list[dict[str, str]] = []
 
                 def fulfill_json(route: Any, payload: dict[str, Any]) -> None:
                     route.fulfill(
@@ -8978,7 +9324,12 @@ def run_e2e_checks(
                         "coverage": {"price": True},
                     }
 
-                def intraday(item: tuple[Any, ...], scope: str) -> dict[str, Any]:
+                def intraday(
+                    item: tuple[Any, ...],
+                    scope: str,
+                    *,
+                    extended_only: bool = False,
+                ) -> dict[str, Any]:
                     code, _name, _market, _cap, change, price = item
                     reference = price / (1 + change / 100) if change != -100 else price
                     if code == "NVDA":
@@ -8988,11 +9339,15 @@ def run_e2e_checks(
                     else:
                         rates = (change * 0.35, change * 0.72, change)
                     market_timezone = "America/New_York" if scope == "us" else "Asia/Seoul"
-                    trade_times = ("093000", "103000", "124500") if scope == "us" else (
-                        "090000",
-                        "100000",
-                        "121500",
-                    )
+                    if scope == "us" and extended_only:
+                        trade_times = ("040000", "080000")
+                        rates = (change * 0.1, change * 0.2)
+                    else:
+                        trade_times = ("093000", "103000", "124500") if scope == "us" else (
+                            "090000",
+                            "100000",
+                            "121500",
+                        )
                     trade_date = (
                         datetime.now(ZoneInfo("America/New_York")).date().isoformat()
                         if scope == "us"
@@ -9007,7 +9362,7 @@ def run_e2e_checks(
                                 "price": reference * (1 + rate / 100),
                             }
                         )
-                    return {
+                    payload = {
                         "code": code,
                         "source": "qa-fixture",
                         "as_of": us_as_of if scope == "us" else domestic_as_of,
@@ -9017,26 +9372,31 @@ def run_e2e_checks(
                         "reference_price": reference,
                         "points": points,
                     }
+                    if scope == "us":
+                        payload["regular_trade_date"] = None if extended_only else trade_date
+                        payload["regular_reference_price"] = reference
+                    return payload
 
-                page.route(
-                    re.compile(
-                        rf".*/watchlists/us\.{re.escape(share_id)}/groups(?:\?.*)?$"
-                    ),
-                    lambda route: fulfill_json(
-                        route,
+                def fulfill_us_intraday(route: Any, item: tuple[Any, ...]) -> None:
+                    query = parse_qs(urlsplit(route.request.url).query)
+                    range_value = str((query.get("range") or [""])[0])
+                    interval_value = str((query.get("interval") or [""])[0])
+                    intraday_requests.append(
                         {
-                            "share_id": f"us.{share_id}",
-                            "initialized": True,
-                            "groups": [
-                                {
-                                    "id": "qa-ai-semiconductor",
-                                    "name": "AI·반도체",
-                                    "codes": folder_codes,
-                                }
-                            ],
-                        },
-                    ),
-                )
+                            "code": str(item[0]),
+                            "range": range_value,
+                            "interval": interval_value,
+                        }
+                    )
+                    fulfill_json(
+                        route,
+                        intraday(
+                            item,
+                            "us",
+                            extended_only=range_value == "1d",
+                        ),
+                    )
+
                 page.route(
                     re.compile(
                         rf".*/watchlists/us\.{re.escape(share_id)}/recommendation-tracks(?:\?.*)?$"
@@ -9052,7 +9412,7 @@ def run_e2e_checks(
                 )
                 page.route(
                     re.compile(
-                        rf"{re.escape(base_url.rstrip('/'))}/watchlists/{re.escape(share_id)}(?:\?.*)?$"
+                        rf"^https?://[^/]+/watchlists/{re.escape(share_id)}(?:\?.*)?$"
                     ),
                     lambda route: fulfill_json(
                         route,
@@ -9064,7 +9424,7 @@ def run_e2e_checks(
                 )
                 page.route(
                     re.compile(
-                        rf"{re.escape(base_url.rstrip('/'))}/us/watchlists/{re.escape(share_id)}(?:\?.*)?$"
+                        rf"^https?://[^/]+/(?:us-gateway/)?us/watchlists/{re.escape(share_id)}(?:\?.*)?$"
                     ),
                     lambda route: fulfill_json(
                         route,
@@ -9096,8 +9456,8 @@ def run_e2e_checks(
                     )
                     page.route(
                         re.compile(rf".*/us/stocks/{item[0]}/intraday(?:\?.*)?$"),
-                        lambda route, _request, item=item: fulfill_json(
-                            route, intraday(item, "us")
+                        lambda route, _request, item=item: fulfill_us_intraday(
+                            route, item
                         ),
                     )
                 page.route(
@@ -9153,75 +9513,113 @@ def run_e2e_checks(
                       state.watchMarketMapResults.length === expected
                       && state.watchMarketMapIntradayByKey.size === expected
                       && state.watchMarketMapTimelineLoading === false
-                      && state.watchMarketMapMarketScope === 'kr'
+                      && state.watchMarketMapMarketScope === 'us'
                       && document.querySelector('#watch-market-map:not([hidden])')
                       && !document.querySelector('#watch-market-map-stage')?.hasAttribute('aria-busy')
                     )""",
-                    arg=len(domestic_items) + len(overseas_items),
+                    arg=len(overseas_items),
                     timeout=int(timeout * 1000),
                 )
+
+                expected_us_codes = sorted(item[0] for item in overseas_items)
+                primary_codes = sorted(
+                    request["code"]
+                    for request in intraday_requests
+                    if request["range"] == "1d" and request["interval"] == "1m"
+                )
+                fallback_codes = sorted(
+                    request["code"]
+                    for request in intraday_requests
+                    if request["range"] == "5d" and request["interval"] == "5m"
+                )
+                if primary_codes != expected_us_codes or fallback_codes != expected_us_codes:
+                    raise QaFailure(
+                        "미국 당일 장외 전용 분봉이 직전 정규장 폴백으로 이어지지 않았습니다.",
+                        {
+                            "requests": intraday_requests,
+                            "expected_codes": expected_us_codes,
+                        },
+                    )
 
                 default_landing = page.evaluate(
                     """() => ({
                       marketScope: state.watchMarketMapMarketScope,
-                      selectedScope: [...document.querySelectorAll('[data-watch-market-scope]')]
-                        .find(button => button.getAttribute('aria-pressed') === 'true')?.dataset.watchMarketScope,
+                      localToggleVisible: Boolean(document.querySelector(
+                        '#watch-market-map-market-toggle'
+                      )?.offsetParent),
                     })"""
                 )
-                if default_landing != {"marketScope": "kr", "selectedScope": "kr"}:
+                if default_landing != {
+                    "marketScope": "us",
+                    "localToggleVisible": False,
+                }:
                     raise QaFailure(
-                        "첫 홈 랜딩의 관심종목 기본 시장이 국내가 아닙니다.",
+                        "미국 전용 홈의 관심종목 범위가 미국으로 고정되지 않았습니다.",
                         default_landing,
                     )
                 actual_orders = {
-                    "kr": page.evaluate(
+                    "us": page.evaluate(
                         "() => watchMarketMapEntries().map(entry => entry.item.code)"
                     )
                 }
-                page.locator('[data-watch-market-scope="us"]').click()
-                page.wait_for_function(
-                    "() => state.watchMarketMapMarketScope === 'us' && document.querySelector('#watch-market-map')?.dataset.marketScope === 'us'"
-                )
-                actual_orders["us"] = page.evaluate(
-                    "() => watchMarketMapEntries().map(entry => entry.item.code)"
-                )
-                if actual_orders != expected_orders:
+                expected_us_orders = {"us": expected_orders["us"]}
+                if actual_orders != expected_us_orders:
                     raise QaFailure(
-                        "국내·미국 관심종목이 선택 시장 안의 시가총액 순으로 분리되지 않았습니다.",
-                        {"actual": actual_orders, "expected": expected_orders},
+                        "미국 관심종목이 시가총액 순으로 표시되지 않았습니다.",
+                        {"actual": actual_orders, "expected": expected_us_orders},
                     )
+                page.wait_for_function(
+                    """() => {
+                      const home = document.querySelector('#home-view');
+                      const marketMap = document.querySelector('#watch-market-map');
+                      const top50 = document.querySelector('#home-surge-us');
+                      if (!home?.contains(marketMap) || !home.contains(top50)) return false;
+                      const marketMapRect = marketMap.getBoundingClientRect();
+                      const top50Rect = top50.getBoundingClientRect();
+                      const visualGap = top50Rect.top - marketMapRect.bottom;
+                      return Boolean(
+                        marketMap.compareDocumentPosition(top50) & Node.DOCUMENT_POSITION_FOLLOWING
+                      ) && visualGap >= -2 && visualGap <= 48;
+                    }"""
+                )
                 placement = page.evaluate(
                     """() => {
                       const home = document.querySelector('#home-view');
                       const marketMap = document.querySelector('#watch-market-map');
-                      const top50 = document.querySelector('#home-surge');
+                      const top50 = document.querySelector('#home-surge-us');
                       const portfolio = document.querySelector('#portfolio-view');
                       const localToggle = document.querySelector('#watch-market-map-market-toggle');
-                      const localButtons = [...document.querySelectorAll('[data-watch-market-scope]')];
+                      const marketMapRect = marketMap?.getBoundingClientRect();
+                      const top50Rect = top50?.getBoundingClientRect();
                       return {
                         mapCount: document.querySelectorAll('#watch-market-map').length,
                         inHome: Boolean(home?.contains(marketMap)),
-                        immediatelyBeforeTop50: marketMap?.nextElementSibling === top50,
+                        beforeTop50: Boolean(
+                          marketMap
+                          && top50
+                          && (marketMap.compareDocumentPosition(top50) & Node.DOCUMENT_POSITION_FOLLOWING)
+                        ),
+                        top50VisualGap: marketMapRect && top50Rect
+                          ? top50Rect.top - marketMapRect.bottom
+                          : null,
                         inPortfolio: Boolean(portfolio?.contains(marketMap)),
                         marketToggleVisible: Boolean(document.querySelector('#unified-market-scope')?.offsetParent),
                         localToggleVisible: Boolean(localToggle?.offsetParent),
-                        selectedScope: localButtons.find(button => button.getAttribute('aria-pressed') === 'true')?.dataset.watchMarketScope,
-                        touchHeights: localButtons.map(button => button.getBoundingClientRect().height),
                       };
                     }"""
                 )
                 if (
                     placement["mapCount"] != 1
                     or not placement["inHome"]
-                    or not placement["immediatelyBeforeTop50"]
+                    or not placement["beforeTop50"]
+                    or placement["top50VisualGap"] is None
+                    or not -2 <= placement["top50VisualGap"] <= 48
                     or placement["inPortfolio"]
                     or placement["marketToggleVisible"]
-                    or not placement["localToggleVisible"]
-                    or placement["selectedScope"] != "us"
-                    or min(placement["touchHeights"], default=0) < 44
+                    or placement["localToggleVisible"]
                 ):
                     raise QaFailure(
-                        "관심종목 버블이 증권 홈 TOP 50 직전에 유일하게 배치되지 않았습니다.",
+                        "미국 관심종목 버블의 홈 배치·전용 시장 범위가 올바르지 않습니다.",
                         placement,
                     )
 
@@ -10052,9 +10450,7 @@ def run_e2e_checks(
                         "작은 관심종목 바텀시트의 목록·접근성·reduced-motion 계약이 다릅니다.",
                         sheet_snapshot,
                     )
-                expected_scope = {
-                    code: "kr" for code, *_rest in domestic_items
-                } | {code: "us" for code, *_rest in overseas_items}
+                expected_scope = {code: "us" for code, *_rest in overseas_items}
                 malformed_hrefs = []
                 for href in sheet_snapshot["hrefs"]:
                     match = re.match(r"^/us/stock/([^?]+)\?market_scope=(kr|us)$", href or "")
@@ -10066,45 +10462,50 @@ def run_e2e_checks(
                         {"hrefs": malformed_hrefs},
                     )
 
+                def wait_for_market_map_state(script: str, message: str) -> None:
+                    try:
+                        page.wait_for_function(script)
+                    except Exception as exc:  # noqa: BLE001 - attach browser state to a timed-out QA assertion.
+                        if not _is_playwright_timeout(exc):
+                            raise
+                        evidence = page.evaluate(
+                            """() => ({
+                              activeElement: document.activeElement ? {
+                                id: document.activeElement.id || null,
+                                className: document.activeElement.className || null,
+                                tagName: document.activeElement.tagName,
+                                isConnected: document.activeElement.isConnected,
+                              } : null,
+                              sheetOpen: Boolean(document.querySelector('#watch-market-map-sheet')?.open),
+                              storedTrigger: state.watchMarketMapSheetTrigger ? {
+                                className: state.watchMarketMapSheetTrigger.className || null,
+                                isConnected: state.watchMarketMapSheetTrigger.isConnected,
+                              } : null,
+                              overflowCount: document.querySelectorAll(
+                                '#watch-market-map-stage .is-overflow'
+                              ).length,
+                              activeWatchGroup: state.activeWatchGroup,
+                              groupLabel: document.querySelector('#watch-market-map-group')?.textContent.trim(),
+                              resultCount: state.watchMarketMapResults.length,
+                            })"""
+                        )
+                        raise QaFailure(message, evidence) from exc
+
                 page.evaluate("() => renderWatchMarketMap(state.watchMarketMapResults)")
                 page.locator("#watch-market-map-sheet-close").click()
                 sheet.wait_for(state="hidden")
-                page.wait_for_function(
-                    "() => document.activeElement?.matches('#watch-market-map-stage .is-overflow')"
+                wait_for_market_map_state(
+                    "() => document.activeElement?.matches('#watch-market-map-stage .is-overflow')",
+                    "바텀시트 배경 갱신 후 더보기 버튼으로 포커스가 복귀되지 않았습니다.",
                 )
                 page.keyboard.press("Enter")
                 sheet.wait_for(state="visible")
                 page.keyboard.press("Escape")
                 sheet.wait_for(state="hidden")
-                page.wait_for_function(
-                    "() => document.activeElement?.matches('#watch-market-map-stage .is-overflow')"
+                wait_for_market_map_state(
+                    "() => document.activeElement?.matches('#watch-market-map-stage .is-overflow')",
+                    "Escape로 닫은 뒤 더보기 버튼으로 포커스가 복귀되지 않았습니다.",
                 )
-
-                page.evaluate(
-                    """async () => {
-                      setActiveWatchGroup('qa-ai-semiconductor', {load: false});
-                      await loadHomeWatchMarketMap({force: true, ttlMs: 0});
-                    }"""
-                )
-                page.wait_for_function(
-                    """() => (
-                      state.activeWatchGroup === 'qa-ai-semiconductor'
-                      && state.watchMarketMapResults.length === 4
-                      && document.querySelector('#watch-market-map-group')?.textContent.includes('AI·반도체')
-                    )""",
-                    timeout=int(timeout * 1000),
-                )
-                folder_order = page.evaluate(
-                    "() => watchMarketMapEntries().map(entry => entry.item.code)"
-                )
-                expected_folder_order = [
-                    code for code in expected_orders["us"] if code in folder_codes
-                ]
-                if folder_order != expected_folder_order:
-                    raise QaFailure(
-                        "선택한 관심종목 폴더 밖의 종목이 버블맵에 섞였습니다.",
-                        {"actual": folder_order, "expected": expected_folder_order},
-                    )
 
                 first_tile = page.locator(
                     "#watch-market-map-stage a.watch-market-map-tile"
@@ -10134,12 +10535,9 @@ def run_e2e_checks(
                       const element = document.querySelector(
                         '#watch-market-map-stage.is-empty .watch-market-map-empty button'
                       );
-                      const previous = document.querySelector(
-                        '#watch-market-map-market-toggle [data-watch-market-scope="us"]'
-                      );
-                      if (!element || !previous) return false;
-                      previous.focus();
-                      return true;
+                      if (!element) return false;
+                      element.focus({preventScroll: true});
+                      return document.activeElement === element;
                     }"""
                 )
                 if not empty_cta_ready:
@@ -10147,7 +10545,6 @@ def run_e2e_checks(
                         "관심종목 빈 상태 CTA를 렌더링하지 못했습니다.",
                         {"empty_cta_ready": empty_cta_ready},
                     )
-                page.keyboard.press("Tab")
                 empty_cta_snapshot = page.locator(
                     "#watch-market-map-stage.is-empty .watch-market-map-empty button"
                 ).evaluate(
@@ -10205,7 +10602,7 @@ def run_e2e_checks(
                     "placement": placement,
                     "session_states": session_states,
                     "market_scope_orders": actual_orders,
-                    "folder_order": folder_order,
+                    "intraday_fallback_requests": intraday_requests,
                     "layouts": layouts,
                     "timeline": layouts["390"]["timeline"],
                     "timeline_scrub": {
@@ -10235,7 +10632,7 @@ def run_e2e_checks(
                         **empty_cta_snapshot,
                         "keyboard_activated_search": True,
                     },
-                    "market_toggle_visible": True,
+                    "market_toggle_visible": False,
                 }
 
             results.append(

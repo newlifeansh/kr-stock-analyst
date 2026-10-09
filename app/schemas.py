@@ -102,10 +102,12 @@ class PushSubscriptionIn(BaseModel):
     endpoint: str = Field(..., min_length=20, max_length=2048)
     keys: PushSubscriptionKeysIn
     conditions: list[str] = Field(default_factory=list, max_length=10)
+    market_scope: Literal["kr", "us"] = "kr"
 
 
 class PushSubscriptionDeleteIn(BaseModel):
     endpoint: str = Field(..., min_length=20, max_length=2048)
+    market_scope: Literal["kr", "us"] = "kr"
 
 
 class DailyPriceOut(BaseModel):
@@ -358,6 +360,9 @@ class BriefingRuntimeStatusOut(BaseModel):
     next_fundamental_snapshot_retry_at: Optional[datetime] = None
     last_stock_news_snapshot_at: Optional[datetime] = None
     last_stock_news_snapshot_message: Optional[str] = None
+    last_stock_news_snapshot_state: str = "idle"
+    last_stock_news_snapshot_failed: int = 0
+    next_stock_news_snapshot_retry_at: Optional[datetime] = None
     last_stock_company_snapshot_at: Optional[datetime] = None
     last_stock_company_snapshot_message: Optional[str] = None
     last_macro_at: Optional[datetime] = None
@@ -1027,6 +1032,7 @@ class QuantSignalEventOut(BaseModel):
     signal_origin: Optional[str] = None
     source_strategy_version: Optional[str] = None
     reconciliation_id: Optional[str] = None
+    execution_model: Optional[str] = None
 
 
 class QuantPartialExitOut(BaseModel):
@@ -1054,6 +1060,7 @@ class QuantTradeOut(BaseModel):
     status: str
     exit_reason: Optional[str] = None
     remaining_percent: Optional[Decimal] = None
+    execution_model: Optional[str] = None
 
 
 class QuantPerformanceOut(BaseModel):
@@ -1103,6 +1110,7 @@ class QuantLifecycleTransitionOut(BaseModel):
     sold_percent: Optional[Decimal] = None
     signal_origin: Optional[str] = None
     reconciliation_id: Optional[str] = None
+    execution_model: Optional[str] = None
 
 
 class QuantLifecycleOut(BaseModel):
@@ -1206,6 +1214,8 @@ class StockQuantSignalsOut(BaseModel):
     strategy_version: str
     candidate_strategy_version: Optional[str] = None
     strategy_version_history: list[dict[str, object]] = Field(default_factory=list)
+    execution_model: Optional[str] = None
+    intraday_execution_effective_date: Optional[date] = None
     entry_filter_version: Optional[str] = None
     entry_filter_effective_date: Optional[date] = None
     entry_filter_shadow_versions: list[str] = Field(default_factory=list)
@@ -1382,7 +1392,8 @@ class MarketRecommendationOut(BaseModel):
     pending_count: int = 0
     entered_today_count: int = 0
     holding_count: int = 0
-    selection_rule: str = "recommendation_score_ranked_independent_of_trade_signal"
+    terminal_exit_excluded_count: int = 0
+    selection_rule: str = "recommendation_score_ranked_with_terminal_exit_exclusion"
     selection_state: str = "ready"
     selection_refreshing: bool = False
     selection_message: str = ""

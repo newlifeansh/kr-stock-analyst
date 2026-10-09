@@ -2,6 +2,7 @@ import json
 import subprocess
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -188,6 +189,25 @@ def test_korea_quote_session_routes_nxt_pre_market_and_integrated_regular(monkey
     assert regular["market_division"] == "UN"
 
 
+def test_korea_quote_session_uses_exchange_holiday_not_weekday():
+    session = main_module._korea_quote_session(
+        datetime(2026, 10, 8, 9, 3, tzinfo=main_module.KST)
+    )
+    holiday = main_module._korea_quote_session(
+        datetime(2026, 10, 9, 9, 3, tzinfo=main_module.KST)
+    )
+
+    assert session["is_live"] is True
+    assert session["market_session"] == "integrated_regular"
+    assert holiday["is_live"] is False
+    assert holiday["market_session"] == "closed"
+    expected = datetime(2026, 10, 12, 8, tzinfo=main_module.KST)
+    after_close = datetime(2026, 10, 8, 16, tzinfo=main_module.KST)
+    assert main_module._seconds_until_next_korea_open(after_close) == int(
+        (expected - after_close).total_seconds()
+    ) - 30
+
+
 def test_extended_quote_uses_nxt_price_as_primary_from_8am(monkeypatch):
     class Provider:
         @staticmethod
@@ -257,6 +277,49 @@ def test_stored_close_keeps_its_market_timestamp_and_realtime_ticks_are_shared()
 
     assert "datetime.combine(latest.trade_date, time(15, 30), tzinfo=KST)" in fallback_source
     assert "live_quote_cache.set" in broadcast_source
+
+
+def test_unavailable_live_quote_does_not_label_previous_close_as_live(monkeypatch):
+    observed = datetime(2026, 10, 8, 8, 30, tzinfo=main_module.KST)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return observed if tz is None else observed.astimezone(tz)
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, *_args):
+            return SimpleNamespace(name="삼성전자", market="KOSPI")
+
+        def scalars(self, *_args):
+            return [SimpleNamespace(
+                trade_date=date(2026, 10, 7),
+                close=269000,
+                volume=1000,
+                trading_value=269000000,
+                market_cap=1000000000,
+            )]
+
+    monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(main_module, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        main_module, "_fetch_uncached_current_quote", lambda *_args, **_kwargs: ({}, "stored_daily_price")
+    )
+    monkeypatch.setattr(main_module, "_enrich_pre_market_quote", lambda *_args, **_kwargs: None)
+
+    payload = main_module._stock_quote_stream_payload_uncached("005930")
+
+    assert payload["source"] == "stored_daily_price"
+    assert payload["as_of"] == "2026-10-07T15:30:00+09:00"
+    assert payload["quote"]["price"] == 269000
+    assert payload["quote"]["market_session"] == "closed"
+    assert payload["quote"]["is_live"] is False
 
 
 def test_dashboard_frontend_bypasses_quote_cache_and_shows_provider_badge():
@@ -342,7 +405,14 @@ def test_dashboard_surfaces_extended_session_status_and_live_intraday_refresh():
     assert "formatQuoteTradeTime" not in mobile
     assert "setText(elements.stockMarketStatusLabel, displayStatus);" in mobile
     assert "trapStockTradingHoursFocus" in mobile
-    assert 'if (!stockDashboardIsUs()) openStockTradingHoursSheet();' in mobile
+    assert "function renderStockTradingHoursSheet(" in mobile
+    assert 'elements.stockPreMarket?.addEventListener("click", openStockTradingHoursSheet);' in mobile
+    assert 'title.textContent = "미국주식 거래 시간 안내";' in mobile
+    assert "04:00–09:30" in mobile
+    assert "09:30–16:00" in mobile
+    assert "16:00–20:00" in mobile
+    assert "서머타임 적용 여부와 관계없이" in mobile
+    assert "미국주식 거래시간 안내 열기" in mobile
     assert "KIS 실시간" not in mobile
     assert "usMarketPhase(new Date(), state.currentDashboard?.quote)" in mobile
     assert ": koreaExtendedQuoteLive();" in mobile

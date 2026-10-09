@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
+from types import SimpleNamespace
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -53,6 +54,68 @@ def test_price_candidate_requires_five_percent_move():
     assert candidate.kind == "price_move"
     assert "급락 -5.25%" in candidate.title
     assert candidate.event_key == "price:2026-07-22:005930:fall:5"
+
+
+def test_push_candidates_are_hard_scoped_to_the_subscription_market():
+    domestic = PushSubscription(
+        share_id="tester",
+        endpoint="https://push.example/domestic",
+        p256dh="p" * 64,
+        auth="a" * 24,
+        market_scope="kr",
+    )
+    us = PushSubscription(
+        share_id="us.tester",
+        endpoint="https://push.example/us",
+        p256dh="p" * 64,
+        auth="a" * 24,
+        market_scope="us",
+    )
+    domestic_candidate = web_push.NotificationCandidate(
+        event_key="market-session:open:2026-09-26",
+        kind="market_session",
+        title="국내장 시작",
+        body="국내장 알림",
+        url="/dashboard",
+        tag="kr-open",
+    )
+    us_candidate = web_push.NotificationCandidate(
+        event_key="us-market-session:open:2026-09-26",
+        kind="market_session",
+        title="미국장 시작",
+        body="미국장 알림",
+        url="/us",
+        tag="us-open",
+        market_scope="us",
+    )
+
+    assert web_push.candidate_enabled(domestic, domestic_candidate) is True
+    assert web_push.candidate_enabled(domestic, us_candidate) is False
+    assert web_push.candidate_enabled(us, domestic_candidate) is False
+    assert web_push.candidate_enabled(us, us_candidate) is True
+
+
+def test_us_market_session_notification_uses_exchange_close(monkeypatch):
+    session_date = datetime(2026, 11, 27, tzinfo=timezone.utc).date()
+    monkeypatch.setattr(
+        web_push,
+        "us_market_session",
+        lambda _date: SimpleNamespace(
+            session_date=session_date,
+            open_at=datetime(2026, 11, 27, 14, 30, tzinfo=timezone.utc),
+            close_at=datetime(2026, 11, 27, 18, 0, tzinfo=timezone.utc),
+        ),
+    )
+
+    candidates = web_push.WebPushRuntime(_settings())._us_market_session_candidates(
+        datetime(2026, 11, 27, 17, 56, tzinfo=timezone.utc)
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].event_key == "us-market-session:close:2026-11-27"
+    assert candidates[0].title == "미국장 마감 5분 전"
+    assert candidates[0].market_scope == "us"
+    assert candidates[0].url.startswith("/us?")
 
 
 def test_important_disclosure_filters_generic_filing():
@@ -903,6 +966,142 @@ def test_market_ai_signal_candidates_are_built_from_saved_market_snapshot(monkey
         db.close()
 
 
+def test_market_ai_confirmed_intraday_push_requires_verified_v8_events_and_reuses_close_key(monkeypatch):
+    db = _session()
+    try:
+        monkeypatch.setattr(web_push, "is_korea_market_session_date", lambda *_args: True)
+        monkeypatch.setattr(web_push, "is_korea_daily_signal_window", lambda now: now.hour >= 15)
+        monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda now: now.hour < 15)
+        snapshot = {
+            "status": "ready",
+            "execution_model": web_push.EXECUTION_MODEL,
+            "snapshot_generated_at": "2026-10-08T01:00:00+00:00",
+            "items": [
+                {
+                    "code": code,
+                    "name": name,
+                    "side": side,
+                    "event_side": event_side,
+                    "signal": action,
+                    "execution_date": "2026-10-08",
+                    "status": "confirmed",
+                    "execution_model": web_push.EXECUTION_MODEL,
+                    "intraday_execution_verified": True,
+                }
+                for code, name, side, event_side, action in [
+                    ("005930", "삼성전자", "buy", "buy", "장중 돌파 진입"),
+                    ("000660", "SK하이닉스", "sell", "partial_sell", "1차 수익확정"),
+                    ("000660", "SK하이닉스", "sell", "sell", "전량 매도"),
+                    ("035420", "NAVER", "sell", "sell", "전량 매도"),
+                ]
+            ],
+        }
+        monkeypatch.setattr(
+            web_push, "load_market_quant_signal_snapshot", lambda *_args, **_kwargs: snapshot
+        )
+        runtime = web_push.WebPushRuntime(_settings())
+        intraday = runtime._market_ai_signal_candidates(db, datetime(2026, 10, 8, 10, 1))
+
+        assert [candidate.event_key for candidate in intraday] == [
+            "market-ai-signal:005930:buy:2026-10-08",
+            "market-ai-signal:000660:partial_sell:2026-10-08",
+            "market-ai-signal:000660:sell:2026-10-08",
+            "market-ai-signal:035420:sell:2026-10-08",
+        ]
+        assert all("10:01 장중" in candidate.body for candidate in intraday)
+        assert "1차 수익확정" in intraday[1].title
+        assert intraday[1].tag != intraday[2].tag
+        assert intraday[1].tag == "market-ai-signal-000660-partial_sell"
+        close = runtime._market_ai_signal_candidates(db, datetime(2026, 10, 8, 16, 0))
+        assert [candidate.event_key for candidate in close] == [
+            candidate.event_key for candidate in intraday
+        ]
+    finally:
+        db.close()
+
+
+def test_market_ai_push_skips_frozen_unverified_replay_at_open_and_close(monkeypatch):
+    db = _session()
+    try:
+        monkeypatch.setattr(web_push, "is_korea_market_session_date", lambda *_args: True)
+        monkeypatch.setattr(web_push, "is_korea_daily_signal_window", lambda now: now.hour >= 15)
+        monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda now: now.hour < 15)
+        snapshot = {
+            "status": "ready", "execution_model": web_push.EXECUTION_MODEL,
+            "snapshot_generated_at": "2026-10-08T01:00:00+00:00",
+            "items": [{
+                "code": "005930", "name": "삼성전자", "side": "sell",
+                "event_side": "partial_sell", "signal": "재검증 대기 · 1차 수익확정",
+                "execution_date": "2026-10-08", "status": "confirmed",
+                "execution_model": web_push.EXECUTION_MODEL,
+                "intraday_execution_verified": True,
+                "execution_replay_state": "unverified",
+                "alert_eligible": False,
+            }, {
+                "code": "000660", "name": "SK하이닉스", "side": "buy",
+                "event_side": "buy", "signal": "장중 돌파 진입",
+                "execution_date": "2026-10-08", "status": "confirmed",
+                "execution_model": web_push.EXECUTION_MODEL,
+                "intraday_execution_verified": True,
+            }],
+        }
+        monkeypatch.setattr(
+            web_push, "load_market_quant_signal_snapshot", lambda *_args, **_kwargs: snapshot
+        )
+        runtime = web_push.WebPushRuntime(_settings())
+        for current in (datetime(2026, 10, 8, 10, 1), datetime(2026, 10, 8, 16, 0)):
+            candidates = runtime._market_ai_signal_candidates(db, current)
+            assert [candidate.event_key for candidate in candidates] == [
+                "market-ai-signal:000660:buy:2026-10-08"
+            ]
+    finally:
+        db.close()
+
+
+def test_market_ai_confirmed_intraday_push_fails_closed(monkeypatch):
+    db = _session()
+    try:
+        monkeypatch.setattr(web_push, "is_korea_market_session_date", lambda *_args: True)
+        monkeypatch.setattr(web_push, "is_korea_daily_signal_window", lambda _now: False)
+        monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda _now: True)
+        for override, item_override in [
+            ({"status": "preparing"}, {}),
+            ({"execution_model": "close-confirmed-next-open"}, {}),
+            ({"snapshot_generated_at": "2026-10-08T00:49:00+00:00"}, {}),
+            ({"snapshot_generated_at": "2026-10-08T01:02:01+00:00"}, {}),
+            ({"snapshot_generated_at": None}, {}),
+            ({}, {"intraday_execution_verified": False}),
+            ({}, {"execution_model": "close-confirmed-next-open"}),
+            ({}, {"status": "preliminary"}),
+            ({}, {"execution_date": "2026-10-07"}),
+        ]:
+            snapshot = {
+                "status": "ready",
+                "execution_model": web_push.EXECUTION_MODEL,
+                "snapshot_generated_at": "2026-10-08T01:00:00+00:00",
+                "items": [{
+                    "code": "005930",
+                    "name": "삼성전자",
+                    "side": "sell",
+                    "event_side": "partial_sell",
+                    "execution_date": "2026-10-08",
+                    "status": "confirmed",
+                    "execution_model": web_push.EXECUTION_MODEL,
+                    "intraday_execution_verified": True,
+                    **item_override,
+                }],
+                **override,
+            }
+            monkeypatch.setattr(
+                web_push, "load_market_quant_signal_snapshot", lambda *_args, **_kwargs: snapshot
+            )
+            assert web_push.WebPushRuntime(_settings())._market_ai_signal_candidates(
+                db, datetime(2026, 10, 8, 10, 1)
+            ) == []
+    finally:
+        db.close()
+
+
 def test_market_ai_signal_candidates_use_canonical_source_when_configured(monkeypatch):
     db = _session()
     try:
@@ -1392,6 +1591,80 @@ def test_us_market_ai_signal_uses_independent_baseline(monkeypatch):
         db.close()
 
 
+def test_run_once_dispatches_domestic_intraday_half_sale_once_after_baseline(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    push_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    with push_session() as db:
+        db.add_all(
+            [
+                PushSubscription(
+                    share_id="tester",
+                    endpoint="https://push.example/domestic",
+                    p256dh="p" * 64,
+                    auth="a" * 24,
+                    notification_preferences='["market_ai_signal"]',
+                    market_scope="kr",
+                ),
+                PushSubscription(
+                    share_id="us.tester",
+                    endpoint="https://push.example/us",
+                    p256dh="p" * 64,
+                    auth="a" * 24,
+                    notification_preferences='["market_ai_signal"]',
+                    market_scope="us",
+                ),
+            ]
+        )
+        db.commit()
+
+    baseline = web_push.NotificationCandidate(
+        event_key="market-ai-signal:005930:buy:2026-10-08",
+        kind="market_ai_signal",
+        title="✅ [매수 확정] 삼성전자",
+        body="기존 장중 신호",
+        url="/dashboard?view=ai-signals",
+        tag="market-ai-signal-005930",
+    )
+    partial = web_push.NotificationCandidate(
+        event_key="market-ai-signal:000660:partial_sell:2026-10-08",
+        kind="market_ai_signal",
+        title="🎯 [1차 수익확정] SK하이닉스",
+        body="10:01 장중 1차 수익확정 신호예요.",
+        url="/dashboard?view=ai-signals",
+        tag="market-ai-signal-000660",
+    )
+    batches = [[baseline], [partial], [partial]]
+    payloads = []
+    runtime = web_push.WebPushRuntime(_settings(us_market_enabled=True))
+    monkeypatch.setattr(web_push, "PushSessionLocal", push_session)
+    monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda _now=None: False)
+    monkeypatch.setattr(web_push, "load_us_position_lifecycle_snapshot", lambda *_args, **_kwargs: None)
+    for name in ("_ai_signal_candidates", "_content_candidates", "_event_candidates"):
+        monkeypatch.setattr(runtime, name, lambda _db, watchlists, *_args: {key: [] for key in watchlists})
+    monkeypatch.setattr(runtime, "_market_ai_signal_candidates", lambda *_args, **_kwargs: batches.pop(0))
+    monkeypatch.setattr(runtime, "_us_market_ai_signal_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(runtime, "_us_content_candidates", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(runtime, "_us_market_news_candidates", lambda *_args: [])
+    monkeypatch.setattr(runtime, "_us_market_session_candidates", lambda *_args: [])
+    monkeypatch.setattr(runtime, "_morning_briefing_candidates", lambda *_args: [])
+    monkeypatch.setattr(runtime, "_market_session_candidates", lambda *_args: [])
+    monkeypatch.setattr(web_push, "webpush", lambda **kwargs: payloads.append(json.loads(kwargs["data"])))
+
+    assert runtime.run_once() == 0
+    assert payloads == []
+    assert runtime.run_once() == 1
+    assert runtime.run_once() == 0
+    assert [payload["title"] for payload in payloads] == [partial.title]
+
+    with push_session() as db:
+        deliveries = {
+            item.event_key: item.status for item in db.query(PushDelivery).all()
+        }
+    assert deliveries[baseline.event_key] == "baseline"
+    assert deliveries[partial.event_key] == "sent"
+
+
 def test_run_once_dispatches_new_us_signal_after_independent_baseline(monkeypatch):
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)
@@ -1404,6 +1677,7 @@ def test_run_once_dispatches_new_us_signal_after_independent_baseline(monkeypatc
                 p256dh="p" * 64,
                 auth="a" * 24,
                 notification_preferences='["market_ai_signal"]',
+                market_scope="us",
             )
         )
         db.commit()
@@ -1415,6 +1689,7 @@ def test_run_once_dispatches_new_us_signal_after_independent_baseline(monkeypatc
         body="기존 미국장 신호",
         url="/us/stock/NVDA?market_scope=us",
         tag="us-market-ai-signal-NVDA",
+        market_scope="us",
     )
     new = web_push.NotificationCandidate(
         event_key="us-market-ai-preliminary:AAPL:buy:2026-07-29",
@@ -1423,6 +1698,7 @@ def test_run_once_dispatches_new_us_signal_after_independent_baseline(monkeypatc
         body="새 미국장 신호",
         url="/us/stock/AAPL?market_scope=us",
         tag="us-market-ai-signal-AAPL",
+        market_scope="us",
     )
     batches = [[existing], [new], [new]]
     payloads = []
@@ -1434,6 +1710,7 @@ def test_run_once_dispatches_new_us_signal_after_independent_baseline(monkeypatc
     monkeypatch.setattr(runtime, "_event_candidates", lambda _db, watchlists, *_args: {key: [] for key in watchlists})
     monkeypatch.setattr(runtime, "_market_ai_signal_candidates", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(runtime, "_us_market_ai_signal_candidates", lambda *_args, **_kwargs: batches.pop(0))
+    monkeypatch.setattr(runtime, "_us_content_candidates", lambda _watchlists, _now: {})
     monkeypatch.setattr(runtime, "_morning_briefing_candidates", lambda *_args: [])
     monkeypatch.setattr(runtime, "_market_session_candidates", lambda *_args: [])
     monkeypatch.setattr(
@@ -1491,6 +1768,49 @@ def test_run_once_skips_us_signal_pipeline_for_domestic_product(monkeypatch):
     monkeypatch.setattr(runtime, "_market_ai_signal_candidates", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(runtime, "_morning_briefing_candidates", lambda *_args: [])
     monkeypatch.setattr(runtime, "_market_session_candidates", lambda *_args: [])
+
+    assert runtime.run_once() == 0
+
+
+def test_run_once_us_subscription_never_evaluates_domestic_pipelines(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    push_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    with push_session() as db:
+        db.add(
+            PushSubscription(
+                share_id="us.tester",
+                endpoint="https://push.example/us-subscription",
+                p256dh="p" * 64,
+                auth="a" * 24,
+                notification_preferences='["market_session"]',
+                market_scope="us",
+            )
+        )
+        db.commit()
+
+    runtime = web_push.WebPushRuntime(_settings(us_market_enabled=True))
+    monkeypatch.setattr(web_push, "PushSessionLocal", push_session)
+    monkeypatch.setattr(web_push, "load_us_position_lifecycle_snapshot", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(runtime, "_us_content_candidates", lambda watchlists, _now: {key: [] for key in watchlists})
+    monkeypatch.setattr(runtime, "_us_market_ai_signal_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(runtime, "_us_market_news_candidates", lambda *_args: [])
+    monkeypatch.setattr(runtime, "_us_market_session_candidates", lambda *_args: [])
+    for method_name in (
+        "_ai_signal_candidates",
+        "_content_candidates",
+        "_event_candidates",
+        "_market_ai_signal_candidates",
+        "_morning_briefing_candidates",
+        "_market_session_candidates",
+    ):
+        monkeypatch.setattr(
+            runtime,
+            method_name,
+            lambda *_args, _name=method_name, **_kwargs: (_ for _ in ()).throw(
+                AssertionError(f"US subscription evaluated domestic pipeline: {_name}")
+            ),
+        )
 
     assert runtime.run_once() == 0
 

@@ -26,9 +26,7 @@ def _database_start() -> str:
 
 
 def _database_stop() -> str:
-    return (
-        "down -p project-id --environment staging --service database-id --yes"
-    )
+    return "down -p project-id --environment staging --service database-id --yes"
 
 
 def _runtime_env(
@@ -110,7 +108,7 @@ def _run_runtime(
     return result, lines
 
 
-def test_staging_runtime_scales_up_and_down_in_dependency_order(tmp_path: Path) -> None:
+def test_staging_runtime_starts_and_stops_in_dependency_order(tmp_path: Path) -> None:
     up, up_lines = _run_runtime(tmp_path / "up", "up")
     down, down_lines = _run_runtime(tmp_path / "down", "down")
 
@@ -132,7 +130,14 @@ def test_staging_runtime_scales_up_and_down_in_dependency_order(tmp_path: Path) 
     ]
 
 
-def test_failed_start_rolls_every_service_back_to_zero(tmp_path: Path) -> None:
+def test_staging_runtime_does_not_gate_new_candidate_deployment_on_old_public_health() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+
+    assert "RAILWAY_READY_URL" not in script
+    assert "wait_until_ready" not in script
+
+
+def test_failed_start_rolls_back_every_staging_service(tmp_path: Path) -> None:
     result, lines = _run_runtime(
         tmp_path,
         "up",
@@ -153,25 +158,7 @@ def test_failed_start_rolls_every_service_back_to_zero(tmp_path: Path) -> None:
     ]
 
 
-def test_shutdown_attempts_every_service_when_one_scale_fails(tmp_path: Path) -> None:
-    result, lines = _run_runtime(
-        tmp_path,
-        "down",
-        fail_on="--service collector-id us-west=0",
-    )
-
-    assert result.returncode != 0
-    assert len(lines) == 5
-    assert "--service web-id" in lines[0]
-    assert "--service collector-id" in lines[1]
-    assert lines[2] == _database_status()
-    assert lines[3] == _database_stop()
-    assert lines[4] == _database_status()
-
-
-def test_shutdown_does_not_remove_older_database_deployment_when_already_stopped(
-    tmp_path: Path,
-) -> None:
+def test_shutdown_preserves_an_already_stopped_database_volume(tmp_path: Path) -> None:
     result, lines = _run_runtime(tmp_path, "down", database_state="inactive")
 
     assert result.returncode == 0, result.stderr

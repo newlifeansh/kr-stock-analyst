@@ -1,0 +1,284 @@
+name: Deploy tested main to both production markets
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: production-main
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}
+  PRODUCTION_RAILWAY_WEB_SERVICE: ${{ vars.PRODUCTION_RAILWAY_WEB_SERVICE }}
+  PRODUCTION_RAILWAY_COLLECTOR_SERVICE: ${{ vars.PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
+  PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+  US_PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.US_PRODUCTION_RAILWAY_PROJECT_ID }}
+  US_PRODUCTION_RAILWAY_WEB_SERVICE: ${{ vars.US_PRODUCTION_RAILWAY_WEB_SERVICE }}
+  US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE: ${{ vars.US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
+  US_PRODUCTION_BASE_URL: ${{ vars.US_PRODUCTION_BASE_URL }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install project and QA dependencies
+        run: pip install -e '.[dev,qa,mcp]'
+      - id: pytest
+        name: Run deterministic fixtures and contracts
+        continue-on-error: true
+        run: pytest -q --junitxml=artifacts/qa-data-signal/pytest.xml
+      - id: qa
+        name: Build gate evidence report
+        continue-on-error: true
+        run: >-
+          analyst qa data-signal
+          --mode gate
+          --pytest-junit artifacts/qa-data-signal/pytest.xml
+          --output artifacts/qa-data-signal/gate.json
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-production-gate-${{ github.sha }}
+          path: artifacts/qa-data-signal
+          if-no-files-found: error
+          retention-days: 90
+      - name: Enforce production gate
+        if: always()
+        run: |
+          test "${{ steps.pytest.outcome }}" = "success"
+          test "${{ steps.qa.outcome }}" = "success"
+
+  build_image:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      image_ref: ${{ steps.release.outputs.image_ref }}
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        name: Build and push one immutable production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:main-${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:v8.0-main-${{ github.run_number }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=v8.0-main-${{ github.run_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - id: release
+        name: Record immutable production candidate
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          image_ref="${IMAGE_NAME}@${IMAGE_DIGEST}"
+          echo "image_ref=$image_ref" >> "$GITHUB_OUTPUT"
+          mkdir -p artifacts/qa-data-signal/release-candidate
+          jq -n \
+            --arg version "v8.0-main-${{ github.run_number }}" \
+            --arg source_sha "${{ github.sha }}" \
+            --arg image_ref "$image_ref" \
+            --arg image_digest "$IMAGE_DIGEST" \
+            '{candidate_version:$version,source_sha:$source_sha,image_ref:$image_ref,image_digest:$image_digest,target_surfaces:["us","dashboard"],promotion_state:"tested-main"}' \
+            > artifacts/qa-data-signal/release-candidate/candidate.json
+      - name: Upload immutable release identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-production-candidate-${{ github.sha }}
+          path: artifacts/qa-data-signal/release-candidate/candidate.json
+          if-no-files-found: error
+          retention-days: 90
+
+  deploy_production:
+    needs: [gate, build_image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_BASE_URL }}
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      IMAGE_REF: ${{ needs.build_image.outputs.image_ref }}
+    steps:
+      - name: Validate both production targets and immutable image
+        run: |
+          set -euo pipefail
+          for value in "$RAILWAY_API_TOKEN" \
+            "$PRODUCTION_RAILWAY_PROJECT_ID" "$PRODUCTION_RAILWAY_WEB_SERVICE" \
+            "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" "$PRODUCTION_BASE_URL" \
+            "$US_PRODUCTION_RAILWAY_PROJECT_ID" "$US_PRODUCTION_RAILWAY_WEB_SERVICE" \
+            "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE" "$US_PRODUCTION_BASE_URL"; do
+            test -n "$value"
+          done
+          test "$US_PRODUCTION_RAILWAY_PROJECT_ID" != "$PRODUCTION_RAILWAY_PROJECT_ID"
+          test "$US_PRODUCTION_BASE_URL" != "$PRODUCTION_BASE_URL"
+          [[ "$IMAGE_REF" =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]]
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.45.7
+      - name: Keep production web and collector roles isolated
+        run: |
+          set -euo pipefail
+          railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
+            --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$US_PRODUCTION_RAILWAY_WEB_SERVICE"
+          railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
+            --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$US_PRODUCTION_RAILWAY_WEB_SERVICE"
+          railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
+            --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_WEB_SERVICE"
+          railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+      - name: Deploy the exact image to US production first
+        run: |
+          set -euo pipefail
+          railway service source connect --image "$IMAGE_REF" --json \
+            --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$US_PRODUCTION_RAILWAY_WEB_SERVICE"
+          railway service source connect --image "$IMAGE_REF" --json \
+            --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+      - name: Deploy the same image to domestic production
+        run: |
+          set -euo pipefail
+          railway service source connect --image "$IMAGE_REF" --json \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_WEB_SERVICE"
+          railway service source connect --image "$IMAGE_REF" --json \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+
+  verify_production:
+    needs: [gate, build_image, deploy_production]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install production verification dependencies
+        run: pip install -e '.[qa,mcp]'
+      - id: dashboard_parity
+        name: Verify domestic production version and asset hashes
+        continue-on-error: true
+        run: >-
+          analyst qa release-parity
+          --surface dashboard
+          --staging-url "$PRODUCTION_BASE_URL"
+          --source-sha "${{ github.sha }}"
+          --wait-seconds 900
+          --output artifacts/qa-data-signal/dashboard-production-parity.json
+      - id: us_parity
+        name: Verify US production version and asset hashes
+        continue-on-error: true
+        run: >-
+          analyst qa release-parity
+          --surface us
+          --staging-url "$US_PRODUCTION_BASE_URL"
+          --source-sha "${{ github.sha }}"
+          --wait-seconds 900
+          --output artifacts/qa-data-signal/us-production-parity.json
+      - id: dashboard_readiness
+        name: Wait for current domestic production data
+        continue-on-error: true
+        run: >-
+          python -m app.qa.release_data_readiness
+          --surface dashboard
+          --base-url "$PRODUCTION_BASE_URL"
+          --wait-seconds 900
+          --output artifacts/qa-data-signal/dashboard-production-data-readiness.json
+      - id: us_readiness
+        name: Wait for current US production data
+        continue-on-error: true
+        run: >-
+          python -m app.qa.release_data_readiness
+          --surface us
+          --base-url "$US_PRODUCTION_BASE_URL"
+          --wait-seconds 900
+          --output artifacts/qa-data-signal/us-production-data-readiness.json
+      - id: dashboard_live
+        name: Run domestic production read-only checks
+        continue-on-error: true
+        run: >-
+          analyst qa data-signal
+          --mode live
+          --surface dashboard
+          --base-url "$PRODUCTION_BASE_URL"
+          --output artifacts/qa-data-signal/dashboard-production-live.json
+      - id: us_live
+        name: Run US production read-only checks
+        continue-on-error: true
+        run: >-
+          analyst qa data-signal
+          --mode live
+          --surface us
+          --base-url "$US_PRODUCTION_BASE_URL"
+          --output artifacts/qa-data-signal/us-production-live.json
+      - name: Upload production verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-production-verification-${{ github.sha }}
+          path: artifacts/qa-data-signal
+          if-no-files-found: error
+          retention-days: 90
+      - name: Enforce post-deployment verification
+        if: always()
+        run: |
+          test "${{ steps.dashboard_parity.outcome }}" = "success"
+          test "${{ steps.us_parity.outcome }}" = "success"
+          test "${{ steps.dashboard_readiness.outcome }}" = "success"
+          test "${{ steps.us_readiness.outcome }}" = "success"
+          test "${{ steps.dashboard_live.outcome }}" = "success"
+          test "${{ steps.us_live.outcome }}" = "success"

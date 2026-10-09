@@ -271,7 +271,7 @@ def _simulate_ohlc_proxy(
 ) -> dict[str, Any]:
     """Replay one entry policy with conservative intraday OHLC-proxy exits."""
 
-    if entry_mode not in {"next_open", "same_close"}:
+    if entry_mode not in {"next_open", "same_close", "next_breakout"}:
         raise ValueError(f"unsupported entry mode: {entry_mode}")
 
     if not bars or len(bars) != len(indicators):
@@ -310,11 +310,20 @@ def _simulate_ohlc_proxy(
         if pending:
             action = pending
             pending = None
-            if action["side"] == "buy" and position is None and qs._entry_execution_allowed(
-                bar.open, action
-            ):
-                position, cash, shares = _new_position(bar, {**action, "entry_index": index}, cash)
-                turnover += 1.0 if index >= start_index else 0.0
+            if action["side"] == "buy" and position is None:
+                entry_price = (
+                    qs._intraday_entry_execution_price(bar, action)
+                    if entry_mode == "next_breakout"
+                    else float(bar.open)
+                )
+                if entry_price is not None and qs._entry_execution_allowed(entry_price, action):
+                    position, cash, shares = _new_position(
+                        bar,
+                        {**action, "entry_index": index},
+                        cash,
+                        entry_price=entry_price,
+                    )
+                    turnover += 1.0 if index >= start_index else 0.0
             elif action["side"] == "partial_sell" and position is not None:
                 decision = IntradayExitDecision(
                     side="partial_sell",
@@ -426,6 +435,10 @@ def _simulate_ohlc_proxy(
                 "reason": qs._signal_reason({**indicator, "entry_setup": setup}, "buy"),
                 "atr": indicator["atr"],
                 "signal_price": bar.close,
+                "entry_trigger_price": max(
+                    float(bar.close),
+                    float(indicator.get("prior_high") or bar.close),
+                ),
                 "execution_cost": qs._execution_cost(indicator),
             }
             if entry_mode == "same_close":
@@ -528,13 +541,32 @@ def simulate_full_intraday_ohlc_proxy(
     )
 
 
+def simulate_v8_intraday_ohlc_proxy(
+    bars: list[qs.PriceBar],
+    indicators: list[dict[str, float]],
+    *,
+    performance_start_index_override: int | None = None,
+    entry_filter_version: str | None = None,
+) -> dict[str, Any]:
+    """Replay next-session frozen-breakout entries with intraday exits."""
+
+    return _simulate_ohlc_proxy(
+        bars,
+        indicators,
+        performance_start_index_override=performance_start_index_override,
+        entry_mode="next_breakout",
+        mode=qs.EXECUTION_MODEL,
+        entry_filter_version=entry_filter_version,
+    )
+
+
 def compare_entry_filter_backtest(
     bars: list[qs.PriceBar],
     indicators: list[dict[str, float]],
     *,
     performance_start_index_override: int | None = None,
 ) -> dict[str, Any]:
-    """Replay H1/H2/H3 as a backend shadow comparison under hybrid exits."""
+    """Replay H1/H2/H3 under the active v8 intraday execution model."""
 
     versions = (
         qs.ENTRY_FILTER_BASELINE_VERSION,
@@ -544,7 +576,7 @@ def compare_entry_filter_backtest(
     )
     results: dict[str, dict[str, Any]] = {}
     for version in versions:
-        result = simulate_hybrid_ohlc_proxy(
+        result = simulate_v8_intraday_ohlc_proxy(
             bars,
             indicators,
             performance_start_index_override=performance_start_index_override,
@@ -569,8 +601,8 @@ def compare_entry_filter_backtest(
         }
 
     return {
-        "execution_model": "hybrid_sell_intraday_ohlc_proxy",
-        "data_warning": "일봉 OHLC 기반 보수적 장중 매도 프록시이며 실제 분봉 체결이 아닙니다.",
+        "execution_model": qs.EXECUTION_MODEL,
+        "data_warning": "일봉 OHLC 기반 보수적 장중 돌파·매도 프록시이며 실제 분봉 경로를 재구성하지 않습니다.",
         "active_version": qs.ENTRY_FILTER_VERSION,
         "shadow_versions": list(qs.ENTRY_FILTER_SHADOW_VERSIONS),
         "results": {

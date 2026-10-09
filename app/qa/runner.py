@@ -8,7 +8,7 @@ import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, Literal
@@ -53,11 +53,99 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-EXIT-005": (
+        "tests.test_quant_signals."
+        "test_v8_existing_position_first_profit_exit_reaches_fifty_percent_without_legacy_cap",
+        "tests.test_quant_signals."
+        "test_existing_position_transitions_to_tactical_ladder_at_no_more_than_thirty_percent_per_day",
+        "tests.test_quant_signals."
+        "test_v8_both_profit_stages_use_tradable_krx_quotes_and_equal_halves",
+    ),
+    "DATA-KIS-009": (
+        "tests.test_kis_token_cache.test_shared_kis_token_is_encrypted_and_reused_by_a_second_worker",
+        "tests.test_kis_token_cache.test_shared_kis_token_failure_backoff_survives_worker_restart",
+        "tests.test_kis_token_cache.test_shared_kis_token_corrupt_ciphertext_never_returns_old_bearer",
+        "tests.test_kis_token_cache.test_postgres_provider_uses_shared_cache_before_token_endpoint",
+    ),
+    "DATA-COM-008": (
+        "tests.test_db.test_startup_waits_for_railway_private_dns_and_then_recovers",
+        "tests.test_db.test_startup_does_not_retry_bad_database_credentials",
+        "tests.test_db.test_startup_db_retry_has_a_deadline",
+    ),
+    "DATA-KIS-002": (
+        "tests.test_briefing.test_kis_token_failure_is_cached_briefly_across_providers",
+        "tests.test_market_calendar.test_scheduled_krx_session_is_open_before_todays_closing_index_exists",
+        "tests.test_briefing.test_briefing_market_status_follows_krx_holiday_calendar",
+        "tests.test_briefing.test_kis_rest_token_is_reused_across_probe_and_quote_providers",
+        "tests.test_live_stock_quote.test_korea_quote_session_uses_exchange_holiday_not_weekday",
+        "tests.test_live_stock_quote.test_unavailable_live_quote_does_not_label_previous_close_as_live",
+        "tests.test_quant_signals.test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
+        "tests.test_data_signal_qa.test_live_korea_market_session_rejects_previous_close_at_open",
+        "tests.test_data_signal_qa.test_live_korea_market_session_accepts_fresh_minutes_and_quote",
+        "tests.test_data_signal_qa.test_live_korea_market_session_rejects_stale_minutes_and_quote",
+    ),
+    "DATA-KIS-008": (
+        "tests.test_briefing.test_kis_token_failure_is_cached_briefly_across_providers",
+        "tests.test_briefing.test_kis_rest_token_is_reused_across_probe_and_quote_providers",
+        "tests.test_signal_entry_evidence.test_historical_kis_probe_requires_completed_dated_minutes",
+        "tests.test_intraday_cache.test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
+        "tests.test_intraday_cache.test_krx_closing_auction_trade_requires_live_window_and_consistent_prints",
+        "tests.test_signal_entry_evidence.test_current_day_kis_probe_requires_completed_matching_session",
+        "tests.test_data_signal_qa.test_live_dated_kis_403_requires_verified_current_day_replay_source",
+    ),
+    "DATA-KIS-003": (
+        "tests.test_data_signal_qa.test_completed_kis_minute_chart_contract_requires_dated_open_and_close",
+        "tests.test_intraday_cache.test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
+        "tests.test_intraday_cache.test_kis_premarket_chart_discards_future_same_day_minutes",
+        "tests.test_intraday_cache.test_premarket_future_chart_is_neither_cached_nor_published",
+        "tests.test_data_signal_qa.test_live_kis_intraday_chart_rejects_future_market_minutes",
+    ),
+    "DATA-CALENDAR-CONTENT-007": (
+        "tests.test_news.test_current_mobile_news_api_normalizes_and_deduplicates_rows",
+        "tests.test_news.test_current_mobile_stock_news_api_accepts_minute_precision",
+        "tests.test_news.test_current_mobile_news_api_fails_closed_on_empty_source",
+        "tests.test_stock_universe_data."
+        "test_full_universe_news_snapshot_records_total_failure_as_failed",
+        "tests.test_briefing_runtime."
+        "test_stock_news_snapshot_failure_is_degraded_and_retried",
+        "tests.test_mobile_loading_fast_paths."
+        "test_stock_news_does_not_replay_expired_snapshot_when_refresh_fails",
+        "tests.test_stock_universe_data."
+        "test_news_and_price_apis_disable_intermediate_stale_caches",
+        "tests.test_signal_entry_evidence."
+        "test_signal_data_quality_surfaces_latest_stock_news_failure",
+        "tests.test_release_data_readiness."
+        "test_dashboard_readiness_requires_current_general_and_complete_stock_news",
+        "tests.test_release_data_readiness."
+        "test_us_readiness_rejects_schema_upgrade_and_empty_recommendations",
+    ),
+    "SIG-PERF-001": (
+        "tests.test_quant_signals."
+        "test_market_signal_performance_summary_uses_completed_net_returns_and_matched_index_periods",
+        "tests.test_app.test_ai_signal_performance_overview_contract_is_responsive_and_uses_90_day_source",
+    ),
+    "SIG-ENTRY-008": (
+        "tests.test_quant_signals."
+        "test_negative_expectancy_guard_is_append_only_and_only_changes_unexecuted_entries",
+        "tests.test_quant_signals."
+        "test_negative_expectancy_guard_prevents_only_new_simulated_entry",
+        "tests.test_quant_signals."
+        "test_noncanonical_market_scope_cannot_toggle_entry_safety_guard",
+    ),
+    "SIG-ENTRY-009": (
+        "tests.test_entry_filter_backtest."
+        "test_h3_promotion_stays_shadow_until_fixed_cohort_samples_are_sufficient",
+        "tests.test_entry_filter_backtest."
+        "test_h3_promotion_can_only_become_eligible_for_operator_review",
+        "tests.test_entry_filter_backtest."
+        "test_h3_promotion_with_enough_samples_stays_ineligible_when_quality_fails",
+    ),
     "DATA-DART-001": (
         "tests.test_disclosures.test_fetch_dart_disclosures_uses_api_when_transport_succeeds",
         "tests.test_disclosures.test_preferred_disclosure_url_rebuilds_official_dart_receipt_link",
         "tests.test_stock_home_context.test_stock_home_context_combines_detail_sections",
         "tests.test_stock_dashboard_disclosures.test_disclosure_events_can_fall_back_to_recent_general_filings",
+        "tests.test_data_signal_qa.test_mobile_external_probe_retries_transient_timeout_once",
     ),
     "DATA-FUND-RESEARCH-003": (
         "tests.test_research.test_fetch_stockhub_reports_for_stock_parses_broker_metadata",
@@ -82,16 +170,16 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "DATA-COM-005": (
         "tests.test_data_signal_qa."
         "test_domestic_live_skips_us_snapshot_when_collector_disabled",
-        "tests.test_railway_staging_runtime."
-        "test_staging_runtime_scales_up_and_down_in_dependency_order",
         "tests.test_release_parity."
         "test_deployment_workflow_promotes_one_immutable_image_after_staging",
-        "tests.test_release_parity."
-        "test_domestic_staging_runtime_is_serialized_and_always_stopped",
         "tests.test_release_parity."
         "test_staging_targets_and_qa_evidence_are_separate_for_both_products",
         "tests.test_release_parity."
         "test_scheduled_qa_never_reuses_the_preview_proxy",
+        "tests.test_release_parity."
+        "test_staging_e2e_does_not_retrigger_itself_from_deployment_status",
+        "tests.test_process_role."
+        "test_web_role_never_enqueues_us_position_lifecycle_scan",
     ),
     "DATA-COM-006": (
         "tests.test_us_public_gateway."
@@ -156,6 +244,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_stock_news_has_separate_domestic_and_yahoo_overseas_tabs",
     ),
     "REC-US-INDEPENDENT-001": (
+        "tests.test_data_signal_qa."
+        "test_us_country_toggle_check_ignores_community_market_scope_metadata",
+        "tests.test_data_signal_qa."
+        "test_us_product_copy_check_ignores_only_user_written_community_posts",
         "tests.test_us_market."
         "test_us_recommendations_rank_top100_independently_of_trade_signal_action",
         "tests.test_us_market."
@@ -187,6 +279,98 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app."
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
+    "SIG-PUSH-INTRADAY-001": (
+        "tests.test_quant_signals."
+        "test_market_quant_signal_live_quotes_refresh_ranked_universe",
+        "tests.test_data_signal_qa."
+        "test_live_intraday_push_qa_uses_actual_dispatch_snapshot_scope",
+        "tests.test_app."
+        "test_market_quant_signal_refresh_loop_retries_without_dying[exception]",
+        "tests.test_app."
+        "test_market_quant_signal_refresh_loop_retries_without_dying[unavailable]",
+        "tests.test_app."
+        "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
+        "tests.test_quant_signals."
+        "test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
+        "tests.test_quant_signals."
+        "test_v8_live_buy_waits_for_a_closed_verified_minute",
+        "tests.test_quant_signals."
+        "test_market_feed_only_projects_fresh_kis_intraday_execution_as_verified",
+        "tests.test_web_push."
+        "test_market_ai_confirmed_intraday_push_requires_verified_v8_events_and_reuses_close_key",
+        "tests.test_web_push."
+        "test_market_ai_confirmed_intraday_push_fails_closed",
+        "tests.test_web_push."
+        "test_run_once_dispatches_domestic_intraday_half_sale_once_after_baseline",
+    ),
+    "SIG-KR-SNAPSHOT-CACHE-001": (
+        "tests.test_app."
+        "test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses[True-53-False]",
+        "tests.test_app."
+        "test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses[True-142-False]",
+        "tests.test_app."
+        "test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses[True-143-True]",
+        "tests.test_app."
+        "test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses[False-53-True]",
+        "tests.test_quant_signals."
+        "test_market_quant_signal_endpoint_reads_new_collector_snapshot_during_session",
+        "tests.test_quant_signals."
+        "test_market_quant_signal_closed_cache_does_not_extend_on_read",
+        "tests.test_app."
+        "test_market_quant_signal_views_share_one_live_quote_scan",
+        "tests.test_quant_signals."
+        "test_market_quant_signal_detail_build_reuses_shared_quotes",
+    ),
+    "SIG-KR-INTRADAY-ORDER-001": (
+        "tests.test_quant_signals."
+        "test_v8_ordered_minutes_keep_first_profit_sale_before_a_later_stop",
+        "tests.test_quant_signals."
+        "test_v8_ordered_entry_cancels_after_first_overheated_gap_touch",
+        "tests.test_quant_signals."
+        "test_v8_ordered_minutes_require_fresh_complete_chart_matching_krx_quote",
+        "tests.test_quant_signals."
+        "test_v8_ordered_entry_does_not_sell_on_a_low_before_the_breakout",
+        "tests.test_quant_signals."
+        "test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
+        "tests.test_quant_signals."
+        "test_v8_live_buy_waits_for_a_closed_verified_minute",
+        "tests.test_quant_signals."
+        "test_market_feed_only_projects_fresh_kis_intraday_execution_as_verified",
+    ),
+    "SIG-KR-INTRADAY-REPLAY-001": (
+        "tests.test_intraday_cache."
+        "test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
+        "tests.test_quant_signals."
+        "test_v8_completed_replay_keeps_verified_partial_sale_before_later_stop",
+        "tests.test_quant_signals."
+        "test_v8_dated_minute_path_is_durable_and_finalized_before_next_day_replay",
+        "tests.test_quant_signals."
+        "test_v8_replay_uses_only_matching_persisted_closed_kis_detail_chart",
+        "tests.test_quant_signals."
+        "test_market_feed_isolates_dated_minute_chart_outage_and_keeps_other_signals",
+        "tests.test_quant_signals."
+        "test_stock_detail_refreshes_existing_ordered_path_before_display",
+        "tests.test_quant_signals."
+        "test_stock_signal_detail_fails_closed_when_published_minute_path_cannot_replay",
+        "tests.test_web_push."
+        "test_market_ai_push_skips_frozen_unverified_replay_at_open_and_close",
+    ),
+    "SIG-KR-INTRADAY-SEAL-001": (
+        "tests.test_quant_signals."
+        "test_v8_current_day_path_is_sealed_after_close_and_replays_without_dated_kis",
+        "tests.test_quant_signals."
+        "test_v8_zero_volume_close_requires_separate_krx_print_before_sealing",
+        "tests.test_quant_signals."
+        "test_v8_auction_capture_includes_tracked_holdings_without_open_path",
+        "tests.test_app."
+        "test_closing_auction_capture_runs_independently_of_top150_scan",
+        "tests.test_quant_signals."
+        "test_v8_current_day_seal_fails_closed_on_mismatch_or_provider_outage",
+        "tests.test_quote_stream_scaling."
+        "test_canonical_refresh_swaps_cache_before_publishing_transformed_revision",
+        "tests.test_signal_entry_evidence."
+        "test_current_day_kis_probe_requires_completed_matching_session",
+    ),
     "SIG-UI-030": (
         "tests.test_domestic_market_scope."
         "test_domestic_market_is_the_default_product_boundary",
@@ -200,10 +384,12 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_domestic_surface_disables_unified_runtime_and_preserves_dormant_us_implementation",
         "tests.test_app."
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
-        "tests.test_staging_dark_theme."
-        "test_domestic_fold_layout_expands_content_and_keeps_compact_navigation",
     ),
     "SIG-UI-031": (
+        "tests.test_data_signal_qa."
+        "test_us_country_toggle_check_ignores_community_market_scope_metadata",
+        "tests.test_data_signal_qa."
+        "test_us_product_copy_check_ignores_only_user_written_community_posts",
         "tests.test_domestic_market_scope."
         "test_us_spinout_shell_is_separate_from_the_domestic_product",
         "tests.test_app."
@@ -220,12 +406,18 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_ai_signal_back_returns_home_without_relying_on_browser_history",
         "tests.test_market_index_live_endpoint."
         "test_us_entry_uses_the_us_only_shell_and_global_market_snapshot",
-        "tests.test_staging_dark_theme."
-        "test_us_fold_layout_expands_content_and_keeps_compact_navigation",
     ),
-    "SIG-US-QUOTE-001": (
-        "tests.test_initial_live_hydration."
-        "test_us_ai_signal_uses_completed_session_return_instead_of_permanent_quote_checking",
+    "SIG-UI-032": (
+        "tests.test_staging_dark_theme."
+        "test_stock_quote_stays_above_tabs_and_market_tab_contracts_match",
+    ),
+    "SIG-UI-033": (
+        "tests.test_watchlist_v15."
+        "test_low_cardinality_watch_bubbles_keep_readable_density",
+        "tests.test_watchlist_v15."
+        "test_recommendation_watch_handoff_preserves_market_context",
+        "tests.test_watchlist_v15."
+        "test_recommendation_score_and_current_signal_use_separate_labels",
     ),
     "SIG-UI-022": (
         "tests.test_public_signal."
@@ -284,6 +476,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_screener_as_of_must_match_quotes_and_completed_session[stale]",
         "tests.test_us_signal_universe."
         "test_screener_as_of_must_match_quotes_and_completed_session[mixed_exchange_dates]",
+        "tests.test_us_signal_universe."
+        "test_prior_session_bridge_excludes_explicitly_delisted_stale_quote",
         "tests.test_us_signal_universe."
         "test_forming_regular_session_never_publishes_current_day_snapshot",
         "tests.test_us_signal_universe."
@@ -406,6 +600,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_canonical_snapshot_waits_for_provider_grace_after_official_close",
         "tests.test_app."
         "test_us_market_regular_session_request_never_enqueues_publication",
+        "tests.test_app."
+        "test_us_market_regular_session_request_enqueues_one_time_schema_upgrade",
         "tests.test_home_ai_response."
         "test_dashboard_us_market_session_payload_overrides_fixed_clock_phase",
         "tests.test_home_ai_response."
@@ -605,9 +801,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app."
         "test_us_market_recommendations_endpoint_exposes_independent_score_and_hides_signal_score",
         "tests.test_app."
-        "test_us_market_cold_request_is_read_only_and_collector_owned",
+        "test_us_market_cold_request_returns_preparing_and_only_enqueues_refresh",
         "tests.test_app."
-        "test_us_market_refresh_query_remains_read_only",
+        "test_us_market_refresh_query_serves_fresh_snapshot_while_enqueuing",
         "tests.test_app."
         "test_us_market_regular_session_request_never_enqueues_publication",
         "tests.test_app."
@@ -620,6 +816,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_legacy_snapshot_requires_one_time_public_member_evidence_upgrade",
         "tests.test_app."
         "test_us_market_refresh_queue_is_process_single_flight",
+        "tests.test_process_role."
+        "test_web_role_never_enqueues_us_position_lifecycle_scan",
         "tests.test_app."
         "test_us_stock_ai_analysis_endpoint_labels_dollar_volume_proxy",
         "tests.test_app."
@@ -637,7 +835,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_home_ai_response."
         "test_us_stock_signal_evidence_preserves_proxy_labels_and_completed_date",
         "tests.test_home_ai_response."
-        "test_us_stock_signal_outside_top100_shows_completed_session_evidence",
+        "test_us_stock_signal_outside_top100_is_not_mislabelled_as_missing_data",
         "tests.test_home_ai_response."
         "test_us_recommendation_detail_requires_matching_ready_snapshot_identity",
         "tests.test_home_ai_response."
@@ -645,15 +843,29 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_home_ai_response."
         "test_us_public_ui_never_renders_private_scores_or_synthesized_trade_levels",
     ),
+    "SIG-US-MCP-001": (
+        "tests.test_us_mcp_server."
+        "test_us_mcp_server_exposes_only_personal_signal_and_analysis_tools",
+        "tests.test_us_mcp_server."
+        "test_us_mcp_signal_list_reads_stored_snapshot_without_refresh",
+        "tests.test_us_mcp_server."
+        "test_us_mcp_stock_analysis_uses_cached_non_refresh_dashboard",
+        "tests.test_us_mcp_server."
+        "test_personal_us_mcp_requires_bearer_token_and_limits_bursts",
+        "tests.test_us_mcp_server."
+        "test_personal_us_mcp_remote_health_fails_closed_without_token",
+    ),
     "SIG-US-MIGRATION-001": (
         "tests.test_app."
         "test_us_market_regular_session_request_never_enqueues_publication",
         "tests.test_app."
-        "test_us_market_cold_request_is_read_only_and_collector_owned",
+        "test_us_market_regular_session_request_enqueues_one_time_schema_upgrade",
         "tests.test_app."
         "test_us_collector_backfills_legacy_member_evidence_during_regular_session",
         "tests.test_us_position_lifecycle_runtime."
         "test_legacy_snapshot_requires_one_time_public_member_evidence_upgrade",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_sector_classification_version_change_requires_fail_closed_upgrade",
         "tests.test_us_position_lifecycle."
         "test_us_history_loader_retries_only_transient_failures_with_lower_concurrency",
         "tests.test_us_position_lifecycle."
@@ -822,6 +1034,28 @@ class ResultCollector:
 def _assert(condition: Any, message: str, **evidence: Any) -> None:
     if not condition:
         raise QaFailure(message, evidence)
+
+
+def _duplicate_market_signal_keys(items: list[Any]) -> list[tuple[Any, ...]]:
+    """Distinguish separate lifecycle events without hiding repeated events."""
+
+    seen: set[tuple[Any, ...]] = set()
+    duplicates: list[tuple[Any, ...]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = (
+            item.get("code"),
+            item.get("signal_date"),
+            item.get("status"),
+            item.get("event_side") or item.get("side"),
+            item.get("profit_stage"),
+            item.get("action"),
+        )
+        if key in seen and key not in duplicates:
+            duplicates.append(key)
+        seen.add(key)
+    return duplicates
 
 
 def _environment_name(base_url: str) -> str:
@@ -1060,6 +1294,8 @@ class ReadOnlyApi:
             "latency_ms": latency_ms,
             "content_type": response.headers.get("content-type"),
             "cache_control": response.headers.get("cache-control"),
+            "data_state": response.headers.get("x-data-state"),
+            "data_as_of": response.headers.get("x-data-as-of"),
             "us_market_route": response.headers.get("x-us-market-route"),
         }
         if response.status_code >= 400:
@@ -1108,7 +1344,14 @@ class ReadOnlyApi:
         return response.status_code, response_payload, meta
 
 
-def _probe_mobile_external_url(url: object, *, timeout: float) -> dict[str, Any]:
+def _probe_mobile_external_url(
+    url: object,
+    *,
+    timeout: float,
+    attempts: int = 2,
+) -> dict[str, Any]:
+    if attempts < 1:
+        raise ValueError("attempts must be at least 1")
     normalized = str(url or "").strip()
     parsed = urlparse(normalized)
     _assert(
@@ -1117,25 +1360,43 @@ def _probe_mobile_external_url(url: object, *, timeout: float) -> dict[str, Any]
         url=normalized,
     )
     started = monotonic()
-    with httpx.Client(
-        timeout=httpx.Timeout(timeout),
-        follow_redirects=True,
-        headers={"User-Agent": MOBILE_BROWSER_USER_AGENT},
-    ) as client:
-        with client.stream("GET", normalized) as response:
-            evidence = {
-                "url": normalized,
-                "final_url": str(response.url),
-                "http_status": response.status_code,
-                "latency_ms": round((monotonic() - started) * 1000),
-                "content_type": response.headers.get("content-type"),
-            }
-    _assert(
-        200 <= response.status_code < 300,
-        "모바일 원문 링크가 2xx 응답을 반환하지 않았습니다.",
-        **evidence,
-    )
-    return evidence
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with httpx.Client(
+                timeout=httpx.Timeout(timeout),
+                follow_redirects=True,
+                headers={"User-Agent": MOBILE_BROWSER_USER_AGENT},
+            ) as client:
+                with client.stream("GET", normalized) as response:
+                    evidence = {
+                        "url": normalized,
+                        "final_url": str(response.url),
+                        "http_status": response.status_code,
+                        "latency_ms": round((monotonic() - started) * 1000),
+                        "content_type": response.headers.get("content-type"),
+                        "attempts": attempt,
+                    }
+            _assert(
+                200 <= response.status_code < 300,
+                "모바일 원문 링크가 2xx 응답을 반환하지 않았습니다.",
+                **evidence,
+            )
+            return evidence
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            last_error = exc
+            if attempt >= attempts:
+                raise QaFailure(
+                    "모바일 원문 링크 연결이 제한된 재시도 후에도 완료되지 않았습니다.",
+                    {
+                        "url": normalized,
+                        "attempts": attempt,
+                        "latency_ms": round((monotonic() - started) * 1000),
+                        "error_type": type(exc).__name__,
+                    },
+                ) from exc
+            sleep(0.15 * attempt)
+    raise AssertionError(f"external probe did not complete: {last_error}")
 
 
 def _pytest_evidence(pytest_junit: Path | str | None) -> dict[str, Any] | None:
@@ -1302,8 +1563,8 @@ def _gate_checks(
         )
         _assert(
             US_SIGNAL_UNIVERSE_LIMIT == 100
-            and US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v3",
-            "미국 시그널 유니버스 정책이 Top 100 v3와 다릅니다.",
+            and US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v4",
+            "미국 시그널 유니버스 정책이 Top 100 v4와 다릅니다.",
         )
         _assert(
             US_ROLLOUT_MODE == "model_replay"
@@ -1330,7 +1591,7 @@ def _gate_checks(
     collector.check(
         "SIG-US-VERSION-001",
         us_strategy_contract,
-        pass_message="미국 v2·baseline·Top 100 모델 replay 버전 계약을 확인했습니다.",
+        pass_message="미국 v2 생명주기·baseline·Top 100 v4 모델 replay 버전 계약을 확인했습니다.",
     )
 
     def input_contract() -> dict[str, Any]:
@@ -1646,7 +1907,89 @@ def _gate_checks(
     collector.check(
         "SIG-ENTRY-005",
         versioned_entry_filters,
-        pass_message="v7.5-rc4 H1 활성 필터와 H2·H3 백엔드 shadow 비교 계약을 확인했습니다.",
+        pass_message="v8.1-rc1 H1 활성 필터와 H2·H3 백엔드 shadow 비교 계약을 확인했습니다.",
+    )
+
+    def intraday_execution_contract() -> dict[str, Any]:
+        pending = {
+            "side": "buy",
+            "signal_price": 100.0,
+            "entry_trigger_price": 102.0,
+            "atr": 2.0,
+        }
+        touched = qs.PriceBar(
+            date(2026, 10, 6),
+            100.5,
+            102.2,
+            99.5,
+            102.0,
+            1_000_000,
+            50_000_000_000,
+        )
+        position = {
+            "entry_date": date(2026, 10, 3),
+            "entry_price": 100.0,
+            "entry_index": 100,
+            "entry_cost": 0.002,
+            "initial_risk": 2.0,
+            "initial_shares": 1.0,
+            "entry_equity": 100.0,
+            "peak_price": 100.0,
+            "initial_stop": 98.0,
+            "profit_stage": 0,
+            "remaining_fraction": 1.0,
+        }
+        target_bar = qs.PriceBar(
+            date(2026, 10, 6),
+            100.0,
+            105.2,
+            99.0,
+            104.0,
+            1_000_000,
+            50_000_000_000,
+        )
+        decisions = qs._intraday_exit_decisions(
+            position,
+            target_bar,
+            {"atr": 1.0, "average_trading_value": 50_000_000_000.0},
+        )
+        _assert(
+            qs.STRATEGY_VERSION == "position-lifecycle-v8.0"
+            and qs.EXECUTION_MODEL == "close-confirmed-intraday-trigger-v1",
+            "장중 전략 버전·체결 모델이 다릅니다.",
+        )
+        _assert(
+            qs._intraday_entry_execution_price(touched, pending) == 102.0,
+            "다음 KRX 세션 돌파 매수가가 고정된 확인선과 다릅니다.",
+        )
+        _assert(
+            [(item.side, item.price) for item in decisions]
+            == [("partial_sell", 103.0), ("sell", 105.0)],
+            "장중 +3%·+5% 수익확정이 재현되지 않습니다.",
+        )
+        _assert(
+            [item.sell_fraction for item in decisions] == [0.5, 0.5],
+            "장중 1차·2차 매도량이 원래 비중의 각 50%가 아닙니다.",
+        )
+        rounded_target = qs._executable_profit_target(104.03, date(2026, 10, 8))
+        _assert(
+            rounded_target == 105.0
+            and qs._executable_profit_target(104.03, date(2026, 10, 2)) == 104.03,
+            "v8 목표가의 KRX 유효 호가 올림 또는 v7 이력 보존이 깨졌습니다.",
+        )
+        return {
+            "strategy_version": qs.STRATEGY_VERSION,
+            "execution_model": qs.EXECUTION_MODEL,
+            "entry_price": 102.0,
+            "exit_sides": [item.side for item in decisions],
+            "sell_fractions": [item.sell_fraction for item in decisions],
+            "v8_first_executable_target_for_104_03": rounded_target,
+        }
+
+    collector.check(
+        "SIG-EXECUTION-005",
+        intraday_execution_contract,
+        pass_message="v8.0 KRX 장중 돌파 매수·손절·수익확정 계약을 확인했습니다.",
     )
 
     def shadow_refresh_contract() -> dict[str, Any]:
@@ -2404,7 +2747,7 @@ def _live_checks(
                     recommendations.get("recommendation_model_version")
                     == "us-independent-recommendation-v1"
                     and recommendations.get("recommendation_selection_rule")
-                    == "recommendation_score_ranked_independent_of_trade_signal",
+                    == "recommendation_score_ranked_with_terminal_exit_exclusion",
                     "미국 추천이 독립 점수 모델·선정 규칙을 공개하지 않았습니다.",
                     model_version=recommendations.get(
                         "recommendation_model_version"
@@ -2431,6 +2774,10 @@ def _live_checks(
                         or item.get("action") != "추천 후보"
                         or not isinstance(signal, dict)
                         or "score" in signal
+                        or (
+                            ((signal.get("current") or {}).get("action") == "exited")
+                            and (signal.get("current") or {}).get("position_open") is not True
+                        )
                     ):
                         invalid_recommendations.append(
                             str(item.get("code") or "unknown")
@@ -2932,6 +3279,143 @@ def _live_checks(
             pass_message="외부 원천 읽기 전용 probe 응답 형식을 확인했습니다.",
         )
 
+        def dated_kis_chart_contract() -> dict[str, Any]:
+            probe = quality.get("api_probe") or {}
+            dated = next(
+                (
+                    item for item in probe.get("items") or []
+                    if isinstance(item, dict)
+                    and item.get("key") == "kis_historical_intraday"
+                ),
+                None,
+            )
+            _assert(isinstance(dated, dict), "KIS 날짜별 분봉 실연동 근거가 없습니다.")
+            if (
+                dated.get("state") == "ready"
+                and int(dated.get("points") or 0) > 0
+                and str(dated.get("first_time") or "") <= "090200"
+                and dated.get("last_time") == "153000"
+                and bool(dated.get("trade_date"))
+            ):
+                return {
+                    "replay_source": "dated_kis",
+                    "trade_date": dated["trade_date"],
+                    "points": dated["points"],
+                    "historical_kis_state": dated["state"],
+                }
+            same_day = next(
+                (
+                    item for item in probe.get("items") or []
+                    if isinstance(item, dict)
+                    and item.get("key") == "kis_current_day_intraday"
+                ),
+                None,
+            )
+            seal = quality.get("intraday_path_seal") or {}
+            sample = seal.get("sample") or {}
+            sealed_auction = (
+                sample.get("state") == "ready"
+                and sample.get("source") == "kis_rest+ccnl_auction"
+                and int(sample.get("closing_trade_volume") or 0) > 0
+                and sample.get("last_time") == "153000"
+            )
+            _assert(
+                isinstance(same_day, dict)
+                and (same_day.get("state") == "ready" or sealed_auction)
+                and same_day.get("trade_date") == seal.get("trade_date")
+                and int(seal.get("pending") or 0) == 0
+                and int(seal.get("version_mismatch") or 0) == 0,
+                "과거 KIS 분봉이 실패했고 당일 봉인 대체 근거도 검증되지 않았습니다.",
+                historical_kis=dated,
+                current_day_kis=same_day,
+                seal=seal,
+            )
+            return {
+                "replay_source": "sealed_current_day",
+                "trade_date": same_day["trade_date"],
+                "points": same_day["points"],
+                "historical_kis_state": dated.get("state"),
+                "historical_kis_http_status": dated.get("http_status"),
+                "historical_kis_failure_endpoint": dated.get("failure_endpoint"),
+                "sample_seal_source": sample.get("source") if sealed_auction else None,
+                "pending_paths": seal.get("pending"),
+                "finalized_paths": seal.get("finalized"),
+            }
+
+        collector.check(
+            "DATA-KIS-008",
+            dated_kis_chart_contract,
+            pass_message="스테이징 서버의 날짜별 분봉 또는 장마감 당일 봉인 대체 경로를 확인했습니다.",
+        )
+
+        def current_day_seal_contract() -> dict[str, Any]:
+            seal = quality.get("intraday_path_seal") or {}
+            probe = quality.get("api_probe") or {}
+            item = next(
+                (
+                    row for row in probe.get("items") or []
+                    if isinstance(row, dict)
+                    and row.get("key") == "kis_current_day_intraday"
+                ),
+                None,
+            )
+            _assert(isinstance(item, dict), "당일 KIS 장마감 분봉 실연동 근거가 없습니다.")
+            sample = seal.get("sample") or {}
+            sealed_auction = (
+                sample.get("state") == "ready"
+                and sample.get("source") == "kis_rest+ccnl_auction"
+                and int(sample.get("closing_trade_volume") or 0) > 0
+                and str(sample.get("first_time") or "") <= "090200"
+                and sample.get("last_time") == "153000"
+            )
+            _assert(
+                (item.get("state") == "ready" or sealed_auction)
+                and item.get("trade_date") == seal.get("trade_date")
+                and int(item.get("points") or 0) > 0
+                and str(item.get("first_time") or "") <= "090200"
+                and item.get("last_time") == "153000",
+                "당일 KIS 장마감 완료 분봉이 검증되지 않았습니다.",
+                probe=item,
+            )
+            _assert(
+                int(seal.get("pending") or 0) == 0
+                and int(seal.get("version_mismatch") or 0) == 0,
+                "장마감 미봉인 또는 다른 버전의 장중 매매 근거가 남아 있습니다.",
+                seal=seal,
+            )
+            prices, _meta = api.get(
+                "/stocks/005930/prices",
+                from_date=item["trade_date"],
+                to_date=item["trade_date"],
+                limit=1,
+            )
+            _assert(isinstance(prices, list) and prices, "장마감 005930 확정 일봉이 없습니다.")
+            price = prices[0]
+            ohlc = sample.get("ohlc") if sealed_auction else item.get("ohlc") or {}
+            _assert(
+                all(
+                    float(price.get(field) or 0) == float(ohlc.get(field) or -1)
+                    for field in ("open", "high", "low", "close")
+                ),
+                "당일 KIS 분봉과 확정 일봉의 OHLC가 다릅니다.",
+                price_date=price.get("trade_date"),
+                probe_date=item["trade_date"],
+            )
+            return {
+                "trade_date": item["trade_date"],
+                "points": item["points"],
+                "closing_trade_source": sample.get("source") if sealed_auction else "kis_chart",
+                "closing_trade_volume": sample.get("closing_trade_volume") if sealed_auction else None,
+                "finalized_paths": seal.get("finalized"),
+                "pending_paths": seal.get("pending"),
+            }
+
+        collector.check(
+            "SIG-KR-INTRADAY-SEAL-001",
+            current_day_seal_contract,
+            pass_message="당일 KIS 장마감 분봉·일봉·저장 경로 상태를 확인했습니다.",
+        )
+
         def market_feed_contract() -> dict[str, Any]:
             payload, meta = api.get(
                 "/market/quant-signals", universe_limit=100, limit=100, recent_days=30
@@ -2969,14 +3453,11 @@ def _live_checks(
             )
             items = payload.get("items") or []
             _assert(isinstance(items, list), "시장 시그널 items가 배열이 아닙니다.")
-            keys = [
-                (item.get("code"), item.get("signal_date"), item.get("action"))
-                for item in items
-                if isinstance(item, dict)
-            ]
+            duplicate_keys = _duplicate_market_signal_keys(items)
             _assert(
-                len(keys) == len(set(keys)),
-                "동일 종목·날짜·상태 시그널이 중복됐습니다.",
+                not duplicate_keys,
+                "동일 종목·날짜·매매 단계 시그널이 중복됐습니다.",
+                duplicate_keys=duplicate_keys,
             )
             pending_leaks = []
             for item in items:
@@ -3011,6 +3492,103 @@ def _live_checks(
             pass_message="시장 시그널 버전·상태·중복·예비정보 계약을 확인했습니다.",
         )
         if context.get("market_signals"):
+            def intraday_market_push_contract() -> dict[str, Any]:
+                from app.services.quant_signals import MARKET_SIGNAL_UNIVERSE_LIMIT
+
+                feed, meta = api.get(
+                    "/market/quant-signals",
+                    universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
+                    limit=0,
+                    recent_days=30,
+                )
+                push_config, push_meta = api.get("/push/config")
+                _assert(
+                    push_config.get("enabled") is True
+                    and bool(push_config.get("public_key")),
+                    "스테이징 웹 푸시가 비활성화되어 장중 확정 알림 전송을 검증할 수 없습니다.",
+                    push_enabled=push_config.get("enabled"),
+                    public_key_present=bool(push_config.get("public_key")),
+                    **push_meta,
+                )
+                market_option = next(
+                    (
+                        option
+                        for option in push_config.get("condition_options") or []
+                        if isinstance(option, dict)
+                        and option.get("id") == "market_ai_signal"
+                    ),
+                    {},
+                )
+                _assert(
+                    "검증된 장중·장 마감 확정 매수·매도"
+                    in str(market_option.get("description") or ""),
+                    "시장 AI 알림 설정에 검증된 장중 매수·매도 확정 안내가 없습니다.",
+                    **push_meta,
+                )
+                _assert(
+                    feed.get("status") == "ready"
+                    and feed.get("execution_model")
+                    == "close-confirmed-intraday-trigger-v1",
+                    "장중 알림 원천 피드가 v8 준비 상태가 아닙니다.",
+                    status=feed.get("status"),
+                    execution_model=feed.get("execution_model"),
+                    **meta,
+                )
+                generated_at = _stream_timestamp(
+                    feed.get("snapshot_generated_at"),
+                    "market-signals.snapshot_generated_at",
+                )
+                from app.services.market_calendar import is_korea_market_session_date
+
+                observed_now = datetime.now(KST)
+                if (
+                    is_korea_market_session_date(observed_now.date(), observed_now)
+                    and (9, 0) <= (observed_now.hour, observed_now.minute) < (15, 40)
+                ):
+                    snapshot_age_seconds = (
+                        observed_now - generated_at.astimezone(KST)
+                    ).total_seconds()
+                    _assert(
+                        -60 <= snapshot_age_seconds <= 600,
+                        "장중 알림 원천 스냅샷이 10분을 초과해 오래됐습니다.",
+                        snapshot_age_seconds=snapshot_age_seconds,
+                    )
+                items = feed.get("items")
+                _assert(isinstance(items, list), "시장 시그널 전체 항목이 배열이 아닙니다.")
+                verified = [
+                    item for item in items
+                    if isinstance(item, dict)
+                    and item.get("intraday_execution_verified") is True
+                ]
+                invalid = [
+                    str(item.get("code") or "")
+                    for item in verified
+                    if item.get("status") != "confirmed"
+                    or item.get("execution_model") != feed.get("execution_model")
+                    or str(item.get("execution_date") or "")
+                    != generated_at.astimezone(KST).date().isoformat()
+                ]
+                _assert(
+                    not invalid,
+                    "검증된 장중 알림 항목의 버전·날짜·상태가 다릅니다.",
+                    invalid_codes=invalid,
+                )
+                return {
+                    "snapshot_generated_at": generated_at.isoformat(),
+                    "dispatch_universe_limit": MARKET_SIGNAL_UNIVERSE_LIMIT,
+                    "market_ai_signal_description": market_option["description"],
+                    "push_enabled": True,
+                    "public_key_present": True,
+                    "total_events": len(items),
+                    "verified_intraday_events": len(verified),
+                    "delivery_observed": False,
+                }
+
+            collector.check(
+                "SIG-PUSH-INTRADAY-001",
+                intraday_market_push_contract,
+                pass_message="장중 알림 원천의 전략·스냅샷·이벤트 계약을 확인했습니다. 실제 전송은 거래 시간에 별도 확인이 필요합니다.",
+            )
             collector.check(
                 "SIG-LIFECYCLE-003",
                 market_feed_contract,
@@ -3020,6 +3598,271 @@ def _live_checks(
                 "SIG-CONTRACT-001",
                 market_feed_contract,
                 pass_message="예비 시그널 거래정보 비노출을 확인했습니다.",
+            )
+
+            def market_performance_payload() -> dict[str, Any]:
+                cached = context.get("market_signals_90d")
+                if isinstance(cached, dict):
+                    return cached
+                payload, meta = api.get(
+                    "/market/quant-signals",
+                    universe_limit=150,
+                    limit=0,
+                    recent_days=90,
+                )
+                _assert(
+                    isinstance(payload, dict),
+                    "90일 시장 시그널 응답이 객체가 아닙니다.",
+                    **meta,
+                )
+                context["market_signals_90d"] = payload
+                return payload
+
+            def signal_performance_contract() -> dict[str, Any]:
+                payload = market_performance_payload()
+                summary = payload.get("performance_summary") or {}
+                _assert(
+                    isinstance(summary, dict)
+                    and summary.get("version")
+                    == "market-signal-realized-performance-v1",
+                    "시장 시그널 실현 성과 요약 버전이 없거나 다릅니다.",
+                )
+                _assert(
+                    summary.get("return_basis") == "completed_trade_net_of_costs"
+                    and summary.get("benchmark_basis")
+                    == "same_market_same_holding_period",
+                    "완료 거래 순수익·동일 보유기간 지수 비교 기준이 다릅니다.",
+                )
+                windows = summary.get("windows") or {}
+                evidence: dict[str, Any] = {
+                    "version": summary.get("version"),
+                    "as_of": summary.get("as_of"),
+                    "windows": {},
+                }
+                for key, expected_days in (("30d", 30), ("90d", 90)):
+                    window = windows.get(key) if isinstance(windows, dict) else None
+                    _assert(isinstance(window, dict), f"{key} 성과 창이 없습니다.")
+                    completed = int(window.get("completed_trades") or 0)
+                    wins = int(window.get("wins") or 0)
+                    losses = int(window.get("losses") or 0)
+                    breakeven = int(window.get("breakeven") or 0)
+                    minimum = int(window.get("minimum_required_trades") or 0)
+                    matched = int(window.get("matched_benchmark_trades") or 0)
+                    _assert(
+                        int(window.get("window_days") or 0) == expected_days
+                        and completed == wins + losses + breakeven
+                        and minimum == 20
+                        and window.get("sample_state")
+                        == ("sufficient" if completed >= minimum else "limited")
+                        and 0 <= matched <= completed,
+                        f"{key} 성과 표본·상태·지수 매칭 수가 일관되지 않습니다.",
+                        window=window,
+                    )
+                    if completed:
+                        win_rate = _finite_number(window.get("win_rate"))
+                        _assert(
+                            win_rate is not None
+                            and abs(win_rate - round(wins / completed * 100, 2)) < 0.011
+                            and _finite_number(window.get("average_return")) is not None
+                            and _finite_number(window.get("median_return")) is not None,
+                            f"{key} 승률·평균·중앙값이 재현 가능한 숫자가 아닙니다.",
+                            window=window,
+                        )
+                    if matched:
+                        _assert(
+                            _finite_number(window.get("average_benchmark_return"))
+                            is not None
+                            and _finite_number(window.get("average_excess_return"))
+                            is not None,
+                            f"{key} 동일 보유기간 지수·초과수익이 없습니다.",
+                            window=window,
+                        )
+                    evidence["windows"][key] = {
+                        "completed_trades": completed,
+                        "win_rate": window.get("win_rate"),
+                        "average_return": window.get("average_return"),
+                        "median_return": window.get("median_return"),
+                        "matched_benchmark_trades": matched,
+                        "average_excess_return": window.get("average_excess_return"),
+                        "sample_state": window.get("sample_state"),
+                    }
+                return evidence
+
+            collector.check(
+                "SIG-PERF-001",
+                signal_performance_contract,
+                pass_message="30일·90일 완료 거래 순수익과 동일 보유기간 지수 비교 계약을 확인했습니다.",
+            )
+
+            def entry_safety_guard_contract() -> dict[str, Any]:
+                payload = market_performance_payload()
+                guard = payload.get("entry_safety_guard") or {}
+                _assert(
+                    isinstance(guard, dict)
+                    and guard.get("version") == "market-signal-entry-safety-v1"
+                    and int(guard.get("window_days") or 0) == 30
+                    and int(guard.get("minimum_required_trades") or 0) == 20,
+                    "신규 매수 성과 안전 가드 계약이 없거나 다릅니다.",
+                    guard=guard,
+                )
+                decisions = guard.get("decisions") or []
+                _assert(isinstance(decisions, list), "성과 안전 가드 결정 이력이 배열이 아닙니다.")
+                decision_dates = [
+                    str(item.get("effective_on") or "")
+                    for item in decisions
+                    if isinstance(item, dict)
+                ]
+                _assert(
+                    len(decision_dates) == len(decisions)
+                    and decision_dates == sorted(decision_dates)
+                    and len(decision_dates) == len(set(decision_dates)),
+                    "성과 안전 가드 결정 이력이 날짜순 append-only 형태가 아닙니다.",
+                    decision_dates=decision_dates,
+                )
+                active = guard.get("active") is True
+                if decisions:
+                    _assert(
+                        active is (decisions[-1].get("active") is True),
+                        "현재 가드 상태가 마지막 결정과 다릅니다.",
+                        guard=guard,
+                    )
+                performance = payload.get("performance_summary") or {}
+                recent = (performance.get("windows") or {}).get("30d") or {}
+                completed = int(recent.get("completed_trades") or 0)
+                minimum = int(guard.get("minimum_required_trades") or 20)
+                average = _finite_number(recent.get("average_return"))
+                if completed >= minimum and average is not None:
+                    _assert(
+                        active is (average < 0),
+                        "충분한 최근 표본의 기대값 부호와 안전 가드 상태가 다릅니다.",
+                        completed_trades=completed,
+                        average_return=average,
+                        active=active,
+                    )
+                pending_codes: list[str] = []
+                if active:
+                    for item in payload.get("items") or []:
+                        if not isinstance(item, dict):
+                            continue
+                        current = item.get("current") or {}
+                        if item.get("action") == "entry_pending" or (
+                            isinstance(current, dict)
+                            and current.get("action") == "entry_pending"
+                        ):
+                            pending_codes.append(str(item.get("code") or "unknown"))
+                    _assert(
+                        not pending_codes,
+                        "성과 안전 가드 활성 중 새 매수대기가 남아 있습니다.",
+                        pending_codes=pending_codes,
+                    )
+                return {
+                    "active": active,
+                    "effective_on": guard.get("effective_on"),
+                    "completed_trades": completed,
+                    "average_return": average,
+                    "decision_dates": decision_dates,
+                    "remaining_entry_pending": pending_codes,
+                }
+
+            collector.check(
+                "SIG-ENTRY-008",
+                entry_safety_guard_contract,
+                pass_message="음수 기대값 신규매수 관찰 하향과 append-only 결정 계약을 확인했습니다.",
+            )
+
+            def entry_filter_forward_contract() -> dict[str, Any]:
+                payload = market_performance_payload()
+                comparison = payload.get("filter_forward_comparison") or {}
+                _assert(
+                    isinstance(comparison, dict)
+                    and comparison.get("version")
+                    == "entry-filter-fixed-cohort-forward-v1",
+                    "고정 코호트 순방향 필터 비교가 없거나 버전이 다릅니다.",
+                )
+                try:
+                    cohort_date = date.fromisoformat(
+                        str(comparison.get("cohort_market_cap_date") or "")
+                    )
+                except ValueError:
+                    raise QaFailure(
+                        "고정 코호트 시가총액 기준일을 해석할 수 없습니다.",
+                        {"cohort_market_cap_date": comparison.get("cohort_market_cap_date")},
+                    ) from None
+                _assert(
+                    cohort_date <= date(2026, 9, 4)
+                    and str(comparison.get("period_start") or "") == "2026-09-04",
+                    "고정 코호트 기준일 또는 순방향 시작일이 필터 적용일과 맞지 않습니다.",
+                    cohort_market_cap_date=cohort_date.isoformat(),
+                    period_start=comparison.get("period_start"),
+                )
+                versions = (
+                    "buy-filter-v7.4-baseline",
+                    "buy-filter-h1",
+                    "buy-filter-h2",
+                    "buy-filter-h3",
+                )
+                filters = comparison.get("filters") or {}
+                rolling = comparison.get("rolling_last_trades") or {}
+                _assert(
+                    isinstance(filters, dict)
+                    and isinstance(rolling, dict)
+                    and all(isinstance(filters.get(version), dict) for version in versions)
+                    and all(isinstance(rolling.get(version), dict) for version in versions),
+                    "H1·H2·H3 고정 코호트 전체·최근 거래 비교가 완전하지 않습니다.",
+                )
+                symbol_counts = {int(filters[version].get("symbols") or 0) for version in versions}
+                _assert(
+                    len(symbol_counts) == 1
+                    and next(iter(symbol_counts)) > 0
+                    and all(
+                        int(rolling[version].get("requested_trades") or 0) == 20
+                        and 0 <= int(rolling[version].get("completed_trades") or 0) <= 20
+                        for version in versions
+                    ),
+                    "필터별 고정 코호트 크기 또는 최근 20건 비교 조건이 다릅니다.",
+                    symbol_counts=sorted(symbol_counts),
+                )
+                assessment = comparison.get("promotion_assessment") or {}
+                checks = assessment.get("checks") or {}
+                eligible = assessment.get("eligible_for_operator_review") is True
+                enough_sample = bool(
+                    checks.get("minimum_forward_trades") is True
+                    and checks.get("minimum_recent_trades") is True
+                )
+                expected_status = (
+                    "eligible_for_operator_review"
+                    if eligible
+                    else "shadow_not_eligible" if enough_sample else "shadow_collecting"
+                )
+                _assert(
+                    assessment.get("candidate") == "buy-filter-h3"
+                    and assessment.get("current_active") == "buy-filter-h1"
+                    and assessment.get("automatic_promotion") is False
+                    and assessment.get("operator_approval_required") is True
+                    and int(assessment.get("minimum_forward_trades") or 0) == 40
+                    and int(assessment.get("minimum_recent_trades") or 0) == 20
+                    and isinstance(checks, dict)
+                    and bool(checks)
+                    and eligible is all(value is True for value in checks.values())
+                    and assessment.get("status") == expected_status,
+                    "H3 승격 판정이 표본·H1 비교·운영자 승인 계약과 다릅니다.",
+                    promotion_assessment=assessment,
+                )
+                return {
+                    "cohort_market_cap_date": cohort_date.isoformat(),
+                    "period_start": comparison.get("period_start"),
+                    "period_end": comparison.get("period_end"),
+                    "symbols": next(iter(symbol_counts)),
+                    "h1": filters["buy-filter-h1"],
+                    "h2": filters["buy-filter-h2"],
+                    "h3": filters["buy-filter-h3"],
+                    "promotion_assessment": assessment,
+                }
+
+            collector.check(
+                "SIG-ENTRY-009",
+                entry_filter_forward_contract,
+                pass_message="H1·H2·H3 고정 코호트 순방향 비교와 H3 운영자 검토 게이트를 확인했습니다.",
             )
 
             def recommendation_eligibility_contract() -> dict[str, Any]:
@@ -3035,8 +3878,8 @@ def _live_checks(
                 )
                 _assert(
                     recommendations.get("selection_rule")
-                    == "recommendation_score_ranked_independent_of_trade_signal",
-                    "종목 추천이 추천 점수와 AI 시그널을 분리하지 않았습니다.",
+                    == "recommendation_score_ranked_with_terminal_exit_exclusion",
+                    "종목 추천이 전량 매도 완료 제외 규칙을 반영하지 않았습니다.",
                     selection_rule=recommendations.get("selection_rule"),
                 )
                 items = recommendations.get("items") or []
@@ -3107,6 +3950,11 @@ def _live_checks(
                     if (
                         item.get("buy_condition_met") is not True
                         or not recommendation_score_is_independent
+                        or (
+                            signal_action == "exited"
+                            and current.get("position_open") is not True
+                            and current.get("live_observation") is not True
+                        )
                         or not (
                             score_selected_valid
                             or pending_valid
@@ -3148,6 +3996,9 @@ def _live_checks(
                 )
                 qualified_count = int(recommendations.get("qualified_count") or 0)
                 candidate_count = int(recommendations.get("candidate_count") or 0)
+                terminal_exit_excluded_count = int(
+                    recommendations.get("terminal_exit_excluded_count") or 0
+                )
                 _assert(
                     candidate_count >= qualified_count >= len(items),
                     "추천 후보·점수 계산·반환 건수의 관계가 올바르지 않습니다.",
@@ -3156,9 +4007,11 @@ def _live_checks(
                     returned_count=len(items),
                 )
                 _assert(
-                    len(items) == min(20, qualified_count),
-                    "AI 시그널 상태 때문에 점수 추천 후보가 누락됐습니다.",
-                    expected_returned=min(20, qualified_count),
+                    len(items) <= min(20, qualified_count)
+                    and len(items) + terminal_exit_excluded_count
+                    >= min(20, qualified_count),
+                    "전량 매도 완료 종목 제외 후 추천 후보 반환 건수가 올바르지 않습니다.",
+                    maximum_returned=min(20, qualified_count),
                     returned_count=len(items),
                 )
                 _assert(
@@ -3190,6 +4043,7 @@ def _live_checks(
                     "pending_count": recommendations.get("pending_count"),
                     "entered_today_count": recommendations.get("entered_today_count"),
                     "holding_count": recommendations.get("holding_count"),
+                    "terminal_exit_excluded_count": terminal_exit_excluded_count,
                     "returned_count": len(items),
                     "signal_actions": sorted(signal_actions),
                     "codes": [item.get("code") for item in items if isinstance(item, dict)],
@@ -3198,7 +4052,7 @@ def _live_checks(
             collector.check(
                 "SIG-CONTRACT-002",
                 recommendation_eligibility_contract,
-                pass_message="추천 점수 순위와 현재 AI 시그널이 독립적으로 유지됨을 확인했습니다.",
+                pass_message="추천 점수 순위를 유지하면서 전량 매도 완료 종목을 제외함을 확인했습니다.",
             )
 
             def signal_surface_contract() -> dict[str, Any]:
@@ -3427,6 +4281,62 @@ def _live_checks(
             )
             points = intraday.get("points") if isinstance(intraday, dict) else intraday
             _assert(isinstance(points, list), "분봉 points가 배열이 아닙니다.")
+            observed_now = datetime.now(KST)
+            if time(9, 2) <= observed_now.time() < time(15, 30):
+                import exchange_calendars
+
+                if exchange_calendars.get_calendar("XKRX").is_session(
+                    observed_now.date()
+                ):
+                    _assert(
+                        intraday.get("market_state") == "regular",
+                        "KRX 개장 중인데 분봉 API가 장마감 상태입니다.",
+                        market_state=intraday.get("market_state"),
+                        **intraday_meta,
+                    )
+                    quote_session = (
+                        (quote.get("quote") or {}).get("market_session")
+                    )
+                    _assert(
+                        quote_session in {"krx_regular", "integrated_regular"},
+                        "KRX 개장 중인데 대표 종목 현재가 세션이 장마감 상태입니다.",
+                        market_session=quote_session,
+                        **quote_meta,
+                    )
+                    if time(9, 5) <= observed_now.time() < time(15, 20):
+                        _assert(
+                            intraday.get("trade_date") == observed_now.date().isoformat()
+                            and bool(points),
+                            "KRX 개장 중 당일 분봉이 없습니다.",
+                            trade_date=intraday.get("trade_date"),
+                            point_count=len(points),
+                            **intraday_meta,
+                        )
+                        latest = points[-1]
+                        try:
+                            minute = datetime.strptime(
+                                str(latest["trade_date"])
+                                + str(latest["trade_time"]).zfill(6),
+                                "%Y%m%d%H%M%S",
+                            ).replace(tzinfo=KST)
+                            quote_at = datetime.fromisoformat(
+                                str(quote.get("as_of") or "").replace("Z", "+00:00")
+                            )
+                        except (KeyError, TypeError, ValueError):
+                            raise QaFailure(
+                                "KRX 개장 중 분봉·현재가 관측 시각을 읽을 수 없습니다."
+                            ) from None
+                        _assert(
+                            quote_at.tzinfo is not None
+                            and 0 <= (observed_now - minute).total_seconds() <= 300
+                            and 0 <= (
+                                observed_now - quote_at.astimezone(KST)
+                            ).total_seconds() <= 300,
+                            "KRX 개장 중 분봉·현재가가 5분 이상 오래됐습니다.",
+                            minute_at=minute.isoformat(),
+                            quote_as_of=quote.get("as_of"),
+                            **quote_meta,
+                        )
             _assert(
                 signal.get("strategy_version") == catalog["strategy_version"],
                 "상세 시그널 버전이 다릅니다.",
@@ -3576,8 +4486,66 @@ def _live_checks(
             pass_message="DART 공식 접수번호 URL과 모바일 2xx 원문 응답을 확인했습니다.",
         )
 
+        def kis_market_data_contract() -> dict[str, Any]:
+            indices_payload, indices_meta = api.get("/market/indices", limit=5)
+            indices = (
+                indices_payload.get("items")
+                if isinstance(indices_payload, dict)
+                else indices_payload
+            )
+            _assert(
+                isinstance(indices, list) and bool(indices),
+                "국내 지수 응답이 비어 있습니다.",
+                **indices_meta,
+            )
+            chart, chart_meta = api.get("/stocks/247540/intraday", limit=390)
+            _assert(isinstance(chart, dict), "국내 분봉 응답이 객체가 아닙니다.", **chart_meta)
+            try:
+                observed = datetime.fromisoformat(
+                    str(chart.get("as_of") or "").replace("Z", "+00:00")
+                )
+            except ValueError:
+                observed = None
+            _assert(
+                observed is not None and observed.tzinfo is not None,
+                "국내 분봉 기준 시각이 없습니다.",
+            )
+            points = chart.get("points")
+            _assert(isinstance(points, list), "국내 분봉 응답이 배열이 아닙니다.")
+            invalid = []
+            for point in points:
+                try:
+                    minute = datetime.strptime(
+                        str(point["trade_date"]) + str(point["trade_time"]).zfill(6),
+                        "%Y%m%d%H%M%S",
+                    ).replace(tzinfo=KST)
+                except (TypeError, ValueError, KeyError):
+                    invalid.append("invalid_timestamp")
+                    continue
+                if minute > observed.astimezone(KST):
+                    invalid.append(minute.isoformat())
+            _assert(
+                not invalid,
+                "KIS 분봉에 관측 시각보다 미래인 거래가 포함됐습니다.",
+                invalid=invalid[:5],
+                chart_trade_date=chart.get("trade_date"),
+                **chart_meta,
+            )
+            return {
+                "indices": len(indices),
+                "chart_points": len(points),
+                "chart_trade_date": chart.get("trade_date"),
+                "chart_source": chart.get("source"),
+                "chart_as_of": chart.get("as_of"),
+            }
+
+        collector.check(
+            "DATA-KIS-003",
+            kis_market_data_contract,
+            pass_message="국내 지수와 KIS 분봉의 미래 시각 차단을 확인했습니다.",
+        )
+
         endpoint_cases = (
-            ("DATA-KIS-003", "/market/indices", {"limit": 5}),
             (
                 "DATA-KRX-NAVER-004",
                 "/market/rankings",
@@ -3618,6 +4586,100 @@ def _live_checks(
                 endpoint_contract,
                 pass_message=f"{path} 읽기 전용 연동 계약을 확인했습니다.",
             )
+
+        def news_freshness_contract() -> dict[str, Any]:
+            quality, quality_meta = api.get(
+                "/meta/signal-data-quality",
+                probe="true",
+                sample_code="005930",
+            )
+            datasets = quality.get("datasets") if isinstance(quality, dict) else {}
+            news_quality = (datasets or {}).get("news") or {}
+            stock_news_quality = (datasets or {}).get("stock_news") or {}
+            _assert(
+                news_quality.get("state") == "ready"
+                and stock_news_quality.get("state") == "ready",
+                "뉴스 수집 또는 Top100 종목뉴스 스냅샷이 최신 상태가 아닙니다.",
+                news_state=news_quality.get("state"),
+                stock_news_state=stock_news_quality.get("state"),
+                **quality_meta,
+            )
+            probe_items = ((quality.get("api_probe") or {}).get("items") or [])
+            news_probe = next(
+                (
+                    item
+                    for item in probe_items
+                    if isinstance(item, dict) and item.get("key") == "news"
+                ),
+                {},
+            )
+            _assert(
+                news_probe.get("state") == "ready",
+                "네이버 현재 뉴스 JSON 원천 프로브가 ready가 아닙니다.",
+                news_probe=news_probe,
+            )
+            general_items, general_meta = api.get("/news-items", limit=5)
+            stock_items, stock_meta = api.get("/stocks/005930/news-items", limit=5)
+            _assert(
+                isinstance(general_items, list)
+                and general_items
+                and isinstance(stock_items, list)
+                and stock_items,
+                "전역 또는 삼성전자 최신 뉴스가 비어 있습니다.",
+                general_count=len(general_items) if isinstance(general_items, list) else None,
+                stock_count=len(stock_items) if isinstance(stock_items, list) else None,
+            )
+            _assert(
+                general_meta.get("cache_control")
+                == "no-store, no-cache, must-revalidate"
+                and stock_meta.get("cache_control")
+                == "no-store, no-cache, must-revalidate"
+                and stock_meta.get("data_state") == "ready",
+                "뉴스 API의 no-store 또는 신선도 헤더 계약이 잘못됐습니다.",
+                general=general_meta,
+                stock=stock_meta,
+            )
+            cutoff = datetime.now(KST).replace(tzinfo=None) - timedelta(days=3)
+            stale_items: list[dict[str, Any]] = []
+            for scope, items in (("general", general_items), ("stock", stock_items)):
+                for item in items:
+                    try:
+                        published_at = datetime.fromisoformat(
+                            str(item.get("published_at") or "").replace("Z", "+00:00")
+                        )
+                        if published_at.tzinfo is not None:
+                            published_at = published_at.astimezone(KST).replace(tzinfo=None)
+                    except (AttributeError, ValueError):
+                        published_at = None
+                    if published_at is None or published_at < cutoff:
+                        stale_items.append(
+                            {
+                                "scope": scope,
+                                "title": str(item.get("title") or "")[:100],
+                                "published_at": item.get("published_at"),
+                            }
+                        )
+            _assert(
+                not stale_items,
+                "최신 뉴스 API에 3일을 넘긴 기사가 포함됐습니다.",
+                stale_items=stale_items,
+            )
+            return {
+                "quality": quality_meta,
+                "news_state": news_quality.get("state"),
+                "stock_news_state": stock_news_quality.get("state"),
+                "news_probe": news_probe,
+                "general": general_meta,
+                "stock": stock_meta,
+                "general_count": len(general_items),
+                "stock_count": len(stock_items),
+            }
+
+        collector.check(
+            "DATA-CALENDAR-CONTENT-007",
+            news_freshness_contract,
+            pass_message="현재 뉴스 원천·Top100 커버리지·API 신선도를 확인했습니다.",
+        )
 
         def us_contract() -> dict[str, Any]:
             payload, meta = api.get("/us/stocks/AAPL/dashboard")
@@ -4177,7 +5239,7 @@ def _live_us_checks(
                 and bool(timeline),
                 "스테이징 미국 시장 뉴스가 live ready 상태가 아닙니다.",
                 status=payload.get("status"),
-                data_state=payload.get("data_state"),
+                payload_data_state=payload.get("data_state"),
                 timeline_count=len(timeline) if isinstance(timeline, list) else None,
                 **payload_meta,
             )
@@ -4781,7 +5843,7 @@ def _live_us_checks(
                 recommendations.get("recommendation_model_version")
                 == "us-independent-recommendation-v1"
                 and recommendations.get("recommendation_selection_rule")
-                == "recommendation_score_ranked_independent_of_trade_signal",
+                == "recommendation_score_ranked_with_terminal_exit_exclusion",
                 "미국 추천이 독립 점수 모델·선정 규칙을 공개하지 않았습니다.",
             )
             for item in recommendation_items:
@@ -4798,6 +5860,10 @@ def _live_us_checks(
                     or item.get("action") != "추천 후보"
                     or not isinstance(signal, dict)
                     or "score" in signal
+                    or (
+                        ((signal.get("current") or {}).get("action") == "exited")
+                        and (signal.get("current") or {}).get("position_open") is not True
+                    )
                 ):
                     invalid_recommendations.append(
                         str(item.get("code") or "unknown")
@@ -5096,6 +6162,35 @@ def _public_websocket_check(
         )
 
 
+def _completed_kis_minute_chart_evidence(
+    historical: list[dict[str, Any]], completed_date: date
+) -> dict[str, Any]:
+    historical_times = [str(row.get("trade_time") or "") for row in historical]
+    _assert(
+        bool(historical)
+        and historical_times == sorted(set(historical_times))
+        and historical_times[0] <= "090200"
+        and historical_times[-1] == "153000"
+        and all(
+            str(row.get("trade_date") or "") == completed_date.strftime("%Y%m%d")
+            and all(
+                float(row.get(key) or 0) > 0
+                for key in ("open", "high", "low", "price")
+            )
+            for row in historical
+        ),
+        "KIS 과거 날짜 분봉이 완료 세션의 정렬·종가경매 계약을 만족하지 않습니다.",
+        date=completed_date.isoformat(),
+        count=len(historical),
+        first_time=historical_times[0] if historical_times else None,
+        last_time=historical_times[-1] if historical_times else None,
+    )
+    return {
+        "historical_date": completed_date.isoformat(),
+        "historical_points": len(historical),
+    }
+
+
 def _direct_kis_checks(collector: ResultCollector) -> None:
     from app.collectors.briefing import KisRestBriefingProvider
     from app.config import get_settings
@@ -5141,8 +6236,37 @@ def _direct_kis_checks(collector: ResultCollector) -> None:
     )
 
     def market_data_contract() -> dict[str, Any]:
+        from app.services.market_calendar import (
+            is_korea_market_session_date,
+            latest_completed_korea_market_session_date,
+        )
+
         indices = provider.fetch_market_indices()
         intraday = provider.fetch_intraday_chart("005930", max_points=5)
+        completed_date = latest_completed_korea_market_session_date()
+        _assert(completed_date is not None, "완료된 KRX 거래일을 확인할 수 없습니다.")
+        try:
+            historical = provider.fetch_historical_intraday_chart(
+                "005930", completed_date, max_points=390
+            )
+        except Exception as exc:
+            response = getattr(exc, "response", None)
+            now = datetime.now(KST)
+            _assert(
+                getattr(response, "status_code", None) == 403
+                and now.time() >= time(15, 40)
+                and is_korea_market_session_date(now.date(), now),
+                "KIS 날짜별 분봉 실패 후 당일 장마감 대체 경로를 확인할 수 없습니다.",
+            )
+            historical = provider.fetch_intraday_chart(
+                "005930", max_points=391, market_division="J", now=now
+            )
+            completed_date = now.date()
+            replay_source = "current_day_afterclose"
+            dated_http_status = 403
+        else:
+            replay_source = "dated_kis"
+            dated_http_status = None
         orderbook = provider._get(
             "/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
             "FHKST01010200",
@@ -5152,6 +6276,9 @@ def _direct_kis_checks(collector: ResultCollector) -> None:
             len(indices) == 2, "KIS 지수 2종이 완성되지 않았습니다.", count=len(indices)
         )
         _assert(isinstance(intraday, list), "KIS 분봉 응답이 배열이 아닙니다.")
+        historical_evidence = _completed_kis_minute_chart_evidence(
+            historical, completed_date
+        )
         _assert(
             bool(orderbook.get("output1") or orderbook.get("output")),
             "KIS 호가 응답이 비어 있습니다.",
@@ -5159,6 +6286,9 @@ def _direct_kis_checks(collector: ResultCollector) -> None:
         return {
             "indices": [item.get("code") for item in indices],
             "intraday_points": len(intraday),
+            **historical_evidence,
+            "replay_source": replay_source,
+            "dated_http_status": dated_http_status,
             "orderbook_present": True,
         }
 

@@ -188,7 +188,7 @@ def test_recommendations_stay_ready_when_signal_snapshot_is_not_ready(monkeypatc
     assert payload["items"] == []
     assert payload["selection_state"] == "ready"
     assert payload["selection_refreshing"] is False
-    assert "AI 시그널에서 별도로" in payload["selection_message"]
+    assert "매도를 완료한 종목" in payload["selection_message"]
 
 
 def _session() -> Session:
@@ -396,7 +396,7 @@ def test_recommendations_fall_back_to_close_times_volume_without_market_cap(monk
         assert payload["universe_count"] == 2
         assert payload["candidate_count"] == 2
         assert len(payload["items"]) == 2
-        assert payload["selection_rule"] == "recommendation_score_ranked_independent_of_trade_signal"
+        assert payload["selection_rule"] == "recommendation_score_ranked_with_terminal_exit_exclusion"
         assert payload["qualified_count"] == 2
         assert all(item["trading_value"] for item in payload["items"])
         assert all(item["buy_condition_met"] is True for item in payload["items"])
@@ -625,6 +625,67 @@ def test_recommendations_keep_confirmed_entry_and_current_holding_visible(monkey
     assert holding_item["ai_trade_signal"]["current"]["position_open"] is True
 
 
+def test_recommendations_exclude_completed_exit_and_backfill_next_candidate(monkeypatch):
+    codes = ["100001", "100002", "100003"]
+    payloads = {code: _confirmed_entry_signal(code) for code in codes}
+    exited = payloads["100001"]["current"]
+    exited.update(
+        {
+            "action": "exited",
+            "label": "전량 매도 확정",
+            "position_open": False,
+            "model_exposure_percent": Decimal("0"),
+            "lifecycle": {
+                "state": "exited",
+                "latest_transition": {
+                    "side": "sell",
+                    "signal_date": "2026-08-20",
+                    "transition_date": "2026-08-21",
+                },
+            },
+        }
+    )
+    snapshot = {
+        "status": "ready",
+        "items": [
+            {"code": code, "current": payload["current"]}
+            for code, payload in payloads.items()
+        ],
+        "preliminary_history": [],
+    }
+    monkeypatch.setattr(
+        recommendations,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: snapshot,
+    )
+    monkeypatch.setattr(
+        recommendations,
+        "load_quant_signal_payload",
+        lambda _db, code, **_kwargs: payloads[str(code)],
+    )
+
+    with _session() as db:
+        for index, code in enumerate(codes):
+            _seed_prices(db, code, f"후보{index + 1}", 20_000 + index * 100, 500_000)
+        db.commit()
+        universe_cache.clear()
+        payload = build_recommendations(
+            db,
+            limit=2,
+            candidate_limit=10,
+            refresh_live=False,
+            ensure_signal_history=False,
+        )
+
+    assert payload["terminal_exit_excluded_count"] == 1
+    assert [item["rank"] for item in payload["items"]] == [1, 2]
+    assert {item["code"] for item in payload["items"]} == {"100002", "100003"}
+    assert all(
+        item["ai_trade_signal"]["current"]["action"] != "exited"
+        for item in payload["items"]
+    )
+
+
 def test_recommendations_only_expand_to_small_diversity_pool(monkeypatch):
     codes = [f"{100000 + idx:06d}" for idx in range(8)]
     _install_confirmed_entry_signals(monkeypatch, codes)
@@ -762,7 +823,7 @@ def test_recommendations_link_confirmed_entry_contract_and_released_preliminary(
     assert compact["latest_preliminary"]["active"] is False
     assert compact["latest_preliminary"]["last_seen_at"] == "2026-08-20T10:05:00+09:00"
     validated = MarketRecommendationOut.model_validate(payload)
-    assert validated.selection_rule == "recommendation_score_ranked_independent_of_trade_signal"
+    assert validated.selection_rule == "recommendation_score_ranked_with_terminal_exit_exclusion"
     assert validated.items[0].buy_condition_met is True
     assert validated.items[0].condition_price == validated.items[0].price
     assert validated.items[0].ai_trade_signal.current.lifecycle.state == "entry_pending"

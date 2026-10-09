@@ -529,6 +529,11 @@ def test_canonical_signal_response_exposes_the_same_revision_as_the_socket_frame
         main_module.market_quant_signal_cache, "get", lambda _key: payload
     )
     monkeypatch.setattr(
+        main_module,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: payload,
+    )
+    monkeypatch.setattr(
         main_module.market_quant_signal_cache, "set", lambda *_args: None
     )
     monkeypatch.setattr(
@@ -550,6 +555,11 @@ def test_canonical_signal_response_exposes_the_same_revision_as_the_socket_frame
         main_module,
         "_merge_market_preliminary_notification_history",
         lambda _db, value: value,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_entry_filter_shadow_snapshot",
+        lambda _db: None,
     )
 
     result = main_module.get_market_quant_signals(
@@ -591,6 +601,15 @@ def test_nondefault_signal_response_cannot_replace_the_canonical_revision(monkey
         },
     )
     monkeypatch.setattr(
+        main_module,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: {
+            "strategy_version": "test-v1",
+            "as_of": "2026-08-31T10:05:00+09:00",
+            "items": [{"code": "000660", "side": "sell"}],
+        },
+    )
+    monkeypatch.setattr(
         main_module.market_quant_signal_cache, "set", lambda *_args: None
     )
     monkeypatch.setattr(
@@ -612,6 +631,11 @@ def test_nondefault_signal_response_cannot_replace_the_canonical_revision(monkey
         main_module,
         "_merge_market_preliminary_notification_history",
         lambda _db, value: value,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_entry_filter_shadow_snapshot",
+        lambda _db: None,
     )
 
     result = main_module.get_market_quant_signals(
@@ -676,6 +700,14 @@ def test_canonical_refresh_swaps_cache_before_publishing_transformed_revision(
     monkeypatch.setattr(
         main_module, "_repair_market_quant_signal_ohlc", lambda *_args, **_kwargs: 0
     )
+    monkeypatch.setattr(main_module.kis_rest_provider, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        main_module,
+        "finalize_open_intraday_paths_for_session",
+        lambda *_args: events.append("seal") or {
+            "pending": 0, "finalized": 0, "unverified": 0
+        },
+    )
     monkeypatch.setattr(
         main_module,
         "_build_market_quant_signal_payload",
@@ -710,7 +742,7 @@ def test_canonical_refresh_swaps_cache_before_publishing_transformed_revision(
     result = main_module._refresh_market_quant_signal_snapshot()
 
     assert result is stored
-    assert events == ["cache", "canonicalize", "revision"]
+    assert events == ["seal", "cache", "canonicalize", "revision"]
 
 
 def test_kis_recovery_status_only_reaches_realtime_codes(monkeypatch):

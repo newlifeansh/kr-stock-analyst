@@ -2,7 +2,6 @@ name: QA data-signal staging E2E
 
 on:
   workflow_dispatch:
-  deployment_status:
 
 permissions:
   contents: read
@@ -13,13 +12,8 @@ concurrency:
 
 jobs:
   e2e:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'deployment_status' &&
-       github.event.deployment_status.state == 'success' &&
-       contains(github.event.deployment.environment, 'staging'))
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +29,6 @@ jobs:
       RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
       RAILWAY_DATABASE_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
       RAILWAY_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
-      RAILWAY_READY_URL: ${{ vars.DASHBOARD_STAGING_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,7 +38,7 @@ jobs:
       - name: Install project and browser runtime
         run: |
           pip install -e '.[qa,mcp]'
-          playwright install --with-deps chromium
+          playwright install chromium
       - name: Install Railway CLI for domestic staging
         if: matrix.surface == 'dashboard'
         run: npm install --global @railway/cli@5.45.7

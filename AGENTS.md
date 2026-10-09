@@ -8,7 +8,8 @@
 
 # Release promotion policy
 
-- Deploy every product change to the `us-market` preproduction surface before any `secretnote.cloud/dashboard` production deployment.
-- Record the candidate version, source commit, immutable artifact identity or asset hashes, and proportional QA evidence from `us-market`.
-- Do not deploy to `secretnote.cloud/dashboard` until an operator explicitly approves that exact candidate after reviewing the `us-market` result.
-- Promote the exact tested artifact to production. A rebuild or source change creates a new candidate that must return to `us-market` and receive fresh approval.
+- Treat an approved merge to `main` as production release intent. Every `main` push must pass the deterministic pytest and QA gate before deployment starts.
+- Build one immutable OCI image for the tested `main` commit, record its source SHA and digest, and deploy that exact digest to the US and domestic production web/collector services without rebuilding.
+- Staging is optional and remains available for manual diagnosis or explicitly requested high-risk observation; it is not a prerequisite for the normal `main` production path.
+- After deployment, verify both production surfaces against the checked-out source version and asset hashes, wait for current data, and run read-only live QA. A failed post-deployment check must remain visible as a failed release with retained evidence.
+- Keep the previous known-good image digest recoverable for rollback. A source change creates a new candidate and must pass the gate again.

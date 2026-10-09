@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.collectors.news import preferred_news_url
+from app.collectors.news import fetch_naver_stock_news_items, preferred_news_url
 from app.collectors.research import fetch_company_detail_fields, preferred_research_url
 from app.models import (
     DailyPrice,
@@ -780,53 +780,20 @@ def _deduplicate_stock_news_rows(
 
 def _fetch_naver_item_news(code: str, *, strict: bool = False) -> list[dict[str, object]]:
     try:
-        response = requests.get(
-            "https://finance.naver.com/item/news_news.naver",
-            params={"code": code, "page": 1},
-            headers={
-                "User-Agent": "Mozilla/5.0",
-                "Referer": f"https://finance.naver.com/item/main.naver?code={code}",
-            },
-            timeout=10,
-        )
-        response.raise_for_status()
-        response.encoding = "euc-kr"
+        items = fetch_naver_stock_news_items(code, page=1, page_size=20)
     except Exception:
         if strict:
             raise
         return []
-
-    soup = BeautifulSoup(response.text, "html.parser")
-    rows: list[dict[str, object]] = []
-    for tr in soup.select("table.type5 tr"):
-        row_classes = set(tr.get("class") or [])
-        related_parent = tr.find_parent(
-            "tr",
-            class_=lambda value: value and "relation_lst" in str(value).split(),
+    rows = [
+        _event_row(
+            item.title,
+            item.press_name or "Naver",
+            item.detail_url,
+            item.published_at,
         )
-        if "relation_lst" in row_classes or related_parent is not None:
-            continue
-        title_cell = tr.select_one("td.title")
-        if not title_cell:
-            continue
-        anchor = title_cell.find("a", href=True)
-        if not anchor:
-            continue
-        title = anchor.get_text(" ", strip=True)
-        if not title:
-            continue
-        info_cell = tr.select_one("td.info")
-        date_cell = tr.select_one("td.date")
-        href = anchor["href"]
-        url = href if href.startswith("http") else f"https://finance.naver.com{href}"
-        rows.append(
-            _event_row(
-                title,
-                info_cell.get_text(" ", strip=True) if info_cell else "Naver",
-                url,
-                _resolve_trade_date(date_cell.get_text(" ", strip=True) if date_cell else None),
-            )
-        )
+        for item in items
+    ]
     return _deduplicate_stock_news_rows(rows, limit=20)
 
 
@@ -834,7 +801,7 @@ def _naver_item_news(code: str) -> list[dict[str, object]]:
     return NAVER_CACHE.get_or_set(
         ("naver_item_news", code),
         NAVER_ITEM_NEWS_TTL_SECONDS,
-        lambda: _fetch_naver_item_news(code),
+        lambda: _fetch_naver_item_news(code, strict=True),
     )
 
 
@@ -864,13 +831,23 @@ def recent_stock_news_rows(
         datetime.utcnow() - timedelta(seconds=STOCK_NEWS_SNAPSHOT_MAX_AGE_SECONDS)
     )
     if force_refresh or (refresh_if_stale and stale):
-        live_news = _naver_item_news(code)
-        if live_news:
+        try:
+            live_news = _naver_item_news(code)
+        except Exception:
+            live_news = None
+        if live_news is not None:
             stored_news = live_news
             try:
                 store_stock_news(db, code, live_news)
             except Exception:
                 db.rollback()
+        elif stale:
+            # Never present an expired snapshot as if it were current merely
+            # because the upstream refresh failed. The collector run records
+            # the failure and the API fails closed to an empty news section.
+            stored_news = []
+    elif stale:
+        stored_news = []
     return _deduplicate_stock_news_rows(stored_news, limit=limit)
 
 
@@ -896,6 +873,21 @@ def stock_news_item_payloads(
         }
         for index, row in enumerate(rows)
     ]
+
+
+def stock_news_snapshot_metadata(db: Session, code: str) -> dict[str, object]:
+    snapshot = db.get(StockNewsSnapshot, code)
+    fetched_at = snapshot.fetched_at if snapshot else None
+    fresh = bool(
+        fetched_at
+        and fetched_at
+        >= datetime.utcnow() - timedelta(seconds=STOCK_NEWS_SNAPSHOT_MAX_AGE_SECONDS)
+    )
+    return {
+        "state": "ready" if fresh else "stale" if snapshot else "unavailable",
+        "as_of": fetched_at,
+        "max_age_seconds": STOCK_NEWS_SNAPSHOT_MAX_AGE_SECONDS,
+    }
 
 
 def store_stock_news(

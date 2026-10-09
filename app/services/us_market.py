@@ -58,7 +58,7 @@ US_SECTOR_CLOSED_TTL_SECONDS = 300
 US_HEADERS = {"User-Agent": "Mozilla/5.0"}
 US_RECOMMENDATION_MODEL_VERSION = "us-independent-recommendation-v1"
 US_RECOMMENDATION_SELECTION_RULE = (
-    "recommendation_score_ranked_independent_of_trade_signal"
+    "recommendation_score_ranked_with_terminal_exit_exclusion"
 )
 US_RECOMMENDATION_COMPONENT_WEIGHTS: dict[str, Decimal] = {
     "price_momentum": Decimal("45"),
@@ -2396,6 +2396,18 @@ def us_intraday_prices(
             "price": close,
             "volume": int(volume) if volume is not None else None,
         })
+    regular_points_by_date: dict[date, list[dict[str, object]]] = {}
+    for point in points:
+        trade_time = str(point["trade_time"])
+        if "093000" <= trade_time <= "160000":
+            regular_points_by_date.setdefault(point["trade_date"], []).append(point)
+    regular_trade_dates = sorted(regular_points_by_date)
+    regular_trade_date = regular_trade_dates[-1] if regular_trade_dates else None
+    regular_reference_price = _us_intraday_reference_price(meta)
+    if len(regular_trade_dates) >= 2:
+        previous_session_points = regular_points_by_date[regular_trade_dates[-2]]
+        if previous_session_points:
+            regular_reference_price = _to_decimal(previous_session_points[-1].get("close")) or regular_reference_price
     return {
         "code": stock["code"],
         "source": "Yahoo Finance",
@@ -2407,7 +2419,9 @@ def us_intraday_prices(
         "range": range_,
         "interval": interval,
         "trade_date": points[-1]["trade_date"] if points else None,
+        "regular_trade_date": regular_trade_date,
         "reference_price": _us_intraday_reference_price(meta),
+        "regular_reference_price": regular_reference_price,
         "points": points,
     }
 
@@ -3732,6 +3746,16 @@ def _us_recommendation_no_signal(
     }
 
 
+def _us_terminal_exit_signal(signal: object) -> bool:
+    current = signal.get("current") if isinstance(signal, dict) else None
+    return bool(
+        isinstance(current, dict)
+        and str(current.get("action") or "").strip().lower() == "exited"
+        and current.get("position_open") is not True
+        and current.get("live_observation") is not True
+    )
+
+
 def build_us_recommendations(
     limit: int = 8,
     candidate_limit: int = 30,
@@ -3772,8 +3796,12 @@ def build_us_recommendations(
         if isinstance(signal, dict) and signal.get("code")
     }
     items: list[dict[str, object]] = []
+    terminal_exit_excluded_count = 0
     for candidate in candidate_items:
         signal = signal_by_code.get(str(candidate["code"]).upper())
+        if _us_terminal_exit_signal(signal):
+            terminal_exit_excluded_count += 1
+            continue
         recommendation_reasons = list(candidate.get("recommendation_reasons") or [])
         item = {
             **candidate,
@@ -3833,19 +3861,21 @@ def build_us_recommendations(
         "refresh_mode": canonical.get("refresh_mode", "collector_owned"),
         "candidate_count": len(candidate_items),
         "total_candidate_count": len(scored_items),
+        "terminal_exit_excluded_count": terminal_exit_excluded_count,
         "recommendation_model_version": US_RECOMMENDATION_MODEL_VERSION,
         "recommendation_selection_rule": US_RECOMMENDATION_SELECTION_RULE,
         "recommendation_component_weights": dict(US_RECOMMENDATION_COMPONENT_WEIGHTS),
         "selection_state": "ready" if snapshot_ready else "unavailable",
         "selection_message": (
-            "미국 Top100 추천 점수는 매매 시그널과 독립적으로 계산합니다."
+            "미국 Top100 추천 점수로 순위를 계산하되, 전량 매도를 "
+            "완료한 종목은 새 매수 조건이 확인될 때까지 제외합니다."
             if snapshot_ready
             else "완료된 미국 Top100 스냅샷이 준비되면 추천 점수를 다시 계산합니다."
         ),
         "methodology": list(canonical.get("methodology") or []),
         "recommendation_methodology": [
             "미국 Top100 안에서 50일·200일 가격 흐름, 3개월 평균 거래대금, 밸류에이션, 시가총액 안정성을 교차 비교합니다.",
-            "추천 점수와 순위는 매매 시그널 action을 입력으로 사용하지 않으며, 시그널 상태는 별도 참고 정보로만 표시합니다.",
+            "추천 점수와 순위는 매매 시그널 action을 점수 입력으로 사용하지 않지만, 전량 매도 완료 상태는 추천 자격에서 제외합니다.",
             "자료가 없는 밸류에이션 항목은 중립값으로 채우지 않고 관측된 구성요소의 가중치만 다시 합산합니다.",
         ],
         "items": selected,

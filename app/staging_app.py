@@ -50,9 +50,9 @@ Receive = Callable[[], Awaitable[Message]]
 Send = Callable[[Message], Awaitable[None]]
 
 THEME_VERSION = "20260828-tds-adaptive-v77-shortcuts"
-STAGING_IA_VERSION = "20260921-domestic-market-v116"
+STAGING_IA_VERSION = "20260929-chart-fallback-v117"
 STAGING_STYLE_VERSION = (
-    f"{THEME_VERSION}-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161-ai-signal-landing-v165-recommendation-overview-v166-recommendation-evidence-v169-domestic-market-v170-us-fold-v171-domestic-fold-v172"
+    f"{THEME_VERSION}-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161-ai-signal-landing-v165-recommendation-overview-v166-recommendation-evidence-v169-domestic-market-v170-chart-fallback-v171-fold-v173"
 )
 STAGING_ENVIRONMENT_META = '<meta name="secret-note-environment" content="staging" />'
 SERVICE_UPDATE_META = (
@@ -316,6 +316,15 @@ def _staging_recommendation_state(
     return None
 
 
+def _staging_terminal_exit_current(current: object) -> bool:
+    return bool(
+        isinstance(current, Mapping)
+        and str(current.get("action") or "").strip().lower() == "exited"
+        and current.get("position_open") is not True
+        and current.get("live_observation") is not True
+    )
+
+
 def _staging_recommendation_signal_date(item: Mapping[str, Any]) -> date | None:
     direct = _staging_date_value(item.get("signal_date"))
     if direct is not None:
@@ -485,7 +494,7 @@ def _rewrite_staging_recommendation_contract(
     reference_date: date | None = None,
     supplemental_items: list[dict[str, Any]] | None = None,
 ) -> bytes:
-    """Keep recommendation ranking independent and attach signal state as context."""
+    """Attach signal context and remove completed exits from recommendation cards."""
 
     try:
         payload = json.loads(body)
@@ -510,10 +519,14 @@ def _rewrite_staging_recommendation_contract(
             signal_by_code[code] = raw_item
 
     source_items = list(payload.get("items")) if isinstance(payload.get("items"), list) else []
-    # Signal membership must never create or remove recommendation cards.
-    # Keep the legacy argument temporarily so older callers remain compatible.
+    # Signal membership never adds recommendation cards. A confirmed terminal
+    # exit is the sole eligibility guard because showing a completed sale as a
+    # current recommendation is contradictory.
     _ = supplemental_items
     ranked: list[dict[str, Any]] = []
+    terminal_exit_excluded_count = int(
+        payload.get("terminal_exit_excluded_count") or 0
+    )
     for raw_item in source_items:
         if not isinstance(raw_item, dict):
             continue
@@ -557,6 +570,9 @@ def _rewrite_staging_recommendation_contract(
                 }
             )
             item["ai_trade_signal"] = compact_signal
+        if _staging_terminal_exit_current(compact_current):
+            terminal_exit_excluded_count += 1
+            continue
         recommendation_state = _staging_recommendation_state(
             compact_current or None,
             today=today,
@@ -602,7 +618,8 @@ def _rewrite_staging_recommendation_contract(
     payload["pending_count"] = pending_count
     payload["entered_today_count"] = entered_today_count
     payload["holding_count"] = holding_count
-    payload["selection_rule"] = "recommendation_score_ranked_independent_of_trade_signal"
+    payload["terminal_exit_excluded_count"] = terminal_exit_excluded_count
+    payload["selection_rule"] = "recommendation_score_ranked_with_terminal_exit_exclusion"
     payload["selection_state"] = str(payload.get("selection_state") or "ready")
     payload["selection_refreshing"] = bool(
         signal_ready
@@ -610,12 +627,14 @@ def _rewrite_staging_recommendation_contract(
         and signal_payload.get("status") == "refreshing"
     )
     payload["selection_message"] = (
-        "추천 점수로 선별한 후보이며, 매수·보유 판단은 AI 시그널에서 별도로 확인합니다."
+        "추천 점수로 선별하되, AI 전략이 매도를 완료한 종목은 "
+        "새 매수 조건이 확인될 때까지 제외합니다."
     )
     payload["methodology"] = [
         "시장 대표 종목에서 가격 흐름과 거래대금으로 추천 후보를 선별합니다.",
         "추천 점수와 종목군·섹터 분산 기준으로 순위를 정합니다.",
         "매수·보유·매도 판단은 추천 순위와 분리된 현재 AI 시그널로 보여드립니다.",
+        "전량 매도를 완료한 종목은 새 매수 조건이 확인될 때까지 추천 후보에서 제외합니다.",
     ]
     payload["items"] = ranked
     return json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")

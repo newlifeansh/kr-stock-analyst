@@ -59,7 +59,7 @@ UNIVERSE_CACHE_TTL_SECONDS = 300
 RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_AGE_SECONDS = 6 * 60 * 60
 RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_FUTURE_SKEW_SECONDS = 60
 MAX_RECOMMENDATIONS_PER_SECTOR = 2
-RECOMMENDATION_SELECTION_RULE = "recommendation_score_ranked_independent_of_trade_signal"
+RECOMMENDATION_SELECTION_RULE = "recommendation_score_ranked_with_terminal_exit_exclusion"
 RECOMMENDATION_PENDING_STATE = "entry_confirmed"
 RECOMMENDATION_ENTERED_TODAY_STATE = "entered_today"
 RECOMMENDATION_HOLDING_STATE = "holding"
@@ -77,7 +77,26 @@ METHODOLOGY = [
     "정밀 계산은 10개 항목 가중합을 사용한다. 빠른 후보 선별은 실제로 확인된 가격·거래대금 항목만 재가중해 계산하며, 없는 데이터에 임의 점수를 넣지 않는다.",
     "동일 기업군은 우선 한 종목, 동일 투자 섹터는 우선 두 종목 이내로 제한해 특정 위험 팩터 쏠림을 줄인다.",
     "추천 점수는 모니터링 후보 순위이며, 실제 진입·보유·축소 판단은 종목별 AI 시그널 상태를 별도로 따른다.",
+    "AI 전략이 전량 매도를 완료한 종목은 새로운 매수 조건이 확인되기 전까지 추천 후보에서 제외한다.",
 ]
+
+
+def _terminal_exit_current(current: object) -> bool:
+    """Return whether the latest confirmed strategy position is fully closed."""
+
+    return bool(
+        isinstance(current, dict)
+        and str(current.get("action") or "").strip().lower() == "exited"
+        and current.get("position_open") is not True
+        and current.get("live_observation") is not True
+    )
+
+
+def _terminal_exit_signal(signal: object) -> bool:
+    return bool(
+        isinstance(signal, dict)
+        and _terminal_exit_current(signal.get("current"))
+    )
 
 RECOMMENDATION_GROUP_PREFIXES = (
     "HD현대",
@@ -1162,22 +1181,25 @@ def build_recommendations(
             item["trading_value"] = fallback.get("trading_value")
 
     scored.sort(key=lambda item: item["score"], reverse=True)
-    selected = _select_diverse_recommendations(scored, limit)
+    # Evaluate a wider score-ranked pool so a completed exit can be removed
+    # without leaving a visible hole when another valid candidate is available.
+    selection_pool_limit = min(len(scored), max(limit * 2, limit + 8))
+    selection_pool = _select_diverse_recommendations(scored, selection_pool_limit)
     preliminary_states = _latest_preliminary_states(
         db,
-        [str(item.get("code") or "") for item in selected],
+        [str(item.get("code") or "") for item in selection_pool],
     )
     pending_count = 0
     entered_today_count = 0
     holding_count = 0
     live_quotes: dict[str, dict[str, object] | None] = {}
-    for item in selected:
+    for item in selection_pool:
         code = str(item.get("code") or "")
         live_quote = item.pop("_quant_live_quote", None)
         live_quotes[code] = live_quote if isinstance(live_quote, dict) else None
     signals_by_code: dict[str, Optional[dict[str, object]]] = {}
-    if _uses_runtime_database(db) and len(selected) > 1:
-        with ThreadPoolExecutor(max_workers=min(8, len(selected))) as executor:
+    if _uses_runtime_database(db) and len(selection_pool) > 1:
+        with ThreadPoolExecutor(max_workers=min(8, len(selection_pool))) as executor:
             futures = {
                 executor.submit(
                     _load_recommendation_signal,
@@ -1185,12 +1207,12 @@ def build_recommendations(
                     live_quote=live_quotes.get(str(item["code"])),
                     ensure_signal_history=ensure_signal_history,
                 ): str(item["code"])
-                for item in selected
+                for item in selection_pool
             }
             for future in as_completed(futures):
                 signals_by_code[futures[future]] = future.result()
     else:
-        for item in selected:
+        for item in selection_pool:
             code = str(item["code"])
             signals_by_code[code] = _load_recommendation_signal_in_session(
                 db,
@@ -1198,6 +1220,18 @@ def build_recommendations(
                 live_quote=live_quotes.get(code),
                 ensure_signal_history=ensure_signal_history,
             )
+
+    terminal_exit_excluded_count = sum(
+        1 for item in selection_pool
+        if _terminal_exit_signal(signals_by_code.get(str(item.get("code") or "")))
+    )
+    selected = _select_diverse_recommendations(
+        [
+            item for item in selection_pool
+            if not _terminal_exit_signal(signals_by_code.get(str(item.get("code") or "")))
+        ],
+        limit,
+    )
 
     for idx, item in enumerate(selected, start=1):
         item["rank"] = idx
@@ -1283,10 +1317,11 @@ def build_recommendations(
         "pending_count": pending_count,
         "entered_today_count": entered_today_count,
         "holding_count": holding_count,
+        "terminal_exit_excluded_count": terminal_exit_excluded_count,
         "selection_rule": RECOMMENDATION_SELECTION_RULE,
         "selection_state": "ready",
         "selection_refreshing": False,
-        "selection_message": "추천 점수로 선별한 후보이며, 매수·보유 판단은 AI 시그널에서 별도로 확인합니다.",
+        "selection_message": "추천 점수로 선별하되, AI 전략이 매도를 완료한 종목은 새 매수 조건이 확인될 때까지 제외합니다.",
         "methodology": METHODOLOGY,
         "items": selected,
     }

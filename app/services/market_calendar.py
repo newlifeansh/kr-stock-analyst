@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from functools import lru_cache
 import re
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -40,7 +41,11 @@ def _parse_latest_market_session_date(payload: bytes, through: date) -> Optional
 def _fetch_latest_market_session_date(through: date) -> Optional[date]:
     response = requests.get(
         NAVER_INDEX_CHART_URL,
-        params={"symbol": "KOSPI", "timeframe": "day", "count": "10", "requestType": "0"},
+        # Collector recovery and deterministic backfills may ask about a
+        # completed session several weeks behind today. Ten rows is too short
+        # for that lookup and incorrectly turns a valid historical session
+        # into ``market_closed``.
+        params={"symbol": "KOSPI", "timeframe": "day", "count": "60", "requestType": "0"},
         headers={"User-Agent": "Mozilla/5.0"},
         timeout=8,
     )
@@ -93,11 +98,29 @@ def latest_published_korea_investor_flow_date(now: Optional[datetime] = None) ->
     return latest_korea_market_session_date(lookup_time)
 
 
+@lru_cache(maxsize=1)
+def _scheduled_krx_calendar():
+    import exchange_calendars
+
+    return exchange_calendars.get_calendar("XKRX")
+
+
+def is_scheduled_korea_market_session_date(target: date) -> bool:
+    """Use the exchange schedule before today's closing index bar exists."""
+
+    if target.weekday() >= 5:
+        return False
+    try:
+        return bool(_scheduled_krx_calendar().is_session(target.isoformat()))
+    except (TypeError, ValueError):
+        return False
+
+
 def is_korea_market_session_date(target: date, now: Optional[datetime] = None) -> bool:
     current = _kst_datetime(now)
     if target.weekday() >= 5 or target > current.date():
         return False
-    return latest_korea_market_session_date(current) == target
+    return is_scheduled_korea_market_session_date(target)
 
 
 def is_korea_regular_market_session(now: Optional[datetime] = None) -> bool:

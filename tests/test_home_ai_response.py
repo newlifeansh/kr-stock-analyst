@@ -317,6 +317,7 @@ function isCurrentAiSignalHolding(item) {{ return item?.current?.position_open =
 function marketScopeForItem() {{ return "kr"; }}
 function aiSignalSnapshotSignature() {{ return "kr-snapshot"; }}
 function renderAiSignalLiveStatus() {{ renders += 1; }}
+function renderAiSignalPerformance() {{}}
 {snapshot_source}
 const holding = {{ code: "005930", name: "삼성전자", current: {{ position_open: true }} }};
 const newerTokenAccepted = commitAiSignalSnapshot(
@@ -469,8 +470,8 @@ const summarize = states => {{
 console.log(JSON.stringify({{
   healthy: summarize(["realtime", "realtime"]),
   mixed: summarize(["realtime", "delayed", "checking"]),
-  reference: summarize(["reference", "reference"]),
   recent: summarize(["recent", "recent"]),
+  reference: summarize(["reference", "reference"]),
   closed: summarize(["closed", "closed"]),
 }}));
 """
@@ -496,10 +497,10 @@ console.log(JSON.stringify({{
     assert result["mixed"]["state"] == "checking"
     assert result["mixed"]["mixed"] is True
     assert result["mixed"]["label"] == "실시간 1 · 약 10초 지연 1 · 확인 중 1"
-    assert result["reference"]["state"] == "reference"
-    assert result["reference"]["label"] == "보유 2개 최근 미국장 종가"
     assert result["recent"]["state"] == "recent"
     assert result["recent"]["label"] == "보유 2개 미국 최근 시세 확인"
+    assert result["reference"]["state"] == "reference"
+    assert result["reference"]["label"] == "보유 2개 최근 미국장 종가"
     assert result["closed"]["label"] == "장 마감 · 보유 2개"
 
 
@@ -1803,7 +1804,7 @@ console.log(JSON.stringify({{
     ).read_text(encoding="utf-8")
 
 
-def test_us_stock_signal_outside_top100_shows_completed_session_evidence() -> None:
+def test_us_stock_signal_outside_top100_is_not_mislabelled_as_missing_data() -> None:
     source = app_source()
     start = source.index("function quantEvidenceStateMeta(")
     end = source.index("function quantSvgPath(", start)
@@ -1822,13 +1823,9 @@ const elements = {{
 const state = {{ stockQuantSignals: null }};
 {function_source}
 renderQuantDecisionEvidence({{
-  public_evidence_status: "ready",
+  public_evidence_status: "not_applicable",
   evidence_session_date: "2026-09-22",
-  public_reasons: [
-    {{ key: "trend_20d", label: "20일 가격", state: "positive", available: true }},
-    {{ key: "trend_60d", label: "60일 가격", state: "neutral", available: true }},
-    {{ key: "flow", label: "거래대금 참여도", state: "negative", available: true }},
-  ],
+  public_reasons: [],
 }});
 console.log(JSON.stringify({{
   title: elements.quantEvidenceTitle.textContent,
@@ -1845,12 +1842,9 @@ console.log(JSON.stringify({{
     )
     payload = json.loads(completed.stdout)
 
-    assert payload["title"] == "20일 · 60일 · 거래대금 참여도"
-    assert payload["asOf"] == "2026-09-22 미국장 마감 기준"
-    assert "20일 가격 흐름" in payload["html"]
-    assert "60일 가격 흐름" in payload["html"]
-    assert "거래대금 참여도" in payload["html"]
-    assert "평가 대상 아님" not in payload["html"]
+    assert payload["title"] == "Top100 공개 근거 평가 대상"
+    assert payload["asOf"] == "2026-09-22 Top100 유니버스 기준"
+    assert "평가 대상 아님" in payload["html"]
     assert "정보 부족" not in payload["html"]
 
 

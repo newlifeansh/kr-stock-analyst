@@ -1,7 +1,7 @@
 """Backtest independently versioned entry filters as a backend shadow report.
 
 H1 is the active candidate for the current signal path. H2 and H3 are replayed
-with identical prices, exits, costs, and hybrid OHLC-proxy execution so their
+with identical prices, exits, costs, and v8 intraday OHLC-proxy execution so their
 performance can be compared without changing user-facing notifications.
 """
 
@@ -18,7 +18,7 @@ from sqlalchemy import desc, func, select
 from app.db import SessionLocal
 from app.models import DailyPrice, StockMaster
 from app.services import quant_signals as qs
-from app.services.signal_mode_comparison import simulate_hybrid_ohlc_proxy
+from app.services.signal_mode_comparison import simulate_v8_intraday_ohlc_proxy
 
 
 FILTER_VERSIONS = (
@@ -178,12 +178,12 @@ def build_report(
             recent_start_index = max(qs.WARMUP_ROWS, len(bars) - recent_trading_days)
             stock_row: dict[str, Any] = {"code": stock.code, "name": stock.name}
             for version in FILTER_VERSIONS:
-                full = simulate_hybrid_ohlc_proxy(
+                full = simulate_v8_intraday_ohlc_proxy(
                     bars,
                     indicators,
                     entry_filter_version=version,
                 )
-                recent = simulate_hybrid_ohlc_proxy(
+                recent = simulate_v8_intraday_ohlc_proxy(
                     bars,
                     indicators,
                     performance_start_index_override=recent_start_index,
@@ -211,8 +211,8 @@ def build_report(
         "symbols_evaluated": len(rows),
         "symbols_skipped": skipped,
         "scope": {
-            "execution_model": "hybrid_sell_intraday_ohlc_proxy",
-            "entry_model": "close-confirmed then next-open",
+            "execution_model": qs.EXECUTION_MODEL,
+            "entry_model": "close-confirmed then next-session frozen-breakout",
             "exit_model": "intraday hard stop and +3%/+5% targets using daily OHLC proxy",
             "costs": "same liquidity/volatility-dependent one-way execution cost",
             "data_warning": "daily OHLC cannot reconstruct true minute-level path or fill timing",

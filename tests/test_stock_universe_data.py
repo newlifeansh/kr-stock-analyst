@@ -823,6 +823,119 @@ def test_full_universe_news_snapshot_persists_empty_result_and_skips_inactive(mo
         assert db.get(StockNewsSnapshot, "999999") is None
 
 
+def test_full_universe_news_snapshot_records_total_failure_as_failed(monkeypatch):
+    def fail_news(_code, strict=False):
+        raise RuntimeError("retired source")
+
+    monkeypatch.setattr(stock_snapshots, "_fetch_naver_item_news", fail_news)
+    with _session() as db:
+        db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
+        db.commit()
+
+        result = stock_snapshots.collect_stock_news_snapshots(
+            db,
+            refresh_hours=0,
+            max_workers=1,
+        )
+        run = db.scalar(
+            select(IngestionRun)
+            .where(IngestionRun.dataset == "stock_news_snapshot")
+            .order_by(IngestionRun.id.desc())
+        )
+
+        assert result["failed"] == 1
+        assert result["rows_loaded"] == 0
+        assert run is not None
+        assert run.status == "failed"
+        assert "failed=1" in str(run.message)
+
+
+def test_full_universe_news_snapshot_counts_fresh_skips_as_covered(monkeypatch):
+    monkeypatch.setattr(
+        stock_snapshots,
+        "_fetch_naver_item_news",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fresh snapshot must not refetch")
+        ),
+    )
+    with _session() as db:
+        now = datetime.utcnow()
+        db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
+        db.add(
+            StockNewsSnapshot(
+                stock_code="005930",
+                source="naver_finance",
+                payload="[]",
+                fetched_at=now,
+                updated_at=now,
+            )
+        )
+        db.commit()
+
+        result = stock_snapshots.collect_stock_news_snapshots(
+            db,
+            refresh_hours=6,
+            max_workers=1,
+        )
+        run = db.scalar(
+            select(IngestionRun)
+            .where(IngestionRun.dataset == "stock_news_snapshot")
+            .order_by(IngestionRun.id.desc())
+        )
+
+        assert result["rows_loaded"] == 1
+        assert result["refreshed"] == 0
+        assert result["skipped"] == 1
+        assert run is not None
+        assert run.status == "success"
+        assert run.rows_loaded == 1
+        assert "refreshed=0 skipped=1" in str(run.message)
+
+
+def test_news_and_price_apis_disable_intermediate_stale_caches():
+    db = _session()
+    db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
+    db.add(
+        DailyPrice(
+            code="005930",
+            trade_date=date(2026, 10, 2),
+            open=100,
+            high=110,
+            low=90,
+            close=105,
+            volume=1,
+        )
+    )
+    db.add(
+        StockNewsSnapshot(
+            stock_code="005930",
+            source="naver_finance",
+            payload="[]",
+            fetched_at=datetime.utcnow(),
+        )
+    )
+    db.commit()
+
+    def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        price_response = client.get("/stocks/005930/prices")
+        general_news_response = client.get("/news-items")
+        stock_news_response = client.get("/stocks/005930/news-items")
+
+        for response in (price_response, general_news_response, stock_news_response):
+            assert response.status_code == 200
+            assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate"
+        assert stock_news_response.headers["x-data-state"] == "ready"
+        assert "x-data-as-of" in stock_news_response.headers
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
 def test_full_universe_company_snapshot_updates_company_description_and_industry(monkeypatch):
     monkeypatch.setattr(
         stock_snapshots,

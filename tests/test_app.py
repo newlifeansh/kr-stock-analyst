@@ -1,5 +1,7 @@
 import asyncio
+from contextlib import nullcontext
 import json
+import logging
 import subprocess
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -35,8 +37,10 @@ def test_health():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["strategy_version"] == "position-lifecycle-v7.4.2"
-    assert response.json()["dashboard_version"] == "20260925v554"
+    assert response.json()["strategy_version"] == "position-lifecycle-v8.0"
+    assert response.json()["execution_model"] == "close-confirmed-intraday-trigger-v1"
+    assert response.json()["intraday_execution_effective_date"] == "2026-10-03"
+    assert response.json()["dashboard_version"] == "20261009v560"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -46,6 +50,7 @@ def test_health():
     readyz = client.get("/readyz")
     assert readyz.status_code == 200
     assert readyz.json()["database_ok"] is True
+    assert readyz.json()["execution_model"] == "close-confirmed-intraday-trigger-v1"
     assert readyz.json()["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
 
 
@@ -62,7 +67,7 @@ def test_market_recommendations_do_not_keep_empty_payload_for_full_cache_window(
             "qualified_count": 0,
             "pending_count": 0,
             "entered_today_count": 0,
-            "selection_rule": "recommendation_score_ranked_independent_of_trade_signal",
+            "selection_rule": "recommendation_score_ranked_with_terminal_exit_exclusion",
             "methodology": [],
             "items": [],
         }
@@ -102,7 +107,7 @@ def test_market_recommendations_do_not_serve_non_empty_in_process_cache(monkeypa
             "qualified_count": 1,
             "pending_count": 1,
             "entered_today_count": 0,
-            "selection_rule": "recommendation_score_ranked_independent_of_trade_signal",
+            "selection_rule": "recommendation_score_ranked_with_terminal_exit_exclusion",
             "methodology": [],
             "items": [{"code": f"00593{len(calls)}"}],
         }
@@ -238,8 +243,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="home-view" class="app-page app-home"' in response.text
     assert 'id="search-view" class="app-page app-search"' in response.text
     assert 'id="bottom-nav" aria-label="주요 메뉴"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20260928us125"' in response.text
-    assert 'href="/assets/dashboard/styles.css?v=20260928us125&amp;build=20260928us125"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20261009us132"' in response.text
+    assert 'href="/assets/dashboard/styles.css?v=20261009us132&amp;build=20261009us132"' in response.text
     assert 'setCopy("home-market-signal-title", "미국 시그널 감시 후보")' in source
     assert 'setCopy("home-ai-signals-title", "시그널 감시 후보")' in source
     assert 'signalPageTitle.textContent = "시그널 감시 후보"' in source
@@ -258,7 +263,7 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
-        .replace("20260928us125", "20260925v554")
+        .replace("20261009us132", "20261009v560")
     )
     assert normalized_us == dashboard.text
 
@@ -376,7 +381,8 @@ def test_domestic_surface_disables_unified_runtime_and_preserves_dormant_us_impl
     assert 'marketStockDashboardUrl(track.code, { item: track })' in source
     assert 'connectWatchlistQuoteStream(item.code, item);' in source
     assert 'elements.morningMoneyPopover.hidden = true;' in source
-    assert '.filter((option) => option.id !== "morning_briefing")' in source
+    assert 'label: "미국 시장 소식"' in source
+    assert '.filter((option) => option.id !== "morning_briefing")' not in source
     assert 'label: "미국장 시작·마감"' in source
     assert '? { key: "confirmation", label: "다음 확인", value: "미국 정규장 종가" }' in source
     assert 'if (domesticSource) domesticSource.hidden = false;' in source
@@ -598,10 +604,10 @@ def test_us_market_recommendations_endpoint_exposes_independent_score_and_hides_
             "status": "ready",
             "data_state": "ready",
             "strategy_version": "position-lifecycle-us-v1-rc1",
+            "methodology": ["1.5ATR private threshold"],
             "snapshot_id": "us-rc1-snapshot",
             "snapshot_checksum": "feed-checksum",
             "new_entries_allowed": True,
-            "methodology": ["1.5ATR private threshold"],
             "universe_members": [{"code": "PRIVATE", "cik": "private-cik"}],
             "items": [
                 {
@@ -808,45 +814,6 @@ def test_us_stock_ai_analysis_fails_closed_without_canonical_candidate(
         "us_position_lifecycle_refresh_due",
         lambda *_args, **_kwargs: False,
     )
-    recovered = []
-    monkeypatch.setattr(
-        main_module,
-        "build_us_member_public_evidence",
-        lambda symbol, **kwargs: recovered.append((symbol, kwargs["universe_date"]))
-        or {
-            "code": symbol,
-            "data_state": "ready",
-            "signal_date": date(2026, 9, 9),
-            "signal_at": "2026-09-09T20:00:00+00:00",
-            "public_reasons": [
-                {
-                    "key": "trend_20d",
-                    "label": "20일 가격",
-                    "state": "positive",
-                    "summary": "20일 가격 흐름이 우호합니다.",
-                    "available": True,
-                    "as_of": "2026-09-09T20:00:00+00:00",
-                },
-                {
-                    "key": "trend_60d",
-                    "label": "60일 가격",
-                    "state": "neutral",
-                    "summary": "60일 가격 흐름을 확인 중입니다.",
-                    "available": True,
-                    "as_of": "2026-09-09T20:00:00+00:00",
-                },
-                {
-                    "key": "flow",
-                    "label": "거래대금 참여도",
-                    "state": "negative",
-                    "summary": "거래대금 참여도가 약합니다.",
-                    "available": True,
-                    "as_of": "2026-09-09T20:00:00+00:00",
-                },
-            ],
-            "current": {"action": "no_signal", "label": "관망"},
-        },
-    )
     monkeypatch.setattr(
         main_module,
         "us_stock_dashboard",
@@ -891,24 +858,13 @@ def test_us_stock_ai_analysis_fails_closed_without_canonical_candidate(
         None if case in {"preparing", "missing_identity"} else False
     )
     assert payload["confidence"] is None
-    assert (payload["data_covered"], payload["data_total"]) == (
-        (3 if case == "outside_top100" else 0),
-        3,
-    )
+    assert (payload["data_covered"], payload["data_total"]) == (0, 3)
     assert payload["current"]["action"] == "no_signal"
     if case == "outside_top100":
-        assert recovered == [("TSLA", date(2026, 9, 9))]
-        assert payload["public_evidence_status"] == "ready"
+        assert payload["public_evidence_status"] == "not_applicable"
         assert payload["evidence_session_date"] == "2026-09-09"
-        assert [reason["label"] for reason in payload["public_reasons"]] == [
-            "20일 가격",
-            "60일 가격",
-            "거래대금 참여도",
-        ]
-        assert all(reason["available"] is True for reason in payload["public_reasons"])
-        assert "Top100 편입" in payload["current"]["next_confirmation"]
+        assert payload["public_reasons"] == []
     else:
-        assert recovered == []
         assert payload["public_evidence_status"] == "preparing"
         assert payload["evidence_session_date"] is None
         assert all(
@@ -1145,10 +1101,11 @@ def test_us_stock_ai_analysis_repairs_legacy_member_evidence_without_full_scan(
     ]
 
 
-def test_us_market_cold_request_is_read_only_and_collector_owned(monkeypatch):
+def test_us_market_cold_request_returns_preparing_and_only_enqueues_refresh(monkeypatch):
     from app import main as main_module
     from app.services import us_position_lifecycle
 
+    enqueued = []
     monkeypatch.setattr(main_module, "_enforce_rate_limit", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         main_module,
@@ -1163,9 +1120,7 @@ def test_us_market_cold_request_is_read_only_and_collector_owned(monkeypatch):
     monkeypatch.setattr(
         main_module,
         "_enqueue_us_position_lifecycle_refresh",
-        lambda _tasks: (_ for _ in ()).throw(
-            AssertionError("GET must not enqueue a provider scan")
-        ),
+        lambda _tasks: enqueued.append(True) or True,
     )
     monkeypatch.setattr(
         us_position_lifecycle,
@@ -1181,11 +1136,11 @@ def test_us_market_cold_request_is_read_only_and_collector_owned(monkeypatch):
     assert response.json()["status"] == "preparing"
     assert response.json()["data_state"] == "preparing"
     assert response.json()["items"] == []
-    assert response.json()["refresh_enqueued"] is False
-    assert response.json()["refresh_mode"] == "collector_owned"
+    assert response.json()["refresh_enqueued"] is True
+    assert enqueued == [True]
 
 
-def test_us_market_refresh_query_remains_read_only(monkeypatch):
+def test_us_market_refresh_query_serves_fresh_snapshot_while_enqueuing(monkeypatch):
     from app import main as main_module
 
     canonical = {
@@ -1197,6 +1152,7 @@ def test_us_market_refresh_query_remains_read_only(monkeypatch):
         "refresh_required": False,
         "items": [],
     }
+    enqueued = []
     monkeypatch.setattr(main_module, "_enforce_rate_limit", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         main_module,
@@ -1216,9 +1172,7 @@ def test_us_market_refresh_query_remains_read_only(monkeypatch):
     monkeypatch.setattr(
         main_module,
         "_enqueue_us_position_lifecycle_refresh",
-        lambda _tasks: (_ for _ in ()).throw(
-            AssertionError("refresh query must not enqueue a provider scan")
-        ),
+        lambda _tasks: enqueued.append(True) or True,
     )
 
     response = TestClient(app).get("/us/market/recommendations?refresh=true")
@@ -1226,8 +1180,8 @@ def test_us_market_refresh_query_remains_read_only(monkeypatch):
     assert response.status_code == 200
     assert response.json()["snapshot_id"] == "us-rc1-snapshot"
     assert response.json()["refresh_requested"] is True
-    assert response.json()["refresh_enqueued"] is False
-    assert response.json()["refresh_mode"] == "collector_owned"
+    assert response.json()["refresh_enqueued"] is True
+    assert enqueued == [True]
 
 
 def test_us_market_regular_session_request_never_enqueues_publication(monkeypatch):
@@ -1261,7 +1215,7 @@ def test_us_market_regular_session_request_never_enqueues_publication(monkeypatc
     assert response.json()["entry_pending_count"] == 0
 
 
-def test_us_market_schema_upgrade_is_collector_owned(
+def test_us_market_regular_session_request_enqueues_one_time_schema_upgrade(
     monkeypatch,
 ):
     from app import main as main_module
@@ -1279,6 +1233,7 @@ def test_us_market_schema_upgrade_is_collector_owned(
         ],
         "items": [],
     }
+    enqueued = []
     monkeypatch.setattr(main_module, "_enforce_rate_limit", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         main_module,
@@ -1299,9 +1254,7 @@ def test_us_market_schema_upgrade_is_collector_owned(
         main_module,
         "_enqueue_us_position_lifecycle_refresh",
         lambda _tasks, *, allow_schema_upgrade=False: (
-            (_ for _ in ()).throw(
-                AssertionError("schema upgrade must remain collector-owned")
-            )
+            enqueued.append(allow_schema_upgrade) or True
         ),
     )
 
@@ -1309,8 +1262,8 @@ def test_us_market_schema_upgrade_is_collector_owned(
 
     assert response.status_code == 200
     assert response.json()["snapshot_id"] == "legacy-us-rc1-snapshot"
-    assert response.json()["refresh_enqueued"] is False
-    assert response.json()["refresh_mode"] == "collector_owned"
+    assert response.json()["refresh_enqueued"] is True
+    assert enqueued == [True]
 
 
 def test_us_collector_backfills_legacy_member_evidence_during_regular_session(
@@ -1362,6 +1315,171 @@ def test_us_collector_backfills_legacy_member_evidence_during_regular_session(
     assert calls == [True]
 
 
+@pytest.mark.parametrize("first_result", ["exception", "unavailable"])
+def test_market_quant_signal_refresh_loop_retries_without_dying(
+    monkeypatch, caplog, first_result
+):
+    from app import main as main_module
+
+    assert main_module.logger.level == logging.INFO
+    caplog.set_level(logging.INFO)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 8, 9, 10, tzinfo=tz)
+
+    attempts = []
+    intervals = []
+
+    def refresh():
+        attempts.append(True)
+        if len(attempts) == 1:
+            if first_result == "exception":
+                raise RuntimeError("transient refresh failure")
+            return None
+        return {"status": "ready"}
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def stop_after_recovery(seconds):
+        intervals.append(seconds)
+        if len(intervals) == 2:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(main_module, "_quant_signal_quote_refresh_active", lambda _now: True)
+    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_views_snapshot", refresh)
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_recovery)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_market_quant_signal_refresh_loop())
+
+    assert len(attempts) == 2
+    assert intervals == [30, 300]
+    assert "retrying in 30s" in caplog.text
+    assert "Market quant signal refresh loop started" in caplog.text
+    assert "Market quant signal refresh started" in caplog.text
+    assert "Market quant signal refresh completed" in caplog.text
+
+
+@pytest.mark.qa_gate
+def test_closing_auction_capture_runs_independently_of_top150_scan(monkeypatch):
+    from app import main as main_module
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 8, 15, 34, tzinfo=tz)
+
+    calls = []
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def stop_after_first_iteration(seconds):
+        calls.append(("sleep", seconds))
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(main_module, "is_korea_market_session_date", lambda *_args: True)
+    monkeypatch.setattr(main_module.kis_rest_provider, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        main_module, "_capture_market_closing_auction_trades",
+        lambda: calls.append(("capture", None)) or {
+            "candidates": 1, "captured": 1, "unverified": 0,
+        },
+    )
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_first_iteration)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_market_closing_auction_capture_loop())
+
+    assert calls == [("capture", None), ("sleep", 30)]
+
+
+@pytest.mark.qa_gate
+def test_market_quant_signal_views_share_one_live_quote_scan(monkeypatch):
+    from app import main as main_module
+
+    quotes = {"005930": {"price": 100_000}}
+    scans = []
+    scopes = []
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        type("Settings", (), {"market_quant_signal_source_url": ""})(),
+    )
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: nullcontext(object()))
+    monkeypatch.setattr(
+        main_module,
+        "_market_quant_signal_live_quotes",
+        lambda _db, universe_limit, _now: scans.append(universe_limit) or quotes,
+    )
+
+    def refresh(**kwargs):
+        scopes.append((kwargs.get("recent_days", 30), kwargs["live_quotes"]))
+        return {"status": "ready"}
+
+    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_snapshot", refresh)
+
+    assert main_module._refresh_market_quant_signal_views_snapshot() == {"status": "ready"}
+    assert scans == [main_module.MARKET_SIGNAL_UNIVERSE_LIMIT]
+    assert scopes == [(30, quotes), (90, quotes)]
+    assert scopes[0][1] is scopes[1][1]
+
+    monkeypatch.setattr(
+        main_module,
+        "_refresh_market_quant_signal_snapshot",
+        lambda **kwargs: None if kwargs.get("recent_days") == 90 else {"status": "ready"},
+    )
+    assert main_module._refresh_market_quant_signal_views_snapshot() is None
+
+
+@pytest.mark.qa_gate
+@pytest.mark.parametrize(
+    ("regular_session", "valid_quotes", "published"),
+    [(True, 53, False), (True, 142, False), (True, 143, True), (False, 53, True)],
+)
+def test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses(
+    monkeypatch, caplog, regular_session, valid_quotes, published,
+):
+    from app import main as main_module
+
+    caplog.set_level("WARNING", logger=main_module.logger.name)
+    quotes = main_module.MarketQuoteFanout(expected_symbols=150)
+    quotes.update({f"{index:06d}": {"price": 100} for index in range(valid_quotes)})
+    calls = []
+    monkeypatch.setattr(
+        main_module, "settings",
+        type("Settings", (), {"market_quant_signal_source_url": ""})(),
+    )
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: nullcontext(object()))
+    monkeypatch.setattr(
+        main_module, "is_korea_regular_market_session", lambda *_: regular_session,
+    )
+    monkeypatch.setattr(
+        main_module, "_market_quant_signal_live_quotes", lambda *_args: quotes,
+    )
+    monkeypatch.setattr(
+        main_module, "_refresh_market_quant_signal_snapshot",
+        lambda **kwargs: calls.append(kwargs) or {"status": "ready"},
+    )
+
+    result = main_module._refresh_market_quant_signal_views_snapshot()
+
+    assert (result is not None) is published
+    assert [call.get("recent_days", 30) for call in calls] == ([30, 90] if published else [])
+    if published:
+        assert all(call["live_quotes"] is quotes for call in calls)
+    else:
+        assert "preserving snapshot" in caplog.text
+        assert "valid_quotes=53" in caplog.text or "valid_quotes=142" in caplog.text
+
+
 def test_us_market_refresh_queue_is_process_single_flight(monkeypatch):
     from fastapi import BackgroundTasks
     from app import main as main_module
@@ -1396,8 +1514,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20260928us125"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260928us125&amp;build=20260928us125"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261009us132"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20261009us132&amp;build=20261009us132"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1437,7 +1555,7 @@ def test_us_stock_detail_frontend_uses_us_contract_without_domestic_quote_subscr
     assert 'formatUsdPrice' in source
     assert '미국 동부시간 기준' in source
     assert 'stagingStockPriceText' in toss
-    assert '20260921-domestic-market-v116' in toss
+    assert '20260929-chart-fallback-v117' in toss
     assert 'body[data-stock-market="us"] [data-stock-tab="community"]' not in styles
     assert 'body[data-stock-market="us"] #stock-summary-section > .stock-v3-two-column' not in styles
     assert 'body[data-stock-market="us"] #stock-view [data-staging-chart-period="1D"]' not in styles
@@ -1665,7 +1783,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260925v554"}
+    assert version.json() == {"version": "20261009v560"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search&market_scope=us")
@@ -1675,9 +1793,9 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
     assert 'pathname === "/us-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
     assert '["kr", "us"].includes(params.get("market_scope"))' not in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=kr&app_build=20260925v554" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=kr&app_build=20261009v560" in refresh.text
     assert 'params.get("market") === "us"' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260925v554" not in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261009v560" not in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -1687,7 +1805,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20260928us125"}
+    assert version.json() == {"version": "20261009us132"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1696,9 +1814,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20260928us125" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261009us132" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20260928us125")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20261009us132")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1712,15 +1830,19 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20260928us125"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20261009us132"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20260928us125' in worker.text
-    assert '"/dashboard-app-v170.js?v=20260928us125"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20261009us132' in worker.text
+    assert '"/dashboard-app-v170.js?v=20261009us132"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
+    assert 'self.addEventListener("push"' in worker.text
+    assert 'self.addEventListener("notificationclick"' in worker.text
+    assert 'requestedUrl.pathname.startsWith("/us")' in worker.text
+    assert 'data: { url: targetUrl, kind: payload.kind || "general", market_scope: "us" }' in worker.text
 
     legacy_worker = client.get("/nasdaq-sw.js")
     assert legacy_worker.status_code == 200
@@ -2411,6 +2533,96 @@ def test_fresh_market_signal_snapshot_keeps_current_preliminary_rows(monkeypatch
         main_module.market_quant_signal_cache.clear()
 
 
+def test_cached_market_signal_snapshot_attaches_latest_filter_forward_comparison(
+    monkeypatch,
+):
+    from app import main as main_module
+
+    payload = {
+        "status": "ready",
+        "strategy_version": "position-lifecycle-v8.0",
+        "snapshot_generated_at": datetime.now(timezone.utc),
+        "as_of": datetime.now(ZoneInfo("Asia/Seoul")),
+        "universe_count": 100,
+        "recent_days": 90,
+        "preliminary_count": 0,
+        "confirmed_count": 0,
+        "items": [],
+    }
+    comparison = {
+        "version": "entry-filter-fixed-cohort-forward-v1",
+        "cohort_market_cap_date": "2026-09-02",
+        "filters": {"buy-filter-h3": {"completed_trades": 9}},
+        "promotion_assessment": {
+            "current_active": "buy-filter-h1",
+            "automatic_promotion": False,
+        },
+    }
+    main_module.market_quant_signal_cache.clear()
+    monkeypatch.setattr(
+        main_module,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: payload,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_entry_filter_shadow_snapshot",
+        lambda *_args, **_kwargs: {"forward_comparison": comparison},
+    )
+    try:
+        response = TestClient(app).get(
+            "/market/quant-signals?universe_limit=150&limit=0&recent_days=90"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["filter_forward_comparison"] == comparison
+    finally:
+        main_module.market_quant_signal_cache.clear()
+
+
+def test_missing_filter_forward_comparison_schedules_guarded_refresh(monkeypatch):
+    from app import main as main_module
+
+    payload = {
+        "status": "ready",
+        "strategy_version": "position-lifecycle-v8.0",
+        "snapshot_generated_at": datetime.now(timezone.utc),
+        "as_of": datetime.now(ZoneInfo("Asia/Seoul")),
+        "universe_count": 100,
+        "recent_days": 30,
+        "preliminary_count": 0,
+        "confirmed_count": 0,
+        "items": [],
+    }
+    scheduled = []
+    main_module.market_quant_signal_cache.clear()
+    monkeypatch.setattr(
+        main_module,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: payload,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "load_entry_filter_shadow_snapshot",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_refresh_entry_filter_shadow_snapshot",
+        lambda: scheduled.append(True),
+    )
+    try:
+        response = TestClient(app).get(
+            "/market/quant-signals?universe_limit=150&limit=0&recent_days=30"
+        )
+
+        assert response.status_code == 200
+        assert scheduled == [True]
+        assert "filter_forward_comparison" not in response.json()
+    finally:
+        main_module.market_quant_signal_cache.clear()
+
+
 def test_market_quant_signal_preparing_payload_includes_active_reconciliation(monkeypatch):
     from app import main as main_module
 
@@ -2441,7 +2653,7 @@ def test_market_quant_signal_preparing_payload_includes_active_reconciliation(mo
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "preparing"
-        assert payload["strategy_version"] == "position-lifecycle-v7.4.2"
+        assert payload["strategy_version"] == "position-lifecycle-v8.0"
         oci = next(item for item in payload["items"] if item["code"] == "010060")
         assert oci["status"] == "confirmed"
         assert oci["side"] == "sell"
@@ -2483,7 +2695,7 @@ def test_dashboard_notification_button_opens_notification_page_before_settings()
         'const nextTab = tab.dataset.notificationTab || "all";',
         "pushNotificationHistoryScrollTop: new Map()",
         "renderPushNotificationHistory({ restoreScroll: true });",
-        'fetch(`/push/notifications/${encodeURIComponent(state.watchlistId)}`',
+        'fetch(`/push/notifications/${encodeURIComponent(state.watchlistId)}?market_scope=${marketScope}`',
         'elements.pushHistorySettings?.addEventListener("click", openPushSettingsFromHistory)',
     ):
         assert expected in source
@@ -2523,7 +2735,7 @@ def test_push_config_includes_briefing_and_domestic_market_signal_alerts():
     assert options["market_ai_signal"] == {
         "id": "market_ai_signal",
         "label": "시장 AI 시그널",
-        "description": "국내장 장중 예비·장 마감 확정 신호를 알려드립니다.",
+        "description": "국내장 장중 예비 신호와 검증된 장중·장 마감 확정 매수·매도 신호를 알려드립니다.",
     }
     assert options["recommendation_update"] == {
         "id": "recommendation_update",
@@ -2541,6 +2753,30 @@ def test_push_config_includes_briefing_and_domestic_market_signal_alerts():
     assert 'recommendation_update: "추천 업데이트"' in source
     shell = client.get("/dashboard?view=notifications").text
     assert 'data-notification-tab="recommendation_update">추천<' in shell
+
+
+def test_us_push_config_keeps_the_same_conditions_with_us_market_copy():
+    client = TestClient(app)
+
+    response = client.get("/push/config?market_scope=us")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["market_scope"] == "us"
+    assert payload["conditions"] == [item["id"] for item in payload["condition_options"]]
+    options = {item["id"]: item for item in payload["condition_options"]}
+    assert options["morning_briefing"]["required"] is True
+    assert options["morning_briefing"]["label"] == "미국 시장 소식"
+    assert options["market_session"]["label"] == "미국장 시작·마감"
+    assert options["ai_signal"]["required"] is True
+    assert "미국 관심종목" in options["ai_signal"]["description"]
+    assert "미국 대표 종목" in options["market_ai_signal"]["description"]
+    assert "SEC" in options["disclosure_report"]["description"]
+
+    source = client.get("/dashboard-app-v170.js").text
+    assert "function pushMarketScope()" in source
+    assert 'body: JSON.stringify({ ...subscription.toJSON(), conditions, market_scope: marketScope })' in source
+    assert 'ensureWriteToken(shareId, { marketScope })' in source
 
 
 def test_secondary_pages_use_stock_detail_navigation_contract():
@@ -3148,8 +3384,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20260928us125"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20260928us125&amp;build=20260928us125"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261009us132"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20261009us132&amp;build=20261009us132"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()
@@ -3370,7 +3606,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20260925v554' in shell
+    assert 'styles.css?v=20261009v560' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -3457,7 +3693,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20260925v554"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20261009v560"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -3495,7 +3731,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20260925v554"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20261009v560"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" not in service_worker
@@ -3513,7 +3749,8 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert dashboard_app.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert '.filter((item) => includeHistorical || isCurrentAiSignalHolding(item) || isRecentAiSignal(item))' in dashboard_app.text
     assert "PUSH_HISTORY_SIGNAL_KINDS" in dashboard_app.text
-    assert "eventDate === receivedKstDate" in dashboard_app.text
+    assert "eventDate === receivedMarketDate" in dashboard_app.text
+    assert 'timeZone: "America/New_York"' in dashboard_app.text
     assert "window.setInterval(checkForUpdate, 60000);" in dashboard_app.text
     assert 'fetch(PRODUCT_VERSION_ENDPOINT, { cache: "no-store" })' in dashboard_app.text
     assert "registerDashboardVersionWatchdog();" in dashboard_app.text
@@ -4582,3 +4819,36 @@ def test_market_rankings_color_only_the_change_rate_by_direction():
         "order: 3;",
     ):
         assert contract in hierarchy
+
+
+def test_ai_signal_performance_overview_contract_is_responsive_and_uses_90_day_source():
+    client = TestClient(app)
+    shell = client.get("/dashboard").text
+    source = client.get("/dashboard-app-v170.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    assert 'id="ai-signal-performance"' in shell
+    assert 'id="ai-signal-performance-title">최근 시그널 결과<' in shell
+    assert "const AI_SIGNAL_PERFORMANCE_DAYS = 90;" in source
+    page_loader = source[
+        source.index("async function loadAiSignalsPage"):
+        source.index("async function fetchMarketAiSignals")
+    ]
+    assert "recentDays: AI_SIGNAL_PERFORMANCE_DAYS" in page_loader
+    assert "renderAiSignalPerformance();" in source
+    assert 'windows["30d"]' in source
+    assert 'windows["90d"]' in source
+    assert "지수 대비" in source
+    assert "H3는 충분한 표본과 운영자 승인 전까지 자동 승격하지 않습니다." in source
+    assert "isRecentAiSignal(item)" in source[source.index("function renderAiSignalsPage"):]
+    assert "#ai-signals-view .ai-signal-performance-row {" in styles
+    assert "font-variant-numeric: tabular-nums;" in styles
+    assert "@media (max-width: 420px)" in styles
+    assert "grid-template-columns: minmax(0, 1fr);" in styles
+
+
+def test_kr_entry_pending_copy_waits_for_next_session_intraday_breakout():
+    source = TestClient(app).get("/assets/dashboard/app.js").text
+
+    assert "종가 조건이 확정돼 다음 정규장 장중 돌파를 기다립니다." in source
+    assert "종가 조건이 확정돼 다음 시가 체결을 기다립니다." not in source

@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "build, stage, 또는 검증된 이미지의 promote-production"
+        description: "build, stage, stop-staging, 또는 검증된 이미지의 promote-production"
         required: true
         type: choice
         options:
           - build
           - stage
+          - stop-staging
           - promote-production
         default: build
       candidate_version:
@@ -24,6 +25,11 @@ on:
           - dashboard
           - us
         default: dashboard
+      observe_session:
+        description: "장중 관찰을 위해 stage QA 후 국내 스테이징을 유지합니다. 종료는 stop-staging으로 수행합니다."
+        required: false
+        type: boolean
+        default: false
       image_ref:
         description: "운영 승격 시 필수: ghcr.io/...@sha256:..."
         required: false
@@ -38,7 +44,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: ${{ (inputs.action == 'stage' || (inputs.action == 'promote-production' && inputs.product_surface == 'dashboard')) && 'domestic-staging-runtime' || format('railway-release-{0}-{1}', inputs.product_surface, inputs.action) }}
+  group: ${{ (inputs.action == 'stage' || inputs.action == 'stop-staging' || (inputs.action == 'promote-production' && inputs.product_surface == 'dashboard')) && 'domestic-staging-runtime' || format('railway-release-{0}-{1}', inputs.product_surface, inputs.action) }}
   cancel-in-progress: false
 
 env:
@@ -79,6 +85,19 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$PRODUCT_SURFACE" == "dashboard" || "$PRODUCT_SURFACE" == "us" ]]
+          if [[ "${{ inputs.observe_session }}" == "true" ]]; then
+            [[ "$REQUESTED_ACTION" == "stage" && "$PRODUCT_SURFACE" == "dashboard" ]]
+          fi
+          if [[ "$REQUESTED_ACTION" == "stop-staging" ]]; then
+            [[ "$PRODUCT_SURFACE" == "dashboard" ]]
+            for value in "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" \
+              "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE" \
+              "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE" \
+              "$DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE" \
+              "$DASHBOARD_STAGING_RAILWAY_REGION"; do
+              test -n "$value"
+            done
+          fi
           if [[ "$REQUESTED_ACTION" == "stage" || "$REQUESTED_ACTION" == "promote-production" ]]; then
             for value in "$US_STAGING_RAILWAY_PROJECT_ID" "$US_STAGING_RAILWAY_WEB_SERVICE" \
               "$US_STAGING_RAILWAY_COLLECTOR_SERVICE" "$US_STAGING_BASE_URL" \
@@ -116,7 +135,7 @@ jobs:
           fi
 
   gate:
-    if: inputs.action != 'promote-production'
+    if: inputs.action == 'build' || inputs.action == 'stage'
     needs: validate_request
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -148,7 +167,7 @@ jobs:
           retention-days: 30
 
   build_image:
-    if: inputs.action != 'promote-production'
+    if: inputs.action == 'build' || inputs.action == 'stage'
     needs: [validate_request, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -201,7 +220,7 @@ jobs:
             --arg image_ref "$image_ref" \
             --arg image_digest "$IMAGE_DIGEST" \
             --arg product_surface "$PRODUCT_SURFACE" \
-            '{candidate_version:$candidate, product_surface:$product_surface, source_sha:$source_sha, image_ref:$image_ref, image_digest:$image_digest, staging_runtime:{dashboard:{US_MARKET_ENABLED:false},us:{US_MARKET_ENABLED:true}}, production_runtime:{dashboard:{US_MARKET_ENABLED:"preserve_existing_until_url_cutover"},us:{US_MARKET_ENABLED:true}}, promotion_state:"built"}' \
+            '{candidate_version:$candidate, product_surface:$product_surface, source_sha:$source_sha, image_ref:$image_ref, image_digest:$image_digest, staging_runtime:{dashboard:{US_MARKET_ENABLED:false,web:{PROCESS_ROLE:"web"},collector:{PROCESS_ROLE:"collector"}},us:{US_MARKET_ENABLED:true,web:{PROCESS_ROLE:"web"},collector:{PROCESS_ROLE:"collector"}}}, production_runtime:{dashboard:{US_MARKET_ENABLED:"preserve_existing_until_url_cutover",web:{PROCESS_ROLE:"web"},collector:{PROCESS_ROLE:"collector"}},us:{US_MARKET_ENABLED:true,web:{PROCESS_ROLE:"web"},collector:{PROCESS_ROLE:"collector"}}}, promotion_state:"built"}' \
             > artifacts/qa-data-signal/release-candidate/candidate.json
       - name: Upload immutable candidate identity
         uses: actions/upload-artifact@v4
@@ -247,11 +266,16 @@ jobs:
           RAILWAY_COLLECTOR_SERVICE: ${{ env.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
           RAILWAY_DATABASE_SERVICE: ${{ env.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
           RAILWAY_REGION: ${{ env.DASHBOARD_STAGING_RAILWAY_REGION }}
-          RAILWAY_READY_URL: ${{ env.DASHBOARD_STAGING_BASE_URL }}
         run: ./scripts/railway_staging_runtime.sh up
       - name: Set isolated market runtimes
         run: |
           set -euo pipefail
+          railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
+            --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$US_STAGING_RAILWAY_WEB_SERVICE"
+          railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$US_STAGING_RAILWAY_COLLECTOR_SERVICE"
           railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
             --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$US_STAGING_RAILWAY_WEB_SERVICE"
@@ -261,9 +285,15 @@ jobs:
           railway variable set "US_MARKET_ENABLED=false" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
+          railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
           railway variable set "US_PUBLIC_BACKEND_URL=$US_STAGING_BASE_URL" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
+          railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
           railway variable set "US_MARKET_ENABLED=false" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
@@ -318,7 +348,9 @@ jobs:
       - name: Install project and browser runtime
         run: |
           pip install -e '.[qa,mcp]'
-          playwright install --with-deps chromium
+          # ubuntu-latest already provides Chromium runtime libraries; avoid
+          # an unbounded apt mirror refresh before the actual staged QA.
+          playwright install chromium
       - name: Wait for the staged product surface
         run: >-
           analyst qa release-parity
@@ -327,6 +359,16 @@ jobs:
           --source-sha "${{ needs.validate_request.outputs.source_sha }}"
           --wait-seconds 600
           --output artifacts/qa-data-signal/staging-parity.json
+      - name: Wait for current staging data
+        run: >-
+          python -m app.qa.release_data_readiness
+          --surface "$PRODUCT_SURFACE"
+          --base-url "$QA_BASE_URL"
+          --wait-seconds 900
+          --output artifacts/qa-data-signal/staging-data-readiness.json
+      - name: Allow staged KIS token issuance window to reset before direct probe
+        if: matrix.surface == 'dashboard'
+        run: sleep 65
       - name: Run read-only staging integrations
         id: live_qa
         continue-on-error: true
@@ -375,7 +417,9 @@ jobs:
 
   staging_us_gateway_qa:
     if: inputs.action == 'stage'
-    needs: [validate_request, deploy_staging]
+    # The dedicated US live QA uses the same upstream rate-limit bucket.
+    # Run the gateway probe only after both market jobs finish.
+    needs: [validate_request, deploy_staging, staging_qa]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     environment:
@@ -396,56 +440,17 @@ jobs:
       - name: Install QA and Chromium
         run: |
           pip install -e '.[qa,mcp]'
-          playwright install --with-deps chromium
-      - name: Wait for the canonical US recommendation snapshot
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os
-          import time
-
-          import httpx
-
-          url = (
-              os.environ["QA_BASE_URL"].rstrip("/")
-              + "/us-gateway/us/market/recommendations?limit=1"
-          )
-          deadline = time.monotonic() + 600
-          last_state = "not requested"
-          with httpx.Client(timeout=20, follow_redirects=True) as client:
-              while time.monotonic() < deadline:
-                  try:
-                      response = client.get(
-                          url,
-                          headers={"Cache-Control": "no-cache"},
-                      )
-                      payload = response.json()
-                      last_state = (
-                          f"http={response.status_code} "
-                          f"status={payload.get('status')} "
-                          f"data_state={payload.get('data_state')} "
-                          f"items={len(payload.get('items') or [])}"
-                      )
-                      if (
-                          response.status_code == 200
-                          and payload.get("status") == "ready"
-                          and payload.get("data_state") == "ready"
-                          and payload.get("snapshot_id")
-                          and payload.get("snapshot_checksum")
-                          and payload.get("items")
-                      ):
-                          print(f"US recommendation snapshot ready: {last_state}")
-                          break
-                  except (httpx.HTTPError, ValueError) as exc:
-                      last_state = f"{type(exc).__name__}: {exc}"
-                  print(f"Waiting for US recommendation snapshot: {last_state}")
-                  time.sleep(15)
-              else:
-                  raise SystemExit(
-                      "US recommendation snapshot did not become ready within "
-                      f"600 seconds: {last_state}"
-                  )
-          PY
+          # Keep gateway QA independent of intermittent apt mirror stalls.
+          playwright install chromium
+      - name: Wait for current US gateway data
+        run: >-
+          python -m app.qa.release_data_readiness
+          --surface us-gateway
+          --base-url "$QA_BASE_URL"
+          --wait-seconds 900
+          --output artifacts/qa-data-signal/us-gateway-data-readiness.json
+      - name: Let shared US API rate limits reset before gateway live QA
+        run: sleep 65
       - name: Check the same-origin US service route
         id: live_gateway
         continue-on-error: true
@@ -483,7 +488,7 @@ jobs:
           retention-days: 90
 
   shutdown_domestic_staging:
-    if: ${{ always() && inputs.action == 'stage' }}
+    if: ${{ always() && ((inputs.action == 'stage' && !inputs.observe_session) || inputs.action == 'stop-staging') }}
     needs: [deploy_staging, staging_qa, staging_us_gateway_qa]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -499,7 +504,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Railway CLI
         run: npm install --global @railway/cli@5.45.7
-      - name: Stop domestic staging after every QA outcome
+      - name: Stop domestic staging after QA or explicit session observation
         run: ./scripts/railway_staging_runtime.sh down
 
   deploy_production:
@@ -528,9 +533,15 @@ jobs:
           [[ "$IMAGE_REF" =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]]
       - name: Install Railway CLI
         run: npm install --global @railway/cli@5.45.7
-      - name: Enable the US runtime only on the dedicated US production target
+      - name: Set dedicated production runtime roles and US flag
         run: |
           set -euo pipefail
+          railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
+            --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"
+          railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
           if [[ "$PRODUCT_SURFACE" == "us" ]]; then
             railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
               --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
@@ -567,7 +578,6 @@ jobs:
       RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
       RAILWAY_DATABASE_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
       RAILWAY_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
-      RAILWAY_READY_URL: ${{ vars.DASHBOARD_STAGING_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -593,6 +603,13 @@ jobs:
           --source-sha "${{ needs.validate_request.outputs.source_sha }}"
           --wait-seconds 600
           --output artifacts/qa-data-signal/production-parity.json
+      - name: Wait for current production data
+        run: >-
+          python -m app.qa.release_data_readiness
+          --surface "$PRODUCT_SURFACE"
+          --base-url "$TARGET_PRODUCTION_BASE_URL"
+          --wait-seconds 900
+          --output artifacts/qa-data-signal/production-data-readiness.json
       - name: Run production read-only smoke checks
         run: >-
           analyst qa data-signal
@@ -600,6 +617,9 @@ jobs:
           --surface "$PRODUCT_SURFACE"
           --base-url "$TARGET_PRODUCTION_BASE_URL"
           --output artifacts/qa-data-signal/production-live.json
+      - name: Stop domestic staging after production parity
+        if: ${{ always() && inputs.product_surface == 'dashboard' }}
+        run: ./scripts/railway_staging_runtime.sh down
       - name: Upload production verification evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -608,6 +628,3 @@ jobs:
           path: artifacts/qa-data-signal
           if-no-files-found: error
           retention-days: 90
-      - name: Stop domestic staging after production parity
-        if: ${{ always() && inputs.product_surface == 'dashboard' }}
-        run: ./scripts/railway_staging_runtime.sh down

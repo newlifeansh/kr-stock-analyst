@@ -36,7 +36,6 @@ jobs:
       RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
       RAILWAY_DATABASE_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
       RAILWAY_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
-      RAILWAY_READY_URL: ${{ vars.DASHBOARD_STAGING_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

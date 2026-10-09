@@ -1,12 +1,39 @@
 from __future__ import annotations
 
+import logging
+import time
 from pathlib import Path
+from typing import Callable
 
 from sqlalchemy import BigInteger, String, create_engine, event, inspect, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+def _is_transient_startup_connection_failure(error: OperationalError) -> bool:
+    """Retry unavailable DB hosts, not invalid credentials or broken SQL."""
+
+    detail = str(error.orig).lower()
+    return any(
+        marker in detail
+        for marker in (
+            "failed to resolve host",
+            "could not translate host name",
+            "temporary failure in name resolution",
+            "name or service not known",
+            "connection refused",
+            "connection timed out",
+            "timeout expired",
+            "network is unreachable",
+            "server closed the connection unexpectedly",
+            "the database system is starting up",
+        )
+    )
 
 
 class Base(DeclarativeBase):
@@ -103,6 +130,37 @@ def init_db() -> None:
     if "notification_preferences" not in push_subscription_columns:
         with engine.begin() as connection:
             connection.execute(text('ALTER TABLE "push_subscription" ADD COLUMN "notification_preferences" TEXT'))
+    if "market_scope" not in push_subscription_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    'ALTER TABLE "push_subscription" ADD COLUMN "market_scope" '
+                    "VARCHAR(8) NOT NULL DEFAULT 'kr'"
+                )
+            )
+            connection.execute(
+                text(
+                    'CREATE INDEX IF NOT EXISTS "ix_push_subscription_market_scope" '
+                    'ON "push_subscription" ("market_scope")'
+                )
+            )
+    push_history_columns = {
+        column["name"] for column in inspector.get_columns("push_notification_history")
+    }
+    if "market_scope" not in push_history_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    'ALTER TABLE "push_notification_history" ADD COLUMN "market_scope" '
+                    "VARCHAR(8) NOT NULL DEFAULT 'kr'"
+                )
+            )
+            connection.execute(
+                text(
+                    'CREATE INDEX IF NOT EXISTS "ix_push_notification_history_market_scope" '
+                    'ON "push_notification_history" ("market_scope")'
+                )
+            )
     watchlist_item_columns = {column["name"] for column in inspector.get_columns("watchlist_item")}
     if "investor_state" not in watchlist_item_columns:
         with engine.begin() as connection:
@@ -179,6 +237,42 @@ def init_db() -> None:
                         'ALTER COLUMN "account_id" TYPE VARCHAR(255)'
                     )
                 )
+
+
+def init_db_with_retry(
+    *,
+    max_wait_seconds: float = 300,
+    sleeper: Callable[[float], None] | None = None,
+    monotonic: Callable[[], float] | None = None,
+) -> None:
+    """Keep web and collector startup alive through a temporary DB outage.
+
+    Railway can briefly remove the private DB DNS record during recovery. An
+    immediate startup failure consumes every container restart in seconds,
+    leaving both services crashed even after PostgreSQL returns.
+    """
+
+    sleep = sleeper or time.sleep
+    clock = monotonic or time.monotonic
+    deadline = clock() + max(0, max_wait_seconds)
+    delay = 1.0
+    while True:
+        try:
+            init_db()
+            return
+        except OperationalError as error:
+            if not _is_transient_startup_connection_failure(error):
+                raise
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise
+            wait_seconds = min(delay, remaining)
+            logger.warning(
+                "Database unavailable during startup; retrying in %.1f seconds",
+                wait_seconds,
+            )
+            sleep(wait_seconds)
+            delay = min(delay * 2, 30.0)
 
 
 def recover_interrupted_ingestions() -> None:

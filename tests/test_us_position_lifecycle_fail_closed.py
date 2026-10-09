@@ -30,11 +30,14 @@ def test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy():
         ("0001094517", "Industrials", "XLY"),  # Toyota
         ("0001596532", "Telecommunications", "XLK"),  # Arista
         ("0000811809", "Energy", "XLB"),  # BHP
+        ("0000863064", "Energy", "XLB"),  # Rio Tinto
         ("0000097745", "Industrials", "XLV"),  # Thermo Fisher
         ("0000078003", "Technology", "XLV"),  # Pfizer
+        ("0000313616", "Industrials", "XLV"),  # Danaher
         ("0001181412", "Technology", "XLC"),  # SpaceX
         ("0000820313", "Industrials", "XLK"),  # Amphenol
         ("0001551182", "Technology", "XLI"),  # Eaton
+        ("0001022837", "Technology", "XLF"),  # Sumitomo Mitsui Financial
     ]
     for cik, misleading_display_sector, expected in cases:
         assert (

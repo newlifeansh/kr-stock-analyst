@@ -169,6 +169,65 @@ source .venv/bin/activate
 analyst verify-mcp-endpoint --url https://your-mcp-domain/
 ```
 
+### 메인 브랜치 운영 자동 배포
+
+`main`에 변경이 병합되면 `.github/workflows/deploy-main-production.yml`이 전체 결정적
+테스트와 QA gate를 실행합니다. gate가 통과한 커밋만 OCI 이미지를 한 번 빌드하며,
+그 이미지의 SHA-256 digest를 미국 운영과 국내 운영의 web·collector에 차례로 연결합니다.
+정상 경로에서는 스테이징 승인을 기다리지 않습니다. 배포 뒤에는 두 운영 surface의
+제품 버전·정적 자산 해시·데이터 최신성·read-only live QA를 확인하고 증거를 보존합니다.
+수동 스테이징 워크플로는 장중 관찰이나 장애 진단이 필요할 때만 사용합니다.
+
+### 개인용 미국 시그널 MCP
+
+국내 MCP와 분리된 미국 전용 앱은 `app.us_mcp_app:app` 입니다. 이 앱은
+저장된 미국 Top100 시그널과 종목별 공개 분석만 읽기 전용으로 제공하며,
+MCP 요청에서 강제 원천 갱신이나 주문을 실행하지 않습니다.
+
+- `list_us_stock_signals`: 마지막 완료 미국장 canonical 스냅샷 조회
+- `get_us_stock_analysis`: 티커별 공개 분석과 동일 스냅샷의 시그널 조회
+- `GET /healthz`: 프로세스 상태와 인증 설정 여부
+- `GET /readyz`: DB·MCP SDK·원격 인증 준비 상태
+
+로컬 실행:
+
+```bash
+source .venv/bin/activate
+uvicorn app.us_mcp_app:app --host 127.0.0.1 --port 8003
+```
+
+Railway 전용 서비스는 기존 미국 Postgres를 private reference로 연결하고 다음
+변수를 설정합니다. `MCP_PUBLIC_BASE_URL`을 설정한 원격 배포는
+`US_MCP_BEARER_TOKEN`이 없으면 `/readyz`가 503이고 MCP 요청도 차단됩니다.
+
+```dotenv
+APP_MODULE=app.us_mcp_app:app
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+MCP_PUBLIC_BASE_URL=https://your-us-mcp-domain
+MCP_ALLOWED_HOSTS=your-us-mcp-domain,healthcheck.railway.app
+MCP_ALLOWED_ORIGINS=https://chatgpt.com,https://chat.openai.com
+US_MCP_SERVER_NAME=미국증시 비밀노트
+US_MCP_BEARER_TOKEN=<openssl-rand-hex-32>
+US_MCP_RATE_LIMIT_PER_MINUTE=60
+BOOTSTRAP_ON_START=false
+PROCESS_ROLE=web
+```
+
+개인 MCP 클라이언트에는 URL과 Authorization 헤더를 함께 등록합니다.
+
+```json
+{
+  "mcpServers": {
+    "secret-note-us": {
+      "url": "https://your-us-mcp-domain/",
+      "headers": {
+        "Authorization": "Bearer <US_MCP_BEARER_TOKEN>"
+      }
+    }
+  }
+}
+```
+
 등록할 때 바로 넣을 문구와 체크리스트는 [docs/playmcp-registration-checklist.md](/Users/sukhwan/Documents/주식애널리스트%20보고서/docs/playmcp-registration-checklist.md) 에 정리해두었습니다.
 
 Railway에 바로 올릴 계획이면 저장소 루트의 [railway.json](/Users/sukhwan/Documents/주식애널리스트%20보고서/railway.json) 을 그대로 사용할 수 있습니다.
@@ -301,7 +360,7 @@ analyst collect-news-items --categories breaking,market,company --max-pages 2 --
 
 기계 판독 가능한 원본은 `app/qa/data_signal_cases.json`, 사람이 읽는 생성 문서는
 `docs/qa/data-signal-qa-matrix.md`입니다. 현재 기준 전략은
-`position-lifecycle-v7.4.2`입니다. 2026-09-04부터 +3% 1차·+5% 2차 수익확정, 진입필터 강화, 초기 위험 4% 상한을 적용하고, 2026-09-08부터 추격매수 veto를 적용합니다. 2026-09-09부터 고정 10거래일 재진입 유예는 없애되 새 20일 고점 돌파 또는 20일선 눌림·회복이 있어야 재진입합니다.
+`position-lifecycle-v8.0`입니다. 완료 종가에서 가격·독립 근거를 확정한 뒤 다음 KRX 정규장에서 신호 종가와 기존 20일 고점 중 높은 확인선을 돌파할 때 장중 매수합니다. 초기·수익 보호선은 장중 저가 이탈, +3%·+5% 수익확정은 장중 고가 도달로 체결하며 같은 봉에서 두 조건이 모두 닿으면 손절을 우선합니다. 2026-10-02까지의 `position-lifecycle-v7.4.2` 이력은 기존 종가 확정·다음 시가 체결 규칙으로 보존합니다.
 
 ```bash
 # PR/배포용 고정 픽스처·계약·경계값 검사

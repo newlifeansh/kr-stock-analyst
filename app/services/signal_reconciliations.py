@@ -18,6 +18,7 @@ COMPATIBLE_POSITION_STRATEGY_VERSIONS = {
     "position-lifecycle-v7.4",
     "position-lifecycle-v7.4.1",
     "position-lifecycle-v7.4.2",
+    "position-lifecycle-v8.0",
 }
 
 # These records close positions that were exposed by a legacy strategy but are

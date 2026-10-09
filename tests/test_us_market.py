@@ -1023,7 +1023,7 @@ def test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed():
             "snapshot_checksum": "feed-checksum",
             "strategy_version": "position-lifecycle-us-v1-rc1",
             "baseline_strategy_version": "us-momentum-watch-v1",
-            "sector_classification_version": "us-sector-etf-cik-v4",
+            "sector_classification_version": "us-sector-etf-cik-v7",
             "rollout_mode": "shadow",
             "execution_enabled": False,
             "stateful_lifecycle_replay_enabled": False,
@@ -1073,7 +1073,7 @@ def test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed():
     assert payload["insufficient_history_count"] == 2
     assert payload["strategy_version"] == "position-lifecycle-us-v1-rc1"
     assert payload["baseline_strategy_version"] == "us-momentum-watch-v1"
-    assert payload["sector_classification_version"] == "us-sector-etf-cik-v4"
+    assert payload["sector_classification_version"] == "us-sector-etf-cik-v7"
     assert payload["stateful_lifecycle_replay_enabled"] is False
     assert payload["reentry_runtime_enabled"] is False
     assert payload["items"][0]["code"] == "NVDA"
@@ -1081,7 +1081,7 @@ def test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed():
     assert payload["items"][0]["recommendation_score"] == Decimal("100.00")
     assert payload["items"][0]["recommendation_model_version"] == "us-independent-recommendation-v1"
     assert payload["items"][0]["recommendation_selection_rule"] == (
-        "recommendation_score_ranked_independent_of_trade_signal"
+        "recommendation_score_ranked_with_terminal_exit_exclusion"
     )
     assert payload["items"][0]["ai_trade_signal"]["status"] == "preliminary"
     assert payload["items"][0]["ai_trade_signal"]["current"]["position_open"] is False
@@ -1262,6 +1262,7 @@ def test_us_recommendations_rank_top100_independently_of_trade_signal_action():
 
     pending = us_market.build_us_recommendations(feed=feed("entry_pending"), limit=3)
     watching = us_market.build_us_recommendations(feed=feed("entry_watch"), limit=3)
+    exited = us_market.build_us_recommendations(feed=feed("exited"), limit=3)
 
     assert [item["code"] for item in pending["items"]] == ["AAA", "BBB", "CCC"]
     assert [item["code"] for item in watching["items"]] == ["AAA", "BBB", "CCC"]
@@ -1269,6 +1270,8 @@ def test_us_recommendations_rank_top100_independently_of_trade_signal_action():
     assert pending["items"][1]["ai_trade_signal"]["current"]["action"] == "entry_pending"
     assert watching["items"][1]["ai_trade_signal"]["current"]["action"] == "entry_watch"
     assert pending["items"][0]["recommendation_score"] > pending["items"][1]["recommendation_score"]
+    assert [item["code"] for item in exited["items"]] == ["AAA", "CCC"]
+    assert exited["terminal_exit_excluded_count"] == 1
 
 
 def test_us_recommendation_missing_valuation_reweights_only_observed_components():
@@ -1826,6 +1829,8 @@ def test_us_intraday_prices_normalizes_new_york_market_points(monkeypatch):
     assert payload["market_timezone"] == "America/New_York"
     assert payload["market_session"] == "regular"
     assert payload["reference_price"] == Decimal("170.25")
+    assert payload["regular_trade_date"] == date(2026, 9, 4)
+    assert payload["regular_reference_price"] == Decimal("170.25")
     assert payload["points"] == [{
         "trade_date": date(2026, 9, 4),
         "trade_time": "093100",
@@ -1836,6 +1841,54 @@ def test_us_intraday_prices_normalizes_new_york_market_points(monkeypatch):
         "price": Decimal("172.0"),
         "volume": 12345,
     }]
+
+
+def test_us_intraday_prices_keeps_latest_regular_session_when_premarket_is_newer(monkeypatch):
+    timestamps = [
+        int(datetime(2026, 9, 3, 19, 59, tzinfo=UTC).timestamp()),
+        int(datetime(2026, 9, 4, 13, 30, tzinfo=UTC).timestamp()),
+        int(datetime(2026, 9, 4, 20, 0, tzinfo=UTC).timestamp()),
+        int(datetime(2026, 9, 8, 12, 0, tzinfo=UTC).timestamp()),
+    ]
+    closes = [100.0, 101.0, 105.0, 106.0]
+    monkeypatch.setattr(
+        us_market,
+        "resolve_us_stock",
+        lambda symbol: {"code": "NVDA", "name": "NVIDIA"},
+    )
+    monkeypatch.setattr(
+        us_market,
+        "fetch_chart_range",
+        lambda *args, **kwargs: {
+            "meta": {"regularMarketPreviousClose": 105.0, "chartPreviousClose": 95.0},
+            "timestamp": timestamps,
+            "indicators": {
+                "quote": [{
+                    "open": closes,
+                    "high": closes,
+                    "low": closes,
+                    "close": closes,
+                    "volume": [100, 200, 300, 50],
+                }]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        us_market,
+        "_us_market_session",
+        lambda: {
+            "session": "premarket",
+            "label": "미국 프리마켓",
+            "is_live": True,
+            "local_time": datetime(2026, 9, 8, 8, 0, tzinfo=us_market.NEW_YORK_TZ),
+        },
+    )
+
+    payload = us_market.us_intraday_prices("NVDA", range_="5d", interval="5m")
+
+    assert payload["trade_date"] == date(2026, 9, 8)
+    assert payload["regular_trade_date"] == date(2026, 9, 4)
+    assert payload["regular_reference_price"] == Decimal("100.0")
 
 
 def test_us_previous_close_prefers_current_daily_reference_over_stale_chart_metadata():

@@ -33,7 +33,7 @@ from sqlalchemy import delete, desc, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db import SessionLocal, get_db, init_db, recover_interrupted_ingestions
+from app.db import SessionLocal, get_db, init_db_with_retry, recover_interrupted_ingestions
 from app.meta import integration_payload, insight_cadence_payload, research_source_payload
 from app.product_shell import render_dashboard_product_shell
 from app.us_public_gateway import checked_backend_url, forward_us_http, forward_us_websocket, gateway_target, should_freeze_us_write
@@ -63,11 +63,13 @@ from app.repository import (
     briefing_metrics,
     briefing_movers,
     briefing_quotes,
+    finish_ingestion,
     latest_briefing_snapshot,
     latest_prices_by_codes,
     latest_research_reports,
     list_briefing_snapshots,
     list_stocks,
+    start_ingestion,
 )
 from app.schemas import (
     BriefingQuoteOut,
@@ -149,6 +151,7 @@ from app.services.staging_page_summary import (
 from app.services.market_calendar import (
     is_korea_market_session_date,
     is_korea_regular_market_session,
+    is_scheduled_korea_market_session_date,
     latest_completed_korea_market_session_date,
     latest_published_korea_investor_flow_date,
 )
@@ -173,11 +176,17 @@ from app.services.recommendations import build_recommendations
 from app.services.stock_ai_analysis import build_stock_ai_analysis
 from app.services.local_stock_ai import enrich_stock_ai_analysis
 from app.services.quant_signals import (
+    EXECUTION_MODEL,
+    INTRADAY_EXECUTION_EFFECTIVE_DATE,
+    MARKET_SIGNAL_RECENT_DAYS,
     MARKET_SIGNAL_UNIVERSE_LIMIT,
     MIN_BACKTEST_HISTORY_ROWS,
     STRATEGY_VERSION,
+    UnverifiedIntradayPathError,
+    capture_closing_auction_trades_for_open_paths,
     enrich_market_quant_signal_sectors,
     enrich_quant_signal_payload_sector,
+    finalize_open_intraday_paths_for_session,
     load_external_market_quant_signal_feed,
     load_external_stock_quant_signal_payload,
     load_market_quant_signal_feed,
@@ -198,7 +207,11 @@ from app.services.public_signal import (
     public_recommendation_signal_payload,
     public_stock_ai_analysis_payload,
 )
-from app.services.entry_filter_backtest import refresh_entry_filter_shadow_snapshot
+from app.services.entry_filter_backtest import (
+    _shadow_report_is_current,
+    load_entry_filter_shadow_snapshot,
+    refresh_entry_filter_shadow_snapshot,
+)
 from app.services.signal_reconciliations import (
     apply_market_signal_reconciliations,
     apply_stock_signal_reconciliations,
@@ -213,6 +226,7 @@ from app.services.stock_dashboard import (
     build_stock_dashboard,
     ensure_stock_price_history,
     stock_news_item_payloads,
+    stock_news_snapshot_metadata,
 )
 from app.services.complete_snapshots import (
     SnapshotPublishConflictError,
@@ -271,6 +285,7 @@ from app.repository import latest_disclosures, latest_news_items
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 INSIGHT_INDEX = STATIC_DIR / "insight" / "index.html"
 DESKTOP_INDEX = STATIC_DIR / "desktop" / "index.html"
@@ -283,7 +298,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20260925v554"
+DASHBOARD_CLIENT_VERSION = "20261009v560"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -291,7 +306,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20260928us125"
+US_DASHBOARD_CLIENT_VERSION = "20261009us132"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -307,6 +322,7 @@ market_quant_signal_refresh_lock = RLock()
 us_position_lifecycle_refresh_lock = Lock()
 entry_filter_shadow_refresh_lock = RLock()
 MARKET_QUANT_SIGNAL_ACTIVE_MAX_AGE_SECONDS = 10 * 60
+MARKET_SIGNAL_DETAIL_RECENT_DAYS = 90
 MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS = 6 * 60 * 60
 kis_realtime_provider = KisRealtimeQuoteProvider(settings)
 kis_rest_provider = KisRestBriefingProvider(settings)
@@ -545,7 +561,7 @@ PUSH_CONDITION_OPTIONS = [
     {
         "id": "market_ai_signal",
         "label": "시장 AI 시그널",
-        "description": "국내장 장중 예비·장 마감 확정 신호를 알려드립니다.",
+        "description": "국내장 장중 예비 신호와 검증된 장중·장 마감 확정 매수·매도 신호를 알려드립니다.",
     },
     {
         "id": "recommendation_update",
@@ -568,10 +584,60 @@ PUSH_CONDITION_OPTIONS = [
         "description": "관심종목에 영향이 큰 일정이 가까워지면 알려드립니다.",
     },
 ]
+
+US_PUSH_CONDITION_COPY = {
+    "morning_briefing": (
+        "미국 시장 소식",
+        "매일 오전 8시·낮 12시·오후 4시에 미국 시장 새 소식을 알려드립니다.",
+    ),
+    "market_session": (
+        "미국장 시작·마감",
+        "미국 정규장 시작과 마감 5분 전에 알려드립니다.",
+    ),
+    "ai_signal": (
+        "AI 시그널",
+        "미국 관심종목의 장 마감 기준 예비·확정 신호를 알려드립니다.",
+    ),
+    "market_ai_signal": (
+        "시장 AI 시그널",
+        "미국 대표 종목의 장 마감 기준 예비·확정 신호를 알려드립니다.",
+    ),
+    "recommendation_update": (
+        "추천 업데이트",
+        "미국 추천 상위 10 신규 진입과 매수·매도 단계 변경을 알려드립니다.",
+    ),
+    "price_move": (
+        "급등락",
+        f"미국 관심종목 변동이 {settings.web_push_price_threshold:.0f}% 이상이면 알려드립니다.",
+    ),
+    "disclosure_report": (
+        "중요 공시·리포트",
+        "새 SEC 공시와 애널리스트 변화 중 중요한 것만 알려드립니다.",
+    ),
+    "major_event": (
+        "주요 이벤트",
+        "미국 관심종목에 영향이 큰 시장 소식과 일정이 가까워지면 알려드립니다.",
+    ),
+}
 DEFAULT_PUSH_CONDITIONS = tuple(item["id"] for item in PUSH_CONDITION_OPTIONS)
 REQUIRED_PUSH_CONDITIONS = tuple(
     item["id"] for item in PUSH_CONDITION_OPTIONS if item.get("required")
 )
+
+
+def _push_market_scope(value: object) -> str:
+    return "us" if str(value or "").strip().lower() == "us" else "kr"
+
+
+def _push_condition_options(market_scope: object) -> list[dict[str, object]]:
+    options = deepcopy(PUSH_CONDITION_OPTIONS)
+    if _push_market_scope(market_scope) != "us":
+        return options
+    for option in options:
+        label, description = US_PUSH_CONDITION_COPY[str(option["id"])]
+        option["label"] = label
+        option["description"] = description
+    return options
 
 
 async def _run_bootstrap_task() -> None:
@@ -989,12 +1055,14 @@ def _refresh_market_quant_signal_snapshot(
     universe_limit: int = MARKET_SIGNAL_UNIVERSE_LIMIT,
     limit: int = 0,
     recent_days: int = 30,
+    live_quotes: Optional[dict[str, dict[str, Any]]] = None,
 ) -> Optional[dict[str, Any]]:
     if not market_quant_signal_refresh_lock.acquire(blocking=False):
         return None
     try:
         with SessionLocal() as db:
             current_time = datetime.now(KST)
+            started_at = time_module.monotonic()
             repaired_rows = _repair_market_quant_signal_ohlc(
                 db,
                 universe_limit=universe_limit,
@@ -1002,12 +1070,36 @@ def _refresh_market_quant_signal_snapshot(
             )
             if repaired_rows:
                 logger.info("Market quant signal OHLC repair completed: %s rows", repaired_rows)
+            logger.info(
+                "Market quant signal preflight completed: duration_seconds=%.1f",
+                time_module.monotonic() - started_at,
+            )
+            if kis_rest_provider.is_configured():
+                sealed = finalize_open_intraday_paths_for_session(
+                    db,
+                    current_time,
+                    lambda code: kis_rest_provider.fetch_intraday_chart(
+                        code,
+                        max_points=391,
+                        market_division="J",
+                        now=current_time,
+                    ),
+                )
+                if sealed["pending"]:
+                    logger.info("Market quant signal minute path finalization: %s", sealed)
+            payload_started_at = time_module.monotonic()
+            logger.info("Market quant signal payload build started")
             payload = _build_market_quant_signal_payload(
                 db,
                 universe_limit=universe_limit,
                 limit=limit,
                 recent_days=recent_days,
                 now=current_time,
+                live_quotes=live_quotes,
+            )
+            logger.info(
+                "Market quant signal payload build completed: duration_seconds=%.1f",
+                time_module.monotonic() - payload_started_at,
             )
             stored = save_market_quant_signal_snapshot(
                 db,
@@ -1034,6 +1126,63 @@ def _refresh_market_quant_signal_snapshot(
         return None
     finally:
         market_quant_signal_refresh_lock.release()
+
+
+def _refresh_market_quant_signal_views_snapshot() -> Optional[dict[str, Any]]:
+    """Keep the 30-day alert feed and 90-day detail view on one quote frame."""
+
+    shared_quotes = None
+    if not settings.market_quant_signal_source_url:
+        with SessionLocal() as db:
+            shared_quotes = _market_quant_signal_live_quotes(
+                db, MARKET_SIGNAL_UNIVERSE_LIMIT, datetime.now(KST)
+            )
+        if (
+            isinstance(shared_quotes, MarketQuoteFanout)
+            and shared_quotes.expected_symbols > 0
+            and is_korea_regular_market_session(datetime.now(KST))
+            and len(shared_quotes) * 100 < shared_quotes.expected_symbols * 95
+        ):
+            # A transient KIS outage must not turn a partly observed Top150
+            # frame into a new confirmed alert or erase previously published
+            # positions. The refresh loop retries a None result in 30s.
+            logger.warning(
+                "Market quant signal quote coverage below publication floor: "
+                "valid_quotes=%s symbols=%s required_percent=95; preserving snapshot",
+                len(shared_quotes),
+                shared_quotes.expected_symbols,
+            )
+            return None
+    current = _refresh_market_quant_signal_snapshot(live_quotes=shared_quotes)
+    if current is None:
+        return None
+    detail = _refresh_market_quant_signal_snapshot(
+        recent_days=MARKET_SIGNAL_DETAIL_RECENT_DAYS,
+        live_quotes=shared_quotes,
+    )
+    if detail is None:
+        logger.warning("Market quant signal 90-day detail refresh did not complete")
+        return None
+    return current
+
+
+def _capture_market_closing_auction_trades() -> dict[str, int]:
+    current_time = datetime.now(KST)
+    with SessionLocal() as db:
+        return capture_closing_auction_trades_for_open_paths(
+            db,
+            current_time,
+            lambda code: kis_rest_provider.fetch_intraday_chart(
+                code, max_points=391, market_division="J", now=current_time
+            ),
+            lambda code: kis_rest_provider.fetch_krx_closing_auction_trade(
+                code, now=current_time
+            ),
+            tracked_recent_days=(
+                MARKET_SIGNAL_RECENT_DAYS,
+                MARKET_SIGNAL_DETAIL_RECENT_DAYS,
+            ),
+        )
 
 
 def _refresh_us_position_lifecycle_snapshot(
@@ -1077,6 +1226,8 @@ def _enqueue_us_position_lifecycle_refresh(
 ) -> bool:
     """Reserve the process-wide US refresh before adding a background task."""
 
+    if not settings.runs_collectors():
+        return False
     if not us_position_lifecycle_refresh_lock.acquire(blocking=False):
         return False
     try:
@@ -1095,7 +1246,32 @@ def _refresh_entry_filter_shadow_snapshot() -> Optional[dict[str, Any]]:
         return None
     try:
         with SessionLocal() as db:
-            return refresh_entry_filter_shadow_snapshot(db)
+            run = start_ingestion(db, "shadow", "entry_filter_fixed_cohort_forward")
+            try:
+                result = refresh_entry_filter_shadow_snapshot(db)
+                report = result.get("report") if isinstance(result, dict) else None
+                current = _shadow_report_is_current(report)
+                message = json.dumps(
+                    {
+                        "status": result.get("status") if isinstance(result, dict) else "failed",
+                        "symbols_evaluated": int((report or {}).get("symbols_evaluated") or 0),
+                        "history_backfill": (report or {}).get("history_backfill"),
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                )
+                finish_ingestion(
+                    db,
+                    run,
+                    "success" if current else "failed",
+                    int((report or {}).get("symbols_evaluated") or 0),
+                    message,
+                )
+                return result
+            except Exception as exc:
+                db.rollback()
+                finish_ingestion(db, run, "failed", 0, str(exc))
+                raise
     except Exception:  # pragma: no cover - operational safeguard
         logger.exception("Entry filter shadow backtest refresh failed")
         return None
@@ -1107,6 +1283,7 @@ async def _run_entry_filter_shadow_backtest_loop() -> None:
     """Keep H1/H2/H3 replayed together whenever a new daily dataset exists."""
 
     while True:
+        interval_seconds = 300
         try:
             result = await asyncio.to_thread(_refresh_entry_filter_shadow_snapshot)
             if result and result.get("status") == "refreshed":
@@ -1117,9 +1294,62 @@ async def _run_entry_filter_shadow_backtest_loop() -> None:
                     report.get("latest_price_date"),
                     report.get("symbols_evaluated"),
                 )
+            report = result.get("report") if isinstance(result, dict) else None
+            if not _shadow_report_is_current(report):
+                interval_seconds = 30
+                logger.warning(
+                    "Entry filter shadow backtest is not ready; retrying in %ss: status=%s",
+                    interval_seconds,
+                    result.get("status") if isinstance(result, dict) else "failed",
+                )
         except Exception:  # pragma: no cover - operational safeguard
             logger.exception("Entry filter shadow backtest loop failed")
-        await asyncio.sleep(300)
+            interval_seconds = 30
+        await asyncio.sleep(interval_seconds)
+
+
+async def _warm_entry_filter_shadow_snapshot() -> Optional[dict[str, Any]]:
+    """Retry the collector warm-up while the shared DB finishes its first refresh."""
+
+    retry_delays = (0, 10, 20, 30, 45, 60, 90, 120)
+    result: Optional[dict[str, Any]] = None
+    for attempt, delay_seconds in enumerate(retry_delays, start=1):
+        if delay_seconds:
+            await asyncio.sleep(delay_seconds)
+        result = await asyncio.to_thread(_refresh_entry_filter_shadow_snapshot)
+        report = result.get("report") if isinstance(result, dict) else None
+        if _shadow_report_is_current(report):
+            logger.info(
+                "Entry filter shadow backtest warm-up ready: attempt=%s status=%s candidate=%s latest_price_date=%s symbols=%s",
+                attempt,
+                result.get("status"),
+                report.get("candidate_strategy_version"),
+                report.get("latest_price_date"),
+                report.get("symbols_evaluated"),
+            )
+            return result
+        logger.warning(
+            "Entry filter shadow backtest warm-up incomplete: attempt=%s/%s status=%s",
+            attempt,
+            len(retry_delays),
+            result.get("status") if isinstance(result, dict) else "failed",
+        )
+    return result
+
+
+def _attach_entry_filter_forward_comparison(
+    db: Session,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    shadow_report = load_entry_filter_shadow_snapshot(db)
+    comparison = (
+        shadow_report.get("forward_comparison")
+        if isinstance(shadow_report, dict)
+        else None
+    )
+    if isinstance(comparison, dict):
+        payload["filter_forward_comparison"] = comparison
+    return payload
 
 
 def _build_market_quant_signal_payload(
@@ -1129,6 +1359,7 @@ def _build_market_quant_signal_payload(
     limit: int,
     recent_days: int,
     now: Optional[datetime] = None,
+    live_quotes: Optional[dict[str, dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     current_time = now or datetime.now(KST)
     external = load_external_market_quant_signal_feed(
@@ -1147,22 +1378,59 @@ def _build_market_quant_signal_payload(
             limit=limit,
             recent_days=recent_days,
             now=current_time,
-            live_quotes=_market_quant_signal_live_quotes(db, universe_limit, current_time),
+            live_quotes=(
+                live_quotes
+                if live_quotes is not None
+                else _market_quant_signal_live_quotes(db, universe_limit, current_time)
+            ),
+            intraday_chart_loader=(
+                (
+                    lambda code: (
+                        kis_rest_provider.fetch_intraday_chart(
+                            code,
+                            max_points=391,
+                            market_division="J",
+                            now=current_time,
+                        ),
+                        datetime.now(KST),
+                    )
+                )
+                if kis_rest_provider.is_configured()
+                and is_korea_regular_market_session(current_time)
+                else None
+            ),
+            historical_intraday_chart_loader=(
+                lambda code, trade_date: kis_rest_provider.fetch_historical_intraday_chart(
+                    code, trade_date, max_points=391, market_division="J"
+                )
+                if kis_rest_provider.is_configured()
+                else None
+            ),
+            persist_entry_safety_guard=True,
         )
+    payload = _attach_entry_filter_forward_comparison(db, payload)
     payload = apply_market_signal_reconciliations(payload, now=current_time) or payload
     return enrich_market_quant_signal_sectors(db, payload)
+
+
+class MarketQuoteFanout(dict[str, dict[str, Any]]):
+    """Quote map carrying scan size for publication-quality decisions."""
+
+    def __init__(self, expected_symbols: int):
+        super().__init__()
+        self.expected_symbols = expected_symbols
 
 
 def _market_quant_signal_live_quotes(
     db: Session,
     universe_limit: int,
     now: Optional[datetime] = None,
-) -> dict[str, dict[str, Any]]:
+) -> MarketQuoteFanout:
     market_cap_date = db.scalar(
         select(func.max(DailyPrice.trade_date)).where(DailyPrice.market_cap.is_not(None))
     )
     if market_cap_date is None:
-        return {}
+        return MarketQuoteFanout(expected_symbols=0)
     capped_limit = max(1, min(int(universe_limit), MARKET_SIGNAL_UNIVERSE_LIMIT))
     codes = list(
         db.scalars(
@@ -1182,17 +1450,34 @@ def _market_quant_signal_live_quotes(
             .limit(capped_limit)
         )
     )
-    quotes: dict[str, dict[str, Any]] = {}
+    quotes = MarketQuoteFanout(expected_symbols=len(codes))
+    source_counts = {"kis_rest": 0, "naver_finance": 0, "other": 0}
+    worker_failures = 0
+    started_at = time_module.monotonic()
+    logger.info("Market quant signal quote fanout started: symbols=%s", len(codes))
     with ThreadPoolExecutor(max_workers=min(4, len(codes) or 1)) as executor:
         futures = {executor.submit(_fetch_uncached_current_quote, code): code for code in codes}
         for future in as_completed(futures):
             code = futures[future]
             try:
-                quote, _source = future.result()
+                quote, source = future.result()
             except Exception:
+                worker_failures += 1
                 continue
             if quote:
                 quotes[code] = quote
+                source_counts[source if source in source_counts else "other"] += 1
+    logger.info(
+        "Market quant signal quote fanout completed: duration_seconds=%.1f valid_quotes=%s symbols=%s kis_rest=%s naver_finance=%s other=%s missing=%s worker_failures=%s",
+        time_module.monotonic() - started_at,
+        len(quotes),
+        len(codes),
+        source_counts["kis_rest"],
+        source_counts["naver_finance"],
+        source_counts["other"],
+        len(codes) - len(quotes),
+        worker_failures,
+    )
     return quotes
 
 
@@ -1315,19 +1600,58 @@ def _suppress_stale_preliminary_market_signals(payload: dict[str, Any]) -> dict[
 
 async def _run_market_quant_signal_refresh_loop() -> None:
     last_premarket_refresh_date: Optional[date] = None
+    logger.info("Market quant signal refresh loop started")
+    while True:
+        interval_seconds = 300
+        try:
+            now = datetime.now(KST)
+            premarket_refresh = (
+                now.weekday() < 5
+                and time(6, 0) <= now.time() <= time(9, 0)
+                and is_korea_market_session_date(now.date(), now)
+                and last_premarket_refresh_date != now.date()
+            )
+            if _quant_signal_quote_refresh_active(now) or premarket_refresh:
+                started_at = time_module.monotonic()
+                logger.info("Market quant signal refresh started: as_of=%s", now.isoformat())
+                refreshed = await asyncio.to_thread(_refresh_market_quant_signal_views_snapshot)
+                if refreshed is None:
+                    # A busy lock or failed refresh must not leave the market
+                    # feed stale for another full scan interval.
+                    logger.warning("Market quant signal refresh did not complete; retrying in 30s")
+                    interval_seconds = 30
+                else:
+                    logger.info(
+                        "Market quant signal refresh completed: duration_seconds=%.1f snapshot_generated_at=%s",
+                        time_module.monotonic() - started_at,
+                        refreshed.get("snapshot_generated_at"),
+                    )
+                    if premarket_refresh:
+                        last_premarket_refresh_date = now.date()
+        except Exception:  # pragma: no cover - operational safeguard
+            logger.exception("Market quant signal refresh loop failed; retrying in 30s")
+            interval_seconds = 30
+        await asyncio.sleep(interval_seconds)
+
+
+async def _run_market_closing_auction_capture_loop() -> None:
+    """Do not let a long Top150 scan miss the short recent-print window."""
+
     while True:
         now = datetime.now(KST)
-        premarket_refresh = (
-            now.weekday() < 5
-            and time(6, 0) <= now.time() <= time(9, 0)
-            and is_korea_market_session_date(now.date(), now)
-            and last_premarket_refresh_date != now.date()
-        )
-        if _quant_signal_quote_refresh_active(now) or premarket_refresh:
-            refreshed = await asyncio.to_thread(_refresh_market_quant_signal_snapshot)
-            if premarket_refresh and refreshed is not None:
-                last_premarket_refresh_date = now.date()
-        await asyncio.sleep(300)
+        interval_seconds = 30 if time(15, 30) <= now.time() < time(15, 40) else 300
+        try:
+            if (
+                time(15, 31) <= now.time() < time(15, 40)
+                and is_korea_market_session_date(now.date(), now)
+                and kis_rest_provider.is_configured()
+            ):
+                result = await asyncio.to_thread(_capture_market_closing_auction_trades)
+                if result["captured"] or result["unverified"]:
+                    logger.info("Market KRX closing auction capture: %s", result)
+        except Exception:  # pragma: no cover - operational safeguard
+            logger.exception("Market KRX closing auction capture failed")
+        await asyncio.sleep(interval_seconds)
 
 
 def _us_position_lifecycle_snapshot_due(now: datetime) -> bool:
@@ -1601,12 +1925,13 @@ async def _run_complete_snapshot_schedule_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    init_db()
+    await asyncio.to_thread(init_db_with_retry)
     if settings.runs_collectors():
         recover_interrupted_ingestions()
     bootstrap_task: asyncio.Task | None = None
     intraday_warmup_task: asyncio.Task | None = None
     market_quant_signal_task: asyncio.Task | None = None
+    closing_auction_capture_task: asyncio.Task | None = None
     us_position_lifecycle_task: asyncio.Task | None = None
     entry_filter_shadow_task: asyncio.Task | None = None
     stock_logo_task: asyncio.Task | None = None
@@ -1625,10 +1950,14 @@ async def lifespan(_: FastAPI):
             )
             intraday_warmup_task = asyncio.create_task(_run_intraday_warmup_loop())
             market_quant_signal_task = asyncio.create_task(_run_market_quant_signal_refresh_loop())
+            closing_auction_capture_task = asyncio.create_task(
+                _run_market_closing_auction_capture_loop()
+            )
             if settings.us_market_enabled:
                 us_position_lifecycle_task = asyncio.create_task(
                     _run_us_position_lifecycle_refresh_loop()
                 )
+            await _warm_entry_filter_shadow_snapshot()
             entry_filter_shadow_task = asyncio.create_task(
                 _run_entry_filter_shadow_backtest_loop()
             )
@@ -1651,6 +1980,10 @@ async def lifespan(_: FastAPI):
                 market_quant_signal_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await market_quant_signal_task
+            if closing_auction_capture_task is not None:
+                closing_auction_capture_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await closing_auction_capture_task
             if us_position_lifecycle_task is not None:
                 us_position_lifecycle_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -3013,6 +3346,8 @@ def health() -> dict[str, object]:
         "status": "ok",
         "app": settings.app_name,
         "strategy_version": STRATEGY_VERSION,
+        "execution_model": EXECUTION_MODEL,
+        "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
         "us_strategy_version": US_STRATEGY_VERSION,
         "dashboard_version": DASHBOARD_CLIENT_VERSION,
         "us_dashboard_version": US_DASHBOARD_CLIENT_VERSION,
@@ -3032,6 +3367,8 @@ def readyz() -> dict[str, object]:
         "app": settings.app_name,
         "database_ok": True,
         "strategy_version": STRATEGY_VERSION,
+        "execution_model": EXECUTION_MODEL,
+        "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
         "us_strategy_version": US_STRATEGY_VERSION,
         "dashboard_version": DASHBOARD_CLIENT_VERSION,
         "us_dashboard_version": US_DASHBOARD_CLIENT_VERSION,
@@ -3784,7 +4121,11 @@ def get_market_quant_signals(
 ):
     _enforce_rate_limit(request, "market_quant_signals", limit=30, window_seconds=60)
     cache_key = ("market_quant_signals", universe_limit, limit, recent_days)
-    payload = market_quant_signal_cache.get(cache_key)
+    # Collector and web processes have separate memory caches. During the
+    # session, read the shared snapshot so a web request cannot keep extending
+    # the lifetime of a pre-refresh signal after the collector has updated it.
+    active_quote_refresh = _quant_signal_quote_refresh_active()
+    payload = None if active_quote_refresh else market_quant_signal_cache.get(cache_key)
     if payload is None:
         payload = load_market_quant_signal_snapshot(
             db,
@@ -3792,6 +4133,8 @@ def get_market_quant_signals(
             limit=limit,
             recent_days=recent_days,
         )
+        if payload is not None and not active_quote_refresh:
+            market_quant_signal_cache.set(cache_key, payload, 300)
     if payload is None:
         if market_quant_signal_refresh_lock.acquire(blocking=False):
             try:
@@ -3821,6 +4164,8 @@ def get_market_quant_signals(
         payload = {
             "status": "preparing",
             "strategy_version": STRATEGY_VERSION,
+            "execution_model": EXECUTION_MODEL,
+            "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
             "as_of": datetime.now(KST),
             "universe_as_of": None,
             "universe_count": 0,
@@ -3833,6 +4178,13 @@ def get_market_quant_signals(
     else:
         current_time = datetime.now(KST)
         payload = deepcopy(payload)
+        payload = _attach_entry_filter_forward_comparison(db, payload)
+        if not isinstance(payload.get("filter_forward_comparison"), dict):
+            # A web-only deployment can be healthy while its collector is
+            # still warming the fixed-cohort replay.  Kick the same guarded
+            # refresh from the read path so the comparison cannot stay absent
+            # until the next five-minute collector tick.
+            background_tasks.add_task(_refresh_entry_filter_shadow_snapshot)
         freshness = _market_quant_signal_snapshot_freshness(payload, current_time)
         payload.update(freshness)
         if freshness["snapshot_state"] == "stale":
@@ -3846,7 +4198,6 @@ def get_market_quant_signals(
             )
         payload = apply_market_signal_reconciliations(payload, now=current_time) or payload
         payload = enrich_market_quant_signal_sectors(db, payload)
-        market_quant_signal_cache.set(cache_key, payload, 300)
         payload = _merge_market_preliminary_notification_history(db, payload)
     payload = sanitize_pending_entry_signal_items(payload)
     payload.setdefault("snapshot_generated_at", None)
@@ -3912,12 +4263,14 @@ def put_watchlist(share_id: str, payload: WatchlistUpdateIn, request: Request, d
 
 
 @app.get("/push/config")
-def push_config():
+def push_config(market_scope: str = Query(default="kr", pattern="^(kr|us)$")):
+    scope = _push_market_scope(market_scope)
     return {
         "enabled": web_push_runtime.configured,
         "public_key": settings.web_push_vapid_public_key if web_push_runtime.configured else None,
+        "market_scope": scope,
         "conditions": list(DEFAULT_PUSH_CONDITIONS),
-        "condition_options": deepcopy(PUSH_CONDITION_OPTIONS),
+        "condition_options": _push_condition_options(scope),
         "price_threshold": settings.web_push_price_threshold,
     }
 
@@ -3926,18 +4279,22 @@ def push_config():
 def push_subscription_status(
     share_id: str,
     endpoint: str = Query(..., min_length=20, max_length=2048),
+    market_scope: str = Query(default="kr", pattern="^(kr|us)$"),
     db: Session = Depends(get_db),
 ):
-    normalized_id = _normalize_watchlist_id(share_id)
+    scope = _push_market_scope(market_scope)
+    normalized_id = _normalize_write_scope(share_id, scope)
     subscription = db.scalar(
         select(PushSubscription).where(
             PushSubscription.share_id == normalized_id,
             PushSubscription.endpoint == endpoint,
+            PushSubscription.market_scope == scope,
             PushSubscription.enabled.is_(True),
         )
     )
     return {
         "enabled": subscription is not None,
+        "market_scope": scope,
         "conditions": _subscription_conditions(subscription),
     }
 
@@ -3952,9 +4309,11 @@ def push_notification_history(
     share_id: str,
     request: Request,
     limit: int = Query(50, ge=1, le=100),
+    market_scope: str = Query(default="kr", pattern="^(kr|us)$"),
     db: Session = Depends(get_db),
 ):
-    normalized_id = _normalize_watchlist_id(share_id)
+    scope = _push_market_scope(market_scope)
+    normalized_id = _normalize_write_scope(share_id, scope)
     _require_write_access(request, normalized_id)
     cutoff = datetime.utcnow() - timedelta(days=3)
     db.execute(delete(PushNotificationHistory).where(PushNotificationHistory.created_at < cutoff))
@@ -3964,6 +4323,7 @@ def push_notification_history(
             select(PushNotificationHistory)
             .where(
                 PushNotificationHistory.share_id == normalized_id,
+                PushNotificationHistory.market_scope == scope,
                 PushNotificationHistory.created_at >= cutoff,
             )
             .order_by(desc(PushNotificationHistory.created_at), desc(PushNotificationHistory.id))
@@ -3996,6 +4356,7 @@ def push_notification_history(
                 "title": row.title,
                 "body": row.body,
                 "url": row.url,
+                "market_scope": row.market_scope,
                 "event_date": _push_notification_event_date(row),
                 "created_at": f"{row.created_at.isoformat(timespec='seconds')}Z",
             }
@@ -4011,7 +4372,8 @@ def save_push_subscription(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    normalized_id = _normalize_watchlist_id(share_id)
+    scope = _push_market_scope(payload.market_scope)
+    normalized_id = _normalize_write_scope(share_id, scope)
     _require_write_access(request, normalized_id)
     if not web_push_runtime.configured:
         raise HTTPException(status_code=503, detail="웹푸시 발송 키가 설정되지 않았습니다.")
@@ -4021,7 +4383,12 @@ def save_push_subscription(
     subscription = db.scalar(
         select(PushSubscription).where(PushSubscription.endpoint == payload.endpoint)
     )
-    should_test = subscription is None or not subscription.enabled or subscription.share_id != normalized_id
+    should_test = (
+        subscription is None
+        or not subscription.enabled
+        or subscription.share_id != normalized_id
+        or subscription.market_scope != scope
+    )
     if subscription is None:
         subscription = PushSubscription(
             share_id=normalized_id,
@@ -4029,6 +4396,7 @@ def save_push_subscription(
             p256dh=payload.keys.p256dh,
             auth=payload.keys.auth,
             notification_preferences=json.dumps(conditions, ensure_ascii=False),
+            market_scope=scope,
             user_agent=str(request.headers.get("user-agent") or "")[:500] or None,
         )
         db.add(subscription)
@@ -4039,6 +4407,7 @@ def save_push_subscription(
         subscription.p256dh = payload.keys.p256dh
         subscription.auth = payload.keys.auth
         subscription.notification_preferences = json.dumps(conditions, ensure_ascii=False)
+        subscription.market_scope = scope
         subscription.user_agent = str(request.headers.get("user-agent") or "")[:500] or None
         subscription.enabled = True
     db.commit()
@@ -4052,6 +4421,7 @@ def save_push_subscription(
         )
     return {
         "enabled": subscription.enabled,
+        "market_scope": scope,
         "test_required": should_test,
         "test_sent": test_sent,
         "conditions": conditions,
@@ -4065,7 +4435,8 @@ def test_push_subscription(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    normalized_id = _normalize_watchlist_id(share_id)
+    scope = _push_market_scope(payload.market_scope)
+    normalized_id = _normalize_write_scope(share_id, scope)
     _require_write_access(request, normalized_id)
     if not web_push_runtime.configured:
         raise HTTPException(status_code=503, detail="웹푸시 발송 키가 설정되지 않았습니다.")
@@ -4073,6 +4444,7 @@ def test_push_subscription(
         select(PushSubscription).where(
             PushSubscription.share_id == normalized_id,
             PushSubscription.endpoint == payload.endpoint,
+            PushSubscription.market_scope == scope,
             PushSubscription.enabled.is_(True),
         )
     )
@@ -4090,12 +4462,14 @@ def delete_push_subscription(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    normalized_id = _normalize_watchlist_id(share_id)
+    scope = _push_market_scope(payload.market_scope)
+    normalized_id = _normalize_write_scope(share_id, scope)
     _require_write_access(request, normalized_id)
     subscription = db.scalar(
         select(PushSubscription).where(
             PushSubscription.share_id == normalized_id,
             PushSubscription.endpoint == payload.endpoint,
+            PushSubscription.market_scope == scope,
         )
     )
     if subscription:
@@ -4438,9 +4812,18 @@ def us_stock_ai_analysis(
         feed = None
     if feed is None:
         feed = us_position_lifecycle_preparing_payload(now=current_time)
-    # The collector owns the expensive Top100 publication. A public detail
-    # request must remain read-only and must never start a second provider scan
-    # inside a web worker.
+    refresh_allowed = _us_position_lifecycle_refresh_allowed(current_time)
+    schema_upgrade_due = us_position_lifecycle_schema_upgrade_due(feed)
+    if (
+        (refresh or us_position_lifecycle_refresh_due(feed, now=current_time))
+        and refresh_allowed
+    ):
+        _enqueue_us_position_lifecycle_refresh(background_tasks)
+    elif schema_upgrade_due:
+        _enqueue_us_position_lifecycle_refresh(
+            background_tasks,
+            allow_schema_upgrade=True,
+        )
 
     normalized_symbol = _normalize_us_symbol(symbol)
     normalized_signal_key = normalized_symbol.replace("-", ".")
@@ -4491,21 +4874,17 @@ def us_stock_ai_analysis(
     if (
         public_member_signal is None
         and signal is None
-        and snapshot_ready
+        and feed_ready
+        and is_current_universe_member is True
     ):
         try:
             universe_date = date.fromisoformat(
                 str(feed.get("universe_as_of") or "")[:10]
             )
-            evidence_symbol = str(
-                universe_member.get("code")
-                if isinstance(universe_member, dict)
-                and universe_member.get("code")
-                else normalized_symbol
-            )
+            evidence_symbol = str(universe_member.get("code") or normalized_symbol)
             public_member_signal = api_cache.get_or_set(
                 (
-                    "us_stock_public_evidence",
+                    "us_member_public_evidence",
                     str(feed.get("snapshot_id") or ""),
                     evidence_symbol,
                 ),
@@ -4518,7 +4897,7 @@ def us_stock_ai_analysis(
             )
         except Exception:
             logger.exception(
-                "US stock public evidence recovery failed: %s",
+                "US member public evidence recovery failed: %s",
                 normalized_symbol,
             )
     reason_source = (
@@ -4541,16 +4920,12 @@ def us_stock_ai_analysis(
             for item in signal_reasons
         )
     )
-    canonical_evidence_ready = bool(
-        snapshot_ready
+    canonical_member_ready = bool(
+        feed_ready
+        and is_current_universe_member
         and isinstance(reason_source, dict)
         and reason_source.get("data_state") == "ready"
         and canonical_reasons_valid
-    )
-    canonical_member_ready = bool(
-        canonical_evidence_ready
-        and feed_ready
-        and is_current_universe_member
     )
     canonical_candidate_ready = bool(
         canonical_member_ready
@@ -4558,14 +4933,16 @@ def us_stock_ai_analysis(
     )
     public_evidence_status = (
         "ready"
-        if canonical_evidence_ready
+        if canonical_member_ready
+        else "not_applicable"
+        if snapshot_ready and is_current_universe_member is False
         else "preparing"
         if not snapshot_ready
         else "unavailable"
     )
     evidence_session_date = (
         reason_source.get("signal_date")
-        if canonical_evidence_ready
+        if canonical_member_ready
         and isinstance(reason_source, dict)
         and reason_source.get("signal_date")
         else feed.get("universe_as_of")
@@ -4618,11 +4995,6 @@ def us_stock_ai_analysis(
             else canonical_as_of
         ),
     }
-    if is_current_universe_member is False:
-        canonical_current["next_confirmation"] = (
-            "20일·60일 가격 흐름과 거래대금 참여도는 참고하되, "
-            "매수·매도 시그널은 Top100 편입 뒤 다시 확인하세요."
-        )
     if action in {"entered", "holding", "full_exit_pending", "exited"}:
         canonical_current["lifecycle"] = dict(source_current.get("lifecycle") or {})
         canonical_current["entry_date"] = source_current.get("entry_date")
@@ -4632,7 +5004,9 @@ def us_stock_ai_analysis(
         )
     canonical_reasons = (
         signal_reasons
-        if canonical_evidence_ready
+        if canonical_member_ready
+        else []
+        if public_evidence_status == "not_applicable"
         else [
             {
                 "key": key,
@@ -4671,7 +5045,7 @@ def us_stock_ai_analysis(
             ),
             "as_of": canonical_as_of,
             "confidence": None,
-            "data_covered": 3 if canonical_evidence_ready else 0,
+            "data_covered": 3 if canonical_member_ready else 0,
             "data_total": 3,
             "stance": (
                 "예비 매수"
@@ -4749,9 +5123,21 @@ def us_market_recommendations(
         feed = None
     if feed is None:
         feed = us_position_lifecycle_preparing_payload(now=current)
+    refresh_enqueued = False
+    refresh_allowed = _us_position_lifecycle_refresh_allowed(current)
+    schema_upgrade_due = us_position_lifecycle_schema_upgrade_due(feed)
+    if (
+        (refresh or us_position_lifecycle_refresh_due(feed, now=current))
+        and refresh_allowed
+    ):
+        refresh_enqueued = _enqueue_us_position_lifecycle_refresh(background_tasks)
+    elif schema_upgrade_due:
+        refresh_enqueued = _enqueue_us_position_lifecycle_refresh(
+            background_tasks,
+            allow_schema_upgrade=True,
+        )
     feed["refresh_requested"] = refresh
-    feed["refresh_enqueued"] = False
-    feed["refresh_mode"] = "collector_owned"
+    feed["refresh_enqueued"] = refresh_enqueued
     payload = build_us_recommendations(
         limit=limit,
         candidate_limit=candidate_limit,
@@ -4781,9 +5167,21 @@ def us_market_quant_signals(
         feed = None
     if feed is None:
         feed = us_position_lifecycle_preparing_payload(now=current)
+    refresh_enqueued = False
+    refresh_allowed = _us_position_lifecycle_refresh_allowed(current)
+    schema_upgrade_due = us_position_lifecycle_schema_upgrade_due(feed)
+    if (
+        (refresh or us_position_lifecycle_refresh_due(feed, now=current))
+        and refresh_allowed
+    ):
+        refresh_enqueued = _enqueue_us_position_lifecycle_refresh(background_tasks)
+    elif schema_upgrade_due:
+        refresh_enqueued = _enqueue_us_position_lifecycle_refresh(
+            background_tasks,
+            allow_schema_upgrade=True,
+        )
     feed["refresh_requested"] = refresh
-    feed["refresh_enqueued"] = False
-    feed["refresh_mode"] = "collector_owned"
+    feed["refresh_enqueued"] = refresh_enqueued
     payload = build_us_quant_signals(
         limit=limit,
         recent_days=recent_days,
@@ -5367,7 +5765,7 @@ def _korea_quote_session(now: Optional[datetime] = None) -> dict[str, Any]:
     # Daily index candles do not include today's session before the KRX opens,
     # so they cannot be used to decide whether the 08:00 NXT feed should be
     # queried. The venue feed itself remains the authority for an actual tick.
-    session_open = current.weekday() < 5
+    session_open = is_korea_market_session_date(current.date(), current)
     if not session_open:
         return {
             "market_session": "closed",
@@ -6640,7 +7038,15 @@ def _stock_quote_stream_payload_uncached(code: str) -> Optional[dict[str, object
             quote.update({key: value for key, value in live_quote.items() if value is not None})
         else:
             source = "stored_daily_price"
-            quote.update(_korea_quote_session(current_time))
+            quote.update(
+                {
+                    "market_session": "closed",
+                    "market_session_label": "실시간 시세 확인 중 · 마지막 확정 종가",
+                    "market_venue": "KRX",
+                    "market_division": "J",
+                    "is_live": False,
+                }
+            )
         container = {"quote": quote}
         _enrich_pre_market_quote(container, normalized, current_time)
         return _json_ready(
@@ -7599,8 +8005,12 @@ def _seconds_until_next_korea_open(now: datetime) -> int:
     target = datetime.combine(current.date(), time(8, 0), tzinfo=KST)
     if current >= target:
         target += timedelta(days=1)
-    while target.weekday() >= 5:
+    for _ in range(14):
+        if is_scheduled_korea_market_session_date(target.date()):
+            break
         target += timedelta(days=1)
+    else:
+        return 3600
     return max(30, int((target - current).total_seconds()) - 30)
 
 
@@ -7619,6 +8029,28 @@ def _intraday_trade_date(points: list[dict[str, object]]) -> Optional[date]:
         except ValueError:
             continue
     return None
+
+
+def _intraday_points_after_now(
+    points: list[dict[str, object]], now: datetime
+) -> bool:
+    """Reject premarket KIS charts stamped with future same-day minutes."""
+
+    current = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
+    for point in points:
+        if not isinstance(point, dict):
+            return True
+        raw_date = str(point.get("trade_date") or "").strip()
+        raw_time = str(point.get("trade_time") or "").strip().zfill(6)
+        try:
+            minute = datetime.strptime(
+                raw_date + raw_time, "%Y%m%d%H%M%S"
+            ).replace(tzinfo=KST)
+        except ValueError:
+            return True
+        if minute > current:
+            return True
+    return False
 
 
 def _closed_intraday_snapshot_is_current(
@@ -7657,8 +8089,18 @@ def _intraday_record_is_usable(
     points = record.get("points")
     trade_date = record.get("trade_date")
     validated_on = record.get("validated_on")
+    fetched_at = record.get("fetched_at")
+    observed_at = (
+        fetched_at.replace(tzinfo=timezone.utc)
+        if isinstance(fetched_at, datetime) and fetched_at.tzinfo is None
+        else fetched_at
+    )
     return (
         isinstance(points, list)
+        and bool(points)
+        and isinstance(observed_at, datetime)
+        and not _intraday_points_after_now(points, observed_at)
+        and not _intraday_points_after_now(points, now)
         and int(record.get("max_points") or 0) >= limit
         and isinstance(trade_date, date)
         and isinstance(validated_on, date)
@@ -7719,8 +8161,10 @@ def _save_closed_intraday_snapshot(
     limit: int,
     now: datetime,
 ) -> Optional[dict[str, Any]]:
+    if _intraday_points_after_now(points, now):
+        return None
     trade_date = _intraday_trade_date(points)
-    if trade_date is None or trade_date > now.date():
+    if trade_date is None:
         return None
     fetched_at = datetime.utcnow()
     snapshot = db.get(StockIntradaySnapshot, code)
@@ -7850,6 +8294,14 @@ def stock_intraday_chart(
             source = "unavailable"
             message = str(exc)
 
+    if points and _intraday_points_after_now(points, now):
+        points = []
+        source = "unavailable"
+        message = "현재 시각 이후로 표시된 분봉은 제외했습니다."
+    elif not points and source == "kis_rest":
+        source = "unavailable"
+        message = "현재 시각까지 확인된 KRX 분봉이 없습니다."
+
     if market_open:
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         response.headers["Pragma"] = "no-cache"
@@ -7958,11 +8410,38 @@ def stock_quant_signals(
 
     ensure_stock_price_history(db, code, require_recent_complete_ohlc=True)
     live_quote, _source = _fetch_uncached_current_quote(code)
-    payload = load_reference_quant_signal_payload(
-        db,
-        code,
-        live_quote=live_quote,
-    )
+    try:
+        payload = load_reference_quant_signal_payload(
+            db,
+            code,
+            live_quote=live_quote,
+            intraday_chart_loader=(
+                lambda stock_code: (
+                    kis_rest_provider.fetch_intraday_chart(
+                        stock_code, max_points=391, market_division="J"
+                    ),
+                    datetime.now(KST),
+                )
+                if kis_rest_provider.is_configured()
+                and is_korea_regular_market_session(datetime.now(KST))
+                else None
+            ),
+            historical_intraday_chart_loader=(
+                lambda stock_code, trade_date: (
+                    kis_rest_provider.fetch_historical_intraday_chart(
+                        stock_code, trade_date,
+                        max_points=391, market_division="J",
+                    )
+                )
+                if kis_rest_provider.is_configured()
+                else None
+            ),
+        )
+    except UnverifiedIntradayPathError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="이전 장중 매매 기록을 재검증 중입니다. 확인 전에는 다른 확정 신호를 표시하지 않습니다.",
+        ) from exc
     if not payload:
         raise HTTPException(status_code=404, detail="Stock not found")
     payload = sanitize_pending_entry_signal_payload(payload)
@@ -7975,12 +8454,15 @@ def stock_quant_signals(
 @app.get("/stocks/{code}/prices", response_model=list[DailyPriceOut])
 def stock_prices(
     code: str,
+    response: Response,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     limit: int = Query(default=250, ge=1, le=2000),
     db: Session = Depends(get_db),
 ):
     code = _normalize_stock_code(code)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     statement = (
         select(DailyPrice)
         .where(DailyPrice.code == code)
@@ -8925,6 +9407,7 @@ def disclosures(
 
 @app.get("/news-items", response_model=list[NewsItemOut])
 def news_items(
+    response: Response,
     limit: int = Query(default=50, ge=1, le=500),
     category: Optional[str] = None,
     press_name: Optional[str] = None,
@@ -8933,6 +9416,8 @@ def news_items(
     to_date: Optional[date] = None,
     db: Session = Depends(get_db),
 ):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     return [
         _news_item_payload(item)
         for item in latest_news_items(
@@ -8960,9 +9445,15 @@ def stock_news_items(
         stock = _ensure_stock_master_from_naver(db, code)
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
-    response.headers["Cache-Control"] = "private, max-age=120, stale-while-revalidate=120"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     response.headers["X-Stock-News-Source"] = "naver-stock-code"
-    return stock_news_item_payloads(db, stock.code, limit=limit)
+    payload = stock_news_item_payloads(db, stock.code, limit=limit)
+    freshness = stock_news_snapshot_metadata(db, stock.code)
+    response.headers["X-Data-State"] = str(freshness["state"])
+    if freshness["as_of"]:
+        response.headers["X-Data-As-Of"] = freshness["as_of"].isoformat()
+    return payload
 
 
 @app.get("/insight/feed")

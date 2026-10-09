@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from html import unescape
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
@@ -19,17 +20,21 @@ from app.repository import finish_ingestion, latest_news_items, start_ingestion,
 KST = ZoneInfo("Asia/Seoul")
 NAVER_FINANCE_BASE = "https://finance.naver.com"
 NAVER_NEWS_ARTICLE_BASE = "https://n.news.naver.com/mnews/article"
+NAVER_MOBILE_FRONT_API = "https://m.stock.naver.com/front-api"
 
-NEWS_CATEGORY_URLS = {
-    "breaking": "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258",
-    "market": "https://finance.naver.com/news/news_list.naver?mode=LSS3D&section_id=101&section_id2=258&section_id3=401",
-    "company": "https://finance.naver.com/news/news_list.naver?mode=LSS3D&section_id=101&section_id2=258&section_id3=402",
-    "global": "https://finance.naver.com/news/news_list.naver?mode=LSS3D&section_id=101&section_id2=258&section_id3=403",
-    "bond": "https://finance.naver.com/news/news_list.naver?mode=LSS3D&section_id=101&section_id2=258&section_id3=404",
-    "disclosure_memo": "https://finance.naver.com/news/news_list.naver?mode=LSS3D&section_id=101&section_id2=258&section_id3=406",
-    "fx": "https://finance.naver.com/news/news_list.naver?mode=LSS3D&section_id=101&section_id2=258&section_id3=429",
+# Naver retired the legacy ``finance.naver.com/news/news_list.naver`` and
+# per-stock HTML endpoints in 2026. The mobile Finance client uses these JSON
+# feeds instead. Multiple legacy labels intentionally map to one feed; the
+# fetcher de-duplicates articles by their press/article key.
+NAVER_NEWS_FEEDS = {
+    "breaking": ("category", "flashnews"),
+    "market": ("category", "mainnews"),
+    "company": ("category", "ranknews"),
+    "global": ("worldnews", "usa"),
+    "bond": ("category", "mainnews"),
+    "disclosure_memo": ("category", "mainnews"),
+    "fx": ("category", "mainnews"),
 }
-
 
 @dataclass
 class NewsListItem:
@@ -59,10 +64,24 @@ class NewsListItem:
         }
 
 
-def _naver_get_html(url: str) -> str:
-    response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+def _naver_get_json(path: str, params: dict[str, object]) -> list[dict[str, object]]:
+    response = requests.get(
+        f"{NAVER_MOBILE_FRONT_API}/{path.lstrip('/')}",
+        params=params,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://m.stock.naver.com/",
+        },
+        timeout=30,
+    )
     response.raise_for_status()
-    return response.content.decode("euc-kr", errors="ignore")
+    payload = response.json()
+    if not isinstance(payload, dict) or payload.get("isSuccess") is not True:
+        raise RuntimeError("Naver mobile news API returned an unsuccessful payload")
+    result = payload.get("result")
+    if not isinstance(result, list):
+        raise RuntimeError("Naver mobile news API result is not a list")
+    return [row for row in result if isinstance(row, dict)]
 
 
 def _parse_news_datetime(value: str) -> Optional[datetime]:
@@ -74,6 +93,39 @@ def _parse_news_datetime(value: str) -> Optional[datetime]:
     except ValueError:
         return None
     return parsed.replace(tzinfo=KST).replace(tzinfo=None)
+
+
+def _parse_mobile_news_datetime(value: object) -> Optional[datetime]:
+    cleaned = re.sub(r"\D", "", str(value or ""))
+    for pattern, length in (("%Y%m%d%H%M%S", 14), ("%Y%m%d%H%M", 12)):
+        if len(cleaned) != length:
+            continue
+        try:
+            return datetime.strptime(cleaned, pattern).replace(tzinfo=KST).replace(tzinfo=None)
+        except ValueError:
+            return None
+    return None
+
+
+def _mobile_news_item(row: dict[str, object], category: str) -> Optional[NewsListItem]:
+    office_id = str(row.get("officeId") or "").strip()
+    article_id = str(row.get("articleId") or "").strip()
+    title = _clean_news_title(unescape(str(row.get("titleFull") or row.get("title") or "")))
+    if not office_id or not article_id or not title:
+        return None
+    external_id = f"{office_id}:{article_id}"
+    return NewsListItem(
+        source="naver_finance",
+        source_category=category,
+        external_id=external_id,
+        title=title,
+        summary=_clean_news_title(unescape(str(row.get("body") or ""))) or None,
+        press_name=_clean_news_title(row.get("officeName")) or None,
+        image_url=str(row.get("imageOriginLink") or "").strip() or None,
+        detail_url=naver_news_detail_url(external_id),
+        published_at=_parse_mobile_news_datetime(row.get("datetime")),
+        raw=json.dumps(row, ensure_ascii=False),
+    )
 
 
 def _extract_news_external_id(href: Optional[str]) -> str:
@@ -237,29 +289,66 @@ def fetch_naver_news_items(
     now = now or datetime.now(KST)
     cutoff = (now - timedelta(days=days_back)).replace(tzinfo=None)
     items: list[NewsListItem] = []
+    seen: set[str] = set()
+    fetched_feeds: set[tuple[str, str]] = set()
+    source_rows = 0
 
     for category in categories:
-        base_url = NEWS_CATEGORY_URLS.get(category)
-        if not base_url:
+        feed = NAVER_NEWS_FEEDS.get(category)
+        if not feed or feed in fetched_feeds:
             continue
+        fetched_feeds.add(feed)
+        endpoint, value = feed
 
         stop_category = False
         for page in range(1, max_pages + 1):
-            html = _naver_get_html(f"{base_url}&page={page}")
-            page_items = parse_naver_news_list_html(html, category)
-            if not page_items:
+            params: dict[str, object] = {"page": page, "pageSize": 20}
+            if endpoint == "worldnews":
+                params["regionCode"] = value
+            else:
+                params["category"] = value
+            page_rows = _naver_get_json(f"news/{endpoint}", params)
+            source_rows += len(page_rows)
+            if not page_rows:
                 break
 
-            for item in page_items:
+            for row in page_rows:
+                item = _mobile_news_item(row, category)
+                if item is None or item.external_id in seen:
+                    continue
                 if item.published_at and item.published_at < cutoff:
                     stop_category = True
                     continue
+                seen.add(item.external_id)
                 items.append(item)
 
             if stop_category:
                 break
 
+    if fetched_feeds and source_rows == 0:
+        raise RuntimeError("Naver mobile news API returned no source rows")
     return items
+
+
+def fetch_naver_stock_news_items(
+    code: str,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+) -> list[NewsListItem]:
+    rows = _naver_get_json(
+        "news/stock/list",
+        {
+            "itemCode": str(code).strip(),
+            "page": max(1, int(page)),
+            "pageSize": max(1, min(100, int(page_size))),
+        },
+    )
+    return [
+        item
+        for row in rows
+        if (item := _mobile_news_item(row, "company")) is not None
+    ]
 
 
 def collect_news_items(
@@ -283,7 +372,13 @@ def collect_news_items(
         )
         count = upsert_many(db, NewsItem, [item.as_row() for item in items])
         db.commit()
-        finish_ingestion(db, run, "success", rows_loaded=count, message=f"categories={','.join(categories)}")
+        finish_ingestion(
+            db,
+            run,
+            "success",
+            rows_loaded=count,
+            message=f"categories={','.join(categories)} normalized_items={len(items)}",
+        )
         return count
     except Exception as exc:
         db.rollback()

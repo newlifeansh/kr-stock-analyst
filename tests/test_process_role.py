@@ -1,7 +1,7 @@
 import inspect
 
 import pytest
-from fastapi import HTTPException, Response
+from fastapi import BackgroundTasks, HTTPException, Response
 from pydantic import ValidationError
 
 import app.main as main_module
@@ -32,6 +32,15 @@ def test_lifespan_starts_mutating_collectors_only_for_collector_role():
     assert "await web_push_runtime.start()" in source
     assert "await _get_complete_snapshot_runtime().start()" in source
     assert "if settings.runs_web_services() and mcp_server is not None:" in source
+
+
+def test_web_role_never_enqueues_us_position_lifecycle_scan(monkeypatch):
+    monkeypatch.setattr(main_module.settings, "process_role", "web")
+    assert (
+        main_module._enqueue_us_position_lifecycle_refresh(BackgroundTasks())
+        is False
+    )
+    assert main_module.us_position_lifecycle_refresh_lock.locked() is False
 
 
 def test_web_role_cold_shared_endpoints_queue_and_stable_dashboard_serves_db_only(monkeypatch):
