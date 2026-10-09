@@ -471,6 +471,7 @@ console.log(JSON.stringify({{
   healthy: summarize(["realtime", "realtime"]),
   mixed: summarize(["realtime", "delayed", "checking"]),
   recent: summarize(["recent", "recent"]),
+  reference: summarize(["reference", "reference"]),
   closed: summarize(["closed", "closed"]),
 }}));
 """
@@ -484,6 +485,7 @@ console.log(JSON.stringify({{
             "realtime": 2,
             "delayed": 0,
             "recent": 0,
+            "reference": 0,
             "checking": 0,
             "offline": 0,
             "closed": 0,
@@ -497,6 +499,8 @@ console.log(JSON.stringify({{
     assert result["mixed"]["label"] == "실시간 1 · 약 10초 지연 1 · 확인 중 1"
     assert result["recent"]["state"] == "recent"
     assert result["recent"]["label"] == "보유 2개 미국 최근 시세 확인"
+    assert result["reference"]["state"] == "reference"
+    assert result["reference"]["label"] == "보유 2개 최근 미국장 종가"
     assert result["closed"]["label"] == "장 마감 · 보유 2개"
 
 

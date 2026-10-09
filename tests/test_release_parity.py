@@ -14,8 +14,8 @@ def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     contract = local_release_contract()
 
     assert contract["surface"] == "dashboard"
-    assert contract["product_version"] == "20261008v559"
-    assert contract["dashboard_version"] == "20261008v559"
+    assert contract["product_version"] == "20261009v560"
+    assert contract["dashboard_version"] == "20261009v560"
     assert len(contract["assets"]) == 8
     assert len(contract["asset_sha256"]) == 8
     assert set(contract["asset_sha256"]) == {
@@ -32,7 +32,7 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
     contract = local_release_contract(surface="us")
 
     assert contract["surface"] == "us"
-    assert contract["product_version"] == "20261008us131"
+    assert contract["product_version"] == "20261009us132"
     assert len(contract["assets"]) == 12
     assert len(contract["asset_sha256"]) == 12
     assert set(contract["asset_sha256"]) == {
@@ -192,6 +192,42 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.index("Start domestic staging only for deployment and QA") < workflow.index(
         "Deploy the exact image to domestic staging"
     )
+
+
+def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> None:
+    workflow = Path(".github/workflows/deploy-main-production.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "push:" in workflow
+    assert "- main" in workflow
+    assert "Run deterministic fixtures and contracts" in workflow
+    assert "Enforce production gate" in workflow
+    assert "docker/build-push-action@v6" in workflow
+    assert 'image_ref="${IMAGE_NAME}@${IMAGE_DIGEST}"' in workflow
+    assert "needs: [gate, build_image]" in workflow
+    assert "name: production" in workflow
+    assert "Deploy the exact image to US production first" in workflow
+    assert "Deploy the same image to domestic production" in workflow
+    assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 4
+    assert "US_STAGING_RAILWAY_PROJECT_ID" not in workflow
+    assert "DASHBOARD_STAGING_RAILWAY_PROJECT_ID" not in workflow
+    assert "deploy_staging:" not in workflow
+    assert "staging_qa:" not in workflow
+    assert "Verify domestic production version and asset hashes" in workflow
+    assert "Verify US production version and asset hashes" in workflow
+    assert "Run domestic production read-only checks" in workflow
+    assert "Run US production read-only checks" in workflow
+    assert "Enforce post-deployment verification" in workflow
+
+    catalog = {case["id"]: case for case in load_qa_catalog()["cases"]}
+    release_case = catalog["DATA-COM-009"]
+    assert release_case["priority"] == "P0"
+    assert release_case["inputs"]["default_order"] == (
+        "main push→gate→build once→US production→dashboard production→"
+        "production parity/readiness/live"
+    )
+    assert release_case["inputs"]["staging_required"] is False
 
 
 def test_us_canonical_route_activation_requires_exact_production_candidate() -> None:

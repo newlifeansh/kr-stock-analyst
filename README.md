@@ -169,6 +169,15 @@ source .venv/bin/activate
 analyst verify-mcp-endpoint --url https://your-mcp-domain/
 ```
 
+### 메인 브랜치 운영 자동 배포
+
+`main`에 변경이 병합되면 `.github/workflows/deploy-main-production.yml`이 전체 결정적
+테스트와 QA gate를 실행합니다. gate가 통과한 커밋만 OCI 이미지를 한 번 빌드하며,
+그 이미지의 SHA-256 digest를 미국 운영과 국내 운영의 web·collector에 차례로 연결합니다.
+정상 경로에서는 스테이징 승인을 기다리지 않습니다. 배포 뒤에는 두 운영 surface의
+제품 버전·정적 자산 해시·데이터 최신성·read-only live QA를 확인하고 증거를 보존합니다.
+수동 스테이징 워크플로는 장중 관찰이나 장애 진단이 필요할 때만 사용합니다.
+
 ### 개인용 미국 시그널 MCP
 
 국내 MCP와 분리된 미국 전용 앱은 `app.us_mcp_app:app` 입니다. 이 앱은
