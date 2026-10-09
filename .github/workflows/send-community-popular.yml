@@ -66,6 +66,15 @@ jobs:
         run: |
           pip install -e .
           npm install --global @railway/cli@5.45.7
+      - name: Register an ephemeral Railway SSH key
+        run: |
+          set -euo pipefail
+          key_path="$RUNNER_TEMP/railway-community-push-${GITHUB_RUN_ID}"
+          ssh-keygen -q -t ed25519 -N "" -C "community-push-${GITHUB_RUN_ID}" -f "$key_path"
+          fingerprint="$(ssh-keygen -lf "$key_path.pub" -E sha256 | awk '{print $2}')"
+          railway ssh keys add --key "$key_path.pub" --name "community-push-${GITHUB_RUN_ID}"
+          echo "RAILWAY_SSH_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+          echo "RAILWAY_SSH_KEY_FINGERPRINT=$fingerprint" >> "$GITHUB_ENV"
       - name: Send once through the domestic production database
         env:
           CODE: ${{ inputs.code }}
@@ -78,6 +87,7 @@ jobs:
             --project "$PRODUCTION_RAILWAY_PROJECT_ID" \
             --environment production \
             --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" \
+            --identity-file "$RAILWAY_SSH_KEY_PATH" \
             -- python -m app.cli send-community-popular \
               --code "$CODE" \
               --rank "$RANK" \
@@ -85,6 +95,13 @@ jobs:
               --send \
               --confirm SEND-COMMUNITY-POPULAR \
               > artifacts/operator/community-popular-receipt.json
+      - name: Remove the ephemeral Railway SSH key
+        if: always()
+        run: |
+          set -euo pipefail
+          test -n "${RAILWAY_SSH_KEY_FINGERPRINT:-}"
+          railway ssh keys remove "$RAILWAY_SSH_KEY_FINGERPRINT"
+          rm -f "$RAILWAY_SSH_KEY_PATH" "$RAILWAY_SSH_KEY_PATH.pub"
       - name: Upload redacted send receipt
         if: always()
         uses: actions/upload-artifact@v4
