@@ -432,6 +432,29 @@ def test_canonical_snapshot_round_trip_and_stale_state_blocks_entries(
     assert stale["items"][0]["is_current_holding"] is False
 
 
+def test_snapshot_save_normalizes_missing_authoritative_ranking_date(snapshot_db):
+    session_date = date(2026, 9, 8)
+    snapshot_id = f"{lifecycle.US_SIGNAL_UNIVERSE_VERSION}:{session_date}"
+    universe_row = snapshot_db.get(MarketRankingSnapshot, snapshot_id)
+    assert universe_row is not None
+    stored_universe = json.loads(universe_row.payload)
+    stored_universe.pop("ranking_as_of")
+    universe_row.payload = universe._serialize_payload(stored_universe)
+    snapshot_db.commit()
+
+    feed = _complete_feed()
+    feed["ranking_as_of"] = None
+    stored = lifecycle.save_us_position_lifecycle_snapshot(
+        snapshot_db,
+        feed,
+        generated_at=datetime(2026, 9, 8, 21, 0, tzinfo=UTC),
+    )
+
+    assert stored["status"] == "ready"
+    assert stored["data_state"] == "ready"
+    assert stored["snapshot_id"]
+
+
 def test_canonical_snapshot_waits_for_provider_grace_after_official_close():
     before_time = datetime(2026, 9, 8, 20, 14, 59, tzinfo=UTC)
     at_time = datetime(2026, 9, 8, 20, 15, tzinfo=UTC)

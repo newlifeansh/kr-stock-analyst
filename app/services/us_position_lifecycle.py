@@ -2816,12 +2816,19 @@ def _authoritative_universe_matches(db: Session, payload: dict[str, Any]) -> boo
         return False
     if authoritative is None:
         return False
+    authoritative_ranking_date = _parse_snapshot_date(
+        authoritative.get("ranking_as_of")
+        or authoritative.get("universe_as_of")
+    )
+    payload_ranking_date = _parse_snapshot_date(
+        payload.get("ranking_as_of") or payload.get("universe_as_of")
+    )
     return bool(
         authoritative.get("checksum") == payload.get("universe_checksum")
         and authoritative.get("universe_as_of")
         == str(payload.get("universe_as_of"))
-        and authoritative.get("ranking_as_of")
-        == str(payload.get("ranking_as_of"))
+        and authoritative_ranking_date is not None
+        and authoritative_ranking_date == payload_ranking_date
         and authoritative.get("universe_count") == payload.get("universe_count")
         and _snapshot_json({"items": authoritative.get("items")})
         == _snapshot_json({"items": payload.get("universe_members")})
