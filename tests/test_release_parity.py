@@ -206,6 +206,9 @@ def test_manual_community_push_workflow_is_confirmed_scoped_and_receipted() -> N
     assert "PRODUCTION_RAILWAY_COLLECTOR_SERVICE" in workflow
     assert "railway ssh" in workflow
     assert "railway ssh keys add" in workflow
+    assert 'eval "$(ssh-agent -s)"' in workflow
+    assert 'ssh-add "$key_path"' in workflow
+    assert '--key "$fingerprint"' in workflow
     assert "--identity-file" in workflow
     assert "railway ssh keys remove" in workflow
     assert "if: always()" in workflow
