@@ -194,6 +194,23 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     )
 
 
+def test_manual_community_push_workflow_is_confirmed_scoped_and_receipted() -> None:
+    workflow = Path(".github/workflows/send-community-popular.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "workflow_dispatch:" in workflow
+    assert "environment:\n      name: production" in workflow
+    assert 'test "$CONFIRM" = "SEND-COMMUNITY-POPULAR"' in workflow
+    assert "PRODUCTION_RAILWAY_PROJECT_ID" in workflow
+    assert "PRODUCTION_RAILWAY_COLLECTOR_SERVICE" in workflow
+    assert "railway run --no-local" in workflow
+    assert "--environment production" in workflow
+    assert "send-community-popular" in workflow
+    assert "--expected-post-id" in workflow
+    assert "community-popular-receipt.json" in workflow
+
+
 def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> None:
     workflow = Path(".github/workflows/deploy-main-production.yml").read_text(
         encoding="utf-8"
