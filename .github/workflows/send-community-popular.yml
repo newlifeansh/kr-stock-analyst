@@ -72,9 +72,13 @@ jobs:
           key_path="$RUNNER_TEMP/railway-community-push-${GITHUB_RUN_ID}"
           ssh-keygen -q -t ed25519 -N "" -C "community-push-${GITHUB_RUN_ID}" -f "$key_path"
           fingerprint="$(ssh-keygen -lf "$key_path.pub" -E sha256 | awk '{print $2}')"
-          railway ssh keys add --key "$key_path.pub" --name "community-push-${GITHUB_RUN_ID}"
+          eval "$(ssh-agent -s)"
+          ssh-add "$key_path"
           echo "RAILWAY_SSH_KEY_PATH=$key_path" >> "$GITHUB_ENV"
           echo "RAILWAY_SSH_KEY_FINGERPRINT=$fingerprint" >> "$GITHUB_ENV"
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> "$GITHUB_ENV"
+          railway ssh keys add --key "$fingerprint" --name "community-push-${GITHUB_RUN_ID}"
       - name: Send once through the domestic production database
         env:
           CODE: ${{ inputs.code }}
@@ -99,9 +103,17 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          test -n "${RAILWAY_SSH_KEY_FINGERPRINT:-}"
-          railway ssh keys remove "$RAILWAY_SSH_KEY_FINGERPRINT"
-          rm -f "$RAILWAY_SSH_KEY_PATH" "$RAILWAY_SSH_KEY_PATH.pub"
+          cleanup_status=0
+          if test -n "${RAILWAY_SSH_KEY_FINGERPRINT:-}"; then
+            railway ssh keys remove "$RAILWAY_SSH_KEY_FINGERPRINT" || cleanup_status=$?
+          fi
+          if test -n "${RAILWAY_SSH_KEY_PATH:-}"; then
+            rm -f "$RAILWAY_SSH_KEY_PATH" "$RAILWAY_SSH_KEY_PATH.pub"
+          fi
+          if test -n "${SSH_AGENT_PID:-}"; then
+            kill "$SSH_AGENT_PID" || true
+          fi
+          exit "$cleanup_status"
       - name: Upload redacted send receipt
         if: always()
         uses: actions/upload-artifact@v4
