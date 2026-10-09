@@ -400,14 +400,24 @@ Actions는 PR마다 `gate`, 평일 KST 08:20·10:00·16:20에 `live`, 스테이�
 ### Railway 스테이징 → 프로덕션 승격
 
 수동 실행은 `.github/workflows/deploy-staging-production.yml`의 단일 파이프라인을
-사용합니다. `stage`는 `gate → build-once → 미국 스테이징 → 국내 스테이징 →
-각 surface의 release-parity/live/e2e`를 실행합니다. 두 스테이징은 별도 Railway
+사용합니다. `stage`는 `gate → build-once → 국내 스테이징 기동 → 미국 스테이징 →
+국내 스테이징 → 각 surface의 release-parity/live/e2e → 국내 스테이징 종료`를
+실행합니다. 두 스테이징은 별도 Railway
 프로젝트의 web·collector·Postgres 및 URL을 사용합니다. 동일한 불변 이미지를
 배포하되 국내는 `US_MARKET_ENABLED=false`, 미국은 `true`로 운영합니다.
 `product_surface`는 후보의 주 제품을 기록하며 양쪽 QA는 모두 필수입니다.
 기존 `dark-theme-preview`는 최근 접근 기록에서 자동화 QA 요청만 확인되어
 2026-09-24에 배포를 중지했습니다. 서비스 설정과 도메인은 복구를 위해 보존하며
 릴리스 QA 대상에서 제외합니다.
+국내 스테이징의 collector·web은 평소 replica 0을 유지하고, 볼륨이
+연결된 Postgres는 서비스·볼륨을 보존한 채 배포만 중지합니다. 배포·예약
+live QA·수동 E2E·국내 운영 parity가 시작되면 `DB 재배포 및 준비 확인 →
+collector replica 1 → web replica 1`로 기동합니다. QA 성공·실패와 관계없이
+`web replica 0 → collector replica 0 → DB 배포 중지`로 다시 절전하며, 일부
+기동 실패도 같은 종료 절차로 롤백합니다. DB 종료는 현재 상태를 먼저
+확인해 이미 중지된 배포의 과거 이력을 중복 삭제하지 않습니다. 모든 스테이징
+작업은 `domestic-staging-runtime`
+concurrency 그룹으로 직렬화해 QA 중에 다른 작업이 서비스를 내리지 않게 합니다.
 운영자가 두 스테이징 결과와 정확한 후보를 승인한 뒤
 `promote-production`에 검증된 `image@sha256`과 source SHA를 입력하면 새 이미지를
 빌드하지 않고 `product_surface`로 선택한 운영 프로젝트의 web·collector에만
@@ -454,7 +464,9 @@ GitHub 저장소에는 다음 설정이 필요합니다.
 
 - Repository variables: `DASHBOARD_STAGING_RAILWAY_PROJECT_ID`,
   `DASHBOARD_STAGING_RAILWAY_WEB_SERVICE`,
-  `DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE`, `DASHBOARD_STAGING_BASE_URL`,
+  `DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE`,
+  `DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE`, `DASHBOARD_STAGING_RAILWAY_REGION`,
+  `DASHBOARD_STAGING_BASE_URL`,
   `US_STAGING_RAILWAY_PROJECT_ID`, `US_STAGING_RAILWAY_WEB_SERVICE`,
   `US_STAGING_RAILWAY_COLLECTOR_SERVICE`, `US_STAGING_BASE_URL`,
   `PRODUCTION_RAILWAY_PROJECT_ID`, `PRODUCTION_RAILWAY_WEB_SERVICE`,

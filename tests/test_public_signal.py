@@ -317,6 +317,41 @@ def test_us_candidate_projection_hides_shadow_diagnostics_and_numeric_evidence()
     assert "투자자 순매수나 ETF 순유입이 아닙니다" in flow["note"]
 
 
+def test_stale_us_projection_exposes_no_current_or_historical_signal_rows() -> None:
+    public = public_market_signal_payload(
+        {
+            "strategy_version": "position-lifecycle-us-v2-rc1",
+            "status": "degraded",
+            "data_state": "stale",
+            "snapshot_id": "previous-session-snapshot",
+            "snapshot_checksum": "previous-session-checksum",
+            "new_entries_allowed": False,
+            "confirmed_count": 12,
+            "preliminary_count": 1,
+            "entry_pending_count": 1,
+            "items": [
+                {
+                    "code": "MSFT",
+                    "side": "buy",
+                    "is_current_holding": True,
+                    "current": {
+                        "action": "holding",
+                        "position_open": True,
+                        "model_exposure_percent": 100,
+                    },
+                }
+            ],
+            "preliminary_history": [{"code": "NVDA", "side": "buy"}],
+        }
+    )
+
+    assert public["items"] == []
+    assert public["preliminary_history"] == []
+    assert public["confirmed_count"] == 0
+    assert public["preliminary_count"] == 0
+    assert public["entry_pending_count"] == 0
+
+
 def test_us_recommendation_projection_hides_nested_internal_evidence() -> None:
     public = public_recommendation_signal_payload(
         {
@@ -498,13 +533,10 @@ def test_us_non_ready_market_and_recommendation_projections_are_no_signal() -> N
     }
 
     market = public_market_signal_payload(feed)
-    market_signal = market["items"][0]
-    assert market_signal["current"]["action"] == "no_signal"
-    assert market_signal["current"]["label"] == "관망"
-    assert market_signal["signal"] == "관망"
-    assert market_signal["is_preliminary"] is False
-    assert "동일 스냅샷" in market_signal["current"]["next_confirmation"]
-    assert all(reason["available"] is False for reason in market_signal["public_reasons"])
+    assert market["items"] == []
+    assert market["confirmed_count"] == 0
+    assert market["preliminary_count"] == 0
+    assert market["entry_pending_count"] == 0
 
     recommendation = public_recommendation_signal_payload(
         {
@@ -518,18 +550,10 @@ def test_us_non_ready_market_and_recommendation_projections_are_no_signal() -> N
             ],
         }
     )
-    recommendation_item = recommendation["items"][0]
-    recommendation_signal = recommendation_item["ai_trade_signal"]
-    assert recommendation_item["action"] == "관망"
-    assert recommendation_signal["current"]["action"] == "no_signal"
-    assert recommendation_signal["current"]["label"] == "관망"
-    assert recommendation_signal["signal"] == "관망"
-    assert recommendation_signal["is_preliminary"] is False
-    assert "동일 스냅샷" in recommendation_signal["current"]["next_confirmation"]
-    assert all(
-        reason["available"] is False
-        for reason in recommendation_signal["public_reasons"]
-    )
+    assert recommendation["items"] == []
+    assert recommendation["candidate_count"] == 0
+    assert recommendation["total_candidate_count"] == 0
+    assert recommendation["selection_state"] == "unavailable"
     serialized = json.dumps(recommendation, ensure_ascii=False)
     assert "entry_price" not in serialized
     assert "target_sell_price" not in serialized

@@ -816,7 +816,12 @@ def _run_us_e2e_checks(
                     for case_id in required_case_ids
                 ]
 
-            def us_product_boundary_case(page: Any, theme: str) -> dict[str, Any]:
+            def us_product_boundary_case(
+                page: Any,
+                theme: str,
+                *,
+                check_signal_quote_state: bool = False,
+            ) -> dict[str, Any]:
                 requested_resources: list[dict[str, str]] = []
                 page.on(
                     "request",
@@ -955,6 +960,50 @@ def _run_us_e2e_checks(
                         "미국 시그널 영역의 시그널 감시 후보 명칭이 일관되지 않습니다.",
                         signal_labels,
                     )
+                signal_quote_state: dict[str, Any] = {}
+                if check_signal_quote_state:
+                    page.wait_for_selector(
+                        "#ai-signals-page-list .home-ai-signal-row",
+                        state="visible",
+                    )
+                    signal_quote_state = page.evaluate(
+                        """() => {
+                          const rows = [...document.querySelectorAll(
+                            '#ai-signals-page-list .home-ai-signal-row[data-code]'
+                          )];
+                          const holdings = rows.filter(
+                            row => row.aiSignalSnapshotItem?.current?.position_open === true
+                          );
+                          return {
+                            holdingCount: holdings.length,
+                            summary: document.querySelector('#ai-signals-live-status-label')?.textContent?.trim() || '',
+                            detail: document.querySelector('#ai-signals-live-status-detail')?.textContent?.trim() || '',
+                            rows: holdings.map(row => ({
+                              code: row.dataset.code,
+                              text: row.textContent || '',
+                              value: row.querySelector('[data-field="ai_signal_return"]')?.textContent?.trim() || '',
+                              freshness: row.querySelector('[data-field="ai_signal_return"]')?.dataset?.freshnessState || '',
+                            })),
+                          };
+                        }"""
+                    )
+                    if (
+                        signal_quote_state["holdingCount"] > 0
+                        and (
+                            "최근 미국장 종가" not in signal_quote_state["summary"]
+                            or "실시간 체결가는 아니에요" not in signal_quote_state["detail"]
+                            or any(
+                                "현재가 확인 중" in row["text"]
+                                or not row["value"]
+                                or row["freshness"] != "reference"
+                                for row in signal_quote_state["rows"]
+                            )
+                        )
+                    ):
+                        raise QaFailure(
+                            "미국 보유 시그널이 완료 세션 가격 대신 현재가 확인 중에 고정됐습니다.",
+                            signal_quote_state,
+                        )
                 page.evaluate(
                     """() => {
                       window.__qaHistoryBackCalls = 0;
@@ -984,6 +1033,73 @@ def _run_us_e2e_checks(
                     raise QaFailure(
                         "미국 AI 시그널 백키가 브라우저 이력과 무관하게 홈으로 복귀하지 못했습니다.",
                         signal_back,
+                    )
+
+                page.set_viewport_size({"width": 843, "height": 872})
+                page.wait_for_timeout(300)
+                fold_layout = page.evaluate(
+                    """() => {
+                      const rect = selector => {
+                        const node = document.querySelector(selector);
+                        if (!node) return null;
+                        const value = node.getBoundingClientRect();
+                        return {
+                          left: Math.round(value.left * 10) / 10,
+                          right: Math.round(value.right * 10) / 10,
+                          width: Math.round(value.width * 10) / 10,
+                          height: Math.round(value.height * 10) / 10,
+                        };
+                      };
+                      return {
+                        viewport: innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                        bodyWidth: document.body.scrollWidth,
+                        shell: rect('.shell[data-ui-version="3.0"]'),
+                        home: rect('#home-view'),
+                        marketContext: rect('.staging-market-context'),
+                        topActions: rect('.staging-top-actions'),
+                        bottomNav: rect('#bottom-nav'),
+                        navTargets: [...document.querySelectorAll(
+                          '#bottom-nav [data-app-view]'
+                        )].map(node => {
+                          const value = node.getBoundingClientRect();
+                          return {
+                            width: Math.round(value.width * 10) / 10,
+                            height: Math.round(value.height * 10) / 10,
+                          };
+                        }),
+                      };
+                    }"""
+                )
+                fold_shell = fold_layout.get("shell") or {}
+                fold_home = fold_layout.get("home") or {}
+                fold_market = fold_layout.get("marketContext") or {}
+                fold_actions = fold_layout.get("topActions") or {}
+                fold_nav = fold_layout.get("bottomNav") or {}
+                shell_width = float(fold_shell.get("width") or 0)
+                shell_left = float(fold_shell.get("left") or 0)
+                if (
+                    fold_layout.get("viewport") != 843
+                    or fold_layout.get("rootWidth", 0) > 845
+                    or fold_layout.get("bodyWidth", 0) > 845
+                    or not 758 <= shell_width <= 762
+                    or abs(float(fold_home.get("width") or 0) - shell_width) > 2
+                    or abs(float(fold_market.get("left") or 0) - (shell_left + 24)) > 2
+                    or abs((843 - float(fold_actions.get("right") or 0)) - (shell_left + 6)) > 2
+                    or not 449 <= float(fold_nav.get("width") or 0) <= 453
+                    or abs(
+                        (float(fold_nav.get("left") or 0) + float(fold_nav.get("right") or 0))
+                        - 843
+                    )
+                    > 2
+                    or any(
+                        target.get("width", 0) < 44 or target.get("height", 0) < 44
+                        for target in fold_layout.get("navTargets") or []
+                    )
+                ):
+                    raise QaFailure(
+                        "843px 폴드 화면의 유동 본문·정렬·컴팩트 내비게이션 계약이 깨졌습니다.",
+                        fold_layout,
                     )
 
                 page.set_viewport_size({"width": 320, "height": 760})
@@ -1162,6 +1278,8 @@ def _run_us_e2e_checks(
                     "shell": shell,
                     "signal_back": signal_back,
                     "signal_labels": signal_labels,
+                    "signal_quote_state": signal_quote_state,
+                    "fold_layout": fold_layout,
                     "reflow": reflow,
                     "search": search_state,
                     "stock": stock_state,
@@ -1407,7 +1525,13 @@ def _run_us_e2e_checks(
                     base_url=base_url,
                     timeout=timeout,
                     artifact_dir=output_dir,
-                    callback=us_product_boundary_case,
+                    callback=lambda page, theme, check_signal_quote_state=(
+                        case_id == "SIG-UI-031"
+                    ): us_product_boundary_case(
+                        page,
+                        theme,
+                        check_signal_quote_state=check_signal_quote_state,
+                    ),
                     storage_state=storage_state,
                     share_id=share_id,
                 )
@@ -11086,6 +11210,73 @@ def run_e2e_checks(
                 if not market_codes or not market_codes.issubset({"KOSPI", "KOSDAQ"}):
                     raise QaFailure("국내 홈 시장 카드에 해외 자산이 섹여 있습니다.", domestic_state)
 
+                page.set_viewport_size({"width": 843, "height": 872})
+                page.wait_for_timeout(300)
+                fold_layout = page.evaluate(
+                    """() => {
+                      const rect = selector => {
+                        const node = document.querySelector(selector);
+                        if (!node) return null;
+                        const value = node.getBoundingClientRect();
+                        return {
+                          left: Math.round(value.left * 10) / 10,
+                          right: Math.round(value.right * 10) / 10,
+                          width: Math.round(value.width * 10) / 10,
+                          height: Math.round(value.height * 10) / 10,
+                        };
+                      };
+                      return {
+                        viewport: innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                        bodyWidth: document.body.scrollWidth,
+                        shell: rect('.shell[data-ui-version="3.0"]'),
+                        home: rect('#home-view'),
+                        marketContext: rect('.staging-market-context'),
+                        topActions: rect('.staging-top-actions'),
+                        bottomNav: rect('#bottom-nav'),
+                        navTargets: [...document.querySelectorAll(
+                          '#bottom-nav [data-app-view]'
+                        )].map(node => {
+                          const value = node.getBoundingClientRect();
+                          return {
+                            width: Math.round(value.width * 10) / 10,
+                            height: Math.round(value.height * 10) / 10,
+                          };
+                        }),
+                      };
+                    }"""
+                )
+                fold_shell = fold_layout.get("shell") or {}
+                fold_home = fold_layout.get("home") or {}
+                fold_market = fold_layout.get("marketContext") or {}
+                fold_actions = fold_layout.get("topActions") or {}
+                fold_nav = fold_layout.get("bottomNav") or {}
+                shell_width = float(fold_shell.get("width") or 0)
+                shell_left = float(fold_shell.get("left") or 0)
+                if (
+                    fold_layout.get("viewport") != 843
+                    or fold_layout.get("rootWidth", 0) > 845
+                    or fold_layout.get("bodyWidth", 0) > 845
+                    or not 758 <= shell_width <= 762
+                    or abs(float(fold_home.get("width") or 0) - shell_width) > 2
+                    or abs(float(fold_market.get("left") or 0) - (shell_left + 24)) > 2
+                    or abs((843 - float(fold_actions.get("right") or 0)) - (shell_left + 6)) > 2
+                    or not 449 <= float(fold_nav.get("width") or 0) <= 453
+                    or abs(
+                        (float(fold_nav.get("left") or 0) + float(fold_nav.get("right") or 0))
+                        - 843
+                    )
+                    > 2
+                    or any(
+                        target.get("width", 0) < 44 or target.get("height", 0) < 44
+                        for target in fold_layout.get("navTargets") or []
+                    )
+                ):
+                    raise QaFailure(
+                        "843px 폴드 국내 화면의 유동 본문·정렬·컴팩트 내비게이션 계약이 깨졌습니다.",
+                        fold_layout,
+                    )
+
                 page.set_viewport_size({"width": 320, "height": 760})
                 page.wait_for_timeout(300)
                 mobile_state = page.evaluate(
@@ -11115,6 +11306,7 @@ def run_e2e_checks(
                 return {
                     "shell": shell,
                     "domestic": domestic_state,
+                    "fold_layout": fold_layout,
                     "mobile": mobile_state,
                     "request_count": len(requested_resources),
                     "forbidden_request_count": 0,
