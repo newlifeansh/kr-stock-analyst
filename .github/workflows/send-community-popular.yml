@@ -1,0 +1,95 @@
+name: Send one domestic community-popular notification
+
+on:
+  workflow_dispatch:
+    inputs:
+      code:
+        description: "Domestic stock code"
+        required: true
+        default: "005930"
+        type: string
+      rank:
+        description: "Current popular-post rank"
+        required: true
+        default: "1"
+        type: string
+      expected_post_id:
+        description: "Exact source post ID approved for this send"
+        required: true
+        type: string
+      confirm:
+        description: "Type SEND-COMMUNITY-POPULAR"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: send-community-popular-${{ inputs.code }}-${{ inputs.expected_post_id }}
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}
+      PRODUCTION_RAILWAY_COLLECTOR_SERVICE: ${{ vars.PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Validate exact operator approval
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          CODE: ${{ inputs.code }}
+          RANK: ${{ inputs.rank }}
+          EXPECTED_POST_ID: ${{ inputs.expected_post_id }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRM" = "SEND-COMMUNITY-POPULAR"
+          [[ "$CODE" =~ ^[0-9A-Za-z.]{1,12}$ ]]
+          [[ "$RANK" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_POST_ID" =~ ^[0-9A-Za-z_-]{1,80}$ ]]
+          test -n "$RAILWAY_API_TOKEN"
+          test -n "$PRODUCTION_RAILWAY_PROJECT_ID"
+          test -n "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+      - name: Install operator runtime
+        run: |
+          pip install -e .
+          npm install --global @railway/cli@5.45.7
+      - name: Send once through the domestic production database
+        env:
+          CODE: ${{ inputs.code }}
+          RANK: ${{ inputs.rank }}
+          EXPECTED_POST_ID: ${{ inputs.expected_post_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/operator
+          railway run --no-local \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" \
+            --environment production \
+            --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" \
+            -- python -m app.cli send-community-popular \
+              --code "$CODE" \
+              --rank "$RANK" \
+              --expected-post-id "$EXPECTED_POST_ID" \
+              --send \
+              --confirm SEND-COMMUNITY-POPULAR \
+              --output artifacts/operator/community-popular-receipt.json
+      - name: Upload redacted send receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: community-popular-${{ inputs.code }}-${{ inputs.expected_post_id }}-${{ github.run_id }}
+          path: artifacts/operator/community-popular-receipt.json
+          if-no-files-found: error
+          retention-days: 90

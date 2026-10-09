@@ -53,6 +53,14 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-PUSH-COMMUNITY-001": (
+        "tests.test_web_push."
+        "test_operator_community_popular_sends_once_to_enabled_domestic_subscribers",
+        "tests.test_web_push."
+        "test_operator_community_popular_fails_closed_when_rank_is_missing",
+        "tests.test_release_parity."
+        "test_manual_community_push_workflow_is_confirmed_scoped_and_receipted",
+    ),
     "SIG-EXIT-005": (
         "tests.test_quant_signals."
         "test_v8_existing_position_first_profit_exit_reaches_fifty_percent_without_legacy_cap",

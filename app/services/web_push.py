@@ -29,6 +29,7 @@ from app.models import (
     StockMaster,
     WatchlistItem,
 )
+from app.services.community_feed import build_stock_community_feed
 from app.services.stock_dashboard import _naver_snapshot
 from app.services.market_calendar import (
     is_korea_daily_signal_window,
@@ -2030,6 +2031,146 @@ class WebPushRuntime:
             delivery.error = str(exc)[:2000]
             db.commit()
             return False
+
+    def send_operator_community_popular(
+        self,
+        db: Session,
+        *,
+        code: str,
+        rank: int = 1,
+        expected_post_id: Optional[str] = None,
+        dry_run: bool = True,
+        now: Optional[datetime] = None,
+    ) -> dict[str, object]:
+        """Send one current popular community post to enabled KR subscribers.
+
+        This is deliberately an operator-only path. The event key is derived
+        from the source post so rerunning the command cannot send the same post
+        twice to one subscription.
+        """
+
+        normalized_code = str(code or "").strip().upper()
+        if not normalized_code:
+            raise ValueError("stock code is required")
+        if rank < 1:
+            raise ValueError("rank must be at least 1")
+        if not dry_run and not self.configured:
+            raise RuntimeError("web push is not configured")
+
+        stock = db.get(StockMaster, normalized_code)
+        if stock is None or not stock.is_active:
+            raise ValueError(f"active stock not found: {normalized_code}")
+
+        feed = build_stock_community_feed(
+            stock,
+            self.settings,
+            limit=max(3, rank),
+            timeout_seconds=18,
+            mode="popular",
+        )
+        ranked_items: list[tuple[str, dict[str, object]]] = []
+        for provider in feed.get("providers") or []:
+            if not isinstance(provider, dict):
+                continue
+            provider_key = str(provider.get("key") or "community").strip()
+            for item in provider.get("items") or []:
+                if isinstance(item, dict):
+                    ranked_items.append((provider_key, item))
+        if len(ranked_items) < rank:
+            raise RuntimeError(f"current popular post rank {rank} is unavailable")
+
+        provider_key, selected = ranked_items[rank - 1]
+        post_id = str(selected.get("post_id") or "").strip()
+        post_title = " ".join(str(selected.get("title") or "").split())
+        if not post_id or not post_title:
+            raise RuntimeError("popular post identity or title is missing")
+        normalized_expected_post_id = str(expected_post_id or "").strip()
+        if normalized_expected_post_id and post_id != normalized_expected_post_id:
+            raise RuntimeError(
+                f"popular post changed: expected {normalized_expected_post_id}, got {post_id}"
+            )
+
+        def metric_value(key: str) -> int:
+            try:
+                return max(0, int(selected.get(key) or 0))
+            except (TypeError, ValueError):
+                return 0
+
+        like_count = metric_value("like_count")
+        view_count = metric_value("view_count")
+        current = now or datetime.now(KST)
+        current_kst = current.astimezone(KST) if current.tzinfo else current.replace(tzinfo=KST)
+        digest = hashlib.sha256(f"{provider_key}:{post_id}".encode("utf-8")).hexdigest()[:20]
+        event_key = (
+            f"operator-community-popular:kr:{normalized_code}:"
+            f"{current_kst.date().isoformat()}:{digest}"
+        )
+        display_title = post_title if len(post_title) <= 72 else f"{post_title[:69]}…"
+        candidate = NotificationCandidate(
+            event_key=event_key,
+            kind="community_popular",
+            title=f"{stock.name} 오늘 커뮤니티 인기글",
+            body=(
+                f"{rank}위 ‘{display_title}’ · 공감 {like_count:,} · 조회 {view_count:,} · "
+                "투자 판단 전 원문을 확인하세요."
+            ),
+            url=f"/dashboard/{quote(normalized_code, safe='')}",
+            tag=f"operator-community-popular-kr-{normalized_code}-{digest}",
+            occurred_at=current_kst,
+            stock_codes=(normalized_code,),
+            market_scope="kr",
+        )
+
+        subscriptions = [
+            subscription
+            for subscription in db.scalars(
+                select(PushSubscription).where(PushSubscription.enabled.is_(True))
+            ).all()
+            if subscription_market_scope(subscription) == "kr"
+        ]
+        subscription_ids = [subscription.id for subscription in subscriptions]
+        already_sent_ids: set[int] = set()
+        if subscription_ids:
+            already_sent_ids = set(
+                db.scalars(
+                    select(PushDelivery.subscription_id).where(
+                        PushDelivery.subscription_id.in_(subscription_ids),
+                        PushDelivery.event_key == event_key,
+                        PushDelivery.status.in_(("sent", "baseline")),
+                    )
+                ).all()
+            )
+
+        sent = 0
+        failed = 0
+        if not dry_run:
+            for subscription in subscriptions:
+                if subscription.id in already_sent_ids:
+                    continue
+                if self._send(db, subscription, candidate):
+                    sent += 1
+                else:
+                    failed += 1
+
+        return {
+            "status": "preview" if dry_run else ("sent" if failed == 0 else "partial_failure"),
+            "dry_run": dry_run,
+            "market_scope": "kr",
+            "audience": "all_enabled_domestic_subscribers",
+            "code": normalized_code,
+            "name": stock.name,
+            "rank": rank,
+            "post_id": post_id,
+            "post_title": post_title,
+            "like_count": like_count,
+            "view_count": view_count,
+            "event_key": event_key,
+            "eligible_subscriptions": len(subscriptions),
+            "already_sent": len(already_sent_ids),
+            "sent": sent,
+            "failed": failed,
+            "url": candidate.url,
+        }
 
     @staticmethod
     def _baseline_marker_key(subscription: PushSubscription, item: WatchlistItem) -> str:
