@@ -14,7 +14,7 @@ import hashlib
 import hmac
 import json
 import re
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import requests
 from sqlalchemy import desc, select
@@ -24,7 +24,7 @@ from app.models import MarketRankingSnapshot
 from app.services.ttl_cache import TTLCache
 
 
-US_SIGNAL_UNIVERSE_VERSION = "us-market-cap-top100-v4"
+US_SIGNAL_UNIVERSE_VERSION = "us-market-cap-top100-v5"
 US_SIGNAL_UNIVERSE_AUDIT_VERSION = "us-market-cap-source-audit-v3"
 US_SIGNAL_UNIVERSE_LIMIT = 100
 US_SIGNAL_UNIVERSE_CATEGORY = "us_signal_universe"
@@ -478,6 +478,10 @@ def _align_candidates_to_completed_session(
     candidates: list[dict[str, Any]],
     quotes: dict[str, dict[str, Any]],
     completed_date: date,
+    *,
+    quote_retry_loader: Optional[
+        Callable[[list[str]], dict[str, dict[str, Any]]]
+    ] = None,
 ) -> tuple[
     list[dict[str, Any]],
     dict[str, dict[str, Any]],
@@ -534,6 +538,28 @@ def _align_candidates_to_completed_session(
         raise ValueError(
             "US screener is more than one completed XNYS session behind"
         )
+    # Yahoo occasionally returns one structurally incomplete member inside an
+    # otherwise complete large batch. Retry only those members, at most twice,
+    # and keep the bridge fail-closed if the independently fetched rows still
+    # do not prove the completed-session identity and market cap.
+    if quote_retry_loader is not None:
+        for _attempt in range(2):
+            retry_codes = [
+                str(candidate["code"])
+                for candidate in candidates
+                if not _completed_session_bridge_quote_is_valid(
+                    str(candidate["code"]),
+                    quotes.get(str(candidate["code"])) or {},
+                    completed_date,
+                )
+            ]
+            if not retry_codes:
+                break
+            retried = quote_retry_loader(retry_codes)
+            for code in retry_codes:
+                if isinstance(retried.get(code), dict):
+                    quotes[code] = dict(retried[code])
+
     if len(quotes) != len(candidates):
         raise ValueError(
             "US latest-session market-cap bridge requires every candidate quote"
@@ -554,27 +580,16 @@ def _align_candidates_to_completed_session(
     for candidate in candidates:
         code = str(candidate["code"])
         quote = dict(quotes.get(code) or {})
-        market_cap = _decimal(quote.get("marketCap"))
-        price = _decimal(quote.get("regularMarketPrice"))
-        quote_date = _quote_date(quote.get("regularMarketTime"))
-        quote_type = str(quote.get("quoteType") or "").upper()
-        exchange = str(quote.get("exchange") or "").upper()
-        currency = str(quote.get("currency") or "").upper()
-        quote_symbol = _ticker(quote.get("symbol"))
-        if (
-            market_cap is None
-            or market_cap <= 0
-            or price is None
-            or price <= 0
-            or quote_date != completed_date
-            or quote_type != "EQUITY"
-            or exchange not in VALID_YAHOO_EXCHANGES
-            or currency != "USD"
-            or quote_symbol.replace("-", ".") != code.replace("-", ".")
+        if not _completed_session_bridge_quote_is_valid(
+            code,
+            quote,
+            completed_date,
         ):
             raise ValueError(
                 f"US latest-session market-cap bridge quote is invalid for {code}"
             )
+        market_cap = _decimal(quote.get("marketCap"))
+        quote_date = _quote_date(quote.get("regularMarketTime"))
         aligned.append(
             {
                 **candidate,
@@ -612,6 +627,31 @@ def _align_candidates_to_completed_session(
         alignment,
         "yahoo_market_cap_validated_against_prior_nasdaq_candidate_pool",
         exclusions,
+    )
+
+
+def _completed_session_bridge_quote_is_valid(
+    code: str,
+    quote: dict[str, Any],
+    completed_date: date,
+) -> bool:
+    market_cap = _decimal(quote.get("marketCap"))
+    price = _decimal(quote.get("regularMarketPrice"))
+    quote_date = _quote_date(quote.get("regularMarketTime"))
+    quote_type = str(quote.get("quoteType") or "").upper()
+    exchange = str(quote.get("exchange") or "").upper()
+    currency = str(quote.get("currency") or "").upper()
+    quote_symbol = _ticker(quote.get("symbol"))
+    return bool(
+        market_cap is not None
+        and market_cap > 0
+        and price is not None
+        and price > 0
+        and quote_date == completed_date
+        and quote_type == "EQUITY"
+        and exchange in VALID_YAHOO_EXCHANGES
+        and currency == "USD"
+        and quote_symbol.replace("-", ".") == code.replace("-", ".")
     )
 
 
@@ -1818,6 +1858,10 @@ def build_us_signal_universe(
                 candidates,
                 quotes,
                 completed_date,
+                quote_retry_loader=lambda symbols: us_market.fetch_us_quote_batch(
+                    symbols,
+                    refresh=True,
+                ),
             )
         )
         if exclusions:
