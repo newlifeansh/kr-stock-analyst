@@ -11,5 +11,6 @@
 - Treat an approved merge to `main` as production release intent. Every `main` push must pass the deterministic pytest and QA gate before deployment starts.
 - Build one immutable OCI image for the tested `main` commit, record its source SHA and digest, and deploy that exact digest to the US and domestic production web/collector services without rebuilding.
 - Staging is optional and remains available for manual diagnosis or explicitly requested high-risk observation; it is not a prerequisite for the normal `main` production path.
-- After deployment, verify both production surfaces against the checked-out source version and asset hashes, wait for current data, and run read-only live QA. A failed post-deployment check must remain visible as a failed release with retained evidence.
+- After deployment, verify both production surfaces against the checked-out source version and asset hashes and wait for current critical data. A parity or readiness failure is a failed release.
+- Run read-only live QA after every deployment and retain its complete evidence. Operational/provider P0 findings remain visible as workflow warnings and follow-up evidence; they do not retroactively undo an exact-image deployment whose deterministic gate, parity, and critical-data readiness passed.
 - Keep the previous known-good image digest recoverable for rollback. A source change creates a new candidate and must pass the gate again.

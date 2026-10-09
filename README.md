@@ -174,8 +174,11 @@ analyst verify-mcp-endpoint --url https://your-mcp-domain/
 `main`에 변경이 병합되면 `.github/workflows/deploy-main-production.yml`이 전체 결정적
 테스트와 QA gate를 실행합니다. gate가 통과한 커밋만 OCI 이미지를 한 번 빌드하며,
 그 이미지의 SHA-256 digest를 미국 운영과 국내 운영의 web·collector에 차례로 연결합니다.
-정상 경로에서는 스테이징 승인을 기다리지 않습니다. 배포 뒤에는 두 운영 surface의
-제품 버전·정적 자산 해시·데이터 최신성·read-only live QA를 확인하고 증거를 보존합니다.
+정상 경로에서는 스테이징 승인을 기다리지 않습니다. 배포 뒤에는 네 운영 서비스가
+같은 digest로 실제 기동됐는지 기다린 다음 두 surface의 제품 버전·정적 자산 해시와
+핵심 데이터 최신성을 필수 검증합니다. read-only live QA도 항상 실행해 증거를 보존하되,
+외부 공급자 상태에 따른 운영 P0는 경고와 후속 근거로 남기고 이미 검증된 동일 이미지
+배포를 되돌린 것으로 표시하지 않습니다. 미국 준비 실패 시 collector 로그도 자동 보존합니다.
 수동 스테이징 워크플로는 장중 관찰이나 장애 진단이 필요할 때만 사용합니다.
 
 ### 개인용 미국 시그널 MCP

@@ -11,7 +11,10 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-def dashboard_readiness(payload: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+def dashboard_readiness(
+    payload: dict[str, Any],
+    market_payload: dict[str, Any] | None = None,
+) -> tuple[bool, dict[str, Any]]:
     datasets = payload.get("datasets") if isinstance(payload.get("datasets"), dict) else {}
     news = datasets.get("news") if isinstance(datasets.get("news"), dict) else {}
     stock_news = (
@@ -30,13 +33,35 @@ def dashboard_readiness(payload: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
         "stock_news_last_success_at": (stock_news.get("api") or {}).get(
             "last_success_at"
         ),
+        "market_signal_status": (
+            market_payload.get("status") if market_payload is not None else None
+        ),
+        "market_signal_execution_model": (
+            market_payload.get("execution_model")
+            if market_payload is not None
+            else None
+        ),
+        "market_signal_snapshot_generated_at": (
+            market_payload.get("snapshot_generated_at")
+            if market_payload is not None
+            else None
+        ),
     }
+    market_ready = bool(
+        market_payload is None
+        or (
+            market_payload.get("status") == "ready"
+            and market_payload.get("execution_model")
+            == "close-confirmed-intraday-trigger-v1"
+        )
+    )
     ready = bool(
         payload.get("status") == "ready"
         and news.get("state") == "ready"
         and stock_news.get("state") == "ready"
         and int(stock_news.get("total") or 0) > 0
         and stock_news.get("covered") == stock_news.get("total")
+        and market_ready
     )
     return ready, summary
 
@@ -111,7 +136,11 @@ def wait_for_readiness(
         try:
             if surface == "dashboard":
                 payload = _get_json(f"{normalized_base}/meta/signal-data-quality")
-                ready, last_summary = dashboard_readiness(payload)
+                market_payload = _get_json(
+                    f"{normalized_base}/market/quant-signals"
+                    "?universe_limit=100&limit=1&recent_days=30"
+                )
+                ready, last_summary = dashboard_readiness(payload, market_payload)
             else:
                 prefix = "/us-gateway" if surface == "us-gateway" else ""
                 quant_payload = _get_json(
