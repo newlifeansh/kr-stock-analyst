@@ -636,13 +636,13 @@ def _fetch_naver_company_snapshot(code: str, *, strict: bool = False) -> dict[st
 
 def _naver_snapshot(code: str, refresh: bool = False) -> dict[str, object]:
     if refresh:
-        payload = _fetch_naver_snapshot(code)
+        payload = _fetch_naver_fundamental_snapshot(code)
         NAVER_CACHE.set(("naver_snapshot", code), payload, NAVER_SNAPSHOT_TTL_SECONDS)
         return payload
     return NAVER_CACHE.get_or_set(
         ("naver_snapshot", code),
         NAVER_SNAPSHOT_TTL_SECONDS,
-        lambda: _fetch_naver_snapshot(code),
+        lambda: _fetch_naver_fundamental_snapshot(code),
     )
 
 

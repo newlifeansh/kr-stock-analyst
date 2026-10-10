@@ -515,6 +515,32 @@ def test_naver_fundamental_fetch_prefers_mobile_json_and_falls_back_to_html(monk
     assert legacy_calls == ["005930"]
 
 
+def test_stock_detail_naver_snapshot_uses_mobile_fundamental_pipeline(monkeypatch):
+    calls = []
+    stock_dashboard.NAVER_CACHE.clear()
+    monkeypatch.setattr(
+        stock_dashboard,
+        "_fetch_naver_fundamental_snapshot",
+        lambda code: calls.append(code)
+        or {
+            "financial_series": {
+                "annual": [],
+                "quarterly": [{"period": "2026.03.", "revenue": "59988"}],
+            }
+        },
+    )
+
+    refreshed = stock_dashboard._naver_snapshot("373220", refresh=True)
+    cached = stock_dashboard._naver_snapshot("373220")
+
+    assert refreshed["financial_series"]["quarterly"] == [
+        {"period": "2026.03.", "revenue": "59988"}
+    ]
+    assert cached == refreshed
+    assert calls == ["373220"]
+    stock_dashboard.NAVER_CACHE.clear()
+
+
 def test_fundamental_snapshot_uses_canonical_fallback_only_when_primary_is_empty(monkeypatch):
     monkeypatch.setattr(stock_snapshots, "_fetch_naver_snapshot", lambda _code: {})
     calls = []
