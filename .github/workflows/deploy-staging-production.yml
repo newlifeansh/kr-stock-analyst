@@ -297,6 +297,12 @@ jobs:
           railway variable set "US_MARKET_ENABLED=false" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "FUNDAMENTAL_SNAPSHOT_ENABLED=true" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "FUNDAMENTAL_SNAPSHOT_REFRESH_DAYS=2" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
       - name: Deploy the exact image to us-market staging
         run: |
           set -euo pipefail
@@ -547,6 +553,13 @@ jobs:
               --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
               --service "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"
             railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
+              --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+              --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          else
+            railway variable set "FUNDAMENTAL_SNAPSHOT_ENABLED=true" --skip-deploys --json \
+              --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+              --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+            railway variable set "FUNDAMENTAL_SNAPSHOT_REFRESH_DAYS=2" --skip-deploys --json \
               --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
               --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
           fi
