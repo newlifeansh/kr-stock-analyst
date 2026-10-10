@@ -393,9 +393,41 @@ def test_naver_mobile_fundamental_json_normalizes_valuation_and_financial_series
             ],
         },
     }
+    quarter_payload = {
+        "itemCode": "005930",
+        "financeInfo": {
+            "trTitleList": [
+                {"isConsensus": "N", "title": "2026.03.", "key": "202603"},
+                {"isConsensus": "Y", "title": "2026.06.", "key": "202606"},
+            ],
+            "rowList": [
+                {
+                    "title": "매출액",
+                    "columns": {
+                        "202603": {"value": "35"},
+                        "202606": {"value": "40"},
+                    },
+                },
+                {
+                    "title": "영업이익",
+                    "columns": {
+                        "202603": {"value": "7"},
+                        "202606": {"value": "9"},
+                    },
+                },
+                {
+                    "title": "당기순이익",
+                    "columns": {
+                        "202603": {"value": "5"},
+                        "202606": {"value": "6"},
+                    },
+                },
+            ],
+        },
+    }
 
     payload = stock_dashboard._parse_naver_mobile_fundamental_payloads(
-        "005930", integration_payload, annual_payload
+        "005930", integration_payload, annual_payload, quarter_payload
     )
 
     assert str(payload["per"]) == "11.15"
@@ -408,6 +440,54 @@ def test_naver_mobile_fundamental_json_normalizes_valuation_and_financial_series
     assert str(payload["operating_profit_growth"]) == "100.00"
     assert str(payload["estimated_revenue"]) == "150"
     assert payload["financial_series"]["annual"][-1]["estimated"] is True
+    assert len(payload["financial_series"]["quarterly"]) == 2
+    assert payload["financial_series"]["quarterly"][0]["period"] == "2026.03."
+    assert payload["financial_series"]["quarterly"][1]["estimated"] is True
+    assert str(payload["financial_series"]["quarterly"][1]["operating_profit"]) == "9"
+
+
+def test_naver_mobile_fundamental_fetch_requests_quarter_finance(monkeypatch):
+    requested_urls = []
+
+    class Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **_kwargs):
+        requested_urls.append(url)
+        if url.endswith("/integration"):
+            return Response({"itemCode": "005930", "totalInfos": []})
+        period = "2026.03." if url.endswith("/finance/quarter") else "2025.12."
+        key = "202603" if url.endswith("/finance/quarter") else "202512"
+        return Response(
+            {
+                "itemCode": "005930",
+                "financeInfo": {
+                    "trTitleList": [{"isConsensus": "N", "title": period, "key": key}],
+                    "rowList": [
+                        {"title": "매출액", "columns": {key: {"value": "100"}}},
+                    ],
+                },
+            }
+        )
+
+    monkeypatch.setattr(stock_dashboard.requests, "get", fake_get)
+
+    payload = stock_dashboard._fetch_naver_mobile_fundamental_snapshot("005930")
+
+    assert requested_urls == [
+        "https://m.stock.naver.com/api/stock/005930/integration",
+        "https://m.stock.naver.com/api/stock/005930/finance/annual",
+        "https://m.stock.naver.com/api/stock/005930/finance/quarter",
+    ]
+    assert payload["financial_series"]["quarterly"][0]["period"] == "2026.03."
 
 
 def test_naver_fundamental_fetch_prefers_mobile_json_and_falls_back_to_html(monkeypatch):

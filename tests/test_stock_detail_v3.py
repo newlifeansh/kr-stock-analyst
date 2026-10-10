@@ -72,6 +72,52 @@ console.log(JSON.stringify(rows));
     }
 
 
+def test_financial_chart_falls_back_to_an_available_scope():
+    source = TestClient(app).get("/assets/dashboard/app.js").text
+    start = source.index("function stockFinancialSeriesFor(")
+    end = source.index("function renderStockFinancialChart()", start)
+    function_source = source[start:end]
+    script = f"""
+function toNumber(value) {{
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}}
+{function_source}
+const annualOnly = stockFinancialSeriesFor(
+  {{ annual: [{{ period: "2025.12.", revenue: "236718" }}], quarterly: [] }},
+  "revenue",
+  "quarterly",
+);
+const complete = stockFinancialSeriesFor(
+  {{
+    annual: [{{ period: "2025.12.", revenue: "236718" }}],
+    quarterly: [{{ period: "2026.03.", revenue: "59988" }}],
+  }},
+  "revenue",
+  "quarterly",
+);
+console.log(JSON.stringify({{ annualOnly, complete }}));
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    result = json.loads(completed.stdout)
+
+    assert result["annualOnly"] == {
+        "scope": "annual",
+        "series": [{"period": "2025.12.", "revenue": "236718", "value": 236718}],
+    }
+    assert result["complete"] == {
+        "scope": "quarterly",
+        "series": [{"period": "2026.03.", "revenue": "59988", "value": 59988}],
+    }
+
+
 def test_quant_signal_flow_chart_uses_money_and_avoids_total_double_counting():
     source = TestClient(app).get("/assets/dashboard/app.js").text
     start = source.index("function quantDailyFlowRows(")

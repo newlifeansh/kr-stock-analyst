@@ -3888,22 +3888,45 @@ function closestStockPrice(targetDate) {
   return candidate;
 }
 
+function stockFinancialSeriesFor(financialSeries, metric, preferredScope = "quarterly") {
+  const requestedScope = preferredScope === "annual" ? "annual" : "quarterly";
+  const rowsFor = (scope) => (financialSeries?.[scope] || [])
+    .map((row) => ({ ...row, value: toNumber(row?.[metric]) }))
+    .filter((row) => row.value !== null);
+  const requestedRows = rowsFor(requestedScope);
+  if (requestedRows.length) {
+    return { scope: requestedScope, series: requestedRows };
+  }
+  const alternateScope = requestedScope === "quarterly" ? "annual" : "quarterly";
+  const alternateRows = rowsFor(alternateScope);
+  return alternateRows.length
+    ? { scope: alternateScope, series: alternateRows }
+    : { scope: requestedScope, series: [] };
+}
+
 function renderStockFinancialChart() {
   if (!elements.stockFinancialChart || !state.currentDashboard) {
     return;
   }
   dismissStockBarTooltip(elements.stockFinancialChart);
   const metric = state.stockFinancialMetric || "revenue";
-  const scope = state.stockFinancialScope || "quarterly";
+  const selected = stockFinancialSeriesFor(
+    state.currentDashboard.financial_series,
+    metric,
+    state.stockFinancialScope || "quarterly",
+  );
+  const scope = selected.scope;
+  const series = selected.series;
   for (const button of elements.stockFinancialMetricTabs) {
-    button.classList.toggle("active", button.dataset.financialMetric === metric);
+    const active = button.dataset.financialMetric === metric;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
   }
   for (const button of elements.stockFinancialScopeTabs) {
-    button.classList.toggle("active", button.dataset.financialScope === scope);
+    const active = button.dataset.financialScope === scope;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
   }
-  const series = (state.currentDashboard.financial_series?.[scope] || [])
-    .map((row) => ({ ...row, value: toNumber(row?.[metric]) }))
-    .filter((row) => row.value !== null);
   const metricLabels = { revenue: "매출액", operating_profit: "영업이익", net_income: "순이익" };
   if (!series.length) {
     elements.stockFinancialChart.innerHTML = '<p class="stock-v3-chart-empty">표시할 실적 시계열이 없습니다.</p>';
