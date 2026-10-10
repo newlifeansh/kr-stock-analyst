@@ -1821,7 +1821,17 @@ def run_e2e_checks(
                         },
                     )
                 detail_text = page.locator("#stock-view").inner_text()
-                _assert_stock_quote_text(detail_text, samsung)
+                _assert_stock_quote_text(
+                    detail_text,
+                    {
+                        **samsung,
+                        # The quote endpoint can advance between the API
+                        # precondition and browser hydration.  Validate the
+                        # label belonging to the same client snapshot whose
+                        # price and rate were projected above.
+                        "market_state_label": observed_quote["market_session_label"],
+                    },
+                )
                 resolved_url = unquote(page.url)
                 if (
                     samsung["code"] not in resolved_url

@@ -298,7 +298,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261010v566"
+DASHBOARD_CLIENT_VERSION = "20261010v567"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -306,7 +306,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261010us138"
+US_DASHBOARD_CLIENT_VERSION = "20261010us139"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -324,6 +324,7 @@ entry_filter_shadow_refresh_lock = RLock()
 MARKET_QUANT_SIGNAL_ACTIVE_MAX_AGE_SECONDS = 10 * 60
 MARKET_SIGNAL_DETAIL_RECENT_DAYS = 90
 MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS = 6 * 60 * 60
+MARKET_QUANT_SIGNAL_NON_SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 kis_realtime_provider = KisRealtimeQuoteProvider(settings)
 kis_rest_provider = KisRestBriefingProvider(settings)
 mcp_server = (
@@ -1517,11 +1518,18 @@ def _market_quant_signal_snapshot_freshness(
     now: Optional[datetime] = None,
 ) -> dict[str, Any]:
     current = now or datetime.now(KST)
-    max_age_seconds = (
-        MARKET_QUANT_SIGNAL_ACTIVE_MAX_AGE_SECONDS
-        if _quant_signal_quote_refresh_active(current)
-        else MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS
-    )
+    if not is_korea_market_session_date(current.date(), current):
+        # A completed-session signal snapshot remains the canonical view over
+        # weekends and exchange holidays.  Requiring a six-hour rebuild when
+        # there is no new session leaves an otherwise valid list permanently
+        # labelled as refreshing.
+        max_age_seconds = MARKET_QUANT_SIGNAL_NON_SESSION_MAX_AGE_SECONDS
+    else:
+        max_age_seconds = (
+            MARKET_QUANT_SIGNAL_ACTIVE_MAX_AGE_SECONDS
+            if _quant_signal_quote_refresh_active(current)
+            else MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS
+        )
     raw_generated_at = str((payload or {}).get("snapshot_generated_at") or "").strip()
     generated_at: Optional[datetime] = None
     if raw_generated_at:
