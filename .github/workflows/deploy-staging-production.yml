@@ -280,6 +280,9 @@ jobs:
           test -n "$vapid_private_key"
           test -n "$vapid_public_key"
           for service in "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE" "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"; do
+            railway variable set "WEB_PUSH_ENABLED=true" --skip-deploys --json \
+              --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+              --service "$service" >/dev/null
             printf '%s' "$vapid_private_key" | railway variable set WEB_PUSH_VAPID_PRIVATE_KEY --stdin --skip-deploys --json \
               --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
               --service "$service" >/dev/null

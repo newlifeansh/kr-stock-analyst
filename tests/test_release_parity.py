@@ -122,7 +122,7 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.count('--project "$US_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project="$US_STAGING_RAILWAY_PROJECT_ID"') == 5
-    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 10
+    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 11
     assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 8
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
     assert 'US_STAGING_RAILWAY_PROJECT_ID: ${{ vars.US_STAGING_RAILWAY_PROJECT_ID }}' in workflow
@@ -166,6 +166,7 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.count('railway variable set "FUNDAMENTAL_SNAPSHOT_REFRESH_DAYS=2"') == 2
     assert "Mirror staging web-push credentials to domestic services" in workflow
     assert "railway variable list --json" in workflow
+    assert 'railway variable set "WEB_PUSH_ENABLED=true" --skip-deploys' in workflow
     assert "WEB_PUSH_VAPID_PRIVATE_KEY --stdin --skip-deploys" in workflow
     assert "WEB_PUSH_VAPID_PUBLIC_KEY --stdin --skip-deploys" in workflow
     assert "WEB_PUSH_VAPID_SUBJECT --stdin --skip-deploys" in workflow
