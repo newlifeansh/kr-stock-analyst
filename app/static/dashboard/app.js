@@ -15634,6 +15634,7 @@ function marketAiSignalItems(payload = {}) {
         as_of: payload.as_of || signalDate,
         is_current_holding: canonicalCurrent?.position_open === true || item.is_current_holding === true,
         holding_context: holdingContext,
+        events: Array.isArray(item.events) ? item.events : [],
         current: canonicalCurrent || {
           action: preliminary
             ? (isBuy ? "entry_pending" : "full_exit_pending")
