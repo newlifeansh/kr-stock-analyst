@@ -1542,7 +1542,8 @@ def test_stock_detail_e2e_waits_for_async_market_session_metadata() -> None:
     assert "displayedSession.includes(sessionLabel)" in case_source
     assert "observed_quote = market_snapshot_handle.json_value()" in case_source
     assert "displayed_session: displayedSession" in case_source
-    assert "_assert_stock_quote_text(detail_text, samsung)" in case_source
+    assert '_assert_stock_quote_text(detail_text, {"name": samsung["name"]})' in case_source
+    assert "_assert_stock_quote_text(detail_text, samsung)" not in case_source
     assert '"observed_quote": observed_quote' in case_source
     assert 'arg=samsung["price"]' not in case_source
 

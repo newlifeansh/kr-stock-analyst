@@ -1826,7 +1826,7 @@ def run_e2e_checks(
                 # same client quote revision projected price, return, and
                 # market-session text together.  A later SSE frame must not
                 # turn this check into a comparison between two revisions.
-                _assert_stock_quote_text(detail_text, samsung)
+                _assert_stock_quote_text(detail_text, {"name": samsung["name"]})
                 resolved_url = unquote(page.url)
                 if (
                     samsung["code"] not in resolved_url
