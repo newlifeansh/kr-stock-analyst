@@ -1748,7 +1748,7 @@ def run_e2e_checks(
                     # production E2E is running. Read the client snapshot and
                     # its DOM projection in one browser task instead of
                     # comparing against a pre-run HTTP value.
-                    page.wait_for_function(
+                    market_snapshot_handle = page.wait_for_function(
                         """() => {
                           const quote = state.currentDashboard?.quote || {};
                           const price = Number(quote.price);
@@ -1763,15 +1763,28 @@ def run_e2e_checks(
                           const displayedSession = String(
                             document.querySelector('#stock-market-status-label')?.textContent || ''
                           ).trim();
-                          return Number.isFinite(price)
+                          const isConsistent = Number.isFinite(price)
                             && Number.isFinite(rate)
                             && Boolean(sessionLabel)
                             && displayedPrice === price
                             && Math.abs(displayedRate - rate) < 0.001
                             && displayedSession.includes(sessionLabel);
+                          if (!isConsistent) return false;
+                          return {
+                            price,
+                            change_rate: rate,
+                            market_session: quote.market_session || '',
+                            market_session_label: sessionLabel,
+                            source: state.currentDashboard?.source || '',
+                            as_of: state.currentDashboard?.as_of || '',
+                            displayed_price: document.querySelector('#quote-price')?.textContent?.trim() || '',
+                            displayed_rate: document.querySelector('#quote-change')?.textContent?.trim() || '',
+                            displayed_session: displayedSession,
+                          };
                         }""",
                         timeout=int(timeout * 1000),
                     )
+                    observed_quote = market_snapshot_handle.json_value()
                 except Exception as exc:
                     raise QaFailure(
                         "현재 시세 스냅샷의 가격·등락률·장 상태가 상세 화면에 함께 반영되지 않았습니다.",
@@ -1787,18 +1800,6 @@ def run_e2e_checks(
                             ),
                         },
                     ) from exc
-                observed_quote = page.evaluate(
-                    """() => ({
-                      price: Number(state.currentDashboard?.quote?.price),
-                      change_rate: Number(state.currentDashboard?.quote?.change_rate),
-                      market_session: state.currentDashboard?.quote?.market_session || '',
-                      market_session_label: state.currentDashboard?.quote?.market_session_label || '',
-                      source: state.currentDashboard?.source || '',
-                      as_of: state.currentDashboard?.as_of || '',
-                      displayed_price: document.querySelector('#quote-price')?.textContent?.trim() || '',
-                      displayed_rate: document.querySelector('#quote-change')?.textContent?.trim() || '',
-                    })"""
-                )
                 entry_frames = page.evaluate(
                     """() => {
                       window.__qaStockEntryObserver?.disconnect();
@@ -1821,17 +1822,11 @@ def run_e2e_checks(
                         },
                     )
                 detail_text = page.locator("#stock-view").inner_text()
-                _assert_stock_quote_text(
-                    detail_text,
-                    {
-                        **samsung,
-                        # The quote endpoint can advance between the API
-                        # precondition and browser hydration.  Validate the
-                        # label belonging to the same client snapshot whose
-                        # price and rate were projected above.
-                        "market_state_label": observed_quote["market_session_label"],
-                    },
-                )
+                # The atomic browser snapshot above already proves that the
+                # same client quote revision projected price, return, and
+                # market-session text together.  A later SSE frame must not
+                # turn this check into a comparison between two revisions.
+                _assert_stock_quote_text(detail_text, samsung)
                 resolved_url = unquote(page.url)
                 if (
                     samsung["code"] not in resolved_url

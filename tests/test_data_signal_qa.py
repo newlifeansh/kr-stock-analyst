@@ -1537,10 +1537,12 @@ def test_stock_detail_e2e_waits_for_async_market_session_metadata() -> None:
 
     assert "state.currentDashboard?.quote" in case_source
     assert "#stock-market-status-label" in case_source
-    assert "page.wait_for_function(" in case_source
+    assert "market_snapshot_handle = page.wait_for_function(" in case_source
     assert "displayedPrice === price" in case_source
     assert "displayedSession.includes(sessionLabel)" in case_source
-    assert '"market_state_label": observed_quote["market_session_label"]' in case_source
+    assert "observed_quote = market_snapshot_handle.json_value()" in case_source
+    assert "displayed_session: displayedSession" in case_source
+    assert "_assert_stock_quote_text(detail_text, samsung)" in case_source
     assert '"observed_quote": observed_quote' in case_source
     assert 'arg=samsung["price"]' not in case_source
 

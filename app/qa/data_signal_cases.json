@@ -1123,9 +1123,9 @@
       "domain": "시그널 화면 E2E",
       "priority": "P0",
       "modes": ["gate", "e2e"],
-      "automation": "pytest explicit-dark suggestion CSS/same-client quote-session/initial live hydration Node contract + Playwright mobile dark/light computed contrast, stock-detail entry mutations, and current client quote projection without stale preflight-label comparison",
+      "automation": "pytest explicit-dark suggestion CSS/same-client quote-session/initial live hydration Node contract + Playwright mobile dark/light computed contrast, stock-detail entry mutations, and one-frame atomic current client quote projection without stale preflight/SSE-revision comparison",
       "preconditions": ["스테이징과 005930 API가 준비돼 있다.", "저장된 종가 스냅샷과 그 이후 시각의 현재 시세를 서로 다른 값으로 준비한다.", "장중 현재 시세 제공자가 실패해 stored_daily_price 프레임이 반환되는 경우를 준비한다."],
-      "inputs": {"query": "삼성전자", "code": "005930", "minimum_text_contrast_ratio": 4.5, "suggestion_states": ["default", "hover", "focus", "selected"], "initial_quote_state": "loading_until_current_quote", "active_session_stored_fallback": "keep_loading_without_numeric_quote", "quote_assertion": "same_client_snapshot_state_and_dom"},
+      "inputs": {"query": "삼성전자", "code": "005930", "minimum_text_contrast_ratio": 4.5, "suggestion_states": ["default", "hover", "focus", "selected"], "initial_quote_state": "loading_until_current_quote", "active_session_stored_fallback": "keep_loading_without_numeric_quote", "quote_assertion": "same_client_snapshot_state_and_dom_in_one_browser_frame"},
       "steps": ["발견 화면에서 검색어를 입력해 자동완성 결과 행의 배경·종목명 대비를 계산한다.", "검색 결과로 상세에 진입해 종목명과 URL을 API 계약으로 확인한다.", "상세 데이터와 현재 시세 요청을 동시에 지연·응답시키며 현재 시세 준비 전에는 가격·등락률이 숫자로 노출되지 않고 시세 확인 중 상태가 유지되는지 검사한다.", "장중 stored_daily_price 또는 허용 freshness를 지난 시세 프레임을 주입해 첫 숫자로 채택되지 않는지 확인하고, 장 마감 상태의 저장 종가는 현재 확인 가능한 마감값으로 표시되는지 검사한다.", "동일 브라우저 작업에서 현재 quote state의 가격·등락률·장 상태 라벨과 DOM 표시값을 함께 읽어 일치 여부를 확인한다."],
       "expected": ["다크·라이트 자동완성 종목명은 모든 상호작용 상태에서 배경 대비 4.5:1 이상이며 다크 화면에 흰 결과 행이 나타나지 않는다.", "상세 최초 화면은 저장된 이전 등락률을 먼저 그리지 않고 현재 시세가 준비될 때까지 명시적 확인 상태를 표시한다.", "상세 종목과 동일한 현재 시세 스냅샷의 가격·등락률·장 상태가 첫 숫자 표시부터 함께 일치하며 가로 넘침이 없다."],
       "failure_criteria": ["다크 자동완성 행이 밝은 배경과 밝은 글자를 함께 사용하거나 대비가 4.5:1 미만이다.", "현재 시세 준비 전에 저장된 가격·등락률 숫자가 잠깐 노출된 뒤 바뀐다.", "오종목 이동, 서로 다른 시점 값 비교, state·DOM 숫자 또는 장 상태 불일치, 잘림 또는 가로 넘침이 발생한다."]
