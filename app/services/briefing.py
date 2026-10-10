@@ -354,9 +354,48 @@ class BriefingRuntime:
                     self.last_investor_flow_at = datetime.utcnow()
                 except Exception as exc:
                     self.source_errors["investor_flow"] = str(exc)
+            fundamental_snapshot_due = bool(
+                self.settings.fundamental_snapshot_enabled
+                and self._fundamental_snapshot_due()
+            )
+            priority_snapshot_result = {
+                "rows_loaded": 0,
+                "failed": 0,
+                "message": "not_needed",
+            }
+            if (
+                fundamental_snapshot_due
+                and self.settings.fundamental_snapshot_refresh_days > 0
+            ):
+                try:
+                    # The Top100 snapshot is signal-critical and must not wait
+                    # behind the long research or DART financial backfills.
+                    priority_snapshot_result = collect_stock_fundamental_snapshots(
+                        db,
+                        limit=FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT,
+                        max_workers=self.settings.fundamental_snapshot_max_workers,
+                        refresh_days=self._fundamental_snapshot_collection_refresh_days(),
+                        canonical_base_url=(
+                            self.settings.canonical_public_base_url
+                            if self.settings.canonical_domestic_sync_enabled
+                            else None
+                        ),
+                        canonical_timeout=self.settings.canonical_domestic_sync_timeout_seconds,
+                    )
+                    if priority_snapshot_result["rows_loaded"]:
+                        refreshed_any = True
+                except Exception as exc:
+                    failed_at = datetime.utcnow()
+                    self.last_fundamental_snapshot_at = failed_at
+                    self.last_fundamental_snapshot_state = "error"
+                    self.next_fundamental_snapshot_retry_at = (
+                        failed_at + timedelta(seconds=self._fundamental_snapshot_retry_seconds())
+                    )
+                    self.source_errors["fundamental_snapshot"] = str(exc)
+                    fundamental_snapshot_due = False
             # A cold deployment can require a large 180-day research backfill.
-            # Complete the Top100 universe, price, and flow lanes first so that
-            # the signal-quality contract recovers without waiting for it.
+            # Complete the Top100 universe, price, flow, and fundamental lanes
+            # first so the signal-quality contract recovers without waiting.
             if self.settings.research_enabled and self._research_backfill_due():
                 try:
                     collect_research_reports(
@@ -382,26 +421,8 @@ class BriefingRuntime:
                     self.last_financials_at = datetime.utcnow()
                 except Exception as exc:
                     self.source_errors["financials"] = str(exc)
-            if self.settings.fundamental_snapshot_enabled and self._fundamental_snapshot_due():
+            if fundamental_snapshot_due:
                 try:
-                    priority_snapshot_result = {
-                        "rows_loaded": 0,
-                        "failed": 0,
-                        "message": "not_needed",
-                    }
-                    if self.settings.fundamental_snapshot_refresh_days > 0:
-                        priority_snapshot_result = collect_stock_fundamental_snapshots(
-                            db,
-                            limit=FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT,
-                            max_workers=self.settings.fundamental_snapshot_max_workers,
-                            refresh_days=self._fundamental_snapshot_collection_refresh_days(),
-                            canonical_base_url=(
-                                self.settings.canonical_public_base_url
-                                if self.settings.canonical_domestic_sync_enabled
-                                else None
-                            ),
-                            canonical_timeout=self.settings.canonical_domestic_sync_timeout_seconds,
-                        )
                     snapshot_result = {
                         "rows_loaded": 0,
                         "failed": 0,
