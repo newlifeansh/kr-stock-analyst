@@ -20,6 +20,7 @@ from app.qa.e2e import (
     _chart_study_payload_with_recent_pattern,
     _navigate_page,
     _page_url,
+    _us_completed_signal_quote_state_ready,
     _us_observed_path,
     _us_product_shell_text,
     _wait_for_ai_signal_list_ready,
@@ -71,6 +72,76 @@ def test_us_product_copy_check_ignores_only_user_written_community_posts() -> No
         f"코스닥 시장 선택\n{shell}", community
     )
     assert "코스닥" in _us_product_shell_text(shell, "다른 게시물")
+
+
+@pytest.mark.qa_gate
+def test_us_completed_signal_quote_state_accepts_reference_and_closed_rows() -> None:
+    assert _us_completed_signal_quote_state_ready(
+        {
+            "holdingCount": 2,
+            "summary": "최근 미국장 종가 1 · 장 마감 1",
+            "rows": [
+                {
+                    "code": "MU",
+                    "text": "전략 기준가 $1,044.99 보유 평가수익률 -1.53%",
+                    "value": "-1.53%",
+                    "freshness": "reference",
+                },
+                {
+                    "code": "AAPL",
+                    "text": "전략 기준가 $331.70 보유 평가수익률 +1.49%",
+                    "value": "+1.49%",
+                    "freshness": "closed",
+                },
+            ],
+        }
+    )
+    assert _us_completed_signal_quote_state_ready(
+        {
+            "holdingCount": 1,
+            "summary": "장 마감 · 보유 1개",
+            "rows": [
+                {
+                    "code": "MU",
+                    "text": "전략 기준가 $1,044.99 보유 평가수익률 -1.53%",
+                    "value": "-1.53%",
+                    "freshness": "closed",
+                }
+            ],
+        }
+    )
+
+
+@pytest.mark.qa_gate
+def test_us_completed_signal_quote_state_rejects_missing_or_live_basis() -> None:
+    assert not _us_completed_signal_quote_state_ready(
+        {
+            "holdingCount": 1,
+            "summary": "장 마감 · 보유 1개",
+            "rows": [
+                {
+                    "code": "MU",
+                    "text": "전략 기준가 확인 중 현재가 확인 중",
+                    "value": "",
+                    "freshness": "closed",
+                }
+            ],
+        }
+    )
+    assert not _us_completed_signal_quote_state_ready(
+        {
+            "holdingCount": 1,
+            "summary": "보유 1개 모두 실시간",
+            "rows": [
+                {
+                    "code": "MU",
+                    "text": "전략 기준가 $1,044.99 실시간 평가수익률 -1.20%",
+                    "value": "-1.20%",
+                    "freshness": "realtime",
+                }
+            ],
+        }
+    )
 
 
 @pytest.mark.qa_gate
@@ -1843,7 +1914,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.0",
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261010us134",
+                "us_dashboard_version": "20261010us135",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1851,7 +1922,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261010us134",
+                "us_dashboard_version": "20261010us135",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2409,7 +2480,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261010us134"}, self._meta(path)
+            return {"version": "20261010us135"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2456,11 +2527,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261010us134" />'
+                '<link href="/assets/dashboard/styles.css?v=20261010us135" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261010us134"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261010us135"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2500,11 +2571,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261010v562" />'
+            '<link href="/assets/dashboard/styles.css?v=20261010v563" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261010v562"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261010v563"></script>'
             '</body></html>',
             self._meta(path),
         )

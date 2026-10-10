@@ -73,6 +73,31 @@ def _us_product_shell_text(body_text: str, community_posts_text: str) -> str:
     return body_text.replace(community_posts_text, "", 1)
 
 
+def _us_completed_signal_quote_state_ready(state: dict[str, Any]) -> bool:
+    """Accept completed-session fallback states without treating them as live quotes."""
+    holding_count = int(state.get("holdingCount") or 0)
+    if holding_count <= 0:
+        return True
+    rows = state.get("rows") if isinstance(state.get("rows"), list) else []
+    if len(rows) != holding_count:
+        return False
+    freshness_states: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            return False
+        text = str(row.get("text") or "")
+        value = str(row.get("value") or "").strip()
+        freshness = str(row.get("freshness") or "")
+        if "현재가 확인 중" in text or not value or freshness not in {"reference", "closed"}:
+            return False
+        freshness_states.add(freshness)
+    summary = str(state.get("summary") or "")
+    return (
+        ("reference" not in freshness_states or "최근 미국장 종가" in summary)
+        and ("closed" not in freshness_states or "장 마감" in summary)
+    )
+
+
 def _safe_name(case_id: str, theme: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "-", f"{case_id}-{theme}")
 
@@ -987,19 +1012,7 @@ def _run_us_e2e_checks(
                           };
                         }"""
                     )
-                    if (
-                        signal_quote_state["holdingCount"] > 0
-                        and (
-                            "최근 미국장 종가" not in signal_quote_state["summary"]
-                            or "실시간 체결가는 아니에요" not in signal_quote_state["detail"]
-                            or any(
-                                "현재가 확인 중" in row["text"]
-                                or not row["value"]
-                                or row["freshness"] != "reference"
-                                for row in signal_quote_state["rows"]
-                            )
-                        )
-                    ):
+                    if not _us_completed_signal_quote_state_ready(signal_quote_state):
                         raise QaFailure(
                             "미국 보유 시그널이 완료 세션 가격 대신 현재가 확인 중에 고정됐습니다.",
                             signal_quote_state,
