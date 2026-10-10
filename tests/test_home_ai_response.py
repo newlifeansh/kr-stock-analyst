@@ -563,6 +563,71 @@ console.log(JSON.stringify({{
     assert result["returnRate"] == pytest.approx(5.2657, abs=0.001)
 
 
+def test_us_pending_exit_adapter_preserves_confirmed_entry_event() -> None:
+    source = app_source()
+    market_start = source.index("function marketAiSignalItems(")
+    market_end = source.index("function combineAiSignalPayloads(", market_start)
+    entry_start = source.index("function aiSignalConfirmedEntry(")
+    entry_end = source.index("function aiSignalTradeContext(", entry_start)
+    function_source = source[market_start:market_end] + source[entry_start:entry_end]
+    script = f"""
+{function_source}
+const [item] = marketAiSignalItems({{
+  as_of: "2026-10-10T03:41:03+00:00",
+  items: [{{
+    code: "MU",
+    name: "Micron Technology, Inc.",
+    market: "NASDAQ",
+    currency: "USD",
+    side: "sell",
+    signal_date: "2026-09-18",
+    status: "preliminary",
+    is_current_holding: true,
+    current: {{
+      action: "full_exit_pending",
+      position_open: true,
+      entry_date: "2026-09-21",
+      price: "1029.00",
+      unrealized_return: "-1.53",
+    }},
+    events: [{{
+      side: "buy",
+      signal_date: "2026-09-18",
+      execution_date: "2026-09-21",
+      price: "1044.99",
+      state_after: "holding",
+    }}],
+  }}],
+}});
+console.log(JSON.stringify({{
+  events: item.events,
+  entry: aiSignalConfirmedEntry(item),
+}}));
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    result = json.loads(completed.stdout)
+    assert result["events"] == [
+        {
+            "side": "buy",
+            "signal_date": "2026-09-18",
+            "execution_date": "2026-09-21",
+            "price": "1044.99",
+            "state_after": "holding",
+        }
+    ]
+    assert result["entry"] == {
+        "price": "1044.99",
+        "executionDate": "2026-09-21",
+    }
+
+
 def test_us_signal_list_polls_one_bounded_quote_batch() -> None:
     source = app_source()
 

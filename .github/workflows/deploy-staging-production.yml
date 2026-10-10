@@ -267,6 +267,35 @@ jobs:
           RAILWAY_DATABASE_SERVICE: ${{ env.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
           RAILWAY_REGION: ${{ env.DASHBOARD_STAGING_RAILWAY_REGION }}
         run: ./scripts/railway_staging_runtime.sh up
+      - name: Mirror staging web-push credentials to domestic services
+        run: |
+          set -euo pipefail
+          set +x
+          source_variables="$(railway variable list --json \
+            --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$US_STAGING_RAILWAY_WEB_SERVICE")"
+          vapid_private_key="$(jq -r '.WEB_PUSH_VAPID_PRIVATE_KEY // empty' <<<"$source_variables")"
+          vapid_public_key="$(jq -r '.WEB_PUSH_VAPID_PUBLIC_KEY // empty' <<<"$source_variables")"
+          vapid_subject="$(jq -r '.WEB_PUSH_VAPID_SUBJECT // empty' <<<"$source_variables")"
+          test -n "$vapid_private_key"
+          test -n "$vapid_public_key"
+          for service in "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE" "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"; do
+            railway variable set "WEB_PUSH_ENABLED=true" --skip-deploys --json \
+              --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+              --service "$service" >/dev/null
+            printf '%s' "$vapid_private_key" | railway variable set WEB_PUSH_VAPID_PRIVATE_KEY --stdin --skip-deploys --json \
+              --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+              --service "$service" >/dev/null
+            printf '%s' "$vapid_public_key" | railway variable set WEB_PUSH_VAPID_PUBLIC_KEY --stdin --skip-deploys --json \
+              --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+              --service "$service" >/dev/null
+            if [[ -n "$vapid_subject" ]]; then
+              printf '%s' "$vapid_subject" | railway variable set WEB_PUSH_VAPID_SUBJECT --stdin --skip-deploys --json \
+                --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+                --service "$service" >/dev/null
+            fi
+          done
+          unset source_variables vapid_private_key vapid_public_key vapid_subject
       - name: Set isolated market runtimes
         run: |
           set -euo pipefail
@@ -295,6 +324,12 @@ jobs:
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
           railway variable set "US_MARKET_ENABLED=false" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "FUNDAMENTAL_SNAPSHOT_ENABLED=true" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "FUNDAMENTAL_SNAPSHOT_REFRESH_DAYS=2" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
       - name: Deploy the exact image to us-market staging
@@ -547,6 +582,13 @@ jobs:
               --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
               --service "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"
             railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
+              --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+              --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          else
+            railway variable set "FUNDAMENTAL_SNAPSHOT_ENABLED=true" --skip-deploys --json \
+              --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+              --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+            railway variable set "FUNDAMENTAL_SNAPSHOT_REFRESH_DAYS=2" --skip-deploys --json \
               --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
               --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
           fi

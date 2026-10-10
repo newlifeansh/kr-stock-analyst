@@ -14,8 +14,8 @@ def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     contract = local_release_contract()
 
     assert contract["surface"] == "dashboard"
-    assert contract["product_version"] == "20261009v560"
-    assert contract["dashboard_version"] == "20261009v560"
+    assert contract["product_version"] == "20261010v568"
+    assert contract["dashboard_version"] == "20261010v568"
     assert len(contract["assets"]) == 8
     assert len(contract["asset_sha256"]) == 8
     assert set(contract["asset_sha256"]) == {
@@ -32,7 +32,7 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
     contract = local_release_contract(surface="us")
 
     assert contract["surface"] == "us"
-    assert contract["product_version"] == "20261009us132"
+    assert contract["product_version"] == "20261010us140"
     assert len(contract["assets"]) == 12
     assert len(contract["asset_sha256"]) == 12
     assert set(contract["asset_sha256"]) == {
@@ -121,9 +121,9 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 6
     assert workflow.count('--project "$US_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 2
-    assert workflow.count('--project="$US_STAGING_RAILWAY_PROJECT_ID"') == 4
-    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 5
-    assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 6
+    assert workflow.count('--project="$US_STAGING_RAILWAY_PROJECT_ID"') == 5
+    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 11
+    assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 8
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
     assert 'US_STAGING_RAILWAY_PROJECT_ID: ${{ vars.US_STAGING_RAILWAY_PROJECT_ID }}' in workflow
     assert 'DASHBOARD_STAGING_RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}' in workflow
@@ -162,6 +162,17 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.count('railway variable set "US_MARKET_ENABLED=false"') == 2
     assert workflow.count('railway variable set "PROCESS_ROLE=web"') == 3
     assert workflow.count('railway variable set "PROCESS_ROLE=collector"') == 3
+    assert workflow.count('railway variable set "FUNDAMENTAL_SNAPSHOT_ENABLED=true"') == 2
+    assert workflow.count('railway variable set "FUNDAMENTAL_SNAPSHOT_REFRESH_DAYS=2"') == 2
+    assert "Mirror staging web-push credentials to domestic services" in workflow
+    assert "railway variable list --json" in workflow
+    assert 'railway variable set "WEB_PUSH_ENABLED=true" --skip-deploys' in workflow
+    assert "WEB_PUSH_VAPID_PRIVATE_KEY --stdin --skip-deploys" in workflow
+    assert "WEB_PUSH_VAPID_PUBLIC_KEY --stdin --skip-deploys" in workflow
+    assert "WEB_PUSH_VAPID_SUBJECT --stdin --skip-deploys" in workflow
+    assert 'test -n "$vapid_private_key"' in workflow
+    assert 'test -n "$vapid_public_key"' in workflow
+    assert "unset source_variables vapid_private_key vapid_public_key vapid_subject" in workflow
     assert 'web:{PROCESS_ROLE:"web"}' in workflow
     assert 'collector:{PROCESS_ROLE:"collector"}' in workflow
     assert 'railway variable set "US_PUBLIC_BACKEND_URL=$US_STAGING_BASE_URL"' in workflow
