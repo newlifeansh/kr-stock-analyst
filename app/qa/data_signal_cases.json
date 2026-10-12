@@ -5,6 +5,19 @@
   "description": "제품 전체 데이터 연동부터 시그널 계산, API, 화면까지의 QA 단일 원본",
   "cases": [
     {
+      "id": "DATA-KR-QUOTE-SESSION-001",
+      "title": "KIS 실제 거래일·세션·가격시각 보존과 정규장 신호 경계",
+      "domain": "국내 실시간 시세 출처",
+      "priority": "P0",
+      "modes": ["gate"],
+      "automation": "pytest KRX/NXT/통합 47필드 원문·구버전·장외·휴장·지연 수신·API 직렬화 회귀; 실제 장중 수신 검증은 별도 후보 live 증거 필요",
+      "preconditions": ["KIS 2026-09-14 공지의 MARKET_CLS_CODE와 공식 ccnl_krx/ccnl_total 필드 순서를 적용한다.", "기존 매매·가격 이력은 수정하지 않는다."],
+      "inputs": {"tr_ids": ["H0STCNT0", "H0NXCNT0", "H0UNCNT0"], "business_date_index": 33, "market_class_index": 46, "classes": {"1":"pre_market", "2":"regular", "3":"after_market", "5":"closing_price"}, "regular_window": "09:00~15:30 Asia/Seoul", "maximum_tick_age_seconds": 180, "future_tolerance_seconds": 5},
+      "steps": ["세 거래소의 실제 거래일·세션을 파싱하고 누락·알 수 없는 구분은 unknown으로 보존한다.", "장중에 수신한 애프터·종가·전일·180초 초과 지연·미래·날짜 누락 틱을 정규장 실시간 근거로 인정하지 않는다.", "KRX 정규장 틱만 regular_session_price_verified로 표시하고 통합·NXT 표시 시세는 별도로 유지한다. 휴장일은 차단한다.", "실제 가격 시각 source_as_of와 수신 시각 observed_at을 구분하고 공개 스키마에서도 보존한다.", "정규장 실시간 신호 입력을 15:30까지로 제한한다. 15:30:01·15:35 및 명시적인 비정규 세션 근거를 거부한다.", "9월14일 이후 16~20시 표시 시세는 통합 애프터마켓을 조회하고 KRX 폴백을 정규장 실시간으로 표시하지 않는다.", "세션 미분리 저장 일봉으로 폴백하면 실제 가격 시각을 알 수 없음을 표시하고 15:30 종가 시각을 생성하지 않는다."],
+      "expected": ["가격의 시장·거래일·세션·시각은 공급 원문에 따라 보존된다.", "정규장 가격 검증 플래그는 신호 체결 승인과 구분되며 기존 날짜·유동성·OHLC 검증을 대체하지 않는다.", "구형 틱·혼합 일봉·시간외 가격이 새 정규장 확정 신호 근거로 자동 승격되지 않는다."],
+      "failure_criteria": ["수신 시각으로 원문 거래일·세션을 덮어쓰거나 NXT/통합 틱을 KRX로 재명명한다.", "세션 코드 1·3·5·미상, 휴장·지연·미래 틱을 정규장 실행 근거로 사용한다.", "세션 미분리 일봉을 15:30 확정 종가로 표시하거나 API 스키마에서 원천 시각 필드를 제거한다."]
+    },
+    {
       "id": "DATA-KR-REGULAR-001",
       "title": "정규장 시그널 가격의 별도 버전·원천 보존·거래대금 검증",
       "domain": "국내 가격 세션 분리",

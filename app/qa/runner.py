@@ -53,6 +53,14 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-KR-QUOTE-SESSION-001": (
+        "tests.test_live_stock_quote.test_kis_source_session_and_business_date_are_preserved_for_every_venue",
+        "tests.test_live_stock_quote.test_realtime_payload_uses_source_phase_venue_and_price_time_not_receive_clock",
+        "tests.test_live_stock_quote.test_dashboard_quote_schema_preserves_source_price_provenance",
+        "tests.test_live_stock_quote.test_krx_aftermarket_routes_integrated_quotes_only_after_effective_date",
+        "tests.test_live_stock_quote.test_unavailable_live_quote_does_not_label_previous_close_as_live",
+        "tests.test_quant_signals.test_live_execution_bar_fails_closed_for_unverified_or_non_krx_quotes",
+    ),
     "DATA-KR-REGULAR-001": (
         "tests.test_regular_session_prices.test_regular_session_excludes_after_market_and_subtracts_preopen_turnover",
         "tests.test_regular_session_prices.test_regular_session_rejects_missing_corrupt_and_unreconciled_evidence",

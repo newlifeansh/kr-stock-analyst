@@ -3144,7 +3144,7 @@ def _live_quote_is_active_krx_observation(
     particular it must never replace the previous close after midnight or on a
     weekend, which would change both the displayed price and signal score.
     """
-    if not confirmed or not live_quote:
+    if not confirmed or not live_quote or _quote_has_nonregular_source_evidence(live_quote):
         return False
     current = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
     live_date = _live_quote_trade_date(live_quote)
@@ -3153,7 +3153,7 @@ def _live_quote_is_active_krx_observation(
         or live_date != current.date()
         or live_date <= confirmed[-1].trade_date
         or current.weekday() >= 5
-        or not (time(9, 0) <= current.time() < time(15, 40))
+        or not (time(9, 0) <= current.time() <= time(15, 30))
     ):
         return False
 
@@ -3188,6 +3188,20 @@ def _live_quote_is_active_krx_observation(
     )
 
 
+def _quote_has_nonregular_source_evidence(quote: dict[str, Any]) -> bool:
+    """A wall-clock regular session cannot override an explicit source phase.
+
+    Legacy REST adapters lack MARKET_CLS_CODE and retain their existing venue,
+    freshness and OHLC guards. Realtime frames explicitly carry unknown when
+    the provider field is absent, so they cannot become execution evidence.
+    """
+    return bool(
+        ("market_class_code" in quote and str(quote.get("market_class_code")) != "2")
+        or ("source_market_session" in quote and quote.get("source_market_session") != "regular")
+        or quote.get("regular_session_price_verified") is False
+    )
+
+
 def _live_execution_bars(
     confirmed: list[PriceBar],
     live_quote: Optional[dict[str, Any]],
@@ -3200,7 +3214,7 @@ def _live_execution_bars(
     same-day signal. Price-only, stale, pre-market, NXT, halted, and
     synthetic-date quotes are rejected.
     """
-    if not confirmed or not live_quote:
+    if not confirmed or not live_quote or _quote_has_nonregular_source_evidence(live_quote):
         return confirmed, False
     current = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
     live_date = _live_quote_trade_date(live_quote)
@@ -3235,7 +3249,7 @@ def _live_execution_bars(
         or live_date != current.date()
         or live_date <= confirmed[-1].trade_date
         or current.weekday() >= 5
-        or not (time(9, 0) <= current.time() < time(15, 40))
+        or not (time(9, 0) <= current.time() <= time(15, 30))
     ):
         return confirmed, False
     market_session = str(live_quote.get("market_session") or "").lower()

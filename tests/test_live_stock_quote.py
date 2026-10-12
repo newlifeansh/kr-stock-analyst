@@ -267,6 +267,84 @@ def test_integrated_realtime_subscription_and_tick_parser_support_nxt():
     assert tick["trade_time"] == "081015"
     assert tick["trade_volume"] == 15
     assert tick["market_venue"] == "INTEGRATED"
+    assert tick["market_class_code"] is None
+    assert tick["source_market_session"] == "unknown"
+    assert tick["trade_date_verified"] is False
+
+
+def _dated_kis_tick(*, phase="2", business_date="20261012", trade_time="100000", tr_id="H0STCNT0"):
+    fields = [""] * 47
+    for index, value in {0: "005930", 1: trade_time, 2: "250500", 3: "2", 4: "500", 5: "0.20", 12: "10", 13: "1000", 14: "250500000", 33: business_date, 46: phase}.items():
+        fields[index] = value
+    return parse_kis_stock_tick(f"0|{tr_id}|001|{'^'.join(fields)}")
+
+
+def test_kis_source_session_and_business_date_are_preserved_for_every_venue():
+    for tr_id, venue in (("H0STCNT0", "KRX"), ("H0UNCNT0", "INTEGRATED"), ("H0NXCNT0", "NXT")):
+        for phase, name in (("1", "pre_market"), ("2", "regular"), ("3", "after_market"), ("5", "closing_price"), ("9", "unknown")):
+            tick = _dated_kis_tick(phase=phase, tr_id=tr_id)
+            assert tick["trade_date"] == date(2026, 10, 12)
+            assert tick["trade_date_verified"] is True
+            assert tick["market_venue"] == venue
+            assert tick["market_class_code"] == phase
+            assert tick["source_market_session"] == name
+    assert _dated_kis_tick(business_date="20260230")["trade_date_verified"] is False
+
+
+def test_realtime_payload_uses_source_phase_venue_and_price_time_not_receive_clock(monkeypatch):
+    monkeypatch.setattr(main_module, "is_korea_market_session_date", lambda *_args: True)
+    now = datetime(2026, 10, 12, 10, 0, 1, tzinfo=main_module.KST)
+    regular = main_module._kis_realtime_payload("005930", _dated_kis_tick(), now=now)
+    assert regular["quote"]["market_session"] == "krx_regular"
+    assert regular["quote"]["regular_session_price_verified"] is True
+    assert regular["as_of"] == "2026-10-12T10:00:00+09:00"
+    assert regular["observed_at"] == now.isoformat()
+    integrated = main_module._kis_realtime_payload("005930", _dated_kis_tick(tr_id="H0UNCNT0"), now=now)
+    assert integrated["quote"]["market_venue"] == "INTEGRATED"
+    assert integrated["quote"]["market_division"] == "UN"
+    assert integrated["quote"]["regular_session_price_verified"] is False
+    for tick in (
+        _dated_kis_tick(phase="3"), _dated_kis_tick(phase="5"), _dated_kis_tick(phase=""),
+        _dated_kis_tick(business_date="20261008"), _dated_kis_tick(business_date=""),
+        _dated_kis_tick(trade_time="095500"), _dated_kis_tick(trade_time="100100"),
+    ):
+        payload = main_module._kis_realtime_payload("005930", tick, now=now)
+        assert payload["quote"]["is_live"] is False
+        assert payload["quote"]["regular_session_price_verified"] is False
+    after = main_module._kis_realtime_payload("005930", _dated_kis_tick(phase="3", trade_time="160001"), now=now.replace(hour=16))
+    assert after["quote"]["market_session"] == "krx_after_market"
+    assert after["quote"]["is_live"] is True
+    assert after["quote"]["regular_session_price_verified"] is False
+    monkeypatch.setattr(main_module, "is_korea_market_session_date", lambda *_args: False)
+    holiday = main_module._kis_realtime_payload("005930", _dated_kis_tick(), now=now)
+    assert holiday["quote"]["is_live"] is False
+    assert holiday["quote"]["regular_session_price_verified"] is False
+
+
+def test_dashboard_quote_schema_preserves_source_price_provenance():
+    from app.schemas import DashboardQuoteOut
+    quote = DashboardQuoteOut.model_validate({
+        "price": 250500, "trade_date_verified": True, "market_class_code": "3",
+        "source_market_session": "after_market", "source_as_of": "2026-10-12T16:00:01+09:00",
+        "price_timestamp_verified": True, "regular_session_price_verified": False,
+    }).model_dump(mode="json")
+    assert quote["market_class_code"] == "3"
+    assert quote["source_market_session"] == "after_market"
+    assert quote["source_as_of"] == "2026-10-12T16:00:01+09:00"
+    assert quote["regular_session_price_verified"] is False
+
+
+def test_krx_aftermarket_routes_integrated_quotes_only_after_effective_date(monkeypatch):
+    monkeypatch.setattr(main_module, "is_korea_market_session_date", lambda *_args: True)
+    old = main_module._korea_quote_session(datetime(2026, 9, 11, 16, 5, tzinfo=main_module.KST))
+    current = main_module._korea_quote_session(datetime(2026, 10, 12, 16, 5, tzinfo=main_module.KST))
+    assert old["market_division"] == "NX"
+    assert current["market_division"] == "UN"
+    assert current["market_session"] == "integrated_after_market"
+    fallback = main_module._quote_session_fields(current, actual_market_division="J")
+    assert fallback["market_session"] == "after_market_reference"
+    assert fallback["market_venue"] == "KRX"
+    assert fallback["is_live"] is False
 
 
 def test_stored_close_keeps_its_market_timestamp_and_realtime_ticks_are_shared():
@@ -316,7 +394,10 @@ def test_unavailable_live_quote_does_not_label_previous_close_as_live(monkeypatc
     payload = main_module._stock_quote_stream_payload_uncached("005930")
 
     assert payload["source"] == "stored_daily_price"
-    assert payload["as_of"] == "2026-10-07T15:30:00+09:00"
+    assert payload["as_of"] is None
+    assert payload["quote"]["price_timestamp_verified"] is False
+    assert payload["quote"]["regular_session_price_verified"] is False
+    assert "세션 미분리" in payload["quote"]["market_session_label"]
     assert payload["quote"]["price"] == 269000
     assert payload["quote"]["market_session"] == "closed"
     assert payload["quote"]["is_live"] is False

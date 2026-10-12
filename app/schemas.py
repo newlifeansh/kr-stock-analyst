@@ -491,6 +491,12 @@ class DashboardQuoteOut(BaseModel):
     is_live: Optional[bool] = None
     trade_time: Optional[str] = None
     trade_volume: Optional[int] = None
+    trade_date_verified: Optional[bool] = None
+    market_class_code: Optional[str] = None
+    source_market_session: Optional[str] = None
+    source_as_of: Optional[datetime] = None
+    price_timestamp_verified: Optional[bool] = None
+    regular_session_price_verified: Optional[bool] = None
 
 
 class DashboardMomentumOut(BaseModel):

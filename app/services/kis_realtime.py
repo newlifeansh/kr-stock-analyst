@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 from typing import AsyncIterator, Optional
+from zoneinfo import ZoneInfo
 
 import requests
 import websockets
@@ -19,6 +20,7 @@ KIS_STOCK_TICK_MARKETS = {
     "H0NXCNT0": "NXT",
     "H0UNCNT0": "INTEGRATED",
 }
+KIS_MARKET_SESSIONS = {"1": "pre_market", "2": "regular", "3": "after_market", "5": "closing_price"}
 
 
 class KisRealtimeError(RuntimeError):
@@ -154,6 +156,15 @@ def parse_kis_stock_tick(raw: str) -> Optional[dict[str, object]]:
     change_rate = _signed_decimal(sign, fields[5])
     volume = _int(fields[13])
     trading_value = _int(fields[14])
+    # Official KIS ccnl_krx/ccnl_nxt/ccnl_total share these field positions.
+    # MARKET_CLS_CODE was appended on 2026-09-14. Preserve older frames, but
+    # never invent a regular-session classification when the field is absent.
+    business_date = fields[33] if len(fields) > 33 else ""
+    try:
+        trade_date = datetime.strptime(business_date, "%Y%m%d").date() if len(business_date) == 8 else None
+    except ValueError:
+        trade_date = None
+    market_class = fields[46].strip() if len(fields) > 46 else None
     return {
         "code": fields[0],
         "trade_time": fields[1],
@@ -164,4 +175,45 @@ def parse_kis_stock_tick(raw: str) -> Optional[dict[str, object]]:
         "volume": volume,
         "trading_value": trading_value,
         "market_venue": KIS_STOCK_TICK_MARKETS[parts[1]],
+        "trade_date": trade_date,
+        "trade_date_verified": trade_date is not None,
+        "market_class_code": market_class,
+        "source_market_session": KIS_MARKET_SESSIONS.get(market_class, "unknown"),
+    }
+
+
+def kis_tick_session_fields(tick: dict[str, object], now: datetime) -> dict[str, object]:
+    """Classify an actual tick, not the wall-clock phase when it was received."""
+    kst = ZoneInfo("Asia/Seoul")
+    current = now.replace(tzinfo=kst) if now.tzinfo is None else now.astimezone(kst)
+    venue = str(tick.get("market_venue") or "UNKNOWN")
+    division = {"KRX": "J", "NXT": "NX", "INTEGRATED": "UN"}.get(venue)
+    phase = KIS_MARKET_SESSIONS.get(str(tick.get("market_class_code") or ""), "unknown")
+    stamp = None
+    try:
+        if tick.get("trade_date_verified") is True:
+            stamp = datetime.strptime(f'{tick["trade_date"]} {tick["trade_time"]}', "%Y-%m-%d %H%M%S").replace(tzinfo=kst)
+    except (KeyError, ValueError):
+        pass
+    fresh = bool(stamp and stamp.date() == current.date() and -5 <= (current - stamp).total_seconds() <= 180)
+    windows = {"pre_market": (time(8), time(9)), "regular": (time(9), time(15, 30)), "after_market": (time(15, 40), time(20))}
+    in_session = False
+    if phase in windows and stamp is not None:
+        start, end = windows[phase]
+        if phase == "after_market" and venue == "KRX":
+            start = time(16)
+        in_session = start <= stamp.time() <= end and start <= current.time() <= end
+    label = {"pre_market": "프리마켓", "regular": "정규장", "after_market": "애프터마켓", "closing_price": "종가매매", "unknown": "세션 확인 중"}[phase]
+    venue_label = "통합" if venue == "INTEGRATED" else venue
+    return {
+        "market_venue": venue, "market_division": division,
+        "market_class_code": tick.get("market_class_code"), "source_market_session": phase,
+        "market_session": f"{venue.lower()}_{phase}",
+        "market_session_label": f"{venue_label} {label}",
+        "source_as_of": stamp,
+        "price_timestamp_verified": stamp is not None,
+        "is_live": bool(division and fresh and in_session),
+        # The outer caller also checks the exchange session calendar. Even a
+        # verified price is only an input; this flag is not an execution signal.
+        "regular_session_price_verified": bool(venue == "KRX" and phase == "regular" and fresh and in_session),
     }

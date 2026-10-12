@@ -358,7 +358,11 @@ def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> Non
             "DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE",
             "DASHBOARD_STAGING_RAILWAY_WEB_SERVICE",
         ],
-        "region": "DASHBOARD_STAGING_RAILWAY_REGION",
+        "region": "DASHBOARD_STAGING_RAILWAY_REGION (observed canonical ID, e.g. us-west2; aliases rejected)",
+        "region_reconciliation": "clear all other observed regions on selected staging web/collector; verify scale acknowledgement",
+        "application_state_timeout_seconds": 600,
+        "status_poll_seconds": 15,
+        "rate_limit_retry": "read-only status queries only; maximum 3 retries, each wait capped at 60s; unresolved state retains DB",
         "idle_state": {
             "web_replicas": 0,
             "collector_replicas": 0,

@@ -965,6 +965,10 @@ def test_live_execution_bar_fails_closed_for_unverified_or_non_krx_quotes(monkey
     assert len(bars) == 2
 
     rejected = [
+        ({**valid, "market_class_code": "3"}, regular_now),
+        ({**valid, "market_class_code": "5"}, regular_now),
+        ({**valid, "source_market_session": "unknown"}, regular_now),
+        ({**valid, "regular_session_price_verified": False}, regular_now),
         ({**valid, "trade_date_verified": False}, regular_now),
         ({**valid, "volume": 0}, regular_now),
         ({**valid, "open": None}, regular_now),
@@ -974,6 +978,8 @@ def test_live_execution_bar_fails_closed_for_unverified_or_non_krx_quotes(monkey
         ({key: value for key, value in valid.items() if key != "market_venue"}, regular_now),
         ({key: value for key, value in valid.items() if key != "trade_date"}, regular_now),
         (valid, datetime(2026, 8, 27, 8, 59)),
+        (valid, datetime(2026, 8, 27, 15, 30, 1)),
+        (valid, datetime(2026, 8, 27, 15, 35)),
     ]
     for quote, now in rejected:
         bars, projected = quant_signals._live_execution_bars(confirmed, quote, now)

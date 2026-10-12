@@ -244,8 +244,10 @@ from app.services.kis_realtime import (
     KIS_REALTIME_STOCK_TR_ID,
     KisRealtimeError,
     KisRealtimeQuoteProvider,
+    kis_tick_session_fields,
     parse_kis_stock_tick,
 )
+from app.services.regular_session_prices import REGULAR_PRICE_EFFECTIVE_DATE
 from app.services.ttl_cache import TTLCache
 from app.services.trends import build_event_graph, build_trend_analysis
 from app.services.web_push import (
@@ -5854,6 +5856,14 @@ def _korea_quote_session(now: Optional[datetime] = None) -> dict[str, Any]:
             "market_division": "NX",
             "is_live": False,
         }
+    if current.date() >= REGULAR_PRICE_EFFECTIVE_DATE and time(16) <= current_time < time(20):
+        return {
+            "market_session": "integrated_after_market",
+            "market_session_label": "통합 애프터마켓",
+            "market_venue": "INTEGRATED",
+            "market_division": "UN",
+            "is_live": True,
+        }
     if time(15, 40) <= current_time < time(20, 0):
         return {
             "market_session": "nxt_after_market",
@@ -5899,6 +5909,15 @@ def _quote_session_fields(
             {
                 "market_session": "after_market_reference",
                 "market_session_label": "NXT 미지원 · KRX 종가",
+                "market_venue": "KRX",
+                "is_live": False,
+            }
+        )
+    elif session.get("market_session") == "integrated_after_market":
+        fields.update(
+            {
+                "market_session": "after_market_reference",
+                "market_session_label": "통합 시세 확인 중 · KRX 기준가",
                 "market_venue": "KRX",
                 "is_live": False,
             }
@@ -7061,8 +7080,8 @@ def _stock_quote_stream_payload_uncached(code: str) -> Optional[dict[str, object
             current_time
             if live_quote_is_safe
             else datetime.combine(latest.trade_date, time(15, 30), tzinfo=KST)
-            if latest
-            else current_time
+            if latest and latest.trade_date < REGULAR_PRICE_EFFECTIVE_DATE
+            else None
         )
         if live_quote_is_safe:
             quote.update({key: value for key, value in live_quote.items() if value is not None})
@@ -7071,10 +7090,17 @@ def _stock_quote_stream_payload_uncached(code: str) -> Optional[dict[str, object
             quote.update(
                 {
                     "market_session": "closed",
-                    "market_session_label": "실시간 시세 확인 중 · 마지막 확정 종가",
+                    "market_session_label": (
+                        "실시간 시세 확인 중 · 세션 미분리 일봉"
+                        if latest and latest.trade_date >= REGULAR_PRICE_EFFECTIVE_DATE
+                        else "실시간 시세 확인 중 · 마지막 확정 종가"
+                    ),
                     "market_venue": "KRX",
                     "market_division": "J",
                     "is_live": False,
+                    "source_as_of": as_of,
+                    "price_timestamp_verified": as_of is not None,
+                    "regular_session_price_verified": False,
                 }
             )
         container = {"quote": quote}
@@ -7160,9 +7186,15 @@ def _kis_realtime_payload(
     now: Optional[datetime] = None,
 ) -> dict[str, object]:
     current = now or datetime.now(KST)
-    session = _korea_quote_session(current)
+    session = kis_tick_session_fields(tick, current)
+    local_date = current.astimezone(KST).date() if current.tzinfo else current.date()
+    if not is_korea_market_session_date(local_date, current):
+        session.update(is_live=False, regular_session_price_verified=False)
     quote = {
-        "trade_date": current.astimezone(KST).date() if current.tzinfo else current.date(),
+        "trade_date": tick.get("trade_date"),
+        "trade_date_verified": tick.get("trade_date_verified") is True,
+        "quote_source": "kis_realtime",
+        "observed_at": current,
         "price": tick.get("price"),
         "change_value": tick.get("change_value"),
         "change_rate": tick.get("change_rate"),
@@ -7170,6 +7202,7 @@ def _kis_realtime_payload(
         "volume": tick.get("volume"),
         "trading_value": tick.get("trading_value"),
         "market_cap": None,
+        **session,
     }
     _decorate_extended_quote(
         quote,
@@ -7182,7 +7215,8 @@ def _kis_realtime_payload(
         {
             "type": "quote",
             "code": code,
-            "as_of": current,
+            "as_of": session.get("source_as_of"),
+            "observed_at": current,
             "source": "kis_realtime",
             "interval_seconds": 0,
             "quote": quote,
