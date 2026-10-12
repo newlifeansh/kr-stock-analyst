@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: railway_staging_runtime.sh up|prepare|down" >&2
+  echo "Usage: railway_staging_runtime.sh pin|up|prepare|down" >&2
 }
 
 require_value() {
@@ -345,7 +345,7 @@ rollback_after_failed_start() {
   exit 1
 }
 
-if [[ $# -ne 1 || ("$1" != "up" && "$1" != "prepare" && "$1" != "down") ]]; then
+if [[ $# -ne 1 || ("$1" != "pin" && "$1" != "up" && "$1" != "prepare" && "$1" != "down") ]]; then
   usage
   exit 2
 fi
@@ -402,6 +402,33 @@ fi
 if [[ "$1" == "up" ]]; then
   require_value QA_BASE_URL
   [[ "$QA_BASE_URL" =~ ^https?:// ]] || exit 2
+fi
+
+if [[ "$1" == "pin" ]]; then
+  # Scheduled QA has no release input. Resolve the currently configured pair
+  # read-only, then let each subsequent resume recheck this exact digest. A
+  # mutable tag, source repository, mixed candidate or missing service cannot
+  # accidentally become a build or a new release during a QA wake-up.
+  railway_service_list | python3 -c '
+import json, re, sys
+rows = json.load(sys.stdin)
+images = []
+if sys.argv[1] == sys.argv[2]:
+    raise SystemExit("Staging web and collector must be distinct services")
+for selector in sys.argv[1:]:
+    matches = [row for row in rows if row.get("id") == selector]
+    if len(matches) != 1:
+        raise SystemExit("Missing or ambiguous staging source")
+    source = matches[0].get("source") or {}
+    ref = source.get("image")
+    if source.get("repo") or not isinstance(ref, str) or not re.fullmatch(r"ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}", ref):
+        raise SystemExit("Staging source must already be an immutable GHCR image")
+    images.append(ref)
+if len(set(images)) != 1:
+    raise SystemExit("Staging web and collector have different candidates")
+print(images[0])
+' "$RAILWAY_WEB_SERVICE" "$RAILWAY_COLLECTOR_SERVICE"
+  exit $?
 fi
 
 if [[ "$1" == "down" ]]; then

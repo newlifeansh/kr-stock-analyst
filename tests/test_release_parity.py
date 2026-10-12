@@ -380,6 +380,7 @@ def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> Non
         "start_order": ["database", "collector", "web"],
         "stop_order": ["web", "collector", "database"],
         "removed_application_resume": "verify configured source equals explicit GHCR sha256, then redeploy --from-source only after restart failure or removed state",
+        "scheduled_qa_pin": "read-only pin of matching web/collector immutable GHCR sources before up; reject tags, repositories, mixed or missing sources; production parity uses approved image_ref",
     }
 
 
@@ -454,4 +455,6 @@ def test_scheduled_qa_starts_domestic_runtime_only_while_collecting_evidence() -
         assert "RAILWAY_REGION" in workflow
         assert start in workflow
         assert stop in workflow
+        assert 'export RAILWAY_RESUME_IMAGE_REF="$(./scripts/railway_staging_runtime.sh pin)"' in workflow
+        assert 'test -n "$RAILWAY_RESUME_IMAGE_REF"' in workflow
         assert workflow.index(start) < workflow.index("Upload") < workflow.index(stop)

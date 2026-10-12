@@ -5,6 +5,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path("scripts/railway_staging_runtime.sh")
 PINNED_IMAGE = "ghcr.io/owner/repo@sha256:" + "a" * 64
 
@@ -74,7 +76,8 @@ from pathlib import Path
 db_running = Path(os.environ['RAILWAY_TEST_DB_STATE']).read_text() == 'running'
 rows = [{'id':'database-id', 'status':'SUCCESS' if db_running else 'REMOVED', 'deploymentStopped': not db_running, 'replicas':{'running':int(db_running)}}]
 for service, state in json.loads(Path(os.environ['RAILWAY_TEST_APP_STATE']).read_text()).items():
-    rows.append({'id': service, 'status': 'CRASHED' if state == 'crashed' else 'SUCCESS', 'deploymentStopped': state == 'crashed', 'replicas': {'running': int(state == 'running')}, 'source': {'repo': None, 'image': os.environ.get('RAILWAY_TEST_IMAGE')}, 'regions': [{'name': name, 'configured': 1} for name in os.environ.get('RAILWAY_TEST_REGIONS', 'us-west2').split(',')]})
+    image = os.environ.get('RAILWAY_TEST_WEB_IMAGE', os.environ.get('RAILWAY_TEST_IMAGE')) if service == 'web-id' else os.environ.get('RAILWAY_TEST_IMAGE')
+    rows.append({'id': service, 'status': 'CRASHED' if state == 'crashed' else 'SUCCESS', 'deploymentStopped': state == 'crashed', 'replicas': {'running': int(state == 'running')}, 'source': {'repo': os.environ.get('RAILWAY_TEST_REPO'), 'image': image}, 'regions': [{'name': name, 'configured': 1} for name in os.environ.get('RAILWAY_TEST_REGIONS', 'us-west2').split(',')]})
 print(json.dumps(rows))
 PY
 elif [[ "$*" == redeploy* ]]; then
@@ -192,6 +195,31 @@ def _run_runtime(
     )
     lines = log_path.read_text(encoding="utf-8").splitlines()
     return result, lines
+
+
+def test_scheduled_qa_pins_existing_immutable_staging_pair_without_mutation(tmp_path):
+    env, log_path = _runtime_env(tmp_path, database_state="inactive", application_state="idle")
+    env["RAILWAY_TEST_IMAGE"] = PINNED_IMAGE
+    result = subprocess.run([str(SCRIPT), "pin"], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == PINNED_IMAGE
+    assert log_path.read_text().splitlines() == [_database_status()]
+
+
+@pytest.mark.parametrize("override", [
+    {"RAILWAY_TEST_IMAGE": "ghcr.io/owner/repo:latest"},
+    {"RAILWAY_TEST_REPO": "owner/repo"},
+    {"RAILWAY_TEST_WEB_IMAGE": "ghcr.io/owner/repo@sha256:" + "b" * 64},
+    {"RAILWAY_WEB_SERVICE": "missing-id"},
+    {"RAILWAY_WEB_SERVICE": "collector-id"},
+])
+def test_scheduled_qa_pin_refuses_mutable_mixed_missing_or_repo_sources(tmp_path, override):
+    env, log_path = _runtime_env(tmp_path, database_state="inactive")
+    env.update({"RAILWAY_TEST_IMAGE": PINNED_IMAGE, **override})
+    result = subprocess.run([str(SCRIPT), "pin"], env=env, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert not result.stdout.strip()
+    assert log_path.read_text().splitlines() == [_database_status()]
 
 
 def test_staging_runtime_starts_and_stops_in_dependency_order(tmp_path: Path) -> None:

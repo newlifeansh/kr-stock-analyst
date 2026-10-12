@@ -62,6 +62,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_quant_signals.test_live_execution_bar_fails_closed_for_unverified_or_non_krx_quotes",
     ),
     "DATA-KR-REGULAR-001": (
+        "tests.test_regular_price_replay.test_archived_watch_retention_is_not_reported_as_a_holding_or_a_replay_checkpoint",
+        "tests.test_regular_price_replay.test_archived_path_audit_preserves_identity_and_does_not_claim_missing_regular_evidence",
+        "tests.test_regular_price_replay.test_production_cohort_audit_keeps_missing_sessions_and_validates_archive_scope",
         "tests.test_regular_price_replay.test_production_archive_replay_preserves_frozen_blocked_evidence_without_database_writes",
         "tests.test_regular_price_replay.test_production_archive_rejects_checksum_counts_mutating_exports_and_identity_conflicts",
         "tests.test_regular_session_prices.test_regular_session_excludes_after_market_and_subtracts_preopen_turnover",
@@ -234,6 +237,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "DATA-COM-005": (
         "tests.test_railway_staging_runtime.test_staging_status_rate_limit_recovers_but_persistent_failure_keeps_db",
+        "tests.test_railway_staging_runtime.test_scheduled_qa_pins_existing_immutable_staging_pair_without_mutation",
         "tests.test_railway_staging_runtime.test_staging_scale_clears_legacy_regions_for_the_selected_apps",
         "tests.test_railway_staging_runtime.test_staging_scale_rejects_an_alias_or_incomplete_acknowledgement",
         "tests.test_railway_staging_runtime.test_staging_controller_rejects_production_before_any_mutation",

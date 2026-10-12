@@ -634,6 +634,8 @@ jobs:
         run: npm install --global @railway/cli@5.45.7
       - name: Start domestic staging for production parity
         if: inputs.product_surface == 'dashboard'
+        env:
+          RAILWAY_RESUME_IMAGE_REF: ${{ inputs.image_ref }}
         run: QA_BASE_URL="$DASHBOARD_STAGING_BASE_URL" ./scripts/railway_staging_runtime.sh up
       - name: Install project and QA dependencies
         run: pip install -e '.[qa,mcp]'

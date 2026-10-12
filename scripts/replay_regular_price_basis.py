@@ -89,6 +89,72 @@ def production_archive_inputs(archive, code, through):
     return [prices[day] for day in sorted(prices)], timeline
 
 
+def archived_publication_context(archive, code):
+    """Published observations, not a simulation checkpoint or a held position.
+
+    Retention includes entry_watch/pending. Treating every retained code as an
+    open holding creates a false migration discrepancy.
+    """
+    result = []
+    for snapshot in archive.get("market_snapshots", []):
+        payload = json.loads(snapshot["payload"])
+        for item in payload.get("items", []):
+            if item.get("code") != code:
+                continue
+            current = item.get("current") or {}
+            result.append({
+                "snapshot_key": snapshot["key"],
+                "generated_at": snapshot["generated_at"],
+                "signal_date": item.get("signal_date"),
+                "execution_date": item.get("execution_date"),
+                "action": current.get("action") or item.get("action"),
+                "event_side": item.get("event_side"),
+                "is_preliminary": item.get("is_preliminary"),
+                "position_open": bool(current.get("position_open") or item.get("is_current_holding") or item.get("holding_context")),
+                "execution_replay_state": item.get("execution_replay_state"),
+                "replay_warning": item.get("replay_warning"),
+                "alert_eligible": item.get("alert_eligible"),
+            })
+    return result
+
+
+def archived_path_audit(archive, code, rows, regular_evidence):
+    """Contrast archived path with both bases; never seal or modify it."""
+    bars = {bar.trade_date: bar for bar in qs._normalize_prices(rows)}
+    result = []
+    seen = set()
+    for stored in archive.get("intraday_paths", []):
+        if stored["stock_code"] != code:
+            continue
+        day = date.fromisoformat(stored["trade_date"])
+        if day in seen:
+            raise ValueError("Duplicate archived intraday path")
+        seen.add(day)
+        path = json.loads(stored["payload"])
+        if not isinstance(path, list) or not path or any(
+            not isinstance(row, dict) or row.get("trade_date") != day.strftime("%Y%m%d")
+            for row in path
+        ):
+            raise ValueError("Archived intraday path identity mismatch")
+        old = bars.get(day)
+        evidence = regular_evidence.get(day)
+        regular = evidence.get("prices") if evidence else None
+        new = qs.PriceBar(day, *[float(regular[key]) for key in ("open", "high", "low", "close", "volume")], 0) if regular else None
+        eligible_version = stored.get("strategy_version") == qs.STRATEGY_VERSION
+        result.append({
+            "trade_date": day.isoformat(), "stored_final": stored["is_final"],
+            "source": stored["source"], "minute_count": len(path),
+            "strategy_version_matches": eligible_version,
+            "matches_legacy_daily_ohlc": bool(eligible_version and old and qs._verified_completed_intraday_minutes(path, old)),
+            "matches_regular_ohlc": bool(eligible_version and new and qs._verified_completed_intraday_minutes(path, new)),
+            "prior_price_touches_preserved": qs._intraday_path_preserves_prior_touches(path, evidence["regular_rows"]) if evidence else None,
+            "legacy_ohlc": {k: getattr(old, k) for k in ("open", "high", "low", "close")} if old else None,
+            "regular_ohlc": {k: regular[k] for k in ("open", "high", "low", "close")} if regular else None,
+            "production_seal_changed": False,
+        })
+    return result
+
+
 def run(args):
     codes = sorted(set(args.codes.split(",")))
     through = date.fromisoformat(args.through)
@@ -160,6 +226,8 @@ def run(args):
                 "frozen_evidence_days": len(timeline),
                 "missing_post_change_entry_evidence": [day.isoformat() for day in envelope.evidence if day not in timeline],
                 "regular_paths": len(paths), "changed_prices": changed,
+                "archived_publication": archived_publication_context(archive, code) if archive else [],
+                "archived_path_audit": archived_path_audit(archive, code, rows, envelope.evidence) if archive else [],
                 "scenarios": {key: value for key, value in cases.items() if key != "upper"},
             }
             report["items"].append(item)

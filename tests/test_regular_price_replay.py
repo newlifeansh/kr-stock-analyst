@@ -9,7 +9,10 @@ from hashlib import sha256
 from app.models import DailyPrice
 from app.services.regular_price_replay import RegularPriceEnvelope, turnover_decision_certificate
 from app.services.regular_session_prices import UnverifiedRegularSessionPrice
-from scripts.replay_regular_price_basis import decode_production_archive, production_archive_inputs
+from scripts.replay_regular_price_basis import (
+    archived_path_audit, archived_publication_context,
+    decode_production_archive, production_archive_inputs,
+)
 
 
 def envelope(low, high):
@@ -89,3 +92,63 @@ def test_production_archive_rejects_checksum_counts_mutating_exports_and_identit
     source["entry_evidence"].append(dict(source["entry_evidence"][0]))
     with pytest.raises(ValueError, match="Duplicate"):
         production_archive_inputs(source, "005930", date(2026, 10, 12))
+
+
+def test_archived_watch_retention_is_not_reported_as_a_holding_or_a_replay_checkpoint():
+    source = _archive_fixture()
+    source["market_snapshots"] = [{"key":"v35:150:0:30", "generated_at":"2026-10-12T20:00:00", "payload":json.dumps({"items":[
+        {"code":"005930", "is_preliminary":True, "current":{"action":"entry_watch", "position_open":False}, "execution_replay_state":"unverified", "alert_eligible":False},
+        {"code":"000660", "is_current_holding":True},
+    ]})}]
+    result = archived_publication_context(source, "005930")
+    assert len(result) == 1
+    assert result[0]["action"] == "entry_watch"
+    assert result[0]["position_open"] is False
+    assert result[0]["alert_eligible"] is False
+    assert result[0]["execution_replay_state"] == "unverified"
+    assert archived_publication_context(source, "000660")[0]["position_open"] is True
+
+
+def test_archived_path_audit_preserves_identity_and_does_not_claim_missing_regular_evidence():
+    source = _archive_fixture()
+    prices, _ = production_archive_inputs(source, "005930", date(2026, 10, 12))
+    path = {"stock_code":"005930", "trade_date":"2026-10-12", "is_final":False,
+            "source":"kis_rest", "strategy_version":"position-lifecycle-v8.0",
+            "payload":json.dumps([{"trade_date":"20261012", "trade_time":"153000", "open":101,"high":101,"low":101,"price":101,"volume":100}])}
+    source["intraday_paths"] = [path]
+    result = archived_path_audit(source, "005930", prices, {})[0]
+    assert result["matches_regular_ohlc"] is False
+    assert result["matches_legacy_daily_ohlc"] is False
+    assert result["prior_price_touches_preserved"] is None
+    assert result["production_seal_changed"] is False
+    source["intraday_paths"].append(dict(path))
+    with pytest.raises(ValueError, match="Duplicate"):
+        archived_path_audit(source, "005930", prices, {})
+    source["intraday_paths"] = [{**path, "payload":path["payload"].replace("20261012", "20261008")}]
+    with pytest.raises(ValueError, match="identity"):
+        archived_path_audit(source, "005930", prices, {})
+
+
+def test_production_cohort_audit_keeps_missing_sessions_and_validates_archive_scope():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from app.models import SignalSessionPrice
+    from scripts.audit_production_regular_coverage import audit
+
+    source = _archive_fixture()
+    source["metadata"].update(transaction_isolation="repeatable read", ranked_codes=["005930"], retained_codes=[], combined_count=1)
+    engine = create_engine("sqlite://")
+    SignalSessionPrice.__table__.create(engine)
+    with Session(engine) as db:
+        result = audit(source, db, date(2026, 10, 12))
+        assert result["production_cohort_count"] == 1
+        assert result["price_path_states"] == {"missing":1}
+        assert result["complete_verified_price_path_codes"] == []
+        assert result["production_ready"] is False
+        assert not db.new and not db.dirty and not db.deleted
+        source["metadata"]["combined_count"] = 2
+        with pytest.raises(ValueError, match="cohort"):
+            audit(source, db, date(2026, 10, 12))
+        source["metadata"]["transaction_isolation"] = "read committed"
+        with pytest.raises(ValueError, match="repeatable-read"):
+            audit(source, db, date(2026, 10, 12))

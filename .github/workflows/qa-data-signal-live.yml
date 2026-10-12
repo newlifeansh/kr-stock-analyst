@@ -49,7 +49,10 @@ jobs:
         run: npm install --global @railway/cli@5.45.7
       - name: Start domestic staging for live QA
         if: matrix.surface == 'dashboard'
-        run: ./scripts/railway_staging_runtime.sh up
+        run: |
+          export RAILWAY_RESUME_IMAGE_REF="$(./scripts/railway_staging_runtime.sh pin)"
+          test -n "$RAILWAY_RESUME_IMAGE_REF"
+          ./scripts/railway_staging_runtime.sh up
       - name: Run read-only staging and source checks
         shell: bash
         run: |
