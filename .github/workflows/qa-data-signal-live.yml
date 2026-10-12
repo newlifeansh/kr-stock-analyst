@@ -54,28 +54,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 3247e6016f984953c9a00b86237d2d25c5b41adb
+          ref: ce7235213a2632a40784144b6c1e0140c5576fbd
       - run: npm install --global @railway/cli@5.45.7
       - name: Recover the same staging deployments without rebuilding
         run: |
           ./scripts/railway_staging_runtime.sh up
-          railway restart -p "$RAILWAY_PROJECT_ID" -e staging -s "$RAILWAY_COLLECTOR_SERVICE" --yes --json
-          railway restart -p "$RAILWAY_PROJECT_ID" -e staging -s "$RAILWAY_WEB_SERVICE" --yes --json
           for attempt in {1..36}; do
             if curl -fsS --max-time 10 "$QA_BASE_URL/readyz"; then exit 0; fi
             sleep 5
           done
           exit 1
-      - name: Read post-close source evidence
-        run: |
-          mkdir -p artifacts/domestic-recovery
-          curl -fsS --max-time 120 "$QA_BASE_URL/meta/signal-data-quality?probe=true" -o artifacts/domestic-recovery/quality.json
-          curl -fsS --max-time 30 "$QA_BASE_URL/health" -o artifacts/domestic-recovery/health.json
-      - uses: actions/upload-artifact@v4
-        if: always()
+      - name: Checkout the read-only diagnostic in a separate path
+        uses: actions/checkout@v4
         with:
-          name: domestic-recovery-${{ github.run_id }}
-          path: artifacts/domestic-recovery
+          path: source-probe
+      - name: Read dated session source without exporting credentials
+        run: |
+          set -euo pipefail
+          task_dir="$(mktemp -d)"
+          ssh-keygen -q -t ed25519 -N '' -C "session-probe-${GITHUB_RUN_ID}" -f "$task_dir/key"
+          fingerprint="$(ssh-keygen -lf "$task_dir/key.pub" -E sha256 | awk '{print $2}')"
+          eval "$(ssh-agent -s)"
+          ssh-add "$task_dir/key"
+          mkdir -p "$HOME/.ssh"
+          printf 'Host *\n  StrictHostKeyChecking accept-new\n  UserKnownHostsFile %s\n' "$task_dir/known_hosts" > "$HOME/.ssh/config"
+          cleanup() { railway ssh keys remove "$fingerprint"; ssh-agent -k; }
+          trap cleanup EXIT
+          railway ssh keys add --key "$fingerprint" --name "session-probe-${GITHUB_RUN_ID}"
+          code="$(cat source-probe/scripts/probe_regular_session.py)"
+          command="python -c $(printf '%q' "$code")"
+          railway ssh -p "$RAILWAY_PROJECT_ID" -s "$RAILWAY_COLLECTOR_SERVICE" -e staging --identity-file "$task_dir/key" -- "$command"
+      - name: Stop staging and retain its volume
+        if: always()
+        run: |
+          ./scripts/railway_staging_runtime.sh down
   verify_us_candidate:
     if: false
     runs-on: ubuntu-latest
