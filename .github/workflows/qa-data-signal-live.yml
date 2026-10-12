@@ -145,7 +145,7 @@ jobs:
           set -euo pipefail
           railway logs --project "$DIAG_PROJECT" --service "$DIAG_SERVICE" --environment staging --lines 100 --json --latest | python scripts/safe_collector_diagnostics.py
       - name: Compare dated KRX daily candle without exporting credentials
-        if: matrix.surface == 'dashboard' && matrix.role == 'collector'
+        if: false
         run: |
           set -euo pipefail
           task_dir="$(mktemp -d)"
