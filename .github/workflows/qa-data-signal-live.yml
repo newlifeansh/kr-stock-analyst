@@ -35,6 +35,13 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/railway_staging_runtime.sh down
+      - name: Verify explicit zero replica configuration without deleting inherited region overrides
+        run: |
+          set -euo pipefail
+          railway service list -p "$RAILWAY_PROJECT_ID" --environment staging --json | python -c 'import json,sys; rows=json.load(sys.stdin); targets=set(sys.argv[1:]); found={s["id"] for s in rows if s["id"] in targets and int((s.get("replicas") or {}).get("running") or 0)==0}; assert found==targets, "Selected staging processes must already be stopped"' "$RAILWAY_WEB_SERVICE" "$RAILWAY_COLLECTOR_SERVICE"
+          python -c 'import json,sys; print(json.dumps({"services":{sid:{"deploy":{"multiRegionConfig":{"sfo":{"numReplicas":0},"us-west2":{"numReplicas":0}}}} for sid in sys.argv[1:]}}))' "$RAILWAY_WEB_SERVICE" "$RAILWAY_COLLECTOR_SERVICE" | railway environment edit --project "$RAILWAY_PROJECT_ID" --environment staging --json
+          railway link --project "$RAILWAY_PROJECT_ID" --environment staging --service "$RAILWAY_WEB_SERVICE" --json >/dev/null
+          railway environment config --environment staging --json | python -c 'import json,sys; p=json.load(sys.stdin); output={sid:(p.get("services",{}).get(sid,{}).get("deploy") or {}).get("multiRegionConfig") for sid in sys.argv[1:]}; print(json.dumps(output)); assert all(isinstance(regions,dict) and regions and all(int((v or {}).get("numReplicas",0))==0 for v in regions.values()) for regions in output.values()), "Explicit zero region configuration did not persist"' "$RAILWAY_WEB_SERVICE" "$RAILWAY_COLLECTOR_SERVICE"
   recover_domestic:
     if: inputs.recover_domestic && !inputs.finish_domestic_shutdown
     runs-on: ubuntu-latest
