@@ -4,6 +4,7 @@
 
 ## 2026-10-13 승인 반영 — 전환일 이후 새 모델
 
+- **rc12 CI 지연 원인**: 실행 `38322575027`의 gate 1,637/150은 통과했다. 이미지 빌드·GHCR push는 23:36 UTC에 끝났지만 보조 GitHub Actions 캐시의 layer 업로드가 11분 넘게 멈췄다. 취소 후 로그로 확인했으며 배포 job은 시작되지 않았다. 동일 소스 rc13 재시도(`38323942414`)도 기존 캐시 경로를 포함하므로 중단하고 **rc14**에서 두 배포 워크플로의 cache export를 제거하고 cache import만 60초로 제한한다. 테스트·실제 이미지 push 실패는 계속 차단한다. [Docker 공식 cache 옵션](https://docs.docker.com/build/cache/backends/gha/)을 확인했다. 기존 캐시나 운영 데이터는 삭제하지 않는다.
 - **rc11 실제 검증**: 원격 1,634 pytest / 150 gate PASS. 읽기 전용 런타임 진단 `38321610495`에서 국내·미국 웹/collector 4개 모두 `sha256:390780eb95ff97bafcc7790a15fd31570ca02e20f3023b361a3fa2ec64159318`·SUCCESS·running=1을 확인했다. 미국 live 12 PASS/1 FAIL, E2E 4 PASS/1 FAIL: `DATA-US-NEWS-001`에서 뉴스가 비었다. 같은 시점 운영은 60건 정상이며 스테이징 컨테이너 내부 진단 `38322070909`에서 Google RSS 3요청 모두 HTTP503을 확인했다. 임시 SSH 키 제거 완료. 뉴스 실패를 통과 처리하지 않았다.
 - **rc12 뉴스 내구성 보완**: 기존 Google RSS와 별개로 현재 사용 중인 네이버 금융 mainnews에서 미국 관련 기사만 동시 수집한다. Google 12초·Naver 6초 제한이며 같은 시간대 예산 안에서 처리한다. 숫자 언론사·기사 ID의 실제 URL과 원문 KST 시각을 재사용하고 날짜·관련성·중복 필터를 유지한다. 실제 사용된 수집원을 표시하며 양쪽 실패는 계속 unavailable이다. 로컬 실제 조회는 60건 중 Naver 10건, 관련 테스트 5 PASS. 운영에는 아직 미반영이며 새 전체 게이트·이미지·스테이징을 거친다.
 - rc11 국내 상세 결과는 **live 48 PASS / 11 SKIP / 0 FAIL, E2E 26 PASS / 2 SKIP / 0 FAIL**로 확인했다. 오전 종가 봉인 skip과 국내 전용 런타임의 미국 검사 skip을 실제 장마감 검증으로 간주하지 않는다. rc12 로컬 전체 **1,637 pytest PASS / 150 gate PASS**, source 변경 때문에 새 후보를 만들며 rc11은 운영 승격하지 않는다.

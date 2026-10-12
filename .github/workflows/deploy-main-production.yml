@@ -98,8 +98,8 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=v8.0-main-${{ github.run_number }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Cache is optional acceleration, not a release deliverable.
+          cache-from: type=gha,timeout=60s
       - id: release
         name: Record immutable production candidate
         shell: bash

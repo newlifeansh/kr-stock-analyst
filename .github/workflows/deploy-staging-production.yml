@@ -200,8 +200,9 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ needs.validate_request.outputs.source_sha }}
             org.opencontainers.image.version=${{ inputs.candidate_version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Cache export hung after the image was already pushed (rc12).
+          # Read any available cache, but do not put cache uploads on releases.
+          cache-from: type=gha,timeout=60s
       - id: release
         name: Record immutable candidate identity
         shell: bash

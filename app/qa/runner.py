@@ -270,6 +270,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_domestic_live_skips_us_snapshot_when_collector_disabled",
         "tests.test_release_parity."
         "test_deployment_workflow_promotes_one_immutable_image_after_staging",
+        "tests.test_release_parity.test_release_cache_export_cannot_hold_a_pushed_image_hostage",
         "tests.test_release_parity."
         "test_staging_targets_and_qa_evidence_are_separate_for_both_products",
         "tests.test_release_parity."

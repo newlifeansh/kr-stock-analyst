@@ -144,7 +144,7 @@
         "gate",
         "live"
       ],
-      "automation": "pytest 국내 운영·국내 스테이징·미국 프로젝트의 staging/production 4개 환경 대상 및 web/collector/URL/PROCESS_ROLE 분리, 국내 스테이징 DB→collector→web 온디맨드 기동·항상 종료, web의 미국 전체 스캔 차단, 선택한 운영 surface 매핑·기존 /us 호환 경로 보존 계약 + apt 미러에 의존하지 않는 staging 브라우저 설치 + 중복 deployment_status E2E 자동 트리거 차단 + GHCR SHA-256 다이제스트 + 양쪽 staging release-parity/live/e2e 및 선택한 production parity/live",
+      "automation": "pytest 국내 운영·국내 스테이징·미국 프로젝트의 staging/production 4개 환경 대상 및 web/collector/URL/PROCESS_ROLE 분리, 국내 스테이징 DB→collector→web 온디맨드 기동·항상 종료, web의 미국 전체 스캔 차단, 선택한 운영 surface 매핑·기존 /us 호환 경로 보존 계약 + apt 미러에 의존하지 않는 staging 브라우저 설치 + 중복 deployment_status E2E 자동 트리거 차단 + 보조 빌드 캐시 읽기 60초 제한·캐시 업로드 제외(테스트/이미지 push 실패 무시 금지) + GHCR SHA-256 다이제스트 + 양쪽 staging release-parity/live/e2e 및 선택한 production parity/live",
       "preconditions": [
         "승인된 RC 단일 커밋과 국내 운영·국내 스테이징·미국 Railway 프로젝트의 staging/production 격리 환경을 준비한다.",
         "두 스테이징 프로젝트에 독립 web·collector·DB와 각기 다른 URL을 준비하고 web은 PROCESS_ROLE=web, collector는 PROCESS_ROLE=collector로 지정한다.",

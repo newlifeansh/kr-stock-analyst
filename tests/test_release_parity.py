@@ -10,6 +10,16 @@ from app.qa.catalog import load_qa_catalog
 from app.qa.runner import DEFAULT_STAGING_BASE_URLS
 
 
+def test_release_cache_export_cannot_hold_a_pushed_image_hostage():
+    for filename in ("deploy-main-production.yml", "deploy-staging-production.yml"):
+        workflow = Path(".github/workflows", filename).read_text()
+        assert "cache-from: type=gha,timeout=60s" in workflow
+        assert "cache-to:" not in workflow
+        build = workflow.split("  build_image:", 1)[1].split("\n  deploy_", 1)[0]
+        assert "continue-on-error:" not in build
+        assert "push: true" in build and "needs:" in build and "gate" in build
+
+
 def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     contract = local_release_contract()
 
