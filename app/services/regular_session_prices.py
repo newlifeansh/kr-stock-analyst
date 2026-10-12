@@ -313,7 +313,7 @@ def load_regular_session_evidence(
 ) -> dict[str, Any]:
     # A default dry-run must also work before the additive table is installed.
     # Do not create schema or write anything as a side effect of a read.
-    if not inspect(db.get_bind()).has_table(SignalSessionPrice.__tablename__):
+    if not inspect(db.connection()).has_table(SignalSessionPrice.__tablename__):
         raise UnverifiedRegularSessionPrice("정규장 가격 근거 테이블이 없습니다")
     states = ("ready", "bounded") if allow_bounded else ("ready",)
     records = list(db.scalars(select(SignalSessionPrice).where(
@@ -387,7 +387,7 @@ def collect_regular_session_prices(
         "ready": 0, "already_ready": 0, "bounded": 0, "already_bounded": 0, "unverified": [], "deferred": 0,
         "signal_publication": False, "history_overwrite": False, "notifications_sent": 0,
     }
-    has_table = inspect(db.get_bind()).has_table(SignalSessionPrice.__tablename__)
+    has_table = inspect(db.connection()).has_table(SignalSessionPrice.__tablename__)
     if persist and not has_table:
         raise ValueError("create the additive evidence table before persisting")
     for code, day in pairs:

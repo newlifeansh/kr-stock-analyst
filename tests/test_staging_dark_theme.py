@@ -2651,7 +2651,7 @@ def test_staging_quality_proxy_keeps_upstream_data_and_uses_candidate_strategy()
         )
     )
 
-    assert rewritten["strategy_version"] == "position-lifecycle-v8.0"
+    assert rewritten["strategy_version"] == "position-lifecycle-v8.1"
     assert rewritten["datasets"]["fundamentals"]["state"] == "ready"
 
 
@@ -2879,7 +2879,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20261012v572' in shell
+    assert 'dashboard-app-v170.js?v=20261013v573' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 

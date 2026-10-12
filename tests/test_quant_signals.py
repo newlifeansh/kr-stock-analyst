@@ -1177,7 +1177,7 @@ def test_v8_keeps_h1_active_and_h2_h3_shadow_only():
         "average_trading_value": 5_000_000_000.0,
     }
 
-    assert quant_signals.STRATEGY_VERSION == "position-lifecycle-v8.0"
+    assert quant_signals.STRATEGY_VERSION == "position-lifecycle-v8.1"
     assert quant_signals.CANDIDATE_STRATEGY_VERSION == "position-lifecycle-v8.1-rc1"
     assert [item["version"] for item in quant_signals.STRATEGY_VERSION_HISTORY] == [
         "position-lifecycle-legacy",
@@ -1189,6 +1189,7 @@ def test_v8_keeps_h1_active_and_h2_h3_shadow_only():
         "position-lifecycle-v7.4.2",
         "position-lifecycle-v7.5-rc4",
         "position-lifecycle-v8.0",
+        "position-lifecycle-v8.1",
         "position-lifecycle-v8.1-rc1",
     ]
     assert quant_signals.active_entry_filter_version(bar.trade_date) == "buy-filter-h1"
@@ -3675,6 +3676,9 @@ def test_close_only_row_is_not_treated_as_a_real_open_price():
 
 
 def test_quant_signal_endpoint_uses_same_engine_for_multiple_stocks(monkeypatch):
+    # Preserve this pre-cutover execution fixture; forward contracts have
+    # their own tests and must not replay this old model as fresh trades.
+    monkeypatch.setattr(quant_signals, "REGULAR_FORWARD_START", date(2100, 1, 1))
     db = _session()
     db.add_all([_stock(), _stock("000660", "SK하이닉스")])
     db.add_all(_price_rows("005930") + _price_rows("000660"))
@@ -3762,6 +3766,7 @@ def test_quant_signal_endpoint_returns_canonical_state_before_local_refresh(monk
 
 
 def test_watchlist_quant_signal_endpoint_aggregates_the_same_strategy_without_cache(monkeypatch):
+    monkeypatch.setattr(quant_signals, "REGULAR_FORWARD_START", date(2100, 1, 1))
     db = _session()
     samsung = _stock()
     samsung.sector = "전기·전자"
@@ -3997,6 +4002,7 @@ def test_quant_signal_list_summary_keeps_weekend_pending_signal_on_last_close():
 
 
 def test_watchlist_signal_row_matches_the_same_stock_detail_payload(monkeypatch):
+    monkeypatch.setattr(quant_signals, "REGULAR_FORWARD_START", date(2100, 1, 1))
     db = _session()
     db.add(_stock("005930", "삼성전자"))
     db.add_all(_price_rows("005930"))
@@ -5088,7 +5094,7 @@ def test_trade_metadata_requires_entry_price_and_uses_new_snapshot_namespace():
     assert quant_signals.market_payload_has_trade_metadata(market_payload) is True
     del market_payload["items"][0]["entry_price"]
     assert quant_signals.market_payload_has_trade_metadata(market_payload) is False
-    assert quant_signals.market_quant_signal_snapshot_key(150, 0, 30) == "v36:150:0:30"
+    assert quant_signals.market_quant_signal_snapshot_key(150, 0, 30) == "v37:150:0:30"
 
 
 def test_market_signal_performance_summary_uses_completed_net_returns_and_matched_index_periods():

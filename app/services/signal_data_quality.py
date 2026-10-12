@@ -697,13 +697,21 @@ def signal_data_quality_status(
         ))
         try:
             rows = json.loads(sample_path.payload)
+            from app.services.regular_signal_transition import REGULAR_FORWARD_START, REGULAR_FORWARD_VERSION
+            from app.services.regular_session_prices import load_regular_session_evidence, UnverifiedRegularSessionPrice, _json as regular_json
+            from hashlib import sha256
+            regular_evidence = None
+            if sample_path.trade_date >= REGULAR_FORWARD_START:
+                regular_evidence = load_regular_session_evidence(db, sample_path.stock_code, sample_path.trade_date, allow_bounded=True)
+                values = regular_evidence["prices"]
+                daily = DailyPrice(code=sample_path.stock_code, trade_date=sample_path.trade_date, **values)
             bar = PriceBar(
                 daily.trade_date, float(daily.open), float(daily.high),
                 float(daily.low), float(daily.close),
                 float(daily.volume or 0), float(daily.trading_value or 0),
             )
             verified = _verified_completed_intraday_minutes(rows, bar)
-        except (AttributeError, ValueError, TypeError, KeyError):
+        except (AttributeError, ValueError, TypeError, KeyError, UnverifiedRegularSessionPrice):
             verified = None
         if verified is not None and sample_path.strategy_version == STRATEGY_VERSION:
             sample_seal = {
@@ -718,6 +726,8 @@ def signal_data_quality_status(
                 ),
                 "ohlc": {"open": bar.open, "high": bar.high,
                          "low": bar.low, "close": bar.close},
+                "price_basis_version": REGULAR_FORWARD_VERSION if regular_evidence else "legacy_daily",
+                "evidence_hash": sha256(regular_json(regular_evidence).encode()).hexdigest() if regular_evidence else None,
             }
     return {
         "status": status,

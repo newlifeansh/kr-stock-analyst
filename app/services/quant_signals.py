@@ -55,6 +55,14 @@ from app.services.position_lifecycle_core import (
     chase_entry_veto_reason as core_chase_entry_veto_reason,
     fresh_reentry_trigger as core_fresh_reentry_trigger,
 )
+from app.services.regular_signal_transition import (
+    REGULAR_FORWARD_START, REGULAR_FORWARD_STRATEGY_VERSION,
+    archived_market_items, freeze_legacy_market_publication, legacy_open_codes,
+    prepare_forward_inputs, forward_entry_timeline, forward_relative_context,
+    publish_forward_metadata,
+    regular_intraday_quote,
+)
+from app.services.regular_session_prices import UnverifiedRegularSessionPrice
 
 
 KST = ZoneInfo("Asia/Seoul")
@@ -66,7 +74,8 @@ V7_4_1_STRATEGY_VERSION = "position-lifecycle-v7.4.1"
 V7_4_2_STRATEGY_VERSION = "position-lifecycle-v7.4.2"
 V7_5_RC3_CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc3"
 V7_5_RC4_CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc4"
-STRATEGY_VERSION = "position-lifecycle-v8.0"
+V8_STRATEGY_VERSION = "position-lifecycle-v8.0"
+STRATEGY_VERSION = REGULAR_FORWARD_STRATEGY_VERSION
 CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v8.1-rc1"
 STRATEGY_NAME = "독립 근거 확인·장중 돌파 진입·장중 위험관리 전략"
 MIN_HISTORY_ROWS = 125
@@ -183,11 +192,18 @@ STRATEGY_VERSION_HISTORY = (
         "scope": "v7.4.2 baseline + buy-filter-h1; promotion pending",
     },
     {
-        "version": STRATEGY_VERSION,
+        "version": V8_STRATEGY_VERSION,
         "effective_from": INTRADAY_EXECUTION_EFFECTIVE_DATE.isoformat(),
+        "effective_to": "2026-10-12",
+        "status": "historical",
+        "scope": "종가 확인 후 다음 KRX 세션 장중 돌파 매수·손절·+3%/+5% 장중 매도",
+    },
+    {
+        "version": STRATEGY_VERSION,
+        "effective_from": REGULAR_FORWARD_START.isoformat(),
         "effective_to": None,
         "status": "baseline",
-        "scope": "종가 확인 후 다음 KRX 세션 장중 돌파 매수·손절·+3%/+5% 장중 매도",
+        "scope": "기존 공개 이력 동결·정규장 검증 가격으로 신규 모델 시작",
     },
     {
         "version": CANDIDATE_STRATEGY_VERSION,
@@ -257,7 +273,7 @@ MARKET_SIGNAL_EXTENDED_EFFECTIVE_DATE = date(2026, 8, 27)
 # silently discard events that are also eligible for push notifications.
 MARKET_SIGNAL_FEED_LIMIT = 0
 MARKET_SIGNAL_RECENT_DAYS = 30
-MARKET_SIGNAL_SNAPSHOT_VERSION = "v36"
+MARKET_SIGNAL_SNAPSHOT_VERSION = "v37"
 SNAPSHOT_MAX_FUTURE_SKEW_SECONDS = 60
 MARKET_SIGNAL_PERFORMANCE_VERSION = "market-signal-realized-performance-v1"
 ENTRY_SAFETY_GUARD_VERSION = "market-signal-entry-safety-v1"
@@ -495,8 +511,10 @@ def _indicator_rows(bars: list[PriceBar]) -> list[dict[str, float]]:
 def strategy_version_for_date(strategy_date: Optional[date]) -> str:
     """Return the immutable position-lifecycle version for a decision date."""
 
-    if strategy_date is None or strategy_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE:
+    if strategy_date is None or strategy_date >= REGULAR_FORWARD_START:
         return STRATEGY_VERSION
+    if strategy_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE:
+        return V8_STRATEGY_VERSION
     if strategy_date >= REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE:
         return V7_4_2_STRATEGY_VERSION
     if strategy_date >= CHASE_GUARD_EFFECTIVE_DATE:
@@ -1651,6 +1669,18 @@ def finalize_open_intraday_paths_for_session(
     )
     result["pending"] = len(snapshots)
     for snapshot in snapshots:
+        if snapshot.trade_date >= REGULAR_FORWARD_START:
+            from app.services.regular_session_prices import load_regular_session_evidence
+
+            try:
+                evidence = load_regular_session_evidence(db, snapshot.stock_code, snapshot.trade_date, allow_bounded=True)
+                _store_verified_intraday_path(db, snapshot.stock_code, snapshot.trade_date,
+                    evidence["regular_rows"], observed_at=local_now, is_final=True)
+            except (UnverifiedRegularSessionPrice, UnverifiedIntradayPathError):
+                result["unverified"] += 1
+                continue
+            result["finalized"] += 1
+            continue
         daily = db.scalar(
             select(DailyPrice).where(
                 DailyPrice.code == snapshot.stock_code,
@@ -2138,13 +2168,22 @@ def _simulate(
     forming_bar_date: Optional[date] = None,
     intraday_minutes: Optional[list[PriceBar]] = None,
     intraday_minutes_by_date: Optional[dict[date, list[PriceBar]]] = None,
+    lifecycle_start_date: Optional[date] = None,
+    entry_filter_version: Optional[str] = None,
 ) -> dict[str, Any]:
     lifecycle_start_index = WARMUP_ROWS
+    if lifecycle_start_date is not None:
+        lifecycle_start_index = max(WARMUP_ROWS, next(
+            (index for index, bar in enumerate(bars) if bar.trade_date >= lifecycle_start_date),
+            len(bars),
+        ))
     performance_start_index = (
         max(WARMUP_ROWS, min(int(performance_start_index_override), len(bars) - 1))
         if performance_start_index_override is not None
         else max(WARMUP_ROWS, len(bars) - BACKTEST_ROWS)
     )
+    if lifecycle_start_date is not None:
+        performance_start_index = min(len(bars) - 1, max(performance_start_index, lifecycle_start_index))
     period_start = bars[performance_start_index].trade_date
     lifecycle_events: list[dict[str, Any]] = []
     lifecycle_trades: list[dict[str, Any]] = []
@@ -2170,7 +2209,9 @@ def _simulate(
 
     for index in range(lifecycle_start_index, len(bars)):
         bar = bars[index]
-        indicator = indicators[index]
+        # The forward model fixes execution ATR/liquidity from the previous
+        # completed close, not the high/low/volume of a still-unfolding session.
+        indicator = indicators[index - 1] if lifecycle_start_date is not None else indicators[index]
         session_minutes = (intraday_minutes_by_date or {}).get(bar.trade_date)
         if forming_bar_date == bar.trade_date and intraday_minutes is not None:
             session_minutes = intraday_minutes
@@ -2682,6 +2723,7 @@ def _simulate(
             drawdown_curve.append(drawdown)
             max_drawdown = min(max_drawdown, drawdown)
 
+        indicator = indicators[index]
         if index >= len(bars) - 1:
             continue
         if position:
@@ -2756,6 +2798,7 @@ def _simulate(
             entry_setup := _entry_setup_kind(
                 bar,
                 indicator,
+                entry_filter_version=entry_filter_version,
                 recent_indicators=indicators[
                     max(0, index - CHASE_MOMENTUM_LOOKBACK_BARS + 1) : index + 1
                 ],
@@ -4141,6 +4184,7 @@ def build_quant_signal_payload(
     entry_evidence_by_date: Optional[dict[date, dict[str, Any]]] = None,
     entry_safety_guard: Optional[dict[str, Any]] = None,
     historical_intraday_minutes_by_date: Optional[dict[date, list[PriceBar]]] = None,
+    lifecycle_start_date: Optional[date] = None,
 ) -> dict[str, Any]:
     current_time = now or datetime.now(KST)
     bars = _normalize_prices(rows)
@@ -4308,6 +4352,7 @@ def build_quant_signal_payload(
         evidence_timeline,
         entry_safety_guard=entry_safety_guard,
         intraday_minutes_by_date=historical_intraday_minutes_by_date,
+        lifecycle_start_date=lifecycle_start_date,
     )
     simulation_bars, live_execution = _live_execution_bars(
         confirmed,
@@ -4327,6 +4372,7 @@ def build_quant_signal_payload(
             forming_bar_date=simulation_bars[-1].trade_date,
             intraday_minutes=verified_minutes,
             intraday_minutes_by_date=historical_intraday_minutes_by_date,
+            lifecycle_start_date=lifecycle_start_date,
         )
         if (
             verified_minutes is None
@@ -4361,6 +4407,13 @@ def build_quant_signal_payload(
         evidence_timeline,
         entry_safety_guard,
     )
+    if lifecycle_start_date is not None and confirmed[-1].trade_date < lifecycle_start_date:
+        # Legacy warm-up is not a fresh confirmed setup for the new model.
+        current.update(action="waiting", label="새 기준 정규장 종가 대기",
+                       entry_setup=None, entry_confirmation=None,
+                       reasons=["기존 이력은 보존하고 전환일의 검증된 정규장 종가부터 새 진입을 판단합니다."],
+                       next_confirmation="전환일 이후 첫 정규장 종가·독립 근거 확인")
+        current["lifecycle"]["latest_transition"] = None
     latest_signal_date = confirmed[-1].trade_date
     confirmation_signal_date = latest_signal_date
     if current.get("live_observation") and live_quote:
@@ -4409,6 +4462,12 @@ def build_quant_signal_payload(
         "entry_safety_guard": deepcopy(entry_safety_guard),
     }
     result.update(quant_signal_display_return_fields(result))
+    if lifecycle_start_date is not None:
+        publish_forward_metadata(result)
+        result["methodology"].insert(0, "전환 이전 가격은 동결된 준비 자료이며, 기존 공개 매매 이력과 새 정규장 모델 성과를 분리합니다.")
+        result["performance"]["price_basis_effective_from"] = lifecycle_start_date
+        if confirmed[-1].trade_date < lifecycle_start_date:
+            result["performance"]["sample_note"] = "새 기준 첫 정규장 종가 대기 중으로 완료 매매가 없습니다."
     return result
 
 
@@ -4774,6 +4833,27 @@ def load_quant_signal_payload(
     )
     current_time = now or datetime.now(KST)
     effective_live_quote = live_quote
+    if current_time.date() >= REGULAR_FORWARD_START:
+        try:
+            archive = freeze_legacy_market_publication(db, MARKET_SIGNAL_UNIVERSE_LIMIT, 0, 90)
+            if code in legacy_open_codes(archive):
+                raise UnverifiedRegularSessionPrice("기존 보유 모델의 승계 검증이 필요하여 새 진입을 보류합니다")
+            envelope, paths = prepare_forward_inputs(db, code, rows, now=current_time)
+            timeline = forward_entry_timeline(db, stock, envelope.lower, flow_prices=rows, now=current_time)
+            result = _market_stock_payload_with_intraday_path(
+                db, stock, envelope.lower, _confirmed_bars(_normalize_prices(envelope.lower), current_time),
+                live_quote, timeline, load_entry_safety_guard(db), current_time,
+                intraday_chart_loader, historical_intraday_chart_loader,
+                verified_paths=paths, lifecycle_start_date=REGULAR_FORWARD_START,
+            )
+            publish_forward_metadata(result)
+            result["legacy_history"] = [item for item in archived_market_items(
+                archive, as_of=current_time.date(), recent_days=90) if item.get("code") == code]
+            if db.new or db.dirty or db.in_transaction():
+                db.commit()
+            return result
+        except UnverifiedRegularSessionPrice as exc:
+            raise UnverifiedIntradayPathError(str(exc)) from exc
     if effective_live_quote is None and include_stored_intraday:
         effective_live_quote = _forming_bar_quote(_normalize_prices(rows), current_time)
     normalized = _normalize_prices(rows)
@@ -5464,9 +5544,12 @@ def _market_stock_payload_with_intraday_path(
     historical_intraday_chart_loader: Optional[
         Callable[[str, date], list[dict[str, Any]]]
     ],
+    *,
+    verified_paths: Optional[dict[date, list[PriceBar]]] = None,
+    lifecycle_start_date: Optional[date] = None,
 ) -> dict[str, Any]:
     code = stock.code
-    historical_paths = _load_verified_historical_intraday_paths(
+    historical_paths = verified_paths if verified_paths is not None else _load_verified_historical_intraday_paths(
         db, code, confirmed_stock_bars, current_time,
         historical_chart_loader=historical_intraday_chart_loader,
     )
@@ -5475,6 +5558,7 @@ def _market_stock_payload_with_intraday_path(
         context=None, entry_evidence_by_date=evidence_timeline,
         entry_safety_guard=entry_safety_guard,
         historical_intraday_minutes_by_date=historical_paths,
+        lifecycle_start_date=lifecycle_start_date,
     )
     stored_live_path = db.get(
         QuantSignalIntradayPathSnapshot, (code, current_time.date())
@@ -5486,6 +5570,10 @@ def _market_stock_payload_with_intraday_path(
         and (
             stored_live_path is not None
             or payload.get("unverified_live_execution_candidate") is True
+            or (lifecycle_start_date is not None and (
+                (payload.get("current") or {}).get("position_open")
+                or (payload.get("current") or {}).get("action") == "entry_pending"
+            ))
         )
     )
     if should_fetch:
@@ -5500,6 +5588,8 @@ def _market_stock_payload_with_intraday_path(
                 "intraday_minutes": minute_rows,
                 "intraday_minutes_observed_at": chart_fetched_at,
             }
+            if lifecycle_start_date is not None:
+                candidate_quote = regular_intraday_quote(candidate_quote)
             candidate_bars, live_execution = _live_execution_bars(
                 confirmed_stock_bars, candidate_quote, current_time
             )
@@ -5525,6 +5615,7 @@ def _market_stock_payload_with_intraday_path(
                 entry_evidence_by_date=evidence_timeline,
                 entry_safety_guard=entry_safety_guard,
                 historical_intraday_minutes_by_date=historical_paths,
+                lifecycle_start_date=lifecycle_start_date,
             )
         elif stored_live_path is not None and not stored_live_path.is_final:
             raise UnverifiedIntradayPathError("기존 장중 체결 이후 분봉 조회가 끊겼습니다")
@@ -5610,6 +5701,9 @@ def load_market_quant_signal_feed(
         return empty
 
     cutoff = current_time.date() - timedelta(days=capped_recent_days)
+    # Old membership is represented by the frozen publication, not by newly
+    # simulating the pre-cutover cohort from mutable historical candles.
+    membership_cutoff = max(cutoff, min(REGULAR_FORWARD_START, market_cap_date)) if current_time.date() >= REGULAR_FORWARD_START else cutoff
     daily_ranked_universe = (
         select(
             DailyPrice.code.label("code"),
@@ -5625,7 +5719,7 @@ def load_market_quant_signal_feed(
         .where(
             StockMaster.is_active.is_(True),
             StockMaster.market.in_(("KOSPI", "KOSDAQ")),
-            DailyPrice.trade_date >= cutoff,
+            DailyPrice.trade_date >= membership_cutoff,
             DailyPrice.trade_date <= market_cap_date,
             DailyPrice.market_cap.is_not(None),
             DailyPrice.market_cap > 0,
@@ -5770,7 +5864,20 @@ def load_market_quant_signal_feed(
         prices_by_code.setdefault(price_row.code, []).append(price_row)
 
     current_quotes = live_quotes or {}
-    items: list[dict[str, Any]] = []
+    forward_mode = current_time.date() >= REGULAR_FORWARD_START
+    archive = freeze_legacy_market_publication(db, capped_universe_limit, capped_limit, capped_recent_days) if forward_mode else None
+    legacy_holdings = legacy_open_codes(archive) if archive else set()
+    items: list[dict[str, Any]] = archived_market_items(archive, as_of=current_time.date(), recent_days=capped_recent_days) if archive else []
+    forward_inputs = {}
+    forward_errors = {}
+    if forward_mode:
+        for code, source_rows in prices_by_code.items():
+            try:
+                if code in legacy_holdings:
+                    raise UnverifiedRegularSessionPrice("기존 보유 모델의 승계 검증 대기")
+                forward_inputs[code] = prepare_forward_inputs(db, code, source_rows, now=current_time)
+            except UnverifiedRegularSessionPrice as exc:
+                forward_errors[code] = str(exc)
     extended_qualified_codes: set[str] = set()
     current_extended_qualified_codes: set[str] = set()
     retained_signal_codes: set[str] = set()
@@ -5779,16 +5886,22 @@ def load_market_quant_signal_feed(
     relative_context_by_date: dict[date, dict[str, Any]] = {}
     for code, stock in stock_by_code.items():
         stock_price_rows = prices_by_code.get(code, [])
+        forward_paths = None
+        if forward_mode and code in forward_inputs:
+            envelope, forward_paths = forward_inputs[code]
+            stock_price_rows = envelope.lower
         normalized_stock_bars = _normalize_prices(stock_price_rows)
         confirmed_stock_bars = _confirmed_bars(normalized_stock_bars, current_time)
         stored_forming_quote = _forming_bar_quote(normalized_stock_bars, current_time) or {}
         live_quote = current_quotes.get(code) or {}
-        forming_quote = {**stored_forming_quote, **live_quote} or None
+        forming_quote = (live_quote or None) if forward_mode else ({**stored_forming_quote, **live_quote} or None)
         evidence_timeline = load_entry_evidence_timeline(db, code)
         latest_confirmed_date = (
             confirmed_stock_bars[-1].trade_date if confirmed_stock_bars else None
         )
         if (
+            not forward_mode
+            and
             latest_confirmed_date is not None
             and latest_confirmed_date >= ENTRY_EVIDENCE_EFFECTIVE_DATE
             and latest_confirmed_date not in evidence_timeline
@@ -5814,15 +5927,30 @@ def load_market_quant_signal_feed(
                 evidence_timeline[latest_confirmed_date] = snapshot
                 evidence_snapshots_pending = True
         try:
+            if forward_mode:
+                if code in forward_errors:
+                    raise UnverifiedRegularSessionPrice(forward_errors[code])
+                relative_context = relative_context_by_date.get(latest_confirmed_date)
+                if latest_confirmed_date is not None and latest_confirmed_date >= REGULAR_FORWARD_START:
+                    if relative_context is None:
+                        relative_context = build_relative_strength_context(db, latest_confirmed_date,
+                            prices_by_code={key: value[0].lower for key, value in forward_inputs.items()})
+                        relative_context_by_date[latest_confirmed_date] = relative_context
+                evidence_timeline = forward_entry_timeline(db, stock, stock_price_rows,
+                    flow_prices=prices_by_code.get(code, []), now=current_time,
+                    relative_context=relative_context, latest_market_date=market_cap_date)
             payload = _market_stock_payload_with_intraday_path(
                 db, stock, stock_price_rows, confirmed_stock_bars,
                 forming_quote, evidence_timeline, entry_safety_guard,
                 current_time, intraday_chart_loader,
                 historical_intraday_chart_loader,
+                **({"verified_paths": forward_paths, "lifecycle_start_date": REGULAR_FORWARD_START} if forward_mode else {}),
             )
-        except UnverifiedIntradayPathError as exc:
+        except (UnverifiedIntradayPathError, UnverifiedRegularSessionPrice) as exc:
             unverified_codes.add(code)
             for previous_item in previous_items_by_code.get(code, []):
+                if previous_item.get("history_frozen"):
+                    continue
                 frozen = deepcopy(previous_item)
                 frozen["execution_replay_state"] = "unverified"
                 frozen["intraday_execution_verified"] = False
@@ -6092,13 +6220,15 @@ def load_market_quant_signal_feed(
                 )
             items.append(item)
 
-    if evidence_snapshots_pending:
+    if evidence_snapshots_pending or forward_mode:
         try:
             db.commit()
         except IntegrityError:
             # Another worker may have persisted the same fixed snapshot while
             # this batch was calculating. The feed result remains deterministic.
             db.rollback()
+            if forward_mode:
+                raise UnverifiedIntradayPathError("동시 저장된 전환·진입 근거를 다시 읽은 뒤 게시해야 합니다")
 
     items.sort(
         key=lambda item: (
@@ -6151,6 +6281,8 @@ def load_market_quant_signal_feed(
         "confirmed_count": len(items) - preliminary_count,
         "items": items,
     }
+    if forward_mode:
+        publish_forward_metadata(result)
     result = apply_market_signal_reconciliations(result, now=current_time) or result
     result["performance_summary"] = build_market_signal_performance_summary(
         db,

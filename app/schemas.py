@@ -1218,6 +1218,8 @@ class StockQuantSignalsOut(BaseModel):
     as_of: datetime
     strategy_name: str
     strategy_version: str
+    price_basis: Optional[dict[str, object]] = None
+    legacy_history: list[dict[str, object]] = Field(default_factory=list)
     candidate_strategy_version: Optional[str] = None
     strategy_version_history: list[dict[str, object]] = Field(default_factory=list)
     execution_model: Optional[str] = None

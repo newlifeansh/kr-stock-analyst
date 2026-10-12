@@ -443,6 +443,18 @@ class SignalSessionPrice(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class QuantSignalTransitionBaseline(Base):
+    """Immutable legacy inputs/publications captured at a forward-only cutover."""
+
+    __tablename__ = "quant_signal_transition_baseline"
+
+    baseline_key: Mapped[str] = mapped_column(String(140), primary_key=True)
+    policy_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class InvestorFlow(Base):
     __tablename__ = "investor_flow"
     __table_args__ = (

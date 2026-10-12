@@ -1,8 +1,9 @@
 """Read-only migration evidence; never a publisher or an automatic promotion.
 
-Bounded turnover is not an observed point value.  Lower/upper values below
-exist only as explicitly labelled hypothetical inputs.  Production may consume
-neither until the complete input/evidence migration has been validated.
+Bounded turnover is not an observed point value. Lower/upper values are labelled
+calculation scenarios. The approved forward runtime additionally requires an
+invariant decision certificate, immutable warm-up, versioned entry evidence and
+verified ordered paths; this helper alone never authorizes publication.
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ class RegularPriceEnvelope:
 
 def regular_price_envelope(
     db: Session, code: str, rows: list[DailyPrice], *, completed_through: date,
+    effective_from: date = REGULAR_PRICE_EFFECTIVE_DATE,
 ) -> RegularPriceEnvelope:
     """Detached scenarios with unchanged OHLCV and explicit money endpoints."""
     if not rows or any(row.code != code for row in rows):
@@ -44,12 +46,13 @@ def regular_price_envelope(
     upper: list[DailyPrice] = []
     evidence: dict[date, dict[str, Any]] = {}
     for day, row in sorted(originals.items()):
-        if day < REGULAR_PRICE_EFFECTIVE_DATE:
-            for target in (lower, upper):
-                target.append(DailyPrice(code=code, trade_date=day, **{
-                    field: getattr(row, field) for field in PRICE_FIELDS
-                }, market_cap=row.market_cap, listed_shares=row.listed_shares))
-    start = max(REGULAR_PRICE_EFFECTIVE_DATE, min(row.trade_date for row in rows))
+        if day < effective_from:
+            copied = DailyPrice(code=code, trade_date=day, **{
+                field: getattr(row, field) for field in PRICE_FIELDS
+            }, market_cap=row.market_cap, listed_shares=row.listed_shares)
+            lower.append(copied)
+            upper.append(copied)  # detached, read-only and identical at both endpoints
+    start = max(effective_from, min(row.trade_date for row in rows))
     for day in _session_dates(start, completed_through):
         item = load_regular_session_evidence(db, code, day, allow_bounded=True)
         evidence[day] = item

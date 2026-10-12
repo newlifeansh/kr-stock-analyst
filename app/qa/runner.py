@@ -53,6 +53,18 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-KR-FORWARD-001": (
+        "tests.test_regular_signal_transition.test_forward_baseline_is_immutable_and_detects_tampering",
+        "tests.test_regular_signal_transition.test_forward_publication_preserves_return_but_never_realerts_or_claims_a_holding",
+        "tests.test_regular_signal_transition.test_forward_inputs_never_fall_back_to_display_ohlc",
+        "tests.test_regular_signal_transition.test_forward_first_day_never_executes_a_legacy_setup",
+        "tests.test_regular_signal_transition.test_forward_entry_policy_does_not_reuse_legacy_confirmation",
+        "tests.test_regular_signal_transition.test_forward_collection_does_not_call_sources_before_first_close",
+        "tests.test_regular_signal_transition.test_forward_market_feed_preserves_published_returns_without_legacy_alerts",
+        "tests.test_regular_signal_transition.test_forward_shadow_uses_same_verified_paths_and_never_promotes",
+        "tests.test_regular_signal_transition.test_forward_execution_uses_prior_close_risk_not_current_day_hindsight",
+        "tests.test_regular_signal_transition.test_forward_regular_quote_does_not_use_preopen_open_and_keeps_date_validation",
+    ),
     "DATA-KR-QUOTE-SESSION-001": (
         "tests.test_live_stock_quote.test_kis_source_session_and_business_date_are_preserved_for_every_venue",
         "tests.test_live_stock_quote.test_realtime_payload_uses_source_phase_venue_and_price_time_not_receive_clock",
@@ -2116,7 +2128,7 @@ def _gate_checks(
             {"atr": 1.0, "average_trading_value": 50_000_000_000.0},
         )
         _assert(
-            qs.STRATEGY_VERSION == "position-lifecycle-v8.0"
+            qs.STRATEGY_VERSION == "position-lifecycle-v8.1"
             and qs.EXECUTION_MODEL == "close-confirmed-intraday-trigger-v1",
             "장중 전략 버전·체결 모델이 다릅니다.",
         )
@@ -3578,6 +3590,14 @@ def _live_checks(
             _assert(isinstance(prices, list) and prices, "장마감 005930 확정 일봉이 없습니다.")
             price = prices[0]
             ohlc = sample.get("ohlc") if sealed_auction else item.get("ohlc") or {}
+            regular_basis = sample.get("price_basis_version") == "krx-regular-forward-v1"
+            if regular_basis:
+                _assert(sample.get("state") == "ready" and sample.get("evidence_hash"),
+                        "정규장 근거 해시 또는 봉인 검증이 없습니다.")
+                # The public price endpoint intentionally retains all-session
+                # OHLC. Compare two regular-session sources, never that chart.
+                price = sample.get("ohlc") or {}
+                ohlc = item.get("ohlc") or {}
             _assert(
                 all(
                     float(price.get(field) or 0) == float(ohlc.get(field) or -1)

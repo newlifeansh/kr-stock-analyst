@@ -8,6 +8,8 @@
 
 # Release promotion policy
 
+- For the combined KR/US release currently in progress, the operator's 2026-10-13 blanket approval covers the forward-only regular-session cutover with frozen historical publications and production promotion. Do not repeat the resolved cutover or candidate-approval question. Continue proportional QA and immutable-artifact verification; this approval does not make failed checks pass or authorize unrelated destructive actions.
+
 - Treat an approved merge to `main` as production release intent. Every `main` push must pass the deterministic pytest and QA gate before deployment starts.
 - Build one immutable OCI image for the tested `main` commit, record its source SHA and digest, and deploy that exact digest to the US and domestic production web/collector services without rebuilding.
 - Staging is optional and remains available for manual diagnosis or explicitly requested high-risk observation; it is not a prerequisite for the normal `main` production path.

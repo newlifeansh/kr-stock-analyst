@@ -291,6 +291,8 @@ def _macro_index_context(
 def build_relative_strength_context(
     db: Session,
     signal_date: date,
+    *,
+    prices_by_code: Optional[dict[str, list[DailyPrice]]] = None,
 ) -> dict[str, Any]:
     """Build one normalized market/sector benchmark shared by every stock.
 
@@ -344,6 +346,14 @@ def build_relative_strength_context(
     rows_by_code: dict[str, list[DailyPrice]] = defaultdict(list)
     for row in price_rows:
         rows_by_code[str(row.code)].append(row)
+    if prices_by_code is not None:
+        # Missing verified peers stay missing; never substitute a different
+        # session's candle into the new strategy's sector benchmark.
+        rows_by_code = {
+            code: [row for row in prices_by_code.get(code, [])
+                   if cutoff <= row.trade_date <= signal_date]
+            for code in top_codes
+        }
     stocks = {
         stock.code: stock
         for stock in db.scalars(select(StockMaster).where(StockMaster.code.in_(tuple(top_codes))))
@@ -825,6 +835,7 @@ def build_entry_evidence_payload(
     signal_date: date,
     now: Optional[datetime] = None,
     relative_context: Optional[dict[str, Any]] = None,
+    flow_prices: Optional[list[DailyPrice]] = None,
 ) -> dict[str, Any]:
     generated_at = _kst(now)
     sorted_prices = sorted(prices, key=lambda item: item.trade_date)
@@ -854,7 +865,7 @@ def build_entry_evidence_payload(
     flow, flow_check = _flow_evidence(
         db,
         stock_code=stock.code,
-        prices=eligible_prices,
+        prices=eligible_prices if flow_prices is None else flow_prices,
         signal_date=signal_date,
     )
     earnings, earnings_checks = _earnings_evidence(
@@ -1052,13 +1063,15 @@ def _decode_snapshot(row: QuantSignalEvidenceSnapshot) -> Optional[dict[str, Any
 def load_entry_evidence_timeline(
     db: Session,
     stock_code: str,
+    *,
+    strategy_version: str = ENTRY_EVIDENCE_STRATEGY_VERSION,
 ) -> dict[date, dict[str, Any]]:
     rows = list(
         db.scalars(
             select(QuantSignalEvidenceSnapshot)
             .where(
                 QuantSignalEvidenceSnapshot.stock_code == stock_code,
-                QuantSignalEvidenceSnapshot.strategy_version == ENTRY_EVIDENCE_STRATEGY_VERSION,
+                QuantSignalEvidenceSnapshot.strategy_version == strategy_version,
                 QuantSignalEvidenceSnapshot.signal_date >= ENTRY_EVIDENCE_EFFECTIVE_DATE,
             )
             .order_by(QuantSignalEvidenceSnapshot.signal_date)
@@ -1083,6 +1096,10 @@ def ensure_entry_evidence_snapshot(
     persist: bool = True,
     commit_on_persist: bool = True,
     latest_market_date_override: Optional[date] = None,
+    strategy_version: str = ENTRY_EVIDENCE_STRATEGY_VERSION,
+    policy_version: str = ENTRY_EVIDENCE_POLICY_VERSION,
+    flow_prices: Optional[list[DailyPrice]] = None,
+    price_basis: Optional[dict[str, Any]] = None,
 ) -> Optional[dict[str, Any]]:
     if signal_date < ENTRY_EVIDENCE_EFFECTIVE_DATE:
         return None
@@ -1090,7 +1107,7 @@ def ensure_entry_evidence_snapshot(
         select(QuantSignalEvidenceSnapshot).where(
             QuantSignalEvidenceSnapshot.stock_code == stock.code,
             QuantSignalEvidenceSnapshot.signal_date == signal_date,
-            QuantSignalEvidenceSnapshot.strategy_version == ENTRY_EVIDENCE_STRATEGY_VERSION,
+            QuantSignalEvidenceSnapshot.strategy_version == strategy_version,
         )
     )
     if existing:
@@ -1118,15 +1135,19 @@ def ensure_entry_evidence_snapshot(
         signal_date=signal_date,
         now=now,
         relative_context=relative_context,
+        flow_prices=flow_prices,
     )
+    payload.update(strategy_version=strategy_version, policy_version=policy_version)
+    if price_basis is not None:
+        payload["price_basis"] = price_basis
     if not persist:
         return payload
     generated_at = _kst(now)
     row = QuantSignalEvidenceSnapshot(
         stock_code=stock.code,
         signal_date=signal_date,
-        strategy_version=ENTRY_EVIDENCE_STRATEGY_VERSION,
-        policy_version=ENTRY_EVIDENCE_POLICY_VERSION,
+        strategy_version=strategy_version,
+        policy_version=policy_version,
         quality_state=str((payload.get("quality") or {}).get("state") or "limited"),
         payload=json.dumps(payload, ensure_ascii=False, default=_json_default),
         generated_at=_utc_naive(generated_at),
@@ -1145,7 +1166,7 @@ def ensure_entry_evidence_snapshot(
             select(QuantSignalEvidenceSnapshot).where(
                 QuantSignalEvidenceSnapshot.stock_code == stock.code,
                 QuantSignalEvidenceSnapshot.signal_date == signal_date,
-                QuantSignalEvidenceSnapshot.strategy_version == ENTRY_EVIDENCE_STRATEGY_VERSION,
+                QuantSignalEvidenceSnapshot.strategy_version == strategy_version,
             )
         )
         return _decode_snapshot(existing) if existing else payload

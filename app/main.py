@@ -300,7 +300,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261012v572"
+DASHBOARD_CLIENT_VERSION = "20261013v573"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -308,7 +308,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261012us144"
+US_DASHBOARD_CLIENT_VERSION = "20261013us145"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -1095,6 +1095,12 @@ def _refresh_market_quant_signal_snapshot(
                 time_module.monotonic() - started_at,
             )
             if kis_rest_provider.is_configured():
+                from app.services.regular_signal_transition import collect_forward_session
+
+                regular = collect_forward_session(db, kis_rest_provider, now=current_time, universe_limit=universe_limit)
+                logger.info("Regular signal price evidence: state=%s attempted=%s ready=%s bounded=%s unverified=%s",
+                            regular.get("state"), regular.get("attempted"), regular.get("ready"),
+                            regular.get("bounded"), len(regular.get("unverified", [])))
                 sealed = finalize_open_intraday_paths_for_session(
                     db,
                     current_time,

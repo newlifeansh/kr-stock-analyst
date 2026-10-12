@@ -326,9 +326,9 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
     payload = load_qa_catalog()
     ids = [case["id"] for case in payload["cases"]]
 
-    assert payload["strategy_version"] == "position-lifecycle-v8.0"
+    assert payload["strategy_version"] == "position-lifecycle-v8.1"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert len(ids) == 149
+    assert len(ids) == 150
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -381,6 +381,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-KR-INTRADAY-ORDER-001",
         "SIG-KR-INTRADAY-REPLAY-001",
         "SIG-KR-INTRADAY-SEAL-001",
+        "SIG-KR-FORWARD-001",
         "SIG-EXIT-001",
         "SIG-EXIT-005",
         "SIG-UI-003",
@@ -440,10 +441,10 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
 
     assert first == second
     assert "# 데이터 연동·시그널 판단 QA 카탈로그" in first
-    assert "`position-lifecycle-v8.0`" in first
+    assert "`position-lifecycle-v8.1`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v2-rc1`" in first
-    assert "QA 항목: 149개" in first
+    assert "QA 항목: 150개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1745,9 +1746,9 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     by_id = {item["id"]: item for item in report["checks"]}
 
     assert report["schema_version"] == "1.0"
-    assert report["strategy_version"] == "position-lifecycle-v8.0"
+    assert report["strategy_version"] == "position-lifecycle-v8.1"
     assert report["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert report["catalog_case_count"] == 149
+    assert report["catalog_case_count"] == 150
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1798,6 +1799,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-KR-INTRADAY-ORDER-001",
         "SIG-KR-INTRADAY-REPLAY-001",
         "SIG-KR-INTRADAY-SEAL-001",
+        "SIG-KR-FORWARD-001",
         "SIG-EXIT-005",
         "SIG-UI-022",
         "SIG-UI-025",
@@ -1969,9 +1971,9 @@ class FakeReadOnlyApi:
         if path == "/health":
             return {
                 "status": "ok",
-                "strategy_version": "position-lifecycle-v8.0",
+                "strategy_version": "position-lifecycle-v8.1",
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261012us144",
+                "us_dashboard_version": "20261013us145",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1979,7 +1981,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261012us144",
+                "us_dashboard_version": "20261013us145",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1993,7 +1995,7 @@ class FakeReadOnlyApi:
             }
             return {
                 "status": "degraded",
-                "strategy_version": "position-lifecycle-v8.0",
+                "strategy_version": "position-lifecycle-v8.1",
                 "as_of": "2026-10-08T18:00:00+09:00",
                 "intraday_path_seal": {
                     "trade_date": "2026-10-07", "finalized": 1,
@@ -2071,7 +2073,7 @@ class FakeReadOnlyApi:
             )
             return {
                 "status": "ready",
-                "strategy_version": "position-lifecycle-v8.0",
+                "strategy_version": "position-lifecycle-v8.1",
                 "execution_model": "close-confirmed-intraday-trigger-v1",
                 "as_of": "2026-08-29T10:00:00+09:00",
                 # Live QA has a market-hours freshness gate. Keep the baseline
@@ -2470,7 +2472,7 @@ class FakeReadOnlyApi:
             }, self._meta(path)
         if path == "/stocks/005930/quant-signals":
             return {
-                "strategy_version": "position-lifecycle-v8.0",
+                "strategy_version": "position-lifecycle-v8.1",
                 "current": {"action": "hold"},
                 "as_of": "2026-08-29T10:00:00+09:00",
             }, self._meta(path)
@@ -2556,7 +2558,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261012us144"}, self._meta(path)
+            return {"version": "20261013us145"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2603,11 +2605,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261012us144" />'
+                '<link href="/assets/dashboard/styles.css?v=20261013us145" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261012us144"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261013us145"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2647,11 +2649,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261012v572" />'
+            '<link href="/assets/dashboard/styles.css?v=20261013v573" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261012v572"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261013v573"></script>'
             '</body></html>',
             self._meta(path),
         )

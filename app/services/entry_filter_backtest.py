@@ -14,7 +14,7 @@ from app.services import quant_signals as qs
 from app.services.signal_mode_comparison import simulate_v8_intraday_ohlc_proxy
 
 ENTRY_FILTER_SHADOW_CACHE_KEY = (
-    f"entry-filter-shadow:fixed-cohort-v1:{qs.CANDIDATE_STRATEGY_VERSION}"
+    f"entry-filter-shadow:regular-forward-v1:{qs.CANDIDATE_STRATEGY_VERSION}"
 )
 FILTER_VERSIONS = (
     qs.ENTRY_FILTER_BASELINE_VERSION,
@@ -280,6 +280,9 @@ def build_entry_filter_shadow_report(
     latest_price_date, latest_market_cap_date = _latest_price_dates(db)
     if latest_price_date is None or latest_market_cap_date is None:
         raise RuntimeError("no daily prices are available")
+    if latest_price_date >= qs.REGULAR_FORWARD_START:
+        return _build_regular_forward_shadow_report(db, universe_limit=universe_limit,
+                                                   recent_trading_days=recent_trading_days)
 
     cohort_market_cap_date = db.scalar(
         select(func.max(DailyPrice.trade_date)).where(
@@ -394,7 +397,8 @@ def build_entry_filter_shadow_report(
     )
     return {
         "generated_at": datetime.now(UTC),
-        "strategy_version": qs.STRATEGY_VERSION,
+        "strategy_version": qs.V8_STRATEGY_VERSION,
+        "price_basis": {"version":"legacy-frozen-comparison", "forward_state":"awaiting_first_regular_close"},
         "candidate_strategy_version": qs.CANDIDATE_STRATEGY_VERSION,
         "active_entry_filter_version": qs.ENTRY_FILTER_VERSION,
         "shadow_entry_filter_versions": list(qs.ENTRY_FILTER_SHADOW_VERSIONS),
@@ -427,6 +431,97 @@ def build_entry_filter_shadow_report(
             "filters": forward_aggregate,
             "rolling_last_trades": rolling_trade_aggregate,
             "promotion_assessment": promotion_assessment,
+        },
+    }
+
+
+def _build_regular_forward_shadow_report(db: Session, *, universe_limit: int, recent_trading_days: int) -> dict[str, Any]:
+    from app.services.regular_signal_transition import (
+        REGULAR_FORWARD_START, prepare_forward_inputs, forward_entry_timeline,
+        forward_basis_metadata, forward_relative_context, frozen_shadow_cohort, UnverifiedRegularSessionPrice,
+    )
+    from app.services.signal_entry_evidence import build_relative_strength_context
+
+    now = datetime.now(qs.KST)
+    cohort_day = db.scalar(select(func.min(DailyPrice.trade_date)).where(
+        DailyPrice.trade_date >= REGULAR_FORWARD_START, DailyPrice.market_cap > 0))
+    if cohort_day is None:
+        raise RuntimeError("regular forward cohort is not available")
+    stocks = list(db.scalars(select(StockMaster).join(DailyPrice, DailyPrice.code == StockMaster.code).where(
+        DailyPrice.trade_date == cohort_day, DailyPrice.market_cap > 0,
+        StockMaster.is_active.is_(True), StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+    ).order_by(DailyPrice.market_cap.desc(), StockMaster.code).limit(universe_limit)))
+    completed = qs.latest_completed_korea_market_session_date(now)
+    if now.hour * 60 + now.minute >= 15 * 60 + 40 and qs.is_korea_market_session_date(now.date(), now):
+        completed = now.date()
+    if completed is not None and completed >= cohort_day:
+        if len(stocks) < universe_limit:
+            raise RuntimeError("complete forward market-cap cohort is required before freezing")
+        fixed = frozen_shadow_cohort(db, limit=universe_limit, day=cohort_day, codes=[stock.code for stock in stocks])
+        cohort_day = date.fromisoformat(fixed["trade_date"])
+        stocks_by_code = {stock.code: stock for stock in db.scalars(select(StockMaster).where(StockMaster.code.in_(fixed["codes"])))}
+        stocks = [stocks_by_code[code] for code in fixed["codes"] if code in stocks_by_code]
+    prepared, original, skipped = {}, {}, []
+    for stock in stocks:
+        original[stock.code] = list(reversed(list(db.scalars(select(DailyPrice).where(DailyPrice.code == stock.code)
+                       .order_by(DailyPrice.trade_date.desc()).limit(qs.SIGNAL_HISTORY_ROWS)))))
+        try:
+            prepared[stock.code] = prepare_forward_inputs(db, stock.code, original[stock.code], now=now)
+        except UnverifiedRegularSessionPrice as exc:
+            skipped.append({"code":stock.code, "reason":str(exc)})
+    results = {version: [] for version in FILTER_VERSIONS}
+    recent = {version: [] for version in FILTER_VERSIONS}
+    contexts = {}
+    guard = qs.load_entry_safety_guard(db)
+    latest = None
+    for stock in stocks:
+        if stock.code not in prepared:
+            continue
+        envelope, paths = prepared[stock.code]
+        bars = qs._normalize_prices(envelope.lower)
+        if len(bars) < qs.MIN_HISTORY_ROWS or bars[-1].trade_date < REGULAR_FORWARD_START:
+            skipped.append({"code":stock.code,"reason":"awaiting_first_regular_close_or_warmup"})
+            continue
+        day = bars[-1].trade_date
+        latest = max(latest or day, day)
+        if day not in contexts:
+            contexts[day] = forward_relative_context(db, day, now=now)
+        timeline = forward_entry_timeline(db, stock, envelope.lower, flow_prices=original[stock.code],
+                    now=now, relative_context=contexts[day])
+        indicators = qs._indicator_rows(bars)
+        for version in FILTER_VERSIONS:
+            for target, start in ((results, None), (recent, max(qs.WARMUP_ROWS, len(bars) - recent_trading_days))):
+                replay = qs._simulate(bars, indicators, timeline, entry_safety_guard=guard,
+                    intraday_minutes_by_date=paths, lifecycle_start_date=REGULAR_FORWARD_START,
+                    entry_filter_version=version, performance_start_index_override=start)
+                performance = replay["performance"]
+                target[version].append({
+                    "strategy_return":float(performance["strategy_return"]),
+                    "max_drawdown":float(performance["max_drawdown"]),
+                    "completed_trades":performance["completed_trades"],
+                    "turnover_percent":float(performance["turnover_percent"]),
+                    "trades":[trade for trade in replay["trades"] if trade.get("status") == "closed"],
+                })
+    aggregate, rolling = _aggregate(results), _rolling_trade_aggregate(results)
+    db.commit()
+    return {
+        "generated_at":datetime.now(UTC), "strategy_version":qs.STRATEGY_VERSION,
+        "candidate_strategy_version":qs.CANDIDATE_STRATEGY_VERSION,
+        "active_entry_filter_version":qs.ENTRY_FILTER_VERSION,
+        "shadow_entry_filter_versions":list(qs.ENTRY_FILTER_SHADOW_VERSIONS),
+        "price_basis":forward_basis_metadata(), "latest_price_date":latest,
+        "universe_market_cap_date":cohort_day, "universe_market_cap_source":"fixed_forward_market_cap",
+        "universe_limit":universe_limit, "symbols_evaluated":len(results[FILTER_VERSIONS[0]]),
+        "symbols_skipped":skipped, "recent_trading_days":recent_trading_days,
+        "scope":{"execution_model":qs.EXECUTION_MODEL, "data_warning":"검증된 정규장 분봉과 같은 독립 근거를 사용하는 새 모델 비교입니다. 과거 공개 성과와 분리합니다.", "automatic_promotion":False},
+        "aggregate":aggregate, "recent_month_aggregate":_aggregate(recent),
+        "forward_comparison":{
+            "version":"entry-filter-fixed-cohort-forward-v1", "price_basis_version":"krx-regular-forward-v1",
+            "cohort_market_cap_date":cohort_day, "cohort_rule":f"{cohort_day} 시총 상위 {universe_limit}개 고정",
+            "period_start":REGULAR_FORWARD_START, "period_end":latest,
+            "filters":aggregate, "rolling_last_trades":rolling,
+            "promotion_assessment":_h3_promotion_assessment(aggregate, rolling),
+            "data_warning":"표본 누적 중이며 H2·H3를 자동 승격하지 않습니다.",
         },
     }
 
