@@ -1765,12 +1765,21 @@ def _us_market_session(now: Optional[datetime] = None) -> dict[str, object]:
 
 
 def _sector_etf_snapshot(item: dict[str, str], live: bool = False) -> dict[str, object]:
-    result = _fetch_chart(
-        item["symbol"],
-        range_="1d" if live else "5d",
-        interval="1m" if live else "1d",
-        include_prepost=live,
-    )
+    fallback = False
+    try:
+        result = _fetch_chart(
+            item["symbol"],
+            range_="1d" if live else "5d",
+            interval="1m" if live else "1d",
+            include_prepost=live,
+        )
+    except ValueError:
+        if not live:
+            raise
+        # Some ETFs have no prints yet in today's premarket (empty 1d chart).
+        # Keep the dated last actual print, never invent a current-session price.
+        result = _fetch_chart(item["symbol"], range_="5d", interval="1m", include_prepost=True)
+        fallback = True
     meta = result.get("meta") or {}
     quote = (result.get("indicators", {}).get("quote") or [{}])[0]
     close_points = [
@@ -1786,15 +1795,13 @@ def _sector_etf_snapshot(item: dict[str, str], live: bool = False) -> dict[str, 
     if previous is None and len(close_points) >= 2:
         previous = close_points[-2][1]
     trade_date = None
+    observed_at = None
     if close_points:
         timestamp_index = close_points[-1][0]
         timestamp = _list_get(timestamps, timestamp_index)
         if timestamp is not None:
-            trade_date = (
-                datetime.fromtimestamp(timestamp, timezone.utc)
-                .astimezone(NEW_YORK_TZ)
-                .date()
-            )
+            observed_at = datetime.fromtimestamp(timestamp, timezone.utc)
+            trade_date = observed_at.astimezone(NEW_YORK_TZ).date()
     return {
         "symbol": item["symbol"],
         "label": item["label"],
@@ -1804,6 +1811,8 @@ def _sector_etf_snapshot(item: dict[str, str], live: bool = False) -> dict[str, 
         "previous_close": previous,
         "change_rate": _rate(price, previous),
         "source": "Yahoo Finance",
+        "observed_at": observed_at,
+        "data_mode": "latest_available_reference" if fallback else ("recent_quote" if live else "latest_regular_close"),
     }
 
 
@@ -1829,7 +1838,11 @@ def us_sector_moves(refresh: bool = False) -> dict[str, object]:
         "market_session_label": session["label"],
         "market_local_time": session["local_time"],
         "refresh_interval_seconds": session["refresh_interval_seconds"],
-        "data_mode": f"current_{session['session']}" if session["is_live"] else "latest_regular_close",
+        "data_mode": (
+            "mixed_recent_and_reference"
+            if any(row.get("data_mode") == "latest_available_reference" for row in rows)
+            else f"current_{session['session']}" if session["is_live"] else "latest_regular_close"
+        ),
         "items": sorted(rows, key=lambda row: order.get(str(row.get("symbol")), 999)),
     }
     US_CACHE.set(key, payload, ttl)

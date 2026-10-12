@@ -53,6 +53,10 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-GLOBAL-002": (
+        "tests.test_us_market.test_sector_empty_premarket_uses_dated_reference_without_claiming_live",
+        "tests.test_us_market.test_sector_persistent_empty_source_does_not_fabricate_price",
+    ),
     "SIG-PUSH-COMMUNITY-001": (
         "tests.test_web_push."
         "test_operator_community_popular_sends_once_to_enabled_domestic_subscribers",
@@ -93,6 +97,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_data_signal_qa.test_live_korea_market_session_rejects_stale_minutes_and_quote",
     ),
     "DATA-KIS-008": (
+        "tests.test_briefing.test_kis_daily_prices_never_relabel_another_session",
         "tests.test_briefing.test_kis_token_failure_is_cached_briefly_across_providers",
         "tests.test_briefing.test_kis_rest_token_is_reused_across_probe_and_quote_providers",
         "tests.test_signal_entry_evidence.test_historical_kis_probe_requires_completed_dated_minutes",
@@ -186,6 +191,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_live_intraday_malformed_empty_response_is_not_retried",
     ),
     "DATA-COM-005": (
+        "tests.test_railway_staging_runtime.test_staging_up_restarts_crashed_same_deployments",
+        "tests.test_railway_staging_runtime.test_staging_up_requires_database_backed_readiness",
+        "tests.test_railway_staging_runtime.test_shutdown_keeps_db_when_a_scale_down_fails",
         "tests.test_data_signal_qa."
         "test_domestic_live_skips_us_snapshot_when_collector_disabled",
         "tests.test_release_parity."
@@ -322,6 +330,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_run_once_dispatches_domestic_intraday_half_sale_once_after_baseline",
     ),
     "SIG-PUSH-COMMUNITY-002": (
+        "tests.test_data_signal_qa.test_community_notification_e2e_routes_the_async_history_response",
         "tests.test_app."
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
         "tests.test_app."
@@ -432,6 +441,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
     "SIG-UI-031": (
+        "tests.test_data_signal_qa.test_us_signal_quotes_allow_explicit_mixed_recent_and_completed_prices",
         "tests.test_data_signal_qa."
         "test_us_country_toggle_check_ignores_community_market_scope_metadata",
         "tests.test_data_signal_qa."

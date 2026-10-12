@@ -100,6 +100,40 @@ def _us_completed_signal_quote_state_ready(state: dict[str, Any]) -> bool:
     )
 
 
+def _us_signal_quote_state_ready(state: dict[str, Any]) -> bool:
+    """Validate recent Yahoo quotes separately from completed-session fallback.
+
+    A displayed timestamp alone is not proof of live data. Require the observed
+    source frame, active exchange session and bounded source timestamp as well.
+    """
+    rows = state.get("rows") or []
+    if len(rows) != int(state.get("holdingCount") or 0):
+        return False
+    completed = []
+    for row in rows:
+        if not isinstance(row, dict):
+            return False
+        if row.get("freshness") != "recent":
+            completed.append(row)
+            continue
+        if not re.fullmatch(r"[+-]?\d+(?:\.\d+)?%", str(row.get("value") or "")):
+            return False
+        if "현재가 확인 중" in str(row.get("text") or ""):
+            return False
+        if row.get("source") != "yahoo_quote_batch" or row.get("isLive") is not True:
+            return False
+        if row.get("marketSession") not in {"premarket", "regular", "afterhours"}:
+            return False
+        age = row.get("ageMs")
+        if not isinstance(age, (int, float)) or isinstance(age, bool) or not -5000 <= age <= 30 * 60_000:
+            return False
+    if len(completed) < len(rows) and "최근 시세" not in str(state.get("summary") or ""):
+        return False
+    return _us_completed_signal_quote_state_ready({
+        **state, "holdingCount": len(completed), "rows": completed,
+    })
+
+
 def _safe_name(case_id: str, theme: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "-", f"{case_id}-{theme}")
 
@@ -1005,18 +1039,26 @@ def _run_us_e2e_checks(
                             holdingCount: holdings.length,
                             summary: document.querySelector('#ai-signals-live-status-label')?.textContent?.trim() || '',
                             detail: document.querySelector('#ai-signals-live-status-detail')?.textContent?.trim() || '',
-                            rows: holdings.map(row => ({
+                            rows: holdings.map(row => {
+                              const payload = state.aiSignalLiveQuotes.get(row.dataset.code)?.payload;
+                              const quote = payload?.quote || {};
+                              const stamp = payload ? quoteFrameTimestamp(payload) : null;
+                              return ({
                               code: row.dataset.code,
                               text: row.textContent || '',
                               value: row.querySelector('[data-field="ai_signal_return"]')?.textContent?.trim() || '',
                               freshness: row.querySelector('[data-field="ai_signal_return"]')?.dataset?.freshnessState || '',
-                            })),
+                              source: payload?.source || '',
+                              isLive: quote.is_live === true,
+                              marketSession: quote.market_session || '',
+                              ageMs: stamp === null ? null : Date.now() - stamp,
+                            }); }),
                           };
                         }"""
                     )
-                    if not _us_completed_signal_quote_state_ready(signal_quote_state):
+                    if not _us_signal_quote_state_ready(signal_quote_state):
                         raise QaFailure(
-                            "미국 보유 시그널이 완료 세션 가격 대신 현재가 확인 중에 고정됐습니다.",
+                            "미국 보유 시그널 가격·시세 출처·세션·최신성 표시가 일치하지 않습니다.",
                             signal_quote_state,
                         )
                 page.evaluate(
@@ -6830,19 +6872,6 @@ def run_e2e_checks(
                 page: Any,
                 theme: str,
             ) -> dict[str, Any]:
-                _navigate_page(
-                    page,
-                    _page_url(
-                        base_url,
-                        "/dashboard",
-                        view="home",
-                        theme=theme,
-                        qa_community_push=datetime.now(KST).strftime("%H%M%S"),
-                    ),
-                    wait_until="commit",
-                    ready_selector="body[data-view='home']",
-                )
-                shell = _assert_page_shell(page, theme=theme)
                 fixture = {
                     "kind": "community_popular",
                     "title": "삼성전자 커뮤니티 인기글 1위",
@@ -6852,6 +6881,18 @@ def run_e2e_checks(
                     "event_date": datetime.now(KST).date().isoformat(),
                     "created_at": datetime.now(KST).isoformat(),
                 }
+                # Fix the history response, not only state: setView triggers an
+                # asynchronous history GET which otherwise erases the fixture.
+                history_pattern = re.compile(r"/push/notifications/[^/?]+\?market_scope=kr$")
+                page.route(history_pattern, lambda route: route.fulfill(json={"items": [fixture]}))
+                _navigate_page(
+                    page,
+                    _page_url(base_url, "/dashboard", view="home", theme=theme,
+                              qa_community_push=datetime.now(KST).strftime("%H%M%S")),
+                    wait_until="commit",
+                    ready_selector="body[data-view='home']",
+                )
+                shell = _assert_page_shell(page, theme=theme)
                 page.evaluate(
                     """fixture => {
                       state.pushNotificationEnabled = true;
@@ -6867,6 +6908,8 @@ def run_e2e_checks(
                 row = page.locator(
                     "#push-history-list .push-history-item.kind-community_popular"
                 )
+                row.wait_for(state="visible")
+                page.wait_for_function("() => state.pushNotificationHistoryBusy === false")
                 row.wait_for(state="visible")
                 history_contract = row.evaluate(
                     """row => ({

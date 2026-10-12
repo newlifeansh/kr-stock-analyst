@@ -266,7 +266,8 @@ jobs:
           RAILWAY_COLLECTOR_SERVICE: ${{ env.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
           RAILWAY_DATABASE_SERVICE: ${{ env.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
           RAILWAY_REGION: ${{ env.DASHBOARD_STAGING_RAILWAY_REGION }}
-        run: ./scripts/railway_staging_runtime.sh up
+        # A new immutable image follows; do not require the superseded app to boot.
+        run: ./scripts/railway_staging_runtime.sh prepare
       - name: Mirror staging web-push credentials to domestic services
         run: |
           set -euo pipefail
@@ -633,7 +634,7 @@ jobs:
         run: npm install --global @railway/cli@5.45.7
       - name: Start domestic staging for production parity
         if: inputs.product_surface == 'dashboard'
-        run: ./scripts/railway_staging_runtime.sh up
+        run: QA_BASE_URL="$DASHBOARD_STAGING_BASE_URL" ./scripts/railway_staging_runtime.sh up
       - name: Install project and QA dependencies
         run: pip install -e '.[qa,mcp]'
       - name: Verify staging and production release parity

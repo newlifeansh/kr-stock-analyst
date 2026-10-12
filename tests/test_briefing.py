@@ -107,25 +107,30 @@ def test_kis_daily_price_rows_use_final_session_ohlc(monkeypatch):
     )
     payloads = {
         "010060": {
+            "stck_bsop_date": "20260821",
             "stck_oprc": "280500",
             "stck_hgpr": "283500",
             "stck_lwpr": "259500",
-            "stck_prpr": "265000",
+            "stck_clpr": "265000",
             "acml_vol": "276693",
             "acml_tr_pbmn": "74863818500",
         },
         "000000": {
+            "stck_bsop_date": "20260821",
             "stck_oprc": "100",
             "stck_hgpr": "90",
             "stck_lwpr": "80",
-            "stck_prpr": "95",
+            "stck_clpr": "95",
         },
     }
-    monkeypatch.setattr(
-        provider,
-        "_request_current_price",
-        lambda code: payloads[code],
-    )
+    def get(path, tr_id, params):
+        assert path.endswith("/inquire-daily-itemchartprice")
+        assert tr_id == "FHKST03010100"
+        assert params["FID_COND_MRKT_DIV_CODE"] == "J"
+        assert params["FID_INPUT_DATE_1"] == params["FID_INPUT_DATE_2"] == "20260821"
+        assert params["FID_ORG_ADJ_PRC"] == "1"
+        return {"output2": [payloads[params["FID_INPUT_ISCD"]]]}
+    monkeypatch.setattr(provider, "_get", get)
 
     rows = provider.fetch_daily_price_rows(
         ["010060", "010060", "000000"],
@@ -146,6 +151,14 @@ def test_kis_daily_price_rows_use_final_session_ohlc(monkeypatch):
             "listed_shares": None,
         }
     ]
+
+
+def test_kis_daily_prices_never_relabel_another_session(monkeypatch):
+    provider = KisRestBriefingProvider(Settings(kis_app_key="key", kis_app_secret="secret"))
+    monkeypatch.setattr(provider, "_get", lambda *args: {"output2": [
+        {"stck_bsop_date": "20261012", "stck_oprc": "100", "stck_hgpr": "110",
+         "stck_lwpr": "90", "stck_clpr": "105"}]})
+    assert provider.fetch_daily_price_rows(["005930"], date(2026, 10, 8)) == []
 
 
 def test_kis_fluctuation_ranking_uses_case_sensitive_official_query_contract(monkeypatch):

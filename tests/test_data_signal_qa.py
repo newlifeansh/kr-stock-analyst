@@ -21,6 +21,7 @@ from app.qa.e2e import (
     _navigate_page,
     _page_url,
     _us_completed_signal_quote_state_ready,
+    _us_signal_quote_state_ready,
     _us_observed_path,
     _us_product_shell_text,
     _wait_for_ai_signal_list_ready,
@@ -128,6 +129,44 @@ def test_us_completed_signal_quote_state_rejects_missing_or_live_basis() -> None
             ],
         }
     )
+
+
+@pytest.mark.qa_gate
+@pytest.mark.parametrize("session", ["premarket", "regular", "afterhours"])
+def test_us_recent_signal_quote_requires_verified_active_source(session: str) -> None:
+    row = {"code": "AAPL", "text": "보유 평가수익률 +1.90%", "value": "+1.90%",
+           "freshness": "recent", "source": "yahoo_quote_batch", "isLive": True,
+           "marketSession": session, "ageMs": 1000}
+    assert _us_signal_quote_state_ready({"holdingCount": 1, "summary": "최근 시세 1", "rows": [row]})
+    for bad in ({"ageMs": None}, {"ageMs": 1800001}, {"ageMs": -5001},
+                {"ageMs": float("nan")}, {"source": "stored_daily_price"},
+                {"isLive": False}, {"marketSession": "closed"},
+                {"value": ""}, {"value": "NaN%"}, {"freshness": "realtime"}):
+        assert not _us_signal_quote_state_ready({"holdingCount": 1, "summary": "최근 시세 1", "rows": [{**row, **bad}]})
+
+
+@pytest.mark.qa_gate
+def test_us_signal_quotes_allow_explicit_mixed_recent_and_completed_prices() -> None:
+    state = {"holdingCount": 2, "summary": "최근 시세 1 · 장 마감 1", "rows": [
+        {"value": "+1.90%", "freshness": "recent", "source": "yahoo_quote_batch",
+         "isLive": True, "marketSession": "premarket", "ageMs": 1000},
+        {"value": "-1.53%", "freshness": "closed"},
+    ]}
+    assert _us_signal_quote_state_ready(state)
+    assert not _us_signal_quote_state_ready({**state, "summary": "모두 실시간"})
+
+
+@pytest.mark.qa_gate
+def test_community_notification_e2e_routes_the_async_history_response() -> None:
+    source = Path("app/qa/e2e.py").read_text()
+    case = source.split("def community_popular_notification_case(", 1)[1].split("retry_pattern =", 1)[0]
+    assert 'page.route(history_pattern' in case
+    assert case.index('page.route(history_pattern') < case.index("setView('notifications')")
+    assert 'state.pushNotificationHistoryBusy === false' in case
+
+
+@pytest.mark.qa_gate
+def test_us_completed_signal_quote_state_rejects_realtime_basis() -> None:
     assert not _us_completed_signal_quote_state_ready(
         {
             "holdingCount": 1,
@@ -1722,6 +1761,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 @pytest.mark.qa_gate
 def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -> None:
     expected_case_ids = {
+        "DATA-GLOBAL-002",
         "DATA-COM-008",
         "DATA-COM-005",
         "DATA-COM-006",
@@ -1929,7 +1969,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.0",
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261012us142",
+                "us_dashboard_version": "20261012us143",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1937,7 +1977,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261012us142",
+                "us_dashboard_version": "20261012us143",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2514,7 +2554,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261012us142"}, self._meta(path)
+            return {"version": "20261012us143"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2561,11 +2601,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261012us142" />'
+                '<link href="/assets/dashboard/styles.css?v=20261012us143" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261012us142"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261012us143"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2605,11 +2645,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261012v570" />'
+            '<link href="/assets/dashboard/styles.css?v=20261012v571" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261012v570"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261012v571"></script>'
             '</body></html>',
             self._meta(path),
         )

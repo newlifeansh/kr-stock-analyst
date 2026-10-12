@@ -205,23 +205,33 @@ class KisRestBriefingProvider:
     ) -> list[dict[str, Any]]:
         """Return finalized KIS candles for a completed session.
 
-        Naver's daily table can remain cached with an intraday candle after
-        the close. KIS exposes the final open, high, low, close, volume and
-        trading value, so it becomes the last writer for the signal universe.
+        Use the dated KRX daily endpoint, not a current quote relabeled with
+        the requested date (which can belong to another session).
         """
 
         rows: list[dict[str, Any]] = []
+        target = trade_date.strftime("%Y%m%d")
         for code in dict.fromkeys(str(value or "").strip() for value in codes):
             if not code:
                 continue
             try:
-                raw = self._request_current_price(code)
+                payload = self._get(
+                    "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+                    "FHKST03010100",
+                    {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code,
+                     "FID_INPUT_DATE_1": target, "FID_INPUT_DATE_2": target,
+                     "FID_PERIOD_DIV_CODE": "D", "FID_ORG_ADJ_PRC": "1"},
+                )
+                raw = next((item for item in payload.get("output2", []) or []
+                            if isinstance(item, dict) and item.get("stck_bsop_date") == target), None)
+                if raw is None:
+                    continue
             except Exception:
                 continue
             open_price = _int(raw.get("stck_oprc"))
             high = _int(raw.get("stck_hgpr"))
             low = _int(raw.get("stck_lwpr"))
-            close = _int(raw.get("stck_prpr"))
+            close = _int(raw.get("stck_clpr"))
             if (
                 any(value is None or value <= 0 for value in (open_price, high, low, close))
                 or high < max(open_price, close)

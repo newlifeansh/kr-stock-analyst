@@ -769,6 +769,42 @@ def test_sector_snapshot_pairs_last_valid_close_with_its_new_york_date(monkeypat
     assert payload["trade_date"] == date(2026, 9, 8)
 
 
+def test_sector_empty_premarket_uses_dated_reference_without_claiming_live(monkeypatch):
+    calls = []
+    timestamp = int(datetime(2026, 10, 9, 20, 0, tzinfo=UTC).timestamp())
+    def fetch(symbol, **kwargs):
+        calls.append(kwargs)
+        if kwargs["range_"] == "1d":
+            raise ValueError("Yahoo chart data not found")
+        return {"meta": {"chartPreviousClose": 100}, "timestamp": [timestamp],
+                "indicators": {"quote": [{"close": [101]}]}}
+    monkeypatch.setattr(us_market, "_fetch_chart", fetch)
+    item = {"symbol": "XLY", "label": "소비재", "sector": "소비재"}
+    row = us_market._sector_etf_snapshot(item, live=True)
+    assert [call["range_"] for call in calls] == ["1d", "5d"]
+    assert all(call["interval"] == "1m" for call in calls)
+    assert row["trade_date"] == date(2026, 10, 9)
+    assert row["data_mode"] == "latest_available_reference"
+    assert row["observed_at"].timestamp() == timestamp
+    assert row["price"] == Decimal("101")
+    monkeypatch.setattr(us_market, "US_SECTOR_ETFS", [item])
+    monkeypatch.setattr(us_market, "_us_market_session", lambda: {
+        "is_live": True, "session": "premarket", "label": "프리마켓",
+        "local_time": datetime(2026, 10, 12, 8, tzinfo=UTC), "refresh_interval_seconds": 60,
+    })
+    payload = us_market.us_sector_moves(refresh=True)
+    assert payload["data_mode"] == "mixed_recent_and_reference"
+    assert payload["items"][0]["trade_date"] == date(2026, 10, 9)
+
+
+def test_sector_persistent_empty_source_does_not_fabricate_price(monkeypatch):
+    def fail(*args, **kwargs):
+        raise ValueError("missing chart")
+    monkeypatch.setattr(us_market, "_fetch_chart", fail)
+    with pytest.raises(ValueError):
+        us_market._sector_etf_snapshot({"symbol": "XLY"}, live=True)
+
+
 def test_us_liquidity_proxy_uses_explicit_dollar_volume_names(monkeypatch):
     monkeypatch.setattr(us_market, "chart_prices", lambda *args, **kwargs: ({}, []))
     monkeypatch.setattr(
