@@ -58,7 +58,11 @@ jobs:
       - run: npm install --global @railway/cli@5.45.7
       - name: Recover the same staging deployments without rebuilding
         run: |
-          ./scripts/railway_staging_runtime.sh up
+          ./scripts/railway_staging_runtime.sh prepare
+          image_ref="ghcr.io/newlifeansh/kr-stock-analyst@sha256:13e07f2bfc4d4c4e62ed523b7e55614f28b93fcafbd97fdce486b757b1a85926"
+          for service in "$RAILWAY_COLLECTOR_SERVICE" "$RAILWAY_WEB_SERVICE"; do
+            railway service source connect --image "$image_ref" --json -p "$RAILWAY_PROJECT_ID" --environment staging --service "$service"
+          done
           for attempt in {1..36}; do
             if curl -fsS --max-time 10 "$QA_BASE_URL/readyz"; then exit 0; fi
             sleep 5
