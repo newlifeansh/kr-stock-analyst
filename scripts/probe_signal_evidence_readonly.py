@@ -1,10 +1,15 @@
 """Aggregate production signal evidence only, in a read-only DB transaction."""
 import json
+import sys
+import base64
+import gzip
+from hashlib import sha256
 from datetime import date, timedelta
 from sqlalchemy import func, select, text
 from app.db import SessionLocal
 from app.models import DailyPrice, StockMaster, QuantSignalEvidenceSnapshot, QuantSignalIntradayPathSnapshot
-from app.services.quant_signals import _market_signal_retention_state, STRATEGY_VERSION
+from app.services.quant_signals import _market_signal_retention_state, STRATEGY_VERSION, SIGNAL_HISTORY_ROWS
+from app.services.signal_entry_evidence import ENTRY_EVIDENCE_EFFECTIVE_DATE
 
 with SessionLocal() as db:
     if db.get_bind().dialect.name != "postgresql":
@@ -45,5 +50,21 @@ with SessionLocal() as db:
         "intraday_paths_by_day": [{"date":d,"final":final,"count":n} for d,final,n in paths],
         "writes":0, "notifications_sent":0,
     }
+    if "--archive" in sys.argv:
+        price_fields = ("code", "trade_date", "open", "high", "low", "close", "volume", "trading_value", "market_cap", "listed_shares")
+        prices = select(
+            *(getattr(DailyPrice, field).label(field) for field in price_fields),
+            func.row_number().over(partition_by=DailyPrice.code, order_by=DailyPrice.trade_date.desc()).label("position"),
+        ).where(DailyPrice.code.in_(codes)).subquery()
+        price_rows = [dict(row) for row in db.execute(select(*(getattr(prices.c, field) for field in price_fields)).where(prices.c.position <= SIGNAL_HISTORY_ROWS).order_by(prices.c.code, prices.c.trade_date)).mappings()]
+        evidence = list(db.scalars(select(QuantSignalEvidenceSnapshot).where(
+            QuantSignalEvidenceSnapshot.stock_code.in_(codes),
+            QuantSignalEvidenceSnapshot.signal_date >= ENTRY_EVIDENCE_EFFECTIVE_DATE,
+            QuantSignalEvidenceSnapshot.signal_date <= latest,
+        ).order_by(QuantSignalEvidenceSnapshot.stock_code, QuantSignalEvidenceSnapshot.signal_date)))
+        records = [{key:getattr(row,key) for key in ("stock_code","signal_date","strategy_version","policy_version","quality_state","payload","generated_at","updated_at")} for row in evidence]
+        archive = {"metadata":output,"history_rows_per_code":SIGNAL_HISTORY_ROWS,"daily_prices":price_rows,"entry_evidence":records}
+        encoded = json.dumps(archive, sort_keys=True, separators=(",",":"), default=str).encode()
+        output = {"encoding":"gzip+base64","sha256":sha256(encoded).hexdigest(),"price_rows":len(price_rows),"evidence_rows":len(records),"payload":base64.b64encode(gzip.compress(encoded)).decode()}
     db.rollback()
 print(json.dumps(output, default=str))

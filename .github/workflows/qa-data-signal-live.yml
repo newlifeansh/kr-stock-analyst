@@ -43,8 +43,15 @@ jobs:
           trap cleanup EXIT
           railway ssh keys add --key "$fingerprint" --name "evidence-readonly-${GITHUB_RUN_ID}"
           code="$(cat scripts/probe_signal_evidence_readonly.py)"
-          command="python -c $(printf '%q' "$code")"
-          railway ssh -p "$DIAG_PROJECT" -s "$DIAG_SERVICE" -e production --identity-file "$task_dir/key" -- "$command"
+          command="python -c $(printf '%q' "$code") --archive"
+          mkdir -p artifacts/production-evidence
+          railway ssh -p "$DIAG_PROJECT" -s "$DIAG_SERVICE" -e production --identity-file "$task_dir/key" -- "$command" > artifacts/production-evidence/archive-envelope.json
+          python -c 'import json,pathlib; p=json.loads(pathlib.Path("artifacts/production-evidence/archive-envelope.json").read_text()); print(json.dumps({k:v for k,v in p.items() if k!="payload"}))'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: readonly-production-evidence-${{ github.run_id }}
+          path: artifacts/production-evidence
+          retention-days: 14
   finish_domestic_shutdown:
     if: inputs.finish_domestic_shutdown
     runs-on: ubuntu-latest
