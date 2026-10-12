@@ -16,27 +16,25 @@ jobs:
   finish_domestic_shutdown:
     if: inputs.finish_domestic_shutdown
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
+    concurrency: domestic-staging-runtime
     environment: staging
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-      DIAG_PROJECT: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
-      DIAG_WEB: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
-      DIAG_COLLECTOR: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
-      DIAG_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
+      RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
+      RAILWAY_WEB_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
+      RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+      RAILWAY_DATABASE_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
+      RAILWAY_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 099b4815dfe246d419986b784073f7e8ad7a5210
       - run: npm install --global @railway/cli@5.45.7
-      - name: Finish requested zero-replica shutdown without touching DB or volumes
+      - name: Finish verified shutdown of staging applications then DB, preserving volumes
         run: |
           set -euo pipefail
-          for service in "$DIAG_WEB" "$DIAG_COLLECTOR"; do
-            state="$(railway service list -p "$DIAG_PROJECT" --environment staging --json | python -c 'import json,sys; s=next(x for x in json.load(sys.stdin) if x["id"]==sys.argv[1]); r=s.get("replicas") or {}; print(json.dumps({"id":s["id"],"configured":r.get("configured"),"running":r.get("running"),"stopped":s.get("deploymentStopped")}))' "$service")"
-            printf '%s\n' "$state"
-            railway scale -p "$DIAG_PROJECT" --environment staging --service "$service" "${DIAG_REGION}=0" --json
-            if printf '%s' "$state" | python -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s["running"] and not s["stopped"] else 1)'; then
-              railway down -p "$DIAG_PROJECT" --environment staging --service "$service" --yes
-            fi
-          done
+          ./scripts/railway_staging_runtime.sh down
   recover_domestic:
     if: inputs.recover_domestic && !inputs.finish_domestic_shutdown
     runs-on: ubuntu-latest
@@ -55,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 7bba4193adb4f8838fa914db7adcaae635510b20
+          ref: 099b4815dfe246d419986b784073f7e8ad7a5210
       - run: npm install --global @railway/cli@5.45.7
       - name: Recover the same staging deployments without rebuilding
         run: |
