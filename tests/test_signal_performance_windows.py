@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from app.services import us_position_lifecycle as lifecycle
 from app.services.us_market import build_us_quant_signals
+from app.services.public_signal import public_market_signal_payload
 
 
 def test_us_performance_windows_exclude_partial_future_invalid_and_duplicates():
@@ -18,6 +19,12 @@ def test_us_performance_windows_exclude_partial_future_invalid_and_duplicates():
               exit(3, None), exit(4, "90", side="partial_sell"), exit(7, "3")]
     summary = lifecycle.build_us_signal_performance_summary(events, as_of=as_of)
     assert summary["return_basis"] == "completed_trade_gross_price_return"
+    public = public_market_signal_payload({
+        "strategy_version": "position-lifecycle-us-v2-rc1", "items": [],
+        "performance_summary": summary,
+    })
+    assert public["performance_summary"]["cost_basis"] == "gross_before_costs_tax_fx"
+    assert "return_basis" not in public["performance_summary"]
     for key, count, average in (("7d", 1, "3"), ("15d", 2, "1"), ("30d", 3, "2")):
         window = summary["windows"][key]
         assert window["completed_trades"] == count

@@ -22,3 +22,13 @@
 Full pytest/JUnit and machine QA gate are recorded under `artifacts/qa-combined-markets/` locally and in the release workflow. The stage workflow records the immutable OCI digest and source SHA, deploys that digest to both preproduction surfaces, and retains parity, live and browser evidence.
 
 For this request, the explicitly supplied staging/approval policy remains governing even though the integrated historical repository policy describes optional staging: no production promotion until the operator reviews and approves this exact staged candidate. Do not push to main to bypass that requirement.
+
+## rc2 correction
+
+The rc1 staging API generated both markets' summaries successfully. Real browser inspection revealed that US public-field redaction removed the aggregate `return_basis`, causing the UI to label gross returns as cost-adjusted. rc2 publishes an allowlisted `cost_basis` label without exposing private trade inputs, and adds a public-API regression assertion plus US dark/light 320/390/1280px E2E checks and screenshots.
+
+- Superseded rc1 source: `d0d7ade96ec53e11cb8a86114f97adf84335ea28`.
+- Superseded rc1 image: `sha256:62b285598578d55a277bc0d009d7756ad07eb5fe2a57a7209e724e79a056665e` (do not promote).
+- rc2 candidate: `20261012-kr570-us142-rc2` (KR `20261012v570`, US `20261012us142`).
+- rc2 local evidence: 1,547 pytest cases passed; 147 QA gate checks passed.
+- Read-only collector diagnostics are isolated on `diagnostic/staging-collector-20261012`, not included in the product image.

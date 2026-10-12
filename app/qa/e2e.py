@@ -44,6 +44,7 @@ E2E_CASE_IDS = (
     "SIG-PUSH-COMMUNITY-002",
 )
 US_E2E_CASE_IDS = (
+    "SIG-PERF-US-001",
     "SIG-UI-031",
     "SIG-UI-032",
     "REC-US-INDEPENDENT-001",
@@ -1509,6 +1510,41 @@ def _run_us_e2e_checks(
                     viewport_evidence.append(fallback_state)
                 return {"theme": theme, "viewports": viewport_evidence}
 
+            def us_performance_case(page: Any, theme: str) -> dict[str, Any]:
+                _navigate_page(
+                    page,
+                    _page_url(base_url, "/us", view="ai-signals", market_scope="us", theme=theme),
+                    wait_until="commit",
+                    ready_selector="#ai-signals-view",
+                )
+                page.wait_for_selector("#ai-signal-performance:not([hidden])", state="visible")
+                evidence = []
+                for width in (320, 390, 1280):
+                    page.set_viewport_size({"width": width, "height": 900})
+                    observed = page.locator("#ai-signal-performance").evaluate(
+                        """card => ({
+                          labels: [...card.querySelectorAll('.ai-signal-performance-label')].map(n => n.textContent.trim()),
+                          values: [...card.querySelectorAll('.ai-signal-performance-value')].map(n => n.textContent.trim()),
+                          note: card.querySelector('#ai-signal-performance-note')?.textContent || '',
+                          overflow: card.scrollWidth - card.clientWidth,
+                          pageOverflow: document.documentElement.scrollWidth - innerWidth,
+                        })"""
+                    )
+                    if (observed["labels"] != ["최근 7일", "최근 15일", "최근 30일"]
+                            or "비용·세금·환율 반영 전" not in observed["note"]
+                            or observed["overflow"] > 1 or observed["pageOverflow"] > 1):
+                        raise QaFailure("미국 성과 기간·비용 전 표기·리플로가 일치하지 않습니다.", observed)
+                    page.locator("#ai-signal-performance").screenshot(
+                        path=str(output_dir / f"performance-us-{width}-{theme}.png")
+                    )
+                    evidence.append({"width": width, **observed})
+                return {"theme": theme, "viewports": evidence}
+
+            performance_result = _run_page_case(
+                browser=browser, catalog_by_id=catalog_by_id, case_id="SIG-PERF-US-001",
+                base_url=base_url, timeout=timeout, artifact_dir=output_dir,
+                callback=us_performance_case, storage_state=storage_state, share_id=share_id,
+            )
             news_result = _run_page_case(
                 browser=browser,
                 catalog_by_id=catalog_by_id,
@@ -1555,7 +1591,7 @@ def _run_us_e2e_checks(
                     *(("DATA-COM-006",) if gateway_expected else ()),
                 )
             ]
-            return [news_result, chart_fallback_result, *product_results]
+            return [performance_result, news_result, chart_fallback_result, *product_results]
         finally:
             browser.close()
 

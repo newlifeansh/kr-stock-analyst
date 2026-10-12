@@ -692,6 +692,14 @@ def public_market_signal_payload(payload: Mapping[str, Any] | None) -> dict[str,
     public_result = _hide_numeric_signal_scores(result)
     if is_us_candidate:
         public_result = _remove_forbidden_us_public_fields(public_result)
+        # Keep private per-position return_basis redacted. Only this fixed
+        # aggregate cost label is part of the public performance contract.
+        summary = _mapping(result.get("performance_summary"))
+        public_summary = _mapping(public_result.get("performance_summary"))
+        if summary.get("return_basis") == "completed_trade_gross_price_return":
+            public_result["performance_summary"] = {
+                **public_summary, "cost_basis": "gross_before_costs_tax_fx",
+            }
     return dict(_mapping(public_result))
 
 

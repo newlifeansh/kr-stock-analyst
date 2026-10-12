@@ -19177,7 +19177,8 @@ function renderAiSignalPerformance() {
     elements.aiSignalPerformanceAsOf.textContent = asOf === "-" ? "집계 기준 확인 중" : `${asOf} 기준`;
   }
   const guard = state.aiSignalEntrySafetyGuard || {};
-  const grossReturns = summary.return_basis === "completed_trade_gross_price_return";
+  const grossReturns = summary.cost_basis === "gross_before_costs_tax_fx"
+    || summary.return_basis === "completed_trade_gross_price_return";
   const recentAverage = toNumber(windows["30d"]?.average_return);
   if (elements.aiSignalPerformanceLead) {
     elements.aiSignalPerformanceLead.textContent = guard.active === true
