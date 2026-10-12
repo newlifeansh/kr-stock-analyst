@@ -4,17 +4,17 @@ import sys
 import base64
 import gzip
 from hashlib import sha256
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, select, text
 from app.db import SessionLocal
-from app.models import DailyPrice, StockMaster, QuantSignalEvidenceSnapshot, QuantSignalIntradayPathSnapshot
-from app.services.quant_signals import _market_signal_retention_state, STRATEGY_VERSION, SIGNAL_HISTORY_ROWS
+from app.models import DailyPrice, StockMaster, QuantSignalEvidenceSnapshot, QuantSignalIntradayPathSnapshot, MarketQuantSignalSnapshot
+from app.services.quant_signals import _market_signal_retention_state, STRATEGY_VERSION, SIGNAL_HISTORY_ROWS, MARKET_SIGNAL_FEED_LIMIT, market_quant_signal_snapshot_key
 from app.services.signal_entry_evidence import ENTRY_EVIDENCE_EFFECTIVE_DATE
 
 with SessionLocal() as db:
     if db.get_bind().dialect.name != "postgresql":
         raise RuntimeError("This production probe requires PostgreSQL read-only transactions")
-    db.execute(text("SET TRANSACTION READ ONLY"))
+    db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
     latest = db.scalar(select(func.max(DailyPrice.trade_date)))
     ranked = select(
         DailyPrice.code.label("code"),
@@ -27,7 +27,7 @@ with SessionLocal() as db:
     ranked_codes = set(db.scalars(select(ranked.c.code).where(ranked.c.rank <= 150)))
     retained = set()
     for window in (30, 90):
-        retained.update(_market_signal_retention_state(db, universe_limit=150, limit=1000, recent_days=window))
+        retained.update(_market_signal_retention_state(db, universe_limit=150, limit=MARKET_SIGNAL_FEED_LIMIT, recent_days=window))
     codes = sorted(ranked_codes | retained)
     coverage = db.execute(select(
         QuantSignalEvidenceSnapshot.signal_date,
@@ -44,6 +44,9 @@ with SessionLocal() as db:
     ).where(QuantSignalIntradayPathSnapshot.trade_date >= date(2026, 9, 14)).group_by(QuantSignalIntradayPathSnapshot.trade_date, QuantSignalIntradayPathSnapshot.is_final).order_by(QuantSignalIntradayPathSnapshot.trade_date)).all()
     output = {
         "transaction_read_only": db.scalar(text("SHOW transaction_read_only")),
+        "transaction_isolation": db.scalar(text("SHOW transaction_isolation")),
+        "observed_at": datetime.now(timezone.utc),
+        "snapshot_feed_limit": MARKET_SIGNAL_FEED_LIMIT,
         "production_strategy": STRATEGY_VERSION, "latest_price_date": latest,
         "ranked_codes": sorted(ranked_codes), "retained_codes": sorted(retained), "combined_count":len(codes),
         "entry_evidence_by_day": [{"date":d,"strategy":v,"codes":n} for d,v,n in coverage],
@@ -63,7 +66,14 @@ with SessionLocal() as db:
             QuantSignalEvidenceSnapshot.signal_date <= latest,
         ).order_by(QuantSignalEvidenceSnapshot.stock_code, QuantSignalEvidenceSnapshot.signal_date)))
         records = [{key:getattr(row,key) for key in ("stock_code","signal_date","strategy_version","policy_version","quality_state","payload","generated_at","updated_at")} for row in evidence]
-        archive = {"metadata":output,"history_rows_per_code":SIGNAL_HISTORY_ROWS,"daily_prices":price_rows,"entry_evidence":records}
+        market_snapshots = []
+        for window in (30, 90):
+            key = market_quant_signal_snapshot_key(150, MARKET_SIGNAL_FEED_LIMIT, window)
+            row = db.get(MarketQuantSignalSnapshot, key)
+            if row is not None:
+                market_snapshots.append({"key":key,"generated_at":row.generated_at,"payload":row.payload})
+        intraday = [{key:getattr(row,key) for key in ("stock_code","trade_date","strategy_version","source","payload","is_final","observed_at","updated_at")} for row in db.scalars(select(QuantSignalIntradayPathSnapshot).where(QuantSignalIntradayPathSnapshot.stock_code.in_(codes),QuantSignalIntradayPathSnapshot.trade_date >= date(2026,9,14)))]
+        archive = {"metadata":output,"history_rows_per_code":SIGNAL_HISTORY_ROWS,"daily_prices":price_rows,"entry_evidence":records,"market_snapshots":market_snapshots,"intraday_paths":intraday}
         encoded = json.dumps(archive, sort_keys=True, separators=(",",":"), default=str).encode()
         output = {"encoding":"gzip+base64","sha256":sha256(encoded).hexdigest(),"price_rows":len(price_rows),"evidence_rows":len(records),"payload":base64.b64encode(gzip.compress(encoded)).decode()}
     db.rollback()
