@@ -12,6 +12,25 @@ import httpx
 from bs4 import BeautifulSoup
 from typer.testing import CliRunner
 
+
+def test_forward_cohort_qa_accepts_only_version_matched_dates():
+    from app.qa.runner import _forward_cohort_dates, QaFailure
+    legacy = {"cohort_market_cap_date":"2026-09-02", "period_start":"2026-09-04", "period_end":"2026-10-12"}
+    forward = {"price_basis_version":"krx-regular-forward-v1", "cohort_market_cap_date":"2026-10-13",
+               "period_start":"2026-10-13", "period_end":"2026-10-13"}
+    assert _forward_cohort_dates(legacy) == date(2026,9,2)
+    assert _forward_cohort_dates(forward) == date(2026,10,13)
+    for invalid in (
+        {**legacy, "price_basis_version":"krx-regular-forward-v1"},
+        {**forward, "price_basis_version":None},
+        {**forward, "price_basis_version":"unknown"},
+        {**forward, "cohort_market_cap_date":"2026-10-14"},
+        {**forward, "period_start":"2026-10-12"},
+        {**forward, "period_end":None},
+    ):
+        with pytest.raises(QaFailure):
+            _forward_cohort_dates(invalid)
+
 from app.cli import app
 from app.qa.catalog import load_qa_catalog, render_qa_catalog_markdown
 from app.qa.e2e import (

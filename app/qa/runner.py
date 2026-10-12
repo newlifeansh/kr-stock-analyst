@@ -215,6 +215,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_noncanonical_market_scope_cannot_toggle_entry_safety_guard",
     ),
     "SIG-ENTRY-009": (
+        "tests.test_data_signal_qa.test_forward_cohort_qa_accepts_only_version_matched_dates",
         "tests.test_entry_filter_backtest."
         "test_h3_promotion_stays_shadow_until_fixed_cohort_samples_are_sufficient",
         "tests.test_entry_filter_backtest."
@@ -1175,6 +1176,26 @@ class ResultCollector:
 def _assert(condition: Any, message: str, **evidence: Any) -> None:
     if not condition:
         raise QaFailure(message, evidence)
+
+
+def _forward_cohort_dates(comparison: dict[str, Any]) -> date:
+    from app.services.regular_signal_transition import REGULAR_FORWARD_START, REGULAR_FORWARD_VERSION
+
+    try:
+        cohort = date.fromisoformat(str(comparison.get("cohort_market_cap_date") or ""))
+        start = date.fromisoformat(str(comparison.get("period_start") or ""))
+        end = date.fromisoformat(str(comparison.get("period_end") or ""))
+    except ValueError:
+        raise QaFailure("고정 코호트의 비교 날짜를 해석할 수 없습니다.", comparison) from None
+    basis = comparison.get("price_basis_version")
+    if basis == REGULAR_FORWARD_VERSION:
+        valid = start == REGULAR_FORWARD_START and start <= cohort <= end
+    else:
+        valid = basis is None and cohort <= date(2026, 9, 4) and start == date(2026, 9, 4) and end >= start
+    _assert(valid, "고정 코호트 기준일 또는 시작일이 가격 기준 버전과 다릅니다.",
+            cohort_market_cap_date=cohort.isoformat(), period_start=start.isoformat(),
+            period_end=end.isoformat(), price_basis_version=basis)
+    return cohort
 
 
 def _korea_quality_session_context(quality: dict[str, Any]) -> dict[str, Any]:
@@ -3988,22 +4009,7 @@ def _live_checks(
                     == "entry-filter-fixed-cohort-forward-v1",
                     "고정 코호트 순방향 필터 비교가 없거나 버전이 다릅니다.",
                 )
-                try:
-                    cohort_date = date.fromisoformat(
-                        str(comparison.get("cohort_market_cap_date") or "")
-                    )
-                except ValueError:
-                    raise QaFailure(
-                        "고정 코호트 시가총액 기준일을 해석할 수 없습니다.",
-                        {"cohort_market_cap_date": comparison.get("cohort_market_cap_date")},
-                    ) from None
-                _assert(
-                    cohort_date <= date(2026, 9, 4)
-                    and str(comparison.get("period_start") or "") == "2026-09-04",
-                    "고정 코호트 기준일 또는 순방향 시작일이 필터 적용일과 맞지 않습니다.",
-                    cohort_market_cap_date=cohort_date.isoformat(),
-                    period_start=comparison.get("period_start"),
-                )
+                cohort_date = _forward_cohort_dates(comparison)
                 versions = (
                     "buy-filter-v7.4-baseline",
                     "buy-filter-h1",
