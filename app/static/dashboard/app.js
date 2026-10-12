@@ -280,6 +280,7 @@ const elements = {
   stockReportSummary: $("stock-report-summary"),
   stockNewsTemperature: $("stock-news-temperature"),
   stockNewsTemperatureChart: $("stock-news-temperature-chart"),
+  stockCommunitySection: $("stock-community-section"),
   stockCommunityStatus: $("stock-community-status"),
   stockCommunityProviders: $("stock-community-providers"),
   stockSignalChart: $("stock-signal-chart"),
@@ -615,7 +616,7 @@ const STOCK_DASHBOARD_WARMING_SOURCE = "stored_database_warming";
 const STOCK_DASHBOARD_WARM_RETRY_BASE_MS = 2_000;
 const HOME_MARKET_SIGNAL_RECENT_DAYS = 30;
 const AI_SIGNAL_HISTORY_DAYS = 30;
-const AI_SIGNAL_PERFORMANCE_DAYS = 90;
+const AI_SIGNAL_PERFORMANCE_DAYS = 30;
 const AI_SIGNAL_RECONCILE_TICK_MS = 30_000;
 const AI_SIGNAL_ACTIVE_REFRESH_MS = 2 * 60_000;
 const AI_SIGNAL_CLOSED_REFRESH_MS = 10 * 60_000;
@@ -665,6 +666,11 @@ const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
     description: "상위 10 신규 진입과 추천 종목의 매수·매도 단계 변경을 알려드립니다.",
   },
   {
+    id: "community_popular",
+    label: "커뮤니티 인기글",
+    description: "관심종목의 오늘 커뮤니티 인기글 상위 3개에 새 글이 들어오면 알려드립니다.",
+  },
+  {
     id: "price_move",
     label: "급등락",
     description: "관심종목 변동이 기준 이상 커지면 알려드립니다.",
@@ -684,6 +690,7 @@ const PUSH_NOTIFICATION_COMPACT_DESCRIPTIONS = Object.freeze({
   market_session: "장 시작·마감 5분 전",
   market_ai_signal: "국내 시장 시그널",
   recommendation_update: "상위 10 진입·매매 단계 변경",
+  community_popular: "오늘 인기글 상위 3개 진입",
   disclosure_report: "중요한 공시·리포트만",
   major_event: "영향 큰 일정이 가까워질 때",
 });
@@ -7205,13 +7212,26 @@ function renderStockCommunity(payload, options = {}) {
     || payload?.message
     || "관련 커뮤니티 글을 찾지 못했습니다.";
   elements.stockCommunityProviders.innerHTML = "";
+  elements.stockCommunityStatus.replaceChildren();
   elements.stockCommunityStatus.hidden = !options.loading && totalItems > 0;
-  elements.stockCommunityStatus.textContent = options.loading
+  const statusMessage = options.loading
     ? (state.stockCommunityMode === "popular" ? "오늘 인기글을 불러오는 중입니다." : "최신글을 불러오는 중입니다.")
     : (totalItems ? "" : emptyMessage);
-
+  if (statusMessage) {
+    elements.stockCommunityStatus.appendChild(el("span", "stock-community-status-message", statusMessage));
+  }
   const board = el("section", "stock-community-board");
   board.appendChild(createStockCommunityModeFilter());
+  if (options.retryable && !options.loading && totalItems === 0) {
+    const recovery = el("div", "stock-community-recovery");
+    const retry = el("button", "stock-community-retry", "다시 시도");
+    retry.type = "button";
+    retry.addEventListener("click", () => {
+      void loadStockCommunityMode(state.stockCommunityMode, { force: true });
+    });
+    recovery.appendChild(retry);
+    board.appendChild(recovery);
+  }
   elements.stockCommunityProviders.appendChild(board);
 
   if (options.loading) {
@@ -8301,21 +8321,27 @@ async function loadStockIntraday(code, requestId) {
   }
 }
 
-async function loadStockCommunityMode(mode) {
+async function loadStockCommunityMode(mode, options = {}) {
   const normalizedMode = mode === "popular" ? "popular" : "latest";
+  const force = options.force === true;
   state.stockCommunityMode = normalizedMode;
   if (normalizedMode === "latest") {
+    if (force && state.currentDashboard) {
+      renderStockCommunity({ providers: [] }, { loading: true });
+      void loadStockCommunity(state.currentDashboard, state.stockHomeDetailsRequestId, { force: true });
+      return;
+    }
     renderStockCommunity(
       state.stockCommunity || { message: "최신글을 불러오는 중입니다.", providers: [] },
       { loading: !state.stockCommunity },
     );
     return;
   }
-  if (state.stockCommunityPopular) {
+  if (state.stockCommunityPopular && !force) {
     renderStockCommunity(state.stockCommunityPopular);
     return;
   }
-  if (state.stockCommunityPopularLoading) {
+  if (state.stockCommunityPopularLoading && !force) {
     renderStockCommunity({ providers: [] }, { loading: true });
     return;
   }
@@ -8334,7 +8360,14 @@ async function loadStockCommunityMode(mode) {
     const endpoint = usStock
       ? `/us/stocks/${encodeURIComponent(code)}/community-feed?limit=12&mode=popular`
       : `/stocks/${encodeURIComponent(code)}/community-feed?limit=12&mode=popular`;
-    const payload = await fetchJsonCached(endpoint, { ttlMs: 5 * UI_CACHE_TTL_MS });
+    if (force) {
+      state.responseCache.delete(endpoint);
+    }
+    const payload = await fetchJsonCached(endpoint, {
+      force,
+      ttlMs: 5 * UI_CACHE_TTL_MS,
+      timeoutMs: 20_000,
+    });
     if (requestId !== state.stockCommunityModeRequestId || state.currentStock?.code !== code) {
       return;
     }
@@ -8343,7 +8376,7 @@ async function loadStockCommunityMode(mode) {
     if (!sourceAvailable) {
       state.responseCache.delete(endpoint);
       if (state.stockCommunityMode === "popular") {
-        renderStockCommunity(payload);
+        renderStockCommunity(payload, { retryable: true });
       }
       return;
     }
@@ -8357,7 +8390,11 @@ async function loadStockCommunityMode(mode) {
       && state.currentStock?.code === code
       && state.stockCommunityMode === "popular"
     ) {
-      renderStockCommunity({ message: "오늘 인기글을 불러오지 못했습니다. 잠시 후 다시 눌러주세요.", providers: [] });
+      state.stockCommunityPopularLoading = false;
+      renderStockCommunity(
+        { message: "오늘 인기글을 불러오지 못했습니다.", providers: [] },
+        { retryable: true },
+      );
     }
   } finally {
     if (requestId === state.stockCommunityModeRequestId) {
@@ -8377,7 +8414,7 @@ function setStockCommunityMode(mode) {
   void loadStockCommunityMode(normalizedMode);
 }
 
-async function loadStockCommunity(data, requestId) {
+async function loadStockCommunity(data, requestId, options = {}) {
   const code = data?.code;
   if (!code) {
     return;
@@ -8387,9 +8424,16 @@ async function loadStockCommunity(data, requestId) {
     const endpoint = usStock
       ? `/us/stocks/${encodeURIComponent(code)}/community-feed?limit=12`
       : `/stocks/${encodeURIComponent(code)}/community-feed?limit=12`;
+    if (options.force) {
+      state.responseCache.delete(endpoint);
+    }
     const payload = await fetchJsonCached(
       endpoint,
-      { ttlMs: 5 * UI_CACHE_TTL_MS }
+      {
+        force: options.force === true,
+        ttlMs: 5 * UI_CACHE_TTL_MS,
+        timeoutMs: 20_000,
+      }
     );
     if (requestId !== state.stockHomeDetailsRequestId || state.currentStock?.code !== code) {
       return;
@@ -8403,9 +8447,12 @@ async function loadStockCommunity(data, requestId) {
       return;
     }
     if (state.stockCommunityMode === "latest") {
-      renderStockCommunity(usStock
-        ? usStockCommunityPayload(data)
-        : { message: "커뮤니티 글을 불러오지 못했습니다.", providers: [] });
+      renderStockCommunity(
+        usStock
+          ? usStockCommunityPayload(data)
+          : { message: "커뮤니티 글을 불러오지 못했습니다.", providers: [] },
+        { retryable: !usStock },
+      );
     }
   }
 }
@@ -13453,6 +13500,7 @@ const PUSH_HISTORY_KIND_LABELS = {
   ai_signal: "AI 시그널",
   market_ai_signal: "시장 AI 시그널",
   recommendation_update: "추천 업데이트",
+  community_popular: "커뮤니티 인기글",
   price_move: "시세",
   report: "리포트",
   disclosure: "공시",
@@ -13460,7 +13508,7 @@ const PUSH_HISTORY_KIND_LABELS = {
   test: "테스트",
 };
 
-const PUSH_HISTORY_WATCHLIST_KINDS = new Set(["price_move", "report", "disclosure"]);
+const PUSH_HISTORY_WATCHLIST_KINDS = new Set(["price_move", "report", "disclosure", "community_popular"]);
 const PUSH_HISTORY_SIGNAL_KINDS = new Set(["ai_signal", "market_ai_signal"]);
 
 function pushHistoryMarketDate(timestamp, marketScope = "kr") {
@@ -19078,12 +19126,12 @@ function renderAiSignalPerformance() {
     elements.aiSignalPerformanceLead.textContent = guard.active === true
       ? "최근 실현 기대값이 음수라 새 매수 신호를 관찰 단계로 낮추고 있습니다. 기존 보유·매도 이력은 유지됩니다."
       : recentAverage !== null && recentAverage < 0
-        ? "최근 실현 수익이 약해 표본과 지수 대비 성과를 함께 확인하세요."
+        ? "최근 완료된 매도 시그널의 평균 수익률이 약한 상태입니다."
         : recentAverage === null
-          ? "완료 거래 표본을 수집 중입니다. 수익률은 거래비용 반영 후 같은 보유기간의 시장지수와 비교합니다."
-          : "거래비용을 반영한 완료 거래만 집계하며, 같은 보유기간의 시장지수와 비교합니다.";
+          ? "완료된 매도 시그널을 기준으로 평균 수익률을 집계하고 있습니다."
+          : "거래비용을 반영한 완료 매도 시그널의 평균 수익률입니다.";
   }
-  const rows = [[30, windows["30d"]], [90, windows["90d"]]].map(([days, performanceWindow]) => {
+  const rows = [[7, windows["7d"]], [15, windows["15d"]], [30, windows["30d"]]].map(([days, performanceWindow]) => {
     const windowSummary = performanceWindow || {};
     const completed = Number(windowSummary.completed_trades || 0);
     const average = toNumber(windowSummary.average_return);
@@ -19109,49 +19157,14 @@ function renderAiSignalPerformance() {
     const evidenceParts = [
       `완료 ${formatNumber(completed)}건`,
       `승률 ${formatAiSignalRate(windowSummary.win_rate)}`,
-      `중앙값 ${windowSummary.median_return == null ? "-" : formatPercent(windowSummary.median_return)}`,
     ];
-    if (Number(windowSummary.matched_benchmark_trades || 0) > 0) {
-      evidenceParts.push(`지수 대비 ${formatPercent(windowSummary.average_excess_return)}`);
-    } else {
-      evidenceParts.push("지수 비교 표본 확인 중");
-    }
     const evidence = el("p", "ai-signal-performance-evidence", evidenceParts.join(" · "));
     row.append(heading, value, evidence);
     return row;
   });
-  const comparison = state.aiSignalFilterForwardComparison;
-  if (comparison?.filters) {
-    const assessment = comparison.promotion_assessment || {};
-    const filterRow = el("div", "ai-signal-performance-row ai-signal-performance-filter-row");
-    const heading = el("div", "ai-signal-performance-row-heading");
-    heading.append(
-      el("span", "ai-signal-performance-label", "동일 코호트 필터"),
-      el(
-        "span",
-        `ai-signal-performance-status is-${assessment.eligible_for_operator_review ? "sufficient" : "limited"}`,
-        assessment.eligible_for_operator_review ? "검토 가능" : "검증 중",
-      ),
-    );
-    const h3 = comparison.filters["buy-filter-h3"] || {};
-    const value = el(
-      "strong",
-      "ai-signal-performance-value is-neutral",
-      assessment.eligible_for_operator_review ? "H3 운영자 검토" : "H1 유지",
-    );
-    const filterEvidence = ["buy-filter-h1", "buy-filter-h2", "buy-filter-h3"]
-      .map((version, index) => {
-        const data = comparison.filters[version] || {};
-        return `H${index + 1} ${data.average_trade_return == null ? "-" : formatPercent(data.average_trade_return)}`;
-      });
-    filterEvidence.push(`H3 완료 ${formatNumber(h3.completed_trades || 0)}건`);
-    const evidence = el("p", "ai-signal-performance-evidence", filterEvidence.join(" · "));
-    filterRow.append(heading, value, evidence);
-    rows.push(filterRow);
-  }
   elements.aiSignalPerformanceRows.replaceChildren(...rows);
   if (elements.aiSignalPerformanceNote) {
-    elements.aiSignalPerformanceNote.textContent = "평균 수익률은 실제 주문 수익이 아닌 모델 체결 성과이며, H3는 충분한 표본과 운영자 승인 전까지 자동 승격하지 않습니다.";
+    elements.aiSignalPerformanceNote.textContent = "실제 주문 수익이 아닌 거래비용 반영 모델 체결 성과이며, 전량 매도된 거래만 집계합니다.";
   }
 }
 
@@ -28292,17 +28305,31 @@ function appendRecommendationCard(item) {
   elements.recommendList.appendChild(createRecommendationCard(item));
 }
 
+function recommendationIsTerminalExit(item = {}) {
+  const current = item?.ai_trade_signal?.current;
+  return Boolean(
+    current
+    && String(current.action || "").trim().toLowerCase() === "exited"
+    && current.position_open !== true
+    && current.live_observation !== true
+  );
+}
+
 function renderRecommendations(payload, options = {}) {
   closeRecommendationQuoteStreams();
   if (options.usSectorMoves) {
     state.usSectorMoves = options.usSectorMoves;
   }
-  const rankedItems = rerankRecommendationItems(payload.items || []).map((item) => ({
+  const sourceItems = Array.isArray(payload.items) ? payload.items : [];
+  const visibleItems = sourceItems.filter((item) => !recommendationIsTerminalExit(item));
+  const rankedItems = rerankRecommendationItems(visibleItems).map((item) => ({
     ...item,
     recommended_at: item.recommended_at || payload.as_of || null,
   }));
   const normalizedPayload = {
     ...payload,
+    terminal_exit_excluded_count: Number(payload.terminal_exit_excluded_count || 0)
+      + (sourceItems.length - visibleItems.length),
     items: rankedItems,
   };
   if (options.save) {
@@ -31334,15 +31361,42 @@ function load(query, options = {}) {
 async function syncViewFromLocation() {
   const parts = window.location.pathname.split("/").filter(Boolean);
   if (parts[0] === "dashboard" && parts[1]) {
+    const stockParams = new URLSearchParams(window.location.search);
+    const openCommunity = stockParams.get("tab") === "community";
+    const openPopularCommunity = openCommunity && stockParams.get("community_mode") === "popular";
+    if (openCommunity) {
+      state.stockActiveTab = "community";
+      state.stockCommunityMode = openPopularCommunity ? "popular" : "latest";
+    }
     const stockQuery = decodeURIComponent(parts[1]);
     if (state.view !== "stock") {
       setLoading(stockQuery);
     }
     setView("stock", { historyMode: "none" });
     await load(stockQuery, { historyMode: "none" });
+    if (openCommunity) {
+      setActiveStockTab("community", { preserveScroll: true, instant: true });
+      window.requestAnimationFrame(() => {
+        elements.stockCommunitySection?.scrollIntoView({
+          behavior: "auto",
+          block: "start",
+        });
+      });
+    }
+    if (openPopularCommunity) {
+      state.stockCommunityMode = "popular";
+      void loadStockCommunityMode("popular");
+    }
     return;
   }
   if (parts[0] === "us" && parts[1] === "stock" && parts[2]) {
+    const stockParams = new URLSearchParams(window.location.search);
+    const openCommunity = stockParams.get("tab") === "community";
+    const openPopularCommunity = openCommunity && stockParams.get("community_mode") === "popular";
+    if (openCommunity) {
+      state.stockActiveTab = "community";
+      state.stockCommunityMode = openPopularCommunity ? "popular" : "latest";
+    }
     const stockQuery = decodeURIComponent(parts[2]);
     if (state.view !== "stock") {
       setLoading(stockQuery);
@@ -31352,6 +31406,19 @@ async function syncViewFromLocation() {
       historyMode: "none",
       marketScope: /^\d{6}$/.test(stockQuery) ? "kr" : (new URLSearchParams(window.location.search).get("market_scope") || "us"),
     });
+    if (openCommunity) {
+      setActiveStockTab("community", { preserveScroll: true, instant: true });
+      window.requestAnimationFrame(() => {
+        elements.stockCommunitySection?.scrollIntoView({
+          behavior: "auto",
+          block: "start",
+        });
+      });
+    }
+    if (openPopularCommunity) {
+      state.stockCommunityMode = "popular";
+      void loadStockCommunityMode("popular");
+    }
     return;
   }
   const params = new URLSearchParams(window.location.search);

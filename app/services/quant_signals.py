@@ -4108,7 +4108,7 @@ def build_market_signal_performance_summary(
     items: list[dict[str, Any]],
     *,
     as_of: datetime,
-    windows: tuple[int, ...] = (30, 90),
+    windows: tuple[int, ...] = (7, 15, 30),
 ) -> dict[str, Any]:
     """Summarize realized exits and same-holding-period market benchmarks."""
 

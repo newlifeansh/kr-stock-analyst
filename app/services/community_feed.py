@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from time import monotonic
 from typing import Optional
 from urllib.parse import parse_qs, quote, quote_plus, urlparse
 
@@ -20,6 +21,7 @@ NAVER_DOMESTIC_DISCUSSION_TYPE = "domesticStock"
 NAVER_WORLD_DISCUSSION_TYPE = "foreignStock"
 NAVER_DISCUSSION_PAGE_SIZE = 100
 NAVER_POPULAR_MAX_PAGES = 50
+NAVER_POPULAR_TOTAL_TIMEOUT_SECONDS = 18.0
 KST = timezone(timedelta(hours=9))
 THREADS_API_SOURCE = "threads_api"
 THREADS_SEARCH_SOURCE = "threads_search"
@@ -489,54 +491,62 @@ def _fetch_naver_popular_discussion_rows(
     seen: set[str] = set()
     rows: list[dict[str, object]] = []
     found_source_posts = False
-    for _ in range(NAVER_POPULAR_MAX_PAGES):
-        params: dict[str, object] = {
-            "itemCode": item_code,
-            "discussionType": discussion_type,
-            "pageSize": NAVER_DISCUSSION_PAGE_SIZE,
-        }
-        if offset:
-            params["offset"] = offset
-        try:
-            response = requests.get(
-                NAVER_WORLD_DISCUSSION_URL,
-                params=params,
-                headers=NAVER_WORLD_HEADERS if world else NAVER_HEADERS,
-                timeout=timeout_seconds,
-            )
-            response.raise_for_status()
-            result = response.json().get("result") or {}
-            posts = result.get("posts") or []
-        except Exception:
-            if not found_source_posts:
-                raise
-            break
-        if not isinstance(posts, list) or not posts:
-            break
-        found_source_posts = True
-        reached_previous_day = False
-        for post in posts:
-            if not isinstance(post, dict):
-                continue
-            post_id = str(post.get("id") or "").strip()
-            if not post_id or post_id in seen:
-                continue
-            seen.add(post_id)
-            source_datetime = _parse_naver_discussion_source_datetime(post.get("writtenAt"))
-            if source_datetime is None:
-                continue
-            if source_datetime.date() < today:
-                reached_previous_day = True
-                continue
-            if source_datetime.date() != today:
-                continue
-            row = _naver_discussion_post_row(item_code, post, world=world)
-            if row is not None:
-                rows.append(row)
-        next_offset = str(result.get("lastOffset") or "").strip()
-        if reached_previous_day or not next_offset or next_offset == offset:
-            break
-        offset = next_offset
+    deadline = monotonic() + min(
+        NAVER_POPULAR_TOTAL_TIMEOUT_SECONDS,
+        max(3.0, float(timeout_seconds) * 1.5),
+    )
+    with requests.Session() as session:
+        session.headers.update(NAVER_WORLD_HEADERS if world else NAVER_HEADERS)
+        for _ in range(NAVER_POPULAR_MAX_PAGES):
+            remaining_seconds = deadline - monotonic()
+            if remaining_seconds <= 0:
+                break
+            params: dict[str, object] = {
+                "itemCode": item_code,
+                "discussionType": discussion_type,
+                "pageSize": NAVER_DISCUSSION_PAGE_SIZE,
+            }
+            if offset:
+                params["offset"] = offset
+            try:
+                response = session.get(
+                    NAVER_WORLD_DISCUSSION_URL,
+                    params=params,
+                    timeout=max(0.25, min(float(timeout_seconds), remaining_seconds)),
+                )
+                response.raise_for_status()
+                result = response.json().get("result") or {}
+                posts = result.get("posts") or []
+            except Exception:
+                if not found_source_posts:
+                    raise
+                break
+            if not isinstance(posts, list) or not posts:
+                break
+            found_source_posts = True
+            reached_previous_day = False
+            for post in posts:
+                if not isinstance(post, dict):
+                    continue
+                post_id = str(post.get("id") or "").strip()
+                if not post_id or post_id in seen:
+                    continue
+                seen.add(post_id)
+                source_datetime = _parse_naver_discussion_source_datetime(post.get("writtenAt"))
+                if source_datetime is None:
+                    continue
+                if source_datetime.date() < today:
+                    reached_previous_day = True
+                    continue
+                if source_datetime.date() != today:
+                    continue
+                row = _naver_discussion_post_row(item_code, post, world=world)
+                if row is not None:
+                    rows.append(row)
+            next_offset = str(result.get("lastOffset") or "").strip()
+            if reached_previous_day or not next_offset or next_offset == offset:
+                break
+            offset = next_offset
 
     rows.sort(
         key=lambda row: (

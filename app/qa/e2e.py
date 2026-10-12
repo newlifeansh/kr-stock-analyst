@@ -41,6 +41,7 @@ E2E_CASE_IDS = (
     "SIG-UI-020",
     "SIG-UI-021",
     "SIG-UI-030",
+    "SIG-PUSH-COMMUNITY-001",
 )
 US_E2E_CASE_IDS = (
     "SIG-UI-031",
@@ -1041,6 +1042,7 @@ def _run_us_e2e_checks(
                     or item.get("score") != item.get("recommendationScore")
                     or item.get("modelVersion") != "us-independent-recommendation-v1"
                     or item.get("nestedSignalScore") is not None
+                    or item.get("signalAction") == "exited"
                     or not item.get("scoreText")
                     or not item.get("stageText")
                     for item in search_state["recommendations"]
@@ -2592,15 +2594,14 @@ def run_e2e_checks(
                 page.wait_for_function(
                     """() => {
                       const summary = state.aiSignalPerformanceSummary;
-                      const comparison = state.aiSignalFilterForwardComparison;
                       const overview = document.querySelector('#ai-signal-performance');
                       return Boolean(
-                        summary?.windows?.['30d']
-                        && summary?.windows?.['90d']
-                        && comparison?.filters?.['buy-filter-h3']
+                        summary?.windows?.['7d']
+                        && summary?.windows?.['15d']
+                        && summary?.windows?.['30d']
                         && overview
                         && !overview.hidden
-                        && overview.querySelectorAll('.ai-signal-performance-row').length >= 3
+                        && overview.querySelectorAll('.ai-signal-performance-row').length === 3
                       );
                     }""",
                     timeout=int(timeout * 1000),
@@ -2609,7 +2610,6 @@ def run_e2e_checks(
                     """() => {
                       const summary = state.aiSignalPerformanceSummary;
                       const guard = state.aiSignalEntrySafetyGuard || {};
-                      const comparison = state.aiSignalFilterForwardComparison || {};
                       const overview = document.querySelector('#ai-signal-performance');
                       const rows = [...overview.querySelectorAll('.ai-signal-performance-row')];
                       return {
@@ -2622,38 +2622,37 @@ def run_e2e_checks(
                         evidence: rows.map(row => row.querySelector('.ai-signal-performance-evidence')?.textContent?.trim() || ''),
                         windows: summary.windows,
                         guard,
-                        assessment: comparison.promotion_assessment || {},
                       };
                     }"""
                 )
                 windows = contract.get("windows") or {}
+                window_7 = windows.get("7d") or {}
+                window_15 = windows.get("15d") or {}
                 window_30 = windows.get("30d") or {}
-                window_90 = windows.get("90d") or {}
                 guard = contract.get("guard") or {}
-                assessment = contract.get("assessment") or {}
                 if (
                     contract.get("labels")
-                    != ["최근 30일", "최근 90일", "동일 코호트 필터"]
+                    != ["최근 7일", "최근 15일", "최근 30일"]
                     or not contract.get("asOf")
                     or len(contract.get("statuses") or []) != 3
                     or any(not value for value in contract.get("values") or [])
                     or any(not value for value in contract.get("evidence") or [])
-                    or int(window_90.get("completed_trades") or 0)
-                    < int(window_30.get("completed_trades") or 0)
+                    or int(window_15.get("completed_trades") or 0)
+                    < int(window_7.get("completed_trades") or 0)
+                    or int(window_30.get("completed_trades") or 0)
+                    < int(window_15.get("completed_trades") or 0)
                     or any(
                         "승률 +" in evidence
                         for evidence in contract.get("evidence") or []
                     )
-                    or "자동 승격하지 않습니다" not in str(contract.get("note") or "")
-                    or assessment.get("automatic_promotion") is not False
-                    or assessment.get("operator_approval_required") is not True
+                    or "전량 매도된 거래만 집계" not in str(contract.get("note") or "")
                     or (
                         guard.get("active") is True
                         and "관찰 단계" not in str(contract.get("lead") or "")
                     )
                 ):
                     raise QaFailure(
-                        "30일·90일 성과, 안전 가드 또는 H3 운영자 검토 문구가 화면 계약과 다릅니다.",
+                        "7일·15일·30일 평균 수익률 또는 안전 가드 문구가 화면 계약과 다릅니다.",
                         contract,
                     )
 
@@ -2702,8 +2701,8 @@ def run_e2e_checks(
                         ...original,
                         windows: {
                           ...original.windows,
-                          '30d': {
-                            window_days: 30,
+                          '7d': {
+                            window_days: 7,
                             completed_trades: 0,
                             wins: 0,
                             losses: 0,
@@ -5482,45 +5481,37 @@ def run_e2e_checks(
                 detail_text = detail.inner_text()
                 for required_text in (
                     "카카오",
-                    "이 화면이 열린 이유",
+                    "선택한 이유",
                     "카카오X가 카뱅 품을 수 있는 이유",
-                    "내 상황에 맞춰 볼게요",
-                    "현재 이 종목을 보유하고 있나요?",
+                    "내 상황",
                     "미보유",
                     "보유 중",
-                    "쉽게 풀어보면",
-                    "왜 이렇게 보나요?",
                     "현재는 20일·60일·수급을 확인하며 기다릴 때예요",
                     "매수 관망",
                     "지금 판단",
-                    "공개 기준",
-                    "확인한 자료",
-                    "20일·60일·수급",
-                    "현재 주당 가격",
+                    "근거",
+                    "20일 · 60일 · 수급",
+                    "현재가",
                     "60,000원",
-                    "오늘 등락률",
+                    "오늘",
                     "+1.25%",
                     "아래 설명은 현재 시세 60,000원을 기준으로 정리했어요",
                     "다시 분석하기",
-                    "실제 계좌·주문 내역과 자동 연동되지 않아요",
-                    "내 상황별 가격 가이드",
-                    "가격이 내려올 때와 올라갈 때를 나눠 보세요",
-                    "미보유 가격 지도",
-                    "현재가에서 두 가지 확인 경로를 비교해 보세요",
-                    "① 내려오면",
-                    "② 올라가면",
-                    "미래 가격을 예측한 차트가 아니라",
+                    "참고용 AI 분석",
+                    "실제 계좌·주문과 연동되지 않아요",
+                    "판단 근거",
+                    "가격 대응",
+                    "내려올 때 · 올라갈 때",
+                    "가격 지도",
                     "눌림목 확인 구간",
                     "상승 흐름 확인선",
                     "매수가 아님",
                     "관망을 이어갈 기준",
-                    "앞으로 볼 것",
-                    "앞으로 이렇게 확인하세요",
+                    "다음 확인",
                     "가격이 내려올 때",
                     "가격이 올라갈 때",
                     "계속 기다릴 때",
-                    "20일·60일·수급만 확인해요",
-                    "종목 상세에서 차트 보기",
+                    "차트 보기",
                 ):
                     if required_text not in detail_text:
                         raise QaFailure(
@@ -5636,16 +5627,12 @@ def run_e2e_checks(
                       decisionValues: Array.from(document.querySelectorAll(
                         '.staging-ai-stock-response-decision-step > strong'
                       )).map(node => node.textContent?.trim()),
-                      firstOverviewPaddingLeft: parseFloat(getComputedStyle(
-                        document.querySelector('.staging-ai-stock-response-overview > div:first-child')
+                      actionPaddingLeft: parseFloat(getComputedStyle(
+                        document.querySelector('.staging-ai-stock-response-action')
                       ).paddingLeft || '0'),
-                      firstOverviewTextInset: (() => {
-                        const card = document.querySelector('.staging-ai-stock-response-overview > div:first-child');
-                        const label = card?.querySelector('dt');
-                        return card && label
-                          ? label.getBoundingClientRect().left - card.getBoundingClientRect().left
-                          : 0;
-                      })(),
+                      overviewCellCount: document.querySelectorAll(
+                        '.staging-ai-stock-response-overview > div'
+                      ).length,
                       metricCount: document.querySelectorAll('.staging-ai-stock-response-metric').length,
                       metricLabels: Array.from(document.querySelectorAll('.staging-ai-stock-response-metric h4')).map(node => node.textContent?.trim()),
                       metricStatuses: Array.from(document.querySelectorAll('.staging-ai-stock-response-metric-status')).map(node => node.textContent?.trim()),
@@ -5658,13 +5645,16 @@ def run_e2e_checks(
                       publicReasonLabels: Array.from(document.querySelectorAll(
                         '.staging-ai-stock-response-key-reason h4'
                       )).map(node => node.textContent?.trim()),
+                      publicReasonMarkCount: document.querySelectorAll(
+                        '.staging-ai-stock-response-key-reason-mark'
+                      ).length,
                       firstScreenOrder: [
                         '.staging-ai-stock-response-context',
                         '.staging-ai-stock-response-investor-state',
                         '.staging-ai-stock-response-action',
+                        '.staging-ai-stock-response-evidence',
                         '.staging-ai-stock-response-guide',
                         '.staging-ai-stock-response-next',
-                        '.staging-ai-stock-response-evidence',
                       ].map(selector => document.querySelector(selector)?.offsetTop || 0),
                       metricLiveRegion: document.querySelector('[data-staging-response-metrics]')?.getAttribute('aria-live'),
                       announcementLiveRegion: document.querySelector('[data-staging-response-announcement]')?.getAttribute('aria-live'),
@@ -5684,7 +5674,6 @@ def run_e2e_checks(
                         .filter(request => request.page_type === 'stock_response')
                         .map(request => (request.facts?.decision_plan || []).map(item => item.key)),
                       summaryBadgeCount: document.querySelectorAll('[data-staging-summary-provenance]').length,
-                      explanationLabel: document.querySelector('.staging-ai-stock-response-explanation > span')?.textContent?.trim(),
                       explanation: document.querySelector('[data-staging-response-reason]')?.textContent?.trim(),
                       visibleModelWords: /GPT|문구 정리|데이터 요약/.test(
                         document.querySelector('#staging-ai-stock-response-view')?.innerText || ''
@@ -5746,8 +5735,8 @@ def run_e2e_checks(
                         float(height) >= 44
                         for height in detail_contract.get("investorOptionHeights") or []
                     )
-                    or abs(float(detail_contract.get("firstOverviewPaddingLeft") or 0) - 12) > 0.5
-                    or float(detail_contract.get("firstOverviewTextInset") or 0) < 11
+                    or float(detail_contract.get("actionPaddingLeft") or 0) < 19
+                    or detail_contract.get("overviewCellCount") != 2
                     or detail_contract.get("metricCount") != 0
                     or detail_contract.get("metricLabels") != []
                     or detail_contract.get("metricStatuses") != []
@@ -5758,6 +5747,7 @@ def run_e2e_checks(
                     != ["trend_20d", "trend_60d", "flow"]
                     or detail_contract.get("publicReasonLabels")
                     != ["20일", "60일", "수급"]
+                    or detail_contract.get("publicReasonMarkCount") != 3
                     or detail_contract.get("firstScreenOrder") != sorted(
                         detail_contract.get("firstScreenOrder") or []
                     )
@@ -5772,7 +5762,6 @@ def run_e2e_checks(
                     or (detail_contract.get("stockSummaryDecisionPlans") or [])[-1:]
                     != [["pullback", "breakout", "wait"]]
                     or detail_contract.get("summaryBadgeCount") != 0
-                    or detail_contract.get("explanationLabel") != "왜 이렇게 보나요?"
                     or not detail_contract.get("explanation")
                     or detail_contract.get("visibleModelWords") is not False
                 ):
@@ -6479,7 +6468,12 @@ def run_e2e_checks(
                         requiredChecked: requiredInputs.every(input => input.checked),
                         optionalCount: optionalInputs.length,
                         optionalCheckedCount: optionalInputs.filter(input => input.checked).length,
+                        optionalIds: optionalInputs.map(input => input.dataset.pushCondition),
                         optionalSummary: optional.querySelector('[data-push-optional-summary]')?.textContent?.trim() || '',
+                        communityLabel: optional.querySelector('#push-notification-community_popular-title')
+                          ?.textContent?.trim() || '',
+                        communityDescription: optional.querySelector('#push-notification-community_popular-description')
+                          ?.textContent?.trim() || '',
                         repeatedLockedCopyCount: (sheet.innerText.match(/항상 받기/g) || []).length,
                         lockedRowCount: sheet.querySelectorAll('.push-notification-condition.is-required').length,
                         statusHidden: status.hidden,
@@ -6496,9 +6490,12 @@ def run_e2e_checks(
                     or "돈이 되는 소식 · AI 시그널" not in contract.get("coreText", "")
                     or "현재 꺼짐" not in contract.get("coreText", "")
                     or contract.get("coreEnabled") != "false"
-                    or contract.get("optionalCount") != 6
+                    or contract.get("optionalCount") != 7
                     or contract.get("optionalCheckedCount") != 0
-                    or contract.get("optionalSummary") != "0/6 선택"
+                    or contract.get("optionalSummary") != "0/7 선택"
+                    or "community_popular" not in contract.get("optionalIds", [])
+                    or contract.get("communityLabel") != "커뮤니티 인기글"
+                    or "상위 3개" not in contract.get("communityDescription", "")
                     or contract.get("statusHidden") is not False
                     or not any(
                         phrase in contract.get("statusText", "")
@@ -6529,6 +6526,36 @@ def run_e2e_checks(
                         "알림 설정 시트의 모바일 경계 또는 초기 포커스가 올바르지 않습니다.",
                         {"contract": contract, "viewport": viewport},
                     )
+
+                page.set_viewport_size({"width": 320, "height": 760})
+                page.wait_for_timeout(100)
+                narrow_contract = sheet.evaluate(
+                    """sheet => {
+                      const card = sheet.querySelector('.push-notification-sheet-card');
+                      const body = sheet.querySelector('.push-notification-sheet-body');
+                      const rect = card.getBoundingClientRect();
+                      return {
+                        viewport: innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                        bodyOverflowX: body.scrollWidth - body.clientWidth,
+                        bounds: { x: rect.x, width: rect.width, height: rect.height },
+                      };
+                    }"""
+                )
+                if (
+                    narrow_contract["rootWidth"] > narrow_contract["viewport"] + 2
+                    or float(narrow_contract.get("bodyOverflowX") or 0) > 1
+                    or float((narrow_contract.get("bounds") or {}).get("x") or 0) < -1
+                    or float((narrow_contract.get("bounds") or {}).get("width") or 0)
+                    > narrow_contract["viewport"] + 1
+                    or float((narrow_contract.get("bounds") or {}).get("height") or 0) > 761
+                ):
+                    raise QaFailure(
+                        "320px 알림 설정에서 가로 넘침이나 시트 잘림이 발생했습니다.",
+                        narrow_contract,
+                    )
+                page.set_viewport_size(MOBILE_VIEWPORT)
+                page.wait_for_timeout(100)
 
                 sheet.locator("#push-notification-sheet-close").click()
                 sheet.wait_for(state="hidden")
@@ -6586,6 +6613,7 @@ def run_e2e_checks(
                     **shell,
                     "home_action_bounds": action_box,
                     "sheet": contract,
+                    "narrow_sheet": narrow_contract,
                     "focus_returned": focus_returned,
                     "other_root_action": other_contract,
                     "root_icon_contracts": root_icon_contracts,
@@ -6601,6 +6629,225 @@ def run_e2e_checks(
                     timeout=timeout,
                     artifact_dir=output_dir,
                     callback=home_notification_entry_case,
+                    storage_state=storage_state,
+                    share_id=share_id,
+                )
+            )
+
+            def community_popular_notification_case(
+                page: Any,
+                theme: str,
+            ) -> dict[str, Any]:
+                _navigate_page(
+                    page,
+                    _page_url(
+                        base_url,
+                        "/dashboard",
+                        view="home",
+                        theme=theme,
+                        qa_community_push=datetime.now(KST).strftime("%H%M%S"),
+                    ),
+                    wait_until="commit",
+                    ready_selector="body[data-view='home']",
+                )
+                shell = _assert_page_shell(page, theme=theme)
+                fixture = {
+                    "kind": "community_popular",
+                    "title": "삼성전자 커뮤니티 인기글 1위",
+                    "body": "신규 인기글 · 공감 42 · 조회 1,200 · 댓글 18",
+                    "url": "/dashboard/005930?tab=community&community_mode=popular",
+                    "market_scope": "kr",
+                    "event_date": datetime.now(KST).date().isoformat(),
+                    "created_at": datetime.now(KST).isoformat(),
+                }
+                page.evaluate(
+                    """fixture => {
+                      state.pushNotificationEnabled = true;
+                      state.pushNotificationHistory = [fixture];
+                      state.pushNotificationHistoryTab = 'all';
+                      setView('notifications');
+                      renderPushNotificationHistory();
+                    }""",
+                    fixture,
+                )
+                page.wait_for_selector("body[data-view='notifications']")
+                page.locator('[data-notification-tab="watchlist"]').click()
+                row = page.locator(
+                    "#push-history-list .push-history-item.kind-community_popular"
+                )
+                row.wait_for(state="visible")
+                history_contract = row.evaluate(
+                    """row => ({
+                      text: row.innerText,
+                      label: row.querySelector('.push-history-item-meta span')?.textContent?.trim() || '',
+                      viewport: innerWidth,
+                      rootWidth: document.documentElement.scrollWidth,
+                    })"""
+                )
+                if (
+                    history_contract["label"] != "커뮤니티 인기글"
+                    or "삼성전자 커뮤니티 인기글 1위"
+                    not in history_contract["text"]
+                    or history_contract["rootWidth"]
+                    > history_contract["viewport"] + 2
+                ):
+                    raise QaFailure(
+                        "커뮤니티 인기글이 관심종목 알림 이력으로 표시되지 않습니다.",
+                        history_contract,
+                    )
+
+                page.set_viewport_size({"width": 320, "height": 760})
+                page.wait_for_timeout(100)
+                narrow_history = page.evaluate(
+                    """() => ({
+                      viewport: innerWidth,
+                      rootWidth: document.documentElement.scrollWidth,
+                      bodyWidth: document.body.scrollWidth,
+                    })"""
+                )
+                if (
+                    narrow_history["rootWidth"] > narrow_history["viewport"] + 2
+                    or narrow_history["bodyWidth"] > narrow_history["viewport"] + 2
+                ):
+                    raise QaFailure(
+                        "320px 알림 이력에서 가로 넘침이 발생했습니다.",
+                        narrow_history,
+                    )
+
+                row.click()
+                page.wait_for_function(
+                    """() => {
+                      const params = new URLSearchParams(location.search);
+                      return location.pathname === '/dashboard/005930'
+                        && params.get('tab') === 'community'
+                        && params.get('community_mode') === 'popular'
+                        && document.body?.dataset.view === 'stock';
+                    }""",
+                    timeout=int(timeout * 1000),
+                )
+                page.wait_for_selector(
+                    '#stock-community-providers [data-stock-community-mode="popular"]',
+                    state="visible",
+                )
+                deep_link_contract = page.evaluate(
+                    """() => ({
+                      path: location.pathname,
+                      search: location.search,
+                      summarySelected: document.querySelector('[data-stock-tab="summary"]')
+                        ?.getAttribute('aria-selected'),
+                      communitySelected: document.querySelector('[data-stock-tab="community"]')
+                        ?.getAttribute('aria-selected'),
+                      summaryPanelHidden: document.querySelector('[data-stock-panel="summary"]')?.hidden,
+                      communityPanelHidden: document.querySelector('[data-stock-panel="community"]')?.hidden,
+                      communityHidden: document.querySelector('#stock-community-section')?.hidden,
+                      popularPressed: document.querySelector('[data-stock-community-mode="popular"]')
+                        ?.getAttribute('aria-pressed'),
+                      viewport: innerWidth,
+                      rootWidth: document.documentElement.scrollWidth,
+                    })"""
+                )
+                if (
+                    deep_link_contract["summarySelected"] != "false"
+                    or deep_link_contract["communitySelected"] != "true"
+                    or deep_link_contract["summaryPanelHidden"] is not True
+                    or deep_link_contract["communityPanelHidden"] is not False
+                    or deep_link_contract["communityHidden"] is not False
+                    or deep_link_contract["popularPressed"] != "true"
+                    or deep_link_contract["rootWidth"]
+                    > deep_link_contract["viewport"] + 2
+                ):
+                    raise QaFailure(
+                        "인기글 알림 링크가 삼성전자 커뮤니티 인기글 화면을 열지 못했습니다.",
+                        deep_link_contract,
+                    )
+
+                retry_pattern = re.compile(
+                    r"/stocks/005930/community-feed\?limit=12&mode=popular(?:&.*)?$"
+                )
+                page.route(
+                    retry_pattern,
+                    lambda route: route.fulfill(
+                        json={
+                            "code": "005930",
+                            "name": "삼성전자",
+                            "mode": "popular",
+                            "message": "커뮤니티 글은 참고용입니다.",
+                            "providers": [
+                                {
+                                    "key": "naver_board",
+                                    "label": "네이버",
+                                    "configured": True,
+                                    "message": "오늘 인기글 1건",
+                                    "items": [
+                                        {
+                                            "post_id": "qa-retry-popular",
+                                            "title": "재시도로 불러온 인기글",
+                                            "author_name": "QA",
+                                            "created_at": datetime.now(KST).isoformat(),
+                                            "like_count": 42,
+                                            "dislike_count": 0,
+                                            "view_count": 1200,
+                                            "reply_count": 18,
+                                            "url": "https://m.stock.naver.com/domestic/stock/005930/discussion/1",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ),
+                )
+                page.evaluate(
+                    """() => renderStockCommunity(
+                      { message: '오늘 인기글을 불러오지 못했습니다.', providers: [] },
+                      { retryable: true },
+                    )"""
+                )
+                retry = page.locator("#stock-community-providers .stock-community-retry")
+                retry.wait_for(state="visible")
+                retry_bounds = retry.bounding_box() or {}
+                retry.click()
+                page.get_by_text("재시도로 불러온 인기글", exact=True).wait_for(
+                    state="visible"
+                )
+                retry_contract = page.evaluate(
+                    """() => ({
+                      loading: state.stockCommunityPopularLoading,
+                      hasRetry: Boolean(document.querySelector('.stock-community-retry')),
+                      popularPressed: document.querySelector('[data-stock-community-mode="popular"]')
+                        ?.getAttribute('aria-pressed'),
+                      rootWidth: document.documentElement.scrollWidth,
+                      viewport: innerWidth,
+                    })"""
+                )
+                page.unroute(retry_pattern)
+                if (
+                    float(retry_bounds.get("height") or 0) < 44
+                    or retry_contract["loading"] is not False
+                    or retry_contract["hasRetry"] is not False
+                    or retry_contract["popularPressed"] != "true"
+                    or retry_contract["rootWidth"] > retry_contract["viewport"] + 2
+                ):
+                    raise QaFailure(
+                        "인기글 실패 상태의 다시 시도가 로딩을 종료하거나 데이터를 복구하지 못했습니다.",
+                        {"bounds": retry_bounds, "contract": retry_contract},
+                    )
+                return {
+                    **shell,
+                    "history": history_contract,
+                    "narrow_history": narrow_history,
+                    "deep_link": deep_link_contract,
+                    "retry": {"bounds": retry_bounds, **retry_contract},
+                }
+
+            results.append(
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id="SIG-PUSH-COMMUNITY-001",
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=community_popular_notification_case,
                     storage_state=storage_state,
                     share_id=share_id,
                 )

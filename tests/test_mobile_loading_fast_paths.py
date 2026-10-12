@@ -71,6 +71,89 @@ def test_stock_detail_secondary_loaders_keep_dashboard_visible_and_retry_context
     assert "state.stockNewsRows = stockNewsRows;" in home_source
 
 
+def test_stock_community_popular_timeout_exits_loading_and_force_retry_bypasses_cache():
+    source = _dashboard_source()
+    community_source = _function_source(
+        source,
+        "loadStockCommunityMode",
+        "setStockCommunityMode",
+    )
+    community_source = f"async {community_source}"
+    script = """
+const UI_CACHE_TTL_MS = 1000;
+const calls = [];
+const renders = [];
+let attempt = 0;
+const state = {
+  stockCommunityMode: "latest",
+  stockCommunity: null,
+  stockCommunityPopular: null,
+  stockCommunityPopularLoading: false,
+  stockCommunityModeRequestId: 0,
+  stockHomeDetailsRequestId: 4,
+  currentStock: { code: "005930" },
+  currentDashboard: { code: "005930", market: "KOSPI" },
+  responseCache: new Map([["/stocks/005930/community-feed?limit=12&mode=popular", { payload: {} }]]),
+};
+function stockDashboardIsUs() { return false; }
+function renderStockCommunity(payload, options = {}) { renders.push({ payload, options }); }
+function loadStockCommunity() { throw new Error("latest loader should not run"); }
+function fetchJsonCached(url, options) {
+  calls.push({ url, options });
+  attempt += 1;
+  if (attempt === 1) return Promise.reject(new Error("AbortError"));
+  return Promise.resolve({ providers: [{ key: "naver_board", configured: true, items: [{ post_id: "new" }] }] });
+}
+""" + community_source + """
+(async () => {
+  await loadStockCommunityMode("popular");
+  const firstFailure = {
+    loading: state.stockCommunityPopularLoading,
+    retryable: renders.at(-1).options.retryable,
+    message: renders.at(-1).payload.message,
+  };
+  await loadStockCommunityMode("popular", { force: true });
+  console.log(JSON.stringify({
+    calls,
+    firstFailure,
+    loadingAfterRetry: state.stockCommunityPopularLoading,
+    popularPostId: state.stockCommunityPopular.providers[0].items[0].post_id,
+    cacheStillPresent: state.responseCache.size > 0,
+  }));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    result = json.loads(completed.stdout)
+
+    assert result["firstFailure"] == {
+        "loading": False,
+        "retryable": True,
+        "message": "오늘 인기글을 불러오지 못했습니다.",
+    }
+    assert result["calls"] == [
+        {
+            "url": "/stocks/005930/community-feed?limit=12&mode=popular",
+            "options": {"force": False, "ttlMs": 5000, "timeoutMs": 20_000},
+        },
+        {
+            "url": "/stocks/005930/community-feed?limit=12&mode=popular",
+            "options": {"force": True, "ttlMs": 5000, "timeoutMs": 20_000},
+        },
+    ]
+    assert result["loadingAfterRetry"] is False
+    assert result["popularPostId"] == "new"
+    assert result["cacheStillPresent"] is False
+
+
 def test_page_loading_cancels_stale_animation_frame_before_it_can_restore_overlay():
     source = _dashboard_source()
     refresh_source = _function_source(source, "refreshPageLoading", "clearPageLoading")

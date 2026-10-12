@@ -218,6 +218,101 @@ def test_morning_news_classification_recognizes_real_estate_policy_actions():
     assert classify_morning_news(ordinary_price_story) == "real_estate"
 
 
+def test_morning_news_classification_requires_direct_policy_and_property_context():
+    published_at = datetime(2026, 10, 10, 14, 0, tzinfo=KST)
+    security_budget_story = _news(
+        external_id="category-boundary-security-budget",
+        title="전산장애 잦은 금융사, 보안 예산 덜 썼다…우리은행이 꼴찌",
+        category="breaking",
+        summary=(
+            "금융감독원 전자공시를 분석한 결과 전산장애가 잦은 금융사 20곳의 "
+            "지난해 정보보호 예산 집행률이 70%를 밑돌았습니다."
+        ),
+        published_at=published_at,
+    )
+    residential_crime_story = _news(
+        external_id="category-boundary-residential-crime",
+        title="조지아주 더글라스의 한 주택에서 5명이 총에 맞아 사망했다고 경찰이 밝혔다",
+        category="global",
+        summary=(
+            "조지아주 더글라스시 경찰은 한 주택에서 5명이 총에 맞아 "
+            "사망했다고 밝혔습니다."
+        ),
+        published_at=published_at,
+    )
+
+    assert classify_morning_news(security_budget_story) == "company"
+    assert classify_morning_news(residential_crime_story) == "other"
+
+
+def test_morning_money_briefing_excludes_residential_incident_from_property_section():
+    now = datetime(2026, 10, 10, 18, 0, tzinfo=KST)
+    security_budget_title = "전산장애 잦은 금융사, 보안 예산 덜 썼다…우리은행이 꼴찌"
+    residential_crime_title = (
+        "조지아주 더글라스의 한 주택에서 5명이 총에 맞아 사망했다고 경찰이 밝혔다"
+    )
+    rows = [
+        _news(
+            external_id="briefing-boundary-security-budget",
+            title=security_budget_title,
+            category="breaking",
+            summary=(
+                "금융감독원 전자공시를 분석한 결과 금융사의 정보보호 예산 "
+                "집행률이 낮았습니다."
+            ),
+            published_at=datetime(2026, 10, 10, 15, 30, tzinfo=KST),
+        ),
+        _news(
+            external_id="briefing-boundary-residential-crime",
+            title=residential_crime_title,
+            category="global",
+            summary=(
+                "현지 경찰은 한 주택에서 5명이 총에 맞아 사망했다고 "
+                "밝혔습니다."
+            ),
+            published_at=datetime(2026, 10, 10, 15, 20, tzinfo=KST),
+        ),
+        _news(
+            external_id="briefing-boundary-policy-control",
+            title="정부 반도체 세제 지원책 확대",
+            category="breaking",
+            published_at=datetime(2026, 10, 10, 15, 10, tzinfo=KST),
+        ),
+        _news(
+            external_id="briefing-boundary-property-control",
+            title="서울 아파트 매매가 3주 연속 상승",
+            category="breaking",
+            published_at=datetime(2026, 10, 10, 15, 0, tzinfo=KST),
+        ),
+    ]
+
+    payload = build_morning_money_briefing(
+        object(),
+        now=now,
+        schedule_events=[],
+        news_rows=rows,
+    )
+    categories = {category["key"]: category for category in payload["categories"]}
+    body_titles = {
+        item["title"]
+        for category in payload["categories"]
+        for item in category["items"]
+    }
+    highlight_titles = {item["title"] for item in payload["highlights"]}
+
+    assert security_budget_title in {
+        item["title"] for item in categories["company"]["items"]
+    }
+    assert security_budget_title not in {
+        item["title"] for item in categories["policy"]["items"]
+    }
+    assert residential_crime_title not in body_titles | highlight_titles
+    assert all(
+        residential_crime_title != item["title"]
+        for item in categories["real_estate"]["items"]
+    )
+
+
 def test_morning_news_classification_ignores_mismatched_source_summary():
     published_at = datetime(2026, 8, 13, 1, 0)
     mismatched_summary = (

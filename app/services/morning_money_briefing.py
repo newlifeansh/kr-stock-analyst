@@ -191,6 +191,25 @@ POLICY_KEYWORDS += (
     "\uae08\uc735\uac10\ub3c5\uc6d0",
     "\uae08\uac10\uc6d0",
 )
+POLICY_AUTHORITY_KEYWORDS = (
+    "정부", "국회", "대통령", "백악관", "금융당국", "금융감독원", "금감원",
+    "기획재정부", "산업통상자원부", "산업부", "한국은행", "한은", "중앙은행",
+    "연준", "fed", "fomc",
+)
+POLICY_ACTION_KEYWORDS = (
+    "정책", "규제", "지원", "지원책", "지원 방안", "대책", "세제", "관세", "보조금",
+    "법안", "예산안", "재정", "기준금리", "금리 동결", "금리 인상", "금리 인하",
+    "통화정책", "행정명령",
+)
+DIRECT_POLICY_KEYWORDS = (
+    "규제", "지원책", "세제", "관세", "보조금", "법안", "위헌", "재정정책",
+    "통화정책", "정부 발표",
+)
+MACRO_INDICATOR_KEYWORDS = (
+    "cpi", "pce", "소비자물가", "생산자물가", "물가상승률", "고용지표",
+    "실업률", "실업수당", "gdp", "국내총생산", "경제성장률", "성장률",
+    "수출액", "수출입", "무역수지", "경상수지", "소매판매", "산업생산",
+)
 REAL_ESTATE_POLICY_TOPICS = (
     "부동산", "주택", "아파트", "비아파트", "신도시", "재건축", "재개발",
     "정비사업", "공공택지", "전세", "주거", "집값", "분양",
@@ -208,6 +227,11 @@ REAL_ESTATE_TRANSACTION_ASSETS = (
     "빌딩", "타워", "오피스", "상가", "호텔", "물류센터", "업무시설",
 )
 REAL_ESTATE_TRANSACTION_ACTIONS = ("인수", "매입", "매각", "거래", "개발")
+REAL_ESTATE_MARKET_KEYWORDS = (
+    "매매", "거래량", "매매가", "전세가", "전셋값", "가격", "집값", "아파트값",
+    "주택가격", "전세가격", "분양가", "청약", "미분양", "입주", "공실", "임대료",
+    "경매",
+)
 INDUSTRY_KEYWORDS = (
     "반도체", "ai반도체", "배터리", "이차전지", "2차전지", "로봇",
     "바이오", "헬스케어", "자동차", "전기차", "조선", "방산", "원전", "태양광",
@@ -238,6 +262,9 @@ COMPANY_KEYWORDS += (
     "\uc0c1\uc7a5",
     "\uc720\uc99d",
     "\ub9e4\uac01",
+)
+COMPANY_OPERATION_KEYWORDS = (
+    "전산장애", "정보보호", "보안 예산", "예산 집행률", "금융사 보안",
 )
 NON_INVESTMENT_KEYWORDS = (
     "\ucf58서트", "\ud32c미팅", "\uc2e0곡", "\uc74c원", "\uc568범", "\uc608능", "\ub4dc라마", "\ubba4지컬",
@@ -516,6 +543,56 @@ def _is_real_estate_policy_text(value: object) -> bool:
     )
 
 
+def _is_policy_or_economic_indicator_text(value: object) -> bool:
+    """Require direct policy or macro evidence instead of a generic keyword hit."""
+
+    text = re.sub(r"\s+", " ", str(value or "")).casefold().strip()
+    if not text:
+        return False
+    if _contains(text, MACRO_INDICATOR_KEYWORDS):
+        return True
+    if _contains(text, POLICY_AUTHORITY_KEYWORDS) and _contains(
+        text,
+        POLICY_ACTION_KEYWORDS,
+    ):
+        return True
+    if _contains(text, DIRECT_POLICY_KEYWORDS):
+        return True
+    if _contains(text, ("고용", "실업")) and _contains(
+        text,
+        ("지표", "발표", "증가", "감소", "률"),
+    ):
+        return True
+    if "물가" in text and _contains(
+        text,
+        ("지표", "발표", "상승률", "상승", "하락", "둔화", "가속"),
+    ):
+        return True
+    return "수출" in text and _contains(
+        text,
+        ("수출액", "수출입", "무역수지", "증가", "감소"),
+    )
+
+
+def _is_real_estate_news_text(value: object) -> bool:
+    """Distinguish property-market news from incidents merely located in a home."""
+
+    text = re.sub(r"\s+", " ", str(value or "")).casefold().strip()
+    if not text:
+        return False
+    if _is_real_estate_policy_text(text):
+        return True
+    if _contains(text, REAL_ESTATE_TRANSACTION_ASSETS) and _contains(
+        text,
+        REAL_ESTATE_TRANSACTION_ACTIONS,
+    ):
+        return True
+    return _contains(text, REAL_ESTATE_POLICY_TOPICS) and _contains(
+        text,
+        REAL_ESTATE_MARKET_KEYWORDS,
+    )
+
+
 def _is_schedule_title(title: str) -> bool:
     has_event = _contains(title, SCHEDULE_EVENT_KEYWORDS)
     has_future_marker = _contains(title, SCHEDULE_FUTURE_KEYWORDS)
@@ -542,6 +619,8 @@ def _category_scores(text: str, *, weight: int = 1) -> dict[str, int]:
     # Samsung Electronics/SK hynix into "반도체", which is useful for
     # deduplication but would misclassify a bond-demand story as industry news.
     normalized = re.sub(r"\s+", " ", str(text or "")).casefold().strip()
+    has_policy_context = _is_policy_or_economic_indicator_text(normalized)
+    has_real_estate_context = _is_real_estate_news_text(normalized)
     scores = {
         "market": _keyword_hits(
             normalized,
@@ -555,6 +634,10 @@ def _category_scores(text: str, *, weight: int = 1) -> dict[str, int]:
         "tech": _keyword_hits(normalized, TECH_KEYWORDS),
         "real_estate": _keyword_hits(normalized, REAL_ESTATE_POLICY_TOPICS),
     }
+    if not has_policy_context:
+        scores["policy"] = 0
+    if not has_real_estate_context:
+        scores["real_estate"] = 0
     if re.search(r"\d{4,5}피(?:\s|$)", normalized):
         scores["market"] += 5
     if _contains(
@@ -584,7 +667,7 @@ def _category_scores(text: str, *, weight: int = 1) -> dict[str, int]:
         # Product names such as ETF, ISA and TDF should not be swallowed by a
         # passing mention of rates or the broader market.
         scores["invest"] += 2
-    if _contains(
+    if has_policy_context and _contains(
         normalized,
         ("규제", "금감원", "금융감독원", "금융당국", "법안", "정부 발표"),
     ):
@@ -610,6 +693,8 @@ def _category_scores(text: str, *, weight: int = 1) -> dict[str, int]:
         ),
     ):
         scores["company"] += 3
+    if _contains(normalized, COMPANY_OPERATION_KEYWORDS):
+        scores["company"] += 4
     return {key: value * weight for key, value in scores.items()}
 
 
@@ -640,6 +725,13 @@ def classify_morning_news(item: NewsItem) -> str:
         for key, score in _category_scores(str(item.summary or "")).items():
             scores[key] = scores.get(key, 0) + score
 
+    # A generated or syndicated summary can mention generic investment impact.
+    # Sensitive sections still need direct evidence in the source headline.
+    if not _is_policy_or_economic_indicator_text(title):
+        scores["policy"] = 0
+    if not _is_real_estate_news_text(title):
+        scores["real_estate"] = 0
+
     source_category = str(item.source_category or "").casefold()
     source_fallback = {
         "bond": "money",
@@ -649,7 +741,17 @@ def classify_morning_news(item: NewsItem) -> str:
         "market": "market",
         "global": "market",
     }.get(source_category)
-    if source_fallback:
+    source_has_investment_context = _contains(
+        title,
+        OTHER_INVESTMENT_KEYWORDS
+        + DOMESTIC_MARKET_KEYWORDS
+        + GLOBAL_MARKET_KEYWORDS
+        + MARKET_KEYWORDS,
+    )
+    if source_fallback and (
+        source_category in {"bond", "fx", "company", "disclosure_memo"}
+        or source_has_investment_context
+    ):
         scores[source_fallback] = scores.get(source_fallback, 0) + 1
     return _dominant_category(scores) or "other"
 

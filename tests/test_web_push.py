@@ -349,9 +349,283 @@ def test_market_notifications_are_enabled_for_legacy_defaults_but_not_custom_pre
     assert "market_ai_signal" in web_push.subscription_conditions(legacy_subscription)
     assert "market_session" in web_push.subscription_conditions(legacy_subscription)
     assert "recommendation_update" not in web_push.subscription_conditions(legacy_subscription)
+    assert "community_popular" not in web_push.subscription_conditions(legacy_subscription)
     assert "market_ai_signal" not in web_push.subscription_conditions(custom_subscription)
     assert "market_session" not in web_push.subscription_conditions(custom_subscription)
     assert "recommendation_update" not in web_push.subscription_conditions(custom_subscription)
+    assert "community_popular" not in web_push.subscription_conditions(custom_subscription)
+
+
+def _community_payload(*posts, configured=True):
+    return {
+        "providers": [
+            {
+                "key": "naver_board",
+                "configured": configured,
+                "items": list(posts),
+            }
+        ]
+    }
+
+
+def _community_post(post_id: str, title: str, likes: int, views: int, replies: int):
+    return {
+        "post_id": post_id,
+        "title": title,
+        "like_count": likes,
+        "view_count": views,
+        "reply_count": replies,
+    }
+
+
+def test_community_popular_candidates_use_top_three_and_internal_popular_deep_link():
+    watch = WatchlistItem(
+        share_id="tester",
+        code="005930",
+        name="삼성전자",
+        market="KOSPI",
+    )
+    available, candidates = web_push._community_popular_candidates(
+        watch,
+        _community_payload(
+            _community_post("post-1", "공감이 가장 높은 글", 40, 900, 12),
+            _community_post("post-2", "조회가 높은 글", 20, 1500, 5),
+            _community_post("post-3", "댓글이 많은 글", 10, 700, 30),
+            _community_post("post-4", "네 번째 글", 9, 600, 2),
+        ),
+        datetime(2026, 10, 8, 10, 0),
+    )
+
+    assert available is True
+    assert len(candidates) == 3
+    assert [candidate.kind for candidate in candidates] == ["community_popular"] * 3
+    assert [candidate.title for candidate in candidates] == [
+        "삼성전자 커뮤니티 인기글 1위",
+        "삼성전자 커뮤니티 인기글 2위",
+        "삼성전자 커뮤니티 인기글 3위",
+    ]
+    assert candidates[0].body == "공감이 가장 높은 글 · 공감 40 · 조회 900 · 댓글 12"
+    assert candidates[0].url == "/dashboard/005930?tab=community&community_mode=popular"
+    assert candidates[0].stock_codes == ("005930",)
+
+
+def test_community_popular_alert_baselines_then_sends_new_entry_once(monkeypatch):
+    db = _session()
+    calls = []
+    try:
+        subscription = PushSubscription(
+            share_id="tester",
+            endpoint="https://push.example/community-popular",
+            p256dh="p" * 64,
+            auth="a" * 24,
+            notification_preferences='["community_popular"]',
+        )
+        watch = WatchlistItem(
+            share_id="tester",
+            code="005930",
+            name="삼성전자",
+            market="KOSPI",
+        )
+        db.add_all([subscription, watch])
+        db.commit()
+        db.refresh(subscription)
+        db.refresh(watch)
+        monkeypatch.setattr(web_push, "webpush", lambda **kwargs: calls.append(kwargs))
+        runtime = web_push.WebPushRuntime(_settings())
+        now = datetime(2026, 10, 8, 10, 0)
+
+        initial = web_push._community_popular_candidates(
+            watch,
+            _community_payload(_community_post("post-1", "기존 인기글", 30, 800, 10)),
+            now,
+        )
+        assert runtime._process_community_popular_updates(
+            db, subscription, watch, initial, observed_at=now
+        ) == 0
+        assert calls == []
+
+        updated = web_push._community_popular_candidates(
+            watch,
+            _community_payload(
+                _community_post("post-2", "새로 진입한 인기글", 50, 1200, 18),
+                _community_post("post-1", "기존 인기글", 35, 900, 12),
+            ),
+            now + timedelta(minutes=10),
+        )
+        assert runtime._process_community_popular_updates(
+            db, subscription, watch, updated, observed_at=now + timedelta(minutes=10)
+        ) == 1
+        assert runtime._process_community_popular_updates(
+            db, subscription, watch, updated, observed_at=now + timedelta(minutes=10)
+        ) == 0
+        assert len(calls) == 1
+        push_payload = json.loads(calls[0]["data"])
+        assert push_payload["kind"] == "community_popular"
+        assert push_payload["title"] == "삼성전자 커뮤니티 인기글 1위"
+        assert push_payload["url"].endswith("tab=community&community_mode=popular")
+    finally:
+        db.close()
+
+
+def test_community_popular_source_failure_does_not_create_a_baseline():
+    db = _session()
+    try:
+        now = datetime(2026, 10, 8, 10, 0)
+        subscription = PushSubscription(
+            share_id="tester",
+            endpoint="https://push.example/community-unavailable",
+            p256dh="p" * 64,
+            auth="a" * 24,
+            notification_preferences='["community_popular"]',
+        )
+        watch = WatchlistItem(
+            share_id="tester",
+            code="005930",
+            name="삼성전자",
+            market="KOSPI",
+        )
+        db.add_all([subscription, watch])
+        db.commit()
+        db.refresh(subscription)
+        db.refresh(watch)
+        runtime = web_push.WebPushRuntime(_settings())
+
+        assert runtime._process_community_popular_updates(
+            db,
+            subscription,
+            watch,
+            (False, []),
+            observed_at=now,
+        ) == 0
+        assert runtime._community_popular_initialized(
+            db, subscription, watch, now.date()
+        ) is False
+    finally:
+        db.close()
+
+
+def test_community_popular_alert_rebaselines_on_each_new_day(monkeypatch):
+    db = _session()
+    calls = []
+    try:
+        subscription = PushSubscription(
+            share_id="tester",
+            endpoint="https://push.example/community-daily-baseline",
+            p256dh="p" * 64,
+            auth="a" * 24,
+            notification_preferences='["community_popular"]',
+        )
+        watch = WatchlistItem(
+            share_id="tester",
+            code="005930",
+            name="삼성전자",
+            market="KOSPI",
+        )
+        db.add_all([subscription, watch])
+        db.commit()
+        db.refresh(subscription)
+        db.refresh(watch)
+        monkeypatch.setattr(web_push, "webpush", lambda **kwargs: calls.append(kwargs))
+        runtime = web_push.WebPushRuntime(_settings())
+        first_day = datetime(2026, 10, 8, 23, 50)
+        next_day = datetime(2026, 10, 9, 9, 0)
+
+        first_snapshot = web_push._community_popular_candidates(
+            watch,
+            _community_payload(
+                _community_post("day-1", "첫째날 인기글", 20, 500, 8)
+            ),
+            first_day,
+        )
+        next_snapshot = web_push._community_popular_candidates(
+            watch,
+            _community_payload(
+                _community_post("day-2-existing", "둘째날 기존 인기글", 30, 700, 10)
+            ),
+            next_day,
+        )
+        next_update = web_push._community_popular_candidates(
+            watch,
+            _community_payload(
+                _community_post("day-2-new", "둘째날 신규 진입", 40, 900, 15),
+                _community_post("day-2-existing", "둘째날 기존 인기글", 35, 800, 12),
+            ),
+            next_day + timedelta(minutes=10),
+        )
+
+        assert runtime._process_community_popular_updates(
+            db,
+            subscription,
+            watch,
+            first_snapshot,
+            observed_at=first_day,
+        ) == 0
+        assert runtime._process_community_popular_updates(
+            db,
+            subscription,
+            watch,
+            next_snapshot,
+            observed_at=next_day,
+        ) == 0
+        assert runtime._process_community_popular_updates(
+            db,
+            subscription,
+            watch,
+            next_update,
+            observed_at=next_day + timedelta(minutes=10),
+        ) == 1
+        assert len(calls) == 1
+        assert json.loads(calls[0]["data"])["title"] == "삼성전자 커뮤니티 인기글 1위"
+    finally:
+        db.close()
+
+
+def test_community_popular_scan_deduplicates_codes_and_uses_interval(monkeypatch):
+    calls = []
+    watch = WatchlistItem(
+        share_id="tester",
+        code="005930",
+        name="삼성전자",
+        market="KOSPI",
+    )
+    duplicate = WatchlistItem(
+        share_id="another",
+        code="005930",
+        name="삼성전자",
+        market="KOSPI",
+    )
+
+    def fake_feed(stock, _settings, **kwargs):
+        calls.append((stock.code, kwargs))
+        return _community_payload(
+            _community_post("post-1", "오늘 인기글", 30, 800, 10)
+        )
+
+    monkeypatch.setattr(web_push, "build_stock_community_feed", fake_feed)
+    runtime = web_push.WebPushRuntime(_settings(web_push_community_poll_seconds=600))
+    now = datetime(2026, 10, 8, 10, 0)
+    watchlists = {"tester": [watch], "another": [duplicate]}
+
+    first = runtime._community_popular_snapshots(watchlists, now)
+    assert first is not None
+    assert list(first) == ["005930"]
+    assert first["005930"][0] is True
+    assert runtime._community_popular_snapshots(
+        watchlists, now + timedelta(minutes=9, seconds=59)
+    ) is None
+    assert runtime._community_popular_snapshots(
+        watchlists, now + timedelta(minutes=10)
+    ) is not None
+    assert calls == [
+        (
+            "005930",
+            {"limit": 3, "timeout_seconds": 8, "mode": "popular"},
+        ),
+        (
+            "005930",
+            {"limit": 3, "timeout_seconds": 8, "mode": "popular"},
+        ),
+    ]
 
 
 def _recommendation_item(

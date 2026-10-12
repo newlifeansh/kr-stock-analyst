@@ -19927,10 +19927,504 @@ body[data-staging-ia="tds-video"] #market-view.app-market-rankings .market-ranki
     padding-inline: 8px !important;
   }
 
-  body[data-staging-ia="tds-video"] #market-view.app-market-rankings .market-ranking-tabs .market-segment-button {
+body[data-staging-ia="tds-video"] #market-view.app-market-rankings .market-ranking-tabs .market-segment-button {
     min-width: 0 !important;
     padding-inline: 3px !important;
     font-size: 12px !important;
+  }
+}
+
+/* v172 — reduce AI stock response copy to one verdict, three visual signals, and price actions. */
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-page {
+  gap: 0 !important;
+  padding-bottom: max(28px, env(safe-area-inset-bottom)) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-page .sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-hero {
+  gap: 4px !important;
+  padding: 20px var(--tc-gutter) 12px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-identity {
+  align-items: center !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-identity h2 {
+  font-size: clamp(24px, 6.6vw, 29px) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-time-row,
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-updated {
+  font-size: 11px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote {
+  gap: 7px !important;
+  margin: 10px 0 0 !important;
+  padding: 13px 0 0 !important;
+  border: 0 !important;
+  border-top: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dl > div {
+  gap: 2px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote dd {
+  font-size: clamp(20px, 5.8vw, 25px) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-live-quote > p {
+  padding-top: 7px !important;
+  font-size: 10px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-analysis-refresh {
+  gap: 8px 12px !important;
+  padding-top: 7px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-context {
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: baseline !important;
+  gap: 6px 10px !important;
+  margin: 0 var(--tc-gutter) !important;
+  padding: 11px 0 !important;
+  border: 0 !important;
+  border-top: 1px solid var(--tc-line) !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-context > span {
+  color: var(--tc-muted) !important;
+  font-size: 10px !important;
+  white-space: nowrap !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-context > p {
+  overflow: hidden !important;
+  color: var(--tc-sub) !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-investor-state {
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: auto minmax(176px, 260px) !important;
+  align-items: center !important;
+  gap: 10px 14px !important;
+  margin: 0 var(--tc-gutter) !important;
+  padding: 12px 0 16px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-investor-state > header,
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-investor-state > header > div {
+  display: block !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-investor-state h3 {
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  white-space: nowrap !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-investor-options {
+  gap: 3px !important;
+  padding: 3px !important;
+  border-radius: 12px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-investor-options > button {
+  min-height: 44px !important;
+  border-radius: 9px !important;
+  font-size: 12px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-average-price {
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-action {
+  gap: 12px !important;
+  margin: 4px var(--tc-gutter) 18px !important;
+  padding: 20px !important;
+  border: 0 !important;
+  border-radius: 20px !important;
+  background: light-dark(rgba(0, 138, 91, 0.065), rgba(105, 217, 155, 0.07)) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-action h3 {
+  margin: 0 !important;
+  font-size: clamp(21px, 5.7vw, 26px) !important;
+  line-height: 1.38 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-summary {
+  display: -webkit-box !important;
+  margin: -2px 0 0 !important;
+  overflow: hidden !important;
+  color: var(--tc-sub) !important;
+  font-size: 13px !important;
+  font-weight: 620 !important;
+  line-height: 1.52 !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 2 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview {
+  order: -1 !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0 !important;
+  margin: 0 0 2px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview > div,
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview > div:first-child,
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview > div:last-child {
+  grid-column: auto !important;
+  gap: 3px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview > div:first-child {
+  padding-left: 0 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview > div + div {
+  padding-right: 0 !important;
+  border-left: 1px solid color-mix(in srgb, var(--tc-text) 12%, transparent) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview dt {
+  font-size: 10px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview dd strong {
+  font-size: 15px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview dd small {
+  font-size: 10px !important;
+  line-height: 1.35 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-disclaimer {
+  margin: 0 !important;
+  padding-top: 10px !important;
+  font-size: 10px !important;
+  line-height: 1.45 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-evidence {
+  gap: 12px !important;
+  padding: 0 var(--tc-gutter) 22px !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-evidence > header h3 {
+  font-size: 17px !important;
+  letter-spacing: -0.02em !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-key-reasons {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 0 !important;
+  border: 0 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-key-reason {
+  position: relative !important;
+  min-width: 0 !important;
+  display: grid !important;
+  justify-items: center !important;
+  gap: 7px !important;
+  padding: 0 4px !important;
+  border: 0 !important;
+  text-align: center !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-key-reason:not(:last-child)::after {
+  content: "" !important;
+  position: absolute !important;
+  z-index: 0 !important;
+  top: 6px !important;
+  left: calc(50% + 10px) !important;
+  width: calc(100% - 20px) !important;
+  height: 2px !important;
+  background: var(--tc-line) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-key-reason-mark {
+  position: relative !important;
+  z-index: 1 !important;
+  width: 13px !important;
+  height: 13px !important;
+  display: block !important;
+  border: 3px solid var(--tc-bg) !important;
+  border-radius: 50% !important;
+  background: var(--tc-muted) !important;
+  box-shadow: 0 0 0 1px var(--tc-line) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-key-reason[data-metric-tone="positive"]
+  .staging-ai-stock-response-key-reason-mark {
+  background: var(--tc-red) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-key-reason[data-metric-tone="negative"]
+  .staging-ai-stock-response-key-reason-mark {
+  background: var(--tc-blue) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-key-reason[data-metric-tone="limited"]
+  .staging-ai-stock-response-key-reason-mark {
+  background: var(--tc-warning) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-key-reason > header {
+  display: grid !important;
+  justify-items: center !important;
+  gap: 2px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-key-reason h4 {
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-key-reason header > span {
+  min-height: 0 !important;
+  padding: 0 !important;
+  color: var(--tc-muted) !important;
+  background: transparent !important;
+  font-size: 10px !important;
+  line-height: 1.35 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-key-reason[data-metric-tone="positive"] header > span {
+  color: var(--tc-red) !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-key-reason[data-metric-tone="negative"] header > span {
+  color: var(--tc-blue) !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-guide {
+  gap: 0 !important;
+  margin: 0 var(--tc-gutter) !important;
+  padding: 20px 0 8px !important;
+  border-top: 1px solid var(--tc-line) !important;
+  border-bottom: 0 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-guide > header {
+  gap: 3px !important;
+  padding-bottom: 10px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-guide h3 {
+  font-size: clamp(19px, 5vw, 22px) !important;
+  line-height: 1.35 !important;
+}
+
+body[data-staging-ia="tds-video"] :is(
+  .staging-ai-stock-response-holding-strategy,
+  .staging-ai-stock-response-price-map
+) {
+  margin: 4px 0 10px !important;
+  padding: 14px !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: var(--tc-surface-2) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map {
+  gap: 6px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map figcaption > strong {
+  font-size: 14px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-price-map-plot svg {
+  min-width: 300px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-guide-rows {
+  display: grid !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-guide-row {
+  gap: 3px !important;
+  padding: 12px 0 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-guide-row h4 {
+  font-size: 12px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-guide-row strong {
+  font-size: 15px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-guide-row-head > div > span {
+  min-height: 21px !important;
+  padding: 2px 7px !important;
+  border: 0 !important;
+  font-size: 9px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-next {
+  gap: 10px !important;
+  padding: 20px var(--tc-gutter) 8px !important;
+  border-top: 1px solid var(--tc-line) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-next h3 {
+  font-size: clamp(19px, 5vw, 22px) !important;
+  line-height: 1.35 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-next > ol {
+  gap: 0 !important;
+  margin-top: 0 !important;
+  counter-reset: response-step !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step {
+  counter-increment: response-step !important;
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: 30px minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 8px 10px !important;
+  padding: 11px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--tc-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step::before {
+  content: counter(response-step) !important;
+  width: 28px !important;
+  height: 28px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 50% !important;
+  color: var(--tc-sub) !important;
+  background: var(--tc-surface-2) !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step-head {
+  min-width: 0 !important;
+  display: grid !important;
+  justify-content: start !important;
+  gap: 2px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step-head > span {
+  overflow: hidden !important;
+  color: var(--tc-sub) !important;
+  font-size: 12px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step-head > em {
+  min-height: 0 !important;
+  justify-self: start !important;
+  padding: 0 !important;
+  background: transparent !important;
+  font-size: 9px !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step > strong {
+  max-width: 38vw !important;
+  font-size: 14px !important;
+  text-align: right !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-links {
+  margin: 14px var(--tc-gutter) 0 !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-links a {
+  min-height: 48px !important;
+  padding: 0 14px !important;
+  background: var(--tc-surface-2) !important;
+}
+
+body[data-staging-ia="tds-video"] .staging-ai-stock-response-note {
+  margin: 0 var(--tc-gutter) 20px !important;
+  padding-top: 10px !important;
+  border-top: 0 !important;
+  font-size: 10px !important;
+  line-height: 1.45 !important;
+}
+
+@media (max-width: 300px) {
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-investor-state,
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-context,
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview,
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-context > p {
+    white-space: normal !important;
+  }
+
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview > div,
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview > div:first-child,
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview > div:last-child {
+    padding: 7px 0 !important;
+    border-left: 0 !important;
+  }
+
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-overview > div + div {
+    border-top: 1px solid color-mix(in srgb, var(--tc-text) 12%, transparent) !important;
+  }
+
+  body[data-staging-ia="tds-video"] .staging-ai-stock-response-decision-step > strong {
+    max-width: none !important;
+    padding-left: 38px !important;
+    text-align: left !important;
   }
 }
 

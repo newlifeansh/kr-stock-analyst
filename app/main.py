@@ -292,7 +292,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261001v558"
+DASHBOARD_CLIENT_VERSION = "20261008v560"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -300,7 +300,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261001us130"
+US_DASHBOARD_CLIENT_VERSION = "20261008us132"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -562,6 +562,14 @@ PUSH_CONDITION_OPTIONS = [
         "description": "상위 10 신규 진입과 추천 종목의 매수·매도 단계 변경을 알려드립니다.",
     },
     {
+        "id": "community_popular",
+        "label": "커뮤니티 인기글",
+        "description": (
+            "관심종목의 오늘 커뮤니티 인기글 상위 3개에 "
+            "새 글이 들어오면 알려드립니다."
+        ),
+    },
+    {
         "id": "price_move",
         "label": "급등락",
         "description": f"관심종목 변동이 {settings.web_push_price_threshold:.0f}% 이상이면 알려드립니다.",
@@ -599,6 +607,11 @@ US_PUSH_CONDITION_COPY = {
         "추천 업데이트",
         "미국 추천 상위 10 신규 진입과 매수·매도 단계 변경을 알려드립니다.",
     ),
+    "community_popular": (
+        "커뮤니티 인기글",
+        "미국 관심종목의 오늘 커뮤니티 인기글 상위 3개에 "
+        "새 글이 들어오면 알려드립니다.",
+    ),
     "price_move": (
         "급등락",
         f"미국 관심종목 변동이 {settings.web_push_price_threshold:.0f}% 이상이면 알려드립니다.",
@@ -612,7 +625,10 @@ US_PUSH_CONDITION_COPY = {
         "미국 관심종목에 영향이 큰 시장 소식과 일정이 가까워지면 알려드립니다.",
     ),
 }
-DEFAULT_PUSH_CONDITIONS = tuple(item["id"] for item in PUSH_CONDITION_OPTIONS)
+SUPPORTED_PUSH_CONDITIONS = tuple(item["id"] for item in PUSH_CONDITION_OPTIONS)
+DEFAULT_PUSH_CONDITIONS = tuple(
+    item["id"] for item in PUSH_CONDITION_OPTIONS if item["id"] != "community_popular"
+)
 REQUIRED_PUSH_CONDITIONS = tuple(
     item["id"] for item in PUSH_CONDITION_OPTIONS if item.get("required")
 )
@@ -2018,7 +2034,7 @@ def _host_only(value: object) -> str:
 
 
 def _normalize_push_conditions(values: object) -> list[str]:
-    allowed = set(DEFAULT_PUSH_CONDITIONS)
+    allowed = set(SUPPORTED_PUSH_CONDITIONS)
     if not isinstance(values, list):
         return list(DEFAULT_PUSH_CONDITIONS)
     normalized: list[str] = []
@@ -4074,7 +4090,7 @@ def push_config(market_scope: str = Query(default="kr", pattern="^(kr|us)$")):
         "enabled": web_push_runtime.configured,
         "public_key": settings.web_push_vapid_public_key if web_push_runtime.configured else None,
         "market_scope": scope,
-        "conditions": list(DEFAULT_PUSH_CONDITIONS),
+        "conditions": list(SUPPORTED_PUSH_CONDITIONS),
         "condition_options": _push_condition_options(scope),
         "price_threshold": settings.web_push_price_threshold,
     }

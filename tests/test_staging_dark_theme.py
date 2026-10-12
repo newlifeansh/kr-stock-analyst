@@ -183,25 +183,22 @@ def test_staging_recommendations_keep_score_ranking_and_attach_signal_context():
     )
     payload = json.loads(rewritten)
 
-    assert payload["selection_rule"] == "recommendation_score_ranked_independent_of_trade_signal"
+    assert payload["selection_rule"] == "recommendation_score_ranked_with_terminal_exit_exclusion"
     assert payload["selection_state"] == "ready"
     assert payload["candidate_count"] == 20
     assert payload["qualified_count"] == 5
     assert payload["pending_count"] == 1
     assert payload["entered_today_count"] == 1
     assert payload["holding_count"] == 0
-    assert [item["code"] for item in payload["items"]] == ["078930", "003230", "105560"]
-    exited, pending, entered = payload["items"]
-    assert exited["rank"] == 1
-    assert exited["action"] == "우수"
-    assert exited["recommendation_state"] == "score_selected"
-    assert exited["ai_trade_signal"]["current"]["action"] == "exited"
-    assert pending["rank"] == 2
+    assert payload["terminal_exit_excluded_count"] == 1
+    assert [item["code"] for item in payload["items"]] == ["003230", "105560", "000001"]
+    pending, entered, live_preliminary = payload["items"]
+    assert pending["rank"] == 1
     assert pending["action"] == "관찰"
     assert pending["recommendation_state"] == "entry_confirmed"
     assert pending["condition_price"] == 1_531_000
     assert pending["ai_trade_signal"]["current"]["levels"][0]["price"] == 1_520_000
-    assert entered["rank"] == 3
+    assert entered["rank"] == 2
     assert entered["action"] == "관찰"
     assert entered["recommendation_state"] == "entered_today"
     assert entered["buy_condition_met"] is True
@@ -209,6 +206,12 @@ def test_staging_recommendations_keep_score_ranking_and_attach_signal_context():
     assert entered["strategy_entry_price"] == 169_100
     assert entered["condition_price"] == 173_300
     assert entered["ai_trade_signal"]["current"]["position_open"] is True
+    assert live_preliminary["rank"] == 3
+    assert live_preliminary["recommendation_state"] == "score_selected"
+    assert all(
+        item["ai_trade_signal"]["current"]["action"] != "exited"
+        for item in payload["items"]
+    )
 
 
 def test_staging_never_adds_a_recommendation_card_from_signal_membership(
@@ -331,7 +334,7 @@ def test_staging_recommendations_remain_visible_when_signal_context_is_unavailab
     assert [item["code"] for item in payload["items"]] == ["078930"]
     assert payload["items"][0]["recommendation_state"] == "score_selected"
     assert payload["selection_state"] == "ready"
-    assert "AI 시그널에서 별도로" in payload["selection_message"]
+    assert "매도를 완료한 종목" in payload["selection_message"]
 
 
 def test_staging_recommendations_do_not_depend_on_refreshing_signal_snapshot():
@@ -366,7 +369,7 @@ def test_staging_recommendations_do_not_depend_on_refreshing_signal_snapshot():
     assert [item["code"] for item in payload["items"]] == ["003230"]
     assert payload["selection_state"] == "ready"
     assert payload["selection_refreshing"] is True
-    assert "AI 시그널에서 별도로" in payload["selection_message"]
+    assert "매도를 완료한 종목" in payload["selection_message"]
 
     refreshing["snapshot_age_seconds"] = 1_801
     stale_payload = json.loads(
@@ -643,7 +646,7 @@ def test_staging_tds_ia_asset_preserves_data_contracts_and_remaps_navigation():
     assert 'aiSignalsView.querySelector(".ai-signals-commandbar")?.remove()' not in response.text
     assert 'source.classList.add("staging-proxied-commandbar")' in response.text
     assert 'const logoOrigin = window.__US_PUBLIC_GATEWAY__ || "";' in response.text
-    assert 'image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260929-chart-fallback-v117`' in response.text
+    assert 'image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20261010-ai-response-visual-v118`' in response.text
     assert 'className = "staging-pinned-empty"' in response.text
     assert "현재 AI 전략 비중은" in response.text
     for role in (
@@ -972,7 +975,7 @@ def test_staging_v122_keeps_feed_root_header_and_bottom_navigation_visible():
     css = client.get("/assets/staging/toss-fidelity.css").text
     js = client.get("/assets/staging/toss-ia.js").text
 
-    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
+    assert STAGING_IA_VERSION == "20261010-ai-response-visual-v118"
     rules = css.split(
         "/* v122 — Feed is a primary route: keep the global header and bottom navigation. */",
         1,
@@ -1036,7 +1039,7 @@ def test_staging_v128_falls_back_for_ios_standalone_chart_headers():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert "contextual-safe-area-v128" in shell
-    assert "20260929-chart-fallback-v117" in shell
+    assert "20261010-ai-response-visual-v118" in shell
     for contract in (
         'const isIosDevice = /iP(?:hone|ad|od)/.test(navigator.userAgent)',
         'navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1',
@@ -2169,7 +2172,7 @@ def test_staging_v69_rolls_the_header_through_major_market_indices():
     css = client.get("/assets/staging/toss-fidelity.css").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
+    assert STAGING_IA_VERSION == "20261010-ai-response-visual-v118"
     for contract in (
         'data-staging-index-ticker aria-live="off"',
         'const STAGING_MARKET_CONTEXT_CODES = ["KOSPI", "KOSDAQ", "NASDAQ", "SP500", "DOW", "SOX"]',
@@ -2260,7 +2263,7 @@ def test_staging_v74_removes_exchange_metadata_and_aligns_ai_signal_rows():
     js = client.get("/assets/staging/toss-ia.js").text
 
     assert THEME_VERSION == "20260828-tds-adaptive-v77-shortcuts"
-    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
+    assert STAGING_IA_VERSION == "20261010-ai-response-visual-v118"
     assert 'codeLine.className = "staging-ai-code"' not in js
     assert 'identity?.querySelector(".staging-ai-code")?.remove()' in js
 
@@ -2446,11 +2449,12 @@ def test_staging_v141_opens_a_beginner_friendly_stock_response_in_a_dedicated_pa
     assert 'data-staging-response-announcement' in js
     page_markup = js.split('stagingAiStockResponsePage.innerHTML = `', 1)[1].split('`;', 1)[0]
     expected_order = (
-        "이 화면이 열린 이유",
-        "쉽게 풀어보면",
-        "왜 이렇게 보나요?",
-        "앞으로 이렇게 확인하세요",
-        "20일·60일·수급만 확인해요",
+        "선택한 이유",
+        "내 상황",
+        "<dt>지금 판단</dt>",
+        'id="staging-ai-stock-response-evidence-title">판단 근거</h3>',
+        "가격 대응",
+        "다음 확인",
     )
     positions = [page_markup.index(label) for label in expected_order]
     assert positions == sorted(positions)
@@ -2460,8 +2464,19 @@ def test_staging_v141_opens_a_beginner_friendly_stock_response_in_a_dedicated_pa
     assert "신호 방향" not in page_markup
     assert "긍정·주의 신호를 비교하고 있어요" in page_markup
     assert "적중률이나 주가 상승 확률이 아니에요" not in page_markup
-    assert "실제 계좌·주문 내역과 자동 연동되지 않아요" in page_markup
-    assert "대응 참고 정보예요" in page_markup
+    assert "참고용 AI 분석 · 실제 계좌·주문과 연동되지 않아요" in page_markup
+    for verbose_label in (
+        "이 화면이 열린 이유",
+        "쉽게 풀어보면",
+        "왜 이렇게 보나요?",
+        "공개 기준",
+        "확인한 자료",
+        "세 가지 핵심 흐름",
+        "앞으로 볼 것",
+        "종목 상세에서 차트 보기",
+    ):
+        assert verbose_label not in page_markup
+    assert page_markup.count("data-staging-response-decision-plan") == 1
     assert 'data-staging-response-metrics aria-live=' not in page_markup
     for friendly_label in ("20일", "60일", "수급"):
         assert friendly_label in js
@@ -2845,7 +2860,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20261001v558' in shell
+    assert 'dashboard-app-v170.js?v=20261008v560' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 
@@ -3456,7 +3471,7 @@ def test_staging_v166_distinguishes_recommendation_states_and_reflows_mobile_car
     js = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
 
-    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
+    assert STAGING_IA_VERSION == "20261010-ai-response-visual-v118"
     assert "recommendation-overview-v166-recommendation-evidence-v169" in shell
     model_source = "const recommendationOverviewModel" + js.split(
         "const recommendationOverviewModel", 1,
@@ -3550,7 +3565,7 @@ def test_staging_v132_uses_home_only_notification_action_and_compact_sheet_rows(
     js = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v132 — make notifications the home action") :]
-    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
+    assert STAGING_IA_VERSION == "20261010-ai-response-visual-v118"
     assert "notification-sheet-v132" in shell
     assert 'bell: \'<path d="M27.5 16.5a9.5 9.5 0 0 0-19 0' in js
     for contract in (
@@ -3587,7 +3602,7 @@ def test_staging_v143_unifies_root_header_action_icon_geometry():
     js = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v143 — one optical outline system") :]
-    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
+    assert STAGING_IA_VERSION == "20261010-ai-response-visual-v118"
     assert "header-action-icons-v143" in shell
     for contract in (
         "const topActionGlyphs = Object.freeze({",
@@ -3624,7 +3639,7 @@ def test_staging_v146_explains_two_detail_pages_without_exposing_model_provenanc
     js = staging_client.get("/assets/staging/toss-ia.js").text
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v146 — the model stays invisible") :]
-    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
+    assert STAGING_IA_VERSION == "20261010-ai-response-visual-v118"
     assert "plain-language-detail-v146" in staging_shell
     assert "investor-action-copy-v147" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
@@ -3649,8 +3664,6 @@ def test_staging_v146_explains_two_detail_pages_without_exposing_model_provenanc
         "customer_state: customerState.key",
         "customer_state_label: customerState.label",
         "additional_buy_label: customerState.additionalBuyLabel",
-        "쉽게 풀어보면",
-        "왜 이렇게 보나요?",
         "지금 어떻게 보면 되나요?",
         "지금은 추가 매수보다 보유 기준을 확인할 때예요",
         "지금 확인할 추천 종목",
@@ -3694,12 +3707,12 @@ def test_staging_v149_uses_two_holding_states_average_price_and_finished_copy():
         'holding: Object.freeze({',
         'data-staging-response-investor-state="not_holding"',
         'data-staging-response-investor-state="holding"',
-        "현재 이 종목을 보유하고 있나요?",
+        "내 상황",
         'data-staging-response-average-price',
         'data-staging-response-guide-rows',
-        "20일·60일·수급만 확인해요",
-        "세 가지 핵심 흐름",
-        "실제 계좌·주문 내역과 자동 연동되지 않아요",
+        "20일 · 60일 · 수급",
+        "판단 근거",
+        "실제 계좌·주문과 연동되지 않아요",
         "investor_state: normalizedState",
         "investor_state_label: stateCopy.label",
         "position_mode: perspective.positionMode",
@@ -3746,11 +3759,11 @@ def test_staging_v151_shows_live_quote_and_separates_pullback_from_breakout_conf
     logic = client.get("/assets/staging/ai-stock-response-logic.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v151 — live quote context") :]
-    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
+    assert STAGING_IA_VERSION == "20261010-ai-response-visual-v118"
     assert "position-input-v150-live-quote-decision-plan-v151" in shell
     for contract in (
-        "현재 주당 가격",
-        "오늘 등락률",
+        "현재가",
+        "오늘",
         'data-staging-response-live-price',
         'data-staging-response-live-rate',
         'data-staging-response-live-state',
@@ -3758,8 +3771,8 @@ def test_staging_v151_shows_live_quote_and_separates_pullback_from_breakout_conf
         'clearQuoteStreamScope("staging-ai-stock-response")',
         "장 마감 시세",
         'typeof quote.is_live === "boolean"',
-        "가격이 내려올 때와 올라갈 때를 나눠 보세요",
-        "앞으로 이렇게 확인하세요",
+        "내려올 때 · 올라갈 때",
+        "다음 확인",
         'data-staging-response-decision-plan',
         'data-staging-response-next-summary',
         "stagingAiStockResponseDecisionStepRow",
@@ -3816,7 +3829,7 @@ def test_staging_v152_requires_manual_reanalysis_and_adds_personal_strategy_pric
     css = client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v152 — manual quote reanalysis") :]
 
-    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
+    assert STAGING_IA_VERSION == "20261010-ai-response-visual-v118"
     assert "live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154" in shell
     for contract in (
         'data-staging-response-analysis-refresh data-analysis-state="loading"',
@@ -3829,16 +3842,13 @@ def test_staging_v152_requires_manual_reanalysis_and_adds_personal_strategy_pric
         "stagingAiStockResponseReanalysisPending = true",
         "loadStagingAiStockResponse(detail, { force: true })",
         'data-staging-response-holding-strategy',
-        "내 보유 전략 한눈에",
+        "보유 전략",
         'data-staging-response-holding-average',
         'data-staging-response-holding-current',
         'data-staging-response-holding-return',
         'data-staging-response-holding-action',
         'data-staging-response-price-map',
-        "미보유 가격 지도",
-        "① 내려오면",
-        "② 올라가면",
-        "미래 가격을 예측한 차트가 아니라",
+        "가격 지도",
         "renderStagingAiStockResponsePriceMap",
         "renderStagingAiStockResponseHoldingStrategy",
     ):
@@ -3885,6 +3895,58 @@ def test_staging_v152_requires_manual_reanalysis_and_adds_personal_strategy_pric
         assert contract in rules
 
 
+def test_staging_v172_compacts_ai_stock_response_into_a_visual_decision_flow():
+    client = TestClient(staging_app)
+    shell = client.get("/dashboard?view=ai-stock-response&code=035720").text
+    js = client.get("/assets/staging/toss-ia.js").text
+    css = client.get("/assets/staging/toss-fidelity.css").text
+    page_markup = js.split('stagingAiStockResponsePage.innerHTML = `', 1)[1].split('`;', 1)[0]
+    rules = css.split(
+        "/* v172 — reduce AI stock response copy to one verdict, three visual signals, and price actions. */",
+        1,
+    )[1].split("/* v156 —", 1)[0]
+
+    assert "ai-response-visual-v172" in shell
+    assert "20261010-ai-response-visual-v118" in shell
+    labels = (
+        "선택한 이유",
+        "내 상황",
+        "<dt>지금 판단</dt>",
+        'id="staging-ai-stock-response-evidence-title">판단 근거</h3>',
+        "가격 대응",
+        "가격 지도",
+        "다음 확인",
+        "차트 보기",
+    )
+    positions = [page_markup.index(label) for label in labels]
+    assert positions == sorted(positions)
+    assert page_markup.count("data-staging-response-decision-plan") == 1
+    overview_markup = page_markup.split('class="staging-ai-stock-response-overview"', 1)[1].split("</dl>", 1)[0]
+    assert overview_markup.count("<div>") == 2
+    for verbose_label in (
+        "AI가 확인한 종목별 대응",
+        "자료마다 기준시각이 달라요",
+        "쉽게 풀어보면",
+        "왜 이렇게 보나요?",
+        "세 가지 핵심 흐름",
+        "앞으로 볼 것",
+        "종목 상세에서 차트 보기",
+    ):
+        assert verbose_label not in page_markup
+    for contract in (
+        ".staging-ai-stock-response-page .sr-only",
+        ".staging-ai-stock-response-key-reason-mark",
+        "grid-template-columns: repeat(3, minmax(0, 1fr)) !important",
+        "counter-reset: response-step !important",
+        "counter-increment: response-step !important",
+        "@media (max-width: 300px)",
+    ):
+        assert contract in rules
+    assert ': `${reason.label} ${reason.status}. ${reason.summary}`' in js
+    assert '${item.label || "확인 기준"} ${item.status || "확인"}, ${item.value || "자료 부족"}' in js
+    assert '${item.label || "다음에 볼 때"} ${item.status || "조건 확인"}, ${item.value || "가격 자료 부족"}' in js
+
+
 def test_staging_v145_refines_three_daily_briefings_without_changing_news_or_signal_data():
     staging_client = TestClient(staging_app)
     production_client = TestClient(production_app)
@@ -3893,7 +3955,7 @@ def test_staging_v145_refines_three_daily_briefings_without_changing_news_or_sig
     js = staging_client.get("/assets/staging/toss-ia.js").text
     css = staging_client.get("/assets/staging/toss-fidelity.css").text
     rules = css[css.index("/* v145 — GPT refines the current morning") :]
-    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
+    assert STAGING_IA_VERSION == "20261010-ai-response-visual-v118"
     assert "gpt-briefing-v145" in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' in staging_shell
     assert '<meta name="secret-note-environment" content="staging" />' not in production_shell
@@ -4025,7 +4087,7 @@ def test_staging_v156_keeps_public_signals_short_and_hides_numeric_scores():
     staging_source = client.get("/assets/staging/toss-ia.js").text
     css = client.get("/assets/staging/toss-fidelity.css").text
 
-    assert STAGING_IA_VERSION == "20260929-chart-fallback-v117"
+    assert STAGING_IA_VERSION == "20261010-ai-response-visual-v118"
     assert "signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161" in shell
     outcome_source = dashboard_source[
         dashboard_source.index("function aiSignalOutcomeMetrics(")

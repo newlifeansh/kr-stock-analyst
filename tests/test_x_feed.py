@@ -24,6 +24,21 @@ def _session() -> Session:
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
 
 
+class _FakeRequestSession:
+    def __init__(self, request_get):
+        self._request_get = request_get
+        self.headers = {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def get(self, url, **kwargs):
+        return self._request_get(url, **kwargs)
+
+
 def test_x_recent_search_is_mapped_and_persisted(monkeypatch):
     calls = []
     recent_time = (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0)
@@ -354,7 +369,11 @@ def test_stock_community_popular_mode_scans_today_and_orders_recommendations_the
     app.dependency_overrides[get_db] = override_db
     monkeypatch.setattr(main_module.settings, "threads_access_token", None)
     monkeypatch.setattr(community_feed, "_today_kst", lambda: date(2026, 9, 9))
-    monkeypatch.setattr(community_feed.requests, "get", fake_get)
+    monkeypatch.setattr(
+        community_feed.requests,
+        "Session",
+        lambda: _FakeRequestSession(fake_get),
+    )
     try:
         response = TestClient(app).get(
             "/stocks/215601/community-feed?limit=12&mode=popular"
@@ -517,7 +536,11 @@ def test_us_stock_community_popular_mode_uses_today_only(monkeypatch):
         return Response()
 
     monkeypatch.setattr(community_feed, "_today_kst", lambda: date(2026, 9, 9))
-    monkeypatch.setattr(community_feed.requests, "get", fake_get)
+    monkeypatch.setattr(
+        community_feed.requests,
+        "Session",
+        lambda: _FakeRequestSession(fake_get),
+    )
     payload = community_feed.build_us_stock_community_feed(
         {"code": "NVDA", "name": "NVIDIA", "market": "NASDAQ", "markets": ["NASDAQ"]},
         limit=12,
@@ -529,6 +552,63 @@ def test_us_stock_community_popular_mode_uses_today_only(monkeypatch):
         "us-popular-1"
     ]
     assert payload["providers"][0]["message"] == "오늘 인기글 1건"
+
+
+def test_stock_community_popular_scan_reuses_a_session_and_honors_total_deadline(monkeypatch):
+    calls = []
+
+    class Response:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return {
+                "result": {
+                    "lastOffset": "-next",
+                    "posts": [
+                        {
+                            "id": "popular-deadline",
+                            "writtenAt": "2026-09-09T08:30:00",
+                            "title": "총 대기시간 제한 검증",
+                            "writer": {"nickname": "작성자"},
+                            "recommendCount": 3,
+                            "viewCount": 40,
+                        }
+                    ],
+                }
+            }
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    clock = iter([0.0, 0.1, 5.0])
+    sessions = []
+
+    def fake_session():
+        session = _FakeRequestSession(fake_get)
+        sessions.append(session)
+        return session
+
+    monkeypatch.setattr(community_feed, "_today_kst", lambda: date(2026, 9, 9))
+    monkeypatch.setattr(community_feed, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(community_feed.requests, "Session", fake_session)
+
+    rows, found_source_posts = community_feed._fetch_naver_popular_discussion_rows(
+        "005930",
+        community_feed.NAVER_DOMESTIC_DISCUSSION_TYPE,
+        3,
+        3,
+        world=False,
+    )
+
+    assert found_source_posts is True
+    assert [row["post_id"] for row in rows] == ["popular-deadline"]
+    assert len(sessions) == 1
+    assert len(calls) == 1
+    assert calls[0][1]["timeout"] == 3.0
 
 
 def test_us_stock_community_feed_endpoint_is_market_scoped(monkeypatch):
@@ -697,6 +777,10 @@ def test_stock_detail_community_has_latest_and_popular_badge_filters():
     assert "state.stockCommunityPopularLoading" in source
     assert "/community-feed?limit=12&mode=popular" in source
     assert "오늘 인기글을 불러오는 중입니다." in source
+    assert "timeoutMs: 20_000" in source
+    assert 'el("button", "stock-community-retry", "다시 시도")' in source
+    assert 'loadStockCommunityMode(state.stockCommunityMode, { force: true })' in source
+    assert ".stock-community-retry" in styles
     assert ".stock-community-mode-filter button" in styles
     mode_filter_styles = styles.split(
         "#stock-view.stock-detail-v3 .stock-community-mode-filter button {", 1

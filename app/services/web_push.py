@@ -30,6 +30,10 @@ from app.models import (
     WatchlistItem,
 )
 from app.services.stock_dashboard import _naver_snapshot
+from app.services.community_feed import (
+    build_stock_community_feed,
+    build_us_stock_community_feed,
+)
 from app.services.market_calendar import (
     is_korea_daily_signal_window,
     is_korea_market_session_date,
@@ -144,6 +148,7 @@ DEFAULT_PUSH_CONDITIONS = (
     "disclosure_report",
     "major_event",
 )
+SUPPORTED_PUSH_CONDITIONS = (*DEFAULT_PUSH_CONDITIONS, "community_popular")
 REQUIRED_PUSH_CONDITIONS = {"ai_signal", "morning_briefing"}
 SIGNAL_NOTIFICATION_KINDS = frozenset({"ai_signal", "market_ai_signal"})
 MARKET_NOTIFICATION_KINDS = frozenset({*SIGNAL_NOTIFICATION_KINDS, "market_session", "price_move"})
@@ -173,6 +178,7 @@ PUSH_KIND_TO_CONDITION = {
     "ai_signal": "ai_signal",
     "market_ai_signal": "market_ai_signal",
     "recommendation_update": "recommendation_update",
+    "community_popular": "community_popular",
     "price_move": "price_move",
     "report": "disclosure_report",
     "disclosure": "disclosure_report",
@@ -182,6 +188,8 @@ PUSH_KIND_TO_CONDITION = {
 RECOMMENDATION_PUSH_LIMIT = 10
 RECOMMENDATION_BATCH_THRESHOLD = 3
 RECOMMENDATION_STATE_KIND = "recommendation_state"
+COMMUNITY_POPULAR_PUSH_LIMIT = 3
+COMMUNITY_POPULAR_STATE_KIND = "community_popular_state"
 SIGNAL_NOTIFICATION_ICON_BY_STATE = {
     "entry_watch": "🔎",
     "entry_pending": "✨",
@@ -403,7 +411,7 @@ def subscription_conditions(subscription: PushSubscription) -> set[str]:
         return set(DEFAULT_PUSH_CONDITIONS)
     if not isinstance(parsed, list):
         return set(DEFAULT_PUSH_CONDITIONS)
-    allowed = set(DEFAULT_PUSH_CONDITIONS)
+    allowed = set(SUPPORTED_PUSH_CONDITIONS)
     parsed_values = {str(item) for item in parsed}
     normalized = {item for item in parsed_values if item in allowed}
     if LEGACY_DEFAULT_PUSH_CONDITIONS.issubset(parsed_values):
@@ -855,6 +863,94 @@ def _recommendation_batch_candidate(
     )
 
 
+def _community_metric(value: object) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _community_popular_detail_url(item: WatchlistItem, market_scope: str) -> str:
+    encoded_code = quote(str(item.code or "").strip(), safe="")
+    if market_scope == "us":
+        return (
+            f"/us/stock/{encoded_code}?market_scope=us"
+            "&tab=community&community_mode=popular"
+        )
+    return f"/dashboard/{encoded_code}?tab=community&community_mode=popular"
+
+
+def _community_popular_candidates(
+    item: WatchlistItem,
+    payload: object,
+    now: datetime,
+    *,
+    market_scope: str = "kr",
+) -> tuple[bool, list[NotificationCandidate]]:
+    """Build alerts for top community posts without treating outages as empty."""
+
+    providers = payload.get("providers") if isinstance(payload, dict) else None
+    if not isinstance(providers, list):
+        return False, []
+    available_providers = [
+        provider
+        for provider in providers
+        if (
+            isinstance(provider, dict)
+            and provider.get("configured") is not False
+        )
+    ]
+    if not available_providers:
+        return False, []
+
+    event_date = now.date().isoformat()
+    candidates: list[NotificationCandidate] = []
+    seen: set[str] = set()
+    for provider in available_providers:
+        provider_key = str(provider.get("key") or "community").strip() or "community"
+        rows = provider.get("items")
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            post_id = str(row.get("post_id") or "").strip()
+            post_title = " ".join(str(row.get("title") or "").split()).strip()
+            if not post_id or not post_title:
+                continue
+            digest = hashlib.sha256(
+                f"{provider_key}:{post_id}".encode("utf-8")
+            ).hexdigest()[:20]
+            if digest in seen:
+                continue
+            seen.add(digest)
+            rank = len(candidates) + 1
+            metrics = (
+                f"공감 {_community_metric(row.get('like_count')):,} · "
+                f"조회 {_community_metric(row.get('view_count')):,} · "
+                f"댓글 {_community_metric(row.get('reply_count')):,}"
+            )
+            candidates.append(
+                NotificationCandidate(
+                    event_key=(
+                        f"community-popular:{market_scope}:{item.code}:"
+                        f"{event_date}:{digest}"
+                    ),
+                    kind="community_popular",
+                    title=f"{item.name} 커뮤니티 인기글 {rank}위",
+                    body=f"{post_title[:100]} · {metrics}",
+                    url=_community_popular_detail_url(item, market_scope),
+                    tag=f"community-popular-{market_scope}-{item.code}-{digest}",
+                    occurred_at=now,
+                    stock_codes=(item.code,),
+                    market_scope=market_scope,
+                )
+            )
+            if len(candidates) >= COMMUNITY_POPULAR_PUSH_LIMIT:
+                return True, candidates
+    return True, candidates
+
+
 def _disclosure_candidate(item: DisclosureItem, stock_name: str) -> NotificationCandidate:
     return NotificationCandidate(
         event_key=f"disclosure:{item.source}:{item.external_id}",
@@ -877,6 +973,7 @@ class WebPushRuntime:
         self.last_error: Optional[str] = None
         self.last_recommendation_scan_at: Optional[datetime] = None
         self.last_recommendation_scan_by_scope: dict[str, datetime] = {}
+        self.last_community_scan_by_scope: dict[str, datetime] = {}
         self.last_us_content_scan_at: Optional[datetime] = None
 
     @property
@@ -925,6 +1022,84 @@ class WebPushRuntime:
                     output[futures[future]] = future.result()
                 except Exception:
                     continue
+        return output
+
+    def _community_popular_snapshots(
+        self,
+        watchlists: dict[str, list[WatchlistItem]],
+        now: datetime,
+        market_scope: str = "kr",
+    ) -> Optional[
+        dict[str, tuple[bool, list[NotificationCandidate]]]
+    ]:
+        interval = max(60, int(self.settings.web_push_community_poll_seconds))
+        previous_scan_at = self.last_community_scan_by_scope.get(market_scope)
+        if (
+            previous_scan_at is not None
+            and (now - previous_scan_at).total_seconds() < interval
+        ):
+            return None
+
+        items_by_code: dict[str, WatchlistItem] = {}
+        for items in watchlists.values():
+            for item in items:
+                code = str(item.code or "").strip()
+                if code and code not in items_by_code:
+                    items_by_code[code] = item
+        if not items_by_code:
+            return {}
+
+        self.last_community_scan_by_scope[market_scope] = now
+
+        def load_item(item: WatchlistItem) -> tuple[bool, list[NotificationCandidate]]:
+            if market_scope == "us":
+                payload = build_us_stock_community_feed(
+                    {
+                        "code": item.code,
+                        "name": item.name,
+                        "market": item.market,
+                        "markets": [item.market] if item.market else [],
+                    },
+                    limit=COMMUNITY_POPULAR_PUSH_LIMIT,
+                    timeout_seconds=8,
+                    mode="popular",
+                )
+            else:
+                payload = build_stock_community_feed(
+                    StockMaster(
+                        code=item.code,
+                        name=item.name,
+                        market=item.market or "KOSPI",
+                        is_active=True,
+                    ),
+                    self.settings,
+                    limit=COMMUNITY_POPULAR_PUSH_LIMIT,
+                    timeout_seconds=8,
+                    mode="popular",
+                )
+            return _community_popular_candidates(
+                item,
+                payload,
+                now,
+                market_scope=market_scope,
+            )
+
+        output: dict[str, tuple[bool, list[NotificationCandidate]]] = {}
+        with ThreadPoolExecutor(max_workers=min(4, len(items_by_code))) as executor:
+            futures = {
+                executor.submit(load_item, item): code
+                for code, item in items_by_code.items()
+            }
+            for future in as_completed(futures):
+                code = futures[future]
+                try:
+                    output[code] = future.result()
+                except Exception:
+                    logger.exception(
+                        "Community popular push scan failed",
+                        extra={"market_scope": market_scope, "stock_code": code},
+                    )
+                    output[code] = (False, [])
         return output
 
     @staticmethod
@@ -1679,9 +1854,9 @@ class WebPushRuntime:
 
     @staticmethod
     def _recommendation_state_namespace(subscription: PushSubscription) -> str:
-        preference_epoch = (subscription.updated_at or subscription.created_at).isoformat(
-            timespec="microseconds"
-        )
+        preference_epoch = (
+            subscription.updated_at or subscription.created_at
+        ).isoformat(timespec="microseconds")
         return (
             f"recommendation-state:{subscription_market_scope(subscription)}:"
             f"{subscription.id}:{preference_epoch}"
@@ -2101,6 +2276,83 @@ class WebPushRuntime:
             )
 
     @staticmethod
+    def _community_popular_baseline_marker_key(
+        subscription: PushSubscription,
+        item: WatchlistItem,
+        event_date: date,
+    ) -> str:
+        preference_epoch = (subscription.updated_at or subscription.created_at).isoformat(
+            timespec="microseconds"
+        )
+        watch_epoch = item.created_at.isoformat(timespec="microseconds")
+        return (
+            f"community-popular-baseline:{subscription_market_scope(subscription)}:"
+            f"{item.code}:{event_date.isoformat()}:{preference_epoch}:{watch_epoch}"
+        )
+
+    def _community_popular_initialized(
+        self,
+        db: Session,
+        subscription: PushSubscription,
+        item: WatchlistItem,
+        event_date: date,
+    ) -> bool:
+        marker = self._community_popular_baseline_marker_key(
+            subscription,
+            item,
+            event_date,
+        )
+        return db.scalar(
+            select(PushDelivery.id).where(
+                PushDelivery.subscription_id == subscription.id,
+                PushDelivery.event_key == marker,
+                PushDelivery.status == "baseline",
+            )
+        ) is not None
+
+    def _process_community_popular_updates(
+        self,
+        db: Session,
+        subscription: PushSubscription,
+        item: WatchlistItem,
+        snapshot: tuple[bool, list[NotificationCandidate]],
+        *,
+        observed_at: datetime,
+    ) -> int:
+        source_available, candidates = snapshot
+        if not source_available:
+            return 0
+        event_date = observed_at.date()
+        if not self._community_popular_initialized(
+            db,
+            subscription,
+            item,
+            event_date,
+        ):
+            for candidate in candidates:
+                self._record_candidate_baseline(db, subscription, candidate)
+            db.add(
+                PushDelivery(
+                    subscription_id=subscription.id,
+                    event_key=self._community_popular_baseline_marker_key(
+                        subscription,
+                        item,
+                        event_date,
+                    ),
+                    notification_kind=COMMUNITY_POPULAR_STATE_KIND,
+                    title=f"{item.name} 커뮤니티 인기글 알림 기준선",
+                    status="baseline",
+                    attempts=0,
+                )
+            )
+            db.commit()
+            return 0
+        return sum(
+            int(self._send(db, subscription, candidate))
+            for candidate in candidates
+        )
+
+    @staticmethod
     def _market_signal_baseline_marker_key(subscription: PushSubscription) -> str:
         preference_epoch = (subscription.updated_at or subscription.created_at).isoformat(
             timespec="microseconds"
@@ -2225,6 +2477,27 @@ class WebPushRuntime:
             domestic_watchlists = {
                 share_id: watchlists.get(share_id, []) for share_id in domestic_share_ids
             }
+            domestic_community_subscriptions = [
+                item
+                for item in domestic_subscriptions
+                if "community_popular" in subscription_conditions(item)
+            ]
+            domestic_community_share_ids = {
+                item.share_id for item in domestic_community_subscriptions
+            }
+            domestic_community_watchlists = {
+                share_id: domestic_watchlists.get(share_id, [])
+                for share_id in domestic_community_share_ids
+            }
+            domestic_community_snapshots = (
+                self._community_popular_snapshots(
+                    domestic_community_watchlists,
+                    now_kst,
+                    "kr",
+                )
+                if domestic_community_subscriptions
+                else None
+            )
             domestic_quotes: dict[str, dict[str, object]] = {}
             if domestic_subscriptions:
                 regular_market_open = is_korea_regular_market_session(now_kst)
@@ -2263,6 +2536,27 @@ class WebPushRuntime:
             us_watchlists = {
                 share_id: watchlists.get(share_id, []) for share_id in us_share_ids
             }
+            us_community_subscriptions = [
+                item
+                for item in us_subscriptions
+                if "community_popular" in subscription_conditions(item)
+            ]
+            us_community_share_ids = {
+                item.share_id for item in us_community_subscriptions
+            }
+            us_community_watchlists = {
+                share_id: us_watchlists.get(share_id, [])
+                for share_id in us_community_share_ids
+            }
+            us_community_snapshots = (
+                self._community_popular_snapshots(
+                    us_community_watchlists,
+                    now_kst,
+                    "us",
+                )
+                if us_community_subscriptions and self.settings.us_market_enabled
+                else None
+            )
             if us_subscriptions and self.settings.us_market_enabled:
                 try:
                     us_snapshot = load_us_position_lifecycle_snapshot(db, now=now_utc_aware)
@@ -2386,6 +2680,26 @@ class WebPushRuntime:
                         now_kst,
                         market_scope=scope,
                     )
+                community_snapshots = (
+                    us_community_snapshots
+                    if scope == "us"
+                    else domestic_community_snapshots
+                )
+                if (
+                    community_snapshots is not None
+                    and "community_popular" in subscription_conditions(subscription)
+                ):
+                    for item in items:
+                        snapshot = community_snapshots.get(item.code)
+                        if snapshot is None:
+                            continue
+                        sent += self._process_community_popular_updates(
+                            db,
+                            subscription,
+                            item,
+                            snapshot,
+                            observed_at=now_kst,
+                        )
                 db.commit()
             return sent
 
@@ -2400,9 +2714,11 @@ class WebPushRuntime:
                 kind="test",
                 title="미국증시 알림 설정 완료" if scope == "us" else "알림 설정 완료",
                 body=(
-                    "미국 시장 소식, 추천 업데이트, AI 시그널, 급등락, 중요 SEC 공시를 알려드립니다."
+                    "미국 시장 소식, 추천 업데이트, 커뮤니티 인기글, "
+                    "AI 시그널, 급등락, 중요 SEC 공시를 알려드립니다."
                     if scope == "us"
-                    else "추천 업데이트, AI 시그널, 급등락, 중요 공시·리포트를 알려드립니다."
+                    else "추천 업데이트, 커뮤니티 인기글, AI 시그널, "
+                    "급등락, 중요 공시·리포트를 알려드립니다."
                 ),
                 url=(
                     "/us?view=portfolio&market_scope=us"

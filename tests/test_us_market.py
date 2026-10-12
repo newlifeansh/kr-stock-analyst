@@ -1081,7 +1081,7 @@ def test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed():
     assert payload["items"][0]["recommendation_score"] == Decimal("100.00")
     assert payload["items"][0]["recommendation_model_version"] == "us-independent-recommendation-v1"
     assert payload["items"][0]["recommendation_selection_rule"] == (
-        "recommendation_score_ranked_independent_of_trade_signal"
+        "recommendation_score_ranked_with_terminal_exit_exclusion"
     )
     assert payload["items"][0]["ai_trade_signal"]["status"] == "preliminary"
     assert payload["items"][0]["ai_trade_signal"]["current"]["position_open"] is False
@@ -1262,6 +1262,7 @@ def test_us_recommendations_rank_top100_independently_of_trade_signal_action():
 
     pending = us_market.build_us_recommendations(feed=feed("entry_pending"), limit=3)
     watching = us_market.build_us_recommendations(feed=feed("entry_watch"), limit=3)
+    exited = us_market.build_us_recommendations(feed=feed("exited"), limit=3)
 
     assert [item["code"] for item in pending["items"]] == ["AAA", "BBB", "CCC"]
     assert [item["code"] for item in watching["items"]] == ["AAA", "BBB", "CCC"]
@@ -1269,6 +1270,8 @@ def test_us_recommendations_rank_top100_independently_of_trade_signal_action():
     assert pending["items"][1]["ai_trade_signal"]["current"]["action"] == "entry_pending"
     assert watching["items"][1]["ai_trade_signal"]["current"]["action"] == "entry_watch"
     assert pending["items"][0]["recommendation_score"] > pending["items"][1]["recommendation_score"]
+    assert [item["code"] for item in exited["items"]] == ["AAA", "CCC"]
+    assert exited["terminal_exit_excluded_count"] == 1
 
 
 def test_us_recommendation_missing_valuation_reweights_only_observed_components():

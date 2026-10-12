@@ -126,6 +126,7 @@ class Settings(BaseSettings):
     web_push_enabled: bool = True
     web_push_poll_seconds: int = 60
     web_push_recommendation_poll_seconds: int = 600
+    web_push_community_poll_seconds: int = 600
     web_push_price_threshold: float = 5.0
     web_push_event_lead_hours: int = 24
     web_push_vapid_private_key: Optional[str] = None

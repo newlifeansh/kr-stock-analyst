@@ -75,7 +75,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-PERF-001": (
         "tests.test_quant_signals."
         "test_market_signal_performance_summary_uses_completed_net_returns_and_matched_index_periods",
-        "tests.test_app.test_ai_signal_performance_overview_contract_is_responsive_and_uses_90_day_source",
+        "tests.test_app.test_ai_signal_performance_overview_contract_is_responsive_and_uses_30_day_source",
     ),
     "SIG-ENTRY-008": (
         "tests.test_quant_signals."
@@ -239,6 +239,30 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_market_ai_confirmed_intraday_push_fails_closed",
         "tests.test_web_push."
         "test_run_once_dispatches_domestic_intraday_half_sale_once_after_baseline",
+    ),
+    "SIG-PUSH-COMMUNITY-001": (
+        "tests.test_app."
+        "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
+        "tests.test_app."
+        "test_us_push_config_keeps_the_same_conditions_with_us_market_copy",
+        "tests.test_web_push."
+        "test_market_notifications_are_enabled_for_legacy_defaults_but_not_custom_preferences",
+        "tests.test_web_push."
+        "test_community_popular_candidates_use_top_three_and_internal_popular_deep_link",
+        "tests.test_web_push."
+        "test_community_popular_alert_baselines_then_sends_new_entry_once",
+        "tests.test_web_push."
+        "test_community_popular_source_failure_does_not_create_a_baseline",
+        "tests.test_web_push."
+        "test_community_popular_alert_rebaselines_on_each_new_day",
+        "tests.test_web_push."
+        "test_community_popular_scan_deduplicates_codes_and_uses_interval",
+        "tests.test_x_feed."
+        "test_stock_community_popular_mode_scans_today_and_orders_recommendations_then_views",
+        "tests.test_x_feed."
+        "test_stock_community_popular_scan_reuses_a_session_and_honors_total_deadline",
+        "tests.test_mobile_loading_fast_paths."
+        "test_stock_community_popular_timeout_exits_loading_and_force_retry_bypasses_cache",
     ),
     "SIG-UI-030": (
         "tests.test_domestic_market_scope."
@@ -2590,7 +2614,7 @@ def _live_checks(
                     recommendations.get("recommendation_model_version")
                     == "us-independent-recommendation-v1"
                     and recommendations.get("recommendation_selection_rule")
-                    == "recommendation_score_ranked_independent_of_trade_signal",
+                    == "recommendation_score_ranked_with_terminal_exit_exclusion",
                     "미국 추천이 독립 점수 모델·선정 규칙을 공개하지 않았습니다.",
                     model_version=recommendations.get(
                         "recommendation_model_version"
@@ -2617,6 +2641,10 @@ def _live_checks(
                         or item.get("action") != "추천 후보"
                         or not isinstance(signal, dict)
                         or "score" in signal
+                        or (
+                            ((signal.get("current") or {}).get("action") == "exited")
+                            and (signal.get("current") or {}).get("position_open") is not True
+                        )
                     ):
                         invalid_recommendations.append(
                             str(item.get("code") or "unknown")
@@ -3293,21 +3321,21 @@ def _live_checks(
             )
 
             def market_performance_payload() -> dict[str, Any]:
-                cached = context.get("market_signals_90d")
+                cached = context.get("market_signals_30d")
                 if isinstance(cached, dict):
                     return cached
                 payload, meta = api.get(
                     "/market/quant-signals",
                     universe_limit=150,
                     limit=0,
-                    recent_days=90,
+                    recent_days=30,
                 )
                 _assert(
                     isinstance(payload, dict),
-                    "90일 시장 시그널 응답이 객체가 아닙니다.",
+                    "30일 시장 시그널 응답이 객체가 아닙니다.",
                     **meta,
                 )
-                context["market_signals_90d"] = payload
+                context["market_signals_30d"] = payload
                 return payload
 
             def signal_performance_contract() -> dict[str, Any]:
@@ -3331,7 +3359,7 @@ def _live_checks(
                     "as_of": summary.get("as_of"),
                     "windows": {},
                 }
-                for key, expected_days in (("30d", 30), ("90d", 90)):
+                for key, expected_days in (("7d", 7), ("15d", 15), ("30d", 30)):
                     window = windows.get(key) if isinstance(windows, dict) else None
                     _assert(isinstance(window, dict), f"{key} 성과 창이 없습니다.")
                     completed = int(window.get("completed_trades") or 0)
@@ -3383,7 +3411,7 @@ def _live_checks(
             collector.check(
                 "SIG-PERF-001",
                 signal_performance_contract,
-                pass_message="30일·90일 완료 거래 순수익과 동일 보유기간 지수 비교 계약을 확인했습니다.",
+                pass_message="7일·15일·30일 완료 거래 평균 수익률 계약을 확인했습니다.",
             )
 
             def entry_safety_guard_contract() -> dict[str, Any]:
@@ -3570,8 +3598,8 @@ def _live_checks(
                 )
                 _assert(
                     recommendations.get("selection_rule")
-                    == "recommendation_score_ranked_independent_of_trade_signal",
-                    "종목 추천이 추천 점수와 AI 시그널을 분리하지 않았습니다.",
+                    == "recommendation_score_ranked_with_terminal_exit_exclusion",
+                    "종목 추천이 전량 매도 완료 제외 규칙을 반영하지 않았습니다.",
                     selection_rule=recommendations.get("selection_rule"),
                 )
                 items = recommendations.get("items") or []
@@ -3642,6 +3670,11 @@ def _live_checks(
                     if (
                         item.get("buy_condition_met") is not True
                         or not recommendation_score_is_independent
+                        or (
+                            signal_action == "exited"
+                            and current.get("position_open") is not True
+                            and current.get("live_observation") is not True
+                        )
                         or not (
                             score_selected_valid
                             or pending_valid
@@ -3683,6 +3716,9 @@ def _live_checks(
                 )
                 qualified_count = int(recommendations.get("qualified_count") or 0)
                 candidate_count = int(recommendations.get("candidate_count") or 0)
+                terminal_exit_excluded_count = int(
+                    recommendations.get("terminal_exit_excluded_count") or 0
+                )
                 _assert(
                     candidate_count >= qualified_count >= len(items),
                     "추천 후보·점수 계산·반환 건수의 관계가 올바르지 않습니다.",
@@ -3691,9 +3727,11 @@ def _live_checks(
                     returned_count=len(items),
                 )
                 _assert(
-                    len(items) == min(20, qualified_count),
-                    "AI 시그널 상태 때문에 점수 추천 후보가 누락됐습니다.",
-                    expected_returned=min(20, qualified_count),
+                    len(items) <= min(20, qualified_count)
+                    and len(items) + terminal_exit_excluded_count
+                    >= min(20, qualified_count),
+                    "전량 매도 완료 종목 제외 후 추천 후보 반환 건수가 올바르지 않습니다.",
+                    maximum_returned=min(20, qualified_count),
                     returned_count=len(items),
                 )
                 _assert(
@@ -3725,6 +3763,7 @@ def _live_checks(
                     "pending_count": recommendations.get("pending_count"),
                     "entered_today_count": recommendations.get("entered_today_count"),
                     "holding_count": recommendations.get("holding_count"),
+                    "terminal_exit_excluded_count": terminal_exit_excluded_count,
                     "returned_count": len(items),
                     "signal_actions": sorted(signal_actions),
                     "codes": [item.get("code") for item in items if isinstance(item, dict)],
@@ -3733,7 +3772,7 @@ def _live_checks(
             collector.check(
                 "SIG-CONTRACT-002",
                 recommendation_eligibility_contract,
-                pass_message="추천 점수 순위와 현재 AI 시그널이 독립적으로 유지됨을 확인했습니다.",
+                pass_message="추천 점수 순위를 유지하면서 전량 매도 완료 종목을 제외함을 확인했습니다.",
             )
 
             def signal_surface_contract() -> dict[str, Any]:
@@ -4513,6 +4552,89 @@ def _live_checks(
             "SIG-UI-026",
             domestic_community_latest_contract,
             pass_message="삼성전자·WMB 최신 커뮤니티 글과 모바일 원문 링크를 확인했습니다.",
+        )
+
+        def community_popular_push_contract() -> dict[str, Any]:
+            push_config, push_meta = api.get("/push/config")
+            option = next(
+                (
+                    item
+                    for item in push_config.get("condition_options") or []
+                    if isinstance(item, dict)
+                    and item.get("id") == "community_popular"
+                ),
+                None,
+            )
+            _assert(
+                isinstance(option, dict)
+                and bool(option.get("label"))
+                and "상위 3개" in str(option.get("description") or ""),
+                "알림 설정에 커뮤니티 인기글 조건이 없거나 상위 3개 범위가 명확하지 않습니다.",
+                **push_meta,
+            )
+            payload, meta = api.get(
+                "/stocks/005930/community-feed",
+                limit=3,
+                mode="popular",
+            )
+            _assert(
+                payload.get("mode") == "popular",
+                "삼성전자 커뮤니티 피드가 인기글 모드를 반환하지 않습니다.",
+                mode=payload.get("mode"),
+                **meta,
+            )
+            providers = payload.get("providers")
+            provider = next(
+                (
+                    item
+                    for item in providers or []
+                    if isinstance(item, dict) and item.get("key") == "naver_board"
+                ),
+                None,
+            )
+            items = provider.get("items") if isinstance(provider, dict) else None
+            _assert(
+                isinstance(provider, dict)
+                and provider.get("configured") is not False
+                and isinstance(items, list)
+                and bool(items),
+                "삼성전자 오늘의 인기 커뮤니티 원천을 확인하지 못했습니다.",
+                provider_configured=(
+                    provider.get("configured") if isinstance(provider, dict) else None
+                ),
+                provider_message=(
+                    provider.get("message") if isinstance(provider, dict) else None
+                ),
+                **meta,
+            )
+            metric_fields = ("like_count", "view_count", "reply_count")
+            invalid_items = [
+                str(item.get("post_id") or "unknown")
+                for item in items[:3]
+                if not isinstance(item, dict)
+                or not item.get("post_id")
+                or not item.get("title")
+                or any(not isinstance(item.get(field), int) for field in metric_fields)
+            ]
+            _assert(
+                not invalid_items,
+                "인기글 알림에 필요한 게시물 ID·제목·공감·조회·댓글 필드가 불완전합니다.",
+                invalid_post_ids=invalid_items,
+                **meta,
+            )
+            return {
+                **meta,
+                "condition": option.get("id"),
+                "condition_label": option.get("label"),
+                "provider": provider.get("source"),
+                "item_count": min(len(items), 3),
+                "post_ids": [item.get("post_id") for item in items[:3]],
+            }
+
+        collector.check(
+            "SIG-PUSH-COMMUNITY-001",
+            community_popular_push_contract,
+            pass_message="삼성전자 커뮤니티 인기글 알림 옵션과 상위 3개 원천 계약을 확인했습니다.",
         )
 
         def realtime_status_contract() -> dict[str, Any]:
@@ -5410,7 +5532,7 @@ def _live_us_checks(
                 recommendations.get("recommendation_model_version")
                 == "us-independent-recommendation-v1"
                 and recommendations.get("recommendation_selection_rule")
-                == "recommendation_score_ranked_independent_of_trade_signal",
+                == "recommendation_score_ranked_with_terminal_exit_exclusion",
                 "미국 추천이 독립 점수 모델·선정 규칙을 공개하지 않았습니다.",
             )
             for item in recommendation_items:
@@ -5427,6 +5549,10 @@ def _live_us_checks(
                     or item.get("action") != "추천 후보"
                     or not isinstance(signal, dict)
                     or "score" in signal
+                    or (
+                        ((signal.get("current") or {}).get("action") == "exited")
+                        and (signal.get("current") or {}).get("position_open") is not True
+                    )
                 ):
                     invalid_recommendations.append(
                         str(item.get("code") or "unknown")

@@ -1080,8 +1080,7 @@
   const stagingAiStockResponseContext = (detail = {}) => {
     const issue = String(detail.issue || "최근 시장 이벤트와의 연결을 확인했어요.").trim();
     const relation = String(detail.relation || "관심종목 연관").trim();
-    const issueSentence = /[.!?。]$/.test(issue) ? issue : `${issue}.`;
-    return `${issueSentence} ${relation}으로 분류해 함께 확인했어요.`;
+    return `${issue.replace(/[.!?。]+$/, "")} · ${relation}`;
   };
 
   const stagingAiStockResponseStanceCopy = (stance = "") => (
@@ -1369,6 +1368,15 @@
     row.className = "staging-ai-stock-response-key-reason";
     row.dataset.metricTone = loading ? "loading" : reason.tone || "neutral";
     row.dataset.publicReason = reason.key || "loading";
+    row.setAttribute(
+      "aria-label",
+      loading
+        ? `${reason.label} 확인 중`
+        : `${reason.label} ${reason.status}. ${reason.summary}`,
+    );
+    const mark = document.createElement("span");
+    mark.className = "staging-ai-stock-response-key-reason-mark";
+    mark.setAttribute("aria-hidden", "true");
     const head = document.createElement("header");
     const label = document.createElement("h4");
     label.textContent = reason.label;
@@ -1376,10 +1384,11 @@
     status.textContent = loading ? "확인 중" : reason.status;
     head.append(label, status);
     const evidence = document.createElement("p");
+    evidence.className = "sr-only";
     evidence.textContent = loading
       ? `${reason.label} 흐름을 확인하고 있어요.`
       : reason.summary;
-    row.append(head, evidence);
+    row.append(mark, head, evidence);
     return row;
   };
 
@@ -1388,6 +1397,10 @@
     row.className = "staging-ai-stock-response-guide-row";
     row.dataset.guideKey = item.key || "guide";
     row.dataset.guideTone = item.tone || "neutral";
+    row.setAttribute(
+      "aria-label",
+      `${item.label || "확인 기준"} ${item.status || "확인"}, ${item.value || "자료 부족"}. ${item.evidence || ""}`.trim(),
+    );
     const head = document.createElement("div");
     head.className = "staging-ai-stock-response-guide-row-head";
     const identity = document.createElement("div");
@@ -1400,6 +1413,7 @@
     value.textContent = item.value || "자료 부족";
     head.append(identity, value);
     const evidence = document.createElement("p");
+    evidence.className = "sr-only";
     evidence.textContent = item.evidence || "연결된 가격 자료를 확인하고 있어요.";
     row.append(head, evidence);
     return row;
@@ -1410,6 +1424,10 @@
     row.className = "staging-ai-stock-response-decision-step";
     row.dataset.decisionKey = item.key || "check";
     row.dataset.decisionTone = item.tone || "neutral";
+    row.setAttribute(
+      "aria-label",
+      `${item.label || "다음에 볼 때"} ${item.status || "조건 확인"}, ${item.value || "가격 자료 부족"}. ${item.evidence || ""}`.trim(),
+    );
     const head = document.createElement("div");
     head.className = "staging-ai-stock-response-decision-step-head";
     const label = document.createElement("span");
@@ -1420,6 +1438,7 @@
     const value = document.createElement("strong");
     value.textContent = item.value || "가격 자료 부족";
     const evidence = document.createElement("p");
+    evidence.className = "sr-only";
     evidence.textContent = item.evidence || "가격과 외국인·기관 매매가 함께 달라지는지 확인해요.";
     row.append(head, value, evidence);
     return row;
@@ -2047,12 +2066,12 @@
     stagingAiStockResponseText(
       "[data-staging-response-guide-title]",
       perspective.positionMode === "holding_profit"
-        ? "수익을 지킬 가격을 나눠 보세요"
+        ? "수익 보호 구간"
         : perspective.positionMode === "holding_loss"
-          ? "손실 제한선과 회복선을 나눠 보세요"
+          ? "손실 제한 · 회복 구간"
           : perspective.positionMode === "holding_unknown"
-            ? "평균 매수가를 입력해 손익 기준을 확인하세요"
-            : "가격이 내려올 때와 올라갈 때를 나눠 보세요",
+            ? "평균 매수가 입력"
+            : "내려올 때 · 올라갈 때",
     );
     stagingAiStockResponseText(
       "[data-staging-response-guide-intro]",
@@ -2468,23 +2487,21 @@
         stagingAiStockResponsePage.setAttribute("aria-labelledby", "staging-ai-stock-response-name");
         stagingAiStockResponsePage.innerHTML = `
           <header class="staging-ai-stock-response-hero">
-            <span class="staging-ai-stock-response-eyebrow">AI가 확인한 종목별 대응</span>
             <div class="staging-ai-stock-response-identity">
               <h2 id="staging-ai-stock-response-name" data-staging-response-name>관심종목</h2>
               <span class="staging-ai-stock-response-status" data-staging-response-status>자료 확인 중</span>
             </div>
             <div class="staging-ai-stock-response-time-row">
               <time class="staging-ai-stock-response-updated" data-staging-response-updated>업데이트 확인 중</time>
-              <span>자료마다 기준시각이 달라요</span>
             </div>
             <section class="staging-ai-stock-response-live-quote" data-staging-response-live-quote aria-label="현재 주가">
               <dl>
                 <div>
-                  <dt>현재 주당 가격</dt>
+                  <dt>현재가</dt>
                   <dd data-staging-response-live-price>시세 확인 중</dd>
                 </div>
                 <div>
-                  <dt>오늘 등락률</dt>
+                  <dt>오늘</dt>
                   <dd data-staging-response-live-rate>--</dd>
                 </div>
               </dl>
@@ -2496,22 +2513,20 @@
             </section>
           </header>
           <section class="staging-ai-stock-response-context" aria-labelledby="staging-ai-stock-response-context-title">
-            <span id="staging-ai-stock-response-context-title">이 화면이 열린 이유</span>
+            <span id="staging-ai-stock-response-context-title">선택한 이유</span>
             <p data-staging-response-context>최근 시장 이벤트와 이 종목의 연결을 확인했어요.</p>
           </section>
           <section class="staging-ai-stock-response-investor-state" aria-labelledby="staging-ai-stock-response-investor-state-title">
             <header>
               <div>
-                <span>내 상황에 맞춰 볼게요</span>
-                <h3 id="staging-ai-stock-response-investor-state-title">현재 이 종목을 보유하고 있나요?</h3>
+                <h3 id="staging-ai-stock-response-investor-state-title">내 상황</h3>
               </div>
-              <p>보유 여부와 평균 매수가에 맞춰 확인할 가격이 달라져요.</p>
             </header>
             <div class="staging-ai-stock-response-investor-options" role="group" aria-label="이 종목에 대한 내 상황">
               <button type="button" class="active" aria-pressed="true" data-staging-response-investor-state="not_holding">미보유</button>
               <button type="button" aria-pressed="false" data-staging-response-investor-state="holding">보유 중</button>
             </div>
-            <p class="staging-ai-stock-response-investor-note" data-staging-response-investor-note>
+            <p class="staging-ai-stock-response-investor-note sr-only" data-staging-response-investor-note>
               현재 보유하지 않은 상태로, 관망 이유와 매수 전환 조건을 설명해요.
             </p>
             <form class="staging-ai-stock-response-average-price" data-staging-response-average-price-field hidden novalidate>
@@ -2546,46 +2561,42 @@
             </div>
           </section>
           <section class="staging-ai-stock-response-action" aria-labelledby="staging-ai-stock-response-action-title" aria-describedby="staging-ai-stock-response-disclaimer">
-            <div class="staging-page-summary-head">
-              <span>쉽게 풀어보면</span>
-            </div>
             <h3 id="staging-ai-stock-response-action-title" data-staging-response-action>20일·60일·수급을 확인하고 있어요</h3>
             <p class="staging-ai-stock-response-summary" data-staging-response-summary>잠시만 기다리면 쉬운 말로 정리해 드릴게요.</p>
-            <div class="staging-ai-stock-response-explanation">
-              <span>왜 이렇게 보나요?</span>
-              <p class="staging-ai-stock-response-reason" data-staging-response-reason>종목별 판단 근거를 연결하고 있습니다.</p>
-            </div>
+            <p class="staging-ai-stock-response-reason sr-only" data-staging-response-reason>종목별 판단 근거를 연결하고 있습니다.</p>
             <dl class="staging-ai-stock-response-overview" aria-label="현재 AI 분석 요약">
               <div>
                 <dt>지금 판단</dt>
                 <dd><strong data-staging-response-direction>계산 중이에요</strong><small data-staging-response-direction-guide>긍정·주의 신호를 비교하고 있어요</small></dd>
               </div>
               <div>
-                <dt>공개 기준</dt>
-                <dd><strong data-staging-response-data-state>확인 중</strong><small>20일·60일·수급</small></dd>
-              </div>
-              <div>
-                <dt>확인한 자료</dt>
-                <dd><strong data-staging-response-coverage-label>확인 중</strong><small>세 가지 핵심 흐름</small></dd>
+                <dt>근거</dt>
+                <dd><strong data-staging-response-data-state>확인 중</strong><small>20일 · 60일 · 수급 <span class="sr-only" data-staging-response-coverage-label>확인 중</span></small></dd>
               </div>
             </dl>
             <p class="staging-ai-stock-response-disclaimer" id="staging-ai-stock-response-disclaimer">
-              공개 데이터와 직접 입력한 평균 매수가를 바탕으로 한 대응 참고 정보예요. 실제 계좌·주문 내역과 자동 연동되지 않아요.
+              참고용 AI 분석 · 실제 계좌·주문과 연동되지 않아요.
             </p>
+          </section>
+          <section class="staging-ai-stock-response-evidence" aria-labelledby="staging-ai-stock-response-evidence-title">
+            <header>
+              <h3 id="staging-ai-stock-response-evidence-title">판단 근거</h3>
+            </header>
+            <div class="staging-ai-stock-response-key-reasons" data-staging-response-key-reasons></div>
           </section>
           <section class="staging-ai-stock-response-guide" aria-labelledby="staging-ai-stock-response-guide-title">
             <header>
-              <span>내 상황별 가격 가이드</span>
-              <h3 id="staging-ai-stock-response-guide-title" data-staging-response-guide-title>가격이 내려올 때와 올라갈 때를 나눠 보세요</h3>
-              <p data-staging-response-guide-intro>높은 확인선은 바로 사는 가격이 아니며, 눌림목과 상승 흐름을 따로 확인해요.</p>
+              <span>가격 대응</span>
+              <h3 id="staging-ai-stock-response-guide-title" data-staging-response-guide-title>내려올 때·올라갈 때</h3>
+              <p class="sr-only" data-staging-response-guide-intro>높은 확인선은 바로 사는 가격이 아니며, 눌림목과 상승 흐름을 따로 확인해요.</p>
             </header>
             <section class="staging-ai-stock-response-holding-strategy" data-staging-response-holding-strategy hidden aria-labelledby="staging-ai-stock-response-holding-strategy-title">
               <header>
-                <span>입력한 평균가 기준</span>
-                <h4 id="staging-ai-stock-response-holding-strategy-title">내 보유 전략 한눈에</h4>
+                <span>내 평균가 기준</span>
+                <h4 id="staging-ai-stock-response-holding-strategy-title">보유 전략</h4>
                 <strong data-staging-response-holding-stage>보유 기준 확인</strong>
               </header>
-              <p data-staging-response-holding-summary>평균 매수가와 현재가를 비교해 보유 기준을 확인해요.</p>
+              <p class="sr-only" data-staging-response-holding-summary>평균 매수가와 현재가를 비교해 보유 기준을 확인해요.</p>
               <dl>
                 <div><dt>평균 매수가</dt><dd data-staging-response-holding-average>--</dd></div>
                 <div><dt>현재가</dt><dd data-staging-response-holding-current>--</dd></div>
@@ -2595,23 +2606,15 @@
             </section>
             <figure class="staging-ai-stock-response-price-map" data-staging-response-price-map hidden>
               <figcaption>
-                <span>미보유 가격 지도</span>
-                <strong>현재가에서 두 가지 확인 경로를 비교해 보세요</strong>
+                <strong>가격 지도</strong>
               </figcaption>
               <div class="staging-ai-stock-response-price-map-plot" data-staging-response-price-map-plot></div>
-              <ol>
-                <li><strong>① 내려오면</strong><span>눌림목 구간에서 하락이 멈추고 반등하는지 확인해요.</span></li>
-                <li><strong>② 올라가면</strong><span>확인선 위에서 장을 마친 뒤 다시 그 가격을 지키는지 확인해요.</span></li>
-              </ol>
-              <p>미래 가격을 예측한 차트가 아니라, 확인할 가격 위치를 비교한 그림이에요.</p>
             </figure>
             <div class="staging-ai-stock-response-guide-rows" data-staging-response-guide-rows></div>
-            <p class="staging-ai-stock-response-guide-note">가격 기준은 20일·60일 흐름과 같은 시점의 수급을 함께 확인해 주세요.</p>
           </section>
           <section class="staging-ai-stock-response-next" data-staging-response-next hidden aria-labelledby="staging-ai-stock-response-next-title">
-            <span>앞으로 볼 것</span>
-            <h3 id="staging-ai-stock-response-next-title">앞으로 이렇게 확인하세요</h3>
-            <p data-staging-response-next-summary>가격이 내려올 때와 올라갈 때를 나눠 순서대로 확인해요.</p>
+            <h3 id="staging-ai-stock-response-next-title">다음 확인</h3>
+            <p class="sr-only" data-staging-response-next-summary>가격이 내려올 때와 올라갈 때를 나눠 순서대로 확인해요.</p>
             <ol data-staging-response-decision-plan></ol>
           </section>
           <section class="staging-ai-stock-response-warnings" data-staging-response-warnings hidden aria-labelledby="staging-ai-stock-response-warning-title">
@@ -2619,19 +2622,11 @@
             <ul></ul>
             <button type="button" data-staging-response-retry hidden>자료 다시 불러오기</button>
           </section>
-          <section class="staging-ai-stock-response-evidence" aria-labelledby="staging-ai-stock-response-evidence-title">
-            <header>
-              <span>판단 근거</span>
-              <h3 id="staging-ai-stock-response-evidence-title">20일·60일·수급만 확인해요</h3>
-              <p>세부 계산식과 점수는 공개하지 않고 핵심 흐름만 보여드려요.</p>
-            </header>
-            <div class="staging-ai-stock-response-key-reasons" data-staging-response-key-reasons></div>
-          </section>
           <nav class="staging-ai-stock-response-links" aria-label="종목 추가 확인">
-            <a href="/dashboard" data-staging-response-stock-link>종목 상세에서 차트 보기</a>
+            <a href="/dashboard" data-staging-response-stock-link>차트 보기</a>
           </nav>
           <aside class="staging-ai-stock-response-note" aria-label="AI 종목 분석 이용 안내">
-            AI 판단에는 추가 내부 검증이 반영되지만 화면에는 세 가지 공개 근거만 표시해요. 거래 전 최신 시세를 다시 확인해 주세요.
+            거래 전 최신 시세를 확인해 주세요.
           </aside>
           <p class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-staging-response-announcement></p>
         `;
@@ -3983,7 +3978,7 @@
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
       const logoOrigin = window.__US_PUBLIC_GATEWAY__ || "";
-      image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20260929-chart-fallback-v117`;
+      image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20261010-ai-response-visual-v118`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }

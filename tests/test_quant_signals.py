@@ -4043,13 +4043,22 @@ def test_market_signal_performance_summary_uses_completed_net_returns_and_matche
             as_of=datetime(2026, 9, 25, 18, 0, tzinfo=quant_signals.KST),
         )
 
-    recent = summary["windows"]["30d"]
-    assert recent["completed_trades"] == 2
-    assert recent["wins"] == 1
-    assert recent["average_return"] == Decimal("1.00")
-    assert recent["median_return"] == Decimal("1.00")
-    assert recent["matched_benchmark_trades"] == 2
-    assert recent["average_excess_return"] == Decimal("1.47")
+    week = summary["windows"]["7d"]
+    assert week["completed_trades"] == 1
+    assert week["wins"] == 0
+    assert week["average_return"] == Decimal("-3.00")
+    assert week["median_return"] == Decimal("-3.00")
+
+    fortnight = summary["windows"]["15d"]
+    assert fortnight["completed_trades"] == 2
+    assert fortnight["average_return"] == Decimal("1.00")
+    assert fortnight["median_return"] == Decimal("1.00")
+    assert fortnight["matched_benchmark_trades"] == 2
+    assert fortnight["average_excess_return"] == Decimal("1.47")
+
+    month = summary["windows"]["30d"]
+    assert month["completed_trades"] == 2
+    assert set(summary["windows"]) == {"7d", "15d", "30d"}
     assert summary["benchmark_basis"] == "same_market_same_holding_period"
 
 
