@@ -137,6 +137,12 @@ jobs:
         run: |
           set -euo pipefail
           railway service list --project "$DIAG_PROJECT" --environment staging --json | python -c 'import json,sys; rows=json.load(sys.stdin); print(json.dumps([{key: row.get(key) for key in ("id","name","status","deploymentStopped","replicas","regions","source","latestDeployment")} for row in rows]))'
+      - name: Read only selected staging deployment-region configuration
+        if: matrix.surface == 'dashboard' && matrix.role == 'web'
+        run: |
+          set -euo pipefail
+          railway link --project "$DIAG_PROJECT" --environment staging --service "$DIAG_SERVICE" --json >/dev/null
+          railway environment config --environment staging --json | python -c 'import json,sys; p=json.load(sys.stdin); targets=("23e9926d-681f-4a83-9101-4bcd5847e27a","b59cd9ea-f4a6-4df7-9a99-cf9457240701"); print(json.dumps({sid:{k:(p.get("services",{}).get(sid,{}).get("deploy") or {}).get(k) for k in ("region","numReplicas","multiRegionConfig","healthcheckPath","healthcheckTimeout")} for sid in targets}))'
       - name: Read collector status and error log only
         shell: bash
         run: |
