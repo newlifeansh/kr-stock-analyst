@@ -138,7 +138,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          railway service list --project "$DIAG_PROJECT" --environment staging --json | python -c 'import json,sys; rows=json.load(sys.stdin); print(json.dumps([{key: row.get(key) for key in ("id","name","status","deploymentStopped","replicas")} for row in rows]))'
+          railway service list --project "$DIAG_PROJECT" --environment staging --json | python -c 'import json,sys; rows=json.load(sys.stdin); print(json.dumps([{key: row.get(key) for key in ("id","name","status","deploymentStopped","replicas","regions","source","latestDeployment")} for row in rows]))'
       - name: Read collector status and error log only
         shell: bash
         run: |
