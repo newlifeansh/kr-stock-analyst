@@ -12,7 +12,7 @@ PINNED_IMAGE = "ghcr.io/owner/repo@sha256:" + "a" * 64
 def _scale(service: str, replicas: int) -> str:
     return (
         "scale -p project-id --environment staging "
-        f"--service {service} us-west={replicas} --json"
+        f"--service {service} us-west2={replicas} --json"
     )
 
 
@@ -63,7 +63,7 @@ from pathlib import Path
 db_running = Path(os.environ['RAILWAY_TEST_DB_STATE']).read_text() == 'running'
 rows = [{'id':'database-id', 'status':'SUCCESS' if db_running else 'REMOVED', 'deploymentStopped': not db_running, 'replicas':{'running':int(db_running)}}]
 for service, state in json.loads(Path(os.environ['RAILWAY_TEST_APP_STATE']).read_text()).items():
-    rows.append({'id': service, 'status': 'CRASHED' if state == 'crashed' else 'SUCCESS', 'deploymentStopped': state == 'crashed', 'replicas': {'running': int(state == 'running')}, 'source': {'repo': None, 'image': os.environ.get('RAILWAY_TEST_IMAGE')}})
+    rows.append({'id': service, 'status': 'CRASHED' if state == 'crashed' else 'SUCCESS', 'deploymentStopped': state == 'crashed', 'replicas': {'running': int(state == 'running')}, 'source': {'repo': None, 'image': os.environ.get('RAILWAY_TEST_IMAGE')}, 'regions': [{'name': name, 'configured': 1} for name in os.environ.get('RAILWAY_TEST_REGIONS', 'us-west2').split(',')]})
 print(json.dumps(rows))
 PY
 elif [[ "$*" == redeploy* ]]; then
@@ -102,12 +102,17 @@ from pathlib import Path
 path = Path(os.environ['RAILWAY_TEST_APP_STATE'])
 states = json.loads(path.read_text())
 service = sys.argv[sys.argv.index('--service') + 1]
-if 'us-west=0' in sys.argv:
+if 'us-west2=0' in sys.argv:
     if os.environ.get('RAILWAY_TEST_SCALE_STOPS') == 'true':
         states[service] = 'idle'
 elif sys.argv[1] == 'restart' or states[service] != 'crashed':
     states[service] = 'running'
 path.write_text(json.dumps(states))
+if sys.argv[1] == 'scale':
+    regions = {arg.split('=')[0]: {'numReplicas': int(arg.split('=')[1])} for arg in sys.argv[2:] if '=' in arg}
+    if os.environ.get('RAILWAY_TEST_RETAIN_REGION') == 'true':
+        regions['sfo'] = {'numReplicas': 1}
+    print(json.dumps({'regions': regions}))
 PY
 fi
 """,
@@ -132,7 +137,7 @@ fi
             "RAILWAY_WEB_SERVICE": "web-id",
             "RAILWAY_COLLECTOR_SERVICE": "collector-id",
             "RAILWAY_DATABASE_SERVICE": "database-id",
-            "RAILWAY_REGION": "us-west",
+            "RAILWAY_REGION": "us-west2",
             "RAILWAY_DATABASE_WARMUP_SECONDS": "0",
             "RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS": "5",
             # Several subprocesses are needed to observe and stop a queued
@@ -186,7 +191,9 @@ def test_staging_runtime_starts_and_stops_in_dependency_order(tmp_path: Path) ->
         _database_status(),
         _database_start(),
         _database_status(),
+        _database_status(),
         _scale("collector-id", 1),
+        _database_status(),
         _scale("web-id", 1),
         _database_status(),
         _database_status(),
@@ -195,7 +202,9 @@ def test_staging_runtime_starts_and_stops_in_dependency_order(tmp_path: Path) ->
     ]
     assert down.returncode == 0, down.stderr
     assert down_lines == [
+        _database_status(),
         _scale("web-id", 0),
+        _database_status(),
         _scale("collector-id", 0),
         _database_status(),
         _database_status(),
@@ -215,7 +224,7 @@ def test_failed_start_rolls_back_every_staging_service(tmp_path: Path) -> None:
     result, lines = _run_runtime(
         tmp_path,
         "up",
-        fail_on="--service collector-id us-west=1",
+        fail_on="--service collector-id us-west2=1",
     )
 
     assert result.returncode != 0
@@ -223,8 +232,11 @@ def test_failed_start_rolls_back_every_staging_service(tmp_path: Path) -> None:
         _database_status(),
         _database_start(),
         _database_status(),
+        _database_status(),
         _scale("collector-id", 1),
+        _database_status(),
         _scale("web-id", 0),
+        _database_status(),
         _scale("collector-id", 0),
         _database_status(),
         _database_status(),
@@ -239,7 +251,9 @@ def test_shutdown_preserves_an_already_stopped_database_volume(tmp_path: Path) -
 
     assert result.returncode == 0, result.stderr
     assert lines == [
+        _database_status(),
         _scale("web-id", 0),
+        _database_status(),
         _scale("collector-id", 0),
         _database_status(),
         _database_status(),
@@ -263,7 +277,7 @@ def test_staging_up_requires_database_backed_readiness(tmp_path: Path) -> None:
 
 
 def test_shutdown_keeps_db_when_a_scale_down_fails(tmp_path: Path) -> None:
-    result, lines = _run_runtime(tmp_path, "down", fail_on="--service web-id us-west=0")
+    result, lines = _run_runtime(tmp_path, "down", fail_on="--service web-id us-west2=0")
     assert result.returncode != 0
     assert _database_stop() not in lines
 
@@ -326,3 +340,41 @@ def test_staging_resume_rejects_mutable_tags_before_any_mutation(tmp_path: Path)
     result = subprocess.run([str(SCRIPT), "up"], env=env, capture_output=True, text=True)
     assert result.returncode == 2
     assert not log.exists()
+
+
+def test_staging_scale_clears_legacy_regions_for_the_selected_apps(tmp_path: Path):
+    for action, count in (("up", 1), ("down", 0)):
+        env, log = _runtime_env(tmp_path / action, database_state="running")
+        env["RAILWAY_TEST_REGIONS"] = "sfo,us-west2"
+        result = subprocess.run([str(SCRIPT), action], env=env, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        lines = log.read_text().splitlines()
+        for service in ("web-id", "collector-id"):
+            assert f"scale -p project-id --environment staging --service {service} sfo=0 us-west2={count} --json" in lines
+        assert not any(line.startswith("scale") and "database-id" in line for line in lines)
+
+
+def test_staging_scale_rejects_an_alias_or_incomplete_acknowledgement(tmp_path: Path):
+    for name in ("alias", "retained"):
+        env, log = _runtime_env(tmp_path / name, database_state="running")
+        if name == "alias":
+            env["RAILWAY_REGION"] = "us-west"
+        else:
+            env["RAILWAY_TEST_RETAIN_REGION"] = "true"
+        result = subprocess.run([str(SCRIPT), "down"], env=env, capture_output=True, text=True)
+        assert result.returncode != 0
+        lines = log.read_text().splitlines()
+        assert _database_stop() not in lines
+        if name == "alias":
+            assert not any(line.startswith("scale") for line in lines)
+        else:
+            assert "unexpected replica" in result.stderr
+
+
+def test_staging_controller_rejects_production_before_any_mutation(tmp_path: Path):
+    env, log = _runtime_env(tmp_path, database_state="running")
+    env["RAILWAY_ENVIRONMENT"] = "production"
+    result = subprocess.run([str(SCRIPT), "down"], env=env, capture_output=True, text=True)
+    assert result.returncode == 2
+    assert not log.exists()
+    assert "${RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS:-600}" in SCRIPT.read_text()

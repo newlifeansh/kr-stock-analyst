@@ -28,13 +28,50 @@ scale_service() {
   local service="$2"
   local replicas="$3"
 
-  echo "Scaling domestic staging $role to $replicas replica(s)" >&2
-  railway scale \
+  local payload assignments result
+  local -a targets=()
+  payload="$(railway service list -p "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --json)" || return 1
+  assignments="$(printf '%s' "$payload" | python3 -c '
+import json, re, sys
+rows = json.load(sys.stdin)
+service = next((row for row in rows if row.get("id") == sys.argv[1]), None)
+if service is None:
+    raise SystemExit("Staging scale target was not found")
+regions = service.get("regions")
+if not isinstance(regions, list):
+    raise SystemExit("Staging region evidence is missing")
+names = [row.get("name") for row in regions]
+if any(not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", name) for name in names) or len(names) != len(set(names)):
+    raise SystemExit("Invalid staging region evidence")
+target = sys.argv[2]
+# Railway scale merges with the latest deployment manifest. A friendly alias
+# can add a second region while leaving a legacy sfo replica intact. Require
+# the observed canonical ID and explicitly clear every other selected-app region.
+if names and target not in names:
+    raise SystemExit("Use the observed canonical Railway region ID, not an alias")
+for name in sorted(set(names) | {target}):
+    print(f"{name}={sys.argv[3] if name == target else 0}")
+' "$service" "$RAILWAY_REGION" "$replicas")" || return 1
+  while IFS= read -r assignment; do targets+=("$assignment"); done <<< "$assignments"
+  echo "Scaling domestic staging $role to $replicas replica(s) across all observed regions" >&2
+  result="$(railway scale \
     -p "$RAILWAY_PROJECT_ID" \
     --environment "$RAILWAY_ENVIRONMENT" \
     --service "$service" \
-    "${RAILWAY_REGION}=${replicas}" \
-    --json >/dev/null
+    "${targets[@]}" \
+    --json)" || return 1
+  printf '%s' "$result" | python3 -c '
+import json, sys
+regions = json.load(sys.stdin).get("regions")
+if not isinstance(regions, dict):
+    raise SystemExit("Railway did not acknowledge the region scale patch")
+counts = {name: (value or {}).get("numReplicas", 0) for name, value in regions.items()}
+if any(type(count) is not int or count < 0 for count in counts.values()):
+    raise SystemExit("Invalid region scale acknowledgement")
+target, desired = sys.argv[1], int(sys.argv[2])
+if counts.get(target, 0) != desired or any(count for name, count in counts.items() if name != target):
+    raise SystemExit("Railway scale acknowledgement retains an unexpected replica")
+' "$RAILWAY_REGION" "$replicas"
 }
 
 database_runtime_state() {
@@ -306,9 +343,15 @@ done
 RAILWAY_ENVIRONMENT="${RAILWAY_ENVIRONMENT:-staging}"
 RAILWAY_DATABASE_WARMUP_SECONDS="${RAILWAY_DATABASE_WARMUP_SECONDS:-20}"
 RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS="${RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS:-300}"
-RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS="${RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS:-180}"
+# Same-image restore took 198s before the container started (run 38309633357).
+# Allow bounded provisioning time plus Railway's configured 300s health window.
+RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS="${RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS:-600}"
 RAILWAY_APPLICATION_QUIET_SECONDS="${RAILWAY_APPLICATION_QUIET_SECONDS:-30}"
 validate_selector RAILWAY_ENVIRONMENT
+if [[ "$RAILWAY_ENVIRONMENT" != "staging" ]]; then
+  echo "This runtime controller only operates on the staging environment" >&2
+  exit 2
+fi
 if [[ -n "${RAILWAY_RESUME_IMAGE_REF:-}" ]]; then
   if [[ "$RAILWAY_ENVIRONMENT" != "staging" || ! "$RAILWAY_RESUME_IMAGE_REF" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
     echo "Resume fallback requires a staging environment and an exact GHCR sha256 image" >&2

@@ -223,6 +223,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_live_intraday_malformed_empty_response_is_not_retried",
     ),
     "DATA-COM-005": (
+        "tests.test_railway_staging_runtime.test_staging_scale_clears_legacy_regions_for_the_selected_apps",
+        "tests.test_railway_staging_runtime.test_staging_scale_rejects_an_alias_or_incomplete_acknowledgement",
+        "tests.test_railway_staging_runtime.test_staging_controller_rejects_production_before_any_mutation",
         "tests.test_railway_staging_runtime.test_staging_resume_removed_deployment_requires_the_exact_pinned_source",
         "tests.test_railway_staging_runtime.test_staging_resume_never_pulls_a_different_image",
         "tests.test_railway_staging_runtime.test_staging_resume_rejects_mutable_tags_before_any_mutation",

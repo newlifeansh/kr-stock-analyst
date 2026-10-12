@@ -147,7 +147,9 @@
             "DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE",
             "DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
           ],
-          "region": "DASHBOARD_STAGING_RAILWAY_REGION",
+          "region": "DASHBOARD_STAGING_RAILWAY_REGION (observed canonical ID, e.g. us-west2; aliases rejected)",
+          "region_reconciliation": "clear all other observed regions on selected staging web/collector; verify scale acknowledgement",
+          "application_state_timeout_seconds": 600,
           "idle_state": {
             "web_replicas": 0,
             "collector_replicas": 0,
@@ -216,7 +218,8 @@
         "기존 후보 up은 CRASHED·stopped 프로세스를 재빌드 없이 재시작하고 /readyz의 database_ok=true를 확인한다. 새 후보 prepare는 이전 앱의 health를 요구하지 않는다. 종료는 web·collector running=0 확인 후 DB를 중지한다.",
         "scale=0 성공 후에도 running replica가 남으면 해당 web·collector 활성 배포만 명시 중지하고 실제 running=0을 확인한 뒤 DB를 중지한다.",
         "scale 설정 반영으로 중지 직후 새 배포가 나타나면 동일 스테이징 앱의 활성 배포만 최대 3회 중지하고 30초 동안 프로세스 0이 유지되는지 확인한다. 기한을 넘기면 DB를 유지하고 실패한다.",
-        "기존 배포가 restart 불가하면 명시한 RAILWAY_RESUME_IMAGE_REF와 실제 source.image가 정확히 같은 불변 다이제스트인지 조회 검증한 뒤 그 이미지로만 재배포한다. 태그·저장소 빌드·다른 이미지·production 환경은 거부한다."
+        "기존 배포가 restart 불가하면 명시한 RAILWAY_RESUME_IMAGE_REF와 실제 source.image가 정확히 같은 불변 다이제스트인지 조회 검증한 뒤 그 이미지로만 재배포한다. 태그·저장소 빌드·다른 이미지·production 환경은 거부한다.",
+        "sfo와 us-west2가 함께 남은 픽스처에서 관측된 canonical region ID만 받고 선택한 web·collector의 나머지 지역은 0으로 지정한다. CLI 응답의 타 지역 replica 잔존·잘못된 JSON·alias 입력은 실패시키며 DB를 중지하지 않는다. 운영 환경은 모든 명령 전에 거부한다."
       ],
       "expected": [
         "국내·미국 스테이징은 서로 다른 Railway 프로젝트·web·collector·DB·URL을 사용하고 이전 dark-theme-preview 프록시는 QA 대상으로 쓰지 않는다.",
@@ -227,7 +230,8 @@
         "두 스테이징 중 어느 하나라도 P0 실패 또는 필수 증거 누락이면 운영 승격을 차단한다.",
         "운영자의 정확한 후보 승인 전에는 운영 배포를 시작하지 않으며 선택한 시장의 독립 운영 프로젝트와 URL만 승격·검증한다. 국내 기존 /us 호환 경로는 별도 라우팅 승인 전까지 유지한다.",
         "미국 스테이징과 운영은 같은 Railway 프로젝트여도 서로 다른 환경·web·collector·DB·URL로 격리된다.",
-        "기존 후보 기동 성공은 단순 scale 성공이 아니라 DB 연결 준비를 뜻하며 종료 확인 실패 시 DB를 유지한다."
+        "기존 후보 기동 성공은 단순 scale 성공이 아니라 DB 연결 준비를 뜻하며 종료 확인 실패 시 DB를 유지한다.",
+        "지역 설정 변경은 해당 스테이징 앱에만 한정되며 이전 지역 replica가 중복 실행되지 않는다. 600초의 제한된 대기 안에 실제 프로세스와 DB readiness를 확인한다."
       ],
       "failure_criteria": [
         "국내·미국 스테이징이 같은 프로젝트·서비스·DB·URL을 공유하거나 국내 QA가 오래된 preview 프록시를 대상으로 실행된다.",
