@@ -176,7 +176,7 @@ def forward_basis_metadata() -> dict[str, Any]:
     }
 
 
-def prepare_forward_inputs(db: Session, code: str, rows: list[DailyPrice], *, now: datetime):
+def prepare_forward_inputs(db: Session, code: str, rows: list[DailyPrice], *, now: datetime, include_paths: bool = True):
     from app.services import quant_signals as qs
     from app.services.regular_price_replay import regular_ordered_paths
 
@@ -186,6 +186,11 @@ def prepare_forward_inputs(db: Session, code: str, rows: list[DailyPrice], *, no
     if completed is None:
         raise UnverifiedRegularSessionPrice("최근 완료 정규장을 확인할 수 없습니다")
     envelope = forward_price_envelope(db, code, rows, completed_through=completed)
+    if not include_paths:
+        # Peer benchmarks retain candles, not months of minute dictionaries for
+        # every stock. Execution paths are revalidated one stock at a time.
+        from app.services.regular_price_replay import RegularPriceEnvelope
+        return RegularPriceEnvelope(envelope.lower, envelope.upper, {}), {}
     paths = regular_ordered_paths(envelope)
     for day, evidence in envelope.evidence.items():
         stored = db.get(QuantSignalIntradayPathSnapshot, (code, day))
@@ -210,7 +215,7 @@ def forward_relative_context(db: Session, signal_date: date, *, now: datetime) -
         rows = list(reversed(list(db.scalars(select(DailyPrice).where(DailyPrice.code == code)
                     .order_by(DailyPrice.trade_date.desc()).limit(900)))))
         try:
-            peers[code] = prepare_forward_inputs(db, code, rows, now=now)[0].lower
+            peers[code] = prepare_forward_inputs(db, code, rows, now=now, include_paths=False)[0].lower
         except UnverifiedRegularSessionPrice:
             continue
     return build_relative_strength_context(db, signal_date, prices_by_code=peers)

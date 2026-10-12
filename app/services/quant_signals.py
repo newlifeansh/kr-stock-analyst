@@ -5875,7 +5875,7 @@ def load_market_quant_signal_feed(
             try:
                 if code in legacy_holdings:
                     raise UnverifiedRegularSessionPrice("기존 보유 모델의 승계 검증 대기")
-                forward_inputs[code] = prepare_forward_inputs(db, code, source_rows, now=current_time)
+                forward_inputs[code] = prepare_forward_inputs(db, code, source_rows, now=current_time, include_paths=False)
             except UnverifiedRegularSessionPrice as exc:
                 forward_errors[code] = str(exc)
     extended_qualified_codes: set[str] = set()
@@ -5930,6 +5930,7 @@ def load_market_quant_signal_feed(
             if forward_mode:
                 if code in forward_errors:
                     raise UnverifiedRegularSessionPrice(forward_errors[code])
+                _execution_envelope, forward_paths = prepare_forward_inputs(db, code, prices_by_code[code], now=current_time)
                 relative_context = relative_context_by_date.get(latest_confirmed_date)
                 if latest_confirmed_date is not None and latest_confirmed_date >= REGULAR_FORWARD_START:
                     if relative_context is None:

@@ -450,13 +450,18 @@ def signal_data_quality_status(
         if latest_price_date and calendar_target and latest_price_date >= calendar_target
         else latest_price_date
     )
+    from app.services.regular_signal_transition import REGULAR_FORWARD_START, REGULAR_FORWARD_STRATEGY_VERSION
+    evidence_strategy_version = (
+        REGULAR_FORWARD_STRATEGY_VERSION if evidence_target and evidence_target >= REGULAR_FORWARD_START
+        else ENTRY_EVIDENCE_STRATEGY_VERSION
+    )
     if evidence_target and evidence_target >= ENTRY_EVIDENCE_EFFECTIVE_DATE and top_codes:
         evidence_ready = int(
             db.scalar(
                 select(func.count(distinct(QuantSignalEvidenceSnapshot.stock_code))).where(
                     QuantSignalEvidenceSnapshot.stock_code.in_(tuple(top_codes)),
                     QuantSignalEvidenceSnapshot.signal_date == evidence_target,
-                    QuantSignalEvidenceSnapshot.strategy_version == ENTRY_EVIDENCE_STRATEGY_VERSION,
+                    QuantSignalEvidenceSnapshot.strategy_version == evidence_strategy_version,
                 )
             )
             or 0
@@ -649,6 +654,7 @@ def signal_data_quality_status(
         },
         "entry_evidence_snapshot": {
             "state": evidence_state,
+            "strategy_version": evidence_strategy_version,
             "signal_date": evidence_target,
             "covered": evidence_ready,
             "total": top_total if evidence_rate is not None else 0,

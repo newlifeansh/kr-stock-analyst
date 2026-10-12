@@ -466,7 +466,7 @@ def _build_regular_forward_shadow_report(db: Session, *, universe_limit: int, re
         original[stock.code] = list(reversed(list(db.scalars(select(DailyPrice).where(DailyPrice.code == stock.code)
                        .order_by(DailyPrice.trade_date.desc()).limit(qs.SIGNAL_HISTORY_ROWS)))))
         try:
-            prepared[stock.code] = prepare_forward_inputs(db, stock.code, original[stock.code], now=now)
+            prepared[stock.code] = prepare_forward_inputs(db, stock.code, original[stock.code], now=now, include_paths=False)
         except UnverifiedRegularSessionPrice as exc:
             skipped.append({"code":stock.code, "reason":str(exc)})
     results = {version: [] for version in FILTER_VERSIONS}
@@ -477,7 +477,11 @@ def _build_regular_forward_shadow_report(db: Session, *, universe_limit: int, re
     for stock in stocks:
         if stock.code not in prepared:
             continue
-        envelope, paths = prepared[stock.code]
+        try:
+            envelope, paths = prepare_forward_inputs(db, stock.code, original[stock.code], now=now)
+        except UnverifiedRegularSessionPrice as exc:
+            skipped.append({"code":stock.code,"reason":str(exc)})
+            continue
         bars = qs._normalize_prices(envelope.lower)
         if len(bars) < qs.MIN_HISTORY_ROWS or bars[-1].trade_date < REGULAR_FORWARD_START:
             skipped.append({"code":stock.code,"reason":"awaiting_first_regular_close_or_warmup"})

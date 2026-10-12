@@ -81,6 +81,9 @@ def test_forward_inputs_never_fall_back_to_display_ohlc(db):
     assert envelope.lower[-1].close == 100 and envelope.lower[-1].volume == 3810
     assert rows[-1].close == 90
     assert len(paths[date(2026,10,13)]) == 381
+    lightweight, no_paths = transition.prepare_forward_inputs(db, "005930", rows, now=now, include_paths=False)
+    assert lightweight.evidence == {} and no_paths == {}
+    assert [(row.trade_date, row.close) for row in lightweight.lower] == [(row.trade_date, row.close) for row in envelope.lower]
 
 
 def test_forward_first_day_never_executes_a_legacy_setup():
@@ -226,3 +229,26 @@ def test_forward_quality_marks_corrupt_seal_invalid_without_crashing(db):
     db.commit()
     report = signal_data_quality_status(db, Settings(_env_file=None), now=now)
     assert report["intraday_path_seal"]["sample"]["state"] == "invalid"
+
+
+def test_forward_quality_counts_new_policy_without_retagging_legacy_evidence(db, monkeypatch):
+    from app.config import Settings
+    from app.models import QuantSignalEvidenceSnapshot
+    from app.services import signal_data_quality as quality
+    day = date(2026,10,13)
+    monkeypatch.setattr(quality, "latest_completed_korea_market_session_date", lambda *_: day)
+    db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
+    db.add(DailyPrice(code="005930", trade_date=day, open=100,high=101,low=99,close=100,volume=10,trading_value=1000,market_cap=100_000))
+    legacy = QuantSignalEvidenceSnapshot(stock_code="005930",signal_date=day,strategy_version="position-lifecycle-v7.0",
+        policy_version="legacy", quality_state="ready",payload="{}",generated_at=datetime(2026,10,13,9))
+    db.add(legacy)
+    db.commit()
+    now = datetime(2026,10,13,19,tzinfo=qs.KST)
+    before = quality.signal_data_quality_status(db, Settings(_env_file=None), now=now)["datasets"]["entry_evidence_snapshot"]
+    assert before["strategy_version"] == qs.STRATEGY_VERSION and before["covered"] == 0
+    db.add(QuantSignalEvidenceSnapshot(stock_code="005930",signal_date=day,strategy_version=qs.STRATEGY_VERSION,
+        policy_version=transition.REGULAR_FORWARD_ENTRY_POLICY,quality_state="ready",payload="{}",generated_at=datetime(2026,10,13,9)))
+    db.commit()
+    after = quality.signal_data_quality_status(db, Settings(_env_file=None), now=now)["datasets"]["entry_evidence_snapshot"]
+    assert after["covered"] == 1 and after["state"] == "ready"
+    assert legacy.strategy_version == "position-lifecycle-v7.0"

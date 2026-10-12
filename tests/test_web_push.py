@@ -2113,6 +2113,10 @@ def test_run_once_dispatches_new_us_signal_after_independent_baseline(monkeypatc
     monkeypatch.setattr(runtime, "_us_content_candidates", lambda _watchlists, _now: {})
     monkeypatch.setattr(runtime, "_morning_briefing_candidates", lambda *_args: [])
     monkeypatch.setattr(runtime, "_market_session_candidates", lambda *_args: [])
+    # This fixture isolates signal baselining; an unrelated real-clock US
+    # 08:00 news digest or session alert must not enter its send count.
+    monkeypatch.setattr(runtime, "_us_market_news_candidates", lambda *_args: [])
+    monkeypatch.setattr(runtime, "_us_market_session_candidates", lambda *_args: [])
     monkeypatch.setattr(
         web_push,
         "webpush",

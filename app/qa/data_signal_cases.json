@@ -10,7 +10,7 @@
       "domain": "국내 시그널 세션 전환",
       "priority": "P0",
       "modes": ["gate"],
-      "automation": "pytest 불변 기준선·전체 일봉 폴백 금지·독립 근거 버전·과거 재알림 방지·첫 종가 대기·동일 분봉 H1/H2/H3 비교; 장중 관찰은 별도 live 증거 기록",
+    "automation": "pytest 불변 기준선·전체 일봉 폴백 금지·독립 근거 버전·품질 집계 버전 일치·과거 재알림 방지·첫 종가 대기·동일 분봉 H1/H2/H3 비교·종목별 분봉 로딩; 장중 관찰은 별도 live 증거 기록",
       "preconditions": ["기존 v35/v36 공개 이력은 전환 전에 보존된다.", "2026-10-13부터 새 모델을 별도 시작하며 기존 보유 모델이 있으면 해당 종목 승계를 검증한다."],
       "inputs": {"strategy_version": "position-lifecycle-v8.1", "effective_from": "2026-10-13", "price_basis_version": "krx-regular-forward-v1", "legacy_warmup": "frozen", "entry_policy": "independent-entry-regular-forward-v1"},
       "steps": ["기존 가격 준비 자료와 공개 매매 이력을 해시와 함께 동결한다.", "정규장 근거가 누락되거나 거래대금 상하한이 판정 임계값을 넘나들면 해당 종목의 새 확정을 보류한다.", "전환일 이전 조건으로 새 매수하거나 과거 이력을 다시 알리지 않는다.", "독립 수급의 전체 세션 분자·분모를 정규장 가격과 분리한다.", "새 성과와 과거 공개 성과를 구분하고 H2/H3는 같은 입력으로 비교만 한다."],
