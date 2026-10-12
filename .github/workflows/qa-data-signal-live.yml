@@ -12,13 +12,19 @@ jobs:
       fail-fast: false
       matrix:
         surface: [dashboard, us]
+        role: [web, collector]
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       DIAG_PROJECT: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_PROJECT_ID || vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
-      DIAG_SERVICE: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_COLLECTOR_SERVICE || vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+      DIAG_SERVICE: ${{ matrix.role == 'web' && (matrix.surface == 'us' && vars.US_STAGING_RAILWAY_WEB_SERVICE || vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE) || (matrix.surface == 'us' && vars.US_STAGING_RAILWAY_COLLECTOR_SERVICE || vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE) }}
     steps:
       - uses: actions/checkout@v4
       - run: npm install --global @railway/cli@5.45.7
+      - name: Read sanitized staging service state only
+        shell: bash
+        run: |
+          set -euo pipefail
+          railway service list --project "$DIAG_PROJECT" --environment staging --json | python -c 'import json,sys; rows=json.load(sys.stdin); print(json.dumps([{key: row.get(key) for key in ("id","name","status","deploymentStopped","replicas")} for row in rows]))'
       - name: Read collector status and error log only
         shell: bash
         run: |
