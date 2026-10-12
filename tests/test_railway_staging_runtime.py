@@ -57,6 +57,13 @@ if [[ -n "${RAILWAY_TEST_FAIL_ON:-}" && "$*" == *"$RAILWAY_TEST_FAIL_ON"* ]]; th
   exit 23
 fi
 if [[ "$*" == "service list -p project-id --environment staging --json" ]]; then
+  if [[ -n "${RAILWAY_TEST_RATE_LIMIT:-}" ]]; then
+    if [[ ! -f "$RAILWAY_TEST_LOG.ratelimited" || "$RAILWAY_TEST_RATE_LIMIT" == persistent ]]; then
+      touch "$RAILWAY_TEST_LOG.ratelimited"
+      echo "You are being ratelimited. Try again in 1 seconds" >&2
+      exit 1
+    fi
+  fi
   python3 - <<'PY'
 import json, os
 from pathlib import Path
@@ -144,6 +151,7 @@ fi
             # deployment twice. One shell SECONDS tick is a flaky deadline.
             "RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS": "5",
             "RAILWAY_APPLICATION_QUIET_SECONDS": "0",
+            "RAILWAY_STATE_POLL_SECONDS": "1",
             "QA_BASE_URL": "https://staging.example.test",
         }
     )
@@ -378,3 +386,19 @@ def test_staging_controller_rejects_production_before_any_mutation(tmp_path: Pat
     assert result.returncode == 2
     assert not log.exists()
     assert "${RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS:-600}" in SCRIPT.read_text()
+
+
+def test_staging_status_rate_limit_recovers_but_persistent_failure_keeps_db(tmp_path: Path):
+    for mode in ("once", "persistent"):
+        env, log = _runtime_env(tmp_path / mode, database_state="running")
+        env["RAILWAY_TEST_RATE_LIMIT"] = mode
+        result = subprocess.run([str(SCRIPT), "down"], env=env, capture_output=True, text=True)
+        lines = log.read_text().splitlines()
+        assert "JSONDecodeError" not in result.stderr
+        if mode == "once":
+            assert result.returncode == 0, result.stderr
+            assert _database_stop() in lines
+        else:
+            assert result.returncode != 0
+            assert _database_stop() not in lines
+            assert len(lines) <= 16

@@ -23,6 +23,28 @@ validate_selector() {
   fi
 }
 
+railway_service_list() {
+  local payload attempt=0 delay
+  while ((attempt < 4)); do
+    if payload="$(railway service list -p "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --json 2>&1)"; then
+      printf '%s' "$payload"
+      return 0
+    fi
+    if [[ "$payload" =~ Try\ again\ in\ ([0-9]+)\ seconds && "$attempt" -lt 3 ]]; then
+      delay="${BASH_REMATCH[1]}"
+      if ((delay > 60)); then delay=60; fi
+      if ((delay < 1)); then delay=1; fi
+      echo "Staging status query rate limited; retrying after ${delay}s" >&2
+      sleep "$delay"
+      attempt=$((attempt + 1))
+    else
+      echo "Railway service status query failed; state remains unverified" >&2
+      return 1
+    fi
+  done
+  return 1
+}
+
 scale_service() {
   local role="$1"
   local service="$2"
@@ -30,7 +52,7 @@ scale_service() {
 
   local payload assignments result
   local -a targets=()
-  payload="$(railway service list -p "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --json)" || return 1
+  payload="$(railway_service_list)" || return 1
   assignments="$(printf '%s' "$payload" | python3 -c '
 import json, re, sys
 rows = json.load(sys.stdin)
@@ -77,12 +99,7 @@ if counts.get(target, 0) != desired or any(count for name, count in counts.items
 database_runtime_state() {
   local payload
 
-  payload="$({
-    railway service list \
-      -p "$RAILWAY_PROJECT_ID" \
-      --environment "$RAILWAY_ENVIRONMENT" \
-      --json
-  })" || return 1
+  payload="$(railway_service_list)" || return 1
 
   printf '%s' "$payload" | python3 -c '
 import json
@@ -117,8 +134,9 @@ else:
 }
 
 application_runtime_state() {
-  railway service list -p "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --json |
-    python3 -c '
+  local payload
+  payload="$(railway_service_list)" || return 1
+  printf '%s' "$payload" | python3 -c '
 import json, sys
 service = next((row for row in json.load(sys.stdin) if row.get("id") == sys.argv[1]), None)
 if service is None:
@@ -145,7 +163,7 @@ wait_for_application() {
        [[ "$expected" == "stopped" && ("$state" == "stopped" || "$state" == "idle") ]]; then
       return 0
     fi
-    sleep 5
+    sleep "$RAILWAY_STATE_POLL_SECONDS"
   done
   echo "Staging application $service did not reach $expected" >&2
   return 1
@@ -167,13 +185,13 @@ resume_application() {
 }
 
 redeploy_pinned_application() {
-  local service="$1"
+  local service="$1" payload
   # Removed deployments cannot restart, and connecting the same source image
   # may be a no-op. Pull the configured source only after its exact immutable
   # identity has been checked. Never rebuild a repo or follow a mutable tag.
   require_value RAILWAY_RESUME_IMAGE_REF || return 1
-  railway service list -p "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --json |
-    python3 -c '
+  payload="$(railway_service_list)" || return 1
+  printf '%s' "$payload" | python3 -c '
 import json, sys
 rows = json.load(sys.stdin)
 service = next((row for row in rows if row.get("id") == sys.argv[1]), {})
@@ -206,7 +224,7 @@ stop_application() {
         continue
       fi
     fi
-    sleep 5
+    sleep "$RAILWAY_STATE_POLL_SECONDS"
   done
   echo "Staging application $service did not remain stopped" >&2
   return 1
@@ -220,7 +238,7 @@ wait_until_ready() {
       python3 -c 'import json,sys; p=json.load(sys.stdin); sys.exit(0 if p.get("status")=="ok" and p.get("database_ok") is True else 1)' 2>/dev/null; then
       return 0
     fi
-    sleep 5
+    sleep "$RAILWAY_STATE_POLL_SECONDS"
   done
   echo "Domestic staging failed its database-backed readiness check" >&2
   return 1
@@ -236,7 +254,7 @@ wait_for_database_running() {
       echo "Domestic staging database is running" >&2
       return 0
     fi
-    sleep 5
+    sleep "$RAILWAY_STATE_POLL_SECONDS"
   done
   echo "Domestic staging database did not start within ${RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS}s" >&2
   return 1
@@ -271,7 +289,7 @@ stop_database() {
 
   state="$(database_runtime_state)" || return 1
   while [[ "$state" == "transitional" && SECONDS -lt deadline ]]; do
-    sleep 5
+    sleep "$RAILWAY_STATE_POLL_SECONDS"
     state="$(database_runtime_state)" || return 1
   done
 
@@ -297,7 +315,7 @@ stop_database() {
       echo "Domestic staging database is stopped" >&2
       return 0
     fi
-    sleep 5
+    sleep "$RAILWAY_STATE_POLL_SECONDS"
   done
   echo "Domestic staging database did not stop within ${RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS}s" >&2
   return 1
@@ -347,6 +365,7 @@ RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS="${RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS
 # Allow bounded provisioning time plus Railway's configured 300s health window.
 RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS="${RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS:-600}"
 RAILWAY_APPLICATION_QUIET_SECONDS="${RAILWAY_APPLICATION_QUIET_SECONDS:-30}"
+RAILWAY_STATE_POLL_SECONDS="${RAILWAY_STATE_POLL_SECONDS:-15}"
 validate_selector RAILWAY_ENVIRONMENT
 if [[ "$RAILWAY_ENVIRONMENT" != "staging" ]]; then
   echo "This runtime controller only operates on the staging environment" >&2
@@ -372,6 +391,10 @@ if [[ ! "$RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS" =~ ^[0-9]+$ || "$RAILWAY_AP
 fi
 if [[ ! "$RAILWAY_APPLICATION_QUIET_SECONDS" =~ ^[0-9]+$ ]]; then
   echo "RAILWAY_APPLICATION_QUIET_SECONDS must be a non-negative integer" >&2
+  exit 2
+fi
+if [[ ! "$RAILWAY_STATE_POLL_SECONDS" =~ ^[0-9]+$ || "$RAILWAY_STATE_POLL_SECONDS" -lt 1 || "$RAILWAY_STATE_POLL_SECONDS" -gt 60 ]]; then
+  echo "RAILWAY_STATE_POLL_SECONDS must be between 1 and 60" >&2
   exit 2
 fi
 if [[ "$1" == "up" ]]; then
