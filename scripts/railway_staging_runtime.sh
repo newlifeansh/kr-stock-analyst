@@ -119,10 +119,34 @@ resume_application() {
   state="$(application_runtime_state "$service")" || return 1
   if [[ "$state" == "stopped" ]]; then
     echo "Restarting stopped staging deployment without rebuilding: $service" >&2
-    railway restart -p "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" \
-      --service "$service" --yes --json >/dev/null || return 1
+    if ! railway restart -p "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" \
+      --service "$service" --yes --json >/dev/null; then
+      redeploy_pinned_application "$service" || return 1
+    fi
+  elif [[ "$state" == "idle" ]]; then
+    redeploy_pinned_application "$service" || return 1
   fi
   wait_for_application "$service" running
+}
+
+redeploy_pinned_application() {
+  local service="$1"
+  # Removed deployments cannot restart, and connecting the same source image
+  # may be a no-op. Pull the configured source only after its exact immutable
+  # identity has been checked. Never rebuild a repo or follow a mutable tag.
+  require_value RAILWAY_RESUME_IMAGE_REF || return 1
+  railway service list -p "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --json |
+    python3 -c '
+import json, sys
+rows = json.load(sys.stdin)
+service = next((row for row in rows if row.get("id") == sys.argv[1]), {})
+source = service.get("source") or {}
+if source.get("repo") or source.get("image") != sys.argv[2]:
+    raise SystemExit("Refusing restart fallback: configured image does not match the pinned candidate")
+' "$service" "$RAILWAY_RESUME_IMAGE_REF" || return 1
+  echo "Restoring removed staging deployment from its verified immutable image: $service" >&2
+  railway redeploy -p "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" \
+    --service "$service" --from-source --yes --json >/dev/null || return 1
 }
 
 stop_application() {
@@ -285,6 +309,12 @@ RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS="${RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS
 RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS="${RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS:-180}"
 RAILWAY_APPLICATION_QUIET_SECONDS="${RAILWAY_APPLICATION_QUIET_SECONDS:-30}"
 validate_selector RAILWAY_ENVIRONMENT
+if [[ -n "${RAILWAY_RESUME_IMAGE_REF:-}" ]]; then
+  if [[ "$RAILWAY_ENVIRONMENT" != "staging" || ! "$RAILWAY_RESUME_IMAGE_REF" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    echo "Resume fallback requires a staging environment and an exact GHCR sha256 image" >&2
+    exit 2
+  fi
+fi
 if [[ ! "$RAILWAY_DATABASE_WARMUP_SECONDS" =~ ^[0-9]+$ ]]; then
   echo "RAILWAY_DATABASE_WARMUP_SECONDS must be a non-negative integer" >&2
   exit 2

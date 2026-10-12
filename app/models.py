@@ -424,6 +424,25 @@ class DailyPrice(Base):
     )
 
 
+class SignalSessionPrice(Base):
+    """Append-only, versioned regular-session evidence; never replaces DailyPrice."""
+
+    __tablename__ = "signal_session_price"
+    __table_args__ = (
+        UniqueConstraint("code", "trade_date", "basis_version", "evidence_hash", name="uq_signal_session_price_evidence"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
+    trade_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    basis_version: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    evidence_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    state: Mapped[str] = mapped_column(String(24), nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class InvestorFlow(Base):
     __tablename__ = "investor_flow"
     __table_args__ = (

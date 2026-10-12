@@ -1104,6 +1104,39 @@ def send_community_popular_command(
         raise typer.Exit(code=1)
 
 
+@app.command("regular-session-prices")
+def regular_session_prices_command(
+    codes: str = typer.Option(..., "--codes", help="Explicit comma-separated KRX symbols"),
+    from_date: str = typer.Option("2026-09-14", "--from-date"),
+    to_date: str = typer.Option(..., "--to-date"),
+    persist: bool = typer.Option(False, "--persist", help="Append sidecar evidence; never overwrite prices or publish signals"),
+    max_pairs: int = typer.Option(250, "--max-pairs", min=1, max=3000),
+) -> None:
+    """Audit/backfill versioned regular prices with a default read-only run."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from app.collectors.briefing import KisRestBriefingProvider
+    from app.services.regular_session_prices import collect_regular_session_prices
+
+    selected = sorted(set(code.strip().upper() for code in codes.split(",") if code.strip()))
+    if not selected or any(len(code) != 6 or not code.isascii() or not code.isalnum() for code in selected):
+        raise typer.BadParameter("--codes requires explicit six-character KRX symbols")
+    start = datetime.strptime(from_date, "%Y-%m-%d").date()
+    end = datetime.strptime(to_date, "%Y-%m-%d").date()
+    if persist:
+        from app.models import SignalSessionPrice
+        SignalSessionPrice.__table__.create(bind=engine, checkfirst=True)
+    with SessionLocal() as db:
+        payload = collect_regular_session_prices(
+            db, KisRestBriefingProvider(get_settings()), codes=selected,
+            start=start, end=end, observed_at=datetime.now(ZoneInfo("Asia/Seoul")),
+            persist=persist, max_pairs=max_pairs,
+        )
+    typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+    if payload["state"] != "ready":
+        raise typer.Exit(code=1)
+
+
 @app.command("migrate-performance-indexes")
 def migrate_performance_indexes_command(
     dry_run: bool = typer.Option(

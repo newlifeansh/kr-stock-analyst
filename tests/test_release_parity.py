@@ -374,6 +374,7 @@ def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> Non
         "database_state_timeout_seconds": 300,
         "start_order": ["database", "collector", "web"],
         "stop_order": ["web", "collector", "database"],
+        "removed_application_resume": "verify configured source equals explicit GHCR sha256, then redeploy --from-source only after restart failure or removed state",
     }
 
 

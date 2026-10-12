@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 SCRIPT = Path("scripts/railway_staging_runtime.sh")
+PINNED_IMAGE = "ghcr.io/owner/repo@sha256:" + "a" * 64
 
 
 def _scale(service: str, replicas: int) -> str:
@@ -62,11 +63,22 @@ from pathlib import Path
 db_running = Path(os.environ['RAILWAY_TEST_DB_STATE']).read_text() == 'running'
 rows = [{'id':'database-id', 'status':'SUCCESS' if db_running else 'REMOVED', 'deploymentStopped': not db_running, 'replicas':{'running':int(db_running)}}]
 for service, state in json.loads(Path(os.environ['RAILWAY_TEST_APP_STATE']).read_text()).items():
-    rows.append({'id': service, 'status': 'CRASHED' if state == 'crashed' else 'SUCCESS', 'deploymentStopped': state == 'crashed', 'replicas': {'running': int(state == 'running')}})
+    rows.append({'id': service, 'status': 'CRASHED' if state == 'crashed' else 'SUCCESS', 'deploymentStopped': state == 'crashed', 'replicas': {'running': int(state == 'running')}, 'source': {'repo': None, 'image': os.environ.get('RAILWAY_TEST_IMAGE')}})
 print(json.dumps(rows))
 PY
 elif [[ "$*" == redeploy* ]]; then
-  printf '%s' running > "$RAILWAY_TEST_DB_STATE"
+  python3 - "$@" <<'PY'
+import json, os, sys
+from pathlib import Path
+service = sys.argv[sys.argv.index('--service') + 1]
+if service == 'database-id':
+    Path(os.environ['RAILWAY_TEST_DB_STATE']).write_text('running')
+else:
+    path = Path(os.environ['RAILWAY_TEST_APP_STATE'])
+    states = json.loads(path.read_text())
+    states[service] = 'running'
+    path.write_text(json.dumps(states))
+PY
 elif [[ "$*" == down* ]]; then
   python3 - "$@" <<'PY'
 import json, os, sys
@@ -123,7 +135,9 @@ fi
             "RAILWAY_REGION": "us-west",
             "RAILWAY_DATABASE_WARMUP_SECONDS": "0",
             "RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS": "5",
-            "RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS": "1",
+            # Several subprocesses are needed to observe and stop a queued
+            # deployment twice. One shell SECONDS tick is a flaky deadline.
+            "RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS": "5",
             "RAILWAY_APPLICATION_QUIET_SECONDS": "0",
             "QA_BASE_URL": "https://staging.example.test",
         }
@@ -283,3 +297,32 @@ def test_shutdown_handles_a_queued_scale_deployment_reappearing(tmp_path: Path) 
         assert lines.count(stop) == 2
     assert _database_stop() in lines
     assert '${RAILWAY_APPLICATION_QUIET_SECONDS:-30}' in SCRIPT.read_text()
+
+
+def test_staging_resume_removed_deployment_requires_the_exact_pinned_source(tmp_path: Path):
+    env, log = _runtime_env(tmp_path, fail_on="restart", database_state="running", application_state="crashed")
+    env.update(RAILWAY_RESUME_IMAGE_REF=PINNED_IMAGE, RAILWAY_TEST_IMAGE=PINNED_IMAGE)
+    result = subprocess.run([str(SCRIPT), "up"], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    lines = log.read_text().splitlines()
+    for service in ("web-id", "collector-id"):
+        assert f"redeploy -p project-id --environment staging --service {service} --from-source --yes --json" in lines
+    assert not any("source connect" in line for line in lines)
+
+
+def test_staging_resume_never_pulls_a_different_image(tmp_path: Path):
+    env, log = _runtime_env(tmp_path, fail_on="restart", database_state="running", application_state="crashed")
+    env.update(RAILWAY_RESUME_IMAGE_REF=PINNED_IMAGE, RAILWAY_TEST_IMAGE="ghcr.io/owner/repo:latest")
+    result = subprocess.run([str(SCRIPT), "up"], env=env, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "does not match" in result.stderr
+    assert not any("redeploy" in line for line in log.read_text().splitlines())
+    assert _database_stop() in log.read_text().splitlines()
+
+
+def test_staging_resume_rejects_mutable_tags_before_any_mutation(tmp_path: Path):
+    env, log = _runtime_env(tmp_path, database_state="running")
+    env["RAILWAY_RESUME_IMAGE_REF"] = "ghcr.io/owner/repo:latest"
+    result = subprocess.run([str(SCRIPT), "up"], env=env, capture_output=True, text=True)
+    assert result.returncode == 2
+    assert not log.exists()

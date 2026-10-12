@@ -686,6 +686,84 @@ class KisRestBriefingProvider:
             cursor = next_cursor
         return [points[key] for key in sorted(points)][:max_points]
 
+    def fetch_regular_session_minutes(
+        self, code: str, trade_date: date,
+    ) -> list[dict[str, object]]:
+        return self.fetch_regular_session_data(code, trade_date)["rows"]
+
+    def fetch_regular_session_data(
+        self, code: str, trade_date: date,
+    ) -> dict[str, Any]:
+        """Fetch dated regular trades plus the observed pre-open value baseline.
+
+        Keep this evidence path separate from UI chart truncation. A chart's
+        max_points limit must never silently discard the closing auction.
+        Cumulative monetary turnover is retained exactly, not summed here.
+        """
+        target = trade_date.strftime("%Y%m%d")
+        points: dict[str, dict[str, object]] = {}
+        baseline = None
+        cursor = "153100"
+        for _ in range(5):
+            payload = self._get(
+                "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice", "FHKST03010230",
+                {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code,
+                 "FID_INPUT_HOUR_1": cursor, "FID_INPUT_DATE_1": target,
+                 "FID_PW_DATA_INCU_YN": "Y", "FID_FAKE_TICK_INCU_YN": ""},
+            )
+            all_rows = payload.get("output2") or []
+            dated = [row for row in all_rows if str(row.get("stck_bsop_date") or "") == target]
+            if not dated:
+                # The dated API rolls back to the previous business day's
+                # final print before today's first trade. Keep that response
+                # as provenance, not as proof of zero pre-open turnover.
+                previous = [row for row in all_rows if str(row.get("stck_bsop_date") or "") < target]
+                if cursor == "085900" and previous:
+                    latest = max(previous, key=lambda row: (str(row.get("stck_bsop_date") or ""), str(row.get("stck_cntg_hour") or "")))
+                    baseline = {"kind": "observed_day_boundary", "requested_date": target,
+                                "requested_time": cursor, "previous_trade_date": latest.get("stck_bsop_date"),
+                                "previous_trade_time": latest.get("stck_cntg_hour"), "value": None}
+                break
+            times = []
+            for raw in dated:
+                stamp = str(raw.get("stck_cntg_hour") or "").zfill(6)
+                datetime.strptime(stamp, "%H%M%S")
+                times.append(stamp)
+                if not "085900" <= stamp <= "153000":
+                    continue
+                row = {"trade_date": target, "trade_time": stamp,
+                       "open": _int(raw.get("stck_oprc")), "high": _int(raw.get("stck_hgpr")),
+                       "low": _int(raw.get("stck_lwpr")), "price": _int(raw.get("stck_prpr")),
+                       "volume": _int(raw.get("cntg_vol")), "trading_value": _int(raw.get("acml_tr_pbmn"))}
+                if stamp in points and points[stamp] != row:
+                    raise ValueError("Conflicting dated KRX minute evidence")
+                points[stamp] = row
+            earliest = min(times)
+            if earliest <= "085900":
+                break
+            next_cursor = (datetime.strptime(earliest, "%H%M%S") - timedelta(minutes=1)).strftime("%H%M%S")
+            if next_cursor >= cursor:
+                break
+            cursor = next_cursor
+        result = {"rows": [points[key] for key in sorted(points)], "preopen_baseline": baseline, "closing_auction_evidence": None}
+        if "153000" not in points and "151900" in points:
+            try:
+                response = requests.get(
+                    f"https://api.stock.naver.com/chart/domestic/item/{code}",
+                    params={"periodType": "week"}, headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                # Persist only this dated public price evidence, not the
+                # entire rolling week. Identity and prefix checks are applied
+                # by regular_session_evidence, never inferred in the fetcher.
+                result["closing_auction_evidence"] = {
+                    key: payload.get(key) for key in ("code", "stockExchangeType", "periodType")
+                } | {"priceInfos": {target: (payload.get("priceInfos") or {}).get(target)}}
+            except (requests.RequestException, ValueError, TypeError, AttributeError):
+                pass  # missing auction stays unverified, never fabricated
+        return result
+
     def _fetch_fluctuation(self, list_type: str, limit: int, min_rate: str, max_rate: str) -> list[BriefingMoverPayload]:
         payload = self._get(
             "/uapi/domestic-stock/v1/ranking/fluctuation",
