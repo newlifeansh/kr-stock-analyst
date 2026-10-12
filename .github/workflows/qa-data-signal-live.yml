@@ -2,6 +2,10 @@ name: QA data-signal live
 on:
   workflow_dispatch:
     inputs:
+      production_identity_readonly:
+        description: Read only KR/US production image identities for rollback
+        type: boolean
+        default: false
       pin_staging_readonly:
         description: Read only the immutable staging web/collector image identity
         type: boolean
@@ -21,6 +25,29 @@ on:
 permissions:
   contents: read
 jobs:
+  production_identity_readonly:
+    if: inputs.production_identity_readonly
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    strategy:
+      matrix:
+        surface: [domestic, us]
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      DIAG_PROJECT: ${{ matrix.surface == 'us' && vars.US_PRODUCTION_RAILWAY_PROJECT_ID || vars.PRODUCTION_RAILWAY_PROJECT_ID }}
+      DIAG_WEB: ${{ matrix.surface == 'us' && vars.US_PRODUCTION_RAILWAY_WEB_SERVICE || vars.PRODUCTION_RAILWAY_WEB_SERVICE }}
+      DIAG_COLLECTOR: ${{ matrix.surface == 'us' && vars.US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE || vars.PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
+    steps:
+      - run: npm install --global @railway/cli@5.45.7
+      - name: Read exact production identities without changing any service
+        run: |
+          set -euo pipefail
+          railway service list --project "$DIAG_PROJECT" --environment production --json | jq --arg web "$DIAG_WEB" --arg collector "$DIAG_COLLECTOR" '[.[] | select(.id==$web or .id==$collector or .name==$web or .name==$collector) | {id,name,status,deploymentStopped,source,latestDeployment:{id:.latestDeployment.id,status:.latestDeployment.status}}]'
+          task_dir="$(mktemp -d)"
+          cd "$task_dir"
+          railway link --project "$DIAG_PROJECT" --environment production >/dev/null
+          railway environment config --environment production --json | jq --arg web "$DIAG_WEB" --arg collector "$DIAG_COLLECTOR" '{services:(.services|with_entries(select(.key==$web or .key==$collector))|map_values({source}))}'
   pin_staging_readonly:
     if: inputs.pin_staging_readonly
     runs-on: ubuntu-latest
@@ -183,7 +210,7 @@ jobs:
           name: reverify-us-3247e60-${{ github.run_id }}
           path: artifacts/reverify-us
   collector_diagnostics:
-    if: '!inputs.recover_domestic && !inputs.finish_domestic_shutdown && !inputs.production_evidence_readonly && !inputs.pin_staging_readonly'
+    if: '!inputs.recover_domestic && !inputs.finish_domestic_shutdown && !inputs.production_evidence_readonly && !inputs.pin_staging_readonly && !inputs.production_identity_readonly'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: staging
