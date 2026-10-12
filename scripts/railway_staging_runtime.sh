@@ -126,16 +126,29 @@ resume_application() {
 }
 
 stop_application() {
-  local service="$1" state
-  state="$(application_runtime_state "$service")" || return 1
-  if [[ "$state" != "stopped" && "$state" != "idle" ]]; then
-    # Railway scale updates desired configuration but may leave the active
-    # deployment serving. Stop that deployment explicitly, retaining its
-    # service, source image and any volume, before shutting down the DB.
-    railway down -p "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" \
-      --service "$service" --yes || return 1
-  fi
-  wait_for_application "$service" stopped
+  local service="$1" state attempts=0 quiet_since=-1
+  local deadline=$((SECONDS + RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS))
+  while ((SECONDS < deadline)); do
+    state="$(application_runtime_state "$service")" || return 1
+    if [[ "$state" == "stopped" || "$state" == "idle" ]]; then
+      if ((quiet_since < 0)); then quiet_since=$SECONDS; fi
+      if ((SECONDS - quiet_since >= RAILWAY_APPLICATION_QUIET_SECONDS)); then return 0; fi
+    else
+      quiet_since=-1
+      # A scale patch can queue a new deployment after the previous one stops.
+      # Stop only active deployments of this explicitly selected staging app,
+      # bounded to three attempts, then require a stable zero-process window.
+      if [[ "$state" == "running" && "$attempts" -lt 3 ]]; then
+        railway down -p "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" \
+          --service "$service" --yes || return 1
+        attempts=$((attempts + 1))
+        continue
+      fi
+    fi
+    sleep 5
+  done
+  echo "Staging application $service did not remain stopped" >&2
+  return 1
 }
 
 wait_until_ready() {
@@ -270,6 +283,7 @@ RAILWAY_ENVIRONMENT="${RAILWAY_ENVIRONMENT:-staging}"
 RAILWAY_DATABASE_WARMUP_SECONDS="${RAILWAY_DATABASE_WARMUP_SECONDS:-20}"
 RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS="${RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS:-300}"
 RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS="${RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS:-180}"
+RAILWAY_APPLICATION_QUIET_SECONDS="${RAILWAY_APPLICATION_QUIET_SECONDS:-30}"
 validate_selector RAILWAY_ENVIRONMENT
 if [[ ! "$RAILWAY_DATABASE_WARMUP_SECONDS" =~ ^[0-9]+$ ]]; then
   echo "RAILWAY_DATABASE_WARMUP_SECONDS must be a non-negative integer" >&2
@@ -281,6 +295,10 @@ if [[ ! "$RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS" =~ ^[0-9]+$ || "$RAILWAY_DATAB
 fi
 if [[ ! "$RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS" =~ ^[0-9]+$ || "$RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS" -eq 0 ]]; then
   echo "RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 2
+fi
+if [[ ! "$RAILWAY_APPLICATION_QUIET_SECONDS" =~ ^[0-9]+$ ]]; then
+  echo "RAILWAY_APPLICATION_QUIET_SECONDS must be a non-negative integer" >&2
   exit 2
 fi
 if [[ "$1" == "up" ]]; then

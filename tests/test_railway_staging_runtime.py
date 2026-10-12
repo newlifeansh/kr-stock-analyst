@@ -38,6 +38,7 @@ def _runtime_env(
     application_state: str = "running",
     ready: bool = True,
     scale_stops_process: bool = True,
+    reappear_once: bool = False,
 ) -> tuple[dict[str, str], Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(parents=True)
@@ -76,7 +77,10 @@ if service == 'database-id':
 else:
     path = Path(os.environ['RAILWAY_TEST_APP_STATE'])
     states = json.loads(path.read_text())
-    states[service] = 'idle'
+    marker = path.with_name(service + '-stop-count')
+    count = int(marker.read_text()) if marker.exists() else 0
+    marker.write_text(str(count + 1))
+    states[service] = 'running' if os.environ.get('RAILWAY_TEST_REAPPEAR') == 'true' and count == 0 else 'idle'
     path.write_text(json.dumps(states))
 PY
 elif [[ "$*" == scale* || "$*" == restart* ]]; then
@@ -110,6 +114,7 @@ fi
             "RAILWAY_TEST_APP_STATE": str(app_state_path),
             "RAILWAY_TEST_FAIL_ON": fail_on,
             "RAILWAY_TEST_SCALE_STOPS": str(scale_stops_process).lower(),
+            "RAILWAY_TEST_REAPPEAR": str(reappear_once).lower(),
             "RAILWAY_PROJECT_ID": "project-id",
             "RAILWAY_ENVIRONMENT": "staging",
             "RAILWAY_WEB_SERVICE": "web-id",
@@ -119,6 +124,7 @@ fi
             "RAILWAY_DATABASE_WARMUP_SECONDS": "0",
             "RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS": "5",
             "RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS": "1",
+            "RAILWAY_APPLICATION_QUIET_SECONDS": "0",
             "QA_BASE_URL": "https://staging.example.test",
         }
     )
@@ -134,6 +140,7 @@ def _run_runtime(
     application_state: str = "running",
     ready: bool = True,
     scale_stops_process: bool = True,
+    reappear_once: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     env, log_path = _runtime_env(
         tmp_path,
@@ -142,6 +149,7 @@ def _run_runtime(
         application_state=application_state,
         ready=ready,
         scale_stops_process=scale_stops_process,
+        reappear_once=reappear_once,
     )
     result = subprocess.run(
         [str(SCRIPT), action],
@@ -178,8 +186,6 @@ def test_staging_runtime_starts_and_stops_in_dependency_order(tmp_path: Path) ->
         _database_status(),
         _database_status(),
         _database_status(),
-        _database_status(),
-        _database_status(),
         _database_stop(),
         _database_status(),
     ]
@@ -209,8 +215,6 @@ def test_failed_start_rolls_back_every_staging_service(tmp_path: Path) -> None:
         _database_status(),
         _database_status(),
         _database_status(),
-        _database_status(),
-        _database_status(),
         _database_stop(),
         _database_status(),
     ]
@@ -223,8 +227,6 @@ def test_shutdown_preserves_an_already_stopped_database_volume(tmp_path: Path) -
     assert lines == [
         _scale("web-id", 0),
         _scale("collector-id", 0),
-        _database_status(),
-        _database_status(),
         _database_status(),
         _database_status(),
         _database_status(),
@@ -269,3 +271,15 @@ def test_shutdown_preserves_database_if_active_deployment_cannot_stop(tmp_path: 
     )
     assert result.returncode != 0
     assert _database_stop() not in lines
+
+
+def test_shutdown_handles_a_queued_scale_deployment_reappearing(tmp_path: Path) -> None:
+    result, lines = _run_runtime(
+        tmp_path, "down", scale_stops_process=False, reappear_once=True,
+    )
+    assert result.returncode == 0, result.stderr
+    for service in ("web-id", "collector-id"):
+        stop = f"down -p project-id --environment staging --service {service} --yes"
+        assert lines.count(stop) == 2
+    assert _database_stop() in lines
+    assert '${RAILWAY_APPLICATION_QUIET_SECONDS:-30}' in SCRIPT.read_text()
