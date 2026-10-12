@@ -107,4 +107,17 @@ jobs:
       - name: Compare dated KRX daily candle without exporting credentials
         if: matrix.surface == 'dashboard' && matrix.role == 'collector'
         run: |
-          railway ssh -p "$DIAG_PROJECT" -s "$DIAG_SERVICE" -e staging -- python -c 'from app.config import get_settings; from app.collectors.briefing import KisRestBriefingProvider; import json; p=KisRestBriefingProvider(get_settings()); r=p._get("/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", "FHKST03010100", {"FID_COND_MRKT_DIV_CODE":"J", "FID_INPUT_ISCD":"005930", "FID_INPUT_DATE_1":"20261012", "FID_INPUT_DATE_2":"20261012", "FID_PERIOD_DIV_CODE":"D", "FID_ORG_ADJ_PRC":"1"}); print(json.dumps([{k:x.get(k) for k in ("stck_bsop_date","stck_oprc","stck_hgpr","stck_lwpr","stck_clpr","acml_vol")} for x in r.get("output2",[]) if x.get("stck_bsop_date")=="20261012"])); q=p._request_current_price("005930"); print(json.dumps({k:q.get(k) for k in ("stck_oprc","stck_hgpr","stck_lwpr","stck_prpr","acml_vol")}))'
+          set -euo pipefail
+          task_dir="$(mktemp -d)"
+          ssh-keygen -q -t ed25519 -N '' -C "staging-diagnostic-${GITHUB_RUN_ID}" -f "$task_dir/key"
+          fingerprint="$(ssh-keygen -lf "$task_dir/key.pub" -E sha256 | awk '{print $2}')"
+          eval "$(ssh-agent -s)"
+          ssh-add "$task_dir/key"
+          mkdir -p "$HOME/.ssh"
+          printf 'Host *\n  StrictHostKeyChecking accept-new\n  UserKnownHostsFile %s\n' "$task_dir/known_hosts" > "$HOME/.ssh/config"
+          cleanup() { railway ssh keys remove "$fingerprint"; ssh-agent -k; }
+          trap cleanup EXIT
+          railway ssh keys add --key "$fingerprint" --name "staging-diagnostic-${GITHUB_RUN_ID}"
+          code='from app.config import get_settings; from app.collectors.briefing import KisRestBriefingProvider; import json; p=KisRestBriefingProvider(get_settings()); r=p._get("/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", "FHKST03010100", {"FID_COND_MRKT_DIV_CODE":"J", "FID_INPUT_ISCD":"005930", "FID_INPUT_DATE_1":"20261012", "FID_INPUT_DATE_2":"20261012", "FID_PERIOD_DIV_CODE":"D", "FID_ORG_ADJ_PRC":"1"}); print(json.dumps([{k:x.get(k) for k in ("stck_bsop_date","stck_oprc","stck_hgpr","stck_lwpr","stck_clpr","acml_vol")} for x in r.get("output2",[]) if x.get("stck_bsop_date")=="20261012"])); q=p._request_current_price("005930"); print(json.dumps({k:q.get(k) for k in ("stck_oprc","stck_hgpr","stck_lwpr","stck_prpr","acml_vol")}))'
+          command="python -c $(printf '%q' "$code")"
+          railway ssh -p "$DIAG_PROJECT" -s "$DIAG_SERVICE" -e staging --identity-file "$task_dir/key" -- "$command"
