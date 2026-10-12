@@ -6,6 +6,9 @@ entry-evidence basis, overwrite published history, or send notifications.
 from __future__ import annotations
 
 import argparse
+import base64
+import gzip
+from hashlib import sha256
 from datetime import date, datetime, timedelta, timezone
 import json
 from pathlib import Path
@@ -23,7 +26,7 @@ from app.services.regular_session_prices import (
     PRICE_FIELDS, REGULAR_PRICE_BASIS, REGULAR_PRICE_EFFECTIVE_DATE,
     regular_session_evidence, store_regular_session_evidence,
 )
-from app.services.signal_entry_evidence import load_entry_evidence_timeline
+from app.services.signal_entry_evidence import ENTRY_EVIDENCE_STRATEGY_VERSION, load_entry_evidence_timeline
 from app.services.signal_mode_comparison import simulate_v8_intraday_ohlc_proxy
 
 
@@ -42,9 +45,55 @@ def periods(trades, through):
     return result
 
 
+def decode_production_archive(envelope):
+    """Verify a bounded, read-only export; never import it into the local DB."""
+    if envelope.get("encoding") != "gzip+base64":
+        raise ValueError("Unsupported evidence archive encoding")
+    raw = gzip.decompress(base64.b64decode(envelope["payload"], validate=True))
+    if sha256(raw).hexdigest() != envelope.get("sha256"):
+        raise ValueError("Production evidence archive checksum mismatch")
+    archive = json.loads(raw)
+    metadata = archive["metadata"]
+    if metadata.get("transaction_read_only") != "on" or metadata.get("writes") != 0 or metadata.get("notifications_sent") != 0:
+        raise ValueError("Archive is not a read-only evidence export")
+    if len(archive["daily_prices"]) != envelope.get("price_rows") or len(archive["entry_evidence"]) != envelope.get("evidence_rows"):
+        raise ValueError("Archive row counts differ from its manifest")
+    return archive
+
+
+def production_archive_inputs(archive, code, through):
+    prices, timeline = {}, {}
+    for item in archive["daily_prices"]:
+        if item["code"] != code:
+            continue
+        day = date.fromisoformat(item["trade_date"])
+        if day > through:
+            continue
+        if day in prices:
+            raise ValueError("Duplicate archived daily price")
+        prices[day] = DailyPrice(**{**item, "trade_date": day})
+    for item in archive["entry_evidence"]:
+        if item["stock_code"] != code or item["strategy_version"] != ENTRY_EVIDENCE_STRATEGY_VERSION:
+            continue
+        day = date.fromisoformat(item["signal_date"])
+        if day > through:
+            continue
+        payload = json.loads(item["payload"])
+        if payload.get("stock_code") != code or payload.get("signal_date") != day.isoformat() or payload.get("strategy_version") != item["strategy_version"] or payload.get("policy_version") != item["policy_version"]:
+            raise ValueError("Frozen entry evidence identity mismatch")
+        if day in timeline:
+            raise ValueError("Duplicate archived frozen entry evidence")
+        timeline[day] = payload
+    if not prices:
+        raise ValueError(f"{code}: no prices in scoped production archive")
+    return [prices[day] for day in sorted(prices)], timeline
+
+
 def run(args):
     codes = sorted(set(args.codes.split(",")))
     through = date.fromisoformat(args.through)
+    archive_envelope = json.loads(args.production_archive.read_text()) if getattr(args, "production_archive", None) else None
+    archive = decode_production_archive(archive_envelope) if archive_envelope else None
     report = {
         "basis_version": REGULAR_PRICE_BASIS, "production_ready": False,
         "diagnostic_only": True, "signals_published": 0, "notifications_sent": 0,
@@ -55,6 +104,10 @@ def run(args):
             "Universe coverage is limited to explicitly selected codes",
         ], "items": [],
     }
+    if archive_envelope:
+        report["production_archive_sha256"] = archive_envelope["sha256"]
+        report["entry_evidence_basis"] = "read_only_production_frozen_legacy_archive"
+        report["price_history_basis"] = "read_only_production_archive"
     with SessionLocal() as db:
         if args.materialize_retained_evidence:
             for record in db.scalars(select(SignalSessionPrice).where(
@@ -72,12 +125,15 @@ def run(args):
                 store_regular_session_evidence(db, evidence, observed_at=stamp)
             db.commit()
         for code in codes:
-            rows = list(reversed(list(db.scalars(select(DailyPrice).where(
-                DailyPrice.code == code, DailyPrice.trade_date <= through,
-            ).order_by(DailyPrice.trade_date.desc()).limit(qs.SIGNAL_HISTORY_ROWS)))))
+            if archive is not None:
+                rows, timeline = production_archive_inputs(archive, code, through)
+            else:
+                rows = list(reversed(list(db.scalars(select(DailyPrice).where(
+                    DailyPrice.code == code, DailyPrice.trade_date <= through,
+                ).order_by(DailyPrice.trade_date.desc()).limit(qs.SIGNAL_HISTORY_ROWS)))))
+                timeline = load_entry_evidence_timeline(db, code)
             envelope = regular_price_envelope(db, code, rows, completed_through=through)
             certificate = turnover_decision_certificate(envelope)
-            timeline = load_entry_evidence_timeline(db, code)
             paths = regular_ordered_paths(envelope)
             cases = {}
             for name, scenario in (("legacy_daily_ohlc_fallback", rows), ("lower", envelope.lower), ("upper", envelope.upper)):
@@ -116,6 +172,7 @@ def main():
     parser.add_argument("--through", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--materialize-retained-evidence", action="store_true")
+    parser.add_argument("--production-archive", type=Path, help="Read a checksummed frozen export without importing or overwriting local records")
     args = parser.parse_args()
     report = run(args)
     args.output.parent.mkdir(parents=True, exist_ok=True)

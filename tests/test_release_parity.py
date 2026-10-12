@@ -364,6 +364,7 @@ def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> Non
         "status_poll_seconds": 15,
         "rate_limit_retry": "read-only status queries only; maximum 3 retries, each wait capped at 60s; unresolved state retains DB",
         "idle_state": {
+            "measurement": "actual running replicas; preserve restart configuration because Railway requires configured numReplicas>=1",
             "web_replicas": 0,
             "collector_replicas": 0,
             "database_deployment": "stopped",

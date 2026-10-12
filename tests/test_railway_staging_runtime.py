@@ -31,6 +31,10 @@ def _database_stop() -> str:
     return "down -p project-id --environment staging --service database-id --yes"
 
 
+def _application_stop(service: str) -> str:
+    return f"down -p project-id --environment staging --service {service} --yes"
+
+
 def _runtime_env(
     tmp_path: Path,
     *,
@@ -211,10 +215,10 @@ def test_staging_runtime_starts_and_stops_in_dependency_order(tmp_path: Path) ->
     assert down.returncode == 0, down.stderr
     assert down_lines == [
         _database_status(),
-        _scale("web-id", 0),
+        _application_stop("web-id"),
         _database_status(),
-        _scale("collector-id", 0),
         _database_status(),
+        _application_stop("collector-id"),
         _database_status(),
         _database_status(),
         _database_stop(),
@@ -243,10 +247,10 @@ def test_failed_start_rolls_back_every_staging_service(tmp_path: Path) -> None:
         _database_status(),
         _scale("collector-id", 1),
         _database_status(),
-        _scale("web-id", 0),
+        _application_stop("web-id"),
         _database_status(),
-        _scale("collector-id", 0),
         _database_status(),
+        _application_stop("collector-id"),
         _database_status(),
         _database_status(),
         _database_stop(),
@@ -260,10 +264,10 @@ def test_shutdown_preserves_an_already_stopped_database_volume(tmp_path: Path) -
     assert result.returncode == 0, result.stderr
     assert lines == [
         _database_status(),
-        _scale("web-id", 0),
+        _application_stop("web-id"),
         _database_status(),
-        _scale("collector-id", 0),
         _database_status(),
+        _application_stop("collector-id"),
         _database_status(),
         _database_status(),
     ]
@@ -284,8 +288,8 @@ def test_staging_up_requires_database_backed_readiness(tmp_path: Path) -> None:
     assert _database_stop() in lines
 
 
-def test_shutdown_keeps_db_when_a_scale_down_fails(tmp_path: Path) -> None:
-    result, lines = _run_runtime(tmp_path, "down", fail_on="--service web-id us-west2=0")
+def test_shutdown_keeps_db_when_a_stop_fails(tmp_path: Path) -> None:
+    result, lines = _run_runtime(tmp_path, "down", fail_on=_application_stop("web-id"))
     assert result.returncode != 0
     assert _database_stop() not in lines
 
@@ -358,7 +362,11 @@ def test_staging_scale_clears_legacy_regions_for_the_selected_apps(tmp_path: Pat
         assert result.returncode == 0, result.stderr
         lines = log.read_text().splitlines()
         for service in ("web-id", "collector-id"):
-            assert f"scale -p project-id --environment staging --service {service} sfo=0 us-west2={count} --json" in lines
+            if action == "up":
+                assert f"scale -p project-id --environment staging --service {service} sfo=0 us-west2={count} --json" in lines
+            else:
+                assert _application_stop(service) in lines
+                assert not any(line.startswith("scale") for line in lines)
         assert not any(line.startswith("scale") and "database-id" in line for line in lines)
 
 
@@ -369,10 +377,10 @@ def test_staging_scale_rejects_an_alias_or_incomplete_acknowledgement(tmp_path: 
             env["RAILWAY_REGION"] = "us-west"
         else:
             env["RAILWAY_TEST_RETAIN_REGION"] = "true"
-        result = subprocess.run([str(SCRIPT), "down"], env=env, capture_output=True, text=True)
+        result = subprocess.run([str(SCRIPT), "up"], env=env, capture_output=True, text=True)
         assert result.returncode != 0
         lines = log.read_text().splitlines()
-        assert _database_stop() not in lines
+        assert _database_stop() in lines  # rejected start still performs verified cleanup
         if name == "alias":
             assert not any(line.startswith("scale") for line in lines)
         else:

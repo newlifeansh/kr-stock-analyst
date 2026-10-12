@@ -38,6 +38,7 @@
         "turnover_baseline": "observed preopen amount or exactly priced opening minute; date rollover alone does not prove zero",
         "opening_uncertainty": "exact unavailable -> bounded OHLCV evidence; opt-in audit only, never an invented point value",
         "bounded_replay": "explicit opt-in lower/upper turnover envelopes only; production_ready=false",
+        "production_evidence_replay": "checksum/count verified read-only production price and frozen entry archive; never import into or overwrite local/production history",
         "auction_fallback": "dated Naver KRX single-price 15:30 bucket only after all 38 pre-auction OHLC/volume buckets match KIS",
         "sparse_coverage": "complete 09:00-09:09 volume anchor plus 38 matched OHLC/cumulative-volume buckets and actual matching close; no interpolated execution",
         "conflict_policy": "fail closed, append evidence without overwrite"
@@ -166,6 +167,7 @@
           "status_poll_seconds": 15,
           "rate_limit_retry": "read-only status queries only; maximum 3 retries, each wait capped at 60s; unresolved state retains DB",
           "idle_state": {
+            "measurement": "actual running replicas; preserve restart configuration because Railway requires configured numReplicas>=1",
             "web_replicas": 0,
             "collector_replicas": 0,
             "database_deployment": "stopped"
@@ -231,10 +233,10 @@
         "두 스테이징 QA 통과 후 운영자가 정확한 후보·해시를 승인하면 product_surface로 선택한 운영 프로젝트의 web·collector에만 재빌드 없이 같은 image@sha256을 승격한다. 국내 운영의 기존 /us 호환 경로는 공식 URL 전환 전까지 변경하지 않는다.",
         "배포 후 선택한 surface의 스테이징·운영 버전·자산 URL·내용 해시와 production live를 확인하고 다른 운영 프로젝트에 배포가 없음을 검사한다.",
         "기존 후보 up은 CRASHED·stopped 프로세스를 재빌드 없이 재시작하고 /readyz의 database_ok=true를 확인한다. 새 후보 prepare는 이전 앱의 health를 요구하지 않는다. 종료는 web·collector running=0 확인 후 DB를 중지한다.",
-        "scale=0 성공 후에도 running replica가 남으면 해당 web·collector 활성 배포만 명시 중지하고 실제 running=0을 확인한 뒤 DB를 중지한다.",
+        "종료 시 scale=0을 호출하지 않는다. 이는 지역 override 삭제이며 기본 replica가 다시 살아날 수 있다. 선택한 web·collector 배포만 직접 중지하고 실제 running=0을 확인한 뒤 DB를 중지한다.",
         "scale 설정 반영으로 중지 직후 새 배포가 나타나면 동일 스테이징 앱의 활성 배포만 최대 3회 중지하고 30초 동안 프로세스 0이 유지되는지 확인한다. 기한을 넘기면 DB를 유지하고 실패한다.",
         "기존 배포가 restart 불가하면 명시한 RAILWAY_RESUME_IMAGE_REF와 실제 source.image가 정확히 같은 불변 다이제스트인지 조회 검증한 뒤 그 이미지로만 재배포한다. 태그·저장소 빌드·다른 이미지·production 환경은 거부한다.",
-        "sfo와 us-west2가 함께 남은 픽스처에서 관측된 canonical region ID만 받고 선택한 web·collector의 나머지 지역은 0으로 지정한다. CLI 응답의 타 지역 replica 잔존·잘못된 JSON·alias 입력은 실패시키며 DB를 중지하지 않는다. 운영 환경은 모든 명령 전에 거부한다."
+        "기동 시 sfo와 us-west2가 함께 남은 픽스처에서 관측된 canonical region ID만 받고 선택한 web·collector의 나머지 지역 override는 제거한다. CLI 응답의 타 지역 replica 잔존·잘못된 JSON·alias 입력은 실패시키고 확인된 프로세스 종료 후 DB를 중지한다. 운영 환경은 모든 명령 전에 거부한다."
       ],
       "expected": [
         "국내·미국 스테이징은 서로 다른 Railway 프로젝트·web·collector·DB·URL을 사용하고 이전 dark-theme-preview 프록시는 QA 대상으로 쓰지 않는다.",

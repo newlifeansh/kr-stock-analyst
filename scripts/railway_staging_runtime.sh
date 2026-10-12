@@ -324,8 +324,10 @@ stop_database() {
 power_down() {
   local status=0
 
-  scale_service web "$RAILWAY_WEB_SERVICE" 0 || status=1
-  scale_service collector "$RAILWAY_COLLECTOR_SERVICE" 0 || status=1
+  # Railway v5 scale region=0 deletes a region override, not an executable
+  # zero-replica config. The API rejects numReplicas=0 and inherited defaults
+  # can start a new deployment. Stop the selected deployments directly instead.
+  # Idle means actual running=0; the saved one-replica start config is retained.
   # Do not remove the DB while web/collector processes are still shutting down.
   stop_application "$RAILWAY_WEB_SERVICE" || status=1
   stop_application "$RAILWAY_COLLECTOR_SERVICE" || status=1
@@ -338,7 +340,7 @@ power_down() {
 }
 
 rollback_after_failed_start() {
-  echo "Domestic staging start failed; scaling every staging service back to zero" >&2
+  echo "Domestic staging start failed; stopping applications before the database" >&2
   power_down || true
   exit 1
 }

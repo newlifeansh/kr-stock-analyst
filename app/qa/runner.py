@@ -62,6 +62,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_quant_signals.test_live_execution_bar_fails_closed_for_unverified_or_non_krx_quotes",
     ),
     "DATA-KR-REGULAR-001": (
+        "tests.test_regular_price_replay.test_production_archive_replay_preserves_frozen_blocked_evidence_without_database_writes",
+        "tests.test_regular_price_replay.test_production_archive_rejects_checksum_counts_mutating_exports_and_identity_conflicts",
         "tests.test_regular_session_prices.test_regular_session_excludes_after_market_and_subtracts_preopen_turnover",
         "tests.test_regular_session_prices.test_regular_session_rejects_missing_corrupt_and_unreconciled_evidence",
         "tests.test_regular_session_prices.test_regular_session_requires_completed_aware_source_timestamp",
@@ -240,7 +242,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_railway_staging_runtime.test_staging_resume_rejects_mutable_tags_before_any_mutation",
         "tests.test_railway_staging_runtime.test_staging_up_restarts_crashed_same_deployments",
         "tests.test_railway_staging_runtime.test_staging_up_requires_database_backed_readiness",
-        "tests.test_railway_staging_runtime.test_shutdown_keeps_db_when_a_scale_down_fails",
+        "tests.test_railway_staging_runtime.test_shutdown_keeps_db_when_a_stop_fails",
         "tests.test_railway_staging_runtime.test_shutdown_stops_active_deployments_when_scale_only_changes_configuration",
         "tests.test_railway_staging_runtime.test_shutdown_preserves_database_if_active_deployment_cannot_stop",
         "tests.test_railway_staging_runtime.test_shutdown_handles_a_queued_scale_deployment_reappearing",
