@@ -55,7 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 09ab43a2c5a5fa537ecee5a3be89018d2a2c4ef4
+          ref: 7bba4193adb4f8838fa914db7adcaae635510b20
       - run: npm install --global @railway/cli@5.45.7
       - name: Recover the same staging deployments without rebuilding
         run: |
