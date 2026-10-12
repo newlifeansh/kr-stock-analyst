@@ -18,7 +18,7 @@
         "기존 DailyPrice와 매매 이력을 수정하지 않는다."
       ],
       "inputs": {
-        "basis_version": "krx-regular-session-v3-candidate",
+        "basis_version": "krx-regular-session-v4-candidate",
         "regular_window": "09:00~15:30 Asia/Seoul",
         "dated_endpoint": "FHKST03010230:J",
         "initial_cursor": "153100",
@@ -26,12 +26,14 @@
         "opening_uncertainty": "exact unavailable -> bounded OHLCV evidence; opt-in audit only, never an invented point value",
         "bounded_replay": "explicit opt-in lower/upper turnover envelopes only; production_ready=false",
         "auction_fallback": "dated Naver KRX single-price 15:30 bucket only after all 38 pre-auction OHLC/volume buckets match KIS",
+        "sparse_coverage": "complete 09:00-09:09 volume anchor plus 38 matched OHLC/cumulative-volume buckets and actual matching close; no interpolated execution",
         "conflict_policy": "fail closed, append evidence without overwrite"
       },
       "steps": [
         "캘린더의 모든 예정 거래일을 검사하며 기존 일봉에 없는 날도 누락으로 확인한다. 날짜별 분봉 조회는 max_points로 15:30 체결을 버리지 않는다.",
         "중복·날짜 오류·누락 분봉·0거래 종가·비정상 가격을 차단하고, 동시호가의 0거래 지시가격은 체결에서 제외한다.",
         "KIS 종가만 누락된 경우 네이버 KRX 동일 날짜의 09:00~15:19 모든 10분 구간 OHLC·누적 거래량 차이를 비교한다. 양수 단일가격 15:30 경매만 복구하고 장후 15:40 거래는 제외한다.",
+        "정규장 중간 분봉이 비면 09:00~09:09 양수 분봉 10개로 장전 거래량 차이의 기준을 고정하고, 38개 구간 모두의 OHLC·누적 거래량 차이와 종가 체결을 대조한다. 첫 구간 누락 또는 가격/거래량 불일치는 차단하고, 확인된 무거래 시간에는 가상 봉·체결을 넣지 않는다.",
         "정규장 거래량을 합산하고 거래대금의 각 분봉 누적 차이를 가격 범위×거래량과 대조한다. 장전 기준액이 없고 시초 분봉이 단일가격이 아니면 정확값 대신 상하한을 보존하고 bounded로 분리한다. 기본 시그널 로더는 이를 수용하지 않는다.",
         "bounded 근거는 기본 loader에서 거절하고 명시적 opt-in 읽기 전용 상·하한 시나리오에서만 사용한다. OHLCV·정규장 분봉 경로는 두 끝점에서 동일해야 하며, 기존 화면 일봉을 수정하지 않는다.",
         "상·하한 전체에서 가격 기반 유동성 임계값과 체결비용이 불변임을 검사한다. 하한 < 임계값 <= 상한이면 ambiguous로 두며 이 증명만으로 독립 진입근거나 운영 사용 승인을 만들지 않는다.",
@@ -48,6 +50,7 @@
       "failure_criteria": [
         "누적 거래대금을 합산하거나 전체 일봉으로 미검증 정규장 근거를 대체한다.",
         "15:30 체결을 max_points 제한으로 버리거나 누락·위변조 근거를 ready로 반환한다.",
+        "장초 첫 10분의 누락 거래량을 장전 차이로 흡수하거나, 구간·종가 원천 불일치를 통과시키거나, 빈 시간에 가상 체결을 생성한다.",
         "bounded 거래대금을 단일 관측값처럼 loader·시그널에 전달하거나 OHLCV가 달라진 끝점·뒤집힌 상하한을 통과시킨다.",
         "하한 < 거래대금 임계값 <= 상한인 구간을 invariant로 승인하거나, 제한된 증명을 운영/독립 진입근거 승인으로 표시한다.",
         "기존 DailyPrice 또는 이전 근거를 덮어쓴다."

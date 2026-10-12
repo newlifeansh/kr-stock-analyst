@@ -23,7 +23,7 @@ KST = ZoneInfo("Asia/Seoul")
 # v1 local prototype assumed a counter reset at the date boundary. Source
 # comparison disproved that assumption for opening cumulative turnover.
 # Retain its evidence but never select it for the corrected candidate.
-REGULAR_PRICE_BASIS = "krx-regular-session-v3-candidate"
+REGULAR_PRICE_BASIS = "krx-regular-session-v4-candidate"
 REGULAR_PRICE_EFFECTIVE_DATE = date(2026, 9, 14)
 REGULAR_PRICE_SOURCE = "kis_dated_minutes:FHKST03010230:J"
 PRICE_FIELDS = ("open", "high", "low", "close", "volume", "trading_value")
@@ -61,8 +61,13 @@ def _verified_naver_closing_auction(
     """
     if payload.get("code") != code or payload.get("stockExchangeType") != "KRX" or payload.get("periodType") != "week":
         raise ValueError("wrong closing-auction source identity")
-    if not regular or regular[0]["trade_time"] != "090000" or regular[-1]["trade_time"] != "151900" or len(regular) != 380:
-        raise ValueError("closing recovery requires the entire pre-auction minute path")
+    if not regular or regular[0]["trade_time"] != "090000" or regular[-1]["trade_time"] != "151900":
+        raise ValueError("closing recovery requires the pre-auction session boundaries")
+    # Without an observed pre-open volume, the first bucket is the offset
+    # anchor. A missing trade there could be absorbed into the constant
+    # pre-open offset and escape all subsequent bucket comparisons.
+    if [row["trade_time"] for row in regular[:10]] != [f"090{i}00" for i in range(10)]:
+        raise ValueError("cross-source coverage requires a complete opening volume anchor")
     candles = (payload.get("priceInfos") or {}).get(day.strftime("%Y%m%d"))
     if not isinstance(candles, list):
         raise ValueError("missing dated closing-auction evidence")
@@ -76,10 +81,11 @@ def _verified_naver_closing_auction(
     offset = None
     last_cumulative = None
     for index in range(0, 380, 10):
-        minutes = regular[index:index + 10]
         expected_start = datetime.combine(day, time(9)) + timedelta(minutes=index)
-        if [row["trade_time"] for row in minutes] != [(expected_start + timedelta(minutes=i)).strftime("%H%M%S") for i in range(10)]:
-            raise ValueError("missing pre-auction minute")
+        expected_end = expected_start + timedelta(minutes=10)
+        minutes = [row for row in regular if expected_start.strftime("%H%M%S") <= row["trade_time"] < expected_end.strftime("%H%M%S")]
+        if not minutes:
+            raise ValueError("unverified empty pre-auction bucket")
         bucket = buckets.get(expected_start.strftime("%Y%m%d%H%M%S")) or {}
         actual = [_integer(bucket.get(key), positive=True) for key in ("openPrice", "highPrice", "lowPrice", "currentPrice")]
         expected = [_integer(minutes[0]["open"], positive=True), max(_integer(row["high"], positive=True) for row in minutes), min(_integer(row["low"], positive=True) for row in minutes), _integer(minutes[-1]["price"], positive=True)]
@@ -134,6 +140,7 @@ def regular_session_evidence(
         "closing_auction_evidence": closing_auction_evidence,
         "volume_basis": "sum_actual_regular_minute_volume",
         "trading_value_basis": "closing_cumulative_minus_preopen_cumulative",
+        "coverage_basis": "continuous_actual_minutes",
     }
     try:
         parsed = []
@@ -148,6 +155,19 @@ def regular_session_evidence(
             parsed.append((instant, row))
         parsed.sort(key=lambda pair: pair[0])
         regular = [row for instant, row in parsed if time(9) <= instant.time() <= time(15, 30)]
+        actual_prefix = [row for row in regular if "090000" <= row["trade_time"] <= "151900"]
+        sparse_prefix_verified = False
+        if len(actual_prefix) < 380 and closing_auction_evidence is not None:
+            closing = _verified_naver_closing_auction(code, trade_date, actual_prefix, closing_auction_evidence)
+            observed_close = next((row for row in regular if row["trade_time"] == "153000"), None)
+            if observed_close is not None and any(
+                _integer(observed_close.get(key)) != _integer(closing[key])
+                for key in ("open", "high", "low", "price", "volume", "trading_value")
+            ):
+                raise ValueError("closing source conflicts with actual KIS closing trade")
+            sparse_prefix_verified = True
+            result["coverage_basis"] = "naver_38_buckets_with_complete_opening_volume_anchor"
+            result["source"] += "+naver_krx_regular_coverage"
         if regular and regular[-1]["trade_time"] != "153000" and closing_auction_evidence is not None:
             regular = regular + [_verified_naver_closing_auction(code, trade_date, regular, closing_auction_evidence)]
             result["source"] += "+naver_krx_closing_auction"
@@ -169,6 +189,8 @@ def regular_session_evidence(
             after = datetime.strptime(following["trade_time"], "%H%M%S")
             if after - before != timedelta(minutes=1) and not (
                 prior["trade_time"] in {"151900", "152000"} and following["trade_time"] == "153000"
+            ) and not (
+                sparse_prefix_verified and following["trade_time"] <= "151900"
             ):
                 raise ValueError("missing regular minute")
         prices = {

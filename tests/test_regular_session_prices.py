@@ -372,3 +372,50 @@ def test_regular_integer_evidence_preserves_exact_values_above_float_precision()
     assert rsp._integer("9007199254740993") == 9007199254740993
     with pytest.raises(ValueError):
         rsp._integer("9007199254740993.5")
+
+
+def sparse_regular_fixture(missing="094000"):
+    rows = [row for row in minute_rows() if row["trade_time"] != missing]
+    for row in rows:
+        if row["trade_time"] > missing:
+            row["trading_value"] -= 1000
+    naver = naver_auction_fixture()
+    for bucket in naver["priceInfos"]["20261012"][:-1]:
+        if bucket["localDateTime"][-6:-2] >= missing[:3] + "0":
+            bucket["accumulatedTradingVolume"] -= 10
+    naver["priceInfos"]["20261012"][-1].update(
+        openPrice=100, highPrice=100, lowPrice=100, currentPrice=100,
+        accumulatedTradingVolume=3805,
+    )
+    return rows, naver
+
+
+def test_sparse_regular_minutes_require_independent_volume_coverage_not_interpolation(db):
+    from app.services.regular_price_replay import regular_price_envelope, regular_ordered_paths
+    rows, naver = sparse_regular_fixture()
+    assert evidence(rows)["state"] == "unverified"
+    verified = rsp.regular_session_evidence("005930", DAY, rows, observed_at=OBSERVED, closing_auction_evidence=naver)
+    assert verified["state"] == "ready", verified["reason"]
+    assert verified["prices"]["volume"] == 3800
+    assert verified["prices"]["trading_value"] == 380000
+    assert len(verified["regular_rows"]) == 380
+    assert "094000" not in {row["trade_time"] for row in verified["regular_rows"]}
+    rsp.store_regular_session_evidence(db, verified, observed_at=OBSERVED)
+    db.commit()
+    inputs = regular_price_envelope(db, "005930", [DailyPrice(code="005930", trade_date=DAY, close=120)], completed_through=DAY)
+    assert len(regular_ordered_paths(inputs)[DAY]) == 380
+
+
+def test_sparse_regular_coverage_cannot_absorb_an_opening_gap_into_preopen_volume():
+    rows, naver = sparse_regular_fixture("090500")
+    result = rsp.regular_session_evidence("005930", DAY, rows, observed_at=OBSERVED, closing_auction_evidence=naver)
+    assert result["state"] == "unverified"
+    assert "opening volume anchor" in result["reason"]
+
+
+def test_sparse_regular_coverage_rejects_conflicting_price_volume_or_closing_print():
+    for bucket_index, field, value in ((5, "lowPrice", 99), (5, "accumulatedTradingVolume", 606), (-1, "currentPrice", 101)):
+        rows, naver = sparse_regular_fixture()
+        naver["priceInfos"]["20261012"][bucket_index][field] = value
+        result = rsp.regular_session_evidence("005930", DAY, rows, observed_at=OBSERVED, closing_auction_evidence=naver)
+        assert result["state"] == "unverified"

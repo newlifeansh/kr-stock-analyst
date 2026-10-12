@@ -126,6 +126,17 @@ def regular_ordered_paths(envelope: RegularPriceEnvelope) -> dict[date, list[qs.
     bars = {bar.trade_date: bar for bar in qs._normalize_prices(envelope.lower)}
     result = {}
     for day, evidence in envelope.evidence.items():
+        if evidence.get("coverage_basis") == "naver_38_buckets_with_complete_opening_volume_anchor":
+            # load_regular_session_evidence already recomputes both sources,
+            # their opening-volume anchor and every bucket. Missing minutes
+            # contain no traded volume: omit them, never invent executions.
+            path = [qs.PriceBar(
+                trade_date=day, open=float(row["open"]), high=float(row["high"]),
+                low=float(row["low"]), close=float(row["price"]),
+                volume=float(row["volume"]), trading_value=float(row["trading_value"]),
+            ) for row in evidence["regular_rows"]]
+            result[day] = path
+            continue
         path = qs._verified_completed_intraday_minutes(evidence["regular_rows"], bars[day])
         if path is None:
             raise UnverifiedRegularSessionPrice(f"{day}: 정규장 경로 재생 검증 실패")
