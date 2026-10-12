@@ -1995,6 +1995,7 @@ def test_us_market_trends_fails_closed_when_all_live_sources_fail(monkeypatch):
         raise RuntimeError("upstream unavailable")
 
     monkeypatch.setattr(us_market, "_google_news_items", unavailable_source)
+    monkeypatch.setattr(us_market, "_naver_us_market_news_items", unavailable_source)
 
     payload = us_market.build_us_trends(
         days=7,
@@ -2005,3 +2006,59 @@ def test_us_market_trends_fails_closed_when_all_live_sources_fail(monkeypatch):
     assert payload["data_state"] == "unavailable"
     assert payload["timeline"] == []
     assert payload["events"] == []
+
+
+def test_us_market_news_independent_naver_source_preserves_dates_links_and_filters(monkeypatch):
+    now = datetime(2026,10,13,0,0,tzinfo=UTC)
+    valid = {"title":"뉴욕증시 혼조, 나스닥 반등", "officeId":"018", "articleId":"0006386838",
+             "officeName":"이데일리", "datetime":"20261013075214"}
+    class Response:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"isSuccess":True, "result":[valid, valid,
+                {**valid,"officeId":"fnGuide"},
+                {**valid,"articleId":"2","datetime":"20261014075214"},
+                {**valid,"articleId":"3","datetime":"20260901075214"},
+                {**valid,"articleId":"4","datetime":"invalid"},
+                {**valid,"articleId":"5","title":"국내 아파트 분양 소식"}]}
+    def get(url, **kwargs):
+        assert url.endswith("/news/category")
+        assert kwargs["params"] == {"category":"mainnews","page":1,"pageSize":60}
+        assert kwargs["timeout"] == 6
+        return Response()
+    monkeypatch.setattr(us_market.requests, "get", get)
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("HTTP 503")
+    monkeypatch.setattr(us_market, "_google_news_items", unavailable)
+    payload = us_market.build_us_trends(now=now)
+    assert payload["status"] == "ready" and payload["data_state"] == "live"
+    assert payload["source_name"] == "Naver Finance"
+    assert len(payload["timeline"]) == 1
+    item = payload["timeline"][0]
+    assert item["source"] == "이데일리" and item["source_feed"] == "Naver Finance"
+    assert item["url"] == "https://n.news.naver.com/mnews/article/018/0006386838"
+    assert item["published_at"] == datetime(2026,10,12,22,52,14,tzinfo=UTC)
+
+
+def test_us_market_news_keeps_google_when_independent_feed_fails(monkeypatch):
+    now = datetime(2026,10,13,0,0,tzinfo=UTC)
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("unavailable")
+    monkeypatch.setattr(us_market, "_naver_us_market_news_items", unavailable)
+    monkeypatch.setattr(us_market, "_google_news_items", lambda *args, **kwargs:[{
+        "title":"Wall Street stock market rises", "source":"Reuters", "url":"https://example.test/article", "published_at":now-timedelta(hours=1)}])
+    payload = us_market.build_us_trends(now=now)
+    assert payload["status"] == "ready" and len(payload["timeline"]) == 1
+    assert payload["source_name"] == "Google News RSS"
+
+
+def test_us_market_news_rejects_invalid_naver_envelope(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"isSuccess":False, "result":[]}
+    monkeypatch.setattr(us_market.requests, "get", lambda *args, **kwargs:Response())
+    with pytest.raises(ValueError, match="invalid envelope"):
+        us_market._naver_us_market_news_items()

@@ -4064,7 +4064,35 @@ def _normalize_us_market_news_item(
         "sentiment_score": classified.get("sentiment_score"),
         "sentiment_confidence": classified.get("sentiment_confidence"),
         "sentiment_reason": classified.get("sentiment_reason"),
+        "source_feed": item.get("source_feed"),
     }
+
+
+def _naver_us_market_news_items(limit: int = 60) -> list[dict[str, object]]:
+    """Independent live feed using the existing numeric press/article parser."""
+    from app.collectors.news import NAVER_MOBILE_FRONT_API, _mobile_news_item
+
+    response = requests.get(
+        f"{NAVER_MOBILE_FRONT_API}/news/category",
+        params={"category":"mainnews", "page":1, "pageSize":60},
+        headers={"User-Agent":"Mozilla/5.0", "Referer":"https://m.stock.naver.com/"},
+        timeout=6,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or payload.get("isSuccess") is not True or not isinstance(payload.get("result"), list):
+        raise ValueError("Naver market news returned an invalid envelope")
+    rows = []
+    for raw in payload["result"]:
+        if not isinstance(raw, dict):
+            continue
+        item = _mobile_news_item(raw, "market")
+        if item is None or not item.detail_url or not item.published_at or not _is_relevant_us_market_news(item.title):
+            continue
+        rows.append({"title":item.title, "source":item.press_name or "네이버 금융",
+                     "url":item.detail_url, "published_at":item.published_at.replace(tzinfo=KOREA_TZ).astimezone(timezone.utc),
+                     "source_feed":"Naver Finance"})
+    return rows[:limit]
 
 
 def _us_market_news_items(
@@ -4075,14 +4103,17 @@ def _us_market_news_items(
 ) -> list[dict[str, object]]:
     cutoff = now - timedelta(days=days)
     raw_items: list[dict[str, object]] = []
-    with ThreadPoolExecutor(max_workers=len(US_MARKET_NEWS_QUERIES)) as executor:
+    with ThreadPoolExecutor(max_workers=len(US_MARKET_NEWS_QUERIES) + 1) as executor:
         futures = {
-            executor.submit(_google_news_items, query, 30, language=language): query
+            executor.submit(_google_news_items, query, 30, language=language): "Google News RSS"
             for query, language in US_MARKET_NEWS_QUERIES
         }
+        # Fetch independent sources concurrently; do not add serial retries to
+        # the existing 12-second RSS request budget or manufacture stale news.
+        futures[executor.submit(_naver_us_market_news_items, 60)] = "Naver Finance"
         for future in as_completed(futures):
             try:
-                raw_items.extend(future.result())
+                raw_items.extend({**item, "source_feed":futures[future]} for item in future.result())
             except Exception:
                 continue
 
@@ -4139,7 +4170,7 @@ def build_us_trends(
         "window_start": cutoff,
         "window_end": current,
         "headline": "실제 보도된 미국 시장 뉴스를 최신순으로 보여드립니다.",
-        "source_name": "Google News RSS",
+        "source_name": " / ".join(sorted({str(item["source_feed"]) for item in timeline if item.get("source_feed")})) or "기사 원문",
         "events": [],
         "past_events": [],
         "timeline": timeline,

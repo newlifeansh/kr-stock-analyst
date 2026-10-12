@@ -314,6 +314,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_canonical_route_activation_requires_exact_production_candidate",
     ),
     "DATA-US-NEWS-001": (
+        "tests.test_us_market.test_us_market_news_independent_naver_source_preserves_dates_links_and_filters",
+        "tests.test_us_market.test_us_market_news_keeps_google_when_independent_feed_fails",
+        "tests.test_us_market.test_us_market_news_rejects_invalid_naver_envelope",
         "tests.test_us_market."
         "test_us_market_trends_uses_real_recent_articles_and_rejects_synthetic_freshness",
         "tests.test_us_market."
