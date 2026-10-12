@@ -32759,7 +32759,7 @@ async function initializeDashboard() {
     setView("stock", { historyMode: "none" });
     await Promise.all([
       identityPromise,
-      load(pathQuery(), { historyMode: "none" }),
+      syncViewFromLocation(),
     ]);
   } else {
     setView(state.view, { historyMode: "none", deferIdentityData: true });

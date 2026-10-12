@@ -330,6 +330,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_run_once_dispatches_domestic_intraday_half_sale_once_after_baseline",
     ),
     "SIG-PUSH-COMMUNITY-002": (
+        "tests.test_stock_community_deep_link.test_cold_stock_navigation_applies_community_route_after_hydration",
         "tests.test_data_signal_qa.test_community_notification_e2e_routes_the_async_history_response",
         "tests.test_app."
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
