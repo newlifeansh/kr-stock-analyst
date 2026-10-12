@@ -8,9 +8,13 @@ import pytest
 
 
 @pytest.mark.qa_gate
-@pytest.mark.parametrize("path", ["/dashboard/005930", "/us/stock/AAPL"])
-@pytest.mark.parametrize("popular", [True, False])
-def test_cold_stock_navigation_applies_community_route_after_hydration(path, popular):
+def test_cold_stock_navigation_applies_community_route_after_hydration():
+    for path in ("/dashboard/005930", "/us/stock/AAPL"):
+        for popular in (True, False):
+            _assert_cold_stock_navigation(path, popular)
+
+
+def _assert_cold_stock_navigation(path: str, popular: bool) -> None:
     """A notification opens a new document, not the popstate-only route handler."""
     source = Path("app/static/dashboard/app.js").read_text()
     sync = source[source.index("async function syncViewFromLocation()"):
