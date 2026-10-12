@@ -30,6 +30,8 @@ from app.services import quant_signals
 from app.services import briefing
 from app.services.signal_data_quality import (
     _http_probe,
+    _probe_historical_kis_minutes,
+    _probe_current_day_kis_minutes,
     probe_signal_source_apis,
     signal_data_quality_status,
 )
@@ -803,6 +805,10 @@ def test_entry_market_context_prefers_confirmed_naver_index_close():
 
 
 def test_source_probe_uses_current_naver_json_endpoints(monkeypatch):
+    monkeypatch.setattr(
+        "app.collectors.briefing.KisRestBriefingProvider.is_configured",
+        lambda _self: False,
+    )
     calls = []
 
     class Response:
@@ -857,8 +863,15 @@ def test_source_probe_uses_current_naver_json_endpoints(monkeypatch):
         now=datetime(2026, 9, 15, 8, 0),
     )
 
-    assert result["status"] == "ready"
-    assert {item["state"] for item in result["items"]} == {"ready"}
+    assert result["status"] == "degraded"
+    assert {
+        item["state"] for item in result["items"]
+        if item["key"] != "kis_historical_intraday"
+    } == {"ready"}
+    assert next(
+        item for item in result["items"]
+        if item["key"] == "kis_historical_intraday"
+    )["state"] == "not_configured"
     flow_call = next(call for call in calls if call[0].endswith("/trend"))
     assert flow_call[1] == {
         "tradeType": "KRX",
@@ -868,6 +881,137 @@ def test_source_probe_uses_current_naver_json_endpoints(monkeypatch):
     assert any(call[0].endswith("/researches/v2/company") for call in calls)
     assert not any("finance.naver.com/item/frgn.naver" in call[0] for call in calls)
     assert not any("company_list.naver" in call[0] for call in calls)
+
+
+def test_historical_kis_probe_requires_completed_dated_minutes(monkeypatch):
+    from app.collectors.briefing import KisRestBriefingProvider
+
+    completed = date(2026, 10, 7)
+    now = datetime(2026, 10, 8, 5, 20)
+    monkeypatch.setattr(
+        "app.services.signal_data_quality.latest_completed_korea_market_session_date",
+        lambda _now: completed,
+    )
+    monkeypatch.setattr(KisRestBriefingProvider, "is_configured", lambda _self: True)
+    rows = [
+        {
+            "trade_date": "20261007", "trade_time": minute,
+            "open": 100, "high": 101, "low": 99, "price": 100,
+        }
+        for minute in ("090100", "090200", "153000")
+    ]
+    captured = []
+
+    def chart(_self, code, trade_date, *, max_points):
+        captured.append((code, trade_date, max_points))
+        return rows
+
+    monkeypatch.setattr(
+        KisRestBriefingProvider, "fetch_historical_intraday_chart", chart
+    )
+    result = _probe_historical_kis_minutes(Settings(), "005930", now)
+    assert result["state"] == "ready"
+    assert result["environment"] in {"real", "demo"}
+    assert result["trade_date"] == "2026-10-07"
+    assert result["first_time"] == "090100"
+    assert result["last_time"] == "153000"
+    assert captured == [("005930", completed, 390)]
+    assert "token" not in str(result).lower()
+
+    rows[-1] = {**rows[-1], "trade_date": "20261006"}
+    assert _probe_historical_kis_minutes(Settings(), "005930", now)["state"] == "invalid"
+    rows[-1] = {**rows[-1], "trade_date": "20261007", "trade_time": "152000"}
+    assert _probe_historical_kis_minutes(Settings(), "005930", now)["state"] == "invalid"
+
+    def unavailable(_self, _code, _trade_date, *, max_points):
+        raise RuntimeError("sensitive-key=do-not-expose")
+
+    monkeypatch.setattr(
+        KisRestBriefingProvider, "fetch_historical_intraday_chart", unavailable
+    )
+    result = _probe_historical_kis_minutes(Settings(), "005930", now)
+    assert result["state"] == "unavailable"
+    assert "do-not-expose" not in str(result)
+
+    response = requests.Response()
+    response.status_code = 403
+    response.url = "https://openapi.koreainvestment.com:9443/oauth2/tokenP"
+    response._content = b'{"msg_cd":"EGW00001","msg1":"secret=do-not-expose"}'
+
+    def forbidden(_self, _code, _trade_date, *, max_points):
+        raise requests.HTTPError("secret=do-not-expose", response=response)
+
+    monkeypatch.setattr(
+        KisRestBriefingProvider, "fetch_historical_intraday_chart", forbidden
+    )
+    result = _probe_historical_kis_minutes(Settings(), "005930", now)
+    assert result["http_status"] == 403
+    assert result["failure_endpoint"] == "oauth_token"
+    assert result["source_error_code"] == "EGW00001"
+    assert "do-not-expose" not in str(result)
+
+    response.url = (
+        "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/"
+        "quotations/inquire-time-dailychartprice?FID_INPUT_ISCD=005930"
+    )
+    result = _probe_historical_kis_minutes(Settings(), "005930", now)
+    assert result["failure_endpoint"] == "dated_chart"
+    assert "FID_INPUT_ISCD" not in str(result)
+
+
+def test_current_day_kis_probe_requires_completed_matching_session(monkeypatch):
+    from app.collectors.briefing import KisRestBriefingProvider
+
+    now = datetime(2026, 10, 7, 15, 45, tzinfo=quant_signals.KST)
+    rows = [
+        {
+            "trade_date": "20261007",
+            "trade_time": (
+                datetime(2026, 10, 7, 9, 0) + timedelta(minutes=minute)
+            ).strftime("%H%M%S"),
+            "open": 101, "high": 101, "low": 101, "price": 101,
+            "volume": 100,
+        }
+        for minute in range(380)
+    ]
+    rows.extend({
+        "trade_date": "20261007",
+        "trade_time": f"15{minute:02d}00",
+        "open": 101, "high": 999, "low": 1, "price": 999,
+        "volume": 0,
+    } for minute in range(20, 30))
+    rows.append({
+        "trade_date": "20261007", "trade_time": "153000",
+        "open": 101, "high": 101, "low": 101, "price": 101,
+        "volume": 100,
+    })
+    monkeypatch.setattr(KisRestBriefingProvider, "is_configured", lambda _self: True)
+    monkeypatch.setattr(
+        KisRestBriefingProvider,
+        "fetch_intraday_chart",
+        lambda _self, code, *, max_points, market_division, now: rows,
+    )
+    ready = _probe_current_day_kis_minutes(Settings(), "005930", now)
+    assert ready["state"] == "ready"
+    assert ready["points"] == 391
+    assert ready["non_trade_auction_points"] == 10
+    assert ready["first_time"] == "090000"
+    assert ready["last_time"] == "153000"
+    assert ready["ohlc"] == {
+        "open": 101.0, "high": 101.0, "low": 101.0, "close": 101.0,
+    }
+    rows[-1] = {**rows[-1], "trade_date": "20261006"}
+    assert _probe_current_day_kis_minutes(Settings(), "005930", now)["state"] == "invalid"
+    rows[-1] = {**rows[-1], "trade_date": "20261007", "trade_time": "152000"}
+    assert _probe_current_day_kis_minutes(Settings(), "005930", now)["state"] == "invalid"
+
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("secret=do-not-expose")
+
+    monkeypatch.setattr(KisRestBriefingProvider, "fetch_intraday_chart", unavailable)
+    failure = _probe_current_day_kis_minutes(Settings(), "005930", now)
+    assert failure["state"] == "unavailable"
+    assert "do-not-expose" not in str(failure)
 
 
 def test_source_probe_never_echoes_a_credential_from_request_error(monkeypatch):

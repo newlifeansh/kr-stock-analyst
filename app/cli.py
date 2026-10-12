@@ -40,7 +40,7 @@ from app.collectors.stock_snapshots import (
     collect_stock_news_snapshots,
 )
 from app.config import get_settings
-from app.db import SessionLocal, engine, init_db
+from app.db import PushSessionLocal, SessionLocal, engine, init_db
 from app.models import StockMaster
 from app.qa.catalog import write_qa_catalog_markdown
 from app.qa.release_parity import verify_release_parity, write_release_parity_report
@@ -48,6 +48,7 @@ from app.qa.runner import run_data_signal_qa, write_qa_report
 from app.services.company_profiles import collect_company_profiles
 from app.services.official_stock_logos import backfill_official_stock_logos
 from app.services.stock_logos import sync_stock_logos
+from app.services.web_push import web_push_runtime
 
 app = typer.Typer(no_args_is_help=True)
 qa_app = typer.Typer(no_args_is_help=True, help="Data-integration and signal-decision QA.")
@@ -1062,6 +1063,45 @@ def check_railway_readiness_command(
 def init_database() -> None:
     init_db()
     typer.echo("Database initialized.")
+
+
+@app.command("send-community-popular")
+def send_community_popular_command(
+    code: str = typer.Option("005930", "--code", help="Domestic stock code"),
+    rank: int = typer.Option(1, "--rank", min=1, help="Popular-post rank to send"),
+    expected_post_id: str = typer.Option(
+        "", "--expected-post-id", help="Fail closed if the selected source post changed"
+    ),
+    send: bool = typer.Option(False, "--send/--dry-run", help="Send instead of previewing"),
+    confirm: str = typer.Option("", "--confirm", help="Required production confirmation token"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Optional redacted receipt JSON"),
+) -> None:
+    """Preview or send one current community-popular notification."""
+
+    if send and confirm != "SEND-COMMUNITY-POPULAR":
+        raise typer.BadParameter(
+            "--send requires --confirm SEND-COMMUNITY-POPULAR",
+            param_hint="--confirm",
+        )
+    with PushSessionLocal() as db:
+        try:
+            receipt = web_push_runtime.send_operator_community_popular(
+                db,
+                code=code,
+                rank=rank,
+                expected_post_id=expected_post_id or None,
+                dry_run=not send,
+            )
+        except (RuntimeError, ValueError) as exc:
+            typer.echo(f"Community notification failed: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+    payload = json.dumps(receipt, ensure_ascii=False, indent=2)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(payload + "\n", encoding="utf-8")
+    typer.echo(payload)
+    if send and int(receipt["failed"]) > 0:
+        raise typer.Exit(code=1)
 
 
 @app.command("migrate-performance-indexes")

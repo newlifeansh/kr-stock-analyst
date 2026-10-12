@@ -1,6 +1,8 @@
 from datetime import date, datetime
 from decimal import Decimal
 
+import pytest
+import requests
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
@@ -11,11 +13,92 @@ from app.collectors.briefing import (
     BriefingMoverPayload,
     BriefingQuotePayload,
     KisRestBriefingProvider,
+    current_market_status,
     persist_briefing_bundle,
 )
 from app.config import Settings
 from app.db import Base
 from app.models import BriefingEvent, BriefingMetric, BriefingMover, BriefingQuote, BriefingSnapshot
+
+
+def test_briefing_market_status_follows_krx_holiday_calendar():
+    assert current_market_status(datetime(2026, 10, 8, 10, 0)) == "open"
+    assert current_market_status(datetime(2026, 10, 8, 8, 45)) == "pre_open"
+    assert current_market_status(datetime(2026, 10, 9, 10, 0)) == "closed"
+
+
+def test_kis_rest_token_is_reused_across_probe_and_quote_providers(monkeypatch):
+    from app.collectors import briefing
+
+    issued: list[str] = []
+
+    class Response:
+        def __init__(self, token: str):
+            self.token = token
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"access_token": self.token, "expires_in": 86400}
+
+    def issue_token(_url, *, json, headers, timeout):
+        issued.append(str(json["appkey"]))
+        return Response(f"token-{len(issued)}")
+
+    monkeypatch.setattr(briefing.requests, "post", issue_token)
+    first_settings = Settings(
+        kis_app_key="shared-key-rc27",
+        kis_app_secret="shared-secret-rc27",
+    )
+    first = KisRestBriefingProvider(first_settings)
+    probe = KisRestBriefingProvider(first_settings)
+    other = KisRestBriefingProvider(
+        Settings(kis_app_key="other-key-rc27", kis_app_secret="shared-secret-rc27")
+    )
+
+    assert first._ensure_token() == "token-1"
+    assert probe._ensure_token() == "token-1"
+    assert other._ensure_token() == "token-2"
+    assert issued == ["shared-key-rc27", "other-key-rc27"]
+
+
+def test_kis_token_failure_is_cached_briefly_across_providers(monkeypatch):
+    from app.collectors import briefing
+
+    now = [100.0]
+    attempts = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"access_token": "recovered", "expires_in": 86400}
+
+    def issue_token(*_args, **_kwargs):
+        attempts.append(now[0])
+        if len(attempts) == 1:
+            raise requests.HTTPError("temporary tokenP 403")
+        return Response()
+
+    monkeypatch.setattr(briefing.time_module, "monotonic", lambda: now[0])
+    monkeypatch.setattr(briefing.requests, "post", issue_token)
+    settings = Settings(kis_app_key="failure-key-rc29", kis_app_secret="failure-secret-rc29")
+    first = KisRestBriefingProvider(settings)
+    second = KisRestBriefingProvider(settings)
+
+    with pytest.raises(requests.HTTPError):
+        first._ensure_token()
+    now[0] += 29
+    with pytest.raises(RuntimeError, match="temporarily unavailable"):
+        second._ensure_token()
+    assert attempts == [100.0]
+
+    now[0] += 1
+    assert second._ensure_token() == "recovered"
+    assert first._ensure_token() == "recovered"
+    assert attempts == [100.0, 130.0]
 
 
 def test_kis_daily_price_rows_use_final_session_ohlc(monkeypatch):

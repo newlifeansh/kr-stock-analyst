@@ -3895,22 +3895,45 @@ function closestStockPrice(targetDate) {
   return candidate;
 }
 
+function stockFinancialSeriesFor(financialSeries, metric, preferredScope = "quarterly") {
+  const requestedScope = preferredScope === "annual" ? "annual" : "quarterly";
+  const rowsFor = (scope) => (financialSeries?.[scope] || [])
+    .map((row) => ({ ...row, value: toNumber(row?.[metric]) }))
+    .filter((row) => row.value !== null);
+  const requestedRows = rowsFor(requestedScope);
+  if (requestedRows.length) {
+    return { scope: requestedScope, series: requestedRows };
+  }
+  const alternateScope = requestedScope === "quarterly" ? "annual" : "quarterly";
+  const alternateRows = rowsFor(alternateScope);
+  return alternateRows.length
+    ? { scope: alternateScope, series: alternateRows }
+    : { scope: requestedScope, series: [] };
+}
+
 function renderStockFinancialChart() {
   if (!elements.stockFinancialChart || !state.currentDashboard) {
     return;
   }
   dismissStockBarTooltip(elements.stockFinancialChart);
   const metric = state.stockFinancialMetric || "revenue";
-  const scope = state.stockFinancialScope || "quarterly";
+  const selected = stockFinancialSeriesFor(
+    state.currentDashboard.financial_series,
+    metric,
+    state.stockFinancialScope || "quarterly",
+  );
+  const scope = selected.scope;
+  const series = selected.series;
   for (const button of elements.stockFinancialMetricTabs) {
-    button.classList.toggle("active", button.dataset.financialMetric === metric);
+    const active = button.dataset.financialMetric === metric;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
   }
   for (const button of elements.stockFinancialScopeTabs) {
-    button.classList.toggle("active", button.dataset.financialScope === scope);
+    const active = button.dataset.financialScope === scope;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
   }
-  const series = (state.currentDashboard.financial_series?.[scope] || [])
-    .map((row) => ({ ...row, value: toNumber(row?.[metric]) }))
-    .filter((row) => row.value !== null);
   const metricLabels = { revenue: "매출액", operating_profit: "영업이익", net_income: "순이익" };
   if (!series.length) {
     elements.stockFinancialChart.innerHTML = '<p class="stock-v3-chart-empty">표시할 실적 시계열이 없습니다.</p>';
@@ -15659,6 +15682,7 @@ function marketAiSignalItems(payload = {}) {
         as_of: payload.as_of || signalDate,
         is_current_holding: canonicalCurrent?.position_open === true || item.is_current_holding === true,
         holding_context: holdingContext,
+        events: Array.isArray(item.events) ? item.events : [],
         current: canonicalCurrent || {
           action: preliminary
             ? (isBuy ? "entry_pending" : "full_exit_pending")
@@ -16229,13 +16253,14 @@ const AI_SIGNAL_FRESHNESS_LABELS = {
   realtime: "실시간",
   delayed: "약 10초 지연",
   recent: "최근 시세",
+  reference: "최근 미국장 종가",
   offline: "오프라인",
   closed: "장 마감",
   checking: "상태 확인 중",
   confirmed: "확정",
 };
 
-const AI_SIGNAL_FRESHNESS_SUMMARY_ORDER = ["realtime", "delayed", "recent", "checking", "offline", "closed"];
+const AI_SIGNAL_FRESHNESS_SUMMARY_ORDER = ["realtime", "delayed", "recent", "reference", "checking", "offline", "closed"];
 
 function aiSignalFreshnessSummary(states = []) {
   const normalized = (Array.isArray(states) ? states : [])
@@ -16248,6 +16273,7 @@ function aiSignalFreshnessSummary(states = []) {
   let stateName = "checking";
   if (counts.checking > 0) stateName = "checking";
   else if (counts.offline > 0) stateName = "offline";
+  else if (total > 0 && counts.reference === total) stateName = "reference";
   else if (total > 0 && counts.closed === total) stateName = "closed";
   else if (total > 0 && counts.recent === total) stateName = "recent";
   else if (counts.delayed > 0) stateName = "delayed";
@@ -16269,6 +16295,7 @@ function aiSignalFreshnessSummaryLabel(summary = {}) {
       realtime: "실시간",
       delayed: "약 10초 지연",
       recent: "최근 시세",
+      reference: "최근 미국장 종가",
       checking: "확인 중",
       offline: "오프라인",
       closed: "장 마감",
@@ -16281,6 +16308,7 @@ function aiSignalFreshnessSummaryLabel(summary = {}) {
   if (summary.state === "realtime") return `보유 ${total}개 모두 실시간`;
   if (summary.state === "delayed") return `보유 ${total}개 현재가 약 10초 지연`;
   if (summary.state === "recent") return `보유 ${total}개 미국 최근 시세 확인`;
+  if (summary.state === "reference") return `보유 ${total}개 최근 미국장 종가`;
   if (summary.state === "offline") return `보유 ${total}개 오프라인`;
   if (summary.state === "closed") return `장 마감 · 보유 ${total}개`;
   return `보유 ${total}개 시세 확인 중`;
@@ -16414,12 +16442,20 @@ function aiSignalQuoteUsesActiveSession(quote = {}) {
   ].includes(String(quote.market_session || ""));
 }
 
+function aiSignalItemIsUs(item = {}) {
+  const scope = String(item.market_scope || item.country || "").toLowerCase();
+  const market = String(item.market || item.exchange || "").toUpperCase();
+  return item.currency === "USD"
+    || ["us", "usa", "united_states"].includes(scope)
+    || ["NASDAQ", "NYSE", "AMEX", "SP500", "US"].includes(market);
+}
+
 function aiSignalLiveFreshnessState(item = {}, overlay = null, now = Date.now()) {
   if (isAiSignalSnapshotStale(now)) return "checking";
   if (!isCurrentAiSignalHolding(item)) return "confirmed";
   if (typeof navigator !== "undefined" && navigator.onLine === false) return "offline";
   const code = String(item.code || "");
-  const usItem = marketScopeForItem(item) === "us";
+  const usItem = aiSignalItemIsUs(item);
   if (
     !usItem
     && (
@@ -16437,6 +16473,9 @@ function aiSignalLiveFreshnessState(item = {}, overlay = null, now = Date.now())
   const fallbackActive = state.aiSignalQuoteStatuses.get(code)?.status === "fallback";
   if (!overlay?.payload) {
     if (usItem) {
+      const snapshotPrice = toNumber(item.current?.price ?? item.price);
+      const snapshotReturn = toNumber(item.current?.unrealized_return ?? item.current?.return_rate);
+      if (snapshotPrice !== null && snapshotReturn !== null) return "reference";
       return usMarketPhase(currentTime, state.usSectorMoves) === "closed" ? "closed" : "checking";
     }
     return !koreaExtendedQuoteLive(currentTime) && isDomesticMarketClosed(currentTime)
@@ -16473,6 +16512,21 @@ function aiSignalItemWithLiveOverlay(item = {}, now = Date.now()) {
   const freshnessState = aiSignalLiveFreshnessState(item, overlay, now);
   if (!isCurrentAiSignalHolding(item)) {
     return { ...item, live_freshness_state: freshnessState };
+  }
+  if (!overlay?.payload && freshnessState === "reference") {
+    const snapshotPrice = toNumber(item.current?.price ?? item.price);
+    const snapshotReturn = toNumber(item.current?.unrealized_return ?? item.current?.return_rate);
+    return {
+      ...item,
+      live_price: snapshotPrice,
+      live_return_rate: null,
+      live_return_pending: false,
+      live_updated_at: item.current?.as_of || item.as_of || "",
+      live_source: "completed_us_session",
+      live_freshness_state: "reference",
+      display_return_rate: snapshotReturn,
+      display_return_kind: "completed_session_position",
+    };
   }
   let displayReady = overlay?.displayReady === true;
   if (!displayReady && ["realtime", "delayed", "recent", "closed"].includes(freshnessState)) {
@@ -16968,6 +17022,8 @@ function aiSignalPageFreshnessView(now = Date.now()) {
   const detail = {
     realtime: "평가수익률 반영 중",
     delayed: "실시간 연결을 보완해 약 10초 간격의 현재가로 계산해요.",
+    recent: "최근 미국 시세로 평가수익률을 확인하고 있어요.",
+    reference: "완료된 최근 미국장 종가로 계산한 평가수익률이며 실시간 체결가는 아니에요.",
     offline: "연결이 복구되면 시그널과 현재가를 다시 확인해요.",
     closed: "마지막 확인 가격 기준이며 확정 수익률은 바뀌지 않아요.",
     checking: "현재가 출처를 확인하는 동안 실시간 수익률 계산을 멈췄어요.",
@@ -19111,7 +19167,7 @@ function renderAiSignalPerformance() {
   if (!elements.aiSignalPerformance || !elements.aiSignalPerformanceRows) return;
   const summary = state.aiSignalPerformanceSummary;
   const windows = summary?.windows || {};
-  if (!summary || (isUsHubContext && state.marketScope === "us")) {
+  if (!summary) {
     elements.aiSignalPerformance.hidden = true;
     return;
   }
@@ -19121,6 +19177,7 @@ function renderAiSignalPerformance() {
     elements.aiSignalPerformanceAsOf.textContent = asOf === "-" ? "집계 기준 확인 중" : `${asOf} 기준`;
   }
   const guard = state.aiSignalEntrySafetyGuard || {};
+  const grossReturns = summary.return_basis === "completed_trade_gross_price_return";
   const recentAverage = toNumber(windows["30d"]?.average_return);
   if (elements.aiSignalPerformanceLead) {
     elements.aiSignalPerformanceLead.textContent = guard.active === true
@@ -19129,7 +19186,9 @@ function renderAiSignalPerformance() {
         ? "최근 완료된 매도 시그널의 평균 수익률이 약한 상태입니다."
         : recentAverage === null
           ? "완료된 매도 시그널을 기준으로 평균 수익률을 집계하고 있습니다."
-          : "거래비용을 반영한 완료 매도 시그널의 평균 수익률입니다.";
+          : grossReturns
+            ? "완료된 미국 매도 시그널의 비용 차감 전 평균 수익률입니다."
+            : "거래비용을 반영한 완료 매도 시그널의 평균 수익률입니다.";
   }
   const rows = [[7, windows["7d"]], [15, windows["15d"]], [30, windows["30d"]]].map(([days, performanceWindow]) => {
     const windowSummary = performanceWindow || {};
@@ -19164,7 +19223,9 @@ function renderAiSignalPerformance() {
   });
   elements.aiSignalPerformanceRows.replaceChildren(...rows);
   if (elements.aiSignalPerformanceNote) {
-    elements.aiSignalPerformanceNote.textContent = "실제 주문 수익이 아닌 거래비용 반영 모델 체결 성과이며, 전량 매도된 거래만 집계합니다.";
+    elements.aiSignalPerformanceNote.textContent = grossReturns
+      ? "실제 주문 수익이 아닌 미국 모델의 비용·세금·환율 반영 전 성과이며, 전량 매도된 거래만 집계합니다."
+      : "실제 주문 수익이 아닌 거래비용 반영 모델 체결 성과이며, 전량 매도된 거래만 집계합니다.";
   }
 }
 
@@ -19428,7 +19489,7 @@ async function fetchMarketAiSignals(options = {}) {
     confirmed_count: payloads.reduce((sum, payload) => sum + (Number(payload.confirmed_count) || 0), 0),
     preliminary_count: payloads.reduce((sum, payload) => sum + (Number(payload.preliminary_count) || 0), 0),
     entry_pending_count: entryPendingItemCount(items),
-    performance_summary: krPayload?.performance_summary || null,
+    performance_summary: (effectiveScope === "us" ? usPayload : krPayload)?.performance_summary || null,
     filter_forward_comparison: krPayload?.filter_forward_comparison || null,
     entry_safety_guard: krPayload?.entry_safety_guard || null,
     items,

@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 import json
 import logging
+from statistics import median
 from typing import Any, Callable, Optional
 
 from sqlalchemy import update
@@ -897,14 +898,15 @@ def build_us_member_public_evidence(
     now: Optional[datetime] = None,
     history_loader: Optional[Callable[[str], list[Any]]] = None,
 ) -> dict[str, Any]:
-    """Recover completed-session public evidence for one canonical member.
+    """Build completed-session public evidence for one US stock.
 
     Older ready snapshots do not contain ``public_member_signals``. Rebuilding
     the full Top-100 snapshot can take several minutes or fail when an
     unrelated ticker is throttled, so the stock-detail endpoint may repair its
-    three non-actionable public reasons from that member's own adjusted daily
+    three non-actionable public reasons from that stock's own adjusted daily
     history. Membership and the decision state still come from the immutable
-    canonical snapshot; this helper never promotes an entry signal.
+    canonical snapshot; this helper never promotes an entry signal, including
+    when the requested stock is outside the current Top-100 universe.
     """
 
     current = now or datetime.now(timezone.utc)
@@ -1344,6 +1346,53 @@ def _model_lifecycle_item(
     }
 
 
+def build_us_signal_performance_summary(
+    events: list[dict[str, Any]], *, as_of: datetime,
+) -> dict[str, Any]:
+    """Full replay exits, not the display-limited/current-position rows.
+
+    US replay returns are gross price returns. Never label them net of costs
+    or apply the domestic entry guard to this presentation-only summary.
+    """
+    windows = {}
+    for days in (7, 15, 30):
+        cutoff = as_of.date() - timedelta(days=days)
+        values = []
+        seen = set()
+        for event in events:
+            exited_on = _parse_snapshot_date(event.get("execution_date"))
+            if (event.get("side") != "sell" or event.get("state_after") != "exited"
+                    or exited_on is None or not cutoff <= exited_on <= as_of.date()):
+                continue
+            try:
+                value = Decimal(str(event.get("return_rate")))
+            except Exception:
+                continue
+            identity = (event.get("code"), exited_on, event.get("signal_date"))
+            if not value.is_finite() or identity in seen:
+                continue
+            seen.add(identity)
+            values.append(value)
+        count = len(values)
+        wins = sum(value > 0 for value in values)
+        windows[f"{days}d"] = {
+            "window_days": days, "period_start": cutoff, "period_end": as_of.date(),
+            "completed_trades": count, "wins": wins,
+            "losses": sum(value < 0 for value in values),
+            "breakeven": sum(value == 0 for value in values),
+            "win_rate": _decimal(Decimal(wins * 100) / count) if count else None,
+            "average_return": _decimal(sum(values) / count) if count else None,
+            "median_return": _decimal(median(values)) if count else None,
+            "sample_state": "sufficient" if count >= 20 else "limited",
+            "minimum_required_trades": 20,
+        }
+    return {
+        "version": "us-performance-v1", "as_of": as_of,
+        "return_basis": "completed_trade_gross_price_return",
+        "benchmark_basis": "not_available", "windows": windows,
+    }
+
+
 def build_us_position_lifecycle_feed(
     *,
     limit: int = 20,
@@ -1374,6 +1423,7 @@ def build_us_position_lifecycle_feed(
         "as_of": current,
         "snapshot_generated_at": current,
         "universe_as_of": universe.get("universe_as_of"),
+        "ranking_as_of": universe.get("ranking_as_of"),
         "universe_count": len(members),
         "universe_members": [dict(member) for member in members],
         "universe_version": US_SIGNAL_UNIVERSE_VERSION,
@@ -1527,6 +1577,7 @@ def build_us_position_lifecycle_feed(
     baseline_actions: dict[str, str] = {}
     comparison_codes: set[str] = set()
     replay_complete_codes: set[str] = set()
+    performance_events: list[dict[str, Any]] = []
     data_coverage_count = len(covered_codes)
     for member in members:
         code = str(member["code"])
@@ -1569,6 +1620,9 @@ def build_us_position_lifecycle_feed(
         )
         if replay.get("complete") is True and code in signal_eligible_codes:
             replay_complete_codes.add(code)
+            performance_events.extend(
+                {**event, "code": code} for event in replay.get("events") or []
+            )
         replay_action = str(replay.get("action") or "no_signal")
         if action == "no_signal":
             if replay_action in {
@@ -1697,6 +1751,12 @@ def build_us_position_lifecycle_feed(
         "stateful_lifecycle_replay_complete": stateful_replay_complete,
         "stateful_lifecycle_replay_eligible_count": len(signal_eligible_codes),
         "stateful_lifecycle_replay_completed_count": len(replay_complete_codes),
+        "performance_summary": (
+            build_us_signal_performance_summary(
+                performance_events, as_of=_signal_close_at(universe_date) or current,
+            )
+            if complete_source_coverage and stateful_replay_complete else None
+        ),
         "confirmed_count": projected_confirmed_count,
         "preliminary_count": projected_preliminary_count,
         "entry_pending_count": sum(
@@ -2660,6 +2720,7 @@ def _ready_snapshot_semantics_are_valid(
             "data_state": "ready",
             "universe_version": payload.get("universe_version"),
             "universe_as_of": payload.get("universe_as_of"),
+            "ranking_as_of": payload.get("ranking_as_of"),
             "universe_count": payload.get("universe_count"),
             "checksum": payload.get("universe_checksum"),
             "items": payload.get("universe_members"),
@@ -2813,10 +2874,19 @@ def _authoritative_universe_matches(db: Session, payload: dict[str, Any]) -> boo
         return False
     if authoritative is None:
         return False
+    authoritative_ranking_date = _parse_snapshot_date(
+        authoritative.get("ranking_as_of")
+        or authoritative.get("universe_as_of")
+    )
+    payload_ranking_date = _parse_snapshot_date(
+        payload.get("ranking_as_of") or payload.get("universe_as_of")
+    )
     return bool(
         authoritative.get("checksum") == payload.get("universe_checksum")
         and authoritative.get("universe_as_of")
         == str(payload.get("universe_as_of"))
+        and authoritative_ranking_date is not None
+        and authoritative_ranking_date == payload_ranking_date
         and authoritative.get("universe_count") == payload.get("universe_count")
         and _snapshot_json({"items": authoritative.get("items")})
         == _snapshot_json({"items": payload.get("universe_members")})
@@ -2848,27 +2918,39 @@ def _block_snapshot_entries(
     universe_policy = dict(result.get("universe_policy") or {})
     universe_policy["new_entries_allowed"] = False
     result["universe_policy"] = universe_policy
-    for collection_name in ("items", "preliminary_history"):
+    for collection_name in ("items", "public_member_signals"):
         for item in list(result.get(collection_name) or []):
             if not isinstance(item, dict):
                 continue
             current = item.get("current") if isinstance(item.get("current"), dict) else {}
-            if current.get("action") == "entry_pending":
-                current["action"] = "entry_watch"
-                current["label"] = "예비 포착"
-                current["next_confirmation"] = reason
-                lifecycle = (
-                    current.get("lifecycle")
-                    if isinstance(current.get("lifecycle"), dict)
-                    else {}
-                )
-                lifecycle["state"] = "entry_watch"
-                lifecycle["label"] = "예비 포착"
-                current["lifecycle"] = lifecycle
-                item["current"] = current
-                item["signal"] = "예비 포착"
-            if item.get("action") == "entry_pending":
-                item["action"] = "entry_watch"
+            lifecycle = (
+                current.get("lifecycle")
+                if isinstance(current.get("lifecycle"), dict)
+                else {}
+            )
+            lifecycle["state"] = "no_signal"
+            lifecycle["label"] = "관망"
+            current.update(
+                {
+                    "action": "no_signal",
+                    "label": "관망",
+                    "position_open": False,
+                    "model_exposure_percent": 0,
+                    "live_observation": False,
+                    "next_confirmation": reason,
+                    "lifecycle": lifecycle,
+                }
+            )
+            item.update(
+                {
+                    "action": "no_signal",
+                    "signal": "관망",
+                    "is_preliminary": False,
+                    "is_current_holding": False,
+                    "latest_preliminary": None,
+                    "current": current,
+                }
+            )
     shadow = (
         dict(result.get("shadow_comparison") or {})
         if isinstance(result.get("shadow_comparison"), dict)
@@ -2878,6 +2960,9 @@ def _block_snapshot_entries(
         shadow["candidate_entry_pending_count"] = 0
         shadow["displayed_entry_pending_count"] = 0
         result["shadow_comparison"] = shadow
+    result["confirmed_count"] = 0
+    result["preliminary_count"] = 0
+    result["total_preliminary_count"] = 0
     result["entry_pending_count"] = 0
     return result
 
@@ -3022,6 +3107,7 @@ def us_position_lifecycle_preparing_payload(
         "snapshot_id": None,
         "snapshot_checksum": None,
         "universe_as_of": None,
+        "ranking_as_of": None,
         "universe_count": 0,
         "universe_version": US_SIGNAL_UNIVERSE_VERSION,
         "sector_classification_version": US_SECTOR_ETF_CLASSIFICATION_VERSION,
@@ -3264,6 +3350,8 @@ def us_position_lifecycle_refresh_due(
     if payload.get("status") != "ready" or payload.get("data_state") != "ready":
         return True
     if us_position_lifecycle_schema_upgrade_due(payload):
+        return True
+    if not isinstance(payload.get("performance_summary"), dict):
         return True
     universe_date = _parse_snapshot_date(payload.get("universe_as_of"))
     try:

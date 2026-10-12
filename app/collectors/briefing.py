@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time as time_module
 from concurrent.futures import ThreadPoolExecutor
@@ -15,6 +16,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
+from app.db import SessionLocal, engine
+from app.integrations.kis_token_cache import get_or_issue_shared_token
 from app.collectors.disclosures import latest_disclosure_events
 from app.collectors.news import latest_news_events
 from app.integrations.opendart import fetch_opendart_json
@@ -28,10 +31,15 @@ from app.models import (
 )
 from app.collectors.research import latest_report_events
 from app.repository import finish_ingestion, start_ingestion, upsert_many
+from app.services.market_calendar import is_korea_market_session_date
 
 KST = ZoneInfo("Asia/Seoul")
 KIS_TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
 KIS_TRANSIENT_RETRY_DELAYS = (0.25, 0.75)
+KIS_TOKEN_FAILURE_RETRY_SECONDS = 30
+_KIS_TOKEN_CACHE: dict[str, tuple[str, datetime]] = {}
+_KIS_TOKEN_FAILURE_RETRY_AT: dict[str, float] = {}
+_KIS_TOKEN_CACHE_LOCK = Lock()
 
 
 @dataclass
@@ -135,7 +143,7 @@ def current_market_status(now: Optional[datetime] = None) -> str:
         now = now.replace(tzinfo=KST)
     local = now.astimezone(KST)
 
-    if local.weekday() >= 5:
+    if not is_korea_market_session_date(local.date(), local):
         return "closed"
     if local.time() < time(8, 30):
         return "closed"
@@ -153,7 +161,6 @@ class KisRestBriefingProvider:
         self.settings = settings
         self._token: Optional[str] = None
         self._token_expires_at: Optional[datetime] = None
-        self._token_lock = Lock()
         self._request_slot_lock = Lock()
         self._next_request_at = 0.0
 
@@ -290,26 +297,63 @@ class KisRestBriefingProvider:
         return "https://openapi.koreainvestment.com:9443"
 
     def _ensure_token(self) -> str:
-        with self._token_lock:
+        # A quality probe creates a short-lived provider while the quote and
+        # collector runtimes keep long-lived providers. Reuse their token
+        # within this process instead of issuing a new one for every probe.
+        identity = hashlib.sha256(
+            (
+                f"{self.settings.kis_env}\0{self.settings.kis_app_key}\0"
+                f"{self.settings.kis_app_secret}"
+            ).encode("utf-8")
+        ).hexdigest()
+        with _KIS_TOKEN_CACHE_LOCK:
             now = datetime.utcnow()
+            cached = _KIS_TOKEN_CACHE.get(identity)
+            if cached and cached[1] > now + timedelta(minutes=1):
+                self._token, self._token_expires_at = cached
+                return cached[0]
             if self._token and self._token_expires_at and self._token_expires_at > now + timedelta(minutes=1):
+                _KIS_TOKEN_CACHE[identity] = (self._token, self._token_expires_at)
                 return self._token
 
-            response = requests.post(
-                f"{self._base_url()}/oauth2/tokenP",
-                json={
-                    "grant_type": "client_credentials",
-                    "appkey": self.settings.kis_app_key,
-                    "appsecret": self.settings.kis_app_secret,
-                },
-                headers={"content-type": "application/json"},
-                timeout=30,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            self._token = payload["access_token"]
-            expires_in = int(payload.get("expires_in", 86400))
-            self._token_expires_at = now + timedelta(seconds=expires_in)
+            if time_module.monotonic() < _KIS_TOKEN_FAILURE_RETRY_AT.get(identity, 0):
+                raise RuntimeError("KIS token temporarily unavailable")
+
+            def issue_token() -> tuple[str, int]:
+                response = requests.post(
+                    f"{self._base_url()}/oauth2/tokenP",
+                    json={
+                        "grant_type": "client_credentials",
+                        "appkey": self.settings.kis_app_key,
+                        "appsecret": self.settings.kis_app_secret,
+                    },
+                    headers={"content-type": "application/json"},
+                    timeout=30,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                return payload["access_token"], int(payload.get("expires_in", 86400))
+
+            try:
+                if engine.dialect.name == "postgresql":
+                    token, expires_at = get_or_issue_shared_token(
+                        SessionLocal,
+                        identity=identity,
+                        app_secret=self.settings.kis_app_secret or "",
+                        issue=issue_token,
+                    )
+                else:
+                    token, expires_in = issue_token()
+                    expires_at = now + timedelta(seconds=expires_in)
+            except Exception:
+                _KIS_TOKEN_FAILURE_RETRY_AT[identity] = (
+                    time_module.monotonic() + KIS_TOKEN_FAILURE_RETRY_SECONDS
+                )
+                raise
+            _KIS_TOKEN_FAILURE_RETRY_AT.pop(identity, None)
+            self._token = token
+            self._token_expires_at = expires_at
+            _KIS_TOKEN_CACHE[identity] = (self._token, self._token_expires_at)
             return self._token
 
     def _wait_for_request_slot(self) -> None:
@@ -383,6 +427,7 @@ class KisRestBriefingProvider:
     ) -> list[dict[str, object]]:
         """Fetch today's one-minute chart without retaining a quote cache."""
         now = now or datetime.now(KST)
+        now = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
         market_division = str(market_division or "J").strip().upper()
         if market_division not in {"J", "NX", "UN"}:
             raise ValueError("market_division must be one of J, NX, or UN")
@@ -440,6 +485,13 @@ class KisRestBriefingProvider:
                 trade_date = str(row.get("stck_bsop_date") or "").strip()
                 trade_time = str(row.get("stck_cntg_hour") or "").strip().zfill(6)
                 if not trade_date or not trade_time:
+                    continue
+                # Some premarket responses stamp the prior full session with
+                # today's date. A future minute cannot be today's trade.
+                if trade_date > now.strftime("%Y%m%d") or (
+                    trade_date == now.strftime("%Y%m%d")
+                    and trade_time > now.strftime("%H%M%S")
+                ):
                     continue
                 latest_trade_date = latest_trade_date or trade_date
                 if trade_date != latest_trade_date:
@@ -512,6 +564,117 @@ class KisRestBriefingProvider:
             previous_cursor, cursor = cursor, next_cursor
 
         return sorted(points.values(), key=lambda row: (str(row["trade_date"]), str(row["trade_time"])))[:max_points]
+
+    def fetch_krx_closing_auction_trade(
+        self, code: str, *, now: datetime
+    ) -> Optional[dict[str, object]]:
+        """Read a same-session 15:30 KRX print before after-hours trades replace it.
+
+        ``inquire-ccnl`` exposes only the most recent 30 prints and has no
+        trading-date field.  Its time alone is evidence only in the narrow
+        interval after today's closing auction and before after-hours opens.
+        The caller must also verify the same-day minute path and daily OHLC.
+        """
+
+        local_now = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
+        if not (time(15, 31) <= local_now.time() < time(15, 40)):
+            return None
+        payload = self._get(
+            "/uapi/domestic-stock/v1/quotations/inquire-ccnl",
+            "FHKST01010300",
+            {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code},
+        )
+        rows = payload.get("output") or []
+        if not isinstance(rows, list):
+            return None
+        prints: list[tuple[int, int]] = []
+        for row in rows:
+            trade_time = str(row.get("stck_cntg_hour") or "").zfill(6) if isinstance(row, dict) else ""
+            if not ("153000" <= trade_time <= "153059"):
+                continue
+            price = _int(row.get("stck_prpr"))
+            volume = _int(row.get("cntg_vol"))
+            if price is not None and price > 0 and volume is not None and volume > 0:
+                prints.append((price, volume))
+        if not prints or len({price for price, _volume in prints}) != 1:
+            return None
+        price = prints[0][0]
+        return {
+            "trade_date": local_now.strftime("%Y%m%d"),
+            "trade_time": "153000",
+            "open": price,
+            "high": price,
+            "low": price,
+            "price": price,
+            "volume": sum(volume for _price, volume in prints),
+            "trading_value": 0,
+        }
+
+    def fetch_historical_intraday_chart(
+        self,
+        code: str,
+        trade_date: date,
+        *,
+        max_points: int = 390,
+        market_division: str = "J",
+    ) -> list[dict[str, object]]:
+        """Fetch one completed KRX session with KIS's dated minute-chart API.
+
+        This is deliberately separate from the current-day chart endpoint:
+        a past execution must be replayed from the same dated session, never
+        from whatever day's chart the quote endpoint happens to return.
+        """
+
+        if market_division != "J":
+            raise ValueError("historical signal replay requires KRX market J")
+        if not isinstance(trade_date, date):
+            raise ValueError("trade_date must be a date")
+        target = trade_date.strftime("%Y%m%d")
+        points: dict[str, dict[str, object]] = {}
+        cursor = "153000"
+        for _ in range(max(1, min(5, (max_points + 119) // 120))):
+            payload = self._get(
+                "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice",
+                "FHKST03010230",
+                {
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD": code,
+                    "FID_INPUT_HOUR_1": cursor,
+                    "FID_INPUT_DATE_1": target,
+                    "FID_PW_DATA_INCU_YN": "Y",
+                    "FID_FAKE_TICK_INCU_YN": "",
+                },
+            )
+            rows = payload.get("output2", []) or []
+            if not rows:
+                break
+            valid_times: list[str] = []
+            for row in rows:
+                if str(row.get("stck_bsop_date") or "") != target:
+                    continue
+                trade_time = str(row.get("stck_cntg_hour") or "").zfill(6)
+                if not ("090000" <= trade_time <= "153000"):
+                    continue
+                valid_times.append(trade_time)
+                points[trade_time] = {
+                    "trade_date": target,
+                    "trade_time": trade_time,
+                    "price": _int(row.get("stck_prpr")),
+                    "open": _int(row.get("stck_oprc")),
+                    "high": _int(row.get("stck_hgpr")),
+                    "low": _int(row.get("stck_lwpr")),
+                    "volume": _int(row.get("cntg_vol")),
+                    "trading_value": _int(row.get("acml_tr_pbmn")),
+                }
+            if not valid_times or min(valid_times) <= "090000" or len(points) >= max_points:
+                break
+            next_cursor = (
+                datetime.strptime(min(valid_times), "%H%M%S") - timedelta(minutes=1)
+            ).strftime("%H%M%S")
+            if next_cursor >= cursor:
+                break
+            cursor = next_cursor
+        return [points[key] for key in sorted(points)][:max_points]
 
     def _fetch_fluctuation(self, list_type: str, limit: int, min_rate: str, max_rate: str) -> list[BriefingMoverPayload]:
         payload = self._get(

@@ -35,6 +35,40 @@ def test_dashboard_readiness_requires_current_general_and_complete_stock_news():
     assert stale is False
 
 
+def test_dashboard_readiness_waits_for_current_market_signal_snapshot():
+    quality = {
+        "status": "ready",
+        "datasets": {
+            "news": {"state": "ready"},
+            "stock_news": {
+                "state": "ready",
+                "covered": 100,
+                "total": 100,
+            },
+        },
+    }
+    refreshing, evidence = dashboard_readiness(
+        quality,
+        {
+            "status": "refreshing",
+            "execution_model": "close-confirmed-intraday-trigger-v1",
+        },
+    )
+    assert refreshing is False
+    assert evidence["market_signal_status"] == "refreshing"
+
+    ready, evidence = dashboard_readiness(
+        quality,
+        {
+            "status": "ready",
+            "execution_model": "close-confirmed-intraday-trigger-v1",
+            "snapshot_generated_at": "2026-10-09T12:40:00+09:00",
+        },
+    )
+    assert ready is True
+    assert evidence["market_signal_snapshot_generated_at"] is not None
+
+
 def test_us_readiness_rejects_schema_upgrade_and_empty_recommendations():
     quant = {
         "status": "ready",

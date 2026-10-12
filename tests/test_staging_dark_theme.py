@@ -742,6 +742,25 @@ def test_stock_quote_stays_above_tabs_and_market_tab_contracts_match():
     assert legacy_chart_fallback.count("min-height: 0 !important") == 2
 
 
+def test_fold_layout_expands_both_market_products_with_compact_navigation():
+    client = TestClient(staging_app)
+    css = client.get("/assets/staging/toss-fidelity.css").text
+
+    rules = css.split(
+        "/* v173 — expand both market products on fold-sized screens. */",
+        1,
+    )[1]
+    assert "@media (min-width: 600px) and (max-width: 1023px)" in rules
+    assert 'html[data-market-universe="us"] body[data-staging-ia="tds-video"]' in rules
+    assert 'html[data-market-universe="kr"] body[data-staging-ia="tds-video"]' in rules
+    assert "--tds-mobile-canvas: min(calc(100vw - 48px), 760px)" in rules
+    assert "--tds-space-gutter: 24px" in rules
+    assert "calc((100vw - var(--tc-content)) / 2 + var(--tc-gutter))" in rules
+    assert "calc((100vw - var(--tc-content)) / 2 + 6px)" in rules
+    assert "@media (min-width: 472px)" in css
+    assert "width: 451px !important" in css
+
+
 def test_staging_theme_has_touch_and_spacing_contract_for_tds_ia():
     client = TestClient(staging_app)
     css = client.get("/assets/staging/toss-fidelity.css").text
@@ -2860,7 +2879,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20261008v560' in shell
+    assert 'dashboard-app-v170.js?v=20261012v569' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 
@@ -3906,7 +3925,7 @@ def test_staging_v172_compacts_ai_stock_response_into_a_visual_decision_flow():
         1,
     )[1].split("/* v156 —", 1)[0]
 
-    assert "ai-response-visual-v172" in shell
+    assert "ai-response-visual-fold-v174" in shell
     assert "20261010-ai-response-visual-v118" in shell
     labels = (
         "선택한 이유",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from functools import lru_cache
 import re
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -97,11 +98,29 @@ def latest_published_korea_investor_flow_date(now: Optional[datetime] = None) ->
     return latest_korea_market_session_date(lookup_time)
 
 
+@lru_cache(maxsize=1)
+def _scheduled_krx_calendar():
+    import exchange_calendars
+
+    return exchange_calendars.get_calendar("XKRX")
+
+
+def is_scheduled_korea_market_session_date(target: date) -> bool:
+    """Use the exchange schedule before today's closing index bar exists."""
+
+    if target.weekday() >= 5:
+        return False
+    try:
+        return bool(_scheduled_krx_calendar().is_session(target.isoformat()))
+    except (TypeError, ValueError):
+        return False
+
+
 def is_korea_market_session_date(target: date, now: Optional[datetime] = None) -> bool:
     current = _kst_datetime(now)
     if target.weekday() >= 5 or target > current.date():
         return False
-    return latest_korea_market_session_date(current) == target
+    return is_scheduled_korea_market_session_date(target)
 
 
 def is_korea_regular_market_session(now: Optional[datetime] = None) -> bool:

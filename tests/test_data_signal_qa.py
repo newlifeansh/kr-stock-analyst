@@ -2,28 +2,35 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import UTC, datetime
+import sys
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from xml.etree import ElementTree
 
 import pytest
 import httpx
+from bs4 import BeautifulSoup
 from typer.testing import CliRunner
 
 from app.cli import app
 from app.qa.catalog import load_qa_catalog, render_qa_catalog_markdown
 from app.qa.e2e import (
     E2E_CASE_IDS,
+    US_HOME_COUNTRY_TOGGLE_SELECTOR,
     _chart_study_payload_with_recent_pattern,
     _navigate_page,
     _page_url,
+    _us_completed_signal_quote_state_ready,
     _us_observed_path,
+    _us_product_shell_text,
     _wait_for_ai_signal_list_ready,
 )
 from app.qa.runner import (
     PYTEST_QA_CASE_TESTS,
     QaFailure,
     ResultCollector,
+    _completed_kis_minute_chart_evidence,
+    _duplicate_market_signal_keys,
     _public_websocket_check,
     _probe_mobile_external_url,
     _resolve_public_quote_stream_url,
@@ -33,6 +40,153 @@ from app.qa.runner import (
     redact,
     run_data_signal_qa,
 )
+from app.services.market_calendar import KST, is_korea_regular_market_session
+
+
+@pytest.mark.qa_gate
+def test_market_feed_duplicate_check_distinguishes_partial_and_final_sell() -> None:
+    partial = {
+        "code": "066570",
+        "signal_date": "2026-10-06",
+        "status": "confirmed",
+        "side": "sell",
+        "event_side": "partial_sell",
+        "profit_stage": 1,
+        "action": None,
+    }
+    final = {**partial, "event_side": "sell", "profit_stage": 2}
+    second_partial = {**partial, "profit_stage": 2}
+
+    assert _duplicate_market_signal_keys([partial, final, second_partial]) == []
+    assert _duplicate_market_signal_keys([partial, final, dict(partial)]) == [
+        ("066570", "2026-10-06", "confirmed", "partial_sell", 1, None)
+    ]
+
+
+@pytest.mark.qa_gate
+def test_us_product_copy_check_ignores_only_user_written_community_posts() -> None:
+    community = "감좋은코스닥기린 · 12분 전\n코스닥이 아니라 마이크론 얘기"
+    shell = f"미국 TOP 50\n핫한 커뮤니티\n{community}\n커뮤니티 더 보기"
+    assert "코스닥" not in _us_product_shell_text(shell, community)
+    assert "코스닥" in _us_product_shell_text(
+        f"코스닥 시장 선택\n{shell}", community
+    )
+    assert "코스닥" in _us_product_shell_text(shell, "다른 게시물")
+
+
+@pytest.mark.qa_gate
+def test_us_completed_signal_quote_state_accepts_reference_and_closed_rows() -> None:
+    assert _us_completed_signal_quote_state_ready(
+        {
+            "holdingCount": 2,
+            "summary": "최근 미국장 종가 1 · 장 마감 1",
+            "rows": [
+                {
+                    "code": "MU",
+                    "text": "전략 기준가 $1,044.99 보유 평가수익률 -1.53%",
+                    "value": "-1.53%",
+                    "freshness": "reference",
+                },
+                {
+                    "code": "AAPL",
+                    "text": "전략 기준가 $331.70 보유 평가수익률 +1.49%",
+                    "value": "+1.49%",
+                    "freshness": "closed",
+                },
+            ],
+        }
+    )
+    assert _us_completed_signal_quote_state_ready(
+        {
+            "holdingCount": 1,
+            "summary": "장 마감 · 보유 1개",
+            "rows": [
+                {
+                    "code": "MU",
+                    "text": "전략 기준가 $1,044.99 보유 평가수익률 -1.53%",
+                    "value": "-1.53%",
+                    "freshness": "closed",
+                }
+            ],
+        }
+    )
+
+
+@pytest.mark.qa_gate
+def test_us_completed_signal_quote_state_rejects_missing_or_live_basis() -> None:
+    assert not _us_completed_signal_quote_state_ready(
+        {
+            "holdingCount": 1,
+            "summary": "장 마감 · 보유 1개",
+            "rows": [
+                {
+                    "code": "MU",
+                    "text": "전략 기준가 확인 중 현재가 확인 중",
+                    "value": "",
+                    "freshness": "closed",
+                }
+            ],
+        }
+    )
+    assert not _us_completed_signal_quote_state_ready(
+        {
+            "holdingCount": 1,
+            "summary": "보유 1개 모두 실시간",
+            "rows": [
+                {
+                    "code": "MU",
+                    "text": "전략 기준가 $1,044.99 실시간 평가수익률 -1.20%",
+                    "value": "-1.20%",
+                    "freshness": "realtime",
+                }
+            ],
+        }
+    )
+
+
+@pytest.mark.qa_gate
+def test_us_country_toggle_check_ignores_community_market_scope_metadata() -> None:
+    section_only = BeautifulSoup(
+        '<section class="staging-hot-community" data-hot-community-market="us"></section>',
+        "html.parser",
+    )
+    assert section_only.select_one(US_HOME_COUNTRY_TOGGLE_SELECTOR) is None
+    with_toggle = BeautifulSoup(
+        '<section data-hot-community-market="us">'
+        '<div class="staging-hot-community-market-toggle"></div></section>',
+        "html.parser",
+    )
+    assert with_toggle.select_one(US_HOME_COUNTRY_TOGGLE_SELECTOR) is not None
+
+
+@pytest.mark.qa_gate
+def test_completed_kis_minute_chart_contract_requires_dated_open_and_close() -> None:
+    completed = date(2026, 10, 7)
+    rows = [
+        {
+            "trade_date": "20261007",
+            "trade_time": minute,
+            "open": 100,
+            "high": 101,
+            "low": 99,
+            "price": 100,
+        }
+        for minute in ("090000", "090100", "153000")
+    ]
+    assert _completed_kis_minute_chart_evidence(rows, completed) == {
+        "historical_date": "2026-10-07",
+        "historical_points": 3,
+    }
+    for invalid in (
+        [],
+        rows[:-1],
+        [rows[0], rows[0], rows[-1]],
+        [rows[-1], *rows[:-1]],
+        [{**rows[0], "trade_date": "20261006"}, *rows[1:]],
+        [{**rows[0], "high": 0}, *rows[1:]],
+    ):
+        with pytest.raises(QaFailure):
+            _completed_kis_minute_chart_evidence(invalid, completed)
 
 
 @pytest.mark.qa_gate
@@ -135,7 +289,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v8.0"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert len(ids) == 136
+    assert len(ids) == 147
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -145,6 +299,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "DATA-COM-005",
         "DATA-COM-006",
         "DATA-COM-007",
+        "DATA-COM-008",
         "DATA-ETF-001",
         "DATA-FUND-ANALYSIS-001",
         "DATA-FUND-ANALYSIS-002",
@@ -169,6 +324,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-ENTRY-006",
         "SIG-ENTRY-007",
         "SIG-PERF-001",
+        "SIG-PERF-US-001",
         "SIG-ENTRY-008",
         "SIG-ENTRY-009",
         "SIG-EXECUTION-005",
@@ -181,7 +337,11 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-US-MCP-001",
         "SIG-CONTRACT-008",
         "SIG-PUSH-INTRADAY-001",
-        "SIG-PUSH-COMMUNITY-001",
+        "SIG-PUSH-COMMUNITY-002",
+        "SIG-KR-SNAPSHOT-CACHE-001",
+        "SIG-KR-INTRADAY-ORDER-001",
+        "SIG-KR-INTRADAY-REPLAY-001",
+        "SIG-KR-INTRADAY-SEAL-001",
         "SIG-EXIT-001",
         "SIG-EXIT-005",
         "SIG-UI-003",
@@ -244,7 +404,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v8.0`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v2-rc1`" in first
-    assert "QA 항목: 136개" in first
+    assert "QA 항목: 147개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1379,9 +1539,13 @@ def test_stock_detail_e2e_waits_for_async_market_session_metadata() -> None:
 
     assert "state.currentDashboard?.quote" in case_source
     assert "#stock-market-status-label" in case_source
-    assert "page.wait_for_function(" in case_source
+    assert "market_snapshot_handle = page.wait_for_function(" in case_source
     assert "displayedPrice === price" in case_source
     assert "displayedSession.includes(sessionLabel)" in case_source
+    assert "observed_quote = market_snapshot_handle.json_value()" in case_source
+    assert "displayed_session: displayedSession" in case_source
+    assert '_assert_stock_quote_text(detail_text, {"name": samsung["name"]})' in case_source
+    assert "_assert_stock_quote_text(detail_text, samsung)" not in case_source
     assert '"observed_quote": observed_quote' in case_source
     assert 'arg=samsung["price"]' not in case_source
 
@@ -1544,7 +1708,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v8.0"
     assert report["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert report["catalog_case_count"] == 136
+    assert report["catalog_case_count"] == 147
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1558,10 +1722,15 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 @pytest.mark.qa_gate
 def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -> None:
     expected_case_ids = {
+        "DATA-COM-008",
         "DATA-COM-005",
         "DATA-COM-006",
         "DATA-COM-007",
         "DATA-DART-001",
+        "DATA-KIS-002",
+        "DATA-KIS-003",
+        "DATA-KIS-008",
+        "DATA-KIS-009",
         "DATA-CALENDAR-CONTENT-007",
         "DATA-FUND-RESEARCH-002",
         "DATA-FUND-RESEARCH-003",
@@ -1582,6 +1751,12 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-CONTRACT-007",
         "SIG-PUSH-INTRADAY-001",
         "SIG-PUSH-COMMUNITY-001",
+        "SIG-PUSH-COMMUNITY-002",
+        "SIG-KR-SNAPSHOT-CACHE-001",
+        "SIG-KR-INTRADAY-ORDER-001",
+        "SIG-KR-INTRADAY-REPLAY-001",
+        "SIG-KR-INTRADAY-SEAL-001",
+        "SIG-EXIT-005",
         "SIG-UI-022",
         "SIG-UI-025",
         "SIG-UI-030",
@@ -1589,6 +1764,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-UI-032",
         "SIG-UI-033",
         "SIG-PERF-001",
+        "SIG-PERF-US-001",
         "SIG-ENTRY-008",
         "SIG-ENTRY-009",
     }
@@ -1731,6 +1907,7 @@ class FakeReadOnlyApi:
         if path == "/push/config":
             return {
                 "enabled": True,
+                "public_key": "fixture-public-vapid-key",
                 "market_scope": "kr",
                 "condition_options": [
                     {
@@ -1752,7 +1929,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.0",
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261008us132",
+                "us_dashboard_version": "20261012us141",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -1760,7 +1937,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261008us132",
+                "us_dashboard_version": "20261012us141",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -1775,7 +1952,11 @@ class FakeReadOnlyApi:
             return {
                 "status": "degraded",
                 "strategy_version": "position-lifecycle-v8.0",
-                "as_of": "2026-08-29T10:00:00+09:00",
+                "as_of": "2026-10-08T18:00:00+09:00",
+                "intraday_path_seal": {
+                    "trade_date": "2026-10-07", "finalized": 1,
+                    "pending": 0, "version_mismatch": 0,
+                },
                 "datasets": {
                     "price": {**ready, "state": self.quality_price_state},
                     "investor_flow": ready,
@@ -1812,11 +1993,32 @@ class FakeReadOnlyApi:
                 "api_probe": {
                     "items": [
                         {"key": "price", "state": "ready"},
+                        {
+                            "key": "kis_historical_intraday", "state": "ready",
+                            "source": "KIS dated KRX minute chart",
+                            "trade_date": "2026-08-29", "points": 382,
+                            "first_time": "090000", "last_time": "153000",
+                        },
+                        {
+                            "key": "kis_current_day_intraday", "state": "ready",
+                            "source": "KIS current-day KRX minute chart",
+                            "trade_date": "2026-10-07", "points": 381,
+                            "first_time": "090000", "last_time": "153000",
+                            "ohlc": {
+                                "open": 100000, "high": 105000,
+                                "low": 99000, "close": 103000,
+                            },
+                        },
                         {"key": "disclosure", "state": "unavailable"},
                         {"key": "news", "state": "ready"},
                     ]
                 },
             }, self._meta(path)
+        if path == "/stocks/005930/prices":
+            return [{
+                "trade_date": "2026-10-07", "open": 100000,
+                "high": 105000, "low": 99000, "close": 103000,
+            }], self._meta(path)
         if path == "/market/quant-signals":
             snapshot_generated_at = datetime.now().astimezone().isoformat()
             filter_versions = (
@@ -1830,7 +2032,10 @@ class FakeReadOnlyApi:
                 "strategy_version": "position-lifecycle-v8.0",
                 "execution_model": "close-confirmed-intraday-trigger-v1",
                 "as_of": "2026-08-29T10:00:00+09:00",
-                "snapshot_generated_at": snapshot_generated_at,
+                # Live QA has a market-hours freshness gate. Keep the baseline
+                # fixture fresh regardless of when this test suite is run;
+                # stale/future fixtures override this field explicitly.
+                "snapshot_generated_at": datetime.now(KST).isoformat(),
                 "signal_revision": 7,
                 "signal_revision_as_of": "2026-08-29T10:00:00+09:00",
                 "signal_revision_scope": "canonical_market_feed",
@@ -2122,18 +2327,41 @@ class FakeReadOnlyApi:
                 "quote": {"market_cap": 1_578_000_000_000_000},
             }, self._meta(path)
         if path == "/stocks/005930/quote":
+            observed = datetime.now(KST)
+            regular = is_korea_regular_market_session(observed)
             return {
                 "code": "005930",
                 "price": 100,
-                "market_state": "closed",
+                "as_of": observed.isoformat() if regular else "2026-08-29T10:00:00+09:00",
+                "market_state": "regular" if regular else "closed",
+                "quote": {
+                    "price": 100,
+                    "market_session": "integrated_regular" if regular else "closed",
+                },
             }, self._meta(path)
         if path == "/stocks/005930/intraday":
+            observed = datetime.now(KST)
+            regular = is_korea_regular_market_session(observed)
+            minute = observed - timedelta(minutes=1)
             return {
                 "source": "fixture",
-                "trade_date": "2026-08-29",
+                "market_state": "regular" if regular else "closed",
+                "trade_date": observed.date().isoformat() if regular else "2026-08-29",
                 "points": [
-                    {"trade_date": "2026-08-29", "trade_time": "100000", "price": 100},
+                    {
+                        "trade_date": minute.strftime("%Y%m%d") if regular else "20260829",
+                        "trade_time": minute.strftime("%H%M%S") if regular else "100000",
+                        "price": 100,
+                    },
                 ],
+            }, self._meta(path)
+        if path == "/stocks/247540/intraday":
+            return {
+                "source": "unavailable",
+                "as_of": "2026-10-08T08:30:00+09:00",
+                "market_state": "closed",
+                "trade_date": None,
+                "points": [],
             }, self._meta(path)
         if path == "/stocks/005930/community-feed":
             return {
@@ -2286,7 +2514,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261008us132"}, self._meta(path)
+            return {"version": "20261012us141"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2333,11 +2561,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261008us132" />'
+                '<link href="/assets/dashboard/styles.css?v=20261012us141" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261008us132"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261012us141"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2377,11 +2605,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261008v560" />'
+            '<link href="/assets/dashboard/styles.css?v=20261012v569" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261008v560"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261012v569"></script>'
             '</body></html>',
             self._meta(path),
         )
@@ -2735,11 +2963,41 @@ def test_live_intraday_push_contract_rejects_outdated_notification_copy(
 
 
 @pytest.mark.qa_live
+@pytest.mark.parametrize("disabled_field", ["enabled", "public_key"])
+def test_live_intraday_push_contract_blocks_unconfigured_staging(
+    monkeypatch, disabled_field: str
+) -> None:
+    from app.qa import runner
+
+    class UnconfiguredPushApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/push/config":
+                payload = {**payload, disabled_field: False if disabled_field == "enabled" else None}
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", UnconfiguredPushApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "SIG-PUSH-INTRADAY-001")
+    assert check["status"] == "fail"
+    assert check["evidence"]["public_key_present"] is (disabled_field != "public_key")
+    assert report["deployment_blocked"] is True
+
+
+@pytest.mark.qa_live
 def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     monkeypatch,
 ) -> None:
     from app.qa import runner
 
+    class ClosedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 8, 8, 30, tzinfo=tz)
+
+    monkeypatch.setattr(sys.modules[__name__], "datetime", ClosedDatetime)
+    monkeypatch.setattr(runner, "datetime", ClosedDatetime)
     FakeReadOnlyApi.quality_price_state = "ready"
     monkeypatch.setattr(runner, "ReadOnlyApi", FakeReadOnlyApi)
     monkeypatch.setattr(
@@ -2806,6 +3064,350 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     ] is False
     assert report["market_state"] == "closed"
     assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_live
+@pytest.mark.parametrize(
+    "failure", ["no_chart", "pending_path", "version_mismatch", "ohlc_mismatch"]
+)
+def test_live_current_day_minute_seal_blocks_unverified_promotion(
+    monkeypatch, failure: str
+) -> None:
+    from app.qa import runner
+
+    class UnverifiedSealApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/meta/signal-data-quality":
+                payload = json.loads(json.dumps(payload))
+                if failure == "no_chart":
+                    payload["api_probe"]["items"] = [
+                        row for row in payload["api_probe"]["items"]
+                        if row["key"] != "kis_current_day_intraday"
+                    ]
+                elif failure == "pending_path":
+                    payload["intraday_path_seal"]["pending"] = 1
+                elif failure == "version_mismatch":
+                    payload["intraday_path_seal"]["version_mismatch"] = 1
+                else:
+                    item = next(
+                        row for row in payload["api_probe"]["items"]
+                        if row["key"] == "kis_current_day_intraday"
+                    )
+                    item["ohlc"]["close"] += 1000
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", UnverifiedSealApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(
+        item for item in report["checks"]
+        if item["id"] == "SIG-KR-INTRADAY-SEAL-001"
+    )
+    assert check["status"] == "fail"
+    assert report["deployment_blocked"] is True
+
+
+@pytest.mark.qa_live
+def test_live_krx_holiday_skips_only_session_dependent_close_evidence(
+    monkeypatch,
+) -> None:
+    from app.qa import runner
+
+    class HolidayApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/meta/signal-data-quality":
+                payload = json.loads(json.dumps(payload))
+                payload["as_of"] = "2026-10-09T18:00:00+09:00"
+                historical = next(
+                    row for row in payload["api_probe"]["items"]
+                    if row["key"] == "kis_historical_intraday"
+                )
+                historical.update(
+                    state="invalid", trade_date="2026-10-08",
+                    points=380, last_time="151900",
+                )
+                payload["api_probe"]["items"] = [
+                    row for row in payload["api_probe"]["items"]
+                    if row["key"] != "kis_current_day_intraday"
+                ]
+                payload["intraday_path_seal"] = {
+                    "trade_date": "2026-10-09",
+                    "finalized": 0,
+                    "pending": 0,
+                    "version_mismatch": 0,
+                }
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", HolidayApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    checks = {item["id"]: item for item in report["checks"]}
+
+    for case_id in ("DATA-KIS-008", "SIG-KR-INTRADAY-SEAL-001"):
+        assert checks[case_id]["status"] == "skip"
+        assert checks[case_id]["evidence"]["market_date"] == "2026-10-09"
+        assert checks[case_id]["evidence"]["is_krx_session"] is False
+        assert checks[case_id]["evidence"]["calendar_reason"] == "krx_holiday_or_weekend"
+    assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_live
+def test_live_krx_holiday_still_passes_valid_dated_replay(monkeypatch) -> None:
+    from app.qa import runner
+
+    class HolidayWithDatedReplayApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/meta/signal-data-quality":
+                payload = json.loads(json.dumps(payload))
+                payload["as_of"] = "2026-10-09T18:00:00+09:00"
+                payload["api_probe"]["items"] = [
+                    row for row in payload["api_probe"]["items"]
+                    if row["key"] != "kis_current_day_intraday"
+                ]
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", HolidayWithDatedReplayApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    checks = {item["id"]: item for item in report["checks"]}
+
+    assert checks["DATA-KIS-008"]["status"] == "pass"
+    assert checks["DATA-KIS-008"]["evidence"]["replay_source"] == "dated_kis"
+    assert checks["SIG-KR-INTRADAY-SEAL-001"]["status"] == "skip"
+    assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_live
+@pytest.mark.parametrize("closing_volume,expected", [(500, "pass"), (0, "fail")])
+def test_live_krx_recent_print_can_complete_zero_volume_chart_seal(
+    monkeypatch, closing_volume: int, expected: str
+) -> None:
+    from app.qa import runner
+
+    class AuctionPrintApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/meta/signal-data-quality":
+                payload = json.loads(json.dumps(payload))
+                historical = next(row for row in payload["api_probe"]["items"]
+                                  if row["key"] == "kis_historical_intraday")
+                historical.update({"state": "invalid", "points": 380,
+                                   "last_time": "151900"})
+                current = next(row for row in payload["api_probe"]["items"]
+                               if row["key"] == "kis_current_day_intraday")
+                current.update({"state": "invalid", "points": 391,
+                                "non_trade_auction_points": 10, "ohlc": None})
+                payload["intraday_path_seal"]["sample"] = {
+                    "state": "ready", "source": "kis_rest+ccnl_auction",
+                    "points": 381, "first_time": "090000", "last_time": "153000",
+                    "closing_trade_volume": closing_volume,
+                    "ohlc": {"open": 100000, "high": 105000,
+                             "low": 99000, "close": 103000},
+                }
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", AuctionPrintApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    checks = {item["id"]: item for item in report["checks"]}
+    assert checks["DATA-KIS-008"]["status"] == expected
+    assert checks["SIG-KR-INTRADAY-SEAL-001"]["status"] == expected
+
+
+@pytest.mark.qa_live
+def test_live_kis_intraday_chart_rejects_future_market_minutes(monkeypatch) -> None:
+    from app.qa import runner
+
+    class FutureMinuteApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            if path == "/stocks/247540/intraday":
+                return {
+                    "source": "kis_rest",
+                    "as_of": "2026-10-08T08:30:00+09:00",
+                    "trade_date": "2026-10-08",
+                    "points": [{
+                        "trade_date": "20261008", "trade_time": "153000",
+                        "price": 100000,
+                    }],
+                }, self._meta(path)
+            return super().get(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", FutureMinuteApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "DATA-KIS-003")
+    assert check["status"] == "fail"
+    assert report["deployment_blocked"] is True
+
+
+@pytest.mark.qa_live
+def test_live_intraday_push_qa_uses_actual_dispatch_snapshot_scope(monkeypatch) -> None:
+    from app.qa import runner
+    from app.services.quant_signals import MARKET_SIGNAL_UNIVERSE_LIMIT
+
+    dispatch_requests: list[dict[str, object]] = []
+
+    class RecordingApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            if path == "/market/quant-signals" and params.get("limit") == 0:
+                dispatch_requests.append(params)
+            return super().get(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", RecordingApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    case = next(
+        item for item in load_qa_catalog()["cases"]
+        if item["id"] == "SIG-PUSH-INTRADAY-001"
+    )
+    assert case["inputs"]["dispatch_snapshot_universe_limit"] == MARKET_SIGNAL_UNIVERSE_LIMIT
+    assert case["inputs"]["dispatch_snapshot_limit"] == 0
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "SIG-PUSH-INTRADAY-001")
+    assert check["status"] == "pass"
+    assert check["evidence"]["dispatch_universe_limit"] == MARKET_SIGNAL_UNIVERSE_LIMIT
+    assert any(
+        request.get("universe_limit") == MARKET_SIGNAL_UNIVERSE_LIMIT
+        and request.get("recent_days") == 30
+        for request in dispatch_requests
+    )
+
+
+@pytest.mark.qa_live
+def test_live_korea_market_session_rejects_previous_close_at_open(monkeypatch) -> None:
+    from app.qa import runner
+
+    observed = datetime(2026, 10, 8, 9, 5, tzinfo=runner.KST)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return observed if tz is None else observed.astimezone(tz)
+
+    class PreviousCloseApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/stocks/005930/intraday":
+                payload = {**payload, "market_state": "closed"}
+            if path == "/stocks/005930/quote":
+                payload = {
+                    **payload,
+                    "quote": {**payload.get("quote", {}), "market_session": "closed"},
+                }
+            return payload, meta
+
+    monkeypatch.setattr(runner, "datetime", FixedDatetime)
+    monkeypatch.setattr(runner, "ReadOnlyApi", PreviousCloseApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "DATA-KIS-002")
+    assert check["status"] == "fail"
+    assert "장마감 상태" in check["message"]
+    assert report["deployment_blocked"] is True
+
+
+def _check_live_korea_market_session_minutes_and_quote(
+    monkeypatch, stale: bool
+) -> None:
+    from app.qa import runner
+
+    observed = datetime(2026, 10, 8, 9, 5, tzinfo=runner.KST)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return observed if tz is None else observed.astimezone(tz)
+
+    class FreshSessionApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/stocks/005930/intraday":
+                payload = {
+                    **payload,
+                    "market_state": "regular",
+                    "trade_date": "2026-10-08",
+                    "points": [
+                        {
+                            "trade_date": "20261008",
+                            "trade_time": "090000" if stale else "090400",
+                            "price": 100,
+                        }
+                    ],
+                }
+            if path == "/stocks/005930/quote":
+                payload = {
+                    **payload,
+                    "as_of": (
+                        "2026-10-08T08:59:00+09:00"
+                        if stale else "2026-10-08T09:04:30+09:00"
+                    ),
+                    "quote": {**payload.get("quote", {}), "market_session": "krx_regular"},
+                }
+            return payload, meta
+
+    monkeypatch.setattr(runner, "datetime", FixedDatetime)
+    monkeypatch.setattr(runner, "ReadOnlyApi", FreshSessionApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "DATA-KIS-002")
+    assert check["status"] == ("fail" if stale else "pass")
+    if stale:
+        assert "5분 이상" in check["message"]
+
+
+@pytest.mark.qa_live
+def test_live_korea_market_session_accepts_fresh_minutes_and_quote(monkeypatch) -> None:
+    _check_live_korea_market_session_minutes_and_quote(monkeypatch, stale=False)
+
+
+@pytest.mark.qa_live
+def test_live_korea_market_session_rejects_stale_minutes_and_quote(monkeypatch) -> None:
+    _check_live_korea_market_session_minutes_and_quote(monkeypatch, stale=True)
+
+
+@pytest.mark.qa_live
+def test_live_dated_kis_403_requires_verified_current_day_replay_source(
+    monkeypatch,
+) -> None:
+    from app.qa import runner
+
+    class ForbiddenHistoricalApi(FakeReadOnlyApi):
+        current_day_ready = True
+
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/meta/signal-data-quality":
+                payload = json.loads(json.dumps(payload))
+                for item in payload["api_probe"]["items"]:
+                    if item["key"] == "kis_historical_intraday":
+                        item.update(
+                            state="unavailable", http_status=403,
+                            failure_endpoint="oauth_token",
+                        )
+                if not self.current_day_ready:
+                    payload["api_probe"]["items"] = [
+                        item for item in payload["api_probe"]["items"]
+                        if item["key"] != "kis_current_day_intraday"
+                    ]
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", ForbiddenHistoricalApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "DATA-KIS-008")
+    assert check["status"] == "pass"
+    assert check["evidence"]["replay_source"] == "sealed_current_day"
+    assert check["evidence"]["historical_kis_http_status"] == 403
+    assert check["evidence"]["historical_kis_failure_endpoint"] == "oauth_token"
+    assert report["deployment_blocked"] is False
+
+    ForbiddenHistoricalApi.current_day_ready = False
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "DATA-KIS-008")
+    assert check["status"] == "fail"
+    assert report["deployment_blocked"] is True
 
 
 @pytest.mark.qa_live

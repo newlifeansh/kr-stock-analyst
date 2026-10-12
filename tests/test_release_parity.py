@@ -14,8 +14,8 @@ def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     contract = local_release_contract()
 
     assert contract["surface"] == "dashboard"
-    assert contract["product_version"] == "20261008v560"
-    assert contract["dashboard_version"] == "20261008v560"
+    assert contract["product_version"] == "20261012v569"
+    assert contract["dashboard_version"] == "20261012v569"
     assert len(contract["assets"]) == 8
     assert len(contract["asset_sha256"]) == 8
     assert set(contract["asset_sha256"]) == {
@@ -32,7 +32,7 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
     contract = local_release_contract(surface="us")
 
     assert contract["surface"] == "us"
-    assert contract["product_version"] == "20261008us132"
+    assert contract["product_version"] == "20261012us141"
     assert len(contract["assets"]) == 12
     assert len(contract["asset_sha256"]) == 12
     assert set(contract["asset_sha256"]) == {
@@ -121,9 +121,9 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 6
     assert workflow.count('--project "$US_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 2
-    assert workflow.count('--project="$US_STAGING_RAILWAY_PROJECT_ID"') == 4
-    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 5
-    assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 6
+    assert workflow.count('--project="$US_STAGING_RAILWAY_PROJECT_ID"') == 5
+    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 11
+    assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 8
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
     assert 'US_STAGING_RAILWAY_PROJECT_ID: ${{ vars.US_STAGING_RAILWAY_PROJECT_ID }}' in workflow
     assert 'DASHBOARD_STAGING_RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}' in workflow
@@ -162,15 +162,40 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.count('railway variable set "US_MARKET_ENABLED=false"') == 2
     assert workflow.count('railway variable set "PROCESS_ROLE=web"') == 3
     assert workflow.count('railway variable set "PROCESS_ROLE=collector"') == 3
+    assert workflow.count('railway variable set "FUNDAMENTAL_SNAPSHOT_ENABLED=true"') == 2
+    assert workflow.count('railway variable set "FUNDAMENTAL_SNAPSHOT_REFRESH_DAYS=2"') == 2
+    assert "Mirror staging web-push credentials to domestic services" in workflow
+    assert "railway variable list --json" in workflow
+    assert 'railway variable set "WEB_PUSH_ENABLED=true" --skip-deploys' in workflow
+    assert "WEB_PUSH_VAPID_PRIVATE_KEY --stdin --skip-deploys" in workflow
+    assert "WEB_PUSH_VAPID_PUBLIC_KEY --stdin --skip-deploys" in workflow
+    assert "WEB_PUSH_VAPID_SUBJECT --stdin --skip-deploys" in workflow
+    assert 'test -n "$vapid_private_key"' in workflow
+    assert 'test -n "$vapid_public_key"' in workflow
+    assert "unset source_variables vapid_private_key vapid_public_key vapid_subject" in workflow
     assert 'web:{PROCESS_ROLE:"web"}' in workflow
     assert 'collector:{PROCESS_ROLE:"collector"}' in workflow
     assert 'railway variable set "US_PUBLIC_BACKEND_URL=$US_STAGING_BASE_URL"' in workflow
     assert "staging_us_gateway_qa:" in workflow
+    gateway_section = workflow.split("  staging_us_gateway_qa:", 1)[1].split(
+        "  shutdown_domestic_staging:", 1
+    )[0]
+    assert "needs: [validate_request, deploy_staging, staging_qa]" in gateway_section
+    assert "Let shared US API rate limits reset before gateway live QA" in gateway_section
+    assert "run: sleep 65" in gateway_section
+    assert workflow.count("playwright install chromium") == 2
+    assert "playwright install --with-deps chromium" not in workflow
     assert "--surface us-gateway" in workflow
     assert "/us/market/" not in workflow
     assert "shutdown_domestic_staging:" in workflow
+    assert "stop-staging" in workflow
+    assert "observe_session:" in workflow
+    assert "type: boolean" in workflow
+    assert "inputs.action == 'stage' && !inputs.observe_session" in workflow
+    assert "inputs.action == 'stop-staging'" in workflow
+    assert "[[ \"$REQUESTED_ACTION\" == \"stage\" && \"$PRODUCT_SURFACE\" == \"dashboard\" ]]" in workflow
     assert "Start domestic staging only for deployment and QA" in workflow
-    assert "Stop domestic staging after every QA outcome" in workflow
+    assert "Stop domestic staging after QA or explicit session observation" in workflow
     assert "Start domestic staging for production parity" in workflow
     assert "Stop domestic staging after production parity" in workflow
     assert "DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE" in workflow
@@ -178,6 +203,80 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.index("Start domestic staging only for deployment and QA") < workflow.index(
         "Deploy the exact image to domestic staging"
     )
+
+
+def test_manual_community_push_workflow_is_confirmed_scoped_and_receipted() -> None:
+    workflow = Path(".github/workflows/send-community-popular.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "workflow_dispatch:" in workflow
+    assert "environment:\n      name: production" in workflow
+    assert 'test "$CONFIRM" = "SEND-COMMUNITY-POPULAR"' in workflow
+    assert "PRODUCTION_RAILWAY_PROJECT_ID" in workflow
+    assert "PRODUCTION_RAILWAY_COLLECTOR_SERVICE" in workflow
+    assert "railway ssh" in workflow
+    assert "railway ssh keys add" in workflow
+    assert 'eval "$(ssh-agent -s)"' in workflow
+    assert 'ssh-add "$key_path"' in workflow
+    assert '--key "$fingerprint"' in workflow
+    assert "StrictHostKeyChecking accept-new" in workflow
+    assert "railway-community-known-hosts" in workflow
+    assert "--identity-file" in workflow
+    assert "railway ssh keys remove" in workflow
+    assert "if: always()" in workflow
+    assert "--environment production" in workflow
+    assert "send-community-popular" in workflow
+    assert "--expected-post-id" in workflow
+    assert "community-popular-receipt.json" in workflow
+
+
+def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> None:
+    workflow = Path(".github/workflows/deploy-main-production.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "push:" in workflow
+    assert "- main" in workflow
+    assert "Run deterministic fixtures and contracts" in workflow
+    assert "Enforce production gate" in workflow
+    assert "docker/build-push-action@v6" in workflow
+    assert 'image_ref="${IMAGE_NAME}@${IMAGE_DIGEST}"' in workflow
+    assert "needs: [gate, build_image]" in workflow
+    assert "name: production" in workflow
+    assert "Deploy the exact image to US production first" in workflow
+    assert "Deploy the same image to domestic production" in workflow
+    assert "Wait for all four exact-image deployments" in workflow
+    assert workflow.count("wait_for_exact_image \"") == 4
+    assert "did not reach the exact image within 15 minutes" in workflow
+    assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 4
+    assert "US_STAGING_RAILWAY_PROJECT_ID" not in workflow
+    assert "DASHBOARD_STAGING_RAILWAY_PROJECT_ID" not in workflow
+    assert "deploy_staging:" not in workflow
+    assert "staging_qa:" not in workflow
+    assert "Verify domestic production version and asset hashes" in workflow
+    assert "Verify US production version and asset hashes" in workflow
+    assert "Run domestic production read-only checks" in workflow
+    assert "Run US production read-only checks" in workflow
+    assert "Capture failed US collector runtime evidence" in workflow
+    assert "us-production-collector-runtime.jsonl" in workflow
+    assert "Enforce post-deployment verification" in workflow
+    enforcement = workflow.split("- name: Enforce post-deployment verification", 1)[1]
+    assert 'steps.dashboard_readiness.outcome }}\" = \"success\"' in enforcement
+    assert 'steps.us_readiness.outcome }}\" = \"success\"' in enforcement
+    assert 'steps.dashboard_live.outcome }}\" = \"success\"' not in enforcement
+    assert 'steps.us_live.outcome }}\" = \"success\"' not in enforcement
+    assert "::warning::Domestic read-only live QA" in enforcement
+    assert "::warning::US read-only live QA" in enforcement
+
+    catalog = {case["id"]: case for case in load_qa_catalog()["cases"]}
+    release_case = catalog["DATA-COM-009"]
+    assert release_case["priority"] == "P0"
+    assert release_case["inputs"]["default_order"] == (
+        "main push→gate→build once→US production→dashboard production→"
+        "production parity/readiness/live"
+    )
+    assert release_case["inputs"]["staging_required"] is False
 
 
 def test_us_canonical_route_activation_requires_exact_production_candidate() -> None:
@@ -315,6 +414,17 @@ def test_scheduled_qa_never_reuses_the_preview_proxy() -> None:
         assert 'surface "${{ matrix.surface }}"' in workflow
         assert "vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL" in workflow
         assert "dark-theme-preview-staging" not in workflow
+
+
+def test_staging_e2e_does_not_retrigger_itself_from_deployment_status() -> None:
+    workflow = Path(".github/workflows/qa-data-signal-e2e.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "  workflow_dispatch:" in workflow
+    assert "  deployment_status:" not in workflow
+    assert "playwright install chromium" in workflow
+    assert "playwright install --with-deps chromium" not in workflow
+    assert "group: domestic-staging-runtime" in workflow
 
 
 def test_scheduled_qa_starts_domestic_runtime_only_while_collecting_evidence() -> None:

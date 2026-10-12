@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 import json
 from time import monotonic
 from typing import Any, Callable, Optional
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import requests
@@ -20,12 +21,14 @@ from app.models import (
     MacroObservation,
     NewsItem,
     QuantSignalEvidenceSnapshot,
+    QuantSignalIntradayPathSnapshot,
     ResearchReport,
     StockFundamentalSnapshot,
     StockMaster,
     StockNewsSnapshot,
 )
 from app.services.market_calendar import (
+    is_korea_market_session_date,
     latest_completed_korea_market_session_date,
     latest_published_korea_investor_flow_date,
 )
@@ -36,7 +39,11 @@ from app.services.signal_entry_evidence import (
 from app.services.quant_signals import (
     EXECUTION_MODEL,
     INTRADAY_EXECUTION_EFFECTIVE_DATE,
+    KIS_CLOSING_AUCTION_SOURCE,
+    PriceBar,
     STRATEGY_VERSION,
+    _non_trade_closing_auction_row,
+    _verified_completed_intraday_minutes,
 )
 
 
@@ -672,11 +679,60 @@ def signal_data_quality_status(
         if all(state == "ready" for state in critical_states) and coherence_ok
         else "degraded"
     )
+    session_paths = list(db.scalars(
+        select(QuantSignalIntradayPathSnapshot).where(
+            QuantSignalIntradayPathSnapshot.trade_date == current.date(),
+        )
+    ))
+    sample_path = next(
+        (path for path in session_paths if path.stock_code == "005930" and path.is_final),
+        None,
+    )
+    sample_seal: dict[str, Any] = {"state": "missing"}
+    if sample_path is not None:
+        sample_seal = {"state": "invalid", "source": sample_path.source}
+        daily = db.scalar(select(DailyPrice).where(
+            DailyPrice.code == sample_path.stock_code,
+            DailyPrice.trade_date == sample_path.trade_date,
+        ))
+        try:
+            rows = json.loads(sample_path.payload)
+            bar = PriceBar(
+                daily.trade_date, float(daily.open), float(daily.high),
+                float(daily.low), float(daily.close),
+                float(daily.volume or 0), float(daily.trading_value or 0),
+            )
+            verified = _verified_completed_intraday_minutes(rows, bar)
+        except (AttributeError, ValueError, TypeError, KeyError):
+            verified = None
+        if verified is not None and sample_path.strategy_version == STRATEGY_VERSION:
+            sample_seal = {
+                "state": "ready",
+                "source": sample_path.source,
+                "points": len(verified),
+                "first_time": str(rows[0].get("trade_time") or ""),
+                "last_time": str(rows[-1].get("trade_time") or ""),
+                "closing_trade_volume": (
+                    int(rows[-1].get("volume") or 0)
+                    if sample_path.source == KIS_CLOSING_AUCTION_SOURCE else None
+                ),
+                "ohlc": {"open": bar.open, "high": bar.high,
+                         "low": bar.low, "close": bar.close},
+            }
     return {
         "status": status,
         "strategy_version": STRATEGY_VERSION,
         "execution_model": EXECUTION_MODEL,
         "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
+        "intraday_path_seal": {
+            "trade_date": current.date(),
+            "finalized": sum(1 for path in session_paths if path.is_final),
+            "pending": sum(1 for path in session_paths if not path.is_final),
+            "version_mismatch": sum(
+                1 for path in session_paths if path.strategy_version != STRATEGY_VERSION
+            ),
+            "sample": sample_seal,
+        },
         "as_of": current,
         "universe": {
             "basis": "point-in-time market-cap top 100",
@@ -887,10 +943,177 @@ def probe_signal_source_apis(
         }
         for future in as_completed(futures):
             results.append(future.result())
+    results.append(_probe_historical_kis_minutes(settings, sample_code, current))
+    if (
+        current.time() >= time(15, 40)
+        and is_korea_market_session_date(current.date(), current)
+    ):
+        results.append(_probe_current_day_kis_minutes(settings, sample_code, current))
     results.sort(key=lambda item: item["key"])
     return {
         "status": "ready" if all(item["state"] == "ready" for item in results) else "degraded",
         "as_of": current,
         "sample_code": sample_code,
         "items": results,
+    }
+
+
+def _probe_current_day_kis_minutes(
+    settings: Settings, sample_code: str, current: datetime
+) -> dict[str, Any]:
+    """Verify the after-close current-day KRX chart without exporting raw rows."""
+
+    from app.collectors.briefing import KisRestBriefingProvider
+
+    started = monotonic()
+    result = {
+        "key": "kis_current_day_intraday",
+        "source": "KIS current-day KRX minute chart",
+        "environment": settings.kis_env,
+        "trade_date": current.date().isoformat(),
+    }
+    provider = KisRestBriefingProvider(settings)
+    if not provider.is_configured():
+        return {**result, "state": "not_configured", "latency_ms": 0}
+    try:
+        rows = provider.fetch_intraday_chart(
+            sample_code, max_points=391, market_division="J", now=current
+        )
+    except Exception as exc:
+        response = exc.response if isinstance(exc, requests.HTTPError) else None
+        return {
+            **result, "state": "unavailable",
+            "http_status": response.status_code if response is not None else None,
+            "latency_ms": round((monotonic() - started) * 1000),
+            "message": f"{type(exc).__name__}: 당일 분봉 원천 확인 실패",
+        }
+    if not isinstance(rows, list) or not rows or any(not isinstance(row, dict) for row in rows):
+        rows = []
+    try:
+        traded_rows = [
+            row for row in rows
+            if not _non_trade_closing_auction_row(row)
+        ]
+        bar = PriceBar(
+            current.date(),
+            float(traded_rows[0]["open"]),
+            max(float(row["high"]) for row in traded_rows),
+            min(float(row["low"]) for row in traded_rows),
+            float(traded_rows[-1]["price"]),
+            0,
+            0,
+        )
+        verified = _verified_completed_intraday_minutes(rows, bar)
+    except (ValueError, TypeError, KeyError, IndexError):
+        verified = None
+    return {
+        **result,
+        "state": "ready" if verified is not None else "invalid",
+        "points": len(rows),
+        "non_trade_auction_points": sum(
+            _non_trade_closing_auction_row(row) for row in rows
+        ),
+        "first_time": str(rows[0].get("trade_time") or "") if rows else None,
+        "last_time": str(rows[-1].get("trade_time") or "") if rows else None,
+        "ohlc": (
+            {"open": bar.open, "high": bar.high, "low": bar.low, "close": bar.close}
+            if verified is not None else None
+        ),
+        "latency_ms": round((monotonic() - started) * 1000),
+    }
+
+
+def _probe_historical_kis_minutes(
+    settings: Settings, sample_code: str, current: datetime
+) -> dict[str, Any]:
+    """Return only a bounded, credential-free summary of dated KRX minutes."""
+
+    from app.collectors.briefing import KisRestBriefingProvider
+
+    started = monotonic()
+    result: dict[str, Any] = {
+        "key": "kis_historical_intraday",
+        "source": "KIS dated KRX minute chart",
+        "environment": settings.kis_env,
+    }
+    provider = KisRestBriefingProvider(settings)
+    if not provider.is_configured():
+        return {
+            **result,
+            "state": "not_configured",
+            "latency_ms": round((monotonic() - started) * 1000),
+            "message": "KIS 날짜별 분봉 인증정보가 설정되지 않았습니다.",
+        }
+    completed_date = latest_completed_korea_market_session_date(current)
+    if completed_date is None:
+        return {
+            **result,
+            "state": "unavailable",
+            "latency_ms": round((monotonic() - started) * 1000),
+            "message": "완료 KRX 거래일을 확인할 수 없습니다.",
+        }
+    try:
+        rows = provider.fetch_historical_intraday_chart(
+            sample_code, completed_date, max_points=390
+        )
+    except Exception as exc:
+        response = exc.response if isinstance(exc, requests.HTTPError) else None
+        http_status = response.status_code if response is not None else None
+        response_path = urlparse(str(response.url or "")).path if response is not None else ""
+        failure_endpoint = (
+            "oauth_token"
+            if response_path == "/oauth2/tokenP"
+            else "dated_chart"
+            if response_path == "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice"
+            else "unknown"
+        )
+        error_code = None
+        if response is not None:
+            try:
+                candidate_code = str(response.json().get("msg_cd") or "")
+            except (TypeError, ValueError, AttributeError):
+                candidate_code = ""
+            if candidate_code and len(candidate_code) <= 32 and all(
+                char.isalnum() or char == "_" for char in candidate_code
+            ):
+                error_code = candidate_code
+        return {
+            **result,
+            "state": "unavailable",
+            "trade_date": completed_date.isoformat(),
+            "http_status": http_status,
+            "failure_endpoint": failure_endpoint,
+            "source_error_code": error_code,
+            "latency_ms": round((monotonic() - started) * 1000),
+            "message": f"{type(exc).__name__}: 날짜별 분봉 원천 확인 실패",
+        }
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        rows = []
+    times = [str(row.get("trade_time") or "") for row in rows]
+    valid = bool(
+        rows
+        and times == sorted(set(times))
+        and times[0] <= "090200"
+        and times[-1] == "153000"
+        and all(
+            str(row.get("trade_date") or "") == completed_date.strftime("%Y%m%d")
+            and all(
+                isinstance(row.get(key), (int, float)) and row[key] > 0
+                for key in ("open", "high", "low", "price")
+            )
+            for row in rows
+        )
+    )
+    return {
+        **result,
+        "state": "ready" if valid else "invalid",
+        "trade_date": completed_date.isoformat(),
+        "points": len(rows),
+        "first_time": times[0] if times else None,
+        "last_time": times[-1] if times else None,
+        "latency_ms": round((monotonic() - started) * 1000),
+        "message": (
+            "완료 거래일 KIS 날짜별 분봉 형식 확인"
+            if valid else "날짜별 분봉 날짜·시각·가격 형식이 불완전합니다."
+        ),
     }

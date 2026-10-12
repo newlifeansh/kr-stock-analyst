@@ -1,5 +1,7 @@
 import asyncio
+from contextlib import nullcontext
 import json
+import logging
 import subprocess
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -38,7 +40,7 @@ def test_health():
     assert response.json()["strategy_version"] == "position-lifecycle-v8.0"
     assert response.json()["execution_model"] == "close-confirmed-intraday-trigger-v1"
     assert response.json()["intraday_execution_effective_date"] == "2026-10-03"
-    assert response.json()["dashboard_version"] == "20261008v560"
+    assert response.json()["dashboard_version"] == "20261012v569"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -241,8 +243,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="home-view" class="app-page app-home"' in response.text
     assert 'id="search-view" class="app-page app-search"' in response.text
     assert 'id="bottom-nav" aria-label="주요 메뉴"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20261008us132"' in response.text
-    assert 'href="/assets/dashboard/styles.css?v=20261008us132&amp;build=20261008us132"' in response.text
+    assert 'src="/dashboard-app-v170.js?v=20261012us141"' in response.text
+    assert 'href="/assets/dashboard/styles.css?v=20261012us141&amp;build=20261012us141"' in response.text
     assert 'setCopy("home-market-signal-title", "미국 시그널 감시 후보")' in source
     assert 'setCopy("home-ai-signals-title", "시그널 감시 후보")' in source
     assert 'signalPageTitle.textContent = "시그널 감시 후보"' in source
@@ -261,7 +263,7 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
-        .replace("20261008us132", "20261008v560")
+        .replace("20261012us141", "20261012v569")
     )
     assert normalized_us == dashboard.text
 
@@ -504,6 +506,12 @@ def test_us_market_quant_signals_endpoint_returns_preliminary_us_candidates(monk
     from app import main as main_module
 
     calls = []
+    rate_limit_calls = []
+    monkeypatch.setattr(
+        main_module,
+        "_enforce_rate_limit",
+        lambda _request, bucket, **kwargs: rate_limit_calls.append((bucket, kwargs)),
+    )
     canonical = {
         "status": "ready",
         "data_state": "ready",
@@ -530,9 +538,12 @@ def test_us_market_quant_signals_endpoint_returns_preliminary_us_candidates(monk
             (limit, recent_days, feed.get("snapshot_id"))
         ) or {
             "status": "ready",
+            "data_state": "ready",
             "strategy_version": "position-lifecycle-us-v1-rc1",
             "methodology": ["1.5ATR private threshold"],
             "snapshot_id": feed.get("snapshot_id"),
+            "snapshot_checksum": "feed-checksum",
+            "new_entries_allowed": True,
             "confirmed_count": 0,
             "preliminary_count": 1,
             "items": [{
@@ -555,6 +566,16 @@ def test_us_market_quant_signals_endpoint_returns_preliminary_us_candidates(monk
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert calls == [(7, 21, "us-rc1-snapshot")]
+    assert rate_limit_calls == [
+        (
+            "us_market_quant_signals",
+            {
+                "limit": main_module.US_MARKET_QUANT_SIGNAL_RATE_LIMIT_PER_MINUTE,
+                "window_seconds": 60,
+            },
+        )
+    ]
+    assert main_module.US_MARKET_QUANT_SIGNAL_RATE_LIMIT_PER_MINUTE == 30
     assert response.json()["snapshot_id"] == "us-rc1-snapshot"
     assert response.json()["items"][0]["currency"] == "USD"
     assert response.json()["items"][0]["current"]["position_open"] is False
@@ -597,8 +618,12 @@ def test_us_market_recommendations_endpoint_exposes_independent_score_and_hides_
         "build_us_recommendations",
         lambda **_kwargs: {
             "status": "ready",
+            "data_state": "ready",
             "strategy_version": "position-lifecycle-us-v1-rc1",
             "methodology": ["1.5ATR private threshold"],
+            "snapshot_id": "us-rc1-snapshot",
+            "snapshot_checksum": "feed-checksum",
+            "new_entries_allowed": True,
             "universe_members": [{"code": "PRIVATE", "cik": "private-cik"}],
             "items": [
                 {
@@ -1306,6 +1331,171 @@ def test_us_collector_backfills_legacy_member_evidence_during_regular_session(
     assert calls == [True]
 
 
+@pytest.mark.parametrize("first_result", ["exception", "unavailable"])
+def test_market_quant_signal_refresh_loop_retries_without_dying(
+    monkeypatch, caplog, first_result
+):
+    from app import main as main_module
+
+    assert main_module.logger.level == logging.INFO
+    caplog.set_level(logging.INFO)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 8, 9, 10, tzinfo=tz)
+
+    attempts = []
+    intervals = []
+
+    def refresh():
+        attempts.append(True)
+        if len(attempts) == 1:
+            if first_result == "exception":
+                raise RuntimeError("transient refresh failure")
+            return None
+        return {"status": "ready"}
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def stop_after_recovery(seconds):
+        intervals.append(seconds)
+        if len(intervals) == 2:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(main_module, "_quant_signal_quote_refresh_active", lambda _now: True)
+    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_views_snapshot", refresh)
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_recovery)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_market_quant_signal_refresh_loop())
+
+    assert len(attempts) == 2
+    assert intervals == [30, 300]
+    assert "retrying in 30s" in caplog.text
+    assert "Market quant signal refresh loop started" in caplog.text
+    assert "Market quant signal refresh started" in caplog.text
+    assert "Market quant signal refresh completed" in caplog.text
+
+
+@pytest.mark.qa_gate
+def test_closing_auction_capture_runs_independently_of_top150_scan(monkeypatch):
+    from app import main as main_module
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 8, 15, 34, tzinfo=tz)
+
+    calls = []
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def stop_after_first_iteration(seconds):
+        calls.append(("sleep", seconds))
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(main_module, "is_korea_market_session_date", lambda *_args: True)
+    monkeypatch.setattr(main_module.kis_rest_provider, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        main_module, "_capture_market_closing_auction_trades",
+        lambda: calls.append(("capture", None)) or {
+            "candidates": 1, "captured": 1, "unverified": 0,
+        },
+    )
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_first_iteration)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_market_closing_auction_capture_loop())
+
+    assert calls == [("capture", None), ("sleep", 30)]
+
+
+@pytest.mark.qa_gate
+def test_market_quant_signal_views_share_one_live_quote_scan(monkeypatch):
+    from app import main as main_module
+
+    quotes = {"005930": {"price": 100_000}}
+    scans = []
+    scopes = []
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        type("Settings", (), {"market_quant_signal_source_url": ""})(),
+    )
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: nullcontext(object()))
+    monkeypatch.setattr(
+        main_module,
+        "_market_quant_signal_live_quotes",
+        lambda _db, universe_limit, _now: scans.append(universe_limit) or quotes,
+    )
+
+    def refresh(**kwargs):
+        scopes.append((kwargs.get("recent_days", 30), kwargs["live_quotes"]))
+        return {"status": "ready"}
+
+    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_snapshot", refresh)
+
+    assert main_module._refresh_market_quant_signal_views_snapshot() == {"status": "ready"}
+    assert scans == [main_module.MARKET_SIGNAL_UNIVERSE_LIMIT]
+    assert scopes == [(30, quotes), (90, quotes)]
+    assert scopes[0][1] is scopes[1][1]
+
+    monkeypatch.setattr(
+        main_module,
+        "_refresh_market_quant_signal_snapshot",
+        lambda **kwargs: None if kwargs.get("recent_days") == 90 else {"status": "ready"},
+    )
+    assert main_module._refresh_market_quant_signal_views_snapshot() is None
+
+
+@pytest.mark.qa_gate
+@pytest.mark.parametrize(
+    ("regular_session", "valid_quotes", "published"),
+    [(True, 53, False), (True, 142, False), (True, 143, True), (False, 53, True)],
+)
+def test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses(
+    monkeypatch, caplog, regular_session, valid_quotes, published,
+):
+    from app import main as main_module
+
+    caplog.set_level("WARNING", logger=main_module.logger.name)
+    quotes = main_module.MarketQuoteFanout(expected_symbols=150)
+    quotes.update({f"{index:06d}": {"price": 100} for index in range(valid_quotes)})
+    calls = []
+    monkeypatch.setattr(
+        main_module, "settings",
+        type("Settings", (), {"market_quant_signal_source_url": ""})(),
+    )
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: nullcontext(object()))
+    monkeypatch.setattr(
+        main_module, "is_korea_regular_market_session", lambda *_: regular_session,
+    )
+    monkeypatch.setattr(
+        main_module, "_market_quant_signal_live_quotes", lambda *_args: quotes,
+    )
+    monkeypatch.setattr(
+        main_module, "_refresh_market_quant_signal_snapshot",
+        lambda **kwargs: calls.append(kwargs) or {"status": "ready"},
+    )
+
+    result = main_module._refresh_market_quant_signal_views_snapshot()
+
+    assert (result is not None) is published
+    assert [call.get("recent_days", 30) for call in calls] == ([30, 90] if published else [])
+    if published:
+        assert all(call["live_quotes"] is quotes for call in calls)
+    else:
+        assert "preserving snapshot" in caplog.text
+        assert "valid_quotes=53" in caplog.text or "valid_quotes=142" in caplog.text
+
+
 def test_us_market_refresh_queue_is_process_single_flight(monkeypatch):
     from fastapi import BackgroundTasks
     from app import main as main_module
@@ -1340,8 +1530,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20261008us132"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20261008us132&amp;build=20261008us132"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261012us141"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20261012us141&amp;build=20261012us141"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1609,7 +1799,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20261008v560"}
+    assert version.json() == {"version": "20261012v569"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search&market_scope=us")
@@ -1619,9 +1809,9 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
     assert 'pathname === "/us-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
     assert '["kr", "us"].includes(params.get("market_scope"))' not in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=kr&app_build=20261008v560" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=kr&app_build=20261012v569" in refresh.text
     assert 'params.get("market") === "us"' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261008v560" not in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261012v569" not in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -1631,7 +1821,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20261008us132"}
+    assert version.json() == {"version": "20261012us141"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1640,9 +1830,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261008us132" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261012us141" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20261008us132")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20261012us141")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1656,12 +1846,12 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20261008us132"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20261012us141"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20261008us132' in worker.text
-    assert '"/dashboard-app-v170.js?v=20261008us132"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20261012us141' in worker.text
+    assert '"/dashboard-app-v170.js?v=20261012us141"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
@@ -2197,6 +2387,11 @@ def test_stale_market_signal_snapshot_hides_preliminary_rows_and_refreshes(monke
     from app import main as main_module
 
     refresh_calls = []
+    monkeypatch.setattr(
+        main_module,
+        "is_korea_market_session_date",
+        lambda *_args, **_kwargs: True,
+    )
     stale_age = timedelta(
         seconds=main_module.MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS + 60
     )
@@ -2269,6 +2464,11 @@ def test_market_signal_snapshot_freshness_uses_session_specific_limits(monkeypat
     active_now = datetime(2026, 8, 21, 14, 0, tzinfo=ZoneInfo("Asia/Seoul"))
     monkeypatch.setattr(
         main_module,
+        "is_korea_market_session_date",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        main_module,
         "is_korea_regular_market_session",
         lambda value: value == active_now,
     )
@@ -2307,6 +2507,35 @@ def test_market_signal_snapshot_freshness_uses_session_specific_limits(monkeypat
     assert future_freshness["snapshot_state"] == "stale"
     assert future_freshness["snapshot_age_seconds"] == 0
     assert future_freshness["snapshot_future_skew_seconds"] == 3600
+
+    holiday_now = datetime(2026, 8, 23, 12, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    monkeypatch.setattr(
+        main_module,
+        "is_korea_market_session_date",
+        lambda *_args, **_kwargs: False,
+    )
+    holiday_fresh_payload = {
+        "snapshot_generated_at": (holiday_now - timedelta(days=2)).isoformat()
+    }
+    holiday_stale_payload = {
+        "snapshot_generated_at": (
+            holiday_now
+            - timedelta(
+                seconds=main_module.MARKET_QUANT_SIGNAL_NON_SESSION_MAX_AGE_SECONDS + 1
+            )
+        ).isoformat()
+    }
+    holiday_freshness = main_module._market_quant_signal_snapshot_freshness(
+        holiday_fresh_payload, holiday_now
+    )
+    assert holiday_freshness["snapshot_state"] == "fresh"
+    assert (
+        holiday_freshness["snapshot_max_age_seconds"]
+        == main_module.MARKET_QUANT_SIGNAL_NON_SESSION_MAX_AGE_SECONDS
+    )
+    assert main_module._market_quant_signal_snapshot_freshness(
+        holiday_stale_payload, holiday_now
+    )["snapshot_state"] == "stale"
 
 
 def test_fresh_market_signal_snapshot_keeps_current_preliminary_rows(monkeypatch):
@@ -3226,8 +3455,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20261008us132"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20261008us132&amp;build=20261008us132"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261012us141"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20261012us141&amp;build=20261012us141"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()
@@ -3448,7 +3677,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert '시총 상위 종목의 최근 신호' not in shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20261008v560' in shell
+    assert 'styles.css?v=20261012v569' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -3535,7 +3764,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20261008v560"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20261012v569"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -3573,7 +3802,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20261008v560"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20261012v569"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" not in service_worker
@@ -4682,6 +4911,10 @@ def test_ai_signal_performance_overview_contract_is_responsive_and_uses_30_day_s
     assert 'windows["7d"]' in source
     assert 'windows["15d"]' in source
     assert 'windows["30d"]' in source
+    assert '(effectiveScope === "us" ? usPayload : krPayload)?.performance_summary' in source
+    assert 'summary.return_basis === "completed_trade_gross_price_return"' in source
+    assert "미국 모델의 비용·세금·환율 반영 전 성과" in source
+    assert 'if (!summary || (isUsHubContext' not in source
     assert 'windows["90d"]' not in source[source.index("function renderAiSignalPerformance"):source.index("function renderAiSignalsPage")]
     assert "실제 주문 수익이 아닌 거래비용 반영 모델 체결 성과" in source
     assert "isRecentAiSignal(item)" in source[source.index("function renderAiSignalsPage"):]

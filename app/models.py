@@ -133,6 +133,20 @@ class StockIntradaySnapshot(Base):
     )
 
 
+class KisOAuthTokenCache(Base):
+    """Encrypted, short-lived KIS token shared by web and collector workers."""
+
+    __tablename__ = "kis_oauth_token_cache"
+
+    identity: Mapped[str] = mapped_column(String(64), primary_key=True)
+    ciphertext: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    retry_after: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 class StockCompanySnapshot(Base):
     __tablename__ = "stock_company_snapshot"
 
@@ -156,6 +170,23 @@ class MarketQuantSignalSnapshot(Base):
     cache_key: Mapped[str] = mapped_column(String(120), primary_key=True)
     payload: Mapped[str] = mapped_column(Text, nullable=False)
     generated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class QuantSignalIntradayPathSnapshot(Base):
+    """Dated KRX minute evidence needed to replay an alerted execution."""
+
+    __tablename__ = "quant_signal_intraday_path_snapshot"
+
+    stock_code: Mapped[str] = mapped_column(String(12), primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    strategy_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="kis_rest")
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    is_final: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )

@@ -219,6 +219,132 @@ def test_delivery_is_sent_only_once(monkeypatch):
         db.close()
 
 
+def test_operator_community_popular_sends_once_to_enabled_domestic_subscribers(monkeypatch):
+    db = _session()
+    calls = []
+    try:
+        db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
+        db.add_all(
+            [
+                PushSubscription(
+                    share_id="domestic-1",
+                    endpoint="https://push.example/domestic-1",
+                    p256dh="p" * 64,
+                    auth="a" * 24,
+                    market_scope="kr",
+                    enabled=True,
+                ),
+                PushSubscription(
+                    share_id="domestic-2",
+                    endpoint="https://push.example/domestic-2",
+                    p256dh="p" * 64,
+                    auth="a" * 24,
+                    market_scope="kr",
+                    enabled=True,
+                ),
+                PushSubscription(
+                    share_id="us-1",
+                    endpoint="https://push.example/us-1",
+                    p256dh="p" * 64,
+                    auth="a" * 24,
+                    market_scope="us",
+                    enabled=True,
+                ),
+                PushSubscription(
+                    share_id="disabled-1",
+                    endpoint="https://push.example/disabled-1",
+                    p256dh="p" * 64,
+                    auth="a" * 24,
+                    market_scope="kr",
+                    enabled=False,
+                ),
+            ]
+        )
+        db.commit()
+        monkeypatch.setattr(
+            web_push,
+            "build_stock_community_feed",
+            lambda *_args, **_kwargs: {
+                "providers": [
+                    {
+                        "key": "naver_board",
+                        "items": [
+                            {
+                                "post_id": "430314366",
+                                "title": "오늘새벽 미국 떨어져도 아무 의미없다",
+                                "like_count": 68,
+                                "view_count": 3447,
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        monkeypatch.setattr(web_push, "webpush", lambda **kwargs: calls.append(kwargs))
+        runtime = web_push.WebPushRuntime(_settings())
+        now = datetime(2026, 10, 9, 12, 0, tzinfo=timezone(timedelta(hours=9)))
+
+        preview = runtime.send_operator_community_popular(
+            db, code="005930", dry_run=True, now=now
+        )
+
+        assert preview["eligible_subscriptions"] == 2
+        assert preview["sent"] == 0
+        assert calls == []
+
+        receipt = runtime.send_operator_community_popular(
+            db, code="005930", dry_run=False, now=now
+        )
+
+        assert receipt["status"] == "sent"
+        assert receipt["audience"] == "all_enabled_domestic_subscribers"
+        assert receipt["sent"] == 2
+        assert receipt["failed"] == 0
+        assert len(calls) == 2
+        payload = json.loads(calls[0]["data"])
+        assert payload["title"] == "삼성전자 오늘 커뮤니티 인기글"
+        assert payload["body"] == (
+            "1위 ‘오늘새벽 미국 떨어져도 아무 의미없다’ · 공감 68 · 조회 3,447 · "
+            "투자 판단 전 원문을 확인하세요."
+        )
+        assert payload["market_scope"] == "kr"
+        assert db.query(PushNotificationHistory).count() == 2
+
+        duplicate = runtime.send_operator_community_popular(
+            db, code="005930", dry_run=False, now=now
+        )
+
+        assert duplicate["already_sent"] == 2
+        assert duplicate["sent"] == 0
+        assert duplicate["failed"] == 0
+        assert len(calls) == 2
+    finally:
+        db.close()
+
+
+def test_operator_community_popular_fails_closed_when_rank_is_missing(monkeypatch):
+    db = _session()
+    try:
+        db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
+        db.commit()
+        monkeypatch.setattr(
+            web_push,
+            "build_stock_community_feed",
+            lambda *_args, **_kwargs: {"providers": [{"key": "naver_board", "items": []}]},
+        )
+
+        try:
+            web_push.WebPushRuntime(_settings()).send_operator_community_popular(
+                db, code="005930", rank=1, dry_run=False
+            )
+        except RuntimeError as exc:
+            assert "rank 1 is unavailable" in str(exc)
+        else:
+            raise AssertionError("missing popular post must block the send")
+    finally:
+        db.close()
+
+
 def test_notification_history_is_deduplicated_per_user_and_prunes_old_rows(monkeypatch):
     db = _session()
     try:
@@ -1265,6 +1391,7 @@ def test_market_ai_confirmed_intraday_push_requires_verified_v8_events_and_reuse
                 for code, name, side, event_side, action in [
                     ("005930", "삼성전자", "buy", "buy", "장중 돌파 진입"),
                     ("000660", "SK하이닉스", "sell", "partial_sell", "1차 수익확정"),
+                    ("000660", "SK하이닉스", "sell", "sell", "전량 매도"),
                     ("035420", "NAVER", "sell", "sell", "전량 매도"),
                 ]
             ],
@@ -1278,14 +1405,55 @@ def test_market_ai_confirmed_intraday_push_requires_verified_v8_events_and_reuse
         assert [candidate.event_key for candidate in intraday] == [
             "market-ai-signal:005930:buy:2026-10-08",
             "market-ai-signal:000660:partial_sell:2026-10-08",
+            "market-ai-signal:000660:sell:2026-10-08",
             "market-ai-signal:035420:sell:2026-10-08",
         ]
         assert all("10:01 장중" in candidate.body for candidate in intraday)
         assert "1차 수익확정" in intraday[1].title
+        assert intraday[1].tag != intraday[2].tag
+        assert intraday[1].tag == "market-ai-signal-000660-partial_sell"
         close = runtime._market_ai_signal_candidates(db, datetime(2026, 10, 8, 16, 0))
         assert [candidate.event_key for candidate in close] == [
             candidate.event_key for candidate in intraday
         ]
+    finally:
+        db.close()
+
+
+def test_market_ai_push_skips_frozen_unverified_replay_at_open_and_close(monkeypatch):
+    db = _session()
+    try:
+        monkeypatch.setattr(web_push, "is_korea_market_session_date", lambda *_args: True)
+        monkeypatch.setattr(web_push, "is_korea_daily_signal_window", lambda now: now.hour >= 15)
+        monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda now: now.hour < 15)
+        snapshot = {
+            "status": "ready", "execution_model": web_push.EXECUTION_MODEL,
+            "snapshot_generated_at": "2026-10-08T01:00:00+00:00",
+            "items": [{
+                "code": "005930", "name": "삼성전자", "side": "sell",
+                "event_side": "partial_sell", "signal": "재검증 대기 · 1차 수익확정",
+                "execution_date": "2026-10-08", "status": "confirmed",
+                "execution_model": web_push.EXECUTION_MODEL,
+                "intraday_execution_verified": True,
+                "execution_replay_state": "unverified",
+                "alert_eligible": False,
+            }, {
+                "code": "000660", "name": "SK하이닉스", "side": "buy",
+                "event_side": "buy", "signal": "장중 돌파 진입",
+                "execution_date": "2026-10-08", "status": "confirmed",
+                "execution_model": web_push.EXECUTION_MODEL,
+                "intraday_execution_verified": True,
+            }],
+        }
+        monkeypatch.setattr(
+            web_push, "load_market_quant_signal_snapshot", lambda *_args, **_kwargs: snapshot
+        )
+        runtime = web_push.WebPushRuntime(_settings())
+        for current in (datetime(2026, 10, 8, 10, 1), datetime(2026, 10, 8, 16, 0)):
+            candidates = runtime._market_ai_signal_candidates(db, current)
+            assert [candidate.event_key for candidate in candidates] == [
+                "market-ai-signal:000660:buy:2026-10-08"
+            ]
     finally:
         db.close()
 

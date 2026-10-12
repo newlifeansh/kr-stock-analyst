@@ -30,6 +30,7 @@ def _complete_feed() -> dict[str, object]:
     session_date = date(2026, 11, 25)
     payload["as_of"] = datetime(2026, 11, 25, 21, 15, tzinfo=UTC)
     payload["universe_as_of"] = session_date
+    payload["ranking_as_of"] = session_date
     for member in payload["universe_members"]:
         member["screen_as_of"] = session_date
         member["quote_date"] = session_date
@@ -68,6 +69,7 @@ def _seed_authoritative_universe(
                     "data_state": "ready",
                     "universe_version": lifecycle.US_SIGNAL_UNIVERSE_VERSION,
                     "universe_as_of": payload["universe_as_of"],
+                    "ranking_as_of": payload["universe_as_of"],
                     "generated_at": captured_at,
                     "universe_count": 100,
                     "source_candidate_count": 101,
@@ -221,7 +223,9 @@ def test_calendar_unavailable_blocks_stored_pending_entry_and_requires_refresh(
             assert loaded["data_state"] == "calendar_unavailable"
             assert loaded["new_entries_allowed"] is False
             assert loaded["entry_pending_count"] == 0
-            assert loaded["items"][0]["current"]["action"] == "entry_watch"
+            assert loaded["items"][0]["current"]["action"] == "no_signal"
+            assert loaded["items"][0]["current"]["position_open"] is False
+            assert loaded["items"][0]["is_current_holding"] is False
             assert lifecycle.us_position_lifecycle_refresh_due(loaded, now=now) is True
     finally:
         engine.dispose()

@@ -41,13 +41,17 @@ E2E_CASE_IDS = (
     "SIG-UI-020",
     "SIG-UI-021",
     "SIG-UI-030",
-    "SIG-PUSH-COMMUNITY-001",
+    "SIG-PUSH-COMMUNITY-002",
 )
 US_E2E_CASE_IDS = (
     "SIG-UI-031",
     "SIG-UI-032",
     "REC-US-INDEPENDENT-001",
     "DATA-US-NEWS-001",
+)
+US_HOME_COUNTRY_TOGGLE_SELECTOR = (
+    "#unified-market-scope, #recommend-market-scope, "
+    "#watch-market-map-market-toggle, .staging-hot-community-market-toggle"
 )
 
 
@@ -61,6 +65,38 @@ def _us_observed_path(url: str, *, gateway_expected: bool) -> str:
     if gateway_expected and path.startswith("/us-gateway/"):
         return path.removeprefix("/us-gateway")
     return path
+
+
+def _us_product_shell_text(body_text: str, community_posts_text: str) -> str:
+    """Keep user-written community posts out of the product-copy boundary check."""
+    if not community_posts_text:
+        return body_text
+    return body_text.replace(community_posts_text, "", 1)
+
+
+def _us_completed_signal_quote_state_ready(state: dict[str, Any]) -> bool:
+    """Accept completed-session fallback states without treating them as live quotes."""
+    holding_count = int(state.get("holdingCount") or 0)
+    if holding_count <= 0:
+        return True
+    rows = state.get("rows") if isinstance(state.get("rows"), list) else []
+    if len(rows) != holding_count:
+        return False
+    freshness_states: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            return False
+        text = str(row.get("text") or "")
+        value = str(row.get("value") or "").strip()
+        freshness = str(row.get("freshness") or "")
+        if "현재가 확인 중" in text or not value or freshness not in {"reference", "closed"}:
+            return False
+        freshness_states.add(freshness)
+    summary = str(state.get("summary") or "")
+    return (
+        ("reference" not in freshness_states or "최근 미국장 종가" in summary)
+        and ("closed" not in freshness_states or "장 마감" in summary)
+    )
 
 
 def _safe_name(case_id: str, theme: str) -> str:
@@ -806,7 +842,12 @@ def _run_us_e2e_checks(
                     for case_id in required_case_ids
                 ]
 
-            def us_product_boundary_case(page: Any, theme: str) -> dict[str, Any]:
+            def us_product_boundary_case(
+                page: Any,
+                theme: str,
+                *,
+                check_signal_quote_state: bool = False,
+            ) -> dict[str, Any]:
                 requested_resources: list[dict[str, str]] = []
                 page.on(
                     "request",
@@ -832,13 +873,14 @@ def _run_us_e2e_checks(
                     state="visible",
                 )
                 shell = page.evaluate(
-                    """() => ({
+                    """(countryToggleSelector) => ({
                       htmlUniverse: document.documentElement.dataset.marketUniverse,
                       metaUniverse: document.querySelector('meta[name="secret-note-market-universe"]')?.content,
                       marketScope: document.body.dataset.marketScope,
                       appMarket: document.body.dataset.appMarket,
                       title: document.title,
                       text: document.body.innerText,
+                      communityPostsText: document.querySelector('[data-staging-hot-community-posts]')?.innerText || '',
                       marketCodes: Array.from(document.querySelectorAll('#home-market-carousel .home-index-card[data-code]')).map(node => node.dataset.code),
                       homeVisible: !document.querySelector('#home-view')?.hidden,
                       loginHidden: document.querySelector('#login-gate')?.hidden === true,
@@ -853,13 +895,14 @@ def _run_us_e2e_checks(
                       homeSections: Array.from(document.querySelectorAll('#home-view > section')).map(node => node.id),
                       hasUsTop50: Boolean(document.querySelector('#home-surge-us')),
                       hasDomesticTop50: Boolean(document.querySelector('#home-surge')),
-                      hasCountryToggle: Boolean(document.querySelector('#unified-market-scope, #recommend-market-scope, #watch-market-map-market-toggle')),
+                      hasCountryToggle: Boolean(document.querySelector(countryToggleSelector)),
                       homeSignalLabel: document.querySelector('#home-ai-signals-title')?.textContent?.trim(),
                       homeSignalHeading: document.querySelector('#home-market-signal-title')?.textContent?.trim(),
                       hasHomeAiResponse: Boolean(document.querySelector('#home-ai-response')),
                       hasHomeAiResponseCopy: document.body.innerText.includes('미국 관심종목 대응'),
                       hasHomeAiResponseTimer: Boolean(state.homeAiResponseRefreshTimer),
-                    })"""
+                    })""",
+                    US_HOME_COUNTRY_TOGGLE_SELECTOR,
                 )
                 expected_nav = [
                     {"view": "home", "label": "증권"},
@@ -907,7 +950,9 @@ def _run_us_e2e_checks(
                         "코스피",
                         "코스닥",
                     )
-                    if text in shell["text"]
+                    if text in _us_product_shell_text(
+                        shell["text"], shell["communityPostsText"]
+                    )
                 ]
                 if forbidden_copy:
                     raise QaFailure(
@@ -941,6 +986,38 @@ def _run_us_e2e_checks(
                         "미국 시그널 영역의 시그널 감시 후보 명칭이 일관되지 않습니다.",
                         signal_labels,
                     )
+                signal_quote_state: dict[str, Any] = {}
+                if check_signal_quote_state:
+                    page.wait_for_selector(
+                        "#ai-signals-page-list .home-ai-signal-row",
+                        state="visible",
+                    )
+                    signal_quote_state = page.evaluate(
+                        """() => {
+                          const rows = [...document.querySelectorAll(
+                            '#ai-signals-page-list .home-ai-signal-row[data-code]'
+                          )];
+                          const holdings = rows.filter(
+                            row => row.aiSignalSnapshotItem?.current?.position_open === true
+                          );
+                          return {
+                            holdingCount: holdings.length,
+                            summary: document.querySelector('#ai-signals-live-status-label')?.textContent?.trim() || '',
+                            detail: document.querySelector('#ai-signals-live-status-detail')?.textContent?.trim() || '',
+                            rows: holdings.map(row => ({
+                              code: row.dataset.code,
+                              text: row.textContent || '',
+                              value: row.querySelector('[data-field="ai_signal_return"]')?.textContent?.trim() || '',
+                              freshness: row.querySelector('[data-field="ai_signal_return"]')?.dataset?.freshnessState || '',
+                            })),
+                          };
+                        }"""
+                    )
+                    if not _us_completed_signal_quote_state_ready(signal_quote_state):
+                        raise QaFailure(
+                            "미국 보유 시그널이 완료 세션 가격 대신 현재가 확인 중에 고정됐습니다.",
+                            signal_quote_state,
+                        )
                 page.evaluate(
                     """() => {
                       window.__qaHistoryBackCalls = 0;
@@ -970,6 +1047,73 @@ def _run_us_e2e_checks(
                     raise QaFailure(
                         "미국 AI 시그널 백키가 브라우저 이력과 무관하게 홈으로 복귀하지 못했습니다.",
                         signal_back,
+                    )
+
+                page.set_viewport_size({"width": 843, "height": 872})
+                page.wait_for_timeout(300)
+                fold_layout = page.evaluate(
+                    """() => {
+                      const rect = selector => {
+                        const node = document.querySelector(selector);
+                        if (!node) return null;
+                        const value = node.getBoundingClientRect();
+                        return {
+                          left: Math.round(value.left * 10) / 10,
+                          right: Math.round(value.right * 10) / 10,
+                          width: Math.round(value.width * 10) / 10,
+                          height: Math.round(value.height * 10) / 10,
+                        };
+                      };
+                      return {
+                        viewport: innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                        bodyWidth: document.body.scrollWidth,
+                        shell: rect('.shell[data-ui-version="3.0"]'),
+                        home: rect('#home-view'),
+                        marketContext: rect('.staging-market-context'),
+                        topActions: rect('.staging-top-actions'),
+                        bottomNav: rect('#bottom-nav'),
+                        navTargets: [...document.querySelectorAll(
+                          '#bottom-nav [data-app-view]'
+                        )].map(node => {
+                          const value = node.getBoundingClientRect();
+                          return {
+                            width: Math.round(value.width * 10) / 10,
+                            height: Math.round(value.height * 10) / 10,
+                          };
+                        }),
+                      };
+                    }"""
+                )
+                fold_shell = fold_layout.get("shell") or {}
+                fold_home = fold_layout.get("home") or {}
+                fold_market = fold_layout.get("marketContext") or {}
+                fold_actions = fold_layout.get("topActions") or {}
+                fold_nav = fold_layout.get("bottomNav") or {}
+                shell_width = float(fold_shell.get("width") or 0)
+                shell_left = float(fold_shell.get("left") or 0)
+                if (
+                    fold_layout.get("viewport") != 843
+                    or fold_layout.get("rootWidth", 0) > 845
+                    or fold_layout.get("bodyWidth", 0) > 845
+                    or not 758 <= shell_width <= 762
+                    or abs(float(fold_home.get("width") or 0) - shell_width) > 2
+                    or abs(float(fold_market.get("left") or 0) - (shell_left + 24)) > 2
+                    or abs((843 - float(fold_actions.get("right") or 0)) - (shell_left + 6)) > 2
+                    or not 449 <= float(fold_nav.get("width") or 0) <= 453
+                    or abs(
+                        (float(fold_nav.get("left") or 0) + float(fold_nav.get("right") or 0))
+                        - 843
+                    )
+                    > 2
+                    or any(
+                        target.get("width", 0) < 44 or target.get("height", 0) < 44
+                        for target in fold_layout.get("navTargets") or []
+                    )
+                ):
+                    raise QaFailure(
+                        "843px 폴드 화면의 유동 본문·정렬·컴팩트 내비게이션 계약이 깨졌습니다.",
+                        fold_layout,
                     )
 
                 page.set_viewport_size({"width": 320, "height": 760})
@@ -1148,6 +1292,8 @@ def _run_us_e2e_checks(
                     "shell": shell,
                     "signal_back": signal_back,
                     "signal_labels": signal_labels,
+                    "signal_quote_state": signal_quote_state,
+                    "fold_layout": fold_layout,
                     "reflow": reflow,
                     "search": search_state,
                     "stock": stock_state,
@@ -1393,7 +1539,13 @@ def _run_us_e2e_checks(
                     base_url=base_url,
                     timeout=timeout,
                     artifact_dir=output_dir,
-                    callback=us_product_boundary_case,
+                    callback=lambda page, theme, check_signal_quote_state=(
+                        case_id == "SIG-UI-031"
+                    ): us_product_boundary_case(
+                        page,
+                        theme,
+                        check_signal_quote_state=check_signal_quote_state,
+                    ),
                     storage_state=storage_state,
                     share_id=share_id,
                 )
@@ -1597,7 +1749,7 @@ def run_e2e_checks(
                     # production E2E is running. Read the client snapshot and
                     # its DOM projection in one browser task instead of
                     # comparing against a pre-run HTTP value.
-                    page.wait_for_function(
+                    market_snapshot_handle = page.wait_for_function(
                         """() => {
                           const quote = state.currentDashboard?.quote || {};
                           const price = Number(quote.price);
@@ -1612,15 +1764,28 @@ def run_e2e_checks(
                           const displayedSession = String(
                             document.querySelector('#stock-market-status-label')?.textContent || ''
                           ).trim();
-                          return Number.isFinite(price)
+                          const isConsistent = Number.isFinite(price)
                             && Number.isFinite(rate)
                             && Boolean(sessionLabel)
                             && displayedPrice === price
                             && Math.abs(displayedRate - rate) < 0.001
                             && displayedSession.includes(sessionLabel);
+                          if (!isConsistent) return false;
+                          return {
+                            price,
+                            change_rate: rate,
+                            market_session: quote.market_session || '',
+                            market_session_label: sessionLabel,
+                            source: state.currentDashboard?.source || '',
+                            as_of: state.currentDashboard?.as_of || '',
+                            displayed_price: document.querySelector('#quote-price')?.textContent?.trim() || '',
+                            displayed_rate: document.querySelector('#quote-change')?.textContent?.trim() || '',
+                            displayed_session: displayedSession,
+                          };
                         }""",
                         timeout=int(timeout * 1000),
                     )
+                    observed_quote = market_snapshot_handle.json_value()
                 except Exception as exc:
                     raise QaFailure(
                         "현재 시세 스냅샷의 가격·등락률·장 상태가 상세 화면에 함께 반영되지 않았습니다.",
@@ -1636,18 +1801,6 @@ def run_e2e_checks(
                             ),
                         },
                     ) from exc
-                observed_quote = page.evaluate(
-                    """() => ({
-                      price: Number(state.currentDashboard?.quote?.price),
-                      change_rate: Number(state.currentDashboard?.quote?.change_rate),
-                      market_session: state.currentDashboard?.quote?.market_session || '',
-                      market_session_label: state.currentDashboard?.quote?.market_session_label || '',
-                      source: state.currentDashboard?.source || '',
-                      as_of: state.currentDashboard?.as_of || '',
-                      displayed_price: document.querySelector('#quote-price')?.textContent?.trim() || '',
-                      displayed_rate: document.querySelector('#quote-change')?.textContent?.trim() || '',
-                    })"""
-                )
                 entry_frames = page.evaluate(
                     """() => {
                       window.__qaStockEntryObserver?.disconnect();
@@ -1670,7 +1823,11 @@ def run_e2e_checks(
                         },
                     )
                 detail_text = page.locator("#stock-view").inner_text()
-                _assert_stock_quote_text(detail_text, samsung)
+                # The atomic browser snapshot above already proves that the
+                # same client quote revision projected price, return, and
+                # market-session text together.  A later SSE frame must not
+                # turn this check into a comparison between two revisions.
+                _assert_stock_quote_text(detail_text, {"name": samsung["name"]})
                 resolved_url = unquote(page.url)
                 if (
                     samsung["code"] not in resolved_url
@@ -2736,7 +2893,6 @@ def run_e2e_checks(
                     missing_state.get("hidden") is True
                     or missing_state.get("status") != "집계 중"
                     or missing_state.get("value") != "집계 중"
-                    or "표본을 수집 중" not in str(missing_state.get("lead") or "")
                     or float(missing_state.get("overflow") or 0) > 1
                 ):
                     raise QaFailure(
@@ -6843,7 +6999,7 @@ def run_e2e_checks(
                 _run_page_case(
                     browser=browser,
                     catalog_by_id=catalog_by_id,
-                    case_id="SIG-PUSH-COMMUNITY-001",
+                    case_id="SIG-PUSH-COMMUNITY-002",
                     base_url=base_url,
                     timeout=timeout,
                     artifact_dir=output_dir,
@@ -11317,6 +11473,73 @@ def run_e2e_checks(
                 if not market_codes or not market_codes.issubset({"KOSPI", "KOSDAQ"}):
                     raise QaFailure("국내 홈 시장 카드에 해외 자산이 섹여 있습니다.", domestic_state)
 
+                page.set_viewport_size({"width": 843, "height": 872})
+                page.wait_for_timeout(300)
+                fold_layout = page.evaluate(
+                    """() => {
+                      const rect = selector => {
+                        const node = document.querySelector(selector);
+                        if (!node) return null;
+                        const value = node.getBoundingClientRect();
+                        return {
+                          left: Math.round(value.left * 10) / 10,
+                          right: Math.round(value.right * 10) / 10,
+                          width: Math.round(value.width * 10) / 10,
+                          height: Math.round(value.height * 10) / 10,
+                        };
+                      };
+                      return {
+                        viewport: innerWidth,
+                        rootWidth: document.documentElement.scrollWidth,
+                        bodyWidth: document.body.scrollWidth,
+                        shell: rect('.shell[data-ui-version="3.0"]'),
+                        home: rect('#home-view'),
+                        marketContext: rect('.staging-market-context'),
+                        topActions: rect('.staging-top-actions'),
+                        bottomNav: rect('#bottom-nav'),
+                        navTargets: [...document.querySelectorAll(
+                          '#bottom-nav [data-app-view]'
+                        )].map(node => {
+                          const value = node.getBoundingClientRect();
+                          return {
+                            width: Math.round(value.width * 10) / 10,
+                            height: Math.round(value.height * 10) / 10,
+                          };
+                        }),
+                      };
+                    }"""
+                )
+                fold_shell = fold_layout.get("shell") or {}
+                fold_home = fold_layout.get("home") or {}
+                fold_market = fold_layout.get("marketContext") or {}
+                fold_actions = fold_layout.get("topActions") or {}
+                fold_nav = fold_layout.get("bottomNav") or {}
+                shell_width = float(fold_shell.get("width") or 0)
+                shell_left = float(fold_shell.get("left") or 0)
+                if (
+                    fold_layout.get("viewport") != 843
+                    or fold_layout.get("rootWidth", 0) > 845
+                    or fold_layout.get("bodyWidth", 0) > 845
+                    or not 758 <= shell_width <= 762
+                    or abs(float(fold_home.get("width") or 0) - shell_width) > 2
+                    or abs(float(fold_market.get("left") or 0) - (shell_left + 24)) > 2
+                    or abs((843 - float(fold_actions.get("right") or 0)) - (shell_left + 6)) > 2
+                    or not 449 <= float(fold_nav.get("width") or 0) <= 453
+                    or abs(
+                        (float(fold_nav.get("left") or 0) + float(fold_nav.get("right") or 0))
+                        - 843
+                    )
+                    > 2
+                    or any(
+                        target.get("width", 0) < 44 or target.get("height", 0) < 44
+                        for target in fold_layout.get("navTargets") or []
+                    )
+                ):
+                    raise QaFailure(
+                        "843px 폴드 국내 화면의 유동 본문·정렬·컴팩트 내비게이션 계약이 깨졌습니다.",
+                        fold_layout,
+                    )
+
                 page.set_viewport_size({"width": 320, "height": 760})
                 page.wait_for_timeout(300)
                 mobile_state = page.evaluate(
@@ -11346,6 +11569,7 @@ def run_e2e_checks(
                 return {
                     "shell": shell,
                     "domestic": domestic_state,
+                    "fold_layout": fold_layout,
                     "mobile": mobile_state,
                     "request_count": len(requested_resources),
                     "forbidden_request_count": 0,

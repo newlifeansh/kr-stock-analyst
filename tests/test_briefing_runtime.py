@@ -148,7 +148,7 @@ def test_main_collector_prioritizes_signal_data_before_long_backfills(
 
     runtime.run_once()
 
-    assert calls[:4] == ["price", "flow", "research_backfill", "fundamental"]
+    assert calls[:4] == ["price", "flow", "fundamental", "research_backfill"]
 
 
 def test_main_collector_keeps_degraded_prices_retryable(monkeypatch):
@@ -366,6 +366,63 @@ def test_briefing_runtime_passes_fundamental_refresh_headroom_to_collector(monke
         call[1]["max_workers"] == runtime.settings.fundamental_snapshot_max_workers
         for call in calls
     )
+
+
+def test_briefing_runtime_refreshes_priority_fundamentals_before_long_financials(monkeypatch):
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=False,
+            disclosure_enabled=False,
+            news_enabled=False,
+            price_enabled=False,
+            stock_universe_enabled=False,
+            investor_flow_enabled=False,
+            financials_enabled=True,
+            fundamental_snapshot_enabled=True,
+            fundamental_snapshot_poll_seconds=86_400,
+            fundamental_snapshot_refresh_days=2,
+            stock_news_snapshot_enabled=False,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=False,
+            canonical_domestic_sync_enabled=True,
+            canonical_public_base_url="https://canonical.example",
+        )
+    )
+    events = []
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        briefing,
+        "collect_stock_fundamental_snapshots",
+        lambda _db, **kwargs: events.append(("fundamentals", kwargs.get("limit")))
+        or {"rows_loaded": 100, "failed": 0, "message": "target=100 refreshed=100"},
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_collect_financials",
+        lambda _db: events.append(("financials", None))
+        or {"rows_loaded": 0, "source": "not_configured", "message": "skipped"},
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_home_briefing",
+        lambda *_args, **_kwargs: None,
+    )
+
+    runtime.run_once()
+
+    assert events == [
+        ("fundamentals", briefing.FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT),
+        ("financials", None),
+    ]
 
 
 def test_briefing_runtime_limits_canonical_fundamental_sync_to_signal_top100(monkeypatch):

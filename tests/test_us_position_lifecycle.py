@@ -671,6 +671,8 @@ def test_us_feed_replays_top100_model_lifecycle_without_orders(monkeypatch):
     assert payload["stateful_lifecycle_replay_complete"] is True
     assert payload["stateful_lifecycle_replay_eligible_count"] == 100
     assert payload["stateful_lifecycle_replay_completed_count"] == 100
+    assert set(payload["performance_summary"]["windows"]) == {"7d", "15d", "30d"}
+    assert payload["performance_summary"]["return_basis"] == "completed_trade_gross_price_return"
     assert len(payload["public_member_signals"]) == 100
     assert {
         item["code"] for item in payload["public_member_signals"]
