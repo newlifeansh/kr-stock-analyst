@@ -55,6 +55,7 @@ include = ["app*"]
 "app.services" = ["us_equity_universe.json"]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 markers = [
     "qa_gate: deterministic data-signal deployment-gate coverage",
     "qa_live: read-only external integration coverage",

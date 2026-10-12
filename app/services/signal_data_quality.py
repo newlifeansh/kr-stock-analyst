@@ -695,12 +695,12 @@ def signal_data_quality_status(
             DailyPrice.code == sample_path.stock_code,
             DailyPrice.trade_date == sample_path.trade_date,
         ))
+        from app.services.regular_signal_transition import REGULAR_FORWARD_START, REGULAR_FORWARD_VERSION
+        from app.services.regular_session_prices import load_regular_session_evidence, UnverifiedRegularSessionPrice, _json as regular_json
+        from hashlib import sha256
+        regular_evidence = None
         try:
             rows = json.loads(sample_path.payload)
-            from app.services.regular_signal_transition import REGULAR_FORWARD_START, REGULAR_FORWARD_VERSION
-            from app.services.regular_session_prices import load_regular_session_evidence, UnverifiedRegularSessionPrice, _json as regular_json
-            from hashlib import sha256
-            regular_evidence = None
             if sample_path.trade_date >= REGULAR_FORWARD_START:
                 regular_evidence = load_regular_session_evidence(db, sample_path.stock_code, sample_path.trade_date, allow_bounded=True)
                 values = regular_evidence["prices"]

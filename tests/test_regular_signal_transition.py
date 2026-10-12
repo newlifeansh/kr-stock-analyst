@@ -213,3 +213,16 @@ def test_forward_regular_quote_does_not_use_preopen_open_and_keeps_date_validati
     bad = deepcopy(regular)
     bad["intraday_minutes"][0]["trade_date"] = "20261013"
     assert qs._verified_intraday_minutes(bad, bar) is None
+
+
+def test_forward_quality_marks_corrupt_seal_invalid_without_crashing(db):
+    from app.config import Settings
+    from app.models import QuantSignalIntradayPathSnapshot
+    from app.services.signal_data_quality import signal_data_quality_status
+    now = datetime(2026,10,13,17,tzinfo=qs.KST)
+    db.add(QuantSignalIntradayPathSnapshot(stock_code="005930", trade_date=now.date(),
+        strategy_version=qs.STRATEGY_VERSION, source="kis_rest", payload="{invalid",
+        is_final=True, observed_at=now.replace(tzinfo=None)))
+    db.commit()
+    report = signal_data_quality_status(db, Settings(_env_file=None), now=now)
+    assert report["intraday_path_seal"]["sample"]["state"] == "invalid"
