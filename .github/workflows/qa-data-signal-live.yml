@@ -6,11 +6,38 @@ on:
         description: Restart the existing domestic staging image after starting its DB
         type: boolean
         default: false
+      finish_domestic_shutdown:
+        description: Stop only domestic staging application deployments already configured to zero replicas
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
+  finish_domestic_shutdown:
+    if: inputs.finish_domestic_shutdown
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: staging
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      DIAG_PROJECT: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
+      DIAG_WEB: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
+      DIAG_COLLECTOR: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+    steps:
+      - run: npm install --global @railway/cli@5.45.7
+      - name: Finish requested zero-replica shutdown without touching DB or volumes
+        run: |
+          set -euo pipefail
+          for service in "$DIAG_WEB" "$DIAG_COLLECTOR"; do
+            state="$(railway service list -p "$DIAG_PROJECT" --environment staging --json | python -c 'import json,sys; s=next(x for x in json.load(sys.stdin) if x["id"]==sys.argv[1]); r=s.get("replicas") or {}; print(json.dumps({"id":s["id"],"configured":r.get("configured"),"running":r.get("running"),"stopped":s.get("deploymentStopped")}))' "$service")"
+            printf '%s\n' "$state"
+            printf '%s' "$state" | python -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s["configured"]==0 else 1)'
+            if printf '%s' "$state" | python -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s["running"] and not s["stopped"] else 1)'; then
+              railway down -p "$DIAG_PROJECT" --environment staging --service "$service" --yes
+            fi
+          done
   recover_domestic:
-    if: inputs.recover_domestic
+    if: inputs.recover_domestic && !inputs.finish_domestic_shutdown
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency: domestic-staging-runtime
@@ -78,7 +105,7 @@ jobs:
           name: reverify-us-3247e60-${{ github.run_id }}
           path: artifacts/reverify-us
   collector_diagnostics:
-    if: '!inputs.recover_domestic'
+    if: '!inputs.recover_domestic && !inputs.finish_domestic_shutdown'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: staging
