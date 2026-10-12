@@ -2,6 +2,10 @@ name: QA data-signal live
 on:
   workflow_dispatch:
     inputs:
+      us_news_readonly:
+        type: boolean
+        default: false
+        description: Read RSS transport from the US staging runtime without data writes
       production_identity_readonly:
         description: Read only KR/US production image identities for rollback
         type: boolean
@@ -25,6 +29,34 @@ on:
 permissions:
   contents: read
 jobs:
+  us_news_readonly:
+    if: inputs.us_news_readonly
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: staging
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      DIAG_PROJECT: ${{ vars.US_STAGING_RAILWAY_PROJECT_ID }}
+      DIAG_SERVICE: ${{ vars.US_STAGING_RAILWAY_WEB_SERVICE }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install --global @railway/cli@5.45.7
+      - name: Read public RSS transport in the existing container
+        run: |
+          set -euo pipefail
+          task_dir="$(mktemp -d)"
+          ssh-keygen -q -t ed25519 -N '' -C "news-readonly-${GITHUB_RUN_ID}" -f "$task_dir/key"
+          fingerprint="$(ssh-keygen -lf "$task_dir/key.pub" -E sha256 | awk '{print $2}')"
+          eval "$(ssh-agent -s)"
+          ssh-add "$task_dir/key"
+          mkdir -p "$HOME/.ssh"
+          printf 'Host *\n  StrictHostKeyChecking accept-new\n  UserKnownHostsFile %s\n' "$task_dir/known_hosts" > "$HOME/.ssh/config"
+          cleanup() { railway ssh keys remove "$fingerprint"; ssh-agent -k; }
+          trap cleanup EXIT
+          railway ssh keys add --key "$fingerprint" --name "news-readonly-${GITHUB_RUN_ID}"
+          code="$(cat scripts/probe_us_news_readonly.py)"
+          command="python -c $(printf '%q' "$code")"
+          railway ssh -p "$DIAG_PROJECT" -s "$DIAG_SERVICE" -e staging --identity-file "$task_dir/key" -- "$command"
   production_identity_readonly:
     if: inputs.production_identity_readonly
     runs-on: ubuntu-latest
@@ -210,7 +242,7 @@ jobs:
           name: reverify-us-3247e60-${{ github.run_id }}
           path: artifacts/reverify-us
   collector_diagnostics:
-    if: '!inputs.recover_domestic && !inputs.finish_domestic_shutdown && !inputs.production_evidence_readonly && !inputs.pin_staging_readonly && !inputs.production_identity_readonly'
+    if: '!inputs.recover_domestic && !inputs.finish_domestic_shutdown && !inputs.production_evidence_readonly && !inputs.pin_staging_readonly && !inputs.production_identity_readonly && !inputs.us_news_readonly'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: staging
