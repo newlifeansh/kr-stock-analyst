@@ -4,6 +4,34 @@ on:
 permissions:
   contents: read
 jobs:
+  verify_us_candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    env:
+      QA_BASE_URL: ${{ vars.US_STAGING_BASE_URL }}
+      QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
+      QA_DASHBOARD_SHARE_ID: qa-automation
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3247e6016f984953c9a00b86237d2d25c5b41adb
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install existing candidate test dependencies
+        run: |
+          pip install -e '.[qa,mcp]'
+          playwright install chromium
+      - name: Reverify existing US candidate UI without deployment
+        run: |
+          analyst qa data-signal --mode e2e --surface us --base-url "$QA_BASE_URL" --output artifacts/reverify-us/e2e.json --artifact-dir artifacts/reverify-us/screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reverify-us-3247e60-${{ github.run_id }}
+          path: artifacts/reverify-us
   collector_diagnostics:
     runs-on: ubuntu-latest
     timeout-minutes: 5
